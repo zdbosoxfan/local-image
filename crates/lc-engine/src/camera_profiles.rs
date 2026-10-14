@@ -129,9 +129,7 @@ pub fn save(profile: &CameraProfile, dir: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join(file_name(&profile.model));
     let json = serde_json::to_vec_pretty(profile).map_err(|e| e.to_string())?;
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+    lightcraft_catalog::safe_file::write_atomic(&path, &json).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
 }
 
@@ -260,6 +258,27 @@ mod tests {
     fn profile() -> CameraProfile {
         let table = HsvTable { hue_divisions: 4, sat_divisions: 2, val_divisions: 1, data: vec![[5.0, 1.2, 1.0]; 8], srgb_value: false };
         CameraProfile::new("ILCE-7M4", 12, 3456, Mat3([[1.6, -0.5, -0.1], [-0.2, 1.3, -0.1], [-0.1, -0.2, 1.3]]), Some(table))
+    }
+
+    #[test]
+    fn j11_camera_profile_golden_and_write_fault_preserve_previous_profile() {
+        let dir = std::env::temp_dir().join(format!("j11-profile-{}", std::process::id()));
+        let original = profile();
+        let path = save(&original, &dir).unwrap();
+        let golden = std::fs::read(&path).unwrap();
+        assert_eq!(golden, serde_json::to_vec_pretty(&original).unwrap());
+        let mut updated = original.clone();
+        updated.files += 1;
+        {
+            let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+            assert!(save(&updated, &dir).is_err());
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), golden);
+        assert_eq!(load(&path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        save(&updated, &dir).unwrap();
+        assert_eq!(load(&path).unwrap(), updated);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

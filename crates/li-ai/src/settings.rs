@@ -208,27 +208,35 @@ impl AiSettings {
     }
 }
 
-/// Writes `bytes` to `path` through a uniquely named temporary file and a rename.
+/// Durable shared writer; retains automatic creation of settings folders.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    let dir = path.parent().context("path has no folder")?;
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{}.{}.tmp", path.file_name().and_then(|n| n.to_str()).unwrap_or("file"), uuid::Uuid::new_v4().simple()));
-    use std::io::Write;
-    let mut file = std::fs::OpenOptions::new().create_new(true).write(true).open(&tmp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = std::fs::remove_file(&tmp);
-    })?;
-    #[cfg(unix)]
-    std::fs::File::open(dir)?.sync_all()?;
+    li_fs::atomic_write(path, bytes)?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j11_settings_unknown_keys_durable_fault_and_shared_adapter_parity() {
+        let dir = std::env::temp_dir().join(format!("j11-settings-{}", uuid::Uuid::new_v4()));
+        let path = dir.join("nested/config.json");
+        let original = AiSettings::from_value(serde_json::json!({"comfy_port":8190,"future":{"nested":[1,2]}}));
+        let before = li_fs::syncs_on_this_thread();
+        original.save_to(&path).unwrap();
+        assert!(li_fs::syncs_on_this_thread() > before);
+        let golden = std::fs::read(&path).unwrap();
+        let updated = AiSettings::from_value(serde_json::json!({"comfy_port":8191}));
+        {
+            let _fault = li_fs::fail_writes_after(4);
+            assert!(updated.save_to(&path).is_err());
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), golden);
+        assert_eq!(AiSettings::load_from(&path), original);
+        assert_eq!(std::fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn remote_hosts_and_tunnels_do_not_manage_local_models() {

@@ -210,3 +210,20 @@ fn directory_target_or_bare_root_is_an_error_not_a_panic() {
     assert!(atomic_write(Path::new("/"), b"x").is_err());
     assert!(atomic_write(Path::new(""), b"x").is_err());
 }
+
+#[test]
+fn j11_editor_adapter_uses_shared_staging_and_fault_cleanup() {
+    let d = TempDir::new("j11");
+    let p = d.0.join("document.pcraft");
+    atomic_write(&p, ORIGINAL).unwrap();
+    {
+        let _fault = li_fs::fail_writes_after(3);
+        assert!(atomic_write(&p, b"replacement").is_err());
+    }
+    assert_eq!(std::fs::read(&p).unwrap(), ORIGINAL);
+    let staged = stage_write(&p, b"replacement", &photocraft_raster::Interrupt::NONE).unwrap();
+    assert_eq!(std::fs::read(&p).unwrap(), ORIGINAL);
+    staged.commit().unwrap();
+    assert_eq!(std::fs::read(&p).unwrap(), b"replacement");
+    assert_no_temp(&d.0);
+}

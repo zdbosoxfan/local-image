@@ -50,16 +50,7 @@ pub fn save(dir: &Path, method: Method, choice: Option<Choice>) -> Result<()> {
     } else {
         choices.remove(method.key());
     }
-    let part = path.with_extension(format!("{}.part", uuid::Uuid::new_v4()));
-    let result = (|| -> Result<()> {
-        std::fs::write(&part, serde_json::to_vec_pretty(&choices)?)?;
-        std::fs::rename(&part, &path)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(part);
-    }
-    result?;
+    li_fs::write_atomic(&path, &serde_json::to_vec_pretty(&choices)?)?;
     Ok(())
 }
 
@@ -110,9 +101,7 @@ pub fn import_custom(dir: &Path, method: Method, source: &Path) -> Result<Choice
     };
     let path = custom_path(dir, &choice)?;
     std::fs::create_dir_all(path.parent().context("Model folder")?)?;
-    let part = path.with_extension("onnx.part");
-    std::fs::write(&part, bytes)?;
-    std::fs::rename(&part, path)?;
+    li_fs::write_atomic(&path, &bytes)?;
     save(dir, method, Some(choice.clone()))?;
     Ok(choice)
 }
@@ -128,6 +117,55 @@ pub fn load_custom(dir: &Path, choice: &Choice) -> Result<li_seg::enhance::Upsca
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn j11_custom_upscaler_import_parity_and_staging_failure_cleanup() {
+        let dir = std::env::temp_dir().join(format!("j11-enhance-import-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("nearest.onnx");
+        let bytes = include_bytes!("../../../li-seg/tests/fixtures/nearest_2x_32.onnx");
+        std::fs::write(&source, bytes).unwrap();
+        {
+            let _fault = li_fs::fail_writes_after(3);
+            assert!(import_custom(&dir, Method::Faithful, &source).is_err());
+        }
+        let model_dir = dir.join("segmentation");
+        // A failed import must never publish a model choice or retain its partial model.
+        assert!(!dir.join("enhance-functions.json").exists());
+        let partials: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|entry| entry.path() != source && entry.path().is_file()).collect();
+        assert!(partials.is_empty());
+        if model_dir.exists() {
+            assert_eq!(std::fs::read_dir(&model_dir).unwrap().count(), 0);
+        }
+        let choice = import_custom(&dir, Method::Faithful, &source).unwrap();
+        assert_eq!(std::fs::read(custom_path(&dir, &choice).unwrap()).unwrap(), bytes);
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+        assert_eq!(load(&dir, Method::Faithful), choice);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn j11_choices_durable_write_fault_preserves_previous_json_without_staging_leak() {
+        let dir = std::env::temp_dir().join(format!("j11-enhance-choices-{}", uuid::Uuid::new_v4()));
+        save(&dir, Method::Faithful, Some(default_choice(Method::Faithful))).unwrap();
+        let path = dir.join("enhance-functions.json");
+        let bytes = std::fs::read(&path).unwrap();
+        {
+            let _fault = li_fs::fail_writes_after(3);
+            assert!(save(&dir, Method::Rescue, Some(default_choice(Method::Rescue))).is_err());
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2); // JSON and existing lock file.
+        let before = li_fs::syncs_on_this_thread();
+        save(&dir, Method::Rescue, Some(default_choice(Method::Rescue))).unwrap();
+        assert!(li_fs::syncs_on_this_thread() > before);
+        let choices: BTreeMap<String, Choice> = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(choices.len(), 2);
+        assert_eq!(choices[Method::Faithful.key()], default_choice(Method::Faithful));
+        assert_eq!(choices[Method::Rescue.key()], default_choice(Method::Rescue));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn ds2_choices_preserve_concurrent_updates_and_corrupt_files() {

@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+li-fs.workspace = true
 # The shared compute pool for bundle compression (store.rs).
 rayon = { workspace = true }
 photocraft-geom = { workspace = true }

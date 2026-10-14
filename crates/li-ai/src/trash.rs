@@ -132,6 +132,7 @@ fn record_into(path: &Path, trash: &Path, copy: bool) -> io::Result<PathBuf> {
         let written = io::Write::write_all(&mut f, record.as_bytes()).and_then(|()| f.sync_all());
         drop(f);
         let mut created_copy = false;
+        let mut retained_published_copy = false;
         let moved = written.and_then(|()| {
             if copy {
                 #[cfg(unix)]
@@ -141,16 +142,50 @@ fn record_into(path: &Path, trash: &Path, copy: bool) -> io::Result<PathBuf> {
                     return Ok(());
                 }
                 let mut source = std::fs::File::open(path)?;
-                let mut target = std::fs::OpenOptions::new().write(true).create_new(true).open(&dest)?;
-                created_copy = true;
-                let result = io::copy(&mut source, &mut target).and_then(|_| {
-                    std::fs::set_permissions(&dest, source.metadata()?.permissions())?;
-                    target.sync_all()
-                });
-                if result.is_err() {
-                    let _ = std::fs::remove_file(&dest);
+                let permissions = source.metadata()?.permissions();
+                let copied = std::cell::RefCell::new(sha2::Sha256::default());
+                let result = li_fs::write_new_with(
+                    &dest,
+                    &mut |out| {
+                        use sha2::Digest;
+                        use std::io::Read;
+                        let mut buffer = vec![0; 1 << 20];
+                        loop {
+                            let n = source.read(&mut buffer)?;
+                            if n == 0 {
+                                break;
+                            }
+                            out.write_all(&buffer[..n])?;
+                            copied.borrow_mut().update(&buffer[..n]);
+                        }
+                        Ok(())
+                    },
+                    &mut |tmp| {
+                        use sha2::Digest;
+                        use std::io::Read;
+                        let mut file = std::fs::OpenOptions::new().read(true).write(true).open(tmp)?;
+                        let mut digest = sha2::Sha256::default();
+                        let mut buffer = vec![0; 1 << 20];
+                        loop {
+                            let n = file.read(&mut buffer)?;
+                            if n == 0 {
+                                break;
+                            }
+                            digest.update(&buffer[..n]);
+                        }
+                        if digest.finalize() != copied.borrow().clone().finalize() {
+                            return Err(io::Error::other("trash copy differs from original"));
+                        }
+                        file.set_permissions(permissions.clone())?;
+                        file.sync_all()
+                    },
+                );
+                if let Err(error) = result {
+                    retained_published_copy = li_fs::was_published(&error);
+                    return Err(error);
                 }
-                result
+                created_copy = true;
+                Ok(())
             } else {
                 std::fs::rename(path, &dest)
             }
@@ -169,7 +204,9 @@ fn record_into(path: &Path, trash: &Path, copy: bool) -> io::Result<PathBuf> {
                 if created_copy {
                     let _ = std::fs::remove_file(&dest);
                 }
-                let _ = std::fs::remove_file(&info_path);
+                if !retained_published_copy {
+                    let _ = std::fs::remove_file(&info_path);
+                }
                 Err(e)
             }
         };
@@ -340,5 +377,60 @@ fn ds2_copy_to_trash_keeps_dangling_symlinks() {
     let copy = copy_to_trash_in(&link, &root.join("Trash")).unwrap();
     assert_eq!(std::fs::read_link(&copy).unwrap(), Path::new("missing-target"));
     assert_eq!(std::fs::read_link(&link).unwrap(), Path::new("missing-target"));
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn j11_trash_copy_is_verified_atomic_and_preserves_source_and_modes() {
+    let root = std::env::temp_dir().join(format!("j11-trash-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("original.png");
+    let bytes = vec![0x5a; (1 << 20) + 31];
+    std::fs::write(&path, &bytes).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    }
+    let trash = root.join("Trash");
+    {
+        let _fault = li_fs::fail_writes_after(3);
+        assert!(copy_to_trash_in(&path, &trash).is_err());
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert_eq!(std::fs::read_dir(trash.join("files")).unwrap().count(), 0);
+    assert_eq!(std::fs::read_dir(trash.join("info")).unwrap().count(), 0);
+    let dest = copy_to_trash_in(&path, &trash).unwrap();
+    assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(std::fs::metadata(dest).unwrap().permissions().mode() & 0o777, 0o640);
+    }
+    assert_eq!(std::fs::read_dir(trash.join("files")).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(trash.join("info")).unwrap().count(), 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn j11_published_cleanup_error_keeps_trash_recovery_record_with_its_complete_payload() {
+    let root = std::env::temp_dir().join(format!("j11-trash-published-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&root).unwrap();
+    let source = root.join("original.png");
+    std::fs::write(&source, b"original photograph bytes").unwrap();
+    let trash = root.join("Trash");
+    let error = {
+        let _fault = li_fs::fail_published_cleanup();
+        copy_to_trash_in(&source, &trash).unwrap_err()
+    };
+    assert!(li_fs::was_published(&error));
+    assert_eq!(std::fs::read(&source).unwrap(), b"original photograph bytes");
+    assert_eq!(std::fs::read(trash.join("files/original.png")).unwrap(), b"original photograph bytes");
+    let record = std::fs::read_to_string(trash.join("info/original.png.trashinfo")).unwrap();
+    assert!(record.contains(&format!("Path={}\n", encode_path(&source))));
+    assert_eq!(std::fs::read_dir(trash.join("info")).unwrap().count(), 1);
     std::fs::remove_dir_all(root).unwrap();
 }

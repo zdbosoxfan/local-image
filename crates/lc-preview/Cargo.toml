@@ -9,6 +9,7 @@ description = "LightCraft preview cache: content hashing, memory LRU, disk thumb
 workspace = true
 
 [dependencies]
+li-fs.workspace = true
 lightcraft-raster = { workspace = true }
 siphasher = { workspace = true }
 jpeg-encoder = { workspace = true }

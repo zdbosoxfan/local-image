@@ -11,7 +11,6 @@
 //! f1a46e2d3feebc917a94f14705d128316fcf8114. Feathered overlapping interiors replace
 //! hard core stitching. See docs/PORTS.md and licenses/darktable-ai-NOTICE.md.
 
-use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -384,19 +383,8 @@ pub fn install_package(pkg: &Path, spec: &crate::ModelSpec, dest: &Path) -> Resu
     }
     let dir = dest.parent().context("destination has no folder")?;
     std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{}.part", dest.file_name().and_then(|n| n.to_str()).unwrap_or("model")));
-    let r = (|| -> Result<()> {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(&bytes)?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(&tmp, dest)?;
-        Ok(())
-    })();
-    if r.is_err() {
-        let _ = std::fs::remove_file(&tmp);
-    }
-    r
+    li_fs::write_atomic(dest, &bytes)?;
+    Ok(())
 }
 
 /// Verify and extract every member of an official denoiser bundle. Readiness requires all files.
@@ -421,19 +409,7 @@ pub fn install_bundle(pkg: &Path, spec: &crate::ModelSpec, dir: &Path) -> Result
     }
     install_package(pkg, spec, &crate::model_path(dir, spec))?;
     for (dest, bytes) in companions {
-        let tmp = dest.with_extension("onnx.part");
-        let result = (|| -> Result<()> {
-            let mut file = std::fs::File::create(&tmp)?;
-            file.write_all(&bytes)?;
-            file.sync_all()?;
-            drop(file);
-            std::fs::rename(&tmp, &dest)?;
-            Ok(())
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
-        result?;
+        li_fs::write_atomic(&dest, &bytes)?;
     }
     Ok(())
 }
@@ -492,6 +468,39 @@ pub fn shared(models_dir: &Path) -> Result<Denoiser> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn j11_package_write_fault_keeps_old_model_and_cleans_staging() {
+        let model = b"verified denoiser fixture";
+        let zip = zip_of(&[("model.onnx", model, false)]);
+        let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
+        let spec = crate::ModelSpec {
+            bytes: zip.len() as u64,
+            sha256: leak(sha256_hex(&zip)),
+            companions: &[],
+            task: crate::Task::Denoise { inner: "model.onnx", inner_bytes: model.len() as u64, inner_sha256: leak(sha256_hex(model)), companion_inners: &[] },
+            ..*crate::spec(DENOISE_ID).unwrap()
+        };
+        let dir = std::env::temp_dir().join(format!("j11-denoise-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pkg = dir.join("package.dtmodel");
+        let dest = dir.join("model.onnx");
+        std::fs::write(&pkg, &zip).unwrap();
+        std::fs::write(&dest, b"previous model").unwrap();
+        {
+            let _fault = li_fs::fail_writes_after(3);
+            assert!(install_package(&pkg, &spec, &dest).is_err());
+        }
+        assert_eq!(std::fs::read(&dest).unwrap(), b"previous model");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        let before = li_fs::syncs_on_this_thread();
+        install_package(&pkg, &spec, &dest).unwrap();
+        assert!(li_fs::syncs_on_this_thread() > before);
+        assert_eq!(std::fs::read(&dest).unwrap(), model);
+        assert_eq!(std::fs::read(&pkg).unwrap(), zip);
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn ds2_bundle_publish_error_cleans_companion_part_and_repair_replaces_files() {
