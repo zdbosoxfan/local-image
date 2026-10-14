@@ -14,6 +14,17 @@ use lightcraft_raster::resample::{Filter, fit};
 
 use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
 
+/// Desktop photo imports include 50 MP Sony and 100 MP DJI exports. Keep the codec's
+/// conservative generic default, but admit these stills explicitly here. At this ceiling,
+/// one full linear RGB buffer is 1.5 GiB, below the RAW decoder's 2 GiB output ceiling.
+/// JPEG previews retain DCT scaling before colour conversion; other formats decode fully.
+const MAX_STILL_IMAGE_PIXELS: u64 = 128 << 20;
+
+fn still_image_decode_options(max_edge: usize) -> lightcraft_codecs::DecodeOptions {
+    let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
+    lightcraft_codecs::DecodeOptions { max_size: Some((edge, edge)), max_pixels: MAX_STILL_IMAGE_PIXELS }
+}
+
 fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
     let shutter = m.exposure_time.map(|t| if t >= 1.0 { format!("{t:.0}") } else { format!("1/{:.0}", 1.0 / t) }).unwrap_or_default();
     let camera = [m.make.clone().unwrap_or_default(), m.model.clone().unwrap_or_default()].join(" ").trim().to_string();
@@ -165,7 +176,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
     if !fmt.can_decode() {
         return Err(format!("{fmt:?} files are not supported yet"));
     }
-    let d = lightcraft_codecs::decode(bytes, lightcraft_codecs::DecodeOptions::fit(64, 64)).map_err(|e| e.to_string())?;
+    let d = lightcraft_codecs::decode(bytes, still_image_decode_options(64)).map_err(|e| e.to_string())?;
     let o = Orientation::from_exif(d.orientation);
     let (mut w, mut h) = (d.source_width, d.source_height);
     if o.swaps_axes() {
@@ -496,7 +507,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             },
         ));
     }
-    let d = lightcraft_codecs::decode(&bytes, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).map_err(|e| e.to_string())?;
+    let d = lightcraft_codecs::decode(&bytes, still_image_decode_options(max_edge)).map_err(|e| e.to_string())?;
     drop(bytes);
     let img = d.to_working();
     let img = if img.width.max(img.height) > max_edge { fit(&img, max_edge, max_edge, Filter::Mitchell) } else { img };
@@ -525,7 +536,7 @@ fn preview_orientation(raw_bytes: &[u8], jpeg_orientation: u16) -> Orientation {
 /// Oriented size of the embedded preview of a raw file.
 fn embedded_preview_size(bytes: &[u8]) -> Option<(u32, u32)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let d = lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions::fit(64, 64)).ok()?;
+    let d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(64)).ok()?;
     let (mut w, mut h) = (d.source_width, d.source_height);
     if preview_orientation(bytes, d.orientation).swaps_axes() {
         std::mem::swap(&mut w, &mut h);
@@ -536,7 +547,7 @@ fn embedded_preview_size(bytes: &[u8]) -> Option<(u32, u32)> {
 /// The embedded preview of a raw file as a working-space image no larger than `max_edge`, oriented.
 pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(Rgb32f, SourceInfo)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let d = lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).ok()?;
+    let d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
     let img = d.to_working();
     let img = if img.width.max(img.height) > max_edge { fit(&img, max_edge, max_edge, Filter::Mitchell) } else { img };
     Some((img.oriented(preview_orientation(bytes, d.orientation)), SourceInfo::default()))
@@ -546,7 +557,7 @@ pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(Rgb32f, S
 /// loupe and grid show it until the raw itself has been developed ([`crate::media::QuickJob`]).
 pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
-    let mut d = lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions::fit(max_edge as u32, max_edge as u32)).ok()?;
+    let mut d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
     if d.image.width.max(d.image.height) > max_edge {
         d.image = fit(&d.image, max_edge, max_edge, Filter::Box);
         d.alpha = None;
@@ -618,6 +629,64 @@ impl crate::Session {
 mod tests {
     use super::*;
     use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, Samples, encode_jpeg};
+
+    /// A valid baseline grayscale JPEG with constant 128 samples. Zero DC differences and
+    /// EOB each use a one-bit Huffman code, so large dimensions need no full-size test pixels.
+    fn constant_gray_jpeg(width: u16, height: u16) -> Vec<u8> {
+        fn segment(jpeg: &mut Vec<u8>, marker: u8, payload: &[u8]) {
+            jpeg.extend([0xff, marker]);
+            jpeg.extend(((payload.len() + 2) as u16).to_be_bytes());
+            jpeg.extend(payload);
+        }
+        let mut jpeg = vec![0xff, 0xd8];
+        let mut quant = vec![0];
+        quant.extend([1; 64]);
+        segment(&mut jpeg, 0xdb, &quant);
+        let mut frame = vec![8];
+        frame.extend(height.to_be_bytes());
+        frame.extend(width.to_be_bytes());
+        frame.extend([1, 1, 0x11, 0]);
+        segment(&mut jpeg, 0xc0, &frame);
+        let mut huffman = Vec::new();
+        for class in [0, 0x10] {
+            huffman.extend([class, 1]);
+            huffman.extend([0; 15]);
+            huffman.push(0);
+        }
+        segment(&mut jpeg, 0xc4, &huffman);
+        segment(&mut jpeg, 0xda, &[1, 1, 0, 0, 63, 0]);
+        let bits = (width as usize).div_ceil(8) * (height as usize).div_ceil(8) * 2;
+        jpeg.resize(jpeg.len() + bits.div_ceil(8), 0);
+        if bits % 8 != 0 {
+            *jpeg.last_mut().unwrap() = (1 << (8 - bits % 8)) - 1;
+        }
+        jpeg.extend([0xff, 0xd9]);
+        jpeg
+    }
+
+    #[test]
+    fn high_resolution_jpeg_import_and_scaled_reference_loading() {
+        // Kaufman final export dimensions: ~95 MP, above the generic 32 MP codec limit.
+        let jpeg = constant_gray_jpeg(11_928, 7_952);
+        assert!(matches!(
+            lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions::fit(64, 64)),
+            Err(lightcraft_codecs::Error::TooLarge(_, _))
+        ));
+        let probe = probe_bytes("high-resolution-final.jpg", &jpeg).unwrap();
+        assert_eq!((probe.width, probe.height, probe.kind), (11_928, 7_952, MediaKind::Image));
+        let (image, source) = load_vec(jpeg, 512).unwrap();
+        assert_eq!((image.width, image.height), (512, 341));
+        assert!(!source.raw);
+        assert!(image.data.iter().flatten().all(|&v| v.is_finite() && (v - 0.21586).abs() < 0.002));
+    }
+
+    #[test]
+    fn still_image_import_keeps_a_source_pixel_ceiling() {
+        let jpeg = constant_gray_jpeg(16_384, 8_193); // just beyond the explicit still-image budget
+        assert!((16_384u64 * 8_193) > MAX_STILL_IMAGE_PIXELS);
+        assert!(probe_bytes("over-budget.jpg", &jpeg).unwrap_err().contains("image too large"));
+        assert!(load_vec(jpeg, 64).unwrap_err().contains("image too large"));
+    }
 
     #[test]
     fn ds_finding_sensor_confidence_matches_normalized_active_samples() {
