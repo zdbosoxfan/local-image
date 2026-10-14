@@ -474,3 +474,236 @@ pub fn resize_source(s: &impl Source, sx: f64, sy: f64, filter: Resample, edge: 
     let parts: Vec<(Region, Vec<f32>)> = bands.iter().map(run).collect();
     parts
 }
+
+/// The resampling choices both export dialogs offer (Library Export and the editor's Export As):
+/// one list, one backend. Photoshop's Image Size order, with Lanczos after the cubics. The serde
+/// name ([`ResampleChoice::key`]) is the editor's `image.imageSize` `resample` value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ResampleChoice {
+    /// Photoshop's rule: Bicubic Smoother when enlarging, Bicubic Sharper when reducing.
+    BicubicAutomatic,
+    PreserveDetails,
+    BicubicSmoother,
+    BicubicSharper,
+    Bicubic,
+    Lanczos,
+    Bilinear,
+    Nearest,
+}
+
+impl ResampleChoice {
+    pub const ALL: [Self; 8] = [
+        Self::BicubicAutomatic,
+        Self::PreserveDetails,
+        Self::BicubicSmoother,
+        Self::BicubicSharper,
+        Self::Bicubic,
+        Self::Lanczos,
+        Self::Bilinear,
+        Self::Nearest,
+    ];
+
+    /// The `resample` name (`"bicubicAutomatic"`, `"lanczos"`…).
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::BicubicAutomatic => "bicubicAutomatic",
+            Self::PreserveDetails => "preserveDetails",
+            Self::BicubicSmoother => "bicubicSmoother",
+            Self::BicubicSharper => "bicubicSharper",
+            Self::Bicubic => "bicubic",
+            Self::Lanczos => "lanczos",
+            Self::Bilinear => "bilinear",
+            Self::Nearest => "nearest",
+        }
+    }
+
+    /// The choice named `key` (also the editor's aliases `automatic` and `nearestNeighbor`).
+    pub fn from_key(key: &str) -> Option<Self> {
+        match key {
+            "automatic" => Some(Self::BicubicAutomatic),
+            "nearestNeighbor" => Some(Self::Nearest),
+            k => Self::ALL.into_iter().find(|c| c.key() == k),
+        }
+    }
+
+    /// The English menu label (callers translate it).
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::BicubicAutomatic => "Bicubic Automatic",
+            Self::PreserveDetails => "Preserve Details (enlargement)",
+            Self::BicubicSmoother => "Bicubic Smoother (enlargement)",
+            Self::BicubicSharper => "Bicubic Sharper (reduction)",
+            Self::Bicubic => "Bicubic (smooth gradients)",
+            Self::Lanczos => "Lanczos (sharpest)",
+            Self::Bilinear => "Bilinear",
+            Self::Nearest => "Nearest Neighbor (hard edges)",
+        }
+    }
+
+    /// One-line English explanation for a tooltip or hint (callers translate it).
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::BicubicAutomatic => "Bicubic Sharper when reducing, Bicubic Smoother when enlarging.",
+            Self::PreserveDetails => "Lanczos with light sharpening when enlarging.",
+            Self::BicubicSmoother => "Soft, clean enlargements (Mitchell cubic).",
+            Self::BicubicSharper => "Keeps edge contrast when reducing (sharper cubic).",
+            Self::Bicubic => "Balanced cubic for smooth gradients.",
+            Self::Lanczos => "Most detail; may show slight halos on hard edges.",
+            Self::Bilinear => "Soft and fast.",
+            Self::Nearest => "Copies pixels: for pixel art and hard-edged graphics.",
+        }
+    }
+
+    /// The kernel for a resize that enlarges (`true`) or reduces.
+    pub fn resolve(self, enlarging: bool) -> Resample {
+        match self {
+            Self::BicubicAutomatic if enlarging => Resample::BicubicSmoother,
+            Self::BicubicAutomatic => Resample::BicubicSharper,
+            Self::PreserveDetails => Resample::PreserveDetails,
+            Self::BicubicSmoother => Resample::BicubicSmoother,
+            Self::BicubicSharper => Resample::BicubicSharper,
+            Self::Bicubic => Resample::Bicubic,
+            Self::Lanczos => Resample::Lanczos,
+            Self::Bilinear => Resample::Bilinear,
+            Self::Nearest => Resample::Nearest,
+        }
+    }
+}
+
+/// Samples a dense interleaved buffer can hold; read as `0..1` floats (u8 / 255, u16 / 65535).
+pub trait Sample: Copy + Send + Sync {
+    fn to_f32(self) -> f32;
+}
+impl Sample for f32 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        self
+    }
+}
+impl Sample for u16 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        f32::from(self) / 65535.0
+    }
+}
+impl Sample for u8 {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        f32::from(self) / 255.0
+    }
+}
+
+struct Dense<'a, S> {
+    data: &'a [S],
+    width: usize,
+    height: usize,
+    channels: usize,
+    alpha: bool,
+}
+
+impl<S: Sample> Source for Dense<'_, S> {
+    fn channels(&self) -> usize {
+        self.channels
+    }
+    fn alpha(&self) -> bool {
+        self.alpha
+    }
+    fn content_bounds(&self) -> Region {
+        Region::new(0, 0, self.width as i32, self.height as i32)
+    }
+    fn default_pixel(&self) -> Vec<f32> {
+        vec![0.0; self.channels]
+    }
+    fn tile_size(&self) -> i32 {
+        64
+    }
+    fn has_tiles_in(&self, _: Region) -> bool {
+        true
+    }
+    fn read_region_into(&self, r: Region, out: &mut Vec<f32>) {
+        let n = self.channels;
+        out.clear();
+        out.reserve(r.width() as usize * r.height() as usize * n);
+        for y in r.y0..r.y1 {
+            let y = y.clamp(0, self.height as i32 - 1) as usize;
+            for x in r.x0..r.x1 {
+                let x = x.clamp(0, self.width as i32 - 1) as usize;
+                let i = (y * self.width + x) * n;
+                out.extend(self.data[i..i + n].iter().map(|v| v.to_f32()));
+            }
+        }
+    }
+}
+
+/// Resize a dense, interleaved `width × height` image of `channels` samples (the last one alpha
+/// when `alpha`) to exactly `w × h` with the editor's Image Size engine: f64 taps, premultiplied
+/// alpha, edges repeated (never faded), streamed in bounded reads, so the source is never copied
+/// to float. Returns interleaved `0..1` floats. Preserve Details' enlargement sharpening is the
+/// caller's (it is a filter, see `photocraft_algo::resample`).
+#[allow(clippy::too_many_arguments)]
+pub fn resize_interleaved<S: Sample>(data: &[S], width: usize, height: usize, channels: usize, alpha: bool, w: usize, h: usize, filter: Resample) -> Vec<f32> {
+    let (w, h, n) = (w.max(1), h.max(1), channels.max(1));
+    let mut out = vec![0.0f32; w * h * n];
+    if width == 0 || height == 0 || data.len() < width * height * n {
+        return out;
+    }
+    let src = Dense { data, width, height, channels: n, alpha };
+    let full = src.content_bounds();
+    let (sx, sy) = (w as f64 / width as f64, h as f64 / height as f64);
+    for (r, d) in resize_source(&src, sx, sy, filter, Some(full), 1 << 24) {
+        // `scaled_rect` rounds outwards, so a band can carry one extra column/row; drop it.
+        let rw = r.width() as usize;
+        for (row, y) in d.chunks_exact((rw * n).max(1)).zip(r.y0..r.y1) {
+            let Ok(y) = usize::try_from(y) else { continue };
+            if y >= h {
+                break;
+            }
+            let x0 = r.x0.max(0) as usize;
+            let take = rw.min(w.saturating_sub(x0));
+            out[(y * w + x0) * n..(y * w + x0 + take) * n].copy_from_slice(&row[..take * n]);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod j27_tests {
+    use super::*;
+
+    #[test]
+    fn j27_choice_keys_round_trip_and_resolve() {
+        for c in ResampleChoice::ALL {
+            assert_eq!(ResampleChoice::from_key(c.key()), Some(c));
+            assert_eq!(camel(c), c.key(), "serde camelCase name is the key");
+        }
+        assert_eq!(ResampleChoice::from_key("automatic"), Some(ResampleChoice::BicubicAutomatic));
+        assert_eq!(ResampleChoice::BicubicAutomatic.resolve(true), Resample::BicubicSmoother);
+        assert_eq!(ResampleChoice::BicubicAutomatic.resolve(false), Resample::BicubicSharper);
+    }
+
+    // The derive's `rename_all = "camelCase"` name, from the variant name (no serde_json here).
+    fn camel(c: ResampleChoice) -> String {
+        let d = format!("{c:?}");
+        let mut s = d[..1].to_lowercase();
+        s.push_str(&d[1..]);
+        s
+    }
+
+    #[test]
+    fn j27_dense_resize_exact_size_and_flat_field() {
+        let (w0, h0) = (37, 23);
+        let data: Vec<u16> = (0..w0 * h0).flat_map(|_| [13107u16, 32768, 52428]).collect();
+        for c in ResampleChoice::ALL {
+            for (w, h) in [(11, 7), (80, 50), (37, 23)] {
+                let out = resize_interleaved(&data, w0, h0, 3, false, w, h, c.resolve(w > w0));
+                assert_eq!(out.len(), w * h * 3);
+                for px in out.as_chunks::<3>().0 {
+                    for (v, e) in px.iter().zip([0.2f32, 32768.0 / 65535.0, 0.8]) {
+                        assert!((v - e).abs() < 1e-5, "{c:?} {w}x{h}: {px:?}");
+                    }
+                }
+            }
+        }
+    }
+}
