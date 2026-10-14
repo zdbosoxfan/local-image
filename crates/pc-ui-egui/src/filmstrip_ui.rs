@@ -1,8 +1,8 @@
 //! local-image: the filmstrip under the canvas, for working through a folder: File › Open
 //! Folder…, or any photo opened from a folder (Preferences: the filmstrip follows the folder).
 //! Modelled on LightCraft's: fixed 120 pt cells with the file name and format, the active image
-//! highlighted and kept in view, thumbnails decoded lazily on worker threads from the camera's or
-//! the JPEG's embedded preview first (instant), else a DCT-scaled decode.
+//! highlighted and kept in view. The host supplies thumbnails through the Library preview service,
+//! including developed looks, persistent caching and prioritized background decoding.
 //!
 //! The folder workflow: click (or Alt+←/→, Page Up/Down) opens an image, or switches to its tab.
 //! Stepping on closes the image you leave when it has no unsaved edits, so the tabs don't pile up.
@@ -12,9 +12,8 @@
 //! Library's grid (without importing it) to compare and rate the results. Window › Filmstrip
 //! toggles the strip.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex};
 
 use egui::{Color32, RichText, Sense, Stroke, StrokeKind, vec2};
 
@@ -33,7 +32,11 @@ struct Strip {
     hidden: bool,
     /// Thumbnails by original file (showing its edited copy when there is one).
     textures: HashMap<PathBuf, egui::TextureHandle>,
-    requested: HashSet<PathBuf>,
+    /// Visible requests only; the host owns decoding, deduplication and caching.
+    wanted: Vec<PreviewRequest>,
+    visible_sources: HashMap<PathBuf, PathBuf>,
+    epoch: u64,
+    revisions: HashMap<PathBuf, u64>,
     /// Originals with an edited copy in `Edited/`.
     edited: HashSet<PathBuf>,
     follow: Option<PathBuf>,
@@ -44,12 +47,15 @@ struct Strip {
     saved: HashMap<u64, u64>,
 }
 
-struct Worker {
-    /// (original, file to decode).
-    queue: Mutex<VecDeque<(PathBuf, PathBuf)>>,
-    wake: Condvar,
-    done: Mutex<Vec<(PathBuf, Option<egui::ColorImage>)>>,
-    ctx: Mutex<Option<egui::Context>>,
+/// A visible cell's thumbnail request. Replies must retain this identity across background work.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PreviewRequest {
+    pub original: PathBuf,
+    pub source: PathBuf,
+    pub epoch: u64,
+    pub revision: u64,
+    pub edge: usize,
+    pub priority: u32,
 }
 
 fn strip<R>(f: impl FnOnce(&mut Strip) -> R) -> R {
@@ -57,32 +63,33 @@ fn strip<R>(f: impl FnOnce(&mut Strip) -> R) -> R {
     S.with(|s| f(&mut s.borrow_mut()))
 }
 
-fn worker() -> &'static Arc<Worker> {
-    static W: std::sync::OnceLock<Arc<Worker>> = std::sync::OnceLock::new();
-    W.get_or_init(|| {
-        let w = Arc::new(Worker { queue: Mutex::new(VecDeque::new()), wake: Condvar::new(), done: Mutex::new(Vec::new()), ctx: Mutex::new(None) });
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2).clamp(1, 3);
-        for i in 0..threads {
-            let w = w.clone();
-            let _ = std::thread::Builder::new().name(format!("filmstrip-{i}")).spawn(move || {
-                loop {
-                    let path = {
-                        let mut q = w.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                        while q.is_empty() {
-                            q = w.wake.wait(q).unwrap_or_else(std::sync::PoisonError::into_inner);
-                        }
-                        q.pop_front()
-                    };
-                    let Some((path, source)) = path else { continue };
-                    let img = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| thumbnail(&source))).ok().flatten();
-                    w.done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((path, img));
-                    if let Some(ctx) = w.ctx.lock().ok().and_then(|c| c.clone()) {
-                        ctx.request_repaint();
-                    }
-                }
-            });
+/// Take this frame's visible/prefetch requests. Hidden panels request nothing.
+pub fn take_preview_requests() -> Vec<PreviewRequest> {
+    strip(|s| std::mem::take(&mut s.wanted))
+}
+
+/// Share the host's already colour-managed texture; obsolete folder/save replies are ignored.
+pub fn accept_preview(ctx: &egui::Context, request: &PreviewRequest, texture: Option<egui::TextureHandle>) -> bool {
+    strip(|s| {
+        if s.epoch != request.epoch
+            || s.revisions.get(&request.original).copied().unwrap_or(0) != request.revision
+            || s.visible_sources.get(&request.original) != Some(&request.source)
+        {
+            return false;
         }
-        w
+        let changed = s.textures.get(&request.original).map(egui::TextureHandle::id) != texture.as_ref().map(egui::TextureHandle::id);
+        if changed {
+            ctx.request_repaint();
+        }
+        match texture {
+            Some(texture) => {
+                s.textures.insert(request.original.clone(), texture);
+            }
+            None => {
+                s.textures.remove(&request.original);
+            }
+        }
+        true
     })
 }
 
@@ -93,28 +100,22 @@ pub fn thumbnail(path: &Path) -> Option<egui::ColorImage> {
     let jpeg = lightcraft_raw::embedded_preview(&bytes);
     let src: &[u8] = jpeg.as_deref().unwrap_or(&bytes);
     let opts = lightcraft_codecs::ThumbnailOptions { min_embedded_edge: 160, ..lightcraft_codecs::ThumbnailOptions::new(THUMB_EDGE) };
-    let (w, h, px, orientation) = match lightcraft_codecs::decode_thumbnail_with(src, &opts) {
-        Ok(t) => (t.image.width, t.image.height, t.image.data.iter().flatten().copied().collect::<Vec<u8>>(), t.orientation),
-        Err(_) => return None,
-    };
-    let img = image::RgbaImage::from_raw(w as u32, h as u32, px)?;
-    let img = orient(img, orientation);
-    Some(egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.as_raw()))
+    let thumb = lightcraft_codecs::decode_thumbnail_with(src, &opts).ok()?;
+    // The shared codec implements all eight orientations; do not keep a second pixel walker.
+    let mut img = photocraft_codecs::Image::new(
+        thumb.image.width as u32,
+        thumb.image.height as u32,
+        photocraft_codecs::ChannelLayout::Rgba,
+        photocraft_codecs::SampleType::U8,
+    )
+    .ok()?;
+    img.data_mut().copy_from_slice(&thumb.image.as_bytes());
+    codec_thumbnail(img, thumb.orientation)
 }
 
-/// EXIF orientation 1–8 applied.
-fn orient(img: image::RgbaImage, o: u16) -> image::RgbaImage {
-    use image::imageops::*;
-    match o {
-        2 => flip_horizontal(&img),
-        3 => rotate180(&img),
-        4 => flip_vertical(&img),
-        5 => flip_horizontal(&rotate90(&img)),
-        6 => rotate90(&img),
-        7 => flip_horizontal(&rotate270(&img)),
-        8 => rotate270(&img),
-        _ => img,
-    }
+fn codec_thumbnail(img: photocraft_codecs::Image, orientation: u16) -> Option<egui::ColorImage> {
+    let img = img.oriented(orientation).ok()?;
+    Some(egui::ColorImage::from_rgba_unmultiplied([img.width() as usize, img.height() as usize], img.data()))
 }
 
 /// The folder edited copies go to (Save & Next's default).
@@ -147,13 +148,13 @@ fn show_folder(dir: &Path, files: Vec<PathBuf>, unhide: bool) {
         if unhide {
             s.hidden = false;
         }
-        s.requested.clear();
+        s.epoch = s.epoch.wrapping_add(1);
+        s.revisions.clear();
+        s.wanted.clear();
+        s.visible_sources.clear();
         s.textures.clear();
         s.edited = edited;
     });
-    if let Ok(mut q) = worker().queue.lock() {
-        q.clear();
-    }
 }
 
 /// A file was opened from disk: the strip shows its folder (when that holds more than one image
@@ -351,7 +352,8 @@ fn refresh(file: &Path) {
     let edited = edited_path(file).is_file();
     strip(|s| {
         s.textures.remove(file);
-        s.requested.remove(file);
+        let revision = s.revisions.entry(file.to_path_buf()).or_default();
+        *revision = revision.wrapping_add(1);
         if edited {
             s.edited.insert(file.to_path_buf());
         } else {
@@ -381,11 +383,6 @@ fn maintain(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if !is_open() {
         return;
     }
-    if let Ok(mut c) = worker().ctx.lock()
-        && c.is_none()
-    {
-        *c = Some(ctx.clone());
-    }
     watch_saves(app);
 }
 
@@ -393,6 +390,10 @@ fn maintain(app: &mut PhotocraftApp, ctx: &egui::Context) {
 pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let ctx = ui.ctx().clone();
     maintain(app, &ctx);
+    strip(|s| {
+        s.wanted.clear();
+        s.visible_sources.clear();
+    });
     if !is_open() || !app.ui.view.panels_visible() {
         return;
     }
@@ -412,14 +413,6 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         if next {
             step(app, 1);
-        }
-    }
-    // Finished thumbnails become textures.
-    let done: Vec<_> = std::mem::take(&mut *worker().done.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-    for (path, img) in done {
-        if let Some(img) = img {
-            let tex = ctx.load_texture(format!("film-{}", path.display()), img, egui::TextureOptions::LINEAR);
-            strip(|s| s.textures.insert(path, tex));
         }
     }
     let t = Tokens::get(&ctx);
@@ -505,6 +498,10 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let (all, _) = ui.allocate_exact_size(vec2(files.len() as f32 * CELL_W, h), Sense::hover());
             let first = ((viewport.min.x / CELL_W).floor() as isize - 4).max(0) as usize;
             let last = (((viewport.max.x / CELL_W).ceil() as usize) + 4).min(files.len());
+            if let Some(index) = follow.as_ref().and_then(|target| files.iter().position(|p| p == target)) {
+                let cell = egui::Rect::from_min_size(all.left_top() + vec2(index as f32 * CELL_W, 0.0), vec2(CELL_W, h));
+                ui.scroll_to_rect(cell, Some(egui::Align::Center));
+            }
             let mut wanted = Vec::new();
             for (i, path) in files.iter().enumerate().take(last).skip(first) {
                 let cell = egui::Rect::from_min_size(egui::pos2(all.left() + i as f32 * CELL_W, all.top()), vec2(CELL_W, h));
@@ -513,14 +510,14 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if is_active {
                     ui.painter().rect_filled(cell.shrink(2.0), t.radius, t.row_selected);
                 } else if resp.hovered() {
-                    ui.painter().rect_filled(cell.shrink(2.0), t.radius, t.row_selected.gamma_multiply(0.6));
+                    ui.painter().rect_filled(cell.shrink(2.0), t.radius, t.hover);
                 }
                 // Name and format.
                 let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
                 let stem = if stem.chars().count() > 14 { format!("{}…", stem.chars().take(13).collect::<String>()) } else { stem };
                 let ext = path.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default();
-                ui.painter().text(cell.left_top() + vec2(8.0, 4.0), egui::Align2::LEFT_TOP, stem, egui::FontId::proportional(10.0), t.text_dim);
-                ui.painter().text(cell.right_top() + vec2(-8.0, 5.0), egui::Align2::RIGHT_TOP, ext, crate::theme::semibold(8.5), t.text_faint);
+                ui.painter().text(cell.left_top() + vec2(8.0, 4.0), egui::Align2::LEFT_TOP, stem, crate::theme::semibold(10.5), t.text_dim);
+                ui.painter().text(cell.right_top() + vec2(-8.0, 5.0), egui::Align2::RIGHT_TOP, ext, crate::theme::semibold(10.5), t.text_faint);
                 let area = egui::Rect::from_min_max(cell.left_top() + vec2(10.0, 20.0), cell.right_bottom() - vec2(10.0, 8.0));
                 match strip(|s| s.textures.get(path).cloned()) {
                     Some(tex) => {
@@ -529,19 +526,34 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         let img = egui::Rect::from_center_size(area.center(), sz * k);
                         ui.painter().image(tex.id(), img, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
                         if is_active {
-                            ui.painter().rect_stroke(img, 0.0, Stroke::new(1.5, Color32::WHITE), StrokeKind::Outside);
+                            ui.painter().rect_stroke(img, 0.0, Stroke::new(1.0, t.accent_border), StrokeKind::Outside);
                         }
                     }
                     None => {
-                        ui.painter().rect_filled(area.shrink(8.0), 2.0, t.field);
-                        wanted.push((path.clone(), is_active));
+                        ui.painter().rect_filled(area.shrink(ui.spacing().item_spacing.x), t.radius_sm, t.field);
                     }
                 }
+                let source = if edited.contains(path) { edited_path(path) } else { path.clone() };
+                let visible = cell.intersects(ui.clip_rect());
+                wanted.push((
+                    path.clone(),
+                    source,
+                    if is_active {
+                        12
+                    } else if visible {
+                        10
+                    } else {
+                        2
+                    },
+                ));
+                resp.widget_info(|| {
+                    egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, is_active, path.file_name().unwrap_or_default().to_string_lossy())
+                });
                 // Badges: edited copy saved (check), open in a tab (dot; accent = unsaved edits).
                 if edited.contains(path) {
                     let c = area.right_bottom() + vec2(-7.0, -7.0);
                     ui.painter().circle_filled(c, 6.0, t.accent);
-                    crate::icons::paint(ui, egui::Rect::from_center_size(c, vec2(9.0, 9.0)), "check", 9.0, Color32::WHITE);
+                    crate::icons::paint(ui, egui::Rect::from_center_size(c, vec2(9.0, 9.0)), "check", 9.0, t.accent_text);
                 }
                 if open_files.contains(path) {
                     let c = if dirty.contains(path) { t.accent } else { t.text_faint };
@@ -553,24 +565,22 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 if resp.clicked() {
                     clicked = Some(path.clone());
                 }
-                if follow.as_ref() == Some(path) || (is_active && follow.is_some()) {
-                    ui.scroll_to_rect(cell, Some(egui::Align::Center));
-                }
             }
-            // Visible thumbnails are decoded first, the active one before the rest; an edited
-            // copy shows instead of its original.
-            wanted.sort_by_key(|(_, a)| !*a);
-            let new: Vec<PathBuf> = strip(|s| wanted.into_iter().map(|(p, _)| p).filter(|p| s.requested.insert(p.clone())).collect());
-            if !new.is_empty()
-                && let Ok(mut q) = worker().queue.lock()
-            {
-                for p in new {
-                    let e = edited_path(&p);
-                    let source = if e.is_file() { e } else { p.clone() };
-                    q.push_back((p, source));
-                }
-                worker().wake.notify_all();
-            }
+            strip(|s| {
+                s.visible_sources = wanted.iter().map(|(p, source, _)| (p.clone(), source.clone())).collect();
+                s.textures.retain(|path, _| s.visible_sources.contains_key(path));
+                s.wanted = wanted
+                    .into_iter()
+                    .map(|(original, source, priority)| PreviewRequest {
+                        revision: s.revisions.get(&original).copied().unwrap_or(0),
+                        epoch: s.epoch,
+                        original,
+                        source,
+                        priority,
+                        edge: ((CELL_W * ui.ctx().pixels_per_point()).ceil() as usize).clamp(128, THUMB_EDGE as usize * 2),
+                    })
+                    .collect();
+            });
         });
         if let Some(p) = clicked {
             let leaving = app.session.active().filter(|d| !d.is_dirty() && active.is_some()).map(|d| d.doc.id.0);
@@ -592,13 +602,13 @@ fn options_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ("original", tl!("The original file")),
             ("saveAs", tl!("Ask each time (Save As)")),
         ] {
-            if ui.radio(current == key, label).clicked() {
+            if widgets::command_menu_item(ui, label, None, Some(current == key), None).clicked() {
                 app.session.prefs.edit(|p| p.interface.save_and_next_saves_to = key.into());
             }
         }
         ui.separator();
         let mut follows = app.session.prefs().interface.filmstrip_shows_folder;
-        if ui.checkbox(&mut follows, tl!("Show the folder when opening a photo")).changed() {
+        if widgets::checkbox(ui, &mut follows, tl!("Show the folder when opening a photo")).changed() {
             app.session.prefs.edit(|p| p.interface.filmstrip_shows_folder = follows);
         }
     });
@@ -607,6 +617,67 @@ fn options_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    #[test]
+    fn j23_shared_orientation_matches_all_legacy_golden_pixels() {
+        // Asymmetric labelled 3x2 pixels, including partial alpha. TIFF/EXIF's eight layouts.
+        let expected = [
+            vec![0, 1, 2, 3, 4, 5],
+            vec![2, 1, 0, 5, 4, 3],
+            vec![5, 4, 3, 2, 1, 0],
+            vec![3, 4, 5, 0, 1, 2],
+            vec![0, 3, 1, 4, 2, 5],
+            vec![3, 0, 4, 1, 5, 2],
+            vec![5, 2, 4, 1, 3, 0],
+            vec![2, 5, 1, 4, 0, 3],
+        ];
+        for (i, indices) in expected.iter().enumerate() {
+            let mut img = photocraft_codecs::Image::new(3, 2, photocraft_codecs::ChannelLayout::Rgba, photocraft_codecs::SampleType::U8).unwrap();
+            for (n, pixel) in img.data_mut().as_chunks_mut::<4>().0.iter_mut().enumerate() {
+                pixel.copy_from_slice(&[n as u8 * 30, 40, 50, 128]);
+            }
+            let out = codec_thumbnail(img, i as u16 + 1).unwrap();
+            assert_eq!(out.size, if i >= 4 { [2, 3] } else { [3, 2] });
+            let golden: Vec<_> = indices.iter().map(|n| Color32::from_rgba_unmultiplied(n * 30, 40, 50, 128)).collect();
+            assert_eq!(out.pixels, golden, "EXIF orientation {}", i + 1);
+        }
+    }
+
+    #[test]
+    fn j23_ui_click_refresh_hide_and_scroll_bound_preview_requests() {
+        use egui_kittest::kittest::Queryable;
+        let (mut h, _, _, b) = modal_strip_harness();
+        // Click the actual cell through accessibility, then verify navigation and host requests.
+        h.get_by_label("modal-strip-b.png").click();
+        h.run_steps(3);
+        assert_eq!(h.state().session.active().unwrap().doc.id.0, b);
+        let requests = take_preview_requests();
+        assert_eq!(requests.len(), 2);
+        let old = requests.iter().find(|r| r.original.ends_with("modal-strip-b.png")).unwrap().clone();
+        let tex = h.ctx.load_texture("j23", egui::ColorImage::filled([2, 2], Color32::GRAY), Default::default());
+        assert!(accept_preview(&h.ctx, &old, Some(tex.clone())));
+        refresh(&old.original);
+        assert!(!accept_preview(&h.ctx, &old, Some(tex.clone())), "late pre-save pixels must be rejected");
+        h.run_steps(1);
+        let fresh = take_preview_requests().into_iter().find(|r| r.original == old.original).unwrap();
+        assert_eq!(fresh.revision, old.revision + 1);
+        assert!(accept_preview(&h.ctx, &fresh, Some(tex.clone())));
+        h.get_by_label("Hide the filmstrip (Window › Filmstrip)").click();
+        h.run_steps(2);
+        assert!(take_preview_requests().is_empty());
+        toggle();
+        let paths = (0..10000).map(|i| PathBuf::from(format!("/fixture/large-{i:05}.png"))).collect();
+        set_folder(Path::new("/fixture"), paths);
+        strip(|s| s.follow = Some(PathBuf::from("/fixture/large-09000.png")));
+        h.run_steps(5);
+        let requests = take_preview_requests();
+        assert!(requests.len() <= 22, "10,000 files request only a viewport plus prefetch: {}", requests.len());
+        assert!(requests.iter().any(|r| r.original.ends_with("large-09000.png")), "follow keeps a distant active file visible");
+        assert!(!accept_preview(&h.ctx, &fresh, Some(tex)), "late previous-folder pixels must be rejected");
+        assert!(strip(|s| s.textures.len()) <= requests.len());
+        strip(|s| *s = Strip::default());
+    }
 
     #[test]
     fn j6_filmstrip_raw_copy_paths_use_complete_shared_registry() {
@@ -668,8 +739,7 @@ mod tests {
         let t = thumbnail(&p).unwrap();
         assert_eq!(t.size[0].max(t.size[1]), THUMB_EDGE as usize);
         assert!(t.size[0] > t.size[1]);
-        let o = orient(image::RgbaImage::new(4, 2), 6);
-        assert_eq!(o.dimensions(), (2, 4));
+
         std::fs::remove_dir_all(dir).ok();
     }
 
@@ -759,10 +829,8 @@ mod tests {
         }
         app.session.set_active(0);
         app.session.edit_prefs(|prefs| prefs.interface.save_and_next_saves_to = "original".into());
-        // Already-open documents and already-requested synthetic thumbnails avoid file loads.
-        strip(|state| {
-            *state = Strip { dir: Some(PathBuf::from("/fixture")), files: paths.to_vec(), requested: paths.into_iter().collect(), ..Default::default() }
-        });
+        // Already-open documents avoid file loads; thumbnail requests are serviced by the host.
+        strip(|state| *state = Strip { dir: Some(PathBuf::from("/fixture")), files: paths.to_vec(), ..Default::default() });
         let mut h = egui_kittest::Harness::builder().with_size(vec2(1200., 850.)).build_eframe(move |cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             app
