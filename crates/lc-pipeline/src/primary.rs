@@ -226,7 +226,7 @@ pub fn proxy_for(src: &Rgb32f, info: &SourceInfo, plan: &Plan<'_>) -> Rgb32f {
     let p = proxy_plan(src, plan);
     let mut img = p.frame.sample(src, p.w, p.h);
     crate::lin_cpu(&mut img, info, &p);
-    crate::local::denoise(&mut img, &p.settings, p.src_long, p.px_per_long, info.sensor_scale);
+    crate::local::denoise_source(&mut img, &p.settings, p.src_long, p.px_per_long, info);
     img
 }
 

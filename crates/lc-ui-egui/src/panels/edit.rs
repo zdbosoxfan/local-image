@@ -155,13 +155,30 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
                         ui.horizontal(|ui| {
                             ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
                             if !target.is_layer() {
-                                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
+                                let presets = app.session.active().map(|id| app.session.source_info(id).camera_wb_presets).unwrap_or_default();
+                                let selected = presets
+                                    .iter()
+                                    .find(|p| d.wb.mode == WbMode::Custom && (d.wb.temp - p.temp).abs() < 0.01 && (d.wb.tint - p.tint).abs() < 0.01);
+                                let label = selected.map(|p| p.name.as_str()).unwrap_or(d.wb.mode.label());
+                                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(label), t.font(14.0), t.text_label);
                                 egui::Popup::menu(&r).show(|ui| {
+                                    for preset in &presets {
+                                        let r = ui.selectable_label(selected.is_some_and(|p| p.name == preset.name), crate::i18n::tr(&preset.name));
+                                        register(ui.ctx(), format!("wbPreset:{}", preset.name), r.rect);
+                                        if r.clicked() {
+                                            let _ = app.run("develop.wb", json!({"preset":preset.name}));
+                                        }
+                                    }
+                                    if !presets.is_empty() {
+                                        ui.separator();
+                                    }
                                     for m in WbMode::ALL {
                                         if m == WbMode::Custom {
                                             continue;
                                         }
-                                        if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
+                                        let r = ui.selectable_label(d.wb.mode == m, m.label());
+                                        register(ui.ctx(), format!("wbGeneric:{}", m.label()), r.rect);
+                                        if r.clicked() {
                                             let mode = serde_json::to_value(m).unwrap_or_default();
                                             let _ = app.run("develop.wb", json!({"mode": mode}));
                                         }

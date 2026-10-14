@@ -98,6 +98,16 @@ fn rat_vec(v: &[f64]) -> Value {
 /// Serialise `raw` as a DNG.
 pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
     raw.validate()?;
+    // DNG WhiteLevel is per sample, not per CFA colour. Truncating an unequal
+    // R/G1/B/G2 table to its red entry would silently change clipping and colour.
+    if raw.format != crate::RawFormat::Dng
+        && raw.cpp == 1
+        && raw.cfa.is_some()
+        && raw.white.len() == 4
+        && raw.white.iter().any(|w| *w != raw.white[0])
+    {
+        return Err(RawError::Unsupported("per-channel vendor whites require linearized DNG export".into()));
+    }
     let (w, h, cpp) = (raw.width, raw.height, raw.cpp);
     let mut ifd = IfdBuilder::new();
     ifd.set(t::NEW_SUBFILE_TYPE, Value::Long(vec![0]));

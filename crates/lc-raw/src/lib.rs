@@ -26,6 +26,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod binned;
+pub mod camera_data;
 pub mod capture;
 pub mod color;
 pub mod demosaic;
@@ -191,7 +192,21 @@ pub(crate) enum Mode {
     Header,
 }
 
+/// Decoder-only baseline for reproducible camera-data quality audits. Never used by the app.
+#[cfg(feature = "testgen")]
+pub fn decode_without_camera_data(bytes: &[u8]) -> Result<RawImage> {
+    decode_impl(bytes, Mode::Full, false)
+}
+/// Decoder-only headers for the pinned rawler boundary contract.
+#[cfg(feature = "testgen")]
+pub fn probe_info_without_camera_data(bytes: &[u8]) -> Result<RawInfo> {
+    decode_impl(bytes, Mode::Header, false).map(RawImage::into_info)
+}
+
 fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
+    decode_impl(bytes, mode, true)
+}
+fn decode_impl(bytes: &[u8], mode: Mode, calibrate: bool) -> Result<RawImage> {
     let format = probe(bytes).ok_or(RawError::NotRaw)?;
     let native = match format {
         RawFormat::Dng => dng::decode(bytes, mode).map(lift_clipped),
@@ -204,7 +219,7 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         RawFormat::Orf => vendor::orf::decode(bytes, mode),
         other => Err(RawError::Unsupported(format!("{other:?} files are not decoded yet"))),
     };
-    match native {
+    let result = match native {
         Err(RawError::Unsupported(_)) => rawler_adapter::decode(bytes, format, mode),
         result => result.map(|mut image| {
             rawler_adapter::fill_color(
@@ -214,7 +229,13 @@ fn decode_with(bytes: &[u8], mode: Mode) -> Result<RawImage> {
             );
             image
         }),
-    }
+    };
+    result.map(|mut image| {
+        if calibrate {
+            camera_data::apply(&mut image, mode);
+        }
+        image
+    })
 }
 
 /// DNG writers state a white level the sensor may never reach; samples stuck at the real saturation point are
@@ -498,7 +519,8 @@ impl NormalizedSamples<'_> {
         } else {
             let a = self.raw.active_area;
             let i = ((a.y + y) * self.raw.width + a.x + x) * self.cpp + sample;
-            (self.raw.data.get(i) - self.raw.black.at(x, y, sample, self.cpp)) * self.scale[sample]
+            (self.raw.data.get(i) - self.raw.black.at(x, y, sample, self.cpp))
+                * self.raw.normalization_scale(x, y, sample).unwrap_or(self.scale[sample])
         }
     }
 }
@@ -576,6 +598,29 @@ impl RawImage {
         self.white.get(s).or_else(|| self.white.first()).copied().unwrap_or(65535.0)
     }
 
+    /// CFA channel white, anchored in full sensor coordinates. Four-entry vendor tables
+    /// use R/G1/B/G2 order; ordinary DNG/sample whites retain their original semantics.
+    pub fn sensor_white(&self, x: usize, y: usize, sample: usize) -> f32 {
+        if self.format != RawFormat::Dng
+            && self.cpp == 1
+            && self.white.len() == 4
+            && let Some(cfa) = &self.cfa
+        {
+            let c = cfa.color_at(x, y) as usize;
+            self.white_at(if c == 1 && cfa.is_bayer() && y % 2 == 1 { 3 } else { c.min(2) })
+        } else {
+            self.white_at(sample)
+        }
+    }
+    fn normalization_scale(&self, x: usize, y: usize, sample: usize) -> Option<f32> {
+        if self.format == RawFormat::Dng || self.cpp != 1 || self.white.len() != 4 || self.cfa.is_none() {
+            return None;
+        }
+        let a = self.active_area;
+        let range = self.sensor_white(a.x + x, a.y + y, sample) - self.black.at(x, y, sample, self.cpp);
+        Some(if range > 0.0 { 1.0 / range } else { 1.0 })
+    }
+
     pub fn normalized_samples(&self) -> Result<NormalizedSamples<'_>> {
         self.validate()?;
         let prepared = if self.opcodes.list1.is_empty() && self.opcodes.list2.is_empty() { None } else { Some(self.normalized()?) };
@@ -628,7 +673,7 @@ impl RawImage {
                 for s in 0..cpp {
                     let v = src(base + x * cpp + s);
                     let b = self.black.at(x, y, s, cpp);
-                    row[x * cpp + s] = (v - b) * scale[s];
+                    row[x * cpp + s] = (v - b) * self.normalization_scale(x, y, s).unwrap_or(scale[s]);
                 }
             }
         });

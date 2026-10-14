@@ -44,7 +44,7 @@ Unsupported; CR3 filmrolls select the first image, and dual-pixel correction is 
 5. Run the adapter contract and raw quality checks:
 
    ```sh
-   PATH=~/.cargo/bin:$PATH cargo +1.98.1 test --offline -p lightcraft-raw rawler_contract -- --include-ignored --nocapture
+   PATH=~/.cargo/bin:$PATH cargo +1.98.1 test --offline -p lightcraft-raw --features testgen rawler_contract -- --include-ignored --nocapture
    PATH=~/.cargo/bin:$PATH cargo +1.98.1 test --offline -p lightcraft-raw quality
    PATH=~/.cargo/bin:$PATH cargo +1.98.1 run --offline -p lightcraft-raw --example quality
    ```
@@ -78,3 +78,8 @@ No ureq, TLS or network dependency is enabled by rawler. Its mandatory JPEG XL a
 libraries (`jxl-oxide`, `libflate`) are Rust. Its build script joins camera/lens TOML data in Rust.
 Existing unrelated workspace dependencies are outside this addition; do not mistake the whole
 workspace tree for the new rawler closure.
+
+Camera data calibration is applied after this decoder boundary. The `testgen` contract uses
+decoder-only samples/headers so per-camera calibration does not silently regenerate sensor
+goldens. The calibrated header/full geometry and levels are audited separately by
+[`CAMERA-DATA.md`](CAMERA-DATA.md).

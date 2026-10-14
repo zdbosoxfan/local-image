@@ -171,9 +171,12 @@ fn nr_layers(s: &DevelopSettings, info: &SourceInfo) -> Vec<(usize, u64, Develop
         .enumerate()
         .filter_map(|(i, m)| {
             let d = m.tools.detail.filter(|d| d.nr_luminance > 0.0 || d.nr_color > 0.0)?;
-            let key =
-                crate::hash_of([d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness, d.nr_contrast].map(f64::to_bits));
             let v = view(&m.tools, info, s);
+            let key = crate::hash_of((
+                [d.nr_luminance, d.nr_detail, d.nr_color, d.nr_color_detail, d.nr_color_smoothness, d.nr_contrast].map(f64::to_bits),
+                format!("{:?}", info.camera_noise),
+                format!("{:?}", crate::local::wb_matrix_for(info, &v)),
+            ));
             Some((i, key, v))
         })
         .collect()
@@ -198,7 +201,7 @@ pub(crate) fn nr_images(
             Some((_, im)) => im.clone(),
             None => {
                 let mut c = (**img).clone();
-                crate::local::denoise(&mut c, &v, src_long, px_per_long, info.sensor_scale);
+                crate::local::denoise_source(&mut c, &v, src_long, px_per_long, info);
 
                 Arc::new(c)
             }
@@ -387,7 +390,7 @@ pub(crate) fn stack(
                 if let Some(mat) = wb {
                     tool_input.map_in_place(|c| crate::ucs::mul(&mat, c));
                 }
-                crate::local::denoise(&mut tool_input, &d, plan.src_long, plan.px_per_long, info.sensor_scale);
+                crate::local::denoise_source(&mut tool_input, &d, plan.src_long, plan.px_per_long, info);
                 if d.light.whites != 0.0 || d.light.blacks != 0.0 {
                     let light = d.light;
                     tool_input.map_in_place(|c| anchors(c, light.exposure as f32, light.whites as f32 / 100.0, light.blacks as f32 / 100.0));

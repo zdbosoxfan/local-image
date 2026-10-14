@@ -299,9 +299,12 @@ pub fn specs() -> Vec<CommandSpec> {
             "{mode: asShot|auto|daylight|cloudy|shade|tungsten|fluorescent|flash|custom, temp?, tint?}",
             has_active,
             |s, p| {
-                let mode: WbMode =
+                let mut mode: WbMode =
                     serde_json::from_value(p.get("mode").cloned().unwrap_or(json!("custom"))).map_err(|e| bad("develop.wb", e.to_string()))?;
                 let id = active(s, "develop.wb")?;
+                if p.get("preset").is_some() {
+                    s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wb", e))?;
+                }
                 let info = s.source_info(id);
                 let (mut t, mut tint) = match mode {
                     WbMode::AsShot => (info.as_shot_temp, info.as_shot_tint),
@@ -317,6 +320,21 @@ pub fn specs() -> Vec<CommandSpec> {
                         })
                         .unwrap_or((info.as_shot_temp, info.as_shot_tint)),
                 };
+                if let Some(name) = str_param(p, "preset") {
+                    let preset = info
+                        .camera_wb_presets
+                        .iter()
+                        .find(|v| v.name == name)
+                        .ok_or_else(|| bad("develop.wb", format!("unknown camera WB preset `{name}`")))?;
+                    (t, tint) = (preset.temp, preset.tint);
+                    mode = WbMode::Custom;
+                } else if let Some(preset) = info.camera_wb_presets.iter().find(|v| {
+                    v.name.eq_ignore_ascii_case(mode.label())
+                        || (mode == WbMode::Tungsten && v.name == "Incandescent")
+                        || (mode == WbMode::Daylight && v.name == "Direct Sunlight")
+                }) {
+                    (t, tint) = (preset.temp, preset.tint);
+                }
                 t = f64_or(p, "temp", t);
                 tint = f64_or(p, "tint", tint);
                 // The resolved temperature/tint is stored, so rendering never depends on the mode; the

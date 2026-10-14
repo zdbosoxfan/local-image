@@ -1448,3 +1448,6 @@ mod tests_library_navigation;
 
 #[cfg(test)]
 mod shared_shell_tests;
+
+#[cfg(test)]
+mod tests_camera_data;

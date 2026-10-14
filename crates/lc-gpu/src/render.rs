@@ -1085,28 +1085,69 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
             eyed
         }
     };
-    denoise(cx, img, plan, info.sensor_scale)
+    denoise(cx, img, plan, info)
 }
 
 /// Native wavelet NR, including robust noise estimation and recursive band statistics.
-fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, sensor_scale: f32) -> Buf {
+fn denoise(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, info: &SourceInfo) -> Buf {
     use lightcraft_pipeline::detail::nr::*;
     let (w, h) = (plan.w, plan.h);
-    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, sensor_scale);
+    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale);
     let Some(p) = nr_params(&plan.settings, scale) else { return img };
-    denoise_native(cx, img, w, h, &p)
+    if let Some(calibration) = local::noise_calibration(info, &plan.settings) {
+        denoise_native_with(cx, img, w, h, &p, Some(calibration))
+    } else {
+        denoise_native(cx, img, w, h, &p)
+    }
 }
 fn denoise_native(cx: &mut Cx<'_>, img: Buf, w: usize, h: usize, p: &lightcraft_pipeline::detail::nr::NrParams) -> Buf {
+    denoise_native_with(cx, img, w, h, p, None)
+}
+#[derive(Clone)]
+enum NrTransform {
+    Generic(lightcraft_pipeline::detail::nr::Vst),
+    Calibrated(Box<lightcraft_pipeline::detail::nr::ProfiledVst>),
+}
+impl NrTransform {
+    fn forward(&self, v: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Generic(t) => t.forward(v),
+            Self::Calibrated(t) => t.forward(v),
+        }
+    }
+    fn backward(&self, v: [f32; 3]) -> [f32; 3] {
+        match self {
+            Self::Generic(t) => t.backward(v),
+            Self::Calibrated(t) => t.backward(v),
+        }
+    }
+}
+fn denoise_native_with(
+    cx: &mut Cx<'_>,
+    img: Buf,
+    w: usize,
+    h: usize,
+    p: &lightcraft_pipeline::detail::nr::NrParams,
+    calibration: Option<lightcraft_pipeline::detail::nr::NoiseCalibration>,
+) -> Buf {
     use lightcraft_pipeline::detail::nr::*;
     let n = w * h;
     let mut profile = None;
     let mut vst = None;
+    let previous_precise = cx.precise_nr;
+    if calibration.is_some() {
+        cx.precise_nr = true;
+    }
     let mut coarse = if cx.precise_nr {
         // Native power approximations amplify at EAW's discontinuous bit-interpolated
         // weights. Only the forward/backward transform uses the host; wavelets stay native.
-        crate::record_cpu_stage("NR variance transform");
+        crate::record_cpu_stage(if calibration.is_some() { "profiled camera NR" } else { "NR variance transform" });
         let pixels = cx.read_rgb(&img, w, h);
-        let transform = Vst::new(estimate_noise(&pixels), p);
+        let transform = calibration
+            .as_ref()
+            .and_then(|c| ProfiledVst::new(&pixels, p, c))
+            .map(|t| NrTransform::Calibrated(Box::new(t)))
+            .unwrap_or_else(|| NrTransform::Generic(Vst::new(estimate_noise(&pixels), p)));
         let forward = pixels.map(|v| transform.forward(v));
         profile = Some(transform);
         cx.gpu.upload(rgb_words(&forward))
@@ -1174,6 +1215,7 @@ fn denoise_native(cx: &mut Cx<'_>, img: Buf, w: usize, h: usize, p: &lightcraft_
     };
     let out = cx.gpu.buffer(n * 3);
     map(cx, "nr_join", n, &[(p.lum > 0.0) as u32, (p.col > 0.0) as u32], [Some(&img), Some(&back), None], &out);
+    cx.precise_nr = previous_precise;
     out
 }
 
@@ -2028,7 +2070,7 @@ fn layer_buffers(
         if let Some(nr) = nr {
             nr_off = offset as u32;
             let input = cx.copy(lin);
-            let image = denoise_native(cx, input, w, h, &nr);
+            let image = denoise_native_with(cx, input, w, h, &nr, local::noise_calibration(info, &view));
             offset += image.len;
             planes.push(image);
         }
@@ -2390,7 +2432,7 @@ fn render_stack(
                 let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale);
                 if lightcraft_pipeline::detail::nr::nr_params(&d, scale).is_some() {
                     let copy = cx.copy(&q);
-                    q = Arc::new(denoise(cx, copy, &lp, info.sensor_scale));
+                    q = Arc::new(denoise(cx, copy, &lp, info));
                     lp.lin_key = cache_key((lp.lin_key, format!("{:?}", d.detail)));
                 }
                 if d.light.whites != 0.0 || d.light.blacks != 0.0 {

@@ -3,7 +3,7 @@
 //! 733bd69f32cac7ff5e41025115942772add1f088. Copyright (C) 2012–2026 / 2017–2024 /
 //! 2018–2025 darktable developers, GPL-3.0-or-later; see licenses/darktable-NOTICE.md.
 //!
-//! No camera DB: robust 2x2 high-pass MAD estimates a Poisson slope from image tiles, with
+//! Calibrated camera profiles are supplied by SourceInfo; otherwise robust 2x2 high-pass MAD estimates a Poisson slope from image tiles, with
 //! darktable's generic a=1e-4 fallback. WB is unity (input is already WB/working RGB).
 //! Amount controls strength (0.4+1.6*max amounts); the smaller amount attenuates that channel's
 //! band force. Detail lowers fine-band force; Contrast lowers mid/coarse Y0 force; Smoothness
@@ -275,12 +275,75 @@ pub fn join(original: [f32; 3], filtered: [f32; 3], p: &NrParams) -> [f32; 3] {
     }
 }
 
+/// The profile is in normalized sensor coordinates; the matrix includes as-shot WB,
+/// baseline exposure and the source camera conversion. It never reuses sensor coefficients
+/// directly on Rec.2020 channels.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct NoiseCalibration {
+    pub a: [f32; 3],
+    pub b: [f32; 3],
+    pub camera_to_working: [[f32; 3]; 3],
+}
+
+/// Exact host variance transform shared by CPU and GPU wavelet pipelines.
+#[derive(Clone, Copy, Debug)]
+pub struct ProfiledVst {
+    channels: [Vst; 3],
+    inverse: [[f32; 3]; 3],
+    matrix: [[f32; 3]; 3],
+}
+impl ProfiledVst {
+    pub fn new(img: &Rgb32f, p: &NrParams, calibration: &NoiseCalibration) -> Option<Self> {
+        use lightcraft_color::Mat3;
+        let matrix = Mat3(calibration.camera_to_working.map(|r| r.map(f64::from)));
+        let inverse = matrix.inverse()?.to_f32();
+        if !calibration.a.iter().all(|a| a.is_finite() && *a > 0.0) || !calibration.b.iter().all(|b| b.is_finite()) {
+            return None;
+        }
+        // Demosaic/resampling and frames depart from laboratory fits. Adapt amplitude
+        // with the robust camera-space estimator, retaining measured channel ratios.
+        let observed = estimate_noise(&img.map(|v| mul(inverse, v))).a;
+        let nominal = calibration.a.iter().sum::<f32>() / 3.0;
+        let amplitude = (observed / nominal).clamp(1.0 / 64.0, 64.0);
+        let channels = std::array::from_fn(|c| Vst::new(NoiseModel { a: calibration.a[c] * amplitude, b: calibration.b[c] }, p));
+        Some(Self { channels, inverse, matrix: calibration.camera_to_working })
+    }
+    pub fn forward(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let camera = mul(self.inverse, rgb);
+        let v = std::array::from_fn(|c| {
+            let v = self.channels[c];
+            (camera[c] + v.b).max(0.0).powf(1.0 - v.p * 0.5) * 2.0 / ((2.0 - v.p) * v.a.sqrt())
+        });
+        mul(self.channels[1].to, v)
+    }
+    pub fn backward(&self, yuv: [f32; 3]) -> [f32; 3] {
+        let transformed = mul(self.channels[1].from, yuv);
+        let camera = std::array::from_fn(|c| {
+            let v = self.channels[c];
+            let x = transformed[c].max(0.0);
+            let z = (x + (x * x + v.bias * v.wb).max(0.0).sqrt()) * v.a.sqrt() * (2.0 - v.p) * 0.25;
+            z.powf(1.0 / (1.0 - v.p * 0.5)) - v.b
+        });
+        mul(self.matrix, camera)
+    }
+}
+pub fn denoise_profiled(img: &mut Rgb32f, p: &NrParams, calibration: &NoiseCalibration) {
+    let Some(vst) = ProfiledVst::new(img, p, calibration) else {
+        denoise(img, p);
+        return;
+    };
+    denoise_transform(img, p, |v| vst.forward(v), |v| vst.backward(v));
+}
+
 pub fn denoise(img: &mut Rgb32f, p: &NrParams) {
+    let vst = Vst::new(estimate_noise(img), p);
+    denoise_transform(img, p, |v| vst.forward(v), |v| vst.backward(v));
+}
+fn denoise_transform(img: &mut Rgb32f, p: &NrParams, forward: impl Fn([f32; 3]) -> [f32; 3] + Sync + Send, backward: impl Fn([f32; 3]) -> [f32; 3]) {
     if img.data.is_empty() {
         return;
     }
-    let vst = Vst::new(estimate_noise(img), p);
-    let mut coarse = img.map(|c| vst.forward(c));
+    let mut coarse = img.map(forward);
     let mut acc = Rgb32f::new(img.width, img.height);
     let levels = max_scale(img.width, img.height, p.scale);
     for level in 0..levels {
@@ -295,6 +358,73 @@ pub fn denoise(img: &mut Rgb32f, p: &NrParams) {
     }
     for (i, c) in img.data.iter_mut().enumerate() {
         let v = std::array::from_fn(|k| acc.data[i][k] + coarse.data[i][k]);
-        *c = join(*c, vst.backward(v), p);
+        *c = join(*c, backward(v), p);
+    }
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+    #[test]
+    fn camdata_profiled_denoise_is_camera_space_and_improves_psnr() {
+        let mut seed = 7u32;
+        let mut random = || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            (seed as f64 + 1.0) / (u32::MAX as f64 + 2.0)
+        };
+        let truth = Rgb32f::from_fn(96, 96, |x, y| {
+            let v = 0.04 + 0.25 * x as f32 / 96.0 + 0.02 * y as f32 / 96.0;
+            [v, v * 0.8, v * 0.6]
+        });
+        let profile =
+            NoiseCalibration { a: [0.002, 0.001, 0.003], b: [0.0; 3], camera_to_working: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut noisy = truth.clone();
+        for pixel in &mut noisy.data {
+            for c in 0..3 {
+                let z = (-2.0 * random().ln()).sqrt() * (std::f64::consts::TAU * random()).cos();
+                pixel[c] += z as f32 * (profile.a[c] * pixel[c]).sqrt();
+            }
+        }
+        let mse = |a: &Rgb32f| {
+            a.data.iter().zip(&truth.data).flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).powi(2) as f64)).sum::<f64>()
+                / (a.data.len() * 3) as f64
+        };
+        let before = mse(&noisy);
+        let params = NrParams { lum: 0.6, col: 0.6, detail: 0.5, contrast: 0.5, col_detail: 0.5, smoothness: 0.5, scale: 1.0 };
+        let mut generic = noisy.clone();
+        denoise(&mut generic, &params);
+        denoise_profiled(&mut noisy, &params, &profile);
+        let after = mse(&noisy);
+        eprintln!(
+            "camera NR PSNR before {:.3}, calibrated {:.3}, estimated {:.3}",
+            -10.0 * before.log10(),
+            -10.0 * after.log10(),
+            -10.0 * mse(&generic).log10()
+        );
+        assert!(after < before * 0.6, "MSE {before} -> {after}");
+        assert!(noisy.data.iter().flatten().all(|v| v.is_finite()));
+        // A nontrivial camera conversion must give the same result as filtering camera data
+        // and then converting it, up to the working-luminance join policy.
+        let matrix = [[1.5, 0.1, -0.2], [-0.1, 0.9, 0.2], [0.0, -0.2, 1.3]];
+        let original = truth.map(|v| mul(matrix, v));
+        let mut work = original.clone();
+        denoise_profiled(&mut work, &params, &NoiseCalibration { camera_to_working: matrix, ..profile });
+        let mean_error = work.data.iter().zip(&original.data).flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs() as f64)).sum::<f64>()
+            / (work.data.len() * 3) as f64;
+        assert!(mean_error < 0.01, "neutral/ramp drift {mean_error}");
+    }
+    #[test]
+    fn camdata_source_defaults_and_profile_cache_key() {
+        let info: crate::SourceInfo = serde_json::from_str("{}").unwrap();
+        assert!(info.camera_noise.is_none() && info.camera_wb_presets.is_empty());
+        let src = std::sync::Arc::new(Rgb32f::new(24, 24));
+        let settings = lightcraft_develop::DevelopSettings::default();
+        let request = crate::RenderRequest::fit(24, 24);
+        let a = crate::plan(&src, &info, &settings, &request).lin_key;
+        let mut profiled = info.clone();
+        profiled.camera_noise =
+            Some(NoiseCalibration { a: [0.001; 3], b: [0.0; 3], camera_to_working: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] });
+        let b = crate::plan(&src, &profiled, &settings, &request).lin_key;
+        assert_ne!(a, b);
     }
 }
