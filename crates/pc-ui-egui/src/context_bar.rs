@@ -311,8 +311,7 @@ fn label(ui: &mut egui::Ui, s: &str, t: &Tokens) {
 
 /// The AI Remove engine chosen on the AI Remove tool's options bar, and whether it is ready.
 fn remove_ready(app: &PhotocraftApp) -> Result<(), String> {
-    let (m, v) = crate::ai_ui::remove_engine(&app.ui.ai.remove_engine);
-    crate::ai_ui::status().ready(m, v)
+    crate::ai_ui::remove_ready(&app.ui.ai.remove_engine)
 }
 
 /// The bar's id (its area).

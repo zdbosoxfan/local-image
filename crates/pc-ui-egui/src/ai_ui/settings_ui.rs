@@ -113,6 +113,7 @@ fn function(group: li_seg::Group) -> (&'static str, &'static str) {
         Tagging => ("Scene Recognition", "Organise photos by scene in Smart Sort."),
         Faces => ("Face Recognition", "Group people in your library. Enable it separately in Smart Sort."),
         RawDenoise => ("RAW Denoise", "Reduce noise in raw photos."),
+        Remove => ("AI Remove", "Repair brushed areas on this computer, without an AI server."),
         RgbDenoise => ("Photo Denoise", "Reduce noise in JPEG, TIFF and edited photos."),
     }
 }
@@ -125,9 +126,9 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
     for group in li_seg::Group::ALL {
         let (title, about) = function(group);
         let spec = if group == li_seg::Group::Subject && app.ui.ai.cutout_engine == "better" {
-            li_seg::spec("inspyrenet").unwrap_or(group.official())
+            catalog::on_device_spec("inspyrenet").unwrap_or(catalog::on_device_default(group))
         } else {
-            group.official()
+            catalog::on_device_default(group)
         };
         let custom = li_seg::custom(&dir, group).is_some();
         let backend = if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
