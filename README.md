@@ -2,16 +2,18 @@
 
 **A raster image editor with local AI: retouch, composite, catalogue and generate on your own PC.**
 
-Local Image 2 is a desktop image editor for Linux, Windows and Apple Silicon macOS, written entirely in Rust. It works the
+Local Image 2 is a desktop image editor for Linux x86_64 and Apple Silicon macOS 13+, written entirely in Rust. It works the
 way Photoshop and Lightroom users expect: tools on the left, panels docked on the right, layers,
 masks, adjustment layers, PSD files, camera raw, and Library and Develop modules for cataloguing and raw development. The AI features
-run on your own GPU through [ComfyUI](https://github.com/comfyanonymous/ComfyUI): no cloud account,
-no upload, no per-image bill. The internet is used only when you ask for it (installing models,
-checking for updates).
+run through your local or chosen remote [ComfyUI](https://github.com/comfyanonymous/ComfyUI) server,
+with no cloud account or per-image bill. A configured remote ComfyUI server receives images only
+for the AI operations you request. Internet access supports requested model downloads and
+**Help → Check for Updates…**. Startup update checks are an opt-in General preference, off by default;
+checks offer a GitHub release-page link and never download or install an update.
 
 > **This is the V2 branch, for testing before it replaces 0.7.** It builds from source today
 > ([build instructions](docs/DEVELOPMENT.md)); the 0.7 installers on the
-> [releases page](https://github.com/zdbosoxfan/local-image/releases) are the current stable version.
+> [releases page](https://github.com/zdbosoxfan/local-image/releases) are preview builds from the 0.7 series.
 
 [![Local Image 2: a photo open in the editor, the Generate panel docked on the right with modes, preset, model picker, prompt, size, references, LoRAs and the Generate button](docs/images/v2/editor-generate.png)](docs/images/v2/editor-generate.png)
 
@@ -34,6 +36,9 @@ The full tool-by-tool comparison with GIMP, Krita, Photopea and Compositor, and 
 came from, is in [docs/TOOLSET.md](docs/TOOLSET.md); the develop plan (darktable, RawTherapee, Capture
 One, Lightroom) is in [docs/DEVELOP-DESIGN.md](docs/DEVELOP-DESIGN.md). The interface design and the user flows it was
 tested against are in [docs/V2-DESIGN.md](docs/V2-DESIGN.md).
+
+New here? Read [Coming from Lightroom Classic](docs/COMING-FROM-LIGHTROOM-CLASSIC.md) or
+[Coming from Photoshop / Affinity](docs/COMING-FROM-PHOTOSHOP-AFFINITY.md).
 
 ## Models
 
@@ -68,6 +73,9 @@ filters by the memory ComfyUI reports.
 ## macOS on Apple Silicon
 
 Native ARM64 installers support macOS 13+. See [macOS installation, acceleration and remote ComfyUI](docs/MACOS.md). Large generative models can run on a remote GPU server while editing and development use Metal on the Mac. Build an installer with `cargo xtask package macos`.
+
+Windows source and MSI/ZIP tooling are experimental and are not an owner-validated release target.
+See [release artifacts, supported targets and test lanes](docs/RELEASE.md).
 
 ## Getting started
 

@@ -206,6 +206,8 @@ impl PointSize {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct General {
+    /// Read GitHub releases once per launch; never downloads or installs an update.
+    pub check_for_updates_at_startup: bool,
     pub color_picker: ColorPicker,
     /// Default resampling for Image Size and transforms.
     pub image_interpolation: Interpolation,
@@ -224,6 +226,7 @@ pub struct General {
 impl Default for General {
     fn default() -> Self {
         Self {
+            check_for_updates_at_startup: false,
             color_picker: ColorPicker::Adobe,
             image_interpolation: Interpolation::BicubicAutomatic,
             beep_when_done: false,

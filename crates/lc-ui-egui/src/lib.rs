@@ -209,6 +209,8 @@ pub struct LightcraftApp {
     pub hosted_menus: bool,
     pub shared_shortcuts: bool,
     pub open_shared_shortcuts: bool,
+    /// The host owns the read-only update worker/window.
+    pub open_shared_updates: bool,
     /// Open the host's shared AI resource preferences from Library or Develop.
     pub open_shared_ai: bool,
     pub host_modal: bool,
@@ -329,6 +331,7 @@ impl LightcraftApp {
             hosted_menus: false,
             shared_shortcuts: false,
             open_shared_shortcuts: false,
+            open_shared_updates: false,
             open_shared_ai: false,
             host_modal: false,
             shortcut_overrides: Default::default(),
@@ -1448,3 +1451,6 @@ mod tests_library_navigation;
 
 #[cfg(test)]
 mod shared_shell_tests;
+
+#[cfg(test)]
+mod tests_updates;

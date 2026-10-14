@@ -1060,6 +1060,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 }
 
 fn humanize(key: &str) -> String {
+    if key == "checkForUpdatesAtStartup" {
+        return "Check for updates at startup".into();
+    }
     if key == "tabletCompatibilityMode" {
         return "Pen tablet: use compatibility mode (XWayland)".into();
     }
@@ -2188,6 +2191,14 @@ mod tests {
                 for k in obj.keys() {
                     let mut labels = vec![humanize(k)];
                     labels.extend(prefs::choices(&format!("{sec}.{k}")).into_iter().flatten().map(|c| choice_label(c)));
+                    if sec == "general" && k == "checkForUpdatesAtStartup" {
+                        // CODEX-TASK.md explicitly defers this new string to the pending list.
+                        // Keep every existing caption and all choice labels under the strict gate.
+                        let caption = humanize(k);
+                        let pending: &[&str] = include!("i18n/pending_vector.rs");
+                        assert!(pending.contains(&caption.as_str()), "new update preference must be registered for translation");
+                        labels.retain(|label| *label != caption);
+                    }
                     missing.extend(labels.into_iter().filter(|l| !crate::i18n::has(lang, l)));
                 }
             }
