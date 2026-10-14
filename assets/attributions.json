@@ -5840,7 +5840,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Binary Euclidean distance transform: nearest seeds along columns, then a lower envelope of squared-distance parabolas along rows (Felzenszwalb and Huttenlocher, 2012).",
+          "used_for": "Compatibility API for the shared Euclidean distance transform.",
           "upstream": "crates/algo/src/selection/distance.rs",
           "commit": "3953d78378fd78c3680c78423267f708505a95d3",
           "ours": "crates/pc-algo/src/selection/distance.rs",
