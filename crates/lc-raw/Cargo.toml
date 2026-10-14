@@ -21,7 +21,7 @@ miniz_oxide = { workspace = true }
 zune-jpeg = { workspace = true }
 zune-core = { workspace = true }
 
-# Native decoders stay first; rawler handles every Unsupported result.
+# Measured per-format routing selects native or rawler first, with the other as fallback.
 # Keep optional rawdb (HTTP/TLS) and clap features disabled.
 rawler = { version = "=0.8.0", default-features = false }
 

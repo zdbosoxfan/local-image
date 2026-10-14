@@ -171,3 +171,15 @@ No product/UI convention needed to be inferred from proprietary-app help.
 Changes outside lc-raw are limited to Cargo.lock, the sample-fetch script, documentation, licence
 notice/text and generated app attributions. The owner's CODEX-TASK.md, holistic-review and RAW-research
 files were left untouched. Everything remains uncommitted.
+
+
+## Follow-up correction (2026-10-14)
+
+The permanent head-to-head comparison found an adapter CFA transposition: rawler takes
+(row,column), not (x,y). This was corrected with an asymmetric Bayer/X-Trans regression; six
+Fuji pattern goldens changed intentionally, while sensor fingerprints did not. Broader malformed
+TIFF replay also exposed an allocation gap in the original preflight, now closed. These findings
+supersede the original report's limited metadata/hardening claims. Current per-format/compression
+routing and the permanent reference harness are in `RAW-DECODER-COMPARISON.md`. Follow-up
+median-of-five speed measurements remain deferred under the owner's explicit no-benchmark rule;
+no earlier single-run timings have been relabeled as medians.
