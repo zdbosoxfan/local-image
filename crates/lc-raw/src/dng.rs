@@ -7,7 +7,7 @@ use crate::{BlackLevel, Cfa, ColorData, Mat3, Mode, RawData, RawError, RawFormat
 use lightcraft_color::Xy;
 use lightcraft_geom::Orientation;
 use lightcraft_tiff::tags::{self as t, photometric};
-use lightcraft_tiff::{Ifd, Tiff};
+use lightcraft_tiff::{ByteOrder, Ifd, Tiff};
 
 /// The main raw IFD: full-resolution (NewSubfileType 0) CFA or LinearRaw image with the most pixels.
 pub(crate) fn raw_ifd(tiff: &Tiff) -> Option<&Ifd> {
@@ -32,15 +32,84 @@ fn vec3(v: Option<Vec<f64>>) -> Option<[f64; 3]> {
     (v.len() == 3 && v.iter().all(|x| x.is_finite() && *x > 0.0)).then(|| [v[0], v[1], v[2]])
 }
 
+/// Decode DNG 1.6 IlluminantData's xy or spectral payload in the enclosing TIFF's byte order.
+fn illuminant_data(bytes: &[u8], order: ByteOrder) -> Option<Xy> {
+    let rational = |offset| {
+        let n = f64::from(order.read_u32(bytes, offset)?);
+        let d = f64::from(order.read_u32(bytes, offset + 4)?);
+        (d > 0.0).then_some(n / d)
+    };
+    let xy = match order.read_u16(bytes, 0)? {
+        0 => Xy::new(rational(2)?, rational(10)?),
+        1 => {
+            let count = usize::try_from(order.read_u32(bytes, 2)?).ok()?;
+            if !(2..=1000).contains(&count) || bytes.len() < 22 + count * 8 {
+                return None;
+            }
+            let start = rational(6)?;
+            let spacing = rational(14)?;
+            if start <= 0.0 || spacing <= 0.0 {
+                return None;
+            }
+            let samples: Vec<f64> = (0..count).map(|i| rational(22 + 8 * i)).collect::<Option<_>>()?;
+            let observer = cie_observer();
+            let mut sum = [0.0; 3];
+            let mut observer_sum = [0.0; 3];
+            for (i, xyz) in observer.iter().enumerate() {
+                let pos = ((360.0 + i as f64 - start) / spacing).clamp(0.0, (count - 1) as f64);
+                let lower = (pos as usize).min(count - 2);
+                let fraction = pos - lower as f64;
+                let light = samples[lower] + fraction * (samples[lower + 1] - samples[lower]);
+                for j in 0..3 {
+                    sum[j] += xyz[j] * light;
+                    observer_sum[j] += xyz[j];
+                }
+            }
+            sum = std::array::from_fn(|j| sum[j] / observer_sum[j]);
+            if sum.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+                return None;
+            }
+            Xy::from_xyz(sum)
+        }
+        _ => return None,
+    };
+    (xy.x.is_finite() && xy.y.is_finite() && xy.x > 0.0 && xy.y > 0.0 && xy.x + xy.y < 1.0).then_some(xy)
+}
+
+fn cie_observer() -> &'static [[f64; 3]] {
+    static DATA: std::sync::OnceLock<Vec<[f64; 3]>> = std::sync::OnceLock::new();
+    DATA.get_or_init(|| {
+        include_str!("../data/color/CIE_xyz_1931_2deg.csv")
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split(',').skip(1);
+                Some([fields.next()?.parse().ok()?, fields.next()?.parse().ok()?, fields.next()?.parse().ok()?])
+            })
+            .collect()
+    })
+}
+
 /// Colour tags: DNG puts them in IFD0, but some writers use the raw IFD; prefer the raw IFD.
-pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd) -> ColorData {
+pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd, order: ByteOrder) -> ColorData {
     let get = |tag: u16| raw.f64s(tag).or_else(|| ifd0.f64s(tag));
     let geti = |tag: u16| raw.u16(tag).or_else(|| ifd0.u16(tag));
+    let gets = |tag: u16| {
+        let ifd = if raw.contains(tag) { raw } else { ifd0 };
+        ifd.string(tag).unwrap_or_default()
+    };
     ColorData {
         illuminant: [geti(t::CALIBRATION_ILLUMINANT_1).unwrap_or(0), geti(t::CALIBRATION_ILLUMINANT_2).unwrap_or(0)],
+        illuminant_3: geti(t::CALIBRATION_ILLUMINANT_3).unwrap_or(0),
+        illuminant_white_xy: [t::ILLUMINANT_DATA_1, t::ILLUMINANT_DATA_2, t::ILLUMINANT_DATA_3]
+            .map(|tag| raw.bytes(tag).or_else(|| ifd0.bytes(tag)).and_then(|bytes| illuminant_data(bytes, order))),
         color_matrix: [mat3(get(t::COLOR_MATRIX_1)), mat3(get(t::COLOR_MATRIX_2))],
+        color_matrix_3: mat3(get(t::COLOR_MATRIX_3)),
+        forward_matrix_3: mat3(get(t::FORWARD_MATRIX_3)),
+        camera_calibration_3: mat3(get(t::CAMERA_CALIBRATION_3)),
         forward_matrix: [mat3(get(t::FORWARD_MATRIX_1)), mat3(get(t::FORWARD_MATRIX_2))],
         camera_calibration: [mat3(get(t::CAMERA_CALIBRATION_1)), mat3(get(t::CAMERA_CALIBRATION_2))],
+        camera_calibration_signature: gets(t::CAMERA_CALIBRATION_SIGNATURE),
+        profile_calibration_signature: gets(t::PROFILE_CALIBRATION_SIGNATURE),
         analog_balance: vec3(get(t::ANALOG_BALANCE)),
         as_shot_neutral: vec3(get(t::AS_SHOT_NEUTRAL)),
         as_shot_white_xy: get(t::AS_SHOT_WHITE_XY).filter(|v| v.len() == 2 && v[0] > 0.0 && v[1] > 0.0).map(|v| Xy::new(v[0], v[1])),
@@ -65,6 +134,7 @@ pub(crate) fn profile_look(ifd0: &Ifd, raw: &Ifd) -> ProfileLook {
             table(t::PROFILE_HUE_SAT_MAP_DIMS, t::PROFILE_HUE_SAT_MAP_DATA_1, t::PROFILE_HUE_SAT_MAP_ENCODING),
             table(t::PROFILE_HUE_SAT_MAP_DIMS, t::PROFILE_HUE_SAT_MAP_DATA_2, t::PROFILE_HUE_SAT_MAP_ENCODING),
         ],
+        hue_sat_map_3: table(t::PROFILE_HUE_SAT_MAP_DIMS, 52537, t::PROFILE_HUE_SAT_MAP_ENCODING),
         look_table: table(t::PROFILE_LOOK_TABLE_DIMS, t::PROFILE_LOOK_TABLE_DATA, t::PROFILE_LOOK_TABLE_ENCODING),
         tone_curve: pick(t::PROFILE_TONE_CURVE).f64s(t::PROFILE_TONE_CURVE).and_then(|v| ToneCurve::from_tag(&v)),
     }
@@ -232,7 +302,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         active_area,
         crop,
         orientation: Orientation::from_exif(ifd0.u16(t::ORIENTATION).unwrap_or(1)),
-        color: color_data(ifd0, raw),
+        color: color_data(ifd0, raw, tiff.order),
         wb_multipliers: None,
         linearized,
         opcodes,
@@ -291,5 +361,41 @@ mod sony_dji_strip_tests {
         bytes.truncate(bytes.len() - 2);
         assert!(matches!(decode(&bytes, Mode::Full), Err(RawError::Corrupt(_))));
         assert!(matches!(decode(&bytes, Mode::Header), Err(RawError::Corrupt(_))));
+    }
+}
+
+#[cfg(test)]
+mod triple_illuminant_tests {
+    use super::*;
+
+    #[test]
+    fn triple_illuminant_custom_xy_and_spectrum_endian_and_malformed() {
+        assert_eq!(cie_observer().len(), 471);
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            let mut xy = Vec::new();
+            order.put_u16(&mut xy, 0);
+            for (n, d) in [(3457, 10000), (39, 100)] {
+                order.put_u32(&mut xy, n);
+                order.put_u32(&mut xy, d);
+            }
+            assert_eq!(illuminant_data(&xy, order), Some(Xy::new(0.3457, 0.39)));
+            assert!(illuminant_data(&xy[..17], order).is_none());
+            xy[6..10].fill(0);
+            assert!(illuminant_data(&xy, order).is_none());
+            let mut spectrum = Vec::new();
+            order.put_u16(&mut spectrum, 1);
+            order.put_u32(&mut spectrum, 2);
+            for value in [400, 300, 0, 1] {
+                order.put_u32(&mut spectrum, value);
+                order.put_u32(&mut spectrum, 1);
+            }
+            let white = illuminant_data(&spectrum, order).unwrap();
+            // Independent CIE 1 nm observer integration with endpoint extension.
+            assert!((white.x - 0.4448893988140621).abs() < 1e-13);
+            assert!((white.y - 0.41495127408339716).abs() < 1e-13);
+            assert!(illuminant_data(&spectrum[..37], order).is_none());
+            spectrum[30..34].fill(0);
+            assert!(illuminant_data(&spectrum, order).is_none());
+        }
     }
 }

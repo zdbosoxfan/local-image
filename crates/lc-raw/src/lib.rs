@@ -478,12 +478,30 @@ impl BlackLevel {
 pub struct ColorData {
     /// `CalibrationIlluminant1/2` (Exif LightSource codes; 0 = unknown).
     pub illuminant: [u16; 2],
+    /// DNG 1.6 third calibration illuminant; additive for old catalogs.
+    #[serde(default)]
+    pub illuminant_3: u16,
+    /// Custom `IlluminantData1/2/3` whites (used only for code 255).
+    #[serde(default)]
+    pub illuminant_white_xy: [Option<Xy>; 3],
+    #[serde(default)]
+    pub color_matrix_3: Option<Mat3>,
+    #[serde(default)]
+    pub forward_matrix_3: Option<Mat3>,
+    #[serde(default)]
+    pub camera_calibration_3: Option<Mat3>,
     /// `ColorMatrix1/2`: XYZ → reference camera.
     pub color_matrix: [Option<Mat3>; 2],
     /// `ForwardMatrix1/2`: white-balanced camera → XYZ D50.
     pub forward_matrix: [Option<Mat3>; 2],
     /// `CameraCalibration1/2`.
     pub camera_calibration: [Option<Mat3>; 2],
+    /// CameraCalibration matrices are applicable only when this equals the selected profile signature.
+    #[serde(default)]
+    pub camera_calibration_signature: String,
+    /// DNG/DCP ProfileCalibrationSignature (empty is the default in older files).
+    #[serde(default)]
+    pub profile_calibration_signature: String,
     pub analog_balance: Option<[f64; 3]>,
     pub as_shot_neutral: Option<[f64; 3]>,
     pub as_shot_white_xy: Option<Xy>,
@@ -800,6 +818,7 @@ mod tests {
 pub mod camera_matrices;
 pub mod dcp;
 mod dcp_bundled;
+pub mod lcp;
 
 #[cfg(test)]
 mod tests_camera_matrices;

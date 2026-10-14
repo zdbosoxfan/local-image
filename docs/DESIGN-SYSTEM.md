@@ -279,3 +279,6 @@ Shared navigation metrics retain the existing pill typography/padding/height as
 `PREFERENCES_TAB_HEIGHT`, `PREFERENCES_TAB_INSET`, `PREFERENCES_TAB_TEXT_MARGIN`.
 Library Preferences rows share `PREFERENCES_BODY_WIDTH`; choices use `BUTTON_FONT_SIZE`,
 `CONTROL_FONT_SIZE` and `DROPDOWN_ARROW_SPACE`. These metrics preserve the existing visual sizes.
+`widgets::profile_choice` is the shared camera/lens profile picker: a labelled, width-bounded
+combo using theme text and panel inset tokens. Its choices carry group headings and automation
+ids (`combo:<id>` / `choice:<id>:<profile>`), and it is used in Develop and the profile browser.

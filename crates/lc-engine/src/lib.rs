@@ -889,4 +889,4 @@ mod tests_toolset;
 #[cfg(test)]
 mod tests_xmp;
 
-mod dcp_profiles;
+pub mod dcp_profiles;

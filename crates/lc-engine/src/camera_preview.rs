@@ -88,8 +88,10 @@ fn proxies(raw: &RawImage, bytes: &[u8], transform: &CameraTransform, size: usiz
     let mut sensor = fit(&sensor, size, size, Filter::Box);
     let reference = fit(&reference, sensor.width, sensor.height, Filter::Box);
     let gain = 2f32.powf(transform.baseline_exposure as f32);
-    let tables =
-        lightcraft_raw::profile::ProfileTables::new(&raw.color.profile, lightcraft_raw::color::illuminant_weight(&raw.color, transform.white_xy));
+    let tables = lightcraft_raw::profile::ProfileTables::new_weighted(
+        &raw.color.profile,
+        lightcraft_raw::color::illuminant_weights(&raw.color, transform.white_xy),
+    );
     sensor.map_in_place(|p| {
         let p = transform.matrix.apply_f32(std::array::from_fn(|i| p[i] * transform.wb[i]));
         tables.as_ref().map_or_else(|| p.map(|v| v * gain), |t| t.apply(p, gain))

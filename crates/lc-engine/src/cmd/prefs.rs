@@ -99,7 +99,7 @@ fn prefs(s: &mut Session, p: &Value) -> Result<Value> {
         .map(|v| v.as_u64().ok_or_else(|| bad(ID, "forgetLocalDays must be a whole number of days (0 = never)")))
         .transpose()?;
     let mb = p.get("cacheMb").map(|v| v.as_u64().ok_or_else(|| bad(ID, "cacheMb must be a number of megabytes"))).transpose()?;
-    if d.camera_profiles_folder != s.import_defaults.camera_profiles_folder {
+    if d.camera_profiles_folder != s.import_defaults.camera_profiles_folder || p.get("reloadProfiles").and_then(Value::as_bool) == Some(true) {
         crate::dcp_profiles::configure(&d.camera_profiles_folder);
         s.media.clear_sources();
     }

@@ -127,6 +127,18 @@
             "licenses/model-system-NOTICE.md"
           ],
           "url": "https://github.com/ltdrdata/ComfyUI-Manager"
+        },
+        {
+          "name": "CIE 1931 standard colorimetric observer (2 degree)",
+          "author": "CIE 2019, International Commission on Illumination, Vienna, AT",
+          "used_for": "Whole 471-row observer dataset for DNG IlluminantData spectral whites; CIE 018:2019 Table 6, DOI 10.25039/CIE.DS.xvudnb9b. CSV and metadata retained unmodified.",
+          "ours": "crates/lc-raw/data/color/",
+          "licence": "CC-BY-SA-4.0 (separate data work)",
+          "licence_files": [
+            "licenses/cie-NOTICE.md",
+            "licenses/cie-LICENSE-CC-BY-SA-4.0.txt"
+          ],
+          "url": "https://doi.org/10.25039/CIE.DS.xvudnb9b"
         }
       ]
     },

@@ -300,6 +300,9 @@ pub struct RawOptions {
     pub highlights: lightcraft_develop::HighlightMode,
     /// Measure the capture-sharpening radius from the mosaic ([`SourceInfo::capture_radius`]).
     pub capture_radius: bool,
+    /// Stable identifier of the selected camera profile (0 = automatic, 1 = matrix).
+    pub camera_profile: u64,
+    pub profile_generation: u64,
 }
 
 impl RawOptions {
@@ -307,9 +310,15 @@ impl RawOptions {
     pub fn of(s: &lightcraft_develop::DevelopSettings) -> RawOptions {
         let r = &s.raw;
         if !s.section_enabled("raw") {
-            return RawOptions::default();
+            return RawOptions {
+                camera_profile: crate::dcp_profiles::selection_key(&s.camera_profile),
+                profile_generation: crate::dcp_profiles::cache_key(),
+                ..Default::default()
+            };
         }
         RawOptions {
+            camera_profile: crate::dcp_profiles::selection_key(&s.camera_profile),
+            profile_generation: crate::dcp_profiles::cache_key(),
             demosaic: r.demosaic,
             dual_threshold: if r.demosaic.is_dual() { (r.dual_threshold / 100.0).clamp(0.0, 1.0) as f32 } else { 0.0 },
             highlights: r.highlights,
@@ -394,7 +403,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             }
             Err(e) => return Err(e.to_string()),
         };
-        crate::dcp_profiles::apply(&mut raw);
+        crate::dcp_profiles::apply_selected(&mut raw, opts.camera_profile);
         lightcraft_raw::camera_matrices::fill(
             &mut raw.color,
             raw.metadata.make.as_deref().unwrap_or_default(),
@@ -534,6 +543,8 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 } else {
                     vec![]
                 },
+                source_orientation: raw.orientation,
+                lcp: None,
                 clip_confidence,
                 raw_clip_level: Some(HIGHLIGHT_CLIP),
                 camera_noise: if hue_sat.is_none() && raw.color.profile.is_empty() {
@@ -568,13 +579,8 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 camera_color: if t.matrix_is_fallback {
                     None
                 } else {
-                    let color = lightcraft_color::camera::CameraColor {
-                        illuminant: raw.color.illuminant,
-                        color_matrix: raw.color.color_matrix,
-                        forward_matrix: raw.color.forward_matrix,
-                        camera_calibration: raw.color.camera_calibration,
-                        analog_balance: normalized_color.analog_balance,
-                    };
+                    let mut color = lightcraft_raw::color::camera_color(&raw.color);
+                    color.analog_balance = normalized_color.analog_balance;
                     let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
                         wb[0] as f64,
                         wb[1] as f64,
@@ -593,7 +599,10 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
     drop(bytes);
     let img = d.to_working();
     let img = if img.width.max(img.height) > max_edge { fit(&img, max_edge, max_edge, Filter::Mitchell) } else { img };
-    Ok((img.into_oriented(Orientation::from_exif(d.orientation)), SourceInfo::default()))
+    Ok((
+        img.into_oriented(Orientation::from_exif(d.orientation)),
+        SourceInfo { source_orientation: Orientation::from_exif(d.orientation), ..Default::default() },
+    ))
 }
 
 /// A DNG `ProfileToneCurve` (linear in, linear out, 1.0 = white after exposure compensation) as the
@@ -762,8 +771,12 @@ mod tests {
         assert!(info.camera_tone.is_none());
         // a map that removes all saturation, and a tone curve
         let grey = HsvTable { hue_divisions: 4, sat_divisions: 2, val_divisions: 1, data: vec![[0.0, 0.0, 1.0]; 8], srgb_value: false };
-        raw.color.profile =
-            ProfileLook { hue_sat_map: [Some(grey), None], look_table: None, tone_curve: ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.3, 1.0, 1.0]) };
+        raw.color.profile = ProfileLook {
+            hue_sat_map: [Some(grey), None],
+            look_table: None,
+            tone_curve: ToneCurve::from_tag(&[0.0, 0.0, 0.18, 0.3, 1.0, 1.0]),
+            ..Default::default()
+        };
         let with = lightcraft_raw::write_dng(&raw, &Default::default()).unwrap();
         let (mut after, info) = load_bytes(&with, 64).unwrap();
         lightcraft_pipeline::local::white_balance(&mut after, &info, &Default::default());

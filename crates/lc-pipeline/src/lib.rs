@@ -48,6 +48,7 @@ pub mod eigf;
 pub mod finish;
 pub mod geometry;
 pub mod layers;
+pub mod lcp;
 pub mod lensdb;
 pub mod llf;
 pub mod local;
@@ -151,6 +152,8 @@ pub struct SourceInfo {
     /// Complete Sony vendor curves handed to the lens-correction boundary.
     /// They are not approximated as DNG polynomials or baked into sensor samples.
     pub sony_lens: Option<lightcraft_develop::SonyLensData>,
+    /// EXIF orientation applied by the decoder, retained for imported lens calibration.
+    pub source_orientation: lightcraft_geom::Orientation,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
     /// their as-shot white.
     pub raw: bool,
@@ -168,6 +171,9 @@ pub struct SourceInfo {
     /// ask for it; relative to the EXIF-oriented source).
     #[serde(skip)]
     pub lens_db: Option<lensdb::LensCorrection>,
+    /// User-imported Adobe LCP, interpolated for the shot.
+    #[serde(skip)]
+    pub lcp: Option<lcp::LcpCorrection>,
     /// Sensor pixels per source pixel (a binned or downscaled raw preview is > 1), for tools
     /// sized in sensor pixels (capture sharpening).
     pub sensor_scale: f32,
@@ -195,12 +201,14 @@ impl Default for SourceInfo {
             as_shot_tint: 0.0,
             lens: None,
             sony_lens: None,
+            source_orientation: lightcraft_geom::Orientation::Normal,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,
             baseline_gain: 1.0,
             camera_tone: None,
             lens_db: None,
+            lcp: None,
             sensor_scale: 1.0,
             capture_radius: None,
             capture_threshold: 0.4,
@@ -302,8 +310,9 @@ pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f
 
 /// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
 pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
-    let mut frame = geometry::Frame::with_lenses(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref());
-    if s.optics.remove_ca && s.section_enabled("optics") {
+    let mut frame = geometry::Frame::with_lcp(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
+    let calibrated_ca = frame.warp.as_ref().is_some_and(|w| w.lcp.is_some_and(|m| m.correction.chromatic.is_some()));
+    if s.optics.remove_ca && s.section_enabled("optics") && !calibrated_ca {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src));
     }
     frame

@@ -543,6 +543,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             });
         });
     });
+    crate::panels::profiles::camera_profile_row(app, ui, id, &d);
     if d.profile.id != "lc.color" {
         control(app, ui, &d, "profile.amount", true);
         ui.add_space(6.0);
@@ -557,7 +558,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         crate::panels::develop_tools::raw_section(app, ui, &d);
     }
     section(app, ui, &d, "optics", "Optics", |app, ui, d| {
-        let has_lens = app.session.catalog.photo(id).is_some_and(|p| p.embedded_lens.is_some());
+        crate::panels::profiles::lens_profile_row(app, ui, id, d);
+        let has_lens = app.session.catalog.photo(id).is_some_and(|p| {
+            p.embedded_lens.is_some() || !lightcraft_engine::dcp_profiles::available_lenses(&p.meta.camera, &p.meta.lens, p.develops_raw()).is_empty()
+        });
         egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
             let mut ca = d.optics.remove_ca;
             if ui.checkbox(&mut ca, crate::i18n::tr("Remove Chromatic Aberration")).changed() {
@@ -569,7 +573,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
             if lp && !has_lens {
                 ui.label(
-                    egui::RichText::new(crate::i18n::tr("No lens data embedded in this file (DNG lens opcodes only)."))
+                    egui::RichText::new(crate::i18n::tr("No compatible embedded or imported lens profile. Choose a lens in the lens database."))
                         .size(11.0)
                         .color(Tokens::get(ui.ctx()).text_dim),
                 );
