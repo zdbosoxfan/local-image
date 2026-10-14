@@ -4,7 +4,8 @@
 
 #![cfg(all(feature = "corpus", feature = "heif"))]
 
-use photocraft_codecs::{Format, decode, detect, exif_orientation};
+use lightcraft_tiff::exif::orientation as exif_orientation;
+use photocraft_codecs::{Format, decode, detect};
 use photocraft_doc::{ColorMode, SampleType};
 use photocraft_io::{ExportOptions, export, import};
 

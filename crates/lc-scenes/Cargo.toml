@@ -9,10 +9,11 @@ description = "Procedurally generated photographic demo scenes (HDR, linear Rec.
 workspace = true
 
 [dependencies]
-lightcraft-color = { workspace = true }
+li-color = { workspace = true }
 lightcraft-raster = { workspace = true }
 serde = { workspace = true }
 rayon = { workspace = true }
 
 [dev-dependencies]
+li-raster = { path = "../li-raster" }
 image = { workspace = true }

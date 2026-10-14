@@ -4,9 +4,9 @@
 //! there is no GPU adapter.
 
 use eframe::egui_wgpu::RenderState;
+use li_gpu::health::Fault;
 use photocraft_color::{Color, ColorMode, SampleType};
 use photocraft_doc::{Document, Size};
-use photocraft_gpu::Fault;
 use photocraft_ui_egui::gpu_canvas::{self, GpuCanvas};
 use photocraft_ui_egui::{PhotocraftApp, gpu_status};
 use serde_json::json;

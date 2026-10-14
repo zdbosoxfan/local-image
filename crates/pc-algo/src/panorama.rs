@@ -1,10 +1,9 @@
-//! Photo editor layer/layout compatibility adapters onto the shared merge backend.
+//! Photo editor layer placement over the shared merge backend, in the editor's `Homography`.
 use crate::transform::Homography;
 use lightcraft_merge::editor::{geom, panorama as shared};
-pub use shared::{
-    AlignOptions, ImageFeatures, Layout, MopsImageFeatures, Motion, Photometric, PreparedImage, Projection, RoiImage, blend_levels, detect, detect_many,
-    detect_mops_many, multiband, seam_labels,
-};
+use shared::{AlignOptions, ImageFeatures, Layout, MopsImageFeatures, Motion, Photometric, Projection, RoiImage};
+#[cfg(test)]
+use shared::{detect, detect_mops_many, multiband, seam_labels};
 fn to_shared(h: &Homography) -> geom::Homography {
     geom::Homography(h.0)
 }

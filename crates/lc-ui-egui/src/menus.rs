@@ -7,8 +7,7 @@ use serde_json::{Value, json};
 use crate::LightcraftApp;
 use crate::state::{BeforeAfter, Dialog, RightPanel, SpotOverlay, ViewMode, Zoom};
 
-/// (id, label, shortcut, menu path)
-pub use li_commands::UiCommand;
+use li_commands::UiCommand;
 
 /// The "Edit → Language" entries, one per language in [`li_i18n::Lang::ALL`], so a language
 /// added to the table shows up in the menu (and in the control channel's command list) by itself.

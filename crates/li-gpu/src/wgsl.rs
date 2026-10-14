@@ -147,7 +147,7 @@ mod tests {
             let v = sample(i);
             let n = noise(xy[0], xy[1]);
             let rows = &values[i * 12..i * 12 + 12];
-            let reference = [photocraft_color::convert::linear_to_srgb(v), photocraft_color::convert::srgb_to_linear(v)];
+            let reference = [li_color::convert::linear_to_srgb(v), li_color::convert::srgb_to_linear(v)];
             for (a, b) in rows[..2].iter().zip(reference) {
                 worst_transfer = worst_transfer.max((a - b).abs());
             }
@@ -155,8 +155,8 @@ mod tests {
             let golden = lightcraft_pipeline::finish::dither8(v, xy[0] as usize, xy[1] as usize, 0);
             assert_eq!(rows[3], f32::from(golden), "Develop byte {i}");
             for (channel, c) in [v, v * 0.5, v * 2.0].iter().enumerate() {
-                worst_transfer = worst_transfer.max((rows[4 + channel] - photocraft_color::convert::linear_to_srgb(*c)).abs());
-                worst_transfer = worst_transfer.max((rows[8 + channel] - photocraft_color::convert::srgb_to_linear(*c)).abs());
+                worst_transfer = worst_transfer.max((rows[4 + channel] - li_color::convert::linear_to_srgb(*c)).abs());
+                worst_transfer = worst_transfer.max((rows[8 + channel] - li_color::convert::srgb_to_linear(*c)).abs());
             }
             let sigma = [0.5, 1.25, 16.0][i % 3];
             let p = [xy[0] as f32 * 0.25 - 8.0, xy[1] as f32 * 0.25 - 8.0];

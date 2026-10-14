@@ -73,10 +73,10 @@ fn edited_color(mode: photocraft_doc::ColorMode, bytes: [u8; 4]) -> Color {
     let c = match mode {
         ColorMode::Cmyk => convert::rgb_to_cmyk(rgb),
         ColorMode::Lab => {
-            let lab = convert::srgb_to_lab(rgb);
+            let lab = li_color::convert::srgb_to_lab(rgb);
             [lab[0] / 100., (lab[1] + 128.) / 255., (lab[2] + 128.) / 255., 0.]
         }
-        ColorMode::Grayscale => [convert::rgb_to_gray(rgb), 0., 0., 0.],
+        ColorMode::Grayscale => [li_color::convert::rgb_to_gray(rgb), 0., 0., 0.],
         _ => [rgb[0], rgb[1], rgb[2], 0.],
     };
     Color { mode, c, alpha: f32::from(bytes[3]) / 255. }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::settings::{state_dir, write_atomic};
+use crate::settings::state_dir;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -137,9 +137,9 @@ impl Library {
         let staging = self.root.join(format!(".pending-{}", uuid::Uuid::new_v4().simple()));
         let prepared = PreparedEntry { staging, destination: self.root.join(&id), entry, published: false };
         std::fs::create_dir_all(&prepared.staging)?;
-        write_atomic(&prepared.staging.join("image.png"), &png)?;
-        write_atomic(&prepared.staging.join("thumbnail.png"), &crate::imaging::encode_png(&thumb)?)?;
-        write_atomic(&prepared.staging.join("entry.json"), serde_json::to_string_pretty(&prepared.entry)?.as_bytes())?;
+        li_fs::atomic_write(&prepared.staging.join("image.png"), &png)?;
+        li_fs::atomic_write(&prepared.staging.join("thumbnail.png"), &crate::imaging::encode_png(&thumb)?)?;
+        li_fs::atomic_write(&prepared.staging.join("entry.json"), serde_json::to_string_pretty(&prepared.entry)?.as_bytes())?;
         Ok(prepared)
     }
 

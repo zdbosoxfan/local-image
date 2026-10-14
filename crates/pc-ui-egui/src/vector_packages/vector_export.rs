@@ -145,7 +145,7 @@ pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_n
         }
         let payload = if let Some(stage) = stage {
             let progress = |fraction: f32| ctx.report(0.8 + fraction.clamp(0.0, 1.0) * 0.18, "Writing temporary export");
-            let interrupt = photocraft_raster::Interrupt::new(cancel, &progress);
+            let interrupt = lightcraft_sysmem::jobs::Interrupt::new(cancel, &progress);
             Payload::Staged(stage(&worker_path, &output.bytes, &interrupt).map_err(|e| if cancel() { EngineError::Cancelled } else { EngineError::Other(e) })?)
         } else {
             Payload::Bytes(output.bytes)

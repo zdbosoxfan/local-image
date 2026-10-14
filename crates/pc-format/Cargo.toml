@@ -30,3 +30,4 @@ libc.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true }
+lightcraft-sysmem = { workspace = true }

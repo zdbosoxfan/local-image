@@ -113,12 +113,9 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 fn save(path: &Path, img: &Rgb32f) -> Result<(), String> {
-    let m = lightcraft_color::SRGB.from_xyz().mul(&lightcraft_color::REC2020.to_xyz());
-    let samples: Vec<u8> = img
-        .data
-        .iter()
-        .flat_map(|p| m.apply_f32(*p).map(|v| (lightcraft_color::transfer::linear_to_srgb(v).clamp(0., 1.) * 255. + 0.5) as u8))
-        .collect();
+    let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
+    let samples: Vec<u8> =
+        img.data.iter().flat_map(|p| m.apply_f32(*p).map(|v| (li_color::transfer::linear_to_srgb(v).clamp(0., 1.) * 255. + 0.5) as u8)).collect();
     let bytes = lightcraft_codecs::encode_png(
         &lightcraft_codecs::EncodeImage::new(img.width as u32, img.height as u32, 3, lightcraft_codecs::Samples::U8(&samples)),
         &Default::default(),

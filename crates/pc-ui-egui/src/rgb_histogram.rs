@@ -1,7 +1,7 @@
-//! Compatibility facade for the shared histogram painter.
+//! Paints the editor's RGB histograms (`li_raster::histogram::RgbHistogram`) with the shared `li_ui_kit` painter.
 use crate::theme::Tokens;
 use egui::Rect;
-use photocraft_algo::histogram::RgbHistogram;
+use li_raster::histogram::RgbHistogram;
 
 pub(crate) fn paint(painter: &egui::Painter, rect: Rect, h: &RgbHistogram, t: &Tokens) {
     li_ui_kit::histogram::paint_rgb(painter, rect, li_ui_kit::histogram::Histogram::u64(&h.channels, Some(&h.luma)), t);

@@ -295,8 +295,8 @@ impl MergeJob {
     }
 
     /// Keep sensor samples on the raw path until exposure fusion is complete. Mixed
-    /// raw/rendered sets and unsupported handheld CFA lattices retain the scene-linear
-    /// demosaic adapter used by existing callers.
+    /// raw/rendered sets and handheld non-Bayer CFA lattices merge through the
+    /// scene-linear demosaic path.
     fn hdr_result(
         &self,
         options: &HdrOptions,
@@ -339,9 +339,9 @@ impl MergeJob {
                 permit = Some(jobs.admit(cost, &|| !progress(0.0, "Waiting for HDR memory")).ok_or("cancelled")?);
             }
             if options.align && info.cfa.as_ref().is_some_and(|cfa| !cfa.is_bayer()) {
-                // Preserve existing handheld support for X-Trans and other CFA layouts.
-                // Their sampling lattices need a dedicated raw resampler, so use the
-                // shared scene-linear demosaic adapter rather than reject old usage.
+                // Handheld X-Trans and other non-Bayer CFA layouts would need a dedicated
+                // raw resampler to align, so they merge through the shared scene-linear
+                // demosaic path instead.
                 drop(raws);
                 let frames = self.load(false, progress, (0.0, 0.3))?;
                 return lightcraft_merge::merge_hdr(frames, options, &|f, stage| progress(0.3 + 0.7 * f, stage))
@@ -357,13 +357,13 @@ impl MergeJob {
         let mut result = lightcraft_merge::merge_raw_hdr(&raws, options, &|f, stage| progress(0.3 + 0.7 * f, stage)).map_err(err)?;
         if let Some(edge) = self.preview {
             // Alignment/CFA fusion always sees the original sensor sampling lattice.
-            result.radiance = lightcraft_raster::resample::fit(&result.radiance, edge, edge, lightcraft_raster::resample::Filter::Box);
+            result.radiance = lightcraft_raster::resample::fit(&result.radiance, edge, edge, li_raster::resample::Filter::Box);
             if !result.ghost.data.is_empty() {
                 result.ghost = lightcraft_raster::resample::resize(
                     &result.ghost,
                     result.radiance.width,
                     result.radiance.height,
-                    lightcraft_raster::resample::Filter::Box,
+                    li_raster::resample::Filter::Box,
                 );
             }
         }
@@ -375,7 +375,7 @@ impl MergeJob {
     /// attachment cleans up the generated file (including cancelled/stale UI requests).
     pub fn prepare_output(&self, out: MergeOutput) -> std::result::Result<PreparedMerge, String> {
         let first = &self.sources.first().ok_or("nothing merged")?.1;
-        let path = lightcraft_catalog::safe_file::write_new_unique(&mut output_names(first, self.kind.suffix()), &out.dng)
+        let path = li_fs::write_new_unique(&mut output_names(first, self.kind.suffix()), &out.dng)
             .map_err(|error| format!("could not write the merged DNG next to {first}: {error}"))?;
         let identity = std::fs::symlink_metadata(&path).ok();
         let mut prepared = PreparedMerge {
@@ -475,7 +475,7 @@ impl MergeJob {
                 // Reconstruction must see the original CFA sampling lattice even for
                 // previews. Resize the complete reconstruction, never its source mosaics.
                 if let Some(edge) = self.preview {
-                    image = lightcraft_raster::resample::fit(&image, edge, edge, lightcraft_raster::resample::Filter::Box);
+                    image = lightcraft_raster::resample::fit(&image, edge, edge, li_raster::resample::Filter::Box);
                 }
                 let info = json!({"shots": r.shots, "motionPixels": motion_pixels, "motionCorrection": self.sources.len() > 1,
                     "motionFallback": if self.sources.len() > 1 { "firstShotAuto" } else { "alreadyComposed" }});

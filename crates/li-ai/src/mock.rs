@@ -700,10 +700,11 @@ mod tests {
     use crate::inventory::TEST_LOCK as INVENTORY_LOCK;
 
     use super::*;
+    use crate::JobControl;
     use crate::catalog::ModelId;
     use crate::ops::{Ai, GenerateMode, GenerateRequest, RemoveEngine};
-    use crate::{Cancelled, JobControl};
     use image::{GrayImage, Luma, RgbImage};
+    use lightcraft_sysmem::jobs::Cancelled;
 
     #[test]
     fn generate_edit_remove_cutout_upscale_against_the_mock() {
@@ -807,7 +808,7 @@ mod tests {
         assert!(client.interrupt_ours().unwrap());
         assert_eq!(server.interrupts(), 0);
         let err = job.join().unwrap().unwrap_err();
-        assert!(err.downcast_ref::<crate::comfy::Cancelled>().is_some(), "{err:#}");
+        assert!(err.downcast_ref::<Cancelled>().is_some(), "{err:#}");
         assert!(t.elapsed() < Duration::from_secs(4), "stopped well before the job would end");
         // Finished prompts are no longer ours.
         assert!(crate::comfy::our_prompts(server.host()).is_empty());

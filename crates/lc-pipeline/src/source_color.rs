@@ -1,6 +1,6 @@
 //! Fitted camera colour look evaluated after camera-plane lens resampling.
-use lightcraft_color::profile::HsvTable;
-use lightcraft_color::{D50, D65, Mat3, PROPHOTO, REC2020, bradford, luminance_2020};
+use li_color::profile::HsvTable;
+use li_color::{D50, D65, Mat3, PROPHOTO, REC2020, bradford, luminance_2020};
 
 fn to_prophoto() -> Mat3 {
     PROPHOTO.from_xyz().mul(&bradford(D65, D50)).mul(&REC2020.to_xyz())

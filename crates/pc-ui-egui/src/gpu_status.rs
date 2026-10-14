@@ -21,7 +21,7 @@ pub type StartedHook = Box<dyn FnOnce(&mut PhotocraftApp)>;
 /// Per-frame check: switch to the CPU canvas when the GPU faulted, and run the started hook.
 pub fn check(app: &mut PhotocraftApp, ctx: &egui::Context) {
     // A frame boundary for the error strikes: one uncaptured error is redone on the CPU, errors
-    // in several frames drop the GPU canvas (`photocraft_gpu::health`).
+    // in several frames drop the GPU canvas (`li_gpu::health`).
     if let Some(g) = &app.gpu {
         g.begin_frame(app.frame);
     }
@@ -50,7 +50,7 @@ pub fn check(app: &mut PhotocraftApp, ctx: &egui::Context) {
 
 /// Drop the GPU canvas after `fault`: free its resources, send every view through the CPU
 /// path, record why, and tell the user. Documents are untouched.
-pub fn fall_back(app: &mut PhotocraftApp, fault: &photocraft_gpu::Fault) {
+pub fn fall_back(app: &mut PhotocraftApp, fault: &li_gpu::health::Fault) {
     let Some(gpu) = app.gpu.take() else { return };
     log::error!("{fault}; using the CPU renderer for the rest of the session");
     gpu.release();

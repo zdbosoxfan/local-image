@@ -51,8 +51,7 @@ pub(crate) fn write_dng_with(file_bytes: Option<&crate::merge::ByteReader>, path
         return Err(format!("{path}: the DNG written for it doesn't hold the same raw data; the raw is kept"));
     }
     drop((raw, back));
-    let out = lightcraft_catalog::safe_file::write_new_unique(&mut dng_names(path), &dng)
-        .map_err(|e| format!("{path}: could not write its DNG ({e}); the raw is kept"))?;
+    let out = li_fs::write_new_unique(&mut dng_names(path), &dng).map_err(|e| format!("{path}: could not write its DNG ({e}); the raw is kept"))?;
     Ok(out.to_string_lossy().to_string())
 }
 

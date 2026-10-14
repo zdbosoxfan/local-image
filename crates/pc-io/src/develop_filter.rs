@@ -27,12 +27,14 @@
 
 use std::sync::{Arc, OnceLock};
 
+use li_color::cms_math;
+use li_color::curve::Curve;
 pub use lightcraft_develop::DevelopSettings;
 use lightcraft_develop::{Hsl, VignetteStyle, WbMode, Wheel as LcWheel};
 use lightcraft_geom::Point;
 use photocraft_algo::camera_raw::{CameraRaw, Wheel};
 use photocraft_algo::lens::LensCorrection;
-use photocraft_cms::{ColorSpace, Curve, Profile, Transform, TransformOptions, math};
+use photocraft_cms::{ColorSpace, Profile, Transform, TransformOptions};
 use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba_into};
 use serde_json::Value;
@@ -124,7 +126,7 @@ pub enum Conv {
     },
 }
 
-fn f32m(m: &math::Mat3) -> [[f32; 3]; 3] {
+fn f32m(m: &cms_math::Mat3) -> [[f32; 3]; 3] {
     m.map(|r| r.map(|v| v as f32))
 }
 
@@ -141,9 +143,9 @@ impl Conv {
             && profile.is_matrix_shaper()
             && let (Some(m), Some(trc), Some(w)) = (profile.matrix, profile.trc.clone(), work.matrix)
         {
-            let wi = math::invert(&w).ok_or("singular working-space matrix")?;
-            let to = math::mul(&wi, &m);
-            return Ok(match math::invert(&to) {
+            let wi = cms_math::invert(&w).ok_or("singular working-space matrix")?;
+            let to = cms_math::mul(&wi, &m);
+            return Ok(match cms_math::invert(&to) {
                 Some(from) => Conv::Matrix { trc: Box::new(trc), to: f32m(&to), from: f32m(&from) },
                 // a gray profile seen as RGB: every colorant is the white point
                 None => Conv::Gray { trc: Box::new(trc[1].clone()) },
@@ -1049,7 +1051,7 @@ mod tests {
                 for (p, q) in a.as_chunks::<4>().0.iter().zip(b.as_chunks::<4>().0.iter()) {
                     assert_eq!(p[3].to_bits(), q[3].to_bits(), "{name} {sample:?}: alpha changed");
                     // linear data is compared as it displays (sRGB-encoded)
-                    let enc = |v: f32| if name.starts_with("linear") { photocraft_cms::curve::srgb_trc().eval_inverse(v.clamp(0.0, 1.0)) } else { v };
+                    let enc = |v: f32| if name.starts_with("linear") { li_color::curve::srgb_trc().eval_inverse(v.clamp(0.0, 1.0)) } else { v };
                     for c in 0..3 {
                         worst = worst.max((enc(p[c]) - enc(q[c])).abs());
                     }

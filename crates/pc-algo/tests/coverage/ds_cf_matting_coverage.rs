@@ -1,4 +1,5 @@
-use photocraft_algo::cf_matting::{MattingParams, closed_form_matting, closed_form_matting_tiled, estimate_foreground, trimap_from_mask};
+use li_matte::cf_matting::{MattingParams, trimap_from_mask};
+use photocraft_algo::cf_matting::{closed_form_matting, closed_form_matting_tiled, estimate_foreground};
 use photocraft_algo::segment::RgbImage;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 

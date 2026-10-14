@@ -13,6 +13,7 @@ workspace = true
 li-matte = { path = "../li-matte" }
 lightcraft-meta.workspace = true
 lightcraft-merge = { workspace = true }
+lightcraft-sysmem = { workspace = true }
 li-color.workspace = true
 li-raster = { path = "../li-raster" }
 photocraft-geom = { workspace = true }

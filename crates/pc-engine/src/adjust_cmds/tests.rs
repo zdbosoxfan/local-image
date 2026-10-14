@@ -197,7 +197,7 @@ fn color_lookup_builtin_data_and_errors() {
     assert!(s.execute("image.adjustments.colorLookup", json!({"data": "LUT_3D_SIZE 3\n0 0 0\n"})).is_err());
     assert!(s.execute("layer.newAdjustmentLayer.colorLookup", json!({"file": "/nonexistent/x.cube"})).is_err());
     let looks = s.execute("image.adjustments.colorLookup.list", json!({})).unwrap();
-    assert_eq!(looks.as_array().unwrap().len(), photocraft_cms::lutfile::BUILTIN.len());
+    assert_eq!(looks.as_array().unwrap().len(), li_color::lutfile::BUILTIN.len());
 }
 
 #[test]

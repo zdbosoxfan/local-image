@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
-    use crate::keymaps::*;
     use crate::{
         LightcraftApp,
         headless::Headless,
         state::{RightPanel, ViewMode},
     };
+    use li_keys::keymaps::CAPTURE_ONE;
     use serde_json::json;
     use std::time::Duration;
     #[test]

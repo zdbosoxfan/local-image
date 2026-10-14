@@ -298,8 +298,7 @@ pub fn state_key(bar: &MenuBar) -> u64 {
 
 // ----------------------------------------------------------------------------- shortcuts
 
-/// Public compatibility path for the one portable chord and native-event adapter.
-pub use li_keys::Chord;
+use li_keys::Chord;
 
 // ----------------------------------------------------------------------------- macOS layout
 

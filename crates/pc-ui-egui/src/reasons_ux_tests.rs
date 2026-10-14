@@ -348,7 +348,7 @@ fn reasons_ux_vector_clipping_and_compound_context_actions_make_and_release() {
 
 #[test]
 fn reasons_ux_details_history_real_click_reveals_raw_error() {
-    let old: crate::notices::Notice = serde_json::from_value(json!({"id":1,"title":"Old error","lines":[],"error":true})).unwrap();
+    let old: li_ui_kit::notices::Notice = serde_json::from_value(json!({"id":1,"title":"Old error","lines":[],"error":true})).unwrap();
     assert!(!old.status_only, "older saved notices retain the results-row behavior");
     let mut app = PhotocraftApp::new(Session::new(), Services::default());
     let raw = app.run("edit.fill", json!({})).unwrap_err();

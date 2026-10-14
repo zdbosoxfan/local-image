@@ -13,12 +13,13 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use li_raster::resample::Filter;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_engine::export::{ExportOptions, encode_image};
 use lightcraft_engine::media::develop;
 use lightcraft_pipeline::{Quality, RenderRequest, SourceInfo, StageCache};
 use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::{Filter, fit};
+use lightcraft_raster::resample::fit;
 
 /// Process CPU time in ms (all threads). The only `unsafe` is this libc clock read, in a dev-only example.
 #[allow(unsafe_code)]

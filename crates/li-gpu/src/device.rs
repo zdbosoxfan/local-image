@@ -151,11 +151,6 @@ pub fn acquire(backends: wgpu::Backends, health: DeviceHealth) -> Result<Arc<Sha
 /// Explicit test/CLI constructor. Software adapters are opt-in for numerical CI only.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_headless(backends: wgpu::Backends, software: bool, health: DeviceHealth) -> Result<SharedDevice, String> {
-    crate::backend::with_init_marker(backends, || create_headless_inner(backends, software, health))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn create_headless_inner(backends: wgpu::Backends, software: bool, health: DeviceHealth) -> Result<SharedDevice, String> {
     let mut descriptor = wgpu::InstanceDescriptor::new_without_display_handle();
     descriptor.backends = backends;
     let instance = wgpu::Instance::new(descriptor);

@@ -1,5 +1,7 @@
-use photocraft_algo::hdr::{self, MergeOptions, ToneMethod};
-use photocraft_algo::panorama::{self, AlignOptions, ImageFeatures, Layout, Motion, Placement, Projection, RoiImage};
+use lightcraft_merge::editor::hdr::{self as merge_hdr, MergeOptions};
+use lightcraft_merge::editor::panorama::{self as merge_pano, AlignOptions, ImageFeatures, Layout, Motion, Projection, RoiImage};
+use photocraft_algo::hdr::{self, ToneMethod};
+use photocraft_algo::panorama::{self, Placement};
 use photocraft_algo::tone::HdrToning;
 use photocraft_algo::transform::Homography;
 
@@ -161,7 +163,7 @@ fn placement_scaled_and_translated_are_consistent() {
 
 #[test]
 fn detect_small_image_is_safe() {
-    let f = panorama::detect(1, 1, &[0.5], None, 10);
+    let f = merge_pano::detect(1, 1, &[0.5], None, 10);
     assert_eq!(f.w, 1);
     assert_eq!(f.h, 1);
     assert!(f.points.is_empty());
@@ -170,8 +172,8 @@ fn detect_small_image_is_safe() {
 
 #[test]
 fn detect_many_empty_returns_empty() {
-    let imgs: Vec<panorama::PreparedImage> = Vec::new();
-    assert!(panorama::detect_many(&imgs, 100).is_empty());
+    let imgs: Vec<merge_pano::PreparedImage> = Vec::new();
+    assert!(merge_pano::detect_many(&imgs, 100).is_empty());
 }
 
 #[test]
@@ -218,7 +220,7 @@ fn photometric_identity_and_single_image() {
 
 #[test]
 fn photometric_factor_uses_gain_and_vignette() {
-    let ph = panorama::Photometric { gains: vec![vec![2.0]], vignette: [0.1, 0.0] };
+    let ph = merge_pano::Photometric { gains: vec![vec![2.0]], vignette: [0.1, 0.0] };
     assert!((ph.factor(0, 0, 0.0) - 0.5).abs() < 1e-6);
     assert!((ph.factor(0, 0, 1.0) - 1.0 / (2.0 * (0.1f64).exp()) as f32).abs() < 1e-5);
 }
@@ -229,28 +231,28 @@ fn seam_labels_single_image_covers_all() {
     let h = 3;
     let luma = vec![vec![0.5; w * h]];
     let cover = vec![vec![true; w * h]];
-    let labels = panorama::seam_labels(w, h, &luma, &cover, &[0]);
+    let labels = merge_pano::seam_labels(w, h, &luma, &cover, &[0]);
     assert_eq!(labels, vec![0i32; w * h]);
 }
 
 #[test]
 fn seam_labels_empty_grid_no_panic() {
-    let labels = panorama::seam_labels(0, 0, &[], &[], &[]);
+    let labels = merge_pano::seam_labels(0, 0, &[], &[], &[]);
     assert!(labels.is_empty());
 }
 
 #[test]
 fn blend_levels_expected_for_small_and_large() {
-    assert_eq!(panorama::blend_levels(1, 1), 1);
-    assert_eq!(panorama::blend_levels(16, 16), 1);
-    assert_eq!(panorama::blend_levels(17, 17), 2);
-    assert_eq!(panorama::blend_levels(256, 256), 5);
-    assert_eq!(panorama::blend_levels(512, 512), 6);
+    assert_eq!(merge_pano::blend_levels(1, 1), 1);
+    assert_eq!(merge_pano::blend_levels(16, 16), 1);
+    assert_eq!(merge_pano::blend_levels(17, 17), 2);
+    assert_eq!(merge_pano::blend_levels(256, 256), 5);
+    assert_eq!(merge_pano::blend_levels(512, 512), 6);
 }
 
 #[test]
 fn multiband_empty_returns_zeros() {
-    let (out, cov) = panorama::multiband(3, 2, &[], &[], 1);
+    let (out, cov) = merge_pano::multiband(3, 2, &[], &[], 1);
     assert_eq!(out, vec![0.0; 6]);
     assert_eq!(cov, vec![0.0; 6]);
 }
@@ -259,7 +261,7 @@ fn multiband_empty_returns_zeros() {
 fn multiband_single_image_levels1_identity() {
     let roi = RoiImage { x0: 0, y0: 0, w: 3, h: 2, ch: 1, px: vec![0.25; 6], alpha: vec![1.0; 6] };
     let weights = vec![vec![1.0; 6]];
-    let (out, cov) = panorama::multiband(3, 2, &[roi], &weights, 1);
+    let (out, cov) = merge_pano::multiband(3, 2, &[roi], &weights, 1);
     assert_eq!(out.len(), 6);
     assert_eq!(cov.len(), 6);
     for (o, c) in out.iter().zip(cov.iter()) {
@@ -271,38 +273,38 @@ fn multiband_single_image_levels1_identity() {
 #[test]
 fn estimate_exposures_empty_and_single() {
     let empty: Vec<&[[f32; 4]]> = Vec::new();
-    assert!(hdr::estimate_exposures(&empty).is_empty());
+    assert!(merge_hdr::estimate_exposures(&empty).is_empty());
 
     let img = vec![[0.5, 0.5, 0.5, 1.0]; 64];
     let refs: Vec<&[[f32; 4]]> = vec![img.as_slice()];
-    assert_eq!(hdr::estimate_exposures(&refs), vec![1.0]);
+    assert_eq!(merge_hdr::estimate_exposures(&refs), vec![1.0]);
 }
 
 #[test]
 fn mtb_offset_zero_levels_or_small_image() {
-    assert_eq!(hdr::mtb_offset(32, 32, &[], &[], 0), (0, 0));
-    assert_eq!(hdr::mtb_offset(15, 15, &[], &[], 4), (0, 0));
-    assert_eq!(hdr::mtb_offset(32, 15, &[], &[], 4), (0, 0));
+    assert_eq!(merge_hdr::mtb_offset(32, 32, &[], &[], 0), (0, 0));
+    assert_eq!(merge_hdr::mtb_offset(15, 15, &[], &[], 4), (0, 0));
+    assert_eq!(merge_hdr::mtb_offset(32, 15, &[], &[], 4), (0, 0));
 }
 
 #[test]
 fn mtb_offset_identical_images_is_zero() {
     let img = vec![0.5f32; 32 * 32];
     // Ties (every pixel excluded) must keep the centre offset, not the first corner searched.
-    assert_eq!(hdr::mtb_offset(32, 32, &img, &img, 4), (0, 0));
+    assert_eq!(merge_hdr::mtb_offset(32, 32, &img, &img, 4), (0, 0));
 }
 
 #[test]
 fn sample_pixels_count_zero_returns_empty() {
     let middle = vec![[0.5, 0.5, 0.5, 1.0]; 16 * 16];
-    let idx = hdr::sample_pixels(16, 16, &middle, 0);
+    let idx = merge_hdr::sample_pixels(16, 16, &middle, 0);
     assert!(idx.is_empty());
 }
 
 #[test]
 fn sample_pixels_indices_valid_unique_and_sorted() {
     let middle = vec![[0.5, 0.5, 0.5, 1.0]; 16 * 16];
-    let idx = hdr::sample_pixels(16, 16, &middle, 20);
+    let idx = merge_hdr::sample_pixels(16, 16, &middle, 20);
     assert!(!idx.is_empty());
     assert!(idx.len() <= 20);
     let mut prev = None;
@@ -317,7 +319,7 @@ fn sample_pixels_indices_valid_unique_and_sorted() {
 
 #[test]
 fn response_curve_empty_input_returns_fallback() {
-    let g = hdr::response_curve(&[], &[], 40.0);
+    let g = merge_hdr::response_curve(&[], &[], 40.0);
     assert_eq!(g.len(), 256);
     assert_eq!(g[128], 0.0);
     assert!(g.iter().all(|v| v.is_finite()));
@@ -326,7 +328,7 @@ fn response_curve_empty_input_returns_fallback() {
 #[test]
 fn response_curve_single_sample_is_finite_and_monotonic() {
     let z = vec![vec![100u8]];
-    let g = hdr::response_curve(&z, &[0.0], 1.0);
+    let g = merge_hdr::response_curve(&z, &[0.0], 1.0);
     assert_eq!(g.len(), 256);
     assert!(g.iter().all(|v| v.is_finite()));
     assert!(g.windows(2).all(|w| w[1] > w[0]));
@@ -337,7 +339,7 @@ fn merge_single_image_returns_finite_basic_result() {
     let img = vec![[0.5, 0.5, 0.5, 1.0]; 64];
     let refs = [img.as_slice()];
     let opts = MergeOptions { exposures: vec![1.0], remove_ghosts: false, ghost_base: None, response: None };
-    let m = hdr::merge(8, 8, &refs, &opts).unwrap();
+    let m = merge_hdr::merge(8, 8, &refs, &opts).unwrap();
     assert_eq!(m.px.len(), 64);
     assert_eq!(m.response.len(), 3);
     for curve in &m.response {
@@ -356,7 +358,7 @@ fn merge_single_image_returns_finite_basic_result() {
 #[test]
 fn merge_empty_input_is_an_error() {
     let opts = MergeOptions { exposures: Vec::new(), remove_ghosts: false, ghost_base: None, response: None };
-    assert!(hdr::merge(1, 1, &[], &opts).is_err());
+    assert!(merge_hdr::merge(1, 1, &[], &opts).is_err());
 }
 
 #[test]
@@ -365,13 +367,13 @@ fn merge_mismatched_inputs_are_errors() {
     let b = vec![[0.5, 0.5, 0.5, 1.0]; 63];
     let opts = |e: Vec<f64>| MergeOptions { exposures: e, remove_ghosts: false, ghost_base: None, response: None };
     // Different sized frames.
-    assert!(hdr::merge(8, 8, &[a.as_slice(), b.as_slice()], &opts(vec![1.0, 2.0])).is_err());
+    assert!(merge_hdr::merge(8, 8, &[a.as_slice(), b.as_slice()], &opts(vec![1.0, 2.0])).is_err());
     // Frames not matching w*h.
-    assert!(hdr::merge(9, 8, &[a.as_slice()], &opts(vec![1.0])).is_err());
+    assert!(merge_hdr::merge(9, 8, &[a.as_slice()], &opts(vec![1.0])).is_err());
     // Exposure count mismatch.
-    assert!(hdr::merge(8, 8, &[a.as_slice(), a.as_slice()], &opts(vec![1.0])).is_err());
+    assert!(merge_hdr::merge(8, 8, &[a.as_slice(), a.as_slice()], &opts(vec![1.0])).is_err());
     // Zero size.
-    assert!(hdr::merge(0, 8, &[&[][..]], &opts(vec![1.0])).is_err());
+    assert!(merge_hdr::merge(0, 8, &[&[][..]], &opts(vec![1.0])).is_err());
 }
 
 fn textured(w: usize, h: usize) -> Vec<f32> {
@@ -417,12 +419,12 @@ fn mtb_offset_finds_real_shifts_both_axes() {
                     img[(y as usize) * w + x as usize] * 0.6
                 })
                 .collect();
-            let got = hdr::mtb_offset(w, h, &shifted, &img, 4);
+            let got = merge_hdr::mtb_offset(w, h, &shifted, &img, 4);
             assert_eq!(got, (dx, dy), "shift ({dx},{dy})");
         }
     }
     // Identical textured images stay at zero too.
-    assert_eq!(hdr::mtb_offset(w, h, &img, &img, 4), (0, 0));
+    assert_eq!(merge_hdr::mtb_offset(w, h, &img, &img, 4), (0, 0));
 }
 
 #[test]

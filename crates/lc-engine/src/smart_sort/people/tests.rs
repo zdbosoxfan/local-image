@@ -559,7 +559,7 @@ fn face_cache_atomic_append_failed_retry_corruption_and_no_faces_records() {
     let before = std::fs::read(&path).unwrap();
     store.insert("mock-faces", "b".into(), vec![]).unwrap();
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+        let _fault = li_fs::fail_writes_after(4);
         assert!(store.save().is_err());
     }
     assert_eq!(std::fs::read(&path).unwrap(), before);
@@ -668,14 +668,14 @@ fn malformed_people_json_recovers_and_failed_change_is_atomic() {
     let meta = s.catalog.photo(a).unwrap().meta.clone();
     let undo = s.undo.len();
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+        let _fault = li_fs::fail_writes_after(4);
         assert!(s.execute("smartSort.namePerson", &json!({"person":id,"name":"Changed"})).is_err());
     }
     assert_eq!(s.smart.people.data, before);
     assert_eq!(s.catalog.photo(a).unwrap().meta, meta);
     assert_eq!(s.undo.len(), undo);
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+        let _fault = li_fs::fail_writes_after(4);
         assert!(s.execute("edit.undo", &json!({})).is_err());
     }
     assert_eq!(s.undo.len(), undo);
@@ -822,7 +822,7 @@ fn analysis_handles_videos_unreadable_unknown_and_retries_pending_save() {
     assert_eq!(r.failed.len(), 2);
     s.media.preview_loader = Some(Arc::new(|_, _| Some(image(&[[255, 0, 0]]))));
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+        let _fault = li_fs::fail_writes_after(4);
         assert!(analyze(&mut s, &[a], &cancel, &|_, _| {}).is_err());
     }
     assert_eq!(s.smart.people.store.len("mock-faces"), 1);

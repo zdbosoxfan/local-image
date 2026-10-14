@@ -7,6 +7,7 @@
 use crate::common;
 use common::Rng;
 use common::tiffgen::*;
+use lightcraft_tiff::exif::orientation as exif_orientation;
 use photocraft_codecs::*;
 
 const ORDERS: [(bool, bool); 4] = [(true, false), (false, false), (true, true), (false, true)];

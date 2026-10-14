@@ -675,7 +675,7 @@ fn cancelled_filters_return_none_and_progress_never_regresses() {
     let p = FilterParams::GaussianBlur { radius: 3.0 };
     let area = output_area(&p, s.content_bounds(), R, None);
     let yes = || true;
-    assert!(apply_tiled_with(&s, &p, area, R, None, 16, Some(R), &photocraft_raster::Interrupt::cancel_only(&yes)).is_none());
+    assert!(apply_tiled_with(&s, &p, area, R, None, 16, Some(R), &lightcraft_sysmem::jobs::Interrupt::cancel_only(&yes)).is_none());
     // Tile workers report progress from their own threads, so values can arrive out of order;
     // consumers keep the high-water mark (as `JobCtl::report` does).
     // Non-negative f32s order like their bits, so `fetch_max` on the bits needs no lock.
@@ -687,7 +687,7 @@ fn cancelled_filters_return_none_and_progress_never_regresses() {
         high.fetch_max(f.to_bits(), Ordering::Relaxed);
         calls.fetch_add(1, Ordering::Relaxed);
     };
-    let out = apply_tiled_with(&s, &p, area, R, None, 16, Some(R), &photocraft_raster::Interrupt::new(&no, &progress)).unwrap();
+    let out = apply_tiled_with(&s, &p, area, R, None, 16, Some(R), &lightcraft_sysmem::jobs::Interrupt::new(&no, &progress)).unwrap();
     assert_eq!(f32::from_bits(high.load(Ordering::Relaxed)), 1.0);
     assert!(calls.load(Ordering::Relaxed) >= 1);
     assert_eq!(out.read_region(R), apply_tiled(&s, &p, area, R, None, 16, Some(R)).read_region(R));

@@ -42,7 +42,7 @@ pub fn clear_dir(dir: &Path) {
 /// profile so the decoder returns the same linear values).
 fn encode(width: usize, height: usize, rgb: &[[f32; 3]]) -> Result<Vec<u8>> {
     use lightcraft_codecs::{EncodeImage, EncodeMeta, NamedSpace, Samples, TiffCompression, Trc};
-    let enc = |v: f32| (lightcraft_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 65535.0 + 0.5) as u16;
+    let enc = |v: f32| (li_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 65535.0 + 0.5) as u16;
     let samples: Vec<u16> = rgb.iter().flat_map(|p| p.map(enc)).collect();
     let icc = lightcraft_codecs::icc::write_matrix_trc(&NamedSpace::Rec2020.rgb_space(), &Trc::Srgb);
     let img = EncodeImage::new(width as u32, height as u32, 3, Samples::U16(&samples));

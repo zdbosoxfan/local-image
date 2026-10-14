@@ -166,7 +166,7 @@ impl AiSettings {
                 Err(error) => return Err(error.into()),
             };
             root.as_object_mut().context("Preferences must be an object; the original was not replaced")?.insert("ai".into(), value);
-            write_atomic(&path, serde_json::to_string_pretty(&root)?.as_bytes())?;
+            li_fs::atomic_write(&path, serde_json::to_string_pretty(&root)?.as_bytes())?;
         }
         publish(self);
         refresh_model_dir_cache(&config_path(), self);
@@ -186,16 +186,10 @@ impl AiSettings {
         m.insert("hardware_guide_dismissed".into(), self.hardware_guide_dismissed.into());
         m.insert("lora_show_adult_content".into(), self.lora_show_adult_content.into());
         m.insert("auto_start_comfy".into(), self.auto_start.into());
-        write_atomic(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())?;
+        li_fs::atomic_write(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())?;
         refresh_model_dir_cache(path, self);
         Ok(())
     }
-}
-
-/// Durable shared writer; retains automatic creation of settings folders.
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
-    li_fs::atomic_write(path, bytes)?;
-    Ok(())
 }
 
 #[cfg(test)]

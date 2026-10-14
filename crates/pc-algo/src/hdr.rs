@@ -1,8 +1,9 @@
-//! Rendered-source HDR compatibility facade; shared merge backend in lightcraft-merge.
+//! HDR toning of rendered sources; the merge itself is `lightcraft_merge::editor::hdr`.
 #![allow(clippy::needless_range_loop)]
 use crate::photo_util::{linear_to_srgb, srgb_to_linear};
 use crate::tone::HdrToning;
-pub use lightcraft_merge::editor::hdr::{MergeOptions, Merged, estimate_exposures, merge, merge_with_progress, mtb_offset, response_curve, sample_pixels};
+#[cfg(test)]
+use lightcraft_merge::editor::hdr::{MergeOptions, Merged, estimate_exposures, merge, merge_with_progress, mtb_offset, response_curve};
 fn luma(c: [f32; 4]) -> f32 {
     li_color::luminance_709([c[0], c[1], c[2]])
 }

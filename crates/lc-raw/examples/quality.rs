@@ -58,7 +58,7 @@ fn preview() {
             })
             .unwrap()
             .unwrap();
-        let down = lightcraft_raster::resample::fit(&full, p.width, p.height, lightcraft_raster::resample::Filter::Box);
+        let down = lightcraft_raster::resample::fit(&full, p.width, p.height, li_raster::resample::Filter::Box);
         let mut max = 0.0f32;
         for (a, b) in p.data.iter().zip(&down.data) {
             for c in 0..3 {

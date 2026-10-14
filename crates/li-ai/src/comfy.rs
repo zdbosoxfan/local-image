@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
+use lightcraft_sysmem::jobs::Cancelled;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -117,10 +118,6 @@ impl std::fmt::Display for Busy {
     }
 }
 impl std::error::Error for Busy {}
-
-/// The error a cancelled job ends with (test with `err.is::<Cancelled>()`): the app's one
-/// cancel error, shared with `pc-raster` and `li-seg`.
-pub use lightcraft_sysmem::Cancelled;
 
 /// ComfyUI's node inventory (`/object_info`).
 #[derive(Clone, Debug, Default)]
@@ -797,7 +794,7 @@ mod tests {
         shared.cancel();
         assert!(ctl.is_cancelled() && ctl.cancel_flag().load(Ordering::SeqCst));
         assert!(ctl.check().unwrap_err().is::<Cancelled>());
-        assert!(anyhow::Error::new(ctl.interrupt().check().unwrap_err()).is::<li_seg::Cancelled>());
+        assert!(anyhow::Error::new(ctl.interrupt().check().unwrap_err()).is::<lightcraft_sysmem::jobs::Cancelled>());
         let wrapped = JobControl::from(shared);
         assert!(wrapped.is_cancelled());
     }

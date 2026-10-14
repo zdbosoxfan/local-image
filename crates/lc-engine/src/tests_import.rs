@@ -489,7 +489,7 @@ fn damaged_smart_previews_are_rebuilt_and_failed_writes_leave_none() {
     let dir = s.media.smart_dir.clone().unwrap();
     let file = dir.join(crate::smart::file_name(s.catalog.photo(id).unwrap()));
     {
-        let _fault = lightcraft_catalog::safe_file::fail_writes_after(64);
+        let _fault = li_fs::fail_writes_after(64);
         let r = s.execute("library.smartPreviews", &json!({})).unwrap();
         assert_eq!((r["built"].as_u64(), r["failed"].as_array().map(Vec::len)), (Some(0), Some(1)), "{r}");
     }
@@ -708,7 +708,7 @@ fn assisted_culling_groups_bursts_and_scores_focus() {
             .data
             .iter()
             .map(|c| {
-                let e = |v: f32| (lightcraft_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0).round() as u8;
+                let e = |v: f32| (li_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0).round() as u8;
                 [e(c[0]), e(c[1]), e(c[2]), 255]
             })
             .collect();
@@ -1250,7 +1250,7 @@ fn safety_second_copy_move_add_collision_and_failure_keep_source() {
         let backup = second.join(format!("{mode}.png"));
         assert_eq!(std::fs::read(&backup).unwrap(), original);
         if source.exists() {
-            assert!(!lightcraft_catalog::safe_file::same_file(&source, &backup), "backup must be an independent copy");
+            assert!(!li_fs::same_file(&source, &backup), "backup must be an independent copy");
         }
         assert_eq!(std::fs::read(backup.with_extension("xmp")).unwrap(), b"sidecar test bytes");
         assert_eq!(source.exists(), mode != "move");
@@ -1264,7 +1264,7 @@ fn safety_second_copy_move_add_collision_and_failure_keep_source() {
         let source = root.join(format!("fail-{mode}.png"));
         write_png(&source, 99);
         let mut s = Session::new().with_fs();
-        let fault = lightcraft_catalog::safe_file::fail_writes_after(5);
+        let fault = li_fs::fail_writes_after(5);
         let result = s.execute("library.import", &json!({"paths":[source],"mode":mode,"destination":primary,"secondCopy":second})).unwrap();
         drop(fault);
         assert_eq!(ids(&result, "failed"), 1, "{result}");
@@ -1277,7 +1277,7 @@ fn safety_second_copy_move_add_collision_and_failure_keep_source() {
     let mut session = Session::new().with_fs();
     session.execute("library.import", &json!({"paths":[local],"local":true})).unwrap();
     assert!(session.catalog.photos().next().unwrap().local);
-    let fault = lightcraft_catalog::safe_file::fail_writes_after(5);
+    let fault = li_fs::fail_writes_after(5);
     let failed = session.execute("library.import", &json!({"paths":[local],"secondCopy":second})).unwrap();
     drop(fault);
     assert_eq!(ids(&failed, "failed"), 1);

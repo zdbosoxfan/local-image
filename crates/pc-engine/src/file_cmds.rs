@@ -10,7 +10,8 @@
 
 use std::sync::Arc;
 
-use photocraft_algo::resample::{Resample, resize_surface, translate_surface};
+use li_raster::resample::Resample;
+use photocraft_algo::resample::{resize_surface, translate_surface};
 use photocraft_color::{ColorMode, PixelFormat};
 use photocraft_doc::{Affine, Document, Layer, LayerContent, LayerId, SmartObject, SmartSource};
 use photocraft_geom::Rect;
@@ -87,9 +88,9 @@ pub(crate) fn read_file(path: &str) -> Result<Vec<u8>> {
 
 #[cfg(not(target_arch = "wasm32"))]
 /// Every file the engine writes goes through here: crash-safe (temp file + fsync + rename, see
-/// [`photocraft_format::atomic`]), so a failed save never destroys the previous file.
+/// [`li_fs`]), so a failed save never destroys the previous file.
 pub(crate) fn write_file(path: &str, bytes: &[u8]) -> Result<()> {
-    photocraft_format::atomic_write(std::path::Path::new(path), bytes).map_err(|e| EngineError::Other(e.to_string()))
+    li_fs::atomic_write(std::path::Path::new(path), bytes).map_err(|e| EngineError::Other(e.to_string()))
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
@@ -528,8 +529,8 @@ fn place(s: &mut Session, p: &Value, linked: bool) -> Result<Value> {
 
 // ---------- File Info (XMP) ----------
 
-/// Compatibility entry points; all XML parsing and editing lives in the shared backend.
-pub use lightcraft_meta::{read_file_info, write_file_info};
+// All XMP parsing and editing lives in the shared backend.
+use lightcraft_meta::read_file_info;
 
 fn file_info(s: &mut Session, p: &Value) -> Result<Value> {
     let keys = ["title", "author", "authorTitle", "description", "keywords", "copyright", "copyrightStatus", "copyrightUrl"];

@@ -12,7 +12,7 @@
 //! new content, but existing files are never overwritten. Owned files are cleaned on failures.
 //! [`AtomicFs`] retains the editor's injectable filesystem seam and supports capability adapters.
 
-pub use photocraft_raster::Interrupt;
+use lightcraft_sysmem::jobs::Interrupt;
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};

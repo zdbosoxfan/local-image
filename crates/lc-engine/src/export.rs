@@ -4,7 +4,7 @@
 //! published primaries and curves, optional output sharpening and a JPEG file-size limit. Pure (bytes in, bytes out) so the desktop
 //! app, CLI, MCP and the web build share it; writing the file is the caller's job.
 
-pub use li_raster::resample::ResampleChoice;
+use li_raster::resample::ResampleChoice;
 pub use lightcraft_codecs::TiffCompression;
 use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, NamedSpace, Samples, encode, icc};
 use lightcraft_meta::{DateTime, Gps, Metadata};
@@ -470,7 +470,7 @@ fn logo_coverage(width: usize, height: usize, wm: &Watermark, mut blend_px: impl
         let a = p[3] as f32 / 255.0;
         [p[0] as f32 * a, p[1] as f32 * a, p[2] as f32 * a, a]
     });
-    let scaled = lightcraft_raster::resample::resize(&pre, lw, lh, lightcraft_raster::resample::Filter::Mitchell);
+    let scaled = lightcraft_raster::resample::resize(&pre, lw, lh, li_raster::resample::Filter::Mitchell);
     let inset = wm.inset.clamp(0.0, 0.4) * width.min(height) as f32;
     let (w, h, lwf, lhf) = (width as f32, height as f32, lw as f32, lh as f32);
     use Anchor::*;
@@ -938,8 +938,8 @@ pub fn srgb8_in(space: OutputSpace, c: [u8; 3]) -> [u8; 3] {
     if space == OutputSpace::Srgb {
         return c;
     }
-    let lin = c.map(lightcraft_color::transfer::decode_srgb8);
-    let m = lightcraft_color::SRGB.to_space(&space.rgb_space()).to_f32();
+    let lin = c.map(li_color::transfer::decode_srgb8);
+    let m = li_color::SRGB.to_space(&space.rgb_space()).to_f32();
     let t = space.trc();
     std::array::from_fn(|i| {
         let v = m[i][0] * lin[0] + m[i][1] * lin[1] + m[i][2] * lin[2];
@@ -1520,7 +1520,7 @@ pub fn export_batch(
 }
 
 /// Write an exported or rendered file on disk: its folder is created if needed, and the file is
-/// replaced atomically ([`lightcraft_catalog::safe_file::write_atomic_nosync`]: a temp file
+/// replaced atomically ([`li_fs::write_atomic_nosync`]: a temp file
 /// renamed into place), so a failure part-way leaves any previous file intact and no truncated
 /// one. Not synced to disk (issue #134): an export can always be made again from the original.
 /// The native writer behind exports, renders and screenshots (app, CLI, MCP).
@@ -1535,7 +1535,7 @@ pub fn write_file_durable(path: &str, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
-    use lightcraft_catalog::safe_file::{write_atomic, write_atomic_nosync};
+    use li_fs::{write_atomic, write_atomic_nosync};
     let p = std::path::Path::new(path);
     if let Some(dir) = p.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -1616,12 +1616,12 @@ fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage
     } else {
         (opts.effective_space(), opts.effective_depth())
     };
-    let matrix = lightcraft_color::SRGB.to_space(&space.rgb_space());
+    let matrix = li_color::SRGB.to_space(&space.rgb_space());
     let trc = space.trc();
     let mut values = Vec::with_capacity(image.data.len() * 3);
     let linear = depth == OutputDepth::F32Linear;
     for pixel in &mut image.data {
-        let rgb = matrix.apply([pixel[0], pixel[1], pixel[2]].map(|v| lightcraft_color::transfer::decode_srgb8(v) as f64));
+        let rgb = matrix.apply([pixel[0], pixel[1], pixel[2]].map(|v| li_color::transfer::decode_srgb8(v) as f64));
         for c in 0..3 {
             let encoded = trc.encode(rgb[c] as f32).clamp(0.0, 1.0);
             values.push(if linear { rgb[c] as f32 } else { encoded });
@@ -2647,7 +2647,7 @@ mod tests {
 
     #[test]
     fn enhance_samples_keep_source_profile_float_encoding() {
-        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let profile = icc::write_matrix_trc(&li_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
         let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
         let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
         let options = ExportOptions { source_encoding: Some(Box::new(SourceEncoding { space: source, profile })), ..Default::default() };
@@ -2655,9 +2655,7 @@ mod tests {
         let deep = enhanced_samples(&mut image, &options).unwrap();
         assert_eq!(deep.space, OutputSpace::Rec2020);
         let DeepSamples::F32(values) = deep.samples else { panic!("source encoding requires linear floats") };
-        let expected = lightcraft_color::SRGB
-            .to_space(&lightcraft_color::REC2020)
-            .apply([50, 120, 200].map(|v| lightcraft_color::transfer::decode_srgb8(v) as f64));
+        let expected = li_color::SRGB.to_space(&li_color::REC2020).apply([50, 120, 200].map(|v| li_color::transfer::decode_srgb8(v) as f64));
         for (actual, expected) in values.iter().zip(expected) {
             assert!((*actual as f64 - expected).abs() < 1e-6);
         }
@@ -2665,7 +2663,7 @@ mod tests {
 
     #[test]
     fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
-        let profile = icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+        let profile = icc::write_matrix_trc(&li_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
         let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };
         let source = lightcraft_codecs::SourceSpace { named: None, to_xyz_d50, trc: Some(trc), origin: lightcraft_codecs::SpaceOrigin::IccMatrixTrc };
         let linear = [0.2, 0.4, 0.1];
@@ -2794,7 +2792,7 @@ mod tests {
 
     /// A flat field of a saturated green inside Display P3 but outside sRGB, rendered into `space`.
     fn p3_green(space: OutputSpace) -> Rgba8 {
-        use lightcraft_color::{DISPLAY_P3, REC2020};
+        use li_color::{DISPLAY_P3, REC2020};
         let c = DISPLAY_P3.to_space(&REC2020).apply_f32([0.04, 0.45, 0.04]);
         let src = lightcraft_raster::Rgb32f::filled(16, 16, c);
         let req = lightcraft_pipeline::RenderRequest { space, ..lightcraft_pipeline::RenderRequest::fit(16, 16) };
@@ -2805,7 +2803,7 @@ mod tests {
     /// recognised space of the embedded profile.
     fn decoded_in_srgb(bytes: &[u8]) -> ([f32; 3], Option<NamedSpace>) {
         let d = lightcraft_codecs::decode(bytes, Default::default()).expect("decodes");
-        let m = d.space.to_space(&lightcraft_color::SRGB);
+        let m = d.space.to_space(&li_color::SRGB);
         (m.apply_f32(d.image.get(8, 8)), d.space.named)
     }
 

@@ -13,8 +13,7 @@ use crate::LightcraftApp;
 use crate::menus::MenuEntry;
 use crate::state::{RightPanel, ViewMode};
 
-/// Compatibility path for the shared parameterized command menu model.
-pub use li_commands::menu::CommandMenuNode as MenuNode;
+use li_commands::menu::CommandMenuNode;
 
 /// User-defined names in parameterized menus are data, not message keys.
 pub fn display_item_label<'a>(id: &str, params: &Value, label: &'a str) -> &'a str {
@@ -267,8 +266,8 @@ fn host_supports(app: &LightcraftApp, id: &str) -> bool {
     }
 }
 
-fn item(id: &str, params: Value, label: impl Into<String>, shortcut: Option<&str>, enabled: bool, checked: Option<bool>) -> MenuNode {
-    MenuNode::Item { id: id.into(), params, label: label.into(), shortcut: shortcut.map(str::to_string), enabled, checked }
+fn item(id: &str, params: Value, label: impl Into<String>, shortcut: Option<&str>, enabled: bool, checked: Option<bool>) -> CommandMenuNode {
+    CommandMenuNode::Item { id: id.into(), params, label: label.into(), shortcut: shortcut.map(str::to_string), enabled, checked }
 }
 
 /// Checked state of toggles and radio items.
@@ -344,7 +343,7 @@ fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
 }
 
 /// The parameterized submenus.
-fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
+fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<CommandMenuNode>> {
     let active = app.session.active().and_then(|id| app.session.catalog.photo(id).cloned());
     let has = active.is_some();
     Some(match name {
@@ -362,7 +361,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
                 ),
                 item("library.buildPreviews", json!({"size": "full"}), format!("Build 1:1 Previews ({scope})"), None, !running, None),
                 item("library.cancelPreviews", Value::Null, "Stop Building Previews", None, running, None),
-                MenuNode::Separator,
+                CommandMenuNode::Separator,
                 // (read and written on a worker thread: the originals may be on a slow drive)
                 item(
                     "library.smartPreviews",
@@ -380,7 +379,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
                     app.session.media.smart_dir.is_some() && !running,
                     None,
                 ),
-                MenuNode::Separator,
+                CommandMenuNode::Separator,
                 item("library.clearPreviews", Value::Null, "Discard Preview Cache", None, true, None),
             ]
         }
@@ -402,7 +401,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
         })
         .collect(),
         "Set Color Label" => {
-            let mut v: Vec<MenuNode> = lightcraft_catalog::ColorLabel::ALL
+            let mut v: Vec<CommandMenuNode> = lightcraft_catalog::ColorLabel::ALL
                 .iter()
                 .zip([Some("6"), Some("7"), Some("8"), Some("9"), None])
                 .map(|(l, sc)| {
@@ -421,9 +420,9 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
                     )
                 })
                 .collect();
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             v.push(item("photo.label", json!({"label": "none"}), "None", None, has, Some(active.as_ref().is_some_and(|p| p.label.is_none()))));
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             // label sets: each a checkable item; Edit… names them
             let sets = lightcraft_engine::cmd::manage::label_sets_json(&app.session);
             let current = sets["current"].as_str().map(str::to_string);
@@ -449,7 +448,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
         "Sort" => {
             use lightcraft_catalog::SortKey::*;
             let cur = app.session.sort;
-            let mut v: Vec<MenuNode> = [
+            let mut v: Vec<CommandMenuNode> = [
                 ("Capture Date", CaptureDate, "captureDate"),
                 ("Import Date", ImportDate, "importDate"),
                 ("Modified Date", EditDate, "editDate"),
@@ -462,7 +461,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
             .map(|(label, key, k)| item("library.sort", json!({"key": k}), label, None, true, Some(cur.key == key)))
             .collect();
             v.push(item("library.shuffle", json!({}), "Reshuffle", None, cur.key == Random, None));
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             // a shuffle has no direction worth choosing
             v.push(item(
                 "library.sort",
@@ -480,7 +479,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
                 cur.key != Random,
                 (cur.key != Random).then_some(!cur.ascending),
             ));
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             use lightcraft_catalog::GroupBy;
             let groups = [
                 ("Group by Date: Automatic", GroupBy::Auto, "auto"),
@@ -502,29 +501,29 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
         }
         "Metadata Preset" => {
             let sel = !app.session.selection.ids.is_empty() || has;
-            let mut v: Vec<MenuNode> = app
+            let mut v: Vec<CommandMenuNode> = app
                 .session
                 .metadata_presets
                 .iter()
                 .map(|m| item("metadata.applyPreset", json!({"name": m.name}), m.name.clone(), None, sel, None))
                 .collect();
             if !v.is_empty() {
-                v.push(MenuNode::Separator);
+                v.push(CommandMenuNode::Separator);
             }
             v.push(item("dialog.saveMetadataPreset", Value::Null, "Save Metadata Preset…", None, has, None));
             v
         }
         "Select by" => {
-            let mut v: Vec<MenuNode> = [("pick", "Picks"), ("reject", "Rejects"), ("none", "Unflagged")]
+            let mut v: Vec<CommandMenuNode> = [("pick", "Picks"), ("reject", "Rejects"), ("none", "Unflagged")]
                 .into_iter()
                 .map(|(f, label)| item("library.selectBy", json!({"flag": f}), label, None, true, None))
                 .collect();
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             v.extend((1..=5u8).map(|r| {
                 item("library.selectBy", json!({"rating": r}), li_i18n::tr_format!("{} and higher", "★".repeat(r as usize)), None, true, None)
             }));
             v.push(item("library.selectBy", json!({"rating": 0, "ratingOp": "eq"}), "Unrated", None, true, None));
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             v.extend(lightcraft_catalog::ColorLabel::ALL.iter().map(|l| {
                 let name = format!("{l:?}");
                 item("library.selectBy", json!({"label": name.to_lowercase()}), li_i18n::tr_format!("{name} Label", name = name), None, true, None)
@@ -533,16 +532,16 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
         }
         "Export with Preset" => {
             let sel = !app.session.selection.ids.is_empty() || has;
-            let mut v: Vec<MenuNode> = Vec::new();
+            let mut v: Vec<CommandMenuNode> = Vec::new();
             let mut builtin = true;
             for (p, b) in app.session.all_export_presets() {
                 if builtin && !b {
-                    v.push(MenuNode::Separator);
+                    v.push(CommandMenuNode::Separator);
                 }
                 builtin = b;
                 v.push(item("app.export", json!({"preset": p.name, "background": true}), p.name, None, sel, None));
             }
-            v.push(MenuNode::Separator);
+            v.push(CommandMenuNode::Separator);
             v.push(item("dialog.export", Value::Null, "Custom…", None, sel, None));
             v
         }
@@ -550,10 +549,10 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
             let sel = !app.session.selection.ids.is_empty() || has;
             let mut albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.name.clone(), a.id.0)).collect();
             albums.sort_by_key(|(n, _)| n.to_lowercase());
-            let mut v: Vec<MenuNode> =
+            let mut v: Vec<CommandMenuNode> =
                 albums.into_iter().map(|(name, id)| item("album.addPhotos", json!({"id": id}), name, None, sel, None)).collect();
             if !v.is_empty() {
-                v.push(MenuNode::Separator);
+                v.push(CommandMenuNode::Separator);
             }
             v.push(item("dialog.newAlbum", Value::Null, "New Collection…", None, true, None));
             v
@@ -562,42 +561,42 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
     })
 }
 
-fn node(app: &LightcraftApp, e: &MenuEntry) -> MenuNode {
+fn node(app: &LightcraftApp, e: &MenuEntry) -> CommandMenuNode {
     item(&e.id, Value::Null, live_label(app, &e.id, &e.label), e.shortcut.as_deref(), e.enabled, checked(app, &e.id))
 }
 
 /// Drop leading, trailing and doubled separators (also inside submenus) and empty submenus.
-fn tidy(v: Vec<MenuNode>) -> Vec<MenuNode> {
-    let mut out: Vec<MenuNode> = Vec::with_capacity(v.len());
+fn tidy(v: Vec<CommandMenuNode>) -> Vec<CommandMenuNode> {
+    let mut out: Vec<CommandMenuNode> = Vec::with_capacity(v.len());
     for n in v {
         let n = match n {
-            MenuNode::Submenu { label, children } => {
+            CommandMenuNode::Submenu { label, children } => {
                 let children = tidy(children);
                 if children.is_empty() {
                     continue;
                 }
-                MenuNode::Submenu { label, children }
+                CommandMenuNode::Submenu { label, children }
             }
             n => n,
         };
-        if n == MenuNode::Separator && out.last().is_none_or(|l| *l == MenuNode::Separator) {
+        if n == CommandMenuNode::Separator && out.last().is_none_or(|l| *l == CommandMenuNode::Separator) {
             continue;
         }
         out.push(n);
     }
-    while out.last() == Some(&MenuNode::Separator) {
+    while out.last() == Some(&CommandMenuNode::Separator) {
         out.pop();
     }
     out
 }
 
 /// The whole menu bar: (title, items) per menu in [`MENUS`] order.
-pub fn menu_bar(app: &LightcraftApp) -> Vec<(String, Vec<MenuNode>)> {
+pub fn menu_bar(app: &LightcraftApp) -> Vec<(String, Vec<CommandMenuNode>)> {
     li_i18n::set_current(app.ui.language);
     menu_bar_with_bindings(app, &crate::shortcuts::catalog::effective(app))
 }
 
-fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::catalog::Binding, String)]) -> Vec<(String, Vec<MenuNode>)> {
+fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::catalog::Binding, String)]) -> Vec<(String, Vec<CommandMenuNode>)> {
     let entries: Vec<MenuEntry> = crate::menus::menu_entries_with_bindings(app, bindings)
         .into_iter()
         .filter(|e| !HIDDEN.contains(&e.id.as_str()) && host_supports(app, &e.id))
@@ -608,7 +607,7 @@ fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::ca
         let layout = LAYOUT.iter().find(|(t, _)| t == title).map(|(_, l)| *l).unwrap_or(&[]);
         let mut items = Vec::new();
         let mut last = Vec::new();
-        let sub = |name: &str, used: &mut [bool]| -> Vec<MenuNode> {
+        let sub = |name: &str, used: &mut [bool]| -> Vec<CommandMenuNode> {
             let mut children = expanded(app, name).unwrap_or_default();
             let mut dialogs = Vec::new();
             for (i, e) in entries.iter().enumerate() {
@@ -619,24 +618,24 @@ fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::ca
                 }
             }
             if !dialogs.is_empty() {
-                children.push(MenuNode::Separator);
+                children.push(CommandMenuNode::Separator);
                 children.extend(dialogs);
             }
             children
         };
         for slot in layout {
             if *slot == "---" {
-                items.push(MenuNode::Separator);
+                items.push(CommandMenuNode::Separator);
             } else if let Some(name) = slot.strip_prefix('@') {
                 let children = sub(name, &mut used);
-                items.push(MenuNode::Submenu { label: name.to_string(), children });
+                items.push(CommandMenuNode::Submenu { label: name.to_string(), children });
             } else if let Some(i) = entries.iter().position(|e| e.id == *slot && e.menu.first().map(String::as_str) == Some(title)) {
                 used[i] = true;
                 if LAST.contains(slot) { last.push(node(app, &entries[i])) } else { items.push(node(app, &entries[i])) }
             }
         }
         // everything else that names this menu
-        items.push(MenuNode::Separator);
+        items.push(CommandMenuNode::Separator);
         let mut extra_subs: Vec<String> = Vec::new();
         for (i, e) in entries.iter().enumerate() {
             if used[i] || e.menu.first().map(String::as_str) != Some(title) {
@@ -651,21 +650,21 @@ fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::ca
         }
         for name in extra_subs {
             let children = sub(&name, &mut used);
-            items.push(MenuNode::Submenu { label: name, children });
+            items.push(CommandMenuNode::Submenu { label: name, children });
         }
         if !last.is_empty() {
-            items.push(MenuNode::Separator);
+            items.push(CommandMenuNode::Separator);
             items.extend(last);
         }
         bar.push((title.to_string(), tidy(items)));
     }
     // Expanded rows use exactly the same effective bindings as keyboard dispatch. This also
     // respects explicit unbinding and parent profiles for rating/flag/label pseudo commands.
-    fn shortcuts(nodes: &mut [MenuNode], bindings: &[(crate::shortcuts::catalog::Binding, String)]) {
+    fn shortcuts(nodes: &mut [CommandMenuNode], bindings: &[(crate::shortcuts::catalog::Binding, String)]) {
         for node in nodes {
             match node {
-                MenuNode::Submenu { children, .. } => shortcuts(children, bindings),
-                MenuNode::Item { id, params, shortcut, .. } => {
+                CommandMenuNode::Submenu { children, .. } => shortcuts(children, bindings),
+                CommandMenuNode::Item { id, params, shortcut, .. } => {
                     let command = match id.as_str() {
                         "photo.rate" => params["rating"].as_u64().map(|r| format!("rate:{r}:0")),
                         "photo.label" => params["label"].as_str().map(|label| format!("label:{label}")),
@@ -683,7 +682,7 @@ fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::ca
                         *shortcut = Some(key.clone());
                     }
                 }
-                MenuNode::Separator => {}
+                CommandMenuNode::Separator => {}
             }
         }
     }
@@ -698,14 +697,14 @@ fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::ca
 pub fn native_menu_bar(app: &LightcraftApp) -> li_commands::menu::MenuBar {
     li_i18n::set_current(app.ui.language);
     use li_commands::menu::{Item, ItemRole, Menu, MenuBar, MenuRole, Node};
-    fn convert(nodes: Vec<MenuNode>) -> Vec<Node> {
+    fn convert(nodes: Vec<CommandMenuNode>) -> Vec<Node> {
         nodes
             .into_iter()
             .map(|node| match node {
-                MenuNode::Separator => Node::Separator,
-                MenuNode::Submenu { label, children } => Node::Submenu { label, children: convert(children), role: None },
-                MenuNode::Item { id, params, label, shortcut, enabled, checked } => Node::Item(Item {
-                    id: MenuNode::key(&id, &params),
+                CommandMenuNode::Separator => Node::Separator,
+                CommandMenuNode::Submenu { label, children } => Node::Submenu { label, children: convert(children), role: None },
+                CommandMenuNode::Item { id, params, label, shortcut, enabled, checked } => Node::Item(Item {
+                    id: CommandMenuNode::key(&id, &params),
                     label: display_item_label(&id, &params, &label).to_owned(),
                     shortcut,
                     enabled,
@@ -754,10 +753,12 @@ pub fn native_menu_bar(app: &LightcraftApp) -> li_commands::menu::MenuBar {
 /// Resolve a native identity against the live tree before invoking it. Removed presets and
 /// newly disabled actions cannot execute from an old native menu snapshot.
 pub fn run_native_item(app: &mut LightcraftApp, key: &str) -> Result<Value, String> {
-    fn resolve(nodes: &[MenuNode], key: &str) -> Option<(String, Value, bool)> {
+    fn resolve(nodes: &[CommandMenuNode], key: &str) -> Option<(String, Value, bool)> {
         nodes.iter().find_map(|node| match node {
-            MenuNode::Item { id, params, enabled, .. } if MenuNode::key(id, params) == key => Some((id.clone(), params.clone(), *enabled)),
-            MenuNode::Submenu { children, .. } => resolve(children, key),
+            CommandMenuNode::Item { id, params, enabled, .. } if CommandMenuNode::key(id, params) == key => {
+                Some((id.clone(), params.clone(), *enabled))
+            }
+            CommandMenuNode::Submenu { children, .. } => resolve(children, key),
             _ => None,
         })
     }
@@ -866,17 +867,17 @@ pub fn show_in_window(app: &mut LightcraftApp, ui: &mut egui::Ui, max_width: f32
     ui.cursor().left() - start
 }
 
-fn nodes_ui(ui: &mut egui::Ui, nodes: &[MenuNode], mac: bool, clicked: &mut Option<(String, Value)>) {
+fn nodes_ui(ui: &mut egui::Ui, nodes: &[CommandMenuNode], mac: bool, clicked: &mut Option<(String, Value)>) {
     ui.set_min_width(220.0);
     for n in nodes {
         match n {
-            MenuNode::Separator => {
+            CommandMenuNode::Separator => {
                 ui.separator();
             }
-            MenuNode::Submenu { label, children } => {
+            CommandMenuNode::Submenu { label, children } => {
                 ui.menu_button(li_commands::widgets::menu_row_label(ui, li_i18n::library::t(label)), |ui| nodes_ui(ui, children, mac, clicked));
             }
-            MenuNode::Item { id, params, label, shortcut, enabled, checked } => {
+            CommandMenuNode::Item { id, params, label, shortcut, enabled, checked } => {
                 let text = display_item_label(id, params, label);
                 let mut button = li_commands::widgets::menu_row_button(ui, text);
                 if let Some(sc) = shortcut {
@@ -901,14 +902,18 @@ mod tests {
 
     #[test]
     fn j21_library_native_preserves_every_live_row_and_profile_shortcut() {
-        fn rows(nodes: &[MenuNode], out: &mut Vec<(String, String, Option<String>, bool, Option<bool>)>) {
+        fn rows(nodes: &[CommandMenuNode], out: &mut Vec<(String, String, Option<String>, bool, Option<bool>)>) {
             for node in nodes {
                 match node {
-                    MenuNode::Item { id, params, label, shortcut, enabled, checked } => {
-                        out.push((MenuNode::key(id, params), display_item_label(id, params, label).to_owned(), shortcut.clone(), *enabled, *checked))
-                    }
-                    MenuNode::Submenu { children, .. } => rows(children, out),
-                    MenuNode::Separator => {}
+                    CommandMenuNode::Item { id, params, label, shortcut, enabled, checked } => out.push((
+                        CommandMenuNode::key(id, params),
+                        display_item_label(id, params, label).to_owned(),
+                        shortcut.clone(),
+                        *enabled,
+                        *checked,
+                    )),
+                    CommandMenuNode::Submenu { children, .. } => rows(children, out),
+                    CommandMenuNode::Separator => {}
                 }
             }
         }
@@ -937,7 +942,7 @@ mod tests {
         assert!(source.len() > 150, "parity covers the whole Library model: {}", source.len());
         assert_eq!(native.items().len(), source.len() + 2, "only Hide and custom Minimize are synthetic command rows");
         assert_eq!(native.find("app.settings").unwrap().shortcut, None, "explicit unbinding survives Mac layout");
-        assert_eq!(native.find(&MenuNode::key("photo.rate", &json!({"rating":4}))).unwrap().shortcut.as_deref(), Some("Cmd+H"));
+        assert_eq!(native.find(&CommandMenuNode::key("photo.rate", &json!({"rating":4}))).unwrap().shortcut.as_deref(), Some("Cmd+H"));
         assert_eq!(native.find(li_commands::menu::HIDE).unwrap().shortcut.as_deref(), Some("Ctrl+Cmd+H"));
         assert_eq!(native.find(li_commands::menu::MINIMIZE).unwrap().shortcut.as_deref(), Some("Ctrl+Cmd+M"));
         app.shortcut_overrides.insert("library::app.settings".into(), "Cmd+Alt+K".into());
@@ -948,7 +953,7 @@ mod tests {
     #[test]
     fn j21_library_native_rejects_stale_and_disabled_parameterized_rows() {
         let mut app = app();
-        let key = MenuNode::key("photo.rate", &json!({"rating": 4}));
+        let key = CommandMenuNode::key("photo.rate", &json!({"rating": 4}));
         let photo = app.session.active().unwrap();
         run_native_item(&mut app, &key).unwrap();
         assert_eq!(app.session.catalog.photo(photo).unwrap().rating, 4);
@@ -987,9 +992,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("li-filter-menu-{}", std::process::id()));
         app.session.open_ephemeral(&dir, "Filter", 2, 2, &[[0.2, 0.3, 0.4]; 4], &json!({})).unwrap();
         let item = |app: &LightcraftApp, id: &str| {
-            let all: Vec<MenuNode> = menu_bar(app).into_iter().flat_map(|(_, nodes)| nodes).collect();
+            let all: Vec<CommandMenuNode> = menu_bar(app).into_iter().flat_map(|(_, nodes)| nodes).collect();
             match find(&all, id).unwrap() {
-                MenuNode::Item { label, enabled, .. } => (label.clone(), *enabled),
+                CommandMenuNode::Item { label, enabled, .. } => (label.clone(), *enabled),
                 _ => panic!("not an item"),
             }
         };
@@ -1009,10 +1014,10 @@ mod tests {
         LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default())
     }
 
-    fn find<'a>(nodes: &'a [MenuNode], id: &str) -> Option<&'a MenuNode> {
+    fn find<'a>(nodes: &'a [CommandMenuNode], id: &str) -> Option<&'a CommandMenuNode> {
         nodes.iter().find_map(|n| match n {
-            MenuNode::Item { id: i, .. } if i == id => Some(n),
-            MenuNode::Submenu { children, .. } => find(children, id),
+            CommandMenuNode::Item { id: i, .. } if i == id => Some(n),
+            CommandMenuNode::Submenu { children, .. } => find(children, id),
             _ => None,
         })
     }
@@ -1021,29 +1026,30 @@ mod tests {
     /// only while sorting at random, and the direction items are off for a shuffle.
     #[test]
     fn sort_menu_lists_reshuffle_once_and_only_enables_it_for_random() {
-        fn sort_children(bar: &[(String, Vec<MenuNode>)]) -> Vec<MenuNode> {
+        fn sort_children(bar: &[(String, Vec<CommandMenuNode>)]) -> Vec<CommandMenuNode> {
             let view = &bar.iter().find(|(t, _)| t == "View").expect("View menu").1;
             view.iter()
                 .find_map(|n| match n {
-                    MenuNode::Submenu { label, children } if label == "Sort" => Some(children.clone()),
+                    CommandMenuNode::Submenu { label, children } if label == "Sort" => Some(children.clone()),
                     _ => None,
                 })
                 .expect("Sort submenu")
         }
-        let count = |nodes: &[MenuNode]| nodes.iter().filter(|n| matches!(n, MenuNode::Item { id, .. } if id == "library.shuffle")).count();
+        let count =
+            |nodes: &[CommandMenuNode]| nodes.iter().filter(|n| matches!(n, CommandMenuNode::Item { id, .. } if id == "library.shuffle")).count();
         let mut a = app();
         let kids = sort_children(&menu_bar(&a));
         assert_eq!(count(&kids), 1);
-        assert!(matches!(find(&kids, "library.shuffle"), Some(MenuNode::Item { enabled: false, .. })), "off until Random is chosen");
+        assert!(matches!(find(&kids, "library.shuffle"), Some(CommandMenuNode::Item { enabled: false, .. })), "off until Random is chosen");
         a.session.execute("library.sort", &json!({"key": "random"})).expect("sort at random");
         let kids = sort_children(&menu_bar(&a));
         assert_eq!(count(&kids), 1);
-        assert!(matches!(find(&kids, "library.shuffle"), Some(MenuNode::Item { enabled: true, .. })));
+        assert!(matches!(find(&kids, "library.shuffle"), Some(CommandMenuNode::Item { enabled: true, .. })));
         // no direction is shown as chosen while shuffling
-        let dir_checked = |kids: &[MenuNode]| {
+        let dir_checked = |kids: &[CommandMenuNode]| {
             kids.iter()
                 .filter_map(|n| match n {
-                    MenuNode::Item { label, checked, .. } if label == "Ascending" || label == "Descending" => Some(*checked),
+                    CommandMenuNode::Item { label, checked, .. } if label == "Ascending" || label == "Descending" => Some(*checked),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -1063,14 +1069,16 @@ mod tests {
             .iter()
             .take(3)
             .map(|n| match n {
-                MenuNode::Item { label, shortcut, .. } => format!("{label}{}", shortcut.as_deref().map(|s| format!(" [{s}]")).unwrap_or_default()),
-                MenuNode::Submenu { label, .. } => format!("{label} ▸"),
-                MenuNode::Separator => "---".into(),
+                CommandMenuNode::Item { label, shortcut, .. } => {
+                    format!("{label}{}", shortcut.as_deref().map(|s| format!(" [{s}]")).unwrap_or_default())
+                }
+                CommandMenuNode::Submenu { label, .. } => format!("{label} ▸"),
+                CommandMenuNode::Separator => "---".into(),
             })
             .collect();
         assert_eq!(labels[0], "Import Photos…");
         assert_eq!(labels[1..], ["Import from Folder… [Cmd+Shift+I]".to_string(), "Import from Device ▸".to_string()]);
-        let all: Vec<MenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
+        let all: Vec<CommandMenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
         let text = serde_json::to_string(&all).unwrap();
         assert!(!text.contains("Add Folder") && !text.contains("\"Add Photos"), "no add-folder wording left in the menus");
     }
@@ -1079,7 +1087,7 @@ mod tests {
     /// absent from the desktop's menus, present and wired to the host where it provides them.
     #[test]
     fn library_backup_items_follow_the_host() {
-        let all = |app: &LightcraftApp| -> Vec<MenuNode> { menu_bar(app).into_iter().flat_map(|(_, v)| v).collect() };
+        let all = |app: &LightcraftApp| -> Vec<CommandMenuNode> { menu_bar(app).into_iter().flat_map(|(_, v)| v).collect() };
         let mut desktop = app();
         assert!(find(&all(&desktop), "file.backupLibrary").is_none() && find(&all(&desktop), "file.restoreLibrary").is_none());
         assert!(run_item(&mut desktop, "file.backupLibrary", Value::Null).is_err(), "not available without the host");
@@ -1096,7 +1104,7 @@ mod tests {
         let mut web = LightcraftApp::new(lightcraft_engine::Session::with_demo(), services);
         let bar = all(&web);
         for id in ["file.backupLibrary", "file.restoreLibrary"] {
-            assert!(matches!(find(&bar, id), Some(MenuNode::Item { enabled: true, .. })), "{id}");
+            assert!(matches!(find(&bar, id), Some(CommandMenuNode::Item { enabled: true, .. })), "{id}");
         }
         let r = run_item(&mut web, "file.backupLibrary", Value::Null).unwrap();
         assert!(r["photos"].as_u64().unwrap() > 0);
@@ -1109,7 +1117,7 @@ mod tests {
         let bar = menu_bar(&app);
         let titles: Vec<&str> = bar.iter().map(|(t, _)| t.as_str()).collect();
         assert_eq!(titles, MENUS);
-        let all: Vec<MenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
+        let all: Vec<CommandMenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
         // every engine command with a menu path is reachable (parameterized ones via submenus; items
         // that follow the state, like Restore for deleted photos, when it applies)
         for c in lightcraft_engine::command_specs().iter().filter(|c| !c.menu.is_empty() && !HIDDEN.contains(&c.id) && host_supports(&app, c.id)) {
@@ -1119,38 +1127,38 @@ mod tests {
             assert!(find(&all, id).is_some(), "{id}");
         }
         // no doubled or dangling separators
-        fn check(v: &[MenuNode]) {
-            assert_ne!(v.first(), Some(&MenuNode::Separator));
-            assert_ne!(v.last(), Some(&MenuNode::Separator));
+        fn check(v: &[CommandMenuNode]) {
+            assert_ne!(v.first(), Some(&CommandMenuNode::Separator));
+            assert_ne!(v.last(), Some(&CommandMenuNode::Separator));
             for w in v.windows(2) {
-                assert!(!(w[0] == MenuNode::Separator && w[1] == MenuNode::Separator));
+                assert!(!(w[0] == CommandMenuNode::Separator && w[1] == CommandMenuNode::Separator));
             }
             for n in v {
-                if let MenuNode::Submenu { children, .. } = n {
+                if let CommandMenuNode::Submenu { children, .. } = n {
                     check(children);
                 }
             }
         }
         bar.iter().for_each(|(_, v)| check(v));
         // live state: undo label, enabled, checked
-        let Some(MenuNode::Item { enabled, .. }) = find(&all, "edit.undo") else { panic!() };
+        let Some(CommandMenuNode::Item { enabled, .. }) = find(&all, "edit.undo") else { panic!() };
         assert!(!enabled);
         run_item(&mut app, "photo.rate", json!({"rating": 3})).unwrap();
         let bar = menu_bar(&app);
-        let all: Vec<MenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
-        let Some(MenuNode::Item { label, enabled, .. }) = find(&all, "edit.undo") else { panic!() };
+        let all: Vec<CommandMenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
+        let Some(CommandMenuNode::Item { label, enabled, .. }) = find(&all, "edit.undo") else { panic!() };
         assert_eq!((label.as_str(), *enabled), ("Undo Set Rating", true));
         let rated: Vec<_> = all
             .iter()
             .filter_map(|n| match n {
-                MenuNode::Submenu { label, children } if label == "Set Rating" => Some(children.clone()),
+                CommandMenuNode::Submenu { label, children } if label == "Set Rating" => Some(children.clone()),
                 _ => None,
             })
             .flatten()
-            .filter(|n| matches!(n, MenuNode::Item { checked: Some(true), .. }))
+            .filter(|n| matches!(n, CommandMenuNode::Item { checked: Some(true), .. }))
             .collect();
-        assert!(matches!(&rated[..], [MenuNode::Item { params, .. }] if params["rating"] == 3));
-        let Some(MenuNode::Item { checked, .. }) = find(&all, "view.filmstrip") else { panic!() };
+        assert!(matches!(&rated[..], [CommandMenuNode::Item { params, .. }] if params["rating"] == 3));
+        let Some(CommandMenuNode::Item { checked, .. }) = find(&all, "view.filmstrip") else { panic!() };
         assert_eq!(*checked, Some(app.ui.filmstrip));
     }
 
@@ -1168,8 +1176,8 @@ mod tests {
         let bar = menu_bar(&app);
         let file = &bar.iter().find(|(t, _)| t == "File").unwrap().1;
         // Quit is the last item, alone in its separator group
-        assert!(matches!(file.last(), Some(MenuNode::Item { id, .. }) if id == "app.quit"), "{file:?}");
-        assert_eq!(file.get(file.len() - 2), Some(&MenuNode::Separator));
+        assert!(matches!(file.last(), Some(CommandMenuNode::Item { id, .. }) if id == "app.quit"), "{file:?}");
+        assert_eq!(file.get(file.len() - 2), Some(&CommandMenuNode::Separator));
         // every fallback entry is still reachable, before Quit
         for id in &unlisted {
             assert!(find(&file[..file.len() - 1], id).is_some(), "{id} missing before Quit");
@@ -1181,15 +1189,15 @@ mod tests {
         let mut app = app();
         let bar = menu_bar(&app);
         let file = &bar.iter().find(|(t, _)| t == "File").unwrap().1;
-        let Some(MenuNode::Submenu { children, .. }) =
-            file.iter().find(|n| matches!(n, MenuNode::Submenu { label, .. } if label == "Export with Preset"))
+        let Some(CommandMenuNode::Submenu { children, .. }) =
+            file.iter().find(|n| matches!(n, CommandMenuNode::Submenu { label, .. } if label == "Export with Preset"))
         else {
             panic!("no Export with Preset submenu")
         };
         let presets: Vec<_> = children
             .iter()
             .filter_map(|n| match n {
-                MenuNode::Item { id, params, .. } if id == "app.export" => params["preset"].as_str().map(str::to_string),
+                CommandMenuNode::Item { id, params, .. } if id == "app.export" => params["preset"].as_str().map(str::to_string),
                 _ => None,
             })
             .collect();
@@ -1225,11 +1233,12 @@ mod tests {
         let mut app = app();
         let bar = menu_bar(&app);
         let edit = &bar.iter().find(|(t, _)| t == "Edit").unwrap().1;
-        let Some(MenuNode::Submenu { children, .. }) = edit.iter().find(|n| matches!(n, MenuNode::Submenu { label, .. } if label == "Select by"))
+        let Some(CommandMenuNode::Submenu { children, .. }) =
+            edit.iter().find(|n| matches!(n, CommandMenuNode::Submenu { label, .. } if label == "Select by"))
         else {
             panic!("no Select by submenu")
         };
-        let Some(MenuNode::Item { id, params, .. }) = children.first() else { panic!() };
+        let Some(CommandMenuNode::Item { id, params, .. }) = children.first() else { panic!() };
         let r = run_item(&mut app, id, params.clone()).unwrap();
         assert!(r["selected"].as_u64().is_some_and(|n| n > 0), "{r}");
         // the one-field prompt runs its command with the typed value
@@ -1305,7 +1314,7 @@ mod tests {
         app.session.execute("photo.setMeta", &json!({"gps": null})).unwrap();
         // in the Photo menu; without a file dialog (headless) it is disabled
         let photo_menu = menu_bar(&app).into_iter().find(|(t, _)| t == "Photo").unwrap().1;
-        let Some(MenuNode::Item { enabled, .. }) = find(&photo_menu, "photo.tagFromTracklog") else { panic!("not in the Photo menu") };
+        let Some(CommandMenuNode::Item { enabled, .. }) = find(&photo_menu, "photo.tagFromTracklog") else { panic!("not in the Photo menu") };
         assert!(!enabled);
         // a file without an offset asks for the camera's time zone; confirming runs the tagging
         run_item(&mut app, "photo.tagFromTracklog", json!({"path": gpx.to_string_lossy()})).unwrap();
@@ -1330,8 +1339,8 @@ mod tests {
         let d = app.ui.dialog.take().unwrap();
         crate::panels::dialogs::confirm_dialog(&mut app, &d).unwrap();
         let bar = menu_bar(&app);
-        let all: Vec<MenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
-        let Some(MenuNode::Item { id, params, .. }) = find(&all, "metadata.applyPreset") else { panic!("no preset item") };
+        let all: Vec<CommandMenuNode> = bar.iter().flat_map(|(_, v)| v.clone()).collect();
+        let Some(CommandMenuNode::Item { id, params, .. }) = find(&all, "metadata.applyPreset") else { panic!("no preset item") };
         assert_eq!(params["name"], "Mine");
         let other = app.session.visible()[1];
         app.session.execute("library.select", &json!({"ids": [other.0]})).unwrap();

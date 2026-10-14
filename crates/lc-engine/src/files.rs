@@ -4,13 +4,14 @@
 
 use std::sync::Arc;
 
+use li_color::cct::xy_to_temp_tint;
+use li_raster::resample::Filter;
 use lightcraft_catalog::{MediaKind, Meta};
-use lightcraft_color::cct::xy_to_temp_tint;
 use lightcraft_geom::Orientation;
 use lightcraft_pipeline::SourceInfo;
 use lightcraft_preview::Hasher128;
 use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::{Filter, fit};
+use lightcraft_raster::resample::fit;
 
 use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
 
@@ -624,7 +625,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 as_shot_temp: temp,
                 as_shot_tint: tint,
                 lens,
-                lens_camera_to_working: Some(lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
+                lens_camera_to_working: Some(li_color::Mat3(m.map(|r| r.map(f64::from))).mul(&li_color::Mat3::diag(
                     wb[0] as f64,
                     wb[1] as f64,
                     wb[2] as f64,
@@ -647,12 +648,8 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 } else {
                     let mut color = lightcraft_raw::color::camera_color(&raw.color);
                     color.analog_balance = normalized_color.analog_balance;
-                    let total = lightcraft_color::Mat3(m.map(|r| r.map(f64::from))).mul(&lightcraft_color::Mat3::diag(
-                        wb[0] as f64,
-                        wb[1] as f64,
-                        wb[2] as f64,
-                    ));
-                    total.inverse().map(|undo| lightcraft_color::camera::CameraWhite { color, undo })
+                    let total = li_color::Mat3(m.map(|r| r.map(f64::from))).mul(&li_color::Mat3::diag(wb[0] as f64, wb[1] as f64, wb[2] as f64));
+                    total.inverse().map(|undo| li_color::camera::CameraWhite { color, undo })
                 },
                 lens_db: None,
                 sensor_scale,
@@ -1080,11 +1077,7 @@ mod sony_dji_opcode_tests {
             active_area: Rect::new(0, 0, 4, 3),
             crop: Rect::new(0, 0, 4, 3),
             orientation: Orientation::Normal,
-            color: lightcraft_raw::ColorData {
-                color_matrix: [Some(lightcraft_color::Mat3::IDENTITY), None],
-                illuminant: [21, 0],
-                ..Default::default()
-            },
+            color: lightcraft_raw::ColorData { color_matrix: [Some(li_color::Mat3::IDENTITY), None], illuminant: [21, 0], ..Default::default() },
             wb_multipliers: None,
             linearized: false,
             vendor_lens: None,

@@ -253,7 +253,7 @@ mod tests {
         let ctl = JobControl::new();
         ctl.cancel();
         let err = Ai::new("127.0.0.1:1").enhance(&RgbaImage::new(2, 2), 4, 4, Method::Faithful, Backend::Auto, Path::new("missing"), 0, &ctl).unwrap_err();
-        assert!(err.is::<crate::Cancelled>());
+        assert!(err.is::<lightcraft_sysmem::jobs::Cancelled>());
     }
 
     #[test]
@@ -306,7 +306,7 @@ mod tests {
         assert!(!li_seg::model_path(&root, &spec).exists());
         let cancel = JobControl::new();
         let err = download_cpu_spec(&spec, &root, &cancel, &|_| cancel.cancel()).unwrap_err();
-        assert!(err.is::<crate::Cancelled>() || err.to_string().contains("Cancelled"));
+        assert!(err.is::<lightcraft_sysmem::jobs::Cancelled>() || err.to_string().contains("Cancelled"));
         assert!(!li_seg::model_path(&root, &spec).exists());
         assert!(std::fs::read_dir(root.join("segmentation")).unwrap().next().is_none());
         sender.join().unwrap();

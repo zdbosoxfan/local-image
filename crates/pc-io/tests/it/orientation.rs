@@ -3,7 +3,8 @@
 //! and every export writes Orientation = 1 so it is never rotated twice.
 
 use lightcraft_raw::testgen::{TiffBuilder, Val};
-use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image, SampleType, decode, exif_orientation};
+use lightcraft_tiff::exif::orientation as exif_orientation;
+use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image, SampleType, decode};
 use photocraft_io::{ExportOptions, export, import};
 
 /// EXIF block with only an Orientation tag.

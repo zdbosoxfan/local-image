@@ -3,7 +3,8 @@
 //! `cargo run --release -p photocraft-algo --example bench_smartselect [size]`
 use std::time::Instant;
 
-use photocraft_algo::matting::{self, RefineParams};
+use li_matte::RefineParams;
+use photocraft_algo::matting;
 use photocraft_algo::segment::{Rng, SurfaceSampler, focus, grabcut, quick, subject};
 use photocraft_algo::selection::{Region, SelectionMode, combine_region};
 use photocraft_color::PixelFormat;

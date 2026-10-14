@@ -1402,10 +1402,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     }
     if let Some(x) = &doc.metadata.xmp {
         // The pixels are saved as they are shown: never let a reader rotate them again.
-        resources.push(ImageResource::new(ids::XMP, photocraft_codecs::upright_xmp(x).as_bytes().to_vec()));
+        resources.push(ImageResource::new(ids::XMP, lightcraft_meta::upright_xmp(x).as_bytes().to_vec()));
     }
     if let Some(e) = &doc.metadata.exif {
-        resources.push(ImageResource::new(ids::EXIF, photocraft_codecs::upright_exif(e).into_owned()));
+        resources.push(ImageResource::new(ids::EXIF, lightcraft_tiff::exif::upright(e).into_owned()));
     }
     let mut global_blocks = Vec::new();
     for (sig, key, data) in &ex.smart.finish(crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc))) {

@@ -39,8 +39,8 @@ pub const APPEND_ENV: &str = "LOCAL_IMAGE_LOG_APPEND";
 const INFO_TARGETS: &[&str] = &["local_image", "photocraft", "lightcraft", "li_", "egui_wgpu", "eframe"];
 
 /// The log directory for a data directory chosen as `mode` (see the module docs).
-pub fn log_dir(env: &impl Fn(&str) -> Option<OsString>, data: &crate::app_dirs::DataDir) -> Option<PathBuf> {
-    use crate::app_dirs::Mode;
+pub fn log_dir(env: &impl Fn(&str) -> Option<OsString>, data: &lightcraft_sysmem::app_dirs::DataDir) -> Option<PathBuf> {
+    use lightcraft_sysmem::app_dirs::Mode;
     let in_data = || data.dir.as_ref().map(|d| d.join("logs"));
     if data.mode != Mode::Platform {
         return in_data();
@@ -174,7 +174,7 @@ pub fn init() -> Option<PathBuf> {
     let env = |k: &str| std::env::var_os(k);
     let over = parse_level(std::env::var("LOCAL_IMAGE_LOG").ok().as_deref());
     let append = env(APPEND_ENV).is_some_and(|v| !v.is_empty());
-    let dir = log_dir(&env, crate::app_dirs::current());
+    let dir = log_dir(&env, lightcraft_sysmem::app_dirs::current());
     let (sink, error) = match dir.as_deref().map(|d| Sink::open(d, append)) {
         Some(Ok(s)) => (Some(s), None),
         Some(Err(e)) => (None, Some(e.to_string())),
@@ -195,7 +195,7 @@ pub fn init() -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_dirs::{DataDir, Mode};
+    use lightcraft_sysmem::app_dirs::{DataDir, Mode};
 
     fn temp_dir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("local-image-log-{name}-{}", std::process::id()));

@@ -6,7 +6,9 @@ use serde_json::json;
 use crate::PhotocraftApp;
 use crate::state::Tool;
 
-pub use li_keys::input::parse;
+#[cfg(test)]
+use li_keys::input::key_matches;
+use li_keys::input::{consume, parse};
 
 /// Human-readable form for menus, tooltips and inline hints (`Cmd+Shift+N` → `⌘⇧N` on
 /// macOS, `Ctrl+Shift+N` elsewhere). Works for lone keys too: `pretty("Alt")` is `⌥`/`Alt`,
@@ -60,7 +62,7 @@ pub fn tool_shortcut_id(tool: Tool) -> String {
 
 /// Inactive Pixel-only tool assignments must not reserve Vector's command/tool keys.
 pub(crate) fn override_applies_in_persona(persona: photocraft_engine::toolsets::Persona, id: &str) -> bool {
-    if id.starts_with("library::") || crate::keymaps::is_global(id) {
+    if id.starts_with("library::") || li_keys::keymaps::is_global(id) {
         return false;
     }
     persona != photocraft_engine::toolsets::Persona::Vector
@@ -124,8 +126,6 @@ pub fn default_shortcut(id: &str) -> Option<String> {
         })
         .or_else(|| crate::tool_tips::CameraRawTool::ALL.into_iter().find(|t| t.shortcut_id() == id).map(|t| t.default_shortcut().into()))
 }
-
-pub use li_keys::input::{consume, key_matches};
 
 /// View navigation that Photoshop keeps live while a dialog is open (so the image can be judged
 /// at any zoom): Zoom In / Out, Fit on Screen, 100%.
@@ -607,7 +607,7 @@ mod j20_tests {
             for (_, value) in crate::shortcut_dispatch::binding_strings(&app) {
                 let parsed = parse(&value).unwrap();
                 assert_eq!(parsed, li_keys::input::parse(&value).unwrap());
-                let native = crate::native_menu::Chord::parse(&value).unwrap();
+                let native = li_keys::Chord::parse(&value).unwrap();
                 for platform in [li_keys::Platform::Mac, li_keys::Platform::Ctrl] {
                     let Some(egui::Event::Key { key, modifiers, .. }) = native.key_event_on(true, platform) else {
                         panic!("{value}");

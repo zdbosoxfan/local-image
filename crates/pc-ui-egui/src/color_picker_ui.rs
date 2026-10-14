@@ -167,7 +167,7 @@ pub fn current(f: &Map<String, Value>) -> Components {
     Components {
         rgb,
         hsv: kept(f, "__hsv", rgb, |h| hsv_to_rgb(h[0], h[1], h[2])).unwrap_or_else(|| rgb_to_hsv(rgb)),
-        lab: kept(f, "__lab", rgb, photocraft_color::convert::lab_to_srgb).unwrap_or_else(|| photocraft_color::convert::srgb_to_lab(rgb)),
+        lab: kept(f, "__lab", rgb, li_color::convert::lab_to_srgb).unwrap_or_else(|| li_color::convert::srgb_to_lab(rgb)),
         cmyk: kept(f, "__cmyk", rgb, photocraft_color::convert::cmyk_to_rgb).unwrap_or_else(|| photocraft_color::convert::rgb_to_cmyk(rgb)),
     }
 }
@@ -329,7 +329,7 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
             if widgets::value_field(ui, &mut x, range, "", 54.0).changed() {
                 let mut l = lab;
                 l[i] = x;
-                edit = Some((photocraft_color::convert::lab_to_srgb(l).map(|c| c.clamp(0.0, 1.0)), Keep::Lab(l)));
+                edit = Some((li_color::convert::lab_to_srgb(l).map(|c| c.clamp(0.0, 1.0)), Keep::Lab(l)));
             }
             ui.label("");
             ui.end_row();
@@ -449,12 +449,12 @@ mod tests {
     #[test]
     fn lab_and_cmyk_fields_take_multi_digit_values() {
         let base = parse_hex("#336699").unwrap();
-        let lab = photocraft_color::convert::srgb_to_lab(base);
+        let lab = li_color::convert::srgb_to_lab(base);
         let cmyk = photocraft_color::convert::rgb_to_cmyk(base);
         // Fields in order: H S B R G B, L a b, C M Y K.
         for (field, typed, want) in [
-            (6, "60", photocraft_color::convert::lab_to_srgb([60.0, lab[1], lab[2]])),
-            (7, "30", photocraft_color::convert::lab_to_srgb([lab[0], 30.0, lab[2]])),
+            (6, "60", li_color::convert::lab_to_srgb([60.0, lab[1], lab[2]])),
+            (7, "30", li_color::convert::lab_to_srgb([lab[0], 30.0, lab[2]])),
             (9, "40", photocraft_color::convert::cmyk_to_rgb([0.4, cmyk[1], cmyk[2], cmyk[3]])),
         ] {
             let mut h = picker("#336699");

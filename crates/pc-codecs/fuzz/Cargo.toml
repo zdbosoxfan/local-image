@@ -15,6 +15,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 photocraft-codecs = { path = "..", features = ["heif"] }
+lightcraft-tiff = { path = "../../lc-tiff" }
 # Called directly too: the codec turns its panics into errors (see decode_heif.rs).
 heic-rs = "=0.1.1"
 

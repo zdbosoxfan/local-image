@@ -1,16 +1,14 @@
 //! Owner review: `cargo +1.98.1 run --offline -p lightcraft-engine --example compare_highlights`.
 //! Reads the named Sony raws in place; writes only JPEG crops and a self-contained HTML
 //! under ignored target/compare-highlights. Optional LC_COMPARE_SYNTHETIC_ONLY skips real raws.
+use li_raster::resample::Filter;
 use lightcraft_codecs::encode::{ChromaSubsampling, EncodeImage, EncodeMeta, encode_jpeg};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{
     RenderRequest, SourceInfo, metrics,
     primary::{self, HsMethod},
 };
-use lightcraft_raster::{
-    Rgb32f, Rgba8,
-    resample::{Filter, resize},
-};
+use lightcraft_raster::{Rgb32f, Rgba8, resample::resize};
 use std::{error::Error, fmt::Write as _, path::Path};
 fn base64(bytes: &[u8]) -> String {
     let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -25,8 +23,8 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 fn linear(img: &Rgba8) -> Rgb32f {
-    let mat = lightcraft_color::SRGB.to_space(&lightcraft_color::REC2020);
-    img.map(|p| mat.apply_f32([p[0], p[1], p[2]].map(|v| lightcraft_color::transfer::srgb_to_linear(v as f32 / 255.))))
+    let mat = li_color::SRGB.to_space(&li_color::REC2020);
+    img.map(|p| mat.apply_f32([p[0], p[1], p[2]].map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.))))
 }
 fn synthetic(kind: usize, w: usize, h: usize) -> Rgb32f {
     Rgb32f::from_fn(w, h, |x, y| {

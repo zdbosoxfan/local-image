@@ -2556,9 +2556,6 @@ pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     }
 }
 
-/// Compatibility alias; opening filters consult the shared capability registry.
-pub const IMAGE_EXTS: &[&str] = photocraft_codecs::PHOTO_EXTENSIONS;
-
 pub fn folder_images(dir: &std::path::Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map(|rd| {
@@ -2857,7 +2854,7 @@ fn batch_export(
     ctl.check()?;
     // Shared staging preserves cancellation, modes, symlinks and atomic publication.
     let cancelled = || ctl.is_cancelled();
-    let staged = photocraft_format::atomic::stage_write(dest, &encoded, &photocraft_raster::Interrupt::cancel_only(&cancelled))?;
+    let staged = li_fs::stage_write(dest, &encoded, &lightcraft_sysmem::jobs::Interrupt::cancel_only(&cancelled))?;
     ctl.check()?;
     staged.commit()?;
     Ok(())

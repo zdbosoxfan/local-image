@@ -78,13 +78,13 @@ impl SubjectModel {
 
     /// Foreground probability (0–1) at the image's size, or `None` (no clear subject, or the model
     /// failed). `Err(Cancelled)` when `cancel` was set: the model stops at its next stage.
-    fn predict(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, li_seg::Cancelled> {
+    fn predict(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, lightcraft_sysmem::jobs::Cancelled> {
         match &self.0 {
             ModelKind::Installed(_) => {
                 let Some(seg) = li_seg::shared(&models_dir()) else { return Ok(None) };
                 match seg.predict_with_cancel(rgba, w, h, cancel) {
                     Ok(map) => Ok(map),
-                    Err(e) if li_seg::is_cancelled(&e) => Err(li_seg::Cancelled),
+                    Err(e) if li_seg::is_cancelled(&e) => Err(lightcraft_sysmem::jobs::Cancelled),
                     Err(_) => Ok(None),
                 }
             }
@@ -115,7 +115,7 @@ impl MockModel {
         self.calls.load(Ordering::SeqCst)
     }
 
-    fn predict(&self, _rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, li_seg::Cancelled> {
+    fn predict(&self, _rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, lightcraft_sysmem::jobs::Cancelled> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if let Some(gate) = &self.gate {
             // Bounded, so a failed test can't leave a worker spinning forever. Like the real
@@ -126,7 +126,7 @@ impl MockModel {
             }
         }
         if cancel.load(Ordering::Relaxed) {
-            return Err(li_seg::Cancelled);
+            return Err(lightcraft_sysmem::jobs::Cancelled);
         }
         Ok((self.map)(w, h))
     }

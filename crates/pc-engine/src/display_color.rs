@@ -22,7 +22,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use photocraft_cms::{Builtin, ColorSpace, Curve, Intent, Profile, Transform};
+use li_color::curve::Curve;
+use photocraft_cms::{Builtin, ColorSpace, Intent, Profile, Transform};
 use photocraft_compose::Buffer;
 use photocraft_doc::Document;
 use photocraft_raster::Rgba8Image;
@@ -97,7 +98,7 @@ impl CanvasDisplay {
         let width = img.width as usize;
         img.pixels.par_chunks_mut(CHUNK * 4).zip(buf.px.par_chunks(CHUNK)).enumerate().for_each(|(chunk, (dst, src))| {
             let input: Vec<f32> =
-                src.iter().flat_map(|p| p[..3].iter().map(|v| if self.encode_srgb { photocraft_color::convert::linear_to_srgb(*v) } else { *v })).collect();
+                src.iter().flat_map(|p| p[..3].iter().map(|v| if self.encode_srgb { li_color::convert::linear_to_srgb(*v) } else { *v })).collect();
             let mut output = vec![0.0; input.len()];
             let output = if let Some(t) = &self.transform {
                 t.convert_f32(&input, 3, &mut output, 3, false);
@@ -146,7 +147,7 @@ impl CanvasDisplay {
         for p in &mut b.px {
             for v in &mut p[..3] {
                 // Capped at the largest half float; NaN is dropped by the texel conversion.
-                *v = photocraft_color::convert::linear_to_srgb(v.clamp(0.0, 65504.0));
+                *v = li_color::convert::linear_to_srgb(v.clamp(0.0, 65504.0));
             }
         }
         Cow::Owned(b)
@@ -177,7 +178,7 @@ fn is_linear_rgb(p: &Profile) -> bool {
 
 /// The same primaries with the sRGB curve (what an sRGB-encoded texture of a linear composite is in).
 fn srgb_curve_twin(p: &Profile) -> Profile {
-    let c = photocraft_cms::curve::srgb_trc();
+    let c = li_color::curve::srgb_trc();
     let mut q = p.clone();
     q.trc = Some([c.clone(), c.clone(), c]);
     q.description = format!("{} (sRGB-encoded)", p.description);

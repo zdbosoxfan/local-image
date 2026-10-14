@@ -1,4 +1,4 @@
-//! Compatibility adapter to the shared EXIF reader for the camera settings the photography commands use (exposure, aperture,
+//! The camera settings the photography commands use, read through the shared EXIF reader (exposure, aperture,
 //! ISO, focal length, camera and lens names). Input is the raw TIFF-structured EXIF payload
 //! (`II*\0` / `MM\0*`, as stored in `Document.metadata.exif`); malformed data yields `None`
 //! fields, never a panic. Tag numbers are from the EXIF 2.32 specification (CIPA DC-008).

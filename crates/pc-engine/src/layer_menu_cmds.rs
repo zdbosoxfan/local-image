@@ -232,7 +232,7 @@ pub fn defringe(px: &mut [[f32; 4]], w: usize, h: usize, width: usize) {
     if !outside.iter().any(|o| *o) {
         return;
     }
-    let dist = photocraft_algo::selection::edt(&outside, w, h);
+    let dist = li_matte::distance::edt(&outside, w, h);
     let mut known: Vec<bool> = (0..px.len()).map(|i| !outside[i] && dist[i] > width as f32).collect();
     let mut todo: Vec<usize> = (0..px.len()).filter(|&i| !outside[i] && !known[i]).collect();
     while !todo.is_empty() {

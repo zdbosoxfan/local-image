@@ -5,7 +5,8 @@
 
 use std::sync::Arc;
 
-use photocraft_algo::matting::{self, RefineParams};
+use li_matte::RefineParams;
+use photocraft_algo::matting;
 use photocraft_algo::segment::{Sampler, SurfaceSampler, focus, grabcut, quick, subject};
 use photocraft_algo::selection::{Region, SelectionMode, combine_region};
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, LayerMask};

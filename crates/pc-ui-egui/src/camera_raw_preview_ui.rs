@@ -223,8 +223,8 @@ pub(crate) fn interact(
     }
     if !ui.ctx().text_edit_focused() {
         for tool in [crate::tool_tips::CameraRawTool::Hand, crate::tool_tips::CameraRawTool::Zoom] {
-            if let Some(sc) = tool.binding(session).as_deref().and_then(crate::shortcuts::parse)
-                && crate::shortcuts::consume(ui.ctx(), &sc)
+            if let Some(sc) = tool.binding(session).as_deref().and_then(li_keys::input::parse)
+                && li_keys::input::consume(ui.ctx(), &sc)
             {
                 state.hand = matches!(tool, crate::tool_tips::CameraRawTool::Hand);
                 *sampler = false;

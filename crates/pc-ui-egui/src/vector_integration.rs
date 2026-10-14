@@ -1027,7 +1027,7 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         if let Some(tool) = id.strip_prefix("tools.select.").and_then(Tool::from_name)
             && photocraft_engine::toolsets::supports(&format!("{tool:?}"), Persona::Vector)
             && crate::keymaps::global_conflict(key).is_none()
-            && crate::fill_stroke_proxy::shortcut(key).is_some_and(|sc| crate::shortcuts::consume(ctx, &sc))
+            && li_keys::input::parse(key).is_some_and(|sc| li_keys::input::consume(ctx, &sc))
         {
             crate::toolsets_ui::persona::select_tool(app, ctx, tool);
             return true;
@@ -1038,8 +1038,8 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         if let Some(tool) = Tool::from_name(id)
             && crate::shortcuts::tool_shortcut(&app.session, tool)
                 .as_deref()
-                .and_then(crate::fill_stroke_proxy::shortcut)
-                .is_some_and(|sc| crate::shortcuts::consume(ctx, &sc))
+                .and_then(li_keys::input::parse)
+                .is_some_and(|sc| li_keys::input::consume(ctx, &sc))
         {
             let current = format!("{:?}", app.ui.tool);
             let key = crate::shortcuts::tool_shortcut(&app.session, tool).unwrap_or_default();
@@ -1549,7 +1549,7 @@ pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> Option<String> {
     None
 }
 
-pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
+pub fn menu_items(app: &PhotocraftApp) -> Vec<li_commands::menu::MenuItem> {
     let mut rows: Vec<(&str, &str, Vec<&str>)> = vec![
         ("path.outlineStroke", "Outline Stroke", vec!["Layer", "Geometry"]),
         ("layer.vectorize", "Vectorize / Image Trace", vec!["Layer"]),
@@ -1592,7 +1592,7 @@ pub fn menu_items(app: &PhotocraftApp) -> Vec<crate::menus::MenuItem> {
     ];
     let vector = app.session.prefs().toolbar.persona == Persona::Vector;
     rows.retain(|(_, _, path)| vector || matches!(path[0], "File" | "Layer" | "Window"));
-    let item = |id: String, label: String, path: Vec<String>| crate::menus::MenuItem {
+    let item = |id: String, label: String, path: Vec<String>| li_commands::menu::MenuItem {
         checked: if let Some(name) = id.strip_prefix("window.vector.") {
             Some(app.vector_runtime.windows.contains(name))
         } else {

@@ -9,13 +9,8 @@ use crate::{PhotocraftApp, widgets};
 pub(crate) const MODELS: [(&str, &str); 4] =
     [("fast", "Fast"), ("better", "Better Quality"), ("qwen-int8", "Qwen AI · Compact"), ("qwen-bf16", "Qwen AI · Full")];
 
-pub(crate) fn deserialize_engine<'de, D: serde::Deserializer<'de>>(d: D) -> Result<String, D::Error> {
-    let value = <String as serde::Deserialize>::deserialize(d)?;
-    Ok(if value == "quick" { "fast".into() } else { value })
-}
-
 fn cpu(engine: &str) -> bool {
-    matches!(engine, "fast" | "better" | "quick")
+    matches!(engine, "fast" | "better")
 }
 
 fn tier(ai: &crate::ai_ui::AiOptions) -> Option<&'static li_seg::ModelSpec> {
@@ -161,7 +156,8 @@ pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 
 /// Inline controls for the options bar; field rows for Properties and the task-bar popup.
 pub(crate) fn settings(app: &mut PhotocraftApp, ui: &mut egui::Ui, inline: bool) {
-    if app.ui.ai.cutout_engine == "quick" {
+    // a value this build doesn't offer (hand-edited preferences) shows as the default model
+    if !MODELS.iter().any(|(k, _)| *k == app.ui.ai.cutout_engine) {
         app.ui.ai.cutout_engine = "fast".into();
     }
     let tips: Vec<_> = MODELS.iter().map(|(k, _)| tooltip(k)).collect();
@@ -333,7 +329,8 @@ pub(crate) fn apply_cutout(
 }
 
 fn refine_matte(img: &image::RgbaImage, alpha: &image::GrayImage) -> image::GrayImage {
-    use photocraft_algo::cf_matting::{MattingParams, closed_form_matting_tiled, trimap_from_mask};
+    use li_matte::cf_matting::{MattingParams, trimap_from_mask};
+    use photocraft_algo::cf_matting::closed_form_matting_tiled;
     let (w, h) = (img.width() as usize, img.height() as usize);
     let m: Vec<f32> = alpha.pixels().map(|p| p[0] as f32 / 255.0).collect();
     let band = ((w.min(h) as f32 / 160.0).round() as usize).clamp(3, 24);

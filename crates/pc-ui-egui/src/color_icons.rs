@@ -1,21 +1,21 @@
-//! Compatibility facade: colour policy comes from the current module's tokens.
-#[cfg(test)]
-pub use li_ui_kit::color_icons::raster;
-#[allow(unused_imports)] // Compatibility exports are used by different shells and tests.
-pub use li_ui_kit::color_icons::{enabled, exists, raster_tinted, set_enabled, tint};
+//! Colour tool icons in this shell's theme: [`li_ui_kit::color_icons`] tinted with the current
+//! module's icon token. Everything else (registry, rasterising, the colour/monochrome switch) is
+//! used from `li_ui_kit` directly.
 pub fn image(ui: &egui::Ui, name: &str, size: f32, disabled: bool) -> Option<egui::Image<'static>> {
     li_ui_kit::color_icons::image_with(ui, name, size, disabled, crate::theme::Tokens::get(ui.ctx()).icon, ui.visuals().dark_mode)
 }
 #[cfg(test)]
-use egui::{Color32, Context};
-#[cfg(test)]
 mod tests {
     use super::*;
+    use egui::{Color32, Context};
+    use li_ui_kit::color_icon_data::TOOL_FAMILIES;
+    use li_ui_kit::color_icons::{raster, tint};
+    use li_ui_kit::tool_icon_data::TOOL_ICONS;
 
     #[test]
     fn all_svgs_parse_render_and_disable_at_toolbar_sizes() {
-        for (name, _) in crate::color_icon_data::TOOL_FAMILIES {
-            assert!(std::str::from_utf8(crate::mono_tool_icons::svg(name).unwrap()).unwrap().contains("viewBox=\"0 0 24 24\""), "{name}");
+        for (name, _) in TOOL_FAMILIES {
+            assert!(std::str::from_utf8(li_ui_kit::mono_tool_icons::svg(name).unwrap()).unwrap().contains("viewBox=\"0 0 24 24\""), "{name}");
             for size in [20, 24, 48] {
                 let image = raster(name, size, false).unwrap();
                 assert_eq!(image.size, [size as usize; 2]);
@@ -39,8 +39,8 @@ mod tests {
         // Light themes use the deeper shade so the tint keeps its contrast on a pale background.
         let light = tint("brush", Color32::from_gray(52), false);
         assert!(light.r() > light.b() && u16::from(light.r()) + u16::from(light.g()) + u16::from(light.b()) < 3 * 160, "{light:?}");
-        for (name, _) in crate::color_icon_data::TOOL_FAMILIES {
-            assert!(crate::mono_tool_icons::exists(name), "family row without an icon: {name}");
+        for (name, _) in TOOL_FAMILIES {
+            assert!(li_ui_kit::mono_tool_icons::exists(name), "family row without an icon: {name}");
         }
     }
 
@@ -65,5 +65,22 @@ mod tests {
         assert_ne!(a, run("brush", 24.0, true));
         ctx.set_pixels_per_point(2.0);
         assert_ne!(a, run("brush", 24.0, false));
+    }
+
+    #[test]
+    fn every_tool_style_has_the_same_rendered_silhouette_at_actual_sizes() {
+        for (name, _) in TOOL_ICONS {
+            for size in [16, 20, 40] {
+                let mono = li_ui_kit::mono_tool_icons::raster(name, size).unwrap();
+                let colour = raster(name, size, false).unwrap();
+                assert_eq!(mono.size, colour.size, "{name}");
+                // RGB is the only difference: antialiased alpha, holes and optical padding agree.
+                assert!(mono.pixels.iter().zip(&colour.pixels).all(|(a, b)| a.a().abs_diff(b.a()) <= 1), "style geometry differs: {name}/{size}");
+                // Line icons: 1/20 of the box (see the colour check above); the filled Glossy glyphs used 1/12.
+                assert!(mono.pixels.iter().filter(|p| p.a() > 100).count() > (size * size / 20) as usize, "empty monochrome tool: {name}/{size}");
+                // Embedded SVG images need an explicit white base before egui multiplies the tint.
+                assert!(mono.pixels.iter().all(|p| p.r() == p.a() && p.g() == p.a() && p.b() == p.a()), "mono tint base is not white: {name}");
+            }
+        }
     }
 }

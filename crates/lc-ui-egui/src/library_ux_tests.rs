@@ -211,10 +211,10 @@ fn library_ux_shortcuts_are_human_readable_and_photo_actions_precede_delete() {
     let app = LightcraftApp::new(photos(2), Services::default());
     let menu = crate::menubar::menu_bar(&app);
     let photo = &menu.iter().find(|(label, _)| label == "Photo").unwrap().1;
-    assert!(matches!(photo.last(), Some(crate::menubar::MenuNode::Item{id,..}) if id=="photo.delete"));
+    assert!(matches!(photo.last(), Some(li_commands::menu::CommandMenuNode::Item{id,..}) if id=="photo.delete"));
     for command in ["photo.copyMetadata", "photo.pasteMetadata", "dialog.allMetadata", "dialog.cull", "photo.convertToDng"] {
         assert!(
-            photo.iter().any(|node| matches!(node,crate::menubar::MenuNode::Item{id,..} if id==command)),
+            photo.iter().any(|node| matches!(node,li_commands::menu::CommandMenuNode::Item{id,..} if id==command)),
             "{command} must have an intentional menu position"
         );
     }

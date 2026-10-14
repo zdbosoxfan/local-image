@@ -76,7 +76,7 @@ impl AiHost for DevelopAi {
             done.store(true, Ordering::Relaxed);
             r
         })
-        .map_err(|e| if e.is::<li_ai::Cancelled>() { lightcraft_engine::enhance::CANCELLED.into() } else { format!("{e:#}") })?;
+        .map_err(|e| if e.is::<lightcraft_sysmem::jobs::Cancelled>() { lightcraft_engine::enhance::CANCELLED.into() } else { format!("{e:#}") })?;
         Ok(out.pixels().map(|p| p.0).collect())
     }
 
@@ -132,7 +132,7 @@ impl AiHost for DevelopAi {
             done.store(true, Ordering::SeqCst);
             r
         });
-        let out = out.map_err(|e| if e.is::<li_ai::Cancelled>() { lightcraft_engine::enhance::CANCELLED.to_owned() } else { format!("{e:#}") })?;
+        let out = out.map_err(|e| if e.is::<lightcraft_sysmem::Cancelled>() { lightcraft_engine::enhance::CANCELLED.to_owned() } else { format!("{e:#}") })?;
         if out.dimensions() != (w, h) {
             return Err("The AI engine returned an unexpected size.".into());
         }

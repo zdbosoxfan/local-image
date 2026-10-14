@@ -24,7 +24,7 @@
 use super::support::{Normal, par_rows, srgb_to_linear};
 
 fn luma(c: [f32; 4]) -> f32 {
-    lightcraft_color::luminance_709([c[0], c[1], c[2]])
+    li_color::luminance_709([c[0], c[1], c[2]])
 }
 
 /// Hat weight on a 0..=255 code value.

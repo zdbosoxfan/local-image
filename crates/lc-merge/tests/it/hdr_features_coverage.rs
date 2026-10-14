@@ -16,7 +16,7 @@ fn make_frame(w: usize, h: usize, value: [f32; 3], clip: f32, exposure: Option<f
         image,
         clip,
         exposure,
-        color: FrameColor::Linear { to_xyz_d50: lightcraft_color::Mat3::IDENTITY },
+        color: FrameColor::Linear { to_xyz_d50: li_color::Mat3::IDENTITY },
         raw: false,
         orientation: Default::default(),
         metadata: Default::default(),

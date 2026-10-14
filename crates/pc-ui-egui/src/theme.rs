@@ -1,4 +1,5 @@
-//! Compatibility facade for the shared design system and editor-specific CJK source policy.
+//! The editor's theme: the shared design system (`li_ui_kit::theme` and fonts, used through this
+//! module by the editor's panels) plus the editor-specific CJK font sources and UI font sizes.
 pub use li_ui_kit::fonts::{medium, mono, semibold, size_ui_font};
 pub use li_ui_kit::theme::*;
 use photocraft_engine::prefs::UiFontSize;

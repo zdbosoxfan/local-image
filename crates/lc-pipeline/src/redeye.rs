@@ -104,7 +104,7 @@ fn grid_samples(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) ->
 
 /// How much each sample looks like pupil (0..1); `None` when a pet eye's ellipse has no glow.
 fn pupil_weights(samples: &[(Point, [f32; 3])], pet: bool) -> Option<Vec<f32>> {
-    let lum = |c: [f32; 3]| lightcraft_color::luminance_2020(c);
+    let lum = |c: [f32; 3]| li_color::luminance_2020(c);
     if pet {
         let ymax = samples.iter().map(|(_, c)| lum(*c)).fold(0.0f32, f32::max);
         let mean = samples.iter().map(|(_, c)| lum(*c)).sum::<f32>() / samples.len().max(1) as f32;
@@ -197,7 +197,7 @@ pub fn eye_pixel(c: [f32; 3], x: f32, y: f32, eyes: &[EyeK]) -> [f32; 3] {
         let m = if e.pet { 1.0 - smooth(0.95, 1.2, d) } else { 1.0 - smooth(1.0, 1.35, d) };
         if m > 0.0 {
             if e.pet {
-                let k = lightcraft_color::luminance_2020(c).min(0.04) * (1.0 - 0.85 * e.darken);
+                let k = li_color::luminance_2020(c).min(0.04) * (1.0 - 0.85 * e.darken);
                 c = c.map(|v| v + (k - v) * m);
             } else {
                 let red = (c[0] - c[1].max(c[2])) / c[0].max(1e-6);

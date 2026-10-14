@@ -15,7 +15,7 @@
 //! neutral (manual/generic) shadow bias is used because no calibrated camera profile exists.
 
 use crate::for_rows;
-use lightcraft_color::luminance_2020;
+use li_color::luminance_2020;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_raster::Rgb32f;
 
@@ -294,7 +294,7 @@ pub struct ProfiledVst {
 }
 impl ProfiledVst {
     pub fn new(img: &Rgb32f, p: &NrParams, calibration: &NoiseCalibration) -> Option<Self> {
-        use lightcraft_color::Mat3;
+        use li_color::Mat3;
         let matrix = Mat3(calibration.camera_to_working.map(|r| r.map(f64::from)));
         let inverse = matrix.inverse()?.to_f32();
         if !calibration.a.iter().all(|a| a.is_finite() && *a > 0.0) || !calibration.b.iter().all(|b| b.is_finite()) {

@@ -158,17 +158,19 @@ mod tests {
     }
 
     #[test]
-    fn j17_shared_icon_registries_remain_audited_through_compatibility_facades() {
+    fn j17_icon_registries_live_only_in_li_ui_kit() {
         let root = crate::root();
-        for facade in [
+        // the shells use li_ui_kit's registries directly: no per-shell copies or re-export modules
+        for gone in [
+            "crates/pc-ui-egui/src/icon_data.rs",
             "crates/pc-ui-egui/src/tool_icon_data.rs",
             "crates/pc-ui-egui/src/color_icon_data.rs",
+            "crates/pc-ui-egui/src/mono_tool_icons.rs",
             "crates/pc-ui-egui/src/vector_packages/fill_stroke_proxy/icons.rs",
         ] {
-            let source = std::fs::read_to_string(root.join(facade)).unwrap();
-            assert!(source.contains("pub use li_ui_kit::"), "{facade}");
+            assert!(!root.join(gone).exists(), "{gone}");
         }
-        assert_eq!(check(&root).unwrap(), (144, 24), "the asset audit must still cover every moved registry row");
+        assert_eq!(check(&root).unwrap(), (144, 24), "the asset audit covers every registry row");
     }
 
     #[test]

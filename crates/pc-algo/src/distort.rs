@@ -2,9 +2,10 @@
 //! Spherize, Wave, Ripple, Polar Coordinates. All are centred on the
 //! reference bounds.
 
+use li_raster::frame::Edge;
 use photocraft_geom::Rect;
 
-use crate::image::{Edge, Image};
+use crate::image::Image;
 use crate::noise::hash01;
 use crate::other::edge_of;
 use crate::{Ctx, PolarMode, RippleSize, SpherizeMode, UndefinedAreas, WaveType};

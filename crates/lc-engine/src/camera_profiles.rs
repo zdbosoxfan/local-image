@@ -10,7 +10,7 @@
 //! `<config>/camera-profiles`; a local profile replaces the one built in ([`BUNDLED`], from
 //! `assets/camera-profiles/`). They are read once per process; a damaged or hostile file is
 //! ignored with a warning. They hold aggregate colour statistics only, never image content.
-use lightcraft_color::Mat3;
+use li_color::Mat3;
 use lightcraft_raw::profile::HsvTable;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -117,7 +117,7 @@ pub fn save(profile: &CameraProfile, dir: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let path = dir.join(file_name(&profile.model));
     let json = serde_json::to_vec_pretty(profile).map_err(|e| e.to_string())?;
-    lightcraft_catalog::safe_file::write_atomic(&path, &json).map_err(|e| format!("{}: {e}", path.display()))?;
+    li_fs::write_atomic(&path, &json).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(path)
 }
 
@@ -258,7 +258,7 @@ mod tests {
         let mut updated = original.clone();
         updated.files += 1;
         {
-            let _fault = lightcraft_catalog::safe_file::fail_writes_after(4);
+            let _fault = li_fs::fail_writes_after(4);
             assert!(save(&updated, &dir).is_err());
         }
         assert_eq!(std::fs::read(&path).unwrap(), golden);

@@ -42,7 +42,7 @@ fn embedded_radial_gpu_matches_cpu_geometry_and_gain() {
                 settings.geometry.horizontal = 3.0;
                 let info = SourceInfo {
                     lens: Some(lens),
-                    lens_camera_to_working: Some(lightcraft_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]])),
+                    lens_camera_to_working: Some(li_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]])),
                     ..Default::default()
                 };
                 let req = RenderRequest::fit(149, 149);
@@ -77,7 +77,7 @@ fn embedded_camera_basis_gpu_corrects_physically_misregistered_planes() {
     let (w, h) = (129, 87);
     let centre = Point::new(w as f64 * 0.5, h as f64 * 0.5);
     let scales = [1.04, 1.0, 0.96];
-    let forward = lightcraft_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]]);
+    let forward = li_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]]);
     let brightness = |x: f64, y: f64| 0.2 + 0.15 * x / w as f64 + 0.1 * y / h as f64;
     // Construct independently shifted CAMERA planes of an achromatic ramp,
     // then mix them into working RGB as the raw loader does. The physical
@@ -139,7 +139,7 @@ fn embedded_dng_fisheye_gpu_matches_independent_mapping() {
         let v = y as f32 / h as f32;
         [0.12 + 0.3 * u, 0.14 + 0.2 * v, 0.11 + 0.1 * (u + v)]
     });
-    let forward = lightcraft_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]]);
+    let forward = li_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]]);
     let src = Arc::new(camera.map(|rgb| forward.apply_f32(rgb)));
     let planes = [[1.01, 0.02, -0.005, 0.001, 0.0, 0.0], [1.0, 0.02, -0.005, 0.001, 0.0, 0.0], [0.99, 0.02, -0.005, 0.001, 0.0, 0.0]];
     let warp = EmbeddedWarp { fisheye: true, planes, center: Point::new(0.5, 0.5), radius: 0.6 };

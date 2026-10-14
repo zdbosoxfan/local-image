@@ -1,9 +1,6 @@
 //! Sparse mesh least squares, parallel row loops and sampling for editor algorithms.
 //! Dense response/bundle solvers live in the shared merge backend.
 
-#[cfg(test)]
-pub(crate) use lightcraft_merge::editor::support::{Normal, solve_dense};
-
 /// A sparse least-squares problem `min Σ w²(row·x − rhs)²`, solved by conjugate gradients on the
 /// normal equations (CGLS). Used for mesh warps with thousands of unknowns.
 #[derive(Default)]
@@ -159,6 +156,7 @@ pub(crate) fn catmull_rom(t: f32) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightcraft_merge::editor::support::{Normal, solve_dense};
 
     #[test]
     fn dense_and_sparse_solvers_agree() {

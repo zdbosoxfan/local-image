@@ -41,8 +41,7 @@ fn rawler(n: &Normalized) -> Rgb32f {
 fn dng(n: Normalized, path: &Path) {
     use lightcraft_raw::{BlackLevel, ColorData, Orientation, RawFormat, RawImage, Rect};
     let (w, h) = (n.width, n.height);
-    let color =
-        ColorData { color_matrix: [Some(lightcraft_color::SRGB.to_xyz().inverse().unwrap()), None], illuminant: [21, 0], ..Default::default() };
+    let color = ColorData { color_matrix: [Some(li_color::SRGB.to_xyz().inverse().unwrap()), None], illuminant: [21, 0], ..Default::default() };
     let raw = RawImage {
         format: RawFormat::Dng,
         width: w,

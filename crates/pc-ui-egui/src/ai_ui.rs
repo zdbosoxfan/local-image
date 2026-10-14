@@ -9,7 +9,7 @@
 //!   installation, start/stop, verified model downloads, GPU).
 //! - Menu commands with ids `li.*` (File › New from Prompt, Open Folder, Automate › Remove
 //!   Backgrounds, Edit › Generative Fill, Image › AI Enhance, Layer Mask › Generate Background,
-//!   Window › Generate, Edit › Preferences › Local AI, Help › AI Models & GPU).
+//!   Window › Generate, Edit › Preferences › Local AI).
 //!
 //! The engine commands are in `photocraft_engine::ai_cmds`; the ComfyUI client in `li-ai`.
 
@@ -46,8 +46,6 @@ pub struct AiOptions {
     /// adjusts the mask, then confirms with Remove.
     pub remove_immediately: bool,
     /// Shared single/batch cutout engine: `fast`, `better`, `qwen-int8` or `qwen-bf16`.
-    /// Saved `quick` values deserialize as Fast.
-    #[serde(deserialize_with = "crate::background_ui::deserialize_engine")]
     pub cutout_engine: String,
     pub cutout_refine: bool,
     pub cutout_decontaminate: bool,
@@ -1292,7 +1290,7 @@ pub fn open_local_ai(app: &mut PhotocraftApp) {
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     li_seg::init_executor();
     let changed = dialogs_mut(|d| subject_quality_changed(&mut d.subject_quality, &app.ui.ai.cutout_engine));
-    if changed && matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "quick" | "better") {
+    if changed && matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "better") {
         li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
     }
     if dialogs_mut(|d| d.background) {
@@ -1557,7 +1555,6 @@ const IDS: &[&str] = &[
     "li.panel.generate",
     "li.draftRefine",
     "li.localAi",
-    "li.aiModels",
     "li.browseModels",
     crate::context_bar::TOGGLE_ID,
     "li.filmstrip",
@@ -1618,7 +1615,7 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
         }),
         "li.generateBackground" => dialogs_mut(|d| d.background = true),
         "li.enhance" => dialogs_mut(|d| d.enhance = true),
-        "li.localAi" | "li.aiModels" => open_local_ai(app),
+        "li.localAi" => open_local_ai(app),
         "li.filmstrip" => crate::filmstrip_ui::toggle(),
         crate::develop_layer::DEVELOP_ID => return Some(crate::develop_layer::develop(app)),
         crate::context_bar::TOGGLE_ID => return crate::context_bar::menu(app, id),
@@ -1969,7 +1966,7 @@ mod tests {
         h.run_steps(2);
         let error =
             download_seg_files(li_ai::catalog::on_device_spec("sface").unwrap(), &dir, &observed, &|_| panic!("cancel must not advance progress")).unwrap_err();
-        assert!(error.is::<li_ai::comfy::Cancelled>());
+        assert!(error.is::<lightcraft_sysmem::jobs::Cancelled>());
         assert_eq!(std::fs::read_dir(dir.join("segmentation")).unwrap().count(), 0);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -2139,7 +2136,7 @@ mod tests {
     /// Stop cancels the AI jobs only.
     #[test]
     fn j17_stop_cancels_ai_jobs_and_shared_icons_render() {
-        assert!(crate::icons::exists("eject") && crate::icons::exists("circle-stop"));
+        assert!(li_ui_kit::icons::exists("eject") && li_ui_kit::icons::exists("circle-stop"));
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let connected = EngineStatus { checked: true, connected: true, ..Default::default() };
         let mut h = egui_kittest::Harness::builder().with_size(vec2(400.0, 40.0)).build_ui_state(
@@ -2166,7 +2163,7 @@ mod tests {
         assert_eq!(h.state().ui.status, "Stopping generation…");
         // Both icons were rasterised from their SVGs.
         for icon in ["eject", "circle-stop"] {
-            let poll = crate::icons::image(icon, 13.0, Color32::WHITE).load_for_size(&h.ctx, vec2(13.0, 13.0));
+            let poll = li_ui_kit::icons::image(icon, 13.0, Color32::WHITE).load_for_size(&h.ctx, vec2(13.0, 13.0));
             assert!(matches!(poll, Ok(egui::load::TexturePoll::Ready { .. })), "{icon} did not rasterise");
         }
         gate.store(true, std::sync::atomic::Ordering::Relaxed);

@@ -13,7 +13,7 @@
 //! layers agree (Panorama). With Seamless Tones and Colors it also adds a merged layer blended
 //! with Laplacian pyramids so transitions are invisible.
 
-use photocraft_algo::panorama::Layout;
+use lightcraft_merge::editor::panorama::Layout;
 use photocraft_algo::pyramid;
 use photocraft_algo::transform::Interp;
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, LayerMask};

@@ -1,6 +1,6 @@
-use lightcraft_codecs::encode::ChromaSubsampling;
-use lightcraft_codecs::jpeg_par;
 use lightcraft_codecs::{DecodeOptions, Format, decode};
+use photocraft_codecs::ChromaSubsampling;
+use photocraft_codecs::jpeg_par;
 
 fn rgb(w: usize, h: usize) -> Vec<u8> {
     let mut v = Vec::with_capacity(w * h * 3);

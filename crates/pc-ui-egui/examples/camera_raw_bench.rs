@@ -93,7 +93,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             [0.5 + 0.4 * (x * 0.07).sin(), 0.5 + 0.4 * (y * 0.13).cos(), (x + y) / 192.0, 1.0]
         })
         .collect();
-    let histogram = photocraft_algo::histogram::RgbHistogram::from_rgba(&pixels);
+    let histogram = li_raster::histogram::RgbHistogram::from_rgba(&pixels);
     let mut draw_samples = Vec::new();
     for i in 0..reps + 3 {
         let start = std::time::Instant::now();

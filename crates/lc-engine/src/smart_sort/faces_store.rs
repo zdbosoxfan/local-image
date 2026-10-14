@@ -137,7 +137,7 @@ impl FacesStore {
             };
             let append = original.is_some();
             let keys: Vec<_> = if append { m.pending.iter().collect() } else { m.values.keys().collect() };
-            lightcraft_catalog::safe_file::write_atomic_with(&path, &mut |w| {
+            li_fs::write_atomic_with(&path, &mut |w| {
                 if let Some(f) = &original {
                     std::io::copy(&mut f.try_clone()?, w)?;
                 } else {

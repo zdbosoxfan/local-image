@@ -591,7 +591,7 @@ mod j15_tests {
             Ok(())
         })
         .unwrap_err();
-        assert!(error.is::<crate::comfy::Cancelled>());
+        assert!(error.is::<lightcraft_sysmem::jobs::Cancelled>());
         assert_eq!(std::fs::read(dest).unwrap(), b"old");
         dir.no_staging();
     }
@@ -800,7 +800,7 @@ mod j15_tests {
                 Ok(())
             })
             .unwrap_err()
-            .is::<crate::comfy::Cancelled>()
+            .is::<lightcraft_sysmem::jobs::Cancelled>()
         );
         assert_eq!(std::fs::read_dir(dir.0.join("segmentation")).unwrap().count(), 0);
     }

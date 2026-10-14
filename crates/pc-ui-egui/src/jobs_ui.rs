@@ -189,7 +189,7 @@ fn dispatch_batch(app: &mut PhotocraftApp) {
 }
 
 fn opened_document(result: &Value) -> Option<photocraft_doc::DocId> {
-    // Required admission-time identity. Never fall back to the mutable legacy index.
+    // Required admission-time identity; the `document` tab index can be stale.
     result.get("documentId")?.as_u64().map(photocraft_doc::DocId)
 }
 

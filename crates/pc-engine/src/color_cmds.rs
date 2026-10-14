@@ -1359,7 +1359,7 @@ mod settings_tests {
         s.execute("edit.colorSettings", json!({"policyRgb": "convert"})).unwrap();
         let mut v2 = Builtin::Srgb.profile().clone();
         let trc = v2.trc.clone().unwrap();
-        let table = |c: &photocraft_cms::Curve| photocraft_cms::Curve::Table((0..1024).map(|i| c.eval64(f64::from(i) / 1023.0) as f32).collect());
+        let table = |c: &li_color::curve::Curve| li_color::curve::Curve::Table((0..1024).map(|i| c.eval64(f64::from(i) / 1023.0) as f32).collect());
         v2.trc = Some([table(&trc[0]), table(&trc[1]), table(&trc[2])]);
         v2.version = (2, 0x10);
         let bytes = v2.with_encoded_bytes().to_bytes();

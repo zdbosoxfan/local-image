@@ -1,6 +1,7 @@
-use photocraft_cms::math::D50;
+use li_color::cms_math::D50;
+use li_color::curve::Curve;
 use photocraft_cms::profile::{ColorSpace, Lut, LutKind, Pcs, Profile, ProfileClass};
-use photocraft_cms::{Builtin, CmsError, Curve, Intent};
+use photocraft_cms::{Builtin, CmsError, Intent};
 
 fn base_srgb() -> Profile {
     Builtin::Srgb.profile().clone()

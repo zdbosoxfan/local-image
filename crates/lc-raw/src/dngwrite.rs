@@ -2,7 +2,7 @@
 //! bit-exact decoder round-trip tests. The raw image is stored in IFD0 (allowed by DNG 1.7 §"File Structure").
 
 use crate::{RawData, RawError, RawImage, Result, ljpeg, opcodes};
-use lightcraft_color::Mat3;
+use li_color::Mat3;
 use lightcraft_tiff::tags::{self as t, compression, photometric};
 use lightcraft_tiff::writer::{rational, srational};
 use lightcraft_tiff::{ByteOrder, IfdBuilder, ImageData, TiffWriter, Value};
@@ -486,7 +486,7 @@ mod sony_dji_roundtrip_tests {
 mod triple_illuminant_tests {
     use super::*;
     use crate::{ColorData, RawFormat, Rect};
-    use lightcraft_color::{D50, D65, Xy};
+    use li_color::{D50, D65, Xy};
 
     fn triple_raw() -> RawImage {
         let table = |shift| crate::profile::HsvTable::from_tags(&[1, 2, 1], &[shift, 1.0, 1.0, shift, 1.0, 1.0], 0).unwrap();

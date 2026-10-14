@@ -45,7 +45,7 @@ fn lenscorr_merge_selects_embedded_then_lensfun_then_lcp_without_stacking() {
         lens: Some(embedded),
         lens_db: Some(db),
         lcp: Some(profile()),
-        lens_camera_to_working: Some(lightcraft_color::Mat3::IDENTITY),
+        lens_camera_to_working: Some(li_color::Mat3::IDENTITY),
         ..Default::default()
     };
     let w = frame_for(&src, &info, &s, false).warp.unwrap();
@@ -107,7 +107,7 @@ fn lenscorr_merge_sony_handoff_and_baked_dng_do_not_receive_fallbacks() {
     let mut noise = SourceInfo::default();
     let a = crate::plan(&src, &noise, &s, &request).lin_key;
     noise.camera_noise =
-        Some(crate::detail::nr::NoiseCalibration { a: [0.001; 3], b: [0.0001; 3], camera_to_working: lightcraft_color::Mat3::IDENTITY.to_f32() });
+        Some(crate::detail::nr::NoiseCalibration { a: [0.001; 3], b: [0.0001; 3], camera_to_working: li_color::Mat3::IDENTITY.to_f32() });
     assert_ne!(a, crate::plan(&src, &noise, &s, &request).lin_key);
     let direct = Frame::with_lcp(120, 80, &s, false, None, None, Some(&profile()));
     assert!(direct.warp.is_some());

@@ -346,7 +346,7 @@ const ORPHAN_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 *
 /// c20b81b2):
 /// - `<key>.pcraft` bundle folders with no `<key>.json` sidecar (a crash during a document's
 ///   first autosave: the sidecar is written after the bundle, and `list_recovery` skips them);
-/// - `*.pcsave.tmp` files left by an interrupted atomic write (see [`crate::atomic::temp_name`])
+/// - `*.pcsave.tmp` files left by an interrupted atomic write (see [`li_fs::temp_name`])
 ///   that another process created.
 ///
 /// Only entries untouched for at least `min_age` are removed. Bundles with a sidecar, symlinks,

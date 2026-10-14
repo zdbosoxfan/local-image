@@ -10,8 +10,8 @@
 //! "commit":true | "cancel":true}}}`; the reply describes the dialog.
 
 use egui::{Align2, Color32, FontId, Pos2, Rect as ERect, Sense, Stroke, TextureHandle, pos2, vec2};
+use li_raster::histogram::RgbHistogram;
 use photocraft_algo::camera_raw::{CameraRaw, Wheel};
-use photocraft_algo::histogram::RgbHistogram;
 
 use crate::camera_raw_scope_ui::{MAX_SAMPLERS, ToneZone};
 use photocraft_doc::LayerId;

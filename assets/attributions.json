@@ -5840,7 +5840,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Compatibility API for the shared Euclidean distance transform.",
+          "used_for": "Checks of the shared li_matte Euclidean distance transform against the previous editor one.",
           "upstream": "crates/algo/src/selection/distance.rs",
           "commit": "3953d78378fd78c3680c78423267f708505a95d3",
           "ours": "crates/pc-algo/src/selection/distance.rs",
@@ -6348,7 +6348,7 @@
           "used_for": "Downloading a model's files from an ordered list of mirrors, only when the user asked for it, through the app's one verified downloader.",
           "upstream": "crates/fetch/src/lib.rs",
           "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
-          "ours": "crates/lc-fetch/src/lib.rs",
+          "ours": "crates/lc-segment/src/fetch/mirror.rs",
           "licence": "Apache-2.0",
           "licence_files": [
             "licenses/lightcraft-LICENSE-APACHE",
@@ -6362,7 +6362,7 @@
           "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, damaged files, cancel.",
           "upstream": "crates/fetch/src/tests.rs",
           "commit": "4b57d5dc5a111f761e5a7abf0e1ae6cf6baebe3f",
-          "ours": "crates/lc-fetch/src/tests.rs",
+          "ours": "crates/lc-segment/src/fetch/mirror/tests.rs",
           "licence": "Apache-2.0",
           "licence_files": [
             "licenses/lightcraft-LICENSE-APACHE",
@@ -6376,7 +6376,7 @@
           "used_for": "Downloading a model's files from an ordered list of mirrors, only when the user asked for it, through the app's one verified downloader.",
           "upstream": "crates/fetch/src/lib.rs",
           "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
-          "ours": "crates/lc-fetch/src/lib.rs",
+          "ours": "crates/lc-segment/src/fetch/mirror.rs",
           "licence": "Apache-2.0",
           "licence_files": [
             "licenses/lightcraft-LICENSE-APACHE",
@@ -6390,7 +6390,7 @@
           "used_for": "The mirror adapter over li-ai::download against a local HTTP server (std TcpListener; never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps, unpinned files, damaged files, cancel.",
           "upstream": "crates/fetch/src/tests.rs",
           "commit": "8dd3afce51d27d2625f8e094e6dd11b713cede01",
-          "ours": "crates/lc-fetch/src/tests.rs",
+          "ours": "crates/lc-segment/src/fetch/mirror/tests.rs",
           "licence": "Apache-2.0",
           "licence_files": [
             "licenses/lightcraft-LICENSE-APACHE",
@@ -6431,7 +6431,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Compatibility facade for the shared design system and editor-specific CJK source policy.",
+          "used_for": "The editor's theme: the shared design system (li_ui_kit::theme and fonts, used through this module by the editor's panels) plus the editor-specific CJK font sources and UI font sizes.",
           "upstream": "crates/ui-egui/src/theme.rs",
           "commit": "9cdcfbb1b7b204b57e04bd6bc3a4a3815a0225a1",
           "ours": "crates/pc-ui-egui/src/theme.rs",

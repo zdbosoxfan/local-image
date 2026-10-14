@@ -45,7 +45,7 @@ pub(crate) const STRUCTURAL_TAGS: &[u16] = &[256, 257, 258, 259, 262, 273, 277, 
 // Keep the codec's private names while the shared TIFF backend owns byte parsing.
 pub(crate) use lightcraft_tiff::directory::{File, Ifd};
 
-/// A directory's Orientation (1–8), with the rules of [`crate::exif_orientation`]: the first
+/// A directory's Orientation (1–8), with the rules of [`lightcraft_tiff::exif::orientation`]: the first
 /// Orientation entry wins, it must be exactly one SHORT or LONG, and anything else reads as 1.
 pub(crate) fn orientation_of(f: &File<'_>, ifd: &Ifd) -> u16 {
     ifd.get(TAG_ORIENTATION)

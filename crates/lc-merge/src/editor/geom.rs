@@ -1,4 +1,4 @@
-//! Integer-centred compatibility geometry for editor layer placement.
+//! Integer-centred homography for editor layer placement, over `lightcraft_geom::Homography`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Homography(pub [f64; 9]);
 impl Homography {

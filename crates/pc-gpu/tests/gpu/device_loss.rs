@@ -2,10 +2,11 @@
 //! compositor) instead of panicking with "Buffer 'pc_compose_uniforms' is invalid". Skips when no
 //! GPU adapter exists.
 
+use li_gpu::health::{DeviceHealth, Fault};
 use photocraft_color::{Color, ColorMode, SampleType};
 use photocraft_doc::{Document, Layer, LayerContent};
 use photocraft_geom::{Rect, Size};
-use photocraft_gpu::{Compositor, DeviceHealth, Fault, render_to_vec};
+use photocraft_gpu::{Compositor, render_to_vec};
 use photocraft_raster::Surface;
 
 /// Concurrent wgpu instances in one process segfault on some drivers (see `parity.rs`).

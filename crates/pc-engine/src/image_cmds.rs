@@ -1,7 +1,8 @@
 //! Image menu: Image Size, Canvas Size, Crop, Trim, Mode (colour model and
 //! bit depth) conversions, Duplicate.
 
-use photocraft_algo::resample::{Resample, crop_surface, resize_surface_in_canvas, translate_surface};
+use li_raster::resample::Resample;
+use photocraft_algo::resample::{crop_surface, resize_surface_in_canvas, translate_surface};
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{Document, Effect, Effects, FxPaint, Layer, LayerContent, Size};
 use photocraft_geom::Rect;

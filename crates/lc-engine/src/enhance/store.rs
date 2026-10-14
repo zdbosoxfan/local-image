@@ -189,8 +189,7 @@ fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usi
             if let Some(dir) = p.parent() {
                 std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             }
-            lightcraft_catalog::safe_file::write_atomic(&p, &encode_samples(width, height, channels, data))
-                .map_err(|e| format!("{}: {e}", p.display()))?;
+            li_fs::write_atomic(&p, &encode_samples(width, height, channels, data)).map_err(|e| format!("{}: {e}", p.display()))?;
         }
         _ => {
             let r = Raster { width, height, channels, data: data.to_vec() };

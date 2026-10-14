@@ -320,7 +320,7 @@ pub struct SmartSort {                                // `Session.smart`
 Embeddings are **not** stored in the catalog snapshot/op log (2 KB × 2,000 photos per model would bloat every save).
 
 - Directory: `<library dir>/AI/` (create on first write). `Library.dir` is `crates/lc-engine/src/library.rs:47`. Without a library (ephemeral/tests) the store is memory-only.
-- `AI/embeddings-<model_id>.bin`: header line `LIEMB1 {"model":"clip-b32-laion","dim":512}\n`, then records `[u16 key_len][key utf8][dim × f32 LE]`, key = `media::content_key(photo)` (virtual copies share a key; fine). Loaded lazily; written with `lightcraft_catalog::safe_file::write_atomic_with` after an analysis batch.
+- `AI/embeddings-<model_id>.bin`: header line `LIEMB1 {"model":"clip-b32-laion","dim":512}\n`, then records `[u16 key_len][key utf8][dim × f32 LE]`, key = `media::content_key(photo)` (virtual copies share a key; fine). Loaded lazily; written with `li_fs::write_atomic_with` after an analysis batch.
 - `AI/faces-<model_id>.bin` (sensitive): header `LIFACE1 {...}\n`, records `[key][u8 n_faces]` then per face `[x,y,w,h,score: f32][128 × f32]` (rect normalised to the **full, oriented, uncropped** frame = the MWG convention).
 - `AI/people.json`: `{"version":1,"people":[{"id":1,"name":"Jane Doe","faces":[["<key>",0],…],"rejected":[["<key>",2]]}],"nextId":2}` — confirmed assignments and "not this person" marks.
 - `SmartSort::clear_faces()` deletes `faces-*.bin` and `people.json` (moves nothing to Trash: these are caches; the UI confirms first).

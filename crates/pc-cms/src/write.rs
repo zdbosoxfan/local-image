@@ -1,8 +1,9 @@
 //! ICC v4.3 profile writer (ICC.1:2010), used for built-in and synthetic profiles.
 
+use li_color::cms_math;
+use li_color::curve::Curve;
+
 use crate::clut::Clut;
-use crate::curve::Curve;
-use crate::math;
 use crate::pipeline::Stage;
 use crate::profile::{LutKind, Pcs, Profile};
 
@@ -329,7 +330,7 @@ pub fn encode(p: &Profile) -> Vec<u8> {
     o.extend_from_slice(&[0; 4]); // model
     o.extend_from_slice(&[0; 8]); // attributes
     o.extend_from_slice(&(p.rendering_intent as u32).to_be_bytes());
-    for v in math::D50 {
+    for v in cms_math::D50 {
         o.extend_from_slice(&s15(v));
     }
     o.extend_from_slice(&[0; 4]); // creator

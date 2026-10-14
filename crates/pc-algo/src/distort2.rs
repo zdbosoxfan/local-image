@@ -96,7 +96,7 @@ pub(crate) fn zigzag(src: &Image, out: Rect, ctx: &Ctx, amount: f32, ridges: f32
     let (cx, cy, rr) = centre(ctx.bounds);
     let a = (amount / 100.0).clamp(-1.0, 1.0);
     let k = ridges.clamp(0.0, 20.0).max(0.5);
-    remap(src, out, ctx, crate::image::Edge::Repeat, |x, y| {
+    remap(src, out, ctx, li_raster::frame::Edge::Repeat, |x, y| {
         let (dx, dy) = (x - cx, y - cy);
         let r = (dx * dx + dy * dy).sqrt();
         if r >= rr || r <= 0.0 || a == 0.0 {

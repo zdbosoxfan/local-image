@@ -1,4 +1,5 @@
-use photocraft_codecs::{Image, decode, exif_orientation, upright_exif};
+use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
+use photocraft_codecs::{Image, decode};
 
 fn classic_white_is_zero() -> Vec<u8> {
     let width = 4u16;

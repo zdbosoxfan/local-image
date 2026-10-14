@@ -18,7 +18,7 @@ use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
 /// Built-in Color Lookup looks `(id, label)`.
-pub use photocraft_cms::lutfile::BUILTIN as LOOKS;
+pub use li_color::lutfile::BUILTIN as LOOKS;
 
 /// Selective Color range keys in storage order.
 pub const RANGES: [&str; 9] = ["reds", "yellows", "greens", "cyans", "blues", "magentas", "whites", "neutrals", "blacks"];
@@ -73,7 +73,7 @@ pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjust
         Some(Adjustment::ColorLookup { name, lut, size, tetrahedral, dither, domain }) => (name.clone(), lut.clone(), *size, *tetrahedral, *dither, *domain),
         _ => (String::new(), None, 0, true, false, None),
     };
-    let mut loaded: Option<(photocraft_cms::lutfile::LutFile, String, Option<photocraft_doc::LutDomain>)> = None;
+    let mut loaded: Option<(li_color::lutfile::LutFile, String, Option<photocraft_doc::LutDomain>)> = None;
     if let Some(id) = p.get("lut").and_then(Value::as_str) {
         if id == "none" || id.is_empty() {
             name.clear();
@@ -81,7 +81,7 @@ pub fn lookup_from_params(p: &Value, base: Option<&Adjustment>) -> Result<Adjust
             size = 0;
             domain = None;
         } else {
-            let f = photocraft_cms::lutfile::builtin(id).ok_or_else(|| bad(CMD, format!("unknown look `{id}` (built-ins: {})", builtin_ids())))?;
+            let f = li_color::lutfile::builtin(id).ok_or_else(|| bad(CMD, format!("unknown look `{id}` (built-ins: {})", builtin_ids())))?;
             let label = f.title.clone();
             loaded = Some((f, label, None));
         }
@@ -122,7 +122,7 @@ fn lut_domain(min: [f32; 3], max: [f32; 3]) -> Option<photocraft_doc::LutDomain>
 }
 
 fn builtin_ids() -> String {
-    photocraft_cms::lutfile::BUILTIN.iter().map(|b| b.0).collect::<Vec<_>>().join(", ")
+    li_color::lutfile::BUILTIN.iter().map(|b| b.0).collect::<Vec<_>>().join(", ")
 }
 
 fn base_name(path: &str) -> String {
@@ -347,7 +347,7 @@ fn hdr_toning(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// The Color Lookup built-ins (id, label) for UIs and agents.
 fn list_looks(_: &mut Session, _: &Value) -> Result<Value> {
-    Ok(json!(photocraft_cms::lutfile::BUILTIN.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>()))
+    Ok(json!(li_color::lutfile::BUILTIN.iter().map(|(id, label)| json!({"id": id, "label": label})).collect::<Vec<_>>()))
 }
 
 macro_rules! spec {

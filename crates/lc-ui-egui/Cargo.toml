@@ -18,11 +18,11 @@ li-ui-kit.workspace = true
 li-testkit.workspace = true
 li-color = { workspace = true }
 li-seg = { workspace = true }
+li-raster = { path = "../li-raster" }
 # The editor owns the shared display transform (existing workspace package).
 photocraft-engine = { workspace = true }
 lightcraft-geom = { workspace = true }
 lightcraft-meta = { workspace = true }
-lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }
 lightcraft-codecs = { workspace = true }
 lightcraft-develop = { workspace = true }

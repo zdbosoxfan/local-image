@@ -9,9 +9,11 @@
 mod common;
 use std::time::Instant;
 
-use photocraft_algo::hdr::{self, MergeOptions, ToneMethod};
+use lightcraft_merge::editor::hdr::{self as merge_hdr, MergeOptions};
+use lightcraft_merge::editor::panorama::{self as merge_pano, AlignOptions, Layout, RoiImage};
+use photocraft_algo::hdr::{self, ToneMethod};
 use photocraft_algo::lens::{self, LensCorrection};
-use photocraft_algo::panorama::{self, AlignOptions, Layout, RoiImage};
+use photocraft_algo::panorama;
 use photocraft_algo::tone::HdrToning;
 use photocraft_algo::transform::Interp;
 use photocraft_algo::wideangle::{self, Constraint, Orientation, WideAngle, WideModel};
@@ -83,8 +85,9 @@ fn main() -> common::Result<()> {
         let shots: Vec<Vec<[f32; 4]>> =
             [0.5f32, 1.0, 2.0].iter().map(|k| px.iter().map(|q| [(q[0] * k).min(1.0), (q[1] * k).min(1.0), (q[2] * k).min(1.0), 1.0]).collect()).collect();
         let refs: Vec<&[[f32; 4]]> = shots.iter().map(Vec::as_slice).collect();
+        let opts = MergeOptions { exposures: vec![0.5, 1.0, 2.0], remove_ghosts: true, ghost_base: None, response: None };
         let t0 = Instant::now();
-        let mut m = hdr::merge(w, h, &refs, &MergeOptions { exposures: vec![0.5, 1.0, 2.0], remove_ghosts: true, ghost_base: None, response: None }).unwrap();
+        let mut m = merge_hdr::merge(w, h, &refs, &opts).unwrap();
         println!("  merge {:.1} ms", t0.elapsed().as_secs_f64() * 1000.0);
         hdr::tone_map(&mut m.px, w, h, &ToneMethod::LocalAdaptation(HdrToning { radius: 7.0, strength: 0.52, ..Default::default() }));
     });
@@ -101,9 +104,9 @@ fn main() -> common::Result<()> {
                     .collect()
             })
             .collect();
-        let prepared: Vec<panorama::PreparedImage> = views.iter().map(|v| (sw, sh, v.clone(), None)).collect();
+        let prepared: Vec<merge_pano::PreparedImage> = views.iter().map(|v| (sw, sh, v.clone(), None)).collect();
         let t0 = Instant::now();
-        let feats = panorama::detect_many(&prepared, 800);
+        let feats = merge_pano::detect_many(&prepared, 800);
         let matches = panorama::match_pairs(&feats);
         let al = panorama::align(&feats, &matches, &AlignOptions { layout: Layout::Reposition, focal: None, reference: None, geometric: false });
         println!(
@@ -129,7 +132,7 @@ fn main() -> common::Result<()> {
             })
             .collect();
         let t1 = Instant::now();
-        let _ = panorama::multiband(cw, sh, &rois, &wts, panorama::blend_levels(cw, sh));
+        let _ = merge_pano::multiband(cw, sh, &rois, &wts, merge_pano::blend_levels(cw, sh));
         println!("  multiband {:.1} ms", t1.elapsed().as_secs_f64() * 1000.0);
     });
     Ok(())
@@ -139,10 +142,10 @@ struct Photocraft;
 impl common::Backend for Photocraft {
     const NAME: &'static str = "pc_brief";
     fn register(pair: &common::Pair) -> common::Registration {
-        use photocraft_algo::features;
+        use lightcraft_merge::editor::features;
         let t = Instant::now();
-        let a = panorama::detect(pair.w, pair.h, &pair.a, None, common::MAX_FEATURES);
-        let b = panorama::detect(pair.w, pair.h, &pair.b, None, common::MAX_FEATURES);
+        let a = merge_pano::detect(pair.w, pair.h, &pair.a, None, common::MAX_FEATURES);
+        let b = merge_pano::detect(pair.w, pair.h, &pair.b, None, common::MAX_FEATURES);
         let detect_ms = common::elapsed_ms(t);
         let t = Instant::now();
         let matches = features::match_descriptors(&a.desc, &b.desc, 0.8);
@@ -150,7 +153,7 @@ impl common::Backend for Photocraft {
         let src: Vec<_> = matches.iter().map(|&(i, _)| a.points[i]).collect();
         let dst: Vec<_> = matches.iter().map(|&(_, j)| b.points[j]).collect();
         let t = Instant::now();
-        let fit = features::ransac(features::Model::Homography, &src, &dst, 2000, common::THRESHOLD, common::SEED).filter(|(_, inliers)| inliers.len() >= 8);
+        let fit = features::ransac(features::Model::Homography, &src, &dst, common::THRESHOLD, common::SEED).filter(|(_, inliers)| inliers.len() >= 8);
         let fit_ms = common::elapsed_ms(t);
         common::Registration {
             features: [a.points.len(), b.points.len()],
@@ -178,7 +181,7 @@ impl common::Backend for Photocraft {
             })
             .collect();
         let refs: Vec<_> = encoded.iter().map(Vec::as_slice).collect();
-        let out = hdr::merge(
+        let out = merge_hdr::merge(
             b.truth.w,
             b.truth.h,
             &refs,

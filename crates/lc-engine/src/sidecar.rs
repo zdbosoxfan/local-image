@@ -325,7 +325,7 @@ pub const OWNED_IF_STATED: &[&str] = &["exif:DateTimeOriginal", "photoshop:DateC
 
 /// Write `data` to `path` atomically: a temp file next to it, synced, then renamed over it.
 fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    lightcraft_catalog::safe_file::write_atomic(path, data)
+    li_fs::write_atomic(path, data)
 }
 
 /// Copy `path` to a new `<name>.bak-<stamp>` (`-1`, `-2`… if taken; never overwriting).

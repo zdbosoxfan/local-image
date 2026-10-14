@@ -56,7 +56,7 @@ pub(crate) struct Ctx<'a> {
     /// Smart-filter caches from the global `FEid`/`FXid` blocks (filter masks, by placed id).
     pub filter_effects: Vec<photocraft_psd::filter_effects::FilterEffectsItem>,
     /// Cancellation and progress for background opens (checked per layer record).
-    pub ctl: photocraft_raster::Interrupt<'a>,
+    pub ctl: lightcraft_sysmem::jobs::Interrupt<'a>,
     /// Layer records decoded so far, out of `total` (progress).
     pub done: usize,
     pub total: usize,
@@ -549,13 +549,13 @@ fn parse_guides(data: &[u8], doc: &mut Document) {
 /// Converts a parsed PSD into a document. Never fails: problems become warnings.
 pub fn psd_to_document(file: &PsdFile) -> (Document, Vec<String>) {
     // Never cancelled, so always `Some`; the fallback is unreachable.
-    psd_to_document_with(file, &photocraft_raster::Interrupt::NONE)
+    psd_to_document_with(file, &lightcraft_sysmem::jobs::Interrupt::NONE)
         .unwrap_or_else(|| (Document::new("Untitled", Size::new(1, 1), ColorMode::Rgb, SampleType::U8), Vec::new()))
 }
 
 /// [`psd_to_document`] for a background open: checks `ctl` per layer record and reports
 /// progress. `None` when cancelled.
-pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) -> Option<(Document, Vec<String>)> {
+pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Option<(Document, Vec<String>)> {
     let h = &file.header;
     let mut warnings = Vec::new();
     let mode = doc_mode(h.color_mode).unwrap_or_else(|| {
@@ -890,7 +890,7 @@ mod file_input_regressions {
             dpi: 72.0,
             txt2: None,
             filter_effects: vec![],
-            ctl: photocraft_raster::Interrupt::NONE,
+            ctl: lightcraft_sysmem::jobs::Interrupt::NONE,
             done: 0,
             total: 0,
             remaining: 400_000,

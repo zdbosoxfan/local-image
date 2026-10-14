@@ -9,19 +9,17 @@
 //!   [`JobCtl::set_fraction`], [`JobCtl::set_step`], [`JobCtl::set_stage`] and
 //!   [`JobCtl::set_message`]. The stage type `S` is the job's own (e.g. `li_ai::Stage`); plain jobs
 //!   use the default `()`.
-//! * [`Interrupt`] — the **borrowed**, `Copy` view that pixel algorithms take (`pc-raster`
-//!   re-exports it). Hot loops call [`Interrupt::cancelled`] / [`Interrupt::check`] once per
-//!   tile, row band or iteration and may report [`Interrupt::progress`]. Get one from a job with
-//!   [`JobCtl::interrupt`] (lock-free: two atomics, no callbacks), from a bare `&AtomicBool` with
-//!   [`Interrupt::flag`], or from callbacks with [`Interrupt::new`]. [`Interrupt::NONE`] never
-//!   cancels, for synchronous callers.
+//! * [`Interrupt`] — the **borrowed**, `Copy` view that pixel algorithms take. Hot loops call
+//!   [`Interrupt::cancelled`] / [`Interrupt::check`] once per tile, row band or iteration and may
+//!   report [`Interrupt::progress`]. Get one from a job with [`JobCtl::interrupt`] (lock-free: two
+//!   atomics, no callbacks), from a bare `&AtomicBool` with [`Interrupt::flag`], or from callbacks
+//!   with [`Interrupt::new`]. [`Interrupt::NONE`] never cancels, for synchronous callers.
 //!
-//! APIs that take a plain `&AtomicBool` cancel flag (`lightcraft-fetch`, `li-seg`) are fed with
+//! APIs that take a plain `&AtomicBool` cancel flag (`lightcraft-segment` model downloads, `li-seg`) are fed with
 //! [`JobCtl::cancel_flag`], so one cancel reaches every layer of a job.
 //!
-//! Every stopped operation ends with the one [`Cancelled`] error (`li-ai`, `li-seg` and
-//! `pc-raster` re-export it), so `err.is::<Cancelled>()` / `err.chain().any(..)` recognises a
-//! cancel whichever layer noticed it.
+//! Every stopped operation ends with the one [`Cancelled`] error, so `err.is::<Cancelled>()` /
+//! `err.chain().any(..)` recognises a cancel whichever layer noticed it.
 //!
 //! Progress is a fraction in `0.0..=1.0` (or unknown); [`JobStatus`] adds the stage, an optional
 //! `step / max` count and a message for the readout. All updates are thread-safe; the cancel flag
@@ -137,7 +135,7 @@ impl<S> JobCtl<S> {
         if self.is_cancelled() { Err(Cancelled) } else { Ok(()) }
     }
 
-    /// The cancel flag itself, for APIs that take `&AtomicBool` (`lightcraft-fetch`, `li-seg`).
+    /// The cancel flag itself, for APIs that take `&AtomicBool` (`lightcraft-segment` model downloads, `li-seg`).
     /// Only read it; cancel through [`JobCtl::cancel`].
     pub fn cancel_flag(&self) -> &AtomicBool {
         &self.shared.cancel
@@ -485,5 +483,36 @@ mod tests {
         flag.store(true, Ordering::Relaxed);
         assert_eq!(i.check(), Err(Cancelled));
         assert!(Interrupt::cancel_only(&cancel).cancelled());
+    }
+}
+
+#[cfg(test)]
+mod interrupt_tests {
+    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+
+    use super::*;
+
+    #[test]
+    fn none_never_cancels() {
+        assert!(!Interrupt::NONE.cancelled());
+        Interrupt::NONE.progress(0.5);
+        assert_eq!(Interrupt::NONE.check(), Ok(()));
+    }
+
+    #[test]
+    fn reports_cancel_and_clamped_progress() {
+        let flag = AtomicBool::new(false);
+        let last = AtomicU32::new(0);
+        let cancel = || flag.load(Ordering::Relaxed);
+        let progress = |f: f32| last.store(f.to_bits(), Ordering::Relaxed);
+        let i = Interrupt::new(&cancel, &progress);
+        i.progress(2.0);
+        assert_eq!(f32::from_bits(last.load(Ordering::Relaxed)), 1.0);
+        i.progress(f32::NAN);
+        assert_eq!(f32::from_bits(last.load(Ordering::Relaxed)), 1.0);
+        assert!(!i.cancelled());
+        flag.store(true, Ordering::Relaxed);
+        assert!(i.cancelled());
+        assert_eq!(i.check(), Err(Cancelled));
     }
 }

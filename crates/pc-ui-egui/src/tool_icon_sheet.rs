@@ -1,7 +1,7 @@
 //! Reproducible tool icon review sheets: `cargo xtask tool-icons`. No GUI, no GPU; resvg at the real
 //! pixel sizes, monochrome in the theme icon grey and colour mode's family tint, on dark and light.
 
-use crate::tool_icon_data::{TOOL_ICONS, TOOL_LABELS};
+use li_ui_kit::tool_icon_data::{TOOL_ICONS, TOOL_LABELS};
 
 // A small original 5×7 label alphabet keeps the review artifact independent of host fonts.
 fn glyph(ch: char) -> [u8; 7] {
@@ -85,7 +85,7 @@ fn tile(sheet: &mut image::RgbaImage, x: u32, y: u32, size: u32, bg: [u8; 4], by
     let icon = egui::Color32::from_gray(if dark { 222 } else { 52 });
     let colour = match ink {
         Ink::AsAuthored | Ink::Mono => icon,
-        Ink::Family(name) => crate::color_icons::tint(name, icon, dark),
+        Ink::Family(name) => li_ui_kit::color_icons::tint(name, icon, dark),
     };
     let svg = String::from_utf8_lossy(bytes).replace("currentColor", &format!("#{:02x}{:02x}{:02x}", colour.r(), colour.g(), colour.b()));
     let mut icon = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(size), &Default::default()).unwrap();
@@ -175,7 +175,7 @@ fn write_tool_icon_contact_sheet() {
     let all: Vec<(&str, &[u8])> = TOOL_ICONS
         .iter()
         .copied()
-        .chain(crate::vector_tool_icon_data::ICONS.iter().filter(|(_, n, _)| n.starts_with("vector-")).map(|(_, n, svg)| (*n, *svg)))
+        .chain(li_ui_kit::vector_icon_data::ICONS.iter().filter(|(_, n, _)| n.starts_with("vector-")).map(|(_, n, svg)| (*n, *svg)))
         .collect::<std::collections::BTreeMap<_, _>>()
         .into_iter()
         .collect();

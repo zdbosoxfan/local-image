@@ -369,7 +369,7 @@ impl Acknowledgements {
     pub fn acknowledge(&mut self, model: &Model, host: &str, path: &Path) -> Result<()> {
         let mut next = self.clone();
         next.ids.insert(model.identity(host));
-        crate::settings::write_atomic(path, &serde_json::to_vec_pretty(&next)?)?;
+        li_fs::atomic_write(path, &serde_json::to_vec_pretty(&next)?)?;
         *self = next;
         Ok(())
     }

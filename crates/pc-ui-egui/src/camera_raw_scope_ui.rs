@@ -2,9 +2,9 @@
 //! the existing filter.cameraRaw command. Image analysis is cached per completed proxy revision.
 use crate::{camera_raw_ui::CameraRawDialog, state::CameraRawScopeState, theme::Tokens, widgets};
 use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Stroke, TextureHandle, pos2, vec2};
+use li_raster::histogram::clipping;
 use photocraft_algo::{
     camera_raw::CameraRaw,
-    histogram::clipping,
     vectorscope::{HUES, SATURATIONS, Vectorscope},
 };
 use serde::{Deserialize, Serialize};
@@ -682,8 +682,8 @@ pub(crate) fn shortcuts(session: &photocraft_engine::Session, ctx: &egui::Contex
     if ctx.text_edit_focused() {
         return;
     }
-    if let Some(sc) = crate::tool_tips::CameraRawTool::Sampler.binding(session).as_deref().and_then(crate::shortcuts::parse)
-        && crate::shortcuts::consume(ctx, &sc)
+    if let Some(sc) = crate::tool_tips::CameraRawTool::Sampler.binding(session).as_deref().and_then(li_keys::input::parse)
+        && li_keys::input::consume(ctx, &sc)
     {
         view.sampler_tool = !view.sampler_tool;
     }

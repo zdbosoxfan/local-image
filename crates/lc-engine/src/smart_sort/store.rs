@@ -113,7 +113,7 @@ impl Store {
         std::fs::create_dir_all(dir)?;
         if self.sharpness_dirty {
             let bytes = serde_json::to_vec(&self.sharpness)?;
-            lightcraft_catalog::safe_file::write_atomic(&dir.join("sharpness.json"), &bytes)?;
+            li_fs::write_atomic(&dir.join("sharpness.json"), &bytes)?;
             self.sharpness_dirty = false;
         }
         for (model, m) in &mut self.models {
@@ -132,7 +132,7 @@ impl Store {
             };
             let append = original.is_some();
             let keys: Vec<_> = if append { m.pending.iter().collect() } else { m.values.keys().collect() };
-            lightcraft_catalog::safe_file::write_atomic_with(&path, &mut |w| {
+            li_fs::write_atomic_with(&path, &mut |w| {
                 if let Some(f) = &original {
                     std::io::copy(&mut f.try_clone()?, w)?;
                 } else {

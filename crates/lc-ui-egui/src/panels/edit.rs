@@ -728,8 +728,8 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
                 FilmStock::Bw => [n.dmin.r; 3],
                 _ => n.dmin.to_array(),
             };
-            let srgb = lightcraft_color::REC2020.to_space(&lightcraft_color::SRGB).apply(base);
-            let enc = srgb.map(|v| lightcraft_color::transfer::encode_srgb8(v.clamp(0.0, 1.0) as f32));
+            let srgb = li_color::REC2020.to_space(&li_color::SRGB).apply(base);
+            let enc = srgb.map(|v| li_color::transfer::encode_srgb8(v.clamp(0.0, 1.0) as f32));
             crate::widgets::color_swatch(ui, "negative:filmBase", Color32::from_rgb(enc[0], enc[1], enc[2]), vec2(40.0, 24.0), None, "Film base");
             let picking = app.ui.tool == "negDmin";
             let (icon_rect, icon_response) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
@@ -1028,7 +1028,7 @@ fn skin_color(reference: [f64; 3]) -> Color32 {
     let c = [reference[0] as f32, reference[1] as f32, (reference[2] as f32).to_radians()];
     let to_rgb = |c| {
         let xyz = ucs::xyy_to_xyz(ucs::jch_to_xyy(c, ucs::y_to_l_star(1.0)));
-        lightcraft_color::SRGB.from_xyz().apply_f32(xyz)
+        li_color::SRGB.from_xyz().apply_f32(xyz)
     };
     let mut rgb = to_rgb(c);
     // Range strips deliberately include out-of-display-gamut samples. Reduce chroma at the
@@ -1046,7 +1046,7 @@ fn skin_color(reference: [f64; 3]) -> Color32 {
             }
         }
     }
-    let c = rgb.map(|v| (lightcraft_color::transfer::linear_to_srgb(v.max(0.0)).clamp(0.0, 1.0) * 255.0).round() as u8);
+    let c = rgb.map(|v| (li_color::transfer::linear_to_srgb(v.max(0.0)).clamp(0.0, 1.0) * 255.0).round() as u8);
     Color32::from_rgb(c[0], c[1], c[2])
 }
 fn skin_tone_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
@@ -1342,7 +1342,7 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
             if v.is_empty() { vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)] } else { v.clone() }
         };
         let pts = pts_of(d);
-        let curve = lightcraft_color::spline::MonotoneCurve::new(&pts.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>());
+        let curve = li_color::spline::MonotoneCurve::new(&pts.iter().map(|q| (q.x, q.y)).collect::<Vec<_>>());
         let color = t.curve_color(&ch);
         let line: Vec<Pos2> = (0..=256).map(|i| to_screen(i as f64 / 256.0, curve.eval(i as f64 / 256.0).clamp(0.0, 1.0))).collect();
         curve_line(p, line, color, t);
@@ -1641,10 +1641,10 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target
 
 /// Display colour of an OkLCh sample (lightness, chroma, hue in degrees).
 fn oklch_color(l: f64, c: f64, h_deg: f64) -> Color32 {
-    use lightcraft_color::perceptual::{lch_to_lab, oklab_to_2020};
+    use li_color::perceptual::{lch_to_lab, oklab_to_2020};
     let lin = oklab_to_2020(lch_to_lab([l as f32, c as f32, (h_deg as f32).to_radians()]));
-    let s = lightcraft_color::REC2020.to_space(&lightcraft_color::SRGB).apply_f32(lin);
-    let e = s.map(|v| (lightcraft_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0).round() as u8);
+    let s = li_color::REC2020.to_space(&li_color::SRGB).apply_f32(lin);
+    let e = s.map(|v| (li_color::transfer::linear_to_srgb(v.clamp(0.0, 1.0)) * 255.0).round() as u8);
     Color32::from_rgb(e[0], e[1], e[2])
 }
 
@@ -1780,7 +1780,7 @@ fn paint_wheel(p: &egui::Painter, c: Pos2, rad: f32) {
     mesh.vertices.push(Vertex { pos: c, uv: Pos2::ZERO, color: Color32::from_gray(128) });
     for i in 0..=n {
         let a = i as f32 / n as f32 * std::f32::consts::TAU;
-        let rgb = lightcraft_color::perceptual::hsv_to_rgb(a.to_degrees(), 0.75, 0.8);
+        let rgb = li_color::perceptual::hsv_to_rgb(a.to_degrees(), 0.75, 0.8);
         let col = Color32::from_rgb((rgb[0] * 255.0) as u8, (rgb[1] * 255.0) as u8, (rgb[2] * 255.0) as u8);
         mesh.vertices.push(Vertex { pos: c + vec2(a.cos(), -a.sin()) * rad, uv: Pos2::ZERO, color: col });
         if i > 0 {

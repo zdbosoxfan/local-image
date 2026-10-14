@@ -4,13 +4,13 @@
 
 use std::sync::{Arc, Mutex};
 
+use li_raster::resample::Filter;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Orientation;
 use lightcraft_pipeline::capture::CaptureParams;
 use lightcraft_pipeline::finish::{FinishMode, FinishParams, MASK_TERMS, mask_terms};
 use lightcraft_pipeline::geometry::SampleMode;
 use lightcraft_pipeline::{Plan, RenderRequest, Rendered, SourceInfo, local};
-use lightcraft_raster::resample::Filter;
 use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8};
 
 use crate::ctx::{Buf, FailKind, Gpu, fail, groups1, groups2};
@@ -340,7 +340,7 @@ const CHUNK: usize = 16;
 
 /// Follow Develop's explicit CPU policy rather than the general raster/editor default.
 pub(crate) fn gaussian(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
-    use lightcraft_pipeline::blur::GaussianPlan;
+    use li_raster::blur::GaussianPlan;
     if w * h == 0 {
         return cx.copy(src);
     }
@@ -351,7 +351,7 @@ pub(crate) fn gaussian(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize
     }
 }
 fn sampled_gaussian_taps(sigma: f32) -> Vec<f32> {
-    let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
+    let kernel = li_raster::blur::gaussian_kernel(sigma);
     kernel[kernel.len() / 2..].to_vec()
 }
 /// Box-only policy retained for gaussian_fine above its GPU-compatible fine threshold.
@@ -359,7 +359,7 @@ fn gaussian_boxes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sig
     if sigma <= 0.05 || !sigma.is_finite() || w * h == 0 {
         return cx.copy(src);
     }
-    let radii = lightcraft_raster::blur::box_radii(sigma);
+    let radii = li_raster::blur::box_radii(sigma);
     gaussian_box_passes(cx, src, w, h, nc, radii)
 }
 fn gaussian_box_passes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, radii: [usize; 3]) -> Buf {
@@ -383,7 +383,7 @@ fn gaussian_box_passes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize
 
 /// Resample taps of `lightcraft_raster::resample::resize`, packed for the `resize_*` kernels.
 fn taps(src: usize, dst: usize, filter: Filter) -> Vec<u32> {
-    let w = lightcraft_raster::resample::weights(src, dst, filter);
+    let w = li_raster::resample::weights(src, dst, filter);
     let mut t = Vec::with_capacity(dst * 3);
     let mut weights = Vec::new();
     let base = dst * 3;
@@ -570,7 +570,7 @@ fn warp_params(
     p.extend([f(radial.center.x), f(radial.center.y), f(radial.radius)]);
     debug_assert_eq!(p.len(), 186);
     p.push(wp.camera_basis.is_some() as u32);
-    let basis = wp.camera_basis.unwrap_or([lightcraft_color::Mat3::IDENTITY; 2]);
+    let basis = wp.camera_basis.unwrap_or([li_color::Mat3::IDENTITY; 2]);
     p.extend(basis.iter().flat_map(|matrix| matrix.0.iter().flatten()).map(|v| f(*v)));
     debug_assert_eq!(p.len(), 205);
     p.push(w.fisheye as u32);
@@ -1688,7 +1688,7 @@ fn masks_impl(
 
 /// Exact small-radius Gaussian used by pixel-scale sharpening.
 fn gaussian_fine(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize, sigma: f32) -> Buf {
-    use lightcraft_raster::blur::{FINE_SIGMA, gauss_taps};
+    use li_raster::blur::{FINE_SIGMA, gauss_taps};
     if sigma >= FINE_SIGMA {
         return gaussian_boxes(cx, src, w, h, nc, sigma);
     }
@@ -2719,20 +2719,20 @@ fn j01_final_gpu_gaussian_host_taps_match_cpu_policy() {
     // Device acceptance is intentionally deferred to the owner's merged run.
     for sigma in [0.3, 0.5, 1.0, 2.0, 4.0] {
         let taps = sampled_gaussian_taps(sigma);
-        let kernel = lightcraft_raster::blur::gaussian_kernel(sigma);
+        let kernel = li_raster::blur::gaussian_kernel(sigma);
         assert_eq!(taps, &kernel[kernel.len() / 2..]);
         let mass = taps[0] + 2.0 * taps.iter().skip(1).sum::<f32>();
         assert!((mass - 1.0).abs() < 1e-6);
     }
     assert!(sampled_gaussian_taps(0.5)[0] < 0.8);
-    assert_eq!(lightcraft_raster::blur::FINE_SIGMA, 2.0);
+    assert_eq!(li_raster::blur::FINE_SIGMA, 2.0);
 }
 
 #[cfg(test)]
 #[test]
-fn develop_gaussian_host_plan_matches_cpu_compatibility_policy() {
-    use lightcraft_pipeline::blur::{GaussianPlan, plan};
-    use lightcraft_raster::blur::GaussianPolicy;
+fn develop_gaussian_host_plan_matches_cpu_policy() {
+    use li_raster::blur::{GaussianPlan, GaussianPolicy};
+    use lightcraft_pipeline::blur::plan;
     assert_eq!(plan(0.3), GaussianPlan::Identity);
     assert_eq!(plan(0.5), GaussianPlan::Boxes([1, 0, 0]));
     assert_eq!(plan(0.8), GaussianPlan::Boxes([0, 0, 1]));

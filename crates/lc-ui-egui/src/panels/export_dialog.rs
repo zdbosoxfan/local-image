@@ -10,9 +10,9 @@
 //! Catalog, Ask what to do, After Export) ride along as extra params.
 
 use egui::{Align, Layout, RichText, Sense, Ui, vec2};
+use li_raster::resample::ResampleChoice;
 use lightcraft_engine::export::{
-    Anchor, Conflict, ExportFormat as F, ExportOptions, MetadataPolicy as M, OutputSpace, ResampleChoice, Resize, ResizeMode as R, SharpenAmount,
-    SharpenFor,
+    Anchor, Conflict, ExportFormat as F, ExportOptions, MetadataPolicy as M, OutputSpace, Resize, ResizeMode as R, SharpenAmount, SharpenFor,
 };
 use serde_json::{Value, json};
 

@@ -25,11 +25,11 @@ pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
 /// The tool image for rich tooltips: theme-tinted line icon, or its family tint in colour mode.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'static>> {
     egui_extras::install_image_loaders(ui.ctx());
-    if crate::color_icons::enabled(ui.ctx()) {
+    if li_ui_kit::color_icons::enabled(ui.ctx()) {
         crate::color_icons::image(ui, name, size, !ui.is_enabled())
     } else {
         let t = crate::theme::Tokens::get(ui.ctx());
-        crate::mono_tool_icons::image(name, size, if ui.is_enabled() { t.icon } else { t.text_disabled })
+        li_ui_kit::mono_tool_icons::image(name, size, if ui.is_enabled() { t.icon } else { t.text_disabled })
     }
 }
 
@@ -38,11 +38,11 @@ pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, fallback: Icon, tint: C
     egui_extras::install_image_loaders(ui.ctx());
     let size = rect.width().min(rect.height());
     let rect = Rect::from_center_size(rect.center(), egui::vec2(size, size));
-    if crate::color_icons::enabled(ui.ctx())
+    if li_ui_kit::color_icons::enabled(ui.ctx())
         && let Some(image) = crate::color_icons::image(ui, name, size, !enabled || !ui.is_enabled())
     {
         image.paint_at(ui, rect);
-    } else if let Some(image) = crate::mono_tool_icons::image(name, size, tint) {
+    } else if let Some(image) = li_ui_kit::mono_tool_icons::image(name, size, tint) {
         image.paint_at(ui, rect);
     } else {
         paint(ui.painter(), rect, fallback, tint);
@@ -51,10 +51,10 @@ pub fn paint_tool(ui: &egui::Ui, rect: Rect, name: &str, fallback: Icon, tint: C
 
 /// Named tool controls in Develop (the app uses string tools and RightPanel, not a Tool enum).
 pub fn tool_name(tool: &str) -> Option<&'static str> {
-    crate::color_icon_data::DEVELOP_TOOL_ICONS
+    li_ui_kit::color_icon_data::DEVELOP_TOOL_ICONS
         .iter()
         .find(|(name, _)| *name == tool)
-        .filter(|(_, icon)| crate::mono_tool_icons::exists(icon))
+        .filter(|(_, icon)| li_ui_kit::mono_tool_icons::exists(icon))
         .map(|(_, icon)| *icon)
 }
 
@@ -110,7 +110,7 @@ fn ds_finding_colored_tool_icon_is_square_in_a_wide_click_target() {
     let wide = Rect::from_min_size(pos2(20., 20.), vec2(100., 30.));
     let raw = crate::headless::HeadlessView::raw_input(vec2(200., 120.), 1., 0., vec![]);
     view.run(raw, |ui| {
-        crate::color_icons::set_enabled(ui.ctx(), true);
+        li_ui_kit::color_icons::set_enabled(ui.ctx(), true);
         let _ = ui.interact(wide, egui::Id::new("wide-tool"), egui::Sense::click());
         paint_tool(ui, wide, "crop", Icon::Crop, Color32::WHITE, true);
     });
@@ -186,7 +186,7 @@ fn j17_library_icon_controls_keep_palette_clicks_and_disabled_behavior() {
             for colored in [false, true] {
                 let mut view = HeadlessView::new();
                 crate::theme::apply_tokens(&view.ctx, crate::theme::host_palette(kind));
-                crate::color_icons::set_enabled(&view.ctx, colored);
+                li_ui_kit::color_icons::set_enabled(&view.ctx, colored);
                 let mut bounds = [Rect::NOTHING; 3];
                 let mut clicks = [0; 3];
                 let mut frame = 0;

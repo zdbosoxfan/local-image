@@ -57,14 +57,14 @@ mod vendor;
 pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
 pub use embedded_lens::VendorLens;
-pub use lightcraft_color::Mat3;
+pub use li_color::Mat3;
 pub use lightcraft_geom::Orientation;
 pub use lightcraft_meta::Metadata;
 pub use lightcraft_raster::Rgb32f;
 pub use opcodes::{Opcode, OpcodeLists};
 pub use preview::embedded_preview;
 
-use lightcraft_color::Xy;
+use li_color::Xy;
 use lightcraft_tiff::{Tiff, TiffError};
 use serde::{Deserialize, Serialize};
 

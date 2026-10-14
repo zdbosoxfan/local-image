@@ -970,26 +970,6 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-#[allow(clippy::unwrap_used)]
-fn j12_shell_shared_sentinel_preserves_legacy_marker_format() {
-    let dir = std::env::temp_dir().join(format!("j12-shell-marker-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    let (previous, sentinel) = Sentinel::begin(&dir);
-    assert_eq!(previous, Previous::Clean);
-    let mut sentinel = sentinel.unwrap();
-    let marker = Marker { backend: "vulkan".into(), adapter: "test adapter".into(), attempt: 1, ..Default::default() };
-    sentinel.write(marker.clone()).unwrap();
-    assert_eq!(Sentinel::begin(&dir).0, Previous::Busy);
-    drop(sentinel);
-    let (previous, sentinel) = Sentinel::begin(&dir);
-    assert_eq!(previous, Previous::Crashed(marker));
-    sentinel.unwrap().finish();
-    assert!(!dir.join(MARKER_FILE).exists());
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[cfg(test)]
-#[test]
 fn j12_shell_local_image_override_configures_the_shared_instance() {
     let override_value = li_gpu::backend::startup_environment(Some("vulkan"), None);
     let plan = plan(GpuBackend::Auto, None, override_value.as_deref(), false, Os::Other);

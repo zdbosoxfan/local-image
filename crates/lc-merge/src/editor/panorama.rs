@@ -193,7 +193,7 @@ pub fn ransac_motion(
             Motion::Similarity => Model::Similarity,
             _ => Model::Homography,
         };
-        return features::ransac(model, src, dst, iters, threshold, seed);
+        return features::ransac(model, src, dst, threshold, seed);
     }
     let k = motion.min_points();
     let n = src.len();
@@ -1179,7 +1179,7 @@ pub fn match_mops_pairs(feats: &[MopsImageFeatures]) -> Vec<PairMatch> {
         let src: Vec<_> = m.iter().map(|&(i, _)| [fb.features.points[i].x as f64, fb.features.points[i].y as f64]).collect();
         let dst: Vec<_> = m.iter().map(|&(_, j)| [fa.features.points[j].x as f64, fa.features.points[j].y as f64]).collect();
         let thr = (fa.w.max(fa.h) as f64 / 300.0).clamp(1.5, 4.0);
-        let (h, inl) = features::ransac(Model::Homography, &src, &dst, 1200, thr, (a * 131 + b) as u64)?;
+        let (h, inl) = features::ransac(Model::Homography, &src, &dst, thr, (a * 131 + b) as u64)?;
         if (inl.len() as f64) < 8.0 + 0.3 * m.len() as f64 || inl.len() < 10 {
             return None;
         }

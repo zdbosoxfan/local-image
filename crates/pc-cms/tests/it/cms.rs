@@ -2,7 +2,7 @@
 //! behaviour, intents, BPC, interpolation accuracy, real-world profiles and an independent
 //! oracle (moxcms, dev-dependency only).
 
-use photocraft_cms::math::{self, delta_e76};
+use li_color::cms_math::{self, delta_e76};
 use photocraft_cms::{Builtin, Clut, ColorSpace, Intent, Lut3d, Profile, Transform, TransformOptions};
 
 fn lab() -> &'static Profile {
@@ -227,7 +227,7 @@ fn intents_differ_as_expected() {
 #[test]
 fn black_point_compensation() {
     let bp = photocraft_cms::black_point(cmyk(), Intent::RelativeColorimetric, false).unwrap();
-    let bl = math::xyz_to_lab([bp * 0.9642, bp, bp * 0.8249], math::D50)[0];
+    let bl = cms_math::xyz_to_lab([bp * 0.9642, bp, bp * 0.8249], cms_math::D50)[0];
     assert!(bl > 4.0 && bl < 20.0, "CMYK black L* {bl}");
     assert_eq!(photocraft_cms::black_point(srgb(), Intent::RelativeColorimetric, true).unwrap(), 0.0);
     // sRGB → CMYK: without BPC, deep shadows below the paper's black clip together; with BPC
@@ -594,8 +594,8 @@ fn gray_profile_with_reversed_lut_type_reencodes() {
 /// sRGB the way Photoshop embeds it: a v2 profile whose TRCs are 1024-entry 16-bit tables.
 fn srgb_as_v2_tables() -> Profile {
     let mut p = srgb().clone();
-    let table = |c: &photocraft_cms::Curve| {
-        photocraft_cms::Curve::Table((0..1024).map(|i| ((c.eval64(i as f64 / 1023.0) * 65535.0).round() / 65535.0) as f32).collect())
+    let table = |c: &li_color::curve::Curve| {
+        li_color::curve::Curve::Table((0..1024).map(|i| ((c.eval64(i as f64 / 1023.0) * 65535.0).round() / 65535.0) as f32).collect())
     };
     let trc = p.trc.clone().unwrap();
     p.trc = Some([table(&trc[0]), table(&trc[1]), table(&trc[2])]);

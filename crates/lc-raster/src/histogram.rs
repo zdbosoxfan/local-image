@@ -2,7 +2,7 @@
 
 use serde::Serialize;
 
-pub use li_raster::histogram::{LumaWeights, RgbHistogram, clipping, preview_stride};
+use li_raster::histogram::RgbHistogram;
 
 use crate::Rgba8;
 

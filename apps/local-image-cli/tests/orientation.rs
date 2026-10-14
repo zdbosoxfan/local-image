@@ -6,7 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use photocraft_codecs::{ChannelLayout, DecodeOptions, EncodeOptions, Format, Image, SampleType, decode, decode_with, exif_orientation};
+use lightcraft_tiff::exif::orientation as exif_orientation;
+use photocraft_codecs::{ChannelLayout, DecodeOptions, EncodeOptions, Format, Image, SampleType, decode, decode_with};
 use serde_json::Value;
 
 fn bin() -> Command {

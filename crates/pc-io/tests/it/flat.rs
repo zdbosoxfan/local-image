@@ -69,7 +69,7 @@ fn exr_rgba32() {
     let back = import("x.exr", &r.bytes).expect("import").document;
     let (a, b) = (srgb.layers[0].surface().unwrap().pixel(2, 3), back.layers[0].surface().unwrap().pixel(2, 3));
     for c in 0..3 {
-        assert!((photocraft_color::convert::srgb_to_linear(a[c]) - b[c]).abs() < 1e-4, "{a:?} -> {b:?}");
+        assert!((li_color::convert::srgb_to_linear(a[c]) - b[c]).abs() < 1e-4, "{a:?} -> {b:?}");
     }
     assert!((a[3] - b[3]).abs() < 1e-6, "alpha kept");
 }

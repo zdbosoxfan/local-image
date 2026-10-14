@@ -157,9 +157,9 @@ pub struct SourceInfo {
     pub sony_lens: Option<lightcraft_develop::SonyLensData>,
     pub source_orientation: lightcraft_geom::Orientation,
     /// Linear camera -> working basis for calibrated per-plane CA.
-    pub lens_camera_to_working: Option<lightcraft_color::Mat3>,
+    pub lens_camera_to_working: Option<li_color::Mat3>,
     /// Nonlinear fitted look is evaluated after lens geometry.
-    pub source_hue_sat: Option<Arc<lightcraft_color::profile::HsvTable>>,
+    pub source_hue_sat: Option<Arc<li_color::profile::HsvTable>>,
     /// Ordered built-in DNG lens operations already applied in camera RGB.
     pub embedded_lens_baked: bool,
     pub embedded_ca_baked: bool,
@@ -170,9 +170,9 @@ pub struct SourceInfo {
     pub as_shot_tint: f64,
     /// No measured camera illuminant: WB adjustments are relative to the camera's rendered look.
     pub relative_wb: bool,
-    pub camera_color: Option<lightcraft_color::camera::CameraWhite>,
+    pub camera_color: Option<li_color::camera::CameraWhite>,
     /// DNG/DCP tables evaluated after WB for the chosen illuminant (CPU stage inside GPU renders).
-    pub camera_profile: Option<Arc<lightcraft_color::profile::ProfileLook>>,
+    pub camera_profile: Option<Arc<li_color::profile::ProfileLook>>,
     /// Baseline exposure already present in the decoded source, undone before the base table.
     pub baseline_gain: f32,
     pub camera_tone: Option<tone::CameraTone>,
@@ -913,7 +913,7 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
     for y in (cy - 1).max(0)..=(cy + 1).min(plan.h as i64 - 1) {
         for x in (cx - 1).max(0)..=(cx + 1).min(plan.w as i64 - 1) {
             let c = img.data[y as usize * plan.w + x as usize].map(|v| v * gain);
-            let lab = lightcraft_color::perceptual::oklab_from_2020(tone2::tone_px(&tone, &tone.method(), c));
+            let lab = li_color::perceptual::oklab_from_2020(tone2::tone_px(&tone, &tone.method(), c));
             for k in 0..3 {
                 acc[k] += lab[k] as f64;
             }

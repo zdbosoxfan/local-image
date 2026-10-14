@@ -12,7 +12,7 @@ workspace = true
 lightcraft-tiff = { workspace = true }
 lightcraft-meta = { workspace = true }
 lightcraft-raster = { workspace = true }
-lightcraft-color = { workspace = true }
+li-color = { workspace = true }
 lightcraft-geom = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -28,6 +28,7 @@ zune-core = { workspace = true }
 rawler = { version = "=0.8.0", default-features = false }
 
 [dev-dependencies]
+li-raster = { path = "../li-raster" }
 jpeg-encoder = { workspace = true }
 proptest = { workspace = true }
 

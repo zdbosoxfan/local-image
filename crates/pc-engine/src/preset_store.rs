@@ -196,7 +196,7 @@ impl PresetBackend for DirBackend {
         let path = self.path(name)?;
         let dir = path.parent().ok_or_else(|| format!("{name}: no parent directory"))?;
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        photocraft_format::atomic_write(&path, bytes).map_err(|e| format!("{name}: {e}"))
+        li_fs::atomic_write(&path, bytes).map_err(|e| format!("{name}: {e}"))
     }
     fn remove(&self, name: &str) -> Result<(), String> {
         match std::fs::remove_file(self.path(name)?) {

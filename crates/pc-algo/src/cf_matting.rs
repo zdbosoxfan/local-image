@@ -1,6 +1,7 @@
-//! Compatibility adapters to the shared alpha matting backend.
+//! Editor `RgbImage` adapters over the shared `li_matte` closed-form matting.
+use li_matte::cf_matting::MattingParams;
+
 use crate::segment::RgbImage;
-pub use li_matte::cf_matting::{MattingParams, trimap_from_mask};
 
 fn guide(img: &RgbImage) -> li_matte::RgbImage<'_> {
     li_matte::RgbImage::borrowed(img.w, img.h, &img.px)

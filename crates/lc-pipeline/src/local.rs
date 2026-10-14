@@ -2,8 +2,8 @@
 //! needs (edge-aware base layer for highlights/shadows, clarity/texture bands, dehaze veil).
 
 use crate::blur::gaussian;
-use lightcraft_color::cct::{temp_tint_to_xy, wb_matrix};
-use lightcraft_color::{REC2020, luminance_2020};
+use li_color::cct::{temp_tint_to_xy, wb_matrix};
+use li_color::{REC2020, luminance_2020};
 use lightcraft_develop::DevelopSettings;
 use std::sync::Arc;
 
@@ -46,13 +46,13 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
         None => {
             let set = wb_matrix(&REC2020, temp_tint_to_xy(t, tint));
             let shot = wb_matrix(&REC2020, temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint));
-            set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY))
+            set.mul(&shot.inverse().unwrap_or(li_color::Mat3::IDENTITY))
         }
     };
     // Normalize so neutral luminance is preserved (WB shouldn't change exposure).
     let g = m.apply([1.0, 1.0, 1.0]);
     let y = li_color::luminance_2020_f64(g);
-    Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
+    Some(m.mul(&li_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
 /// With colour calibration: undo the as-shot white balance, then (when it is linear) the
@@ -60,11 +60,11 @@ pub fn wb_matrix_for(info: &SourceInfo, s: &DevelopSettings) -> Option<[[f32; 3]
 /// [`white_balance`]. Neutral luminance is kept.
 fn colorcal_matrix(info: &SourceInfo, cc: &crate::colorcal::ColorCal) -> [[f32; 3]; 3] {
     let shot = wb_matrix(&REC2020, temp_tint_to_xy(info.as_shot_temp, info.as_shot_tint));
-    let undo = shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY);
-    let m = if cc.is_linear() { lightcraft_color::Mat3(cc.matrix.map(|r| r.map(f64::from))).mul(&undo) } else { undo };
+    let undo = shot.inverse().unwrap_or(li_color::Mat3::IDENTITY);
+    let m = if cc.is_linear() { li_color::Mat3(cc.matrix.map(|r| r.map(f64::from))).mul(&undo) } else { undo };
     let g = m.apply([1.0, 1.0, 1.0]);
     let y = li_color::luminance_2020_f64(g);
-    m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32()
+    m.mul(&li_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32()
 }
 
 /// The white-balance change from white `from` to white `to` (temperature K, tint), as
@@ -75,10 +75,10 @@ pub fn wb_change(from: (f64, f64), to: (f64, f64)) -> Option<[[f32; 3]; 3]> {
     }
     let set = wb_matrix(&REC2020, temp_tint_to_xy(to.0, to.1));
     let shot = wb_matrix(&REC2020, temp_tint_to_xy(from.0, from.1));
-    let m = set.mul(&shot.inverse().unwrap_or(lightcraft_color::Mat3::IDENTITY));
+    let m = set.mul(&shot.inverse().unwrap_or(li_color::Mat3::IDENTITY));
     let g = m.apply([1.0, 1.0, 1.0]);
     let y = li_color::luminance_2020_f64(g);
-    Some(m.mul(&lightcraft_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
+    Some(m.mul(&li_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
 fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) {
@@ -88,8 +88,8 @@ fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) 
     let tables = info.camera_profile.as_ref().and_then(|profile| {
         let (t, tint) = effective_wb(info, s);
         let weights =
-            info.camera_color.map_or([1.0, 0.0, 0.0], |camera| lightcraft_color::camera::illuminant_weights(&camera.color, temp_tint_to_xy(t, tint)));
-        lightcraft_color::profile::ProfileTables::new_weighted(profile, weights)
+            info.camera_color.map_or([1.0, 0.0, 0.0], |camera| li_color::camera::illuminant_weights(&camera.color, temp_tint_to_xy(t, tint)));
+        li_color::profile::ProfileTables::new_weighted(profile, weights)
     });
     let baseline = info.baseline_gain.max(1e-9);
     let w = img.width;
@@ -158,7 +158,8 @@ fn guided_apply(p: &Plane, a: &Plane, b: &Plane) -> Plane {
 /// bilinearly upsampled; the output keeps full-resolution edges. Equivalent to [`guided`] for
 /// large windows at a fraction of the cost.
 pub fn guided_fast(p: &Plane, sigma: f32, eps: f32) -> Plane {
-    use lightcraft_raster::resample::{Filter, resize};
+    use li_raster::resample::Filter;
+    use lightcraft_raster::resample::resize;
     let s = guided_fast_step(sigma);
     if s <= 1 {
         return guided(p, sigma, eps);
@@ -201,8 +202,8 @@ pub fn noise_calibration(info: &SourceInfo, s: &DevelopSettings) -> Option<crate
     let nonlinear = crate::negative::params(s).is_some() || crate::colorcal::of(info, s).is_some_and(|c| !c.is_linear());
     let mut profile = info.camera_noise.filter(|_| !nonlinear)?;
     if let Some(wb) = wb_matrix_for(info, s) {
-        let wb = lightcraft_color::Mat3(wb.map(|r| r.map(f64::from)));
-        let camera = lightcraft_color::Mat3(profile.camera_to_working.map(|r| r.map(f64::from)));
+        let wb = li_color::Mat3(wb.map(|r| r.map(f64::from)));
+        let camera = li_color::Mat3(profile.camera_to_working.map(|r| r.map(f64::from)));
         profile.camera_to_working = wb.mul(&camera).to_f32();
     }
     Some(profile)

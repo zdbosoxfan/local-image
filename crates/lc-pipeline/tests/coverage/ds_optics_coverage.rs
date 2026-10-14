@@ -235,7 +235,7 @@ fn defringe_removes_purple_at_edges_only() {
     defringe(&mut img, &s, 1.0);
     defringe(&mut flat, &s, 1.0);
     let chroma = |p: [f32; 3]| {
-        let l = lightcraft_color::perceptual::oklab_from_2020(p);
+        let l = li_color::perceptual::oklab_from_2020(p);
         l[1].hypot(l[2])
     };
     assert!(chroma(img.get(20, 10)) < chroma(purple) * 0.3);

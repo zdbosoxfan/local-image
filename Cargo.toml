@@ -66,10 +66,8 @@ li-seg = { path = "crates/li-seg" }
 libc = { version = "0.2" }
 lightcraft-catalog = { path = "crates/lc-catalog" }
 lightcraft-codecs = { path = "crates/lc-codecs" }
-lightcraft-color = { path = "crates/lc-color" }
 lightcraft-develop = { path = "crates/lc-develop" }
 lightcraft-engine = { path = "crates/lc-engine" }
-lightcraft-fetch = { path = "crates/lc-fetch" }
 lightcraft-geom = { path = "crates/lc-geom" }
 lightcraft-gpu = { path = "crates/lc-gpu" }
 lightcraft-merge = { path = "crates/lc-merge" }

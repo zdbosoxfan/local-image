@@ -1,13 +1,15 @@
-//! Downloading the SAM 3 model, only when the user asked for it. The mirror list is the
-//! `lightcraft-fetch` crate, which downloads through the app's one downloader (`li-ai::download`:
-//! host allow-list, mandatory size + SHA-256); this module says what SAM 3 needs and where it may
-//! come from. Files without a pinned hash (the two tokenizer files, below) are never downloaded:
-//! the user puts them in the model folder.
+//! Downloading the SAM 3 model, only when the user asked for it. The `mirror` submodule walks the
+//! mirror list and downloads through the app's one downloader (`li-ai::download`: host allow-list,
+//! mandatory size + SHA-256); this module says what SAM 3 needs and where it may come from. Files
+//! without a pinned hash (the two tokenizer files, below) are never downloaded: the user puts them
+//! in the model folder.
 //!
 //! The weights are never part of LightCraft (SAM License, see docs/ai-masks.md); where they are
 //! downloaded from is configured by [`DEFAULT_MIRRORS`] and the user's own list.
 
-pub use lightcraft_fetch::*;
+mod mirror;
+
+pub use mirror::{DownloadError, FileSpec, Options, Progress, download};
 
 use std::path::Path;
 
@@ -50,7 +52,7 @@ pub const MIRRORS_ENV: &str = "LIGHTCRAFT_SAM3_MIRRORS";
 /// The mirrors to try for SAM 3, in order: the environment variable's, then the mirrors file's
 /// (one base URL per line, `#` comments), then [`DEFAULT_MIRRORS`].
 pub fn mirrors(env: Option<&str>, file: Option<&Path>) -> Vec<String> {
-    lightcraft_fetch::mirrors(env, file, DEFAULT_MIRRORS)
+    mirror::mirrors(env, file, DEFAULT_MIRRORS)
 }
 
 /// What to tell the user when there is no mirror for the SAM 3 model.

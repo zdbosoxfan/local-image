@@ -122,10 +122,10 @@ pub(crate) fn document_to_psd(doc: &Document, force_psb: bool) -> (PsdFile, Vec<
     resources.extend(crate::psd_export::path_resources(doc, &mut warnings));
     if let Some(x) = &doc.metadata.xmp {
         // The pixels are saved as they are shown: never let a reader rotate them again.
-        resources.push(ImageResource::new(ids::XMP, photocraft_codecs::upright_xmp(x).as_bytes().to_vec()));
+        resources.push(ImageResource::new(ids::XMP, lightcraft_meta::upright_xmp(x).as_bytes().to_vec()));
     }
     if let Some(e) = &doc.metadata.exif {
-        resources.push(ImageResource::new(ids::EXIF, photocraft_codecs::upright_exif(e).into_owned()));
+        resources.push(ImageResource::new(ids::EXIF, lightcraft_tiff::exif::upright(e).into_owned()));
     }
     // Every other imported resource (print settings, IPTC, the layer-id seed, ...), except the
     // ones that only describe layers and any already written above.

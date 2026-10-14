@@ -61,8 +61,8 @@ pub fn complete(notice: &mut Notice, title: String, detail: String, error: bool)
     }
 }
 
-/// Library HUD compatibility state. The old `(text, expiry)` field remains usable by callers;
-/// observing it also captures messages posted directly by existing integrations.
+/// The Library HUD's notice history. Library code writes the `(text, expiry)` HUD tuple; observing
+/// it each frame records those messages here as well.
 #[derive(Clone, Debug, Default)]
 pub struct ToastHistory {
     pub history: Vec<Notice>,
@@ -81,7 +81,7 @@ impl ToastHistory {
         self.observed = Some((text, expiry));
     }
 
-    /// Compatibility adapter for legacy callers writing the public HUD tuple directly.
+    /// Record a message written straight to the HUD tuple (once per distinct message).
     pub fn observe(&mut self, toast: Option<&(String, f64)>) {
         match toast {
             Some(toast) if self.observed.as_ref() != Some(toast) => self.post(toast.0.clone(), toast.1, false),

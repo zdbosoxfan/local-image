@@ -704,7 +704,7 @@ pub fn update_from(fetch: &dyn Fn(&str) -> Result<Vec<u8>>, base_url: &str, dir:
             log::warn!("family {id} update rejected: {e:#}");
             continue;
         }
-        crate::settings::write_atomic(&dir.join(format!("{id}.json")), &bytes)?;
+        li_fs::atomic_write(&dir.join(format!("{id}.json")), &bytes)?;
         updated.push(id.clone());
     }
     Ok(updated)

@@ -2,7 +2,7 @@
 //!
 //! Quick visual check: develop → as-shot WB + camera matrix → sRGB, oriented, box-downscaled, 8-bit TIFF.
 
-use lightcraft_color::{REC2020, SRGB, transfer::encode_srgb8};
+use li_color::{REC2020, SRGB, transfer::encode_srgb8};
 use lightcraft_raw::{Method, color, decode};
 use lightcraft_tiff::{IfdBuilder, ImageData, TiffWriter, Value, tags};
 

@@ -4,7 +4,7 @@
 //! Outputs linear XYZ D50; `camera` instead emits sensor RGB in the same three columns.
 //! `neutral` sets WB from camera RGB in D05 before evaluating each calibration.
 //! No tone curve, look table, clipping, exposure or retouching.
-use lightcraft_color::{D50, D65, REC2020, bradford};
+use li_color::{D50, D65, REC2020, bradford};
 use lightcraft_raw::{Method, color, dcp::Dcp, decode, profile::ProfileTables};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

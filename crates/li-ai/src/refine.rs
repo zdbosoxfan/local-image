@@ -9,13 +9,14 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result, bail};
 use image::{Rgb, RgbImage, RgbaImage};
+use lightcraft_sysmem::jobs::Cancelled;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::builders::{self, Params, Task};
 use crate::catalog::{self, InstalledModel, ModelId};
-use crate::comfy::{Busy, Cancelled, ComfyClient, JobControl, ObjectInfo, normalized_name};
+use crate::comfy::{Busy, ComfyClient, JobControl, ObjectInfo, normalized_name};
 use crate::custom::{self, CustomWorkflow, Field, FieldKind};
 use crate::family::{Family, Loader, Range, RefMethod, Role};
 use crate::workflows::{Files, LoraUse};
@@ -821,7 +822,8 @@ impl Checker {
         let mut state = self.state.lock().map_err(|_| anyhow::anyhow!("AI state lock poisoned"))?;
         let state = state.get_or_insert_with(|| std::fs::read(&self.path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default());
         state.refine_verdicts.insert(hash.into(), verdict.clone());
-        crate::settings::write_atomic(&self.path, &serde_json::to_vec_pretty(state)?)
+        li_fs::atomic_write(&self.path, &serde_json::to_vec_pretty(state)?)?;
+        Ok(())
     }
     fn publish(&self, client: &ComfyClient, model: ModelId, variant: &str, verdict: &Verdict) {
         if let Ok(mut profiles) = LORA_PROFILES.lock() {

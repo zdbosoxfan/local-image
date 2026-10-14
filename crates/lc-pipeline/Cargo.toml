@@ -12,12 +12,13 @@ workspace = true
 # Existing locked pure-Rust ICC backend, shared with Compositing.
 photocraft-cms = { workspace = true }
 li-matte = { path = "../li-matte" }
+lightcraft-sysmem = { workspace = true }
 # Reuse the already locked pure-Rust editor patch and Poisson backend.
 photocraft-algo = { workspace = true }
 photocraft-raster = { workspace = true }
 li-color = { workspace = true }
+li-raster = { path = "../li-raster" }
 lightcraft-geom = { workspace = true }
-lightcraft-color = { workspace = true }
 lightcraft-raster = { workspace = true }
 lightcraft-develop = { workspace = true }
 rayon = { workspace = true }

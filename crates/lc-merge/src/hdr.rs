@@ -309,7 +309,8 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
 /// has a moderate luminance. Otherwise optimization can explain clipped brightness
 /// differences by introducing a false scale/rotation at bright window boundaries.
 fn refinement_image(frame: &Frame, gain: f32) -> (Plane, f64) {
-    use lightcraft_raster::resample::{Filter, fit};
+    use li_raster::resample::Filter;
+    use lightcraft_raster::resample::fit;
     let small = if frame.width().max(frame.height()) > align::WORK_EDGE {
         fit(&frame.image, align::WORK_EDGE, align::WORK_EDGE, Filter::Box)
     } else {

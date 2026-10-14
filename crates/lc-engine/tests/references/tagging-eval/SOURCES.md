@@ -47,7 +47,7 @@ an isolated test root whose `segmentation/` directory contains the model files:
 scripts/fetch_tagging_eval.sh
 PATH=~/.cargo/bin:$PATH CARGO_BUILD_JOBS=3 cargo +1.98.1 build --offline \
   -p lightcraft-engine --example tagging_eval
-/usr/bin/time -v env LIGHTCRAFT_GPU_BACKEND=off target/debug/examples/tagging_eval \
+/usr/bin/time -v env LOCAL_IMAGE_GPU_BACKEND=off target/debug/examples/tagging_eval \
   clip-b32-laion crates/lc-engine/tests/references/tagging-eval/manifest.json \
   target/tagging-eval/images ~/.cache/local-image-test-models
 ```

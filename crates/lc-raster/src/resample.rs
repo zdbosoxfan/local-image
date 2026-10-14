@@ -1,6 +1,7 @@
-//! Compatibility adapters for shared resampling, with historical GPU tap tables.
+//! `Image` adapters over the shared `li_raster` resampler.
+use li_raster::resample::{Filter, Pixel};
+
 use crate::Image;
-pub use li_raster::resample::{Filter, Pixel, weights};
 pub fn resize<T: Pixel>(img: &Image<T>, w: usize, h: usize, filter: Filter) -> Image<T> {
     Image { width: w.max(1), height: h.max(1), data: li_raster::resample::resize_pixels(&img.data, img.width, img.height, w, h, filter) }
 }
@@ -95,7 +96,7 @@ fn j01_final_dense_alpha_half_nearest_and_empty() {
     }
     let ramp = Image::<f32>::from_fn(9, 3, |x, y| (x + y * 9) as f32);
     let got = resize(&ramp, 3, 1, Filter::Nearest);
-    assert_eq!(weights(9, 3, Filter::Nearest), vec![(1, vec![1.0]), (4, vec![1.0]), (7, vec![1.0])]);
+    assert_eq!(li_raster::resample::weights(9, 3, Filter::Nearest), vec![(1, vec![1.0]), (4, vec![1.0]), (7, vec![1.0])]);
     assert_eq!(got.data, vec![10.0, 13.0, 16.0]);
     assert_eq!(half(&Image::<f32>::new(0, 3)), Image::<f32>::new(1, 2));
     assert_eq!(resize(&Image::<f32>::new(0, 3), 2, 1, Filter::Lanczos3), Image::<f32>::new(2, 1));

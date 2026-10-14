@@ -99,7 +99,7 @@ fn render(profile: &str, rgb: [f32; 3], reopen: bool) -> Option<([u8; 3], [u8; 3
         harness.state_mut().ui.dialogs.clear();
     }
     // The CPU canvas: drop the GPU one (as after a device loss), without its notice window.
-    photocraft_ui_egui::gpu_status::fall_back(harness.state_mut(), &photocraft_gpu::Fault::Lost("test: draw the CPU canvas".into()));
+    photocraft_ui_egui::gpu_status::fall_back(harness.state_mut(), &li_gpu::health::Fault::Lost("test: draw the CPU canvas".into()));
     harness.state_mut().ui.gpu_fallback_notice = None;
     let cpu = sample(&mut harness);
     eprintln!("gpu {gpu:?} cpu {cpu:?}");

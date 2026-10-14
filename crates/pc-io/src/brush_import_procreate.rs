@@ -2,8 +2,8 @@
 //! Setting names verified against the licensed Jay Versluis brushes and NekoPhoto fixtures.
 use super::brush_import::{self as common, BrushImport};
 use super::brush_import_plist::{Plist, Scalar};
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_paint::{BrushSettings, Control, Dynamic, Pattern, TipShape};
-use photocraft_raster::Interrupt;
 
 pub(crate) fn read(bytes: &[u8], group: &str, ctl: &Interrupt<'_>) -> Result<BrushImport, String> {
     let files = common::archive(bytes, ctl)?;

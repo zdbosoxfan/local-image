@@ -3,7 +3,7 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors (MIT OR Apache-2.0).
 //! Captures native IDs/revision on press; detached actions precede one engine release.
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect, Ui};
-use photocraft_color::convert::{linear_to_srgb, srgb_to_linear};
+use li_color::convert::{linear_to_srgb, srgb_to_linear};
 use photocraft_doc::{Document, LayerContent, LayerId};
 use photocraft_engine::{
     EngineError, Result, Session,

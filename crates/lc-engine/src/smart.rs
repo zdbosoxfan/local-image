@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use li_color::transfer::linear_to_srgb;
 use lightcraft_catalog::Photo;
-use lightcraft_color::transfer::linear_to_srgb;
 use lightcraft_pipeline::tone::CameraTone;
 use lightcraft_raster::{Rgb32f, Rgba8};
 
@@ -188,11 +188,8 @@ pub fn migrate(from: &Path, to: &Path, what: Existing) -> (usize, Vec<String>) {
                     std::fs::remove_file(&src)
                 } else {
                     // across drives: copied atomically (never a partial proxy at the new place)
-                    std::fs::rename(&src, &dst).or_else(|_| {
-                        std::fs::read(&src)
-                            .and_then(|b| lightcraft_catalog::safe_file::write_atomic(&dst, &b))
-                            .and_then(|()| std::fs::remove_file(&src))
-                    })
+                    std::fs::rename(&src, &dst)
+                        .or_else(|_| std::fs::read(&src).and_then(|b| li_fs::write_atomic(&dst, &b)).and_then(|()| std::fs::remove_file(&src)))
                 }
             }
         };
@@ -247,7 +244,7 @@ mod tests {
 
     #[test]
     fn malformed_stored_profile_tables_and_curves_are_rejected() {
-        use lightcraft_color::profile::{HsvTable, ToneCurve};
+        use li_color::profile::{HsvTable, ToneCurve};
         let valid = HsvTable { hue_divisions: 6, sat_divisions: 3, val_divisions: 2, data: vec![[0., 1., 1.]; 36], srgb_value: false };
         let mut value = serde_json::to_value(valid).unwrap();
         assert!(serde_json::from_value::<HsvTable>(value.clone()).is_ok());
@@ -351,7 +348,7 @@ mod tests {
     #[test]
     fn deferred_dcp_and_camera_white_travel_with_the_proxy() {
         let profile = lightcraft_raw::dcp::Dcp::parse(include_bytes!("../../lc-raw/data/dcp/NIKON_D7500.dcp")).unwrap();
-        let color = lightcraft_color::camera::CameraColor {
+        let color = li_color::camera::CameraColor {
             illuminant: profile.color.illuminant,
             color_matrix: profile.color.color_matrix,
             forward_matrix: profile.color.forward_matrix,
@@ -363,7 +360,7 @@ mod tests {
             as_shot_tint: 3.,
             baseline_gain: 1.2,
             camera_profile: Some(Arc::new(profile.color.profile)),
-            camera_color: Some(lightcraft_color::camera::CameraWhite { color, undo: lightcraft_color::Mat3::IDENTITY }),
+            camera_color: Some(li_color::camera::CameraWhite { color, undo: li_color::Mat3::IDENTITY }),
             look_curve: lightcraft_pipeline::basecurves::camera("Nikon", "D7500"),
             ..Default::default()
         };

@@ -26,7 +26,7 @@ pub fn split(data: &[f32], w: usize, h: usize, n: usize, alpha: Option<usize>, r
     let mut high = data.to_vec();
     for c in (0..n).filter(|c| Some(*c) != alpha) {
         let plane: Vec<f32> = (0..w * h).map(|i| data[i * n + c]).collect();
-        let blurred = photocraft_algo::matting::gaussian_blur(&plane, w, h, radius.max(0.5));
+        let blurred = li_matte::matting::gaussian_blur(&plane, w, h, radius.max(0.5));
         for i in 0..w * h {
             low[i * n + c] = blurred[i];
             high[i * n + c] = ((plane[i] - blurred[i]) * 0.5 + 0.5).clamp(0.0, 1.0);

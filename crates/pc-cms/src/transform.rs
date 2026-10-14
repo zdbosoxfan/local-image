@@ -1,12 +1,12 @@
 //! Colour transforms between profiles through the PCS, with rendering intents, black point
 //! compensation, soft-proofing chains, and fast lookup-table evaluation of pixel buffers.
 
+use li_color::cms_math;
+use li_color::curve::Curve;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::clut::{Clut, MAX_CHANNELS};
-use crate::curve::Curve;
-use crate::math;
 use crate::pipeline::{Pipeline, Stage};
 use crate::profile::{ColorSpace, Pcs, Profile, ProfileClass};
 use crate::{CmsError, Intent};
@@ -616,7 +616,7 @@ fn connection(src: &Profile, dst: &Profile, intent: Intent, bpc: bool) -> Result
     }
     // Neutral black points (luminance only, as in Adobe's BPC), mapped linearly in XYZ so that
     // the source black lands on the destination black and the white stays fixed.
-    let w = math::D50;
+    let w = cms_math::D50;
     let mut scale = [1.0; 3];
     let mut offset = [0.0; 3];
     for i in 0..3 {
@@ -649,7 +649,7 @@ pub fn black_point(p: &Profile, intent: Intent, _input: bool) -> Result<f64, Cms
         pipe.eval(dev, &mut o);
         let y = match pcs {
             Pcs::Xyz => o[1] as f64,
-            Pcs::Lab => math::lab_to_xyz([o[0] as f64, 0.0, 0.0], math::D50)[1],
+            Pcs::Lab => cms_math::lab_to_xyz([o[0] as f64, 0.0, 0.0], cms_math::D50)[1],
         };
         y.clamp(0.0, 0.5)
     };

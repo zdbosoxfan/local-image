@@ -101,7 +101,7 @@ fn output_claims_detects_case_insensitive_collision() {
 
 #[test]
 fn read_file_info_none_returns_defaults() {
-    let v = file_cmds::read_file_info(None);
+    let v = lightcraft_meta::read_file_info(None);
     assert_eq!(v.get("title").and_then(|x| x.as_str()), Some(""));
     assert_eq!(v.get("author").and_then(|x| x.as_str()), Some(""));
     assert_eq!(v.get("authorTitle").and_then(|x| x.as_str()), Some(""));
@@ -131,7 +131,7 @@ fn read_file_info_parses_simple_properties() {
         </rdf:Description>
     </rdf:RDF>"#;
 
-    let v = file_cmds::read_file_info(Some(xmp));
+    let v = lightcraft_meta::read_file_info(Some(xmp));
     assert_eq!(v.get("title").and_then(|x| x.as_str()), Some("Hello"));
     assert_eq!(v.get("author").and_then(|x| x.as_str()), Some("Alice; Bob"));
     assert_eq!(v.get("authorTitle").and_then(|x| x.as_str()), Some("Engineer"));
@@ -151,9 +151,9 @@ fn write_file_info_creates_new_packet_when_none() {
         <rdf:Description><dc:title>Hi</dc:title></rdf:Description>
     </rdf:RDF>"#;
 
-    let info = file_cmds::read_file_info(Some(xmp_with_title));
-    let out = file_cmds::write_file_info(None, &info);
-    let back = file_cmds::read_file_info(Some(&out));
+    let info = lightcraft_meta::read_file_info(Some(xmp_with_title));
+    let out = lightcraft_meta::try_write_file_info(None, &info).unwrap();
+    let back = lightcraft_meta::read_file_info(Some(&out));
     assert_eq!(back.get("title").and_then(|x| x.as_str()), Some("Hi"));
 }
 
@@ -176,9 +176,9 @@ fn write_file_info_round_trip_preserves_values() {
         </rdf:Description>
     </rdf:RDF>"#;
 
-    let info = file_cmds::read_file_info(Some(xmp));
-    let out = file_cmds::write_file_info(Some(xmp), &info);
-    let back = file_cmds::read_file_info(Some(&out));
+    let info = lightcraft_meta::read_file_info(Some(xmp));
+    let out = lightcraft_meta::try_write_file_info(Some(xmp), &info).unwrap();
+    let back = lightcraft_meta::read_file_info(Some(&out));
 
     assert_eq!(back.get("title").and_then(|x| x.as_str()), Some("Hello"));
     assert_eq!(back.get("author").and_then(|x| x.as_str()), Some("Alice; Bob"));
@@ -198,9 +198,9 @@ fn write_file_info_escapes_special_characters() {
         </rdf:Description>
     </rdf:RDF>"#;
 
-    let info = file_cmds::read_file_info(Some(xmp));
-    let out = file_cmds::write_file_info(None, &info);
-    let back = file_cmds::read_file_info(Some(&out));
+    let info = lightcraft_meta::read_file_info(Some(xmp));
+    let out = lightcraft_meta::try_write_file_info(None, &info).unwrap();
+    let back = lightcraft_meta::read_file_info(Some(&out));
     assert_eq!(back.get("title").and_then(|x| x.as_str()), Some("A & B < C > D \" quote"));
 }
 

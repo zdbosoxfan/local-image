@@ -30,7 +30,7 @@ use std::num::NonZeroU64;
 use eframe::egui_wgpu::{self, CallbackResources, CallbackTrait, RenderState, ScreenDescriptor};
 use eframe::wgpu;
 
-pub use photocraft_gpu::{DeviceHealth, Fault};
+use li_gpu::health::{DeviceHealth, Fault};
 
 #[path = "vector_packages/view.rs"]
 pub mod scaled_view;
@@ -113,7 +113,7 @@ pub struct GpuCanvas {
     rs: RenderState,
     tile: u32,
     high: HighPolicy,
-    health: photocraft_gpu::DeviceHealth,
+    health: DeviceHealth,
     seen_errors: std::sync::Arc<std::sync::atomic::AtomicU64>,
     health_frame: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
@@ -170,14 +170,14 @@ impl GpuCanvas {
         }
     }
     /// The device's health flag (shared with the wgpu compositor and the paint callback).
-    pub fn health(&self) -> &photocraft_gpu::DeviceHealth {
+    pub fn health(&self) -> &DeviceHealth {
         &self.health
     }
 
     /// Terminal presentation fault: recoverable compute errors keep the canvas alive so
     /// CPU-composited textures remain visible while acceleration waits for its retry.
-    pub fn fault(&self) -> Option<photocraft_gpu::Fault> {
-        self.health.fault().filter(photocraft_gpu::Fault::is_lost)
+    pub fn fault(&self) -> Option<Fault> {
+        self.health.fault().filter(Fault::is_lost)
     }
 
     /// Advance strikes once per app frame, even when the host checks health twice.
@@ -600,7 +600,7 @@ impl GpuCanvas {
         encode_pool.truncate(encode_index);
         res.encode_pool = encode_pool;
         let Ok(result) = result else {
-            self.health.mark(photocraft_gpu::Fault::Lost("the GPU compositor stopped (internal error)".into()));
+            self.health.mark(Fault::Lost("the GPU compositor stopped (internal error)".into()));
             res.docs.remove(&key);
             return Err(photocraft_gpu::Unsupported("GPU device lost".into()));
         };
@@ -1403,7 +1403,7 @@ struct Resources {
     /// Why the wgpu compositor couldn't be created (then the CPU compositor is used).
     compositor_failed: Option<photocraft_gpu::Unsupported>,
     /// The device's health: the paint callback issues no GPU work once it's lost.
-    health: photocraft_gpu::DeviceHealth,
+    health: DeviceHealth,
     /// GPU memory the compositor may hold (`None`: its default), and the document area the
     /// view shows; applied before every composite.
     compositor_budget: Option<u64>,
@@ -1719,7 +1719,7 @@ impl Resources {
             depth_levels: if target == wgpu::TextureFormat::Rgb10a2Unorm { 1023.0 } else { 255.0 },
             compositor: None,
             compositor_failed: None,
-            health: photocraft_gpu::DeviceHealth::new(),
+            health: DeviceHealth::new(),
             compositor_budget: None,
             compositor_focus: None,
             encode_bgl,
@@ -2339,7 +2339,7 @@ impl CanvasCallback {
             if encode_srgb {
                 for p in &mut pixels {
                     for c in p.iter_mut().take(3) {
-                        *c = photocraft_color::convert::linear_to_srgb(*c);
+                        *c = li_color::convert::linear_to_srgb(*c);
                     }
                 }
             }
@@ -2983,7 +2983,7 @@ mod j12_tests {
         let bytes: Vec<_> = ramp
             .iter()
             .flat_map(|p| {
-                let v = photocraft_color::convert::srgb_to_linear(p[0]);
+                let v = li_color::convert::srgb_to_linear(p[0]);
                 [v, v, v, 1.0].into_iter().flat_map(f32::to_le_bytes)
             })
             .collect();

@@ -9,7 +9,7 @@
 //! - Other sources: the "camera" is the file's linear RGB space; `ColorMatrix1` = XYZ(D65) → RGB,
 //!   `ForwardMatrix1` = RGB → XYZ(D50), `AsShotNeutral` = (1, 1, 1).
 
-use lightcraft_color::{D50, D65, Mat3, bradford};
+use li_color::{D50, D65, Mat3, bradford};
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
 use lightcraft_raster::Rgb32f;
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn linear_dng_round_trips_through_the_raw_decoder() {
         let img = Rgb32f::from_fn(80, 60, |x, y| [x as f32 / 20.0, y as f32 / 30.0, 0.3]);
-        let color = FrameColor::Linear { to_xyz_d50: bradford(D65, D50).mul(&lightcraft_color::SRGB.to_xyz()) };
+        let color = FrameColor::Linear { to_xyz_d50: bradford(D65, D50).mul(&li_color::SRGB.to_xyz()) };
         let bytes = write_linear_dng(&img, &color, Orientation::Normal, &Metadata::default(), 0.0, DngSamples::Half).unwrap();
         let raw = lightcraft_raw::decode(&bytes).unwrap();
         assert_eq!((raw.width, raw.height, raw.cpp), (80, 60, 3));
@@ -137,7 +137,7 @@ mod tests {
         assert!(white.iter().all(|v| (v - white[0]).abs() < 1e-3), "{white:?}");
         // sRGB red maps to the Rec.2020 coordinates of sRGB red
         let red = t.matrix.apply([t.wb[0] as f64, 0.0, 0.0]);
-        let want = lightcraft_color::SRGB.to_space(&lightcraft_color::REC2020).apply([1.0, 0.0, 0.0]);
+        let want = li_color::SRGB.to_space(&li_color::REC2020).apply([1.0, 0.0, 0.0]);
         let k = white[0];
         for c in 0..3 {
             assert!((red[c] / k - want[c]).abs() < 5e-3, "{red:?} vs {want:?}");

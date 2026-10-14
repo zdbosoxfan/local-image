@@ -85,7 +85,7 @@ fn resolution_independence_of_local_contrast() {
     let small = render(&src, &SourceInfo::default(), &s, &RenderRequest::fit(120, 120)).image;
     let big = render(&src, &SourceInfo::default(), &s, &RenderRequest::fit(480, 480)).image;
     let bl = big.to_linear();
-    let down = lightcraft_raster::resample::resize(&bl, small.width, small.height, lightcraft_raster::resample::Filter::Box).to_srgb8();
+    let down = lightcraft_raster::resample::resize(&bl, small.width, small.height, li_raster::resample::Filter::Box).to_srgb8();
     let err: f32 = small.data.iter().zip(&down.data).map(|(a, b)| (a[1] as f32 - b[1] as f32).abs()).sum::<f32>() / small.len() as f32;
     assert!(err < 9.0, "mean abs error {err}");
 }
@@ -139,7 +139,7 @@ fn perf_report() {
 fn unedited_rendered_source_is_passthrough() {
     // An sRGB ramp decoded to linear Rec.2020 must render back to (almost) the same 8-bit values.
     let src8 = lightcraft_raster::Rgba8::from_fn(256, 4, |x, y| [x as u8, (x as u8).wrapping_add(y as u8 * 40), 255 - x as u8, 255]);
-    let m = lightcraft_color::SRGB.to_space(&lightcraft_color::REC2020);
+    let m = li_color::SRGB.to_space(&li_color::REC2020);
     let src = src8.to_linear().map(|c| m.apply_f32(c));
     let r = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(256, 4)).image;
     let mut worst = 0i32;
@@ -448,7 +448,7 @@ fn j22_proof_render_all_depths_matches_finished_float_edit() {
         match actual.deep {
             Some(crate::DeepImage { samples: DeepSamples::F32(v), .. }) => {
                 for (a, e) in v.iter().zip(&expected) {
-                    max_float_error = max_float_error.max((a - lightcraft_color::transfer::srgb_to_linear(*e)).abs());
+                    max_float_error = max_float_error.max((a - li_color::transfer::srgb_to_linear(*e)).abs());
                 }
                 assert!(max_float_error < 2e-5, "finished grain is proofed: {max_float_error}");
             }

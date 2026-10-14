@@ -9,6 +9,8 @@ workspace = true
 
 [dependencies]
 li-commands = { workspace = true, features = ["egui"] }
+# The shared crash-safe file writer (atomic replace, staged writes).
+li-fs.workspace = true
 li-gpu.workspace = true
 li-keys = { workspace = true, features = ["egui"] }
 # The one translation engine (`tl!`, catalogs, languages).
@@ -21,6 +23,8 @@ photocraft-affinity.workspace = true
 # local-image: AI services and image buffers.
 li-ai = { workspace = true }
 li-seg = { workspace = true }
+li-raster = { path = "../li-raster" }
+li-matte = { path = "../li-matte" }
 # local-image: the detected compute profile shown in Preferences › Performance › Processing.
 lightcraft-sysmem = { workspace = true }
 image = { workspace = true }

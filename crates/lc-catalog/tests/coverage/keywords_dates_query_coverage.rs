@@ -1,12 +1,12 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use li_fs::{fail_writes_after, same_file, write_atomic, write_new, write_new_unique};
 use lightcraft_catalog::{
     Catalog, DateRun, Filter, GroupBy, Op, Photo, PhotoId, RatingOp, Sort, SortKey, Source,
     dates::{civil, civil_from_days, display_time, group_label, normalize_iso, shift_iso, weekday},
     keywords::{clean, is_under},
     query::{folder_key, folder_within, in_folder, merged_kind},
-    safe_file::{fail_writes_after, same_file, write_atomic, write_new, write_new_unique},
 };
 
 fn add_photo(c: &mut Catalog, file_name: &str, captured: &str, imported: &str, rating: u8, keywords: &[&str]) -> PhotoId {

@@ -118,7 +118,7 @@ fn saving_over_a_jpeg_bakes_the_edits_and_keeps_a_backup() {
 #[test]
 fn save_over_preserves_source_profile_and_camera_metadata() {
     // A nonstandard curve on P3 primaries must not become standard sRGB (or standard P3).
-    let profile = lightcraft_codecs::icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+    let profile = lightcraft_codecs::icc::write_matrix_trc(&li_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
     let metadata = lightcraft_meta::Metadata {
         make: Some("Camera Maker".into()),
         model: Some("Body".into()),
@@ -165,7 +165,7 @@ fn save_over_preserves_source_profile_and_camera_metadata() {
 fn save_over_webp_and_float_tiff_preserve_depth_and_profile() {
     let webp = lightcraft_codecs::encode_webp_lossless(&EncodeImage::rgba8(&gradient(16, 12)), &EncodeMeta::default()).unwrap();
     let samples = vec![0.2f32; 16 * 12 * 3];
-    let profile = lightcraft_codecs::icc::write_matrix_trc(&lightcraft_color::ADOBE_RGB, &lightcraft_codecs::Trc::Linear);
+    let profile = lightcraft_codecs::icc::write_matrix_trc(&li_color::ADOBE_RGB, &lightcraft_codecs::Trc::Linear);
     let tiff = lightcraft_codecs::encode_tiff(
         &EncodeImage::new(16, 12, 3, Samples::F32(&samples)),
         lightcraft_codecs::TiffCompression::Deflate,
@@ -202,7 +202,7 @@ fn save_over_source_profile_gpu_matches_cpu() {
         }
     }
     let _restore = RestoreGpu(lightcraft_gpu::enabled());
-    let profile = lightcraft_codecs::icc::write_matrix_trc(&lightcraft_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
+    let profile = lightcraft_codecs::icc::write_matrix_trc(&li_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
     let original =
         lightcraft_codecs::encode_png(&EncodeImage::rgba8(&gradient(48, 32)), &EncodeMeta { icc: Some(&profile), ..Default::default() }).unwrap();
     let mut outputs = Vec::new();
@@ -230,7 +230,7 @@ fn failed_backup_or_replacement_leaves_original_and_edits_intact() {
         let (mut s, id, dir, src) = library_with(tag, "image.jpg", &original);
         s.execute("develop.set", &json!({"control": "light.exposure", "value": 1.0})).unwrap();
         let hash = s.catalog.photo(id).unwrap().content_hash.clone();
-        let fault = lightcraft_catalog::safe_file::fail_writes_after(limit);
+        let fault = li_fs::fail_writes_after(limit);
         let err = s.execute("photo.saveOverOriginal", &json!({"confirm": true})).unwrap_err().to_string();
         drop(fault);
         assert!(err.contains("unchanged"), "{err}");

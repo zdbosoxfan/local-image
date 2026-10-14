@@ -325,7 +325,7 @@ fn do_print(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
         .get("description")
         .and_then(Value::as_bool)
         .unwrap_or(false)
-        .then(|| crate::file_cmds::read_file_info(doc.metadata.xmp.as_deref())["description"].as_str().unwrap_or_default().to_string());
+        .then(|| lightcraft_meta::read_file_info(doc.metadata.xmp.as_deref())["description"].as_str().unwrap_or_default().to_string());
     let label = p.get("labels").and_then(Value::as_bool).unwrap_or(false).then(|| doc.name.clone());
     let page = PrintPage { paper: (pw, ph), image: img, rect: (x, y, w, h), marks, description, label };
     let pdf = print_pdf(&page);

@@ -280,12 +280,12 @@ fn overwrite(s: &mut Session, pl: &Plan, format: ExportFormat) -> Result<Value> 
         name.extension().map(|x| format!(".{}", x.to_string_lossy())).unwrap_or_default(),
     );
     let mut names = (1u32..).map(|n| if n == 1 { folder.join(format!("{stem}{ext}")) } else { folder.join(format!("{stem}-{n}{ext}")) });
-    let backup = lightcraft_catalog::safe_file::write_new_unique(&mut names, &original)
-        .map_err(|e| bad(C, format!("couldn't back up the original ({e}); it is unchanged")))?;
+    let backup =
+        li_fs::write_new_unique(&mut names, &original).map_err(|e| bad(C, format!("couldn't back up the original ({e}); it is unchanged")))?;
     drop(original);
     // 3. replace the original (through a link: the file it points to) atomically
     let target = std::fs::canonicalize(&pl.path).unwrap_or_else(|_| PathBuf::from(&pl.path));
-    lightcraft_catalog::safe_file::write_atomic(&target, &rendered.bytes)
+    li_fs::write_atomic(&target, &rendered.bytes)
         .map_err(|e| bad(C, format!("{}: {e}; the original is unchanged (backup: {})", pl.path, backup.display())))?;
     // 4. the library catches up: new content, settings back to defaults (the edits are baked in)
     super::convert::reload(s, &json!({"ids": [pl.id.0]}))?;
@@ -338,7 +338,7 @@ fn beside(s: &mut Session, pl: &Plan, p: &Value) -> Result<Value> {
     let mut written = Vec::new();
     let mut write = |path: &str, bytes: &[u8]| -> std::result::Result<(), String> {
         // durable: it becomes a library photo
-        lightcraft_catalog::safe_file::write_new(Path::new(path), bytes).map_err(|e| format!("{path}: {e}"))?;
+        li_fs::write_new(Path::new(path), bytes).map_err(|e| format!("{path}: {e}"))?;
         written.push(path.to_string());
         Ok(())
     };

@@ -223,7 +223,7 @@ pub fn run(ai: &Ai, models: &Path, backend: Backend) -> Result<()> {
                 }
                 let (rss, gpu) = monitor.finish();
                 if let Err(error) = &output
-                    && error.is::<li_ai::Cancelled>()
+                    && error.is::<lightcraft_sysmem::jobs::Cancelled>()
                 {
                     println!("{id},{backend:?},{factor},cancelled_{case},{},{elapsed:.6},NaN,NaN,NaN,{rss},{gpu}", path.file_name().unwrap().to_string_lossy());
                     continue;

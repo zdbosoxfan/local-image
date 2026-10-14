@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use lightcraft_sysmem::jobs::Cancelled;
 use sha2::{Digest, Sha256};
 
 use crate::catalog::{FileSpec, Preset};
-use crate::comfy::{Cancelled, JobControl};
+use crate::comfy::JobControl;
 
 #[cfg(test)]
 mod tests_cancel;

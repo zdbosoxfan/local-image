@@ -3,12 +3,10 @@
 //! A global matrix can't follow the camera's hue-dependent rendering (the best matrix rendered a
 //! lime shirt olive that the camera kept lime): a hue/saturation table fitted to the residuals
 //! (applied like a DNG `ProfileHueSatMap`) corrects that when it also improves the held-out pixels.
-use lightcraft_color::{D50, D65, Mat3, PROPHOTO, REC2020, bradford, luminance_2020};
+use li_color::{D50, D65, Mat3, PROPHOTO, REC2020, bradford, luminance_2020};
+use li_raster::resample::Filter;
 use lightcraft_pipeline::tone::{CameraTone, ToneMap};
-use lightcraft_raster::{
-    Rgb32f,
-    resample::{Filter, fit},
-};
+use lightcraft_raster::{Rgb32f, resample::fit};
 use lightcraft_raw::{RawFormat, RawImage, color::CameraTransform, profile::HsvTable};
 
 #[derive(Clone, Debug)]
@@ -363,7 +361,7 @@ fn fit_hue_sat(pairs: &[([f64; 3], [f64; 3])], matrix: &Mat3) -> Option<HsvTable
         .filter_map(|(_, (x, y))| {
             let p = to.apply(matrix.apply(*x));
             let (hp, sp) = hue_saturation(p)?;
-            let value = f64::from(lightcraft_color::transfer::linear_to_srgb(p[0].max(p[1]).max(p[2]).min(1.0) as f32));
+            let value = f64::from(li_color::transfer::linear_to_srgb(p[0].max(p[1]).max(p[2]).min(1.0) as f32));
             let (ht, st) = hue_saturation(to.apply(*y))?;
             // hue is meaningless near neutral
             if sp < 0.08 || st < 0.02 {

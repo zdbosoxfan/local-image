@@ -552,9 +552,9 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
         "ui.gpu.simulateLoss" => {
             let error = p.get("error").and_then(Value::as_bool).unwrap_or(false);
             let fault = if error {
-                photocraft_gpu::Fault::Error("simulated error (ui.gpu.simulateLoss)".into())
+                li_gpu::health::Fault::Error("simulated error (ui.gpu.simulateLoss)".into())
             } else {
-                photocraft_gpu::Fault::Lost("simulated (ui.gpu.simulateLoss)".into())
+                li_gpu::health::Fault::Lost("simulated (ui.gpu.simulateLoss)".into())
             };
             let active = match app.gpu_health() {
                 Some(h) => {

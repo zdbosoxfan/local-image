@@ -556,9 +556,10 @@ pub fn tone_range(px: &[[f32; 4]], lo: f32, hi: f32, falloff: f32) -> Vec<f32> {
         .collect()
 }
 
+#[cfg(test)]
 mod distance;
 
-pub use distance::edt;
+use li_matte::distance::edt;
 
 /// Grows the selection by `r` pixels.
 pub fn expand(m: &[f32], w: usize, h: usize, r: f32) -> Vec<f32> {

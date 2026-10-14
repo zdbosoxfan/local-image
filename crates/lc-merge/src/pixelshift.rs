@@ -417,8 +417,8 @@ mod tests {
                     orientation: Orientation::Normal,
                     color: ColorData {
                         illuminant: [21, 0],
-                        color_matrix: [Some(lightcraft_color::Mat3::IDENTITY), None],
-                        forward_matrix: [Some(lightcraft_color::Mat3::IDENTITY), None],
+                        color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+                        forward_matrix: [Some(li_color::Mat3::IDENTITY), None],
                         profile: lightcraft_raw::profile::ProfileLook {
                             tone_curve: Some(lightcraft_raw::profile::ToneCurve { points: vec![[0.0, 0.0], [0.5, 0.45], [1.0, 1.0]] }),
                             ..Default::default()
@@ -478,8 +478,8 @@ mod tests {
             for (actual, expected) in neutral.into_iter().zip([0.5, 1.0, 2.0 / 3.0]) {
                 assert!((actual - expected).abs() < 1e-6, "source WB is retained in merged DNG: {neutral:?}");
             }
-            assert_eq!(decoded.color.color_matrix[0], Some(lightcraft_color::Mat3::IDENTITY));
-            assert_eq!(decoded.color.forward_matrix[0], Some(lightcraft_color::Mat3::IDENTITY));
+            assert_eq!(decoded.color.color_matrix[0], Some(li_color::Mat3::IDENTITY));
+            assert_eq!(decoded.color.forward_matrix[0], Some(li_color::Mat3::IDENTITY));
             assert_eq!(decoded.color.profile.tone_curve.as_ref().unwrap().points, vec![[0.0, 0.0], [0.5, 0.45], [1.0, 1.0]]);
             let developed = decoded.develop(lightcraft_raw::Method::Ahd).unwrap();
             assert_eq!(developed, result.image);

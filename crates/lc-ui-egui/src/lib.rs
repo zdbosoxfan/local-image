@@ -6,8 +6,6 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-#[path = "../../pc-ui-egui/src/color_icon_data.rs"]
-mod color_icon_data;
 #[path = "../../pc-ui-egui/src/color_icons.rs"]
 mod color_icons;
 pub mod control;
@@ -16,21 +14,17 @@ pub mod export_task;
 pub mod headless;
 pub mod icons;
 pub mod import;
+#[cfg(test)]
+mod keymap_tests;
 pub mod library_labels;
 mod library_safety_ui;
 pub mod links;
 pub mod menubar;
 pub mod menus;
 pub mod merge;
-pub mod proof_sheet;
-#[rustfmt::skip] // Keep shared artwork code under Compositing's rustfmt configuration.
-#[path = "../../pc-ui-egui/src/mono_tool_icons.rs"]
-mod mono_tool_icons;
-#[cfg(test)]
-mod keymap_tests;
-pub mod keymaps;
 pub mod panels;
 pub mod people_task;
+pub mod proof_sheet;
 pub mod render;
 pub mod shortcuts;
 pub mod smart_sort_keys;
@@ -38,12 +32,8 @@ pub mod smart_sort_task;
 pub mod state;
 pub mod tasks;
 pub mod theme;
-#[path = "../../pc-ui-egui/src/tool_icon_data.rs"]
-mod tool_icon_data;
 #[cfg(test)]
 mod tool_icon_tests;
-#[path = "../../pc-ui-egui/src/vector_packages/fill_stroke_proxy/icons.rs"]
-pub mod vector_tool_icon_data;
 pub mod vectorize_handoff;
 pub mod widgets;
 
@@ -1003,7 +993,7 @@ impl LightcraftApp {
 
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        crate::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
+        li_ui_kit::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
         li_i18n::set_current(self.ui.language);
         let ctx = ui.ctx().clone();
         if !self.fonts_ready {

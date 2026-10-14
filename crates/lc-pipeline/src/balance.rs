@@ -41,9 +41,9 @@ impl Balance {
         let norm = ucs::ych_to_grading(1., 0., 0.);
         // LR wheel hues are actual sRGB colours, converted to the upstream Yrg hue coordinates.
         let wheel = |w: &lightcraft_develop::Wheel, scale: f32| {
-            let c = lightcraft_color::SRGB
-                .to_space(&lightcraft_color::REC2020)
-                .apply_f32(lightcraft_color::perceptual::hsv_to_rgb(w.hue as f32, 1., 1.).map(lightcraft_color::transfer::srgb_to_linear));
+            let c = li_color::SRGB
+                .to_space(&li_color::REC2020)
+                .apply_f32(li_color::perceptual::hsv_to_rgb(w.hue as f32, 1., 1.).map(li_color::transfer::srgb_to_linear));
             let ych = ucs::yrg_to_ych(ucs::lms_to_yrg(mul(&ucs::mats().rgb_to_lms, c)));
             ucs::ych_to_grading(1., w.sat as f32 / 100. * scale, ych[3].atan2(ych[2]))
         };

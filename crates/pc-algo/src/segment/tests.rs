@@ -401,7 +401,7 @@ fn focus_area_selects_sharp_half() {
     let (w, h) = (160usize, 100usize);
     let noise: Vec<f32> = (0..w * h).map(|_| rng.f32()).collect();
     // Right half: heavily blurred copy of the texture.
-    let blurred = crate::matting::box_mean(&noise, w, h, 4);
+    let blurred = li_matte::matting::box_mean(&noise, w, h, 4);
     let img = RgbImage::from_fn(w, h, |x, y| {
         let v = if x < 80 { noise[y * w + x] } else { blurred[y * w + x] };
         [v, v * 0.8, 0.3]

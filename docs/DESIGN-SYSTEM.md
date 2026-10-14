@@ -234,8 +234,8 @@ ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted gly
 - **Colour.** Icons take the theme's `icon` colour (Tokens); the active tool keeps the button's
   `accent_soft` fill and `accent_border` (Photoshop's highlight), and disabled tools use `text_faint`.
   **Monochrome is the default.** The Preferences "Colour" style is a subtle family tint of the same line
-  icon, never separate artwork: `color_icons::tint` pulls `icon` 70% toward the family hue from
-  `color_icon_data.rs` (`TOOL_FAMILIES`, `family_hue`; a lighter shade on dark themes, a deeper one on
+  icon, never separate artwork: `li_ui_kit::color_icons::tint` pulls `icon` 70% toward the family hue from
+  `li_ui_kit::color_icon_data` (`TOOL_FAMILIES`, `family_hue`; a lighter shade on dark themes, a deeper one on
   light themes). Selection tools are blue, retouch green, paint orange, shapes cyan, transform/crop
   purple, measure slate, samplers yellow, Liquify pink; navigation and panels stay neutral.
 - **Size.** Draw at about half the button box (`box_size * 0.52`); tool buttons draw 20 to 24 px
@@ -249,7 +249,7 @@ ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted gly
   `assets/icons/tools/<id>.svg`; add its row (set, source, licence, family, SHA-256) to
   `assets/icons/source-manifest.json` and to the table in `assets/icons/SOURCES.md`; register it in
   `li-ui-kit/src/tool_icon_data.rs` (or `li-ui-kit/src/vector_icon_data.rs`) and its family in
-  `li-ui-kit/src/color_icon_data.rs`. The old editor modules are re-export adapters. Then run
+  `li-ui-kit/src/color_icon_data.rs` (both shells use these directly). Then run
   `cargo xtask icons` (hashes, licences, line style and registries), `cargo xtask attributions`, and
   `cargo xtask tool-icons`, and look at `docs/design/tool-icons.png` at 16 and 20 px on both themes.
 - **Add an interface icon.** Put the Lucide 0.468.0 SVG in `assets/icons/<name>.svg` unchanged.

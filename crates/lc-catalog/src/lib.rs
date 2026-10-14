@@ -21,7 +21,6 @@ pub mod lock;
 pub mod model;
 pub mod query;
 pub mod rules;
-pub mod safe_file;
 pub mod stacks;
 pub mod store;
 
@@ -691,5 +690,7 @@ mod tests_journal;
 mod tests_local;
 #[cfg(test)]
 mod tests_lock;
+#[cfg(test)]
+mod tests_safe_file;
 #[cfg(test)]
 mod tests_torn_append;

@@ -1,10 +1,10 @@
 //! Encode → decode round trips on generated fixtures.
 
-use lightcraft_codecs::exif::minimal_exif;
+use li_color::{DISPLAY_P3, REC2020, transfer::srgb_to_linear};
 use lightcraft_codecs::icc::{self, write_named};
 use lightcraft_codecs::*;
-use lightcraft_color::{DISPLAY_P3, REC2020, transfer::srgb_to_linear};
 use lightcraft_raster::Rgba8;
+use lightcraft_tiff::exif::minimal_exif;
 
 fn gradient(w: usize, h: usize) -> Rgba8 {
     Rgba8::from_fn(w, h, |x, y| [(x * 255 / w.max(2).saturating_sub(1).max(1)) as u8, (y * 255 / h.max(2)) as u8, ((x + y) % 256) as u8, 255])
@@ -165,12 +165,12 @@ fn p3_icc_to_working() {
 #[test]
 fn custom_matrix_icc_is_exact() {
     // A non-standard space: goes through the generic matrix/TRC path, not the named one.
-    let space = lightcraft_color::RgbSpace {
+    let space = li_color::RgbSpace {
         name: "Custom",
-        r: lightcraft_color::Xy::new(0.66, 0.32),
-        g: lightcraft_color::Xy::new(0.25, 0.65),
-        b: lightcraft_color::Xy::new(0.14, 0.07),
-        white: lightcraft_color::D65,
+        r: li_color::Xy::new(0.66, 0.32),
+        g: li_color::Xy::new(0.25, 0.65),
+        b: li_color::Xy::new(0.14, 0.07),
+        white: li_color::D65,
     };
     let icc = icc::write_matrix_trc(&space, &Trc::Gamma(2.0));
     let data = [255u8, 0, 0];
@@ -657,7 +657,7 @@ fn associated_integer_tiff_unassociates_before_transfer_with_profile_and_zero_al
         let scale = if bits == 8 { 1u64 } else { 257 };
         for little in [false, true] {
             for big in [false, true] {
-                for profile in [None, Some(icc::write_matrix_trc(&lightcraft_color::SRGB, &Trc::Gamma(2.0)))] {
+                for profile in [None, Some(icc::write_matrix_trc(&li_color::SRGB, &Trc::Gamma(2.0)))] {
                     let fixture = AlphaTiff { bits, channels: 4, photo: 2, extra: Some(1), float: false, little, big };
                     let values = [99, 77, 55, 0, 32, 64, 96, 128, 64, 128, 192, 255].map(|value| value * scale);
                     let d = decode(&fixture.bytes(&values, profile.as_deref()), DecodeOptions::default()).unwrap();

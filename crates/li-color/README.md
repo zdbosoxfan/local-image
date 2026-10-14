@@ -24,6 +24,5 @@ input domains. Nonlinear 3DL shapers and masked Look files are rejected explicit
 once from f64; trilinear remains available for existing document choices. GPU execution uses
 the corresponding native-f32 shader implementation.
 
-`lc-color` is a compatibility re-export facade. New code should import `li-color` directly
-instead of adding private copies. Compatibility oracles and independent accuracy comparisons
+Every Library/Develop and editor crate imports `li-color` directly; do not add private copies. Compatibility oracles and independent accuracy comparisons
 cover the migration; Develop's existing reference vectors and render hashes remain unchanged.

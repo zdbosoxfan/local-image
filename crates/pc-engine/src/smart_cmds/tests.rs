@@ -842,7 +842,8 @@ fn smart_resource_nested_symbols_styles_swatches_survive_cold_source_and_content
     let expected = photocraft_compose::flatten(&projected).px;
     contents.name.push_str(" cold decode");
     let cold = encode_source(&contents).unwrap();
-    let fresh = source_image("contents.pcraft", &cold, contents.pixel_format()).unwrap();
+    let fmt = contents.pixel_format();
+    let fresh = source_image_in_profile("contents.pcraft", &cold, fmt, &crate::color_cmds::working_profile(fmt.mode)).unwrap();
     let mut actual = vec![[0.; 4]; 80 * 60];
     fresh.surface.read_rgba_into(contents.bounds(), &mut actual);
     assert!(max_diff(&actual, &expected) <= 1. / 255. + 1e-6);
@@ -901,7 +902,8 @@ fn smart_resource_canvas_gradient_pattern_and_live_geometry_reproject_identicall
         assert!(max_diff(&photocraft_compose::flatten(&projected).px, &before) <= 1. / 255. + 1e-6);
         contents.name.push_str(" independent cold source");
         let bytes = encode_source(&contents).unwrap();
-        let cold = source_image("cold.pcraft", &bytes, contents.pixel_format()).unwrap();
+        let fmt = contents.pixel_format();
+        let cold = source_image_in_profile("cold.pcraft", &bytes, fmt, &crate::color_cmds::working_profile(fmt.mode)).unwrap();
         let mut pixels = vec![[0.; 4]; 120 * 80];
         cold.surface.read_rgba_into(contents.bounds(), &mut pixels);
         assert!(max_diff(&pixels, &before) <= 1. / 255. + 1e-6);
@@ -935,7 +937,8 @@ fn smart_resource_raster_pattern_reference_survives_cold_crop_boundary() {
     let mut inner = decode_source(&file_name, &bytes).unwrap();
     inner.name.push_str(" cold");
     let bytes = encode_source(&inner).unwrap();
-    let image = source_image("cold.pcraft", &bytes, inner.pixel_format()).unwrap();
+    let fmt = inner.pixel_format();
+    let image = source_image_in_profile("cold.pcraft", &bytes, fmt, &crate::color_cmds::working_profile(fmt.mode)).unwrap();
     let mut after = vec![[0.; 4]; 80 * 60];
     image.surface.read_rgba_into(doc.bounds(), &mut after);
     assert!(max_diff(&before, &after) <= 1. / 255. + 1e-6);

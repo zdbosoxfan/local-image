@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use photocraft_cms::lutfile::*;
+use li_color::lutfile::*;
 
 fn assert_data_close(a: &[f32], b: &[f32], eps: f32) {
     assert_eq!(a.len(), b.len());

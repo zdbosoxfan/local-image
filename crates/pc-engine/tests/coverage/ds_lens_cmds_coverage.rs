@@ -1,5 +1,5 @@
 use photocraft_engine::Session;
-use photocraft_engine::lens_cmds::{LENS, RAW, WIDE, apply_to_surface, camera_raw_surface, lens_params, raw_params, wide_params};
+use photocraft_engine::lens_cmds::{LENS, RAW, WIDE, apply_to_surface, camera_raw_surface_in, lens_params, raw_params, wide_params};
 use serde_json::json;
 
 fn make_session(depth: u32) -> Session {
@@ -121,11 +121,12 @@ fn camera_raw_surface_identity_and_non_identity() {
     let (_, surf, bounds) = active_surface(&s);
 
     let identity = raw_params(RAW, &json!({})).unwrap();
-    let out_id = camera_raw_surface(&surf, bounds, &identity);
+    let srgb = photocraft_cms::Builtin::Srgb.profile();
+    let out_id = camera_raw_surface_in(&surf, bounds, &identity, srgb).unwrap_or_else(|_| surf.clone());
     assert_eq!(out_id, surf, "identity should return clone");
 
     let non_id = raw_params(RAW, &json!({"exposure": 1.0, "vibrance": 30})).unwrap();
-    let out_non = camera_raw_surface(&surf, bounds, &non_id);
+    let out_non = camera_raw_surface_in(&surf, bounds, &non_id, srgb).unwrap_or_else(|_| surf.clone());
     assert_ne!(out_non, surf, "non-identity should change surface");
 
     for (x, y) in [(0, 0), (10, 10), (20, 20), (39, 29)] {

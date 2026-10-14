@@ -49,7 +49,7 @@ pub mod walk;
 
 use std::sync::Arc;
 
-pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
+pub use cmd::{CommandSpec, command_specs, find_command};
 pub use fonts::{CRAFT_FONTS, CraftFont};
 use lightcraft_catalog::{Catalog, Filter, Op, PhotoId, Sort};
 use lightcraft_develop::DevelopSettings;
@@ -420,7 +420,7 @@ impl Session {
         r
     }
 
-    pub fn commands(&self) -> Vec<CommandInfo> {
+    pub fn commands(&self) -> Vec<li_commands::CommandInfo> {
         command_specs().iter().map(|c| c.info(self)).collect()
     }
 

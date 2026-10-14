@@ -1,11 +1,11 @@
 //! ICC profiles: the parsed model, the reader (ICC.1:2001-04 v2 and ICC.1:2010 v4) and the
 //! connection of a profile to the PCS as evaluation stages.
 
+use li_color::cms_math::{self, Mat3};
+use li_color::curve::Curve;
 use std::sync::Arc;
 
 use crate::clut::Clut;
-use crate::curve::Curve;
-use crate::math::{self, Mat3};
 use crate::pipeline::Stage;
 use crate::{CmsError, Intent};
 
@@ -254,7 +254,7 @@ impl Profile {
             let (mut la, mut lb) = ([0f32; 3], [0f32; 3]);
             a.eval(&input[..n], &mut la);
             b.eval(&input[..n], &mut lb);
-            math::delta_e76(decode(la), decode(lb)) <= SAME_COLORS_MAX_DELTA_E
+            cms_math::delta_e76(decode(la), decode(lb)) <= SAME_COLORS_MAX_DELTA_E
         })
     }
 
@@ -262,7 +262,7 @@ impl Profile {
     /// profiles whose `wtpt` records the (unadapted) display white; those are treated as D50.
     pub fn media_white(&self) -> [f64; 3] {
         if self.version.0 < 4 && self.class == ProfileClass::Display {
-            return math::D50;
+            return cms_math::D50;
         }
         self.white_point
     }
@@ -275,7 +275,7 @@ impl Profile {
         if self.pcs != Pcs::Xyz {
             return None;
         }
-        let w = math::D50;
+        let w = cms_math::D50;
         let m = [[w[0] / 3.0; 3], [w[1] / 3.0; 3], [w[2] / 3.0; 3]];
         let mut p = self.clone();
         p.color_space = ColorSpace::Rgb;
@@ -338,7 +338,7 @@ impl Profile {
                     let m = Stage::Matrix { rows: 3, cols: 1, m: vec![100.0, 0.0, 0.0], offset: vec![0.0; 3] };
                     Ok((vec![Stage::Curves(vec![c]), m], Pcs::Lab))
                 } else {
-                    let w = math::D50;
+                    let w = cms_math::D50;
                     let m = Stage::Matrix { rows: 3, cols: 1, m: w.to_vec(), offset: vec![0.0; 3] };
                     Ok((vec![Stage::Curves(vec![c]), m], Pcs::Xyz))
                 }
@@ -361,7 +361,7 @@ impl Profile {
                 let (Some(m), Some(trc)) = (&self.matrix, &self.trc) else {
                     return Err(CmsError::Unsupported("RGB profile without matrix/TRC or BToA tags".into()));
                 };
-                let inv = math::invert(m).ok_or_else(|| CmsError::Invalid("singular colorant matrix".into()))?;
+                let inv = cms_math::invert(m).ok_or_else(|| CmsError::Invalid("singular colorant matrix".into()))?;
                 Ok((vec![Stage::matrix3(&inv), Stage::InvCurves(trc.to_vec())], Pcs::Xyz))
             }
             ColorSpace::Gray => {
@@ -485,7 +485,7 @@ fn parse_profile(bytes: &[u8]) -> Result<Profile, CmsError> {
         }
     };
 
-    let white_point = xyz_tag(b"wtpt")?.unwrap_or(math::D50);
+    let white_point = xyz_tag(b"wtpt")?.unwrap_or(cms_math::D50);
     let black_point = xyz_tag(b"bkpt").ok().flatten();
     let chad = match tag_data(b"chad")? {
         Some(d) if d.len() >= 44 && &d[..4] == b"sf32" => {

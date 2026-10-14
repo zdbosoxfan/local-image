@@ -7,12 +7,13 @@
 //! bounded by the tile working set. Large reductions are pre-filtered with a proper resize first,
 //! so shrinking a layer doesn't alias.
 
+use li_raster::resample::Resample;
 use photocraft_color::PixelFormat;
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 use serde::{Deserialize, Serialize};
 
-use crate::resample::{Resample, resize_surface};
+use crate::resample::resize_surface;
 
 /// 3×3 projective matrix, row-major: `[x', y', w'] = H · [x, y, 1]`.
 #[derive(Clone, Copy, Debug, PartialEq)]

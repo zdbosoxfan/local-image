@@ -3,8 +3,8 @@
 //! Formulas are documented approximations of Photoshop behaviour. Exact matching is tuned in
 //! milestone M7 against Photoshop-rendered PSD composites (the oracle in `testkit`).
 
+use li_color::convert::{D50, SRGB_TO_XYZ_D50, XYZ_D50_TO_SRGB, mat3_mul, rgb_to_gray, srgb_to_linear};
 use photocraft_color::SampleType;
-use photocraft_color::convert::{D50, SRGB_TO_XYZ_D50, XYZ_D50_TO_SRGB, mat3_mul, rgb_to_gray, srgb_to_linear};
 use photocraft_doc::Adjustment;
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, ToneSpace};
 
@@ -57,13 +57,13 @@ impl Transfer {
     }
     fn decode(self, v: f32) -> f32 {
         match self {
-            Transfer::Srgb => photocraft_color::convert::srgb_to_linear(v.max(0.0)),
+            Transfer::Srgb => li_color::convert::srgb_to_linear(v.max(0.0)),
             Transfer::Gamma(g) => v.max(0.0).powf(g),
         }
     }
     fn encode(self, v: f32) -> f32 {
         match self {
-            Transfer::Srgb => photocraft_color::convert::linear_to_srgb(v.max(0.0)),
+            Transfer::Srgb => li_color::convert::linear_to_srgb(v.max(0.0)),
             Transfer::Gamma(g) => v.max(0.0).powf(1.0 / g),
         }
     }
@@ -279,7 +279,8 @@ pub fn tone_luts_depth(adj: &Adjustment, depth: Option<SampleType>) -> [Vec<f32>
 /// through the conversions the document's surfaces use. The change is added as a difference of
 /// two round trips, so channels a curve leaves alone (and out-of-gamut colours) stay exact.
 fn tone_in_space(space: ToneSpace, luts: &[Vec<f32>; 4], c: [f32; 3]) -> [f32; 3] {
-    use photocraft_color::convert::{cmyk_to_rgb, lab_to_srgb, rgb_to_cmyk, srgb_to_lab};
+    use li_color::convert::{lab_to_srgb, srgb_to_lab};
+    use photocraft_color::convert::{cmyk_to_rgb, rgb_to_cmyk};
     let (before, after) = match space {
         ToneSpace::Cmyk => {
             let ink = rgb_to_cmyk(c);

@@ -220,7 +220,7 @@ fn file_info_round_trips_through_xmp_and_psd() {
     // Foreign XMP (attribute form, other namespaces) keeps its other properties.
     let foreign = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:CreatorTool="Other App" photoshop:AuthorsPosition="Painter"/></rdf:RDF></x:xmpmeta>"#;
     assert_eq!(read_file_info(Some(foreign))["authorTitle"], "Painter");
-    let out = write_file_info(Some(foreign), &json!({"authorTitle": "Artist"}));
+    let out = lightcraft_meta::try_write_file_info(Some(foreign), &json!({"authorTitle": "Artist"})).unwrap();
     assert!(out.contains("xmp:CreatorTool=\"Other App\""));
     assert_eq!(read_file_info(Some(&out))["authorTitle"], "Artist");
 }

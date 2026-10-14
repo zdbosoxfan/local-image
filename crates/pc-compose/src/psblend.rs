@@ -113,12 +113,12 @@ pub fn composite(mode: BlendMode, backdrop: [f32; 4], source: [f32; 4], opacity:
     }
     let ao = as_ + ab * (1.0 - as_);
     if mode == BlendMode::Normal && LAB_MIX.with(|l| l.get()) && ab > 0.0 && ao > 0.0 {
-        let lb = photocraft_color::convert::srgb_to_lab([backdrop[0], backdrop[1], backdrop[2]]);
-        let ls = photocraft_color::convert::srgb_to_lab([source[0], source[1], source[2]]);
+        let lb = li_color::convert::srgb_to_lab([backdrop[0], backdrop[1], backdrop[2]]);
+        let ls = li_color::convert::srgb_to_lab([source[0], source[1], source[2]]);
         let kb = ab * (1.0 - as_) / ao;
         let k = as_ / ao;
         let m: [f32; 3] = std::array::from_fn(|i| lb[i] * kb + ls[i] * k);
-        let r = photocraft_color::convert::lab_to_srgb(m);
+        let r = li_color::convert::lab_to_srgb(m);
         return [r[0], r[1], r[2], ao];
     }
     if mode == BlendMode::Normal {
@@ -177,13 +177,13 @@ pub fn text_gamma() -> f32 {
 /// float-color.
 #[inline]
 pub fn text_encode(v: f32, gamma: f32) -> f32 {
-    photocraft_color::convert::srgb_to_linear(v.max(0.0)).powf(1.0 / gamma)
+    li_color::convert::srgb_to_linear(v.max(0.0)).powf(1.0 / gamma)
 }
 
 /// Inverse of [`text_encode`].
 #[inline]
 pub fn text_decode(v: f32, gamma: f32) -> f32 {
-    photocraft_color::convert::linear_to_srgb(v.max(0.0).powf(gamma))
+    li_color::convert::linear_to_srgb(v.max(0.0).powf(gamma))
 }
 
 /// [`composite`] with the coverage mix done in the text blending space of `gamma`

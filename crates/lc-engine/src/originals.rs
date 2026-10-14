@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use lightcraft_catalog::safe_file::same_file;
+use li_fs::same_file;
 use lightcraft_catalog::{Catalog, Source};
 
 /// The library's originals and their sidecars, looked up by file name.

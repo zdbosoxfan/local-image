@@ -149,7 +149,6 @@ mod import_worker;
 pub mod perspective_crop_ui;
 // local-image: the Model Browser.
 mod clipboard_ui;
-mod color_icon_data;
 mod color_icons;
 pub mod gpu_canvas;
 pub mod gpu_status;
@@ -159,7 +158,6 @@ pub mod hold_keys;
 mod i18n_live_tests;
 #[cfg(test)]
 mod i18n_tests;
-mod icon_data;
 pub mod icons;
 pub mod jobs_ui;
 pub mod lasso_ui;
@@ -180,7 +178,6 @@ pub mod menu_nav;
 pub mod menus;
 pub mod model_browser;
 pub mod monitor_status;
-mod mono_tool_icons;
 mod move_fast;
 mod move_input;
 pub mod move_mods;
@@ -203,9 +200,6 @@ pub mod prefs_ui;
 pub mod preset_files_ui;
 pub mod preset_panels;
 mod save_worker;
-mod tool_icon_data;
-#[path = "vector_packages/fill_stroke_proxy/icons.rs"]
-pub mod vector_tool_icon_data;
 // local-image: Preferences › Tools › Pen pressure curve.
 pub mod keymaps;
 pub mod pressure_curve_ui;
@@ -299,7 +293,7 @@ pub struct PreparedSave {
     pub warnings: Vec<String>,
 }
 pub type PrepareSaveFn =
-    std::sync::Arc<dyn Fn(std::sync::Arc<Document>, &str, &ExportSettings, &photocraft_raster::Interrupt<'_>) -> Result<PreparedSave, String> + Send + Sync>;
+    std::sync::Arc<dyn Fn(std::sync::Arc<Document>, &str, &ExportSettings, &lightcraft_sysmem::Interrupt<'_>) -> Result<PreparedSave, String> + Send + Sync>;
 
 /// The picked file's name and its bytes, or why it could not be read (shown like any other open
 /// failure); `None` when the dialog was cancelled.
@@ -322,7 +316,7 @@ pub struct PreparedWrite {
 }
 /// Background staging for ordinary user-chosen exports. Automation must retain its
 /// separately capability-scoped writer; this hook grants no automation authority.
-pub type StageWriteFn = std::sync::Arc<dyn Fn(&str, &[u8], &photocraft_raster::Interrupt<'_>) -> Result<PreparedWrite, String> + Send + Sync>;
+pub type StageWriteFn = std::sync::Arc<dyn Fn(&str, &[u8], &lightcraft_sysmem::jobs::Interrupt<'_>) -> Result<PreparedWrite, String> + Send + Sync>;
 
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
@@ -873,7 +867,7 @@ impl PhotocraftApp {
     }
 
     /// The GPU canvas's device health flag (tests inject faults through it).
-    pub fn gpu_health(&self) -> Option<photocraft_gpu::DeviceHealth> {
+    pub fn gpu_health(&self) -> Option<li_gpu::health::DeviceHealth> {
         self.gpu.as_ref().map(|g| g.health().clone())
     }
 
@@ -1251,7 +1245,7 @@ impl PhotocraftApp {
         }
         let snapshot = save_worker::reset_snapshot(st.doc.clone(), source_reset.as_ref());
         let warnings = if let Some(prepare) = &self.services.prepare_save {
-            let prepared = prepare(snapshot, &path, settings, &photocraft_raster::Interrupt::NONE)?;
+            let prepared = prepare(snapshot, &path, settings, &lightcraft_sysmem::jobs::Interrupt::NONE)?;
             save_worker::check_source_reset(&self.library_save_sources, source_reset.as_ref())?;
             let preservation =
                 prepared.original.as_ref().map(|bytes| self.session.prepare_source_overwrite(&path, bytes.clone())).transpose().map_err(|e| e.to_string())?;

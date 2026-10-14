@@ -117,7 +117,7 @@ fn shared_decode_container_gamma_orientation_and_source_limits() {
     let mut bytes = Vec::new();
     {
         let mut info = png::Info::with_size(3, 2);
-        info.exif_metadata = Some(std::borrow::Cow::Owned(lightcraft_codecs::exif::minimal_exif(6)));
+        info.exif_metadata = Some(std::borrow::Cow::Owned(lightcraft_tiff::exif::minimal_exif(6)));
         let mut encoder = png::Encoder::with_info(&mut bytes, info).unwrap();
         encoder.set_color(png::ColorType::Rgb);
         encoder.set_source_gamma(png::ScaledFloat::new(1.0));

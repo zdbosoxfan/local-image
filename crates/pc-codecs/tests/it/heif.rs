@@ -10,6 +10,7 @@
 
 use crate::common;
 use common::*;
+use lightcraft_tiff::exif::orientation as exif_orientation;
 use photocraft_codecs::*;
 use std::sync::LazyLock;
 

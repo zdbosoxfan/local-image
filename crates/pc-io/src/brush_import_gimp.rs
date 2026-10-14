@@ -1,8 +1,8 @@
 //! GIMP GBR/GIH/VBR, per developer.gimp.org/core/standards/{gbr,gih,vbr}/ and
 //! GIMP app/core/gimpbrush-generated.c. Grayscale GBR stores coverage (white = paint).
 use super::brush_import::{self as common, BrushImport};
+use lightcraft_sysmem::jobs::Interrupt;
 use photocraft_paint::{BrushSettings, Control, Dynamic, GrayTile, TipShape};
-use photocraft_raster::Interrupt;
 
 fn be(b: &[u8], i: usize) -> Result<u32, String> {
     b.get(i..i + 4).and_then(|s| s.try_into().ok()).map(u32::from_be_bytes).ok_or_else(|| "truncated GBR header".into())

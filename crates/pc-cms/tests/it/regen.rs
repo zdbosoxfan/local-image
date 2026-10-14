@@ -35,7 +35,7 @@ fn regen_or_check_coated_cmyk() {
                     t.eval(&[c as f32, m as f32, y as f32, k as f32], &mut o);
                     let got = [o[0] as f64 * 100.0, o[1] as f64 * 255.0 - 128.0, o[2] as f64 * 255.0 - 128.0];
                     let want = model.lab([c, m, y, k]);
-                    worst = worst.max(photocraft_cms::math::delta_e76(got, want));
+                    worst = worst.max(li_color::cms_math::delta_e76(got, want));
                 }
             }
         }

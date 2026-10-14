@@ -54,7 +54,7 @@ pub fn delta_e(a: [f64; 3], b: [f64; 3]) -> f64 {
 /// drift from the intended tone movement). Achromatic pairs have no measurable hue.
 pub fn hue_shift(a: [f32; 3], b: [f32; 3]) -> f64 {
     let norm = |c: [f32; 3]| {
-        let y = lightcraft_color::luminance_2020(c).max(1e-7);
+        let y = li_color::luminance_2020(c).max(1e-7);
         lab(c.map(|v| v * 0.18 / y))
     };
     let a = norm(a);
