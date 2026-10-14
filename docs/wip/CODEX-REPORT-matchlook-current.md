@@ -6,10 +6,14 @@ Historical reports describe earlier checkpoints and are not current completion c
 
 ## Integration and workflow
 
-The feature branch incorporates published v2 through `0ad93000`, including the shared
+The feature branch incorporates published v2 through `c061f5d5`, including the shared
 codec/CMS and RAW Develop path, camera data, DeviceHealth recovery, Camera Raw preview
 unification and full-precision GPU bridge, library safety, shared `li-color` and shared `li-raster`. J2 was independently
 submitted and merged as PR #15; its report is `CODEX-REPORT-j02-li-color.md`.
+The latest merge preserves v2's decoder-format routing and rawler CFA row/column fix.
+The full app check passed after that merge. Three representative native Sony ARW,
+DJI DNG and HDR DNG neutral previews remain PNG-byte-identical to their frozen prior
+checkpoint, with unchanged original content hashes; this is not whole-corpus parity.
 The branch inherits the earlier high-resolution RAW prerequisite `af3829f0`, separately
 submitted as open PR #13. Current color/cache/measurement work does not edit `lc-raw`,
 but the cumulative feature-branch diff against v2 still contains that prerequisite.
@@ -194,6 +198,38 @@ overlapping rooms were identified. The five test captures span only two Sony roo
 families; this limited experiment cannot establish broad camera or photographic quality.
 Training/evaluation uses the original public-input protocol, ordinary editable controls,
 one configuration/seed and private local weights; it is not production behavior.
+That single candidate is now stopped: Rust parity passed, runtime p95 was 118.447 ms,
+peak working set 174.684 MiB and cancellation 2.149 ms, but all five identity-style
+targets failed the frozen quality gate. Mean OKLab errors were 0.0277–0.1000 versus
+the 0.01 limit. No 320 nonidentity target oracles were generated after this failure.
+Postmortem found no row/coordinate/checkpoint binding bug. Dev error was worse than
+zero/mean prediction baselines, with rare chroma-bin standardization a major contributor.
+A subsequent fixed, bounded histogram-response audit also failed its invariance gates;
+neither method is promoted or retuned on the failed photographic tests.
+
+Five actual full-resolution exports passed lossless F32 TIFF roundtrip: both Sony
+50-MP captures, the 100-MP DJI reference, and both 50-MP HDR captures. Every decoded
+float sample in the linear-sRGB output domain, ICC and checked metadata remained exact.
+Native HDR source maxima reached 16.15/23.66; the exported floats represent the app's
+SDR rendition, so these checks do not certify HDR highlight appearance. The 100-MP
+DJI layered target was not launched under the diagnostic memory bounds.
+
+These exports exposed a path-dependent memory gap. Sony reference used 4.16 GiB,
+Sony layered target 14.59 GiB, DJI reference 8.31 GiB, and HDR reference/target
+4.14/5.95 GiB. The palette filter retained dead full-frame vectors. At `4b615d60`,
+earlier release of those vectors reduced bounded-fixture peak RSS by 34.63% with the
+same output bits. Repeating the identical Sony layered export reduced sampled peak
+from 14.591 to 11.067 GiB (24.15%); all 149,299,200 float samples, ICC/metadata and
+the complete TIFF SHA remained identical. This still exceeds both the app's 2.781-GiB
+estimate and the private 8.556-GiB forecast. Native low-memory acceptance remains open.
+
+The broader pipeline suite exposed four failures already present on its baseline:
+capture clipped/border preservation, Upright vertical precision, and two unchanged
+old-settings golden tests. The palette change reproduces identical failures and all
+twenty printed golden rows. A controlled Gaussian-policy experiment restores all four
+tests and all twenty expected rows using the existing box engine. An explicit Develop
+compatibility policy is being implemented; Library/PC sampled blur and small-sigma
+behavior must remain intact. No golden values, thresholds or ignores were changed.
 
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;
