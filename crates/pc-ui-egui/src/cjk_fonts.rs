@@ -64,7 +64,7 @@ impl Sources {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn system() -> Self {
         Self {
-            locale: || match crate::i18n::current().code() {
+            locale: || match li_i18n::current().code() {
                 code @ ("ja" | "ko" | "zh-hans" | "zh-hant") => Some(code.to_string()),
                 _ => cjk::ui_locale().map(str::to_string),
             },
@@ -345,18 +345,18 @@ mod tests {
 
     #[test]
     fn changing_language_resets_the_loader_once_and_reorders_scripts() {
-        crate::i18n::with_language(crate::i18n::Lang::EN, || {
+        li_i18n::with_language(li_i18n::Lang::En, || {
             let ctx = egui::Context::default();
-            crate::i18n::sync_context(&ctx, "ja");
+            crate::theme::sync_language(&ctx, "ja");
             ctx.with_plugin::<CjkFontPlugin, _>(|plugin| {
                 assert_eq!(plugin.0.order()[0], CjkScript::Japanese);
                 plugin.0.tried = plugin.0.order().to_vec();
                 plugin.0.last_resort_tried = true;
             })
             .expect("font plugin");
-            crate::i18n::sync_context(&ctx, "ja");
+            crate::theme::sync_language(&ctx, "ja");
             assert!(ctx.with_plugin::<CjkFontPlugin, _>(|plugin| plugin.0.exhausted()).expect("font plugin"), "idle frames must not reload fonts");
-            crate::i18n::sync_context(&ctx, "ko");
+            crate::theme::sync_language(&ctx, "ko");
             ctx.with_plugin::<CjkFontPlugin, _>(|plugin| {
                 assert!(!plugin.0.exhausted());
                 assert_eq!(plugin.0.order()[0], CjkScript::Korean);

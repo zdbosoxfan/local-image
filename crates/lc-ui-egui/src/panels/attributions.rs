@@ -11,7 +11,7 @@ pub const ABOUT: &str = "lc-about";
 
 /// Draw the page; `salt` is [`SETTINGS`] or [`ABOUT`].
 pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, salt: &str) {
-    let tr = |s: &'static str| crate::i18n::tr(s).to_string();
+    let tr = |s: &'static str| li_i18n::library::t(s).to_string();
     let out = li_attributions::show(ui, salt, 400.0, &tr);
     if let Some(r) = out.search {
         crate::widgets::register(ui.ctx(), "field:attributionsSearch", r);

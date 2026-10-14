@@ -629,10 +629,10 @@ mod tests {
 
     #[test]
     fn korean_covers_generated_filter_options_and_gallery_names() {
-        let ko = crate::i18n::lang_from_tag("ko-KR").unwrap();
+        let ko = li_i18n::Lang::from_tag("ko-KR").unwrap();
         let mut missing = std::collections::BTreeSet::new();
         let mut check = |s: String| {
-            if !matches!(s.as_str(), "X" | "Y" | "A" | "B") && !crate::i18n::has(ko, &s) {
+            if !matches!(s.as_str(), "X" | "Y" | "A" | "B") && !li_i18n::has(ko, &s) {
                 missing.insert(s);
             }
         };

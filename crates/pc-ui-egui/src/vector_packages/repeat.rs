@@ -402,7 +402,7 @@ pub fn paint(ui: &mut Ui, s: &Session, state: &State, view: View) {
             Handle::Center => "Repeat center",
             Handle::Angle => "Repeat angle",
         };
-        response.on_hover_text(crate::i18n::t(label));
+        response.on_hover_text(li_i18n::t(label));
         ui.painter().circle(p, 5., Color32::from_rgb(255, 190, 55), Stroke::new(1., Color32::BLACK));
     }
 }

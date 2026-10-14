@@ -1559,9 +1559,9 @@ fn split_icon(ui: &mut egui::Ui, kind: &str, tip: &str, on: bool) -> egui::Respo
 fn transform_actions(app: &mut PhotocraftApp, ui: &mut egui::Ui, warping: bool) {
     ui.add_space(8.0);
     let commit_tip = if warping {
-        crate::i18n::fmt(tl!("Commit warp ({key})"), &[("key", &crate::shortcuts::pretty("Enter"))])
+        li_i18n::fmt(tl!("Commit warp ({key})"), &[("key", &crate::shortcuts::pretty("Enter"))])
     } else {
-        crate::i18n::fmt(tl!("Commit transform ({key})"), &[("key", &crate::shortcuts::pretty("Enter"))])
+        li_i18n::fmt(tl!("Commit transform ({key})"), &[("key", &crate::shortcuts::pretty("Enter"))])
     };
     let commit_btn = crate::icons::button(ui, "check", 26.0, false, &commit_tip);
     commit_btn.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Commit transform"));

@@ -35,7 +35,7 @@ pub(super) fn row(ui: &mut egui::Ui, settings: &mut AiSettings) {
     }
     if let Some(snapshot) = snapshot {
         if running {
-            ui.label(crate::i18n::fmt(
+            ui.label(li_i18n::fmt(
                 tl!("Searching LAN… {checked}/{total}"),
                 &[("checked", &snapshot.checked.to_string()), ("total", &snapshot.total.to_string())],
             ));

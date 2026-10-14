@@ -9,22 +9,22 @@ use crate::state::{BeforeAfter, Dialog, RightPanel, SpotOverlay, ViewMode, Zoom}
 
 use li_commands::UiCommand;
 
-/// The "Edit → Language" entries, one per language in [`crate::i18n::Locale::ALL`], so a language
+/// The "Edit → Language" entries, one per language in [`li_i18n::Lang::ALL`], so a language
 /// added to the table shows up in the menu (and in the control channel's command list) by itself.
 pub const LANGUAGE_COMMANDS: &[UiCommand] = &[
-    ("app.language.english", crate::i18n::Locale::En.name(), None, "Edit>Language"),
-    ("app.language.simplifiedChinese", crate::i18n::Locale::ZhHans.name(), None, "Edit>Language"),
-    ("app.language.traditionalChinese", crate::i18n::Locale::ZhHant.name(), None, "Edit>Language"),
-    ("app.language.japanese", crate::i18n::Locale::Ja.name(), None, "Edit>Language"),
-    ("app.language.portuguese", crate::i18n::Locale::PtBr.name(), None, "Edit>Language"),
-    ("app.language.korean", crate::i18n::Locale::Ko.name(), None, "Edit>Language"),
-    ("app.language.german", crate::i18n::Locale::De.name(), None, "Edit>Language"),
-    ("app.language.french", crate::i18n::Locale::Fr.name(), None, "Edit>Language"),
-    ("app.language.spanish", crate::i18n::Locale::Es.name(), None, "Edit>Language"),
-    ("app.language.italian", crate::i18n::Locale::It.name(), None, "Edit>Language"),
-    ("app.language.russian", crate::i18n::Locale::Ru.name(), None, "Edit>Language"),
-    ("app.language.czech", crate::i18n::Locale::Cs.name(), None, "Edit>Language"),
-    ("app.language.indonesian", crate::i18n::Locale::Id.name(), None, "Edit>Language"),
+    ("app.language.english", li_i18n::Lang::En.name(), None, "Edit>Language"),
+    ("app.language.simplifiedChinese", li_i18n::Lang::ZhHans.name(), None, "Edit>Language"),
+    ("app.language.traditionalChinese", li_i18n::Lang::ZhHant.name(), None, "Edit>Language"),
+    ("app.language.japanese", li_i18n::Lang::Ja.name(), None, "Edit>Language"),
+    ("app.language.portuguese", li_i18n::Lang::PtBr.name(), None, "Edit>Language"),
+    ("app.language.korean", li_i18n::Lang::Ko.name(), None, "Edit>Language"),
+    ("app.language.german", li_i18n::Lang::De.name(), None, "Edit>Language"),
+    ("app.language.french", li_i18n::Lang::Fr.name(), None, "Edit>Language"),
+    ("app.language.spanish", li_i18n::Lang::Es.name(), None, "Edit>Language"),
+    ("app.language.italian", li_i18n::Lang::It.name(), None, "Edit>Language"),
+    ("app.language.russian", li_i18n::Lang::Ru.name(), None, "Edit>Language"),
+    ("app.language.czech", li_i18n::Lang::Cs.name(), None, "Edit>Language"),
+    ("app.language.indonesian", li_i18n::Lang::Id.name(), None, "Edit>Language"),
 ];
 
 /// Every UI command: the languages, then everything else. `xtask parity` reads both tables from
@@ -35,21 +35,21 @@ pub fn ui_commands() -> impl Iterator<Item = &'static UiCommand> {
 
 /// The language a Language-menu command selects, if the id is one. The engine and the UI both go
 /// through here, so the menu, the settings row and the control channel agree on the mapping.
-pub fn language_from_command(id: &str) -> Option<crate::i18n::Locale> {
+pub fn language_from_command(id: &str) -> Option<li_i18n::Lang> {
     match id {
-        "app.language.english" => Some(crate::i18n::Locale::En),
-        "app.language.simplifiedChinese" => Some(crate::i18n::Locale::ZhHans),
-        "app.language.traditionalChinese" => Some(crate::i18n::Locale::ZhHant),
-        "app.language.japanese" => Some(crate::i18n::Locale::Ja),
-        "app.language.portuguese" => Some(crate::i18n::Locale::PtBr),
-        "app.language.korean" => Some(crate::i18n::Locale::Ko),
-        "app.language.german" => Some(crate::i18n::Locale::De),
-        "app.language.french" => Some(crate::i18n::Locale::Fr),
-        "app.language.spanish" => Some(crate::i18n::Locale::Es),
-        "app.language.italian" => Some(crate::i18n::Locale::It),
-        "app.language.russian" => Some(crate::i18n::Locale::Ru),
-        "app.language.czech" => Some(crate::i18n::Locale::Cs),
-        "app.language.indonesian" => Some(crate::i18n::Locale::Id),
+        "app.language.english" => Some(li_i18n::Lang::En),
+        "app.language.simplifiedChinese" => Some(li_i18n::Lang::ZhHans),
+        "app.language.traditionalChinese" => Some(li_i18n::Lang::ZhHant),
+        "app.language.japanese" => Some(li_i18n::Lang::Ja),
+        "app.language.portuguese" => Some(li_i18n::Lang::PtBr),
+        "app.language.korean" => Some(li_i18n::Lang::Ko),
+        "app.language.german" => Some(li_i18n::Lang::De),
+        "app.language.french" => Some(li_i18n::Lang::Fr),
+        "app.language.spanish" => Some(li_i18n::Lang::Es),
+        "app.language.italian" => Some(li_i18n::Lang::It),
+        "app.language.russian" => Some(li_i18n::Lang::Ru),
+        "app.language.czech" => Some(li_i18n::Lang::Cs),
+        "app.language.indonesian" => Some(li_i18n::Lang::Id),
         _ => None,
     }
 }
@@ -254,13 +254,13 @@ fn panel(app: &mut LightcraftApp, ctx: &egui::Context, p: RightPanel, name: &str
         } else {
             RightPanel::None
         };
-        app.toast(ctx, crate::i18n::tr_format!("{name} Off", name = name));
+        app.toast(ctx, li_i18n::tr_format!("{name} Off", name = name));
     } else {
         if auxiliary && !matches!(app.ui.right, RightPanel::Versions | RightPanel::Activity) {
             app.ui.auxiliary_return = Some((app.ui.view, app.ui.right));
         }
         app.ui.right = p;
-        app.toast(ctx, crate::i18n::tr_format!("{name} On", name = name));
+        app.toast(ctx, li_i18n::tr_format!("{name} On", name = name));
         if p.is_edit_tool() && !matches!(app.ui.view, ViewMode::Detail) {
             app.ui.view = ViewMode::Detail;
         }
@@ -327,7 +327,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         // Immediately, not on the next frame: the reply and anything else run this frame
         // (menus rebuilt from it, toasts) are already in the new language.
-        crate::i18n::set_language(app.ui.language);
+        li_i18n::set_current(app.ui.language);
         return Some(Ok(json!(app.ui.language)));
     }
     let ctx = egui::Context::default();
@@ -1081,7 +1081,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 (
                     "GPU".to_string(),
                     gpu.unwrap_or_else(|| match lightcraft_engine::gpu::unavailable_reason() {
-                        Some(why) => crate::i18n::tr_format!("none (CPU rendering): {why}", why = why),
+                        Some(why) => li_i18n::tr_format!("none (CPU rendering): {why}", why = why),
                         None => "none (CPU rendering)".into(),
                     }),
                 ),
@@ -1308,8 +1308,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 let failed = v["failed"].as_array().map_or(0, Vec::len);
                 let mut msg = match (n, failed) {
                     (0, 0) => "No new presets".to_string(),
-                    (n, 0) => crate::i18n::tr_format!("Imported {n} preset{}", if n == 1 { "" } else { "s" }, n = n),
-                    (n, f) => crate::i18n::tr_format!(
+                    (n, 0) => li_i18n::tr_format!("Imported {n} preset{}", if n == 1 { "" } else { "s" }, n = n),
+                    (n, f) => li_i18n::tr_format!(
                         "Imported {n} preset{}, {f} file{} not readable",
                         if n == 1 { "" } else { "s" },
                         if f == 1 { "" } else { "s" },
@@ -1360,7 +1360,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             let r = app.session.execute("preset.export", &params).map_err(|e| e.to_string());
             if let Ok(v) = &r {
-                app.toast(&ctx, crate::i18n::tr_format!("Exported {} preset{}", v["count"], if v["count"] == 1 { "" } else { "s" }));
+                app.toast(&ctx, li_i18n::tr_format!("Exported {} preset{}", v["count"], if v["count"] == 1 { "" } else { "s" }));
             }
             return Some(r);
         }
@@ -1379,9 +1379,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if let Ok(v) = &r {
                 let n = v["imported"].as_array().map_or(0, Vec::len);
                 let failed = v["failed"].as_array().map_or(0, Vec::len);
-                let mut msg = crate::i18n::tr_format!("Imported {n} point curve preset{}", if n == 1 { "" } else { "s" }, n = n);
+                let mut msg = li_i18n::tr_format!("Imported {n} point curve preset{}", if n == 1 { "" } else { "s" }, n = n);
                 if failed > 0 {
-                    msg += &crate::i18n::tr_format!(", {failed} file{} not readable", if failed == 1 { "" } else { "s" }, failed = failed);
+                    msg += &li_i18n::tr_format!(", {failed} file{} not readable", if failed == 1 { "" } else { "s" }, failed = failed);
                 }
                 app.toast(&ctx, msg);
             }
@@ -1402,7 +1402,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             }
             let r = app.session.execute("curve.exportPresets", &params).map_err(|e| e.to_string());
             if let Ok(v) = &r {
-                app.toast(&ctx, crate::i18n::tr_format!("Exported {} point curve preset{}", v["count"], if v["count"] == 1 { "" } else { "s" }));
+                app.toast(&ctx, li_i18n::tr_format!("Exported {} point curve preset{}", v["count"], if v["count"] == 1 { "" } else { "s" }));
             }
             return Some(r);
         }
@@ -1574,7 +1574,7 @@ pub fn can_delete_from_disk(app: &LightcraftApp, ids: &[u64]) -> bool {
 /// stay in the catalogue; virtual copies and files shared with unselected copies are protected.
 pub fn remove_photos(app: &mut LightcraftApp, ids: &[u64], disk: bool) -> Result<Value, String> {
     if disk && !can_delete_from_disk(app, ids) {
-        return Err(crate::i18n::tr("Delete from Disk is unavailable for these photos.").into());
+        return Err(li_i18n::library::t("Delete from Disk is unavailable for these photos.").into());
     }
     app.session.end_interaction().map_err(|e| e.to_string())?;
     let mut removed = Vec::new();
@@ -1638,13 +1638,13 @@ pub fn run_save_over(app: &mut LightcraftApp, ctx: &egui::Context, plan: &Value,
     let msg = if r["mode"] == "overwrite" {
         format!(
             "{} {} · {} {}",
-            crate::i18n::tr("Saved over"),
+            li_i18n::library::t("Saved over"),
             name(&r["path"]),
-            crate::i18n::tr("original backed up to"),
+            li_i18n::library::t("original backed up to"),
             r["backup"].as_str().unwrap_or_default()
         )
     } else {
-        format!("{} {}", crate::i18n::tr("Saved"), name(&r["path"]))
+        format!("{} {}", li_i18n::library::t("Saved"), name(&r["path"]))
     };
     app.ui.toast = Some((msg, ctx.input(|i| i.time).max(app.last_time) + 6.0));
     ctx.request_repaint();

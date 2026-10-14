@@ -22,7 +22,7 @@ impl Request {
         if self.catalog_revision != app.session.catalog.revision
             || !app.session.catalog.photo(self.photo).is_some_and(|p| matches!(&p.source, Source::File { path } if path == &self.path))
         {
-            return Err(crate::i18n::tr("The photo changed; try Vectorize again").into());
+            return Err(li_i18n::library::t("The photo changed; try Vectorize again").into());
         }
         Ok(())
     }
@@ -58,9 +58,9 @@ pub fn disabled_reason(app: &LightcraftApp, id: PhotoId) -> Option<&'static str>
 /// code (see integration/29.md); this action always preserves the pre-menu selection.
 pub fn context_action(app: &LightcraftApp, ui: &mut Ui, id: PhotoId) -> bool {
     let reason = disabled_reason(app, id);
-    let response = ui.add_enabled(reason.is_none() && !pending(ui.ctx()), egui::Button::new(crate::i18n::tr(LABEL)));
+    let response = ui.add_enabled(reason.is_none() && !pending(ui.ctx()), egui::Button::new(li_i18n::library::t(LABEL)));
     crate::widgets::register(ui.ctx(), WIDGET, response.rect);
-    let response = if let Some(reason) = reason { response.on_disabled_hover_text(crate::i18n::tr(reason)) } else { response };
+    let response = if let Some(reason) = reason { response.on_disabled_hover_text(li_i18n::library::t(reason)) } else { response };
     if !response.clicked() {
         return false;
     }

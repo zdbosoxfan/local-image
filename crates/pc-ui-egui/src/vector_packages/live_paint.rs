@@ -280,7 +280,7 @@ impl State {
     }
     pub fn context_bar(&mut self, ui: &mut egui::Ui, s: &mut Session) {
         use engine::{FillMode, Insertion};
-        let tr = crate::i18n::t;
+        let tr = li_i18n::t;
         ui.label(tr(match self.tool {
             Some(Tool::Flood) => "Vector Flood Fill",
             Some(Tool::Selection) => "Live Paint Selection",

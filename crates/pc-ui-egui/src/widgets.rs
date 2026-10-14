@@ -66,7 +66,7 @@ pub fn card_ex(ui: &mut Ui, id: &str, tabs: &[&str], selected: &mut usize, colla
             let strip = ui.interact(strip_rect, ui.id().with((id, "strip")), Sense::click_and_drag());
             // Pill tabs left of the menu button; they elide or overflow into a chevron (#151).
             let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
-            let tip = crate::i18n::fmt(tl!("{name} options"), &[("name", tl!(tabs.get(*selected).copied().unwrap_or(id)))]);
+            let tip = li_i18n::fmt(tl!("{name} options"), &[("name", tl!(tabs.get(*selected).copied().unwrap_or(id)))]);
             let menu_rect = Rect::from_min_max(pos2(row.right() - 22.0, row.top() + 1.0), pos2(row.right(), row.bottom() - 1.0));
             let menu = crate::icons::button(&mut ui.new_child(egui::UiBuilder::new().max_rect(menu_rect)), "ellipsis", 22.0, false, &tip);
             let area = Rect::from_min_max(row.min, pos2((menu_rect.left() - 4.0).max(row.left()), row.bottom()));
@@ -250,14 +250,14 @@ pub fn slider_row_translated(
             let field = value_field(ui, value, range.clone(), suffix, 74.0);
             field.widget_info(|| {
                 let mut info = egui::WidgetInfo::drag_value(ui.is_enabled(), f64::from(*value));
-                info.label = Some(crate::i18n::fmt(tl!("{name} value"), &[("name", label)]));
+                info.label = Some(li_i18n::fmt(tl!("{name} value"), &[("name", label)]));
                 info
             });
             changed_resp = Some(field);
         });
     });
     let s = slider(ui, value, range, gradient);
-    let accessible = crate::i18n::fmt(tl!("{name} slider"), &[("name", label)]);
+    let accessible = li_i18n::fmt(tl!("{name} slider"), &[("name", label)]);
     s.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(*value), &accessible));
     let mut r = s.clone();
     if let Some(v) = changed_resp
@@ -549,7 +549,7 @@ pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str
         .horizontal(|ui| {
             let side = ui.spacing().interact_size.y;
             let (tile, tile_response) = ui.allocate_exact_size(Vec2::splat(side), Sense::click());
-            let tile_label = crate::i18n::fmt(tl!("{label} colour swatch"), &[("label", label)]);
+            let tile_label = li_i18n::fmt(tl!("{label} colour swatch"), &[("label", label)]);
             tile_response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), tile_label.as_str()));
             color_tile(
                 ui,
@@ -930,7 +930,7 @@ fn dsfix_color_tile_click_opens_picker() {
 /// module/persona. Measures the shared pill tabs before reversing layout so it never eats the
 /// title/drag gap. Host automation rectangles remain `host-mode-rect` + module digit.
 pub fn module_switcher(ui: &mut Ui, current: crate::Module) -> Option<crate::Module> {
-    let labels = crate::Module::ALL.map(|m| crate::i18n::tr(crate::i18n::current(), m.label()));
+    let labels = crate::Module::ALL.map(|m| li_i18n::tr(li_i18n::current(), m.label()));
     let t = Tokens::get(ui.ctx());
     let width = labels
         .iter()
@@ -946,7 +946,7 @@ pub fn module_switcher(ui: &mut Ui, current: crate::Module) -> Option<crate::Mod
             let r = pill_tab_translated(ui, label, module == current);
             ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("host-mode-rect", module.digit())), r.rect));
             let key = crate::shortcuts::pretty(&format!("Cmd+Alt+{}", module.digit()));
-            if r.on_hover_text(format!("{} ({key})", crate::i18n::tr(crate::i18n::current(), module.tip()))).clicked() && module != current {
+            if r.on_hover_text(format!("{} ({key})", li_i18n::tr(li_i18n::current(), module.tip()))).clicked() && module != current {
                 picked = Some(module);
             }
         }

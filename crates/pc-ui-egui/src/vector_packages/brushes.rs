@@ -144,7 +144,7 @@ pub fn canvas_input_with_pressure(state: &mut State, session: &mut Session, resp
     Ok(())
 }
 pub fn context_bar(ui: &mut egui::Ui, state: &mut State) {
-    use crate::i18n::t as tr;
+    use li_i18n::t as tr;
     let before = (state.options.clone(), state.rope_length);
     for (i, (name, brush)) in engine::geometry::presets().into_iter().enumerate() {
         if ui.selectable_label(state.preset == i, tr(name)).clicked() {

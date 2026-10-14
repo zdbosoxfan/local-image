@@ -400,26 +400,26 @@ impl State {
         let Some(tool) = self.tool else {
             return;
         };
-        ui.label(crate::i18n::t(tool.label()));
+        ui.label(li_i18n::t(tool.label()));
         if let Some(error) = &self.error {
-            ui.colored_label(Color32::LIGHT_RED, crate::i18n::t("Unable to edit paths")).on_hover_text(error);
+            ui.colored_label(Color32::LIGHT_RED, li_i18n::t("Unable to edit paths")).on_hover_text(error);
         }
         if tool == Tool::Builder {
-            ui.label(crate::i18n::t("Drag to merge; Alt to remove"));
+            ui.label(li_i18n::t("Drag to merge; Alt to remove"));
         }
         if tool == Tool::Contour {
             egui::ComboBox::from_id_salt("constructive-join")
-                .selected_text(crate::i18n::t(match self.join {
+                .selected_text(li_i18n::t(match self.join {
                     JoinKind::Round => "Round",
                     JoinKind::Miter => "Miter",
                     JoinKind::Bevel => "Bevel",
                 }))
                 .show_ui(ui, |ui| {
                     for (v, label) in [(JoinKind::Round, "Round"), (JoinKind::Miter, "Miter"), (JoinKind::Bevel, "Bevel")] {
-                        ui.selectable_value(&mut self.join, v, crate::i18n::t(label));
+                        ui.selectable_value(&mut self.join, v, li_i18n::t(label));
                     }
                 });
-            let label = ui.label(crate::i18n::t("Offset"));
+            let label = ui.label(li_i18n::t("Offset"));
             let (unit, dpi, suffix) = units(session);
             let mut displayed = unit.from_px(self.delta, dpi, 1.0, 72.0);
             let max = unit.from_px(100_000.0, dpi, 1.0, 72.0);
@@ -458,11 +458,11 @@ impl State {
                 self.map = None;
                 self.delta = 0.0;
             }
-            let label = ui.label(crate::i18n::t("Miter limit"));
+            let label = ui.label(li_i18n::t("Miter limit"));
             ui.add(egui::DragValue::new(&mut self.miter).range(1.0..=1000.0)).labelled_by(label.id);
         }
         if matches!(tool, Tool::Smooth | Tool::Eraser | Tool::Join) {
-            let label = ui.label(crate::i18n::t("Radius"));
+            let label = ui.label(li_i18n::t("Radius"));
             let (unit, dpi, suffix) = units(session);
             let mut radius = unit.from_px(self.radius, dpi, 1.0, 72.0);
             let lo = unit.from_px(0.01, dpi, 1.0, 72.0);
@@ -472,7 +472,7 @@ impl State {
             }
         }
         if tool == Tool::Smooth {
-            let label = ui.label(crate::i18n::t("Amount"));
+            let label = ui.label(li_i18n::t("Amount"));
             ui.add(egui::Slider::new(&mut self.amount, 0.0..=1.0)).labelled_by(label.id);
         }
     }

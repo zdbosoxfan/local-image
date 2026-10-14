@@ -170,7 +170,7 @@ pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_n
 impl Pending {
     /// One compact file failure, retaining the full destination and reason in details.
     pub(super) fn report_failure(&self, app: &mut PhotocraftApp, reason: &str) {
-        let title = crate::i18n::fmt(tl!("Export failed: {name}"), &[("name", &crate::file_open::display_name(&self.path))]);
+        let title = li_i18n::fmt(tl!("Export failed: {name}"), &[("name", &crate::file_open::display_name(&self.path))]);
         app.ui.status = title.clone();
         app.ui.status_error = true;
         crate::notices::post(app, title, vec![self.path.clone(), reason.to_owned()], true, None);

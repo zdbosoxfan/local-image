@@ -3996,6 +3996,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-i18n"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "sys-locale",
+]
+
+[[package]]
 name = "li-keys"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4413,6 +4423,7 @@ dependencies = [
  "li-attributions",
  "li-color",
  "li-commands",
+ "li-i18n",
  "li-keys",
  "li-raster",
  "li-seg",
@@ -4493,6 +4504,7 @@ dependencies = [
  "li-commands",
  "li-fs",
  "li-gpu",
+ "li-i18n",
  "li-keys",
  "li-seg",
  "lightcraft-catalog",
@@ -6134,6 +6146,7 @@ dependencies = [
  "li-commands",
  "li-fs",
  "li-gpu",
+ "li-i18n",
  "li-keys",
  "li-matte",
  "li-raster",

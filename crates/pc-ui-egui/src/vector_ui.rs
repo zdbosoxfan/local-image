@@ -449,7 +449,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         let (shift, alt) = (crate::shortcuts::pretty("Shift"), crate::shortcuts::pretty("Alt"));
         lbl(
             ui,
-            &crate::i18n::fmt(
+            &li_i18n::fmt(
                 tl!("Click: select anchor · Drag: move anchor, handle or segment · {shift}-click: add · {alt}-click: whole subpath"),
                 &[("shift", &shift), ("alt", &alt)],
             ),
@@ -468,10 +468,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         }
         lbl(
             ui,
-            &crate::i18n::fmt(
-                tl!("Click: corner · Drag: smooth · Click first point: close · {key} or Esc finish"),
-                &[("key", &crate::shortcuts::pretty("Enter"))],
-            ),
+            &li_i18n::fmt(tl!("Click: corner · Drag: smooth · Click first point: close · {key} or Esc finish"), &[("key", &crate::shortcuts::pretty("Enter"))]),
         );
         return true;
     }

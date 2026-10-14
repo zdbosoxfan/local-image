@@ -9,7 +9,6 @@ use lightcraft_engine::enhance::{JobKind, PatchState, patch_state};
 use serde_json::json;
 
 use crate::LightcraftApp;
-use crate::i18n::tr;
 use crate::theme::Tokens;
 use crate::widgets::{register, text_button};
 
@@ -19,13 +18,13 @@ fn padded(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 
 fn dim(ui: &mut egui::Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
-    ui.label(RichText::new(tr(text)).color(t.text_dim).size(11.5));
+    ui.label(RichText::new(li_i18n::library::t(text)).color(t.text_dim).size(11.5));
 }
 
 /// A progress bar with its Cancel button (cancels job `job`).
 fn progress(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, label: &str, frac: f32, job: u64) {
     ui.horizontal(|ui| {
-        let bar = ui.add(egui::ProgressBar::new(frac).desired_width(150.0).text(format!("{} {:.0}%", tr(label), frac * 100.0)));
+        let bar = ui.add(egui::ProgressBar::new(frac).desired_width(150.0).text(format!("{} {:.0}%", li_i18n::library::t(label), frac * 100.0)));
         register(ui.ctx(), format!("progress:{id}"), bar.rect);
         if text_button(ui, &format!("{id}Cancel"), "Cancel", false).clicked() {
             let _ = app.run("enhance.cancel", json!({"job": job}));
@@ -66,10 +65,14 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
         if draft {
             dim(ui, "Paint more to add to it (⌥ takes away), then remove it all at once.");
             ui.horizontal(|ui| {
-                if text_button(ui, "removePanelApply", "Remove", true).on_hover_text(tr("Remove what you painted (Enter)")).clicked() {
+                if text_button(ui, "removePanelApply", "Remove", true).on_hover_text(li_i18n::library::t("Remove what you painted (Enter)")).clicked()
+                {
                     super::detail::apply_remove_draft(app, ui.ctx());
                 }
-                if text_button(ui, "removePanelCancel", "Cancel", false).on_hover_text(tr("Discard what you painted (Esc)")).clicked() {
+                if text_button(ui, "removePanelCancel", "Cancel", false)
+                    .on_hover_text(li_i18n::library::t("Discard what you painted (Esc)"))
+                    .clicked()
+                {
                     app.ui.remove_draft = None;
                 }
             });
@@ -84,7 +87,7 @@ pub fn remove_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
         }
         let current = engines.iter().find(|e| e.key == app.ui.remove_engine).cloned();
         ui.horizontal(|ui| {
-            ui.label(tr("Engine"));
+            ui.label(li_i18n::library::t("Engine"));
             let r = egui::ComboBox::from_id_salt("removeAiEngine")
                 .selected_text(current.as_ref().map(|e| e.label.clone()).unwrap_or_default())
                 .show_ui(ui, |ui| {
@@ -159,7 +162,7 @@ pub fn spot_info(app: &mut LightcraftApp, ui: &mut egui::Ui, sp: &Spot) {
             PatchState::Foreign => Some("This removal was made on another photo and isn't applied here."),
         };
         if let Some(n) = note {
-            ui.label(RichText::new(tr(n)).color(Tokens::get(ui.ctx()).caution).size(11.5));
+            ui.label(RichText::new(li_i18n::library::t(n)).color(Tokens::get(ui.ctx()).caution).size(11.5));
         }
         if is_local(sp) {
             dim(ui, "Content-aware heal, made on this computer");
@@ -200,7 +203,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
         app.toast_error(ctx, e);
     } else if let Some(done) = p.done.iter().rfind(|l| *l != lightcraft_engine::enhance::remove::HEAL_LABEL) {
         // (a heal shows on the photo when it is done: no toast for each)
-        app.toast(ctx, format!("{} ✓", tr(done)));
+        app.toast(ctx, format!("{} ✓", li_i18n::library::t(done)));
     }
     if app.session.enhance.busy() {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -301,7 +304,7 @@ pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, famil
         }
         ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
     } else if installed {
-        let response = ui.label(crate::i18n::tr("AI Denoise model ready"));
+        let response = ui.label(li_i18n::library::t("AI Denoise model ready"));
         register(ui.ctx(), "status:denoiseReady", response.rect);
     } else {
         if let Some(error) = status.error.as_ref() {

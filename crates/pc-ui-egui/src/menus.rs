@@ -339,7 +339,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         // The macOS app menu's Language (`native_menu::language_node`).
         i if i.starts_with(crate::native_menu::LANGUAGE_PREFIX) => {
             let code = &i[crate::native_menu::LANGUAGE_PREFIX.len()..];
-            if code != "auto" && !crate::i18n::Lang::all().any(|l| l.code() == code) {
+            if code != "auto" && !li_i18n::Lang::ALL.into_iter().any(|l| l.code() == code) {
                 return Err(format!("unknown UI language `{code}`"));
             }
             app.run("prefs.set", json!({"values": {"interface.language": code}}))
@@ -965,11 +965,11 @@ pub(crate) fn menu_bar_with_width(app: &mut PhotocraftApp, ui: &mut egui::Ui, wi
     let font = egui::TextStyle::Button.resolve(ui.style());
     let padding = ui.spacing().item_spacing.y; // compact menu-bar inset, derived from theme
     let full_width: f32 =
-        tops.iter().map(|top| ui.painter().layout_no_wrap(crate::i18n::t(top).into(), font.clone(), ui.visuals().text_color()).size().x + 2.0 * padding).sum();
+        tops.iter().map(|top| ui.painter().layout_no_wrap(li_i18n::t(top).into(), font.clone(), ui.visuals().text_color()).size().x + 2.0 * padding).sum();
     let compact = full_width > width;
     let titles: &[&str] = if compact { &["Menu"] } else { tops };
     let mut right = ui.cursor().left();
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let mut clicked: Option<String> = None;
     let t = crate::theme::Tokens::get(ui.ctx());
     let mut nav = crate::menu_nav::Nav::load(ui.ctx());
@@ -987,7 +987,7 @@ pub(crate) fn menu_bar_with_width(app: &mut PhotocraftApp, ui: &mut egui::Ui, wi
             for &top in titles {
                 // egui's menu_button toggles on release; these titles open on the press (one
                 // gesture can press, drag to an item and release), so each drives its popup.
-                let title = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr(lang, top)).color(t.text_dim)));
+                let title = ui.add(egui::Button::new(egui::RichText::new(li_i18n::tr(lang, top)).color(t.text_dim)));
                 // The bar's close behaviour and style, as a menu (not bar) config so submenus inside
                 // render as submenus.
                 let bar = egui::containers::menu::MenuConfig::find(ui);
@@ -1017,7 +1017,7 @@ pub(crate) fn menu_bar_with_width(app: &mut PhotocraftApp, ui: &mut egui::Ui, wi
                         let mine: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(top)).collect();
                         ui.set_min_width(220.0);
                         if mine.is_empty() {
-                            ui.weak(crate::i18n::tr(lang, "(coming soon)"));
+                            ui.weak(li_i18n::tr(lang, "(coming soon)"));
                         }
                         if top == "Help" {
                             // The search field scrolls with the rows, as part of the menu's content.
@@ -1151,15 +1151,15 @@ pub fn search_rank(query: &str, label: &str, path: &[String]) -> Option<u8> {
 /// Menu items matching `query`, best first (Photoshop order within a rank). Both the English
 /// labels and their `lang` translations match, so a search works in the UI language and in
 /// English; untranslated strings are simply their English text.
-pub fn search_items<'a>(items: &'a [MenuItem], query: &str, lang: crate::i18n::Lang) -> Vec<&'a MenuItem> {
+pub fn search_items<'a>(items: &'a [MenuItem], query: &str, lang: li_i18n::Lang) -> Vec<&'a MenuItem> {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return Vec::new();
     }
     let rank = |it: &MenuItem| {
         let english = search_rank(&q, &it.label, &it.path);
-        let path: Vec<String> = it.path.iter().map(|p| crate::i18n::tr(lang, p).to_string()).collect();
-        let local = search_rank(&q, crate::i18n::tr_id(lang, &it.id, &it.label), &path);
+        let path: Vec<String> = it.path.iter().map(|p| li_i18n::tr(lang, p).to_string()).collect();
+        let local = search_rank(&q, li_i18n::tr_id(lang, &it.id, &it.label), &path);
         english.into_iter().chain(local).min()
     };
     let mut hits: Vec<(u8, usize, &MenuItem)> =
@@ -1173,7 +1173,7 @@ pub fn search_items<'a>(items: &'a [MenuItem], query: &str, lang: crate::i18n::L
 /// by name. Results show their menu path; click, ↓ then ↩, or ↩ in the field runs one.
 fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<String>, nav: &mut crate::menu_nav::Nav, depth: usize) {
     let ctx = ui.ctx().clone();
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let text_id = egui::Id::new("help-menu-search");
     let pass_id = text_id.with("pass");
     // A fresh opening of the Help menu starts empty, with the field focused.
@@ -1181,7 +1181,7 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
     let reopened = ctx.data(|d| d.get_temp::<u64>(pass_id)).is_none_or(|p| p + 1 < pass);
     ctx.data_mut(|d| d.insert_temp(pass_id, pass));
     let mut query: String = if reopened { String::new() } else { ctx.data(|d| d.get_temp(text_id)).unwrap_or_default() };
-    let field = ui.add(egui::TextEdit::singleline(&mut query).id(text_id.with("field")).hint_text(crate::i18n::tr(lang, "Search menus")).desired_width(220.0));
+    let field = ui.add(egui::TextEdit::singleline(&mut query).id(text_id.with("field")).hint_text(li_i18n::tr(lang, "Search menus")).desired_width(220.0));
     if reopened {
         field.request_focus();
     }
@@ -1196,11 +1196,11 @@ fn help_search(ui: &mut egui::Ui, items: &[MenuItem], clicked: &mut Option<Strin
     ctx.data_mut(|d| d.insert_temp(text_id, query.clone()));
     if !query.trim().is_empty() {
         if results.is_empty() {
-            ui.weak(crate::i18n::tr(lang, "No matching commands"));
+            ui.weak(li_i18n::tr(lang, "No matching commands"));
         }
         for it in results {
-            let mut trail: Vec<&str> = it.path.iter().map(|p| crate::i18n::tr(lang, p)).collect();
-            trail.push(crate::i18n::tr_id(lang, &it.id, &it.label));
+            let mut trail: Vec<&str> = it.path.iter().map(|p| li_i18n::tr(lang, p)).collect();
+            trail.push(li_i18n::tr_id(lang, &it.id, &it.label));
             let label = trail.join(" › ");
             let mut b = li_commands::widgets::menu_row_button(ui, &label);
             if let Some(sc) = &it.shortcut {
@@ -1233,7 +1233,7 @@ const MENU_SEPARATOR: f32 = 9.0;
 
 fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, clicked: &mut Option<String>, nav: &mut crate::menu_nav::Nav) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     // Items never wrap: the menu widens to its longest label plus shortcut (translations can be
     // longer than the English).
     ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -1261,7 +1261,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                 }
                 continue;
             }
-            let text = crate::i18n::tr_id(lang, &it.id, &it.label);
+            let text = li_i18n::tr_id(lang, &it.id, &it.label);
             let mut b = li_commands::widgets::menu_row_button(ui, text);
             if let Some(tint) = it.color.as_deref().and_then(menu_tint) {
                 b = b.fill(tint.gamma_multiply(0.55));
@@ -1274,8 +1274,8 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                     crate::icons::paint(ui, rect, "check", width, color);
                 });
                 let r = match it.id.as_str() {
-                    "image.mode.bits8" | "image.mode.bits16" => r.on_hover_text(crate::i18n::tr(lang, "Integer")),
-                    "image.mode.bits32" => r.on_hover_text(crate::i18n::tr(lang, "Floating point")),
+                    "image.mode.bits8" | "image.mode.bits16" => r.on_hover_text(li_i18n::tr(lang, "Integer")),
+                    "image.mode.bits32" => r.on_hover_text(li_i18n::tr(lang, "Floating point")),
                     _ => r,
                 };
                 let r = if let Some(tip) = &it.tooltip { crate::widgets::disabled_reason_tooltip(r, tip).on_hover_text(tip) } else { r };
@@ -1298,7 +1298,7 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
             let enabled = any_enabled || !child.is_empty();
             ui.add_enabled_ui(enabled, |ui| {
                 nav.row(ui, depth - 1, enabled, None, |ui, nav| {
-                    let r = ui.menu_button(li_commands::widgets::menu_row_label(ui, crate::i18n::tr(lang, name)), |ui| {
+                    let r = ui.menu_button(li_commands::widgets::menu_row_label(ui, li_i18n::tr(lang, name)), |ui| {
                         if name == "Help" && depth == 1 {
                             crate::menu_nav::level(ui, depth + 1, nav, |ui, nav| {
                                 let search: Vec<MenuItem> = items.iter().map(|item| (*item).clone()).collect();
@@ -1491,7 +1491,7 @@ mod tests {
     fn help_search_finds_commands_by_any_word() {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let items = menu_items(&app);
-        let ids = |q: &str| search_items(&items, q, crate::i18n::Lang::EN).iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        let ids = |q: &str| search_items(&items, q, li_i18n::Lang::En).iter().map(|i| i.id.clone()).collect::<Vec<_>>();
         let di = ids("DI");
         assert!(di.contains(&"edit.transform.distort".to_string()), "{di:?}");
         assert!(di.len() <= HELP_SEARCH_MAX);
@@ -1510,7 +1510,7 @@ mod tests {
     fn help_search_matches_the_ui_language_and_english() {
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let items = menu_items(&app);
-        let Some(fr) = crate::i18n::Lang::from_code("fr") else { return };
+        let Some(fr) = li_i18n::Lang::from_code("fr") else { return };
         let ids = |q: &str| search_items(&items, q, fr).iter().map(|i| i.id.clone()).collect::<Vec<_>>();
         assert!(!ids("calque").is_empty(), "French menu name");
         assert!(ids("distort").contains(&"edit.transform.distort".to_string()), "English still matches");

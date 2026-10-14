@@ -3,8 +3,8 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! SPDX-License-Identifier: MIT OR Apache-2.0; see licenses/vectorcraft-NOTICE.
 //! The host supplies document/view coordinates, selected IDs, and the ordinary preview plane.
-use crate::i18n::t;
 use egui::{Color32, Event, Key, Modifiers, Painter, PointerButton, Pos2, Rect, Stroke, Ui};
+use li_i18n::t;
 use photocraft_doc::{Document, LayerContent, LayerId};
 use photocraft_engine::{
     Session,

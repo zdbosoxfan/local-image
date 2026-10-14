@@ -55,7 +55,7 @@ fn tool(
     if open {
         pad(ui, |ui| {
             let mut v = on;
-            let r = ui.checkbox(&mut v, crate::i18n::tr(check));
+            let r = ui.checkbox(&mut v, li_i18n::library::t(check));
             register(ui.ctx(), format!("{id}:enabled"), r.rect);
             if r.changed() {
                 set_on(app, v);
@@ -83,7 +83,7 @@ fn choice(
     let t = Tokens::get(ui.ctx());
     let mut chosen = None;
     pad(ui, |ui| {
-        ui.label(egui::RichText::new(crate::i18n::tr(label)).font(t.font(13.0)).color(t.text_dim));
+        ui.label(egui::RichText::new(li_i18n::library::t(label)).font(t.font(13.0)).color(t.text_dim));
         chosen = crate::widgets::segmented(ui, id, items, active, per_row);
     });
     if let Some(i) = chosen {
@@ -101,7 +101,7 @@ pub fn tone_eq_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSe
     tool(app, ui, d, "toneEq", "tone_eq", "Tone Equalizer", "Equalize Tones", te.enabled, |app, ui, d| {
         pad(ui, |ui| {
             let mut show = app.ui.flyout_open("toneEqMask");
-            let r = ui.checkbox(&mut show, crate::i18n::tr("Show Mask"));
+            let r = ui.checkbox(&mut show, li_i18n::library::t("Show Mask"));
             register(ui.ctx(), "toneEq:mask", r.rect);
             if r.changed() {
                 app.ui.toggle_flyout("toneEqMask");
@@ -150,7 +150,9 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     }
     pad(ui, |ui| {
         ui.label(
-            egui::RichText::new(crate::i18n::tr("Visible at 1:1 and in exports; previews are binned from the sensor.")).size(11.0).color(t.text_dim),
+            egui::RichText::new(li_i18n::library::t("Visible at 1:1 and in exports; previews are binned from the sensor."))
+                .size(11.0)
+                .color(t.text_dim),
         );
     });
     let modes: Vec<(&str, String)> = HighlightMode::ALL.iter().map(|m| (m.label(), key_of(*m))).collect();
@@ -168,7 +170,7 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
     sub_title(ui, "Capture Sharpening");
     pad(ui, |ui| {
         let mut on = r.capture.enabled;
-        let c = ui.checkbox(&mut on, crate::i18n::tr("Sharpen the Sensor's Blur"));
+        let c = ui.checkbox(&mut on, li_i18n::library::t("Sharpen the Sensor's Blur"));
         register(ui.ctx(), "raw:capture", c.rect);
         if c.changed() {
             merge(app, json!({"raw": {"capture": {"enabled": on}}}), "Capture Sharpening");
@@ -180,7 +182,7 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
         }
         pad(ui, |ui| {
             ui.label(
-                egui::RichText::new(crate::i18n::tr("Radius and Contrast Threshold 0: measured from the raw data and the ISO."))
+                egui::RichText::new(li_i18n::library::t("Radius and Contrast Threshold 0: measured from the raw data and the ISO."))
                     .size(11.0)
                     .color(t.text_dim),
             );
@@ -197,7 +199,7 @@ pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: 
     let l = d.lens_db.clone();
     crate::widgets::develop_body(ui, |ui| {
         let mut on = l.enabled;
-        let r = crate::widgets::checkbox(ui, "lensDb:enabled", &mut on, crate::i18n::tr("Use Lens Database"));
+        let r = crate::widgets::checkbox(ui, "lensDb:enabled", &mut on, li_i18n::library::t("Use Lens Database"));
         if r.changed() {
             let settings =
                 if on { json!({"lens_db": {"enabled": true}, "optics": {"lens_profile": true}}) } else { json!({"lens_db": {"enabled": false}}) };
@@ -221,22 +223,22 @@ pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: 
     let found = lightcraft_engine::lens_db::for_photo(&photo, d).is_some();
     crate::widgets::develop_body(ui, |ui| {
         ui.vertical(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Lens")).text_style(egui::TextStyle::Body).color(t.text_dim));
+            ui.label(egui::RichText::new(li_i18n::library::t("Lens")).text_style(egui::TextStyle::Body).color(t.text_dim));
             let text = match (&chosen, &auto_lens) {
                 (Some(n), _) => n.label(),
-                (None, Some(n)) => crate::i18n::tr_format!("Auto: {lens}", lens = n.label()),
-                (None, None) => crate::i18n::tr("Choose…").to_string(),
+                (None, Some(n)) => li_i18n::tr_format!("Auto: {lens}", lens = n.label()),
+                (None, None) => li_i18n::library::t("Choose…").to_string(),
             };
             let r = crate::widgets::dropdown(ui, "lensDbLens", &text, egui::TextStyle::Body.resolve(ui.style()), t.text_label);
             egui::Popup::menu(&r).show(|ui| lens_picker(app, ui, camera_label.is_some().then(|| camera_of(&photo)).flatten()));
         });
         if let Some(c) = &camera_label {
-            crate::widgets::panel_note(ui, &crate::i18n::tr_format!("Camera: {camera}", camera = c));
+            crate::widgets::panel_note(ui, &li_i18n::tr_format!("Camera: {camera}", camera = c));
         }
         if !found {
             crate::widgets::panel_note(
                 ui,
-                crate::i18n::tr("No profile for this lens and focal length: choose the lens, or check the photo's focal length."),
+                li_i18n::library::t("No profile for this lens and focal length: choose the lens, or check the photo's focal length."),
             );
         }
     });
@@ -251,7 +253,7 @@ pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: 
     };
     if let Some(reason) = reason {
         crate::widgets::develop_body(ui, |ui| {
-            crate::widgets::panel_note(ui, crate::i18n::tr(reason));
+            crate::widgets::panel_note(ui, li_i18n::library::t(reason));
         });
     }
     for c in ["lensDb.distortion", "lensDb.tca", "lensDb.vignetting"] {
@@ -267,11 +269,11 @@ fn camera_of(p: &lightcraft_catalog::Photo) -> Option<lightcraft_engine::lens_db
 fn lens_picker(app: &mut LightcraftApp, ui: &mut egui::Ui, camera: Option<lightcraft_engine::lens_db::Named>) {
     let qid = egui::Id::new("lensDbQuery");
     let mut q: String = ui.ctx().data(|m| m.get_temp(qid)).unwrap_or_default();
-    let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(crate::i18n::tr("Search lenses")).desired_width(240.0));
+    let r = ui.add(egui::TextEdit::singleline(&mut q).hint_text(li_i18n::library::t("Search lenses")).desired_width(240.0));
     if r.changed() {
         ui.ctx().data_mut(|m| m.insert_temp(qid, q.clone()));
     }
-    if ui.button(crate::i18n::tr("Automatic (from the photo)")).clicked() {
+    if ui.button(li_i18n::library::t("Automatic (from the photo)")).clicked() {
         merge(app, json!({"lens_db": {"lens": null}}), "Lens");
         ui.close();
     }
@@ -305,11 +307,11 @@ pub fn color_cal_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &Develop
         );
         pad(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new(crate::i18n::tr("Illuminant")).font(t.font(13.0)).color(t.text_dim));
-                let r = crate::widgets::dropdown(ui, "colorCalIlluminant", crate::i18n::tr(cc.illuminant.label()), t.font(13.0), t.text_label);
+                ui.label(egui::RichText::new(li_i18n::library::t("Illuminant")).font(t.font(13.0)).color(t.text_dim));
+                let r = crate::widgets::dropdown(ui, "colorCalIlluminant", li_i18n::library::t(cc.illuminant.label()), t.font(13.0), t.text_label);
                 egui::Popup::menu(&r).show(|ui| {
                     for il in Illuminant::ALL {
-                        if ui.selectable_label(il == cc.illuminant, crate::i18n::tr(il.label())).clicked() {
+                        if ui.selectable_label(il == cc.illuminant, li_i18n::library::t(il.label())).clicked() {
                             merge(app, json!({"color_cal": {"illuminant": key_of(il)}}), "Illuminant");
                             ui.close();
                         }
@@ -324,7 +326,7 @@ pub fn color_cal_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &Develop
         control(app, ui, d, "colorCal.gamut", true);
         pad(ui, |ui| {
             let mut clip = cc.clip;
-            if ui.checkbox(&mut clip, crate::i18n::tr("Clip Negative RGB")).changed() {
+            if ui.checkbox(&mut clip, li_i18n::library::t("Clip Negative RGB")).changed() {
                 merge(app, json!({"color_cal": {"clip": clip}}), "Clip Negative RGB");
             }
         });

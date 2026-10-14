@@ -54,7 +54,7 @@ impl ToneZone {
         }
     }
     fn label(self) -> &'static str {
-        crate::i18n::tr_ctx(crate::i18n::current(), "cameraRaw", self.name())
+        li_i18n::tr_ctx(li_i18n::current(), "cameraRaw", self.name())
     }
     fn range(self) -> [f32; 2] {
         match self {

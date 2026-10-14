@@ -52,9 +52,9 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                 Choice::Curated { id } => {
                     li_seg::spec(id).map_or(id.as_str(), |spec| spec.label.split_once(" · ").map_or(spec.label, |(_, name)| name)).to_owned()
                 }
-                Choice::Custom { name, .. } => crate::i18n::fmt(tl!("Custom: {name}"), &[("name", name)]),
+                Choice::Custom { name, .. } => li_i18n::fmt(tl!("Custom: {name}"), &[("name", name)]),
                 Choice::Seed { .. } if choice == default => "SeedVR2 7B FP16".into(),
-                Choice::Seed { unet, .. } => crate::i18n::fmt(tl!("Custom: {name}"), &[("name", unet)]),
+                Choice::Seed { unet, .. } => li_i18n::fmt(tl!("Custom: {name}"), &[("name", unet)]),
             };
             ui.label(RichText::new(name).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

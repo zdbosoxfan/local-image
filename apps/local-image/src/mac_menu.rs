@@ -119,7 +119,7 @@ impl MacMenu {
                         Standard::HideOthers => PredefinedMenuItem::hide_others(None),
                         Standard::ShowAll => PredefinedMenuItem::show_all(None),
                         Standard::Minimize => PredefinedMenuItem::minimize(None),
-                        Standard::Zoom => PredefinedMenuItem::maximize(Some(photocraft_ui_egui::i18n::t("Zoom"))),
+                        Standard::Zoom => PredefinedMenuItem::maximize(Some(li_i18n::t("Zoom"))),
                         Standard::BringAllToFront => PredefinedMenuItem::bring_all_to_front(None),
                         Standard::CloseWindow => PredefinedMenuItem::close_window(None),
                     };
@@ -342,7 +342,7 @@ mod tests {
     #[test]
     fn every_menu_shortcut_maps_to_a_key_equivalent() {
         let app = photocraft_ui_egui::PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
-        let bar = native_menu::photocraft_layout(&photocraft_ui_egui::menus::menu_items(&app), photocraft_ui_egui::i18n::Lang::EN, "auto").bar;
+        let bar = native_menu::photocraft_layout(&photocraft_ui_egui::menus::menu_items(&app), li_i18n::Lang::En, "auto").bar;
         let mut native = 0;
         for it in bar.items() {
             let Some(c) = it.shortcut.as_deref().and_then(Chord::parse) else { continue };

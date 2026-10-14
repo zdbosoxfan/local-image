@@ -45,7 +45,7 @@ pub(super) fn draw(ui: &mut egui::Ui, settings: &mut AiSettings, st: &EngineStat
                     d.message = if found.is_empty() {
                         tl!("No ComfyUI installation found in the usual places.").into()
                     } else {
-                        crate::i18n::fmt(tl!("Found {n} installation(s)."), &[("n", &found.len().to_string())])
+                        li_i18n::fmt(tl!("Found {n} installation(s)."), &[("n", &found.len().to_string())])
                     };
                     d.detected = Some(found);
                 });
@@ -64,7 +64,7 @@ pub(super) fn draw(ui: &mut egui::Ui, settings: &mut AiSettings, st: &EngineStat
             let running_ours = CHILD.is_running().unwrap_or(true);
             if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
                 let m = match save_connection(settings).and_then(|_| start_engine()) {
-                    Ok(l) => crate::i18n::fmt(tl!("Starting {name}…"), &[("name", &l)]),
+                    Ok(l) => li_i18n::fmt(tl!("Starting {name}…"), &[("name", &l)]),
                     Err(e) => e,
                 };
                 dialogs_mut(|d| d.message = m);

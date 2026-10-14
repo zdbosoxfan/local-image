@@ -60,7 +60,7 @@ pub fn loupe(app: &LightcraftApp, ui: &egui::Ui, id: PhotoId, area: Rect) -> Opt
     let badge = Rect::from_min_size(r.left_top() + vec2(8.0, 8.0), g.size() + vec2(16.0, 8.0));
     p.rect_filled(badge, 4.0, Color32::from_rgba_unmultiplied(40, 90, 170, 220));
     p.galley(badge.min + vec2(8.0, 4.0), g, Color32::WHITE);
-    let bg = p.layout_no_wrap(crate::i18n::tr("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
+    let bg = p.layout_no_wrap(li_i18n::library::t("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
     let button = Rect::from_min_size(pos2(badge.right() + 6.0, badge.top()), bg.size() + vec2(16.0, 8.0)).intersect(area);
     if !button.is_positive() {
         return None;
@@ -74,10 +74,10 @@ pub fn button(ui: &egui::Ui, id: PhotoId, rect: Rect) -> bool {
     let t = Tokens::get(ui.ctx());
     let resp = ui.interact(rect, egui::Id::new(("host-composite-open", id.0)), Sense::click());
     let p = ui.painter_at(rect);
-    let g = p.layout_no_wrap(crate::i18n::tr("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
+    let g = p.layout_no_wrap(li_i18n::library::t("Open in Compositing").to_string(), t.font(12.0), Color32::WHITE);
     p.rect_filled(rect, 4.0, if resp.hovered() { Color32::from_black_alpha(220) } else { Color32::from_black_alpha(160) });
     p.galley(rect.min + vec2(8.0, 4.0), g, Color32::WHITE);
-    resp.on_hover_text(crate::i18n::tr("Back to the document in Compositing (its layers are kept)")).clicked()
+    resp.on_hover_text(li_i18n::library::t("Back to the document in Compositing (its layers are kept)")).clicked()
 }
 
 /// Photo `id`'s composite for a grid cell: (texture, size).
@@ -89,7 +89,7 @@ pub fn thumb(app: &LightcraftApp, id: PhotoId) -> Option<(egui::TextureId, [usiz
 pub fn grid_badge(ui: &egui::Ui, img: Rect) {
     let t = Tokens::get(ui.ctx());
     let p = ui.painter();
-    let g = p.layout_no_wrap(crate::i18n::tr("Compositing · unsaved").to_string(), t.semibold(9.0), Color32::WHITE);
+    let g = p.layout_no_wrap(li_i18n::library::t("Compositing · unsaved").to_string(), t.semibold(9.0), Color32::WHITE);
     let r = Rect::from_min_size(img.left_top() + vec2(4.0, 4.0), g.size() + vec2(8.0, 4.0));
     p.rect_filled(r, 3.0, Color32::from_rgba_unmultiplied(40, 90, 170, 220));
     p.galley(r.min + vec2(4.0, 2.0), g, Color32::WHITE);

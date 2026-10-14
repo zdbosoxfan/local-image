@@ -382,7 +382,7 @@ impl photocraft_ui_egui::prefs_ui::HostPreferencesPages for LibraryPreferencesPa
     fn apply(&mut self, draft: &serde_json::Value) -> Result<(), String> {
         let values = serde_json::from_value::<lightcraft_ui_egui::panels::settings::PreferencesDraft>(draft.clone()).map_err(|e| e.to_string())?;
         let mut library = self.0.borrow_mut();
-        let lib = library.as_mut().ok_or_else(|| lightcraft_ui_egui::i18n::tr("The Library is not available for Preferences.").to_string())?;
+        let lib = library.as_mut().ok_or_else(|| li_i18n::library::t("The Library is not available for Preferences.").to_string())?;
         values.install(&mut lib.ui);
         Ok(())
     }
@@ -458,12 +458,12 @@ impl Host {
         if let Some(language) = self.library.as_mut().and_then(|lib| lib.open_shared_language.take()) {
             self.editor.session.edit_prefs(|prefs| prefs.interface.language = language.code().to_string());
         }
-        let pref = &self.editor.session.prefs().interface.language;
-        let code = if pref == "auto" { photocraft_ui_egui::i18n::Lang::from_pref(pref).code() } else { pref.as_str() };
+        // One language for both halves: the Library follows the shared preference (Auto included).
+        let language = li_i18n::Lang::from_pref(&self.editor.session.prefs().interface.language);
         if let Some(lib) = self.library.as_mut() {
             sync_library_model_root(lib, &li_ai::AiSettings::cached_model_dir());
-            lib.ui.language = lightcraft_ui_egui::i18n::Locale::parse_tag(code).unwrap_or(lightcraft_ui_egui::i18n::Locale::En);
-            lightcraft_ui_egui::i18n::set_language(lib.ui.language);
+            lib.ui.language = language;
+            li_i18n::set_current(language);
         }
         if let Some(lib) = &self.library {
             self.editor.host_preferences_values =
@@ -548,7 +548,7 @@ impl Host {
             }
             return;
         }
-        photocraft_ui_egui::i18n::set_current(photocraft_ui_egui::i18n::Lang::from_pref(&self.editor.session.prefs().interface.language));
+        li_i18n::set_current(li_i18n::Lang::from_pref(&self.editor.session.prefs().interface.language));
         if self.mode == Module::Compositing {
             photocraft_ui_egui::native_menu::sync(&mut self.editor, ctx);
             return;
@@ -610,7 +610,7 @@ impl Host {
                 continue;
             } else if id == "file.exit"
                 || id.starts_with("window.theme.")
-                || id.strip_prefix("app.language.").is_some_and(|code| code == "auto" || photocraft_ui_egui::i18n::Lang::all().any(|lang| lang.code() == code))
+                || id.strip_prefix("app.language.").is_some_and(|code| code == "auto" || li_i18n::Lang::ALL.into_iter().any(|lang| lang.code() == code))
             {
                 // Application appearance uses the host palette. A Quit queued from the
                 // editor before a module change still uses its unsaved-document review.
@@ -894,7 +894,7 @@ impl Host {
                 match img {
                     Ok(img) => {
                         self.composites.failed.remove(&photo);
-                        let label = lightcraft_ui_egui::i18n::tr("Edited in Compositing · unsaved").to_string();
+                        let label = li_i18n::library::t("Edited in Compositing · unsaved").to_string();
                         host_composite::set(lib, ctx, lightcraft_catalog::PhotoId(photo), key, img.width as usize, img.height as usize, &img.pixels, label);
                     }
                     Err(e) => {
@@ -1841,7 +1841,7 @@ fn module_preference(value: Option<&str>) -> Module {
 
 fn validate_library_ui(ui: UiState, rejected: Vec<String>) -> Result<(UiState, Vec<String>), String> {
     if rejected.iter().any(|key| key.is_empty() || key == "settings" || key == "settings.libraryPath") {
-        return Err(lightcraft_ui_egui::i18n::tr("the stored Library path could not be recovered").into());
+        return Err(li_i18n::library::t("the stored Library path could not be recovered").into());
     }
     Ok((ui.sanitized(), rejected))
 }
@@ -1896,7 +1896,7 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
                 Ok((ui, rejected)) => {
                     if !rejected.is_empty() {
                         prefs_writer.notice =
-                            Some(lightcraft_ui_egui::i18n::tr("Some Library settings used defaults: {fields}.").replace("{fields}", &rejected.join(", ")));
+                            Some(li_i18n::library::t("Some Library settings used defaults: {fields}.").replace("{fields}", &rejected.join(", ")));
                     }
                     Some(ui)
                 }
@@ -1934,7 +1934,7 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
     if let Some(ui) = prefs {
         app.ui = ui;
     }
-    lightcraft_ui_egui::i18n::set_language(app.ui.language);
+    li_i18n::set_current(app.ui.language);
     app.host_fonts = true;
     app.integrated_titlebar = false;
     app.library_problem = problem;
@@ -1988,8 +1988,7 @@ fn services(opens: Opens) -> Services {
             crate::file_dialog_probe::explain_empty(file_dialog().set_title("Choose Folder").pick_folder()).map(|p| p.to_string_lossy().to_string())
         })),
         pick_folder_titled: Some(Box::new(|title| {
-            crate::file_dialog_probe::explain_empty(file_dialog().set_title(lightcraft_ui_egui::i18n::tr(title)).pick_folder())
-                .map(|p| p.to_string_lossy().to_string())
+            crate::file_dialog_probe::explain_empty(file_dialog().set_title(li_i18n::library::t(title)).pick_folder()).map(|p| p.to_string_lossy().to_string())
         })),
         open_with: Some(Box::new(move |path: &str, app: &str| {
             let app = app.trim();
@@ -4976,11 +4975,11 @@ mod tests {
         }
         h.host.editor.session.edit_prefs(|prefs| prefs.interface.language = "ja".into());
         h.step(vec![]);
-        assert_eq!(h.host.library.as_ref().unwrap().ui.language, lightcraft_ui_egui::i18n::Locale::Ja);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.language, li_i18n::Lang::Ja);
         h.host.library.as_mut().unwrap().run("app.language.french", json!({})).unwrap();
         h.step(vec![]);
         assert_eq!(h.host.editor.session.prefs().interface.language, "fr");
-        assert_eq!(h.host.library.as_ref().unwrap().ui.language, lightcraft_ui_egui::i18n::Locale::Fr);
+        assert_eq!(h.host.library.as_ref().unwrap().ui.language, li_i18n::Lang::Fr);
         drop(h);
         std::fs::remove_dir_all(dir).unwrap();
     }

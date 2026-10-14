@@ -285,7 +285,7 @@ ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted gly
 - Everything is reachable by keyboard: Tab order follows reading order, focus shows the same fill as hover,
   Enter/Space activate, Esc closes. Dialog buttons come from `dialog_buttons` for the right order and Tab walk.
 - Text contrast must stay readable on every theme; derive colours from tokens (`text_on`, `readable_text`
-  in `lc theme.rs:252`). Translate user-visible text with `tl!("...")` (editor) / `i18n::tr` (library); the
+  in `lc theme.rs:252`). Translate user-visible text with `tl!("...")` (editor) / `li_i18n::library::t` (library), both from `li-i18n`; the
   `_translated` widget variants are for text already translated.
 
 ## 7. Testing

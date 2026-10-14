@@ -123,7 +123,7 @@ impl Contributor {
 
     /// One line with everything we know, for tooltips.
     pub fn summary(&self) -> String {
-        crate::i18n::fmt(
+        li_i18n::fmt(
             tl!("@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{binAdded} / −{binDeleted} binary assets, {first} – {last}"),
             &[
                 ("login", self.login),
@@ -245,7 +245,7 @@ pub fn contributors_ui(ui: &mut egui::Ui) {
         }
     });
     let list = sorted(CONTRIBUTORS, v.names, v.key, v.ascending);
-    let counts = crate::i18n::fmt(
+    let counts = li_i18n::fmt(
         tl!("Contributors: {contributors} · Commits: {commits}"),
         &[("contributors", &group(list.len() as u64)), ("commits", &group(TOTAL_COMMITS))],
     );

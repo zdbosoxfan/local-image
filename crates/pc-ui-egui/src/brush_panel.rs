@@ -243,7 +243,7 @@ fn section_list(app: &mut PhotocraftApp, ui: &mut egui::Ui, b: &mut BrushSetting
                 let box_resp = ui.interact(br, ui.id().with(("brush-sec-box", i)), Sense::click());
                 let checked = *flag;
                 box_resp.widget_info(|| {
-                    egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, checked, crate::i18n::fmt(tl!("Enable {name}"), &[("name", tl!(*name))]))
+                    egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, checked, li_i18n::fmt(tl!("Enable {name}"), &[("name", tl!(*name))]))
                 });
                 if *flag {
                     ui.painter().rect_filled(br, 2.0, t.accent);

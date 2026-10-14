@@ -20,7 +20,7 @@ pub fn develop_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 /// The shared, keyboard-accessible checkbox with a stable automation id. `label` is translated
 /// by the caller; egui supplies the check mark, focus and disabled treatment from the theme.
 pub fn checkbox(ui: &mut Ui, id: &str, checked: &mut bool, label: &str) -> Response {
-    let response = li_ui_kit::widgets::checkbox(ui, checked, crate::i18n::tr(label), li_ui_kit::widgets::Profile::Library);
+    let response = li_ui_kit::widgets::checkbox(ui, checked, li_i18n::library::t(label), li_ui_kit::widgets::Profile::Library);
     register(ui.ctx(), id, response.rect);
     // Preserve both jobs' public automation IDs with one widget implementation.
     if !id.starts_with("check:") {
@@ -66,13 +66,13 @@ pub fn preview_only_notice(ui: &mut Ui, key: &str, reason: &str) {
             ui.horizontal(|ui| {
                 let (ir, _) = ui.allocate_exact_size(vec2(16.0, 16.0), Sense::hover());
                 paint(ui.painter(), ir, Icon::Info, t.caution);
-                ui.label(egui::RichText::new(crate::i18n::tr("Preview only")).font(t.semibold(12.5)).color(t.text));
+                ui.label(egui::RichText::new(li_i18n::library::t("Preview only")).font(t.semibold(12.5)).color(t.text));
             });
             ui.add_space(2.0);
             ui.label(egui::RichText::new(preview_only_explanation(reason)).size(11.5).color(t.text_label));
         })
         .response;
-    let r = r.on_hover_text(crate::i18n::tr_format!("Decoder: {reason}", reason = reason));
+    let r = r.on_hover_text(li_i18n::tr_format!("Decoder: {reason}", reason = reason));
     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, "Preview only: editing the camera's embedded JPEG"));
     register(ui.ctx(), format!("notice:previewOnly:{key}"), r.rect);
 }
@@ -186,7 +186,7 @@ fn slider_inner(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, labe
     let editing = draft.is_some();
     let resp = ui.interact(track_rect.expand2(vec2(8.0, 2.0)), id, if enabled && !editing { Sense::click_and_drag() } else { Sense::hover() });
     // screen readers: a slider named after its control, with its value
-    let label_text = crate::i18n::tr(label_override.unwrap_or(spec.label)).to_string();
+    let label_text = li_i18n::library::t(label_override.unwrap_or(spec.label)).to_string();
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, value, label_text.clone()));
     let value_rect = Rect::from_min_max(pos2(label_rect.right() - 72., label_rect.top()), label_rect.max);
     let label_hit = Rect::from_min_max(label_rect.min, pos2(value_rect.left() - 4., label_rect.bottom()));
@@ -222,7 +222,7 @@ fn slider_inner(ui: &mut Ui, spec: &ControlSpec, value: f64, enabled: bool, labe
     let hovered = resp.hovered() || resp.dragged();
     let text_c = if enabled { t.text_label } else { t.text_disabled };
     let p = ui.painter();
-    p.text(label_rect.left_center(), Align2::LEFT_CENTER, crate::i18n::tr(label_override.unwrap_or(spec.label)), t.font(12.5), text_c);
+    p.text(label_rect.left_center(), Align2::LEFT_CENTER, li_i18n::library::t(label_override.unwrap_or(spec.label)), t.font(12.5), text_c);
     let shown = if spec.id == "wb.temp" { format!("{v:.0}") } else { spec.format(v).replace("+0.00", "0").replace("-0.00", "0") };
     let shown = if shown == "+0" || shown == "-0" { "0".to_string() } else { shown };
     if let Some(draft) = &mut draft {
@@ -308,7 +308,7 @@ pub fn nudged(spec: &ControlSpec, value: f64, steps: f64) -> f64 {
 
 /// Collapsible section header ("› Light"). Returns the response (click toggles).
 pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: Option<bool>) -> (Response, Option<bool>) {
-    li_ui_kit::widgets::library_header(ui, id, crate::i18n::tr(title), open, enabled, |ui, rect, glyph, color| {
+    li_ui_kit::widgets::library_header(ui, id, li_i18n::library::t(title), open, enabled, |ui, rect, glyph, color| {
         use li_ui_kit::widgets::HeaderGlyph;
         paint(
             ui.painter(),
@@ -332,7 +332,7 @@ pub fn divider(ui: &mut Ui) {
 
 /// A flyout row inside a section (Curve, Color Mixer, Color Grading…): inset dark box with icon tile.
 pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) -> Response {
-    let title = crate::i18n::tr(title);
+    let title = li_i18n::library::t(title);
     let t = Tokens::get(ui.ctx());
     let w = ui.available_width();
     let (outer, _) = ui.allocate_exact_size(vec2(w, 40.0), Sense::hover());
@@ -361,7 +361,7 @@ fn text_button_size(label_width: f32) -> egui::Vec2 {
 
 /// A small bordered text button, retaining translation and automation IDs.
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
-    let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
+    let label = if id.starts_with("labelSet-") { label } else { li_i18n::library::t(label) };
     let response = li_ui_kit::widgets::selection(ui, label, active, li_ui_kit::widgets::SelectionStyle::Text, None);
     register(ui.ctx(), format!("button:{id}"), response.rect);
     response
@@ -370,7 +370,7 @@ pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response
 /// A segmented control: `labels` share the available width equally, `per_row` per row. Each segment is
 /// addressable as `button:{id}-{key}` (keys parallel to labels). Returns the clicked index.
 pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<usize>, per_row: usize) -> Option<usize> {
-    li_ui_kit::widgets::segmented(ui, id, items, active, per_row, crate::i18n::tr)
+    li_ui_kit::widgets::segmented(ui, id, items, active, per_row, li_i18n::library::t)
 }
 
 /// An icon-only button. `active` draws the selected background (tool strip).
@@ -400,7 +400,7 @@ fn icon_button_inner(
     enabled: bool,
     tooltip: &str,
 ) -> Response {
-    let tooltip = crate::i18n::tr(tooltip);
+    let tooltip = li_i18n::library::t(tooltip);
     let response = li_ui_kit::widgets::icon_button(ui, size, active, enabled, tooltip, li_ui_kit::widgets::Profile::Library, |ui, r, c| {
         let glyph = (size.x.min(size.y) * 0.62).min(22.0);
         let glyph = if tool.is_some() { glyph.max(20.0) } else { glyph };
@@ -577,12 +577,12 @@ pub fn profile_choice(ui: &mut Ui, id: &str, label: &str, selected: &str, choice
     let t = Tokens::get(ui.ctx());
     let mut picked = None;
     egui::Frame::NONE.inner_margin(egui::Margin { left: t.panel_inset_left, right: t.panel_inset_right, top: 0, bottom: 0 }).show(ui, |ui| {
-        ui.label(egui::RichText::new(crate::i18n::tr(label)).color(t.text_dim));
+        ui.label(egui::RichText::new(li_i18n::library::t(label)).color(t.text_dim));
         let name = choices
             .iter()
             .find(|(key, _, _)| key == selected)
             .map(|(_, name, _)| name.as_str())
-            .unwrap_or_else(|| crate::i18n::tr("Missing Profile"));
+            .unwrap_or_else(|| li_i18n::library::t("Missing Profile"));
         let r = egui::ComboBox::from_id_salt(id).selected_text(name).width(ui.available_width()).truncate().show_ui(ui, |ui| {
             ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
             let mut group = String::new();
@@ -591,7 +591,7 @@ pub fn profile_choice(ui: &mut Ui, id: &str, label: &str, selected: &str, choice
                     if !group.is_empty() {
                         ui.separator();
                     }
-                    ui.label(egui::RichText::new(crate::i18n::tr(section)).color(t.text_dim));
+                    ui.label(egui::RichText::new(li_i18n::library::t(section)).color(t.text_dim));
                     group = section.clone();
                 }
                 let r = ui.selectable_label(key == selected, name);
@@ -601,7 +601,7 @@ pub fn profile_choice(ui: &mut Ui, id: &str, label: &str, selected: &str, choice
                 }
             }
         });
-        r.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("{}: {name}", crate::i18n::tr(label))));
+        r.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("{}: {name}", li_i18n::library::t(label))));
         register(ui.ctx(), format!("combo:{id}"), r.response.rect);
     });
     picked
@@ -801,7 +801,7 @@ pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimat
 pub fn choice<T: PartialEq + Clone>(ui: &mut Ui, id: &str, value: &mut T, options: &[(T, &str)]) -> bool {
     let t = Tokens::get(ui.ctx());
     let label = options.iter().find(|(v, _)| *v == *value).map_or("Choose…", |(_, l)| *l);
-    let response = dropdown(ui, id, crate::i18n::tr(label), t.font(12.), t.text);
+    let response = dropdown(ui, id, li_i18n::library::t(label), t.font(12.), t.text);
     let mut changed = false;
     egui::Popup::menu(&response).show(|ui| {
         for (i, (v, label)) in options.iter().enumerate() {
@@ -822,10 +822,10 @@ pub fn text_field(ui: &mut Ui, id: &str, value: &mut String, label: &str) -> Res
     // auto-sized window doesn't grow on every frame, moving targets between down and up.
     let padding = ui.spacing().button_padding;
     let width = (ui.available_width().min(ui.spacing().text_edit_width) - padding.x * 2.).max(0.);
-    let response = ui.add(egui::TextEdit::singleline(value).margin(padding).desired_width(width).hint_text(crate::i18n::tr(label)));
+    let response = ui.add(egui::TextEdit::singleline(value).margin(padding).desired_width(width).hint_text(li_i18n::library::t(label)));
     response.widget_info(|| {
         let mut info = egui::WidgetInfo::text_edit(ui.is_enabled(), value.as_str(), value.as_str(), "");
-        info.label = Some(crate::i18n::tr(label).to_string());
+        info.label = Some(li_i18n::library::t(label).to_string());
         info
     });
     register(ui.ctx(), format!("field:{id}"), response.rect);
@@ -836,7 +836,7 @@ pub fn text_field(ui: &mut Ui, id: &str, value: &mut String, label: &str) -> Res
 /// and proof-sheet output use this so a narrow panel never clips its Choose button.
 pub fn field_with_action(ui: &mut Ui, id: &str, value: &mut String, label: &str, action: &str, enabled: bool) -> bool {
     let t = Tokens::get(ui.ctx());
-    let action_width = text_button_size(ui.painter().layout_no_wrap(crate::i18n::tr(action).to_string(), t.semibold(11.5), t.text).size().x).x;
+    let action_width = text_button_size(ui.painter().layout_no_wrap(li_i18n::library::t(action).to_string(), t.semibold(11.5), t.text).size().x).x;
     let fits = ui.available_width() >= ui.spacing().text_edit_width + action_width + ui.spacing().item_spacing.x;
     let mut clicked = false;
     if !fits {
@@ -849,7 +849,7 @@ pub fn field_with_action(ui: &mut Ui, id: &str, value: &mut String, label: &str,
         clicked = ui
             .add_enabled_ui(enabled, |ui| text_button(ui, id, action, false))
             .inner
-            .on_disabled_hover_text(crate::i18n::tr("Folder picker is not available here"))
+            .on_disabled_hover_text(li_i18n::library::t("Folder picker is not available here"))
             .clicked();
     });
     clicked

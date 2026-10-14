@@ -29,7 +29,7 @@ fn body(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.painter().text(
             area.center(),
             egui::Align2::CENTER_CENTER,
-            crate::i18n::tr("No photo selected"),
+            li_i18n::library::t("No photo selected"),
             egui::FontId::proportional(14.0),
             Color32::GRAY,
         );

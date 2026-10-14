@@ -97,7 +97,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         } else {
                             crate::menus::ui_enabled(app, id)
                         };
-                        let mut button = egui::Button::new(crate::i18n::tr(label));
+                        let mut button = egui::Button::new(li_i18n::library::t(label));
                         if let Some(shortcut) = crate::shortcuts::label_in(ui.ctx(), id) {
                             button = button.shortcut_text(shortcut);
                         }

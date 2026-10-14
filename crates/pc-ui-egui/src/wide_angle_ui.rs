@@ -349,7 +349,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 d.dirty = true;
             }
             widgets::hairline(ui);
-            widgets::section_label(ui, &crate::i18n::fmt(tl!("Constraints ({n})"), &[("n", &d.params.constraints.len().to_string())]));
+            widgets::section_label(ui, &li_i18n::fmt(tl!("Constraints ({n})"), &[("n", &d.params.constraints.len().to_string())]));
             let mut remove = None;
             for (i, c) in d.params.constraints.iter_mut().enumerate() {
                 ui.horizontal(|ui| {

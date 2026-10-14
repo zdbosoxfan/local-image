@@ -80,7 +80,7 @@ pub fn keys(app: &mut LightcraftApp, ctx: &egui::Context) {
 pub fn banner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let Some(h) = app.host_session.as_ref() else { return };
     let t = Tokens::get(ui.ctx());
-    let title = format!("{} · {}", crate::i18n::tr("Camera Raw Filter"), h.name);
+    let title = format!("{} · {}", li_i18n::library::t("Camera Raw Filter"), h.name);
     let mut answer = None;
     egui::Panel::top("host-session-banner")
         .exact_size(t.top_bar_h)
@@ -91,18 +91,18 @@ pub fn banner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 register(ui.ctx(), "indicator:hostSession", r.rect);
                 ui.add_space(12.0);
                 ui.label(
-                    RichText::new(crate::i18n::tr("The layer changes when you click OK (Enter); Cancel (Esc) leaves it as it was."))
+                    RichText::new(li_i18n::library::t("The layer changes when you click OK (Enter); Cancel (Esc) leaves it as it was."))
                         .size(11.5)
                         .color(t.text_dim),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let ok = ui.add(
-                        egui::Button::new(RichText::new(crate::i18n::tr("OK")).color(crate::theme::text_on(t.accent)))
+                        egui::Button::new(RichText::new(li_i18n::library::t("OK")).color(crate::theme::text_on(t.accent)))
                             .fill(t.accent)
                             .min_size(egui::vec2(84.0, 26.0)),
                     );
                     register(ui.ctx(), "button:hostSessionOk", ok.rect);
-                    let cancel = ui.add(egui::Button::new(crate::i18n::tr("Cancel")).min_size(egui::vec2(84.0, 26.0)));
+                    let cancel = ui.add(egui::Button::new(li_i18n::library::t("Cancel")).min_size(egui::vec2(84.0, 26.0)));
                     register(ui.ctx(), "button:hostSessionCancel", cancel.rect);
                     if ok.clicked() {
                         answer = Some(true);

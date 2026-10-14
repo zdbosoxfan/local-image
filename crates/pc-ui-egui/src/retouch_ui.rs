@@ -295,7 +295,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             }
             if app.ui.clone_source.is_none() {
                 crate::widgets::vline(ui, 22.0);
-                opt(ui, &crate::i18n::fmt(tl!("{key}-click to set the source"), &[("key", &crate::shortcuts::pretty("Alt"))]));
+                opt(ui, &li_i18n::fmt(tl!("{key}-click to set the source"), &[("key", &crate::shortcuts::pretty("Alt"))]));
             }
         }
         Tool::Dodge | Tool::Burn => {
@@ -332,7 +332,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 crate::widgets::checkbox(ui, &mut o.quick_subject_assist, tl!("Subject Assist"))
                     .on_hover_text(tl!("Guide the selection with the installed selection model"));
             }
-            opt(ui, &crate::i18n::fmt(tl!("{key} to subtract"), &[("key", &crate::shortcuts::pretty("Alt"))]));
+            opt(ui, &li_i18n::fmt(tl!("{key} to subtract"), &[("key", &crate::shortcuts::pretty("Alt"))]));
             crate::widgets::vline(ui, 22.0);
             if crate::widgets::secondary_button(ui, tl!("Select Subject"), 0.0).clicked() {
                 let _ = app.run("select.subject", json!({}));

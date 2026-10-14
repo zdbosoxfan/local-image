@@ -70,9 +70,9 @@ pub(crate) fn page(app: &mut PhotocraftApp, ui: &mut egui::Ui, section: &str) ->
     ui.label(RichText::new(tl!(*title)).font(crate::theme::semibold(14.0)).color(t.text));
     ui.add_space(6.0);
     let summary = if st.connected {
-        crate::i18n::fmt(tl!("Connected to ComfyUI at {host}"), &[("host", &st.host)])
+        li_i18n::fmt(tl!("Connected to ComfyUI at {host}"), &[("host", &st.host)])
     } else if section == CONNECTION {
-        crate::i18n::fmt(tl!("ComfyUI is not running at {host}"), &[("host", &st.host)])
+        li_i18n::fmt(tl!("ComfyUI is not running at {host}"), &[("host", &st.host)])
     } else {
         tl!("On-device tools work without a ComfyUI server.").into()
     };
@@ -164,7 +164,7 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
             ui.label(RichText::new(tl!(title)).font(crate::theme::semibold(12.5)));
             ui.label(tl!("Custom model selected"));
         }
-        egui::CollapsingHeader::new(crate::i18n::fmt(tl!("Manage {function}"), &[("function", tl!(title))]))
+        egui::CollapsingHeader::new(li_i18n::fmt(tl!("Manage {function}"), &[("function", tl!(title))]))
             .id_salt(("ai-enhance-manage", method.key()))
             .show(ui, |ui| enhance_settings::row(ui, t, &dls, &dir, method));
         ui.separator();
@@ -174,7 +174,7 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
         let paths: std::collections::HashSet<_> =
             li_seg::MODELS.iter().flat_map(|spec| spec.files()).map(|file| li_seg::companion_path(&dir, file.file)).collect();
         let bytes = paths.iter().filter_map(|path| std::fs::metadata(path).ok()).map(|m| m.len()).sum();
-        ui.label(crate::i18n::fmt(tl!("Managed model storage: {size}"), &[("size", &li_ai::download::human_bytes(bytes))]));
+        ui.label(li_i18n::fmt(tl!("Managed model storage: {size}"), &[("size", &li_ai::download::human_bytes(bytes))]));
     });
 }
 
@@ -209,7 +209,7 @@ fn tool_row(
                 ui.add(egui::ProgressBar::new(fraction).desired_width(120.0).show_percentage());
                 let cancel = widgets::secondary_button(ui, tl!("Cancel"), 0.0);
                 cancel.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, crate::i18n::fmt(tl!("Cancel {function} download"), &[("function", tl!(title))]))
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, li_i18n::fmt(tl!("Cancel {function} download"), &[("function", tl!(title))]))
                 });
                 if cancel.clicked() {
                     download.ctl.cancel();
@@ -231,7 +231,7 @@ fn tool_row(
                     egui::WidgetInfo::labeled(
                         egui::WidgetType::Button,
                         true,
-                        crate::i18n::fmt(tl!("{action} {function}"), &[("action", label), ("function", tl!(title))]),
+                        li_i18n::fmt(tl!("{action} {function}"), &[("action", label), ("function", tl!(title))]),
                     )
                 });
                 if action.clicked() {

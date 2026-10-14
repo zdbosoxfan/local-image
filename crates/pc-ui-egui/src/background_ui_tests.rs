@@ -469,9 +469,9 @@ fn background_ui_real_app_tier_timing() {
 
 #[test]
 fn background_ui_shared_field_labels_have_existing_translations() {
-    for language in crate::i18n::Lang::all().filter(|l| l.complete_menus()) {
+    for language in li_i18n::Lang::ALL.into_iter().filter(|l| l.complete_menus()) {
         for label in [EDGE_REFINEMENT.0, COLOUR_CLEANUP.0] {
-            assert!(crate::i18n::has(language, label), "{}: {label}", language.code());
+            assert!(li_i18n::has(language, label), "{}: {label}", language.code());
         }
     }
 }

@@ -129,7 +129,7 @@ pub fn open_in_compositing(app: &mut LightcraftApp, ctx: &egui::Context, id: Pho
                 app.toast_error(ctx, format!("Couldn't open the editor: {e}"));
             }
         }
-        None => app.toast(ctx, crate::i18n::tr("Compositing isn't available here")),
+        None => app.toast(ctx, li_i18n::library::t("Compositing isn't available here")),
     }
 }
 
@@ -161,16 +161,18 @@ fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, doc: &DocLayers
     let key = source(app, id).map(|(_, k)| k).unwrap_or_default();
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 10 }).show(ui, |ui| {
         ui.label(
-            egui::RichText::new(crate::i18n::tr("Develop edits the merged image of this document. Open it in Compositing to work on its layers."))
-                .size(11.5)
-                .color(t.text_dim),
+            egui::RichText::new(li_i18n::library::t(
+                "Develop edits the merged image of this document. Open it in Compositing to work on its layers.",
+            ))
+            .size(11.5)
+            .color(t.text_dim),
         );
         ui.add_space(6.0);
         for (i, l) in doc.layers.iter().enumerate() {
             row(app, ui, &key, i, l);
         }
         if doc.more > 0 {
-            ui.label(egui::RichText::new(crate::i18n::tr_format!("{n} more layers", n = doc.more)).size(11.5).color(t.text_dim));
+            ui.label(egui::RichText::new(li_i18n::tr_format!("{n} more layers", n = doc.more)).size(11.5).color(t.text_dim));
         }
         ui.add_space(8.0);
         if text_button(ui, "openInCompositing", "Open in Compositing", false).clicked() {
@@ -219,9 +221,9 @@ fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, key: &str, i: usize, l: &DocL
     let text_x = tile.right() + 10.0;
     let dim = if l.visible { t.text } else { t.text_dim };
     p.text(pos2(text_x, r.top() + 14.0), Align2::LEFT_CENTER, &l.name, t.font(13.0), dim);
-    let mut detail = vec![crate::i18n::tr(l.kind.label()).to_string()];
+    let mut detail = vec![li_i18n::library::t(l.kind.label()).to_string()];
     if l.blend != "Normal" && l.blend != "Pass Through" {
-        detail.push(crate::i18n::tr(&l.blend).to_string());
+        detail.push(li_i18n::library::t(&l.blend).to_string());
     }
     if l.opacity < 0.995 {
         detail.push(format!("{:.0}%", l.opacity * 100.0));
@@ -231,9 +233,9 @@ fn row(app: &mut LightcraftApp, ui: &mut egui::Ui, key: &str, i: usize, l: &DocL
     // a Develop layer's photo: click to go to it
     if develop {
         let label = match l.follows.map(|id| (id, app.session.catalog.photo(PhotoId(id)).map(|p| p.file_name.clone()))) {
-            Some((_, Some(name))) => crate::i18n::tr_format!("Follows {name}", name = name),
-            Some((_, None)) => crate::i18n::tr("Its photo isn't in this library").to_string(),
-            None => crate::i18n::tr("Keeps its own settings").to_string(),
+            Some((_, Some(name))) => li_i18n::tr_format!("Follows {name}", name = name),
+            Some((_, None)) => li_i18n::library::t("Its photo isn't in this library").to_string(),
+            None => li_i18n::library::t("Keeps its own settings").to_string(),
         };
         let galley = p.layout_no_wrap(label, t.font(11.0), t.accent);
         let link = Rect::from_min_size(pos2(text_x, r.top() + 42.0), galley.size() + vec2(2.0, 4.0));

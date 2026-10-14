@@ -1,7 +1,7 @@
 //! Face inference and headshot decoding run on workers; only the session thread persists data.
 //! The task carries one `JobCtl` (`step` = photos done / total) that the Smart Sort dialog and the
 //! Library's task panel read and cancel.
-use crate::{LightcraftApp, i18n::tr, state::Dialog};
+use crate::{LightcraftApp, state::Dialog};
 use lightcraft_catalog::{MediaKind, PhotoId};
 use lightcraft_engine::smart_sort::{
     self, FaceTagger, PeopleEngine,
@@ -47,7 +47,7 @@ fn missing_inputs(todo: Vec<PhotoId>, prepared: impl IntoIterator<Item = PhotoId
 
 pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>) -> Result<(), String> {
     if app.people_task.is_some() {
-        return Err(tr("Face analysis is already running").to_string());
+        return Err(li_i18n::library::t("Face analysis is already running").to_string());
     }
     app.session.require_faces().map_err(|e| e.to_string())?;
     let model = app.session.smart.people.ready()?;
@@ -102,7 +102,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
                 }
             } else {
                 for id in missing {
-                    let _ = tx.send(Event::Row(id, String::new(), Err(tr("Could not prepare photo").to_string())));
+                    let _ = tx.send(Event::Row(id, String::new(), Err(li_i18n::library::t("Could not prepare photo").to_string())));
                     c.add_step(1);
                 }
                 use rayon::prelude::*;
@@ -205,7 +205,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
                     task.failed = true;
                 }
                 app.ui.people.names.clear();
-                app.ui.people.notice = crate::i18n::tr_format!("Skipped {n} headshots without exactly one face", n = skipped);
+                app.ui.people.notice = li_i18n::tr_format!("Skipped {n} headshots without exactly one face", n = skipped);
                 changed = true;
             }
             Ok(Event::Done(result)) => {
@@ -218,7 +218,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
             Err(std::sync::mpsc::TryRecvError::Empty) => break,
             Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                app.ui.people.error = tr("Face analysis worker stopped unexpectedly").to_string();
+                app.ui.people.error = li_i18n::library::t("Face analysis worker stopped unexpectedly").to_string();
                 task.failed = true;
                 done = true;
                 break;

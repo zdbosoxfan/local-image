@@ -32,7 +32,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     if app.session.smart.prefs.faces_enabled {
         let (_, scope) = app.session.visible_shared();
         if app.people_task.is_none()
-            && ui.button(crate::i18n::tr("Analyse faces in this view")).clicked()
+            && ui.button(li_i18n::library::t("Analyse faces in this view")).clicked()
             && let Err(e) = crate::people_task::start(app, &scope, None)
         {
             app.ui.people.error = e;
@@ -53,7 +53,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     ui.painter().text(
         pos2(head.left() + PAD, head.center().y),
         Align2::LEFT_CENTER,
-        crate::i18n::tr(if app.session.smart.prefs.faces_enabled { "Imported people" } else { "Named People" }),
+        li_i18n::library::t(if app.session.smart.prefs.faces_enabled { "Imported people" } else { "Named People" }),
         t.semibold(15.0),
         t.text,
     );

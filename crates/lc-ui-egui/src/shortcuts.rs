@@ -70,7 +70,7 @@ pub fn label_in(ctx: &egui::Context, command: &str) -> Option<String> {
 }
 
 pub fn hint_in(ctx: &egui::Context, label: &str, command: &str) -> String {
-    let label = crate::i18n::tr(label);
+    let label = li_i18n::library::t(label);
     label_in(ctx, command).map_or_else(|| label.to_string(), |key| format!("{label} ({key})"))
 }
 
@@ -170,8 +170,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         if let Some(rest) = f.strip_prefix("rate:") {
             let (n, adv) = rest.split_once(':').unwrap_or(("0", "0"));
             let changed = cull(app, "photo.rate", json!({"rating": n.parse::<u8>().unwrap_or(0)}), adv == "1");
-            let label =
-                if n == "0" { "Rating cleared".to_string() } else { crate::i18n::tr_format!("Rated {}", "★".repeat(n.parse().unwrap_or(0))) };
+            let label = if n == "0" { "Rating cleared".to_string() } else { li_i18n::tr_format!("Rated {}", "★".repeat(n.parse().unwrap_or(0))) };
             if changed {
                 app.toast(ctx, label);
             }

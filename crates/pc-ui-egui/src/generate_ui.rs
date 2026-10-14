@@ -350,7 +350,7 @@ fn cloud_ready(m: &li_ai::cloud::CloudModel) -> Result<(), String> {
     if cloud_keys().contains(&m.provider) {
         Ok(())
     } else {
-        Err(crate::i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud."), &[("provider", m.provider.label())]))
+        Err(li_i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud."), &[("provider", m.provider.label())]))
     }
 }
 
@@ -380,9 +380,9 @@ fn fit_to_backend(s: &mut GenerateState, limits: Option<li_ai::comfy::SamplerLim
 fn range_hint(min: f32, max: f32, default: f32, decimals: usize) -> String {
     let f = |v: f32| format!("{v:.decimals$}");
     if min == max {
-        crate::i18n::fmt(tl!("Recommended: {value}"), &[("value", &f(default))])
+        li_i18n::fmt(tl!("Recommended: {value}"), &[("value", &f(default))])
     } else {
-        crate::i18n::fmt(tl!("Recommended: {min}–{max} (default {default})"), &[("min", &f(min)), ("max", &f(max)), ("default", &f(default))])
+        li_i18n::fmt(tl!("Recommended: {min}–{max} (default {default})"), &[("min", &f(min)), ("max", &f(max)), ("default", &f(default))])
     }
 }
 
@@ -534,7 +534,7 @@ fn size_controls(ui: &mut egui::Ui, s: &mut GenerateState) {
         }
     });
     ui.label(
-        RichText::new(crate::i18n::fmt(tl!("Grid: {multiple} px"), &[("multiple", &sizes.multiple.max(8).to_string())]))
+        RichText::new(li_i18n::fmt(tl!("Grid: {multiple} px"), &[("multiple", &sizes.multiple.max(8).to_string())]))
             .font(crate::theme::medium(11.0))
             .color(t.text_faint),
     );
@@ -819,7 +819,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: (&str, &str), mode: Mode, 
     let t = Tokens::get(ui.ctx());
     let custom = current.strip_prefix("custom:");
     let current_label = match custom {
-        Some(name) => crate::i18n::fmt(tl!("{name} · Custom workflow"), &[("name", name)]),
+        Some(name) => li_i18n::fmt(tl!("{name} · Custom workflow"), &[("name", name)]),
         None => ModelId::from_key(current)
             .and_then(|m| m.try_info())
             .map(|i| format!("{} · {}", i.label, i.family_label))
@@ -885,7 +885,7 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: (&str, &str), mode: Mode, 
                 let mut tip = if ok {
                     format!("{}\n{}", m.best_for, m.tags().join(" · "))
                 } else if m.origin == catalog::Origin::Profile {
-                    format!("{}\n{}", m.best_for, crate::i18n::fmt(tl!("Not installed: {reason}"), &[("reason", &reason)]))
+                    format!("{}\n{}", m.best_for, li_i18n::fmt(tl!("Not installed: {reason}"), &[("reason", &reason)]))
                 } else {
                     format!("{}\n{}", m.best_for, reason)
                 };
@@ -923,13 +923,13 @@ fn model_picker(ui: &mut egui::Ui, id: &str, current: (&str, &str), mode: Mode, 
                         format!(
                             "{}\n{}",
                             m.best_for,
-                            crate::i18n::fmt(tl!("Runs on {provider}'s servers: your prompt and images are sent there."), &[("provider", m.provider.label())])
+                            li_i18n::fmt(tl!("Runs on {provider}'s servers: your prompt and images are sent there."), &[("provider", m.provider.label())])
                         )
                     } else {
                         format!(
                             "{}\n{}",
                             m.best_for,
-                            crate::i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud to use it."), &[("provider", m.provider.label())])
+                            li_i18n::fmt(tl!("Add your {provider} API key in Local AI › Cloud to use it."), &[("provider", m.provider.label())])
                         )
                     };
                     if row.inner.on_hover_text(tip).clicked() {
@@ -1090,9 +1090,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 #[cfg(test)]
                 ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("gen-save-preset-test"), save.rect));
                 if save.clicked() {
-                    rt(|r| {
-                        r.preset_name = crate::i18n::fmt(tl!("My preset {n}"), &[("n", &(all_presets.iter().filter(|p| !p.built_in).count() + 1).to_string())])
-                    });
+                    rt(|r| r.preset_name = li_i18n::fmt(tl!("My preset {n}"), &[("n", &(all_presets.iter().filter(|p| !p.built_in).count() + 1).to_string())]));
                 }
                 egui::Popup::from_toggle_button_response(&save).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
                     ui.set_min_width(220.0);
@@ -1186,7 +1184,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
                 crate::icons::paint(ui, r, "cloud", 12.0, t.text_faint);
                 ui.label(
-                    RichText::new(crate::i18n::fmt(
+                    RichText::new(li_i18n::fmt(
                         tl!("Runs on {provider}: your prompt and images are sent there, billed to your key."),
                         &[("provider", c.provider.label())],
                     ))
@@ -1243,7 +1241,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             && s.mode == Mode::Create
         {
             ui.label(
-                RichText::new(crate::i18n::fmt(tl!("Sent as {size}"), &[("size", &li_ai::cloud::describe_size(c, s.width, s.height))]))
+                RichText::new(li_i18n::fmt(tl!("Sent as {size}"), &[("size", &li_ai::cloud::describe_size(c, s.width, s.height))]))
                     .color(t.text_faint)
                     .size(11.0),
             );
@@ -1405,7 +1403,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             }
             if custom.is_none() && cloud.is_none() && info.resolved.pipeline.sampler == li_ai::family::SamplerStyle::Ksampler {
                 ui.horizontal(|ui| {
-                    label(ui, crate::i18n::tr_ctx(crate::i18n::current(), "ai", "Sampler"));
+                    label(ui, li_i18n::tr_ctx(li_i18n::current(), "ai", "Sampler"));
                     let samplers = ["", "euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_sde", "uni_pc", "res_multistep", "lcm"];
                     let opts: Vec<(String, &str)> = samplers.iter().map(|x| (x.to_string(), if x.is_empty() { tl!("Model default") } else { *x })).collect();
                     widgets::dropdown(ui, "gen-sampler", &mut s.sampler, &opts, 130.0);
@@ -1465,7 +1463,7 @@ fn loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, fam: &li_ai::family::F
     let available = li_ai::inventory::loras_for(fam);
     let max = fam.lora.max.max(1) as usize;
     ui.horizontal(|ui| {
-        label(ui, &crate::i18n::fmt(tl!("Styles (LoRA) · {n}/{max}"), &[("n", &picks.len().to_string()), ("max", &max.to_string())]));
+        label(ui, &li_i18n::fmt(tl!("Styles (LoRA) · {n}/{max}"), &[("n", &picks.len().to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let free: Vec<&(li_ai::inventory::InstalledLora, bool)> = available.iter().filter(|(l, _)| !picks.iter().any(|p| p.name == l.name)).collect();
             let can = picks.len() < max && !free.is_empty();
@@ -1515,7 +1513,7 @@ fn loras_ui(ui: &mut egui::Ui, picks: &mut Vec<LoraPick>, fam: &li_ai::family::F
                 .iter()
                 .map(|(l, sure)| {
                     let name = li_ai::inventory::label_for(&l.name);
-                    (l.name.clone(), if *sure { name } else { crate::i18n::fmt(tl!("{name} (family unknown)"), &[("name", &name)]) })
+                    (l.name.clone(), if *sure { name } else { li_i18n::fmt(tl!("{name} (family unknown)"), &[("name", &name)]) })
                 })
                 .collect();
             let refs: Vec<(String, &str)> = opts.iter().map(|(k, l)| (k.clone(), l.as_str())).collect();
@@ -1630,7 +1628,7 @@ pub fn import_workflow(app: &mut PhotocraftApp) {
         match import_workflow_path(&path) {
             Ok(name) => {
                 app.ui.ai.generate.model = format!("custom:{name}");
-                app.ui.status = crate::i18n::fmt(tl!("Imported the workflow “{name}”."), &[("name", &name)]);
+                app.ui.status = li_i18n::fmt(tl!("Imported the workflow “{name}”."), &[("name", &name)]);
                 app.ui.status_error = false;
             }
             Err(e) => {
@@ -1663,7 +1661,7 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
     let n = rt(|r| r.references.len());
     ui.horizontal(|ui| {
         let heading = if init_image { tl!("Starting image · {n}/{max}") } else { tl!("References · {n}/{max}") };
-        label(ui, &crate::i18n::fmt(heading, &[("n", &n.to_string()), ("max", &max.to_string())]));
+        label(ui, &li_i18n::fmt(heading, &[("n", &n.to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let full = n >= max;
             ui.add_enabled_ui(!full, |ui| {
@@ -1719,7 +1717,7 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
                 if resp.hovered() {
                     crate::icons::paint(ui, egui::Rect::from_min_size(rect.right_top() - vec2(16.0, 0.0), vec2(16.0, 16.0)), "x", 12.0, Color32::WHITE);
                 }
-                if resp.on_hover_text(crate::i18n::fmt(tl!("{name} — click to remove"), &[("name", &rf.name)])).clicked() {
+                if resp.on_hover_text(li_i18n::fmt(tl!("{name} — click to remove"), &[("name", &rf.name)])).clicked() {
                     remove = Some(i);
                 }
             }
@@ -1980,7 +1978,7 @@ fn start_inner(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let name = format!("{}-{seed}", w.name.replace(' ', ""));
         let meta = json!({ "model": format!("custom:{}", w.name), "prompt": prompt, "negative_prompt": s.negative, "seed": seed, "mode": "custom" });
         let label = format!("Running {}", w.name);
-        let shown = crate::i18n::fmt(tl!("Running {name}"), &[("name", &w.name)]);
+        let shown = li_i18n::fmt(tl!("Running {name}"), &[("name", &w.name)]);
         launch(app, &label, &shown, name, meta, None, false, move |ctl| li_ai::service().run_custom(&w, &inputs, &images, mask.as_ref(), ctl));
         ctx.request_repaint();
         return;
@@ -2017,7 +2015,7 @@ fn start_inner(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let mut r = req.clone();
         r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
         let label = format!("{} with {}", s.mode.label(), info.short);
-        let shown = crate::i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", &info.short)]);
+        let shown = li_i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", &info.short)]);
         let name = format!("{}-{}", info.short.replace(' ', ""), r.seed);
         let meta = json!({
             "model": m.key(), "family": info.family, "variant": r.variant, "prompt": r.prompt, "negative_prompt": r.negative, "width": r.width, "height": r.height,
@@ -2076,7 +2074,7 @@ fn start_cloud(
         Mode::Edit => CloudMode::Edit,
         Mode::Fill => CloudMode::Fill,
         Mode::Refine | Mode::Upscale => {
-            app.ui.status = crate::i18n::fmt(tl!("{model} creates, edits and fills; choose a local model to refine or upscale."), &[("model", c.label)]);
+            app.ui.status = li_i18n::fmt(tl!("{model} creates, edits and fills; choose a local model to refine or upscale."), &[("model", c.label)]);
             app.ui.status_error = true;
             return;
         }
@@ -2109,7 +2107,7 @@ fn start_cloud(
         let mut r = base.clone();
         r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
         let label = format!("{} with {}", s.mode.label(), c.label);
-        let shown = crate::i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", c.label)]);
+        let shown = li_i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", c.label)]);
         let name = format!("{}-{}", c.model.replace(['.', ' '], ""), r.seed);
         let meta = json!({
             "model": format!("cloud:{}", c.key), "provider": c.provider.label(), "prompt": r.prompt, "negative_prompt": r.negative,
@@ -2220,8 +2218,7 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
     let tile = match &e.outcome {
         JobOutcome::Done(v) => match serde_json::from_value::<Entry>(v.clone()) {
             Ok(entry) => {
-                app.ui.status =
-                    crate::i18n::fmt(tl!("Generated {name} · seed {seed}"), &[("name", &entry.name), ("seed", &entry.seed().unwrap_or(0).to_string())]);
+                app.ui.status = li_i18n::fmt(tl!("Generated {name} · seed {seed}"), &[("name", &entry.name), ("seed", &entry.seed().unwrap_or(0).to_string())]);
                 app.ui.status_error = false;
                 // An edit of an open document lands on it as a new layer.
                 let (edit_doc, open) = rt(|r| {
@@ -2249,7 +2246,7 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
             Err(err) => Tile::Failed(err.to_string()),
         },
         JobOutcome::Failed(err) => {
-            app.ui.status = crate::i18n::fmt(tl!("Generation failed: {error}"), &[("error", err)]);
+            app.ui.status = li_i18n::fmt(tl!("Generation failed: {error}"), &[("error", err)]);
             app.ui.status_error = true;
             Tile::Failed(err.clone())
         }
@@ -2356,7 +2353,7 @@ fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Option<Entry>]
                         e.model(),
                         e.width,
                         e.height,
-                        e.seed().map(|s| format!(" · {}", crate::i18n::fmt(tl!("seed {seed}"), &[("seed", &s.to_string())]))).unwrap_or_default(),
+                        e.seed().map(|s| format!(" · {}", li_i18n::fmt(tl!("seed {seed}"), &[("seed", &s.to_string())]))).unwrap_or_default(),
                         tl!("Double-click to open")
                     );
                     let resp = resp.on_hover_text(tip);
@@ -2443,7 +2440,7 @@ fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &s
                 }
             }
             Err(err) => {
-                app.ui.status = crate::i18n::fmt(tl!("Could not open {name}: {error}"), &[("name", &e.name), ("error", &err.to_string())]);
+                app.ui.status = li_i18n::fmt(tl!("Could not open {name}: {error}"), &[("name", &e.name), ("error", &err.to_string())]);
                 app.ui.status_error = true;
             }
         },
@@ -2627,7 +2624,7 @@ pub fn open_folder_path(app: &mut PhotocraftApp, dir: &std::path::Path) -> Resul
     let first = files[0].clone();
     let bytes = std::fs::read(&first).map_err(|e| e.to_string())?;
     let _ = app.open_file(&first.display().to_string(), &bytes)?;
-    app.ui.status = crate::i18n::fmt(tl!("{n} images in {folder}"), &[("n", &files.len().to_string()), ("folder", &dir.display().to_string())]);
+    app.ui.status = li_i18n::fmt(tl!("{n} images in {folder}"), &[("n", &files.len().to_string()), ("folder", &dir.display().to_string())]);
     app.ui.status_error = false;
     Ok(json!({ "count": files.len() }))
 }
@@ -2701,7 +2698,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             );
                         }
                     }
-                    ui.label(RichText::new(crate::i18n::fmt(tl!("{n} images"), &[("n", &b.files.len().to_string())])).color(t.text_dim));
+                    ui.label(RichText::new(li_i18n::fmt(tl!("{n} images"), &[("n", &b.files.len().to_string())])).color(t.text_dim));
                     if !b.files.is_empty() && widgets::secondary_button(ui, tl!("Clear"), 0.0).clicked() {
                         b.files.clear();
                     }
@@ -2770,7 +2767,7 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                             ui.add(
                                 egui::ProgressBar::new(d as f32 / n.max(1) as f32)
                                     .desired_width(240.0)
-                                    .text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &d.to_string()), ("total", &n.to_string())])),
+                                    .text(li_i18n::fmt(tl!("{done} of {total}"), &[("done", &d.to_string()), ("total", &n.to_string())])),
                             );
                             if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked()
                                 && let Ok(r) = r.lock()

@@ -20,7 +20,7 @@ pub fn display_item_label<'a>(id: &str, params: &Value, label: &'a str) -> &'a s
     if matches!(id, "metadata.applyPreset" | "album.addPhotos" | "label.applySet") || (id == "app.export" && params.get("preset").is_some()) {
         label
     } else {
-        crate::i18n::tr(label)
+        li_i18n::library::t(label)
     }
 }
 
@@ -326,18 +326,18 @@ fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
         "edit.undo" => app
             .session
             .undo_entry()
-            .map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&crate::menus::action_label(&e.label))))
+            .map(|e| li_i18n::tr_format!("Undo {}", li_i18n::library::t(&crate::menus::action_label(&e.label))))
             .unwrap_or_else(|| "Undo".into()),
         "edit.redo" => app
             .session
             .redo_entry()
-            .map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&crate::menus::action_label(&e.label))))
+            .map(|e| li_i18n::tr_format!("Redo {}", li_i18n::library::t(&crate::menus::action_label(&e.label))))
             .unwrap_or_else(|| "Redo".into()),
-        "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
-        "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
-        "dialog.rename" if n > 1 => crate::i18n::tr_format!("Rename {n} Photos…", n = n),
+        "photo.delete" if n > 1 => li_i18n::tr_format!("Delete {n} Photos", n = n),
+        "photo.virtualCopy" if n > 1 => li_i18n::tr_format!("Create {n} Virtual Copies", n = n),
+        "dialog.rename" if n > 1 => li_i18n::tr_format!("Rename {n} Photos…", n = n),
         // a raw (or DNG) is never replaced: a JPEG is written beside it
-        "dialog.saveOverOriginal" if crate::menus::active_is_raw(app) => crate::i18n::tr("Save JPEG Beside Original…").to_string(),
+        "dialog.saveOverOriginal" if crate::menus::active_is_raw(app) => li_i18n::library::t("Save JPEG Beside Original…").to_string(),
         _ => label.to_string(),
     }
 }
@@ -520,20 +520,13 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<CommandMenuNode>> {
                 .collect();
             v.push(CommandMenuNode::Separator);
             v.extend((1..=5u8).map(|r| {
-                item("library.selectBy", json!({"rating": r}), crate::i18n::tr_format!("{} and higher", "★".repeat(r as usize)), None, true, None)
+                item("library.selectBy", json!({"rating": r}), li_i18n::tr_format!("{} and higher", "★".repeat(r as usize)), None, true, None)
             }));
             v.push(item("library.selectBy", json!({"rating": 0, "ratingOp": "eq"}), "Unrated", None, true, None));
             v.push(CommandMenuNode::Separator);
             v.extend(lightcraft_catalog::ColorLabel::ALL.iter().map(|l| {
                 let name = format!("{l:?}");
-                item(
-                    "library.selectBy",
-                    json!({"label": name.to_lowercase()}),
-                    crate::i18n::tr_format!("{name} Label", name = name),
-                    None,
-                    true,
-                    None,
-                )
+                item("library.selectBy", json!({"label": name.to_lowercase()}), li_i18n::tr_format!("{name} Label", name = name), None, true, None)
             }));
             v
         }
@@ -599,7 +592,7 @@ fn tidy(v: Vec<CommandMenuNode>) -> Vec<CommandMenuNode> {
 
 /// The whole menu bar: (title, items) per menu in [`MENUS`] order.
 pub fn menu_bar(app: &LightcraftApp) -> Vec<(String, Vec<CommandMenuNode>)> {
-    crate::i18n::set_language(app.ui.language);
+    li_i18n::set_current(app.ui.language);
     menu_bar_with_bindings(app, &crate::shortcuts::catalog::effective(app))
 }
 
@@ -702,7 +695,7 @@ fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::ca
 /// The active Library/Develop menu tree, laid out for the native macOS bar.
 /// Parameterized rows retain their stable command-and-parameters identity.
 pub fn native_menu_bar(app: &LightcraftApp) -> li_commands::menu::MenuBar {
-    crate::i18n::set_language(app.ui.language);
+    li_i18n::set_current(app.ui.language);
     use li_commands::menu::{Item, ItemRole, Menu, MenuBar, MenuRole, Node};
     fn convert(nodes: Vec<CommandMenuNode>) -> Vec<Node> {
         nodes
@@ -736,21 +729,21 @@ pub fn native_menu_bar(app: &LightcraftApp) -> li_commands::menu::MenuBar {
     bar.tag_menu("Help", MenuRole::Help);
     let mut bar = li_commands::menu::mac_layout_with_bindings(
         &bar,
-        |s| crate::i18n::tr(s).to_owned(),
+        |s| li_i18n::library::t(s).to_owned(),
         bindings.into_iter().map(|(binding, shortcut)| (binding.command, shortcut)),
     )
     .bar;
     fn translate(nodes: &mut [Node]) {
         for node in nodes {
             if let Node::Submenu { label, children, .. } = node {
-                *label = crate::i18n::tr(label).to_owned();
+                *label = li_i18n::library::t(label).to_owned();
                 translate(children);
             }
         }
     }
     for menu in &mut bar.menus {
         if menu.role != MenuRole::App {
-            menu.title = crate::i18n::tr(&menu.title).to_owned();
+            menu.title = li_i18n::library::t(&menu.title).to_owned();
         }
         translate(&mut menu.children);
     }
@@ -829,7 +822,7 @@ const TITLE_GAP: f32 = 24.0;
 /// Width of the in-window menu bar's titles.
 pub fn bar_width(ui: &egui::Ui) -> f32 {
     let t = crate::theme::Tokens::get(ui.ctx());
-    MENUS.iter().map(|m| ui.painter().layout_no_wrap(crate::i18n::tr(m).to_string(), t.font(13.0), t.text).size().x + TITLE_GAP).sum::<f32>()
+    MENUS.iter().map(|m| ui.painter().layout_no_wrap(li_i18n::library::t(m).to_string(), t.font(13.0), t.text).size().x + TITLE_GAP).sum::<f32>()
 }
 
 /// The in-window menu bar (hosts without a native one): one dropdown per menu, or a single
@@ -840,7 +833,7 @@ pub fn show_in_window(app: &mut LightcraftApp, ui: &mut egui::Ui, max_width: f32
     let font = t.font(13.0);
     let widths: Vec<f32> = bar
         .iter()
-        .map(|(title, _)| ui.painter().layout_no_wrap(crate::i18n::tr(title).to_string(), font.clone(), t.text).size().x + TITLE_GAP)
+        .map(|(title, _)| ui.painter().layout_no_wrap(li_i18n::library::t(title).to_string(), font.clone(), t.text).size().x + TITLE_GAP)
         .collect();
     let total: f32 = widths.iter().sum();
     let mut clicked: Option<(String, Value)> = None;
@@ -850,17 +843,17 @@ pub fn show_in_window(app: &mut LightcraftApp, ui: &mut egui::Ui, max_width: f32
         let saved = ui.spacing().item_spacing.x;
         ui.spacing_mut().item_spacing.x = TITLE_GAP;
         for (title, items) in &bar {
-            let r = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr(title)).font(font.clone()).color(t.text_label)).frame(false));
+            let r = ui.add(egui::Button::new(egui::RichText::new(li_i18n::library::t(title)).font(font.clone()).color(t.text_label)).frame(false));
             crate::widgets::register(ui.ctx(), format!("menu:{title}"), r.rect);
             egui::Popup::menu(&r).show(|ui| nodes_ui(ui, items, mac, &mut clicked));
         }
         ui.spacing_mut().item_spacing.x = saved;
     } else {
-        let r = ui.add(egui::Button::new(egui::RichText::new(crate::i18n::tr("Menu")).font(font.clone()).color(t.text_label)).frame(false));
+        let r = ui.add(egui::Button::new(egui::RichText::new(li_i18n::library::t("Menu")).font(font.clone()).color(t.text_label)).frame(false));
         crate::widgets::register(ui.ctx(), "menu:all", r.rect);
         egui::Popup::menu(&r).show(|ui| {
             for (title, items) in &bar {
-                ui.menu_button(crate::i18n::tr(title), |ui| nodes_ui(ui, items, mac, &mut clicked));
+                ui.menu_button(li_i18n::library::t(title), |ui| nodes_ui(ui, items, mac, &mut clicked));
             }
         });
     }
@@ -882,7 +875,7 @@ fn nodes_ui(ui: &mut egui::Ui, nodes: &[CommandMenuNode], mac: bool, clicked: &m
                 ui.separator();
             }
             CommandMenuNode::Submenu { label, children } => {
-                ui.menu_button(li_commands::widgets::menu_row_label(ui, crate::i18n::tr(label)), |ui| nodes_ui(ui, children, mac, clicked));
+                ui.menu_button(li_commands::widgets::menu_row_label(ui, li_i18n::library::t(label)), |ui| nodes_ui(ui, children, mac, clicked));
             }
             CommandMenuNode::Item { id, params, label, shortcut, enabled, checked } => {
                 let text = display_item_label(id, params, label);

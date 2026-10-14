@@ -24,6 +24,7 @@ li-commands.workspace = true
 li-fs.workspace = true
 li-keys.workspace = true
 li-gpu.workspace = true
+li-i18n.workspace = true
 photocraft-doc = { workspace = true }
 photocraft-color = { workspace = true }
 photocraft-raster = { workspace = true }

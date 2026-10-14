@@ -264,13 +264,13 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
     match s_fmt(f).as_str() {
         "svg" => {
             egui::ScrollArea::vertical().max_height((ui.ctx().content_rect().height() - 200.0).max(100.0)).show(ui, |ui| {
-                crate::vector_packages::svg_export::settings(ui, &mut app.ui.svg_export, |text| crate::i18n::t(text).to_owned());
+                crate::vector_packages::svg_export::settings(ui, &mut app.ui.svg_export, |text| li_i18n::t(text).to_owned());
             });
             return;
         }
         "pdf" => {
             egui::ScrollArea::vertical().max_height((ui.ctx().content_rect().height() - 200.0).max(100.0)).show(ui, |ui| {
-                crate::vector_packages::pdf_export::settings(ui, &mut app.ui.pdf_export, |text| crate::i18n::t(text).to_owned());
+                crate::vector_packages::pdf_export::settings(ui, &mut app.ui.pdf_export, |text| li_i18n::t(text).to_owned());
             });
             return;
         }

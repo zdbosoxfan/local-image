@@ -473,22 +473,22 @@ pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
 fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
     match e {
         li_seg::CustomModelError::UnsupportedFunction => tl!("Custom models are not supported for this function").to_owned(),
-        li_seg::CustomModelError::NotAFile { path } => crate::i18n::fmt(tl!("{path} isn't a file"), &[("path", &path.display().to_string())]),
+        li_seg::CustomModelError::NotAFile { path } => li_i18n::fmt(tl!("{path} isn't a file"), &[("path", &path.display().to_string())]),
         li_seg::CustomModelError::NotOnnx => tl!("Choose an ONNX model (a file ending in .onnx)").to_owned(),
         li_seg::CustomModelError::NoInput => tl!("The model has no input").to_owned(),
         li_seg::CustomModelError::NotAnImageInput => tl!("The model's input must be an image (batch × 3 × height × width)").to_owned(),
         li_seg::CustomModelError::WrongChannels { channels } => {
-            crate::i18n::fmt(tl!("The model's input has {channels} channels; an RGB image (3) is needed"), &[("channels", &channels.to_string())])
+            li_i18n::fmt(tl!("The model's input has {channels} channels; an RGB image (3) is needed"), &[("channels", &channels.to_string())])
         }
-        li_seg::CustomModelError::NonSquareInput { height, width } => crate::i18n::fmt(
+        li_seg::CustomModelError::NonSquareInput { height, width } => li_i18n::fmt(
             tl!("The model's input is {height}×{width}; a square input (or a flexible size) is needed"),
             &[("height", &height.to_string()), ("width", &width.to_string())],
         ),
         li_seg::CustomModelError::NotSkyModel => tl!("Not a sky model").to_owned(),
         li_seg::CustomModelError::NotSkyModelOutput { shape } => {
-            crate::i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
+            li_i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
         }
-        li_seg::CustomModelError::SkyClassOutOfRange { class, classes } => crate::i18n::fmt(
+        li_seg::CustomModelError::SkyClassOutOfRange { class, classes } => li_i18n::fmt(
             tl!("The sky class {class} is out of range: this model has {classes} classes (0 to {max})"),
             &[("class", &class.to_string()), ("classes", &classes.to_string()), ("max", &(classes - 1).to_string())],
         ),
@@ -506,13 +506,13 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
     }
     set_custom_job(&dir, group, Some(CustomJob::Testing));
     // the drawing language is per thread: translate the reason in the UI's language
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let _ = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
         let job = match li_seg::add_custom(&dir, group, &src, opts, &dispose) {
             Ok(_) => CustomJob::Done,
             Err(e) => {
                 let reason =
-                    crate::i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
+                    li_i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
                 CustomJob::Failed(reason)
             }
         };
@@ -573,7 +573,7 @@ fn model_function_row(
         ui.add_space(4.0);
         if let Some(c) = &custom {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(crate::i18n::fmt(tl!("Custom: {name}"), &[("name", &c.name)])).strong());
+                ui.label(RichText::new(li_i18n::fmt(tl!("Custom: {name}"), &[("name", &c.name)])).strong());
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let r = widgets::secondary_button(
                         ui,
@@ -601,9 +601,7 @@ fn model_function_row(
             if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
                 let size = c.path(dir).metadata().map(|m| li_ai::download::human_bytes(m.len())).unwrap_or_default();
                 ui.label(
-                    RichText::new(crate::i18n::fmt(tl!("Selected model · {size} · licence from its provider"), &[("size", &size)]))
-                        .color(t.text_faint)
-                        .size(11.0),
+                    RichText::new(li_i18n::fmt(tl!("Selected model · {size} · licence from its provider"), &[("size", &size)])).color(t.text_faint).size(11.0),
                 );
             }
             ui.add_space(4.0);
@@ -638,7 +636,7 @@ fn model_function_row(
         });
         ui.label(RichText::new(tl!(spec.about)).color(t.text_dim).size(11.5));
         ui.label(
-            RichText::new(crate::i18n::fmt(
+            RichText::new(li_i18n::fmt(
                 if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
                     tl!("{name} · {size} download · GPU/NPU required · {licence}")
                 } else {
@@ -747,7 +745,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
             start_custom(dir.to_path_buf(), group, src, o.options());
         }
         if let Some(CustomJob::Failed(why)) = job {
-            ui.label(RichText::new(crate::i18n::fmt(tl!("That model can't be used: {error}"), &[("error", &why)])).color(t.danger).size(11.5));
+            ui.label(RichText::new(li_i18n::fmt(tl!("That model can't be used: {error}"), &[("error", &why)])).color(t.danger).size(11.5));
         }
     } else if let Some(CustomJob::Failed(why)) = job {
         ui.label(RichText::new(why).color(t.danger).size(11.5));
@@ -866,9 +864,9 @@ fn remove_now(ask: RemoveAsk) {
         }
         v.push(key.clone());
     }
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let _ = std::thread::Builder::new().name("model-remove".into()).spawn(move || {
-        crate::i18n::set_current(lang);
+        li_i18n::set_current(lang);
         let model_dir = AiSettings::load().model_dir();
         let r: anyhow::Result<(u64, Vec<String>)> = match &ask.target {
             RemoveTarget::Seg(spec) => li_seg::remove_bundle_with(&photocraft_engine::seg::models_dir(), spec, &dispose).map(|b| (b, Vec::new())),
@@ -888,13 +886,13 @@ fn remove_now(ask: RemoveAsk) {
         };
         let note = match r {
             Ok((freed, kept)) => {
-                let mut m = crate::i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", &ask.what), ("size", &li_ai::download::human_bytes(freed))]);
+                let mut m = li_i18n::fmt(tl!("Removed {name} ({size} freed)"), &[("name", &ask.what), ("size", &li_ai::download::human_bytes(freed))]);
                 if !kept.is_empty() {
-                    m = format!("{m} · {}", crate::i18n::fmt(tl!("kept {files}"), &[("files", &kept.join(", "))]));
+                    m = format!("{m} · {}", li_i18n::fmt(tl!("kept {files}"), &[("files", &kept.join(", "))]));
                 }
                 (m, false)
             }
-            Err(e) => (crate::i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", &ask.what), ("error", &format!("{e:#}"))]), true),
+            Err(e) => (li_i18n::fmt(tl!("Couldn't remove {name}: {error}"), &[("name", &ask.what), ("error", &format!("{e:#}"))]), true),
         };
         if let Ok(mut n) = REMOVE_NOTE.lock() {
             *n = Some(note);
@@ -925,20 +923,20 @@ fn remove_confirm(app: &mut PhotocraftApp, ctx: &egui::Context) {
     use widgets::{ButtonRole, DialogButton};
     egui::Modal::new(egui::Id::new("li-remove-model")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
         ui.set_width(420.0);
-        ui.label(RichText::new(crate::i18n::fmt(tl!("Remove {name}?"), &[("name", &ask.what)])).size(15.0).strong().color(t.text));
+        ui.label(RichText::new(li_i18n::fmt(tl!("Remove {name}?"), &[("name", &ask.what)])).size(15.0).strong().color(t.text));
         ui.add_space(6.0);
         let size = li_ai::download::human_bytes(ask.bytes);
         let what = if ask.bytes == 0 {
             tl!("None of its files are in the model folder.").to_owned()
         } else if li_ai::trash::available() {
-            crate::i18n::fmt(tl!("This frees {size}. The files go to the Trash, so you can restore them from there."), &[("size", &size)])
+            li_i18n::fmt(tl!("This frees {size}. The files go to the Trash, so you can restore them from there."), &[("size", &size)])
         } else {
-            crate::i18n::fmt(tl!("This frees {size}. The files are deleted permanently."), &[("size", &size)])
+            li_i18n::fmt(tl!("This frees {size}. The files are deleted permanently."), &[("size", &size)])
         };
         ui.label(RichText::new(what).color(t.text_dim));
         if !ask.kept.is_empty() {
             ui.label(
-                RichText::new(crate::i18n::fmt(tl!("Kept because other installed models use them: {files}"), &[("files", &ask.kept.join(", "))]))
+                RichText::new(li_i18n::fmt(tl!("Kept because other installed models use them: {files}"), &[("files", &ask.kept.join(", "))]))
                     .size(11.5)
                     .color(t.text_faint),
             );
@@ -1114,7 +1112,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
                 app.ui.ai.cutout_restore = false;
             }
             let mut restore = app.ui.ai.cutout_restore;
-            if widgets::checkbox(ui, &mut restore, crate::i18n::tr_ctx(crate::i18n::current(), "ai", "Restore")).clicked() {
+            if widgets::checkbox(ui, &mut restore, li_i18n::tr_ctx(li_i18n::current(), "ai", "Restore")).clicked() {
                 app.ui.ai.cutout_restore = true;
             }
             widgets::vline(ui, 22.0);
@@ -1166,7 +1164,7 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let used = g.vram_used.map(|u| format!(" · {:.0}/{:.0} GB", u as f64 / 1e9, g.vram_total as f64 / 1e9)).unwrap_or_default();
             format!(" · {}{used}", short_gpu(&g.name))
         });
-        (Color32::from_rgb(70, 190, 110), crate::i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
+        (Color32::from_rgb(70, 190, 110), li_i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
     };
     let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.5), t.text_dim);
     let size = vec2(galley.size().x + 26.0, 18.0);
@@ -1177,7 +1175,7 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
     ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
     let resp = resp.on_hover_text(if st.connected {
-        crate::i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])
+        li_i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])
     } else {
         tl!("Local AI is off — click to set it up").into()
     });
@@ -1224,10 +1222,10 @@ pub(crate) fn status_controls_with(app: &mut PhotocraftApp, ui: &mut egui::Ui, s
     if bar_icon(ui, "eject", t.text_dim, st.connected, tip).clicked() {
         app.ui.status = tl!("Unloading AI models…").into();
         app.ui.status_error = false;
-        let lang = crate::i18n::current();
+        let lang = li_i18n::current();
         let ctx = ui.ctx().clone();
         let _ = std::thread::Builder::new().name("ai-unload".into()).spawn(move || {
-            crate::i18n::set_current(lang);
+            li_i18n::set_current(lang);
             let note = match li_ai::service().client.free_memory() {
                 Ok(()) => (tl!("Models unloaded.").to_owned(), false),
                 Err(e) => (format!("{e:#}"), true),
@@ -1332,7 +1330,7 @@ fn prompt_dialog(app: &mut PhotocraftApp, ctx: &egui::Context, title: &str, hint
             ui.add_space(8.0);
             let (m, v) = (ModelId::Qwen, "int8");
             if let Err(why) = status().ready(m, v) {
-                ui.label(RichText::new(crate::i18n::fmt(tl!("{why} Qwen Image 2.1 runs these."), &[("why", &why)])).color(Tokens::get(ctx).warning));
+                ui.label(RichText::new(li_i18n::fmt(tl!("{why} Qwen Image 2.1 runs these."), &[("why", &why)])).color(Tokens::get(ctx).warning));
             }
             ui.add_space(4.0);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1477,7 +1475,7 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
             ui.vertical(|ui| {
                 ui.label(RichText::new(format!("{} · {}", info.label, p.label)).strong());
                 ui.label(
-                    RichText::new(crate::i18n::fmt(
+                    RichText::new(li_i18n::fmt(
                         tl!("{best_for} · {size} · {gb} GB GPU"),
                         &[("best_for", &info.best_for), ("size", &li_ai::download::human_bytes(p.total_bytes())), ("gb", &info.vram_gb.to_string())],
                     ))
@@ -2091,8 +2089,7 @@ mod tests {
 
     #[test]
     fn custom_model_reasons_follow_the_ui_language() {
-        let reason =
-            crate::i18n::with_language(crate::i18n::Lang::from_code("ja").unwrap(), || custom_model_reason(&li_seg::CustomModelError::UnsupportedFunction));
+        let reason = li_i18n::with_language(li_i18n::Lang::from_code("ja").unwrap(), || custom_model_reason(&li_seg::CustomModelError::UnsupportedFunction));
         assert_eq!(reason, "この機能ではカスタムモデルを使用できません");
     }
 

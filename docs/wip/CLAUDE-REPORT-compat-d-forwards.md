@@ -250,3 +250,19 @@ colour/CMS, metadata/codec, job control, engine entry points); the builder did t
   smartselect_cmds.rs:188). They should say "Edit › Preferences › Local AI…"; not changed here because
   they are translated strings (i18n is J29's).
 - docs/wip/vector-integration-validation.json still lists old test paths (historical record).
+
+## Merge of claude/v2-continue (J29 li-i18n), after the job commit
+`git merge --no-ff claude/v2-continue` (b35ca434) into wip/cl-compat-d-forwards. Conflicts were
+import/path lines only; both sides kept:
+- Cargo.lock (`local-image` deps): `li-i18n` (J29) and `li-keys` (this job) both listed.
+- lc-ui-egui `lib.rs`: module list keeps `keymap_tests` and J29's `library_labels` (no `keymaps`, no
+  `i18n`); frame setup uses `li_ui_kit::color_icons::set_enabled` + `li_i18n::set_current`.
+- lc-ui-egui `menubar.rs`: `CommandMenuNode` (this job) with `li_i18n::set_current` /
+  `li_i18n::library::t` (J29).
+- pc-ui-egui `lib.rs`: J29's `i18n_live_tests`/`i18n_tests`, without `pub mod i18n` (J29) and without
+  `icon_data` (this job).
+- pc-ui-egui `menus.rs`: `li_i18n::tr_id` / `li_i18n::tr` (J29) with `li_commands::widgets::menu_row_*`
+  (this job).
+- pc-ui-egui `native_menu.rs`: `li_commands::menu::MenuItem` (this job) + `li_i18n::{Lang, tr, tr_id}` (J29).
+After the merge: `cargo check --offline --workspace --all-targets` clean; `cargo fmt --check` and
+`cargo clippy --all-targets -- -D warnings` clean on lightcraft-ui-egui, photocraft-ui-egui, local-image.

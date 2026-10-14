@@ -445,10 +445,10 @@ fn brushes_panel_groups_collapse_and_filter() {
 /// A fresh session with the Brush tool: shortcuts, the options bar and the Brush Settings window,
 /// in the default theme (#258).
 fn app_harness() -> Harness<'static, PhotocraftApp> {
-    app_harness_with_language(crate::i18n::Lang::EN)
+    app_harness_with_language(li_i18n::Lang::En)
 }
 
-fn app_harness_with_language(lang: crate::i18n::Lang) -> Harness<'static, PhotocraftApp> {
+fn app_harness_with_language(lang: li_i18n::Lang) -> Harness<'static, PhotocraftApp> {
     let mut app = app();
     app.ui.tool = crate::state::Tool::Brush;
     // As in the app, the canvas (which places the Brush Settings window) sits below the options bar.
@@ -459,12 +459,12 @@ fn app_harness_with_language(lang: crate::i18n::Lang) -> Harness<'static, Photoc
             if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
                 return;
             }
-            let previous = crate::i18n::current();
-            crate::i18n::set_current(lang);
+            let previous = li_i18n::current();
+            li_i18n::set_current(lang);
             crate::shortcuts::handle(app, &ctx);
             crate::panels::options_bar(app, ui);
             window(app, &ctx);
-            crate::i18n::set_current(previous);
+            li_i18n::set_current(previous);
         },
         app,
     );
@@ -486,7 +486,7 @@ fn brush_sections_paint_simplified_chinese_labels_and_heading() {
             _ => {}
         }
     }
-    let zh = crate::i18n::Lang::from_code("zh-hans").unwrap();
+    let zh = li_i18n::Lang::from_code("zh-hans").unwrap();
     let mut h = app_harness_with_language(zh);
     h.key_press(egui::Key::F5);
     h.run_steps(3);
@@ -495,11 +495,11 @@ fn brush_sections_paint_simplified_chinese_labels_and_heading() {
         collect_text(&shape.shape, &mut painted);
     }
     for (name, _) in SECTIONS {
-        let translated = crate::i18n::tr(zh, name);
+        let translated = li_i18n::tr(zh, name);
         assert!(painted.iter().any(|s| s == translated), "{name} must paint as {translated}");
         assert!(!painted.iter().any(|s| s == name), "{name} must not paint in English");
     }
-    let heading = crate::i18n::tr(zh, "Brush Tip Shape");
+    let heading = li_i18n::tr(zh, "Brush Tip Shape");
     assert_eq!(painted.iter().filter(|s| s.as_str() == heading).count(), 2, "both the section row and heading are translated");
 }
 
