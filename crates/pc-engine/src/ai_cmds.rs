@@ -1101,18 +1101,8 @@ mod tests {
 #[test]
 #[ignore = "requires pinned LaMa under LOCAL_IMAGE_SEG_MODELS and real RTX 5090 Vulkan"]
 fn lama_real_rtx5090_patch_undo_redo_parity() {
-    let _gpu_gate = crate::gpu_test_support::lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
-    let adapter = pollster::block_on(
-        instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
-    )
-    .expect("real RTX 5090 required");
-    let info = adapter.get_info();
-    assert_eq!(info.backend, wgpu::Backend::Vulkan);
-    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
-    assert!(info.name.contains("RTX 5090"), "{info:?}");
-    eprintln!("LaMa compositor adapter: {info:?}");
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let _gpu_gate = li_testkit::gpu::lock();
+    let (device, queue) = crate::gpu_test_support::compositor_device("LaMa compositor");
     let mut gpu = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lama/photos/portrait.jpg");
     let input = image::imageops::resize(&image::open(source).unwrap().to_rgba8(), 320, 240, image::imageops::FilterType::Lanczos3);

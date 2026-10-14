@@ -1,25 +1,17 @@
 //! Design-system screenshots of the new editor UI: the Swatches panel, the shortcut editor's
 //! scope/profile row, and the batch Remove Backgrounds window, in a dark and a light theme at a
 //! narrow and a normal width, into `target/design-system/`. `DESIGN_SYSTEM_PHASE` names the set
-//! (`before`/`after`). Real RTX 5090 renderer, no window; run explicitly with `--ignored`.
+//! (`before`/`after`). CPU `li-testkit` renderer (any machine, no GPU or window); run explicitly
+//! with `--ignored`.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 use photocraft_engine::Session;
 
-pub(crate) fn renderer() -> egui_kittest::wgpu::WgpuTestRenderer {
-    use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
-    use eframe::wgpu;
-    let mut setup = WgpuSetupCreateNew::without_display_handle();
-    setup.instance_descriptor.backends = wgpu::Backends::VULKAN;
-    setup.native_adapter_selector = Some(std::sync::Arc::new(|adapters, _| {
-        let a = adapters
-            .iter()
-            .find(|a| a.get_info().device_type == wgpu::DeviceType::DiscreteGpu && a.get_info().name.contains("5090"))
-            .ok_or("RTX 5090 required")?;
-        Ok(a.clone())
-    }));
-    egui_kittest::wgpu::WgpuTestRenderer::from_setup(WgpuSetup::CreateNew(setup))
+/// The shared deterministic CPU renderer (`li-testkit`, J7): the same pixels on any machine, no
+/// GPU or window. These screens draw only meshes (no wgpu paint callbacks).
+pub(crate) fn renderer() -> li_testkit::SoftpaintRenderer {
+    li_testkit::SoftpaintRenderer::new()
 }
 
 fn output(name: &str) -> std::path::PathBuf {

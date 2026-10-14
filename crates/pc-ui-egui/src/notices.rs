@@ -228,21 +228,9 @@ mod tests {
     use photocraft_engine::Session;
     use std::sync::{Arc, Mutex};
 
-    #[derive(Default)]
-    struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-    impl egui_kittest::TestRenderer for CpuRenderer {
-        fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-            self.0.apply(std::mem::take(delta));
-        }
-        fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-            let scale = output.pixels_per_point;
-            let size = ctx.content_rect().size() * scale;
-            let primitives = ctx.tessellate(output.shapes.clone(), scale);
-            let image =
-                crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, crate::theme::Tokens::get(ctx).canvas);
-            image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
-                .ok_or_else(|| "invalid CPU image".into())
-        }
+    /// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+    fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+        li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| crate::theme::Tokens::get(ctx).canvas)
     }
 
     #[test]
@@ -255,7 +243,7 @@ mod tests {
                 let id = file_result(&mut app, "Saved", "/test/result.psd", &warnings);
                 complete_file_result(&mut app, Some(id), "Saved result.psd".into(), "Added to Library".into(), false);
                 let mut initialized = false;
-                let mut h = Harness::builder().with_size(egui::vec2(width, 480.0)).with_max_steps(64).renderer(CpuRenderer::default()).build_ui_state(
+                let mut h = Harness::builder().with_size(egui::vec2(width, 480.0)).with_max_steps(64).renderer(cpu_renderer()).build_ui_state(
                     move |ui, app: &mut PhotocraftApp| {
                         if !initialized {
                             PhotocraftApp::setup_context(ui.ctx(), Default::default());
@@ -397,7 +385,7 @@ mod tests {
             let warnings = (0..40).map(|i| format!("Encoder warning {i}: full details remain available even when the window is narrow.")).collect::<Vec<_>>();
             let id = file_result(&mut app, "Saved", "/a/long/project/path/with/multiple/subdirectories/photo-Edit.psd", &warnings);
             complete_file_result(&mut app, Some(id), "Saved photo-Edit.psd".into(), "Added to Library".into(), false);
-            let mut h = Harness::builder().with_size(size).with_max_steps(64).renderer(CpuRenderer::default()).build_eframe(move |cc| {
+            let mut h = Harness::builder().with_size(size).with_max_steps(64).renderer(cpu_renderer()).build_eframe(move |cc| {
                 PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
                 app
             });

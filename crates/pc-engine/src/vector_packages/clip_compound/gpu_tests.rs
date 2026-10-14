@@ -3,29 +3,8 @@ use super::*;
 #[test]
 #[ignore = "owner speed rules: RTX 5090 Vulkan acceptance at integration"]
 fn clip35_gpu_raster_child_vector_parent_preview_commit_release_and_undo() {
-    let _gpu_gate = crate::gpu_test_support::lock();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        ..Default::default()
-    }))
-    .expect("real adapter required");
-    let info = adapter.get_info();
-    #[cfg(not(target_os = "macos"))]
-    assert!(info.name.contains("RTX 5090"), "RTX 5090 required: {info:?}");
-    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
-    #[cfg(target_os = "macos")]
-    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
-    assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
-    eprintln!("clip35 adapter: {info:?}");
-    let (device, queue) =
-        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor { required_limits: adapter.limits(), ..Default::default() })).unwrap();
+    let _gpu_gate = li_testkit::gpu::lock();
+    let (device, queue) = crate::gpu_test_support::compositor_device_adapter_limits("clip35");
     let mut comp = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let (mut s, ids) = fixture();
     let mut doc = (*s.active().unwrap().doc).clone();

@@ -697,8 +697,8 @@ impl Renderer {
     }
 
     /// CPU copies of the current textures by id (see [`Self::keep_pixels`]).
-    pub fn cpu_textures(&self) -> HashMap<egui::TextureId, crate::softpaint::CpuTexture> {
-        self.textures.values().filter_map(|t| Some((t.tex.id(), crate::softpaint::CpuTexture::linear(t.pixels.clone()?)))).collect()
+    pub fn cpu_textures(&self) -> HashMap<egui::TextureId, li_testkit::softpaint::CpuTexture> {
+        self.textures.values().filter_map(|t| Some((t.tex.id(), li_testkit::softpaint::CpuTexture::linear(t.pixels.clone()?)))).collect()
     }
 
     /// Drop the import review thumbnails (a new review, or the dialog closed).

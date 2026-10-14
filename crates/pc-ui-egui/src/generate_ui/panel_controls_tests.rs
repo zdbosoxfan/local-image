@@ -61,20 +61,9 @@ fn fixture() -> (PhotocraftApp, Entry) {
     rt(|runtime| runtime.capture_panel_start = true);
     (app, entry)
 }
-#[derive(Default)]
-struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-impl egui_kittest::TestRenderer for CpuRenderer {
-    fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-        self.0.apply(std::mem::take(delta));
-    }
-    fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-        let scale = output.pixels_per_point;
-        let size = ctx.content_rect().size() * scale;
-        let primitives = ctx.tessellate(output.shapes.clone(), scale);
-        let image = crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, Tokens::get(ctx).canvas);
-        image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|pixel| pixel.to_array()).collect())
-            .ok_or_else(|| "invalid Generate panel CPU image".into())
-    }
+/// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+    li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| Tokens::get(ctx).canvas)
 }
 
 fn screenshot(h: &mut Harness<'_, PhotocraftApp>, name: &str, check_thumbnail: bool) {
@@ -101,7 +90,7 @@ fn screenshot(h: &mut Harness<'_, PhotocraftApp>, name: &str, check_thumbnail: b
 }
 
 fn harness(app: PhotocraftApp, size: egui::Vec2, theme: ThemeKind) -> Harness<'static, PhotocraftApp> {
-    let mut harness = Harness::builder().with_size(size).with_step_dt(1. / 60.).renderer(CpuRenderer::default()).build_ui_state(
+    let mut harness = Harness::builder().with_size(size).with_step_dt(1. / 60.).renderer(cpu_renderer()).build_ui_state(
         |ui, app: &mut PhotocraftApp| {
             if !ui.ctx().fonts(|fonts| fonts.families().contains(&egui::FontFamily::Name("medium".into()))) {
                 return;

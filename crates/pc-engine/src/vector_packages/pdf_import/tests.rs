@@ -11,7 +11,7 @@ fn session() -> Session {
 }
 #[test]
 fn pdf_import_place_is_one_edit_and_preview_undo_redo() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     let mut r = capture(&s, fixture::artwork()).unwrap();
     r.offset = [12, 15];
@@ -35,7 +35,7 @@ fn pdf_import_place_is_one_edit_and_preview_undo_redo() {
 }
 #[test]
 fn pdf_import_staleness_selection_invalid_and_locked_targets_are_atomic() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     let r = capture(&s, fixture::artwork()).unwrap();
     s.execute("layer.new.layer", json!({"name":"changed"})).unwrap();
@@ -68,7 +68,7 @@ fn pdf_import_staleness_selection_invalid_and_locked_targets_are_atomic() {
 }
 #[test]
 fn pdf_import_open_selected_page_and_edit_glyph_undo() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     let mut s = session();
     s.execute("file.pdf.import", json!({"pdf":fixture::pages(),"pages":[1],"name":"opened","dpi":144})).unwrap();
     let st = s.active().unwrap();
@@ -98,29 +98,9 @@ fn pdf_import_open_selected_page_and_edit_glyph_undo() {
 }
 #[test]
 fn pdf_import_rtx5090_vulkan_preview_edit_release_undo_cpu_parity() {
-    let _gpu_gate = crate::gpu_test_support::lock();
+    let _gpu_gate = li_testkit::gpu::lock();
     use photocraft_gpu::{Compositor, render_to_vec};
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::VULKAN },
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::HighPerformance,
-        force_fallback_adapter: false,
-        ..Default::default()
-    }))
-    .expect("RTX 5090 Vulkan required");
-    let info = adapter.get_info();
-    assert_eq!(info.backend, if cfg!(target_os = "macos") { wgpu::Backend::Metal } else { wgpu::Backend::Vulkan });
-    #[cfg(not(target_os = "macos"))]
-    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
-    #[cfg(target_os = "macos")]
-    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "hardware Metal adapter required");
-    #[cfg(not(target_os = "macos"))]
-    assert!(info.name.contains("5090"), "{info:?}");
-    assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float);
-    eprintln!("PDF import GPU {info:?}");
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let (device, queue) = crate::gpu_test_support::compositor_device("PDF import");
     let mut compositor = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let mut s = session();
     let original = s.active().unwrap().doc.clone();

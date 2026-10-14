@@ -4044,6 +4044,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-testkit"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "egui",
+ "egui_kittest",
+ "image",
+ "pollster 1.0.1",
+ "rayon",
+ "wgpu",
+]
+
+[[package]]
 name = "li-ui-kit"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4424,6 +4436,7 @@ dependencies = [
  "li-commands",
  "li-keys",
  "li-seg",
+ "li-testkit",
  "li-ui-kit",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -5813,6 +5826,7 @@ dependencies = [
  "li-commands",
  "li-keys",
  "li-seg",
+ "li-testkit",
  "lightcraft-meta",
  "lightcraft-pipeline",
  "lightcraft-raw",
@@ -6128,6 +6142,7 @@ dependencies = [
  "li-gpu",
  "li-keys",
  "li-seg",
+ "li-testkit",
  "li-ui-kit",
  "lightcraft-codecs",
  "lightcraft-raw",

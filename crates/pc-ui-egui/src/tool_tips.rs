@@ -747,27 +747,14 @@ mod tests {
 
     #[test]
     fn tool_tips_icon_pixels_follow_colour_preference_and_keep_text() {
-        use crate::tool_icon_tests::cpu;
-        #[derive(Default)]
-        struct CpuRenderer(cpu::TextureStore);
-        impl egui_kittest::TestRenderer for CpuRenderer {
-            fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-                self.0.apply(std::mem::take(delta));
-            }
-            fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-                let scale = output.pixels_per_point;
-                let screen = ctx.content_rect().size() * scale;
-                let primitives = ctx.tessellate(output.shapes.clone(), scale);
-                let painted = cpu::paint(&primitives, &self.0, [screen.x as usize, screen.y as usize], scale, egui::Color32::from_gray(31));
-                let pixels = painted.pixels.iter().flat_map(|p| p.to_array()).collect();
-                image::RgbaImage::from_raw(painted.size[0] as u32, painted.size[1] as u32, pixels).ok_or_else(|| "invalid CPU image size".into())
-            }
+        /// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+        fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+            li_testkit::SoftpaintRenderer::with_clear(egui::Color32::from_gray(31))
         }
-        let mut h =
-            Harness::builder().with_size(vec2(1100.0, 760.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).renderer(CpuRenderer::default()).build_eframe(|cc| {
-                PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-                PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
-            });
+        let mut h = Harness::builder().with_size(vec2(1100.0, 760.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).renderer(cpu_renderer()).build_eframe(|cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
+        });
         // TEST-CHANGED: monochrome is intentional; explicitly enable the test's colour phase.
         assert_eq!(h.state().session.prefs().interface.tool_icons, "monochrome");
         h.state_mut().run("prefs.set", json!({"values": {"interface.toolIcons": "colour"}})).unwrap();

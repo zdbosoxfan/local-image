@@ -306,24 +306,12 @@ mod tests {
     fn clipboard_colour_dialog_visual_and_keyboard_flow() {
         use egui::accesskit::Role;
         use egui_kittest::{Harness, kittest::Queryable};
-        #[derive(Default)]
-        struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-        impl egui_kittest::TestRenderer for CpuRenderer {
-            fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-                self.0.apply(std::mem::take(delta));
-            }
-            fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-                let scale = output.pixels_per_point;
-                let size = ctx.content_rect().size() * scale;
-                let primitives = ctx.tessellate(output.shapes.clone(), scale);
-                let image =
-                    crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, crate::theme::Tokens::get(ctx).canvas);
-                image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
-                    .ok_or_else(|| "invalid CPU image size".into())
-            }
+        /// The shared CPU kittest renderer (`li-testkit`): no GPU or window.
+        fn cpu_renderer() -> li_testkit::SoftpaintRenderer {
+            li_testkit::SoftpaintRenderer::with_clear_from(|ctx: &egui::Context| crate::theme::Tokens::get(ctx).canvas)
         }
         let app = new_app();
-        let mut harness = Harness::builder().with_size(egui::vec2(1000., 700.)).with_max_steps(32).renderer(CpuRenderer::default()).build_eframe(move |cc| {
+        let mut harness = Harness::builder().with_size(egui::vec2(1000., 700.)).with_max_steps(32).renderer(cpu_renderer()).build_eframe(move |cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             app
         });

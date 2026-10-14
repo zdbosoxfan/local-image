@@ -68,7 +68,7 @@ fn four_corner_bounds_cover_rotated_image_and_inverse_viewport() {
 
 #[test]
 fn cpu_textured_quad_rotates_uvs_and_leaves_aabb_corners_clear() {
-    use crate::tool_icon_tests::cpu;
+    use li_testkit::softpaint as cpu;
     let colors = [Color32::RED, Color32::GREEN, Color32::BLUE, Color32::YELLOW];
     let image = egui::ColorImage::new([16, 12], (0..12).flat_map(|y| (0..16).map(move |x| colors[usize::from(x >= 8) + 2 * usize::from(y >= 6)])).collect());
     let mut textures = cpu::TextureStore::default();

@@ -12,6 +12,8 @@ workspace = true
 li-commands = { workspace = true, features = ["egui"] }
 li-keys = { workspace = true, features = ["egui"] }
 li-ui-kit.workspace = true
+# The CPU egui rasteriser (`softpaint`) behind headless screenshots.
+li-testkit.workspace = true
 li-color = { workspace = true }
 li-seg = { workspace = true }
 # The editor owns the shared display transform (existing workspace package).
