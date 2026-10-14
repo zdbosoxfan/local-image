@@ -17,6 +17,10 @@
 //! Camera Raw Filter leaves them out. The film Negative conversion, masks, point colour,
 //! retouching spots and manual optics stay.
 //!
+//! The same bridge gives the editor Develop's other photo tools on layer pixels: the lens
+//! database profile ([`LensProfile`], for Filter › Lens Correction) and red eye / pet eye
+//! ([`red_eye_surface`], for the Red Eye tool).
+//!
 //! [`to_camera_raw`] / [`from_camera_raw`] map the subset Photoshop's Camera Raw Filter descriptor
 //! understands (the older [`CameraRaw`] model) to and from [`DevelopSettings`] (PSD import/export
 //! and the editor's fallback dialog).
@@ -27,6 +31,7 @@ pub use lightcraft_develop::DevelopSettings;
 use lightcraft_develop::{Hsl, VignetteStyle, WbMode, Wheel as LcWheel};
 use lightcraft_geom::Point;
 use photocraft_algo::camera_raw::{CameraRaw, Wheel};
+use photocraft_algo::lens::LensCorrection;
 use photocraft_cms::{ColorSpace, Curve, Profile, Transform, TransformOptions, math};
 use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba_into};
@@ -53,8 +58,12 @@ pub fn parse_settings(params: &Value) -> Result<DevelopSettings, String> {
 }
 
 /// Turns off what a filter can't do: tools that change the frame (crop, Geometry/Upright,
-/// orientation, Super Resolution) or need raw data (lens profile, camera calibration, AI Denoise /
-/// Raw Details).
+/// orientation, Super Resolution) or need raw data (camera calibration, AI Denoise / Raw Details).
+///
+/// The lens profile is off too: a layer carries no lens identity here. The editor's lens
+/// profile is Filter › Lens Correction's Auto Correction, which resolves the same lens database
+/// and correction model through [`LensProfile`] — and only on the camera's whole frame
+/// ([`LensProfile::from_exif`]), the one case where a profile fits a layer.
 pub fn sanitize(s: &mut DevelopSettings) {
     let d = DevelopSettings::default();
     s.crop = d.crop;
@@ -322,6 +331,371 @@ pub fn camera_raw_curve_lut(cr: &CameraRaw, n: usize) -> Vec<f32> {
             tables.as_ref().map_or(x, |t| t.tables[0].eval(x))
         })
         .collect()
+}
+
+// ------------------------------------------------------------------------------ lens profile
+
+/// A lens or camera of the lens database (maker and model), as Develop stores it.
+pub use lightcraft_engine::lens_db::Named as LensName;
+
+/// A layer's lens in the Library's lens database: the same lookup ([`lightcraft_engine::lens_db`])
+/// and the same correction model ([`lightcraft_pipeline::lensdb`]) Develop uses as its lensfun
+/// fallback, so the editor has no lens database of its own. (Embedded vendor/DNG data and
+/// imported LCP profiles describe raw sensor data, which an editor layer no longer has.)
+///
+/// Only meaningful on the camera's whole frame: a profile is centred on the optical axis and
+/// scaled to the frame diagonal, so [`LensProfile::from_exif`] refuses a cropped image.
+/// Resizing is fine (the correction is resolution independent).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LensProfile {
+    /// The database camera (its crop factor), when detected.
+    pub camera: Option<LensName>,
+    pub lens: LensName,
+    /// Focal length in millimetres and f-number of the shot.
+    pub focal: f32,
+    pub aperture: Option<f32>,
+    /// EXIF orientation (1..8) the image is shown in, for an off-centre optical axis.
+    pub orientation: u16,
+}
+
+impl LensProfile {
+    /// The profile of a camera image from its EXIF, when the database knows the lens, the shot
+    /// records a focal length, the image `w × h` still has the recorded frame's shape (either way
+    /// round) and the profile corrects something.
+    pub fn from_exif(exif: &[u8], w: u32, h: u32) -> Option<LensProfile> {
+        if w == 0 || h == 0 {
+            return None;
+        }
+        let m = lightcraft_meta::read_exif(exif);
+        let focal = m.focal_length.filter(|f| f.is_finite() && *f > 0.0)? as f32;
+        let lens_name = m.lens_model.as_deref().map(str::trim).filter(|s| !s.is_empty())?;
+        let camera_name = format!("{} {}", m.make.as_deref().unwrap_or(""), m.model.as_deref().unwrap_or(""));
+        let found = lightcraft_engine::lens_db::detect(camera_name.trim(), lens_name);
+        let o = m.orientation.unwrap_or_default();
+        let shape = |a: f64, b: f64| (a / b - 1.0).abs() < 0.005;
+        let aspect = f64::from(w) / f64::from(h);
+        let orientation = match (m.width, m.height) {
+            (Some(ew), Some(eh)) if ew > 0 && eh > 0 => {
+                let recorded = f64::from(ew) / f64::from(eh);
+                let shown = if o.swaps_axes() { recorded.recip() } else { recorded };
+                if shape(aspect, shown) {
+                    o
+                } else if shape(aspect, shown.recip()) {
+                    // turned a quarter from how the camera meant it: the axis offset is unknown
+                    lightcraft_geom::Orientation::Normal
+                } else {
+                    return None; // cropped: the profile no longer fits the frame
+                }
+            }
+            _ => o,
+        };
+        let p = LensProfile {
+            camera: found.camera,
+            lens: found.lens?,
+            focal,
+            aperture: m.f_number.map(|v| v as f32).filter(|v| *v > 0.0),
+            orientation: orientation.to_exif(),
+        };
+        p.correction().is_some().then_some(p)
+    }
+
+    /// The database's correction for the shot (`None`: the lens has no usable calibration).
+    pub fn correction(&self) -> Option<lightcraft_pipeline::lensdb::LensCorrection> {
+        lightcraft_engine::lens_db::correction(&lightcraft_engine::lens_db::Query {
+            exif_camera: String::new(),
+            exif_lens: String::new(),
+            camera: self.camera.clone(),
+            lens: Some(self.lens.clone()),
+            focal: self.focal,
+            aperture: self.aperture,
+            distance: None,
+        })
+    }
+
+    /// The lens as the UI shows it.
+    pub fn label(&self) -> String {
+        self.lens.label()
+    }
+
+    /// The correction laid on a `w × h` image, with each part on (1) or off (0).
+    pub fn map(&self, w: f64, h: f64, distortion: bool, tca: bool, vignetting: bool) -> Option<LensProfileMap> {
+        let c = self.correction()?;
+        let o = lightcraft_geom::Orientation::from_exif(self.orientation);
+        let (sw, sh) = if o.swaps_axes() { (h, w) } else { (w, h) };
+        let mut map = c.on(sw, sh);
+        (map.cx, map.cy) = o.map(map.cx, map.cy, sw, sh);
+        let on = |b: bool| if b { 1.0 } else { 0.0 };
+        let m = LensProfileMap { map, dist: on(distortion), tca: on(tca), vig: on(vignetting) };
+        (m.moves_pixels() || m.has_vignetting()).then_some(m)
+    }
+
+    /// As stored in command / smart-filter params.
+    pub fn to_json(&self) -> Value {
+        let mut v = serde_json::json!({"lens": self.lens, "focal": self.focal});
+        if let Some(c) = &self.camera {
+            v["camera"] = serde_json::json!(c);
+        }
+        if let Some(a) = self.aperture {
+            v["aperture"] = serde_json::json!(a);
+        }
+        if self.orientation != 1 {
+            v["orientation"] = serde_json::json!(self.orientation);
+        }
+        v
+    }
+
+    /// Inverse of [`LensProfile::to_json`].
+    pub fn from_json(v: &Value) -> Result<LensProfile, String> {
+        let name = |k: &str| -> Option<LensName> { serde_json::from_value(v.get(k)?.clone()).ok() };
+        let num = |k: &str| v.get(k).and_then(Value::as_f64).filter(|f| f.is_finite() && *f > 0.0).map(|f| f as f32);
+        Ok(LensProfile {
+            camera: name("camera"),
+            lens: name("lens").ok_or("lens profile: needs `lens` {maker, model}")?,
+            focal: num("focal").ok_or("lens profile: needs a positive `focal` (mm)")?,
+            aperture: num("aperture"),
+            orientation: v.get("orientation").and_then(Value::as_u64).filter(|o| (1..=8).contains(o)).unwrap_or(1) as u16,
+        })
+    }
+}
+
+/// A [`LensProfile`] on an image of known size: the inverse map and the vignetting gain, in the
+/// image's continuous pixel coordinates (pixel centres at `+0.5`), exactly as Develop evaluates
+/// them ([`lightcraft_pipeline::optics`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LensProfileMap {
+    map: lightcraft_pipeline::lensdb::LensMap,
+    dist: f64,
+    tca: f64,
+    vig: f64,
+}
+
+impl LensProfileMap {
+    /// Whether pixels move (distortion or lateral CA).
+    pub fn moves_pixels(&self) -> bool {
+        (self.dist != 0.0 && !self.map.c.distortion.is_identity()) || (self.tca != 0.0 && self.map.c.per_channel())
+    }
+
+    pub fn has_vignetting(&self) -> bool {
+        self.vig != 0.0 && self.map.c.vignetting.is_some_and(|k| k != [0.0; 3])
+    }
+
+    /// Source position of corrected position `(x, y)` for colour plane `ch` (0 R, 1 G, 2 B).
+    pub fn to_source(&self, x: f64, y: f64, ch: usize) -> (f64, f64) {
+        self.map.to_source(x, y, ch, self.dist, self.tca)
+    }
+
+    /// Linear-light vignetting gain at source position `(x, y)` (1 when vignetting is off).
+    pub fn gain(&self, x: f64, y: f64) -> f64 {
+        if self.vig == 0.0 { 1.0 } else { self.map.gain(x, y, self.vig) }
+    }
+}
+
+/// Divides the lens profile's vignetting out of `surf` over `frame` (the image the profile was
+/// laid on), in linear light like Develop (the document profile's TRC undone), pixel for pixel.
+/// RGB / Gray surfaces; alpha and pixels outside `frame` keep their exact values.
+pub fn lens_vignetting_surface(surf: &Surface, frame: Rect, map: &LensProfileMap, profile: &Profile) -> Result<Surface, String> {
+    use rayon::prelude::*;
+    let area = frame.intersect(&surf.content_bounds());
+    if !map.has_vignetting() || area.is_empty() {
+        return Ok(surf.clone());
+    }
+    let conv = Conv::new(profile)?;
+    let fmt = surf.format();
+    let n = fmt.channels();
+    let w = area.width() as usize;
+    const BAND: i32 = 64;
+    let bands: Vec<Rect> = (area.y0..area.y1).step_by(BAND as usize).map(|y| Rect::new(area.x0, y, area.x1, (y + BAND).min(area.y1))).collect();
+    let out: Vec<(Rect, Vec<f32>)> = bands
+        .into_par_iter()
+        .map(|band| {
+            let mut px = vec![[0.0f32; 4]; w * band.height() as usize];
+            surf.read_rgba_into(band, &mut px);
+            let mut rgb: Vec<[f32; 3]> = px.iter().map(|p| [p[0], p[1], p[2]]).collect();
+            conv.to_working(&mut rgb);
+            for (i, p) in rgb.iter_mut().enumerate() {
+                let x = (area.x0 - frame.x0) as f64 + (i % w) as f64 + 0.5;
+                let y = (band.y0 - frame.y0) as f64 + (i / w) as f64 + 0.5;
+                let g = map.gain(x, y) as f32;
+                *p = p.map(|v| v * g);
+            }
+            conv.from_working(&mut rgb);
+            let mut data = surf.read_region(band);
+            for (o, (q, a)) in data.chunks_exact_mut(n).zip(rgb.iter().zip(&px)) {
+                let alpha = fmt.alpha.then(|| o[n - 1]);
+                from_rgba_into(&fmt, [q[0], q[1], q[2], a[3]], o);
+                if let Some(a) = alpha {
+                    o[n - 1] = a;
+                }
+            }
+            (band, data)
+        })
+        .collect();
+    let mut s = surf.clone();
+    for (band, data) in out {
+        s.write_region(band, &data);
+    }
+    s.prune();
+    Ok(s)
+}
+
+/// Filter › Lens Correction with the lens database: `db`'s profile (Photoshop's Auto
+/// Correction checkboxes in `manual` pick its parts) corrected first, then Photoshop's manual
+/// terms (`manual`, whose own profile is only the generic fallback). The profile's vignetting is
+/// divided out in linear light on RGB / Gray surfaces ([`lens_vignetting_surface`]); its
+/// distortion and lateral CA are composed with the manual map so the image is resampled once,
+/// with the manual stage's edge modes and premultiplied alpha.
+pub fn lens_correction_surface(surf: &Surface, canvas: Rect, manual: &LensCorrection, db: Option<&LensProfile>, profile: &Profile) -> Result<Surface, String> {
+    let Some(map) = db.and_then(|d| profile_on(d, manual, canvas)) else {
+        return Ok(photocraft_algo::lens::correct(surf, canvas, manual));
+    };
+    let linear = matches!(surf.format().mode, photocraft_color::ColorMode::Rgb | photocraft_color::ColorMode::Grayscale);
+    let src = if linear { lens_vignetting_surface(surf, canvas, &map, profile)? } else { surf.clone() };
+    let lm = photocraft_algo::lens::LensMap::new(manual, canvas);
+    Ok(photocraft_algo::lens::remap(&src, canvas, canvas, manual.edge, &|x, y| lm.sample(x, y).map(|s| through_profile(s, &map, canvas, !linear))))
+}
+
+/// Auto Scale for [`lens_correction_surface`]: the smallest scale at which the image corrected
+/// by both stages covers the frame.
+pub fn lens_auto_scale(manual: &LensCorrection, frame: Rect, db: Option<&LensProfile>) -> f64 {
+    match db.and_then(|d| profile_on(d, manual, frame)) {
+        Some(map) => photocraft_algo::lens::auto_scale_with(manual, frame, &|s| through_profile(s, &map, frame, false)),
+        None => photocraft_algo::lens::auto_scale(manual, frame),
+    }
+}
+
+fn profile_on(db: &LensProfile, lc: &LensCorrection, frame: Rect) -> Option<LensProfileMap> {
+    db.map(f64::from(frame.width()), f64::from(frame.height()), lc.correct_distortion, lc.correct_ca, lc.correct_vignette)
+}
+
+/// A manual-stage sample continued through the profile's inverse map (output → manual terms →
+/// profile-corrected image → camera image), optionally with the profile's vignetting as a gain.
+fn through_profile(s: photocraft_algo::lens::Sample, m: &LensProfileMap, frame: Rect, gain: bool) -> photocraft_algo::lens::Sample {
+    let (ox, oy) = (f64::from(frame.x0), f64::from(frame.y0));
+    let at = |p: [f64; 2], ch: usize| {
+        let (x, y) = m.to_source(p[0] - ox, p[1] - oy, ch);
+        [x + ox, y + oy]
+    };
+    let p = at(s.p, 1);
+    let g = if gain { m.gain(p[0] - ox, p[1] - oy) as f32 } else { 1.0 };
+    photocraft_algo::lens::Sample { p, pr: at(s.pr, 0), pb: at(s.pb, 2), gain: s.gain * g }
+}
+
+// ------------------------------------------------------------------------------ red eye
+
+/// One eye for [`red_eye_surface`]: where to look (an ellipse, document pixels) and how to fix it
+/// (Develop's red eye / pet eye controls).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct EyeFix {
+    pub center: [f64; 2],
+    pub radii: [f64; 2],
+    /// 1..100 (50 = the detected pupil).
+    pub pupil_size: f64,
+    /// 0..100.
+    pub darken: f64,
+    /// Pet eye: find the tapetum's glow (any colour) instead of red.
+    pub pet: bool,
+    /// Pet eye: add a catchlight (up-left, as Develop places it).
+    pub catchlight: bool,
+}
+
+/// [`lightcraft_pipeline::redeye::confidence`] below which a click found no pupil.
+const MIN_PUPIL_CONFIDENCE: f32 = 0.35;
+
+/// Develop's red eye / pet eye correction ([`lightcraft_pipeline::redeye`]: the pupil found as a
+/// weighted centroid on a resolution-independent grid, then neutralized and darkened in linear
+/// light) on a layer, in the document's RGB `profile`. `bounds` limits the search (the canvas).
+/// A first detection over the whole ellipse is refined once on an eye-sized ellipse around the
+/// pupil, as if the user had drawn it there, so a generous click radius doesn't bias the size.
+/// `None` when no pupil is found. Only pixels the correction changes are rewritten; alpha keeps
+/// its exact values.
+pub fn red_eye_surface(surf: &Surface, bounds: Rect, eye: &EyeFix, profile: &Profile) -> Result<Option<Surface>, String> {
+    use lightcraft_pipeline::redeye;
+    let reach = eye.radii[0].max(eye.radii[1]).max(1.0) * 1.6 + 2.0;
+    let r = |v: f64| v.round() as i32;
+    let area = Rect::new(r(eye.center[0] - reach), r(eye.center[1] - reach), r(eye.center[0] + reach), r(eye.center[1] + reach)).intersect(&bounds);
+    if area.is_empty() {
+        return Ok(None);
+    }
+    let (w, h) = (area.width() as usize, area.height() as usize);
+    let (wf, hf) = (w as f64, h as f64);
+    let long = wf.max(hf);
+    let mut px = vec![[0.0f32; 4]; w * h];
+    surf.read_rgba_into(area, &mut px);
+    let mut rgb: Vec<[f32; 3]> = px.iter().map(|p| [p[0], p[1], p[2]]).collect();
+    let conv = Conv::new(profile)?;
+    {
+        use rayon::prelude::*;
+        rgb.par_chunks_mut(8192).for_each(|c| conv.to_working(c));
+    }
+    // Transparent pixels are no pupil.
+    let seen = lightcraft_raster::Rgb32f {
+        width: w,
+        height: h,
+        data: rgb.iter().zip(&px).map(|(c, p)| if p[3] < 0.5 { [0.0; 3] } else { c.map(|v| v.max(0.0)) }).collect(),
+    };
+    let mut want = lightcraft_develop::RedEye {
+        center: Point::new((eye.center[0] - f64::from(area.x0)) / wf, (eye.center[1] - f64::from(area.y0)) / hf),
+        rx: eye.radii[0].max(1.0) / long,
+        ry: eye.radii[1].max(1.0) / long,
+        pupil_size: eye.pupil_size.clamp(0.0, 100.0),
+        darken: eye.darken.clamp(0.0, 100.0),
+        pet: eye.pet,
+        catchlight: (eye.pet && eye.catchlight).then_some(Point::new(-0.35, -0.35)),
+    };
+    let o = lightcraft_geom::Orientation::Normal;
+    let mut found = redeye::detect(&seen, o, wf, hf, &want);
+    if !found.found {
+        return Ok(None);
+    }
+    let fit = (found.radius * 2.5).max(2.0 / long);
+    if fit < want.rx.max(want.ry) {
+        want.center = found.center;
+        (want.rx, want.ry) = (fit.min(want.rx), fit.min(want.ry));
+        found = redeye::detect(&seen, o, wf, hf, &want);
+    }
+    // Develop always corrects inside the ellipse the user drew; a click must land on a pupil.
+    if redeye::confidence(&seen, o, wf, hf, &want, &found) < MIN_PUPIL_CONFIDENCE {
+        return Ok(None);
+    }
+    let frame = lightcraft_pipeline::geometry::Frame::new(w, h, identity(), false);
+    let eyes = redeye::resolve(&seen, &[want], o, &frame, w, h, frame.px_per_long(w));
+    // Only pixels near an eye can change (the disc's soft rim reaches 1.35 radii).
+    let reach = |e: &redeye::EyeK| {
+        let r = e.r * 1.35 + 1.0;
+        let (lo, hi) = ((e.cx - r, e.cy - r), (e.cx + r, e.cy + r));
+        match e.catchlight {
+            Some((lx, ly, lr)) => ((lo.0.min(lx - lr - 1.0), lo.1.min(ly - lr - 1.0)), (hi.0.max(lx + lr + 1.0), hi.1.max(ly + lr + 1.0))),
+            None => (lo, hi),
+        }
+    };
+    let ((bx0, by0), (bx1, by1)) = reach(&eyes[0]);
+    let clampi = |v: f32, n: usize| (v.max(0.0) as usize).min(n);
+    let (bx0, by0, bx1, by1) = (clampi(bx0.floor(), w), clampi(by0.floor(), h), clampi(bx1.ceil(), w), clampi(by1.ceil(), h));
+    let (changed, mut fixed): (Vec<usize>, Vec<[f32; 3]>) = (by0..by1)
+        .flat_map(|y| (bx0..bx1).map(move |x| y * w + x))
+        .filter(|&i| px[i][3] > 0.0)
+        .map(|i| (i, redeye::eye_pixel(rgb[i], (i % w) as f32 + 0.5, (i / w) as f32 + 0.5, &eyes)))
+        .filter(|(i, c)| *c != rgb[*i])
+        .unzip();
+    if changed.is_empty() {
+        return Ok(None);
+    }
+    conv.from_working(&mut fixed);
+    let fmt = surf.format();
+    let n = fmt.channels();
+    let mut data = surf.read_region(area);
+    for (&i, q) in changed.iter().zip(&fixed) {
+        let o = &mut data[i * n..(i + 1) * n];
+        let alpha = fmt.alpha.then(|| o[n - 1]);
+        from_rgba_into(&fmt, [q[0], q[1], q[2], px[i][3]], o);
+        if let Some(a) = alpha {
+            o[n - 1] = a;
+        }
+    }
+    let mut out = surf.clone();
+    out.write_region(area, &data);
+    out.prune();
+    Ok(Some(out))
 }
 
 // ------------------------------------------------------------------------------ Camera Raw subset
@@ -863,3 +1237,7 @@ mod j04_tests {
         assert_eq!(result.rgba(1, 1)[3], source.rgba(1, 1)[3]);
     }
 }
+
+#[cfg(test)]
+#[path = "develop_filter_j26_tests.rs"]
+mod j26_tests;

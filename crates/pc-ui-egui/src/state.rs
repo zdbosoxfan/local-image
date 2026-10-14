@@ -823,6 +823,9 @@ pub struct ToolOptions {
     /// local-image: Red Eye tool options (%).
     pub red_eye_pupil: f32,
     pub red_eye_darken: f32,
+    /// local-image: Pet Eye (Lightroom's: a pet's glowing pupil) and its Add Catchlight.
+    pub red_eye_pet: bool,
+    pub red_eye_catchlight: bool,
     /// Magic Eraser opacity % (tolerance, anti-alias, contiguous and sample-all are shared with the
     /// Magic Wand and Paint Bucket).
     pub magic_eraser_opacity: f32,
@@ -916,6 +919,8 @@ impl Default for ToolOptions {
             crop_angle: 0.0,
             red_eye_pupil: 50.0,
             red_eye_darken: 50.0,
+            red_eye_pet: false,
+            red_eye_catchlight: false,
             magic_eraser_opacity: 100.0,
             bg_sampling: "continuous".into(),
             bg_limits: "contiguous".into(),

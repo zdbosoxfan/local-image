@@ -5,6 +5,12 @@
 //! object, record a smart filter whose params are fully resolved (EXIF-derived values are
 //! written into them), so re-rendering is deterministic. Algorithms: [`photocraft_algo::lens`],
 //! [`photocraft_algo::wideangle`], [`photocraft_io::develop_filter`].
+//!
+//! Lens Correction's `"profile": "auto"` is the Library's lens database: the document's EXIF
+//! camera, lens and focal length looked up and corrected exactly as Develop's lensfun profile
+//! ([`develop_filter::LensProfile`]), on the camera's whole frame; Photoshop's manual terms
+//! follow in the same resample. Without a known lens it falls back to the generic profile. The
+//! resolved lens is stored as `"profile": "database"` with `"lensProfile"`.
 
 use photocraft_algo::camera_raw::CameraRaw;
 use photocraft_algo::exif;
@@ -14,6 +20,7 @@ use photocraft_algo::wideangle::{self, WideAngle};
 use photocraft_color::ColorMode;
 use photocraft_doc::{Document, LayerContent, LayerId, SmartFilter};
 use photocraft_geom::Rect;
+use photocraft_io::develop_filter::{self, LensProfile};
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
 
@@ -70,7 +77,9 @@ pub fn lens_params(cmd: &str, p: &Value, frame: Rect, info: Option<&exif::Camera
         "none" | "" => None,
         "generic" => Some(lens::generic_profile(if focal > 0.0 { focal } else { 50.0 })),
         "auto" => info.and_then(|i| i.focal_length_35mm.or(i.focal_length)).or((focal > 0.0).then_some(focal)).map(lens::generic_profile),
-        other => return Err(bad(cmd, format!("unknown profile `{other}` (none|auto|generic)"))),
+        // The lens database's profile is a separate stage (see `lens_setup`).
+        "database" => None,
+        other => return Err(bad(cmd, format!("unknown profile `{other}` (none|auto|generic|database)"))),
     };
     if let Some(Value::Array(line)) = p.get("straighten") {
         let pt = |v: &Value| -> Option<[f64; 2]> { Some([v.get(0)?.as_f64()?, v.get(1)?.as_f64()?]) };
@@ -85,8 +94,47 @@ pub fn lens_params(cmd: &str, p: &Value, frame: Rect, info: Option<&exif::Camera
     Ok(lc)
 }
 
+/// Filter › Lens Correction resolved: Photoshop's manual terms ([`LensCorrection`], its own
+/// profile only the generic fallback) and the lens database's profile when the lens is known.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LensSetup {
+    pub manual: LensCorrection,
+    pub database: Option<LensProfile>,
+}
+
+/// [`lens_params`] with the lens-database stage: `"profile": "auto"` looks the document's
+/// `exif` up (whole camera frame only, see [`LensProfile::from_exif`]); `"database"` reads the
+/// stored `"lensProfile"`. Auto Scale then covers the frame through both stages.
+pub fn lens_setup(cmd: &str, p: &Value, frame: Rect, info: Option<&exif::CameraInfo>, exif: Option<&[u8]>) -> Result<LensSetup> {
+    let database = match p.get("profile").and_then(Value::as_str) {
+        Some("auto") => exif.and_then(|e| LensProfile::from_exif(e, frame.width(), frame.height())),
+        Some("database") => Some(LensProfile::from_json(p.get("lensProfile").unwrap_or(&Value::Null)).map_err(|e| bad(cmd, e))?),
+        _ => None,
+    };
+    let Some(database) = database else {
+        return Ok(LensSetup { manual: lens_params(cmd, p, frame, info)?, database: None });
+    };
+    let mut q = p.clone();
+    if let Value::Object(m) = &mut q {
+        m.insert("profile".into(), json!("none"));
+        m.remove("autoScale");
+    }
+    let mut manual = lens_params(cmd, &q, frame, info)?;
+    if flag(p, "autoScale", false) {
+        manual.scale = develop_filter::lens_auto_scale(&manual, frame, Some(&database));
+    }
+    Ok(LensSetup { manual, database: Some(database) })
+}
+
+/// Renders a resolved Lens Correction over `canvas` through the Develop bridge
+/// ([`develop_filter::lens_correction_surface`]; the document's RGB `profile`).
+pub fn lens_surface(surf: &Surface, canvas: Rect, setup: &LensSetup, profile: &photocraft_cms::Profile) -> Result<Surface> {
+    develop_filter::lens_correction_surface(surf, canvas, &setup.manual, setup.database.as_ref(), profile).map_err(EngineError::Other)
+}
+
 /// Writes the resolved profile / angle / scale back into the params (for smart filters).
-fn resolved_lens_params(p: &Value, lc: &LensCorrection) -> Value {
+fn resolved_lens_params(p: &Value, setup: &LensSetup) -> Value {
+    let lc = &setup.manual;
     let mut q = p.clone();
     if let Value::Object(m) = &mut q {
         m.remove("straighten");
@@ -94,6 +142,12 @@ fn resolved_lens_params(p: &Value, lc: &LensCorrection) -> Value {
         m.remove("layer");
         m.insert("angle".into(), json!(lc.angle));
         m.insert("scale".into(), json!(lc.scale));
+        if let Some(db) = &setup.database {
+            m.insert("profile".into(), json!("database"));
+            m.insert("lensProfile".into(), db.to_json());
+            return q;
+        }
+        m.remove("lensProfile");
         match &lc.profile {
             Some(pr) => {
                 m.insert("profile".into(), json!("generic"));
@@ -205,7 +259,10 @@ pub fn apply_to_surface(id: &str, params: &Value, surf: &Surface, canvas: Rect) 
 /// Smart-filter adapter with the document's RGB profile; `None` retains the sRGB API.
 pub fn apply_to_surface_in(id: &str, params: &Value, surf: &Surface, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Option<Surface> {
     match id {
-        LENS => Some(lens::correct(surf, canvas, &lens_params(id, params, canvas, None).ok()?)),
+        LENS => {
+            lens_surface(surf, canvas, &lens_setup(id, params, canvas, None, None).ok()?, profile.unwrap_or_else(|| photocraft_cms::Builtin::Srgb.profile()))
+                .ok()
+        }
         WIDE => Some(wideangle::apply(surf, canvas, &wide_params(id, params, None).ok()?, Interp::Bicubic)),
         RAW => camera_raw_surface_in(
             surf,
@@ -293,13 +350,16 @@ fn lens_correction(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let frame = st.doc.bounds();
     let info = camera_info(&st.doc);
-    let lc = lens_params(LENS, p, frame, info.as_ref())?;
-    let stored = resolved_lens_params(p, &lc);
+    let setup = lens_setup(LENS, p, frame, info.as_ref(), st.doc.metadata.exif.as_deref().map(Vec::as_slice))?;
+    let profile = crate::color_cmds::composite_profile(&st.doc);
+    let lc = &setup.manual;
+    let stored = resolved_lens_params(p, &setup);
     let t0 = Stopwatch::start();
     let id = run_filter(s, LENS, "Lens Correction", stored.clone(), matches!(lc.edge, EdgeMode::Transparency), &|surf, canvas| {
-        Ok(lens::correct(surf, canvas, &lc))
+        lens_surface(surf, canvas, &setup, &profile)
     })?;
-    Ok(json!({"layer": id.0, "profile": lc.profile.as_ref().map(|p| p.name.clone()), "angle": lc.angle, "scale": lc.scale, "params": stored, "ms": t0.ms()}))
+    let name = setup.database.as_ref().map(LensProfile::label).or_else(|| lc.profile.as_ref().map(|p| p.name.clone()));
+    Ok(json!({"layer": id.0, "profile": name, "lensDatabase": setup.database.is_some(), "angle": lc.angle, "scale": lc.scale, "params": stored, "ms": t0.ms()}))
 }
 
 fn adaptive_wide_angle(s: &mut Session, p: &Value) -> Result<Value> {
@@ -378,7 +438,7 @@ fn lens_batch(_s: &mut Session, p: &Value) -> Result<Value> {
     Ok(r)
 }
 
-const LENS_DOC: &str = r##"{"profile":"none|auto|generic","focalLength":mm=0,"correctDistortion":bool=true,"correctVignette":bool=true,"correctCA":bool=true,"autoScale":bool=false,"distortion":-100..100=0,"redCyan":-100..100=0,"blueYellow":-100..100=0,"vignetteAmount":-100..100=0,"vignetteMidpoint":0..100=50,"vertical":-100..100=0,"horizontal":-100..100=0,"angle":-180..180=0,"scale":50..150=100,"edge":"transparency|edgeExtension|black|white","straighten":[[x,y],[x,y]]?}"##;
+const LENS_DOC: &str = r##"{"profile":"none|auto|generic","lensProfile":{"lens":{"maker","model"},"camera":{"maker","model"}?,"focal":mm,"aperture":f?}?,"focalLength":mm=0,"correctDistortion":bool=true,"correctVignette":bool=true,"correctCA":bool=true,"autoScale":bool=false,"distortion":-100..100=0,"redCyan":-100..100=0,"blueYellow":-100..100=0,"vignetteAmount":-100..100=0,"vignetteMidpoint":0..100=50,"vertical":-100..100=0,"horizontal":-100..100=0,"angle":-180..180=0,"scale":50..150=100,"edge":"transparency|edgeExtension|black|white","straighten":[[x,y],[x,y]]?}"##;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
@@ -609,5 +669,81 @@ mod j04_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod j26_tests {
+    use super::*;
+
+    const CAMERA: (&str, &str) = ("Canon", "Canon EOS 5D Mark II");
+    const LENS_NAME: &str = "Canon EF 24-70mm f/2.8L USM";
+
+    fn camera_exif(focal: f64, width: u32, height: u32) -> Vec<u8> {
+        lightcraft_meta::write_exif(&lightcraft_meta::Metadata {
+            make: Some(CAMERA.0.into()),
+            model: Some(CAMERA.1.into()),
+            lens_model: Some(LENS_NAME.into()),
+            focal_length: Some(focal),
+            f_number: Some(4.0),
+            width: Some(width),
+            height: Some(height),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn j26_lens_correction_command_stores_the_database_profile() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 120, "height": 80, "depth": 16})).unwrap();
+        s.execute("layer.new.layer", json!({"name": "photo"})).unwrap();
+        s.edit("paint", |doc, active| {
+            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+            let fmt = surf.format();
+            for y in 0..80 {
+                for x in 0..120 {
+                    let v = if x % 12 < 2 || y % 12 < 2 { 0.9 } else { 0.35 };
+                    surf.write_pixel(x, y, &photocraft_raster::from_rgba(&fmt, [v, v * 0.9, v * 0.7, 1.0]));
+                }
+            }
+            // 70 mm: this zoom is pincushion there, so Auto Scale must enlarge.
+            doc.metadata.exif = Some(std::sync::Arc::new(camera_exif(70.0, 6000, 4000)));
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute(LENS, json!({"profile": "auto", "autoScale": true, "edge": "edgeExtension"})).unwrap();
+        assert_eq!(r["lensDatabase"], true, "{r}");
+        assert_eq!(r["params"]["profile"], "database");
+        assert!(r["profile"].as_str().unwrap().contains("24-70"), "{r}");
+        assert!(r["scale"].as_f64().unwrap() > 100.0, "auto scale covers the barrel-corrected frame: {r}");
+        let d = s.active().unwrap();
+        let direct = d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().clone();
+        s.undo();
+        // The stored params re-render identically without EXIF (smart filters).
+        let d = s.active().unwrap();
+        let before = d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().clone();
+        let canvas = Rect::new(0, 0, 120, 80);
+        let profile = crate::color_cmds::composite_profile(&d.doc);
+        let again = apply_to_surface_in(LENS, &r["params"], &before, canvas, Some(&profile)).unwrap();
+        assert_eq!(again.read_region(canvas), direct.read_region(canvas));
+        // An unknown lens keeps the generic fallback; its Auto Scale leaves no half-transparent
+        // corner either (border pixel centres now sample inside the frame).
+        s.edit("exif", |doc, _| {
+            doc.metadata.exif =
+                Some(std::sync::Arc::new(exif::build(&exif::CameraInfo { lens: Some("Mystery 12mm".into()), focal_length: Some(12.0), ..Default::default() })));
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute(LENS, json!({"profile": "auto", "autoScale": true})).unwrap();
+        assert_eq!(r["lensDatabase"], false, "{r}");
+        assert_eq!(r["params"]["profile"], "generic");
+        for (x, y) in [(0, 0), (119, 0), (0, 79), (119, 79)] {
+            assert!(active_alpha(&s, x, y) > 0.999, "corner {x},{y}");
+        }
+    }
+
+    fn active_alpha(s: &Session, x: i32, y: i32) -> f32 {
+        let d = s.active().unwrap();
+        d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().rgba(x, y)[3]
     }
 }

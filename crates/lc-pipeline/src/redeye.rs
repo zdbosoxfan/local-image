@@ -76,17 +76,14 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Find the pupil inside `eye`'s ellipse on `src` (the EXIF-oriented source; `o` = the user
-/// orientation, `ow × oh` = the oriented image size in any unit).
-pub fn detect(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Pupil {
+/// The detection grid inside `eye`'s ellipse: (normalized point, colour) samples.
+fn grid_samples(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Vec<(Point, [f32; 3])> {
     let long = ow.max(oh);
     let (rx, ry) = (eye.rx.max(1e-4), eye.ry.max(1e-4));
-    let fallback = Pupil { center: eye.center, radius: 0.5 * rx.min(ry), found: false };
-    if src.width == 0 || src.height == 0 {
-        return fallback;
-    }
-    // samples inside the ellipse: (normalized point, colour)
     let mut samples = Vec::with_capacity(GRID * GRID);
+    if src.width == 0 || src.height == 0 {
+        return samples;
+    }
     for j in 0..GRID {
         for i in 0..GRID {
             let (dx, dy) = ((i as f64 + 0.5) / GRID as f64 * 2.0 - 1.0, (j as f64 + 0.5) / GRID as f64 * 2.0 - 1.0);
@@ -102,26 +99,42 @@ pub fn detect(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> P
             samples.push((n, src.data[py.min(src.height - 1) * src.width + px.min(src.width - 1)]));
         }
     }
+    samples
+}
+
+/// How much each sample looks like pupil (0..1); `None` when a pet eye's ellipse has no glow.
+fn pupil_weights(samples: &[(Point, [f32; 3])], pet: bool) -> Option<Vec<f32>> {
+    let lum = |c: [f32; 3]| lightcraft_color::luminance_2020(c);
+    if pet {
+        let ymax = samples.iter().map(|(_, c)| lum(*c)).fold(0.0f32, f32::max);
+        let mean = samples.iter().map(|(_, c)| lum(*c)).sum::<f32>() / samples.len().max(1) as f32;
+        if ymax <= 1e-6 || ymax < 1.5 * mean {
+            return None;
+        }
+        Some(samples.iter().map(|(_, c)| smooth(0.5, 0.8, lum(*c) / ymax)).collect())
+    } else {
+        Some(
+            samples
+                .iter()
+                .map(|(_, c)| {
+                    let s = (c[0] - c[1].max(c[2])) / (c[0] + c[1] + c[2] + 1e-6);
+                    if c[0] > 1e-3 { smooth(0.22, 0.42, s) } else { 0.0 }
+                })
+                .collect(),
+        )
+    }
+}
+
+/// Find the pupil inside `eye`'s ellipse on `src` (the EXIF-oriented source; `o` = the user
+/// orientation, `ow × oh` = the oriented image size in any unit).
+pub fn detect(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Pupil {
+    let (rx, ry) = (eye.rx.max(1e-4), eye.ry.max(1e-4));
+    let fallback = Pupil { center: eye.center, radius: 0.5 * rx.min(ry), found: false };
+    let samples = grid_samples(src, o, ow, oh, eye);
     if samples.is_empty() {
         return fallback;
     }
-    let lum = |c: [f32; 3]| lightcraft_color::luminance_2020(c);
-    let weights: Vec<f32> = if eye.pet {
-        let ymax = samples.iter().map(|(_, c)| lum(*c)).fold(0.0f32, f32::max);
-        let mean = samples.iter().map(|(_, c)| lum(*c)).sum::<f32>() / samples.len() as f32;
-        if ymax <= 1e-6 || ymax < 1.5 * mean {
-            return fallback;
-        }
-        samples.iter().map(|(_, c)| smooth(0.5, 0.8, lum(*c) / ymax)).collect()
-    } else {
-        samples
-            .iter()
-            .map(|(_, c)| {
-                let s = (c[0] - c[1].max(c[2])) / (c[0] + c[1] + c[2] + 1e-6);
-                if c[0] > 1e-3 { smooth(0.22, 0.42, s) } else { 0.0 }
-            })
-            .collect()
-    };
+    let Some(weights) = pupil_weights(&samples, eye.pet) else { return fallback };
     let total: f32 = weights.iter().sum();
     if total < 3.0 {
         return fallback;
@@ -133,6 +146,26 @@ pub fn detect(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> P
     }
     let frac = total as f64 / samples.len() as f64;
     Pupil { center: Point::new(x / total as f64, y / total as f64), radius: (frac * rx * ry).sqrt(), found: true }
+}
+
+/// How clearly a found pupil `p` is one (0..1): the mean detection weight of the grid samples
+/// inside its disc. A red pupil (or a pet eye's glow) scores near 1; skin that only tints a
+/// large ellipse slightly red adds up to a "found" pupil in [`detect`] but scores near 0.
+pub fn confidence(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye, p: &Pupil) -> f32 {
+    if !p.found {
+        return 0.0;
+    }
+    let samples = grid_samples(src, o, ow, oh, eye);
+    let Some(weights) = pupil_weights(&samples, eye.pet) else { return 0.0 };
+    let long = ow.max(oh);
+    let r = p.radius.max(1e-9);
+    let inside: Vec<f32> = samples
+        .iter()
+        .zip(&weights)
+        .filter(|((n, _), _)| ((n.x - p.center.x) * ow / long).hypot((n.y - p.center.y) * oh / long) <= r)
+        .map(|(_, w)| *w)
+        .collect();
+    if inside.is_empty() { 0.0 } else { inside.iter().sum::<f32>() / inside.len() as f32 }
 }
 
 /// Resolve the eyes for a `w × h` render of `frame` (`ppl` = output pixels per long-edge unit).

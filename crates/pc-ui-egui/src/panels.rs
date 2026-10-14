@@ -882,7 +882,12 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::value_field(ui, &mut app.ui.tool_options.red_eye_pupil, 1.0..=100.0, "%", 58.0);
                         opt_label(ui, tl!("Darken Amount"));
                         widgets::value_field(ui, &mut app.ui.tool_options.red_eye_darken, 1.0..=100.0, "%", 58.0);
-                        hint(ui, tl!("Click a red pupil"));
+                        let o = &mut app.ui.tool_options;
+                        widgets::checkbox(ui, &mut o.red_eye_pet, "Pet Eye");
+                        if o.red_eye_pet {
+                            widgets::checkbox(ui, &mut o.red_eye_catchlight, "Add Catchlight");
+                        }
+                        hint(ui, if o.red_eye_pet { tl!("Click a pet's glowing pupil") } else { tl!("Click a red pupil") });
                     }
                     Tool::MagicWand => {
                         selection_mode_buttons(app, ui);

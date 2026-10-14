@@ -229,14 +229,22 @@ impl LensMap {
 
 /// Smallest scale (percent) at which the corrected image covers the whole frame (Auto Scale).
 pub fn auto_scale(lc: &LensCorrection, frame: Rect) -> f64 {
+    auto_scale_with(lc, frame, &|s| s)
+}
+
+/// [`auto_scale`] when `post` maps each sample on (a lens profile corrected before these terms).
+pub fn auto_scale_with(lc: &LensCorrection, frame: Rect, post: &dyn Fn(Sample) -> Sample) -> f64 {
     let covers = |scale: f64| {
         let m = LensMap::new(&LensCorrection { scale, ..lc.clone() }, frame);
-        let (x0, y0, x1, y1) = (frame.x0 as f64, frame.y0 as f64, frame.x1 as f64, frame.y1 as f64);
+        // The border pixels' centres must sample at least half a pixel inside the frame, where
+        // `remap`'s soft edge is fully opaque (no half-transparent corner pixels).
+        let (x0, y0, x1, y1) = (frame.x0 as f64 + 0.5, frame.y0 as f64 + 0.5, frame.x1 as f64 - 0.5, frame.y1 as f64 - 0.5);
+        const EPS: f64 = 1e-6;
         (0..=40).all(|i| {
             let t = i as f64 / 40.0;
             [(x0 + t * (x1 - x0), y0), (x0 + t * (x1 - x0), y1), (x0, y0 + t * (y1 - y0)), (x1, y0 + t * (y1 - y0))]
                 .iter()
-                .all(|&(x, y)| m.sample(x, y).is_some_and(|s| s.p[0] >= x0 - 0.5 && s.p[0] <= x1 + 0.5 && s.p[1] >= y0 - 0.5 && s.p[1] <= y1 + 0.5))
+                .all(|&(x, y)| m.sample(x, y).map(post).is_some_and(|s| s.p[0] >= x0 - EPS && s.p[0] <= x1 + EPS && s.p[1] >= y0 - EPS && s.p[1] <= y1 + EPS))
         })
     };
     if covers(lc.scale) {
