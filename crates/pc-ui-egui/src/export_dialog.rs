@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use photocraft_algo::resample::ResampleChoice;
 use photocraft_doc::Document;
 use serde_json::{Map, Value, json};
 
@@ -13,7 +14,9 @@ use crate::{ExportSettings, PhotocraftApp};
 
 const FORMATS: [(&str, &str); 7] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA"), ("svg", "SVG"), ("pdf", "PDF")];
 const PREFS: &str = "file.exportAs";
-const KEYS: [&str; 6] = ["format", "quality", "lossless", "transparency", "scale", "metadata"];
+const KEYS: [&str; 7] = ["format", "quality", "lossless", "transparency", "scale", "metadata", "resample"];
+/// The default resample choice: plain Bicubic, as Export As always used.
+const DEFAULT_RESAMPLE: ResampleChoice = ResampleChoice::Bicubic;
 
 pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     open_with_format(app, None)
@@ -40,6 +43,7 @@ fn open_with_format(app: &mut PhotocraftApp, format: Option<&str>) -> Result<u64
     f.insert("transparency".into(), json!(true));
     f.insert("scale".into(), json!(100));
     f.insert("metadata".into(), json!("none"));
+    f.insert("resample".into(), json!(DEFAULT_RESAMPLE.key()));
     if let Some(saved) = app.session.prefs().dialogs.get(PREFS).and_then(Value::as_object) {
         for key in KEYS {
             if let Some(value) = saved.get(key) {
@@ -180,8 +184,13 @@ fn n(f: &Map<String, Value>, k: &str, d: f64) -> f64 {
     f.get(k).and_then(Value::as_f64).unwrap_or(d)
 }
 
-/// The document as exported: scaled (engine Image Size, bicubic) and flattened over white when
-/// transparency is off or the format has no alpha.
+/// The dialog's resample choice (the list Library export shows too; unknown → Bicubic).
+fn resample(f: &Map<String, Value>) -> ResampleChoice {
+    f.get("resample").and_then(Value::as_str).and_then(ResampleChoice::from_key).unwrap_or(DEFAULT_RESAMPLE)
+}
+
+/// The document as exported: scaled (engine Image Size with the chosen kernel; proxies bilinear)
+/// and flattened over white when transparency is off or the format has no alpha.
 fn export_document(doc: &Document, f: &Map<String, Value>, max_side: Option<u32>) -> Result<Document, String> {
     let mut s = photocraft_engine::Session::new();
     s.add_document(doc.clone(), None);
@@ -194,7 +203,8 @@ fn export_document(doc: &Document, f: &Map<String, Value>, max_side: Option<u32>
         }
     }
     if (w - doc.size.width as f64).abs() >= 1.0 {
-        s.execute("image.imageSize", json!({"width": w, "resample": if max_side.is_some() { "bilinear" } else { "bicubic" }})).map_err(|e| e.to_string())?;
+        let kernel = if max_side.is_some() { ResampleChoice::Bilinear } else { resample(f) };
+        s.execute("image.imageSize", json!({"width": w, "resample": kernel.key()})).map_err(|e| e.to_string())?;
     }
     let fmt = s_fmt(f);
     if !f.get("transparency").and_then(Value::as_bool).unwrap_or(true) || fmt == "jpg" {
@@ -306,6 +316,12 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             let (bw, bh) = (n(f, "__w", f64::from(doc.size.width)) as f32, n(f, "__h", f64::from(doc.size.height)) as f32);
             let (w, h) = ((bw * sc / 100.0).round(), (bh * sc / 100.0).round());
             ui.label(egui::RichText::new(format!("{w} × {h} px")).color(t.text_dim).size(11.5));
+            ui.label(egui::RichText::new(tl!("Resample")).color(t.text_dim));
+            let mut kernel = resample(f).key().to_owned();
+            let kernels: Vec<(String, &str, &str)> = ResampleChoice::ALL.iter().map(|c| (c.key().to_owned(), c.label(), c.hint())).collect();
+            if crate::widgets::dropdown_with_tooltips(ui, "export-resample", &mut kernel, &kernels, 210.0) {
+                f.insert("resample".into(), json!(kernel));
+            }
         });
         ui.add_space(12.0);
         // Right: preview + estimated size.
@@ -462,6 +478,50 @@ mod tests {
         assert_eq!(s.webp_quality, None);
         f.insert("format".into(), json!("png"));
         assert!(settings(&f).webp_lossless, "other formats leave the WebP default alone");
+    }
+
+    /// Export As offers the shared kernel list; each choice exports exactly what Image Size gives
+    /// with that `resample`, and no choice (old prefs, Quick Export) stays plain Bicubic.
+    #[test]
+    fn j27_export_as_uses_the_chosen_shared_kernel() {
+        let mut doc = Document::with_background(
+            "x",
+            photocraft_doc::Size::new(61, 37),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::F32,
+            photocraft_doc::Color::WHITE,
+        );
+        let surface = doc.layers[0].surface_mut().unwrap();
+        for y in 0..37 {
+            for x in 0..61 {
+                let v = ((x * 7 + y * 13) % 17) as f32 / 16.0;
+                surface.write_pixel(x, y, &[v, x as f32 / 61.0, if (x / 5 + y / 3) % 2 == 0 { 0.9 } else { 0.1 }, 1.0]);
+            }
+        }
+        let pixels = |d: &Document| d.layers[0].surface().unwrap().read_region(photocraft_doc::Rect::new(0, 0, d.size.width as i32, d.size.height as i32));
+        let image_size = |resample: &str, w: u32| {
+            let mut s = photocraft_engine::Session::new();
+            s.add_document(doc.clone(), None);
+            s.execute("image.imageSize", json!({"width": w, "resample": resample})).unwrap();
+            pixels(&s.active().unwrap().doc)
+        };
+        let mut f = Map::new();
+        f.insert("format".into(), json!("png"));
+        for (scale, w) in [(40, 24), (250, 153)] {
+            f.insert("scale".into(), json!(scale));
+            f.remove("resample");
+            assert_eq!(pixels(&export_document(&doc, &f, None).unwrap()), image_size("bicubic", w), "default stays Bicubic");
+            let mut looks = Vec::new();
+            for c in ResampleChoice::ALL {
+                f.insert("resample".into(), json!(c.key()));
+                let out = pixels(&export_document(&doc, &f, None).unwrap());
+                assert_eq!(out, image_size(c.key(), w), "{c:?} at {scale}%");
+                looks.push(out);
+            }
+            looks.dedup();
+            assert!(looks.len() >= 5, "the kernels give different results");
+        }
+        assert!(KEYS.contains(&"resample"), "the choice is remembered with the other Export As settings");
     }
 }
 

@@ -4,6 +4,7 @@
 //! published primaries and curves, optional output sharpening and a JPEG file-size limit. Pure (bytes in, bytes out) so the desktop
 //! app, CLI, MCP and the web build share it; writing the file is the caller's job.
 
+pub use li_raster::resample::ResampleChoice;
 pub use lightcraft_codecs::TiffCompression;
 use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, NamedSpace, Samples, encode, icc};
 use lightcraft_meta::{DateTime, Gps, Metadata};
@@ -526,6 +527,12 @@ pub struct ExportOptions {
     pub resize: Option<Resize>,
     /// AI method used only when resizing enlarges the developed image (sRGB model input).
     pub enhance: Option<EnhanceMethod>,
+    /// Resampling kernel for a resized export, from the list the editor's Export As offers too
+    /// (`None` = the Develop renderer scales while developing: fastest, GPU when available). With
+    /// a kernel the photo is developed at its full (cropped) size and resized with the editor's
+    /// Image Size engine ([`resample_rendered`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resample: Option<ResampleChoice>,
     /// Print resolution written into the file (pixels per inch).
     pub ppi: u16,
     /// JPEG only: largest quality whose file fits in this many KB.
@@ -593,6 +600,7 @@ impl Default for ExportOptions {
             quality: 90,
             resize: None,
             enhance: None,
+            resample: None,
             ppi: 240,
             limit_kb: None,
             sharpen: SharpenFor::None,
@@ -622,7 +630,8 @@ impl ExportOptions {
     /// `naming`, `metadata`, `removeLocation`, `watermark`, `colorSpace`, `bitDepth`, `ppi`) and the
     /// size: one of `longEdge`, `shortEdge`, `width`, `height` (both = fit inside W × H),
     /// `megapixels`, `percent` (absent or 0 = full size), or a [`Resize`] object as `resize`; plus
-    /// `dontEnlarge` (default true).
+    /// `dontEnlarge` (default true); `resample` names a [`ResampleChoice`] key (absent = the
+    /// renderer's own scaling).
     pub fn from_json(p: &serde_json::Value) -> Self {
         use serde_json::Value;
         let d = Self::default();
@@ -636,6 +645,7 @@ impl ExportOptions {
             quality: u("quality").map_or(d.quality, |q| q.clamp(1, 100) as u8),
             resize: Self::resize_from_json(p),
             enhance: enm(p, "enhance"),
+            resample: s("resample").and_then(ResampleChoice::from_key),
             ppi: u("ppi").filter(|v| *v > 0).map_or(d.ppi, |v| v.min(u16::MAX as u64) as u16),
             limit_kb: u("limitKb").filter(|v| *v > 0).map(|v| v.min(u32::MAX as u64) as u32),
             sharpen: enm(p, "sharpen").unwrap_or(d.sharpen),
@@ -1158,6 +1168,8 @@ struct RenderWork {
     upscale: Option<(std::sync::Arc<dyn crate::enhance::AiHost>, (usize, usize))>,
     meta: Option<Metadata>,
     opts: ExportOptions,
+    /// Resize the full-size render to this size with this kernel ([`ExportOptions::resample`]).
+    resample: Option<(ResampleChoice, (usize, usize))>,
     /// Estimated working memory ([`render_cost`]).
     cost: u64,
 }
@@ -1229,18 +1241,27 @@ pub(crate) fn prepare_guarded(
             if o.source_encoding.is_some() { (OutputSpace::Rec2020, OutputDepth::F32Linear) } else { (o.effective_space(), o.effective_depth()) };
         let (nw, nh) = lightcraft_pipeline::native_output_size(p.width.max(1) as usize, p.height.max(1) as usize, &p.develop);
         let native = (nw.round().max(1.0) as usize, nh.round().max(1.0) as usize);
-        let cost = render_cost((p.width as usize, p.height as usize), (w, h), depth);
         let upscale = if o.enhance.is_some() && w > native.0 && h > native.1 {
             Some((session.enhance.host.clone().ok_or("AI enlargement is not available in this host")?, (w, h)))
         } else {
             None
         };
+        // A chosen kernel develops at full size (8-bit outputs at 16 bits, so the resize reads
+        // undithered samples) and resizes afterwards; otherwise the renderer scales.
+        let resample = o.resample.filter(|_| upscale.is_none() && (w, h) != native).map(|k| (k, (w, h)));
+        let render_depth = if resample.is_some() && depth == OutputDepth::U8 { OutputDepth::U16 } else { depth };
+        let cost = match resample {
+            Some(_) => render_cost((p.width as usize, p.height as usize), native, render_depth) + pixels((w, h)) * 12,
+            None => render_cost((p.width as usize, p.height as usize), (w, h), depth),
+        };
         let job = if upscale.is_some() {
             session.export_job(id, native.0, native.1, OutputSpace::Srgb, OutputDepth::U8)?
+        } else if resample.is_some() {
+            session.export_job(id, native.0, native.1, space, render_depth)?
         } else {
             session.export_job(id, w, h, space, depth)?
         };
-        Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone(), cost }))
+        Work::Render(Box::new(RenderWork { job, upscale, meta, opts: o.clone(), resample, cost }))
     } else {
         let lightcraft_catalog::Source::File { path } = &p.source else {
             return Err(format!("{} is a generated demo photo: it has no original file to export", p.file_name));
@@ -1352,8 +1373,15 @@ impl PreparedExport {
         let file_name = self.file_name;
         match self.work {
             Work::Render(w) => {
-                let RenderWork { job, upscale, meta, opts, cost: _ } = *w;
+                let RenderWork { job, upscale, meta, opts, resample, cost: _ } = *w;
                 let mut r = pipeline::run_render_job(job).rendered?;
+                if let Some((kernel, size)) = resample {
+                    if ctl.cancelled() {
+                        return Err(crate::enhance::CANCELLED.to_owned());
+                    }
+                    let wants_deep = opts.source_encoding.is_some() || opts.effective_depth() != OutputDepth::U8;
+                    resample_rendered(&mut r, kernel, size, wants_deep);
+                }
                 if let Some((host, target)) = upscale {
                     let request = crate::enhance::UpscaleRequest {
                         width: r.image.width,
@@ -1517,6 +1545,71 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
 
 /// The model emits sRGB8; preserve the requested output primaries, curve and container depth.
 /// Restoration has 8-bit source precision even in 16/32-bit exports.
+/// Resize a full-size export render to `size` with `kernel` — the editor's Image Size engine
+/// (`li-raster` f64 taps, edges repeated; Preserve Details' enlargement sharpening from
+/// `photocraft-algo`), in the render's own encoding: display-encoded for 8/16-bit, linear for
+/// 32-bit float, as the editor resizes a document of that depth. 8-bit results are dithered like
+/// the Develop renderer's own 8-bit output; `deep` is kept only when the export wants it.
+pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: ResampleChoice, size: (usize, usize), keep_deep: bool) {
+    let (w, h) = (size.0.max(1), size.1.max(1));
+    let (sw, sh) = r.deep.as_ref().map_or((r.image.width, r.image.height), |d| (d.width, d.height));
+    if (sw, sh) == (w, h) || sw == 0 || sh == 0 {
+        return;
+    }
+    let enlarging = w * h > sw * sh;
+    let filter = kernel.resolve(enlarging);
+    let mut out = match r.deep.as_ref().map(|d| &d.samples) {
+        Some(DeepSamples::U16(v)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+        Some(DeepSamples::F32(v)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+        None => {
+            let rgb: Vec<u8> = r.image.data.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
+            li_raster::resample::resize_interleaved(&rgb, sw, sh, 3, false, w, h, filter)
+        }
+    };
+    if filter == li_raster::resample::Resample::PreserveDetails && enlarging {
+        out = preserve_details(out, (sw, sh), (w, h));
+    }
+    let space = r.deep.as_ref().map(|d| d.space);
+    let linear = matches!(r.deep.as_ref().map(|d| &d.samples), Some(DeepSamples::F32(_)));
+    let deep = space.map(|space| DeepImage {
+        width: w,
+        height: h,
+        space,
+        samples: if linear {
+            DeepSamples::F32(out.clone())
+        } else {
+            DeepSamples::U16(out.iter().map(|v| (v.clamp(0.0, 1.0) * 65535.0).round() as u16).collect())
+        },
+    });
+    r.image = match (&deep, linear) {
+        (Some(d), true) => d.to_rgba8(),
+        _ => {
+            let mut img = Rgba8::new(w, h);
+            for (i, (p, c)) in img.data.iter_mut().zip(out.as_chunks::<3>().0).enumerate() {
+                let (x, y) = (i % w, i / w);
+                *p = [
+                    lightcraft_pipeline::finish::dither8(c[0], x, y, 0),
+                    lightcraft_pipeline::finish::dither8(c[1], x, y, 1),
+                    lightcraft_pipeline::finish::dither8(c[2], x, y, 2),
+                    255,
+                ];
+            }
+            img
+        }
+    };
+    r.deep = deep.filter(|_| keep_deep);
+}
+
+/// Preserve Details' light sharpening of an enlargement (`photocraft-algo`, as Image Size does).
+fn preserve_details(rgb: Vec<f32>, from: (usize, usize), to: (usize, usize)) -> Vec<f32> {
+    use photocraft_doc::{ColorMode, PixelFormat, SampleType, Surface};
+    let rect = photocraft_geom::Rect::new(0, 0, to.0 as i32, to.1 as i32);
+    let mut s = Surface::new(PixelFormat::new(ColorMode::Rgb, SampleType::F32, false));
+    s.write_region(rect, &rgb);
+    let (sx, sy) = (to.0 as f64 / from.0 as f64, to.1 as f64 / from.1 as f64);
+    photocraft_algo::resample::preserve_details_sharpen(&s, sx, sy, rect).read_region(rect)
+}
+
 fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage> {
     let (space, depth) = if opts.source_encoding.is_some() {
         (OutputSpace::Rec2020, OutputDepth::F32Linear)
@@ -2939,4 +3032,155 @@ fn dsfix_original_export_rejects_embedded_places_without_gps() {
         assert!(original_embeds_location(&jpg), "field {field}");
     }
     assert!(!original_embeds_location(b"original without location"));
+}
+
+#[cfg(test)]
+mod j27_tests {
+    use super::*;
+
+    fn pattern(sw: usize, sh: usize) -> Vec<f32> {
+        (0..sw * sh)
+            .flat_map(|i| {
+                let (x, y) = (i % sw, i / sw);
+                [((x * 7 + y * 13) % 17) as f32 / 16.0, x as f32 / sw as f32, if (x / 5 + y / 3) % 2 == 0 { 0.9 } else { 0.1 }]
+            })
+            .collect()
+    }
+
+    fn rendered(sw: usize, sh: usize, samples: DeepSamples) -> lightcraft_pipeline::Rendered {
+        lightcraft_pipeline::Rendered {
+            image: Rgba8::new(sw, sh),
+            histogram: lightcraft_raster::Histogram::of_srgb8(&Rgba8::new(1, 1)),
+            deep: Some(DeepImage { width: sw, height: sh, space: OutputSpace::Srgb, samples }),
+        }
+    }
+
+    /// Parity gate: Library export with a kernel gives the editor's Image Size result (same
+    /// `li-raster` taps, same edge rule, same Preserve Details sharpening) for every choice.
+    #[test]
+    fn j27_library_kernel_resize_matches_editor_image_size() {
+        use photocraft_doc::{ColorMode, PixelFormat, Rect, SampleType, Surface};
+        let (sw, sh) = (61usize, 37usize);
+        let src = pattern(sw, sh);
+        let canvas = Rect::new(0, 0, sw as i32, sh as i32);
+        let mut surface = Surface::new(PixelFormat::new(ColorMode::Rgb, SampleType::F32, false));
+        surface.write_region(canvas, &src);
+        for kernel in ResampleChoice::ALL {
+            for (w, h) in [(23usize, 14usize), (150, 91)] {
+                let mut r = rendered(sw, sh, DeepSamples::F32(src.clone()));
+                resample_rendered(&mut r, kernel, (w, h), true);
+                let deep = r.deep.expect("deep kept");
+                assert_eq!((deep.width, deep.height, r.image.width, r.image.height), (w, h, w, h));
+                let DeepSamples::F32(library) = &deep.samples else { panic!("f32 stays f32") };
+                let (sx, sy) = (w as f64 / sw as f64, h as f64 / sh as f64);
+                let editor = photocraft_algo::resample::resize_surface_in_canvas(&surface, sx, sy, kernel.resolve(w > sw), canvas)
+                    .read_region(Rect::new(0, 0, w as i32, h as i32));
+                let max = library.iter().zip(&editor).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+                assert!(max <= 1e-6, "{kernel:?} {w}x{h}: max |library - editor| = {max}");
+            }
+        }
+    }
+
+    /// 8-bit exports resize the 16-bit render (no 8-bit pre-quantisation) and drop `deep`; 16-bit
+    /// exports keep it.
+    #[test]
+    fn j27_kernel_resize_depths() {
+        let (sw, sh) = (40usize, 30usize);
+        let u16s: Vec<u16> = (0..sw * sh * 3).map(|i| [13107u16, 32768, 52428][i % 3]).collect();
+        let mut r = rendered(sw, sh, DeepSamples::U16(u16s.clone()));
+        resample_rendered(&mut r, ResampleChoice::Lanczos, (17, 13), false);
+        assert!(r.deep.is_none());
+        assert_eq!((r.image.width, r.image.height), (17, 13));
+        assert!(r.image.data.iter().all(|p| p[3] == 255 && p[0].abs_diff(51) <= 1 && p[1].abs_diff(128) <= 1 && p[2].abs_diff(204) <= 1));
+        let mut r = rendered(sw, sh, DeepSamples::U16(u16s));
+        resample_rendered(&mut r, ResampleChoice::BicubicAutomatic, (80, 60), true);
+        let deep = r.deep.expect("16-bit kept");
+        let DeepSamples::U16(v) = deep.samples else { panic!("u16 stays u16") };
+        assert_eq!(v.len(), 80 * 60 * 3);
+        assert!(v.as_chunks::<3>().0.iter().all(|c| c[0].abs_diff(13107) <= 1 && c[1].abs_diff(32768) <= 1 && c[2].abs_diff(52428) <= 1));
+    }
+
+    #[test]
+    fn j27_resample_param_round_trips_and_defaults_off() {
+        let d = ExportOptions::default();
+        assert_eq!(d.resample, None);
+        assert!(d.to_json().get("resample").is_none(), "default presets are unchanged");
+        let o = ExportOptions::from_json(&serde_json::json!({"longEdge": 1024, "resample": "bicubicSharper"}));
+        assert_eq!(o.resample, Some(ResampleChoice::BicubicSharper));
+        assert_eq!(o.to_json()["resample"], "bicubicSharper");
+        assert_eq!(ExportOptions::from_json(&o.to_json()).resample, Some(ResampleChoice::BicubicSharper));
+        assert_eq!(ExportOptions::from_json(&serde_json::json!({"resample": "automatic"})).resample, Some(ResampleChoice::BicubicAutomatic));
+        assert_eq!(ExportOptions::from_json(&serde_json::json!({"resample": "nonsense"})).resample, None);
+    }
+
+    /// End to end on a demo photo: a kernel export has the requested size and stays close to the
+    /// renderer's own scaling (same develop, different resampler).
+    #[test]
+    fn j27_demo_export_with_kernel() {
+        let mut session = crate::Session::with_demo();
+        let id = session.catalog.photos().map(|p| p.id).next().expect("demo photo");
+        let base = ExportOptions { format: ExportFormat::Png, resize: Some(Resize::long_edge(320)), ..Default::default() };
+        export_photo(&mut session, id, &base, 1).unwrap(); // warm the decode cache
+        let t = std::time::Instant::now();
+        let a = export_photo(&mut session, id, &base, 1).unwrap();
+        let renderer_ms = t.elapsed().as_secs_f64() * 1e3;
+        let t = std::time::Instant::now();
+        let b = export_photo(&mut session, id, &ExportOptions { resample: Some(ResampleChoice::Lanczos), ..base.clone() }, 1).unwrap();
+        let kernel_ms = t.elapsed().as_secs_f64() * 1e3;
+        assert_eq!((a.width, a.height), (b.width, b.height));
+        let da = lightcraft_codecs::decode(&a.bytes, Default::default()).unwrap().to_srgb8();
+        let db = lightcraft_codecs::decode(&b.bytes, Default::default()).unwrap().to_srgb8();
+        let n = (da.data.len() * 3) as f64;
+        let mae: f64 = da.data.iter().zip(&db.data).map(|(p, q)| (0..3).map(|c| f64::from(p[c].abs_diff(q[c]))).sum::<f64>()).sum::<f64>() / n;
+        println!("j27 demo {}x{} (warm): renderer {renderer_ms:.1} ms, lanczos {kernel_ms:.1} ms, mean |diff| {mae:.3} levels", a.width, a.height);
+        assert!(mae < 6.0, "same photo, different resampler: {mae}");
+    }
+
+    /// Measurement (printed): a zone plate reduced 4× by the Develop renderer's own scaling and by
+    /// each shared kernel. "pass" = RMS error where the pattern is below the new Nyquist limit
+    /// (lost detail), "alias" = RMS where it is above it and should average to grey (moire).
+    #[test]
+    fn j27_measure_zone_plate() {
+        let (n, m) = (1024usize, 256usize);
+        let c = n as f64 / 2.0;
+        let k = 0.5 * std::f64::consts::PI / (c * std::f64::consts::SQRT_2);
+        let v = |x: f64, y: f64| 0.5 + 0.5 * (k * ((x - c).powi(2) + (y - c).powi(2))).cos();
+        let src: Vec<[f32; 3]> = (0..n * n).map(|i| [v((i % n) as f64 + 0.5, (i / n) as f64 + 0.5) as f32; 3]).collect();
+        let scale = n as f64 / m as f64;
+        let score = |out: &[f32]| {
+            let (mut pass, mut np, mut alias, mut na) = (0.0f64, 0usize, 0.0f64, 0usize);
+            for j in 0..m {
+                for i in 0..m {
+                    let (x, y) = ((i as f64 + 0.5) * scale, (j as f64 + 0.5) * scale);
+                    let f = k * ((x - c).powi(2) + (y - c).powi(2)).sqrt() / std::f64::consts::PI * scale;
+                    let got = f64::from(out[(j * m + i) * 3]);
+                    if f < 0.35 {
+                        pass += (got - v(x, y)).powi(2);
+                        np += 1;
+                    } else if f > 0.65 {
+                        alias += (got - 0.5).powi(2);
+                        na += 1;
+                    }
+                }
+            }
+            ((pass / np as f64).sqrt(), (alias / na as f64).sqrt())
+        };
+        let img = lightcraft_raster::Rgb32f { width: n, height: n, data: src.clone() };
+        let frame = lightcraft_pipeline::geometry::Frame::new(n, n, &Default::default(), true);
+        let t = std::time::Instant::now();
+        let r = frame.sample(&img, m, m);
+        let ms = t.elapsed().as_secs_f64() * 1e3;
+        let flat: Vec<f32> = r.data.iter().flat_map(|p| *p).collect();
+        let (p, a) = score(&flat);
+        println!("j27 zone plate {n}->{m}: renderer (Mitchell prefilter + bilinear): pass {p:.4} alias {a:.4} {ms:.1} ms");
+        let flat_src: Vec<f32> = src.iter().flat_map(|p| *p).collect();
+        for choice in ResampleChoice::ALL {
+            let t = std::time::Instant::now();
+            let out = li_raster::resample::resize_interleaved(&flat_src, n, n, 3, false, m, m, choice.resolve(false));
+            let ms = t.elapsed().as_secs_f64() * 1e3;
+            let (p, a) = score(&out);
+            println!("j27 zone plate {n}->{m}: {:<32} pass {p:.4} alias {a:.4} {ms:.1} ms", choice.label());
+            assert!(p.is_finite() && a.is_finite());
+        }
+    }
 }

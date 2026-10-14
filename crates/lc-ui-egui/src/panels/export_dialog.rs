@@ -11,7 +11,8 @@
 
 use egui::{Align, Layout, RichText, Sense, Ui, vec2};
 use lightcraft_engine::export::{
-    Anchor, Conflict, ExportFormat as F, ExportOptions, MetadataPolicy as M, OutputSpace, Resize, ResizeMode as R, SharpenAmount, SharpenFor,
+    Anchor, Conflict, ExportFormat as F, ExportOptions, MetadataPolicy as M, OutputSpace, ResampleChoice, Resize, ResizeMode as R, SharpenAmount,
+    SharpenFor,
 };
 use serde_json::{Value, json};
 
@@ -53,6 +54,13 @@ const RESIZE_MODES: [(R, &str); 8] = [
     (R::Width, "Width"),
     (R::Height, "Height"),
 ];
+
+/// Image Sizing ▸ Resample: the Develop renderer's own scaling, then the kernel list the editor's
+/// Export As shows too (`li-raster`'s one list, one engine).
+fn resample_options() -> Vec<(Option<ResampleChoice>, &'static str)> {
+    std::iter::once((None, RENDERER_RESAMPLE)).chain(ResampleChoice::ALL.into_iter().map(|c| (Some(c), c.label()))).collect()
+}
+const RENDERER_RESAMPLE: &str = "Develop renderer (fastest)";
 
 const FORMATS: [(F, &str); 7] =
     [(F::Jpeg, "JPEG"), (F::Png, "PNG"), (F::Tiff, "TIFF"), (F::Webp, "WebP"), (F::Avif, "AVIF"), (F::Dng, "DNG"), (F::Original, "Original")];
@@ -247,7 +255,11 @@ pub fn summary(app: &mut LightcraftApp, dlg: &Dialog, key: &str) -> String {
                     R::Percent => format!("{}%", v.round()),
                     _ => format!("{} px", v.round()),
                 };
-                format!("{}: {what}", crate::i18n::tr(label_of(&RESIZE_MODES, resize.mode)))
+                let size = format!("{}: {what}", crate::i18n::tr(label_of(&RESIZE_MODES, resize.mode)));
+                match opts.resample {
+                    Some(k) => format!("{size} · {}", crate::i18n::tr(k.label())),
+                    None => size,
+                }
             };
             format!("{size} · {} ppi", opts.ppi)
         }
@@ -774,6 +786,19 @@ fn sizing(ui: &mut Ui, dlg: &mut Dialog) {
     });
     if fit {
         size_values(ui, resize);
+        row(ui, "Resample:", |ui| {
+            crate::widgets::choice(ui, "exportResample", &mut opts.resample, &resample_options());
+        });
+        dim(
+            ui,
+            match opts.resample {
+                None => "Scales while developing, on the GPU when available.",
+                Some(k) => k.hint(),
+            },
+        );
+        if opts.resample.is_some() {
+            dim(ui, "Develops at full size, then resizes exactly like the editor's Image Size (slower).");
+        }
         if !resize.dont_enlarge {
             use lightcraft_engine::export::EnhanceMethod;
             row(ui, "AI Enhancement:", |ui| {
@@ -1061,5 +1086,18 @@ mod tests {
     fn short_paths_keep_the_last_two_folders() {
         assert_eq!(short_path("/home/me/Pictures/Exports"), "…/Pictures/Exports");
         assert_eq!(short_path("/out"), "/out");
+    }
+
+    #[test]
+    fn j27_resample_choice_round_trips_and_lists_the_shared_kernels() {
+        let keys: Vec<Option<ResampleChoice>> = resample_options().into_iter().map(|o| o.0).collect();
+        let shared: Vec<Option<ResampleChoice>> = ResampleChoice::ALL.into_iter().map(Some).collect();
+        assert_eq!(keys[0], None, "the renderer's own scaling stays the default");
+        assert_eq!(&keys[1..], &shared[..], "the editor's Export As list");
+        let mut d = new_dialog("/out".into());
+        apply_export_params(&mut d, &json!({"longEdge": 2048, "resample": "lanczos"}), true);
+        assert_eq!(export_dialog_params(&d)["resample"], "lanczos");
+        apply_export_params(&mut d, &json!({"longEdge": 2048}), true);
+        assert!(export_dialog_params(&d).get("resample").is_none());
     }
 }

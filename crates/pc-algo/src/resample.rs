@@ -1,5 +1,5 @@
 //! High-quality separable resampling; shared kernels with tile-aware Surface adapters.
-pub use li_raster::resample::Resample;
+pub use li_raster::resample::{Resample, ResampleChoice};
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::Surface;
 fn region(r: Rect) -> li_raster::Region {
@@ -56,12 +56,17 @@ fn resize_with_budget(s: &Surface, sx: f64, sy: f64, filter: Resample, edge: Opt
     }
     let dst = scaled_rect(s.content_bounds(), sx, sy);
     if filter == Resample::PreserveDetails && (sx > 1.0 || sy > 1.0) && !dst.is_empty() {
-        let p = crate::FilterParams::UnsharpMask { amount: 30.0, radius: 0.6 * sx.max(sy) as f32, threshold: 0.0 };
-        let area = crate::output_area(&p, out.content_bounds(), dst, None);
-        out = crate::apply(&out, &p, area, dst, None);
+        out = preserve_details_sharpen(&out, sx, sy, dst);
     }
     out.prune();
     out
+}
+/// Preserve Details' light sharpening of an enlargement by `(sx, sy)` within `dst` (the Image
+/// Size rule; Library export calls it too so both export dialogs give the same result).
+pub fn preserve_details_sharpen(out: &Surface, sx: f64, sy: f64, dst: Rect) -> Surface {
+    let p = crate::FilterParams::UnsharpMask { amount: 30.0, radius: 0.6 * sx.max(sy) as f32, threshold: 0.0 };
+    let area = crate::output_area(&p, out.content_bounds(), dst, None);
+    crate::apply(out, &p, area, dst, None)
 }
 /// Moves a surface by whole pixels (default pixel kept).
 pub fn translate_surface(s: &Surface, dx: i32, dy: i32) -> Surface {
