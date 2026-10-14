@@ -718,8 +718,6 @@ pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &
             "mask refinement requires CPU processing".to_string()
         } else if req.proof.is_some() {
             "soft proofing requires CPU processing".to_string()
-        } else if req.depth == lightcraft_pipeline::OutputDepth::F32Linear {
-            "linear float output requires CPU processing".to_string()
         } else if let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
             log_develop_backend(&format!("GPU: {}", lightcraft_gpu::adapter_name().unwrap_or_default()));
             return r;

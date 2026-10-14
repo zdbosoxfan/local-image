@@ -226,7 +226,7 @@ pub(crate) struct Cx<'a> {
     /// Kernel invocations recorded since the last submit.
     pending: u64,
     primary_dispatches: usize,
-    /// U16 needs exact weight boundaries and the CPU's variance-transform powers.
+    /// Deep output needs exact weight boundaries and the CPU's variance-transform powers.
     precise_nr: bool,
 }
 
@@ -690,7 +690,7 @@ pub fn render(
         return None;
     }
     let mut cx = Cx::new(gpu);
-    cx.precise_nr = req.depth == lightcraft_pipeline::OutputDepth::U16;
+    cx.precise_nr = req.depth != lightcraft_pipeline::OutputDepth::U8;
     // The CPU plans automatic Upright and detects pupils AFTER capture. These
     // uncommon source analyses need the same sharpened pixels; ordinary renders
     // plan from dimensions/settings alone and leave the source entirely on device.
@@ -718,8 +718,10 @@ pub fn render(
     let (w, h) = (plan.w, plan.h);
     // checked: an absurd request (e.g. a fit into `usize::MAX`) must not wrap into a size that
     // passes the check and then dispatches bands forever
-    let Some(n) = w.checked_mul(h).filter(|n| n.checked_mul(12).is_some() && gpu.fits(n * 3)) else {
-        let mib = (w as u128).saturating_mul(h as u128).saturating_mul(12).div_ceil(1 << 20);
+    let Some(n) =
+        w.checked_mul(h).filter(|n| n.checked_mul(output_words(req.depth).max(3) * 4).is_some() && gpu.fits(n * output_words(req.depth).max(3)))
+    else {
+        let mib = (w as u128).saturating_mul(h as u128).saturating_mul((output_words(req.depth).max(3) * 4) as u128).div_ceil(1 << 20);
         fail(FailKind::Limit, format!("{w}×{h} needs {mib} MiB buffers, over the device's {} MiB storage-buffer limit", gpu.limit() >> 20));
         return None;
     };
@@ -942,11 +944,11 @@ pub fn render(
     }
     let aux = gpu.upload(&aux);
     // cleared, so that work which never ran cannot pass for an image (see the check below)
-    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16;
+    let output_words = output_words(req.depth);
     if let Some(i) = crate::params::index("DEPTH") {
-        p[i] = u32::from(deep_output);
+        p[i] = output_depth(req.depth);
     }
-    let out = cx.zeroed(if deep_output { 3 * n } else { n });
+    let out = cx.zeroed(output_words * n);
     if fault == Some(crate::Fault::Validation) {
         // a dispatch the device rejects (too many workgroups)
         cx.run("box_h", &[0; 5], &[Some(&aux), Some(&out)], [gpu.device.limits().max_compute_workgroups_per_dimension + 1, 1, 1]);
@@ -1016,16 +1018,9 @@ pub fn render(
             }
         })
     };
-    let words: Vec<u32> = cx.read(&out, if deep_output { 3 * n } else { n });
+    let words: Vec<u32> = cx.read(&out, output_words * n);
     let data = words.iter().take(n).map(|p| p.to_le_bytes()).collect();
-    let deep = deep_output.then(|| lightcraft_pipeline::DeepImage {
-        width: w,
-        height: h,
-        space: req.space,
-        samples: lightcraft_pipeline::DeepSamples::U16(
-            words[n..].as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect(),
-        ),
-    });
+    let deep = deep_image(&words[n..], w, h, req);
     let image = Rgba8 { width: w, height: h, data };
     lap("finish + readback", &mut t, &mut cx);
     if crate::ctx::failed() {
@@ -1073,6 +1068,31 @@ fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CapturePara
             })
         }
     }
+}
+
+// The first word per pixel is the preview/completion sentinel; deep samples follow.
+fn output_words(depth: lightcraft_pipeline::OutputDepth) -> usize {
+    match depth {
+        lightcraft_pipeline::OutputDepth::U8 => 1,
+        lightcraft_pipeline::OutputDepth::U16 => 3,
+        lightcraft_pipeline::OutputDepth::F32Linear => 4,
+    }
+}
+fn output_depth(depth: lightcraft_pipeline::OutputDepth) -> u32 {
+    match depth {
+        lightcraft_pipeline::OutputDepth::U8 => 0,
+        lightcraft_pipeline::OutputDepth::U16 => 1,
+        lightcraft_pipeline::OutputDepth::F32Linear => 2,
+    }
+}
+fn deep_image(words: &[u32], w: usize, h: usize, req: &RenderRequest) -> Option<lightcraft_pipeline::DeepImage> {
+    use lightcraft_pipeline::{DeepImage, DeepSamples, OutputDepth};
+    let samples = match req.depth {
+        OutputDepth::U8 => return None,
+        OutputDepth::U16 => DeepSamples::U16(words.as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect()),
+        OutputDepth::F32Linear => DeepSamples::F32(words.iter().copied().map(f32::from_bits).collect()),
+    };
+    Some(DeepImage { width: w, height: h, space: req.space, samples })
 }
 
 /// Pixels whose alpha is not 255 (cheap: no early exit, so it vectorizes).
@@ -2287,11 +2307,11 @@ fn stack_finish(
     };
     let aux = gpu.upload(&aux);
     // cleared, so that work which never ran cannot pass for an image (see the check below)
-    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16 && matches!(mode, FinishMode::Display | FinishMode::Output);
+    let final_output = matches!(mode, FinishMode::Display | FinishMode::Output);
     if let Some(i) = crate::params::index("DEPTH") {
-        p[i] = u32::from(deep_output);
+        p[i] = if final_output { output_depth(req.depth) } else { 0 };
     }
-    let out = cx.zeroed(if deep_output || matches!(mode, FinishMode::Working | FinishMode::Layer) { 3 * n } else { n });
+    let out = cx.zeroed(n * if final_output { output_words(req.depth) } else { 3 });
     if fault == Some(crate::Fault::Validation) {
         // a dispatch the device rejects (too many workgroups)
         cx.run("box_h", &[0; 5], &[Some(&aux), Some(&out)], [gpu.device.limits().max_compute_workgroups_per_dimension + 1, 1, 1]);
@@ -2549,8 +2569,8 @@ fn render_stack(
         eyes: Vec::new(),
     };
     let (out, _) = stack_finish(cx, input, prep, &op, info, req, FinishMode::Output, fault, None);
-    let deep_output = req.depth == lightcraft_pipeline::OutputDepth::U16;
-    let words: Vec<u32> = cx.read(&out, if deep_output { 3 * n } else { n });
+    let output_words = output_words(req.depth);
+    let words: Vec<u32> = cx.read(&out, output_words * n);
     if crate::ctx::failed() {
         return (None, keep, counts);
     }
@@ -2559,14 +2579,7 @@ fn render_stack(
         fail(FailKind::Fatal, "incomplete GPU layer stack".into());
         return (None, keep, counts);
     }
-    let deep = deep_output.then(|| lightcraft_pipeline::DeepImage {
-        width: w,
-        height: h,
-        space: req.space,
-        samples: lightcraft_pipeline::DeepSamples::U16(
-            words[n..].as_chunks::<2>().0.iter().flat_map(|p| [p[0] as u16, (p[0] >> 16) as u16, p[1] as u16]).collect(),
-        ),
-    });
+    let deep = deep_image(&words[n..], w, h, req);
     let histogram = Histogram::of_srgb8(&image);
     let overlay = overlay.as_ref().map(|b| cx.read_plane(b, w, h));
     let vp = Plan { settings: std::borrow::Cow::Borrowed(original), ..op };
