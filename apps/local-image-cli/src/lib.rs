@@ -6,7 +6,8 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use photocraft_automation::{AuthorizedWorkspace, Headless, PhotocraftMcp, files, security};
+use photocraft_automation::library::tools::{LibraryReply, call_tool as library_tool};
+use photocraft_automation::{AuthorizedWorkspace, Headless, LibraryHeadless, PhotocraftMcp, files, security};
 use photocraft_io::ExportOptions;
 use serde_json::{Value, json};
 
@@ -32,9 +33,31 @@ USAGE:
       Run a droplet (File › Automate › Create Droplet) on images and folders.
   local-image-cli commands [--json] [--filter <text>]
       List the engine command registry.
+  local-image-cli library import <file-or-dir>… --library <dir> [--mode add|copy|move] [--destination <dir>]
+      [--organize <template>] [--rename <template>]
+      Add photos to a Library folder (created if needed). Folders are scanned recursively. copy/move file the
+      originals into --destination (default: the library's Originals/) by --organize (date, month, flat or a
+      template such as {date:%Y}/{date:%Y%m%d}), named by --rename (e.g. {date:%Y%m%d}_{seq:3}).
+  local-image-cli library develop <photos> [--set <control>=<value>]… [--settings <json>] [--preset <id> [--amount <0-200>]]
+      Edit photos: --set a slider (ids from `library run --cmd develop.controls`), --settings merges a partial
+      develop JSON, --preset applies a develop preset. Prints each photo's develop settings.
+  local-image-cli library export <photos> (--out <file> | --dir <dir>) [develop flags] [--format <ext>] [--quality <1-100>]
+      [--long-edge <px>] [--naming <template>]
+      Export with the Library's export pipeline (default long edge 3000 px; --long-edge 0 = full size; format from
+      --out's extension unless --format). Never writes over an original.
+  local-image-cli library snapshot <photo> --out <file> [--size <px>] [develop flags]
+      Render one photo with its develop settings (long edge --size, default 1600) to an image file.
+  local-image-cli library run [<photos>] --cmd <id> [--params <json>] [--cmd …]
+      Run Library commands in order (the named photos selected first); prints each command's JSON result.
+  local-image-cli library commands [--json] [--filter <text>]
+      List the Library command registry.
+      <photos> are image/raw files and folders (imported first) and/or --id <n> for photos already in --library.
+      Every library subcommand takes --library <dir> to work in a Library folder (edits are saved there); without
+      it, files are opened in a temporary in-memory library.
   local-image-cli mcp [--bridge <127.0.0.1:port>] [--control-token <64-hex> | --control-token-file <path>]
       [--automation-read-root <dir>] [--automation-write-root <dir>]
       Run the MCP server on stdio (headless engine, or bridge to a running `photocraft --control <port>`).
+      Headless, it also serves the Library as `library_*` tools (files below the automation roots).
   local-image-cli serve [--port <port>] [--control-token <64-hex> | --control-token-file <path>]
       [--automation-read-root <dir>] [--automation-write-root <dir>]
       Keep one headless session open and answer JSON lines ({\"id\",\"method\",\"params\"}) on stdio,
@@ -67,6 +90,17 @@ const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand { name: "batch", values: &["--actions", "--in", "--out", "--format", "--quality"], bare: &["--in-place", "--tiff-layers"], run: batch },
     Subcommand { name: "droplet", values: &["--out"], bare: &[], run: droplet },
     Subcommand { name: "commands", values: &["--filter"], bare: &["--json"], run: |a, out, _| commands(a, out) },
+    Subcommand {
+        name: "library import",
+        values: &["--library", "--mode", "--destination", "--organize", "--rename"],
+        bare: &[],
+        run: |a, out, _| library_import(a, out),
+    },
+    Subcommand { name: "library develop", values: LIBRARY_DEVELOP_FLAGS, bare: &[], run: |a, out, _| library_develop(a, out) },
+    Subcommand { name: "library export", values: LIBRARY_EXPORT_FLAGS, bare: &[], run: |a, out, _| library_export(a, out) },
+    Subcommand { name: "library snapshot", values: LIBRARY_SNAPSHOT_FLAGS, bare: &[], run: |a, out, _| library_snapshot(a, out) },
+    Subcommand { name: "library run", values: &["--library", "--id", "--cmd", "--params"], bare: &[], run: |a, out, _| library_run(a, out) },
+    Subcommand { name: "library commands", values: &["--filter"], bare: &["--json"], run: |a, out, _| library_commands(a, out) },
     Subcommand {
         name: "mcp",
         values: &["--bridge", "--control-token", "--control-token-file", "--automation-read-root", "--automation-write-root"],
@@ -142,11 +176,25 @@ pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
         }
         _ => {}
     }
-    let Some(sub) = SUBCOMMANDS.iter().find(|s| s.name == cmd) else {
-        let _ = writeln!(err, "error: unknown command `{cmd}`\n\n{USAGE}");
+    // `library <action>` names a two-word subcommand.
+    let (name, rest) = match (cmd.as_str(), args.get(1)) {
+        ("library", Some(action)) if !action.starts_with('-') => (format!("library {action}"), &args[2..]),
+        _ => (cmd.clone(), &args[1..]),
+    };
+    if name == "library" {
+        let help = matches!(args.get(1).map(String::as_str), Some("--help" | "-h"));
+        if help {
+            let _ = write!(out, "{USAGE}");
+            return 0;
+        }
+        let _ = writeln!(err, "error: library needs an action: import, develop, export, snapshot, run or commands\n\n{USAGE}");
+        return 2;
+    }
+    let Some(sub) = SUBCOMMANDS.iter().find(|s| s.name == name) else {
+        let _ = writeln!(err, "error: unknown command `{name}`\n\n{USAGE}");
         return 2;
     };
-    let parsed = match parse(sub, &args[1..]) {
+    let parsed = match parse(sub, rest) {
         Ok(Some(p)) => p,
         // `<subcommand> --help`: usage, without reading inputs or starting a server.
         Ok(None) => {
@@ -428,4 +476,287 @@ fn mcp(a: &Args) -> R {
     };
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
     rt.block_on(server.serve_stdio()).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------- Library (`library <action>`)
+
+const LIBRARY_DEVELOP_FLAGS: &[&str] = &["--library", "--id", "--set", "--settings", "--preset", "--amount"];
+const LIBRARY_EXPORT_FLAGS: &[&str] =
+    &["--library", "--id", "--set", "--settings", "--preset", "--amount", "--out", "--dir", "--format", "--quality", "--long-edge", "--naming"];
+const LIBRARY_SNAPSHOT_FLAGS: &[&str] = &["--library", "--id", "--set", "--settings", "--preset", "--amount", "--out", "--size"];
+
+/// A local Library session: the `--library` folder when given, else in memory.
+fn library_session(a: &Args) -> Result<LibraryHeadless, String> {
+    let mut lib = LibraryHeadless::trusted_local();
+    if let Some(dir) = a.get("--library") {
+        lib.open_library(Path::new(dir))?;
+    }
+    Ok(lib)
+}
+
+fn library_json(r: Result<LibraryReply, String>) -> Result<Value, String> {
+    r.map(|reply| reply.json().clone())
+}
+
+/// The photos a library subcommand names: positional files and folders (imported, or found
+/// already in the library) and `--id <n>` flags, in that order.
+fn library_photos(lib: &mut LibraryHeadless, a: &Args) -> Result<Vec<u64>, String> {
+    let mut ids = Vec::new();
+    if !a.positional.is_empty() {
+        let r = lib.import(&json!({"paths": a.positional}))?;
+        if let Some((path, error)) = r["failed"].as_array().into_iter().flatten().find_map(|f| Some((f.get(0)?.as_str()?, f.get(1)?.as_str()?))) {
+            return Err(format!("{path}: {error}"));
+        }
+        let found = r["imported"].as_array().into_iter().chain(r["restored"].as_array()).flatten().filter_map(Value::as_u64);
+        ids.extend(found);
+        ids.extend(r["duplicates"].as_array().into_iter().flatten().filter_map(|d| d["existing"].as_u64()));
+    }
+    for (flag, value) in &a.flags {
+        if flag == "--id" {
+            let v = value.as_deref().unwrap_or_default();
+            ids.push(v.parse().map_err(|_| format!("bad --id `{v}`: expected a photo id"))?);
+        }
+    }
+    if ids.is_empty() {
+        return Err("name the photos: image files or folders, and/or --id <n> for photos in --library".into());
+    }
+    Ok(ids)
+}
+
+/// Apply the develop flags (`--set`, `--settings`, `--preset`/`--amount`) to each photo.
+fn library_apply_develop(lib: &mut LibraryHeadless, a: &Args, ids: &[u64]) -> R {
+    let mut values = serde_json::Map::new();
+    for (flag, value) in &a.flags {
+        if flag == "--set" {
+            let v = value.as_deref().unwrap_or_default();
+            let (control, number) = v.split_once('=').ok_or_else(|| format!("bad --set `{v}`: expected <control>=<value>, e.g. light.exposure=0.5"))?;
+            let number: f64 = number.trim().parse().map_err(|_| format!("bad --set `{v}`: the value must be a number"))?;
+            values.insert(control.trim().to_string(), json!(number));
+        }
+    }
+    let settings = a.get("--settings").map(|s| serde_json::from_str::<Value>(s).map_err(|e| format!("bad --settings JSON: {e}"))).transpose()?;
+    let amount = a.get("--amount").map(|v| v.parse::<f64>().map_err(|_| format!("bad --amount `{v}`: expected 0 to 200"))).transpose()?;
+    for &id in ids {
+        if !values.is_empty() || settings.is_some() {
+            let mut args = json!({"id": id});
+            if !values.is_empty() {
+                args["values"] = Value::Object(values.clone());
+            }
+            if let Some(s) = &settings {
+                args["settings"] = s.clone();
+            }
+            library_tool(lib, "set_develop", &args).map_err(|e| format!("photo {id}: {e}"))?;
+        }
+        if let Some(preset) = a.get("--preset") {
+            let mut args = json!({"preset": preset, "ids": [id]});
+            if let Some(amount) = amount {
+                args["amount"] = json!(amount);
+            }
+            library_tool(lib, "apply_preset", &args).map_err(|e| format!("photo {id}: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
+fn library_import(a: &Args, out: &mut dyn Write) -> R {
+    if a.get("--library").is_none() {
+        return Err("library import needs --library <dir> (the Library folder to import into)".into());
+    }
+    if a.positional.is_empty() {
+        return Err("library import needs files or folders".into());
+    }
+    let mut lib = library_session(a)?;
+    let mut args = json!({"paths": a.positional});
+    for (flag, key) in [("--mode", "mode"), ("--destination", "destination"), ("--organize", "organize"), ("--rename", "rename")] {
+        if let Some(v) = a.get(flag) {
+            args[key] = json!(v);
+        }
+    }
+    let r = library_json(library_tool(&mut lib, "import", &args))?;
+    print_json(out, &r, false)
+}
+
+fn library_develop(a: &Args, out: &mut dyn Write) -> R {
+    let mut lib = library_session(a)?;
+    let ids = library_photos(&mut lib, a)?;
+    library_apply_develop(&mut lib, a, &ids)?;
+    for id in ids {
+        let develop = library_json(library_tool(&mut lib, "get_develop", &json!({"id": id})))?;
+        print_json(out, &json!({"id": id, "develop": develop}), true)?;
+    }
+    Ok(())
+}
+
+fn library_export(a: &Args, out: &mut dyn Write) -> R {
+    let mut lib = library_session(a)?;
+    let ids = library_photos(&mut lib, a)?;
+    library_apply_develop(&mut lib, a, &ids)?;
+    let mut args = json!({"ids": ids});
+    match (a.get("--out"), a.get("--dir")) {
+        (Some(file), None) if ids.len() == 1 => args["path"] = json!(file),
+        (Some(_), None) => return Err("--out names one file; export several photos with --dir <dir>".into()),
+        (None, Some(dir)) => args["dir"] = json!(dir),
+        _ => return Err("library export needs exactly one of --out <file> or --dir <dir>".into()),
+    }
+    if let Some(f) = a.get("--format") {
+        args["format"] = json!(f.strip_prefix('.').unwrap_or(f));
+    }
+    if let Some(q) = a.get("--quality") {
+        let q: u8 = q.parse().ok().filter(|q| (1..=100).contains(q)).ok_or_else(|| format!("bad --quality `{q}`: expected a whole number from 1 to 100"))?;
+        args["quality"] = json!(q);
+    }
+    if let Some(px) = a.get("--long-edge") {
+        args["longEdge"] = json!(px.parse::<u32>().map_err(|_| format!("bad --long-edge `{px}`: expected pixels (0 = full size)"))?);
+    }
+    if let Some(n) = a.get("--naming") {
+        args["naming"] = json!(n);
+    }
+    let r = library_json(library_tool(&mut lib, "export", &args))?;
+    for f in r["files"].as_array().into_iter().flatten() {
+        let _ = writeln!(out, "ok    {}", f["path"].as_str().unwrap_or_default());
+    }
+    Ok(())
+}
+
+fn library_snapshot(a: &Args, out: &mut dyn Write) -> R {
+    let file = a.get("--out").ok_or("library snapshot needs --out <file>")?;
+    let size: u64 = match a.get("--size") {
+        Some(s) => s.parse().map_err(|_| format!("bad --size `{s}`: expected pixels"))?,
+        None => 1600,
+    };
+    let mut lib = library_session(a)?;
+    let ids = library_photos(&mut lib, a)?;
+    let [id] = ids.as_slice() else { return Err("library snapshot renders one photo".into()) };
+    library_apply_develop(&mut lib, a, &ids)?;
+    let img = lib.render(&json!({"id": id, "size": size}), size, photocraft_automation::library::tools::MAX_TRUSTED_RENDER)?;
+    let ext = Path::new(file).extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
+    let bytes = photocraft_automation::library::encode_image(&ext, &img, 92)?;
+    lib.write_file(file, &bytes)?;
+    let _ = writeln!(out, "ok    {file} ({}×{})", img.width, img.height);
+    Ok(())
+}
+
+fn library_run(a: &Args, out: &mut dyn Write) -> R {
+    let cmds = command_list(a)?;
+    if cmds.is_empty() {
+        return Err("library run needs at least one --cmd".into());
+    }
+    let mut lib = library_session(a)?;
+    if !a.positional.is_empty() || a.get("--id").is_some() {
+        let ids = library_photos(&mut lib, a)?;
+        lib.call("engine.execute", json!({"command": "library.select", "params": {"ids": ids, "active": ids[0]}}))?;
+    }
+    for (id, params) in cmds {
+        let r = lib.call("engine.execute", json!({"command": id, "params": params})).map_err(|e| format!("`{id}`: {e}"))?;
+        print_json(out, &json!({"command": id, "result": r}), true)?;
+    }
+    Ok(())
+}
+
+fn library_commands(a: &Args, out: &mut dyn Write) -> R {
+    let lib = LibraryHeadless::trusted_local();
+    let list = lib.command_list();
+    let needle = a.get("--filter").map(str::to_lowercase);
+    let items: Vec<&Value> = list
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| {
+            needle.as_ref().is_none_or(|n| format!("{} {}", c["id"].as_str().unwrap_or(""), c["label"].as_str().unwrap_or("")).to_lowercase().contains(n))
+        })
+        .collect();
+    if a.has("--json") {
+        return print_json(out, &Value::Array(items.into_iter().cloned().collect()), false);
+    }
+    for c in items {
+        let menu = c["menu"].as_array().map(|m| m.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" > ")).unwrap_or_default();
+        writeln!(out, "{:<44} {:<32} {}", c["id"].as_str().unwrap_or(""), c["label"].as_str().unwrap_or(""), menu).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cli(args: &[&str]) -> (i32, String, String) {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = run(&args, &mut out, &mut err);
+        (code, String::from_utf8_lossy(&out).into_owned(), String::from_utf8_lossy(&err).into_owned())
+    }
+
+    fn photo(path: &Path, value: u8) {
+        let img = photocraft_codecs::Image::from_u8(64, 48, photocraft_codecs::ChannelLayout::Rgba, vec![value; 64 * 48 * 4]).unwrap();
+        std::fs::write(path, photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap()).unwrap();
+    }
+
+    /// J5: the Library is reachable from the CLI — import into a library folder, develop, export
+    /// and snapshot, by file and by id.
+    #[test]
+    fn j05_library_subcommands_import_develop_export_snapshot() {
+        let base = std::env::temp_dir().join(format!("j05-cli-library-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("card")).unwrap();
+        photo(&base.join("card/a.png"), 100);
+        photo(&base.join("card/b.png"), 140);
+        let s = |p: &str| base.join(p).to_string_lossy().into_owned();
+        let (lib_dir, card) = (s("lib"), s("card"));
+
+        let (code, out, err) = cli(&["library", "import", &card, "--library", &lib_dir]);
+        assert_eq!(code, 0, "{err}");
+        let imported: Value = serde_json::from_str(&out).unwrap();
+        let ids: Vec<u64> = imported["imported"].as_array().unwrap().iter().filter_map(Value::as_u64).collect();
+        assert_eq!(ids.len(), 2, "{out}");
+
+        // Develop by id in the library; the edit persists for the next invocation.
+        let id = ids[0].to_string();
+        let (code, out, err) = cli(&["library", "develop", "--library", &lib_dir, "--id", &id, "--set", "light.exposure=0.75"]);
+        assert_eq!(code, 0, "{err}");
+        assert!(out.contains("\"exposure\":0.75"), "{out}");
+        let (code, out, err) = cli(&["library", "run", "--library", &lib_dir, "--id", &id, "--cmd", "develop.get"]);
+        assert_eq!(code, 0, "{err}");
+        assert!(out.contains("\"exposure\":0.75"), "persisted: {out}");
+
+        // Export several by id, one by file (in memory), and a snapshot.
+        std::fs::create_dir_all(base.join("out")).unwrap();
+        let ids_s: Vec<String> = ids.iter().map(u64::to_string).collect();
+        let (code, out, err) = cli(&[
+            "library",
+            "export",
+            "--library",
+            &lib_dir,
+            "--id",
+            &ids_s[0],
+            "--id",
+            &ids_s[1],
+            "--dir",
+            &s("out"),
+            "--format",
+            "jpg",
+            "--long-edge",
+            "32",
+        ]);
+        assert_eq!(code, 0, "{err}");
+        assert_eq!(out.lines().filter(|l| l.starts_with("ok")).count(), 2, "{out}");
+        let (code, _, err) = cli(&["library", "export", &s("card/b.png"), "--out", &s("out/b-full.png"), "--long-edge", "0", "--set", "light.exposure=-1"]);
+        assert_eq!(code, 0, "{err}");
+        assert!(base.join("out/b-full.png").is_file());
+        let (code, out, err) = cli(&["library", "snapshot", &s("card/a.png"), "--out", &s("out/a-snap.png"), "--size", "40"]);
+        assert_eq!(code, 0, "{err}");
+        assert!(out.contains("40×30"), "{out}");
+
+        // Never over an original; usage errors.
+        let (code, _, err) = cli(&["library", "export", &s("card/a.png"), "--out", &s("card/a.png")]);
+        assert_eq!(code, 1);
+        assert!(err.contains("original"), "{err}");
+        assert_eq!(cli(&["library", "export", &s("card/a.png"), "--fromat", "png"]).0, 2);
+        assert_eq!(cli(&["library"]).0, 2);
+        assert_eq!(cli(&["library", "--help"]).0, 0);
+        assert_eq!(cli(&["library", "develop"]).0, 1, "no photos named");
+        let (code, out, _) = cli(&["library", "commands", "--filter", "photo.rate"]);
+        assert_eq!(code, 0);
+        assert!(out.contains("photo.rate"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }
