@@ -205,7 +205,7 @@ pub struct Catalog {
     pub models: Vec<ModelInfo>,
     pub presets: Vec<Preset>,
     /// On-device resources in the same catalog, borrowing the established runner table.
-    /// No copied descriptors or separate registry; J15 can later unify the descriptor types.
+    /// Runner descriptors remain the compatibility API; downloads use [`on_device_files`].
     pub on_device: &'static [li_seg::ModelSpec],
 }
 
@@ -382,6 +382,63 @@ pub fn refine_default_denoise(model: ModelId) -> f32 {
 /// The on-device resource with this stable key, served by the existing catalog.
 pub fn on_device_spec(id: &str) -> Option<&'static li_seg::ModelSpec> {
     catalog().on_device.iter().find(|model| model.id == id)
+}
+
+/// The common file descriptors for an on-device resource. Packaged denoisers download one
+/// archive, then install the separately pinned members; other resources download the members.
+/// `role` is unused here: on-device runners never resolve a ComfyUI loader.
+#[derive(Clone, Debug, PartialEq)]
+pub struct OnDeviceFiles {
+    pub installed: Vec<FileSpec>,
+    pub package: Option<FileSpec>,
+}
+
+impl OnDeviceFiles {
+    /// Compatibility adapter for runner descriptors, including custom test/embedded descriptors.
+    pub fn from_spec(spec: &li_seg::ModelSpec) -> Self {
+        let installed = spec
+            .files()
+            .map(|f| FileSpec {
+                folder: "segmentation".into(),
+                name: f.file.into(),
+                bytes: f.bytes,
+                sha256: f.sha256.into(),
+                url: f.url.into(),
+                ..Default::default()
+            })
+            .collect();
+        let package = matches!(spec.task, li_seg::Task::Denoise { .. }).then(|| FileSpec {
+            folder: "segmentation".into(),
+            name: format!("{}.dtmodel", spec.id),
+            bytes: spec.bytes,
+            sha256: spec.sha256.into(),
+            url: spec.url.into(),
+            ..Default::default()
+        });
+        Self { installed, package }
+    }
+
+    pub fn download_bytes(&self) -> u64 {
+        self.package.as_ref().map_or_else(|| self.installed.iter().map(|f| f.bytes).sum(), |f| f.bytes)
+    }
+
+    /// Visit installed members in runner order, stopping on the first failure. The offset is
+    /// cumulative member bytes (archive progress is handled separately by the installer).
+    pub fn visit(&self, apply: &dyn Fn(&FileSpec, u64) -> anyhow::Result<()>) -> anyhow::Result<()> {
+        let mut done = 0;
+        for file in &self.installed {
+            apply(file, done)?;
+            done += file.bytes;
+        }
+        Ok(())
+    }
+}
+
+/// Cached projection of the one runner table into the same FileSpec used by family presets.
+/// No pin, filename, license or inference setting is maintained a second time.
+pub fn on_device_files(id: &str) -> Option<&'static OnDeviceFiles> {
+    static FILES: std::sync::OnceLock<BTreeMap<&'static str, OnDeviceFiles>> = std::sync::OnceLock::new();
+    FILES.get_or_init(|| li_seg::MODELS.iter().map(|spec| (spec.id, OnDeviceFiles::from_spec(spec))).collect()).get(id)
 }
 
 /// Default descriptor for an on-device function. Pin, files and license have one source.
@@ -639,4 +696,91 @@ fn lama_on_device_catalog_borrows_existing_registry_and_pins() {
     for group in li_seg::Group::ALL {
         assert_eq!(on_device_default(group), group.official());
     }
+}
+
+#[test]
+fn j15_registry_file_plans_preserve_all_runner_pins_and_golden_bundles() {
+    let mut names = std::collections::BTreeSet::new();
+    let mut members = 0;
+    for spec in li_seg::MODELS {
+        assert!(names.insert(spec.id), "duplicate model id");
+        let files = on_device_files(spec.id).unwrap();
+        assert!(std::ptr::eq(files, on_device_files(spec.id).unwrap()), "projection is cached");
+        assert_eq!(files.download_bytes(), spec.download_bytes());
+        assert_eq!(files.installed.len(), spec.files().count());
+        for (file, old) in files.installed.iter().zip(spec.files()) {
+            assert_eq!((&*file.name, &*file.url, file.bytes, &*file.sha256), (old.file, old.url, old.bytes, old.sha256));
+            assert_eq!(file.folder, "segmentation");
+            assert!(file.compatible.is_empty());
+            assert_eq!(crate::download::target_path(std::path::Path::new("root"), file), li_seg::companion_path(std::path::Path::new("root"), old.file));
+            assert!(crate::download::host_allowed(&file.url));
+            assert_eq!(file.sha256.len(), 64);
+            members += 1;
+        }
+    }
+    let clip = on_device_files("clip-b32-laion").unwrap();
+    assert_eq!(
+        clip.installed.iter().map(|f| (&*f.name, f.bytes)).collect::<Vec<_>>(),
+        [
+            ("clip-vit-b32-laion2b-visual.onnx", 351613724),
+            ("clip-vit-b32-laion2b-textual.onnx", 254193396),
+            ("clip-vocab.json", 862328),
+            ("clip-merges.txt", 524619),
+        ]
+    );
+    assert_eq!(clip.download_bytes(), 607194067);
+    let faces = on_device_files("sface").unwrap();
+    assert_eq!(
+        faces.installed.iter().map(|f| (&*f.name, f.bytes)).collect::<Vec<_>>(),
+        [("face_recognition_sface_2021dec.onnx", 38696353), ("face_detection_yunet_2023mar.onnx", 232589),]
+    );
+    let raw = on_device_files("rawdenoise-nind").unwrap();
+    let package = raw.package.as_ref().unwrap();
+    assert_eq!(
+        (&*package.name, package.bytes, &*package.sha256),
+        ("rawdenoise-nind.dtmodel", 57700134, "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af")
+    );
+    assert_eq!(
+        raw.installed.iter().map(|f| (&*f.name, f.bytes)).collect::<Vec<_>>(),
+        [("rawdenoise-nind-linear.onnx", 31053823), ("rawdenoise-nind-bayer.onnx", 31056425),]
+    );
+    let lama = &on_device_files("big-lama").unwrap().installed[0];
+    assert_eq!((&*lama.name, lama.bytes, &*lama.sha256), ("big-lama-fp32.onnx", 208044816, "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6"));
+    assert_eq!(on_device_files("bsrgan-2x"), on_device_files("bsrgan-4x"));
+    assert!(on_device_files("not-a-model").is_none());
+    eprintln!("J15 descriptor parity: {} models, {members} member references", names.len());
+}
+
+#[test]
+fn j15_registry_order_and_progress_match_legacy_ui_trace() {
+    let files = on_device_files("clip-b32-laion").unwrap();
+    let calls = std::cell::RefCell::new(Vec::new());
+    files
+        .visit(&|file, offset| {
+            calls.borrow_mut().push((file.name.clone(), offset));
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(
+        calls.into_inner(),
+        [
+            ("clip-vit-b32-laion2b-visual.onnx".into(), 0),
+            ("clip-vit-b32-laion2b-textual.onnx".into(), 351613724),
+            ("clip-vocab.json".into(), 605807120),
+            ("clip-merges.txt".into(), 606669448),
+        ]
+    );
+    let calls = std::cell::Cell::new(0);
+    assert!(
+        files
+            .visit(&|_, _| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 2 {
+                    anyhow::bail!("fetch failed")
+                }
+                Ok(())
+            })
+            .is_err()
+    );
+    assert_eq!(calls.get(), 2);
 }

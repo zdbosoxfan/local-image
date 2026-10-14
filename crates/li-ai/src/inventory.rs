@@ -363,3 +363,445 @@ mod ds_metadata_tests {
         assert_eq!(family_of("unknown.safetensors", FileKind::Lora, None, Some(&lora)).unwrap().0, "sdxl");
     }
 }
+
+/// Download and install an on-device catalog resource. The legacy runner descriptor is an
+/// adapter input; all transport uses the shared verified downloader and common FileSpec.
+/// Complete verified members survive retries. Invalid members are replaced only after a
+/// verified replacement is available, so failed/cancelled downloads leave existing data intact.
+pub fn download_on_device(spec: &li_seg::ModelSpec, model_dir: &Path, ctl: &crate::comfy::JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
+    download_on_device_with(spec, model_dir, ctl, progress, &|file, path, on_bytes| {
+        crate::download::download_file(&file.url, path, file.bytes, &file.sha256, ctl, on_bytes)
+    })
+}
+
+/// A private, uniquely owned staging directory. Drop cleans archives, extraction temporaries
+/// and unpublished members on success, failure, cancellation or unwind.
+struct ModelInstall(PathBuf);
+impl ModelInstall {
+    fn new(model_dir: &Path) -> anyhow::Result<Self> {
+        let parent = model_dir.join("segmentation");
+        std::fs::create_dir_all(&parent)?;
+        let path = parent.join(format!(".install-{}", uuid::Uuid::new_v4().simple()));
+        std::fs::create_dir(&path)?;
+        Ok(Self(path))
+    }
+}
+impl Drop for ModelInstall {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_dir_all(&self.0) {
+            log::warn!("Could not remove model installation staging {}: {error}", self.0.display());
+        }
+    }
+}
+
+type ModelFetch<'a> = dyn Fn(&crate::catalog::FileSpec, &Path, &dyn Fn(u64)) -> anyhow::Result<()> + 'a;
+
+fn download_on_device_with(
+    spec: &li_seg::ModelSpec,
+    model_dir: &Path,
+    ctl: &crate::comfy::JobControl,
+    progress: &dyn Fn(u64),
+    fetch: &ModelFetch<'_>,
+) -> anyhow::Result<()> {
+    use crate::catalog::OnDeviceFiles;
+    ctl.check()?;
+    let adapted;
+    let files = if crate::catalog::on_device_spec(spec.id) == Some(spec) {
+        crate::catalog::on_device_files(spec.id).expect("cataloged resource has a file plan")
+    } else {
+        adapted = OnDeviceFiles::from_spec(spec);
+        &adapted
+    };
+    // Reject unpinned or escaping descriptors before touching the filesystem. Runtime adapters
+    // remain public for compatibility, but cannot weaken the catalog's download contract.
+    for file in files.installed.iter().chain(files.package.iter()) {
+        anyhow::ensure!(
+            file.bytes > 0 && file.sha256.len() == 64 && file.sha256.bytes().all(|b| b.is_ascii_hexdigit()),
+            "Model file {} has no valid size/SHA-256 pin",
+            file.name
+        );
+        anyhow::ensure!(
+            Path::new(&file.name).components().count() == 1 && Path::new(&file.name).components().all(|c| matches!(c, std::path::Component::Normal(_))),
+            "Invalid model filename: {}",
+            file.name
+        );
+        anyhow::ensure!(crate::download::host_allowed(&file.url), "Refusing to download from an unexpected host: {}", file.url);
+    }
+    let installed = |file: &crate::catalog::FileSpec| spec.files().find(|f| f.file == file.name).is_some_and(|f| li_seg::file_installed(model_dir, f));
+    if let Some(package) = &files.package {
+        if files.installed.iter().all(installed) {
+            progress(package.bytes);
+            return ctl.check();
+        }
+        let stage = ModelInstall::new(model_dir)?;
+        let archive = stage.0.join(&package.name);
+        fetch(package, &archive, progress)?;
+        ctl.check()?;
+        // Reuse the established ZIP parser and mandatory archive/member pins, but isolate its
+        // fixed extraction temporary names from concurrent sessions and existing model files.
+        li_seg::denoise::install_bundle(&archive, spec, &stage.0)?;
+        ctl.check()?;
+        for file in &files.installed {
+            ctl.check()?;
+            if !installed(file) {
+                publish_member(&crate::download::target_path(&stage.0, file), &crate::download::target_path(model_dir, file), file)?;
+            }
+        }
+        return Ok(());
+    }
+    files.visit(&|file, offset| {
+        ctl.check()?;
+        if installed(file) {
+            progress(offset + file.bytes);
+            return ctl.check();
+        }
+        // Each member gets its own staging directory; a completed member is immediately
+        // published so retry does not redownload it if a later companion fails.
+        let install = ModelInstall::new(model_dir)?;
+        let staged = install.0.join(&file.name);
+        fetch(file, &staged, &|n| progress(offset + n))?;
+        ctl.check()?;
+        publish_member(&staged, &crate::download::target_path(model_dir, file), file)?;
+        drop(install);
+        Ok(())
+    })?;
+    Ok(())
+}
+
+fn publish_member(staged: &Path, dest: &Path, file: &crate::catalog::FileSpec) -> anyhow::Result<()> {
+    // Another session may have completed this member while we fetched it. Preserve its verified
+    // file; only the established invalid-member repair path is allowed to remove an old copy.
+    if dest.exists() {
+        if crate::download::verify_existing(dest, file).unwrap_or(false) {
+            return Ok(());
+        }
+        // Same-volume rename replaces only the known invalid member. Failure leaves the old
+        // copy intact, and readers never see an absence between removal and publication.
+        return std::fs::rename(staged, dest).map_err(Into::into);
+    }
+    // Never replace a file that appears concurrently at publication time. An identical install
+    // winning the race is success; a different file still fails without changing its bytes.
+    match std::fs::hard_link(staged, dest) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists && crate::download::verify_existing(dest, file).unwrap_or(false) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(test)]
+mod j15_tests {
+    use super::*;
+    use crate::comfy::JobControl;
+    use std::cell::{Cell, RefCell};
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/j15-fixtures").join(uuid::Uuid::new_v4().to_string());
+            std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+            Self(dir)
+        }
+        fn no_staging(&self) {
+            assert!(
+                std::fs::read_dir(self.0.join("segmentation")).unwrap().all(|entry| !entry.unwrap().file_name().to_string_lossy().starts_with(".install-"))
+            );
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn leak(value: String) -> &'static str {
+        Box::leak(value.into_boxed_str())
+    }
+    fn pin(bytes: &[u8]) -> &'static str {
+        leak(crate::mock_hub::sha(bytes))
+    }
+    fn bundle() -> li_seg::ModelSpec {
+        li_seg::ModelSpec {
+            id: "test-bundle",
+            file: "test-main.onnx",
+            bytes: 1,
+            sha256: pin(b"x"),
+            url: "https://huggingface.co/test/model",
+            companions: Box::leak(
+                vec![
+                    li_seg::Companion { file: "test-text.onnx", bytes: 2, sha256: pin(b"xx"), url: "https://huggingface.co/test/text" },
+                    li_seg::Companion { file: "test-vocab.json", bytes: 3, sha256: pin(b"xxx"), url: "https://huggingface.co/test/vocab" },
+                ]
+                .into_boxed_slice(),
+            ),
+            ..*li_seg::spec("clip-b32-laion").unwrap()
+        }
+    }
+
+    /// Migrated from the UI retry test, now using real pins and proving failed repairs retain
+    /// the old file. Complete members are retained; successful repair still replaces invalid ones.
+    #[test]
+    fn j15_bundle_retry_preserves_verified_members_and_repairs_after_fetch() {
+        let dir = Fixture::new();
+        let spec = bundle();
+        std::fs::write(li_seg::model_path(&dir.0, &spec), b"x").unwrap();
+        let invalid = li_seg::companion_path(&dir.0, "test-text.onnx");
+        std::fs::write(&invalid, b"old").unwrap();
+        let ctl = JobControl::new();
+        let failed = Cell::new(0);
+        assert!(
+            download_on_device_with(&spec, &dir.0, &ctl, &|_| {}, &|_, _, _| {
+                failed.set(failed.get() + 1);
+                anyhow::bail!("network failed")
+            })
+            .is_err()
+        );
+        assert_eq!(failed.get(), 1);
+        assert_eq!(std::fs::read(&invalid).unwrap(), b"old");
+        dir.no_staging();
+        let fetched = RefCell::new(Vec::new());
+        let progress = RefCell::new(Vec::new());
+        download_on_device_with(&spec, &dir.0, &ctl, &|n| progress.borrow_mut().push(n), &|file, path, on_bytes| {
+            fetched.borrow_mut().push(file.name.clone());
+            assert!(!path.exists());
+            let bytes = vec![b'x'; file.bytes as usize];
+            assert_eq!(crate::mock_hub::sha(&bytes), file.sha256);
+            std::fs::write(path, bytes)?;
+            on_bytes(file.bytes);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(fetched.into_inner(), ["test-text.onnx", "test-vocab.json"]);
+        assert_eq!(progress.into_inner(), [1, 3, 6]);
+        assert!(spec.files().all(|file| li_seg::file_installed(&dir.0, file)));
+        download_on_device_with(&spec, &dir.0, &ctl, &|_| {}, &|_, _, _| panic!("verified members must not fetch")).unwrap();
+        ctl.cancel();
+        assert!(download_on_device_with(&spec, &dir.0, &ctl, &|_| {}, &|_, _, _| panic!("cancel must not fetch")).is_err());
+        dir.no_staging();
+    }
+
+    #[test]
+    fn j15_cancellation_after_fetch_never_publishes_or_deletes_old_members() {
+        let dir = Fixture::new();
+        let spec = bundle();
+        let dest = li_seg::model_path(&dir.0, &spec);
+        std::fs::write(&dest, b"old").unwrap();
+        let ctl = JobControl::new();
+        let error = download_on_device_with(&spec, &dir.0, &ctl, &|_| {}, &|file, path, _| {
+            std::fs::write(path, vec![b'x'; file.bytes as usize])?;
+            ctl.cancel();
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(error.is::<crate::comfy::Cancelled>());
+        assert_eq!(std::fs::read(dest).unwrap(), b"old");
+        dir.no_staging();
+    }
+
+    #[test]
+    fn j15_invalid_descriptors_fail_before_filesystem_or_fetch() {
+        let dir = Fixture::new();
+        let spec = bundle();
+        for bad in [
+            li_seg::ModelSpec { sha256: "", ..spec },
+            li_seg::ModelSpec { file: "../escape", ..spec },
+            li_seg::ModelSpec { url: "https://untrusted.invalid/model", ..spec },
+        ] {
+            assert!(download_on_device_with(&bad, &dir.0, &JobControl::new(), &|_| {}, &|_, _, _| panic!("invalid descriptor must not fetch")).is_err());
+        }
+        assert_eq!(std::fs::read_dir(dir.0.join("segmentation")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn j15_real_downloader_retains_completed_member_and_rejects_bad_companion() {
+        let dir = Fixture::new();
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let host = server.server_addr().to_string();
+        crate::download::allow_test_host(&host);
+        let url = leak(format!("http://{host}/member"));
+        let spec = li_seg::ModelSpec { url, companions: Box::leak(vec![li_seg::Companion { url, ..bundle().companions[0] }].into_boxed_slice()), ..bundle() };
+        let worker = std::thread::spawn(move || {
+            for body in [b"x".as_slice(), b"no".as_slice()] {
+                server
+                    .recv_timeout(std::time::Duration::from_secs(10))
+                    .unwrap()
+                    .expect("download request")
+                    .respond(tiny_http::Response::from_data(body))
+                    .unwrap();
+            }
+        });
+        let old = li_seg::companion_path(&dir.0, "test-text.onnx");
+        std::fs::write(&old, b"old").unwrap();
+        let error = download_on_device(&spec, &dir.0, &JobControl::new(), &|_| {}).unwrap_err();
+        worker.join().unwrap();
+        assert!(error.to_string().contains("checksum"), "{error:#}");
+        assert_eq!(std::fs::read(li_seg::model_path(&dir.0, &spec)).unwrap(), b"x");
+        assert_eq!(std::fs::read(old).unwrap(), b"old");
+        dir.no_staging();
+    }
+
+    // The established li-seg ZIP fixture format, stored members only (no new ZIP dependency).
+    fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut central = Vec::new();
+        for (name, body) in entries {
+            let offset = out.len() as u32;
+            out.extend(0x0403_4b50u32.to_le_bytes());
+            out.extend([20, 0, 0, 0]);
+            out.extend([0; 10]);
+            out.extend((body.len() as u32).to_le_bytes());
+            out.extend((body.len() as u32).to_le_bytes());
+            out.extend((name.len() as u16).to_le_bytes());
+            out.extend([0; 2]);
+            out.extend(name.as_bytes());
+            out.extend(*body);
+            central.extend(0x0201_4b50u32.to_le_bytes());
+            central.extend([20, 0, 20, 0, 0, 0]);
+            central.extend([0; 10]);
+            central.extend((body.len() as u32).to_le_bytes());
+            central.extend((body.len() as u32).to_le_bytes());
+            central.extend((name.len() as u16).to_le_bytes());
+            central.extend([0; 12]);
+            central.extend(offset.to_le_bytes());
+            central.extend(name.as_bytes());
+        }
+        let cd = out.len() as u32;
+        out.extend(&central);
+        out.extend(0x0605_4b50u32.to_le_bytes());
+        out.extend([0; 4]);
+        out.extend((entries.len() as u16).to_le_bytes());
+        out.extend((entries.len() as u16).to_le_bytes());
+        out.extend((central.len() as u32).to_le_bytes());
+        out.extend(cd.to_le_bytes());
+        out.extend([0; 2]);
+        out
+    }
+
+    #[test]
+    fn j15_denoise_archive_and_member_pins_install_once_with_complete_cleanup() {
+        let dir = Fixture::new();
+        let zip = zip_of(&[("pkg/main.onnx", b"x"), ("pkg/text.onnx", b"xx")]);
+        let spec = li_seg::ModelSpec {
+            bytes: zip.len() as u64,
+            sha256: pin(&zip),
+            companions: Box::leak(vec![bundle().companions[0]].into_boxed_slice()),
+            task: li_seg::Task::Denoise { inner: "pkg/main.onnx", inner_bytes: 1, inner_sha256: pin(b"x"), companion_inners: &["pkg/text.onnx"] },
+            ..bundle()
+        };
+        // Reference the replaced UI's package path on a second tiny fixture: it fetched and
+        // extracted on every invocation, including when all installed members were verified.
+        let legacy = Fixture::new();
+        let legacy_calls = Cell::new(0);
+        for _ in 0..2 {
+            let archive = legacy.0.join("segmentation").join(format!("{}.dtmodel", spec.id));
+            if archive.exists() {
+                std::fs::remove_file(&archive).unwrap();
+            }
+            legacy_calls.set(legacy_calls.get() + 1);
+            std::fs::write(&archive, &zip).unwrap();
+            li_seg::denoise::install_bundle(&archive, &spec, &legacy.0).unwrap();
+            std::fs::remove_file(&archive).unwrap();
+        }
+        let calls = Cell::new(0);
+        download_on_device_with(&spec, &dir.0, &JobControl::new(), &|_| {}, &|file, path, on_bytes| {
+            calls.set(calls.get() + 1);
+            assert_eq!(file.bytes, zip.len() as u64);
+            assert!(file.name.ends_with(".dtmodel"));
+            std::fs::write(path, &zip)?;
+            on_bytes(file.bytes);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(std::fs::read(li_seg::model_path(&dir.0, &spec)).unwrap(), b"x");
+        assert_eq!(std::fs::read(li_seg::companion_path(&dir.0, "test-text.onnx")).unwrap(), b"xx");
+        dir.no_staging();
+        let progress = Cell::new(0);
+        download_on_device_with(&spec, &dir.0, &JobControl::new(), &|n| progress.set(n), &|_, _, _| panic!("installed archive must not fetch")).unwrap();
+        assert_eq!(progress.get(), zip.len() as u64);
+        assert_eq!((legacy_calls.get(), calls.get()), (2, 1));
+        for file in spec.files() {
+            assert_eq!(std::fs::read(li_seg::companion_path(&legacy.0, file.file)).unwrap(), std::fs::read(li_seg::companion_path(&dir.0, file.file)).unwrap());
+        }
+        eprintln!(
+            "J15 small package sample: {} bytes, initial+retry fetches {} -> {}, transferred bytes {} -> {}",
+            zip.len(),
+            legacy_calls.get(),
+            calls.get(),
+            2 * zip.len(),
+            zip.len()
+        );
+        assert_eq!(std::fs::read_dir(dir.0.join("segmentation")).unwrap().count(), 2);
+        // A bad inner pin never modifies either installed destination, and the archive is cleaned.
+        let bad = li_seg::ModelSpec {
+            task: li_seg::Task::Denoise { inner: "pkg/main.onnx", inner_bytes: 1, inner_sha256: pin(b"y"), companion_inners: &["pkg/text.onnx"] },
+            ..spec
+        };
+        assert!(
+            download_on_device_with(&bad, &dir.0, &JobControl::new(), &|_| {}, &|_, path, _| {
+                std::fs::write(path, &zip)?;
+                Ok(())
+            })
+            .is_err()
+        );
+        assert_eq!(std::fs::read(li_seg::model_path(&dir.0, &spec)).unwrap(), b"x");
+        dir.no_staging();
+    }
+
+    #[test]
+    fn j15_failed_publication_preserves_old_bytes_and_successful_repair_is_atomic() {
+        let dir = Fixture::new();
+        let spec = bundle();
+        let file = &crate::catalog::OnDeviceFiles::from_spec(&spec).installed[0];
+        let dest = li_seg::model_path(&dir.0, &spec);
+        std::fs::write(&dest, b"old").unwrap();
+        let stage = ModelInstall::new(&dir.0).unwrap();
+        let staged = stage.0.join("replacement");
+        assert!(publish_member(&staged, &dest, file).is_err());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"old");
+        std::fs::write(&staged, b"x").unwrap();
+        publish_member(&staged, &dest, file).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"x");
+        assert!(!staged.exists(), "repair moved the replacement atomically");
+        drop(stage);
+        dir.no_staging();
+    }
+
+    #[test]
+    fn j15_overlapping_installs_isolate_staging_and_keep_matching_publication() {
+        let dir = Fixture::new();
+        let spec = li_seg::ModelSpec { companions: &[], ..bundle() };
+        let ctl = JobControl::new();
+        let inner_path = RefCell::new(PathBuf::new());
+        download_on_device_with(&spec, &dir.0, &ctl, &|_| {}, &|_, outer, _| {
+            download_on_device_with(&spec, &dir.0, &ctl, &|_| {}, &|_, inner, _| {
+                assert_ne!(inner, outer);
+                *inner_path.borrow_mut() = inner.to_path_buf();
+                std::fs::write(inner, b"x")?;
+                Ok(())
+            })?;
+            assert!(!inner_path.borrow().exists(), "other install cleaned only its staging");
+            assert_eq!(std::fs::read(li_seg::model_path(&dir.0, &spec)).unwrap(), b"x");
+            std::fs::write(outer, b"x")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(std::fs::read_dir(dir.0.join("segmentation")).unwrap().count(), 1);
+        dir.no_staging();
+    }
+
+    #[test]
+    fn j15_archive_cancel_after_fetch_cleans_up_without_installing() {
+        let dir = Fixture::new();
+        let spec = li_seg::Group::RawDenoise.official();
+        let ctl = JobControl::new();
+        assert!(
+            download_on_device_with(spec, &dir.0, &ctl, &|_| {}, &|_, path, _| {
+                std::fs::write(path, b"archive")?;
+                ctl.cancel();
+                Ok(())
+            })
+            .unwrap_err()
+            .is::<crate::comfy::Cancelled>()
+        );
+        assert_eq!(std::fs::read_dir(dir.0.join("segmentation")).unwrap().count(), 0);
+    }
+}
