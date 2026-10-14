@@ -1,11 +1,16 @@
-//! The downloader against a local HTTP server (std `TcpListener`; never the internet): mirror
-//! fallback, redirects, resuming, chunked bodies, stalls, hash mismatches, size caps, cancel.
+//! The mirror adapter over `li-ai::download` against a local HTTP server (std `TcpListener`;
+//! never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps,
+//! unpinned files, stale files from the old client, cancel. (J8: resume, Range/416 and stall
+//! tests went with the hand-written client; see docs/wip/CLAUDE-REPORT-j08-sam-defeature.md.)
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
+
+use sha2::{Digest, Sha256};
 
 use super::*;
 
@@ -36,6 +41,10 @@ struct Server {
 fn server() -> Server {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", l.local_addr().unwrap());
+    // plain http to this one in-process server only (li-ai's test hook)
+    li_ai::download::allow_test_host(&l.local_addr().unwrap().to_string());
+    // and to the closed port the fallback test lists (a connect failure, not a refused host)
+    li_ai::download::allow_test_host("127.0.0.1:1");
     let hits = Arc::new(AtomicUsize::new(0));
     let h = hits.clone();
     std::thread::spawn(move || {
@@ -137,7 +146,7 @@ fn tmp(name: &str) -> PathBuf {
 }
 
 fn quick() -> Options {
-    Options { connect_timeout: Duration::from_secs(2), stall_timeout: Duration::from_millis(600), attempts: 2, token_env: None }
+    Options { attempts: 2, token_env: None }
 }
 
 fn run(files: &[FileSpec], mirrors: &[String], dir: &Path, cancel: &AtomicBool) -> (Result<(), DownloadError>, Vec<Progress>) {
@@ -146,8 +155,15 @@ fn run(files: &[FileSpec], mirrors: &[String], dir: &Path, cancel: &AtomicBool) 
     (r, seen)
 }
 
+/// Nothing but the named files in `dir` (no `.part` or error page left behind).
+fn only(dir: &Path, names: &[&str]) {
+    let mut have: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+    have.sort();
+    assert_eq!(have, names, "{}", dir.display());
+}
+
 #[test]
-fn falls_back_to_the_next_mirror_and_verifies() {
+fn j08_falls_back_to_the_next_mirror_and_verifies() {
     let srv = server();
     let dir = tmp("fallback");
     let mirrors = vec![
@@ -159,11 +175,10 @@ fn falls_back_to_the_next_mirror_and_verifies() {
     let (r, seen) = run(&[pinned()], &mirrors, &dir, &AtomicBool::new(false));
     r.unwrap();
     assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
-    assert!(!part_path(&dir, "model.bin").exists());
     let last = seen.last().unwrap();
     assert_eq!((last.done, last.total), (300_000, 300_000));
     // an error page never ends up in the file: nothing left over from the failed mirrors
-    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    only(&dir, &["model.bin"]);
     // installed: nothing is fetched again
     let hits = srv.hits.load(Ordering::SeqCst);
     run(&[pinned()], &mirrors, &dir, &AtomicBool::new(false)).0.unwrap();
@@ -172,102 +187,74 @@ fn falls_back_to_the_next_mirror_and_verifies() {
 }
 
 #[test]
-fn a_hash_mismatch_is_deleted_and_the_next_mirror_used() {
+fn j08_a_hash_mismatch_is_deleted_and_the_next_mirror_used() {
     let srv = server();
     let dir = tmp("hash");
     let (r, _) = run(&[pinned()], &[format!("{}/wrong", srv.base)], &dir, &AtomicBool::new(false));
     let e = r.unwrap_err().to_string();
-    assert!(e.contains("SHA-256"), "{e}");
-    assert!(!dir.join("model.bin").exists() && !part_path(&dir, "model.bin").exists(), "a damaged file is never kept");
+    assert!(e.contains("checksum"), "{e}");
+    only(&dir, &[]);
     run(&[pinned()], &[format!("{}/wrong", srv.base), format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
     assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn resumes_partial_files_and_restarts_bad_ones() {
+fn j08_damaged_files_and_old_part_files_are_replaced() {
     let srv = server();
-    let dir = tmp("resume");
+    let dir = tmp("stale");
     std::fs::create_dir_all(&dir).unwrap();
-    // a third already there
-    std::fs::write(part_path(&dir, "model.bin"), &payload()[..100_000]).unwrap();
+    // a damaged copy under the real name (right size, wrong bytes) and the old client's resume file
+    std::fs::write(dir.join("model.bin"), vec![1u8; 300_000]).unwrap();
+    std::fs::write(dir.join("model.bin.part"), &payload()[..100_000]).unwrap();
     run(&[pinned()], &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
     assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
-    // a partial file with the wrong bytes: the hash fails, it's deleted, the next try starts over
-    std::fs::remove_file(dir.join("model.bin")).unwrap();
-    std::fs::write(part_path(&dir, "model.bin"), vec![0u8; 100_000]).unwrap();
-    run(&[pinned()], &[format!("{}/good", srv.base), format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
-    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
-    // a server ignoring Range: the whole file again, not appended
-    std::fs::remove_file(dir.join("model.bin")).unwrap();
-    std::fs::write(part_path(&dir, "model.bin"), &payload()[..5]).unwrap();
-    run(&[pinned()], &[format!("{}/norange", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
-    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
-    // a connection breaking off is resumed on the same mirror
-    std::fs::remove_file(dir.join("model.bin")).unwrap();
-    run(&[pinned()], &[format!("{}/flaky", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
-    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
+    only(&dir, &["model.bin"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn a_416_or_a_bad_complete_part_starts_over() {
-    let srv = server();
-    let dir = tmp("416");
-    std::fs::create_dir_all(&dir).unwrap();
-    // the server refuses the range: the part is dropped and the file fetched whole (no loop)
-    std::fs::write(part_path(&dir, "model.bin"), &payload()[..100]).unwrap();
-    run(&[pinned()], &[format!("{}/range416", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
-    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
-    // as long as the file but wrong: hash fails → deleted → downloaded again from the same mirror
-    std::fs::remove_file(dir.join("model.bin")).unwrap();
-    std::fs::write(part_path(&dir, "model.bin"), vec![1u8; 300_000]).unwrap();
-    run(&[pinned()], &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
-    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn chunked_bodies_and_unpinned_files() {
+fn j08_chunked_bodies_and_unpinned_files() {
     let srv = server();
     let dir = tmp("chunked");
+    run(&[pinned()], &[format!("{}/chunked", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
+    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
+    // an unpinned file is never downloaded (li-ai requires size + SHA-256)…
+    let hits = srv.hits.load(Ordering::SeqCst);
     let f = FileSpec { name: "vocab.json", size: None, sha256: None, max: 1 << 20 };
-    run(std::slice::from_ref(&f), &[format!("{}/chunked", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
-    assert_eq!(std::fs::read(dir.join("vocab.json")).unwrap(), payload());
-    // more than the cap: refused, nothing kept
-    let small = FileSpec { max: 1000, ..f };
-    let dir2 = tmp("cap");
-    let e = run(&[small], &[format!("{}/good", srv.base)], &dir2, &AtomicBool::new(false)).0.unwrap_err().to_string();
-    assert!(e.contains("wrong size") || e.contains("more than"), "{e}");
-    assert!(!dir2.join("vocab.json").exists() && !part_path(&dir2, "vocab.json").exists());
+    let e = run(std::slice::from_ref(&f), &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap_err();
+    assert_eq!(e, DownloadError::Unpinned("vocab.json".into()));
+    assert!(e.to_string().contains("model folder"), "{e}");
+    assert_eq!(srv.hits.load(Ordering::SeqCst), hits, "nothing was requested");
+    // …but one the user put in place is accepted when within its cap
+    std::fs::write(dir.join("vocab.json"), b"{}").unwrap();
+    run(std::slice::from_ref(&f), &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
+    let small = FileSpec { max: 1, ..f };
+    assert!(run(&[small], &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.is_err());
     let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_dir_all(&dir2);
 }
 
 #[test]
-fn a_server_sending_too_much_is_cut_off() {
+fn j08_a_server_sending_too_much_is_cut_off() {
     let srv = server();
     let dir = tmp("toolong");
     let e = run(&[pinned()], &[format!("{}/toolong", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap_err().to_string();
-    assert!(e.contains("more than"), "{e}");
-    assert!(!dir.join("model.bin").exists() && !part_path(&dir, "model.bin").exists());
+    assert!(e.contains("larger than expected"), "{e}");
+    only(&dir, &[]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn a_stalled_server_times_out_and_the_next_mirror_finishes() {
-    let srv = server();
-    let dir = tmp("stall");
-    let t = Instant::now();
-    let (r, _) = run(&[pinned()], &[format!("{}/stall", srv.base), format!("{}/good", srv.base)], &dir, &AtomicBool::new(false));
-    r.unwrap();
-    assert!(t.elapsed() < Duration::from_secs(4), "{:?}", t.elapsed());
-    assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
+fn j08_a_host_off_the_allow_list_is_refused() {
+    let dir = tmp("allow");
+    let e = run(&[pinned()], &["https://mirror.invalid/sam3".to_string()], &dir, &AtomicBool::new(false)).0.unwrap_err().to_string();
+    assert!(e.contains("unexpected host"), "{e}");
+    only(&dir, &[]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn cancel_stops_quickly_and_keeps_the_part_for_later() {
+fn j08_cancel_stops_quickly_and_leaves_nothing() {
     let srv = server();
     let dir = tmp("cancel");
     let cancel = Arc::new(AtomicBool::new(false));
@@ -280,23 +267,21 @@ fn cancel_stops_quickly_and_keeps_the_part_for_later() {
     let (r, _) = run(&[pinned()], &[format!("{}/slow", srv.base)], &dir, &cancel);
     assert_eq!(r, Err(DownloadError::Cancelled));
     assert!(t.elapsed() < Duration::from_secs(3), "{:?}", t.elapsed());
-    assert!(!dir.join("model.bin").exists());
-    let kept = std::fs::metadata(part_path(&dir, "model.bin")).map(|m| m.len()).unwrap_or(0);
-    assert!(kept > 0 && kept < 300_000, "{kept}");
-    // and the next run resumes it
+    only(&dir, &[]);
+    // and the next run fetches it whole
     run(&[pinned()], &[format!("{}/good", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
     assert_eq!(std::fs::read(dir.join("model.bin")).unwrap(), payload());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
-fn no_mirrors_is_a_clear_error_and_mirror_lists_are_parsed() {
+fn j08_no_mirrors_is_a_clear_error_and_mirror_lists_are_parsed() {
     let dir = tmp("nomirror");
     let e = run(&[pinned()], &[], &dir, &AtomicBool::new(false)).0.unwrap_err();
     assert_eq!(e, DownloadError::NoMirrors);
     assert!(e.to_string().contains("no download location"));
     let file = std::env::temp_dir().join(format!("lc-sam3-mirrors-{}.txt", std::process::id()));
-    std::fs::write(&file, "# mine\nhttps://b.example/m/ # second\n\nnot a url\nhttps://a.example/x\n").unwrap();
+    std::fs::write(&file, "# mine\nhttps://b.example/m/ # second\n\nnot a url\nhttps://a.example/x\nhttps://user@c.example/y\n").unwrap();
     let defaults = ["https://c.example/d", "https://a.example/x"];
     let m = mirrors(Some("https://a.example/x/, ftp://no"), Some(&file), &defaults);
     // the environment's, then the file's, then the defaults; a repeated one is kept once
@@ -307,26 +292,14 @@ fn no_mirrors_is_a_clear_error_and_mirror_lists_are_parsed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Upstream LightCraft 4b57d5d: a bearer token goes only to https and only when the caller names
+/// its variable (li-ai keeps it to the first host, never a redirect's).
 #[test]
-fn content_ranges() {
-    assert_eq!(parse_content_range("bytes 100-299/300"), Some((100, Some(300))));
-    assert_eq!(parse_content_range("bytes 0-0/*"), Some((0, None)));
-    assert_eq!(parse_content_range("bytes 9-1/300"), None);
-    assert_eq!(parse_content_range("items 1-2/3"), None);
-}
-
-/// Upstream LightCraft 4b57d5d: a bearer token goes only to https, only to the host the download
-/// began at, and only when the caller names its variable.
-#[test]
-fn a_token_is_sent_only_over_https_to_the_first_host() {
-    let u = |s: &str| Url::parse(s).unwrap();
-    let first = u("https://huggingface.co/x/model.bin");
-    assert_eq!(bearer(Some(" hf_abc \n"), &first, "huggingface.co"), Some("hf_abc"));
-    // the storage host a redirect leads to, plain http, no token, an empty one
-    assert_eq!(bearer(Some("hf_abc"), &u("https://cdn-lfs.example/x"), "huggingface.co"), None);
-    assert_eq!(bearer(Some("hf_abc"), &u("http://huggingface.co/x"), "huggingface.co"), None);
-    assert_eq!(bearer(None, &first, "huggingface.co"), None);
-    assert_eq!(bearer(Some("  "), &first, "huggingface.co"), None);
+fn j08_a_token_is_sent_only_over_https() {
+    assert_eq!(bearer(Some(" hf_abc \n"), "https://huggingface.co/x/model.bin"), Some("hf_abc"));
+    assert_eq!(bearer(Some("hf_abc"), "http://huggingface.co/x"), None);
+    assert_eq!(bearer(None, "https://huggingface.co/x"), None);
+    assert_eq!(bearer(Some("  "), "https://huggingface.co/x"), None);
     // a caller that names no variable sends nothing, whatever the environment holds
     assert!(Options::default().token_env.is_none());
 }

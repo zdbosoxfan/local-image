@@ -4227,11 +4227,9 @@ dependencies = [
 name = "lightcraft-fetch"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-ai",
  "log",
- "rustls",
- "rustls-rustcrypto",
  "sha2",
- "webpki-roots",
 ]
 
 [[package]]
@@ -4388,6 +4386,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "li-seg",
  "lightcraft-fetch",
  "log",
  "serde",

@@ -8,8 +8,9 @@ description = "Local Image: layered photo editing, a photo catalog and local AI 
 build = "build.rs"
 
 [features]
-# Optional local SAM 3 masks; default release packages keep this off.
-# Opt-in Apple Silicon builds can use Candle Metal.
+# Optional local SAM 3 masks. OFF by owner decision and never in `default`: without it the build
+# has no candle, no lightcraft-segment / lightcraft-fetch (audit D16, job J8). Opt-in Apple Silicon
+# builds can use Candle Metal.
 sam = ["lightcraft-engine/sam"]
 # Open HEIC/HEIF photos (the optional photocraft-heif crate). Not default so distributors choose
 # it; official builds (CI, packaging/, release) build with `--features heif`.

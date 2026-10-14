@@ -1,5 +1,5 @@
 //! AI masks: Object (clicks) and Describe (text) selections computed with SAM 3
-//! (`lightcraft-segment`, cargo feature `sam`; the desktop app enables it).
+//! (`lightcraft-segment`, cargo feature `sam`; off by owner decision: no default build enables it).
 //!
 //! **Nothing requires the model.** It is not part of LightCraft (SAM License); the user
 //! downloads it when they first use an AI mask and agree to (`segment.model.download`), or
