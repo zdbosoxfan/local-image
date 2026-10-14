@@ -22,6 +22,7 @@ mod adjustments_tests;
 mod appearance;
 mod chroma_statistics;
 mod content;
+mod descriptor;
 mod order_statistics;
 #[cfg(test)]
 mod quality_tests;
@@ -1789,7 +1790,7 @@ pub fn solve_with_techniques(
     techniques: Techniques,
     cancel: &dyn Fn() -> bool,
 ) -> Option<Solved> {
-    solve_impl(src, info, base, refs, opts, &[], techniques, None, cancel)
+    solve_impl::<false>(src, info, base, refs, opts, &[], techniques, None, cancel)
 }
 #[allow(clippy::too_many_arguments)]
 pub fn solve_with_faces(
@@ -1801,7 +1802,7 @@ pub fn solve_with_faces(
     faces: &[[f32; 4]],
     cancel: &dyn Fn() -> bool,
 ) -> Option<Solved> {
-    solve_impl(src, info, base, refs, opts, faces, Techniques::default(), None, cancel)
+    solve_impl::<false>(src, info, base, refs, opts, faces, Techniques::default(), None, cancel)
 }
 /// Batches already parallelize independent photos. Keep the small Jacobian probes in each
 /// photo sequential to avoid competing nested probe queues; the render kernels share the pool.
@@ -1816,7 +1817,7 @@ pub fn solve_batch_with_faces(
     cancel: &dyn Fn() -> bool,
 ) -> Option<Solved> {
     lightcraft_raster::sequential(|| {
-        solve_impl(src, info, base, refs, opts, faces, Techniques { parallel_probes: false, ..Default::default() }, None, cancel)
+        solve_impl::<false>(src, info, base, refs, opts, faces, Techniques { parallel_probes: false, ..Default::default() }, None, cancel)
     })
 }
 /// Batch consistency refines each target's normalization and light while holding
@@ -1834,11 +1835,11 @@ pub fn solve_batch_locked_color_with_faces(
     cancel: &dyn Fn() -> bool,
 ) -> Option<Solved> {
     lightcraft_raster::sequential(|| {
-        solve_impl(src, info, base, refs, opts, faces, Techniques { parallel_probes: false, ..Default::default() }, Some(shared), cancel)
+        solve_impl::<false>(src, info, base, refs, opts, faces, Techniques { parallel_probes: false, ..Default::default() }, Some(shared), cancel)
     })
 }
 #[allow(clippy::too_many_arguments)]
-fn solve_impl(
+fn solve_impl<const FULL_DESCRIPTOR: bool>(
     src: &Arc<Rgb32f>,
     info: &SourceInfo,
     base: &DevelopSettings,
@@ -1923,8 +1924,10 @@ fn solve_impl(
     // Reference analysis uses the same 128px source/geometry for descriptors. A 60px
     // fitting proxy can lose enough structure to misclassify an edited copy of this capture.
     let (signature_src, signature_info) = measurement_source(&fine_src, &fine_info, 128);
-    let target_descriptor =
-        measure(&crate::render(&signature_src, &signature_info, &DevelopSettings::default(), &RenderRequest::fit(128, 128)).image);
+    let descriptor_image = crate::render(&signature_src, &signature_info, &DevelopSettings::default(), &RenderRequest::fit(128, 128));
+    // The legacy full measurement remains a test oracle; the solver reads only
+    // signature/content, whose arithmetic is independent of appearance statistics.
+    let target_descriptor = if FULL_DESCRIPTOR { measure(&descriptor_image.image) } else { descriptor::measure(&descriptor_image.image) };
     let signature = target_descriptor.signature;
     let similarity = refs
         .iter()
