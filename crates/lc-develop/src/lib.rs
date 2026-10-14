@@ -399,3 +399,24 @@ mod tests {
         assert!(s.section_enabled("effects"));
     }
 }
+
+#[cfg(test)]
+mod demosaic_compatibility_tests {
+    use super::*;
+    #[test]
+    fn demosaic_old_settings_and_new_overrides_round_trip() {
+        let old: DevelopSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.raw.demosaic, Demosaic::Auto);
+        for method in Demosaic::ALL.into_iter().chain([Demosaic::DualRcd]) {
+            let mut settings = old.clone();
+            settings.raw.demosaic = method;
+            let text = serde_json::to_string(&settings).unwrap();
+            assert_eq!(serde_json::from_str::<DevelopSettings>(&text).unwrap().raw.demosaic, method);
+        }
+        for key in ["auto", "ahd", "rcd", "dualRcd", "dualRcdVng", "vng4", "amaze", "dualAmazeVng", "ppg", "bilinear"] {
+            let old: DevelopSettings = serde_json::from_value(serde_json::json!({"raw":{"demosaic":key}})).unwrap();
+            assert_eq!(serde_json::to_value(old.raw.demosaic).unwrap(), key);
+        }
+        assert!(Demosaic::DualMarkesteijnVng.is_dual());
+    }
+}

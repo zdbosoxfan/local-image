@@ -1,15 +1,15 @@
 //! Settings of the toolset upgrades: raw processing (demosaic, highlight reconstruction, capture
 //! sharpening), lens profiles from the lens database, the tone equalizer and colour calibration.
-//! Every section is off (or at today's behaviour) by default and left out of the JSON while it is
-//! at its defaults, so settings written before they existed serialize, hash and render as before.
+//! Default sections remain omitted from JSON, so older settings still load. Explicit saved
+//! methods retain their meaning; Automatic now selects by sensor noise and may render differently.
 
 use serde::{Deserialize, Serialize};
 
-/// Demosaic method for Bayer raws (X-Trans and other patterns always use their own method).
+/// Sensor demosaic method; unsupported sensor/method pairs use the quality method for that sensor.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Demosaic {
-    /// AHD (bilinear for small thumbnails): what every photo used before.
+    /// Noise-adaptive Bayer, Markesteijn three-pass X-Trans; thumbnails stay bilinear.
     #[default]
     Auto,
     Ahd,
@@ -23,12 +23,22 @@ pub enum Demosaic {
     DualAmazeVng,
     Ppg,
     Bilinear,
+    Lmmse,
+    Dcb,
+    Markesteijn3,
+    DualMarkesteijnVng,
+    XtransDirectional,
 }
 
 impl Demosaic {
     /// Menu methods; the saved bilinear dual is shown only when selected.
-    pub const ALL: [Demosaic; 9] = [
+    pub const ALL: [Demosaic; 14] = [
         Demosaic::Auto,
+        Demosaic::Lmmse,
+        Demosaic::Dcb,
+        Demosaic::Markesteijn3,
+        Demosaic::DualMarkesteijnVng,
+        Demosaic::XtransDirectional,
         Demosaic::Ahd,
         Demosaic::Rcd,
         Demosaic::DualRcdVng,
@@ -39,11 +49,16 @@ impl Demosaic {
         Demosaic::Bilinear,
     ];
     pub fn is_dual(self) -> bool {
-        matches!(self, Self::DualRcd | Self::DualRcdVng | Self::DualAmazeVng)
+        matches!(self, Self::DualRcd | Self::DualRcdVng | Self::DualAmazeVng | Self::DualMarkesteijnVng)
     }
     pub fn label(self) -> &'static str {
         match self {
-            Demosaic::Auto => "Default (AHD)",
+            Demosaic::Auto => "Automatic",
+            Demosaic::Lmmse => "LMMSE",
+            Demosaic::Dcb => "DCB",
+            Demosaic::Markesteijn3 => "Markesteijn 3-pass",
+            Demosaic::DualMarkesteijnVng => "Dual X-Trans",
+            Demosaic::XtransDirectional => "X-Trans fast",
             Demosaic::Ahd => "AHD",
             Demosaic::Rcd => "RCD",
             Demosaic::DualRcd => "Dual (RCD + bilinear)",

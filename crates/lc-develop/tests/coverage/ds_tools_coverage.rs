@@ -3,10 +3,15 @@ use serde_json::json;
 
 #[test]
 fn demosaic_all_excludes_legacy_dual_rcr() {
-    assert_eq!(Demosaic::ALL.len(), 9);
+    assert_eq!(Demosaic::ALL.len(), 14);
     assert!(!Demosaic::ALL.contains(&Demosaic::DualRcd));
     let expected = [
         Demosaic::Auto,
+        Demosaic::Lmmse,
+        Demosaic::Dcb,
+        Demosaic::Markesteijn3,
+        Demosaic::DualMarkesteijnVng,
+        Demosaic::XtransDirectional,
         Demosaic::Ahd,
         Demosaic::Rcd,
         Demosaic::DualRcdVng,
@@ -26,6 +31,11 @@ fn demosaic_is_dual_only_for_dual_variants() {
     assert!(Demosaic::DualRcd.is_dual());
     assert!(Demosaic::DualRcdVng.is_dual());
     assert!(Demosaic::DualAmazeVng.is_dual());
+    assert!(Demosaic::DualMarkesteijnVng.is_dual());
+    assert!(!Demosaic::Lmmse.is_dual());
+    assert!(!Demosaic::Dcb.is_dual());
+    assert!(!Demosaic::Markesteijn3.is_dual());
+    assert!(!Demosaic::XtransDirectional.is_dual());
     assert!(!Demosaic::Auto.is_dual());
     assert!(!Demosaic::Ahd.is_dual());
     assert!(!Demosaic::Rcd.is_dual());
@@ -39,7 +49,23 @@ fn demosaic_is_dual_only_for_dual_variants() {
 fn demosaic_serde_roundtrip_camel_case() {
     let mut all = Demosaic::ALL.to_vec();
     all.push(Demosaic::DualRcd);
-    let expected_names = ["auto", "ahd", "rcd", "dualRcdVng", "vng4", "amaze", "dualAmazeVng", "ppg", "bilinear", "dualRcd"];
+    let expected_names = [
+        "auto",
+        "lmmse",
+        "dcb",
+        "markesteijn3",
+        "dualMarkesteijnVng",
+        "xtransDirectional",
+        "ahd",
+        "rcd",
+        "dualRcdVng",
+        "vng4",
+        "amaze",
+        "dualAmazeVng",
+        "ppg",
+        "bilinear",
+        "dualRcd",
+    ];
     for (i, v) in all.iter().enumerate() {
         let json = serde_json::to_string(v).unwrap();
         assert_eq!(json, format!("\"{}\"", expected_names[i]));

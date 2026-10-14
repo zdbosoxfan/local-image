@@ -58,3 +58,12 @@ read-only robustness reference. **No code was ported from it.** Our existing spa
 held-out JPEG fit uses median bins, isotonic regression and validation instead of global CDF
 matching: this preserves correspondences and rejects unrelated previews. Low-colour photos
 with valid camera calibration can fit tone/chroma without fitting a new colour matrix.
+
+### DCB demosaic (2026-10-13)
+
+`crates/lc-raw/src/demosaic/dcb.rs` ports RawTherapee's DCB integration from
+`rtengine/demosaic_algos.cc` at `5f486d3678b34c74ba0c63571c17babe20935019`.
+DCB Copyright (C) 2010 Jacek Gozdz (cuniek@kft.umcs.lublin.pl), BSD-3-Clause;
+RawTherapee integration GPL-3.0-or-later. Original DCB terms are reproduced in
+`rawtherapee-DCB-BSD-3-Clause.txt`. The Rust port uses normalized floating point,
+mirror padding, safe indexing and the shared Rayon pool. It adds no dependency.
