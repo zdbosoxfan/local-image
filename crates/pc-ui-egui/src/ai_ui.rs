@@ -376,9 +376,10 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
         }
         d.insert(key.clone(), Download { total: spec.download_bytes(), file: spec.file.to_owned(), ctl: ctl.clone(), ..Default::default() });
     }
+    let models_dir = photocraft_engine::seg::models_dir();
     let _ = std::thread::Builder::new().name("seg-download".into()).spawn(move || {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
-        let r = download_seg_files(spec, &photocraft_engine::seg::models_dir(), &ctl, &|done| {
+        let r = download_seg_files(spec, &models_dir, &ctl, &|done| {
             if let Ok(mut d) = shared().downloads.lock()
                 && let Some(x) = d.get_mut(&key)
             {
@@ -395,57 +396,9 @@ pub fn start_seg_download(spec: &'static li_seg::ModelSpec) {
     });
 }
 
-/// Fetch a bundle in order, with one cumulative progress counter. Kept separate from the
-/// thread so tests can verify sequencing and cancellation without any network.
+/// Compatibility adapter: bundle verification, progress and installation live in the registry.
 pub fn download_seg_files(spec: &li_seg::ModelSpec, dir: &std::path::Path, ctl: &JobControl, progress: &dyn Fn(u64)) -> anyhow::Result<()> {
-    if matches!(spec.task, li_seg::Task::Denoise { .. }) {
-        let package = dir.join("segmentation").join(format!("{}.dtmodel", spec.id));
-        if package.exists() {
-            std::fs::remove_file(&package)?;
-        }
-        li_ai::download::download_file(spec.url, &package, spec.bytes, spec.sha256, ctl, progress)?;
-        if ctl.is_cancelled() {
-            anyhow::bail!("download cancelled");
-        }
-        let r = li_seg::denoise::install_bundle(&package, spec, dir);
-        let _ = std::fs::remove_file(&package);
-        return r;
-    }
-    download_seg_files_with(spec, dir, ctl, progress, &|file, path, on_bytes| {
-        li_ai::download::download_file(file.url, path, file.bytes, file.sha256, ctl, on_bytes)
-    })
-}
-
-fn download_seg_files_with(
-    spec: &li_seg::ModelSpec,
-    dir: &std::path::Path,
-    ctl: &JobControl,
-    progress: &dyn Fn(u64),
-    fetch: &dyn Fn(li_seg::Companion, &std::path::Path, &dyn Fn(u64)) -> anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    download_seg_with(spec, &|file, offset| {
-        if ctl.is_cancelled() {
-            anyhow::bail!("download cancelled");
-        }
-        let path = li_seg::companion_path(dir, file.file);
-        if li_seg::file_installed(dir, file) {
-            progress(offset + file.bytes);
-            return Ok(());
-        }
-        if path.is_file() {
-            std::fs::remove_file(&path)?;
-        }
-        fetch(file, &path, &|n| progress(offset + n))
-    })
-}
-
-fn download_seg_with(spec: &li_seg::ModelSpec, download: &dyn Fn(li_seg::Companion, u64) -> anyhow::Result<()>) -> anyhow::Result<()> {
-    let mut done = 0;
-    for file in spec.files() {
-        download(file, done)?;
-        done += file.bytes;
-    }
-    Ok(())
+    li_ai::inventory::download_on_device(spec, dir, ctl, progress)
 }
 
 /// Where a function's custom-model test stands (see [`CUSTOM_JOBS`]).
@@ -2047,14 +2000,44 @@ mod tests {
     }
 
     #[test]
+    fn j15_cancel_click_reaches_shared_registry_downloader_without_io() {
+        let dir = temp_dir("j15-cancel");
+        let draw_dir = dir.clone();
+        let ctl = JobControl::new();
+        let observed = ctl.clone();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(760.0, 400.0)).build_ui(move |ui| {
+            if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                return;
+            }
+            let t = Tokens::get(ui.ctx());
+            let dls = BTreeMap::from([(
+                "seg:sface".into(),
+                Download { total: li_ai::catalog::on_device_files("sface").unwrap().download_bytes(), done: 100, ctl: ctl.clone(), ..Default::default() },
+            )]);
+            function_row(ui, &t, &dls, &draw_dir, li_seg::Group::Faces);
+        });
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(3);
+        h.get_by_label("Cancel").click();
+        h.run_steps(2);
+        let error =
+            download_seg_files(li_ai::catalog::on_device_spec("sface").unwrap(), &dir, &observed, &|_| panic!("cancel must not advance progress")).unwrap_err();
+        assert!(error.is::<li_ai::comfy::Cancelled>());
+        assert_eq!(std::fs::read_dir(dir.join("segmentation")).unwrap().count(), 0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn bundle_download_progress_is_cumulative_and_stops_on_failure() {
         let spec = li_seg::spec("clip-b32-laion").unwrap();
         let calls = std::cell::RefCell::new(Vec::new());
-        download_seg_with(spec, &|file, offset| {
-            calls.borrow_mut().push((file.file, offset, offset + file.bytes));
-            Ok(())
-        })
-        .unwrap();
+        li_ai::catalog::on_device_files(spec.id)
+            .unwrap()
+            .visit(&|file, offset| {
+                calls.borrow_mut().push((file.name.clone(), offset, offset + file.bytes));
+                Ok(())
+            })
+            .unwrap();
         let calls = calls.into_inner();
         assert_eq!(calls.len(), 4);
         assert_eq!(calls[0].1, 0);
@@ -2064,45 +2047,18 @@ mod tests {
         assert_eq!(calls.last().unwrap().2, spec.download_bytes());
         let count = std::cell::Cell::new(0);
         assert!(
-            download_seg_with(spec, &|_, _| {
-                count.set(count.get() + 1);
-                if count.get() == 2 {
-                    anyhow::bail!("cancelled");
-                }
-                Ok(())
-            })
-            .is_err()
+            li_ai::catalog::on_device_files(spec.id)
+                .unwrap()
+                .visit(&|_, _| {
+                    count.set(count.get() + 1);
+                    if count.get() == 2 {
+                        anyhow::bail!("cancelled");
+                    }
+                    Ok(())
+                })
+                .is_err()
         );
         assert_eq!(count.get(), 2);
-    }
-
-    #[test]
-    fn bundle_download_retry_keeps_verified_files_and_repairs_invalid_ones() {
-        let dir = std::env::temp_dir().join(format!("smart-sort-download-{}", std::process::id()));
-        std::fs::create_dir_all(dir.join("segmentation")).unwrap();
-        let mut spec = *li_seg::spec("clip-b32-laion").unwrap();
-        spec.bytes = 1;
-        spec.sha256 = "";
-        spec.companions =
-            &[li_seg::Companion { file: "test-text", url: "", bytes: 2, sha256: "" }, li_seg::Companion { file: "test-vocab", url: "", bytes: 3, sha256: "" }];
-        std::fs::write(li_seg::model_path(&dir, &spec), b"x").unwrap();
-        std::fs::write(li_seg::companion_path(&dir, "test-text"), b"x").unwrap();
-        let fetched = std::cell::RefCell::new(Vec::new());
-        let progress = std::cell::Cell::new(0);
-        let ctl = JobControl::new();
-        download_seg_files_with(&spec, &dir, &ctl, &|n| progress.set(n), &|file, path, on_bytes| {
-            fetched.borrow_mut().push(file.file);
-            assert!(!path.exists());
-            std::fs::write(path, vec![b'x'; file.bytes as usize])?;
-            on_bytes(file.bytes);
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(fetched.into_inner(), ["test-text", "test-vocab"]);
-        assert_eq!(progress.get(), 6);
-        ctl.cancel();
-        assert!(download_seg_files_with(&spec, &dir, &ctl, &|_| {}, &|_, _, _| panic!("must not fetch after cancel")).is_err());
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Tagging is its own function row and never offers the single-ONNX custom flow.
@@ -2150,11 +2106,13 @@ mod tests {
         h.run_steps(2);
         assert!(observed.is_cancelled());
         let files = std::cell::RefCell::new(Vec::new());
-        download_seg_with(li_seg::Group::Faces.official(), &|file, offset| {
-            files.borrow_mut().push((file.file, offset));
-            Ok(())
-        })
-        .unwrap();
+        li_ai::catalog::on_device_files("sface")
+            .unwrap()
+            .visit(&|file, offset| {
+                files.borrow_mut().push((file.name.clone(), offset));
+                Ok(())
+            })
+            .unwrap();
         assert_eq!(files.borrow().len(), 2);
         assert_eq!(files.borrow()[1].1, li_seg::faces::SFACE.bytes);
     }
