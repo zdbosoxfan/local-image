@@ -433,6 +433,7 @@ fn build_profile(hw: Hardware, overrides: Overrides, pool: impl FnOnce(usize) ->
 /// (rayon's default pool is one thread per logical CPU and can't be resized later). Logs the profile
 /// once. Later calls return the first profile unchanged.
 pub fn init(overrides: Overrides) -> &'static ComputeProfile {
+    crate::power::init();
     let mut slot = PROFILE.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some((p, true)) = *slot {
         return p;

@@ -31,6 +31,12 @@ pub fn saved_overrides(prefs_file: Option<&Path>) -> lightcraft_sysmem::Override
 
 /// Build the compute pool and point tract at it. Call before anything uses rayon.
 pub fn init(prefs_file: Option<&Path>) {
+    let full_speed = prefs_file
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.pointer("/performance/system/fullSpeedOnBattery").and_then(serde_json::Value::as_bool))
+        .unwrap_or(false);
+    lightcraft_sysmem::power::set_full_speed(full_speed);
     lightcraft_sysmem::init(saved_overrides(prefs_file));
     lightcraft_catalog::local::set_compute_threads(lightcraft_sysmem::profile().threads);
     li_seg::init_executor();
@@ -43,7 +49,7 @@ mod tests {
     #[test]
     fn automatic_by_default_and_overrides_when_set() {
         assert_eq!(overrides_of(&SystemResources::default()), lightcraft_sysmem::Overrides::default());
-        let c = SystemResources { threads: 3, background_priority: BackgroundPriority::Normal, memory_percent: 120 };
+        let c = SystemResources { threads: 3, background_priority: BackgroundPriority::Normal, memory_percent: 120, ..Default::default() };
         let o = overrides_of(&c);
         assert_eq!((o.threads, o.background_priority, o.memory_percent), (Some(3), lightcraft_sysmem::BackgroundPriority::Normal, Some(90)));
     }

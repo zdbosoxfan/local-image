@@ -4164,7 +4164,9 @@ dependencies = [
  "lightcraft-pipeline",
  "lightcraft-raster",
  "lightcraft-scenes",
+ "lightcraft-sysmem",
  "log",
+ "photocraft-gpu",
  "pollster 1.0.1",
  "wgpu",
 ]
@@ -4317,6 +4319,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "li-attributions",
+ "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",
@@ -5761,6 +5764,7 @@ dependencies = [
  "photocraft-vector",
  "pollster 1.0.1",
  "rayon",
+ "web-time",
  "wgpu",
 ]
 

@@ -479,20 +479,37 @@ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             })
             .inner;
         widgets::hairline(ui);
+        let cpu_allowed = if r.selected_byo.is_none() && matches!(r.task, Task::Colourise | Task::OldPhoto) {
+            let kind = if r.task == Task::Colourise { li_seg::restoration::Kind::Colourise } else { li_seg::restoration::Kind::Scratches };
+            r.source.as_ref().is_none_or(|source| match li_seg::restoration::cpu_estimate(kind, source.width(), source.height()) {
+                Ok(estimate) => widgets::cpu_estimate(ui, estimate),
+                Err(e) => {
+                    ui.label(e.to_string());
+                    false
+                }
+            })
+        } else {
+            true
+        };
         ui.horizontal_wrapped(|ui| {
             let ready = r.selected_byo.as_ref().map_or_else(|| local_ready, |m| m.adapter.is_some() && r.acks.contains(m, &r.byo_host));
             #[cfg(test)]
             let ready = ready || TEST_RESULT.with(|s| s.borrow().is_some()) || TEST_MASK.with(|s| s.borrow().is_some());
-            run = ui.add_enabled(r.source.is_some() && ready && r.pending.is_none(), egui::Button::new(tl!("Preview restoration"))).clicked();
+            run = ui
+                .add_enabled_ui(r.source.is_some() && ready && cpu_allowed && r.pending.is_none(), |ui| {
+                    widgets::primary_button(ui, tl!("Preview restoration"), 0.0)
+                })
+                .inner
+                .clicked();
             let label = if r.mask.is_some() { tl!("Review scratches in AI Remove") } else { tl!("Apply as new layer") };
-            apply_result = ui.add_enabled(r.result.is_some() && r.pending.is_none(), egui::Button::new(label)).clicked();
+            apply_result = ui.add_enabled_ui(r.result.is_some() && r.pending.is_none(), |ui| widgets::secondary_button(ui, label, 0.0)).inner.clicked();
             install = ui
                 .add_enabled(
                     r.pending.is_none(),
                     egui::Button::new(if pin.is_some() { tl!("Import Restore model…") } else { tl!("Install restoration models…") }),
                 )
                 .clicked();
-            cancel = ui.button(tl!("Cancel")).clicked();
+            cancel = widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked();
         });
     });
     #[cfg(test)]

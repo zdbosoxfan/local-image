@@ -76,6 +76,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     header(ui, "Mask");
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 0, bottom: 10 }).show(ui, |ui| {
         ui.label(egui::RichText::new(crate::i18n::tr("Create New Mask")).color(t.text_dim));
+        if let Some(dir) = &app.session.quick_seg_dir
+            && let Some(model) = li_seg::Group::Subject.in_use(dir)
+        {
+            crate::widgets::cpu_estimate(ui, model.cpu_estimate());
+        }
         ui.add_space(6.0);
         for (kind, label) in [("full", "New Filled Layer"), ("empty", "New Empty Layer")] {
             if text_button(ui, &format!("maskNew:{kind}"), label, false).clicked() {
@@ -114,7 +119,16 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     true,
                 );
                 ui.painter().text(pos2(r.center().x, r.bottom() - 9.0), Align2::CENTER_CENTER, *label, t.font(10.5), t.text_dim);
-                if resp.clicked() {
+                let group = match *kind {
+                    "subject" | "background" => Some(li_seg::Group::Subject),
+                    "sky" => Some(li_seg::Group::Sky),
+                    "depth" => Some(li_seg::Group::Depth),
+                    _ => None,
+                };
+                let estimate = group.and_then(|g| app.session.quick_seg_dir.as_ref().and_then(|dir| g.in_use(dir))).map(|m| m.cpu_estimate());
+                let allowed = estimate.is_none_or(|e| e.allowed());
+                let resp = if let Some(e) = estimate { resp.on_hover_text(e.label()) } else { resp };
+                if resp.clicked() && allowed {
                     match *kind {
                         "colorRange" => {
                             // an empty colour range; clicking the photo samples it

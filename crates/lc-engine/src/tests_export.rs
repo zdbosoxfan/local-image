@@ -233,7 +233,7 @@ fn prepared_exports_run_on_another_thread() {
 /// image — with the reason recorded.
 #[test]
 fn export_falls_back_to_the_cpu_when_gpu_work_is_lost() {
-    // the injected failure stops the GPU for the whole process until `reset_failures`
+    // The failed operation falls back; the health model may admit a retry after backoff.
     let _gpu = crate::tests_gpu::gpu_state();
     let mut s = Session::with_demo();
     let id = s.active().unwrap();
@@ -251,10 +251,12 @@ fn export_falls_back_to_the_cpu_when_gpu_work_is_lost() {
     if gpu {
         let why = lightcraft_gpu::last_fallback().unwrap_or_default();
         assert!(why.contains("incomplete"), "{why}");
-        // the GPU is off for the process now: this export renders on the CPU
-        assert!(!lightcraft_gpu::available());
+        // A large CPU fallback can itself exceed the retry delay. Do not assert a permanent
+        // process latch; force the reference backend so pixel equivalence stays meaningful.
     }
+    lightcraft_gpu::set_enabled(false);
     let cpu = export_photo(&mut s, id, &o, 1).unwrap().bytes;
+    lightcraft_gpu::set_enabled(true);
     lightcraft_gpu::reset_failures();
     let px = |b: &[u8]| lightcraft_codecs::decode(b, Default::default()).unwrap().image.data;
     assert!(px(&faulted) == px(&cpu), "the fallback is the CPU render");
