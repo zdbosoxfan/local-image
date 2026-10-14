@@ -4243,6 +4243,8 @@ dependencies = [
  "lightcraft-geom",
  "lightcraft-raster",
  "lightcraft-scenes",
+ "photocraft-algo",
+ "photocraft-raster",
  "proptest",
  "rayon",
  "serde",

@@ -1741,27 +1741,17 @@ fn remove_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
     }
 }
 
-/// A brushed Remove / Heal / Clone spot. Heal is content-aware (Compositing's Spot Healing:
-/// filled from the texture around it, on this computer), except in the Camera Raw Filter, where
-/// patches can't be kept: there it heals from an automatic source, like Remove.
+/// A brushed Remove / Heal / Clone spot. Commands choose the shared local patch job for
+/// automatic healing and the compatibility adapter in a Camera Raw Filter.
 fn add_spot(app: &mut LightcraftApp, ctx: &egui::Context, points: &[Point]) {
     let pts: Vec<[f64; 2]> = points.iter().map(|q| [q.x, q.y]).collect();
-    let mut params = json!({"points": pts, "size": app.ui.remove_size, "feather": app.ui.remove_feather, "opacity": app.ui.remove_opacity});
-    let ephemeral = app.session.active().is_some_and(|id| app.session.ephemeral_photo() == Some(id));
     let mode = match app.ui.tool.as_str() {
-        "heal" if !ephemeral => "ai",
         "heal" => "heal",
         "clone" => "clone",
         _ => "remove",
     };
-    let content_aware = mode == "ai";
-    params["mode"] = json!(mode);
-    if content_aware {
-        params["engine"] = json!(lightcraft_engine::enhance::remove::LOCAL);
-    }
-    if let Err(e) = app.run("spot.add", params)
-        && content_aware
-    {
+    let params = json!({"mode":mode,"points":pts,"size":app.ui.remove_size,"feather":app.ui.remove_feather,"opacity":app.ui.remove_opacity});
+    if let Err(e) = app.run("spot.add", params) {
         app.toast_error(ctx, e);
     }
 }

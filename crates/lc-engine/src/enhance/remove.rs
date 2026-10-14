@@ -287,74 +287,12 @@ impl Prepared {
     }
 }
 
-/// Dilate a `w × h` mask by `r` pixels (square structuring element, separable).
-fn dilate(w: usize, h: usize, m: &[bool], r: usize) -> Vec<bool> {
-    let mut tmp = vec![false; w * h];
-    for y in 0..h {
-        for x in (0..w).filter(|x| m[y * w + x]) {
-            tmp[y * w + x.saturating_sub(r)..y * w + (x + r + 1).min(w)].fill(true);
-        }
-    }
-    let mut out = vec![false; w * h];
-    for y in 0..h {
-        for x in (0..w).filter(|x| tmp[y * w + x]) {
-            for yy in y.saturating_sub(r)..(y + r + 1).min(h) {
-                out[yy * w + x] = true;
-            }
-        }
-    }
-    out
-}
-
-/// Content-aware healing of `cov` (the stroke's coverage) in `pixels` (`w × h`, linear, the
-/// source's space), as Compositing's Spot Healing Brush does it: PatchMatch completion of the
-/// stroke from the texture around it, then a Poisson seamless blend into the surroundings. Works
-/// through a perceptual encoding (the area's bright end at 1, a 2.2 gamma) so the patch search
-/// weighs shadows as the eye does. Returns the region healed (as it was away from the stroke).
+/// Compatibility adapter: the shared pipeline backend keeps LOCAL jobs and saved spots equal.
 pub(crate) fn heal(pixels: &[[f32; 3]], w: usize, h: usize, cov: &[f32], seed: u64, ctl: &JobCtl) -> Result<(Vec<[f32; 3]>, Vec<f32>), String> {
-    use photocraft_algo::inpaint::{CompleteParams, complete_with};
-    use photocraft_algo::poisson;
-    const GAMMA: f32 = 2.2;
-    let Some(hb) = bbox(cov, w, h) else { return Ok((pixels.to_vec(), vec![0.; pixels.len()])) };
-    let hole: Vec<bool> = cov.iter().map(|c| *c > 0.004).collect();
-    // the encoding: the area's 99th percentile at 1
-    let mut peak: Vec<f32> = pixels.iter().map(|p| p[0].max(p[1]).max(p[2])).filter(|v| v.is_finite()).collect();
-    let k = if peak.is_empty() {
-        1.0
-    } else {
-        let i = ((peak.len() - 1) as f32 * 0.99) as usize;
-        let (_, p99, _) = peak.select_nth_unstable_by(i, f32::total_cmp);
-        1.0 / p99.max(1e-6)
-    };
-    let img: Vec<f32> = pixels.iter().flat_map(|p| p.map(|v| if v.is_finite() { (v.max(0.0) * k).powf(1.0 / GAMMA) } else { 0.0 })).collect();
-    // fill a slightly larger domain than the blend's, so the blend's border carries filled values
-    // that differ from the surroundings: that mismatch is what the membrane corrects
-    let domain = dilate(w, h, &hole, 2);
-    let blend = dilate(w, h, &hole, 1);
     let cancel = || ctl.cancelled();
     let progress = |f: f32| ctl.set(0.1 + 0.8 * f, "Healing");
     let interrupt = photocraft_raster::Interrupt::new(&cancel, &progress);
-    let params = CompleteParams { seed, ..CompleteParams::default() };
-    let filled = complete_with(w, h, 3, &img, &domain, &params, &interrupt)
-        .map_err(|_| super::CANCELLED.to_string())?
-        .unwrap_or_else(|| poisson::membrane_fill(w, h, 3, &img, &domain));
-    ctl.check()?;
-    // the seamless clone over the stroke's box (with a border of known pixels around it)
-    let r = inflate(hb, 2, w, h);
-    let (cw, ch) = (r.width(), r.height());
-    let crop = |src: &[f32]| -> Vec<f32> { (r.y0..r.y1).flat_map(|y| src[(y * w + r.x0) * 3..(y * w + r.x1) * 3].iter().copied()).collect() };
-    let mask: Vec<bool> = (r.y0..r.y1).flat_map(|y| blend[y * w + r.x0..y * w + r.x1].iter().copied()).collect();
-    let healed = poisson::seamless_clone(cw, ch, 3, &crop(&filled), &crop(&img), &mask);
-    let mut out = pixels.to_vec();
-    for y in 0..ch {
-        for x in 0..cw {
-            if mask[y * cw + x] {
-                let j = (y * cw + x) * 3;
-                out[(r.y0 + y) * w + r.x0 + x] = [0, 1, 2].map(|c| healed[j + c].max(0.0).powf(GAMMA) / k);
-            }
-        }
-    }
-    Ok((out, blend.into_iter().map(|covered| if covered { 1. } else { 0. }).collect()))
+    lightcraft_pipeline::spots::heal_patch(pixels, w, h, cov, seed, &interrupt).map_err(|_| super::CANCELLED.to_string())
 }
 
 fn smooth(e0: f32, e1: f32, x: f32) -> f32 {

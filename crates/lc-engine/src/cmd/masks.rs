@@ -845,7 +845,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Add Remove Spot",
             [],
             None,
-            "{mode?: remove|heal|clone|ai, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy] (default: the best match nearby)} — selects the new spot; returns {index}. mode ai (generative removal, background job; one undo step when ready): points and/or polygon: [[x,y],…] (several lassos: one outline, filled non-zero) or mask: layer id, engine? (\"local\": content-aware heal on this computer, no AI engine needed), seed?, wait? → {job}",
+            "{mode?: remove|heal|clone|ai, points: [[x,y],…], size?: fraction of long edge, feather?, opacity?, source?: [dx,dy], seed?, wait?} — remove/heal without source use a local background patch job (no AI host; one undo step when ready) → {job}; clone and explicit source spots select the new spot → {index}. Camera Raw uses an editable inline heal. mode ai: points and/or polygon: [[x,y],…] (several lassos: one outline, filled non-zero) or mask: layer id, engine? (\"local\": local heal), seed?, wait? → {job}",
             has_active,
             |s, p| {
                 let mode: SpotMode =
@@ -873,8 +873,15 @@ pub fn specs() -> Vec<CommandSpec> {
                     ..Default::default()
                 };
                 let id = s.active().ok_or_else(|| bad("spot.add", "no active photo"))?;
+                if matches!(mode, SpotMode::Remove | SpotMode::Heal) && spot.source_offset.is_none() && !s.is_ephemeral(id) {
+                    // Persist the repaired pixels once through the same worker as AI Remove's
+                    // local engine. Camera Raw keeps serializable inline spots in its descriptor.
+                    let mut local = p.clone();
+                    local["engine"] = json!(crate::enhance::remove::LOCAL);
+                    return crate::enhance::cmds::add_ai(s, &local);
+                }
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
-                if spot.source_offset.is_none() {
+                if mode == SpotMode::Clone && spot.source_offset.is_none() {
                     // resolve the automatic source now: it gets a pin and stays put at every size
                     spot.source_offset = pick_source(s, id, &dd, &spot, None);
                 }

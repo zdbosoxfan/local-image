@@ -49,7 +49,9 @@ fn magenta(c: [u8; 4]) -> bool {
 #[test]
 fn bugfix_develop_regenerate_follows_patch_after_earlier_spot_deleted() {
     let mut s = session();
-    s.execute("spot.add", &json!({"mode": "heal", "points": [[0.2, 0.2]]})).unwrap();
+    // TEST-CHANGED J13: an explicit source keeps this synchronous non-patch fixture;
+    // automatic Heal now starts its own background patch job.
+    s.execute("spot.add", &json!({"mode": "heal", "points": [[0.2, 0.2]], "source": [0.1, 0.0]})).unwrap();
     s.execute("spot.add", &json!({"mode": "ai", "points": [[0.5, 0.5]], "engine": "mock", "seed": 7, "wait": true})).unwrap();
     let stroke =
         crate::enhance::AiStroke { points: spots(&s)[1].points.clone(), polygon: vec![], size: 0.02, feather: 50.0, opacity: 100.0, mask: None };
@@ -154,7 +156,8 @@ fn lassos_jobs_and_engines() {
 fn copies_and_other_photos_never_get_ai_results() {
     let mut s = session();
     s.execute("spot.add", &json!({"mode": "ai", "points": [[0.5, 0.5]], "size": 0.05, "engine": "mock", "wait": true})).unwrap();
-    s.execute("spot.add", &json!({"mode": "heal", "points": [[0.2, 0.2]]})).unwrap();
+    // TEST-CHANGED J13: copy semantics here concern an explicit-source inline heal.
+    s.execute("spot.add", &json!({"mode": "heal", "points": [[0.2, 0.2]], "source": [0.1, 0.0]})).unwrap();
     let a = s.active().unwrap();
     let ids = s.visible_cloned();
     let b = *ids.iter().find(|x| **x != a).unwrap();
