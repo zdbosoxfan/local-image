@@ -228,6 +228,18 @@ Native WGSL twins of these primary ports are in `lc-gpu/src/wgsl/ucs.wgsl`,
 retain the same GPL-3.0-or-later attribution. The four-channel LI Tone response
 cache, GPU reductions and tiled transposes are Local Image orchestration changes.
 
+## Match Look warm start and colour targets
+
+`crates/lc-pipeline/src/match_look.rs` adapts the percentile/log exposure formula in
+`src/iop/exposure.c` at `0ef3dc0a9c81fb09e1e6c47ad598f9b0788cfa6f`
+(Copyright (C) 2009–2026 darktable developers), and a/b clustering / Shepard inverse-distance
+weighting in `src/iop/colormapping.c` at `efd77b42de8304cbc0368835802aeff605c49933`
+(Copyright (C) 2013–2026 darktable developers). Both are **GPL-3.0-or-later**; the port is
+covered by the repository LICENSE and distributed without warranty. Adaptations: Oklab instead
+of CIELab, deterministic soft clustering instead of random initialization, percentile-relative
+luminance zones, robust chroma weights and an editable-slider fit instead of pixel transfer.
+No upstream C/C++ is compiled into or shipped with the app.
+
 ## Whole noise profiles and white-balance presets
 
 `crates/lc-raw/data/cameras/noiseprofiles.json` and `wb_presets.json` are distributed whole and

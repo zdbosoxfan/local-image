@@ -419,6 +419,8 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
     resp
 }
 
+/// Shared text-button row height, also used by virtualized preset pickers.
+pub const TEXT_BUTTON_H: f32 = 24.0;
 fn text_button_size(label_width: f32) -> egui::Vec2 {
     vec2((label_width + 18.0).max(37.0), 24.0)
 }
@@ -426,13 +428,29 @@ fn text_button_size(label_width: f32) -> egui::Vec2 {
 /// A small bordered text button (Auto, B&W, HDR…).
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
+    text_button_translated(ui, id, label, active)
+}
+
+/// Text button for a label already translated or supplied by the user (e.g. a saved look name).
+pub fn text_button_translated(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
+    text_button_enabled(ui, id, label, active, ui.is_enabled(), false)
+}
+
+fn text_button_enabled(ui: &mut Ui, id: &str, label: &str, active: bool, enabled: bool, bounded: bool) -> Response {
     let t = Tokens::get(ui.ctx());
-    let text = if ui.is_enabled() { t.text } else { t.text_disabled };
+    let text_color = if enabled { t.text } else { t.text_disabled };
     let font = t.semibold(11.5);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, text);
-    let size = text_button_size(galley.size().x);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), active, label));
+    let galley = if bounded {
+        let mut job = egui::text::LayoutJob::simple(label.to_string(), font, text_color, (ui.max_rect().width() - 18.0).max(1.0));
+        job.wrap.max_rows = 1;
+        ui.painter().layout_job(job)
+    } else {
+        ui.painter().layout_no_wrap(label.to_string(), font, text_color)
+    };
+    let natural = text_button_size(galley.size().x);
+    let size = if bounded { vec2(natural.x.min(ui.max_rect().width()), TEXT_BUTTON_H) } else { natural };
+    let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, label));
     register(ui.ctx(), format!("button:{id}"), r);
     let fill = if active {
         t.pressed
@@ -443,7 +461,7 @@ pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response
     };
     let p = ui.painter();
     p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-    p.galley(r.center() - galley.size() / 2.0, galley, text);
+    p.galley(r.center() - galley.size() / 2.0, galley, text_color);
     resp
 }
 
@@ -464,6 +482,7 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
                 let i = row_i * per_row + j;
                 let (r, resp) = ui.allocate_exact_size(vec2(seg_w, 24.0), Sense::click());
                 register(ui.ctx(), format!("button:{id}-{key}"), r);
+                resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
                 let fill = if active == Some(i) {
                     t.pressed
                 } else if resp.hovered() {
@@ -485,19 +504,25 @@ pub fn segmented(ui: &mut Ui, id: &str, items: &[(&str, &str)], active: Option<u
 
 /// An icon-only button. `active` draws the selected background (tool strip).
 pub fn icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
-    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, active, enabled, tooltip)
+    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, active, enabled, tooltip, None)
+}
+
+/// An icon action revealed by parent hover, its own hover or keyboard focus. The
+/// control remains in the focus order while hidden. Used by removable reference tiles.
+pub fn hover_icon_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, revealed: bool, enabled: bool, tooltip: &str) -> Response {
+    icon_button_inner(ui, &format!("icon:{id}"), icon, None, size, false, enabled, tooltip, Some(revealed))
 }
 
 /// [`icon_button`] registered under a full automation id (e.g. `button:layerNew`) instead of
 /// `icon:{id}`: for icon buttons that replaced text buttons and keep their old ids.
 pub fn icon_button_as(ui: &mut Ui, automation_id: &str, icon: Icon, size: egui::Vec2, tooltip: &str) -> Response {
-    icon_button_inner(ui, automation_id, icon, None, size, false, true, tooltip)
+    icon_button_inner(ui, automation_id, icon, None, size, false, true, tooltip, None)
 }
 
 pub fn tool_button(ui: &mut Ui, id: &str, icon: Icon, size: egui::Vec2, active: bool, enabled: bool, tooltip: &str) -> Response {
     let tool = id.strip_prefix("removeMode-").unwrap_or(id);
     let name = crate::icons::tool_name(if tool.starts_with("tat-") { "target" } else { tool });
-    icon_button_inner(ui, &format!("icon:{id}"), icon, name, size, active, enabled, tooltip)
+    icon_button_inner(ui, &format!("icon:{id}"), icon, name, size, active, enabled, tooltip, None)
 }
 
 fn icon_button_inner(
@@ -509,37 +534,40 @@ fn icon_button_inner(
     active: bool,
     enabled: bool,
     tooltip: &str,
+    reveal: Option<bool>,
 ) -> Response {
     let tooltip = crate::i18n::tr(tooltip);
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, active, tooltip));
     register(ui.ctx(), automation_id, r);
-    let p = ui.painter();
-    let sq = Rect::from_center_size(r.center(), vec2(32.0f32.min(size.x), 32.0f32.min(size.y)));
-    // keyboard focus (Tab) shows like hover
     let lit = (resp.hovered() || resp.has_focus()) && enabled;
-    if active {
-        p.rect_filled(sq, 4.0, t.tool_active);
-    } else if lit {
-        p.rect_filled(sq, 4.0, t.hover.gamma_multiply(0.7));
-    }
-    let c = if !enabled {
-        t.text_disabled
-    } else if active {
-        t.pick
-    } else if lit {
-        t.text
-    } else {
-        t.icon
-    };
-    let glyph = (size.x.min(size.y) * 0.62).min(22.0);
-    let glyph = if tool.is_some() { glyph.max(20.0) } else { glyph };
-    let rect = Rect::from_center_size(r.center(), vec2(glyph, glyph));
-    if let Some(name) = tool {
-        crate::icons::paint_tool(ui, rect, name, icon, c, enabled);
-    } else {
-        paint(p, rect, icon, c);
+    if reveal.is_none_or(|show| show || lit) {
+        let p = ui.painter();
+        let sq = Rect::from_center_size(r.center(), vec2(32.0f32.min(size.x), 32.0f32.min(size.y)));
+        // keyboard focus (Tab) shows like hover
+        if active {
+            p.rect_filled(sq, 4.0, t.tool_active);
+        } else if lit {
+            p.rect_filled(sq, 4.0, t.hover.gamma_multiply(0.7));
+        }
+        let c = if !enabled {
+            t.text_disabled
+        } else if active {
+            t.pick
+        } else if lit {
+            t.text
+        } else {
+            t.icon
+        };
+        let glyph = (size.x.min(size.y) * 0.62).min(22.0);
+        let glyph = if tool.is_some() { glyph.max(20.0) } else { glyph };
+        let rect = Rect::from_center_size(r.center(), vec2(glyph, glyph));
+        if let Some(name) = tool {
+            crate::icons::paint_tool(ui, rect, name, icon, c, enabled);
+        } else {
+            paint(p, rect, icon, c);
+        }
     }
     if !tooltip.is_empty() { resp.on_hover_text(tooltip) } else { resp }
 }
@@ -739,6 +767,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn hover_icon_button_is_keyboard_reachable_and_reveals_its_pixels() {
+        let mut view = crate::headless::HeadlessView::new();
+        let mut response = None;
+        let frame = |view: &mut crate::headless::HeadlessView, events: Vec<egui::Event>, response: &mut Option<Response>| {
+            let raw = crate::headless::HeadlessView::raw_input(vec2(200.0, 100.0), 1.0, 0.0, events);
+            view.run(raw, |ui| {
+                *response = Some(hover_icon_button(ui, "reveal-test", Icon::Close, vec2(32.0, 32.0), false, true, "Remove reference"));
+            });
+        };
+        frame(&mut view, vec![], &mut response);
+        frame(&mut view, vec![], &mut response);
+        let hidden = view.paint(&std::collections::HashMap::new());
+        let key = |key| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE };
+        frame(&mut view, vec![key(egui::Key::Tab)], &mut response);
+        frame(&mut view, vec![], &mut response);
+        assert!(response.as_ref().unwrap().has_focus());
+        assert_ne!(hidden.pixels, view.paint(&std::collections::HashMap::new()).pixels, "keyboard focus reveals the icon and its chrome");
+        frame(&mut view, vec![key(egui::Key::Enter)], &mut response);
+        assert!(response.as_ref().unwrap().clicked());
+    }
+    #[test]
     fn nudges_are_a_sensible_step() {
         let spec = |id, min, max, step| ControlSpec {
             id,
@@ -864,6 +913,239 @@ mod access_tests {
         run(vec![egui::Event::Text("1.25".into())]);
         assert!(seen, "focused numeric TextInput must expose its control name and current draft to accessibility");
     }
+}
+
+/// Shared enabled/disabled text action, with an explanation when unavailable.
+pub fn text_action(ui: &mut Ui, id: &str, label: &str, reason: Option<&str>) -> Response {
+    let r = text_button_enabled(ui, id, crate::i18n::tr(label), false, reason.is_none() && ui.is_enabled(), true);
+    if let Some(reason) = reason { r.on_hover_text(crate::i18n::tr(reason)) } else { r }
+}
+
+/// Reference tile size in points, shared with the host's HiDPI thumbnail requests.
+pub fn reference_tile_edge(ctx: &egui::Context) -> f32 {
+    lightcraft_engine::media::thumb_bucket((Tokens::get(ctx).slider_row_h * 2.0).round() as usize) as f32
+}
+
+/// Plain Library popup action with automation, translation and disabled explanation.
+/// Used for saved-look actions, matching the Presets menu entries.
+pub fn menu_action(ui: &mut Ui, id: &str, label: &str, reason: Option<&str>) -> Response {
+    let response = ui.add_enabled(reason.is_none(), egui::Button::new(crate::i18n::tr(label)));
+    register(ui.ctx(), format!("button:{id}"), response.rect);
+    if let Some(reason) = reason { response.on_disabled_hover_text(crate::i18n::tr(reason)) } else { response }
+}
+#[derive(Clone, Copy)]
+pub enum ReferenceAction {
+    Remove(u64),
+    Compare(u64),
+    Pin(u64),
+}
+
+/// A removable reference strip, wrapped to its panel width. Photo texture is image content;
+/// surrounding chrome uses tokens. Used by the Match Look panel and reusable by reference tools.
+pub fn reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureId, Vec2)>)], pinned: &[u64]) -> Option<ReferenceAction> {
+    reference_tray_inner(ui, items, pinned, true)
+}
+/// Embedded saved-look previews remain available without their source catalog. They are
+/// comparison images rather than mutable members of the current reference selection.
+pub fn saved_reference_tray(ui: &mut Ui, items: &[(u64, String, Option<(egui::TextureId, Vec2)>)]) -> Option<ReferenceAction> {
+    reference_tray_inner(ui, items, &[], false)
+}
+fn reference_tray_inner(
+    ui: &mut Ui,
+    items: &[(u64, String, Option<(egui::TextureId, Vec2)>)],
+    pinned: &[u64],
+    editable: bool,
+) -> Option<ReferenceAction> {
+    let t = Tokens::get(ui.ctx());
+    let mut removed = None;
+    let edge = reference_tile_edge(ui.ctx());
+    let edge = if items.len() > 6 { edge.min((ui.available_width() - 2.0 * ui.spacing().item_spacing.x) / 3.0) } else { edge };
+    let columns = ((ui.available_width() + ui.spacing().item_spacing.x) / (edge + ui.spacing().item_spacing.x)).floor().max(1.0) as usize;
+    let tray = ui.scope(|ui| {
+        egui::Grid::new(ui.id().with("reference-tray")).num_columns(columns).min_col_width(edge).max_col_width(edge).show(ui, |ui| {
+            for (index, (id, label, texture)) in items.iter().enumerate() {
+                ui.push_id(id, |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_width(edge);
+                        let (rect, response) = ui.allocate_exact_size(vec2(edge, edge), Sense::click());
+                        if response.clicked() {
+                            removed = Some(ReferenceAction::Compare(*id));
+                        }
+                        register(ui.ctx(), format!("reference:{id}"), rect);
+                        ui.painter().rect_filled(rect, SWATCH_RADIUS, t.inset);
+                        if let Some((texture, size)) = texture {
+                            let fit = (*size * (edge / size.x.max(size.y).max(1.0))).min(rect.size());
+                            ui.painter().image(
+                                *texture,
+                                Rect::from_center_size(rect.center(), fit),
+                                Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                                Color32::WHITE,
+                            );
+                        } else {
+                            let bounds = rect.shrink(5.0);
+                            let mut job = egui::text::LayoutJob::simple(label.clone(), t.font(10.0), t.text_dim, bounds.width().max(1.0));
+                            job.wrap.max_rows = 2;
+                            let text = ui.painter().layout_job(job);
+                            ui.painter().with_clip_rect(bounds).galley(bounds.center() - text.size() / 2.0, text, t.text_dim);
+                        }
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+                        let hovered = response.hovered();
+                        response.on_hover_text(label);
+                        if !editable {
+                            return;
+                        }
+                        let size = ui.spacing().interact_size;
+                        let overlay = Rect::from_min_size(rect.right_top() - vec2(size.x, 0.0), size);
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(overlay), |ui| {
+                            if hover_icon_button(
+                                ui,
+                                &format!("matchReferenceRemove-{id}"),
+                                Icon::Close,
+                                size,
+                                hovered || ui.rect_contains_pointer(rect),
+                                true,
+                                &crate::i18n::tr_format!("Remove reference: {name}", name = label),
+                            )
+                            .clicked()
+                            {
+                                removed = Some(ReferenceAction::Remove(*id));
+                            }
+                        });
+                        let overlay = Rect::from_min_size(rect.left_bottom() - vec2(0.0, size.y), size);
+                        ui.scope_builder(egui::UiBuilder::new().max_rect(overlay), |ui| {
+                            if icon_button(
+                                ui,
+                                &format!("matchReferencePin-{id}"),
+                                Icon::Star,
+                                size,
+                                pinned.contains(id),
+                                true,
+                                "Weight this reference 2×",
+                            )
+                            .clicked()
+                            {
+                                removed = Some(ReferenceAction::Pin(*id));
+                            }
+                        });
+                    });
+                });
+                if (index + 1) % columns == 0 {
+                    ui.end_row();
+                }
+            }
+        })
+    });
+    register(ui.ctx(), "matchLook:tray", tray.response.rect);
+    removed
+}
+
+/// Quiet summary chips that wrap without growing a narrow panel. Shared by analysed looks.
+pub fn summary_chips(ui: &mut Ui, labels: &[String]) {
+    let t = Tokens::get(ui.ctx());
+    let padding = ui.spacing().button_padding.y as i8;
+    ui.horizontal_wrapped(|ui| {
+        let limit = ui.max_rect().width();
+        for label in labels {
+            let width = ui.painter().layout_no_wrap(label.clone(), t.font(11.0), t.text_label).size().x + 2.0 * padding as f32;
+            if width > ui.available_size_before_wrap().x && ui.cursor().left() > ui.max_rect().left() + ui.spacing().item_spacing.x {
+                ui.end_row();
+            }
+            egui::Frame::NONE.fill(t.inset).corner_radius(SWATCH_RADIUS).inner_margin(egui::Margin::same(padding)).show(ui, |ui| {
+                let text = egui::Label::new(egui::RichText::new(label).font(t.font(11.0)).color(t.text_label));
+                ui.add(text.wrap_mode(if width > limit { egui::TextWrapMode::Wrap } else { egui::TextWrapMode::Extend }));
+            });
+        }
+    });
+}
+
+/// Fixed-height photo preview, including its empty state, for dialogs whose footer must stay
+/// stationary while a worker loads an image. Used by Match Look; content preserves aspect.
+pub fn image_preview(ui: &mut Ui, id: &str, texture: Option<(egui::TextureId, Vec2)>, empty: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, width.min(t.section_h * 4.0)), Sense::hover());
+    ui.painter().rect_filled(rect, SWATCH_RADIUS, t.canvas);
+    if let Some((texture, size)) = texture {
+        let size = size * (rect.width() / size.x).min(rect.height() / size.y);
+        ui.painter().image(texture, Rect::from_center_size(rect.center(), size), Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)), Color32::WHITE);
+        register(ui.ctx(), id, rect);
+    } else {
+        let text = crate::i18n::tr(empty);
+        let galley = ui.painter().layout(text.to_string(), t.font(11.5), t.text_dim, width);
+        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, t.text_dim);
+    }
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, crate::i18n::tr("Match Look preview")));
+    response
+}
+
+/// Shared cancellable job window for Library workers (culling and Match Look).
+/// Uses the host palette and the shared action's accessible name/automation ID.
+pub fn job_progress(ctx: &egui::Context, title: &str, id: &str, completed: usize, total: usize) -> bool {
+    let mut cancel = false;
+    egui::Window::new(crate::i18n::tr(title)).collapsible(false).resizable(false).show(ctx, |ui| {
+        ui.add(egui::ProgressBar::new(completed as f32 / total.max(1) as f32).text(format!("{completed} / {total}")));
+        cancel = text_button(ui, id, "Cancel", false).clicked();
+    });
+    cancel
+}
+
+/// Accessible reference/before-versus-result wipe. Reused by photo comparison dialogs.
+/// Images retain aspect; the chrome and divider use Library theme tokens.
+pub fn compare_preview(
+    ui: &mut Ui,
+    id: &str,
+    left: Option<(egui::TextureId, Vec2)>,
+    right: Option<(egui::TextureId, Vec2)>,
+    left_label: &str,
+    wipe: &mut f32,
+) -> Response {
+    let t = Tokens::get(ui.ctx());
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(crate::i18n::tr(left_label)).font(t.font(11.5)).color(t.text_label));
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.label(egui::RichText::new(crate::i18n::tr("Result")).font(t.font(11.5)).color(t.text_label));
+        });
+    });
+    let width = ui.available_width();
+    let (rect, response) = ui.allocate_exact_size(vec2(width, width.min(t.section_h * 4.0)), Sense::drag());
+    ui.painter().rect_filled(rect, SWATCH_RADIUS, t.canvas);
+    if response.dragged()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        *wipe = ((pointer.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+    }
+    let split = rect.left() + rect.width() * wipe.clamp(0.0, 1.0);
+    for (image, clip) in
+        [(left, Rect::from_min_max(rect.min, pos2(split, rect.bottom()))), (right, Rect::from_min_max(pos2(split, rect.top()), rect.max))]
+    {
+        if let Some((texture, size)) = image {
+            let size = size * (rect.width() / size.x).min(rect.height() / size.y);
+            ui.painter().with_clip_rect(clip.intersect(ui.clip_rect())).image(
+                texture,
+                Rect::from_center_size(rect.center(), size),
+                Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        }
+    }
+    ui.painter().line_segment([pos2(split, rect.top()), pos2(split, rect.bottom())], Stroke::new(1.0, t.text_label));
+    register(ui.ctx(), id, rect);
+    register(ui.ctx(), format!("wipe:{id}"), rect);
+    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, crate::i18n::tr("Drag to compare")));
+    response.on_hover_text(crate::i18n::tr("Drag the divider to compare the reference or original with the result."))
+}
+/// Reusable change summaries with individual reset actions. Used after Match Look and in its
+/// optional preview; reset buttons return a stable group key to the caller.
+pub fn change_summary(ui: &mut Ui, id: &str, rows: &[(&str, String)], disabled: Option<&str>) -> Option<String> {
+    let t = Tokens::get(ui.ctx());
+    let mut reset = None;
+    for (group, text) in rows {
+        ui.label(egui::RichText::new(text).font(t.font(11.5)).color(t.text_label));
+        if text_action(ui, &format!("{id}Reset-{group}"), &format!("Reset {}", crate::i18n::tr(group)), disabled).clicked() {
+            reset = Some((*group).to_string());
+        }
+    }
+    reset
 }
 
 /// Inset body for Develop sections and optional tool actions, using the shared panel metrics.

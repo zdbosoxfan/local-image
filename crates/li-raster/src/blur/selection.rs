@@ -21,6 +21,9 @@ fn par_rows<T: Send + Sync>(buf: &mut [T], w: usize, ch: usize, f: impl Fn(usize
     crate::par_rows(buf, w * ch, f);
 }
 fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
+    if crate::is_sequential() {
+        return (0..n).map(f).collect();
+    }
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     {
         use rayon::prelude::*;

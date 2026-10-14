@@ -100,6 +100,7 @@ pub fn inspect(app: &LightcraftApp, ctx: &egui::Context) -> Value {
         "scan": app.scan.as_ref().map(crate::import::ScanTask::status),
         "dialog": app.ui.dialog,
         "smartSort": app.smart_sort.as_ref().map(crate::smart_sort_task::SmartSortTask::status),
+        "matchLook": {"running": app.match_look.status(), "error": app.match_look.error, "last": app.match_look.last_result},
         "export": {"running": app.export.as_ref().map(crate::export_task::ExportTask::status), "last": app.last_export_result},
         "import": app.import.as_ref().map(crate::import::ImportTask::status),
         "tasks": app.tasks.labels(),
@@ -316,6 +317,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
             None => err("no dialog open"),
         },
         "ui.dialog.cancel" => {
+            crate::match_look::cancel_preview(app);
             if let Some(task) = &app.smart_sort {
                 task.cancel.store(true, std::sync::atomic::Ordering::Relaxed);
             }

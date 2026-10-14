@@ -166,9 +166,31 @@ impl Library {
     }
 }
 
+fn read_match_look_prefs<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<crate::cmd::match_look::State, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    let legacy = value.get("analysis").cloned().and_then(|v| serde_json::from_value::<crate::cmd::match_look::Analysis>(v).ok()).filter(|a| {
+        [1, 2].contains(&a.version)
+            && !a.looks.is_empty()
+            && a.looks.len() <= lightcraft_pipeline::match_look::MAX_REFERENCES
+            && a.identities.len() + a.external_identities.len() == a.looks.len()
+            && a.looks.iter().all(lightcraft_pipeline::match_look::Look::valid)
+    });
+    let mut state = crate::cmd::match_look::State {
+        references: value.get("references").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        external_references: value.get("externalReferences").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        reference_weights: value.get("referenceWeights").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        selected: value.get("selected").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        options: value.get("options").cloned().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default(),
+        ..Default::default()
+    };
+    state.analysis = legacy;
+    Ok(state)
+}
 #[derive(Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct PrefsFile {
+    #[serde(deserialize_with = "read_match_look_prefs")]
+    match_look: crate::cmd::match_look::State,
     xmp: crate::sidecar::XmpPrefs,
     #[serde(default)]
     smart_sort: crate::smart_sort::SmartSortPrefs,
@@ -386,6 +408,39 @@ impl Session {
         }
         // preferences
         let prefs = settings.read::<PrefsFile>(files.as_mut(), "prefs.json").unwrap_or_default();
+        self.match_look = prefs.match_look;
+        let legacy_analysis = self.match_look.analysis.take();
+        self.match_look.analysis = settings.read::<crate::cmd::match_look::Analysis>(files.as_mut(), "match-look-analysis.json");
+        if self.match_look.analysis.is_none()
+            && let Some(legacy) = legacy_analysis
+        {
+            if !settings.blocked.contains(&"match-look-analysis.json")
+                && let Ok(bytes) = serde_json::to_vec(&legacy)
+                && let Err(error) = files.write_atomic("match-look-analysis.json", &bytes)
+            {
+                settings.warnings.push(format!("Could not migrate Match Look analysis: {error}"));
+            }
+            self.match_look.analysis = Some(legacy);
+        }
+        if let Some(amounts) = settings.read::<crate::cmd::match_look::AppliedFile>(files.as_mut(), "match-look-applied.json") {
+            if amounts.version == 1 {
+                self.match_look.applied = amounts
+                    .records
+                    .into_iter()
+                    .filter(|(id, r)| {
+                        self.catalog
+                            .photo(*id)
+                            .is_some_and(|p| p.in_library() && p.develop.as_ref() == &r.last && crate::media::content_key(p) == r.key)
+                    })
+                    .collect();
+            } else {
+                settings.blocked.push("match-look-applied.json");
+                settings.warnings.push("Unsupported Match Look amount history version; its file will be preserved.".into());
+            }
+        }
+        if self.saved_looks.loaded() {
+            crate::cmd::match_look::reconcile_selection(self);
+        }
         self.xmp = prefs.xmp;
         self.smart.prefs = prefs.smart_sort;
         self.smart.tag_sets = settings.read::<Vec<crate::smart_sort::tagsets::TagSet>>(files.as_mut(), "smart-sort-tagsets.json").unwrap_or_default();
@@ -548,6 +603,12 @@ impl Session {
         }
         let _ = self.end_interaction();
         self.close_ephemeral();
+        if let Err(error) = self.save_match_look_applied() {
+            log::warn!("Match Look amount history could not be saved: {error}");
+            if let Some(lib) = self.library.as_mut() {
+                lib.settings_warnings.push(format!("Match Look amount history could not be saved: {error}"));
+            }
+        }
         let persisted = self.persist();
         self.save_view();
         let unlogged = if persisted.is_err() { self.pending_log.len() as u64 } else { 0 };
@@ -602,8 +663,49 @@ impl Session {
         lib.files.write_atomic("smart-sort-tagsets.json", &v).map_err(|e| EngineError::Other(e.to_string()))
     }
 
+    /// Isolate analyzed reference snapshots from ordinary preferences and their error recovery.
+    pub fn save_match_look_analysis(&mut self) -> Result<()> {
+        let Some(analysis) = &self.match_look.analysis else {
+            return Ok(());
+        };
+        let bytes = serde_json::to_vec(analysis).map_err(|e| EngineError::Other(e.to_string()))?;
+        let Some(lib) = self.library.as_mut() else {
+            return Ok(());
+        };
+        if lib.blocked.contains(&"match-look-analysis.json") {
+            return Err(EngineError::Other("Analysis file could not be read; reopen the library before replacing it".into()));
+        }
+        lib.files.write_atomic("match-look-analysis.json", &bytes).map_err(|e| EngineError::Other(e.to_string()))
+    }
+
+    /// Save amount baselines once at catalog close; avoid large snapshot writes during slider drags.
+    fn save_match_look_applied(&mut self) -> Result<()> {
+        if self.match_look.applied.is_empty() {
+            return Ok(());
+        }
+        let Some(lib) = self.library.as_mut() else {
+            return Ok(());
+        };
+        if lib.blocked.contains(&"match-look-applied.json") {
+            return Ok(());
+        }
+        let records = self
+            .match_look
+            .applied
+            .iter()
+            .filter(|(id, r)| {
+                self.catalog.photo(**id).is_some_and(|p| p.in_library() && p.develop.as_ref() == &r.last && crate::media::content_key(p) == r.key)
+            })
+            .map(|(id, r)| (*id, r.clone()))
+            .collect();
+        let bytes =
+            serde_json::to_vec(&crate::cmd::match_look::AppliedFile { version: 1, records }).map_err(|e| EngineError::Other(e.to_string()))?;
+        lib.files.write_atomic("match-look-applied.json", &bytes).map_err(|e| EngineError::Other(e.to_string()))
+    }
+
     pub fn save_prefs(&mut self) -> Result<()> {
         let v = serde_json::to_vec_pretty(&PrefsFile {
+            match_look: self.match_look.clone(),
             xmp: self.xmp,
             smart_sort: self.smart.prefs.clone(),
             last_export: self.last_export.clone(),

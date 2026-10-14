@@ -619,6 +619,17 @@ ports of that commit (our code had diverged), not claims that the files match. L
 | `crates/pc-text/tests/coverage/ds_psd_coverage.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/text/src/tests.rs` | `6f1c4481bfe158eccd5ed9b0bae344145f74e165` | MIT OR Apache-2.0 | 2026-10-13 |
 | `crates/pc-io/tests/it/psd_type_bounds.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/io/tests/psd_type_bounds.rs` | `6f1c4481bfe158eccd5ed9b0bae344145f74e165` | MIT OR Apache-2.0 | 2026-10-13 |
 
+Match Look's group names and Analyze/Impact workflow follow Capture One's official
+[Match Look Tool](https://support.captureone.com/hc/en-us/articles/22188770298269-Match-Look-Tool).
+No Capture One implementation or assets were copied. The original Rust LM solver fits editable
+controls; its GPL source adaptations are recorded below.
+
+| Our file | Upstream project | Upstream path | Upstream commit | Licence | Date | Used for |
+|---|---|---|---|---|---|---|
+| `crates/lc-pipeline/src/match_look.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/exposure.c` | `0ef3dc0a9c81fb09e1e6c47ad598f9b0788cfa6f` | GPL-3.0-or-later | 2026-10-13 | Percentile/log-ratio exposure warm start; Oklab lightness is cubed to recover linear exposure scaling. |
+| `crates/lc-pipeline/src/match_look.rs` | [RawTherapee](https://github.com/Beep6581/RawTherapee) | `rtengine/histmatching.cc` | `0fdac3797aebbba4a751184e60278e5460bc56b7` | GPL-3.0-or-later | 2026-10-13 | Populated equal-CDF quantile knots -> sparse monotone map, slope guard, projection onto editable tone sliders (adapted; no raw pixel transfer). |
+| `crates/lc-pipeline/src/match_look.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/iop/colormapping.c` | `efd77b42de8304cbc0368835802aeff605c49933` | GPL-3.0-or-later | 2026-10-13 | Deterministic soft a/b clustering and Shepard weighting, robust luminance-zone colour targets and neutral illuminant fallback (adapted). |
+
 ## Unmodified RAW engine dependency
 
 This row records delegation and licence provenance, **not copied or patched decoder source**.

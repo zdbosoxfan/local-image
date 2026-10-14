@@ -82,6 +82,7 @@ pub fn guided_uv(uv: &[f32], input: &[f32], w: usize, h: usize, sigma: f32, eps:
         corr[i * 4..i * 4 + 4].copy_from_slice(&[u * target[2 * i], v * target[2 * i], u * target[2 * i + 1], v * target[2 * i + 1]]);
     }
     let mean = blur(&guide, dw, dh, 2, gs);
+    drop(guide);
     let mut mt = blur(&target, dw, dh, 2, gs);
     if brightness {
         let single: Vec<_> = target.as_chunks::<2>().0.iter().map(|c| c[1]).collect();
@@ -90,8 +91,9 @@ pub fn guided_uv(uv: &[f32], input: &[f32], w: usize, h: usize, sigma: f32, eps:
             mt[2 * i + 1] = b[i];
         }
     }
-    let cov = blur(&cov, dw, dh, 4, gs);
-    let corr = blur(&corr, dw, dh, 4, gs);
+    drop(target);
+    cov = blur(&cov, dw, dh, 4, gs);
+    corr = blur(&corr, dw, dh, 4, gs);
     let mut a = vec![0.; n * 4];
     let mut b = vec![0.; n * 2];
     for i in 0..n {
@@ -110,8 +112,15 @@ pub fn guided_uv(uv: &[f32], input: &[f32], w: usize, h: usize, sigma: f32, eps:
             b[2 * i + c] = mt[2 * i + c] - a[4 * i + 2 * c] * u - a[4 * i + 2 * c + 1] * v;
         }
     }
-    let a = eigf::interpolate(&blur(&a, dw, dh, 4, gs), dw, dh, w, h, 4);
-    let b = eigf::interpolate(&blur(&b, dw, dh, 2, gs), dw, dh, w, h, 2);
+    drop((mean, mt, cov, corr));
+    let blurred_a = blur(&a, dw, dh, 4, gs);
+    drop(a);
+    let a = eigf::interpolate(&blurred_a, dw, dh, w, h, 4);
+    drop(blurred_a);
+    let blurred_b = blur(&b, dw, dh, 2, gs);
+    drop(b);
+    let b = eigf::interpolate(&blurred_b, dw, dh, w, h, 2);
+    drop(blurred_b);
     (0..w * h * 2)
         .map(|k| {
             let i = k / 2;
@@ -162,7 +171,7 @@ pub fn apply(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
             *v = if max > 1.525_878_9e-5 && d > 1.525_878_9e-5 { d / max } else { 0. };
         }
     });
-    let saturation = blur(&saturation, w, h, 1, scale.max(0.5));
+    saturation = blur(&saturation, w, h, 1, scale.max(0.5));
     let pre = guided_uv(&uv, &uv, w, h, (0.75 * scale).max(0.2), 1e-5, false);
     for i in 0..n {
         let wt = satweight(saturation[i] - 0.1);
@@ -170,6 +179,7 @@ pub fn apply(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
             uv[2 * i + c] += wt * (pre[2 * i + c] - uv[2 * i + c]);
         }
     }
+    drop(pre);
     let bands = s.mixer.bands();
     let hue = rbf(bands.map(|b| b.hue as f32 / 100. * 0.5), *hues(), PI, false);
     let sat = rbf(bands.map(|b| 1. + b.sat as f32 / 200.), *hues(), PI, true);
@@ -185,6 +195,7 @@ pub fn apply(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
             *v = [c[0], c[1], c[2], j[1]];
         }
     });
+    drop(l);
     let mut corrections = vec![0.; 2 * n];
     let mut dh = vec![0.; n];
     let mut grad = vec![0.; n];
@@ -199,8 +210,9 @@ pub fn apply(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
         }
         grad[i] = 4. * max_b.sqrt() * scale * scale * (gradient(&saturation, w, h, i % w, i / w) - 0.02).max(0.).powi(2);
     }
-    let grad = blur(&grad, w, h, 1, scale.max(0.5));
+    grad = blur(&grad, w, h, 1, scale.max(0.5));
     let corr = guided_uv(&uv, &corrections, w, h, (0.5 * scale).max(0.2), 1e-6, true);
+    drop((uv, corrections));
     crate::for_rows(&mut img.data, w, |y, row| {
         for (x, pixel) in row.iter_mut().enumerate() {
             let i = y * w + x;
@@ -220,3 +232,7 @@ pub fn apply(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
         }
     });
 }
+
+#[cfg(test)]
+#[path = "colorequal_lifetime_tests.rs"]
+mod lifetime_tests;

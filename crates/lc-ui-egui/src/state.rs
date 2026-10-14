@@ -493,6 +493,13 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    UpdateMatchLook {
+        id: String,
+        name: String,
+    },
+    MatchLook {
+        options: lightcraft_pipeline::match_look::Options,
+    },
     ProofSheet {
         opts: lightcraft_engine::proof_sheet::ProofOptions,
         folder: String,

@@ -468,7 +468,7 @@ pub fn resize_source(s: &impl Source, sx: f64, sy: f64, filter: Resample, edge: 
     #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
     let parts: Vec<(Region, Vec<f32>)> = {
         use rayon::prelude::*;
-        bands.par_iter().map(run).collect()
+        if crate::is_sequential() { bands.iter().map(run).collect() } else { bands.par_iter().map(run).collect() }
     };
     #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
     let parts: Vec<(Region, Vec<f32>)> = bands.iter().map(run).collect();

@@ -146,6 +146,8 @@ pub struct Session {
     /// Auto Sync: edits to the active photo also change the other selected photos (the settings
     /// that changed, nothing else).
     pub auto_sync: bool,
+    pub match_look: cmd::match_look::State,
+    pub saved_looks: cmd::match_look::SavedLooks,
     pub catalog: Catalog,
     pub source: LibrarySource,
     pub filter: Filter,
@@ -277,6 +279,8 @@ impl Session {
         let gpu_test = tests_gpu::gpu_state();
         Session {
             auto_sync: false,
+            match_look: Default::default(),
+            saved_looks: Default::default(),
             #[cfg(test)]
             _gpu_test: gpu_test,
             catalog: Catalog::new(),
@@ -890,3 +894,6 @@ mod tests_toolset;
 mod tests_xmp;
 
 mod dcp_profiles;
+
+#[cfg(test)]
+mod tests_match_look_raw;

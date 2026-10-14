@@ -6,11 +6,15 @@ pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!("edit.undo", "Undo", ["Edit"], Some("Cmd+Z"), "{}", can_undo, |s, _| {
             s.end_interaction()?;
-            Ok(json!({"undone": s.undo_step()?}))
+            let undone = s.undo_step()?;
+            crate::cmd::match_look::reconcile_applied(s);
+            Ok(json!({"undone": undone}))
         }),
         cmd!("edit.redo", "Redo", ["Edit"], Some("Cmd+Shift+Z"), "{}", can_redo, |s, _| {
             s.end_interaction()?;
-            Ok(json!({"redone": s.redo_step()?}))
+            let redone = s.redo_step()?;
+            crate::cmd::match_look::restore_applied(s);
+            Ok(json!({"redone": redone}))
         }),
     ]
 }

@@ -113,7 +113,7 @@ file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/
 | `value_field` (`_with_precision`) | Monospace number field with unit suffix, drag to scrub | 168 / 174 |
 | `toggle` | Switch for an immediate on/off setting | 346 |
 | `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices; hardware/tensor-sized estimate, theme warning/caution, interactive refusal vs cancellable batch warning | widgets.rs |
-| `checkbox` | The only checkbox: `widgets::checkbox(ui, &mut on, "Label")` | 705 |
+| `checkbox` | The only checkbox: `widgets::checkbox(ui, &mut on, "Label")` | widgets.rs |
 | `primary_button` / `secondary_button` | Filled main action / outlined action, `(ui, label, min_width)` | 375 / 380 |
 | `dialog_buttons`, `DialogButton`, `ButtonRole` | Every modal's button row, in the platform's order (Default, Alternate, Cancel, Apply) | 435 / 414 / 387 |
 | `dropdown` | Compact choice list: `dropdown(ui, id, &mut cur, &[(v, "Label")], width)` | 570 |
@@ -144,7 +144,7 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | `section_header` | Collapsible 52 pt panel section: `section_header(ui, id, "Basic", open, enabled)` | 355 |
 | `disclosure` | One-line chevron + title for a fold inside a panel; `DISCLOSURE_H` 24 | 548 |
 | `flyout_row` | Inset row with icon tile that opens a sub-editor (Curve, Color Mixer) | 396 |
-| `text_button` | Small bordered text button (Auto, B&W) | 421 |
+| `text_button` | Small bordered text button (Auto, B&W); shared `TEXT_BUTTON_H` for virtualized rows | 421 |
 | `segmented` | Equal-width segmented control, `per_row` wraps | 445 |
 | `icon_button` / `icon_button_as` | Icon-only button; `_as` keeps a legacy automation id like `button:layerNew` | 480 / 486 |
 | `tool_button` | Tool-strip button with tool image | 490 |
@@ -160,6 +160,16 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices, styled with `text_dim` / `caution`; mask and Smart Sort controls | widgets.rs |
 | `preview_only_notice` | Amber panel notice for a raw shown from its embedded preview | 45 |
 | `register` / `take_registry` | Record a widget's automation id and rect for the control protocol and tests | 17 / 22 |
+| `checkbox` | Named, translated checkbox for Library dialogs; `checkbox(ui, id, &mut on, label)` registers `check:{id}`; Match Look options; Library | 874 |
+| `text_action` | Enabled/disabled text button with reason, accessible disabled state and no disabled focus/click; `text_action(ui, id, label, reason)`; Match Look actions; Library | 881 |
+| `menu_action` | Plain translated popup action with disabled explanation and automation; Saved Look overflow; Library | widgets.rs |
+| `reference_tray` | Removable thumbnail grid that wraps to panel width; `reference_tray(ui, &[(id, name, texture)], pinned_ids)` returns Remove/Compare/Pin; bucketed 2×slider-row tiles, with a three-column fit for 7–10 references (four rows at 250 pt), with hover/focus remove overlay and keyboard focus retention; Match Look references; Library | 888 |
+| `summary_chips` | Quiet token-styled labels that wrap; `summary_chips(ui, &[String])`; Match Look measurements | 948 |
+| `image_preview` | Reserved aspect-preserving image area and accessible empty state, keeping dialog footer stationary while workers load; `image_preview(ui, id, texture, empty)`; Optional Match Look preview; Library | 968 |
+| `text_button_translated` | `text_button` variant for translated labels or user data; retains full accessible name while eliding long names; Saved Look names; Library | 430 |
+| `job_progress` | Shared themed progress/Cancel window; `job_progress(ctx, title, id, completed, total)` returns Cancel activation; Culling and Match Look; Library | 988 |
+| `compare_preview` | Aspect-preserving reference/before versus result wipe, drag divider and accessible image name; `compare_preview(ui, id, left, right, left_label, &mut wipe)`; Match Look comparison; Library | 999 |
+| `change_summary` | Quiet per-group change rows with shared reset buttons; `change_summary(ui, id, rows, disabled_reason)` returns reset group; Match Look preview and per-photo results; Library | 1044 |
 | `hex`, `lerp`, `BAND_COLORS`, `nudged` | Colour and value helpers | 70 / 75 / 82 / 348 |
 
 Library also provides `checkbox(ui, id, value, label)`, `choice(ui, id, value, options)` and

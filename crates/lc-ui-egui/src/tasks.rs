@@ -101,15 +101,9 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
 pub fn progress(app: &LightcraftApp, ctx: &egui::Context) {
     if let Some(control) = app.tasks.culling.clone() {
         use std::sync::atomic::Ordering;
-        egui::Window::new(crate::i18n::tr("Assisted Culling")).collapsible(false).resizable(false).show(ctx, |ui| {
-            let completed = control.completed.load(Ordering::Relaxed);
-            ui.add(egui::ProgressBar::new(completed as f32 / control.total.max(1) as f32).text(format!("{completed} / {}", control.total)));
-            let cancel = ui.button(crate::i18n::tr("Cancel"));
-            crate::widgets::register(ctx, "button:cullCancel", cancel.rect);
-            if cancel.clicked() {
-                control.cancel.store(true, Ordering::Relaxed);
-            }
-        });
+        if crate::widgets::job_progress(ctx, "Assisted Culling", "cullCancel", control.completed.load(Ordering::Relaxed), control.total) {
+            control.cancel.store(true, Ordering::Relaxed);
+        }
     }
 }
 
