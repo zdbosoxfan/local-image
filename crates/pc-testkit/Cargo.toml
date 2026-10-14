@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+li-color.workspace = true
 image.workspace = true
 kurbo = "=0.13.1"
 photocraft-doc.workspace = true

@@ -626,7 +626,8 @@ fn bayer4(p: vec2<i32>) -> f32 {
 // compose::adjust::lut3d_sample
 fn color_lookup(c: vec3<f32>, n: i32, tetra: bool) -> vec3<f32> {
     let m = f32(n - 1);
-    let pos = clamp(c, vec3(0.0), vec3(1.0)) * m;
+    let input = (c - op.p1.xyz) / op.p2.xyz;
+    let pos = clamp(input, vec3(0.0), vec3(1.0)) * m;
     let i0 = min(vec3<i32>(floor(pos)), vec3(n - 2));
     let f = pos - vec3<f32>(i0);
     let r = i0.x;

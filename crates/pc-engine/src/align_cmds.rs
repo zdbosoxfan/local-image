@@ -162,7 +162,7 @@ fn auto_blend(s: &mut Session, p: &Value) -> Result<Value> {
         let (mut lv, mut av) = (vec![0.0f32; w * h], vec![0.0f32; w * h]);
         for i in 0..w * h {
             let c = to_rgba(&f, &px[i * n..(i + 1) * n]);
-            lv[i] = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+            lv[i] = li_color::luminance_709([c[0], c[1], c[2]]);
             av[i] = c[3];
         }
         if fmt.is_some_and(|g: photocraft_color::PixelFormat| g != f) {

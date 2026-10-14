@@ -527,7 +527,7 @@
           "used_for": "DNG camera-profile look data carried by the file itself (Adobe DNG Specification 1.6/1.7, chapter 6 and the ProfileHueSatMap, ProfileLookTable and ProfileToneCurve tags).",
           "upstream": "rtengine/dcp.cc (table interpolation, matrix blending)",
           "commit": "5f486d3678b34c74ba0c63571c17babe20935019",
-          "ours": "crates/lc-color/src/profile.rs, camera.rs",
+          "ours": "crates/li-color/src/profile.rs, camera.rs",
           "licence": "GPL-3.0-or-later",
           "licence_files": [
             "licenses/rawtherapee-DCB-BSD-3-Clause.txt",

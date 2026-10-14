@@ -12,21 +12,15 @@ pub(super) fn color(c: paint::Color) -> Color {
         paint::Color::Gray { v, a } => (v, v, v, a),
         paint::Color::Cmyk { c, m, y, k, a } => ((1. - c) * (1. - k), (1. - m) * (1. - k), (1. - y) * (1. - k), a),
         paint::Color::Lab { l, a, b, alpha } => {
-            // CIE Lab D50 -> Bradford D65 -> sRGB, matching the existing colour pipeline.
-            let fy = (l + 16.) / 116.;
-            let fx = fy + a / 500.;
-            let fz = fy - b / 200.;
-            let inv = |t: f64| if t > 6. / 29. { t.powi(3) } else { 3. * (6.0f64 / 29.).powi(2) * (t - 4. / 29.) };
-            let (x, y, z) = (0.96422 * inv(fx), inv(fy), 0.82521 * inv(fz));
-            let (x, y, z) =
-                (0.9555766 * x - 0.0230393 * y + 0.0631636 * z, -0.0282895 * x + 1.0099416 * y + 0.0210077 * z, 0.0122982 * x - 0.020483 * y + 1.3299098 * z);
-            let enc = |t: f64| if t <= 0.0031308 { 12.92 * t } else { 1.055 * t.powf(1. / 2.4) - 0.055 };
-            (
-                enc(3.2404542 * x - 1.5371385 * y - 0.4985314 * z),
-                enc(-0.969266 * x + 1.8760108 * y + 0.041556 * z),
-                enc(0.0556434 * x - 0.2040259 * y + 1.0572252 * z),
-                alpha,
-            )
+            // Preserve this import format's historical white and matrix coefficients;
+            // shared color science supplies the f64 Lab inverse and sRGB transfer.
+            let xyz = li_color::cms_math::lab_to_xyz([l, a, b], [0.96422, 1.0, 0.82521]);
+            let adapted =
+                li_color::Mat3([[0.9555766, -0.0230393, 0.0631636], [-0.0282895, 1.0099416, 0.0210077], [0.0122982, -0.020483, 1.3299098]]).apply(xyz);
+            let [r, g, b] = li_color::Mat3([[3.2404542, -1.5371385, -0.4985314], [-0.969266, 1.8760108, 0.041556], [0.0556434, -0.2040259, 1.0572252]])
+                .apply(adapted)
+                .map(li_color::transfer::linear_to_srgb_f64);
+            (r, g, b, alpha)
         }
     };
     let mut out = Color::rgb(r.clamp(0., 1.) as f32, g.clamp(0., 1.) as f32, b.clamp(0., 1.) as f32);

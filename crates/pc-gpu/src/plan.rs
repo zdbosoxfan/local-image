@@ -1657,7 +1657,9 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             (15, p, Some(vec![row]))
         }
         // Upstream 5049a1d0: a stored size is untrusted; `lut3d_len` is the checked n³ × 3.
-        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, .. } if adjust::lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
+        Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, domain, .. }
+            if adjust::lut3d_len(*size).is_some_and(|len| table.len() >= len) =>
+        {
             // The flattened table (n³ RGB triplets) spans as many 4096-wide rows as it needs.
             let n = *size as usize;
             let rows = adjust::lut3d_len(*size)
@@ -1671,6 +1673,9 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
                 })
                 .collect();
             p[0] = [n as f32, if *tetrahedral { 1.0 } else { 0.0 }, if *dither { 1.0 } else { 0.0 }, 0.0];
+            let (min, max) = domain.filter(|d| d.valid()).map_or(([0.0; 3], [1.0; 3]), |d| (d.min, d.max));
+            p[1] = [min[0], min[1], min[2], 0.0];
+            p[2] = std::array::from_fn(|i| if i < 3 { max[i] - min[i] } else { 0.0 });
             (16, p, Some(rows))
         }
         // Identity on the CPU too (not evaluated there).
@@ -1732,15 +1737,48 @@ mod tests {
 
     /// Upstream 5049a1d0: an overflowing stored LUT size uploads no table (and does not panic).
     #[test]
+    fn lookup_program_keeps_input_domain_for_shader_normalization() {
+        let domain = photocraft_doc::LutDomain { min: [-1.0, 0.0, 0.25], max: [1.0, 2.0, 0.75] };
+        let adjustment = Adjustment::ColorLookup {
+            name: "Domain".into(),
+            lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+            size: 2,
+            tetrahedral: true,
+            dither: false,
+            domain: Some(domain),
+        };
+        let (kind, p, _) = adjustment_program(&adjustment, Transfer::Srgb, SampleType::F32);
+        assert_eq!(kind, 16);
+        assert_eq!(p[1], [-1.0, 0.0, 0.25, 0.0]);
+        assert_eq!(p[2], [2.0, 2.0, 0.5, 0.0]);
+    }
+
+    #[test]
     fn color_lookup_with_an_overflowing_stored_size_uploads_no_table() {
         for size in [1 << 22, u32::MAX] {
-            let a = Adjustment::ColorLookup { name: "x".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size, tetrahedral: false, dither: false };
+            let a = Adjustment::ColorLookup {
+                domain: None,
+                name: "x".into(),
+                lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+                size,
+                tetrahedral: false,
+                dither: false,
+            };
             let (kind, _, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8);
             assert_eq!((kind, rows.is_none()), (0, true), "size {size}");
         }
-        let a = Adjustment::ColorLookup { name: "x".into(), lut: Some(std::sync::Arc::new(vec![0.5; 24])), size: 2, tetrahedral: false, dither: false };
+        let a = Adjustment::ColorLookup {
+            domain: None,
+            name: "x".into(),
+            lut: Some(std::sync::Arc::new(vec![0.5; 24])),
+            size: 2,
+            tetrahedral: false,
+            dither: false,
+        };
         let (kind, p, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8);
         assert_eq!((kind, p[0][0], rows.map(|r| r.len())), (16, 2.0, Some(1)));
+        assert_eq!(p[1], [0.0; 4]);
+        assert_eq!(p[2], [1.0, 1.0, 1.0, 0.0]);
     }
 
     #[test]

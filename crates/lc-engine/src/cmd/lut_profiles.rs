@@ -1,4 +1,4 @@
-//! Imported profiles: `.cube` 3D LUTs used as creative profiles (Amount 0–200 % like the
+//! Imported profiles: `.cube`, `.3dl` and `.look` 3D LUTs used as creative profiles (Amount 0–200 % like the
 //! built-in ones). A library on disk keeps a copy of each file in its `Profiles/` folder; the
 //! list lives in the library's prefs and the LUTs are registered with the pipeline when the
 //! library opens.
@@ -17,7 +17,7 @@ pub struct LutProfile {
     pub id: String,
     pub name: String,
     pub group: String,
-    /// The `.cube` file (the library's copy when there is a library on disk).
+    /// The imported LUT file (the library's copy when there is a library on disk).
     pub file: String,
 }
 
@@ -28,15 +28,20 @@ fn profiles_dir(s: &Session) -> Option<PathBuf> {
 /// Register every imported profile's LUT with the pipeline (missing files are skipped).
 pub fn register_all(s: &Session) {
     for p in &s.lut_profiles {
-        if let Some(l) = std::fs::read_to_string(&p.file).ok().and_then(|t| lightcraft_pipeline::lut::Lut3d::parse_cube(&t).ok()) {
+        if let Some(l) = std::fs::read_to_string(&p.file).ok().and_then(|t| lightcraft_pipeline::lut::Lut3d::parse(&p.file, t.as_bytes()).ok()) {
             lightcraft_pipeline::lut::register(&p.id, l);
         }
     }
 }
 
-/// `.cube` files in `paths` (folders searched, zip bundles opened).
-fn cube_files(paths: &[String]) -> Vec<(String, String, Option<String>)> {
-    // (name, text, group)
+fn lut_extension(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?;
+    ["cube", "3dl", "look"].into_iter().find(|candidate| ext.eq_ignore_ascii_case(candidate))
+}
+
+/// Supported LUT files in `paths` (folders searched, zip bundles opened).
+fn cube_files(paths: &[String]) -> Vec<(String, String, Option<String>, String)> {
+    // (name, text, group, extension)
     let mut out = Vec::new();
     for p in paths {
         let path = Path::new(p);
@@ -51,18 +56,23 @@ fn cube_files(paths: &[String]) -> Vec<(String, String, Option<String>)> {
                     }
                     if ep.is_dir() {
                         stack.push(ep);
-                    } else if ep.extension().is_some_and(|x| x.eq_ignore_ascii_case("cube"))
+                    } else if lut_extension(&ep).is_some()
                         && let Ok(t) = std::fs::read_to_string(&ep)
                     {
                         let group = ep.parent().and_then(|d| d.file_name()).map(|n| n.to_string_lossy().to_string());
-                        out.push((ep.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), t, group));
+                        out.push((
+                            ep.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                            t,
+                            group,
+                            lut_extension(&ep).unwrap().into(),
+                        ));
                     }
                 }
             }
         } else if path.extension().is_some_and(|x| x.eq_ignore_ascii_case("zip")) {
             let Ok(b) = std::fs::read(path) else { continue };
             for (inner, data) in crate::preset_import::read_zip(&b).unwrap_or_default() {
-                if inner.to_ascii_lowercase().ends_with(".cube") {
+                if let Some(ext) = lut_extension(Path::new(&inner)) {
                     let ip = Path::new(&inner);
                     let group = ip
                         .parent()
@@ -73,11 +83,17 @@ fn cube_files(paths: &[String]) -> Vec<(String, String, Option<String>)> {
                         ip.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
                         String::from_utf8_lossy(&data).to_string(),
                         group,
+                        ext.into(),
                     ));
                 }
             }
         } else if let Ok(t) = std::fs::read_to_string(path) {
-            out.push((path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), t, None));
+            out.push((
+                path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+                t,
+                None,
+                lut_extension(path).unwrap_or("cube").into(),
+            ));
         }
     }
     out
@@ -95,8 +111,8 @@ fn import(s: &mut Session, p: &Value) -> Result<Value> {
         std::fs::create_dir_all(d).map_err(|e| bad(C, format!("{}: {e}", d.display())))?;
     }
     let (mut imported, mut failed) = (Vec::new(), Vec::new());
-    for (name, text, group) in cube_files(&paths) {
-        let lut = match lightcraft_pipeline::lut::Lut3d::parse_cube(&text) {
+    for (name, text, group, extension) in cube_files(&paths) {
+        let lut = match lightcraft_pipeline::lut::Lut3d::parse(&format!("{name}.{extension}"), text.as_bytes()) {
             Ok(l) => l,
             Err(e) => {
                 failed.push(json!([name, e]));
@@ -114,13 +130,13 @@ fn import(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let file = match &dir {
             Some(d) => {
-                let f = d.join(format!("{}.cube", id.trim_start_matches("lut:")));
+                let f = d.join(format!("{}.{extension}", id.trim_start_matches("lut:")));
                 std::fs::write(&f, &text).map_err(|e| bad(C, format!("{}: {e}", f.display())))?;
                 f.to_string_lossy().to_string()
             }
             None => {
                 // no library on disk: remember the original (the in-memory session ends with the app)
-                let f = std::env::temp_dir().join(format!("lightcraft-{}.cube", id.trim_start_matches("lut:")));
+                let f = std::env::temp_dir().join(format!("lightcraft-{}.{extension}", id.trim_start_matches("lut:")));
                 std::fs::write(&f, &text).map_err(|e| bad(C, e.to_string()))?;
                 f.to_string_lossy().to_string()
             }
@@ -140,7 +156,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Import Profiles",
             [],
             None,
-            "{paths: [.cube file, folder or .zip]} — 3D LUTs become creative profiles (Amount 0–200 %; rendered on the CPU) in the profile browser's groups (folder / zip name, else Imported) → {imported: [{id, name, group}], failed}",
+            "{paths: [.cube/.3dl/.look file, folder or .zip]} — 3D LUTs become creative profiles (Amount 0–200 %; rendered on the CPU) in the profile browser's groups (folder / zip name, else Imported) → {imported: [{id, name, group}], failed}",
             always,
             import
         ),

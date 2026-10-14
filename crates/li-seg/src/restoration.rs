@@ -158,10 +158,10 @@ fn check(keep_going: &dyn Fn() -> bool) -> Result<()> {
     Ok(())
 }
 fn linear(v: f32) -> f32 {
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    li_color::transfer::srgb_to_linear(v)
 }
 fn srgb(v: f32) -> f32 {
-    if v <= 0.0031308 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    li_color::transfer::linear_to_srgb(v)
 }
 fn lab_f(v: f32) -> f32 {
     if v > 216.0 / 24389.0 { v.cbrt() } else { v * (841.0 / 108.0) + 4.0 / 29.0 }

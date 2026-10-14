@@ -225,12 +225,12 @@ impl Rgb32f {
     }
 
     pub fn luminance(&self) -> Plane {
-        self.map(lightcraft_color::luminance_2020)
+        self.map(li_color::luminance_2020)
     }
 
     /// Encode to 8-bit sRGB from linear sRGB values (no gamut conversion).
     pub fn to_srgb8(&self) -> Rgba8 {
-        use lightcraft_color::transfer::encode_srgb8;
+        use li_color::transfer::encode_srgb8;
         self.map(|p| [encode_srgb8(p[0]), encode_srgb8(p[1]), encode_srgb8(p[2]), 255])
     }
 }
@@ -248,7 +248,7 @@ impl Rgba8 {
     }
     /// Linear Rec.709/sRGB primaries float image from 8-bit sRGB.
     pub fn to_linear(&self) -> Rgb32f {
-        use lightcraft_color::transfer::decode_srgb8;
+        use li_color::transfer::decode_srgb8;
         self.map(|p| [decode_srgb8(p[0]), decode_srgb8(p[1]), decode_srgb8(p[2])])
     }
 }

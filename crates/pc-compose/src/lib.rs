@@ -1262,7 +1262,7 @@ fn blend_if_weight(layer: &Layer, mode: photocraft_color::ColorMode, this: Optio
         match mode {
             // Gray is the colour channels' luma (Rec. 601 weights), then R, G, B.
             M::Rgb => {
-                let gray = 0.299 * v(0) + 0.587 * v(1) + 0.114 * v(2);
+                let gray = li_color::convert::rgb_to_gray([v(0), v(1), v(2)]);
                 k *= bi.get(0)[side].weight(gray);
                 for c in 0..3 {
                     k *= bi.get(c + 1)[side].weight(v(c));

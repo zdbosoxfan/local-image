@@ -16,6 +16,7 @@ corpus = []
 heif = ["photocraft-codecs/heif"]
 
 [dependencies]
+li-color.workspace = true
 # The shared compute pool for par_map / bands (pixels.rs).
 rayon = { workspace = true }
 # local-image: camera raw through LightCraft's pipeline.

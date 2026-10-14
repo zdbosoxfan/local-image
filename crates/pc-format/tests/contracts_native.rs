@@ -140,6 +140,7 @@ fn adjustment_and_all_fill_kinds() {
         Adjustment::PhotoFilter { color: [0.2, 0.4, 0.6], density: 0.5, preserve_luminosity: false },
         Adjustment::ChannelMixer { matrix: [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]], monochrome: true },
         Adjustment::ColorLookup {
+            domain: Some(photocraft_doc::LutDomain { min: [-1.0, 0.0, 0.25], max: [1.0, 2.0, 0.75] }),
             name: "Contract LUT".into(),
             lut: Some(Arc::new((0..24).map(|i| i as f32 / 24.).collect())),
             size: 2,

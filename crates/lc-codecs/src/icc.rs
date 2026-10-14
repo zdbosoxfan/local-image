@@ -67,36 +67,10 @@ fn valid_trc(t: &Trc) -> bool {
     }
 }
 fn from_curve(t: &Curve) -> Trc {
-    match t {
-        Curve::Identity => Trc::Linear,
-        Curve::Gamma(g) => Trc::Gamma(*g as f32),
-        Curve::Parametric { kind, p } => Trc::Parametric(p[..Curve::param_count(*kind)].iter().map(|v| *v as f32).collect()),
-        Curve::Table(t) => Trc::Table(t.iter().map(|v| (v * 65535.0).round().clamp(0.0, 65535.0) as u16).collect()),
-    }
+    Trc::from_curve(t)
 }
 fn to_curve(t: &Trc) -> Curve {
-    match t {
-        Trc::Linear => Curve::Identity,
-        Trc::Srgb => photocraft_cms::curve::srgb_trc(),
-        Trc::Gamma(g) => Curve::Gamma(*g as f64),
-        Trc::Rec709 => Curve::Parametric { kind: 3, p: [1.0 / 0.45, 1.0 / 1.099, 0.099 / 1.099, 1.0 / 4.5, 0.081, 0.0, 0.0] },
-        Trc::Table(t) => Curve::Table(t.iter().map(|v| *v as f32 / 65535.0).collect()),
-        Trc::Parametric(params) => {
-            let kind = match params.len() {
-                1 => 0,
-                3 => 1,
-                4 => 2,
-                5 => 3,
-                7 => 4,
-                _ => return Curve::Identity,
-            };
-            let mut p = [0.0; 7];
-            for (out, value) in p.iter_mut().zip(params) {
-                *out = *value as f64;
-            }
-            Curve::Parametric { kind, p }
-        }
-    }
+    t.to_curve()
 }
 /// Build a deterministic ICC v4 matrix/TRC profile with the shared ICC writer.
 pub fn write_matrix_trc(space: &RgbSpace, trc: &Trc) -> Vec<u8> {
@@ -110,13 +84,7 @@ pub fn write_matrix_trc(space: &RgbSpace, trc: &Trc) -> Vec<u8> {
 }
 /// Standard named profiles are byte-identical in Library and Compositing.
 pub fn write_named(n: NamedSpace) -> Vec<u8> {
-    let builtin = match n {
-        NamedSpace::Srgb => Builtin::Srgb,
-        NamedSpace::DisplayP3 => Builtin::DisplayP3,
-        NamedSpace::AdobeRgb => Builtin::AdobeRgbCompat,
-        NamedSpace::ProPhoto => Builtin::ProPhotoCompat,
-        NamedSpace::Rec2020 => Builtin::Rec2020,
-    };
+    let builtin = Builtin::from_named(n);
     builtin.profile().to_bytes().as_ref().clone()
 }
 /// LUT/CMYK fallback uses the same CMS, intent and working profile as the editor.

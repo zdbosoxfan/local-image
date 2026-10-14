@@ -1129,7 +1129,12 @@ pub fn is_bw(d: &lightcraft_develop::DevelopSettings) -> bool {
 /// Files dropped on the window that are presets rather than photos.
 pub fn is_preset_file(path: &str) -> bool {
     let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    ["lcpreset", "lrtemplate", "xmp", "zip", "cube", "lmp", "mplumpack"].contains(&ext.as_str())
+    ["lcpreset", "lrtemplate", "xmp", "zip", "cube", "3dl", "look", "lmp", "mplumpack"].contains(&ext.as_str())
+}
+
+/// Formats routed through the shared LUT profile importer rather than the preset parser.
+pub(crate) fn is_lut_file(path: &str) -> bool {
+    std::path::Path::new(path).extension().is_some_and(|extension| ["cube", "3dl", "look"].iter().any(|kind| extension.eq_ignore_ascii_case(kind)))
 }
 
 /// Splits dropped files into presets and everything else. An `.xmp` dropped next to a photo with the
@@ -1170,7 +1175,18 @@ mod drop_tests {
 
     #[test]
     fn dropped_presets_are_told_apart_from_photos() {
-        for p in ["/a/Look.lrtemplate", "/a/b.XMP", "/a/pack.zip", "/a/x.lcpreset", "/a/Magic Hour.mplumpack", "/a/Pop.lmp", "/a/Bundle.LMP"] {
+        for p in [
+            "/a/Look.lrtemplate",
+            "/a/b.XMP",
+            "/a/pack.zip",
+            "/a/x.lcpreset",
+            "/a/Magic Hour.mplumpack",
+            "/a/Pop.lmp",
+            "/a/Bundle.LMP",
+            "/a/Warm.cube",
+            "/a/Drone.3DL",
+            "/a/Final.LOOK",
+        ] {
             assert!(super::is_preset_file(p), "{p}");
         }
         for p in ["/a/IMG_1.CR2", "/a/b.dng", "/a/c.jpg", "/a/folder"] {

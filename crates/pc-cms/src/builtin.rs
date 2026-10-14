@@ -2,6 +2,7 @@
 //! (primaries, white points, transfer functions) and dedicated to the public domain (CC0-1.0),
 //! so documents that embed them carry no licence obligations. See the crate README.
 
+use li_color::space::NamedSpace;
 use std::sync::OnceLock;
 
 use crate::Intent;
@@ -103,6 +104,28 @@ impl Builtin {
         alias.or_else(|| Builtin::ALL.into_iter().find(|b| b.description().eq_ignore_ascii_case(s)))
     }
 
+    /// The RGB colorimetry shared with Develop, if this built-in is a named RGB space.
+    pub fn named(self) -> Option<NamedSpace> {
+        Some(match self {
+            Self::Srgb => NamedSpace::Srgb,
+            Self::DisplayP3 => NamedSpace::DisplayP3,
+            Self::AdobeRgbCompat => NamedSpace::AdobeRgb,
+            Self::ProPhotoCompat => NamedSpace::ProPhoto,
+            Self::Rec2020 => NamedSpace::Rec2020,
+            _ => return None,
+        })
+    }
+
+    pub fn from_named(space: NamedSpace) -> Self {
+        match space {
+            NamedSpace::Srgb => Self::Srgb,
+            NamedSpace::DisplayP3 => Self::DisplayP3,
+            NamedSpace::AdobeRgb => Self::AdobeRgbCompat,
+            NamedSpace::ProPhoto => Self::ProPhotoCompat,
+            NamedSpace::Rec2020 => Self::Rec2020,
+        }
+    }
+
     /// The profile (built once per process).
     pub fn profile(self) -> &'static Profile {
         static CELLS: [OnceLock<Profile>; 10] = [const { OnceLock::new() }; 10];
@@ -136,11 +159,6 @@ pub fn linear_rec2020() -> &'static Profile {
         p.description = "Linear Rec. 2020".into();
         p.with_encoded_bytes()
     })
-}
-
-/// The ICC D65 used for the RGB spaces (chromaticity 0.3127, 0.3290).
-fn d65() -> [f64; 3] {
-    math::xy_to_xyz(math::D65_XY)
 }
 
 /// Colorant matrix adapted to D50 and quantized to s15Fixed16, with each row nudged so that
@@ -251,24 +269,19 @@ fn lab() -> Profile {
 pub const COATED_CMYK_ICC: &[u8] = include_bytes!("../profiles/photocraft-coated-cmyk.icc");
 
 fn build(b: Builtin) -> Profile {
-    let (srgb_p, p3, adobe, romm, bt2020) = (
-        [[0.64, 0.33], [0.30, 0.60], [0.15, 0.06]],
-        [[0.680, 0.320], [0.265, 0.690], [0.150, 0.060]],
-        [[0.64, 0.33], [0.21, 0.71], [0.15, 0.06]],
-        [[0.7347, 0.2653], [0.1596, 0.8404], [0.0366, 0.0001]],
-        [[0.708, 0.292], [0.170, 0.797], [0.131, 0.046]],
-    );
+    if let Some(space) = b.named() {
+        let (primaries, white) = space.icc_colorimetry();
+        return rgb(b.description(), primaries, white, space.icc_curve());
+    }
     match b {
-        Builtin::Srgb => rgb(b.description(), srgb_p, d65(), srgb_trc()),
-        Builtin::DisplayP3 => rgb(b.description(), p3, d65(), srgb_trc()),
-        Builtin::AdobeRgbCompat => rgb(b.description(), adobe, d65(), Curve::Gamma(563.0 / 256.0)),
-        Builtin::ProPhotoCompat => rgb(b.description(), romm, math::D50, Curve::Gamma(1.8)),
-        Builtin::LinearSrgb => rgb(b.description(), srgb_p, d65(), Curve::Gamma(1.0)),
-        Builtin::Rec2020 => {
-            // Rec. 709 OETF inverse: V = 1.099 L^0.45 − 0.099 (L ≥ 0.018), 4.5 L below.
-            let a = 1.099;
-            let trc = Curve::Parametric { kind: 3, p: [1.0 / 0.45, 1.0 / a, (a - 1.0) / a, 1.0 / 4.5, 0.081, 0.0, 0.0] };
-            rgb(b.description(), bt2020, d65(), trc)
+        Builtin::Srgb | Builtin::DisplayP3 | Builtin::AdobeRgbCompat | Builtin::ProPhotoCompat | Builtin::Rec2020 => {
+            // Handled above; retaining a total match avoids an unreachable panic.
+            let (primaries, white) = NamedSpace::Srgb.icc_colorimetry();
+            rgb(b.description(), primaries, white, srgb_trc())
+        }
+        Builtin::LinearSrgb => {
+            let (primaries, white) = NamedSpace::Srgb.icc_colorimetry();
+            rgb(b.description(), primaries, white, Curve::Gamma(1.0))
         }
         Builtin::GrayGamma22 => gray(b.description(), Curve::Gamma(2.2)),
         Builtin::SGray => gray(b.description(), srgb_trc()),

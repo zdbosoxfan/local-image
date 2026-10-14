@@ -512,14 +512,7 @@ fn hue_chroma([r, g, b]: [f32; 3]) -> (f32, f32) {
     if d <= 0.0 {
         return (0.0, 0.0);
     }
-    let h = if mx == r {
-        ((g - b) / d).rem_euclid(6.0)
-    } else if mx == g {
-        (b - r) / d + 2.0
-    } else {
-        (r - g) / d + 4.0
-    };
-    (h * 60.0, d)
+    (li_color::perceptual::hue_degrees([r, g, b], mx, d), d)
 }
 
 /// Color Range › Select: Reds, Yellows, Greens, Cyans, Blues or Magentas (`center` = 0, 60,
@@ -550,7 +543,7 @@ pub fn tone_range(px: &[[f32; 4]], lo: f32, hi: f32, falloff: f32) -> Vec<f32> {
             if a <= 0.0 {
                 return 0.0;
             }
-            let l = (0.299 * r + 0.587 * g + 0.114 * b).clamp(0.0, 1.0) * 255.0;
+            let l = (li_color::convert::rgb_to_gray([r, g, b])).clamp(0.0, 1.0) * 255.0;
             let out = if l < lo {
                 lo - l
             } else if l > hi {

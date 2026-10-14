@@ -282,13 +282,13 @@ pub fn encode(data: &[u8], width: usize, height: usize, channels: usize, quality
             }
             if out.len() == 1 {
                 for (o, p) in out[0].iter_mut().zip(src.chunks_exact(channels)) {
-                    *o = 0.299 * p[0] as f32 + 0.587 * p[1] as f32 + 0.114 * p[2] as f32 - 128.0;
+                    *o = li_color::convert::rgb_to_gray([p[0] as f32, p[1] as f32, p[2] as f32]) - 128.0;
                 }
                 return;
             }
             for (x, p) in src.chunks_exact(channels).enumerate() {
                 let (r, g, b) = (p[0] as f32, p[1] as f32, p[2] as f32);
-                out[0][x] = 0.299 * r + 0.587 * g + 0.114 * b - 128.0;
+                out[0][x] = li_color::convert::rgb_to_gray([r, g, b]) - 128.0;
                 out[1][x] = -0.168_736 * r - 0.331_264 * g + 0.5 * b;
                 out[2][x] = 0.5 * r - 0.418_688 * g - 0.081_312 * b;
             }

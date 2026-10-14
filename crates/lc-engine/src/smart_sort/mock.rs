@@ -26,7 +26,7 @@ impl Tagger for MockTagger {
             *c /= img.data.len() as f32;
         }
         let [r, g, b] = rgb;
-        let l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        let l = li_color::luminance_709([r, g, b]);
         let saturation = r.max(g).max(b) - r.min(g).min(b);
         normalized(vec![r, g, b, l, r - g, b - g, saturation, 1.0], 8)
     }

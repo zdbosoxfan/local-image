@@ -61,7 +61,7 @@ pub(crate) fn ntsc(src: &Image, out: Rect, ctx: &Ctx) -> Vec<f32> {
     let mut res = src.crop(out);
     for px in res.chunks_exact_mut(n) {
         let c = if native { [px[0], px[1], px[2], 1.0] } else { rgba(ctx, px) };
-        let yy = 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+        let yy = li_color::convert::rgb_to_gray([c[0], c[1], c[2]]);
         let ii = 0.595_716 * c[0] - 0.274_453 * c[1] - 0.321_263 * c[2];
         let qq = 0.211_456 * c[0] - 0.522_591 * c[1] + 0.311_135 * c[2];
         let chroma = (ii * ii + qq * qq).sqrt();

@@ -3954,11 +3954,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-color"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "proptest",
+ "serde",
+]
+
+[[package]]
 name = "li-seg"
 version = "2.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "image",
+ "li-color",
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
@@ -4062,6 +4071,7 @@ dependencies = [
  "jpeg-decoder",
  "jpeg-encoder",
  "jxl-oxide",
+ "li-color",
  "lightcraft-color",
  "lightcraft-geom",
  "lightcraft-raster",
@@ -4081,9 +4091,7 @@ dependencies = [
 name = "lightcraft-color"
 version = "2.0.0-alpha.1"
 dependencies = [
- "lightcraft-geom",
- "proptest",
- "serde",
+ "li-color",
 ]
 
 [[package]]
@@ -4105,6 +4113,7 @@ dependencies = [
  "ab_glyph",
  "krilla",
  "lensfun",
+ "li-color",
  "li-seg",
  "libc",
  "lightcraft-catalog",
@@ -4219,6 +4228,7 @@ name = "lightcraft-pipeline"
 version = "2.0.0-alpha.1"
 dependencies = [
  "image",
+ "li-color",
  "lightcraft-color",
  "lightcraft-develop",
  "lightcraft-geom",
@@ -4246,6 +4256,7 @@ dependencies = [
 name = "lightcraft-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "libc",
  "lightcraft-color",
  "lightcraft-geom",
@@ -4325,6 +4336,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "li-attributions",
+ "li-color",
  "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -5458,6 +5470,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "image",
  "kurbo 0.13.1",
+ "li-color",
  "photocraft-color",
  "photocraft-compose",
  "photocraft-doc",
@@ -5576,6 +5589,7 @@ dependencies = [
  "crc32fast",
  "flate2",
  "image",
+ "li-color",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -5589,6 +5603,7 @@ dependencies = [
 name = "photocraft-algo"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
@@ -5623,6 +5638,7 @@ dependencies = [
 name = "photocraft-cms"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "moxcms",
  "rayon",
 ]
@@ -5638,6 +5654,7 @@ dependencies = [
  "image-webp",
  "jpeg-decoder",
  "jpeg-encoder",
+ "li-color",
  "photocraft-heif",
  "png 0.18.1",
  "proptest",
@@ -5653,6 +5670,7 @@ dependencies = [
 name = "photocraft-color"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "photocraft-cms",
  "serde",
 ]
@@ -5662,6 +5680,7 @@ name = "photocraft-compose"
 version = "2.0.0-alpha.1"
 dependencies = [
  "criterion",
+ "li-color",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",
@@ -5692,7 +5711,9 @@ dependencies = [
  "flate2",
  "image",
  "li-ai",
+ "li-color",
  "li-seg",
+ "lightcraft-pipeline",
  "lightcraft-raw",
  "lightcraft-sysmem",
  "pc-trace",
@@ -5786,6 +5807,7 @@ name = "photocraft-io"
 version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
+ "li-color",
  "lightcraft-codecs",
  "lightcraft-develop",
  "lightcraft-engine",
@@ -5825,6 +5847,7 @@ dependencies = [
 name = "photocraft-paint"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-color",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
@@ -5918,6 +5941,7 @@ dependencies = [
  "flate2",
  "image",
  "kurbo 0.13.1",
+ "li-color",
  "photocraft-cms",
  "photocraft-compose",
  "photocraft-doc",
@@ -5955,6 +5979,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "image",
  "kurbo 0.13.1",
+ "li-color",
  "memory-stats",
  "photocraft-color",
  "photocraft-doc",
@@ -5993,6 +6018,7 @@ dependencies = [
  "image",
  "li-ai",
  "li-attributions",
+ "li-color",
  "li-seg",
  "lightcraft-codecs",
  "lightcraft-raw",
@@ -6032,6 +6058,7 @@ name = "photocraft-vecfx"
 version = "2.0.0-alpha.1"
 dependencies = [
  "kurbo 0.13.1",
+ "li-color",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",

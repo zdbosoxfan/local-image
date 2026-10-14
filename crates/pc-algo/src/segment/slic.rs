@@ -10,14 +10,7 @@ use super::RgbImage;
 
 /// sRGB (`0..=1`) to CIELAB (D65), L in `0..=100`.
 pub fn rgb_to_lab(c: [f32; 3]) -> [f32; 3] {
-    let lin = |v: f32| if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) };
-    let (r, g, b) = (lin(c[0]), lin(c[1]), lin(c[2]));
-    let x = (0.412_456_4 * r + 0.357_576_1 * g + 0.180_437_5 * b) / 0.950_47;
-    let y = 0.212_672_9 * r + 0.715_152_2 * g + 0.072_175 * b;
-    let z = (0.019_333_9 * r + 0.119_192 * g + 0.950_304_1 * b) / 1.088_83;
-    let f = |t: f32| if t > 0.008_856 { t.cbrt() } else { 7.787 * t + 16.0 / 116.0 };
-    let (fx, fy, fz) = (f(x), f(y), f(z));
-    [116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz)]
+    li_color::srgb_perceptual::srgb_to_lab_d65(c)
 }
 
 /// A superpixel labelling.

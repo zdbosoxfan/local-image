@@ -239,7 +239,64 @@ fn lookup(n: usize, tetrahedral: bool, dither: bool) -> Adjustment {
             }
         }
     }
-    Adjustment::ColorLookup { name: "test".into(), lut: Some(std::sync::Arc::new(t)), size: n as u32, tetrahedral, dither }
+    Adjustment::ColorLookup { name: "test".into(), lut: Some(std::sync::Arc::new(t)), size: n as u32, domain: None, tetrahedral, dither }
+}
+
+#[test]
+fn color_lookup_nondefault_domain_matches_cpu() {
+    let Some(mut g) = gpu() else { return };
+    // Cross the simulated page boundary, with opaque pixels so channel-code comparisons
+    // are direct and do not hide interpolation differences behind premultiplication.
+    let mut failures = Vec::new();
+    let (width, height) = (PAGED_LIMIT + 13, PAGED_LIMIT + 1);
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for tetrahedral in [false, true] {
+            let mut d = Document::new("LUT domain", Size::new(width, height), ColorMode::Rgb, depth);
+            d.layers.push(noise_layer("source", d.pixel_format(), d.bounds(), 71, 1.0));
+            let input_working_set = [g.comp.working_set(&d, d.bounds()), g.paged.working_set(&d, d.bounds())];
+            let mut adjustment = lookup(5, tetrahedral, false);
+            if let Adjustment::ColorLookup { domain, .. } = &mut adjustment {
+                *domain = Some(photocraft_doc::LutDomain { min: [-1.0, 0.0, 0.25], max: [1.0, 2.0, 0.75] });
+            }
+            d.layers.push(Layer::new("Domain", LayerContent::Adjustment(adjustment)));
+            let cpu = photocraft_compose::render(&d, d.bounds());
+            for ((label, comp), before) in [("unpaged", &mut g.comp), ("paged", &mut g.paged)].into_iter().zip(input_working_set) {
+                let after = comp.working_set(&d, d.bounds());
+                assert_eq!(after, before * if depth == SampleType::U8 { 1 } else { 2 }, "{depth:?} {label}: input texture accounting");
+                let out = render_to_vec(comp, &g.device, &g.queue, &d, d.bounds()).unwrap();
+                assert_eq!(cpu.px.len(), out.len());
+                let mut max_float = 0.0f32;
+                let mut max_u8_codes = 0i32;
+                let mut worst = (0usize, 0usize, 0.0f32, 0.0f32);
+                for (index, (expected, actual)) in cpu.px.iter().zip(&out).enumerate() {
+                    for channel in 0..4 {
+                        let (c, o) = (expected[channel], actual[channel]);
+                        assert!(c.is_finite() && o.is_finite(), "{depth:?} tetrahedral={tetrahedral} {label} nonfinite at {index}:{channel}: {c} {o}");
+                        if (c - o).abs() > max_float {
+                            max_float = (c - o).abs();
+                            worst = (index, channel, c, o);
+                        }
+                        if depth == SampleType::U8 {
+                            let codes = ((c * 255.0).round() as i32 - (o * 255.0).round() as i32).abs();
+                            max_u8_codes = max_u8_codes.max(codes);
+                        }
+                    }
+                    assert_eq!(expected[3], 1.0, "CPU fixture must remain opaque");
+                    assert_eq!(actual[3], 1.0, "GPU output must remain opaque");
+                }
+                eprintln!("LUT domain {depth:?} tetrahedral={tetrahedral} {label}: max_float={max_float:.9e}, max_u8_codes={max_u8_codes}, worst={worst:?}");
+                let passes = match depth {
+                    SampleType::U8 => max_u8_codes <= 1,
+                    SampleType::U16 => max_float <= 1.0 / 32768.0 + 2e-7,
+                    SampleType::F32 => max_float <= 2e-6,
+                };
+                if !passes {
+                    failures.push(format!("{depth:?} tetrahedral={tetrahedral} {label}: {max_float}, {max_u8_codes} U8 codes; worst={worst:?}"));
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]

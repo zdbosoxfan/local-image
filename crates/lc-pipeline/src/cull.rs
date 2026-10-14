@@ -21,7 +21,7 @@ fn luma(img: &Rgb32f) -> (Vec<f32>, usize, usize) {
             for yy in y0..y1 {
                 for xx in x0..x1 {
                     let c = img.data[yy * w + xx];
-                    acc += 0.2627 * c[0] + 0.678 * c[1] + 0.0593 * c[2];
+                    acc += li_color::luminance_2020(c);
                 }
             }
             let l = acc / ((y1 - y0) * (x1 - x0)) as f32;

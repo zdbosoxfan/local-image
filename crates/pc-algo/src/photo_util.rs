@@ -186,12 +186,12 @@ pub(crate) fn hash01(x: i64, y: i64, seed: u64) -> f32 {
 
 /// sRGB transfer function, decode (extended linearly below 0 and as a power above 1).
 pub(crate) fn srgb_to_linear(v: f32) -> f32 {
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    li_color::transfer::srgb_to_linear(v)
 }
 
 /// sRGB transfer function, encode.
 pub(crate) fn linear_to_srgb(v: f32) -> f32 {
-    if v <= 0.003_130_8 { v * 12.92 } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 }
+    li_color::transfer::linear_to_srgb(v)
 }
 
 /// Bilinear sample of channel `c` of a `w × h × ch` buffer, clamped to the edges.

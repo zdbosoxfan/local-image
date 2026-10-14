@@ -12,26 +12,12 @@ use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, Widt
 use photocraft_doc::{Fill, Layer, LayerContent, ShapeStroke};
 
 pub fn oklab(color: Color) -> [f64; 3] {
-    let [r, g, b] = color.to_rgb().map(|v| f64::from(srgb_to_linear(v)));
-    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
-    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
-    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
-    [
-        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
-    ]
+    let rgb = color.to_rgb().map(|v| f64::from(srgb_to_linear(v)));
+    li_color::srgb_perceptual::linear_srgb_to_oklab_f64(rgb)
 }
 fn rgb([l, a, b]: [f64; 3], alpha: f32) -> Color {
-    let x = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
-    let y = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
-    let z = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
-    Color::rgba(
-        linear_to_srgb((4.0767416621 * x - 3.3077115913 * y + 0.2309699292 * z) as f32),
-        linear_to_srgb((-1.2684380046 * x + 2.6097574011 * y - 0.3413193965 * z) as f32),
-        linear_to_srgb((-0.0041960863 * x - 0.7034186147 * y + 1.7076147010 * z) as f32),
-        alpha,
-    )
+    let [r, g, b] = li_color::srgb_perceptual::oklab_to_linear_srgb_f64([l, a, b]);
+    Color::rgba(linear_to_srgb(r as f32), linear_to_srgb(g as f32), linear_to_srgb(b as f32), alpha)
 }
 fn mix(a: f32, b: f32, t: f64) -> f32 {
     (f64::from(a) + (f64::from(b) - f64::from(a)) * t) as f32

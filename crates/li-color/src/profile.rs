@@ -136,7 +136,7 @@ impl HsvTable {
         }
         let min = rgb[0].min(rgb[1]).min(rgb[2]);
         let d = max - min;
-        let hue = hue_of(rgb, max, d);
+        let hue = crate::perceptual::hue_degrees(rgb, max, d);
         let sat = d / max;
         let v_index = if self.srgb_value { linear_to_srgb(max.min(1.0)) } else { max };
         let [shift, ss, vs] = self.lookup(hue, sat, v_index);
@@ -150,44 +150,13 @@ impl HsvTable {
         } else {
             limited(max, vs)
         };
-        hsv_to_rgb(hue + shift, s2, v2)
+        crate::perceptual::hsv_to_rgb_profile(hue + shift, s2, v2)
     }
 }
 
 /// `x · k` clipped to 1, for `x ≤ 1`; above 1, only scale factors below 1 apply (continuous at 1).
 fn limited(x: f32, k: f32) -> f32 {
     if x <= 1.0 { (x * k).min(1.0) } else { x * k.min(1.0) }
-}
-
-fn hue_of(c: [f32; 3], max: f32, d: f32) -> f32 {
-    if d <= 0.0 {
-        return 0.0;
-    }
-    let h = if max == c[0] {
-        ((c[1] - c[2]) / d).rem_euclid(6.0)
-    } else if max == c[1] {
-        (c[2] - c[0]) / d + 2.0
-    } else {
-        (c[0] - c[1]) / d + 4.0
-    };
-    h * 60.0
-}
-
-/// HSV → RGB for any saturation ≥ 0 (above 1 yields negative components, the inverse of
-/// [`hue_of`] for out-of-gamut inputs).
-fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
-    let hp = h.rem_euclid(360.0) / 60.0;
-    let sector = (hp as u32).min(5);
-    let f = hp - sector as f32;
-    let (p, q, t) = (v * (1.0 - s), v * (1.0 - s * f), v * (1.0 - s * (1.0 - f)));
-    match sector {
-        0 => [v, t, p],
-        1 => [q, v, p],
-        2 => [p, v, t],
-        3 => [p, q, v],
-        4 => [t, p, v],
-        _ => [v, p, q],
-    }
 }
 
 /// A DNG tone curve (`ProfileToneCurve`): linear-gamma (input, output) pairs, increasing input.

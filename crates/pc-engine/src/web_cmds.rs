@@ -421,7 +421,7 @@ pub fn optimize(px: &[[f32; 4]], bw: usize, rect: Rect, st: &WebSettings, icc: O
             let mut gray: Vec<f32> = region()
                 .map(|p| {
                     let q = over(p);
-                    0.299 * q[0] + 0.587 * q[1] + 0.114 * q[2]
+                    li_color::convert::rgb_to_gray([q[0], q[1], q[2]])
                 })
                 .collect();
             let method = match st.dither {

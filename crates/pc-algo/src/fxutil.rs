@@ -72,10 +72,10 @@ pub(crate) fn luma(ctx: &Ctx, px: &[f32]) -> f32 {
     match ctx.mode {
         ColorMode::Grayscale | ColorMode::Bitmap | ColorMode::Duotone => px[0],
         ColorMode::Lab => px[0],
-        ColorMode::Rgb => 0.299 * px[0] + 0.587 * px[1] + 0.114 * px[2],
+        ColorMode::Rgb => li_color::convert::rgb_to_gray([px[0], px[1], px[2]]),
         _ => {
             let c = rgba(ctx, px);
-            0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]
+            li_color::convert::rgb_to_gray([c[0], c[1], c[2]])
         }
     }
 }

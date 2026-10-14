@@ -170,7 +170,7 @@ fn color_lookup_builtin_data_and_errors() {
     // Switching interpolation keeps the table.
     s.execute("layer.setAdjustment", json!({"layer": id.0, "interpolation": "tetrahedral", "dither": true})).unwrap();
     match &doc(&s).layer(id).unwrap().content {
-        LayerContent::Adjustment(Adjustment::ColorLookup { lut: Some(_), size: 33, tetrahedral: true, dither: true, name }) => {
+        LayerContent::Adjustment(Adjustment::ColorLookup { lut: Some(_), size: 33, tetrahedral: true, dither: true, name, .. }) => {
             assert_eq!(name, "Day for Night")
         }
         other => panic!("{other:?}"),
@@ -288,4 +288,28 @@ fn a_targeted_mask_enables_editing_it_on_any_layer() {
     assert!(!s.is_enabled_with("image.adjustments.invert", &mask));
     assert!(s.execute("image.adjustments.invert", mask).is_err());
     assert_eq!(rgba(&s, 23, 3), pixels);
+}
+
+#[test]
+fn lookup_nondefault_domain_matches_develop_and_survives_parameter_updates() {
+    let cube = "TITLE \"Domain fixture\"\nLUT_3D_SIZE 2\nDOMAIN_MIN -1 0 0.25\nDOMAIN_MAX 1 2 0.75\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1\n";
+    let adjustment = lookup_from_params(&json!({"data": cube, "fileName": "domain.cube"}), None).unwrap();
+    let domain = photocraft_doc::LutDomain { min: [-1.0, 0.0, 0.25], max: [1.0, 2.0, 0.75] };
+    assert!(matches!(&adjustment, Adjustment::ColorLookup { domain: Some(d), tetrahedral: true, .. } if *d == domain));
+    let develop = lightcraft_pipeline::lut::Lut3d::parse_cube(cube).unwrap();
+    for input in [[0.0, 0.5, 0.5], [1.0, 1.0, 0.75], [-2.0, 3.0, 0.0]] {
+        let mut buffer = photocraft_compose::Buffer::filled(Rect::new(0, 0, 1, 1), [input[0], input[1], input[2], 1.0]);
+        photocraft_compose::adjust::apply(&adjustment, &mut buffer);
+        let expected = develop.apply(input);
+        for c in 0..3 {
+            assert!((buffer.px[0][c] - expected[c]).abs() < 1e-6);
+        }
+        assert_eq!(buffer.px[0][3], 1.0);
+    }
+    let updated = lookup_from_params(&json!({"dither": true, "tetrahedral": false}), Some(&adjustment)).unwrap();
+    assert!(matches!(updated, Adjustment::ColorLookup { domain: Some(d), dither: true, tetrahedral: false, .. } if d == domain));
+    let replaced = lookup_from_params(&json!({"lut": LOOKS[0].0}), Some(&adjustment)).unwrap();
+    assert!(matches!(replaced, Adjustment::ColorLookup { domain: None, .. }));
+    let cleared = lookup_from_params(&json!({"lut": "none"}), Some(&adjustment)).unwrap();
+    assert!(matches!(cleared, Adjustment::ColorLookup { domain: None, lut: None, .. }));
 }
