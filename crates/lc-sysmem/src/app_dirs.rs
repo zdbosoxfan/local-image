@@ -67,9 +67,7 @@ pub fn resolve(env: impl Fn(&str) -> Option<OsString>, exe_dir: Option<&Path>) -
     }
     let platform = platform_dir(&env);
     let Some((exe_dir, marker)) = exe_dir.and_then(|d| portable_marker(d).map(|m| (d, m))) else {
-        if let Some(directory) =
-            ["LOCAL_IMAGE_DATA_DIR", "LOCAL_REMOVE_DATA_DIR"].into_iter().find_map(|key| env(key).filter(|value| !value.is_empty()))
-        {
+        if let Some(directory) = env("LOCAL_IMAGE_DATA_DIR").filter(|value| !value.is_empty()) {
             return DataDir { dir: Some(PathBuf::from(directory)), mode: Mode::Override, warning: None };
         }
         return DataDir { dir: platform, mode: Mode::Platform, warning: None };

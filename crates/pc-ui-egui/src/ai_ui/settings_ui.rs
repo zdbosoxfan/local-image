@@ -175,7 +175,6 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
             li_seg::MODELS.iter().flat_map(|spec| spec.files()).map(|file| li_seg::companion_path(&dir, file.file)).collect();
         let bytes = paths.iter().filter_map(|path| std::fs::metadata(path).ok()).map(|m| m.len()).sum();
         ui.label(crate::i18n::fmt(tl!("Managed model storage: {size}"), &[("size", &li_ai::download::human_bytes(bytes))]));
-        legacy_cleanup(ui, &dir);
     });
 }
 

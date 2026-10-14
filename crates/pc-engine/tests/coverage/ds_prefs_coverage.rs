@@ -120,18 +120,10 @@ fn guides_major_px_clamps_and_converts() {
 
 #[test]
 fn performance_rendering_mode_resolution() {
-    let mut p = prefs::Performance::default();
-    assert_eq!(p.effective_rendering_mode(), prefs::RenderingMode::Auto);
-    p.rendering_mode = Some(prefs::RenderingMode::Cpu);
-    assert_eq!(p.effective_rendering_mode(), prefs::RenderingMode::Cpu);
-    p.rendering_mode = None;
-    p.use_gpu = false;
-    assert_eq!(p.effective_rendering_mode(), prefs::RenderingMode::Cpu);
-    p.use_gpu = true;
-    p.gpu_backend = prefs::GpuBackend::Cpu;
-    assert_eq!(p.effective_rendering_mode(), prefs::RenderingMode::Cpu);
-    p.gpu_backend = prefs::GpuBackend::Auto;
-    assert_eq!(p.effective_rendering_mode(), prefs::RenderingMode::Auto);
+    let p = prefs::Performance::default();
+    assert_eq!(p.rendering_mode, prefs::RenderingMode::Auto);
+    let cpu: prefs::Performance = serde_json::from_value(serde_json::json!({"renderingMode": "cpu"})).unwrap();
+    assert_eq!(cpu.rendering_mode, prefs::RenderingMode::Cpu);
 }
 
 #[test]
@@ -242,19 +234,19 @@ fn prefs_store_rev_bump_and_get() {
 
 #[test]
 fn normalize_shortcut_modifiers_order_and_key() {
-    assert_eq!(prefs::normalize_shortcut("cmd+shift+n"), Some("Cmd+Shift+N".into()));
-    assert_eq!(prefs::normalize_shortcut("shift+alt+ctrl+cmd+a"), Some("Cmd+Ctrl+Alt+Shift+A".into()));
-    assert_eq!(prefs::normalize_shortcut("+"), Some("+".into()));
-    assert_eq!(prefs::normalize_shortcut("Cmd++"), Some("Cmd++".into()));
-    assert_eq!(prefs::normalize_shortcut(""), None);
-    assert_eq!(prefs::normalize_shortcut("foo+bar"), None);
-    assert_eq!(prefs::normalize_shortcut("Cmd+Shift+"), None);
+    assert_eq!(li_keys::normalize_shortcut("cmd+shift+n"), Some("Cmd+Shift+N".into()));
+    assert_eq!(li_keys::normalize_shortcut("shift+alt+ctrl+cmd+a"), Some("Cmd+Ctrl+Alt+Shift+A".into()));
+    assert_eq!(li_keys::normalize_shortcut("+"), Some("+".into()));
+    assert_eq!(li_keys::normalize_shortcut("Cmd++"), Some("Cmd++".into()));
+    assert_eq!(li_keys::normalize_shortcut(""), None);
+    assert_eq!(li_keys::normalize_shortcut("foo+bar"), None);
+    assert_eq!(li_keys::normalize_shortcut("Cmd+Shift+"), None);
 }
 
 #[test]
 fn conflicts_finds_duplicate_shortcuts() {
     let bindings = [("cmd.a", "Cmd+Shift+X"), ("cmd.b", "cmd+shift+x"), ("cmd.c", "Cmd+Shift+Y")];
-    let c = prefs::conflicts(bindings);
+    let c = li_keys::conflicts(bindings);
     assert_eq!(c.len(), 1);
     assert_eq!(c[0].0, "Cmd+Shift+X");
     assert_eq!(c[0].1, vec!["cmd.a".to_string(), "cmd.b".to_string()]);

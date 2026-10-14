@@ -280,10 +280,11 @@ fn main() -> eframe::Result {
         Some(dir) => gpu_startup::Sentinel::begin(&dir),
         None => (gpu_startup::Previous::Clean, None),
     };
-    let legacy_backend = std::env::var("LIGHTCRAFT_GPU_BACKEND").ok();
+    let local_image_backend = std::env::var("LOCAL_IMAGE_GPU_BACKEND").ok();
     let wgpu_backend = std::env::var("WGPU_BACKEND").ok();
-    let env_backend = li_gpu::backend::startup_environment(legacy_backend.as_deref(), wgpu_backend.as_deref());
-    let legacy_override = env_backend.is_some() && li_gpu::backend::startup_environment(None, wgpu_backend.as_deref()).is_none();
+    let env_backend = li_gpu::backend::startup_environment(local_image_backend.as_deref(), wgpu_backend.as_deref());
+    // The override came from LOCAL_IMAGE_GPU_BACKEND (WGPU_BACKEND alone would choose nothing).
+    let local_image_override = env_backend.is_some() && li_gpu::backend::startup_environment(None, wgpu_backend.as_deref()).is_none();
     // Why GPU acceleration is reduced or off after an earlier failure, while that still applies
     // (choosing GPU again in Preferences or the CPU-mode notice makes it stale).
     let config_dir = services::config_dir();
@@ -295,8 +296,8 @@ fn main() -> eframe::Result {
         recovery = None;
     }
     let mut plan = gpu_startup::plan_with_mode(pref, mode, previous.crashed(), env_backend.as_deref(), safe_gpu, os);
-    if legacy_override {
-        plan.reason = plan.reason.map(|reason| reason.replace("WGPU_BACKEND", "LIGHTCRAFT_GPU_BACKEND"));
+    if local_image_override {
+        plan.reason = plan.reason.map(|reason| reason.replace("WGPU_BACKEND", "LOCAL_IMAGE_GPU_BACKEND"));
     }
     // A process re-launched after its parent's renderer couldn't initialise (see the end of main).
     let retry_env = std::env::var(gpu_startup::RETRY_ENV).ok();
@@ -451,7 +452,7 @@ fn main() -> eframe::Result {
                 if !software_window
                     && plan.backend != photocraft_engine::prefs::GpuBackend::Cpu
                     && std::env::var_os("LOCAL_IMAGE_CPU_CANVAS").is_none()
-                    && app.session.prefs().performance.effective_rendering_mode() != photocraft_engine::prefs::RenderingMode::Cpu
+                    && app.session.prefs().performance.rendering_mode != photocraft_engine::prefs::RenderingMode::Cpu
                 {
                     app.set_wgpu(rs);
                 }
@@ -496,7 +497,7 @@ fn main() -> eframe::Result {
                     && let Err(error) = app.run(
                         "prefs.set",
                         serde_json::json!({"values": {
-                            "performance.renderingMode": "cpu", "performance.useGpu": false
+                            "performance.renderingMode": "cpu"
                         }}),
                     )
                 {

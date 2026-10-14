@@ -1,5 +1,9 @@
 # J15 — shared model registry and on-device download backend
 
+> **Note (2026-10-14):** the preservation of legacy settings and legacy model directories described
+> under "Existing root integration" below was removed by owner decision (v2 has no old-version
+> compatibility). `AiSettings` now reads only the current `ai` section of `preferences.json`.
+
 ## Completed
 
 Continued the branch's existing LaMa/catalog and preferences-root integration. D15/J15's

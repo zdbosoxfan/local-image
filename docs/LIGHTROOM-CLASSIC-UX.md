@@ -28,20 +28,17 @@ All application settings use one `preferences.json`: Library UI state and settin
 `library.*` (including `library.settings` and `library.module`); typed AI settings live under `ai.*`.
 The existing editor sections share this file. Every application settings write uses the host's
 checked atomic writer, with durable backups and merge/retry protection against concurrent edits.
-`lightcraft_sysmem::app_dirs` resolves one configuration directory, including portable mode. Legacy LightCraft camera profiles remain read-only fallback inputs; new
-profiles use the shared configuration directory.
+`lightcraft_sysmem::app_dirs` resolves one configuration directory, including portable mode. Camera
+profiles are read only from the current Local Image folder (override: `LOCAL_IMAGE_CAMERA_PROFILES`).
 AI, Compositing selections and Develop masks use one effective models root: `ai.model_directory`
 when configured, otherwise `<config>/models` (existing environment overrides remain supported).
 Changes update already-open Develop sessions; SAM 3 remains optional and disabled by default.
 
-At first native launch, absent sections import older `library-ui.json`, `mode`, AI `config.json`
-and previous `dialogs["host.libraryUi"]` / `dialogs["host.module"]` keys. Legacy sources are retained
-and no longer updated; exact-byte migration backups live in `<config>/preference-backups/`.
-An existing legacy models folder is preserved as `ai.model_directory`. Malformed fields use defaults
-while valid fields, unknown AI keys and catalog paths survive. Damaged catalog paths require choosing
-the existing catalog; the app never silently substitutes another path. Invalid unified Library values
-are retained in `library.recoveredOriginal`, and rejected AI fields are recorded in
-`dialogs["migrations.rejectedFields"]`. Catalog-specific settings continue to live with their catalogs.
+v2 reads only `preferences.json`; it does not import settings from older Local Image, LightCraft or
+PhotoCraft files. If the `library` section is damaged or unreadable, the app shows the Library-problem
+screen and never opens or creates a different Library. A damaged `preferences.json` is kept as
+`<config>/preference-backups/preferences.corrupt-*` so it can be recovered. Catalog-specific settings
+continue to live with their catalogs.
 
 References: Adobe's [workspace basics](https://helpx.adobe.com/lightroom-classic/desktop/workspace/workspace-basics.html)
 places the module picker at the upper right; [tone and color](https://helpx.adobe.com/lightroom-classic/desktop/process-and-develop-photos/image-tone-color.html)

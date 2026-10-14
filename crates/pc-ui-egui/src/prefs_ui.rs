@@ -657,7 +657,8 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
         if it.label == "---" || !seen.insert(it.id.clone()) {
             continue;
         }
-        let default = default_shortcut(&it.id).or(it.shortcut.clone().filter(|_| !app.session.prefs().shortcuts.contains_key(&it.id)));
+        let default = default_shortcut(&it.id)
+            .or(it.shortcut.clone().filter(|_| !app.session.prefs().shortcut_overrides(it.id.starts_with("library::")).contains_key(&it.id)));
         out.push((it.id, it.label, it.path, default));
     }
     // Commands without a menu item: the colour and fill keys (D, X, ⌥⌫…) sit under Tools, as
@@ -925,8 +926,8 @@ fn field_order(p: &prefs::Preferences, sections: &Map<String, Value>) -> Value {
     Value::Object(out)
 }
 
-/// Runtime host catalog: key, human label, menu path, default chord. Shared dialog and
-/// existing Preferences.shortcuts remain the only editor and persisted authority.
+/// Runtime host catalog: key, human label, menu path, default chord. The shared dialog and
+/// the Library shortcut profile remain the only editor and persisted authority.
 pub type HostShortcutItem = (String, String, Vec<String>, Option<String>);
 pub fn set_host_shortcut_catalog(app: &mut PhotocraftApp, ctx: &egui::Context, items: Vec<HostShortcutItem>) {
     for dialog in &mut app.ui.dialogs {
@@ -1245,7 +1246,6 @@ fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, failure: Option<&str
         let retry_chosen = rendering_mode_value(obj) != "cpu" && obj.get("gpuBackend").and_then(Value::as_str).unwrap_or("auto") == "auto";
         if !retry_chosen && crate::widgets::secondary_button(ui, tl!("Retry GPU"), 120.0).clicked() {
             obj.insert("renderingMode".into(), json!("gpu"));
-            obj.insert("useGpu".into(), json!(true));
             obj.insert("gpuBackend".into(), json!("auto"));
         }
         ui.add_space(4.0);
@@ -1326,7 +1326,7 @@ fn processing_rows(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
     }
 }
 
-/// One user-facing choice; legacy flags remain compatible with older settings.
+/// One user-facing choice: Automatic, GPU or CPU / Compatibility.
 fn rendering_mode_row(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
     let mut current = rendering_mode_value(obj);
     ui.horizontal(|ui| {
@@ -1337,7 +1337,6 @@ fn rendering_mode_row(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
         crate::widgets::dropdown(ui, "rendering-mode", &mut current, &pairs, 240.0);
         if current != previous {
             obj.insert("renderingMode".into(), json!(current));
-            obj.insert("useGpu".into(), json!(current != "cpu"));
         }
     });
     ui.label(tl!("Automatic uses GPU acceleration when available and falls back to CPU rendering on errors."));
@@ -1345,13 +1344,7 @@ fn rendering_mode_row(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
 }
 
 fn rendering_mode_value(obj: &Map<String, Value>) -> String {
-    obj.get("renderingMode").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| {
-        if obj.get("useGpu").and_then(Value::as_bool) == Some(false) || obj.get("gpuBackend").and_then(Value::as_str) == Some("cpu") {
-            "cpu".into()
-        } else {
-            "auto".into()
-        }
-    })
+    obj.get("renderingMode").and_then(Value::as_str).unwrap_or("auto").to_string()
 }
 
 /// Does `section` have any setting the dialog shows (see [`prefs::HIDDEN_UNTIL_IMPLEMENTED`])?
@@ -1385,7 +1378,7 @@ fn section_fields(ui: &mut egui::Ui, section: &str, obj: &mut Map<String, Value>
             // pass through untouched.
             if (section == "interface" && k == "toolIcons")
                 || prefs::is_hidden(&path)
-                || (section == "performance" && matches!(k.as_str(), "useGpu" | "gpuBackend" | "renderingMode"))
+                || (section == "performance" && matches!(k.as_str(), "gpuBackend" | "renderingMode"))
             {
                 continue;
             }
@@ -1534,13 +1527,12 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
     }
     let mut scope = f.get("shortcutScope").and_then(Value::as_str).unwrap_or("editor").to_string();
     let previous_scope = scope.clone();
-    let parsed_profiles = f.get("profiles").cloned().map(serde_json::from_value::<prefs::ShortcutProfiles>);
+    let parsed_profiles = f.get("profiles").cloned().map(serde_json::from_value::<li_keys::ShortcutProfiles>);
     if parsed_profiles.as_ref().is_some_and(Result::is_err) {
         ui.label("Invalid shortcut profiles. Cancel to keep your saved profiles.");
         return;
     }
-    let mut profiles = parsed_profiles.and_then(Result::ok).unwrap_or_default();
-    profiles.migrate(&overrides);
+    let mut profiles = parsed_profiles.and_then(Result::ok).unwrap_or_else(|| app.session.prefs().shortcut_profiles.clone());
     if tab == 0 {
         ui.horizontal(|ui| {
             ui.label(RichText::new(tl!("Scope")).color(t.text_dim));
@@ -1555,7 +1547,7 @@ fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String
         f.insert("shortcutScope".into(), json!(scope));
         if scope == "global" {
             ui.label(RichText::new("Global shortcuts are fixed and take precedence in every workspace.").color(t.text_dim));
-            for (_, label, key) in prefs::GLOBAL_SHORTCUTS {
+            for (_, label, key) in li_keys::GLOBAL_SHORTCUTS {
                 ui.horizontal(|ui| {
                     ui.label(*label);
                     ui.label(crate::shortcuts::pretty(key));
@@ -1981,88 +1973,52 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
             // The map replaces every stored override, so a malformed one is an error, not "none".
             let mut ov: BTreeMap<String, String> =
                 serde_json::from_value(overrides).map_err(|e| format!("overrides must map command IDs to shortcut strings: {e}"))?;
-            if let Some(value) = f.get("profiles") {
-                let mut profiles: prefs::ShortcutProfiles = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
-                profiles.migrate(&ov);
-                let mut defaults = shortcut_items(app);
-                defaults.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
-                profile_defaults(app.session.prefs(), &profiles, &mut defaults);
-                let changed: Vec<_> = ov.iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
-                for (id, key) in changed {
-                    if crate::keymaps::global_conflict(&key).is_some() {
-                        continue;
-                    }
-                    let unchanged_library = id.starts_with("library::")
-                        && app.session.prefs().shortcuts.get(&id).and_then(|old| prefs::normalize_shortcut(old)).as_deref()
-                            == prefs::normalize_shortcut(&key).as_deref();
-                    if let Some(action) = reserved_library_chord(&id, &key)
-                        && !unchanged_library
-                    {
-                        return Err(reserved_message(action));
-                    }
-                    if unchanged_library && profiles.library.parent() == app.session.prefs().shortcut_profiles.library.parent() {
-                        continue;
-                    }
-                    for (other, _, _, default) in &defaults {
-                        if *other != id
-                            && !crate::keymaps::is_global(other)
-                            && same_shortcut_scope(&id, other)
-                            && !ov.contains_key(other)
-                            && default.as_deref().is_some_and(|old| same_chord_in_scope(&id, old, &key))
-                        {
-                            ov.insert(other.clone(), String::new());
-                        }
-                    }
+            let mut profiles: li_keys::ShortcutProfiles = match f.get("profiles") {
+                Some(value) => serde_json::from_value(value.clone()).map_err(|e| e.to_string())?,
+                None => app.session.prefs().shortcut_profiles.clone(),
+            };
+            let mut defaults = shortcut_items(app);
+            defaults.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
+            profile_defaults(app.session.prefs(), &profiles, &mut defaults);
+            let changed: Vec<_> = ov.iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
+            for (id, key) in changed {
+                if crate::keymaps::global_conflict(&key).is_some() {
+                    continue;
                 }
-                for library in [false, true] {
-                    let workspace = profiles.workspace_mut(library);
-                    let current: BTreeMap<_, _> =
-                        ov.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(k, v)| (k.clone(), v.clone())).collect();
-                    let old = workspace.custom.get(&workspace.active).map(|p| p.overrides.clone()).unwrap_or_default();
-                    if current != old {
-                        if !workspace.custom.contains_key(&workspace.active) {
-                            let name = format!("Custom ({})", workspace.active);
-                            workspace.duplicate(&name)?;
-                        }
-                        if let Some(profile) = workspace.custom.get_mut(&workspace.active) {
-                            profile.overrides = current;
-                        }
-                    }
-                }
-                // Apply through a single prefs transaction: invalid profiles cannot partially save.
-                return app.run("prefs.set", json!({"values": {"shortcutProfiles": profiles, "shortcuts": ov, "menus": {"hidden": f.get("hidden").cloned().unwrap_or(json!([])), "colors": f.get("colors").cloned().unwrap_or(json!({}))}}}));
-            }
-            let mut items = shortcut_items(app);
-            items.extend(f.get("__hostShortcuts").and_then(|v| serde_json::from_value::<Vec<HostShortcutItem>>(v.clone()).ok()).unwrap_or_default());
-            let changed: Vec<(String, String)> = ov.iter().filter(|(_, s)| !s.is_empty()).map(|(k, s)| (k.clone(), s.clone())).collect();
-            for (id, sc) in changed {
-                let Some(sc) = prefs::normalize_shortcut(&sc) else { continue };
-                if let Some(action) = reserved_library_chord(&id, &sc)
-                    && app.session.prefs().shortcuts.get(&id).and_then(|old| prefs::normalize_shortcut(old)).as_deref() != Some(sc.as_str())
+                let unchanged_library = id.starts_with("library::")
+                    && app.session.prefs().shortcut_overrides(true).get(&id).and_then(|old| li_keys::normalize_shortcut(old)).as_deref()
+                        == li_keys::normalize_shortcut(&key).as_deref();
+                if let Some(action) = reserved_library_chord(&id, &key)
+                    && !unchanged_library
                 {
                     return Err(reserved_message(action));
                 }
-                // Reviewing an existing legacy Library value must not silently disable
-                // a supported default elsewhere; only a changed assignment moves keys.
-                if id.starts_with("library::")
-                    && app.session.prefs().shortcuts.get(&id).and_then(|old| prefs::normalize_shortcut(old)).as_deref() == Some(sc.as_str())
-                {
+                // Reviewing an unchanged Library binding must not silently disable a default
+                // elsewhere; only a changed assignment moves keys.
+                if unchanged_library && profiles.library.parent() == app.session.prefs().shortcut_profiles.library.parent() {
                     continue;
                 }
-                for (other, _, _, def) in &items {
+                for (other, _, _, default) in &defaults {
                     if *other != id
+                        && !crate::keymaps::is_global(other)
                         && same_shortcut_scope(&id, other)
                         && !ov.contains_key(other)
-                        && def.as_deref().is_some_and(|old| same_chord_in_scope(&id, old, &sc))
+                        && default.as_deref().is_some_and(|old| same_chord_in_scope(&id, old, &key))
                     {
                         ov.insert(other.clone(), String::new());
                     }
                 }
             }
-            let hidden = f.get("hidden").cloned().unwrap_or(json!([]));
-            let colors = f.get("colors").cloned().unwrap_or(json!({}));
-            app.run("edit.keyboardShortcuts", json!({"reset": true, "set": ov, "allowUnknown": true, "removeConflicts": false}))?;
-            app.run("prefs.set", json!({"values": {"menus": {"hidden": hidden, "colors": colors}}}))
+            for library in [false, true] {
+                let workspace = profiles.workspace_mut(library);
+                let current: BTreeMap<_, _> = ov.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(k, v)| (k.clone(), v.clone())).collect();
+                let old = workspace.custom.get(&workspace.active).map(|p| p.overrides.clone()).unwrap_or_default();
+                if current != old {
+                    workspace.editable().overrides = current;
+                }
+            }
+            // Apply through a single prefs transaction: invalid profiles cannot partially save.
+            app.run("prefs.set", json!({"values": {"shortcutProfiles": profiles, "menus": {"hidden": f.get("hidden").cloned().unwrap_or(json!([])), "colors": f.get("colors").cloned().unwrap_or(json!({}))}}}))
         }
         "presets" => Ok(Value::Null),
         "presetsIO" => {
@@ -2165,12 +2121,12 @@ mod tests {
     }
 
     #[test]
-    fn rendering_mode_display_respects_explicit_mode_and_legacy_disable() {
-        let legacy = serde_json::json!({"useGpu": false, "gpuBackend": "auto"});
-        assert_eq!(super::rendering_mode_value(legacy.as_object().unwrap()), "cpu");
-        let explicit = serde_json::json!({"renderingMode": "gpu", "useGpu": false, "gpuBackend": "cpu"});
+    fn rendering_mode_display_respects_explicit_mode() {
+        let explicit = serde_json::json!({"renderingMode": "gpu", "gpuBackend": "cpu"});
         assert_eq!(super::rendering_mode_value(explicit.as_object().unwrap()), "gpu");
-        let automatic = serde_json::json!({"renderingMode": null, "useGpu": true, "gpuBackend": "auto"});
+        let cpu = serde_json::json!({"renderingMode": "cpu", "gpuBackend": "auto"});
+        assert_eq!(super::rendering_mode_value(cpu.as_object().unwrap()), "cpu");
+        let automatic = serde_json::json!({"gpuBackend": "cpu"});
         assert_eq!(super::rendering_mode_value(automatic.as_object().unwrap()), "auto");
     }
     use super::*;
@@ -2242,7 +2198,7 @@ mod tests {
     #[test]
     fn transient_initial_read_failure_rebases_local_edits_and_next_save() {
         use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-        let original = r#"{"interface":{"theme":"studio"},"shortcuts":{"file.new":"Ctrl+Alt+N","file.open":"Ctrl+Shift+O"},"performance":{"historyStates":12},"future":{"keep":"original"}}"#;
+        let original = r#"{"interface":{"theme":"studio"},"shortcutProfiles":{"editor":{"active":"Mine","custom":{"Mine":{"parent":"Photoshop","overrides":{"file.new":"Ctrl+Alt+N","file.open":"Ctrl+Shift+O"}}}}},"performance":{"historyStates":12},"future":{"keep":"original"}}"#;
         let store = Arc::new(Mutex::new(Some(original.to_string())));
         let failed = Arc::new(AtomicBool::new(true));
         let writes = Arc::new(AtomicUsize::new(0));
@@ -2272,17 +2228,17 @@ mod tests {
         assert_eq!(persist(&mut app, 102.), Some(0.));
         let saved = stored(&store);
         assert_eq!(saved["interface"]["theme"], "classic");
-        assert_eq!(saved["shortcuts"], json!({"file.new":"Ctrl+Alt+N","file.open":"Ctrl+Shift+O"}));
+        assert_eq!(saved["shortcutProfiles"]["editor"]["custom"]["Mine"]["overrides"], json!({"file.new":"Ctrl+Alt+N","file.open":"Ctrl+Shift+O"}));
         assert_eq!(saved["performance"]["historyStates"], 12);
         assert_eq!(saved["future"]["keep"], "original");
-        assert_eq!(app.session.prefs_value()["shortcuts"], saved["shortcuts"], "live prefs must be rebased too");
+        assert_eq!(app.session.prefs_value()["shortcutProfiles"]["editor"], saved["shortcutProfiles"]["editor"], "live prefs must be rebased too");
         assert_eq!(app.session.prefs_value()["performance"]["historyStates"], 12);
         assert_eq!(app.prefs_rt.saved_value, Some(app.session.prefs_value()));
         // A later ordinary save must not write old default shortcuts back over the recovered file.
         app.run("prefs.set", json!({"values":{"performance.historyStates":32}})).unwrap();
         assert_eq!(persist(&mut app, 103.), None);
         let next = stored(&store);
-        assert_eq!(next["shortcuts"], saved["shortcuts"]);
+        assert_eq!(next["shortcutProfiles"], saved["shortcutProfiles"]);
         assert_eq!(next["performance"]["historyStates"], 32);
         assert_eq!(next["future"], saved["future"]);
         assert_eq!(writes.load(Ordering::Relaxed), 2);
@@ -2850,13 +2806,13 @@ mod tests {
         let (mut app, _) = app_with_store();
         let ctx = egui::Context::default();
         app.run("edit.keyboardShortcuts", json!({"set": {"file.new": "Ctrl+Shift+N"}})).unwrap();
-        let before = app.session.prefs().shortcuts.clone();
-        assert!(!before.is_empty());
+        let before = app.session.prefs().shortcut_profiles.clone();
+        assert!(!before.editor.custom.is_empty());
         for bad in [json!("bogus"), json!(["file.new"]), json!({"file.new": 5})] {
             let id = crate::menus::invoke(&mut app, &ctx, "edit.keyboardShortcuts", json!({})).unwrap()["dialog"].as_u64().unwrap();
             app.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), bad.clone());
             assert!(crate::dialogs::confirm(&mut app, id).is_err(), "{bad} accepted");
-            assert_eq!(app.session.prefs().shortcuts, before, "{bad} changed the shortcuts");
+            assert_eq!(app.session.prefs().shortcut_profiles, before, "{bad} changed the shortcuts");
         }
         // Drawing the open dialog keeps the malformed value for OK to reject, instead of
         // replacing it with the empty map it shows.
@@ -2869,7 +2825,7 @@ mod tests {
         h.run_steps(4);
         assert_eq!(h.state().ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["overrides"], json!("bogus"));
         assert!(crate::dialogs::confirm(h.state_mut(), id).is_err());
-        assert_eq!(h.state().session.prefs().shortcuts, before);
+        assert_eq!(h.state().session.prefs().shortcut_profiles, before);
     }
 
     #[test]
@@ -3106,7 +3062,7 @@ mod display_info_tests {
 }
 
 /// Both the dialog and OK resolve defaults against the profile being edited.
-fn profile_defaults(prefs: &prefs::Preferences, profiles: &prefs::ShortcutProfiles, items: &mut [HostShortcutItem]) {
+fn profile_defaults(prefs: &prefs::Preferences, profiles: &li_keys::ShortcutProfiles, items: &mut [HostShortcutItem]) {
     let mut working = prefs.clone();
     working.shortcut_profiles = profiles.clone();
     for (id, _, _, def) in items {

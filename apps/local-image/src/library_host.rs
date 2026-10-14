@@ -351,12 +351,12 @@ fn camera_raw_dir() -> PathBuf {
     config_dir().map(|d| d.join("cache").join("camera-raw")).unwrap_or_else(|| std::env::temp_dir().join("local-image-camera-raw"))
 }
 
-/// The one application preferences file also owns the Library's UI state. Retaining this key
-/// in the Library namespace preserves old UI state and lenient editor loading.
+/// The one application preferences file also owns the Library's UI state (its `library`
+/// section), or the marker that the stored section could not be read.
 fn library_ui_value(prefs: &photocraft_engine::prefs::Preferences) -> Option<serde_json::Value> {
-    (prefs.library.contains_key("settings") || prefs.library.contains_key("migrationError")).then(|| serde_json::to_value(&prefs.library).unwrap_or_default())
+    (prefs.library.contains_key("settings") || prefs.library.contains_key(crate::services::LIBRARY_UNREADABLE_KEY))
+        .then(|| serde_json::to_value(&prefs.library).unwrap_or_default())
 }
-const LIBRARY_UI_KEY: &str = "host.libraryUi";
 const LIBRARY_PREFS_PAGES: &[(&str, &str)] =
     &[("library.general", "General"), ("library.import", "Import"), ("library.performance", "Performance"), ("library.interface", "Interface")];
 struct LibraryPreferencesPages(std::rc::Rc<std::cell::RefCell<Option<LightcraftApp>>>);
@@ -400,7 +400,7 @@ impl Host {
                 .get("module")
                 .and_then(serde_json::Value::as_str)
                 .map(|value| module_preference(Some(value)))
-                .unwrap_or_else(last_module)
+                .unwrap_or(Module::Library)
         } else {
             Module::Compositing
         };
@@ -512,16 +512,7 @@ impl Host {
         let opens = self.opens.clone();
         let mode = self.mode;
         let theme = self.editor.ui.theme;
-        let fresh = self.library.is_none();
-        let saved = library_ui_value(self.editor.session.prefs()).or_else(|| self.editor.session.prefs().dialogs.get(LIBRARY_UI_KEY).cloned());
-        if self.library.is_none()
-            && let Some(value) = &saved
-            && decode_library_ui(value.clone()).map_or(true, |(_, rejected)| !rejected.is_empty())
-        {
-            self.editor.session.edit_prefs(|prefs| {
-                prefs.library.entry("recoveredOriginal".into()).or_insert_with(|| value.clone());
-            });
-        }
+        let saved = library_ui_value(self.editor.session.prefs());
         let library = self.library.get_or_insert_with(|| {
             let mut lib = open_library_app(opens, &mut self.prefs, saved);
             if mode == Module::Develop {
@@ -529,13 +520,6 @@ impl Host {
             }
             lib
         });
-        if fresh
-            && self.prefs.legacy_loaded
-            && self.editor.session.prefs().interface.language == "auto"
-            && library.ui.language != lightcraft_ui_egui::i18n::Locale::En
-        {
-            self.editor.session.edit_prefs(|prefs| prefs.interface.language = library.ui.language.code().to_string());
-        }
         library.set_host_theme(library_palette(theme));
         library.native_menu = self.editor.services.native_menu.is_some();
         library.hosted_menus = true;
@@ -697,7 +681,7 @@ impl Host {
             self.editor.session.edit_prefs(|prefs| {
                 prefs.library.extend(value);
                 if lib.library_problem.is_none() && lib.session.library.is_some() {
-                    prefs.library.remove("migrationError");
+                    prefs.library.remove(crate::services::LIBRARY_UNREADABLE_KEY);
                 }
             });
         }
@@ -1208,7 +1192,7 @@ impl Host {
             && photocraft_ui_egui::develop_layer::active_photo(&self.editor).is_some()
             && !photocraft_ui_egui::develop_layer::active_origin(&self.editor).is_some_and(|origin| matches_origin(&self.library().session, &origin))
         {
-            self.editor.ui.status = "This Develop layer belongs to another or legacy Library; open the correct Library before returning to Develop".into();
+            self.editor.ui.status = "This Develop layer belongs to another Library; open the correct Library before returning to Develop".into();
             self.editor.ui.status_error = true;
             return;
         }
@@ -1667,7 +1651,7 @@ impl eframe::App for Host {
                 self.mode = Module::Compositing;
                 self.switch(ctx, Module::Develop);
             } else {
-                self.editor.ui.status = "This Develop layer belongs to another or legacy Library; reopen its photo from the correct Library".into();
+                self.editor.ui.status = "This Develop layer belongs to another Library; reopen its photo from the correct Library".into();
                 self.editor.ui.status_error = true;
             }
         }
@@ -1846,31 +1830,12 @@ fn config_dir() -> Option<PathBuf> {
     crate::app_dirs::config_dir()
 }
 
-/// Reopen the last module; a new profile starts in Library.
-fn last_module() -> Module {
-    module_preference(config_dir().and_then(|d| std::fs::read_to_string(d.join("mode")).ok()).as_deref())
-}
-
 fn module_preference(value: Option<&str>) -> Module {
     match value.map(str::trim) {
         Some("develop") => Module::Develop,
         Some("editor") => Module::Compositing,
         _ => Module::Library,
     }
-}
-
-/// The Library's UI state and settings (`<config>/library-ui.json`), if saved.
-fn read_library_prefs(path: &std::path::Path) -> Result<(UiState, Vec<String>), String> {
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-    let parsed =
-        serde_json::from_slice(&bytes).map_err(|e| e.to_string()).and_then(|v| photocraft_engine::prefs::lenient::<UiState>(v).map_err(|e| e.to_string()));
-    if parsed.as_ref().map_or(true, |(_, rejected)| !rejected.is_empty()) {
-        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-        let backup = path.with_file_name(format!("library-ui.json.corrupt-{stamp}"));
-        lightcraft_catalog::safe_file::write_atomic(&backup, &bytes)
-            .map_err(|e| lightcraft_ui_egui::i18n::tr("couldn't preserve damaged Library settings: {error}").replace("{error}", &e.to_string()))?;
-    }
-    parsed.and_then(|(ui, rejected)| validate_library_ui(ui, rejected))
 }
 
 fn validate_library_ui(ui: UiState, rejected: Vec<String>) -> Result<(UiState, Vec<String>), String> {
@@ -1884,38 +1849,6 @@ fn decode_library_ui(value: serde_json::Value) -> Result<(UiState, Vec<String>),
     validate_library_ui(ui, rejected)
 }
 
-fn load_prefs(writer: &mut PrefsWriter) -> Option<UiState> {
-    if std::env::var_os("LOCAL_IMAGE_NO_PREFS").is_some() {
-        return None;
-    }
-    let path = config_dir()?.join("library-ui.json");
-    if !path.exists() {
-        return None;
-    }
-    match read_library_prefs(&path) {
-        Ok((ui, rejected)) => {
-            writer.legacy_loaded = true;
-            if !rejected.is_empty() {
-                writer.notice = Some(
-                    lightcraft_ui_egui::i18n::tr("Some Library settings used defaults: {fields}. A copy of the damaged settings was kept.")
-                        .replace("{fields}", &rejected.join(", ")),
-                );
-            }
-            Some(ui)
-        }
-        Err(e) => {
-            writer.blocked = true;
-            writer.notice = Some(
-                lightcraft_ui_egui::i18n::tr(
-                    "Library settings couldn't be read: {error}. Choose your existing Library folder. Your stored settings will not be replaced.",
-                )
-                .replace("{error}", &e),
-            );
-            None
-        }
-    }
-}
-
 /// Keep already-open Develop sessions on the same effective model root as AI and Compositing.
 fn sync_library_model_root(lib: &mut LightcraftApp, root: &std::path::Path) {
     if lib.session.quick_seg_dir.as_deref() != Some(root) {
@@ -1925,12 +1858,12 @@ fn sync_library_model_root(lib: &mut LightcraftApp, root: &std::path::Path) {
     }
 }
 
-/// Legacy Library settings recovery state. Application settings now use the editor writer.
+/// Library settings state: the save cadence, and whether unreadable settings block opening a
+/// Library. Application settings use the editor writer.
 #[derive(Default)]
 struct PrefsWriter {
-    /// Reuse the old three-second cadence; serialising UI layout is not per-frame work.
+    /// A three-second cadence; serialising UI layout is not per-frame work.
     checked: f64,
-    legacy_loaded: bool,
     blocked: bool,
     notice: Option<String>,
 }
@@ -1952,7 +1885,7 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
     use lightcraft_engine::Session;
     use lightcraft_ui_egui::panels::library_problem::LibraryProblem;
     let prefs = match saved {
-        Some(value) => match value.get("migrationError").and_then(serde_json::Value::as_str).map(str::to_string) {
+        Some(value) => match value.get(crate::services::LIBRARY_UNREADABLE_KEY).and_then(serde_json::Value::as_str).map(str::to_string) {
             Some(error) => {
                 prefs_writer.blocked = true;
                 prefs_writer.notice = Some(error);
@@ -1961,12 +1894,8 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
             None => match decode_library_ui(value) {
                 Ok((ui, rejected)) => {
                     if !rejected.is_empty() {
-                        prefs_writer.notice = Some(
-                            lightcraft_ui_egui::i18n::tr(
-                                "Some Library settings used defaults: {fields}. Original values were kept in Preferences for recovery.",
-                            )
-                            .replace("{fields}", &rejected.join(", ")),
-                        );
+                        prefs_writer.notice =
+                            Some(lightcraft_ui_egui::i18n::tr("Some Library settings used defaults: {fields}.").replace("{fields}", &rejected.join(", ")));
                     }
                     Some(ui)
                 }
@@ -1977,7 +1906,7 @@ fn open_library_app(opens: Opens, prefs_writer: &mut PrefsWriter, saved: Option<
                 }
             },
         },
-        None => load_prefs(prefs_writer),
+        None => None,
     };
     let unopened = || Session::new().with_fs().with_system_clock();
     let (mut session, problem) = match if prefs_writer.blocked { None } else { library_dir(prefs.as_ref()) } {
@@ -3217,7 +3146,7 @@ mod tests {
         let develop = catalog(&h.host).catalog.photo(photo).unwrap().develop.clone();
         if let Some(rs) = rs {
             let probe = photocraft_ui_egui::gpu_canvas::GpuCanvas::new(&rs);
-            h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Gpu));
+            h.host.editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Gpu);
             h.host.editor.set_wgpu(rs.clone());
             h.frame.wgpu_render_state = Some(rs);
             h.wait_for(|h| probe.read_texels(h.editor.session.active().unwrap().doc.id.0).is_some());
@@ -3604,7 +3533,7 @@ mod tests {
         // Open through the module switch, as the owner does, rather than injecting a composite.
         host.editor.session = photocraft_engine::Session::new();
         let mode = if render_state.is_some() { photocraft_engine::prefs::RenderingMode::Gpu } else { photocraft_engine::prefs::RenderingMode::Cpu };
-        host.editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(mode));
+        host.editor.session.prefs.edit(|p| p.performance.rendering_mode = mode);
         // The probe reads the same renderer resources that set_wgpu installs for the app.
         let probe = render_state.as_ref().map(photocraft_ui_egui::gpu_canvas::GpuCanvas::new);
         if let Some(rs) = &render_state {
@@ -4153,7 +4082,7 @@ mod tests {
         let (dir, path, library, photo) = library_with_photo(tag);
         let settings = serde_json::to_value(&*library.session.catalog.photo(photo).unwrap().develop).unwrap();
         let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-        editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+        editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Cpu);
         let mut host = Host::new(editor);
         host.editor.host_modes = true;
         host.library = Some(library);
@@ -4306,7 +4235,7 @@ mod tests {
         use photocraft_ui_egui::theme::ThemeKind;
         for kind in ThemeKind::ALL {
             let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+            editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Cpu);
             let mut host = Host::new(editor);
             host.editor.host_modes = true;
             host.mode = Module::Develop;
@@ -4460,7 +4389,7 @@ mod tests {
             library.ui.settings.grid_badges = GridBadges::Always;
             set_library_view(&mut library, false);
             let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+            editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Cpu);
             let mut host = Host::new(editor);
             host.editor.host_modes = true;
             host.library = Some(library);
@@ -4796,7 +4725,6 @@ mod tests {
         let (dir, host) = workflow_host("keys-profile-focus");
         let mut h = RoundTripUi::new(host);
         h.host.editor.session.edit_prefs(|p| {
-            p.shortcut_profiles.migrate(&p.shortcuts);
             p.shortcut_profiles.library.active = "Capture One".into();
         });
         let ctx = h.view.ctx.clone();
@@ -5015,7 +4943,7 @@ mod tests {
         let info = rs.adapter.get_info();
         assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "software adapters do not count");
         let (dir, mut host) = workflow_host("lrc-gpu-clicks");
-        host.editor.session.edit_prefs(|prefs| prefs.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Gpu));
+        host.editor.session.edit_prefs(|prefs| prefs.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Gpu);
         host.editor.set_wgpu(rs.clone());
         let mut h = RoundTripUi::new(host);
         h.frame.wgpu_render_state = Some(rs.clone());
@@ -5034,7 +4962,7 @@ mod tests {
     }
 
     #[test]
-    fn lrc_shared_interface_language_and_legacy_language_commands_use_one_preference() {
+    fn lrc_shared_interface_language_and_library_language_commands_use_one_preference() {
         let (dir, host) = workflow_host("lrc-language");
         let mut h = RoundTripUi::new(host);
         let ctx = h.view.ctx.clone();
@@ -5054,28 +4982,30 @@ mod tests {
     }
 
     #[test]
-    fn lrc_legacy_and_unified_library_preferences_are_lenient_and_preserve_paths() {
-        let (dir, mut host) = workflow_host("lrc-migration");
-        let path = dir.join("library-ui.json");
+    fn lrc_library_preferences_are_lenient_preserve_paths_and_unreadable_settings_block() {
+        let (dir, mut host) = workflow_host("lrc-library-prefs");
         let location = dir.join("library").to_string_lossy().to_string();
-        let legacy = json!({"language":"retired-language","settings":{"libraryPath":location,"previewEdge":3840},"autoAdvance":true,"view":"detail","openSections":["light","color"]});
-        std::fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
-        let (ui, rejected) = read_library_prefs(&path).unwrap();
+        let stored = json!({"language":"retired-language","settings":{"libraryPath":location,"previewEdge":3840},"autoAdvance":true,"view":"detail","openSections":["light","color"]});
+        let (loaded, rejected) = decode_library_ui(stored.clone()).unwrap();
         assert_eq!(rejected, ["language"]);
-        assert_eq!(ui.settings.library_path, location);
-        assert_eq!(ui.settings.preview_edge, 3840);
-        assert!(ui.auto_advance);
-        assert_eq!(serde_json::from_slice::<serde_json::Value>(&std::fs::read(&path).unwrap()).unwrap(), legacy, "migration never replaces the legacy source");
-        let (loaded, rejected) = decode_library_ui(legacy.clone()).unwrap();
-        assert_eq!(rejected, ["language"]);
-        assert_eq!(loaded.settings, ui.settings);
-        host.editor.session.edit_prefs(|prefs| {
-            prefs.dialogs.insert(LIBRARY_UI_KEY.into(), legacy.clone());
-        });
+        assert_eq!(loaded.settings.library_path, location);
+        assert_eq!(loaded.settings.preview_edge, 3840);
+        assert!(loaded.auto_advance);
+        host.editor.session.edit_prefs(|prefs| prefs.library = serde_json::from_value(stored.clone()).unwrap());
         host.library = None;
         assert_eq!(host.library().ui.settings.library_path, location);
-        assert_eq!(host.editor.session.prefs().library["recoveredOriginal"], legacy);
+        assert!(!host.editor.session.prefs().library.contains_key("recoveredOriginal"));
         assert!(decode_library_ui(json!({"settings":{"libraryPath":123}})).is_err(), "damaged paths do not create a different catalog");
+        // Unreadable Library settings show the Library-problem screen; no Library is opened or created.
+        host.editor.session.edit_prefs(|prefs| {
+            prefs.library.clear();
+            prefs.library.insert(crate::services::LIBRARY_UNREADABLE_KEY.into(), json!("The stored Library settings could not be read."));
+        });
+        host.prefs = PrefsWriter::default();
+        host.library = None;
+        let lib = host.library();
+        assert!(lib.library_problem.is_some());
+        assert!(lib.session.library.is_none());
         drop(host);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -5173,7 +5103,7 @@ mod tests {
         h.host.editor.ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"library::view.develop":"F7"}));
         photocraft_ui_egui::dialogs::cancel(&mut h.host.editor, id).unwrap();
         h.step(vec![]);
-        assert_eq!(h.host.editor.session.prefs().shortcuts[&key], "F6");
+        assert_eq!(h.host.editor.session.prefs().shortcut_overrides(true)[&key], "F6");
         h.host.library.as_mut().unwrap().run("app.settings", json!({})).unwrap();
         h.step(vec![]);
         assert!(h.host.library.as_ref().unwrap().ui.dialog.is_none());
@@ -5189,7 +5119,7 @@ mod tests {
     fn shared_shell_host_exact_save_keeps_sync_settings_and_module_shortcuts() {
         let (dir, path, library, photo) = library_with_photo("shared-shell-host-keys");
         let mut host = host_with_round_trip(library, photo, &path);
-        host.editor.session.prefs.edit(|p| p.performance.rendering_mode = Some(photocraft_engine::prefs::RenderingMode::Cpu));
+        host.editor.session.prefs.edit(|p| p.performance.rendering_mode = photocraft_engine::prefs::RenderingMode::Cpu);
         host.mode = Module::Library;
         set_library_view(host.library.as_mut().unwrap(), false);
         host.library.as_mut().unwrap().run("photo.virtualCopy", json!({"ids":[photo.0]})).unwrap();
@@ -5458,34 +5388,6 @@ mod tests {
         let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
         drop(h);
         previews.retire();
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-}
-
-#[cfg(test)]
-mod bugfix_save_tests {
-    use super::*;
-    #[test]
-    fn bugfix_save_o022_bad_library_setting_preserves_path_other_fields_and_original_backup() {
-        let dir = std::env::temp_dir().join(format!("bugfix-save-prefs-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("library-ui.json");
-        let bytes = br#"{"language":"retired-language","settings":{"libraryPath":"/my/real/library","previewEdge":3840},"autoAdvance":true}"#;
-        std::fs::write(&path, bytes).unwrap();
-        let (ui, rejected) = read_library_prefs(&path).unwrap();
-        assert_eq!(ui.settings.library_path, "/my/real/library");
-        assert_eq!(ui.settings.preview_edge, 3840);
-        assert!(ui.auto_advance);
-        assert_eq!(rejected, ["language"]);
-        assert_eq!(std::fs::read(&path).unwrap(), bytes);
-        assert!(
-            std::fs::read_dir(&dir).unwrap().filter_map(Result::ok).any(|entry| entry.file_name().to_string_lossy().starts_with("library-ui.json.corrupt-"))
-        );
-        let truncated = br#"{"settings":{"libraryPath":"/my/real/library"},"language":"#;
-        std::fs::write(&path, truncated).unwrap();
-        assert!(read_library_prefs(&path).is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), truncated);
-        assert!(read_library_prefs(&path).is_err());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

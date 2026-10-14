@@ -4,7 +4,7 @@
 //! duplicate / reset` drive them, so the toolbar, the menus, the dialog and automation agree.
 //!
 //! Tools are named as in `ui.set {tool}` (`Move`, `RectMarquee`, …). A set belongs to a
-//! [`Persona`]. Pixel ids and tool order remain compatible with old settings.
+//! [`Persona`].
 //! The toolbar keeps the shell's group structure (the flyouts) and shows, per group, the tools
 //! the set lists; a tool a set leaves out is still reachable by its shortcut (the toolbar then
 //! shows the active tool in its place while it is active).
@@ -56,7 +56,7 @@ pub struct ToolSet {
 /// The id of All Tools, the default set.
 pub const DEFAULT_ID: &str = "allTools";
 
-/// Frozen Pixel tools, in the toolbar's canonical order (legacy API/migration oracle).
+/// Pixel tools, in the toolbar's canonical order.
 pub const ALL_TOOLS: &[&str] = &[
     "Move",
     "RectMarquee",
@@ -308,7 +308,7 @@ vector_tools![
     ("Area", "Area Tool", "vector-area", Some(44), 18),
 ];
 
-/// The legacy Pixel snapshot remains ALL_TOOLS. Vector All Tools is generated from its registry.
+/// Pixel All Tools is [`ALL_TOOLS`] plus the shared tools. Vector All Tools is generated from its registry.
 pub fn tools_for(persona: Persona) -> Vec<&'static str> {
     match persona {
         Persona::Pixel => ALL_TOOLS.iter().chain(crate::shared_tools::SHARED_ADDITIONS).copied().collect(),
@@ -425,44 +425,6 @@ impl ToolbarCustomization {
         }
         *saved = tool.into();
         true
-    }
-
-    /// Preferences saved before tool sets had a hidden list and an order: they become the custom
-    /// set "My Tools" (made active), and the old fields are cleared. Nothing changes for a
-    /// default toolbar.
-    pub fn migrate(&mut self) {
-        if self.hidden.is_empty() && self.order.is_empty() {
-            return;
-        }
-        {
-            let active = self.active();
-            let known = |t: &str| ALL_TOOLS.iter().any(|a| a.eq_ignore_ascii_case(t));
-            let mut tools: Vec<String> = Vec::new();
-            for t in self.order.iter().filter(|t| known(t)) {
-                let canon = ALL_TOOLS.iter().find(|a| a.eq_ignore_ascii_case(t)).map(|a| a.to_string()).unwrap_or_default();
-                if !tools.contains(&canon) {
-                    tools.push(canon);
-                }
-            }
-            for t in &active.tools {
-                if !tools.contains(t) {
-                    tools.push(t.clone());
-                }
-            }
-            let hidden: Vec<String> = self.hidden.iter().map(|h| h.to_ascii_lowercase()).collect();
-            tools.retain(|t| !hidden.contains(&t.to_ascii_lowercase()));
-            if tools != active.tools {
-                if let Some(set) = self.sets.iter_mut().find(|s| s.id == active.id) {
-                    set.tools = tools;
-                } else {
-                    let id = self.next_id();
-                    self.sets.push(ToolSet { id: id.clone(), name: "My Tools".into(), persona: active.persona, tools });
-                    self.active_set = id;
-                }
-            }
-        }
-        self.hidden.clear();
-        self.order.clear();
     }
 
     fn next_id(&self) -> String {
@@ -923,27 +885,6 @@ mod tests {
     }
 
     #[test]
-    fn old_hidden_and_order_become_my_tools() {
-        let mut s = session();
-        s.load_prefs_json(r#"{"toolbar": {"hidden": ["Sponge", "burn"], "order": ["Brush"]}}"#).unwrap();
-        let t = &s.prefs().toolbar;
-        assert!(t.hidden.is_empty() && t.order.is_empty());
-        let a = t.active();
-        assert_eq!(a.name, "My Tools");
-        assert_eq!(a.tools.first().map(String::as_str), Some("Brush"));
-        assert!(!a.tools.iter().any(|x| x == "Sponge" || x == "Burn"));
-        assert_eq!(a.tools.len(), ALL_TOOLS.len() - 2);
-        // a default toolbar stays on All Tools
-        let mut s = session();
-        s.load_prefs_json(r#"{"toolbar": {}}"#).unwrap();
-        assert_eq!(s.prefs().toolbar.active().id, DEFAULT_ID);
-        assert!(s.prefs().toolbar.sets.is_empty());
-        // and preferences with no toolbar key at all
-        s.load_prefs_json(r#"{}"#).unwrap();
-        assert_eq!(s.prefs().toolbar.active().id, DEFAULT_ID);
-    }
-
-    #[test]
     fn toolsets_reject_malformed_tools_without_mutation_and_accept_an_empty_layout() {
         let mut s = session();
         let original = s.prefs().toolbar.clone();
@@ -973,12 +914,11 @@ mod tests {
     }
 
     #[test]
-    fn toolsets_default_legacy_order_and_prefs_set_migration() {
+    fn toolsets_hidden_tools_and_order_land_in_my_tools() {
         let mut s = session();
-        s.load_prefs_json(&json!({"toolbar": {"order": ALL_TOOLS}}).to_string()).unwrap();
         assert!(s.prefs().toolbar.sets.is_empty());
         assert_eq!(s.prefs().toolbar.active().id, DEFAULT_ID);
-        s.execute("prefs.set", json!({"values": {"toolbar.hidden": ["Brush"]}})).unwrap();
+        s.execute("edit.toolbar", json!({"hidden": ["Brush"]})).unwrap();
         assert_eq!(s.prefs().toolbar.active().name, "My Tools");
         assert!(!s.prefs().toolbar.active().tools.iter().any(|t| t == "Brush"));
         s.execute("edit.toolbar", json!({"order": ["Zoom", "Move"]})).unwrap();

@@ -112,11 +112,7 @@ fn keys_profiles_g3_widget_lifecycle_capture_global_and_cancel() {
     assert_eq!(restarted.prefs().shortcut_profiles.editor.active, "Photoshop");
     let (app, _) = h.state_mut();
     let id = open_shortcuts(app, 0);
-    app.ui
-        .dialog_mut(id)
-        .unwrap()
-        .fields
-        .insert("profiles".into(), json!({"library":{"active":"Lightroom"},"editor":{"active":"Affinity Photo"},"migrated":true}));
+    app.ui.dialog_mut(id).unwrap().fields.insert("profiles".into(), json!({"library":{"active":"Lightroom"},"editor":{"active":"Affinity Photo"}}));
     crate::dialogs::cancel(app, id).unwrap();
     assert_eq!(app.session.prefs().shortcut_profiles.editor.active, "Photoshop");
 }
@@ -124,7 +120,6 @@ fn keys_profiles_g3_widget_lifecycle_capture_global_and_cancel() {
 fn keys_profiles_editor_tools_globals_and_spring_loaded_keys() {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     app.session.edit_prefs(|p| {
-        p.shortcut_profiles.migrate(&p.shortcuts);
         p.shortcut_profiles.editor.active = "Affinity Photo".into();
     });
     assert_eq!(crate::shortcuts::tool_shortcut(&app.session, crate::state::Tool::CloneStamp).as_deref(), Some("K"));
@@ -212,7 +207,7 @@ fn keys_profiles_gpu_screenshots_all_scopes_dark_light_narrow_normal() {
                 f.insert("shortcutScope".into(), json!(scope));
                 f.insert("filter".into(), json!(if scope == "library" { "library::view.maskOverlay" } else { "edit.search" }));
                 f.insert("overrides".into(), json!({"library::view.maskOverlay":"Cmd+Q","edit.search":"Cmd+Q"}));
-                f.insert("profiles".into(),json!({"library":{"active":"Custom (migrated)","custom":{"Custom (migrated)":{"parent":"Capture One","overrides":{"library::view.maskOverlay":"Cmd+Q"}}}},"editor":{"active":"Custom (migrated)","custom":{"Custom (migrated)":{"parent":"Photoshop","overrides":{"edit.search":"Cmd+Q"}}}},"migrated":true}));
+                f.insert("profiles".into(),json!({"library":{"active":"Mine","custom":{"Mine":{"parent":"Capture One","overrides":{"library::view.maskOverlay":"Cmd+Q"}}}},"editor":{"active":"Mine","custom":{"Mine":{"parent":"Photoshop","overrides":{"edit.search":"Cmd+Q"}}}}}));
                 h.run();
                 h.render().unwrap().save(output.join(format!("{scope}-{name}-{}.png", width as u32))).unwrap();
             }
@@ -276,7 +271,7 @@ fn dsfix_shortcuts_ok_uses_selected_capture_one_defaults() {
     assert_eq!(app.session.prefs().shortcut_overrides(true).get("library::tool.linear").map(String::as_str), Some(""));
     // A saved chord can acquire a new default conflict when its parent profile changes.
     let (mut app, mut fields) = state();
-    app.session.edit_prefs(|prefs| prefs.shortcuts.insert("library::view.maskOverlay".into(), "G".into()));
+    app.session.edit_prefs(|prefs| prefs.set_shortcut("library::view.maskOverlay", Some("G")));
     fields["profiles"]["library"]["active"] = json!("Capture One");
     fields.insert("__hostShortcuts".into(), json!(host()));
     fields.insert("overrides".into(), json!({"library::view.maskOverlay":"G"}));

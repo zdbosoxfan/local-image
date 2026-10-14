@@ -156,10 +156,10 @@ fn keyboard_shortcuts_reassign_and_reset() {
     // Global Undo cannot be stolen by a workspace profile. Retain and report the
     // user's conflicting assignment, but ignore it in the effective key set.
     let r = s.execute("edit.keyboardShortcuts", json!({"set": {"edit.fill": "Cmd+Z"}})).unwrap();
-    assert_eq!(s.prefs().shortcuts["edit.fill"], "Cmd+Z");
+    assert_eq!(s.prefs().shortcut_overrides(false)["edit.fill"], "Cmd+Z");
     assert_eq!(s.prefs().shortcut("edit.fill", None), None);
     assert_eq!(s.prefs().shortcut("edit.undo", undo), Some("Cmd+Z"));
-    assert!(!s.prefs().shortcuts.contains_key("edit.undo"), "Global conflict must not disable Undo in the downgrade map");
+    assert!(!s.prefs().shortcut_overrides(false).contains_key("edit.undo"), "Global conflict must not disable Undo in the profile");
     assert_eq!(r["conflicts"][0]["global"], true);
     assert_eq!(r["conflicts"][0]["ignored"], true);
     // Reviewing the assignment still reports its Global conflict.
@@ -167,7 +167,7 @@ fn keyboard_shortcuts_reassign_and_reset() {
     assert_eq!(r["conflicts"][0]["shortcut"], "Cmd+Z");
     assert!(s.execute("edit.keyboardShortcuts", json!({"set": {"no.such.command": "F9"}})).is_err());
     s.execute("edit.keyboardShortcuts", json!({"reset": true})).unwrap();
-    assert!(s.prefs().shortcuts.is_empty());
+    assert!(s.prefs().shortcut_overrides(false).is_empty());
     assert_eq!(s.prefs().shortcut("edit.undo", undo), Some("Cmd+Z"));
     // Listing with a filter.
     let r = s.execute("edit.keyboardShortcuts", json!({"filter": "gaussian"})).unwrap();
@@ -235,11 +235,7 @@ fn choice_and_range_tables_cover_enum_fields() {
         for (k, v) in p[id].as_object().unwrap() {
             let path = format!("{id}.{k}");
             if let Some(c) = choices(&path) {
-                if path == "performance.renderingMode" && v.is_null() {
-                    assert_eq!(p["performance"]["renderingMode"], json!(null), "legacy mode is inferred until explicitly selected");
-                } else {
-                    assert!(c.contains(&v.as_str().unwrap()), "{path}");
-                }
+                assert!(c.contains(&v.as_str().unwrap()), "{path}");
             }
             if let Some((lo, hi)) = range(&path) {
                 let x = v.as_f64().unwrap();
@@ -285,9 +281,9 @@ fn gpu_backend_round_trips_and_validates() {
     let mut t = Session::new();
     t.load_prefs_json(&text).unwrap();
     assert_eq!(t.prefs().performance.gpu_backend, GpuBackend::Dx12);
-    // Files from before the setting load as `auto`.
+    // A file without the setting loads as `auto`.
     let mut u = Session::new();
-    u.load_prefs_json(r#"{"performance": {"useGpu": true}}"#).unwrap();
+    u.load_prefs_json(r#"{"performance": {}}"#).unwrap();
     assert_eq!(u.prefs().performance.gpu_backend, GpuBackend::Auto);
     assert_eq!(choices("performance.gpuBackend"), Some(GpuBackend::NAMES));
     for n in GpuBackend::NAMES {
@@ -322,19 +318,19 @@ fn tool_icon_preferences_default_validate_and_round_trip() {
 }
 
 #[test]
-fn ds_finding_legacy_toolbar_batch_keeps_hidden_and_order() {
+fn ds_finding_toolbar_batch_keeps_hidden_and_order() {
     let mut s = Session::new();
-    s.execute("prefs.set", json!({"values":{"toolbar.hidden":["Move"],"toolbar.order":["Brush","Eraser"]}})).unwrap();
+    s.execute("edit.toolbar", json!({"hidden":["Move"],"order":["Brush","Eraser"]})).unwrap();
     let tools = s.prefs().toolbar.active().tools;
     assert_eq!(&tools[..2], &["Brush", "Eraser"]);
     assert!(!tools.iter().any(|t| t == "Move"));
 }
 
 #[test]
-fn ds_finding_toolbar_edits_after_migration_and_unique_bindings() {
+fn ds_finding_repeated_toolbar_edits_and_unique_bindings() {
     let mut s = Session::new();
-    s.execute("prefs.set", json!({"values":{"toolbar.order":["Brush","Eraser"],"toolbar.hidden":["Move"]}})).unwrap();
-    s.execute("prefs.set", json!({"path":"toolbar.hidden","value":["Brush"]})).unwrap();
+    s.execute("edit.toolbar", json!({"order":["Brush","Eraser"],"hidden":["Move"]})).unwrap();
+    s.execute("edit.toolbar", json!({"hidden":["Brush"]})).unwrap();
     assert!(!s.prefs().toolbar.active().tools.iter().any(|t| t == "Brush"));
     assert_eq!(s.prefs().toolbar.active().tools[0], "Eraser");
     let bindings: Vec<_> = super::bindable().collect();
@@ -438,9 +434,9 @@ fn keyed_preference_reset_removes_only_the_requested_override() {
         assert_eq!(s.execute("prefs.reset", json!({"path":path})).unwrap(), Value::Null);
         assert_eq!(s.execute("prefs.reset", json!({"path":path})).unwrap(), Value::Null);
     }
-    assert!(!s.prefs().shortcuts.contains_key("edit.undo"));
+    assert!(!s.prefs().shortcut_overrides(false).contains_key("edit.undo"));
     assert_eq!(s.prefs().shortcut("edit.undo", Some("Cmd+Z")), Some("Cmd+Z"));
-    assert_eq!(s.prefs().shortcuts["edit.redo"], "Alt+PageDown");
+    assert_eq!(s.prefs().shortcut_overrides(false)["edit.redo"], "Alt+PageDown");
     assert!(!s.prefs().menus.colors.contains_key("edit.undo"));
     assert_eq!(s.prefs().menus.colors["edit.redo"], "blue");
     assert!(s.execute("prefs.reset", json!({"path":"no.such.preference"})).is_err());
@@ -448,37 +444,31 @@ fn keyed_preference_reset_removes_only_the_requested_override() {
 }
 
 #[test]
-fn legacy_named_shortcuts_load_with_readable_canonical_labels() {
+fn shortcut_reset_assignment_and_profile_validation_are_atomic() {
     let mut s = session();
-    s.load_prefs_json(r#"{"shortcuts":{"edit.search":"Cmd+Pageup","edit.undo":"Shift+Opencurlybracket","edit.redo":"","unknown.command":"Alt+FutureKey"}}"#)
-        .unwrap();
-    assert_eq!(s.prefs().shortcuts["edit.search"], "Cmd+PageUp");
-    assert_eq!(s.prefs().shortcuts["edit.undo"], "Shift+OpenCurlyBracket");
-    assert_eq!(s.prefs().shortcuts["edit.redo"], "");
-    assert_eq!(s.prefs().shortcuts["unknown.command"], "Alt+FutureKey");
-}
-
-#[test]
-fn shortcut_reset_assignment_and_whole_map_validation_are_atomic() {
-    let mut s = session();
-    s.load_prefs_json(r#"{"shortcuts":{"edit.search":"Alt+F35","edit.undo":"","future.command":"Alt+FutureKey"}}"#).unwrap();
-    let before = s.prefs().shortcuts.clone();
+    s.load_prefs_json(
+        r#"{"shortcutProfiles":{"editor":{"active":"Mine","custom":{"Mine":{"parent":"Photoshop","overrides":{"edit.search":"Alt+F35","edit.undo":"","future.command":"Alt+FutureKey"}}}}}}"#,
+    )
+    .unwrap();
+    let before = s.prefs().shortcut_overrides(false).clone();
+    assert_eq!(before.len(), 3);
     assert!(s.execute("edit.keyboardShortcuts", json!({"reset":true,"set":"not an object"})).is_err());
-    assert_eq!(s.prefs().shortcuts, before);
+    assert_eq!(s.prefs().shortcut_overrides(false), &before);
     assert!(
         s.execute("edit.keyboardShortcuts", json!({"reset":true,"allowUnknown":true,"set":{"edit.search":"Alt+PageUp","edit.redo":"Cmd+Banana"}})).is_err()
     );
-    assert_eq!(s.prefs().shortcuts, before);
-    for values in [json!({"shortcuts":{"edit.search":"Cmd+Banana"}}), json!({"shortcuts":{"edit.search":"Alt+PageUp","edit.redo":"Cmd+Banana"}})] {
-        assert!(s.execute("prefs.set", json!({"path":"","value":values})).is_err());
-        assert_eq!(s.prefs().shortcuts, before);
+    assert_eq!(s.prefs().shortcut_overrides(false), &before);
+    let path = "shortcutProfiles.editor.custom.Mine.overrides";
+    for values in [json!({"edit.search":"Cmd+Banana"}), json!({"edit.search":"Alt+PageUp","edit.redo":"Cmd+Banana"})] {
+        assert!(s.execute("prefs.set", json!({"path":path,"value":values})).is_err());
+        assert_eq!(s.prefs().shortcut_overrides(false), &before);
     }
     let mut edited = before.clone();
     edited.insert("edit.search".into(), "Alt+Pageup".into());
-    s.execute("prefs.set", json!({"path":"","value":{"shortcuts":edited}})).unwrap();
-    assert_eq!(s.prefs().shortcuts["edit.search"], "Alt+PageUp");
-    assert_eq!(s.prefs().shortcuts["future.command"], "Alt+FutureKey");
-    assert_eq!(s.prefs().shortcuts["edit.undo"], "");
+    s.execute("prefs.set", json!({"path":path,"value":edited})).unwrap();
+    assert_eq!(s.prefs().shortcut_overrides(false)["edit.search"], "Alt+PageUp");
+    assert_eq!(s.prefs().shortcut_overrides(false)["future.command"], "Alt+FutureKey", "a newer build's key name survives unchanged");
+    assert_eq!(s.prefs().shortcut_overrides(false)["edit.undo"], "");
 }
 
 #[test]
@@ -514,10 +504,9 @@ fn tool_group_default_keys_are_unique_and_r_is_rotate_view() {
 }
 
 #[test]
-fn dsfix_legacy_shortcut_diff_keeps_profile_only_bindings() {
+fn dsfix_shortcut_path_keeps_profile_only_bindings() {
     for library in [false, true] {
         let mut prefs = Preferences::default();
-        prefs.shortcut_profiles.migrated = true;
         let id = if library { "library::view.detail" } else { "tools.select.Brush" };
         let profile_only = if library { "library::view.grid" } else { "tools.select.Move" };
         let ws = prefs.shortcut_profiles.workspace_mut(library);

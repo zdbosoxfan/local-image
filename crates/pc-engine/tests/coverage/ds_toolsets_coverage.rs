@@ -1,7 +1,7 @@
 use photocraft_engine::EngineError;
 use photocraft_engine::Session;
 use photocraft_engine::prefs::ToolbarCustomization;
-use photocraft_engine::toolsets::{ALL_TOOLS, DEFAULT_ID, MAX_NAME, Persona, builtins};
+use photocraft_engine::toolsets::{ALL_TOOLS, DEFAULT_ID, MAX_NAME, Persona, builtins, tools_for};
 use serde_json::json;
 
 fn session() -> Session {
@@ -58,47 +58,37 @@ fn active_set_selection_and_fallback() {
 }
 
 #[test]
-fn migrate_hidden_creates_my_tools_without_hidden_tools() {
+fn edit_toolbar_hidden_creates_my_tools_without_hidden_tools() {
     let mut s = session();
-    s.load_prefs_json(r#"{"toolbar": {"hidden": ["Sponge", "burn"]}}"#).unwrap();
+    s.execute("edit.toolbar", json!({"hidden": ["Sponge", "burn"]})).unwrap();
     let t = &s.prefs().toolbar;
-    assert!(t.hidden.is_empty() && t.order.is_empty());
     assert_eq!(t.sets.len(), 1);
     let set = &t.sets[0];
     assert_eq!(set.name, "My Tools");
     assert_eq!(set.id, "custom-1");
     assert!(!set.tools.iter().any(|x| x == "Sponge" || x == "Burn"));
-    assert_eq!(set.tools.len(), ALL_TOOLS.len() - 2);
+    assert_eq!(set.tools.len(), tools_for(Persona::Pixel).len() - 2);
 }
 
 #[test]
-fn migrate_order_and_hidden_preserves_order_ignores_unknown_and_removes_hidden() {
+fn edit_toolbar_order_and_hidden_preserves_order_ignores_unknown_and_removes_hidden() {
     let mut s = session();
-    let json_str = json!({
-        "toolbar": {
-            "order": ["Brush", "UnknownTool", "Zoom"],
-            "hidden": ["burn", "Sponge"]
-        }
-    })
-    .to_string();
-    s.load_prefs_json(&json_str).unwrap();
+    s.execute("edit.toolbar", json!({"order": ["Brush", "UnknownTool", "Zoom"], "hidden": ["burn", "Sponge"]})).unwrap();
     let t = &s.prefs().toolbar;
-    assert!(t.hidden.is_empty() && t.order.is_empty());
     assert_eq!(t.sets.len(), 1);
     let set = &t.sets[0];
     assert_eq!(set.name, "My Tools");
     assert_eq!(set.tools.first().map(String::as_str), Some("Brush"));
     assert_eq!(set.tools.get(1).map(String::as_str), Some("Zoom"));
-    assert!(!set.tools.iter().any(|x| x == "Burn" || x == "Sponge"));
-    assert_eq!(set.tools.len(), ALL_TOOLS.len() - 2);
+    assert!(!set.tools.iter().any(|x| x == "Burn" || x == "Sponge" || x == "UnknownTool"));
+    assert_eq!(set.tools.len(), tools_for(Persona::Pixel).len() - 2);
 }
 
 #[test]
-fn migrate_noop_for_default_toolbar() {
+fn default_toolbar_stays_on_all_tools() {
     let mut s = session();
     s.load_prefs_json(r#"{"toolbar": {}}"#).unwrap();
     let t = &s.prefs().toolbar;
-    assert!(t.hidden.is_empty() && t.order.is_empty());
     assert!(t.sets.is_empty());
     assert_eq!(t.active().id, DEFAULT_ID);
 

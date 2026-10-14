@@ -443,7 +443,7 @@ fn ds_finding_tool_without_default_accepts_assigned_shortcut() {
         .0;
     let expected = Tool::from_name(id.strip_prefix("tools.select.").unwrap()).unwrap();
     h.state_mut().session.prefs.edit(|p| {
-        p.shortcuts.insert(id.into(), "Alt+F13".into());
+        p.set_shortcut(id, Some("Alt+F13"));
     });
     h.state_mut().ui.tool = Tool::Move;
     h.hover_at(h.state().last_canvas_rect.center());
@@ -460,10 +460,10 @@ fn conventions_preferences_chord_reserves_global_and_retains_saved_overrides() {
     assert!(!h.state().ui.palette_open);
     press(&mut h, "Escape");
     h.state_mut().session.edit_prefs(|p| {
-        p.shortcuts.insert("edit.search".into(), "Cmd+K".into());
+        p.set_shortcut("edit.search", Some("Cmd+K"));
     });
     press(&mut h, "Cmd+K");
-    assert_eq!(h.state().session.prefs().shortcuts["edit.search"], "Cmd+K", "legacy binding stays readable");
+    assert_eq!(h.state().session.prefs().shortcut_overrides(false)["edit.search"], "Cmd+K", "the saved binding stays readable");
     assert!(!h.state().ui.palette_open, "a workspace binding cannot steal Global Preferences");
     assert!(h.state().ui.dialogs.iter().any(|d| crate::prefs_ui::is_preferences(&d.fields)));
 }
@@ -491,7 +491,7 @@ fn vector_command_default_ignores_a_pixel_only_tool_override_collision() {
         let mut h = harness();
         h.state_mut().session.edit_prefs(|p| {
             p.toolbar.vector_keyboard.preset = preset;
-            p.shortcuts.insert("tools.select.SpotHealing".into(), "Cmd+K".into());
+            p.set_shortcut("tools.select.SpotHealing", Some("Cmd+K"));
         });
         h.get_by_label("Vector persona").click();
         h.run_steps(3);

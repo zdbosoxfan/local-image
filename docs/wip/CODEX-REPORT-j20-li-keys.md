@@ -1,5 +1,10 @@
 # J20 / D25 — one shortcut backend
 
+> **Note (2026-10-14):** the flat shortcut-map migration (migration marker, legacy binding
+> preservation) and the "Custom (migrated)" profile described below were removed by owner
+> decision (v2 has no old-version compatibility). Shortcuts are read only from the current
+> `shortcutProfiles` data.
+
 Continued the branch's existing workspace profiles, shared shortcut editor, migration and host routing. Added `li-keys` and replaced the duplicate production implementations with compatibility exports/adapters. Changes are uncommitted. The supplied, already-modified `docs/wip/CODEX-TASK.md` was not edited.
 
 ## What merged
