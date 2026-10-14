@@ -559,6 +559,11 @@ pub struct PhotocraftApp {
     pub custom_titlebar: bool,
     /// local-image: the host shows its modes (Library | Editor) in the title bar.
     pub host_modes: bool,
+    /// Host pages use this editor's Preferences shell. The app installs the renderer only during
+    /// UI drawing; cached values also let keyboard/menu commands open it during logic.
+    pub host_preferences: Option<Box<dyn prefs_ui::HostPreferencesPages>>,
+    pub host_preferences_pages: &'static [(&'static str, &'static str)],
+    pub host_preferences_values: Value,
     /// local-image: the Library mode was asked for (the title bar's switch); the host takes it.
     /// local-image: a module the user picked in the title bar (Library, Develop, Compositing); the
     /// host switches to it.
@@ -737,6 +742,9 @@ impl PhotocraftApp {
             integrated_titlebar: false,
             custom_titlebar: false,
             host_modes: false,
+            host_preferences: None,
+            host_preferences_pages: &[],
+            host_preferences_values: Value::Null,
             switch_module: None,
             browse_in_library: None,
             develop_request: None,

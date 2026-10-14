@@ -207,7 +207,7 @@ fn develop_a_layer_wb_curve_and_subtract_brush() {
     let mut h = setup(400.0, true, 1.0);
     new_layer(&mut h, "full");
     exec(&mut h, "mask.rename", json!({"name":"Face"}));
-    click(&mut h, "section:layer-color");
+    click(&mut h, "section:layer-light");
     let global = d(&h).wb;
     click(&mut h, "icon:wbPicker");
     pointer(&mut h, json!([{"kind":"down","x":0.4,"y":0.5},{"kind":"up","x":0.4,"y":0.5}]));
@@ -215,7 +215,9 @@ fn develop_a_layer_wb_curve_and_subtract_brush() {
     assert!(d(&h).masks[0].tools.wb.is_some());
     assert_eq!(d(&h).wb, global);
     assert_eq!(h.app.session.undo_entry().unwrap().label, "White Balance – Face");
-    click(&mut h, "section:layer-light");
+    if !h.app.ui.section_open("layer-light") {
+        click(&mut h, "section:layer-light");
+    }
     click(&mut h, "flyout:layer-curve");
     let global = d(&h).curve;
     click(&mut h, "dropdown:curvePreset");

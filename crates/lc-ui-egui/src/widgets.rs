@@ -384,6 +384,12 @@ pub fn section_header(ui: &mut Ui, id: &str, title: &str, open: bool, enabled: O
     (resp, toggled)
 }
 
+/// Shared settings checkbox, translated and sized by the installed theme. Used in Preferences
+/// and other Library controls; callers retain their stable automation registration.
+pub fn checkbox(ui: &mut Ui, value: &mut bool, label: &str) -> Response {
+    ui.checkbox(value, crate::i18n::tr(label))
+}
+
 /// Thin divider between groups.
 pub fn divider(ui: &mut Ui) {
     let t = Tokens::get(ui.ctx());
@@ -709,11 +715,17 @@ pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
 /// A borderless dropdown button: `text` followed by a painted chevron (no font glyph needed).
 pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Color32) -> Response {
     let t = Tokens::get(ui.ctx());
-    let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
-    let size = vec2(galley.size().x + 20.0, galley.size().y.max(20.0));
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((ui.available_width() - crate::theme::DROPDOWN_ARROW_SPACE).max(0.0));
+    let galley = ui.painter().layout_job(job);
+    let size = vec2(
+        (galley.size().x + crate::theme::DROPDOWN_ARROW_SPACE).min(ui.available_width()),
+        galley.size().y.max(crate::theme::DROPDOWN_ARROW_SPACE),
+    );
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, text));
     register(ui.ctx(), format!("dropdown:{id}"), r);
+    let resp = if galley.elided { resp.on_hover_text(text) } else { resp };
     let c = if resp.hovered() { t.text } else { color };
     ui.painter().galley(pos2(r.left(), r.center().y - galley.size().y / 2.0), galley, c);
     paint(ui.painter(), Rect::from_center_size(pos2(r.right() - 7.0, r.center().y + 1.0), vec2(12.0, 12.0)), Icon::ChevronDown, c);
@@ -850,4 +862,25 @@ mod access_tests {
         run(vec![egui::Event::Text("1.25".into())]);
         assert!(seen, "focused numeric TextInput must expose its control name and current draft to accessibility");
     }
+}
+
+/// Inset body for Develop sections and optional tool actions, using the shared panel metrics.
+pub fn panel_content<R>(ui: &mut Ui, body: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::NONE.inner_margin(crate::theme::PANEL_CONTENT_MARGIN).show(ui, body).inner
+}
+
+/// A Preferences choice menu, using the shared dropdown chrome and the installed theme.
+/// Callers supply catalog/preset rows and keep their legacy `combo:` automation aliases.
+pub fn choice_menu(ui: &mut Ui, id: &str, selected: &str, body: impl FnOnce(&mut Ui)) -> Response {
+    let t = Tokens::get(ui.ctx());
+    let response = dropdown(ui, id, selected, t.font(crate::theme::CONTROL_FONT_SIZE), t.text_label);
+    egui::Popup::menu(&response).show(body);
+    response
+}
+
+/// The shared Library modal shell, themed by the installed tokens. Unlike a dimmed Window,
+/// egui Modal owns backdrop input and keeps custom controls clickable. Used by Preferences.
+pub fn modal<R>(ctx: &egui::Context, id: &str, body: impl FnOnce(&mut Ui) -> R) -> egui::ModalResponse<R> {
+    let area = egui::Modal::default_area(egui::Id::new(id)).anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, Tokens::get(ctx).top_bar_h));
+    egui::Modal::new(egui::Id::new(id)).area(area).show(ctx, body)
 }

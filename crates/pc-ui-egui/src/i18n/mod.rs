@@ -594,6 +594,8 @@ mod tests {
         "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
     ];
 
+    const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop"];
+
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
         "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.",
         "Cannot read the ComfyUI queue: {error}",
@@ -774,7 +776,8 @@ mod tests {
             let missing: Vec<_> = strings
                 .iter()
                 .filter(|s| {
-                    !PENDING_AI_TRANSLATIONS.contains(s)
+                    !PENDING_LRC_UX_TRANSLATIONS.contains(s)
+                        && !PENDING_AI_TRANSLATIONS.contains(s)
                         && !PENDING_OVERWRITE_TRANSLATIONS.contains(s)
                         && !PENDING_VECTOR_TRANSLATIONS.contains(s)
                         && cat.plain(s).is_none()
@@ -890,6 +893,7 @@ mod tests {
                 .filter(|s| {
                     !KEEP_AS_IS.contains(&s.as_str())
                         && !PENDING_BACKGROUND_TRANSLATIONS.contains(&s.as_str())
+                        && !PENDING_LRC_UX_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
                         && !PENDING_VECTOR_TRANSLATIONS.contains(&s.as_str())

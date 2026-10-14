@@ -955,6 +955,10 @@ fn get_path_mut_profile<'a>(root: &'a mut Value, path: &str) -> std::result::Res
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
+    /// Namespaced Library/Develop UI and preferences; old stores start with an empty section.
+    pub library: BTreeMap<String, Value>,
+    /// All AI configuration (including unknown provider/browser fields) in the one store.
+    pub ai: li_ai::settings::AiSettings,
     /// Shared application palette; old preferences start with an empty book.
     #[serde(default)]
     pub user_swatches: photocraft_doc::vector_design::swatches::UserSwatches,
@@ -1031,6 +1035,8 @@ pub const SECTIONS: [(&str, &str); 18] = [
 /// When you implement one, remove it here; the `prefs_usage` test fails while a listed
 /// preference is read anywhere outside `prefs.rs`, and while an unlisted one is read nowhere.
 pub const HIDDEN_UNTIL_IMPLEMENTED: &[&str] = &[
+    // Legacy AI compatibility key: round-tripped, but there is no automatic-start consumer/UI.
+    "ai.auto_start_comfy",
     "general.colorPicker",
     "general.beepWhenDone",
     "general.exportClipboard",
@@ -1323,6 +1329,27 @@ impl Preferences {
     }
 
     fn set_unmigrated(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
+        if path == "ai" {
+            self.ai = serde_json::from_value(value).map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+        if path == "library" {
+            self.library = serde_json::from_value(value).map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+        if let Some(path) = path.strip_prefix("library.") {
+            let mut root = serde_json::to_value(&self.library).map_err(|error| error.to_string())?;
+            let mut target = &mut root;
+            let fields: Vec<_> = path.split('.').collect();
+            for field in &fields[..fields.len().saturating_sub(1)] {
+                target = target.as_object_mut().ok_or("Library preference parent must be an object")?.entry(*field).or_insert_with(|| json!({}));
+            }
+            let field = fields.last().ok_or("Missing Library preference field")?;
+            target.as_object_mut().ok_or("Library preference parent must be an object")?.insert((*field).into(), value);
+            self.library = serde_json::from_value(root).map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+
         if path == "shortcutProfiles" || path.starts_with("shortcutProfiles.") {
             let mut root = serde_json::to_value(&self.shortcut_profiles).map_err(|e| e.to_string())?;
             if path == "shortcutProfiles" {
@@ -1866,7 +1893,7 @@ impl Session {
             return Ok(());
         }
         let mut next = self.prefs().clone();
-        if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "shortcuts" | "menus" | "toolbar") {
+        if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "shortcuts" | "menus" | "toolbar" | "library" | "ai") {
             // Whole section (or everything): merge the object key by key so each value is checked.
             let obj = value.as_object().ok_or_else(|| format!("`{path}` needs an object"))?;
             for (k, v) in obj {
@@ -2333,5 +2360,24 @@ mod shortcut_profile_tests {
         assert!(global_shortcut_conflict("Cmd+Alt+1"));
         assert!(global_shortcut_conflict("Cmd+K"));
         assert!(!global_shortcut_conflict("Cmd+,"), "Library Settings and Photoshop layer visibility are workspace keys");
+    }
+}
+
+#[cfg(test)]
+mod j16_tests {
+    use super::*;
+    #[test]
+    fn j16_library_and_ai_namespaces_round_trip_and_old_preferences_default() {
+        let mut preferences = Preferences::default();
+        preferences.set("library.settings.previewEdge", json!(3840)).unwrap();
+        preferences.set("ai.comfy_host", json!("gpu.example")).unwrap();
+        assert_eq!(preferences.get("library.settings.previewEdge"), Some(json!(3840)));
+        assert_eq!(preferences.get("ai.comfy_host"), Some(json!("gpu.example")));
+        let serialized = preferences.to_json();
+        let restored: Preferences = serde_json::from_value(serialized).unwrap();
+        assert_eq!(restored, preferences);
+        let old: Preferences = serde_json::from_value(json!({"general":{}})).unwrap();
+        assert!(old.library.is_empty());
+        assert_eq!(old.ai, li_ai::AiSettings::default());
     }
 }

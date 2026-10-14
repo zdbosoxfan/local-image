@@ -119,8 +119,64 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
             && (!used_only || tools.as_ref().is_none_or(|tl| tl.is_set(key)))
     };
     let tl = tools.as_ref();
-    tool_section(app, ui, d, target, tl, used_only, "light", "Light", &["light", "curve"], |app, ui, d| {
+    tool_section(app, ui, d, target, tl, used_only, "light", "Basic", &["wb", "light", "curve"], |app, ui, d| {
+        if shows("wb") {
+            {
+                // White balance row
+                egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
+                        if !target.is_layer() {
+                            let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
+                            egui::Popup::menu(&r).show(|ui| {
+                                for m in WbMode::ALL {
+                                    if m == WbMode::Custom {
+                                        continue;
+                                    }
+                                    if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
+                                        let mode = serde_json::to_value(m).unwrap_or_default();
+                                        let _ = app.run("develop.wb", json!({"mode": mode}));
+                                    }
+                                }
+                            });
+                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let active = app.ui.tool == "wbPicker";
+                            let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::WhiteBalance, vec2(28.0, 28.0), active, true, "");
+                            super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::WbPicker);
+                            if resp.clicked() {
+                                app.ui.tool = if active { String::new() } else { "wbPicker".into() };
+                            }
+                        });
+                    });
+                });
+            }
+            if raw {
+                control_t(app, ui, d, "wb.temp", true, target);
+                control_t(app, ui, d, "wb.tint", true, target);
+            } else {
+                let out = crate::widgets::numeric_slider(
+                    ui,
+                    &REL_TEMP,
+                    k_to_rel(d.wb.temp),
+                    true,
+                    None,
+                    crate::widgets::numeric_owner(app, (target.mask_id(), "relative-temperature")),
+                );
+                apply_slider_out(app, &REL_TEMP, out, |app, v| target.set(app, json!({"wb.temp": rel_to_k(v)})));
+                let out = crate::widgets::numeric_slider(
+                    ui,
+                    &REL_TINT,
+                    d.wb.tint.clamp(-100.0, 100.0),
+                    true,
+                    None,
+                    crate::widgets::numeric_owner(app, (target.mask_id(), "relative-tint")),
+                );
+                apply_slider_out(app, &REL_TINT, out, |app, v| target.set(app, json!({"wb.tint": v})));
+            }
+        }
         if shows("light") {
+            sub_title(ui, "Tone");
             for c in ["light.exposure", "light.contrast", "light.highlights", "light.shadows", "light.whites", "light.blacks"] {
                 control_t(app, ui, d, c, true, target);
             }
@@ -146,63 +202,8 @@ pub fn tool_sections(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d:
         used_only,
         "color",
         "Color",
-        &["wb", "color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "skin_tone"],
+        &["color", "mixer", "point_colors", "treatment", "bw_mix", "grading", "skin_tone"],
         |app, ui, d| {
-            if shows("wb") {
-                {
-                    // White balance row
-                    egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 2 }).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(crate::i18n::tr("White Balance")).font(t.font(13.0)).color(t.text_dim));
-                            if !target.is_layer() {
-                                let r = crate::widgets::dropdown(ui, "wbMode", crate::i18n::tr(d.wb.mode.label()), t.font(14.0), t.text_label);
-                                egui::Popup::menu(&r).show(|ui| {
-                                    for m in WbMode::ALL {
-                                        if m == WbMode::Custom {
-                                            continue;
-                                        }
-                                        if ui.selectable_label(d.wb.mode == m, m.label()).clicked() {
-                                            let mode = serde_json::to_value(m).unwrap_or_default();
-                                            let _ = app.run("develop.wb", json!({"mode": mode}));
-                                        }
-                                    }
-                                });
-                            }
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let active = app.ui.tool == "wbPicker";
-                                let resp = crate::widgets::tool_button(ui, "wbPicker", Icon::WhiteBalance, vec2(28.0, 28.0), active, true, "");
-                                super::tool_tips::attach(app.ui.settings.tool_tips, ui, &resp, super::tool_tips::StripTool::WbPicker);
-                                if resp.clicked() {
-                                    app.ui.tool = if active { String::new() } else { "wbPicker".into() };
-                                }
-                            });
-                        });
-                    });
-                }
-                if raw {
-                    control_t(app, ui, d, "wb.temp", true, target);
-                    control_t(app, ui, d, "wb.tint", true, target);
-                } else {
-                    let out = crate::widgets::numeric_slider(
-                        ui,
-                        &REL_TEMP,
-                        k_to_rel(d.wb.temp),
-                        true,
-                        None,
-                        crate::widgets::numeric_owner(app, (target.mask_id(), "relative-temperature")),
-                    );
-                    apply_slider_out(app, &REL_TEMP, out, |app, v| target.set(app, json!({"wb.temp": rel_to_k(v)})));
-                    let out = crate::widgets::numeric_slider(
-                        ui,
-                        &REL_TINT,
-                        d.wb.tint.clamp(-100.0, 100.0),
-                        true,
-                        None,
-                        crate::widgets::numeric_owner(app, (target.mask_id(), "relative-tint")),
-                    );
-                    apply_slider_out(app, &REL_TINT, out, |app, v| target.set(app, json!({"wb.tint": v})));
-                }
-            }
             if shows("color") {
                 control_t(app, ui, d, "color.vibrance", true, target);
                 control_t(app, ui, d, "color.saturation", true, target);
@@ -533,9 +534,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         crate::panels::process::look_row(app, ui, &d);
     }
     divider(ui);
-    // film negative conversion: first, since it changes what every section below works on
-    negative_section(app, ui, &d);
-
     tool_sections(app, ui, id, &d, raw, Target::Global, false);
     crate::panels::develop_tools::tone_eq_section(app, ui, &d);
     if raw {
@@ -593,6 +591,22 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
         ui.add_space(8.0);
     });
+    // Display order does not change the engine's conversion order or saved settings.
+    if d.negative.enabled || app.ui.negative_tool_visible {
+        negative_section(app, ui, &d);
+    }
+    crate::widgets::panel_content(ui, |ui| {
+        let add = text_button(ui, "addTool", "Add tool", false);
+        egui::Popup::menu(&add).show(|ui| {
+            if text_button(ui, "addNegative", "Negative", app.ui.negative_tool_visible || d.negative.enabled).clicked() {
+                app.ui.negative_tool_visible = true;
+                if !app.ui.section_open("negative") {
+                    app.ui.toggle_section("negative");
+                }
+                ui.close();
+            }
+        });
+    });
     crate::panels::develop_tools::color_cal_section(app, ui, &d);
     // Lightroom Classic's Calibration panel (the cloud app hides it): last, like there.
     section(app, ui, &d, "calibration", "Calibration", |app, ui, d| {
@@ -637,7 +651,7 @@ fn negative_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSetti
     }
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 2, bottom: 4 }).show(ui, |ui| {
         let mut v = on;
-        let r = ui.checkbox(&mut v, crate::i18n::tr("Convert Negative"));
+        let r = crate::widgets::checkbox(ui, &mut v, "Convert Negative");
         register(ui.ctx(), "negative:enabled", r.rect);
         if r.changed() {
             set_on(app, v);

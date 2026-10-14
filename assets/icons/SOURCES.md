@@ -217,6 +217,6 @@ Sourced 144, drawn 24.
 `square-split-horizontal`, `arrow-down-wide-narrow`, `flag`, `flag-off`, `film`, `book-image`, `images`,
 `trash-2`, `chart-spline`, `flip-horizontal-2`, `video`, `message-circle`, `scan-face`;
 unchanged, ISC), PhotoCraft's `star-filled.svg` (Lucide star with a solid fill) and the shared tool icons.
-Smart Album is `smart-album.svg`: Lucide `book` with a Local Image funnel (ISC + GPL-3.0-or-later).
+Collections use Lucide `images.svg`. Smart Collection keeps the legacy asset path `smart-album.svg`: Lucide `images` stacked outline with a Local Image funnel (ISC + GPL-3.0-or-later).
 The editor's generic icons (`icon_data.rs`) are the Lucide files PhotoCraft shipped; see
 `licenses/photocraft-ATTRIBUTION.md`.

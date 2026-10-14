@@ -326,7 +326,7 @@ mod tests {
             assert_eq!(r["ok"], true, "{r}");
             // Compare only fully settled frames: a timed-out settle would compare half-rendered
             // pictures and fail as a misleading pixel diff (seen on loaded CI machines).
-            assert!(h.settle(Duration::from_secs(300)), "the demo detail view did not settle within 300 s");
+            assert!(h.settle(Duration::from_secs(300)), "the demo Loupe view did not settle within 300 s");
             h.paint()
         };
         let (a, b) = (shot(), shot());
@@ -514,7 +514,7 @@ mod tests {
         assert!(matches!(h.app.ui.dialog, Some(crate::state::Dialog::NewSmartAlbum { .. })));
         let r = h.request("ui.dialog.confirm", json!({}), t);
         assert_eq!(r["ok"], true, "{r}");
-        let smart = h.app.session.catalog.albums().find(|a| a.is_smart()).expect("smart album").id;
+        let smart = h.app.session.catalog.albums().find(|a| a.is_smart()).expect("smart collection").id;
         assert_eq!(h.app.session.catalog.album_count(smart), n);
         h.request("ui.clickWidget", json!({"id": "button:filterClear"}), t);
         assert_eq!(h.app.session.filter, Default::default());
@@ -2228,7 +2228,7 @@ mod tests {
         assert!(shown(&h.view.ctx).is_none(), "no tip remains after a canvas drag");
         h.request("ui.clickWidget", json!({"id": "icon:edit"}), t);
         assert!(h.app.widgets.iter().any(|(id, _)| id == "slider:ui.brushSize"), "brush settings remain available in Edit");
-        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:layer-color"}), t)["ok"], true);
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "section:layer-light"}), t)["ok"], true);
         assert_eq!(h.request("ui.hoverWidget", json!({"id": "icon:wbPicker"}), t)["ok"], true);
         assert!(h.step_until(t, |h| shown(&h.view.ctx).is_some_and(|s| s.tool == "wbPicker")));
         assert!(shown(&h.view.ctx).unwrap().text.starts_with("White Balance Selector (W)"));

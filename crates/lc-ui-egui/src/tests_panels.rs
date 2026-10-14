@@ -178,7 +178,7 @@ fn sidebar_sections_collapse_and_remember_it() {
     // Albums folds too, and the plus button inside its header still works on its own
     click(&mut h, "sidebarSection:albums");
     assert!(h.app.ui.sidebar_section_collapsed("albums"));
-    assert!(has(&h, "icon:albumNew"), "the Create Album button stays in the header");
+    assert!(has(&h, "icon:albumNew"), "the Create Collection button stays in the header");
     click(&mut h, "sidebarSection:albums");
     assert!(!h.app.ui.sidebar_section_collapsed("albums"));
     // Keywords and Local fold their rows too
@@ -197,7 +197,7 @@ fn sidebar_sections_collapse_and_remember_it() {
     }
     // a click on the plus is the button's, not the header's
     click(&mut h, "icon:albumNew");
-    assert!(!h.app.ui.sidebar_section_collapsed("albums"), "the plus does not fold Albums");
+    assert!(!h.app.ui.sidebar_section_collapsed("albums"), "the plus does not fold Collections");
 }
 
 #[test]

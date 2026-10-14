@@ -169,7 +169,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
     (
         "Photo",
         &[
-            "@Add to Album",
+            "@Add to Collection",
             "photo.addToLibrary",
             "library.findSimilar",
             "dialog.cull",
@@ -348,12 +348,16 @@ pub fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
 fn live_label(app: &LightcraftApp, id: &str, label: &str) -> String {
     let n = app.session.selection.ids.len();
     match id {
-        "edit.undo" => {
-            app.session.undo_entry().map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Undo".into())
-        }
-        "edit.redo" => {
-            app.session.redo_entry().map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&e.label))).unwrap_or_else(|| "Redo".into())
-        }
+        "edit.undo" => app
+            .session
+            .undo_entry()
+            .map(|e| crate::i18n::tr_format!("Undo {}", crate::i18n::tr(&crate::menus::action_label(&e.label))))
+            .unwrap_or_else(|| "Undo".into()),
+        "edit.redo" => app
+            .session
+            .redo_entry()
+            .map(|e| crate::i18n::tr_format!("Redo {}", crate::i18n::tr(&crate::menus::action_label(&e.label))))
+            .unwrap_or_else(|| "Redo".into()),
         "photo.delete" if n > 1 => crate::i18n::tr_format!("Delete {n} Photos", n = n),
         "photo.virtualCopy" if n > 1 => crate::i18n::tr_format!("Create {n} Virtual Copies", n = n),
         "dialog.rename" if n > 1 => crate::i18n::tr_format!("Rename {n} Photos…", n = n),
@@ -573,7 +577,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
             v.push(item("dialog.export", Value::Null, "Custom…", None, sel, None));
             v
         }
-        "Add to Album" => {
+        "Add to Collection" => {
             let sel = !app.session.selection.ids.is_empty() || has;
             let mut albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.name.clone(), a.id.0)).collect();
             albums.sort_by_key(|(n, _)| n.to_lowercase());
@@ -582,7 +586,7 @@ fn expanded(app: &LightcraftApp, name: &str) -> Option<Vec<MenuNode>> {
             if !v.is_empty() {
                 v.push(MenuNode::Separator);
             }
-            v.push(item("dialog.newAlbum", Value::Null, "New Album…", None, true, None));
+            v.push(item("dialog.newAlbum", Value::Null, "New Collection…", None, true, None));
             v
         }
         _ => return None,

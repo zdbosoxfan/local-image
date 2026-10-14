@@ -1,6 +1,6 @@
 //! Library/Develop interface icons: Lucide 0.468.0 line SVGs (ISC) and the shared tool icons
 //! (assets/icons, provenance in assets/icons/SOURCES.md), rasterized white at the physical pixel size
-//! and tinted per use (Smart Album: Lucide `book` with a Local Image funnel). Tool controls use the
+//! and tinted per use (Smart Collection: Lucide `book` with a Local Image funnel). Tool controls use the
 //! shared monochrome tool icons. The LightCraft code-painted glyphs were retired on 2026-10-13.
 
 #[cfg(test)]
@@ -33,7 +33,7 @@ pub enum Icon {
     Info,
     GridPhoto,
     GridSquare,
-    Single,
+    Loupe,
     Compare,
     Survey,
     Sort,
@@ -51,8 +51,8 @@ pub enum Icon {
     TriangleLeft,
     Plus,
     Minus,
-    Album,
-    SmartAlbum,
+    Collection,
+    SmartCollection,
     Stack,
     Folder,
     /// Edit (a pencil).
@@ -115,7 +115,7 @@ pub(crate) const ALL: &[Icon] = &[
     Icon::Info,
     Icon::GridPhoto,
     Icon::GridSquare,
-    Icon::Single,
+    Icon::Loupe,
     Icon::Compare,
     Icon::Survey,
     Icon::Sort,
@@ -133,8 +133,8 @@ pub(crate) const ALL: &[Icon] = &[
     Icon::TriangleLeft,
     Icon::Plus,
     Icon::Minus,
-    Icon::Album,
-    Icon::SmartAlbum,
+    Icon::Collection,
+    Icon::SmartCollection,
     Icon::Stack,
     Icon::Folder,
     Icon::Pencil,
@@ -168,7 +168,7 @@ pub(crate) const ALL: &[Icon] = &[
 
 /// The line SVG that draws `icon`: Lucide 0.468.0 (ISC) in `assets/icons`, or the matching tool
 /// icon in `assets/icons/tools` so a control and its tool share one glyph.
-fn svg(icon: Icon) -> &'static [u8] {
+pub(crate) fn svg(icon: Icon) -> &'static [u8] {
     macro_rules! file {
         ($path:literal) => {
             include_bytes!(concat!("../../../assets/icons/", $path)).as_slice()
@@ -199,7 +199,7 @@ fn svg(icon: Icon) -> &'static [u8] {
         Info => file!("tools/info.svg"),
         GridPhoto => file!("layout-grid.svg"),
         GridSquare => file!("grid-2x2.svg"),
-        Single => file!("rectangle-horizontal.svg"),
+        Loupe => file!("rectangle-horizontal.svg"),
         Compare => file!("columns-2.svg"),
         Survey => file!("layout-dashboard.svg"),
         Sort => file!("arrow-down-wide-narrow.svg"),
@@ -216,8 +216,8 @@ fn svg(icon: Icon) -> &'static [u8] {
         ChevronLeft | TriangleLeft => file!("chevron-left.svg"),
         Plus => file!("plus.svg"),
         Minus => file!("minus.svg"),
-        Album => file!("book-image.svg"),
-        SmartAlbum => file!("smart-album.svg"),
+        Collection => file!("images.svg"),
+        SmartCollection => file!("smart-album.svg"),
         Folder => file!("folder.svg"),
         Pencil | Edited => file!("pencil.svg"),
         Photos => file!("images.svg"),

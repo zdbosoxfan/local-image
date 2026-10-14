@@ -419,7 +419,7 @@ impl Ai {
     pub fn cutout(&self, image: &RgbaImage, variant: &str, hint: &str, seed: u64, ctl: &JobControl) -> Result<GrayImage> {
         ctl.check()?;
         if matches!(variant, "fast" | "quick" | "better") {
-            let dir = std::env::var_os("LOCAL_IMAGE_SEG_MODELS").map(std::path::PathBuf::from).unwrap_or_else(|| crate::AiSettings::load().model_dir());
+            let dir = crate::AiSettings::cached_model_dir();
             return cpu_cutout(image, variant == "better", &dir, ctl);
         }
         ctl.set_stage(Stage::Preparing);
