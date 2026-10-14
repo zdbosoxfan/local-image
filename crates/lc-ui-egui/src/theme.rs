@@ -201,10 +201,7 @@ pub fn font_definitions(craft: &'static [lightcraft_engine::CraftFont]) -> FontD
     let mut fonts = li_ui_kit::fonts::definitions(li_ui_kit::fonts::Profile::Library);
     // Craft-fonts faces in preference order for a family drawn in `style`.
     let fallback = |style: &str| {
-        lightcraft_engine::fonts::cjk_fallback(craft, crate::i18n::language().script(), style)
-            .into_iter()
-            .map(craft_font_name)
-            .collect::<Vec<String>>()
+        lightcraft_engine::fonts::cjk_fallback(craft, li_i18n::current().script(), style).into_iter().map(craft_font_name).collect::<Vec<String>>()
     };
     let (regular, bold) = (fallback("Regular"), fallback("Bold"));
     for name in regular.iter().chain(bold.iter()) {

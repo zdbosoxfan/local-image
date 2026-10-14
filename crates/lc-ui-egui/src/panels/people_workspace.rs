@@ -2,7 +2,6 @@
 //! and the focused confirmation queue uses the engine's durable rejection and undo history.
 use crate::{
     LightcraftApp,
-    i18n::tr,
     smart_sort_keys::{self, QueueAction},
     theme::Tokens,
     widgets::register,
@@ -107,12 +106,12 @@ pub struct ConfirmQueue {
 }
 fn button(ui: &mut Ui, id: impl Into<String>, label: &str) -> egui::Response {
     let id = id.into();
-    let r = crate::widgets::text_button(ui, &id, tr(label), false);
+    let r = crate::widgets::text_button(ui, &id, li_i18n::library::t(label), false);
     register(ui.ctx(), id, r.rect);
     r
 }
 fn check(ui: &mut Ui, id: impl Into<String>, on: &mut bool, label: &str) -> bool {
-    let r = ui.checkbox(on, tr(label));
+    let r = ui.checkbox(on, li_i18n::library::t(label));
     register(ui.ctx(), id, r.rect);
     r.changed()
 }
@@ -141,7 +140,7 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
     let status = app.session.execute("smartSort.status", &json!({})).unwrap_or_default();
     let installed = status["faces"]["installed"] == true;
     let busy = app.smart_sort.is_some() || app.people_task.is_some();
-    let r = ui.add_enabled(!busy && installed, egui::Checkbox::new(&mut enabled, tr("Also sort by person (face recognition)")));
+    let r = ui.add_enabled(!busy && installed, egui::Checkbox::new(&mut enabled, li_i18n::library::t("Also sort by person (face recognition)")));
     register(ui.ctx(), "smartSort:faces", r.rect);
     if r.changed()
         && let Err(e) = app.session.execute("smartSort.facesEnable", &json!({"enabled":enabled}))
@@ -150,7 +149,7 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
     }
     let t = Tokens::get(ui.ctx());
     ui.label(
-        egui::RichText::new(tr(
+        egui::RichText::new(li_i18n::library::t(
             "Finds faces and groups photos of the same person. Face data is stored only in this library and can be cleared at any time.",
         ))
         .font(t.font(11.5))
@@ -159,7 +158,7 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
     if !installed {
         let download = app.services.model_download_status.as_ref().map(|f| f("yunet")).unwrap_or_default();
         ui.horizontal(|ui| {
-            ui.label(tr("Download face models (39 MB)"));
+            ui.label(li_i18n::library::t("Download face models (39 MB)"));
             if download.running {
                 ui.add(egui::ProgressBar::new(download.done as f32 / download.total.max(1) as f32).desired_width(180.0));
                 if button(ui, "smartSort:facesDownloadCancel", "Cancel download").clicked()
@@ -169,7 +168,7 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
                 }
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
             } else {
-                let r = ui.add_enabled(app.services.download_models.is_some(), egui::Button::new(tr("Download")));
+                let r = ui.add_enabled(app.services.download_models.is_some(), egui::Button::new(li_i18n::library::t("Download")));
                 register(ui.ctx(), "smartSort:facesDownload", r.rect);
                 if r.clicked()
                     && let Some(f) = &app.services.download_models
@@ -183,13 +182,13 @@ pub fn face_options(app: &mut LightcraftApp, ui: &mut Ui) {
             ui.label(e);
         }
         ui.horizontal(|ui| {
-            ui.hyperlink_to(tr("YuNet · MIT"), "https://huggingface.co/opencv/face_detection_yunet");
-            ui.hyperlink_to(tr("SFace · Apache-2.0"), "https://huggingface.co/opencv/face_recognition_sface");
+            ui.hyperlink_to(li_i18n::library::t("YuNet · MIT"), "https://huggingface.co/opencv/face_detection_yunet");
+            ui.hyperlink_to(li_i18n::library::t("SFace · Apache-2.0"), "https://huggingface.co/opencv/face_recognition_sface");
         });
     }
     if let Some(task) = &app.people_task {
         let (done, total) = task.job.status().step.unwrap_or_default();
-        ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).text(crate::i18n::tr_format!(
+        ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).text(li_i18n::tr_format!(
             "Faces: {done} of {total}",
             done = done,
             total = total
@@ -329,7 +328,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
     if s.query.is_some() {
         ui.horizontal(|ui| {
             ui.spinner();
-            ui.label(tr("Grouping people…"));
+            ui.label(li_i18n::library::t("Grouping people…"));
             if button(ui, "people:groupCancel", "Cancel").clicked() {
                 if let Some(query) = s.query.take() {
                     query.cancel.store(true, Ordering::Relaxed);
@@ -353,7 +352,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
         if button(ui, "smartSort:pasteNames", "Paste names…").clicked() {
             s.paste = true;
         }
-        ui.label(tr("Minimum photos"));
+        ui.label(li_i18n::library::t("Minimum photos"));
         let mut min = s.list["minPhotos"].as_u64().unwrap_or(3) as u8;
         let r = ui.add(egui::DragValue::new(&mut min).range(1..=10));
         register(ui.ctx(), "smartSort:minFaces", r.rect);
@@ -365,7 +364,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
         }
     });
     if s.paste {
-        ui.label(tr("Paste one name[,title] per line"));
+        ui.label(li_i18n::library::t("Paste one name[,title] per line"));
         let r = ui.add(egui::TextEdit::multiline(&mut s.pasted).desired_rows(3).desired_width(450.));
         register(ui.ctx(), "smartSort:namesText", r.rect);
         ui.horizontal(|ui| {
@@ -383,7 +382,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
     let rows = s.list["people"].as_array().cloned().unwrap_or_default();
     let t = Tokens::get(ui.ctx());
     if rows.is_empty() {
-        ui.label(tr("No people to show. Analyse photos or add headshots."));
+        ui.label(li_i18n::library::t("No people to show. Analyse photos or add headshots."));
     }
     let cols = (ui.available_width() / 184.).floor().max(1.) as usize;
     egui::Grid::new("people-bubbles").spacing([12., 12.]).show(ui, |ui| {
@@ -454,7 +453,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
                         s.names.remove(&id);
                     }
                     let name = s.names.entry(id).or_insert_with(|| base_name.into());
-                    let name_r = ui.add(egui::TextEdit::singleline(name).hint_text(tr("Add name")).desired_width(165.));
+                    let name_r = ui.add(egui::TextEdit::singleline(name).hint_text(li_i18n::library::t("Add name")).desired_width(165.));
                     register(ui.ctx(), format!("smartSort:bubbleName:{id}"), name_r.rect);
                     let edited = name.clone();
                     // Response focus access reacquires Context memory; snapshot it
@@ -493,10 +492,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
                     if save && !chose_suggestion && !edited.trim().is_empty() && edited != row["name"].as_str().unwrap_or("") {
                         command(app, &mut s, "smartSort.namePerson", json!({"person":id,"name":edited}));
                     }
-                    ui.label(crate::i18n::tr_format!("{folder} / {total} photos", folder = row["folderCount"], total = row["count"]));
+                    ui.label(li_i18n::tr_format!("{folder} / {total} photos", folder = row["folderCount"], total = row["count"]));
                     let pending = row["pending"].as_u64().unwrap_or(0);
                     if pending > 0 {
-                        ui.label(crate::i18n::tr_format!("? {n} matches to review", n = pending));
+                        ui.label(li_i18n::tr_format!("? {n} matches to review", n = pending));
                     }
                     if button(ui, format!("smartSort:review:{id}"), "Review matches…").clicked() {
                         open_queue(app, &mut s, id);
@@ -520,7 +519,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
                             command(app, &mut s, "smartSort.peoplePin", json!({"person":id,"enabled":row["pinned"]!=true}));
                         }
                     });
-                    let menu = ui.menu_button(tr("Merge with…"), |ui| {
+                    let menu = ui.menu_button(li_i18n::library::t("Merge with…"), |ui| {
                         for other in &rows {
                             if let Some(other_id) = other["id"].as_u64().filter(|p| *p != id)
                                 && button(ui, format!("smartSort:merge:{id}:{other_id}"), &display_name(other)).clicked()
@@ -550,7 +549,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
         }
     });
     let hidden = s.list["hidden"].as_u64().unwrap_or(0);
-    if hidden > 0 && button(ui, "smartSort:showEveryone", &crate::i18n::tr_format!("Show everyone ({n} more)", n = hidden)).clicked() {
+    if hidden > 0 && button(ui, "smartSort:showEveryone", &li_i18n::tr_format!("Show everyone ({n} more)", n = hidden)).clicked() {
         s.show_everyone = true;
         s.refresh = true;
     }
@@ -560,10 +559,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
     }
     let ignored = s.list["ignored"].as_array().cloned().unwrap_or_default();
     if !ignored.is_empty() {
-        let ignored_section = ui.collapsing(tr("Ignored"), |ui| {
+        let ignored_section = ui.collapsing(li_i18n::library::t("Ignored"), |ui| {
             for row in ignored {
                 let id = row["id"].as_u64().unwrap_or(0);
-                if button(ui, format!("smartSort:restore:{id}"), &crate::i18n::tr_format!("Restore {name}", name = display_name(&row))).clicked() {
+                if button(ui, format!("smartSort:restore:{id}"), &li_i18n::tr_format!("Restore {name}", name = display_name(&row))).clicked() {
                     command(app, &mut s, "smartSort.peopleIgnore", json!({"person":id,"enabled":false}));
                 }
             }
@@ -579,11 +578,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
     app.ui.people = s;
 }
 fn display_name(row: &Value) -> String {
-    row["name"]
-        .as_str()
-        .filter(|s| !s.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_else(|| crate::i18n::tr_format!("Unnamed person {id}", id = row["id"]))
+    row["name"].as_str().filter(|s| !s.is_empty()).map(str::to_owned).unwrap_or_else(|| li_i18n::tr_format!("Unnamed person {id}", id = row["id"]))
 }
 fn open_queue(app: &mut LightcraftApp, s: &mut PeopleUi, id: u64) {
     let id = app.session.smart.people.data.resolve_id(id);
@@ -625,7 +620,7 @@ fn selected_names(app: &LightcraftApp) -> Vec<String> {
                 .ok()
                 .map(|p| p.name.clone())
                 .filter(|n| !n.is_empty())
-                .unwrap_or_else(|| crate::i18n::tr_format!("Unnamed person {id}", id = id))
+                .unwrap_or_else(|| li_i18n::tr_format!("Unnamed person {id}", id = id))
         })
         .collect()
 }
@@ -646,7 +641,11 @@ pub fn facet(app: &mut LightcraftApp, ui: &mut Ui) {
     s.filter_ids = app.session.filter.person_ids.clone();
     s.filter_everyone = app.session.filter.people_everyone;
     let names = selected_names(app);
-    let label = if names.is_empty() { app.session.filter.person.clone().unwrap_or_else(|| tr("People").to_string()) } else { names.join(", ") };
+    let label = if names.is_empty() {
+        app.session.filter.person.clone().unwrap_or_else(|| li_i18n::library::t("People").to_string())
+    } else {
+        names.join(", ")
+    };
     let label = if label.chars().count() > 22 { format!("{}…", label.chars().take(21).collect::<String>()) } else { label };
     let r = crate::widgets::dropdown(ui, "filter-person", &label, Tokens::get(ui.ctx()).font(12.5), Tokens::get(ui.ctx()).text_label);
     register(ui.ctx(), "filter:person", r.rect);
@@ -656,7 +655,7 @@ pub fn facet(app: &mut LightcraftApp, ui: &mut Ui) {
             apply_filter(app, &mut s);
         }
         for person in app.session.smart.people.data.people.clone().iter().filter(|p| !p.ignored) {
-            let label = if person.name.is_empty() { crate::i18n::tr_format!("Unnamed person {id}", id = person.id) } else { person.name.clone() };
+            let label = if person.name.is_empty() { li_i18n::tr_format!("Unnamed person {id}", id = person.id) } else { person.name.clone() };
             let mut on = s.filter_ids.contains(&person.id);
             if check(ui, format!("filter:person:{}", person.id), &mut on, &label) {
                 if on {
@@ -684,7 +683,7 @@ pub fn facet(app: &mut LightcraftApp, ui: &mut Ui) {
         if check(ui, "filter:peopleEveryone", &mut s.filter_everyone, "Everyone in the photo together") {
             apply_filter(app, &mut s);
         }
-        ui.label(tr("Any of these people"));
+        ui.label(li_i18n::library::t("Any of these people"));
     });
     app.ui.people = s;
 }
@@ -718,7 +717,7 @@ pub fn overlay(app: &mut LightcraftApp, ctx: &egui::Context) {
     let mut s = std::mem::take(&mut app.ui.people);
     let screen = ctx.content_rect();
     let t = Tokens::get(ctx);
-    let shown = egui::Window::new(tr("People"))
+    let shown = egui::Window::new(li_i18n::library::t("People"))
         .id(egui::Id::new("people-overlay"))
         .title_bar(false)
         .collapsible(false)
@@ -728,7 +727,7 @@ pub fn overlay(app: &mut LightcraftApp, ctx: &egui::Context) {
         .frame(egui::Frame::NONE.fill(t.chrome).inner_margin(16))
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.heading(tr(if s.finder.is_some() { "Find This Person…" } else { "Review matches…" }));
+                ui.heading(li_i18n::library::t(if s.finder.is_some() { "Find This Person…" } else { "Review matches…" }));
                 if button(ui, "smartSort:peopleClose", "Done").clicked() {
                     s.queue = None;
                     s.merge = None;
@@ -746,8 +745,8 @@ pub fn overlay(app: &mut LightcraftApp, ctx: &egui::Context) {
                     .ok()
                     .map(|p| p.name.clone())
                     .filter(|n| !n.is_empty())
-                    .unwrap_or_else(|| crate::i18n::tr_format!("Unnamed person {id}", id = other));
-                ui.heading(crate::i18n::tr_format!("Merge with {name}?", name = name));
+                    .unwrap_or_else(|| li_i18n::tr_format!("Unnamed person {id}", id = other));
+                ui.heading(li_i18n::tr_format!("Merge with {name}?", name = name));
                 ui.horizontal(|ui| {
                     if button(ui, "smartSort:mergeSame", "Same").clicked() {
                         if let Some(q) = &mut s.queue {
@@ -816,9 +815,9 @@ fn finder_body(app: &mut LightcraftApp, ui: &mut Ui, s: &mut PeopleUi, id: Photo
         }
     }
     ui.horizontal(|ui| {
-        let r = ui.add(egui::TextEdit::singleline(&mut s.find_name).hint_text(tr("Add name")).desired_width(250.));
+        let r = ui.add(egui::TextEdit::singleline(&mut s.find_name).hint_text(li_i18n::library::t("Add name")).desired_width(250.));
         register(ui.ctx(), "smartSort:findName", r.rect);
-        let r = ui.add_enabled(s.picked.is_some() && !s.find_name.trim().is_empty(), egui::Button::new(tr("Find Photos")));
+        let r = ui.add_enabled(s.picked.is_some() && !s.find_name.trim().is_empty(), egui::Button::new(li_i18n::library::t("Find Photos")));
         register(ui.ctx(), "smartSort:findPhotos", r.rect);
         if r.clicked() {
             let name = s.find_name.clone();
@@ -875,7 +874,7 @@ fn queue_body(app: &mut LightcraftApp, ui: &mut Ui, s: &mut PeopleUi, q: &mut Co
         register(ui.ctx(), "smartSort:queueCurrent", ui.min_rect());
         ui.label(app.session.catalog.photo(id).map(|p| p.file_name.clone()).unwrap_or_default());
     } else {
-        ui.label(tr("All matches reviewed"));
+        ui.label(li_i18n::library::t("All matches reviewed"));
     }
     let mut action = None;
     ui.horizontal(|ui| {

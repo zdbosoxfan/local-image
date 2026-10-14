@@ -222,27 +222,27 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State, s: &mut Session, metadata: &i
         options: metadata.load(&st.doc, id)?,
     });
     let mut edit = current.clone();
-    ui.label(crate::i18n::t("Frame text"));
+    ui.label(li_i18n::t("Frame text"));
     ui.horizontal(|ui| {
-        ui.label(crate::i18n::t("Width"));
-        ui.add(egui::DragValue::new(&mut edit.frame[2]).range(1.0..=1_048_576.0)).labelled_by(ui.label(crate::i18n::t("Frame width")).id);
-        ui.label(crate::i18n::t("Height"));
-        ui.add(egui::DragValue::new(&mut edit.frame[3]).range(1.0..=1_048_576.0)).labelled_by(ui.label(crate::i18n::t("Frame height")).id);
+        ui.label(li_i18n::t("Width"));
+        ui.add(egui::DragValue::new(&mut edit.frame[2]).range(1.0..=1_048_576.0)).labelled_by(ui.label(li_i18n::t("Frame width")).id);
+        ui.label(li_i18n::t("Height"));
+        ui.add(egui::DragValue::new(&mut edit.frame[3]).range(1.0..=1_048_576.0)).labelled_by(ui.label(li_i18n::t("Frame height")).id);
     });
-    ui.checkbox(&mut edit.options.enabled, crate::i18n::t("Paragraph composer"));
-    ui.checkbox(&mut edit.options.balanced, crate::i18n::t("Balance lines"));
-    ui.checkbox(&mut edit.options.optical_margins, crate::i18n::t("Optical margins"));
+    ui.checkbox(&mut edit.options.enabled, li_i18n::t("Paragraph composer"));
+    ui.checkbox(&mut edit.options.balanced, li_i18n::t("Balance lines"));
+    ui.checkbox(&mut edit.options.optical_margins, li_i18n::t("Optical margins"));
     ui.horizontal(|ui| {
-        ui.label(crate::i18n::t("Baseline grid"));
-        ui.add(egui::DragValue::new(&mut edit.options.grid_spacing).range(0.0..=4096.0)).labelled_by(ui.label(crate::i18n::t("Grid spacing")).id);
+        ui.label(li_i18n::t("Baseline grid"));
+        ui.add(egui::DragValue::new(&mut edit.options.grid_spacing).range(0.0..=4096.0)).labelled_by(ui.label(li_i18n::t("Grid spacing")).id);
     });
     ui.horizontal(|ui| {
-        ui.label(crate::i18n::t("Grid origin"));
+        ui.label(li_i18n::t("Grid origin"));
         ui.add(egui::DragValue::new(&mut edit.options.grid_origin).range(-1_048_576.0..=1_048_576.0))
-            .labelled_by(ui.label(crate::i18n::t("Baseline grid origin")).id);
+            .labelled_by(ui.label(li_i18n::t("Baseline grid origin")).id);
     });
     let mut justify = edit.align.unwrap_or_else(|| t.paragraph_runs().first().map_or(TextAlign::Left, |p| p.style.align)).is_justified();
-    if ui.checkbox(&mut justify, crate::i18n::t("Justify paragraph")).changed() {
+    if ui.checkbox(&mut justify, li_i18n::t("Justify paragraph")).changed() {
         edit.align = Some(if justify { TextAlign::JustifyLeft } else { TextAlign::Left });
     }
     if edit != current {
@@ -253,10 +253,10 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State, s: &mut Session, metadata: &i
         state.update(s)?;
     }
     ui.horizontal(|ui| -> Result<()> {
-        if ui.add_enabled(state.draft.is_some(), egui::Button::new(crate::i18n::t("Apply frame text"))).clicked() {
+        if ui.add_enabled(state.draft.is_some(), egui::Button::new(li_i18n::t("Apply frame text"))).clicked() {
             state.apply(s, metadata)?;
         }
-        if ui.button(crate::i18n::t("Cancel frame text")).clicked() {
+        if ui.button(li_i18n::t("Cancel frame text")).clicked() {
             state.cancel();
         }
         Ok(())
@@ -268,10 +268,10 @@ pub fn panel(ui: &mut egui::Ui, state: &mut State, s: &mut Session, metadata: &i
 /// pixel layers have no frame to compose.
 fn empty_state(ui: &mut egui::Ui) {
     let tokens = crate::theme::Tokens::get(ui.ctx());
-    ui.label(crate::i18n::t("Select a frame text layer"));
+    ui.label(li_i18n::t("Select a frame text layer"));
     ui.add(
         egui::Label::new(
-            egui::RichText::new(crate::i18n::t("Frame Composition works on text set in a frame. Drag with the Frame Text Tool to make one."))
+            egui::RichText::new(li_i18n::t("Frame Composition works on text set in a frame. Drag with the Frame Text Tool to make one."))
                 .color(tokens.text_dim),
         )
         .wrap(),
@@ -342,7 +342,7 @@ pub fn overlay(ui: &mut egui::Ui, state: &State, s: &Session, to_screen: impl Fn
     let rect = Rect::from_two_pos(to_screen(x, y), to_screen(x + width, y + height));
     ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, Color32::LIGHT_BLUE), egui::StrokeKind::Outside);
     ui.interact(Rect::from_center_size(to_screen(x + width, y + height * 0.5), egui::vec2(10.0, 10.0)), ui.id().with("frame width"), Sense::hover())
-        .on_hover_text(crate::i18n::t("Resize frame width"));
+        .on_hover_text(li_i18n::t("Resize frame width"));
 }
 
 /// Native document-backed metadata adapter.

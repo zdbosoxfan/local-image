@@ -13,13 +13,13 @@ pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
     let font = egui::TextStyle::Body.resolve(ui.style());
     crate::widgets::develop_body(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Look")).text_style(egui::TextStyle::Body).color(t.text_dim));
+            ui.label(egui::RichText::new(li_i18n::library::t("Look")).text_style(egui::TextStyle::Body).color(t.text_dim));
             let mut pick = None;
-            let r = crate::widgets::dropdown(ui, "developLook", crate::i18n::tr(d.look.label()), font.clone(), t.text_label);
+            let r = crate::widgets::dropdown(ui, "developLook", li_i18n::library::t(d.look.label()), font.clone(), t.text_label);
             register(ui.ctx(), "combo:developLook", r.rect);
             egui::Popup::menu(&r).show(|ui| {
                 for l in Look::ALL {
-                    let choice = ui.selectable_label(d.look == l, crate::i18n::tr(l.label())).on_hover_text(crate::i18n::tr(look_hint(l)));
+                    let choice = ui.selectable_label(d.look == l, li_i18n::library::t(l.label())).on_hover_text(li_i18n::library::t(look_hint(l)));
                     register(ui.ctx(), format!("look:{}", l.id()), choice.rect);
                     if choice.clicked() {
                         pick = Some(l);
@@ -32,10 +32,10 @@ pub fn look_row(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings)
             }
         });
         let mut base = d.look_options.base;
-        let r = crate::widgets::dropdown(ui, "lookBase", crate::i18n::tr(base.label()), font, t.text_label);
+        let r = crate::widgets::dropdown(ui, "lookBase", li_i18n::library::t(base.label()), font, t.text_label);
         egui::Popup::menu(&r).show(|ui| {
             for b in lightcraft_develop::ToneBase::ALL {
-                let choice = ui.selectable_label(base == b, crate::i18n::tr(b.label()));
+                let choice = ui.selectable_label(base == b, li_i18n::library::t(b.label()));
                 register(ui.ctx(), format!("lookBase:{}", b.label()), choice.rect);
                 if choice.clicked() {
                     base = b;
@@ -76,9 +76,9 @@ pub fn look_hint(l: Look) -> &'static str {
 pub fn default_look_combo(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let cur = app.session.import_defaults.look;
     let mut pick = None;
-    let r = egui::ComboBox::from_id_salt("settingsDefaultLook").width(240.0).selected_text(crate::i18n::tr(cur.label())).show_ui(ui, |ui| {
+    let r = egui::ComboBox::from_id_salt("settingsDefaultLook").width(240.0).selected_text(li_i18n::library::t(cur.label())).show_ui(ui, |ui| {
         for l in Look::ALL {
-            if ui.selectable_label(cur == l, crate::i18n::tr(l.label())).on_hover_text(crate::i18n::tr(look_hint(l))).clicked() {
+            if ui.selectable_label(cur == l, li_i18n::library::t(l.label())).on_hover_text(li_i18n::library::t(look_hint(l))).clicked() {
                 pick = Some(l);
             }
         }

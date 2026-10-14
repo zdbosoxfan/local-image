@@ -174,7 +174,7 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.add_space(2.0);
         ui.horizontal(|ui| {
             ui.add_space(label_w + 6.0);
-            ui.label(RichText::new(crate::i18n::fmt(tl!("Resolution: {dpi} pixels/inch"), &[("dpi", &widgets::fmt_num(dpi as f64))])).color(t.text));
+            ui.label(RichText::new(li_i18n::fmt(tl!("Resolution: {dpi} pixels/inch"), &[("dpi", &widgets::fmt_num(dpi as f64))])).color(t.text));
         });
         ui.add_space(2.0);
         ui.horizontal(|ui| {
@@ -323,9 +323,9 @@ mod tests {
             DEPTHS.iter().map(|(sample, label, _)| (*sample, *label)).collect::<Vec<_>>(),
             [(SampleType::U8, "8 Bits/Channel"), (SampleType::U16, "16 Bits/Channel"), (SampleType::F32, "32 Bits/Channel"),]
         );
-        for lang in crate::i18n::Lang::all().filter(|lang| lang.code() != "en") {
+        for lang in li_i18n::Lang::ALL.into_iter().filter(|lang| lang.code() != "en") {
             for (_, label, id) in DEPTHS {
-                assert_ne!(crate::i18n::tr_id(lang, id, label), *label, "{}: {label}", lang.code());
+                assert_ne!(li_i18n::tr_id(lang, id, label), *label, "{}: {label}", lang.code());
             }
         }
     }

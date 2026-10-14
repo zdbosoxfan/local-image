@@ -143,14 +143,14 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let chips = super::people_workspace::filter_chips(app);
     let total = app.session.source_total();
     let counted = super::chips::count_text(ids.len(), total, !chips.is_empty());
-    let cnt = if sel_n > 1 { crate::i18n::tr_format!("{sel_n} selected · {counted}", counted = counted, sel_n = sel_n) } else { counted };
+    let cnt = if sel_n > 1 { li_i18n::tr_format!("{sel_n} selected · {counted}", counted = counted, sel_n = sel_n) } else { counted };
     match app.session.browse.clone().filter(|_| app.session.source == lightcraft_engine::LibrarySource::Folder) {
         Some(b) => {
             let local = app.caches.grid.local(&app.session.catalog, &ids, generation);
             folder_header(app, ui, hr, &b, &ids, local, &cnt)
         }
         None => {
-            let title = crate::i18n::source_label(app.session.source, &app.session.catalog);
+            let title = crate::library_labels::source_label(app.session.source, &app.session.catalog);
             ui.painter().text(pos2(hr.left() + 20.0, hr.center().y), Align2::LEFT_CENTER, &title, t.semibold(17.0), t.text);
             ui.painter().text(pos2(hr.right() - 20.0, hr.center().y), Align2::RIGHT_CENTER, cnt, t.font(12.5), t.text_dim);
         }
@@ -164,9 +164,9 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         if !chips.is_empty() {
             let body = match total {
                 Some(n) if n > 0 => {
-                    crate::i18n::tr_format!(
+                    li_i18n::tr_format!(
                         "{n} photos in {} are hidden by the filters above",
-                        crate::i18n::source_label(app.session.source, &app.session.catalog),
+                        crate::library_labels::source_label(app.session.source, &app.session.catalog),
                         n = n
                     )
                 }
@@ -191,7 +191,7 @@ fn show_inner(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let available = filtered || crate::menus::ui_enabled(app, action);
         let rect = Rect::from_center_size(ui.max_rect().center() + vec2(0.0, 62.0), vec2(170.0, 32.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-        let response = child.add_enabled(available, egui::Button::new(crate::i18n::tr(label)).min_size(rect.size()));
+        let response = child.add_enabled(available, egui::Button::new(li_i18n::library::t(label)).min_size(rect.size()));
         register(ui.ctx(), if filtered { "button:emptyClearFilters" } else { "button:emptyImport" }, response.rect);
         if response.clicked() {
             match app.run(action, json!({})) {
@@ -438,7 +438,11 @@ fn group_header(app: &mut LightcraftApp, ui: &mut egui::Ui, run: &DateRun, ids: 
         p.rect_filled(r, 0.0, t.canvas);
         p.hline(r.x_range(), r.bottom(), Stroke::new(1.0, t.divider));
     }
-    let g = p.layout_no_wrap(crate::i18n::date_group_label(&run.key, false), t.semibold(15.0), if resp.hovered() { t.text } else { t.text_label });
+    let g = p.layout_no_wrap(
+        crate::library_labels::date_group_label(&run.key, false),
+        t.semibold(15.0),
+        if resp.hovered() { t.text } else { t.text_label },
+    );
     let x = r.left() + 8.0;
     let gw = g.size().x;
     p.galley(pos2(x, r.center().y - g.size().y / 2.0), g, t.text);
@@ -446,7 +450,7 @@ fn group_header(app: &mut LightcraftApp, ui: &mut egui::Ui, run: &DateRun, ids: 
     p.text(
         pos2(x + gw + 10.0, r.center().y),
         Align2::LEFT_CENTER,
-        crate::i18n::tr_format!("· {n} photo{}", if n == 1 { "" } else { "s" }, n = n),
+        li_i18n::tr_format!("· {n} photo{}", if n == 1 { "" } else { "s" }, n = n),
         t.font(12.5),
         t.text_dim,
     );
@@ -586,7 +590,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
                 .collect();
                 if parts.is_empty() { "—".to_string() } else { parts.join(" · ") }
             }
-            "date" => photo.captured.as_deref().map(crate::i18n::display_time).unwrap_or_else(|| crate::i18n::tr("No date").into()),
+            "date" => photo.captured.as_deref().map(crate::library_labels::display_time).unwrap_or_else(|| li_i18n::library::t("No date").into()),
             _ => photo.file_name.rsplit_once('.').map(|(n, _)| n.to_string()).unwrap_or(photo.file_name.clone()),
         };
         p.text(pos2(r.left() + 8.0, r.top() + 12.0), Align2::LEFT_CENTER, name, t.font(10.5), t.text_dim);
@@ -645,7 +649,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
     if let Some(why) = &photo.preview_only {
         // a raw shown from its embedded JPEG: a small amber "Preview" pill at the image's bottom
         // left, above the badge bar (always shown: it changes what editing does)
-        let g = p.layout_no_wrap(crate::i18n::tr("Preview").into(), t.semibold(9.5), Color32::WHITE);
+        let g = p.layout_no_wrap(li_i18n::library::t("Preview").into(), t.semibold(9.5), Color32::WHITE);
         let at = pos2(img_rect.left() + 6.0, img_rect.bottom() - 30.0 - 16.0);
         let br = Rect::from_min_size(at, vec2(g.size().x + 24.0, 16.0));
         p.rect_filled(br, 8.0, Color32::from_black_alpha(170));
@@ -653,7 +657,7 @@ fn cell(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, r: Rect, square
         p.galley(pos2(br.left() + 17.0, br.center().y - g.size().y / 2.0), g, Color32::WHITE);
         register(ui.ctx(), format!("badge:previewOnly:{}", id.0), br);
         ui.interact(br, egui::Id::new(("preview-only-badge", id.0)), Sense::hover())
-            .on_hover_text(crate::i18n::tr_format!("Preview only — {}", crate::widgets::preview_only_explanation(why)));
+            .on_hover_text(li_i18n::tr_format!("Preview only — {}", crate::widgets::preview_only_explanation(why)));
     }
     // interaction
     if let Some(k) = app.ui.keyword_painter.clone() {
@@ -727,21 +731,23 @@ fn folder_header(app: &mut LightcraftApp, ui: &mut egui::Ui, hr: Rect, b: &light
         ui.add_space(10.0);
         // counted once per view (cached); the ids are only gathered on a click
         if local_n > 0 {
-            let label = crate::i18n::tr("Add {local_n} to Catalog").replace("{local_n}", &local_n.to_string());
+            let label = li_i18n::library::t("Add {local_n} to Catalog").replace("{local_n}", &local_n.to_string());
             if crate::widgets::text_button(ui, "addToLibrary", &label, false).clicked() {
                 let local: Vec<u64> = ids.iter().filter(|id| app.session.catalog.photo(**id).is_some_and(|p| p.local)).map(|id| id.0).collect();
                 let n = local.len();
                 match app.run("photo.addToLibrary", json!({"ids": local})) {
                     Ok(_) => app.toast(
                         ui.ctx(),
-                        crate::i18n::tr("Added {n} photo{} to Catalog").replace("{n}", &n.to_string()).replace("{}", if n == 1 { "" } else { "s" }),
+                        li_i18n::library::t("Added {n} photo{} to Catalog")
+                            .replace("{n}", &n.to_string())
+                            .replace("{}", if n == 1 { "" } else { "s" }),
                     ),
                     Err(e) => app.toast(ui.ctx(), e),
                 }
             }
         }
         let mut sub = b.subfolders;
-        let c = ui.checkbox(&mut sub, crate::i18n::tr("Include subfolders"));
+        let c = ui.checkbox(&mut sub, li_i18n::library::t("Include subfolders"));
         register(ui.ctx(), "check:includeSubfolders", c.rect);
         if c.changed() {
             let _ = app.run("library.browse", json!({"path": b.path, "subfolders": sub}));
@@ -765,7 +771,7 @@ pub fn drag_feedback(app: &mut LightcraftApp, ctx: &egui::Context) {
     egui::Area::new(egui::Id::new("drag-photos")).order(egui::Order::Tooltip).interactable(false).fixed_pos(pos + vec2(14.0, 10.0)).show(ctx, |ui| {
         egui::Frame::NONE.fill(t.accent).corner_radius(10.0).inner_margin(egui::Margin::symmetric(9, 3)).show(ui, |ui| {
             ui.label(
-                egui::RichText::new(crate::i18n::tr_format!("{n} photo{}", if n == 1 { "" } else { "s" }, n = n))
+                egui::RichText::new(li_i18n::tr_format!("{n} photo{}", if n == 1 { "" } else { "s" }, n = n))
                     .color(Color32::WHITE)
                     .font(t.semibold(12.0)),
             );
@@ -793,11 +799,11 @@ fn label_menu_for(app: &mut LightcraftApp, ui: &mut egui::Ui, context: Option<Ph
             ui.close();
         }
     }
-    if ui.selectable_label(current.is_none(), crate::i18n::tr("None")).clicked() {
+    if ui.selectable_label(current.is_none(), li_i18n::library::t("None")).clicked() {
         let _ = run_label_context(app, context, "photo.label", json!({"label": "none"}));
     }
     ui.separator();
-    if ui.button(crate::i18n::tr("Edit Label Names…")).clicked() {
+    if ui.button(li_i18n::library::t("Edit Label Names…")).clicked() {
         let _ = run_label_context(app, context, "dialog.labelNames", json!({}));
     }
 }
@@ -864,10 +870,10 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     let targets = if app.session.selection.contains(id) { app.session.targets(&json!({})) } else { vec![id] };
     let deleted = targets.iter().any(|id| app.session.catalog.photo(*id).is_some_and(|p| p.deleted));
-    if ui.button(crate::i18n::tr("Open in Loupe")).clicked() {
+    if ui.button(li_i18n::library::t("Open in Loupe")).clicked() {
         let _ = run_context(app, id, "view.detail", json!({}));
     }
-    if ui.button(crate::i18n::tr("Find Similar Photos")).clicked() {
+    if ui.button(li_i18n::library::t("Find Similar Photos")).clicked() {
         match run_context(app, id, "library.findSimilar", json!({"id": id.0})) {
             Ok(r) => {
                 let n = r["photos"].as_array().map_or(0, Vec::len);
@@ -877,33 +883,33 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             Err(e) => app.toast(ui.ctx(), e),
         }
     }
-    let finder = ui.button(crate::i18n::tr("Find This Person…"));
+    let finder = ui.button(li_i18n::library::t("Find This Person…"));
     register(ui.ctx(), "photo:findPerson", finder.rect);
     if finder.clicked() {
         let _ = run_context(app, id, "library.select", json!({"ids":[id.0]}));
         super::people_workspace::finder(app, id);
         ui.close();
     }
-    if ui.button(crate::i18n::tr("Set as Reference Photo")).clicked() {
+    if ui.button(li_i18n::library::t("Set as Reference Photo")).clicked() {
         let _ = run_context(app, id, "photo.setReference", json!({"id": id.0}));
     }
     ui.separator();
-    ui.menu_button(crate::i18n::tr("Set Rating"), |ui| {
+    ui.menu_button(li_i18n::library::t("Set Rating"), |ui| {
         for r in 0..=5 {
-            if ui.button(if r == 0 { crate::i18n::tr("No Stars").to_string() } else { "★".repeat(r) }).clicked() {
+            if ui.button(if r == 0 { li_i18n::library::t("No Stars").to_string() } else { "★".repeat(r) }).clicked() {
                 let _ = run_context(app, id, "photo.rate", json!({"rating": r}));
             }
         }
     });
-    ui.menu_button(crate::i18n::tr("Set Flag"), |ui| {
+    ui.menu_button(li_i18n::library::t("Set Flag"), |ui| {
         for (l, f) in [("Pick", "pick"), ("Reject", "reject"), ("Unflagged", "none")] {
             if ui.button(l).clicked() {
                 let _ = run_context(app, id, "photo.flag", json!({"flag": f}));
             }
         }
     });
-    ui.menu_button(crate::i18n::tr("Set Color Label"), |ui| label_menu_for(app, ui, Some(id)));
-    ui.menu_button(crate::i18n::tr("Add to Collection"), |ui| {
+    ui.menu_button(li_i18n::library::t("Set Color Label"), |ui| label_menu_for(app, ui, Some(id)));
+    ui.menu_button(li_i18n::library::t("Add to Collection"), |ui| {
         let albums: Vec<_> = app.session.catalog.albums().filter(|a| !a.folder && !a.is_smart()).map(|a| (a.id.0, a.name.clone())).collect();
         for (aid, name) in albums {
             if ui.button(name).clicked() {
@@ -915,26 +921,26 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if let lightcraft_engine::LibrarySource::Album(aid) = app.session.source
         && app.session.catalog.album(aid).is_some_and(|a| !a.folder && !a.is_smart())
     {
-        if ui.button(crate::i18n::tr("Remove from Collection")).clicked() {
+        if ui.button(li_i18n::library::t("Remove from Collection")).clicked() {
             let _ = run_context(app, id, "album.removePhotos", json!({"id": aid.0}));
         }
-        if ui.button(crate::i18n::tr("Set as Collection Cover")).clicked() {
+        if ui.button(li_i18n::library::t("Set as Collection Cover")).clicked() {
             let _ = run_context(app, id, "album.setCover", json!({"id": aid.0, "photo": id.0}));
         }
     }
-    if ui.button(crate::i18n::tr("Rename…")).clicked() {
+    if ui.button(li_i18n::library::t("Rename…")).clicked() {
         let _ = run_context(app, id, "dialog.rename", json!({}));
     }
-    if ui.button(crate::i18n::tr("Reload from Disk")).clicked() {
+    if ui.button(li_i18n::library::t("Reload from Disk")).clicked() {
         let _ = run_context(app, id, "photo.reload", json!({}));
     }
-    if ui.button(crate::i18n::tr("Create Virtual Copy")).clicked() {
+    if ui.button(li_i18n::library::t("Create Virtual Copy")).clicked() {
         let _ = run_context(app, id, "photo.virtualCopy", json!({}));
     }
-    if ui.button(crate::i18n::tr("Create Version")).clicked() {
+    if ui.button(li_i18n::library::t("Create Version")).clicked() {
         let _ = run_context(app, id, "version.create", json!({}));
     }
-    ui.menu_button(crate::i18n::tr("Stack"), |ui| {
+    ui.menu_button(li_i18n::library::t("Stack"), |ui| {
         let stacked = app.session.catalog.stack_of(id).is_some();
         let several = targets.len() > 1;
         for (label, cmd, on) in [
@@ -952,31 +958,31 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
             }
         }
         ui.separator();
-        if ui.button(crate::i18n::tr("Auto-Stack by Capture Time…")).clicked() {
+        if ui.button(li_i18n::library::t("Auto-Stack by Capture Time…")).clicked() {
             let _ = run_context(app, id, "dialog.autoStack", json!({}));
         }
     });
     ui.separator();
-    if ui.button(crate::i18n::tr("Copy Edit Settings")).clicked() {
+    if ui.button(li_i18n::library::t("Copy Edit Settings")).clicked() {
         let _ = run_context(app, id, "develop.copy", json!({}));
     }
-    if ui.add_enabled(app.session.clipboard.is_some(), egui::Button::new(crate::i18n::tr("Paste Edit Settings"))).clicked() {
+    if ui.add_enabled(app.session.clipboard.is_some(), egui::Button::new(li_i18n::library::t("Paste Edit Settings"))).clicked() {
         let _ = run_context(app, id, "develop.paste", json!({}));
     }
-    if ui.add_enabled(app.session.clipboard.is_some(), egui::Button::new(crate::i18n::tr("Paste Selected Settings…"))).clicked() {
+    if ui.add_enabled(app.session.clipboard.is_some(), egui::Button::new(li_i18n::library::t("Paste Selected Settings…"))).clicked() {
         let _ = run_context(app, id, "dialog.pasteSettings", json!({}));
     }
-    if ui.button(crate::i18n::tr("Reset Edits")).clicked() {
+    if ui.button(li_i18n::library::t("Reset Edits")).clicked() {
         let _ = run_context(app, id, "develop.reset", json!({}));
     }
-    ui.menu_button(crate::i18n::tr("Photo Merge"), |ui| {
+    ui.menu_button(li_i18n::library::t("Photo Merge"), |ui| {
         let n = targets.len();
         ui.add_enabled_ui(matches!(n, 1 | 4 | 16), |ui| {
             let response = crate::widgets::text_button(ui, "mergePixelShift", "Sony Pixel Shift…", false);
             if response.clicked() {
                 let _ = run_context(app, id, "dialog.mergePixelShift", json!({}));
             }
-            response.on_disabled_hover_text(crate::i18n::tr("Select one composed ARQ or all 4 or 16 original Pixel Shift shots"));
+            response.on_disabled_hover_text(li_i18n::library::t("Select one composed ARQ or all 4 or 16 original Pixel Shift shots"));
         });
         for (command, label) in [("dialog.mergeHdr", "HDR…"), ("dialog.mergePanorama", "Panorama…"), ("dialog.mergeHdrPanorama", "HDR Panorama…")]
         {
@@ -986,46 +992,46 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         }
     });
     ui.separator();
-    if ui.button(crate::i18n::tr("Rotate Left")).clicked() {
+    if ui.button(li_i18n::library::t("Rotate Left")).clicked() {
         let _ = run_context(app, id, "photo.rotateLeft", json!({}));
     }
-    if ui.button(crate::i18n::tr("Rotate Right")).clicked() {
+    if ui.button(li_i18n::library::t("Rotate Right")).clicked() {
         let _ = run_context(app, id, "photo.rotateRight", json!({}));
     }
     ui.separator();
     // the original moved or its drive is gone: point the photo at the file again
     // (a cached answer, checked off the UI thread)
     let missing = matches!(&app.session.catalog.photo(id).map(|p| p.source.clone()), Some(lightcraft_catalog::Source::File { path }) if app.session.media.availability.is_offline(path));
-    if missing && ui.button(crate::i18n::tr("Locate Missing File…")).clicked() {
+    if missing && ui.button(li_i18n::library::t("Locate Missing File…")).clicked() {
         let _ = run_context(app, id, "photo.locate", json!({}));
     }
     if ui
         .add_enabled(
             app.services.reveal.is_some()
                 && app.session.catalog.photo(id).is_some_and(|p| matches!(p.source, lightcraft_catalog::Source::File { .. })),
-            egui::Button::new(crate::i18n::tr(crate::menus::REVEAL_LABEL)),
+            egui::Button::new(li_i18n::library::t(crate::menus::REVEAL_LABEL)),
         )
         .clicked()
     {
         let _ = run_context(app, id, "app.showInFinder", json!({}));
     }
-    let smart_sort = ui.button(crate::i18n::tr("Smart Sort Selected…"));
+    let smart_sort = ui.button(li_i18n::library::t("Smart Sort Selected…"));
     register(ui.ctx(), "menu:smartSortSelected", smart_sort.rect);
     if smart_sort.clicked() {
         let _ = run_context(app, id, "dialog.smartSort", json!({"selectedOnly":true}));
         ui.close();
     }
-    if ui.button(crate::i18n::tr("Export…")).clicked() {
+    if ui.button(li_i18n::library::t("Export…")).clicked() {
         let _ = run_context(app, id, "dialog.export", json!({}));
     }
-    ui.menu_button(crate::i18n::tr("Export with Preset"), |ui| {
+    ui.menu_button(li_i18n::library::t("Export with Preset"), |ui| {
         for (p, _) in app.session.all_export_presets() {
             if ui.button(&p.name).clicked() {
                 match run_context(app, id, "app.export", json!({"preset": p.name, "background": true})) {
                     Ok(r) if r.get("background").is_some() => {}
                     Ok(r) => {
                         let n = r["files"].as_array().map_or(0, Vec::len);
-                        app.toast(ui.ctx(), crate::i18n::tr_format!("Exported {n} photo{}", if n == 1 { "" } else { "s" }, n = n));
+                        app.toast(ui.ctx(), li_i18n::tr_format!("Exported {n} photo{}", if n == 1 { "" } else { "s" }, n = n));
                     }
                     Err(e) => app.toast(ui.ctx(), e),
                 }
@@ -1034,13 +1040,13 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     });
     ui.separator();
     if deleted {
-        if ui.button(crate::i18n::tr("Restore")).clicked() {
+        if ui.button(li_i18n::library::t("Restore")).clicked() {
             let _ = run_context(app, id, "photo.restore", json!({}));
         }
-        if ui.button(crate::i18n::tr("Remove from Library…")).clicked() {
+        if ui.button(li_i18n::library::t("Remove from Library…")).clicked() {
             let _ = run_context(app, id, "photo.deletePermanently", json!({}));
         }
-    } else if ui.button(crate::i18n::tr("Delete Photo")).clicked() {
+    } else if ui.button(li_i18n::library::t("Delete Photo")).clicked() {
         let _ = run_context(app, id, "photo.delete", json!({}));
     }
 }

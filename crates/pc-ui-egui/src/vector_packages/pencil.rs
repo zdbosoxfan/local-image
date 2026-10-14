@@ -293,7 +293,7 @@ pub fn canvas_input_with_pressure(state: &mut State, session: &mut Session, resp
 }
 /// Context bar; every visible string follows the app's existing localization path.
 pub fn context_bar(ui: &mut egui::Ui, state: &mut State) {
-    use crate::i18n::t as tr;
+    use li_i18n::t as tr;
     let before = state.options.clone();
     ui.checkbox(&mut state.options.sculpt, tr("Sculpt"));
     ui.add(egui::Slider::new(&mut state.options.smoothness, 0.0..=1.0).text(tr("Smoothness")));

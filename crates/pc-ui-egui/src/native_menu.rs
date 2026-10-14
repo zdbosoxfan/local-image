@@ -23,8 +23,8 @@ use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
 use crate::PhotocraftApp;
-use crate::i18n::{Lang, tr, tr_id};
 use crate::menus::MenuItem;
+use li_i18n::{Lang, tr, tr_id};
 
 pub use li_commands::menu::{
     APP_NAME, Backend, Chord, Clash, Event, HIDE, Item, ItemRole, Layout, MINIMIZE, Menu, MenuBar, MenuRole, Node, Standard, from_items, structure_key,
@@ -51,7 +51,7 @@ fn language_node(pref: &str, lang: Lang) -> Node {
         role: Some(ItemRole::Language),
     };
     let mut children = vec![Node::Item(item("auto", tr(lang, "Auto"))), Node::Separator];
-    children.extend(Lang::all().map(|l| Node::Item(item(l.code(), l.name()))));
+    children.extend(Lang::ALL.into_iter().map(|l| Node::Item(item(l.code(), l.name()))));
     Node::Submenu { label: tr(lang, "Language").into(), children, role: Some(ItemRole::Language) }
 }
 
@@ -121,7 +121,7 @@ pub fn appearance_menu(app: &PhotocraftApp) -> Node {
 /// system accelerators cannot steal a customized shortcut. The current persona sets the tops.
 pub fn app_layout(app: &PhotocraftApp) -> Layout {
     let lang = Lang::from_pref(&app.session.prefs().interface.language);
-    crate::i18n::set_current(lang);
+    li_i18n::set_current(lang);
     photocraft_layout_impl(
         &crate::menus::menu_items(app),
         lang,
@@ -285,7 +285,7 @@ mod tests {
     }
 
     fn layout(doc: bool) -> Layout {
-        photocraft_layout(&crate::menus::menu_items(&app(doc)), Lang::EN, "auto")
+        photocraft_layout(&crate::menus::menu_items(&app(doc)), Lang::En, "auto")
     }
 
     fn ids(nodes: &[Node]) -> Vec<String> {
@@ -311,7 +311,7 @@ mod tests {
             assert_eq!((item.enabled, item.checked), (row.enabled, row.checked), "{}", row.id);
             assert_eq!(item.shortcut, row.shortcut, "{}", row.id);
             if !matches!(row.id.as_str(), "help.about" | "file.exit") {
-                assert_eq!(item.label, crate::i18n::tr_id(crate::i18n::current(), &row.id, &row.label), "{}", row.id);
+                assert_eq!(item.label, li_i18n::tr_id(li_i18n::current(), &row.id, &row.label), "{}", row.id);
             }
             count += 1;
         }
@@ -417,7 +417,7 @@ mod tests {
     fn themes_move_to_the_app_menus_appearance() {
         let mut a = app(false);
         a.ui.theme = crate::theme::ThemeKind::Classic;
-        let l = photocraft_layout(&crate::menus::menu_items(&a), Lang::EN, "auto");
+        let l = photocraft_layout(&crate::menus::menu_items(&a), Lang::En, "auto");
         let app_menu = l.bar.menu(MenuRole::App).unwrap();
         let Some(Node::Submenu { children, .. }) = app_menu.children.iter().find(|n| matches!(n, Node::Submenu { label, .. } if label == "Appearance")) else {
             panic!("an Appearance submenu");
@@ -436,12 +436,12 @@ mod tests {
     /// the preference checked; choosing one sets `interface.language`.
     #[test]
     fn the_app_menu_switches_the_ui_language() {
-        let l = photocraft_layout(&crate::menus::menu_items(&app(false)), Lang::EN, "ja");
+        let l = photocraft_layout(&crate::menus::menu_items(&app(false)), Lang::En, "ja");
         let app_menu = l.bar.menu(MenuRole::App).unwrap();
         let Some(Node::Submenu { children, .. }) = app_menu.children.iter().find(|n| matches!(n, Node::Submenu { label, .. } if label == "Language")) else {
             panic!("a Language submenu");
         };
-        assert_eq!(children.iter().filter(|n| matches!(n, Node::Item(_))).count(), Lang::all().count() + 1);
+        assert_eq!(children.iter().filter(|n| matches!(n, Node::Item(_))).count(), Lang::ALL.len() + 1);
         assert_eq!(l.bar.find("app.language.ja").map(|it| (it.label.as_str(), it.checked)), Some(("日本語", Some(true))));
         assert_eq!(l.bar.find("app.language.auto").and_then(|it| it.checked), Some(false));
         // Native names stay native in another UI language.

@@ -85,13 +85,13 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     ui.add_space(6.0);
                     crate::widgets::hairline(ui);
                     ui.add_space(6.0);
-                    let lang = crate::i18n::Lang::from_pref(&app.session.prefs().interface.language);
+                    let lang = li_i18n::Lang::from_pref(&app.session.prefs().interface.language);
                     let mut hits: Vec<(i32, String, String, Option<String>, bool)> = crate::menus::menu_items(app)
                         .into_iter()
                         .filter_map(|m| {
                             let path_en = m.path.join(" › ");
-                            let path = m.path.iter().map(|p| crate::i18n::tr(lang, p)).collect::<Vec<_>>().join(" › ");
-                            let label = crate::i18n::tr_id(lang, &m.id, &m.label);
+                            let path = m.path.iter().map(|p| li_i18n::tr(lang, p)).collect::<Vec<_>>().join(" › ");
+                            let label = li_i18n::tr_id(lang, &m.id, &m.label);
                             // Match what is shown and the English name (commands are documented in English).
                             let s = fuzzy_score(&q, &format!("{label} {path} {} {path_en}", m.label))?;
                             Some((
@@ -155,7 +155,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     }
                     ui.add_space(4.0);
                     ui.label(
-                        RichText::new(crate::i18n::fmt(tl!("↑↓ navigate   {key} run   esc close"), &[("key", &crate::shortcuts::pretty("Enter"))]))
+                        RichText::new(li_i18n::fmt(tl!("↑↓ navigate   {key} run   esc close"), &[("key", &crate::shortcuts::pretty("Enter"))]))
                             .small()
                             .color(t.text_faint),
                     );

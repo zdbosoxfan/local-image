@@ -165,7 +165,7 @@ pub fn indicators(
                 } else {
                     tl!("Show the layer's effects  ({key}-click: all layers)")
                 };
-                let resp = resp.on_hover_text(crate::i18n::fmt(tip, &[("key", &crate::shortcuts::pretty("Alt"))]));
+                let resp = resp.on_hover_text(li_i18n::fmt(tip, &[("key", &crate::shortcuts::pretty("Alt"))]));
                 resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{verb} effects {name}")));
             }
         }

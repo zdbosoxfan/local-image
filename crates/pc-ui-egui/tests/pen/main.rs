@@ -1,7 +1,7 @@
 //! Package 04 isolated interaction host. Full-app acceptance is supplied separately for 00.
 macro_rules! tl {
     ($s:expr) => {
-        photocraft_ui_egui::i18n::t($s)
+        li_i18n::t($s)
     };
 }
 #[path = "../../src/vector_packages/pen.rs"]

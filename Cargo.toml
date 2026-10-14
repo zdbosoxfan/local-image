@@ -57,6 +57,7 @@ lensfun = { version = "=0.7.0" }
 li-ai = { path = "crates/li-ai" }
 li-commands = { path = "crates/li-commands" }
 li-keys = { path = "crates/li-keys" }
+li-i18n = { path = "crates/li-i18n" }
 li-fs = { path = "crates/li-fs" }
 li-color = { path = "crates/li-color" }
 li-gpu = { path = "crates/li-gpu" }

@@ -11,6 +11,8 @@ workspace = true
 [dependencies]
 li-commands = { workspace = true, features = ["egui"] }
 li-keys = { workspace = true, features = ["egui"] }
+# The one translation engine (Library & Develop catalog, `tr_format!`).
+li-i18n.workspace = true
 li-ui-kit.workspace = true
 # The CPU egui rasteriser (`softpaint`) behind headless screenshots.
 li-testkit.workspace = true

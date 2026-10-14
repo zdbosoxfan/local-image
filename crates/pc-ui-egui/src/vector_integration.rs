@@ -747,7 +747,7 @@ pub fn after_paint(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, xf: &
 pub fn context(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     if app.session.prefs().toolbar.persona == Persona::Vector {
         let mut bridge = crate::isolation::bridge(ui.ctx());
-        let result = crate::isolation::bar(ui, &mut app.session, &mut bridge.isolation, |text| crate::i18n::t(text).to_string());
+        let result = crate::isolation::bar(ui, &mut app.session, &mut bridge.isolation, |text| li_i18n::t(text).to_string());
         crate::isolation::store_session(&mut app.session, ui.ctx(), bridge);
         match result {
             Ok(true) => cancel(app),
@@ -765,7 +765,7 @@ pub fn context(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
             })
         })
     {
-        ui.menu_button(crate::i18n::t("Frame text"), |ui| {
+        ui.menu_button(li_i18n::t("Frame text"), |ui| {
             if let Err(e) = crate::frame_compose::panel(ui, &mut app.ui.frame_compose, &mut app.session, &crate::frame_compose::NativeMetadata) {
                 report(app, e);
             }
@@ -1276,30 +1276,30 @@ pub fn menus(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     }
     egui::MenuBar::new().ui(ui, |ui| {
-        ui.menu_button(crate::i18n::t("Vector"), |ui| {
-            ui.menu_button(crate::i18n::t("View"), |ui| {
+        ui.menu_button(li_i18n::t("Vector"), |ui| {
+            ui.menu_button(li_i18n::t("View"), |ui| {
                 let mut b = crate::isolation::bridge(ui.ctx());
-                crate::view_modes::menu(ui, &mut b.views, |s| crate::i18n::t(s).into());
+                crate::view_modes::menu(ui, &mut b.views, |s| li_i18n::t(s).into());
                 crate::isolation::store_session(&mut app.session, ui.ctx(), b);
             });
             for name in ["Appearance", "Graphic Styles", "Frame Composition", "Mesh", "Snapping Manager"] {
-                if ui.button(crate::i18n::t(name)).clicked() {
+                if ui.button(li_i18n::t(name)).clicked() {
                     open_panel(app, name);
                     ui.close();
                 }
             }
-            if ui.button(crate::i18n::t("Vectorize / Image Trace")).clicked() {
+            if ui.button(li_i18n::t("Vectorize / Image Trace")).clicked() {
                 app.trace_dialog.open(&mut app.session, &app.ui.trace_preferences);
                 ui.close();
             }
-            if ui.button(crate::i18n::t("Export SVG…")).clicked() {
+            if ui.button(li_i18n::t("Export SVG…")).clicked() {
                 let r = crate::vector_packages::svg_export::open_dialog(app);
                 if let Err(e) = r {
                     report(app, e);
                 }
                 ui.close();
             }
-            if ui.button(crate::i18n::t("Export PDF…")).clicked() {
+            if ui.button(li_i18n::t("Export PDF…")).clicked() {
                 let r = crate::vector_packages::pdf_export::open_dialog(app);
                 if let Err(e) = r {
                     report(app, e);
@@ -1312,7 +1312,7 @@ pub fn menus(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 pub(crate) fn keyboard_preset(ui: &mut egui::Ui, preset: &mut photocraft_engine::vector_toolbar_layout::Preset) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
-        ui.label(crate::i18n::t("Vector Keyboard Preset"));
+        ui.label(li_i18n::t("Vector Keyboard Preset"));
         egui::ComboBox::from_id_salt("vector-keyboard-preset").selected_text(format!("{preset:?}")).show_ui(ui, |ui| {
             for choice in [photocraft_engine::vector_toolbar_layout::Preset::Illustrator, photocraft_engine::vector_toolbar_layout::Preset::Affinity] {
                 changed |= ui.selectable_value(preset, choice, format!("{choice:?}")).changed();
@@ -1358,7 +1358,7 @@ pub(crate) fn dock_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, tab: crate:
         }
         "Snapping Manager" => {
             let mut manager = crate::vector_packages::snapping::Manager { settings: app.shared_tools.snapping.clone() };
-            crate::vector_packages::snapping::manager(ui, &mut manager, |s| crate::i18n::t(s).into());
+            crate::vector_packages::snapping::manager(ui, &mut manager, |s| li_i18n::t(s).into());
             app.shared_tools.snapping = manager.settings.clone();
             app.ui.vector_snapping = manager.settings;
         }

@@ -650,7 +650,7 @@ fn save_new_style(app: &mut PhotocraftApp, f: &Map<String, Value>) {
             "fillOpacity": bo.get("fillOpacity").cloned().unwrap_or(Value::Null),
         }),
     ) {
-        app.ui.status = crate::i18n::fmt(tl!("Style {name} saved"), &[("name", v["name"].as_str().unwrap_or("Style"))]);
+        app.ui.status = li_i18n::fmt(tl!("Style {name} saved"), &[("name", v["name"].as_str().unwrap_or("Style"))]);
     }
 }
 

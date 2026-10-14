@@ -1,12 +1,12 @@
 //! Camera Raw labels and language changes through the real shared native/WASM shell.
 use egui::{pos2, vec2};
 use egui_kittest::{Harness, kittest::Queryable};
-use photocraft_ui_egui::{PhotocraftApp, camera_raw_ui, control, i18n, theme::ThemeKind};
+use photocraft_ui_egui::{PhotocraftApp, camera_raw_ui, control, theme::ThemeKind};
 use serde_json::json;
 
 #[test]
 fn all_seven_languages_render_camera_raw_and_switch_without_resetting_view_or_filter() {
-    for lang in i18n::Lang::all() {
+    for lang in li_i18n::Lang::ALL {
         let gpu = std::env::var_os("PHOTOCRAFT_LOCALE_SNAPSHOTS").is_some();
         let builder = Harness::builder().with_step_dt(1.0 / 60.0).with_size(vec2(1440.0, 1000.0));
         let builder = if gpu { builder.wgpu() } else { builder };
@@ -24,7 +24,7 @@ fn all_seven_languages_render_camera_raw_and_switch_without_resetting_view_or_fi
         h.state_mut().set_theme(&ctx, ThemeKind::Pro);
         h.state_mut().session.prefs.edit(|p| p.interface.language = lang.code().into());
         h.run_steps(4);
-        let tr = |s| i18n::tr_ctx(lang, "cameraRaw", s);
+        let tr = |s| li_i18n::tr_ctx(lang, "cameraRaw", s);
         let before = control::inspect(h.state(), &ctx)["cameraRaw"].clone();
         for section in ["Light", "Color", "Effects", "Curve", "Color Mixer", "Color Grading", "Detail"] {
             assert!(h.query_by_label(tr(section)).is_some(), "{}: {section}", lang.code());

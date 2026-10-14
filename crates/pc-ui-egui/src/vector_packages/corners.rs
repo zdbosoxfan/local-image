@@ -370,18 +370,18 @@ impl State {
                 self.kind = corner.corner.kind;
             }
         }
-        if ui.checkbox(&mut self.all, crate::i18n::t("All corners")).changed() {
+        if ui.checkbox(&mut self.all, li_i18n::t("All corners")).changed() {
             self.cancel();
         }
         let old = self.kind;
         let previous_radius = self.radius;
-        egui::ComboBox::new("corner-kind", crate::i18n::t("Corner type")).selected_text(crate::i18n::t(kind_label(self.kind))).show_ui(ui, |ui| {
+        egui::ComboBox::new("corner-kind", li_i18n::t("Corner type")).selected_text(li_i18n::t(kind_label(self.kind))).show_ui(ui, |ui| {
             for kind in [CornerKind::Round, CornerKind::Inverted, CornerKind::Chamfer, CornerKind::Straight] {
-                ui.selectable_value(&mut self.kind, kind, crate::i18n::t(kind_label(kind)));
+                ui.selectable_value(&mut self.kind, kind, li_i18n::t(kind_label(kind)));
             }
         });
         let mut apply = old != self.kind;
-        let label = ui.label(crate::i18n::t("Radius"));
+        let label = ui.label(li_i18n::t("Radius"));
         let (unit, dpi, suffix) = radius_unit(session);
         let mut displayed_radius = unit.from_px(self.radius, dpi, 1.0, 72.0);
         let max = unit.from_px(geometry::MAX_RADIUS, dpi, 1.0, 72.0);
@@ -396,7 +396,7 @@ impl State {
         if !self.radius.is_finite() {
             self.radius = previous_radius;
             self.controls_dirty = false;
-            self.error = Some(crate::i18n::t("Corner radius must be finite").into());
+            self.error = Some(li_i18n::t("Corner radius must be finite").into());
             return;
         }
         if (response.changed() || response.gained_focus() || response.drag_started()) && self.controls_capture.is_none() {

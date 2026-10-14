@@ -238,7 +238,7 @@ pub(crate) fn finish_sync(app: &mut PhotocraftApp, r: &Value) {
     if let Some(added) = r["added"].as_array().filter(|a| !a.is_empty()) {
         for a in added {
             let name = a["name"].as_str().unwrap_or("Develop");
-            let msg = crate::i18n::fmt(tl!("Added your new Develop edits as layer {name}"), &[("name", name)]);
+            let msg = li_i18n::fmt(tl!("Added your new Develop edits as layer {name}"), &[("name", name)]);
             crate::notices::post(app, msg.clone(), vec![tl!("The layers below are unchanged; hide or delete the new layer to go back.").into()], false, None);
             app.ui.status = msg;
         }
@@ -258,7 +258,7 @@ pub fn open_photo(app: &mut PhotocraftApp, photo: u64, path: &str, settings: &Va
     admit_photo_result(app, &r);
     app.sync_views();
     if r["pending"].as_bool() != Some(true) && !r["existing"].as_bool().unwrap_or(false) {
-        app.ui.status = crate::i18n::fmt(tl!("{name} · Develop layer (double-click it to return to Develop)"), &[("name", name)]);
+        app.ui.status = li_i18n::fmt(tl!("{name} · Develop layer (double-click it to return to Develop)"), &[("name", name)]);
         app.ui.status_error = false;
     }
     Ok(())

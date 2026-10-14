@@ -116,14 +116,14 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, tab: &mut String) {
 
 fn heading(ui: &mut egui::Ui, t: &Tokens, text: &str) {
     ui.add_space(4.0);
-    ui.label(RichText::new(crate::i18n::tr(text)).font(t.semibold(12.5)).color(t.text));
+    ui.label(RichText::new(li_i18n::library::t(text)).font(t.semibold(12.5)).color(t.text));
 }
 
 fn row<R>(ui: &mut egui::Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let width = ui.available_width().min(crate::theme::PREFERENCES_BODY_WIDTH);
     ui.allocate_ui_with_layout(egui::vec2(width, ui.spacing().interact_size.y), egui::Layout::top_down(egui::Align::Min), |ui| {
         if !label.is_empty() {
-            ui.label(RichText::new(crate::i18n::tr(label)).color(t.text_label));
+            ui.label(RichText::new(li_i18n::library::t(label)).color(t.text_label));
         }
         add(ui)
     })
@@ -131,7 +131,7 @@ fn row<R>(ui: &mut egui::Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut egui
 }
 
 fn hint(ui: &mut egui::Ui, t: &Tokens, text: &str) {
-    ui.label(RichText::new(crate::i18n::tr(text)).size(11.0).color(t.text_dim));
+    ui.label(RichText::new(li_i18n::library::t(text)).size(11.0).color(t.text_dim));
 }
 
 /// A checkbox addressable as `check:{id}`; true when toggled.
@@ -146,7 +146,7 @@ fn choices<V: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, options: &[(V, &str
     let min_width = options
         .iter()
         .map(|(_, label)| {
-            ui.painter().layout_no_wrap(crate::i18n::tr(label).into(), t.semibold(crate::theme::BUTTON_FONT_SIZE), t.text).size().x
+            ui.painter().layout_no_wrap(li_i18n::library::t(label).into(), t.semibold(crate::theme::BUTTON_FONT_SIZE), t.text).size().x
                 + 2.0 * ui.spacing().button_padding.x
         })
         .fold(0.0, f32::max);
@@ -166,18 +166,18 @@ fn choices<V: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, options: &[(V, &str
 
 fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if !app.hosted_menus {
-        row(ui, t, crate::i18n::tr("Language"), |ui| {
-            let languages: Vec<_> = crate::i18n::Locale::ALL.iter().map(|language| (*language, language.name())).collect();
+        row(ui, t, li_i18n::library::t("Language"), |ui| {
+            let languages: Vec<_> = li_i18n::Lang::ALL.iter().map(|language| (*language, language.name())).collect();
             choices(ui, "settingsLanguage", &languages, &mut app.ui.language);
-            crate::i18n::set_language(app.ui.language);
+            li_i18n::set_current(app.ui.language);
         });
     }
-    heading(ui, t, crate::i18n::tr("Library"));
+    heading(ui, t, li_i18n::library::t("Library"));
     let location = match &app.session.library {
         Some(l) => l.dir.display().to_string(),
-        None => crate::i18n::tr("In memory — nothing is saved").to_string(),
+        None => li_i18n::library::t("In memory — nothing is saved").to_string(),
     };
-    row(ui, t, crate::i18n::tr("Location"), |ui| {
+    row(ui, t, li_i18n::library::t("Location"), |ui| {
         ui.label(RichText::new(location).color(t.text));
     });
     row(ui, t, "", |ui| {
@@ -188,7 +188,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let _ = app.run("app.openLibrary", json!({}));
         }
         if !can {
-            hint(ui, t, crate::i18n::tr("not available here"));
+            hint(ui, t, li_i18n::library::t("not available here"));
         }
     });
     if app.hosted_menus && crate::widgets::text_button(ui, "settingsAI", "AI…", false).clicked() {
@@ -197,7 +197,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     crate::library_safety_ui::settings(app, ui);
     heading(ui, t, "Face recognition");
     hint(ui, t, "Face data stays in this library. Clearing it does not load face models.");
-    if crate::widgets::text_button(ui, "settingsClearFaces", crate::i18n::tr("Clear face data…"), false).clicked() {
+    if crate::widgets::text_button(ui, "settingsClearFaces", li_i18n::library::t("Clear face data…"), false).clicked() {
         app.ui.people.clear = true;
     }
     if app.ui.people.clear {
@@ -222,12 +222,12 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         if !app.ui.people.error.is_empty() {
             ui.colored_label(t.caution, &app.ui.people.error);
         }
-        if crate::widgets::text_button(ui, "settingsClearFacesCancel", crate::i18n::tr("Cancel"), false).clicked() {
+        if crate::widgets::text_button(ui, "settingsClearFacesCancel", li_i18n::library::t("Cancel"), false).clicked() {
             app.ui.people.clear = false;
         }
     }
-    heading(ui, t, crate::i18n::tr("Startup"));
-    row(ui, t, crate::i18n::tr("Open in"), |ui| {
+    heading(ui, t, li_i18n::library::t("Startup"));
+    row(ui, t, li_i18n::library::t("Open in"), |ui| {
         choices(
             ui,
             "settingsStartup",
@@ -235,15 +235,15 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             &mut app.ui.settings.startup_view,
         );
     });
-    heading(ui, t, crate::i18n::tr("Culling"));
+    heading(ui, t, li_i18n::library::t("Culling"));
     check(ui, "settings.autoAdvance", &mut app.ui.auto_advance, "Auto Advance: move to the next photo after rating or flagging");
-    ui.label(crate::i18n::tr("Deleting photos always asks: Remove from Library, Delete from Disk, or Cancel."));
+    ui.label(li_i18n::library::t("Deleting photos always asks: Remove from Library, Delete from Disk, or Cancel."));
     check(ui, "settings.confirmSaveOver", &mut app.ui.settings.confirm_save_over, "Ask before File ▸ Save Over Original replaces a file");
-    heading(ui, t, crate::i18n::tr("External Editor"));
-    row(ui, t, crate::i18n::tr("Application"), |ui| {
+    heading(ui, t, li_i18n::library::t("External Editor"));
+    row(ui, t, li_i18n::library::t("Application"), |ui| {
         let r = ui.add(
             egui::TextEdit::singleline(&mut app.ui.settings.external_editor)
-                .hint_text(crate::i18n::tr("System default"))
+                .hint_text(li_i18n::library::t("System default"))
                 .desired_width(220.0_f32.min(ui.available_width())),
         );
         register(ui.ctx(), "field:externalEditor", r.rect);
@@ -251,7 +251,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     hint(
         ui,
         t,
-        crate::i18n::tr(
+        li_i18n::library::t(
             "Photo ▸ Edit in External Editor (⇧⌘E) renders a 16-bit TIFF copy, stacks it with the original and opens it here (an app name on macOS, a program path elsewhere).",
         ),
     );
@@ -300,18 +300,18 @@ fn cameras(app: &LightcraftApp) -> Vec<String> {
 
 fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let d = app.session.import_defaults.clone();
-    heading(ui, t, crate::i18n::tr("Raw defaults"));
-    hint(ui, t, crate::i18n::tr("Settings new raw photos start from. Changing them doesn't touch photos already in the library."));
-    row(ui, t, crate::i18n::tr("Raw photos"), |ui| {
+    heading(ui, t, li_i18n::library::t("Raw defaults"));
+    hint(ui, t, li_i18n::library::t("Settings new raw photos start from. Changing them doesn't touch photos already in the library."));
+    row(ui, t, li_i18n::library::t("Raw photos"), |ui| {
         if let Some(v) = preset_combo(app, ui, "settingsRawPreset", d.raw_preset.as_deref(), "Local Image Default") {
             let _ = app.run("library.preferences", json!({"import": {"rawPreset": v}}));
         }
     });
-    row(ui, t, crate::i18n::tr("Default look for new photos"), |ui| {
+    row(ui, t, li_i18n::library::t("Default look for new photos"), |ui| {
         crate::panels::process::default_look_combo(app, ui);
     });
-    hint(ui, t, crate::i18n::tr("New raw photos use this look; each photo can change it in Develop (Profile › Look)."));
-    row(ui, t, crate::i18n::tr("Camera profiles folder"), |ui| {
+    hint(ui, t, li_i18n::library::t("New raw photos use this look; each photo can change it in Develop (Profile › Look)."));
+    row(ui, t, li_i18n::library::t("Camera profiles folder"), |ui| {
         let edit_id = ui.id().with("cameraProfilesFolderEdit");
         let mut folder = ui.data(|data| data.get_temp::<String>(edit_id)).unwrap_or_else(|| d.camera_profiles_folder.clone());
         let response = ui.text_edit_singleline(&mut folder);
@@ -340,7 +340,9 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     hint(
         ui,
         t,
-        crate::i18n::tr("Read your DCP camera and LCP lens profiles here, including subfolders. Adobe install folders are detected automatically."),
+        li_i18n::library::t(
+            "Read your DCP camera and LCP lens profiles here, including subfolders. Adobe install folders are detected automatically.",
+        ),
     );
     if crate::widgets::text_button(ui, "profilesReload", "Reload Profiles", false).clicked() {
         let _ = app.run("library.preferences", json!({"reloadProfiles":true}));
@@ -351,9 +353,9 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         t,
         &format!(
             "{}: {camera}; {}: {lens}; {}: {skipped}",
-            crate::i18n::tr("Camera Profiles"),
-            crate::i18n::tr("Lens Profiles"),
-            crate::i18n::tr("Skipped")
+            li_i18n::library::t("Camera Profiles"),
+            li_i18n::library::t("Lens Profiles"),
+            li_i18n::library::t("Skipped")
         ),
     );
     let mut per = d.per_camera;
@@ -365,7 +367,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if per {
         let cams = cameras(app);
         if cams.is_empty() {
-            hint(ui, t, crate::i18n::tr("No raw photos yet: cameras appear here once their photos are in the library."));
+            hint(ui, t, li_i18n::library::t("No raw photos yet: cameras appear here once their photos are in the library."));
         }
         egui::ScrollArea::vertical().max_height(150.0).id_salt("settingsCameras").show(ui, |ui| {
             for (i, cam) in cams.iter().enumerate() {
@@ -385,10 +387,10 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                     };
                     let id = format!("settingsCamera-{i}");
                     let r = crate::widgets::choice_menu(ui, &id, &label, |ui| {
-                        if ui.selectable_label(current == Some(RAW_DEFAULT), crate::i18n::tr("Same as raw default")).clicked() {
+                        if ui.selectable_label(current == Some(RAW_DEFAULT), li_i18n::library::t("Same as raw default")).clicked() {
                             pick = Some(json!({"camera": cam, "remove": true}));
                         }
-                        if ui.selectable_label(current.is_none(), crate::i18n::tr("Local Image Default")).clicked() {
+                        if ui.selectable_label(current.is_none(), li_i18n::library::t("Local Image Default")).clicked() {
                             pick = Some(json!({"camera": cam, "preset": null}));
                         }
                         for p in &app.session.presets {
@@ -405,14 +407,14 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             }
         });
     }
-    heading(ui, t, crate::i18n::tr("Other images (JPEG, PNG, TIFF, HEIC…)"));
-    row(ui, t, crate::i18n::tr("Non-raw photos"), |ui| {
+    heading(ui, t, li_i18n::library::t("Other images (JPEG, PNG, TIFF, HEIC…)"));
+    row(ui, t, li_i18n::library::t("Non-raw photos"), |ui| {
         if let Some(v) = preset_combo(app, ui, "settingsOtherPreset", d.other_preset.as_deref(), "None") {
             let _ = app.run("library.preferences", json!({"import": {"otherPreset": v}}));
         }
     });
-    heading(ui, t, crate::i18n::tr("Metadata"));
-    hint(ui, t, crate::i18n::tr("Added to photos you import that don't already have it."));
+    heading(ui, t, li_i18n::library::t("Metadata"));
+    hint(ui, t, li_i18n::library::t("Added to photos you import that don't already have it."));
     for (key, label, hint_text, value) in
         [("copyright", "Copyright", "© 2026 Your Name", d.copyright.clone()), ("creator", "Creator", "Your Name", d.creator.clone())]
     {
@@ -432,11 +434,11 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         });
     }
     if !app.session.metadata_presets.is_empty() {
-        row(ui, t, crate::i18n::tr("Metadata preset"), |ui| {
+        row(ui, t, li_i18n::library::t("Metadata preset"), |ui| {
             let cur = d.metadata_preset.clone();
             let mut pick = None;
             let r = crate::widgets::choice_menu(ui, "settingsMetaPreset", &cur.clone().unwrap_or_else(|| "None".into()), |ui| {
-                if ui.selectable_label(cur.is_none(), crate::i18n::tr("None")).clicked() {
+                if ui.selectable_label(cur.is_none(), li_i18n::library::t("None")).clicked() {
                     pick = Some(String::new());
                 }
                 for m in &app.session.metadata_presets {
@@ -451,12 +453,12 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             }
         });
     }
-    heading(ui, t, crate::i18n::tr("XMP sidecars"));
+    heading(ui, t, li_i18n::library::t("XMP sidecars"));
     let mut xmp = app.session.xmp;
     if check(ui, "settings.autoWriteXmp", &mut xmp.auto_write, "Automatically write changes into XMP sidecars") {
         let _ = app.run("library.xmpPreferences", json!({"autoWrite": xmp.auto_write}));
     }
-    row(ui, t, crate::i18n::tr("Sidecar names"), |ui| {
+    row(ui, t, li_i18n::library::t("Sidecar names"), |ui| {
         use lightcraft_engine::sidecar::SidecarNaming as N;
         let mut n = xmp.naming;
         if choices(ui, "settingsXmpNaming", &[(N::Stem, "IMG_1.xmp"), (N::Full, "IMG_1.CR3.xmp")], &mut n) {
@@ -465,9 +467,13 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     if !cfg!(target_arch = "wasm32") {
-        heading(ui, t, crate::i18n::tr("Auto Import"));
-        hint(ui, t, crate::i18n::tr("Photos that arrive in this folder (tethering, a scanner, a sync app) are added as soon as they're complete."));
-        row(ui, t, crate::i18n::tr("Watched folder"), |ui| {
+        heading(ui, t, li_i18n::library::t("Auto Import"));
+        hint(
+            ui,
+            t,
+            li_i18n::library::t("Photos that arrive in this folder (tethering, a scanner, a sync app) are added as soon as they're complete."),
+        );
+        row(ui, t, li_i18n::library::t("Watched folder"), |ui| {
             ui.label(RichText::new(d.auto_folder.clone().unwrap_or_else(|| "Off".into())).color(t.text));
             let can = app.services.has_folder_picker();
             let r = ui.add_enabled_ui(can, |ui| crate::widgets::text_button(ui, "settingsAutoFolder", "Choose…", false)).inner;
@@ -489,11 +495,12 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                     let _ = app.run("library.autoImport", json!({"copy": copy}));
                 }
             });
-            row(ui, t, crate::i18n::tr("Collection"), |ui| {
+            row(ui, t, li_i18n::library::t("Collection"), |ui| {
                 let id = egui::Id::new("auto-album");
                 let mut name = ui.data(|m| m.get_temp::<String>(id)).unwrap_or_else(|| d.auto_album.clone().unwrap_or_default());
-                let r = ui
-                    .add(egui::TextEdit::singleline(&mut name).hint_text(crate::i18n::tr("None")).desired_width(180.0_f32.min(ui.available_width())));
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut name).hint_text(li_i18n::library::t("None")).desired_width(180.0_f32.min(ui.available_width())),
+                );
                 if r.lost_focus() {
                     let _ = app.run("library.autoImport", json!({"album": name.trim()}));
                 }
@@ -502,7 +509,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     }
     if app.session.library.is_none() {
-        hint(ui, t, crate::i18n::tr("In-memory session: these settings last until Local Image quits."));
+        hint(ui, t, li_i18n::library::t("In-memory session: these settings last until Local Image quits."));
     }
 }
 
@@ -510,31 +517,31 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
 
 fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     use lightcraft_engine::gpu;
-    heading(ui, t, crate::i18n::tr("Rendering"));
+    heading(ui, t, li_i18n::library::t("Rendering"));
     check(ui, "settings.gpu", &mut app.ui.settings.gpu, "Use the GPU for rendering");
     let status = if !gpu::available() {
         match gpu::unavailable_reason() {
-            Some(why) => crate::i18n::tr_format!("Rendering on the CPU: {why}", why = why),
+            Some(why) => li_i18n::tr_format!("Rendering on the CPU: {why}", why = why),
             None => "No usable GPU found: rendering on the CPU".to_string(),
         }
     } else {
         format!("GPU: {}", gpu::adapter_name().unwrap_or_else(|| "starting…".into()))
     };
     hint(ui, t, &status);
-    row(ui, t, crate::i18n::tr("Preview size"), |ui| {
+    row(ui, t, li_i18n::library::t("Preview size"), |ui| {
         let opts: Vec<(u32, String)> = PREVIEW_EDGES.iter().map(|e| (*e, format!("{e} px"))).collect();
         let opts: Vec<(u32, &str)> = opts.iter().map(|(e, l)| (*e, l.as_str())).collect();
         choices(ui, "settingsPreview", &opts, &mut app.ui.settings.preview_edge);
     });
-    hint(ui, t, crate::i18n::tr("Largest long edge the Loupe view renders at; larger is sharper on big displays but slower."));
-    row(ui, t, crate::i18n::tr("Memory for caches"), |ui| {
-        let auto = crate::i18n::tr_format!("Automatic ({} MB)", lightcraft_engine::memory::default_budget() >> 20);
+    hint(ui, t, li_i18n::library::t("Largest long edge the Loupe view renders at; larger is sharper on big displays but slower."));
+    row(ui, t, li_i18n::library::t("Memory for caches"), |ui| {
+        let auto = li_i18n::tr_format!("Automatic ({} MB)", lightcraft_engine::memory::default_budget() >> 20);
         let opts = [(0u32, auto.as_str()), (512, "512 MB"), (1024, "1 GB"), (2048, "2 GB"), (4096, "4 GB")];
         choices(ui, "settingsMemory", &opts, &mut app.ui.settings.memory_mb);
     });
-    heading(ui, t, crate::i18n::tr("Thumbnail cache"));
+    heading(ui, t, li_i18n::library::t("Thumbnail cache"));
     let cur = (app.session.cache_bytes() >> 20) as u32;
-    row(ui, t, crate::i18n::tr("Size limit"), |ui| {
+    row(ui, t, li_i18n::library::t("Size limit"), |ui| {
         let opts = [(512u32, "512 MB"), (1024, "1 GB"), (2048, "2 GB"), (4096, "4 GB"), (8192, "8 GB")];
         let mut v = if CACHE_SIZES.contains(&cur) { cur } else { 2048 };
         if choices(ui, "settingsCache", &opts, &mut v) {
@@ -542,7 +549,7 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         }
     });
     let used = app.session.media.rendered.disk().map(|d| d.size());
-    row(ui, t, crate::i18n::tr("In use"), |ui| {
+    row(ui, t, li_i18n::library::t("In use"), |ui| {
         ui.label(RichText::new(used.map(|b| format!("{:.1} MB", b as f64 / 1048576.0)).unwrap_or_else(|| "memory only".into())).color(t.text));
         let r = crate::widgets::text_button(ui, "settingsClearCache", "Clear Cache", false);
         register(ui.ctx(), "button:settingsClearCache", r.rect);
@@ -550,8 +557,8 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let _ = app.run("library.clearPreviews", json!({}));
         }
     });
-    heading(ui, t, crate::i18n::tr("Local folders"));
-    row(ui, t, crate::i18n::tr("Forget unchanged photos"), |ui| {
+    heading(ui, t, li_i18n::library::t("Local folders"));
+    row(ui, t, li_i18n::library::t("Forget unchanged photos"), |ui| {
         let opts = [(0u32, "Never"), (7, "After 7 days"), (30, "After 30 days"), (90, "After 90 days"), (365, "After a year")];
         let mut v = app.session.forget_local_days;
         if choices(ui, "settingsForgetLocal", &opts, &mut v) {
@@ -561,7 +568,7 @@ fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     hint(
         ui,
         t,
-        crate::i18n::tr(
+        li_i18n::library::t(
             "Photos seen in Local but never added or changed leave the catalog when their folder hasn't been browsed for this long (checked when the library opens). Files stay on disk; browsing the folder shows them again.",
         ),
     );
@@ -587,11 +594,11 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if loc.is_null() {
         return;
     }
-    heading(ui, t, crate::i18n::tr("Smart previews"));
+    heading(ui, t, li_i18n::library::t("Smart previews"));
     let path = loc["path"].as_str().unwrap_or_default().to_string();
     let available = loc["available"].as_bool().unwrap_or(true);
     let custom = loc["custom"].as_bool().unwrap_or(false);
-    row(ui, t, crate::i18n::tr("Folder"), |ui| {
+    row(ui, t, li_i18n::library::t("Folder"), |ui| {
         let text = format!("{path}{}", if custom { "" } else { "  (library default)" });
         ui.add(egui::Label::new(RichText::new(text.clone()).color(if available { t.text } else { t.reject })).truncate()).on_hover_text(text);
     });
@@ -600,18 +607,13 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         hint(
             ui,
             t,
-            &crate::i18n::tr_format!(
-                "{count} smart preview{} · {:.1} MB",
-                if count == 1 { "" } else { "s" },
-                bytes as f64 / 1048576.0,
-                count = count
-            ),
+            &li_i18n::tr_format!("{count} smart preview{} · {:.1} MB", if count == 1 { "" } else { "s" }, bytes as f64 / 1048576.0, count = count),
         );
     } else {
         hint(
             ui,
             t,
-            crate::i18n::tr(
+            li_i18n::library::t(
                 "This folder is not available (drive disconnected?). Smart previews are not built or used until it is back or you choose another folder.",
             ),
         );
@@ -620,7 +622,7 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let mode_id = egui::Id::new("smart-existing");
     let mut mode: u8 = ui.data(|d| d.get_temp(mode_id)).unwrap_or(0);
     if count > 0 {
-        row(ui, t, crate::i18n::tr("Existing previews"), |ui| {
+        row(ui, t, li_i18n::library::t("Existing previews"), |ui| {
             if choices(ui, "settingsSmartExisting", &[(0u8, "Move them"), (1, "Leave them"), (2, "Delete them")], &mut mode) {
                 ui.data_mut(|d| d.insert_temp(mode_id, mode));
             }
@@ -655,35 +657,43 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
                     ("discard", n) => format!("Smart previews folder changed; deleted {n}"),
                     _ => "Smart previews folder changed".to_string(),
                 };
-                app.toast(ui.ctx(), if failed > 0 { crate::i18n::tr_format!("{msg} ({failed} failed)", failed = failed, msg = msg) } else { msg });
+                app.toast(ui.ctx(), if failed > 0 { li_i18n::tr_format!("{msg} ({failed} failed)", failed = failed, msg = msg) } else { msg });
             }
             Err(e) => app.toast(ui.ctx(), e),
         }
     }
-    hint(ui, t, crate::i18n::tr("Keep it on a drive with room: smart previews are about 1 MB per photo. The thumbnail cache stays in the library."));
+    hint(
+        ui,
+        t,
+        li_i18n::library::t("Keep it on a drive with room: smart previews are about 1 MB per photo. The thumbnail cache stays in the library."),
+    );
 }
 
 // ---------------------------------------------------------------------------------- Interface
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
-    heading(ui, t, crate::i18n::tr("Tools"));
-    row(ui, t, crate::i18n::tr("Tool tips"), |ui| {
+    heading(ui, t, li_i18n::library::t("Tools"));
+    row(ui, t, li_i18n::library::t("Tool tips"), |ui| {
         use crate::panels::tool_tips::ToolTipMode as M;
         choices(
             ui,
             "settingsToolTips",
-            &[(M::Rich, crate::i18n::tr("Rich")), (M::Simple, crate::i18n::tr("Simple (name and shortcut)")), (M::Off, crate::i18n::tr("Off"))],
+            &[
+                (M::Rich, li_i18n::library::t("Rich")),
+                (M::Simple, li_i18n::library::t("Simple (name and shortcut)")),
+                (M::Off, li_i18n::library::t("Off")),
+            ],
             &mut app.ui.settings.tool_tips,
         );
     });
     row(ui, t, "Tool icons", |ui| {
         choices(ui, "settingsToolIcons", &[(false, "Monochrome (default)"), (true, "Colour")], &mut app.ui.settings.color_tool_icons);
     });
-    heading(ui, t, crate::i18n::tr("Filmstrip"));
+    heading(ui, t, li_i18n::library::t("Filmstrip"));
     check(ui, "settings.filmNames", &mut app.ui.settings.film_names, "Show file names");
     check(ui, "settings.filmBadges", &mut app.ui.settings.film_badges, "Show ratings, flags and edit badges");
-    heading(ui, t, crate::i18n::tr("Grid"));
-    row(ui, t, crate::i18n::tr("Ratings & flags"), |ui| {
+    heading(ui, t, li_i18n::library::t("Grid"));
+    row(ui, t, li_i18n::library::t("Ratings & flags"), |ui| {
         choices(
             ui,
             "settingsGridBadges",
@@ -692,9 +702,9 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         );
     });
     check(ui, "settings.showFilenames", &mut app.ui.show_filenames, "Square Grid: show file names and formats");
-    heading(ui, t, crate::i18n::tr("Loupe"));
+    heading(ui, t, li_i18n::library::t("Loupe"));
     check(ui, "settings.navigator", &mut app.ui.navigator, "Show the Navigator while zoomed in");
-    row(ui, t, crate::i18n::tr("Info overlay"), |ui| {
+    row(ui, t, li_i18n::library::t("Info overlay"), |ui| {
         use crate::state::InfoOverlay as I;
         choices(ui, "settingsInfo", &[(I::Off, "Off"), (I::Basic, "File & date"), (I::Exposure, "Exposure")], &mut app.ui.info_overlay);
     });

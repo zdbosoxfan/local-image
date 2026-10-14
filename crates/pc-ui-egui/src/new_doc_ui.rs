@@ -290,7 +290,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             ui.set_width(520.0);
             let count =
                 if cat == "Recent" { f.get("__recent").and_then(Value::as_array).map_or(0, |entries| entries.len().min(RECENT_LIMIT)) } else { presets.len() };
-            ui.label(RichText::new(crate::i18n::fmt(tl!("BLANK DOCUMENT PRESETS ({n})"), &[("n", &count.to_string())])).size(11.0).color(t.text_faint));
+            ui.label(RichText::new(li_i18n::fmt(tl!("BLANK DOCUMENT PRESETS ({n})"), &[("n", &count.to_string())])).size(11.0).color(t.text_faint));
             ui.add_space(6.0);
             if cat == "Recent" {
                 let entries = f.get("__recent").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -490,10 +490,10 @@ mod tests {
 
     #[test]
     fn new_document_depth_labels_and_tooltips_are_translated() {
-        for lang in crate::i18n::Lang::all().filter(|lang| lang.code() != "en") {
+        for lang in li_i18n::Lang::ALL.into_iter().filter(|lang| lang.code() != "en") {
             for (_, label, tooltip) in DEPTH_OPTIONS {
-                assert_ne!(crate::i18n::tr(lang, label), *label, "{}: {label}", lang.code());
-                assert_ne!(crate::i18n::tr(lang, tooltip), *tooltip, "{}: {tooltip}", lang.code());
+                assert_ne!(li_i18n::tr(lang, label), *label, "{}: {label}", lang.code());
+                assert_ne!(li_i18n::tr(lang, tooltip), *tooltip, "{}: {tooltip}", lang.code());
             }
         }
     }

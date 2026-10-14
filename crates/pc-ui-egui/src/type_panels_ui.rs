@@ -261,7 +261,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool)
             resp.on_hover_text(if id == 0 && !paragraph {
                 tl!("No character style").to_string()
             } else {
-                crate::i18n::fmt(
+                li_i18n::fmt(
                     tl!("Click to apply, {key}-click to clear overrides, double-click for Style Options"),
                     &[("key", &crate::shortcuts::pretty("Alt"))],
                 )

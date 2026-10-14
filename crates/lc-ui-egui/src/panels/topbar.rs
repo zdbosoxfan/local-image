@@ -59,7 +59,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 ui.new_child(egui::UiBuilder::new().max_rect(sr.shrink2(vec2(10.0, 4.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
             let empty = app.ui.search.is_empty();
             if empty && !focused {
-                let g = child.painter().layout_no_wrap(crate::i18n::tr("Search Photos").into(), t.font(13.5), t.text_dim);
+                let g = child.painter().layout_no_wrap(li_i18n::library::t("Search Photos").into(), t.font(13.5), t.text_dim);
                 let w = g.size().x + 24.0;
                 let x0 = sr.center().x - w / 2.0;
                 paint(child.painter(), Rect::from_min_size(pos2(x0, sr.center().y - 8.0), vec2(16.0, 16.0)), Icon::Search, t.text_dim);
@@ -102,7 +102,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 ui.painter().text(c, Align2::CENTER_CENTER, active.to_string(), t.semibold(9.5), crate::theme::text_on(t.accent));
             }
             let fresp = fresp.on_hover_text(if active > 0 {
-                crate::i18n::tr_format!("Filter bar — {active} active filter{}", if active == 1 { "" } else { "s" }, active = active)
+                li_i18n::tr_format!("Filter bar — {active} active filter{}", if active == 1 { "" } else { "s" }, active = active)
             } else {
                 "Filter bar".into()
             });
@@ -113,7 +113,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let mut x = full.right() - 18.0;
             // saving is failing: the cloud icon turns into a warning until a save succeeds
             let unsaved = app.session.unsaved().map(|(n, e)| {
-                crate::i18n::tr_format!(
+                li_i18n::tr_format!(
                     "{n} change{} saved in memory but not written to disk: {e}\nLocal Image retries automatically; quitting now would lose {}.",
                     if n == 1 { "" } else { "s" },
                     if n == 1 { "it" } else { "them" },
@@ -121,7 +121,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     n = n
                 )
             });
-            let cloud_tip = crate::i18n::tr("Library status");
+            let cloud_tip = li_i18n::library::t("Library status");
             for (id, icon, tip, cmd) in [
                 ("cloud", Icon::Folder, cloud_tip, ""),
                 ("help", Icon::Help, "Keyboard shortcuts", "app.shortcuts"),
@@ -132,8 +132,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let enabled = cmd.is_empty() || crate::menus::ui_enabled(app, cmd);
                 let resp = ui
                     .interact(r, egui::Id::new(("top", id)), if enabled { Sense::click() } else { Sense::hover() })
-                    .on_hover_text(crate::i18n::tr(tip));
-                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, crate::i18n::tr(tip)));
+                    .on_hover_text(li_i18n::library::t(tip));
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, li_i18n::library::t(tip)));
                 register(ui.ctx(), format!("icon:{id}"), r);
                 let warn = id == "cloud" && unsaved.is_some();
                 let colour = if warn {
@@ -152,24 +152,24 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 }
                 if id == "cloud" {
                     egui::Popup::menu(&resp).show(|ui| {
-                        ui.heading(crate::i18n::tr("Library status"));
+                        ui.heading(li_i18n::library::t("Library status"));
                         if let Some(error) = &unsaved {
                             ui.colored_label(t.caution, error);
                         } else {
-                            ui.label(crate::i18n::tr(if app.session.library.is_some() {
+                            ui.label(li_i18n::library::t(if app.session.library.is_some() {
                                 "Local Library — changes save automatically"
                             } else {
                                 "Temporary session — not saved to a Library"
                             }));
                         }
-                        let settings = ui.button(crate::i18n::tr("Preferences…"));
+                        let settings = ui.button(li_i18n::library::t("Preferences…"));
                         register(ui.ctx(), "menu:libraryStatus:settings", settings.rect);
                         if settings.clicked() {
                             let _ = app.run("app.settings", json!({}));
                             ui.close();
                         }
                         let open =
-                            ui.add_enabled(crate::menus::ui_enabled(app, "app.openLibrary"), egui::Button::new(crate::i18n::tr("Open Library…")));
+                            ui.add_enabled(crate::menus::ui_enabled(app, "app.openLibrary"), egui::Button::new(li_i18n::library::t("Open Library…")));
                         register(ui.ctx(), "menu:libraryStatus:open", open.rect);
                         if open.clicked() {
                             if let Err(error) = app.run("app.openLibrary", json!({})) {

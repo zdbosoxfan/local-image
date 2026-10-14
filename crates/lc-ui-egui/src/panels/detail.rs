@@ -282,7 +282,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // soft proofing: a paper-white surround and the proof's name, as Lightroom shows it
     if app.ui.soft_proof && !fullscreen {
         p.rect_filled(canvas, 0.0, Color32::from_gray(238));
-        let label = crate::i18n::tr_format!("Proof Preview · {}", app.ui.proof.label());
+        let label = li_i18n::tr_format!("Proof Preview · {}", app.ui.proof.label());
         p.text(pos2(canvas.right() - 16.0, canvas.top() + 14.0), Align2::RIGHT_CENTER, label, t.font(12.5), Color32::from_gray(60));
     }
     let shown;
@@ -294,11 +294,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
         draw(Slot::Before, br);
         shown = draw(Slot::Main, img_rect);
-        p.text(pos2(br.left(), br.bottom() + 14.0), Align2::LEFT_CENTER, crate::i18n::tr("Before"), t.font(12.0), t.text_dim);
-        p.text(pos2(img_rect.left(), img_rect.bottom() + 14.0), Align2::LEFT_CENTER, crate::i18n::tr("After"), t.font(12.0), t.text_dim);
+        p.text(pos2(br.left(), br.bottom() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("Before"), t.font(12.0), t.text_dim);
+        p.text(pos2(img_rect.left(), img_rect.bottom() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("After"), t.font(12.0), t.text_dim);
     } else if show_before {
         shown = draw(Slot::Before, img_rect);
-        p.text(pos2(img_rect.left() + 8.0, img_rect.top() + 14.0), Align2::LEFT_CENTER, crate::i18n::tr("Before"), t.font(12.0), t.text);
+        p.text(pos2(img_rect.left() + 8.0, img_rect.top() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("Before"), t.font(12.0), t.text);
     } else if let Some((_key, label)) = &hover_key
         && let Some(tex) = app.renderer.textures.get(&Slot::Hover).filter(|t| t.photo == id)
     {
@@ -313,14 +313,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     p.text(
                         canvas.center() - vec2(0.0, 10.0),
                         Align2::CENTER_CENTER,
-                        crate::i18n::tr("This photo can't be opened"),
+                        li_i18n::library::t("This photo can't be opened"),
                         t.semibold(14.0),
                         t.text,
                     );
                     p.text(canvas.center() + vec2(0.0, 12.0), Align2::CENTER_CENTER, e, t.font(12.0), t.text_dim);
                 }
                 None => {
-                    p.text(canvas.center(), Align2::CENTER_CENTER, crate::i18n::tr("Rendering…"), t.font(13.0), t.text_dim);
+                    p.text(canvas.center(), Align2::CENTER_CENTER, li_i18n::library::t("Rendering…"), t.font(13.0), t.text_dim);
                 }
             }
         }
@@ -403,7 +403,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         preview_only_pill(ui, canvas, why);
     }
     resp.context_menu(|ui| {
-        ui.menu_button(crate::i18n::tr("Zoom"), |ui| {
+        ui.menu_button(li_i18n::library::t("Zoom"), |ui| {
             for (label, cmd) in [("Fit", "view.zoomFit"), ("100%", "view.zoom100"), ("Zoom In", "view.zoomIn"), ("Zoom Out", "view.zoomOut")] {
                 if ui.button(label).clicked() {
                     let _ = app.run(cmd, json!({}));
@@ -625,7 +625,7 @@ fn filter_pill(app: &mut LightcraftApp, ui: &mut egui::Ui, canvas: Rect) {
 fn preview_only_pill(ui: &mut egui::Ui, canvas: Rect, reason: &str) {
     let t = Tokens::get(ui.ctx());
     let p = ui.painter_at(canvas);
-    let text = crate::i18n::tr_format!("Preview only — editing the camera's embedded JPEG ({})", crate::widgets::preview_only_variant(reason));
+    let text = li_i18n::tr_format!("Preview only — editing the camera's embedded JPEG ({})", crate::widgets::preview_only_variant(reason));
     let g = p.layout_no_wrap(text, t.font(12.0), Color32::WHITE);
     let size = vec2(g.size().x + 40.0, 26.0);
     let r = Rect::from_min_size(pos2(canvas.center().x - size.x / 2.0, canvas.top() + 12.0), size);
@@ -1906,10 +1906,10 @@ fn draft_buttons(app: &mut LightcraftApp, ui: &mut egui::Ui, map: &CanvasMap, lo
         egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(4)).show(ui, |ui| {
             ui.horizontal(|ui| {
                 apply = crate::widgets::text_button(ui, "removeDraftApply", "Remove", true)
-                    .on_hover_text(crate::i18n::tr("Remove what you painted (Enter)"))
+                    .on_hover_text(li_i18n::library::t("Remove what you painted (Enter)"))
                     .clicked();
                 cancel = crate::widgets::text_button(ui, "removeDraftCancel", "Cancel", false)
-                    .on_hover_text(crate::i18n::tr("Discard what you painted (Esc)"))
+                    .on_hover_text(li_i18n::library::t("Discard what you painted (Esc)"))
                     .clicked();
             });
         });

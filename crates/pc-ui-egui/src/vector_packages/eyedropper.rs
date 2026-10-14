@@ -262,38 +262,38 @@ pub fn attributes(ui: &mut Ui, a: &mut Attributes) {
             ("Paragraph", &mut a.paragraph),
             ("Object", &mut a.object),
         ] {
-            ui.checkbox(value, crate::i18n::t(name));
+            ui.checkbox(value, li_i18n::t(name));
         }
     });
 }
 pub fn context(ui: &mut Ui, state: &mut State) {
     let old = state.options.clone();
     ui.horizontal(|ui| {
-        ui.selectable_value(&mut state.options.tool, Tool::Eyedropper, crate::i18n::t("Vector Eyedropper"));
-        ui.selectable_value(&mut state.options.tool, Tool::StylePicker, crate::i18n::t("Style Picker"));
-        if ui.button(crate::i18n::t("Unload")).clicked() {
+        ui.selectable_value(&mut state.options.tool, Tool::Eyedropper, li_i18n::t("Vector Eyedropper"));
+        ui.selectable_value(&mut state.options.tool, Tool::StylePicker, li_i18n::t("Style Picker"));
+        if ui.button(li_i18n::t("Unload")).clicked() {
             state.unload();
         }
     });
     if state.options.tool == Tool::Eyedropper {
-        ui.collapsing(crate::i18n::t("Eyedropper Options"), |ui| {
-            ui.label(crate::i18n::t("Pick"));
+        ui.collapsing(li_i18n::t("Eyedropper Options"), |ui| {
+            ui.label(li_i18n::t("Pick"));
             attributes(ui, &mut state.options.pick);
-            ui.label(crate::i18n::t("Apply"));
+            ui.label(li_i18n::t("Apply"));
             attributes(ui, &mut state.options.apply);
-            ui.checkbox(&mut state.options.color_stroke, crate::i18n::t("Sample colour to stroke"));
+            ui.checkbox(&mut state.options.color_stroke, li_i18n::t("Sample colour to stroke"));
         });
     } else {
         ui.horizontal(|ui| {
-            if ui.button(crate::i18n::t("All")).clicked() {
+            if ui.button(li_i18n::t("All")).clicked() {
                 state.options.apply = Attributes::ALL;
             }
-            if ui.button(crate::i18n::t("None")).clicked() {
+            if ui.button(li_i18n::t("None")).clicked() {
                 state.options.apply = Attributes::NONE;
             }
         });
         attributes(ui, &mut state.options.apply);
-        ui.label(crate::i18n::t(if state.loaded.is_some() { "Style loaded" } else { "Click an object to load its style" }));
+        ui.label(li_i18n::t(if state.loaded.is_some() { "Style loaded" } else { "Click an object to load its style" }));
     }
     if old != state.options {
         state.cancel();

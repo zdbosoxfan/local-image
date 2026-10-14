@@ -111,7 +111,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if ok || ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
         let Some(p) = app.tiff_options.take() else { return };
         if let Err(e) = finish(app, p) {
-            app.ui.status = crate::i18n::fmt(tl!("Save failed: {error}"), &[("error", &e)]);
+            app.ui.status = li_i18n::fmt(tl!("Save failed: {error}"), &[("error", &e)]);
             app.ui.status_error = true;
         }
     } else if cancel {

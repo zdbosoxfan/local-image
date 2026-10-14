@@ -323,7 +323,7 @@ pub fn save_and_next(app: &mut PhotocraftApp) -> bool {
         };
         if let Err(e) = saved {
             if e != "cancelled" {
-                app.ui.status = crate::i18n::fmt(tl!("Couldn't save: {error}"), &[("error", &e)]);
+                app.ui.status = li_i18n::fmt(tl!("Couldn't save: {error}"), &[("error", &e)]);
                 app.ui.status_error = true;
             }
             return false;
@@ -445,11 +445,11 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.label(RichText::new(name).color(t.text_dim).size(11.5));
             let count = match pos {
                 Some(i) => format!("{} / {}", i + 1, files.len()),
-                None => crate::i18n::fmt(tl!("{n} images"), &[("n", &files.len().to_string())]),
+                None => li_i18n::fmt(tl!("{n} images"), &[("n", &files.len().to_string())]),
             };
             ui.label(RichText::new(count).color(t.text_faint).size(11.0));
             if !edited.is_empty() {
-                ui.label(RichText::new(crate::i18n::fmt(tl!("{n} edited"), &[("n", &edited.len().to_string())])).color(t.accent).size(11.0));
+                ui.label(RichText::new(li_i18n::fmt(tl!("{n} edited"), &[("n", &edited.len().to_string())])).color(t.accent).size(11.0));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(6.0);
@@ -466,7 +466,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     app.switch_module = Some(crate::Module::Library);
                 }
                 ui.add_space(4.0);
-                let tip = crate::i18n::fmt(
+                let tip = li_i18n::fmt(
                     match save_to(app).as_str() {
                         "original" => tl!("Save this image over the original and open the next one ({key})"),
                         "saveAs" => tl!("Save this image (Save As) and open the next one ({key})"),
@@ -478,12 +478,11 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     save_and_next(app);
                 }
                 ui.add_space(4.0);
-                if crate::icons::button(ui, "chevron-right", 18.0, false, &crate::i18n::fmt(tl!("Next image ({key})"), &[("key", &format!("{alt}+→"))]))
-                    .clicked()
+                if crate::icons::button(ui, "chevron-right", 18.0, false, &li_i18n::fmt(tl!("Next image ({key})"), &[("key", &format!("{alt}+→"))])).clicked()
                 {
                     step(app, 1);
                 }
-                if crate::icons::button(ui, "chevron-left", 18.0, false, &crate::i18n::fmt(tl!("Previous image ({key})"), &[("key", &format!("{alt}+←"))]))
+                if crate::icons::button(ui, "chevron-left", 18.0, false, &li_i18n::fmt(tl!("Previous image ({key})"), &[("key", &format!("{alt}+←"))]))
                     .clicked()
                 {
                     step(app, -1);
@@ -560,7 +559,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ui.painter().circle_filled(area.left_bottom() + vec2(4.0, -4.0), 3.0, c);
                 }
                 let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                let tip = if edited.contains(path) { crate::i18n::fmt(tl!("{name} · edited copy saved"), &[("name", &name)]) } else { name };
+                let tip = if edited.contains(path) { li_i18n::fmt(tl!("{name} · edited copy saved"), &[("name", &name)]) } else { name };
                 let resp = resp.on_hover_text(tip);
                 if resp.clicked() {
                     clicked = Some(path.clone());

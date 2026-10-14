@@ -2,7 +2,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 use egui_kittest::{Harness, kittest::Queryable};
-use photocraft_ui_egui::{PhotocraftApp, i18n};
+use photocraft_ui_egui::PhotocraftApp;
 
 #[test]
 fn native_first_launch_follows_os_ui_preferences() {
@@ -13,8 +13,8 @@ fn native_first_launch_follows_os_ui_preferences() {
     let expected = tags
         .iter()
         .filter(|tag| tag.len() <= 128 && tag.trim().bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_' | b'.' | b'@')))
-        .find_map(|tag| i18n::lang_from_tag(tag.trim()))
-        .unwrap_or(i18n::Lang::EN);
+        .find_map(|tag| li_i18n::Lang::from_tag(tag.trim()))
+        .unwrap_or(li_i18n::Lang::En);
     eprintln!("native UI-language preferences: {tags:?}; resolved: {}", expected.code());
     let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).with_max_steps(64).build_eframe(|cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
@@ -22,6 +22,6 @@ fn native_first_launch_follows_os_ui_preferences() {
     });
     h.run_steps(4);
     assert_eq!(h.state().session.prefs().interface.language, "auto");
-    assert_eq!(i18n::current(), expected, "native language preferences: {tags:?}");
-    assert!(h.query_by_label(i18n::tr(expected, "File")).is_some(), "the first-launch menu must use the OS UI language");
+    assert_eq!(li_i18n::current(), expected, "native language preferences: {tags:?}");
+    assert!(h.query_by_label(li_i18n::tr(expected, "File")).is_some(), "the first-launch menu must use the OS UI language");
 }

@@ -455,7 +455,7 @@ pub fn shown(ctx: &egui::Context) -> Option<Shown> {
 
 /// Attach the tip of `tool` to its strip button.
 pub fn attach(mode: ToolTipMode, ui: &egui::Ui, resp: &Response, tool: StripTool) {
-    let title = crate::i18n::tr(tool.title());
+    let title = li_i18n::library::t(tool.title());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, resp.enabled(), title));
     if mode == ToolTipMode::Off || ui.ctx().input(|i| i.pointer.any_down()) || egui::Popup::is_any_open(ui.ctx()) {
         ui.ctx().data_mut(|d| {
@@ -506,10 +506,10 @@ pub fn attach(mode: ToolTipMode, ui: &egui::Ui, resp: &Response, tool: StripTool
 fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
     let t = Tokens::get(ui.ctx());
     let ent = entry(tool);
-    let title = crate::i18n::tr(tool.title());
+    let title = li_i18n::library::t(tool.title());
     let key = tool.command().and_then(|id| crate::shortcuts::label_in(ui.ctx(), id));
-    let blurb = crate::i18n::tr(ent.blurb);
-    let how: Vec<String> = ent.how.iter().map(|h| mods(crate::i18n::tr(h))).collect();
+    let blurb = li_i18n::library::t(ent.blurb);
+    let how: Vec<String> = ent.how.iter().map(|h| mods(li_i18n::library::t(h))).collect();
     let screen = ui.ctx().content_rect();
     let width = MAX_WIDTH.min(screen.width() - 16.0);
     // The strip is at the window's right edge: the tip opens to the left of the button.
@@ -518,8 +518,8 @@ fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
         Some(k) => format!("{title} ({k})\n{blurb}"),
         None => format!("{title}\n{blurb}"),
     };
-    let group = tool.group().iter().filter(|t| **t != tool).map(|t| crate::i18n::tr(t.title())).collect::<Vec<_>>();
-    let group = (!group.is_empty()).then(|| format!("{} {}", crate::i18n::tr("Also in this group:"), group.join(", ")));
+    let group = tool.group().iter().filter(|t| **t != tool).map(|t| li_i18n::library::t(t.title())).collect::<Vec<_>>();
+    let group = (!group.is_empty()).then(|| format!("{} {}", li_i18n::library::t("Also in this group:"), group.join(", ")));
     for h in &how {
         text.push('\n');
         text.push_str(h);
@@ -560,7 +560,7 @@ fn draw(ui: &egui::Ui, resp: &Response, tool: StripTool) {
                 });
                 if !how.is_empty() {
                     ui.add_space(6.0);
-                    ui.label(egui::RichText::new(crate::i18n::tr("How to use")).font(t.semibold(11.5)).color(t.text_dim));
+                    ui.label(egui::RichText::new(li_i18n::library::t("How to use")).font(t.semibold(11.5)).color(t.text_dim));
                     for line in &how {
                         ui.horizontal_top(|ui| {
                             ui.label(egui::RichText::new("•").font(t.font(12.0)).color(t.text_disabled));

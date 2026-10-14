@@ -2,7 +2,7 @@
 //! session on each frame; closing the dialog cancels work without discarding its cache. The task
 //! carries one `JobCtl` (`step` = photos done / total, message = the photo id in progress) that
 //! the dialog and the Library's task panel read and cancel.
-use crate::{LightcraftApp, i18n::tr, state::Dialog};
+use crate::{LightcraftApp, state::Dialog};
 use lightcraft_catalog::{MediaKind, PhotoId};
 use lightcraft_engine::smart_sort::{self, Tagger};
 use lightcraft_sysmem::JobCtl;
@@ -39,7 +39,7 @@ impl SmartSortTask {
 }
 pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     if app.smart_sort.is_some() {
-        return Err(tr("Analysis is already running").to_string());
+        return Err(li_i18n::library::t("Analysis is already running").to_string());
     }
     let (model, dim) = app.session.smart.selected();
     let injected = app.session.smart.tagger.clone();
@@ -71,7 +71,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     job.set_step(0, u32::try_from(total).unwrap_or(u32::MAX));
     let (tx, rx) = channel();
     let worker = job.clone();
-    let prepare_error = tr("Could not prepare photo").to_string();
+    let prepare_error = li_i18n::library::t("Could not prepare photo").to_string();
     let work = move || {
         let tagger = injected.map(Ok).unwrap_or_else(|| {
             let mut smart = smart_sort::SmartSort::default();

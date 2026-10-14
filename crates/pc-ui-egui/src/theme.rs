@@ -9,6 +9,21 @@ pub fn install_fonts_with(ctx: &egui::Context, cjk: crate::cjk_fonts::Sources) {
     li_ui_kit::fonts::install_editor(ctx);
     crate::cjk_fonts::install_with(ctx, cjk);
 }
+
+/// Apply a committed `interface.language` preference to this context. Font caches are rebuilt
+/// only on a language change, so Han glyphs follow the selected script even when the previous
+/// font covered them.
+pub fn sync_language(ctx: &egui::Context, language: &str) {
+    let lang = li_i18n::Lang::from_pref(language);
+    li_i18n::set_current(lang);
+    let id = egui::Id::new("photocraft-ui-language");
+    let changed = ctx.data(|data| data.get_temp::<li_i18n::Lang>(id) != Some(lang));
+    if changed {
+        ctx.data_mut(|data| data.insert_temp(id, lang));
+        install_fonts(ctx);
+        ctx.request_repaint();
+    }
+}
 fn shared_size(size: UiFontSize) -> li_ui_kit::fonts::FontSize {
     use li_ui_kit::fonts::FontSize;
     match size {

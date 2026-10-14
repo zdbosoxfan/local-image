@@ -79,21 +79,21 @@ pub fn status_info_text(doc: &Document, key: &str, tool: &str, profile: &str) ->
     match key {
         "sizes" => {
             let (flat, layered) = document_sizes(doc);
-            crate::i18n::fmt(tl!("Doc: {flat}/{layered}"), &[("flat", &fmt_bytes(flat)), ("layered", &fmt_bytes(layered))])
+            li_i18n::fmt(tl!("Doc: {flat}/{layered}"), &[("flat", &fmt_bytes(flat)), ("layered", &fmt_bytes(layered))])
         }
         "profile" => format!("{profile} ({bits}bpc)"),
         "measurementScale" => "1 pixel = 1.0000 pixels".into(),
         "scratch" => {
             let (_, layered) = document_sizes(doc);
-            crate::i18n::fmt(tl!("Scratch: {size}"), &[("size", &fmt_bytes(layered))])
+            li_i18n::fmt(tl!("Scratch: {size}"), &[("size", &fmt_bytes(layered))])
         }
         "efficiency" => tl!("Efficiency: 100%").into(),
         "tool" => tool.to_string(),
         "layers" => {
             let n = doc.layer_count();
-            crate::i18n::trn(crate::i18n::current(), n as u64, "{n} Layer", "{n} Layers")
+            li_i18n::trn(li_i18n::current(), n as u64, "{n} Layer", "{n} Layers")
         }
-        _ => crate::i18n::fmt(
+        _ => li_i18n::fmt(
             tl!("{w} px x {h} px ({ppi} ppi)"),
             &[("w", &doc.size.width.to_string()), ("h", &doc.size.height.to_string()), ("ppi", &widgets::fmt_num(doc.resolution_dpi as f64))],
         ),
@@ -103,18 +103,18 @@ pub fn status_info_text(doc: &Document, key: &str, tool: &str, profile: &str) ->
 fn profile_name(doc: &Document) -> String {
     let mode = crate::canvas::mode_label(doc);
     let Some(bytes) = doc.icc_profile.as_ref() else {
-        return crate::i18n::fmt(tl!("Untagged {mode}"), &[("mode", tl!(mode))]);
+        return li_i18n::fmt(tl!("Untagged {mode}"), &[("mode", tl!(mode))]);
     };
     let Ok(profile) = photocraft_engine::color_cmds::profile_from_bytes(bytes) else {
-        return crate::i18n::fmt(tl!("Invalid {mode} profile"), &[("mode", tl!(mode))]);
+        return li_i18n::fmt(tl!("Invalid {mode} profile"), &[("mode", tl!(mode))]);
     };
     if profile.color_space != photocraft_engine::color_cmds::mode_space(doc.mode) {
-        return crate::i18n::fmt(tl!("Invalid {mode} profile"), &[("mode", tl!(mode))]);
+        return li_i18n::fmt(tl!("Invalid {mode} profile"), &[("mode", tl!(mode))]);
     }
     let name: String = profile.description.chars().filter(|c| !c.is_control()).take(128).collect();
     let name = name.trim();
     if name.is_empty() {
-        return crate::i18n::fmt(tl!("Unnamed {mode} profile"), &[("mode", tl!(mode))]);
+        return li_i18n::fmt(tl!("Unnamed {mode} profile"), &[("mode", tl!(mode))]);
     }
     name.to_owned()
 }

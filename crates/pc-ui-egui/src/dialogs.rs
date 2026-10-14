@@ -71,11 +71,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             continue;
         }
         let lang = if crate::prefs_ui::is_preferences(&d.fields) {
-            crate::i18n::Lang::from_pref(d.fields.get("values").and_then(|v| v.pointer("/interface/language")).and_then(Value::as_str).unwrap_or("auto"))
+            li_i18n::Lang::from_pref(d.fields.get("values").and_then(|v| v.pointer("/interface/language")).and_then(Value::as_str).unwrap_or("auto"))
         } else {
-            crate::i18n::current()
+            li_i18n::current()
         };
-        let _language = crate::i18n::language_scope(lang);
+        let _language = li_i18n::language_scope(lang);
         let mut fields = d.fields.clone();
         let mut outcome: Option<bool> = None; // Some(true)=OK, Some(false)=Cancel
         let mut apply_requested = false;
@@ -163,7 +163,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         "attributions" => crate::attributions::about(app, ui),
                         _ => {
                             ui.label(tl!("Local Image — an open-source, native image editor written in Rust."));
-                            ui.label(crate::i18n::fmt(tl!("Version {version}"), &[("version", &photocraft_engine::build_info::long_version())]));
+                            ui.label(li_i18n::fmt(tl!("Version {version}"), &[("version", &photocraft_engine::build_info::long_version())]));
                             ui.add_space(12.0);
                             ui.vertical_centered(|ui| {
                                 crate::links::link_row(app, ui);
@@ -262,7 +262,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 if let Err(e) = confirm(app, d.id)
                     && e != "cancelled"
                 {
-                    app.ui.status = if d.fields.contains_key("__export") { crate::i18n::fmt(tl!("Export failed: {error}"), &[("error", &e)]) } else { e };
+                    app.ui.status = if d.fields.contains_key("__export") { li_i18n::fmt(tl!("Export failed: {error}"), &[("error", &e)]) } else { e };
                     app.ui.status_error = true;
                 }
             }
@@ -293,7 +293,7 @@ fn display_title(d: &Dialog) -> String {
             let label = d.fields.get("__label").and_then(Value::as_str).unwrap_or("Command");
             // Dialog labels are catalogued with their "…" ("Export As…"); some commands omit it.
             let with_dots = format!("{}…", label.trim_end_matches('…'));
-            let shown = if crate::i18n::has(crate::i18n::current(), label) { tl!(label) } else { tl!(&with_dots) };
+            let shown = if li_i18n::has(li_i18n::current(), label) { tl!(label) } else { tl!(&with_dots) };
             shown.trim_end_matches('…').to_string()
         }
         _ => tl!(&title(d)).to_string(),

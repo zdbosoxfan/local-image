@@ -42,8 +42,9 @@ pub fn global_only(app: &mut LightcraftApp, ui: &mut egui::Ui, key: &str, label:
     let t = Tokens::get(ui.ctx());
     egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
         ui.horizontal(|ui| {
-            let name =
-                ui.add(egui::Label::new(egui::RichText::new(crate::i18n::tr(label)).font(t.semibold(12.5)).color(t.text_disabled)).selectable(false));
+            let name = ui.add(
+                egui::Label::new(egui::RichText::new(li_i18n::library::t(label)).font(t.semibold(12.5)).color(t.text_disabled)).selectable(false),
+            );
             let tip = format!("{label} applies to the whole image. Select Background to edit it.");
             name.on_hover_text(&tip);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -53,7 +54,7 @@ pub fn global_only(app: &mut LightcraftApp, ui: &mut egui::Ui, key: &str, label:
                     select_background(app);
                 }
                 if ui.available_width() > 110.0 {
-                    ui.label(egui::RichText::new(crate::i18n::tr("whole image only")).size(11.0).color(t.text_disabled));
+                    ui.label(egui::RichText::new(li_i18n::library::t("whole image only")).size(11.0).color(t.text_disabled));
                 }
             });
         });
@@ -67,12 +68,12 @@ pub fn global_group(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, 
     let t = Tokens::get(ui.ctx());
     let open_id = egui::Id::new("layerGlobalGroupOpen");
     let open = ui.data(|d| d.get_temp::<bool>(open_id)).unwrap_or(false);
-    let names = tools.iter().map(|(_, l)| crate::i18n::tr(l)).collect::<Vec<_>>().join(", ");
+    let names = tools.iter().map(|(_, l)| li_i18n::library::t(l)).collect::<Vec<_>>().join(", ");
     let tip = format!("{names}: these apply to the whole image. Select Background to edit them.");
     egui::Frame::NONE.inner_margin(egui::Margin { left: 16, right: 22, top: 8, bottom: 8 }).show(ui, |ui| {
         let title = format!("{} whole-image tools", tools.len());
         let title_w = ui.painter().layout_no_wrap(title.clone(), t.semibold(12.5), t.text).size().x + crate::widgets::DISCLOSURE_INDENT + 4.0;
-        let link_w = ui.painter().layout_no_wrap(crate::i18n::tr("Select Background").to_string(), t.font(12.0), t.text).size().x + 8.0;
+        let link_w = ui.painter().layout_no_wrap(li_i18n::library::t("Select Background").to_string(), t.font(12.0), t.text).size().x + 8.0;
         // one line where it fits; a narrow dock puts the link under the title instead of overlapping
         let one_line = ui.available_width() >= title_w + link_w;
         let link = |app: &mut LightcraftApp, ui: &mut egui::Ui| {
@@ -102,7 +103,7 @@ pub fn global_group(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, 
                 ui.horizontal(|ui| {
                     ui.add_space(crate::widgets::DISCLOSURE_INDENT);
                     let r = ui
-                        .link(egui::RichText::new(crate::i18n::tr(label)).size(12.0).color(t.text_dim))
+                        .link(egui::RichText::new(li_i18n::library::t(label)).size(12.0).color(t.text_dim))
                         .on_hover_text(format!("{label} applies to the whole image. Click to select Background."));
                     register(ui.ctx(), format!("layerBackground:{key}"), r.rect);
                     if r.clicked() {
@@ -117,7 +118,7 @@ pub fn global_group(app: &mut LightcraftApp, ui: &mut egui::Ui, tools: &[(&str, 
 /// "Select Background" in the hyperlink colour (a sized RichText would bake the text colour).
 fn background_link(ui: &mut egui::Ui) -> egui::Response {
     let c = ui.visuals().hyperlink_color;
-    ui.link(egui::RichText::new(crate::i18n::tr("Select Background")).size(12.0).color(c))
+    ui.link(egui::RichText::new(li_i18n::library::t("Select Background")).size(12.0).color(c))
 }
 
 pub fn new_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
@@ -327,7 +328,7 @@ fn background_row(app: &mut LightcraftApp, ui: &mut egui::Ui, aspect: f64, trail
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 3.0;
         let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - plus_w, ROW_H), Sense::click());
-        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, crate::i18n::tr("Background")));
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, li_i18n::library::t("Background")));
         register(ui.ctx(), "button:layerBackground", r);
         let fill = if selected {
             t.tool_active
@@ -339,8 +340,8 @@ fn background_row(app: &mut LightcraftApp, ui: &mut egui::Ui, aspect: f64, trail
         ui.painter().rect_filled(r, 4.0, fill);
         let thumb = Rect::from_min_size(pos2(r.left() + 25.0, r.center().y - THUMB.y / 2.0), THUMB);
         mask_thumb(ui, thumb, None, aspect, true);
-        ui.painter().text(pos2(thumb.right() + 8.0, r.center().y), Align2::LEFT_CENTER, crate::i18n::tr("Background"), t.font(13.0), t.text);
-        let resp = resp.on_hover_text(crate::i18n::tr("The whole photo: every tool, before the layers"));
+        ui.painter().text(pos2(thumb.right() + 8.0, r.center().y), Align2::LEFT_CENTER, li_i18n::library::t("Background"), t.font(13.0), t.text);
+        let resp = resp.on_hover_text(li_i18n::library::t("The whole photo: every tool, before the layers"));
         if resp.clicked() {
             app.ui.layer_bar_focus = true;
             select_background(app);
@@ -373,13 +374,13 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 let title = if collapsed {
                     // one line: which layer is being edited
                     let active = d.masks.iter().find(|m| Some(m.id) == app.session.active_mask).map(|m| m.name.as_str()).unwrap_or("Background");
-                    format!("{} · {active}", crate::i18n::tr("Layers"))
+                    format!("{} · {active}", li_i18n::library::t("Layers"))
                 } else {
-                    format!("{} ({})", crate::i18n::tr("Layers"), d.masks.len())
+                    format!("{} ({})", li_i18n::library::t("Layers"), d.masks.len())
                 };
                 let resp = crate::widgets::disclosure(ui, "button:layerCollapse", &title, !collapsed, ui.available_width() - 27.0, false);
                 // screen readers keep the header's plain name
-                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, !collapsed, crate::i18n::tr("Layers")));
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::CollapsingHeader, true, !collapsed, li_i18n::library::t("Layers")));
                 if resp.on_hover_text(if collapsed { "Show the layer list" } else { "Hide the layer list" }).clicked() {
                     app.ui.layer_bar_collapsed = !collapsed;
                 }
@@ -579,7 +580,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                     app.ui.mask_overlay = !app.ui.mask_overlay;
                 }
                 egui::Popup::menu(&overlay).show(|ui| super::masking::overlay_options(app, ui));
-                let r = ui.checkbox(&mut app.ui.layer_used_only, crate::i18n::tr("Only used tools"));
+                let r = ui.checkbox(&mut app.ui.layer_used_only, li_i18n::library::t("Only used tools"));
                 register(ui.ctx(), "layerUsedOnly", r.rect);
                 r.on_hover_text("Show only tools this layer uses");
             });

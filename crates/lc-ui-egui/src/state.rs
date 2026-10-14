@@ -246,8 +246,8 @@ pub const MIN_PHOTO_WIDTH: f32 = 360.0;
 pub struct UiState {
     #[serde(skip)]
     pub people: crate::panels::people_workspace::PeopleUi,
-    #[serde(default = "crate::i18n::default_language")]
-    pub language: crate::i18n::Locale,
+    #[serde(default = "li_i18n::env_language")]
+    pub language: li_i18n::Lang,
     /// The Build Previews run last announced (its identity, finished?).
     #[serde(skip)]
     pub preview_build_seen: Option<(usize, bool)>,
@@ -679,7 +679,7 @@ impl Default for UiState {
     fn default() -> Self {
         UiState {
             people: Default::default(),
-            language: crate::i18n::default_language(),
+            language: li_i18n::env_language(),
             preview_build_seen: None,
             unsaved_seen: false,
             luminance_map_restore: None,

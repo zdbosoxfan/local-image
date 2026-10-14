@@ -200,9 +200,9 @@ fn query(s: &State) -> Query {
 fn age(secs: u64) -> String {
     match secs {
         0..120 => tl!("just now").into(),
-        120..7200 => crate::i18n::fmt(tl!("{n} min ago"), &[("n", &(secs / 60).to_string())]),
-        7200..172800 => crate::i18n::fmt(tl!("{n} h ago"), &[("n", &(secs / 3600).to_string())]),
-        _ => crate::i18n::fmt(tl!("{n} days ago"), &[("n", &(secs / 86400).to_string())]),
+        120..7200 => li_i18n::fmt(tl!("{n} min ago"), &[("n", &(secs / 60).to_string())]),
+        7200..172800 => li_i18n::fmt(tl!("{n} h ago"), &[("n", &(secs / 3600).to_string())]),
+        _ => li_i18n::fmt(tl!("{n} days ago"), &[("n", &(secs / 86400).to_string())]),
     }
 }
 
@@ -211,9 +211,9 @@ fn start_fetch(q: Query) -> Slot<Fetched> {
     let slot: Slot<Fetched> = Arc::new(Mutex::new(None));
     let out = slot.clone();
     // Notes are shown in the window: the worker draws them in the UI's language.
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let _ = std::thread::Builder::new().name("model-browser".into()).spawn(move || {
-        crate::i18n::set_current(lang);
+        li_i18n::set_current(lang);
         let cfg = config();
         let reg = li_ai::family::registry();
         let net = HttpNet::new(cfg.clone());
@@ -225,11 +225,11 @@ fn start_fetch(q: Query) -> Slot<Fetched> {
                 Ok((body, cached)) => {
                     if cached {
                         let when = cache.get(&url).map(|(_, a)| age(a)).unwrap_or_default();
-                        notes.push(crate::i18n::fmt(tl!("{source}: offline, showing results from {when}"), &[("source", src.label()), ("when", &when)]));
+                        notes.push(li_i18n::fmt(tl!("{source}: offline, showing results from {when}"), &[("source", src.label()), ("when", &when)]));
                     }
                     match serde_json::from_slice::<Value>(&body) {
                         Ok(v) => bodies.push((src, v)),
-                        Err(_) => notes.push(crate::i18n::fmt(tl!("{source}: the catalogue couldn't be read"), &[("source", src.label())])),
+                        Err(_) => notes.push(li_i18n::fmt(tl!("{source}: the catalogue couldn't be read"), &[("source", src.label())])),
                     }
                 }
                 Err(e) => notes.push(format!("{}: {}", src.label(), first_line(&format!("{e:#}")))),
@@ -420,9 +420,9 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
     }
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let _ = std::thread::Builder::new().name("model-plan".into()).spawn(move || {
-        crate::i18n::set_current(lang);
+        li_i18n::set_current(lang);
         let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
             let cfg = config();
             let net = HttpNet::new(cfg.clone());
@@ -432,10 +432,7 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
                 li_ai::service().client.object_info().map_err(|e| {
                     anyhow::anyhow!(
                         "{}",
-                        crate::i18n::fmt(
-                            tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"),
-                            &[("error", &format!("{e:#}"))]
-                        )
+                        li_i18n::fmt(tl!("Start the AI engine first: Local Image checks what ComfyUI already has. ({error})"), &[("error", &format!("{e:#}"))])
                     )
                 })?
             };
@@ -471,10 +468,10 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
         return run;
     }
     let r = run.clone();
-    let lang = crate::i18n::current();
+    let lang = li_i18n::current();
     let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
-        crate::i18n::set_current(lang);
+        li_i18n::set_current(lang);
         let cfg = config();
         let dir = AiSettings::load().model_dir();
         let ctl = r.lock().map(|x| x.ctl.clone()).unwrap_or_default();
@@ -493,7 +490,7 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
                 let mut w = li_ai::custom::from_template(&item.title, ui, &info)?;
                 w.family = item.family.clone();
                 li_ai::custom::save(&w, &li_ai::custom::dir())?;
-                return Ok(Some(crate::i18n::fmt(tl!("Added “{name}” to the model list (basic controls)"), &[("name", &item.title)])));
+                return Ok(Some(li_i18n::fmt(tl!("Added “{name}” to the model list (basic controls)"), &[("name", &item.title)])));
             }
             Ok(None)
         });
@@ -616,7 +613,7 @@ fn capability_tags(item: &Item) -> Vec<String> {
                 tags.push(tl!("Fill").into());
             }
             if c.references > 0 {
-                tags.push(crate::i18n::fmt(tl!("{n} refs"), &[("n", &c.references.to_string())]));
+                tags.push(li_i18n::fmt(tl!("{n} refs"), &[("n", &c.references.to_string())]));
             }
         }
     } else if item.basic_controls() {
@@ -742,7 +739,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                 let gpu = gpu_gb();
                 let gpu_text = gpu.map(|g| format!("{g:.0} GB")).unwrap_or_default();
                 for (nav, icon, label, trailing) in [
-                    (Nav::New, "star", crate::i18n::tr_ctx(crate::i18n::current(), "ai", "New"), ""),
+                    (Nav::New, "star", li_i18n::tr_ctx(li_i18n::current(), "ai", "New"), ""),
                     (Nav::Trending, "trending-up", tl!("Trending"), ""),
                     (Nav::Installed, "hard-drive", tl!("Installed"), ""),
                     (Nav::FitsGpu, "cpu", tl!("Works on my GPU"), gpu_text.as_str()),
@@ -817,7 +814,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(title).size(15.0).strong().color(t.text));
                     let count = if s.kind == Kind::Lora { tl!("{n} LoRAs") } else { tl!("{n} models") };
-                    ui.label(RichText::new(crate::i18n::fmt(count, &[("n", &s.items.len().to_string())])).color(t.text_faint));
+                    ui.label(RichText::new(li_i18n::fmt(count, &[("n", &s.items.len().to_string())])).color(t.text_faint));
                 });
                 if let Nav::Family(f) = &s.nav
                     && let Some(fam) = li_ai::family::registry().family(f)
@@ -976,9 +973,9 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     ui.add(egui::Label::new(RichText::new(&item.title).strong().size(13.0).color(t.text)).truncate()).on_hover_text(&item.title);
     let by = match (item.author.is_empty(), item.downloads) {
         (false, 0) => item.author.clone(),
-        (false, d) => crate::i18n::fmt(tl!("{author} · {n} downloads"), &[("author", &item.author), ("n", &compact(d))]),
+        (false, d) => li_i18n::fmt(tl!("{author} · {n} downloads"), &[("author", &item.author), ("n", &compact(d))]),
         (true, 0) => item.description.clone(),
-        (true, d) => crate::i18n::fmt(tl!("{n} downloads"), &[("n", &compact(d))]),
+        (true, d) => li_i18n::fmt(tl!("{n} downloads"), &[("n", &compact(d))]),
     };
     let r = ui.add(egui::Label::new(RichText::new(&by).size(11.0).color(t.text_faint)).truncate());
     if !item.description.is_empty() {
@@ -1015,7 +1012,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     });
     let licence = match (item.license.is_empty(), item.commercial) {
         (true, _) => tl!("Licence: see its page").to_owned(),
-        (false, Some(false)) => crate::i18n::fmt(tl!("{licence} · non-commercial"), &[("licence", &item.license)]),
+        (false, Some(false)) => li_i18n::fmt(tl!("{licence} · non-commercial"), &[("licence", &item.license)]),
         (false, _) => item.license.clone(),
     };
     ui.add(egui::Label::new(RichText::new(licence).size(11.0).color(t.text_faint)).truncate());
@@ -1030,7 +1027,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             ui.add(
                 egui::ProgressBar::new(done as f32 / total.max(1) as f32)
                     .desired_width(body.width() - 34.0)
-                    .text(crate::i18n::fmt(tl!("{done} of {total}"), &[("done", &human(done)), ("total", &human(total))])),
+                    .text(li_i18n::fmt(tl!("{done} of {total}"), &[("done", &human(done)), ("total", &human(total))])),
             );
             if crate::icons::button(ui, "x", 22.0, false, tl!("Stop")).clicked()
                 && let Some(r) = &run
@@ -1097,9 +1094,9 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         s.profiles = None;
         s.profiles_msg = match r {
             Ok(v) if v.is_empty() => tl!("Model profiles are up to date").into(),
-            Ok(v) if v.len() == 1 => crate::i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &v.join(", "))]),
-            Ok(v) => crate::i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &v.len().to_string()), ("names", &v.join(", "))]),
-            Err(e) => crate::i18n::fmt(tl!("Couldn't update profiles: {error}"), &[("error", &e)]),
+            Ok(v) if v.len() == 1 => li_i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &v.join(", "))]),
+            Ok(v) => li_i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &v.len().to_string()), ("names", &v.join(", "))]),
+            Err(e) => li_i18n::fmt(tl!("Couldn't update profiles: {error}"), &[("error", &e)]),
         };
     }
     let r = ui.available_rect_before_wrap();
@@ -1145,7 +1142,7 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
     // Like every dialog: no dimming behind it.
     let modal = egui::Modal::new(egui::Id::new("browser-confirm")).backdrop_color(Color32::TRANSPARENT).show(ctx, |ui| {
         ui.set_width(500.0);
-        ui.label(RichText::new(crate::i18n::fmt(tl!("Install {name}"), &[("name", &item.title)])).size(15.0).strong().color(t.text));
+        ui.label(RichText::new(li_i18n::fmt(tl!("Install {name}"), &[("name", &item.title)])).size(15.0).strong().color(t.text));
         ui.add_space(6.0);
         match &plan {
             None => {
@@ -1199,9 +1196,9 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                 } else {
                     let size = human(p.total());
                     let what = if p.files.len() == 1 {
-                        crate::i18n::fmt(tl!("1 file to download ({size}), verified by SHA-256:"), &[("size", &size)])
+                        li_i18n::fmt(tl!("1 file to download ({size}), verified by SHA-256:"), &[("size", &size)])
                     } else {
-                        crate::i18n::fmt(tl!("{n} files to download ({size}), verified by SHA-256:"), &[("n", &p.files.len().to_string()), ("size", &size)])
+                        li_i18n::fmt(tl!("{n} files to download ({size}), verified by SHA-256:"), &[("n", &p.files.len().to_string()), ("size", &size)])
                     };
                     ui.label(RichText::new(what).color(t.text_dim));
                     egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
@@ -1215,13 +1212,13 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                     });
                 }
                 if !p.present.is_empty() {
-                    ui.label(RichText::new(crate::i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint));
+                    ui.label(RichText::new(li_i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint));
                 }
                 let dir = AiSettings::load().model_dir();
                 if let Some(free) = li_ai::download::free_space(&dir)
                     && free < p.total() + (256 << 20)
                 {
-                    ui.label(RichText::new(crate::i18n::fmt(tl!("Not enough space in {folder} ({free} free)."), &[("folder", &dir.display().to_string()), ("free", &human(free))])).color(t.danger));
+                    ui.label(RichText::new(li_i18n::fmt(tl!("Not enough space in {folder} ({free} free)."), &[("folder", &dir.display().to_string()), ("free", &human(free))])).color(t.danger));
                 }
                 if template.is_some() && item.family.is_none() {
                     ui.label(RichText::new(tl!("Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).")).size(11.5).color(t.text_dim));

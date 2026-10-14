@@ -73,7 +73,7 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         return false;
     }
     if let Some(error) = &b.state.error {
-        app.ui.status = crate::i18n::t(error).to_owned();
+        app.ui.status = li_i18n::t(error).to_owned();
         app.ui.status_error = true;
     }
     let handled = b.state.is_open();
@@ -83,14 +83,14 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
 /// Draw captured dialogs every frame, including while a field owns keyboard input.
 pub fn dialogs(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut b = bridge(ctx);
-    b.state.dialog(ctx, &mut app.session, |label| crate::i18n::t(label).to_owned());
+    b.state.dialog(ctx, &mut app.session, |label| li_i18n::t(label).to_owned());
     if let Some(error) = &b.state.error {
-        app.ui.status = crate::i18n::t(error).to_owned();
+        app.ui.status = li_i18n::t(error).to_owned();
         app.ui.status_error = true;
     }
     store(ctx, b);
 }
-/// Object menu fragment. Pass the host's translation closure, e.g. i18n::tr(...).to_string().
+/// Object menu fragment. Pass the host's translation closure, e.g. li_i18n::t(...).to_string().
 pub fn menu(app: &mut PhotocraftApp, ui: &mut Ui, tr: impl Fn(&str) -> String) {
     let ctx = ui.ctx().clone();
     let mut b = bridge(&ctx);

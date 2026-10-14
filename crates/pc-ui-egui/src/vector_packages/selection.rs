@@ -611,7 +611,7 @@ mod app_gpu;
 
 pub fn app_context(app: &mut crate::PhotocraftApp, ui: &mut Ui) {
     let mut b = bridge(ui.ctx());
-    wand_options(ui, &mut b.state.settings, |s| crate::i18n::t(s).into());
+    wand_options(ui, &mut b.state.settings, |s| li_i18n::t(s).into());
     b.scope.select_hidden = b.state.settings.select_hidden;
     if let Some(st) = app.session.active_mut() {
         st.vector_selection_scope.select_hidden = b.state.settings.select_hidden;

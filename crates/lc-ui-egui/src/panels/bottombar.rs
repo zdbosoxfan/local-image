@@ -30,7 +30,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                         ("people", Icon::Subject, ViewMode::People, "People"),
                     ];
                     if compact {
-                        let response = ui.menu_button(crate::i18n::tr("View"), |ui| {
+                        let response = ui.menu_button(li_i18n::library::t("View"), |ui| {
                             for (id, _, mode, tip) in modes {
                                 let label = crate::shortcuts::hint_in(ui.ctx(), tip, &format!("view.{id}"));
                                 let response = ui.selectable_label(app.ui.view == mode, label);
@@ -128,14 +128,14 @@ fn centre(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect, from: f32, to:
         let rect = Rect::from_min_size(copy_r.min + vec2(if paste { 70.0 } else { 0.0 }, 0.0), vec2(66.0, copy_r.height()));
         let tip = if paste { "Paste Edit Settings" } else { "Copy Edit Settings" };
         let response =
-            ui.interact(rect, egui::Id::new(widget), if enabled { Sense::click() } else { Sense::hover() }).on_hover_text(crate::i18n::tr(tip));
-        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, crate::i18n::tr(tip)));
+            ui.interact(rect, egui::Id::new(widget), if enabled { Sense::click() } else { Sense::hover() }).on_hover_text(li_i18n::library::t(tip));
+        response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, false, li_i18n::library::t(tip)));
         register(ui.ctx(), widget, rect);
         ui.painter().rect_filled(rect, 15.0, if response.hovered() && enabled { t.hover } else { t.canvas });
         ui.painter().text(
             rect.center(),
             Align2::CENTER_CENTER,
-            crate::i18n::tr(label),
+            li_i18n::library::t(label),
             t.font(12.0),
             if enabled { t.text_label } else { t.text_disabled },
         );
@@ -206,7 +206,7 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
             Zoom::Fill => "Fill".to_string(),
             Zoom::Percent(p) => format!("{p}%"),
         };
-        let zr = crate::widgets::dropdown(&mut child, "zoom", crate::i18n::tr(&zoom_label), t.font(13.0), t.text_label);
+        let zr = crate::widgets::dropdown(&mut child, "zoom", li_i18n::library::t(&zoom_label), t.font(13.0), t.text_label);
         egui::Popup::menu(&zr).show(|ui| {
             for (label, z) in [
                 ("Fit", Zoom::Fit),
@@ -223,7 +223,7 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
             }
             if full.width() < 650. {
                 ui.separator();
-                ui.label(crate::i18n::tr("Click Zoom Ratio"));
+                ui.label(li_i18n::library::t("Click Zoom Ratio"));
                 for pct in crate::state::CLICK_ZOOMS {
                     if ui.selectable_label(app.ui.click_zoom == pct, format!("{}:1", pct / 100)).clicked() {
                         let _ = app.run("view.clickZoom", json!({"ratio":pct/100}));
@@ -236,7 +236,7 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
             let cz = crate::widgets::dropdown(
                 &mut child,
                 "clickZoom",
-                &crate::i18n::tr_format!("Click {}:1", app.ui.click_zoom / 100),
+                &li_i18n::tr_format!("Click {}:1", app.ui.click_zoom / 100),
                 t.font(13.0),
                 t.text_label,
             );
@@ -270,7 +270,7 @@ fn right_side(app: &mut LightcraftApp, ui: &mut egui::Ui, full: Rect) -> f32 {
 fn sort_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     use lightcraft_catalog::GroupBy;
     use lightcraft_catalog::SortKey::*;
-    let smart = ui.button(crate::i18n::tr("Smart Sort & Export…"));
+    let smart = ui.button(li_i18n::library::t("Smart Sort & Export…"));
     register(ui.ctx(), "button:sortSmartExport", smart.rect);
     if smart.clicked() {
         let _ = app.run("dialog.smartSort", json!({}));
@@ -278,7 +278,7 @@ fn sort_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     ui.separator();
     let cur = app.session.sort;
-    ui.label(egui::RichText::new(crate::i18n::tr("Sort by")).weak());
+    ui.label(egui::RichText::new(li_i18n::library::t("Sort by")).weak());
     for (label, key, k) in [
         ("Capture Date", CaptureDate, "captureDate"),
         ("Import Date", ImportDate, "importDate"),
@@ -288,25 +288,25 @@ fn sort_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ("File Size", FileSize, "fileSize"),
         ("Random", Random, "random"),
     ] {
-        if ui.selectable_label(cur.key == key, crate::i18n::tr(label)).clicked() {
+        if ui.selectable_label(cur.key == key, li_i18n::library::t(label)).clicked() {
             let _ = app.run("library.sort", json!({"key": k}));
         }
     }
-    if cur.key == Random && ui.button(crate::i18n::tr("Reshuffle")).clicked() {
+    if cur.key == Random && ui.button(li_i18n::library::t("Reshuffle")).clicked() {
         let _ = app.run("library.shuffle", json!({}));
     }
     ui.separator();
     // a shuffle has no direction worth choosing
     ui.add_enabled_ui(cur.key != Random, |ui| {
-        if ui.selectable_label(cur.key != Random && cur.ascending, crate::i18n::tr("Ascending")).clicked() {
+        if ui.selectable_label(cur.key != Random && cur.ascending, li_i18n::library::t("Ascending")).clicked() {
             let _ = app.run("library.sort", json!({"ascending": true}));
         }
-        if ui.selectable_label(cur.key != Random && !cur.ascending, crate::i18n::tr("Descending")).clicked() {
+        if ui.selectable_label(cur.key != Random && !cur.ascending, li_i18n::library::t("Descending")).clicked() {
             let _ = app.run("library.sort", json!({"ascending": false}));
         }
     });
     ui.separator();
-    ui.label(egui::RichText::new(crate::i18n::tr("Group by date")).weak());
+    ui.label(egui::RichText::new(li_i18n::library::t("Group by date")).weak());
     for (label, g, k) in [
         ("Automatic", GroupBy::Auto, "auto"),
         ("Day", GroupBy::Day, "day"),
@@ -314,7 +314,7 @@ fn sort_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ("Year", GroupBy::Year, "year"),
         ("None", GroupBy::None, "none"),
     ] {
-        if ui.selectable_label(cur.group == g, crate::i18n::tr(label)).clicked() {
+        if ui.selectable_label(cur.group == g, li_i18n::library::t(label)).clicked() {
             let _ = app.run("library.sort", json!({"group": k}));
         }
     }

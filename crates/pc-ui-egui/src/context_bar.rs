@@ -444,7 +444,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         Context::Selection => {
                             let remove_tip = match &ready {
                                 Ok(()) => tl!("Remove what's inside with AI (on its own layer)").to_owned(),
-                                Err(why) => crate::i18n::fmt(tl!("AI Remove isn't ready: {why}"), &[("why", why)]),
+                                Err(why) => li_i18n::fmt(tl!("AI Remove isn't ready: {why}"), &[("why", why)]),
                             };
                             if bar_button(ui, "eraser-magic", tl!("Remove"), true, ready.is_ok(), &t)
                                 .on_hover_text(&remove_tip)
@@ -552,7 +552,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         Context::Generated(_) => {
                             let what = generation.as_ref().and_then(|g| g["prompt"].as_str()).filter(|p| !p.is_empty()).map_or_else(
                                 || tl!("Generate this area again from its surroundings").to_owned(),
-                                |p| crate::i18n::fmt(tl!("Generate “{prompt}” again with a new seed"), &[("prompt", p)]),
+                                |p| li_i18n::fmt(tl!("Generate “{prompt}” again with a new seed"), &[("prompt", p)]),
                             );
                             if bar_button(ui, "refresh-cw", tl!("Regenerate"), true, true, &t).on_hover_text(&what).clicked() {
                                 go("regenerate");
