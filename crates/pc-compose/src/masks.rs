@@ -80,36 +80,9 @@ pub fn has_feather(layer: &Layer) -> bool {
         || layer.vector_mask.as_ref().is_some_and(|v| v.enabled && feather_sigma(v.feather) > 0.0)
 }
 
-/// Approximate Gaussian blur of a `w`×`h` plane: three box passes per axis (edges clamp, which
-/// is exact here since the planes extend into constant mask regions).
+/// Shared Gaussian feather (replicated borders).
 fn gaussian(v: &mut [f32], w: usize, h: usize, sigma: f32) {
-    if sigma <= 0.0 || w == 0 || h == 0 {
-        return;
-    }
-    // Box widths whose three-pass variance matches sigma² (Wells 1986 / Kovesi).
-    let ideal = (12.0 * sigma * sigma / 3.0 + 1.0).sqrt();
-    let r = (((ideal.floor() as usize) | 1).max(1) - 1) / 2;
-    if r == 0 {
-        return;
-    }
-    let mut line = Vec::new();
-    let mut pass = |v: &mut [f32], len: usize, count: usize, at: &dyn Fn(usize, usize) -> usize| {
-        for k in 0..count {
-            for _ in 0..3 {
-                line.clear();
-                line.extend((0..len).map(|i| v[at(k, i)]));
-                let get = |i: isize| line[i.clamp(0, len as isize - 1) as usize];
-                let mut acc: f32 = (-(r as isize)..=r as isize).map(get).sum();
-                let n = (2 * r + 1) as f32;
-                for i in 0..len {
-                    v[at(k, i)] = acc / n;
-                    acc += get(i as isize + r as isize + 1) - get(i as isize - r as isize);
-                }
-            }
-        }
-    };
-    pass(v, w, h, &|row, i| row * w + i);
-    pass(v, h, w, &|col, i| i * w + col);
+    li_raster::blur::gaussian_n(v, w, h, 1, sigma, false);
 }
 
 /// The layer's mask values (pixel mask with density × vector mask, each blurred by its feather,
@@ -302,4 +275,15 @@ mod tests {
         l.vector_mask = Some(VectorMask::new(path));
         let _ = combined_mask(&l, Rect::new(0, 0, 8, 8));
     }
+}
+
+#[cfg(test)]
+#[test]
+fn j01_d2_compositing_half_pixel_feather_blurs() {
+    let mut mask = vec![0.0; 81];
+    mask[40] = 1.0;
+    gaussian(&mut mask, 9, 9, 0.5);
+    assert!(mask[40] < 1.0);
+    assert!(mask[39] > 0.0);
+    assert!((mask.iter().sum::<f32>() - 1.0).abs() < 1e-6);
 }

@@ -150,28 +150,4 @@ impl Image {
     }
 }
 
-/// Premultiplies colour channels by alpha (in place). No-op without alpha.
-pub fn premultiply(data: &mut [f32], ch: usize, alpha: bool) {
-    if !alpha {
-        return;
-    }
-    for px in data.chunks_exact_mut(ch) {
-        let a = px[ch - 1];
-        for v in px.iter_mut().take(ch - 1) {
-            *v *= a;
-        }
-    }
-}
-
-/// Inverse of [`premultiply`].
-pub fn unpremultiply(data: &mut [f32], ch: usize, alpha: bool) {
-    if !alpha {
-        return;
-    }
-    for px in data.chunks_exact_mut(ch) {
-        let a = px[ch - 1];
-        for v in px.iter_mut().take(ch - 1) {
-            *v = if a > 1e-7 { *v / a } else { 0.0 };
-        }
-    }
-}
+pub use li_raster::blur::{premultiply, unpremultiply};

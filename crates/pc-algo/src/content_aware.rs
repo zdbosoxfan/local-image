@@ -134,27 +134,9 @@ fn variant(src: Src, deg: f32, scale: f32, mirror: bool) -> Variant {
 
 /// Separable box blur of radius `r` (edge-clamped).
 fn box_blur(w: usize, h: usize, ch: usize, v: &[f32], r: usize) -> Vec<f32> {
-    if r == 0 {
-        return v.to_vec();
-    }
-    let pass = |src: &[f32], horizontal: bool| -> Vec<f32> {
-        let mut dst = vec![0.0f32; src.len()];
-        let (n, m) = if horizontal { (h, w) } else { (w, h) };
-        let idx = |line: usize, k: usize| if horizontal { line * w + k } else { k * w + line };
-        let norm = 1.0 / (2 * r + 1) as f32;
-        for line in 0..n {
-            for c in 0..ch {
-                let at = |k: i64| src[idx(line, k.clamp(0, m as i64 - 1) as usize) * ch + c];
-                let mut acc: f32 = (-(r as i64)..=r as i64).map(at).sum();
-                for k in 0..m {
-                    dst[idx(line, k) * ch + c] = acc * norm;
-                    acc += at(k as i64 + r as i64 + 1) - at(k as i64 - r as i64);
-                }
-            }
-        }
-        dst
-    };
-    pass(&pass(v, true), false)
+    let mut out = v.to_vec();
+    li_raster::blur::box_blur_n(&mut out, w, h, ch, r);
+    out
 }
 
 /// Fill `hole` in `img`, copying only from pixels where `source` is true (and not in the hole).

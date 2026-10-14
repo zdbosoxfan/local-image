@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 li-color.workspace = true
+li-raster = { path = "../li-raster" }
 photocraft-geom = { workspace = true }
 photocraft-color = { workspace = true }
 photocraft-raster = { workspace = true }

@@ -489,7 +489,7 @@ pub fn restore(
     let mut result = if result.dimensions() == source.dimensions() {
         result
     } else {
-        image::imageops::resize(&result, source.width(), source.height(), image::imageops::FilterType::Lanczos3)
+        li_raster::resize_rgba8(&result, source.width(), source.height(), li_raster::Filter::Lanczos3)
     };
     for (a, b) in result.pixels_mut().zip(source.pixels()) {
         a[3] = b[3];
