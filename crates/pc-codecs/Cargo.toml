@@ -22,6 +22,7 @@ jxl = ["dep:jxl-oxide"]
 parallel = ["jpeg-decoder/rayon"]
 
 [dependencies]
+lightcraft-meta.workspace = true
 photocraft-psd.workspace = true
 jxl-oxide = { workspace = true, optional = true }
 jpeg-decoder.workspace = true

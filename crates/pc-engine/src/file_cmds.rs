@@ -528,175 +528,15 @@ fn place(s: &mut Session, p: &Value, linked: bool) -> Result<Value> {
 
 // ---------- File Info (XMP) ----------
 
-/// The File Info fields we edit, as (JSON key, XMP property, container kind).
-const INFO_FIELDS: [(&str, &str, &str); 6] = [
-    ("title", "dc:title", "Alt"),
-    ("author", "dc:creator", "Seq"),
-    ("description", "dc:description", "Alt"),
-    ("keywords", "dc:subject", "Bag"),
-    ("copyright", "dc:rights", "Alt"),
-    ("authorTitle", "photoshop:AuthorsPosition", ""),
-];
-
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
-}
-
-fn xml_unescape(s: &str) -> String {
-    s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&")
-}
-
-/// The element `<tag …>…</tag>` (first occurrence) as (start, end, inner).
-fn find_element<'a>(xmp: &'a str, tag: &str) -> Option<(usize, usize, &'a str)> {
-    let open = format!("<{tag}");
-    let mut from = 0;
-    while let Some(i) = xmp[from..].find(&open).map(|i| i + from) {
-        let after = xmp[i + open.len()..].chars().next();
-        if matches!(after, Some('>' | ' ' | '/' | '\n' | '\r' | '\t')) {
-            let gt = xmp[i..].find('>')? + i;
-            if xmp[..gt].ends_with('/') {
-                return Some((i, gt + 1, ""));
-            }
-            let close = format!("</{tag}>");
-            let c = xmp[gt..].find(&close)? + gt;
-            return Some((i, c + close.len(), &xmp[gt + 1..c]));
-        }
-        from = i + open.len();
-    }
-    None
-}
-
-/// `rdf:li` values of a container (or the element text for simple properties).
-fn li_values(inner: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = inner;
-    while let Some((a, b, v)) = find_element(rest, "rdf:li") {
-        out.push(xml_unescape(v.trim()));
-        rest = &rest[b..];
-        let _ = a;
-    }
-    if out.is_empty() && !inner.contains('<') && !inner.trim().is_empty() {
-        out.push(xml_unescape(inner.trim()));
-    }
-    out
-}
-
-/// Attribute form `prop="value"` on an `rdf:Description`.
-fn find_attr<'a>(xmp: &'a str, prop: &str) -> Option<(usize, usize, &'a str)> {
-    let key = format!(" {prop}=\"");
-    let i = xmp.find(&key)?;
-    let v0 = i + key.len();
-    let v1 = xmp[v0..].find('"')? + v0;
-    Some((i, v1 + 1, &xmp[v0..v1]))
-}
-
-/// File Info fields read from an XMP packet.
-pub fn read_file_info(xmp: Option<&str>) -> Value {
-    let mut m = serde_json::Map::new();
-    let x = xmp.unwrap_or("");
-    for (key, prop, kind) in INFO_FIELDS {
-        let vals = match find_element(x, prop) {
-            Some((_, _, inner)) => li_values(inner),
-            None => find_attr(x, prop).map(|(_, _, v)| vec![xml_unescape(v)]).unwrap_or_default(),
-        };
-        let v = if kind == "Bag" {
-            json!(vals)
-        } else if kind == "Seq" {
-            json!(vals.join("; "))
-        } else {
-            json!(vals.into_iter().next().unwrap_or_default())
-        };
-        m.insert(key.into(), v);
-    }
-    let marked =
-        find_element(x, "xmpRights:Marked").map(|(_, _, v)| v.trim().to_string()).or_else(|| find_attr(x, "xmpRights:Marked").map(|(_, _, v)| v.to_string()));
-    m.insert(
-        "copyrightStatus".into(),
-        json!(match marked.as_deref() {
-            Some("True") => "copyrighted",
-            Some("False") => "publicDomain",
-            _ => "unknown",
-        }),
-    );
-    let url = find_element(x, "xmpRights:WebStatement")
-        .map(|(_, _, v)| xml_unescape(v.trim()))
-        .or_else(|| find_attr(x, "xmpRights:WebStatement").map(|(_, _, v)| xml_unescape(v)));
-    m.insert("copyrightUrl".into(), json!(url.unwrap_or_default()));
-    Value::Object(m)
-}
-
-/// Rewrites the File Info fields of an XMP packet (creating one when there is none), keeping
-/// every other property. Edited properties move into their own `rdf:Description` (several
-/// descriptions per packet are valid XMP).
-pub fn write_file_info(xmp: Option<&str>, info: &Value) -> String {
-    let mut cur = read_file_info(xmp);
-    if let (Some(c), Some(n)) = (cur.as_object_mut(), info.as_object()) {
-        for (k, v) in n {
-            if c.contains_key(k) {
-                c.insert(k.clone(), v.clone());
-            }
-        }
-    }
-    let mut x = xmp.filter(|s| s.contains("</rdf:RDF>")).map(str::to_string).unwrap_or_else(|| {
-        "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>".to_string()
-    });
-    let props: Vec<&str> = INFO_FIELDS.iter().map(|f| f.1).chain(["xmpRights:Marked", "xmpRights:WebStatement"]).collect();
-    for prop in &props {
-        while let Some((a, b, _)) = find_element(&x, prop) {
-            x.replace_range(a..b, "");
-        }
-        while let Some((a, b, _)) = find_attr(&x, prop) {
-            x.replace_range(a..b, "");
-        }
-    }
-    let get = |k: &str| cur.get(k).cloned().unwrap_or(Value::Null);
-    let mut body = String::new();
-    for (key, prop, kind) in INFO_FIELDS {
-        let vals: Vec<String> = match get(key) {
-            Value::Array(a) => a.iter().filter_map(|v| v.as_str()).map(str::to_string).filter(|v| !v.is_empty()).collect(),
-            Value::String(s) if kind == "Bag" || kind == "Seq" => s.split([';', ',']).map(|v| v.trim().to_string()).filter(|v| !v.is_empty()).collect(),
-            Value::String(s) if !s.is_empty() => vec![s],
-            _ => Vec::new(),
-        };
-        if vals.is_empty() {
-            continue;
-        }
-        let items: String = vals
-            .iter()
-            .map(|v| {
-                if kind == "Alt" { format!("<rdf:li xml:lang=\"x-default\">{}</rdf:li>", xml_escape(v)) } else { format!("<rdf:li>{}</rdf:li>", xml_escape(v)) }
-            })
-            .collect();
-        if kind.is_empty() {
-            body.push_str(&format!("   <{prop}>{}</{prop}>\n", xml_escape(&vals[0])));
-        } else {
-            body.push_str(&format!("   <{prop}><rdf:{kind}>{items}</rdf:{kind}></{prop}>\n"));
-        }
-    }
-    match get("copyrightStatus").as_str() {
-        Some("copyrighted") => body.push_str("   <xmpRights:Marked>True</xmpRights:Marked>\n"),
-        Some("publicDomain") => body.push_str("   <xmpRights:Marked>False</xmpRights:Marked>\n"),
-        _ => {}
-    }
-    if let Some(u) = get("copyrightUrl").as_str().filter(|u| !u.is_empty()) {
-        body.push_str(&format!("   <xmpRights:WebStatement>{}</xmpRights:WebStatement>\n", xml_escape(u)));
-    }
-    if !body.is_empty() {
-        let desc = format!(
-            "  <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:photoshop=\"http://ns.adobe.com/photoshop/1.0/\" xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\">\n{body}  </rdf:Description>\n "
-        );
-        let at = x.rfind("</rdf:RDF>").unwrap_or(x.len());
-        x.insert_str(at, &desc);
-    }
-    x
-}
+/// Compatibility entry points; all XML parsing and editing lives in the shared backend.
+pub use lightcraft_meta::{read_file_info, write_file_info};
 
 fn file_info(s: &mut Session, p: &Value) -> Result<Value> {
     let keys = ["title", "author", "authorTitle", "description", "keywords", "copyright", "copyrightStatus", "copyrightUrl"];
     let edits = p.as_object().is_some_and(|m| m.keys().any(|k| keys.contains(&k.as_str())));
     if edits {
         let xmp = s.active().ok_or(EngineError::NoDocument)?.doc.metadata.xmp.clone();
-        let new = write_file_info(xmp.as_deref(), p);
+        let new = lightcraft_meta::try_write_file_info(xmp.as_deref(), p).map_err(|e| EngineError::Other(e.to_string()))?;
         s.edit("File Info", |doc, _| {
             doc.metadata.xmp = Some(new);
             Ok(())
@@ -1416,5 +1256,172 @@ mod j6_extension_tests {
         }
         std::fs::remove_dir_all(dir)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod j03_tests {
+    use super::*;
+
+    #[test]
+    fn j03_file_info_quality_sample() {
+        let samples = [
+            (
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description><dc:title>Simple</dc:title></rdf:Description></rdf:RDF>"#,
+                "title",
+                "Simple",
+            ),
+            (
+                r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:d="http://purl.org/dc/elements/1.1/"><r:Description d:title="Aliased"/></r:RDF>"#,
+                "title",
+                "Aliased",
+            ),
+            (
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description><dc:title><rdf:Alt><rdf:li xml:lang="fr">Français</rdf:li><rdf:li xml:lang="x-default">Default</rdf:li></rdf:Alt></dc:title></rdf:Description></rdf:RDF>"#,
+                "title",
+                "Default",
+            ),
+            (
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description><dc:description><![CDATA[A & B]]></dc:description></rdf:Description></rdf:RDF>"#,
+                "description",
+                "A & B",
+            ),
+            (
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description dc:title="Copyright &#169;"/></rdf:RDF>"#,
+                "title",
+                "Copyright ©",
+            ),
+            (
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/"><rdf:Description xmpRights:Marked="true"/></rdf:RDF>"#,
+                "copyrightStatus",
+                "copyrighted",
+            ),
+        ];
+        let correct = samples.iter().filter(|(packet, key, want)| read_file_info(Some(packet)).get(key).and_then(Value::as_str) == Some(*want)).count();
+        println!("J03 File Info quality: {correct}/{} fields correct", samples.len());
+        assert_eq!(correct, samples.len());
+    }
+
+    #[test]
+    fn j03_file_info_command_sample() {
+        let mut session = Session::new();
+        let doc = photocraft_doc::Document::new("Sample", photocraft_geom::Size::new(1, 1), ColorMode::Rgb, photocraft_color::SampleType::U8);
+        session.add_document(doc, None);
+        let sample = json!({"title":"A & B", "author":"Alice", "description":"Sample", "keywords":["one","two"], "copyright":"© Alice", "copyrightStatus":"copyrighted", "copyrightUrl":"https://example.test", "authorTitle":"Photographer"});
+        session.execute("file.fileInfo", sample.clone()).unwrap();
+        let start = std::time::Instant::now();
+        for _ in 0..100 {
+            assert_eq!(session.execute("file.fileInfo", json!({})).unwrap(), sample);
+        }
+        println!("J03 File Info command read: {:.2} us/call (100 calls)", start.elapsed().as_secs_f64() * 1e4);
+        let start = std::time::Instant::now();
+        for i in 0..20 {
+            session.execute("file.fileInfo", json!({"title":format!("Title {i}")})).unwrap();
+        }
+        println!("J03 File Info command edit: {:.2} us/call (20 calls)", start.elapsed().as_secs_f64() * 5e4);
+    }
+    #[test]
+    fn j03_library_editor_file_info_roundtrip_and_history() {
+        use lightcraft_meta::{Metadata, parse_xmp, write_xmp};
+        let m = Metadata {
+            title: Some("Library title".into()),
+            artist: Some("Doe, Jane; Studio; Bob".into()),
+            creators: vec!["Doe, Jane; Studio".into(), "Bob".into()],
+            rating: Some(4),
+            label: Some("Green".into()),
+            hierarchical_keywords: vec!["Places|Mountain".into()],
+            author_title: Some("Photographer".into()),
+            keywords: vec!["clouds".into()],
+            copyright: Some("© Doe, Jane; Studio".into()),
+            copyright_marked: Some(true),
+            copyright_url: Some("https://example.test/rights".into()),
+            ..Default::default()
+        };
+        let old = write_xmp(&m, Some(r#"{"exposure":1.5}"#));
+        let mut doc = photocraft_doc::Document::new("Interchange", photocraft_geom::Size::new(1, 1), ColorMode::Rgb, photocraft_color::SampleType::U8);
+        let mut pixels = photocraft_raster::Surface::new(doc.pixel_format());
+        pixels.write_region(doc.bounds(), &[0.2, 0.4, 0.6, 1.0]);
+        doc.layers.push(photocraft_doc::Layer::new("Pixels", photocraft_doc::LayerContent::Raster(pixels)));
+        doc.metadata.xmp = Some(old.clone());
+        let mut session = Session::new();
+        session.add_document(doc, None);
+        let mut info = session.execute("file.fileInfo", json!({})).unwrap();
+        assert_eq!(info["author"], "Doe, Jane; Studio; Bob");
+        info["title"] = json!("Editor title & caption");
+        info["description"] = json!("Editor description");
+        session.execute("file.fileInfo", info).unwrap();
+        let edited = session.active().unwrap().doc.metadata.xmp.clone().unwrap();
+        let expected_info = read_file_info(Some(&edited));
+        let back = parse_xmp(&edited).unwrap();
+        assert_eq!(back.metadata.creators, m.creators);
+        assert_eq!(back.metadata.rating, m.rating);
+        assert_eq!(back.metadata.hierarchical_keywords, m.hierarchical_keywords);
+        assert_eq!(back.lc_settings.as_deref(), Some(r#"{"exposure":1.5}"#));
+        assert!(session.undo());
+        assert_eq!(session.active().unwrap().doc.metadata.xmp.as_deref(), Some(old.as_str()));
+        assert!(session.redo());
+        for ext in ["psd", "tiff", "jpg"] {
+            let bytes = photocraft_io::export(&session.active().unwrap().doc, ext, &photocraft_io::ExportOptions::default()).unwrap().bytes;
+            let imported = photocraft_io::import(&format!("Interchange.{ext}"), &bytes).unwrap().document;
+            assert_eq!(read_file_info(imported.metadata.xmp.as_deref()), expected_info, "all eight File Info fields: {ext}");
+            let library = parse_xmp(imported.metadata.xmp.as_deref().unwrap()).unwrap();
+            assert_eq!(library.metadata.title.as_deref(), Some("Editor title & caption"), "{ext}");
+            assert_eq!(library.metadata.caption.as_deref(), Some("Editor description"), "{ext}");
+            assert_eq!(library.metadata.creators, m.creators, "{ext}");
+            assert_eq!(library.lc_settings, back.lc_settings, "{ext}");
+        }
+        let mut library = back.metadata;
+        library.title = Some("Library edits again".into());
+        let packet = write_xmp(&library, back.lc_settings.as_deref());
+        session
+            .edit("Library metadata", |doc, _| {
+                doc.metadata.xmp = Some(packet);
+                Ok(())
+            })
+            .unwrap();
+        let editor = session.execute("file.fileInfo", json!({})).unwrap();
+        assert_eq!(editor["title"], "Library edits again");
+        assert_eq!(editor["authorTitle"], "Photographer");
+    }
+
+    #[test]
+    fn j03_file_info_command_rejects_malformed_xmp_without_mutation() {
+        let old = "<rdf:RDF><rdf:Description><dc:title>bad</rdf:RDF>";
+        let mut session = Session::new();
+        let mut doc = photocraft_doc::Document::new("Bad XMP", photocraft_geom::Size::new(1, 1), ColorMode::Rgb, photocraft_color::SampleType::U8);
+        doc.metadata.xmp = Some(old.into());
+        session.add_document(doc, None);
+        assert!(session.execute("file.fileInfo", json!({"title":"Replacement"})).is_err());
+        assert_eq!(session.active().unwrap().doc.metadata.xmp.as_deref(), Some(old));
+    }
+
+    #[test]
+    fn j03_web_metadata_choices_preserve_rights_without_private_fields() {
+        use crate::web_cmds::{WebMetadata, web_xmp};
+        let m = lightcraft_meta::Metadata {
+            artist: Some("A; B; C".into()),
+            creators: vec!["A; B".into(), "C".into()],
+            copyright: Some("© Test".into()),
+            copyright_marked: Some(false),
+            title: Some("Private title".into()),
+            gps: Some(lightcraft_meta::Gps { latitude: 12.0, longitude: 34.0, altitude: None }),
+            ..Default::default()
+        };
+        let mut doc = photocraft_doc::Document::new("Web", photocraft_geom::Size::new(1, 1), ColorMode::Rgb, photocraft_color::SampleType::U8);
+        doc.metadata.xmp = Some(lightcraft_meta::write_xmp(&m, Some("private")));
+        assert!(web_xmp(&doc, WebMetadata::None).is_none());
+        assert_eq!(web_xmp(&doc, WebMetadata::All), doc.metadata.xmp);
+        for choice in [WebMetadata::Copyright, WebMetadata::CopyrightAndContact] {
+            let packet = web_xmp(&doc, choice).unwrap();
+            let back = lightcraft_meta::parse_xmp(&packet).unwrap();
+            assert_eq!(back.metadata.copyright_marked, Some(false));
+            assert!(back.metadata.gps.is_none() && back.metadata.title.is_none() && back.lc_settings.is_none());
+            if choice == WebMetadata::CopyrightAndContact {
+                assert_eq!(back.metadata.creators, m.creators);
+            } else {
+                assert!(back.metadata.artist.is_none());
+            }
+        }
     }
 }

@@ -169,7 +169,7 @@ fn scan(s: &str) -> Result<Scan, XmpError> {
                             .into_iter()
                             .map(|(raw, value)| Attr {
                                 geometry: geometry_name(&raw, &scopes, true),
-                                name: canonical_name(&raw, &scopes),
+                                name: if raw.contains(':') { canonical_name(&raw, &scopes) } else { raw.clone() },
                                 raw,
                                 value,
                             })

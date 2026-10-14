@@ -856,3 +856,27 @@ mod overwrite_metadata_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod j03_parity_tests {
+    use super::*;
+
+    #[test]
+    fn j03_psd_tiff_export_byte_goldens() {
+        let mut doc = Document::new("Metadata parity", Size::new(3, 2), ColorMode::Rgb, SampleType::U8);
+        let mut surface = Surface::new(doc.pixel_format());
+        surface.write_region(
+            doc.bounds(),
+            &[1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.5, 0.0, 0.0, 1.0, 1.0, 0.2, 0.3, 0.4, 1.0, 0.5, 0.6, 0.7, 1.0, 0.8, 0.9, 1.0, 0.0],
+        );
+        doc.layers.push(Layer::new("Pixels", LayerContent::Raster(surface)));
+        doc.metadata.exif = Some(Arc::new(lightcraft_tiff::exif::minimal_exif(6)));
+        doc.metadata.xmp = Some(r#"<rdf:Description tiff:Orientation="6"/>"#.into());
+        for (ext, size, expected) in [("psd", 570, 0x5573b328077b7c9du64), ("tiff", 325, 0xfbffddd714c68a3a)] {
+            let bytes = crate::export(&doc, ext, &ExportOptions::default()).unwrap().bytes;
+            let hash = bytes.iter().fold(0xcbf29ce484222325u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3));
+            assert_eq!(bytes.len(), size, "{ext} length changed");
+            assert_eq!(hash, expected, "{ext} byte golden changed");
+        }
+    }
+}

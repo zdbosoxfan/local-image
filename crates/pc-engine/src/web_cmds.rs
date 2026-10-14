@@ -338,20 +338,7 @@ pub fn web_xmp(doc: &Document, m: WebMetadata) -> Option<String> {
     match m {
         WebMetadata::None => None,
         WebMetadata::All => Some(xmp.to_string()),
-        WebMetadata::Copyright | WebMetadata::CopyrightAndContact => {
-            let info = crate::file_cmds::read_file_info(Some(xmp));
-            let mut keep = serde_json::Map::new();
-            let mut keys = vec!["copyright", "copyrightStatus", "copyrightUrl"];
-            if m == WebMetadata::CopyrightAndContact {
-                keys.extend(["author", "authorTitle"]);
-            }
-            for k in keys {
-                if let Some(v) = info.get(k).filter(|v| v.as_str().is_some_and(|s| !s.is_empty()) || v.is_array()) {
-                    keep.insert(k.into(), v.clone());
-                }
-            }
-            (!keep.is_empty()).then(|| crate::file_cmds::write_file_info(None, &Value::Object(keep)))
-        }
+        WebMetadata::Copyright | WebMetadata::CopyrightAndContact => lightcraft_meta::copyright_xmp(xmp, m == WebMetadata::CopyrightAndContact).ok().flatten(),
     }
 }
 

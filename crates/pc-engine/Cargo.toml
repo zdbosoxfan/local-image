@@ -14,6 +14,7 @@ pdf-import-integrated = []
 corpus = []
 
 [dependencies]
+lightcraft-meta.workspace = true
 li-color.workspace = true
 photocraft-vecfx.workspace = true
 photocraft-affinity.workspace = true

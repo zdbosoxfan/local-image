@@ -24,13 +24,7 @@ pub fn summarize(blob: &[u8]) -> ExifSummary {
     let Some(ifd0) = file.ifd(file.first_ifd) else { return summary };
     // Match the orientation policy used by pixel codecs: the first duplicate wins, even
     // when malformed. Raw entries are needed because unknown field types are skipped by ifd().
-    summary.orientation = file
-        .entries_at(file.first_ifd)
-        .and_then(|mut entries| entries.find(|entry| entry.tag == 274))
-        .filter(|entry| entry.count == 1 && matches!(entry.ty, 3 | 4))
-        .and_then(|entry| file.uint(&entry, 0))
-        .and_then(|value| u16::try_from(value).ok())
-        .filter(|value| (1..=8).contains(value));
+    summary.orientation = read_orientation(blob);
     if ifd0.next != 0
         && ifd0.next != ifd0.at
         && let Some(ifd1) = file.ifd(ifd0.next)
@@ -171,4 +165,116 @@ pub fn update_dimensions(exif: &mut [u8], width: u32, height: u32) -> crate::Res
         exif[range].copy_from_slice(&bytes);
     }
     Ok(())
+}
+
+/// First IFD0 orientation, using the shared decoder policy: exactly one SHORT or LONG,
+/// first duplicate wins even when malformed. Missing or out-of-range values give 1.
+pub fn orientation(exif: &[u8]) -> u16 {
+    read_orientation(exif).unwrap_or(1)
+}
+
+fn read_orientation(exif: &[u8]) -> Option<u16> {
+    let body = exif.strip_prefix(b"Exif\0\0").unwrap_or(exif);
+    let file = File::parse(body)?;
+    let entry = file.entries_at(file.first_ifd)?.find(|entry| entry.tag == 274)?;
+    if entry.count != 1 || !matches!(entry.ty, 3 | 4) {
+        return None;
+    }
+    u16::try_from(file.uint(&entry, 0)?).ok().filter(|value| (1..=8).contains(value))
+}
+
+/// Set every well-formed IFD0 orientation entry to 1 in its existing width and byte order.
+/// All other bytes, MakerNote offsets, padding and opaque payloads remain unchanged.
+/// TIFF and BigTIFF, with or without an Exif prefix, share this path. No temporary entry
+/// vector or per-entry allocation is needed; already-upright/malformed data stays borrowed.
+pub fn upright(exif: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    use crate::ByteOrder;
+    use std::borrow::Cow;
+
+    let body = exif.strip_prefix(b"Exif\0\0").unwrap_or(exif);
+    let prefix = exif.len() - body.len();
+    let Some(file) = File::parse(body) else { return Cow::Borrowed(exif) };
+    let values =
+        || file.entries_at(file.first_ifd).into_iter().flatten().filter(|entry| entry.tag == 274 && entry.count == 1 && matches!(entry.ty, 3 | 4));
+    if values().all(|entry| file.uint(&entry, 0) == Some(1)) {
+        return Cow::Borrowed(exif);
+    }
+    let mut out = exif.to_vec();
+    for entry in values() {
+        let Ok(at) = usize::try_from(entry.value_at) else { continue };
+        let size = if entry.ty == 3 { 2 } else { 4 };
+        let slot = prefix.checked_add(at).and_then(|start| out.get_mut(start..start.checked_add(size)?));
+        if let Some(slot) = slot {
+            match (entry.ty, file.order()) {
+                (3, ByteOrder::Little) => slot.copy_from_slice(&1u16.to_le_bytes()),
+                (3, ByteOrder::Big) => slot.copy_from_slice(&1u16.to_be_bytes()),
+                (_, ByteOrder::Little) => slot.copy_from_slice(&1u32.to_le_bytes()),
+                (_, ByteOrder::Big) => slot.copy_from_slice(&1u32.to_be_bytes()),
+            }
+        }
+    }
+    Cow::Owned(out)
+}
+
+#[cfg(test)]
+mod j03_tests {
+    use super::*;
+    use crate::{ByteOrder, IfdBuilder, TiffWriter, Value};
+
+    #[test]
+    fn j03_orientation_patch_preserves_opaque_bytes_for_all_tiff_layouts() {
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            for big in [false, true] {
+                for long in [false, true] {
+                    for value in 1..=8 {
+                        let field = if long { Value::Long(vec![value]) } else { Value::Short(vec![value as u16]) };
+                        let root = IfdBuilder::new().with(274, field).with(40000, Value::Undefined(vec![0xa5; 37]));
+                        let body = TiffWriter::new(order, big).write(&[root]).unwrap();
+                        for prefixed in [false, true] {
+                            let mut bytes = if prefixed { b"Exif\0\0".to_vec() } else { Vec::new() };
+                            bytes.extend_from_slice(&body);
+                            let prefix = if prefixed { 6 } else { 0 };
+                            let entry = File::parse(&body).unwrap().entries_at(File::parse(&body).unwrap().first_ifd).unwrap().next().unwrap();
+                            let mut expected = bytes.clone();
+                            let at = prefix + entry.value_at as usize;
+                            let one = match (long, order) {
+                                (false, ByteOrder::Little) => 1u16.to_le_bytes().to_vec(),
+                                (false, ByteOrder::Big) => 1u16.to_be_bytes().to_vec(),
+                                (true, ByteOrder::Little) => 1u32.to_le_bytes().to_vec(),
+                                (true, ByteOrder::Big) => 1u32.to_be_bytes().to_vec(),
+                            };
+                            expected[at..at + one.len()].copy_from_slice(&one);
+                            assert_eq!(orientation(&bytes), value as u16);
+                            let patched = upright(&bytes);
+                            assert_eq!(patched.as_ref(), expected, "opaque bytes and offsets");
+                            assert_eq!(orientation(&patched), 1);
+                            if value == 1 {
+                                assert!(matches!(patched, std::borrow::Cow::Borrowed(_)));
+                            }
+                        }
+                    }
+                }
+                // An invalid first duplicate still wins the read; later valid values are patched.
+                let root = IfdBuilder::new().with(274, Value::Short(vec![8])).with(275, Value::Long(vec![6]));
+                let mut bytes = TiffWriter::new(order, big).write(&[root]).unwrap();
+                let file = File::parse(&bytes).unwrap();
+                let start = file.first_ifd as usize + if big { 8 } else { 2 };
+                let second = start + if big { 20 } else { 12 };
+                let encode = |v: u16| if order == ByteOrder::Little { v.to_le_bytes() } else { v.to_be_bytes() };
+                bytes[start + 2..start + 4].copy_from_slice(&encode(99));
+                bytes[second..second + 2].copy_from_slice(&encode(274));
+                assert_eq!(orientation(&bytes), 1);
+                let patched = upright(&bytes);
+                assert_eq!(&patched[start..second], &bytes[start..second]);
+                let file = File::parse(&patched).unwrap();
+                let second = file.entries_at(file.first_ifd).unwrap().nth(1).unwrap();
+                assert_eq!(file.uint(&second, 0), Some(1));
+                for cut in [0, 7, bytes.len() / 2] {
+                    let truncated = &bytes[..cut];
+                    assert_eq!(orientation(truncated), 1);
+                    assert_eq!(upright(truncated).as_ref(), truncated);
+                }
+            }
+        }
+    }
 }
