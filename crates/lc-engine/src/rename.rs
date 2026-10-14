@@ -375,12 +375,7 @@ impl MoveFs for RealFs {
     }
 
     fn copy_no_replace(&self, a: &Path, b: &Path) -> std::io::Result<()> {
-        use std::io::Write;
-        let bytes = std::fs::read(a)?;
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(b)?;
-        f.write_all(&bytes).and_then(|_| f.sync_all()).inspect_err(|_| {
-            let _ = std::fs::remove_file(b);
-        })
+        crate::import_move::copy_verified(a, b, None)
     }
 
     fn remove_file(&self, p: &Path) -> std::io::Result<()> {

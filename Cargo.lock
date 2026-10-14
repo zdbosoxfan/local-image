@@ -3928,6 +3928,7 @@ dependencies = [
  "dirs",
  "hex",
  "image",
+ "li-fs",
  "li-raster",
  "li-seg",
  "lightcraft-sysmem",
@@ -3963,6 +3964,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-fs"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "photocraft-raster",
+ "rustix 1.1.5",
+]
+
+[[package]]
 name = "li-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -3978,6 +3987,7 @@ dependencies = [
  "anyhow",
  "image",
  "li-color",
+ "li-fs",
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
@@ -4061,6 +4071,7 @@ name = "lightcraft-catalog"
 version = "2.0.0-alpha.1"
 dependencies = [
  "crc32fast",
+ "li-fs",
  "lightcraft-develop",
  "lightcraft-meta",
  "log",
@@ -4256,6 +4267,7 @@ name = "lightcraft-preview"
 version = "2.0.0-alpha.1"
 dependencies = [
  "jpeg-encoder",
+ "li-fs",
  "lightcraft-raster",
  "log",
  "siphasher",
@@ -4423,6 +4435,7 @@ dependencies = [
  "fmv-macos-events",
  "image",
  "li-ai",
+ "li-fs",
  "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -5775,6 +5788,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
  "flate2",
+ "li-fs",
  "libc",
  "photocraft-codecs",
  "photocraft-color",

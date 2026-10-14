@@ -29,16 +29,15 @@ fn write(path: &Path, bytes: &[u8], exec: bool) -> Result<(), String> {
         std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     // Write beside and rename, so replacing the running binary works.
-    let tmp = path.with_extension("local-image-tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let staged = li_fs::stage_stream(path, li_fs::Policy::Durable, &mut |w| w.write_all(bytes)).map_err(|e| format!("{}: {e}", path.display()))?;
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt as _;
+        use std::os::unix::fs::PermissionsExt;
         let mode = if exec { 0o755 } else { 0o644 };
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
+        staged.set_permissions(std::fs::Permissions::from_mode(mode)).map_err(|e| e.to_string())?;
     }
     let _ = exec;
-    std::fs::rename(&tmp, path).map_err(|e| format!("{}: {e}", path.display()))
+    staged.commit().map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Installs from wherever this binary runs.
@@ -80,6 +79,30 @@ pub fn uninstall(system: bool) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn j11_installer_keeps_complete_bytes_modes_and_cleans_failed_staging() {
+        let dir = std::env::temp_dir().join(format!("j11-install-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("launcher");
+        super::write(&path, b"original", true).unwrap();
+        {
+            let _fault = li_fs::fail_writes_after(2);
+            assert!(super::write(&path, b"replacement", true).is_err());
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        super::write(&path, b"replacement", false).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"replacement");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o644);
+            super::write(&path, b"executable", true).unwrap();
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o755);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn the_desktop_entry_names_the_app_id_and_icons_are_pngs() {
         assert!(super::DESKTOP.contains("Icon=io.github.zdbosoxfan.LocalImage"));

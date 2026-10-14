@@ -2842,7 +2842,7 @@ fn batch_export(
     options: &crate::ai_ui::AiOptions,
     ctl: &photocraft_engine::jobs::JobCtx,
 ) -> anyhow::Result<()> {
-    use std::io::{Read, Write};
+    use std::io::Read;
     ctl.check()?;
     let limit = photocraft_format::read::MAX_FILE_BYTES;
     let mut bytes = Vec::new();
@@ -2858,20 +2858,12 @@ fn batch_export(
     ctl.check()?;
     let encoded = photocraft_io::export(&doc, format, &Default::default())?.bytes;
     ctl.check()?;
-    // Stage beside the destination so cancellation never leaves a partial output.
-    let temp = dest.with_file_name(format!(".bgremove-{}.tmp", li_ai::ops::new_seed()));
-    let result = (|| -> anyhow::Result<()> {
-        let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
-        file.write_all(&encoded)?;
-        file.sync_all()?;
-        ctl.check()?;
-        std::fs::rename(&temp, dest)?;
-        Ok(())
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&temp);
-    }
-    result
+    // Shared staging preserves cancellation, modes, symlinks and atomic publication.
+    let cancelled = || ctl.cancelled();
+    let staged = photocraft_format::atomic::stage_write(dest, &encoded, &photocraft_raster::Interrupt::cancel_only(&cancelled))?;
+    ctl.check()?;
+    staged.commit()?;
+    Ok(())
 }
 
 fn start_batch(b: &BatchState, options: &crate::ai_ui::AiOptions) -> Arc<std::sync::Mutex<BatchRun>> {

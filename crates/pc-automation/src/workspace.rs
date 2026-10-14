@@ -1,12 +1,12 @@
 //! Capability-based filesystem policy for untrusted automation paths.
 
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cap_std::ambient_authority;
 use cap_std::fs::{Dir, OpenOptions};
-use photocraft_format::atomic::RenameRetry;
+use photocraft_format::atomic::{AtomicFs, RenameRetry};
 use serde_json::Value;
 
 use crate::AutomationError;
@@ -16,6 +16,72 @@ const DENIED: &str = "automation filesystem access is not granted";
 #[derive(Clone)]
 struct RootCapability {
     dir: Arc<Dir>,
+}
+
+/// Shared writer operations resolved exclusively through the granted directory capability.
+struct CapFs<'a> {
+    dir: &'a Dir,
+}
+
+impl AtomicFs for CapFs<'_> {
+    fn write_new(&self, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        let mut file = self.dir.open_with(tmp, &options)?;
+        file.write_all(bytes)?;
+        file.sync_all()
+    }
+
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        self.dir.rename(from, self.dir, to)
+    }
+
+    fn remove(&self, path: &Path) -> io::Result<()> {
+        let result = self.dir.remove_file(path);
+        #[cfg(windows)]
+        if result.as_ref().is_err_and(|e| e.kind() == io::ErrorKind::PermissionDenied) {
+            let metadata = self.dir.symlink_metadata(path)?;
+            if metadata.is_file() && !metadata.file_type().is_symlink() && metadata.permissions().readonly() {
+                let mut permissions = metadata.permissions();
+                permissions.set_readonly(false);
+                self.dir.set_permissions(path, permissions)?;
+                return self.dir.remove_file(path);
+            }
+        }
+        result
+    }
+
+    fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+        #[cfg(unix)]
+        {
+            self.dir.open(dir)?.sync_all()
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = dir;
+            Ok(())
+        }
+    }
+
+    fn copy_permissions(&self, from: &Path, to: &Path) -> io::Result<()> {
+        let permissions = self.dir.metadata(from)?.permissions();
+        self.dir.open(to)?.set_permissions(permissions)
+    }
+
+    fn prepare_target(&self, path: &Path) -> io::Result<PathBuf> {
+        // Never canonicalize or create parents via ambient paths. cap-std resolves each
+        // operation beneath the held handle; absent parents retain the existing error.
+        Ok(path.to_path_buf())
+    }
+
+    fn preserve_permissions(&self, from: &Path, to: &Path, _policy: photocraft_format::atomic::Policy) -> io::Result<()> {
+        let permissions = self.dir.metadata(from)?.permissions();
+        let mut options = OpenOptions::new();
+        options.write(true);
+        let file = self.dir.open_with(to, &options)?;
+        file.set_permissions(permissions)?;
+        file.sync_all()
+    }
 }
 
 /// Separate directory capabilities for automation reads and writes.
@@ -61,29 +127,8 @@ impl AuthorizedWorkspace {
     pub fn write(&self, path: &str, bytes: &[u8]) -> Result<(), AutomationError> {
         let relative = relative_path(path)?;
         let root = self.write.as_ref().ok_or_else(|| AutomationError::BadRequest(format!("{DENIED}: write authority is absent")))?;
-        let leaf = relative.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let parent = relative.parent().map(Path::to_path_buf).unwrap_or_default();
-        let tmp = parent.join(photocraft_format::atomic::temp_name(&leaf));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        let written = root.dir.open_with(&tmp, &options).and_then(|mut file| {
-            file.write_all(bytes)?;
-            file.sync_all()
-        });
-        let renamed = written.and_then(|()| photocraft_format::atomic::retry_rename(RenameRetry::platform(), || root.dir.rename(&tmp, &root.dir, &relative)));
-        if let Err(e) = renamed {
-            let _ = root.dir.remove_file(&tmp);
-            return Err(file_error("write", path, e));
-        }
-        // Flush the directory entry (Unix); best effort, the new bytes are already in place.
-        #[cfg(unix)]
-        {
-            let dir = if parent.as_os_str().is_empty() { PathBuf::from(".") } else { parent };
-            if let Ok(d) = root.dir.open(&dir) {
-                let _ = d.sync_all();
-            }
-        }
-        Ok(())
+        photocraft_format::atomic::atomic_write_with(&CapFs { dir: &root.dir }, RenameRetry::platform(), &relative, bytes)
+            .map_err(|e| file_error("write", path, e))
     }
 }
 
@@ -296,6 +341,56 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let workspace = AuthorizedWorkspace::new(Some(&inside), Some(&inside)).unwrap();
         (inside, outside, workspace)
+    }
+
+    #[test]
+    fn j11_capability_shared_writer_exclusive_staging_and_publication_failure_cleanup() {
+        let (inside, outside, workspace) = roots("j11-atomic");
+        let root = workspace.write.as_ref().unwrap();
+        let fs = CapFs { dir: &root.dir };
+        let reserved = Path::new("reserved.tmp");
+        fs.write_new(reserved, b"reserved canary").unwrap();
+        assert_eq!(fs.write_new(reserved, b"collision").unwrap_err().kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(inside.join(reserved)).unwrap(), b"reserved canary");
+        fs.remove(reserved).unwrap();
+        workspace.write("out.psd", b"original").unwrap();
+        workspace.write("out.psd", b"replacement").unwrap();
+        assert_eq!(workspace.read("out.psd").unwrap(), b"replacement");
+        std::fs::create_dir(inside.join("taken")).unwrap();
+        assert!(workspace.write("taken", b"collision").is_err());
+        assert!(inside.join("taken").is_dir());
+        assert!(temp_files(&inside).is_empty());
+        assert!(workspace.write("missing/out.psd", b"missing parent").is_err());
+        assert!(!inside.join("missing").exists());
+        assert_eq!(std::fs::read_dir(&outside).unwrap().count(), 0);
+        std::fs::remove_dir_all(inside.parent().unwrap()).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn j11_capability_shared_writer_rejects_escape_and_uses_held_root_after_path_changes() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let (inside, outside, workspace) = roots("j11-capability");
+        let canary = outside.join("secret.txt");
+        std::fs::write(&canary, b"outside canary").unwrap();
+        symlink(&outside, inside.join("escape")).unwrap();
+        assert!(workspace.write("escape/secret.txt", b"blocked").is_err());
+        assert_eq!(std::fs::read(&canary).unwrap(), b"outside canary");
+        assert!(temp_files(&outside).is_empty());
+        workspace.write("mode.psd", b"private original").unwrap();
+        std::fs::set_permissions(inside.join("mode.psd"), std::fs::Permissions::from_mode(0o600)).unwrap();
+        workspace.write("mode.psd", b"private replacement").unwrap();
+        assert_eq!(std::fs::metadata(inside.join("mode.psd")).unwrap().permissions().mode() & 0o777, 0o600);
+        // Swapping the configured root's pathname cannot redirect the already-held capability.
+        let moved = outside.join("moved-root");
+        std::fs::rename(&inside, &moved).unwrap();
+        std::fs::create_dir(&inside).unwrap();
+        workspace.write("held.psd", b"held capability").unwrap();
+        assert_eq!(std::fs::read(moved.join("held.psd")).unwrap(), b"held capability");
+        assert!(!inside.join("held.psd").exists());
+        assert!(temp_files(&moved).is_empty());
+        assert_eq!(std::fs::read(&canary).unwrap(), b"outside canary");
+        std::fs::remove_dir_all(inside.parent().unwrap()).unwrap();
     }
 
     #[test]

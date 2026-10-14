@@ -6,7 +6,7 @@
 //! are removed down to 80 % of the budget.
 //!
 //! The cache only ever lists, counts or deletes files of its own name shape
-//! (`<2 hex>/<32 hex>.jpg` and the `<32 hex>.tmp…` temp files of [`DiskCache::put`], see
+//! (`<2 hex>/<32 hex>.jpg` and shared/legacy temp files of [`DiskCache::put`], see
 //! [`is_cache_file`]): the directory may be shared with other files (e.g. a library opened on a
 //! photo folder that already has a `thumbs/` folder), and those are never touched (issue #98).
 
@@ -96,9 +96,7 @@ impl DiskCache {
         }
         // know the current total before adding (the first scan must not count this file twice)
         let _ = self.size();
-        let tmp = p.with_extension(format!("tmp{:?}", std::thread::current().id()).replace(['(', ')'], ""));
-        if std::fs::write(&tmp, &bytes).is_err() || std::fs::rename(&tmp, &p).is_err() {
-            let _ = std::fs::remove_file(&tmp);
+        if li_fs::write_atomic_nosync(&p, &bytes).is_err() {
             return;
         }
         self.writes.fetch_add(1, Ordering::Relaxed);
@@ -183,11 +181,20 @@ fn is_shard_name(s: &str) -> bool {
 }
 
 /// Whether `name` inside shard directory `shard` is a file this cache wrote: `<32 hex>.jpg`
-/// (whose first two digits are the shard) or a `<32 hex>.tmp<alphanumeric>` temp file of
+/// (whose first two digits are the shard) or shared `.lightcraft-<pid>-<counter>.<key>.jpg.pcsave.tmp` / legacy `<32 hex>.tmp<alphanumeric>` staging from
 /// [`DiskCache::put`]. Anything else in the cache directory belongs to someone else.
 pub fn is_cache_file(shard: &str, name: &str) -> bool {
     if !is_shard_name(shard) {
         return false;
+    }
+    // A shared-writer staging file is ours only when its target hint is a cache key
+    // belonging to this shard. Other writers may be saving unrelated files here.
+    if let Some(parts) = name.strip_prefix(".lightcraft-").and_then(|n| n.strip_suffix(".pcsave.tmp")) {
+        let Some((numbers, hint)) = parts.split_once('.') else { return false };
+        let valid_numbers = numbers.split_once('-').is_some_and(|(pid, counter)| {
+            !pid.is_empty() && !counter.is_empty() && pid.bytes().all(|b| b.is_ascii_digit()) && counter.bytes().all(|b| b.is_ascii_digit())
+        });
+        return valid_numbers && hint.strip_suffix(".jpg").is_some_and(|key| key.len() == 32 && is_lower_hex(key) && key.starts_with(shard));
     }
     let Some((stem, ext)) = name.split_once('.') else { return false };
     if stem.len() != 32 || !is_lower_hex(stem) || !stem.starts_with(shard) {
@@ -227,4 +234,37 @@ pub fn decode_jpeg(bytes: &[u8]) -> Option<Rgba8> {
     }
     let data = px.as_chunks::<3>().0.iter().take(w * h).map(|c| [c[0], c[1], c[2], 255]).collect();
     Some(Rgba8 { width: w, height: h, data })
+}
+
+#[cfg(test)]
+mod j11_tests {
+    use super::*;
+    #[test]
+    fn j11_disk_cache_golden_nosync_failure_and_owned_scratch_cleanup() {
+        let dir = std::env::temp_dir().join(format!("j11-preview-{}", std::process::id()));
+        let cache = DiskCache::new(&dir, 1 << 20);
+        let image = Rgba8 { width: 8, height: 8, data: vec![[12, 34, 56, 255]; 64] };
+        let key = crate::hash_bytes(b"j11");
+        let golden = encode_jpeg(&image).unwrap();
+        let before = li_fs::syncs_on_this_thread();
+        cache.put(key, &image);
+        assert_eq!(std::fs::read(cache.path(key)).unwrap(), golden);
+        assert_eq!(li_fs::syncs_on_this_thread(), before);
+        {
+            let _fault = li_fs::fail_writes_after(3);
+            cache.put(key, &Rgba8 { width: 8, height: 8, data: vec![[200, 210, 220, 255]; 64] });
+        }
+        assert_eq!(std::fs::read(cache.path(key)).unwrap(), golden);
+        assert_eq!(cache.writes.load(Ordering::Relaxed), 1);
+        let shard = key.to_string()[..2].to_owned();
+        let scratch = dir.join(&shard).join(li_fs::temp_name(&format!("{key}.jpg")));
+        std::fs::write(&scratch, b"stale").unwrap();
+        let foreign = dir.join(&shard).join(li_fs::temp_name("notes.json"));
+        std::fs::write(&foreign, b"foreign").unwrap();
+        cache.clear();
+        assert!(!scratch.exists());
+        assert!(foreign.exists());
+        assert_eq!(std::fs::read_dir(dir.join(shard)).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }

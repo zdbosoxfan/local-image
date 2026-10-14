@@ -62,8 +62,12 @@ pub struct PreparedEntry {
 impl PreparedEntry {
     /// A single directory rename publishes the image, thumbnail and metadata together.
     pub fn publish(mut self) -> Result<Entry> {
-        std::fs::rename(&self.staging, &self.destination)?;
+        li_fs::sync_dir_checked(&self.staging)?;
+        li_fs::retry_rename(li_fs::RenameRetry::platform(), || std::fs::rename(&self.staging, &self.destination))?;
         self.published = true;
+        if let Some(parent) = self.destination.parent() {
+            li_fs::sync_dir(parent);
+        }
         Ok(self.entry.clone())
     }
 }
@@ -133,8 +137,8 @@ impl Library {
         let staging = self.root.join(format!(".pending-{}", uuid::Uuid::new_v4().simple()));
         let prepared = PreparedEntry { staging, destination: self.root.join(&id), entry, published: false };
         std::fs::create_dir_all(&prepared.staging)?;
-        std::fs::write(prepared.staging.join("image.png"), &png)?;
-        std::fs::write(prepared.staging.join("thumbnail.png"), crate::imaging::encode_png(&thumb)?)?;
+        write_atomic(&prepared.staging.join("image.png"), &png)?;
+        write_atomic(&prepared.staging.join("thumbnail.png"), &crate::imaging::encode_png(&thumb)?)?;
         write_atomic(&prepared.staging.join("entry.json"), serde_json::to_string_pretty(&prepared.entry)?.as_bytes())?;
         Ok(prepared)
     }
@@ -199,6 +203,27 @@ fn walk_size(p: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j11_generation_transaction_durable_golden_and_fault_cleanup() {
+        let dir = std::env::temp_dir().join(format!("j11-generation-{}", uuid::Uuid::new_v4()));
+        let library = Library::open(&dir);
+        let image = RgbaImage::from_pixel(8, 8, image::Rgba([12, 34, 56, 128]));
+        {
+            let _fault = li_fs::fail_writes_after(3);
+            assert!(library.prepare(&image, "failed", None, None).is_err());
+        }
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
+        let before = li_fs::syncs_on_this_thread();
+        let prepared = library.prepare(&image, "accepted", None, None).unwrap();
+        assert!(library.list().is_empty());
+        assert_eq!(std::fs::read(prepared.staging.join("image.png")).unwrap(), crate::imaging::encode_png(&image).unwrap());
+        let entry = prepared.publish().unwrap();
+        assert!(li_fs::syncs_on_this_thread() >= before + 4);
+        assert_eq!(library.load(&entry).unwrap(), image);
+        assert_eq!(library.list().len(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn prepared_entries_are_invisible_until_publish_and_drop_cleans_them() {

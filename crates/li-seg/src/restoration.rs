@@ -77,34 +77,30 @@ impl Pin {
         check(keep_going)?;
         let dest = self.path(dir);
         std::fs::create_dir_all(dest.parent().context("missing model directory")?)?;
+        ensure!(!std::fs::symlink_metadata(&dest).is_ok_and(|m| m.file_type().is_symlink()), "Restore model destination must not be a symlink");
         if source == dest || self.verify(&dest).is_ok() {
             return Ok(());
         }
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let tmp = dest.with_extension(format!("{}.{}.tmp", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
-        let result = (|| {
-            use std::io::{Read, Write};
-            let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
+        let staged = li_fs::stage_stream(&dest, li_fs::Policy::Durable, &mut |out| {
+            use std::io::Read;
             let mut src = std::fs::File::open(source)?;
             let mut buffer = vec![0u8; 1024 * 1024];
             loop {
-                check(keep_going)?;
+                if !keep_going() {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "cancelled"));
+                }
                 let n = src.read(&mut buffer)?;
                 if n == 0 {
                     break;
                 }
-                f.write_all(&buffer[..n])?;
+                out.write_all(&buffer[..n])?;
             }
-            f.flush()?;
-            self.verify(&tmp)?;
-            check(keep_going)?;
-            std::fs::rename(&tmp, &dest)?;
             Ok(())
-        })();
-        if result.is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
-        result
+        })?;
+        self.verify(staged.path())?;
+        check(keep_going)?;
+        staged.commit()?;
+        Ok(())
     }
 }
 
@@ -289,6 +285,80 @@ pub fn scratches(dir: &Path, source: &RgbaImage, keep_going: &dyn Fn() -> bool) 
 
 #[cfg(test)]
 mod tests {
+
+    #[cfg(unix)]
+    #[test]
+    fn j11_restore_install_rejects_destination_symlink_without_modifying_referent() {
+        let dir = std::env::temp_dir().join(format!("j11-restoration-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.onnx");
+        let bytes = b"verified restoration fixture";
+        std::fs::write(&source, bytes).unwrap();
+        let pin =
+            Pin { bytes: bytes.len() as u64, sha256: Box::leak(format!("{:x}", Sha256::digest(bytes)).into_boxed_str()), file: "fixture.onnx", ..DD_COLOR };
+        let dest = pin.path(&dir);
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        let referent = dir.join("canary.onnx");
+        std::fs::write(&referent, b"canary").unwrap();
+        std::os::unix::fs::symlink(&referent, &dest).unwrap();
+        let error = pin.install(&source, &dir).unwrap_err();
+        assert!(error.to_string().contains("symlink"));
+        assert_eq!(std::fs::read(&referent).unwrap(), b"canary");
+        assert!(std::fs::symlink_metadata(&dest).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn j11_restore_cancellation_verification_and_write_fault_preserve_previous_model() {
+        let dir = std::env::temp_dir().join(format!("j11-restoration-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.onnx");
+        let bytes = b"verified restoration fixture";
+        std::fs::write(&source, bytes).unwrap();
+        let pin =
+            Pin { bytes: bytes.len() as u64, sha256: Box::leak(format!("{:x}", Sha256::digest(bytes)).into_boxed_str()), file: "fixture.onnx", ..DD_COLOR };
+        let dest = pin.path(&dir);
+        std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        std::fs::write(&dest, b"previous model").unwrap();
+        let calls = std::cell::Cell::new(0);
+        let error = pin
+            .install_checked(&source, &dir, &|| {
+                calls.set(calls.get() + 1);
+                calls.get() < 5 // Cancel after the verified copy, immediately before publication.
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert_eq!(calls.get(), 5);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"previous model");
+        assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
+        {
+            let _fault = li_fs::fail_writes_after(3);
+            assert!(pin.install(&source, &dir).is_err());
+        }
+        assert_eq!(std::fs::read(&dest).unwrap(), b"previous model");
+        assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
+        calls.set(0);
+        assert!(
+            pin.install_checked(&source, &dir, &|| {
+                calls.set(calls.get() + 1);
+                if calls.get() == 3 {
+                    std::fs::write(&source, vec![b'x'; bytes.len()]).unwrap();
+                }
+                true
+            })
+            .is_err()
+        );
+        assert_eq!(std::fs::read(&dest).unwrap(), b"previous model");
+        assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
+        std::fs::write(&source, bytes).unwrap();
+        let before = li_fs::syncs_on_this_thread();
+        pin.install(&source, &dir).unwrap();
+        assert!(li_fs::syncs_on_this_thread() > before);
+        assert_eq!(std::fs::read(&dest).unwrap(), bytes);
+        assert_eq!(std::fs::read(&source).unwrap(), bytes);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     use super::*;
     #[test]
     fn restoration_pre_post_byte_identical_across_thread_counts() {

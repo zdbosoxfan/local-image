@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+li-fs.workspace = true
 li-raster = { path = "../li-raster" }
 li-seg = { workspace = true }
 lightcraft-sysmem = { workspace = true }

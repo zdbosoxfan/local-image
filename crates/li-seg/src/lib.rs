@@ -946,18 +946,7 @@ fn write_customs(models_dir: &Path, customs: &[Custom]) -> Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(custom_dir(models_dir))?;
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let temp = path.with_extension(format!("tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
-    let result = (|| -> std::io::Result<()> {
-        use std::io::Write;
-        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&temp)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_all()?;
-        drop(f);
-        std::fs::rename(&temp, &path)
-    })();
-    let _ = std::fs::remove_file(&temp);
-    result.with_context(|| format!("Could not save {}", path.display()))
+    li_fs::write_atomic(&path, text.as_bytes()).with_context(|| format!("Could not save {}", path.display()))
 }
 
 /// A file name that is safe inside the custom folder.
@@ -1574,4 +1563,26 @@ mod battery_executor_tests {
             assert!(matches!(current_tract_executor(), Executor::RayonGlobal));
         });
     }
+}
+
+#[cfg(test)]
+#[test]
+fn j11_custom_inventory_parity_write_fault_and_cleanup() {
+    let dir = std::env::temp_dir().join(format!("j11-custom-inventory-{}", std::process::id()));
+    let model = Custom { group: Group::Subject, file: "fixture.onnx".into(), name: "Fixture".into(), size: 32, norm: Norm::IsNet, classes: 1, class: 0 };
+    write_customs(&dir, &[model]).unwrap();
+    let path = custom_list(&dir);
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(bytes, b"subject\tfixture.onnx\tFixture\t32\tisnet\t1\t0\n");
+    let changed = Custom { group: Group::Subject, file: "new.onnx".into(), name: "New".into(), size: 64, norm: Norm::ImageNet, classes: 1, class: 0 };
+    {
+        let _fault = li_fs::fail_writes_after(2);
+        assert!(write_customs(&dir, &[changed]).is_err());
+    }
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    assert_eq!(std::fs::read_dir(custom_dir(&dir)).unwrap().count(), 1);
+    assert_eq!(read_customs(&dir)[0].file, "fixture.onnx");
+    write_customs(&dir, &[]).unwrap();
+    assert!(!path.exists());
+    std::fs::remove_dir_all(dir).unwrap();
 }
