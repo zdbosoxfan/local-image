@@ -637,9 +637,27 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     h.step();
     click(&mut h, "button:matchLook");
     click(&mut h, "check:matchConsistent");
+    let preview_start = Instant::now();
     click(&mut h, "button:matchLookPreview");
-
-    wait(&mut h);
+    // Consistent Preview now analyzes the complete batch. Record that work rather
+    // than hiding it behind the normal small-selection helper's 60-second wait.
+    let mut preview_frames = Vec::new();
+    let mut preview_peak_rss = 0;
+    while h.app.match_look.control.is_some() {
+        let frame = Instant::now();
+        h.step();
+        preview_frames.push(frame.elapsed().as_secs_f64() * 1000.0);
+        preview_peak_rss = preview_peak_rss.max(lightcraft_sysmem::permits::process_rss().unwrap_or(0));
+        assert!(preview_start.elapsed() < Duration::from_secs(300), "Preview watchdog expired");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    h.step();
+    h.step();
+    assert!(h.app.match_look.error.is_empty(), "{}", h.app.match_look.error);
+    let preview_wall = preview_start.elapsed().as_secs_f64();
+    preview_frames.sort_by(f64::total_cmp);
+    let preview_p95 = preview_frames.get(((preview_frames.len().saturating_sub(1)) as f64 * 0.95) as usize).copied().unwrap_or(0.0);
+    println!("MATCH_LOOK_PREVIEW photos={count} wall_seconds={preview_wall:.3} ui_frame_p95_ms={preview_p95:.3}");
     assert!(
         h.app.widgets.iter().any(|(id, _)| id == "matchLook:preview"),
         "preview exists={}, dialog={:?}, last={:?}",
@@ -651,7 +669,7 @@ fn match_look_ui_500_photo_app_path_benchmark() {
     let start = Instant::now();
     click(&mut h, "button:dialogOk");
     let mut frames = Vec::new();
-    let mut peak_rss = 0;
+    let mut peak_rss = preview_peak_rss;
     let mut reported = 0;
     while h.app.match_look.control.is_some() {
         let frame = Instant::now();
@@ -681,12 +699,22 @@ fn match_look_ui_500_photo_app_path_benchmark() {
         solve * 1000.0 / count as f64,
         frames.len()
     );
-    let metrics = h.app.match_look.last_result.as_ref().unwrap();
+    let mut metrics = h.app.match_look.last_result.as_ref().unwrap().clone();
     println!("MATCH_LOOK_PHASES load_ms={} solve_ms={} renders={}", metrics["loadMs"], metrics["solveMs"], metrics["renders"]);
+    metrics["benchmark"] = json!({
+        "photos":count,"nativeRaw":raw_dir.is_some(),"previewWallSeconds":preview_wall,
+        "applyWallSeconds":wall,"previewFrameP95Ms":preview_p95,"applyFrameP95Ms":p95,
+        "peakRssBytes":peak_rss,"proxy500WallLimitSeconds":90.0,
+        "proxy500WallGateApplies":count == 500 && raw_dir.is_none()
+    });
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/matchlook-revision3");
     std::fs::create_dir_all(&out).unwrap();
-    std::fs::write(out.join(format!("benchmark-{count}-{}.json", lightcraft_sysmem::profile().threads)), serde_json::to_vec_pretty(metrics).unwrap())
-        .unwrap();
+    std::fs::write(
+        out.join(format!("benchmark-{count}-{}.json", lightcraft_sysmem::profile().threads)),
+        serde_json::to_vec_pretty(&metrics).unwrap(),
+    )
+    .unwrap();
+    assert!(preview_p95 < 16.7, "Preview must leave interactive frames responsive: {preview_p95}");
     assert!(p95 < 16.7, "CPU job must leave interactive frames responsive: {p95}");
     assert!(h.settle(T));
     let texture_seconds = start.elapsed().as_secs_f64();
@@ -697,6 +725,9 @@ fn match_look_ui_500_photo_app_path_benchmark() {
         peak_rss as f64 / (1 << 20) as f64
     );
     request(&mut h, "edit.undo", json!({}));
+    if count == 500 && raw_dir.is_none() {
+        assert!(preview_wall <= 90.0 && wall <= 90.0, "500-proxy throughput gate: Preview {preview_wall:.3}s, Apply {wall:.3}s; each must be <=90s");
+    }
 }
 
 #[test]
