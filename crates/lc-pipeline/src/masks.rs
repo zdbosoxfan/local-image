@@ -136,7 +136,11 @@ pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb3
         // the width of a soft brush edge or gradient)
         let k = (m.refine / 100.0).clamp(0.0, 1.0) as f32;
         let sigma = (0.04 * w.max(h) as f32 * k).max(1.0);
-        let refined = guided_cross(log_l, &alpha, sigma, 0.02);
+        let refined = if uses_subject_matting(m) {
+            Plane { width: w, height: h, data: li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, &img.data), &alpha.data, sigma) }
+        } else {
+            guided_cross(log_l, &alpha, sigma, 0.02)
+        };
         for (a, r) in alpha.data.iter_mut().zip(&refined.data) {
             *a += (r - *a) * k.sqrt();
         }
@@ -149,6 +153,21 @@ pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb3
         alpha.data.iter_mut().for_each(|v| *v *= amt);
     }
     alpha
+}
+
+/// Whether this mask requests image-guided subject matting. Used by the GPU planner
+/// to route AI boundary work through the same CPU solver as previews/exports.
+/// Depth/gradient/brush and mixed-component masks keep their continuous guided semantics.
+pub fn uses_subject_matting(m: &Mask) -> bool {
+    if m.refine <= 0.0 || !m.refine.is_finite() {
+        return false;
+    }
+    let [c] = m.components.as_slice() else { return false };
+    match &c.shape {
+        MaskShape::Subject { seg } | MaskShape::Sky { seg } | MaskShape::Background { seg } => seg.is_some(),
+        MaskShape::Object { seg, detail, .. } | MaskShape::Prompt { seg, detail, .. } => seg.is_some() || !detail.is_empty(),
+        _ => false,
+    }
 }
 
 /// What a mask's alpha is scaled by: its amount (0..200 %) times its layer opacity (0..100 %).
@@ -257,11 +276,10 @@ pub fn shape_alpha_tone(
         MaskShape::Object { seg, detail, edge, .. } | MaskShape::Prompt { seg, detail, edge, .. } if seg.is_some() || !detail.is_empty() => {
             // Edge: below 0 a steeper transition (up to 8× the logits), above 0 feathered (up to
             // 2 % of the long edge, so previews and exports match)
-            let e = (*edge / 100.0).clamp(-1.0, 1.0) as f32;
-            let gain = if e < 0.0 { 1.0 - 7.0 * e } else { 1.0 };
+            let gain = li_matte::refine::edge_gain(*edge);
             sample_seg(seg.as_ref(), detail, gain, frame, w, h, &mut out);
-            if e > 0.0 {
-                smooth_plane(&mut out, e * 0.02 * frame_px(frame, w));
+            if *edge > 0.0 {
+                out.data = li_matte::refine::feather_edge(&out.data, w, h, *edge, frame_px(frame, w));
             }
         }
         // not computed yet (no clicks, or a build without the model): nothing selected
@@ -451,25 +469,7 @@ pub fn auto_refine(r: f64) -> (f32, f32) {
 /// Guided filter of `p` steered by `guide` (He et al.), clamped to 0..1: `p`'s edges snap to the
 /// guide's.
 pub fn guided_cross(guide: &Plane, p: &Plane, sigma: f32, eps: f32) -> Plane {
-    use crate::blur::gaussian;
-    let mi = gaussian(guide, sigma);
-    let mp = gaussian(p, sigma);
-    let cip = gaussian(&guide.zip_map(p, |a, b| a * b), sigma);
-    let cii = gaussian(&guide.map(|a| a * a), sigma);
-    let mut a = Plane::new(p.width, p.height);
-    let mut b = Plane::new(p.width, p.height);
-    for i in 0..p.data.len() {
-        let var = (cii.data[i] - mi.data[i] * mi.data[i]).max(0.0);
-        let k = (cip.data[i] - mi.data[i] * mp.data[i]) / (var + eps);
-        a.data[i] = k;
-        b.data[i] = mp.data[i] - k * mi.data[i];
-    }
-    let (ma, mb) = (gaussian(&a, sigma), gaussian(&b, sigma));
-    let mut q = Plane::new(p.width, p.height);
-    for i in 0..q.data.len() {
-        q.data[i] = (ma.data[i] * guide.data[i] + mb.data[i]).clamp(0.0, 1.0);
-    }
-    q
+    Plane { width: p.width, height: p.height, data: li_matte::matting::guided_filter_gaussian(&guide.data, &p.data, p.width, p.height, sigma, eps) }
 }
 
 /// Stamp brush strokes into `out` (max-combine; erase strokes subtract). Auto Mask strokes weight
@@ -525,6 +525,112 @@ mod tests {
 
     fn frame(w: usize, h: usize) -> Frame {
         Frame::new(w, h, &DevelopSettings::default(), true)
+    }
+
+    #[test]
+    fn j14_ai_color_edge_quality_and_pipeline_timing() {
+        for (w, h) in [(96, 64), (384, 256)] {
+            let scale = w as f32 / 96.0;
+            let truth = Plane::from_fn(w, h, |x, y| {
+                let d = ((x as f32 - 48.0 * scale).powi(2) + (y as f32 - 32.0 * scale).powi(2)).sqrt();
+                ((23.0 * scale - d) / (6.0 * scale)).clamp(0.0, 1.0)
+            });
+            // Equal Rec.2020 luminance, different color: grayscale cannot recover this edge.
+            let fg = [0.9, 0.2, 0.1];
+            let bg = [0.1, 0.2 + 0.8 * 0.2627 / 0.6780, 0.1];
+            let img = Rgb32f::from_fn(w, h, |x, y| {
+                let a = truth.get(x, y);
+                [0, 1, 2].map(|c| a * fg[c] + (1.0 - a) * bg[c])
+            });
+            let log_l = img.map(crate::local::log_lum);
+            let logits: Vec<f32> = (0..w * w)
+                .map(|i| {
+                    let x = i % w;
+                    let y = ((i / w) as f32 * h as f32 / w as f32).floor() as usize;
+                    if truth.get(x, y.min(h - 1)) >= 0.5 { 12.0 } else { -12.0 }
+                })
+                .collect();
+            let mask = Mask {
+                components: vec![MaskComponent {
+                    name: None,
+                    op: MaskOp::Add,
+                    invert: false,
+                    shape: MaskShape::Subject { seg: Some(SegMask::from_logits(w, &logits)) },
+                }],
+                refine: 100.0,
+                ..Default::default()
+            };
+            let frame = frame(w, h);
+            let raw = evaluate_one(&Mask { refine: 0.0, ..mask.clone() }, &frame, w, h, &img, &log_l, 0.0);
+            let t = std::time::Instant::now();
+            let old_raw = evaluate_one(&Mask { refine: 0.0, ..mask.clone() }, &frame, w, h, &img, &log_l, 0.0);
+            let old = guided_cross(&log_l, &old_raw, 0.04 * w as f32, 0.02);
+            let old_ms = t.elapsed().as_secs_f64() * 1000.0;
+            let t = std::time::Instant::now();
+            let after = evaluate_one(&mask, &frame, w, h, &img, &log_l, 0.0);
+            let new_ms = t.elapsed().as_secs_f64() * 1000.0;
+            let err = |p: &Plane| p.data.iter().zip(&truth.data).map(|(a, b)| (a - b).abs()).sum::<f32>() / (w * h) as f32;
+            let (before, after_err) = (err(&old), err(&after));
+            println!(
+                "J14 app mask path {w}x{h}: old MAE={before:.8}, shared CF MAE={after_err:.8}; old evaluate+guided={old_ms:.3} ms, new evaluate_one={new_ms:.3} ms"
+            );
+            assert!(after_err < before * 0.6, "{after_err} vs {before}");
+            assert_eq!(after.get(0, 0), raw.get(0, 0));
+            assert_eq!(after.get(w / 2, h / 2), raw.get(w / 2, h / 2));
+            let inverted = evaluate_one(&Mask { invert: true, ..mask }, &frame, w, h, &img, &log_l, 0.0);
+            assert!(inverted.data.iter().zip(&after.data).all(|(a, b)| (a + b - 1.0).abs() < 1e-6));
+        }
+    }
+
+    #[test]
+    fn j14_develop_edge_crop_detail_and_legacy_settings() {
+        let mut settings = DevelopSettings::default();
+        settings.crop.geometry.rect = lightcraft_geom::Rect::from_center(Point::new(0.75, 0.5), 0.5, 1.0);
+        let (w, h) = (80, 40);
+        let frame = Frame::new(w, h, &settings, true);
+        let img = Rgb32f::new(w, h);
+        let log_l = Plane::new(w, h);
+        let coarse = SegMask::from_logits(8, &[-12.0; 64]);
+        let patch = SegMask::from_logits_in(8, &[12.0; 64], [0.5, 0.0, 0.75, 1.0]);
+        let shape = MaskShape::Prompt { text: "test".into(), seg: Some(coarse), detail: vec![patch], edge: 100.0 };
+        let a = shape_alpha(&shape, &frame, w, h, &img, &log_l, 0.0);
+        assert!(a.get(4, 20) > 0.9 && a.get(75, 20) < 0.1);
+        for edge in [-77.3f64, -0.004, 0.0, 13.7, 100.0] {
+            let e = (edge / 100.0).clamp(-1.0, 1.0) as f32;
+            let gain = if e < 0.0 { 1.0 - 7.0 * e } else { 1.0 };
+            assert_eq!(li_matte::refine::edge_gain(edge), gain);
+        }
+        let mut no_edge = shape.clone();
+        if let MaskShape::Prompt { edge, .. } = &mut no_edge {
+            *edge = 0.0;
+        }
+        let b = shape_alpha(&no_edge, &frame, w, h, &img, &log_l, 0.0);
+        let expected = li_matte::refine::feather_edge(&b.data, w, h, 100.0, frame_px(&frame, w));
+        assert_eq!(a.data, expected);
+        let old: Mask = serde_json::from_str(r#"{"id":7,"components":[],"refine":30.0}"#).unwrap();
+        assert_eq!(old.refine, 30.0);
+        assert_eq!(old.opacity, 100.0);
+        assert!(!uses_subject_matting(&old));
+        let depth = Mask {
+            components: vec![MaskComponent {
+                name: None,
+                op: MaskOp::Add,
+                invert: false,
+                shape: MaskShape::DepthRange { lo: 0.3, hi: 0.7, feather: 0.1, seg: None },
+            }],
+            ..Default::default()
+        };
+        assert!(!uses_subject_matting(&depth));
+    }
+
+    #[test]
+    fn j14_develop_guided_golden() {
+        let (w, h) = (39, 23);
+        let guide = Plane::from_fn(w, h, |x, y| (0.03 + (x * 7 + y * 11) as f32 / 400.0).log2());
+        let mask = Plane::from_fn(w, h, |x, _| if x < 19 { 1.0 } else { 0.0 });
+        let q = guided_cross(&guide, &mask, 2.7, 0.02);
+        let hash = q.data.iter().fold(0xcbf29ce484222325u64, |h, v| (h ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3));
+        assert_eq!(hash, 7702663797854729420);
     }
 
     #[test]

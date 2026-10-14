@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+li-matte = { path = "../li-matte" }
 li-color = { workspace = true }
 li-fs = { workspace = true }
 tract-onnx = "0.23"

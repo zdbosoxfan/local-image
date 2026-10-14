@@ -9,6 +9,9 @@
 //! subject tiers use x/255 and clamped probabilities; legacy/custom IS-Net and U²-Net
 //! models retain peak scaling and min–max output. Maps are bilinearly resized to the photo.
 
+/// Shared edge refinement without an inference-runtime dependency for classical callers.
+pub use li_matte as matte;
+
 pub mod bpe;
 pub mod clip;
 pub use clip::{Clip, Crops, shared_clip};

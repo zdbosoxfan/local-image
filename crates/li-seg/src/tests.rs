@@ -855,3 +855,11 @@ fn cancel_from_another_thread_ends_a_long_predict_promptly() {
     assert!(cancelled_after < full.mul_f32(0.8) || full < std::time::Duration::from_millis(30), "cancelled after {cancelled_after:?}, full run {full:?}");
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn j14_shared_matte_entrypoint_needs_no_model() {
+    let mask = vec![0.2; 24];
+    let params = crate::matte::RefineParams::default();
+    assert_eq!(crate::matte::matting::refine_buffer(None, &mask, 6, 4, &params), mask);
+    assert_eq!(crate::matte::refine::MAX_SOLVE_EDGE, 1024);
+}

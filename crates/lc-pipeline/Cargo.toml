@@ -9,6 +9,7 @@ description = "LightCraft develop pipeline: scene-referred, float, resolution in
 workspace = true
 
 [dependencies]
+li-matte = { path = "../li-matte" }
 # Reuse the already locked pure-Rust editor patch and Poisson backend.
 photocraft-algo = { workspace = true }
 photocraft-raster = { workspace = true }

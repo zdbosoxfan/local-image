@@ -10,6 +10,7 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+li-matte = { path = "../li-matte" }
 lightcraft-meta.workspace = true
 lightcraft-merge = { workspace = true }
 li-color.workspace = true
