@@ -224,17 +224,19 @@ fn journal_open_refuses_newer_snapshot_without_modifying_it() {
 }
 
 #[test]
-fn journal_open_upgrades_older_snapshot_in_place() {
+fn journal_open_refuses_older_snapshot_without_modifying_it() {
     let dir = new_test_dir();
     let catalog = Catalog::new();
-    std::fs::write(dir.0.join(SNAPSHOT), snapshot_bytes_with_version(0, 1, &catalog).as_slice()).unwrap();
+    let older = snapshot_bytes_with_version(0, 1, &catalog);
+    std::fs::write(dir.0.join(SNAPSHOT), older.as_slice()).unwrap();
 
-    let (j, _, report) = Journal::open(new_store(&dir.0)).unwrap();
-    assert_eq!(report.upgraded_from, Some(1));
-    assert_eq!(j.snapshot_seq(), 0);
-
-    let rewritten = std::fs::read(dir.0.join(SNAPSHOT)).unwrap();
-    assert!(String::from_utf8_lossy(&rewritten).contains("\"version\":2"));
+    match Journal::open(new_store(&dir.0)) {
+        Err(CatalogError::Older(_)) => {}
+        Err(other) => panic!("expected CatalogError::Older, got {other}"),
+        Ok(_) => panic!("expected Journal::open to fail for an older snapshot"),
+    }
+    assert_eq!(std::fs::read(dir.0.join(SNAPSHOT)).unwrap(), older);
+    assert!(!dir.0.join(LOG).exists());
 }
 
 #[test]

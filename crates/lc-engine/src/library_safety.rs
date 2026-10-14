@@ -50,7 +50,7 @@ pub fn verify_pair(dir: &Path) -> Result<usize> {
         store.set(name, std::fs::read(dir.join(name)).map_err(other)?);
     }
     let (_, catalog, report) = Journal::open(Box::new(store))?;
-    if report.failed > 0 || report.torn_bytes > 0 || report.torn_fragments > 0 || report.damaged.is_some() || report.created {
+    if report.failed > 0 || report.torn_bytes > 0 || report.damaged.is_some() || report.created {
         return Err(other(format!("catalog integrity failed: {report:?}")));
     }
     Ok(catalog.len())

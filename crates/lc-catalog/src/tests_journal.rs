@@ -155,6 +155,7 @@ fn torn_last_record_is_tolerated() {
     let last_start = log[..log.len() - 1].iter().rposition(|b| *b == b'\n').unwrap() + 1;
     for cut in last_start..log.len() {
         let t = MemStore::new();
+        t.set(SNAPSHOT, m.get(SNAPSHOT).unwrap());
         t.set(LOG, log[..cut].to_vec());
         let (mut j, mut c, r) = open(&t);
         // the full record minus only its newline is complete and kept
@@ -177,6 +178,7 @@ fn torn_last_record_is_tolerated() {
     let t = MemStore::new();
     let mut g = log.clone();
     g.extend_from_slice(&[0, 0, 0, b'{', 0xff]);
+    t.set(SNAPSHOT, m.get(SNAPSHOT).unwrap());
     t.set(LOG, g);
     let (_, c, r) = open(&t);
     assert_eq!(c.to_snapshot(), full.to_snapshot());
@@ -275,32 +277,32 @@ fn fs_store_roundtrip() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// The streamed snapshot is byte-for-byte the format written before streaming (issue #37), so
-/// existing libraries load and older builds can read new snapshots; FsStore and MemStore agree.
+/// The streamed snapshot is byte-for-byte the plain `{format, version, seq, catalog}` JSON line
+/// (issue #37); FsStore and MemStore agree.
 #[test]
 fn streamed_snapshot_keeps_the_on_disk_format() {
     let (m, _, full) = sample_catalog_with_log();
     let (mut j, c, _) = open(&m);
     assert_eq!(c.to_snapshot(), full.to_snapshot());
     j.snapshot(&c).unwrap();
-    let legacy = format!(
+    let expected = format!(
         "{{\"format\":\"lightcraft-catalog\",\"version\":{},\"seq\":{},\"catalog\":{}}}\n",
         crate::journal::VERSION,
         j.seq(),
         c.to_snapshot()
     );
-    assert_eq!(String::from_utf8(m.get(SNAPSHOT).unwrap()).unwrap(), legacy);
-    assert_eq!(j.stats().last_snapshot.bytes, legacy.len() as u64);
+    assert_eq!(String::from_utf8(m.get(SNAPSHOT).unwrap()).unwrap(), expected);
+    assert_eq!(j.stats().last_snapshot.bytes, expected.len() as u64);
 
     let dir = std::env::temp_dir().join(format!("lc-journal-stream-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    // an old-style snapshot (written by a build before streaming) loads, and is rewritten the same
-    std::fs::write(dir.join(SNAPSHOT), legacy.as_bytes()).unwrap();
+    // that exact line loads, and is rewritten the same
+    std::fs::write(dir.join(SNAPSHOT), expected.as_bytes()).unwrap();
     let (mut fj, fc, r) = Journal::open(Box::new(FsStore::open(&dir).unwrap())).unwrap();
     assert_eq!((fc.to_snapshot(), r.snapshot_seq), (c.to_snapshot(), j.seq()));
     fj.snapshot(&fc).unwrap();
-    assert_eq!(std::fs::read(dir.join(SNAPSHOT)).unwrap(), legacy.as_bytes());
+    assert_eq!(std::fs::read(dir.join(SNAPSHOT)).unwrap(), expected.as_bytes());
     drop(fj);
     let _ = std::fs::remove_dir_all(&dir);
 }

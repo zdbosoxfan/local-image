@@ -1,4 +1,5 @@
-//! Persistence boundaries: journal replay, compacted disk snapshot, and frozen migration inputs.
+//! Persistence boundaries: journal replay, compacted disk snapshot, and frozen older-format inputs
+//! (refused).
 use lightcraft_catalog::journal::{LOG, SNAPSHOT, VERSION};
 use lightcraft_catalog::*;
 use lightcraft_develop::DevelopSettings;
@@ -145,44 +146,22 @@ fn frozen_v2_catalog_reference_loads_exact_records() {
     let (_, again, _) = Journal::open(Box::new(store)).unwrap();
     equal(&again, &expected_reference());
 }
+/// Frozen libraries from before format v2 (a v1 snapshot + log, and a versionless log-only
+/// journal) are refused as older, with nothing modified: there is no migration.
 #[test]
-fn frozen_v1_snapshot_and_log_migrate_using_existing_legacy_case() {
-    // Frozen form of src/tests_format_version.rs::legacy_parts (two photos + SetRating).
-    let store = MemStore::new();
-    store.set(SNAPSHOT, include_bytes!("fixtures/contracts/catalog-v1.snap").to_vec());
-    store.set(LOG, include_bytes!("fixtures/contracts/catalog-v1.log").to_vec());
-    let (_, actual, report) = Journal::open(Box::new(store.clone())).unwrap();
-    let mut expected = Catalog::new();
-    for _ in 0..2 {
-        let id = expected.alloc_photo_id();
-        expected
-            .apply(Op::AddPhoto {
-                photo: Box::new(Photo::new(id, Source::File { path: format!("/p/{}.jpg", id.0) }, "p.jpg", "JPEG", 4, 3, "2026-01-01")),
-            })
-            .unwrap();
+fn frozen_pre_v2_libraries_are_refused_untouched() {
+    let v1 = MemStore::new();
+    v1.set(SNAPSHOT, include_bytes!("fixtures/contracts/catalog-v1.snap").to_vec());
+    v1.set(LOG, include_bytes!("fixtures/contracts/catalog-v1.log").to_vec());
+    let v0 = MemStore::new();
+    v0.set(LOG, include_bytes!("fixtures/contracts/catalog-v0.log").to_vec());
+    for store in [v1, v0] {
+        let before = store.files.lock().unwrap().clone();
+        match Journal::open(Box::new(store.clone())) {
+            Err(CatalogError::Older(_)) => {}
+            Err(other) => panic!("expected CatalogError::Older, got {other}"),
+            Ok(_) => panic!("a pre-v2 library must not open"),
+        }
+        assert_eq!(*store.files.lock().unwrap(), before, "nothing modified");
     }
-    expected.apply(Op::SetRating { id: PhotoId(1), rating: 4 }).unwrap();
-    equal(&actual, &expected);
-    assert_eq!(report.upgraded_from, Some(1));
-    assert_eq!(report.replayed, 1);
-    let (_, again, report) = Journal::open(Box::new(store)).unwrap();
-    equal(&again, &expected);
-    assert_eq!(report.upgraded_from, None);
-}
-#[test]
-fn frozen_versionless_journal_migrates_without_losing_metadata() {
-    let store = MemStore::new();
-    store.set(LOG, include_bytes!("fixtures/contracts/catalog-v0.log").to_vec());
-    let (_, c, report) = Journal::open(Box::new(store.clone())).unwrap();
-    let mut expected = Catalog::new();
-    let id = expected.alloc_photo_id();
-    expected
-        .apply(Op::AddPhoto { photo: Box::new(Photo::new(id, Source::File { path: "/p/1.jpg".into() }, "p.jpg", "JPEG", 4, 3, "2026-01-01")) })
-        .unwrap();
-    expected.apply(Op::SetRating { id, rating: 4 }).unwrap();
-    equal(&c, &expected);
-    assert_eq!(report.upgraded_from, Some(0));
-    assert_eq!(report.replayed, 2);
-    let (_, again, _) = Journal::open(Box::new(store)).unwrap();
-    equal(&again, &expected);
 }

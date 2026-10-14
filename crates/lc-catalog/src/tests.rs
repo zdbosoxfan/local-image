@@ -520,7 +520,7 @@ fn person_rules_use_stable_ids_any_all_names_and_negative_ops() {
 }
 
 #[test]
-fn people_filter_any_everyone_and_old_filter_defaults() {
+fn people_filter_any_everyone_and_filter_defaults() {
     let mut c = Catalog::new();
     let a = photo(&mut c, "jane.jpg", "2026-10-09");
     let b = photo(&mut c, "john.jpg", "2026-10-09");
@@ -534,7 +534,7 @@ fn people_filter_any_everyone_and_old_filter_defaults() {
     assert_eq!(c.query(&f, &Default::default()).len(), 3);
     f.people_everyone = true;
     assert_eq!(c.query(&f, &Default::default()), vec![both]);
-    let old: Filter = serde_json::from_value(serde_json::json!({"person":"Jane"})).unwrap();
+    let old: Filter = serde_json::from_value(serde_json::json!({})).unwrap();
     assert!(old.person_ids.is_empty());
     assert!(!old.people_everyone);
     let saved = serde_json::to_value(&f).unwrap();
@@ -543,7 +543,7 @@ fn people_filter_any_everyone_and_old_filter_defaults() {
 }
 
 #[test]
-fn creator_snapshot_survives_inverse_ops_and_old_catalog_defaults() {
+fn creator_snapshot_survives_inverse_ops_and_single_creator_defaults() {
     let mut catalog = Catalog::new();
     let id = photo(&mut catalog, "creators.jpg", "2026-01-01");
     let multiple = Meta { creator: "Ann; Bob".into(), creators: vec!["Ann".into(), "Bob".into()], ..Default::default() };
@@ -562,10 +562,10 @@ fn creator_snapshot_survives_inverse_ops_and_old_catalog_defaults() {
     back.creator = "Ann; Bob".into();
     catalog.apply(Op::SetMeta { id, meta: Box::new(back) }).unwrap();
     assert!(catalog.photo(id).unwrap().meta.creators.is_empty(), "old snapshot must not revive after edit-away/edit-back");
-    let legacy: Meta = serde_json::from_value(serde_json::json!({"creator":"Ann; Bob"})).unwrap();
-    assert_eq!(legacy.creator, "Ann; Bob");
-    assert!(legacy.creators.is_empty());
-    let serialized = serde_json::to_value(&legacy).unwrap();
+    let single: Meta = serde_json::from_value(serde_json::json!({"creator":"Ann; Bob"})).unwrap();
+    assert_eq!(single.creator, "Ann; Bob");
+    assert!(single.creators.is_empty());
+    let serialized = serde_json::to_value(&single).unwrap();
     assert!(serialized.get("creators").is_none());
     let reopened: Meta = serde_json::from_value(serde_json::to_value(&multiple).unwrap()).unwrap();
     assert_eq!(reopened, multiple);

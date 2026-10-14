@@ -2,6 +2,14 @@
 
 Status: done. One commit on `wip/cl-j24-blake3-identity`.
 
+> **Superseded in part (Oct 14 2026, owner decision, job compat-a-catalog):** the legacy half
+> described below — `ContentId::Legacy`, the dual-hash `ContentHasher`, `<blake3>~<legacy>`
+> re-keying, `link_key` / `content_identity`, `LegacyIds` and `ProbeInfo::legacy_hash` — was
+> removed. v2 reads BLAKE3 identities only; catalogs from before format v2 are refused, and the
+> owner starts a fresh Library. `ContentId` is now a plain BLAKE3 identity, `content_key` is the
+> stored hash as-is, and `rekeyed` became `refreshed_hash` ("same bytes keep their hash, else the
+> probe's"). The SipHash cache keys (`Hash128` / `hash_bytes`) stay.
+
 ## What merged
 
 Two ways of identifying a file's bytes became one:

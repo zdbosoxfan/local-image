@@ -5,12 +5,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Sensitivity {
-    #[serde(alias = "Strict")]
     Strict,
     #[default]
-    #[serde(alias = "Balanced")]
     Balanced,
-    #[serde(alias = "Loose")]
     Loose,
 }
 

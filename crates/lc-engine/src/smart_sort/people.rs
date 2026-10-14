@@ -108,9 +108,7 @@ pub struct Person {
     pub pinned: bool,
     pub ignored: bool,
     pub seed_faces: Vec<FaceKey>,
-    #[serde(alias = "faces")]
     pub confirmed_faces: Vec<FaceKey>,
-    #[serde(alias = "rejected")]
     pub rejected_faces: Vec<FaceKey>,
     /// Unnamed cluster's prototype, not user confirmation.
     pub cluster_faces: Vec<FaceKey>,

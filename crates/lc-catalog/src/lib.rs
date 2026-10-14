@@ -7,9 +7,9 @@
 //! - **determinism**: replaying the log reproduces the state exactly (property-tested).
 //!
 //! **Catalog format version** ([`journal::VERSION`], see [`journal`] → *Format versions*): adding
-//! an [`Op`] variant or a serialized field means bumping it. Newer builds read every older format
-//! (and upgrade it on open); older builds refuse a newer library with [`CatalogError::Newer`]
-//! instead of reading part of it.
+//! an [`Op`] variant or a serialized field means bumping it. A build reads only its own format:
+//! an older library is refused with [`CatalogError::Older`], a newer one with
+//! [`CatalogError::Newer`], instead of reading part of it.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -58,6 +58,12 @@ pub enum CatalogError {
     /// version doesn't know). Nothing was read into the session and nothing was modified.
     #[error("this library was written by a newer version of LightCraft ({0}); update LightCraft to open it. The library was left unchanged.")]
     Newer(String),
+    /// The library was written by an earlier version in an older catalog format, which this
+    /// version does not read (nothing is migrated). Nothing was read and nothing was modified.
+    #[error(
+        "this library was made by an earlier version of Local Image ({0}), which this version can't open. Create a new Library and import your photos again. The library was left unchanged."
+    )]
+    Older(String),
 }
 
 pub type Result<T> = std::result::Result<T, CatalogError>;

@@ -185,11 +185,11 @@ fn sidecar_values_are_not_user_changes_and_sidecars_stay() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// A catalog written before browse times existed: its Local records are kept on the first open
-/// (their folders are stamped then), and forgotten only once the period has passed since.
+/// Local records without a browse time or baseline (nothing this build writes for a browse, so
+/// nothing says they are untouched) are never forgotten, however long ago, and nothing is stamped.
 #[test]
-fn upgraded_catalogs_forget_nothing_at_first() {
-    let root = temp_dir("upgrade");
+fn records_without_times_or_baselines_are_never_forgotten() {
+    let root = temp_dir("no-times");
     let (a, lib) = (root.join("a"), root.join("lib"));
     png(&a.join("x.png"), 1);
     let clock = Arc::new(Mutex::new("2026-08-01T10:00:00".to_string()));
@@ -198,7 +198,7 @@ fn upgraded_catalogs_forget_nothing_at_first() {
     look_elsewhere(&mut s);
     s.close_library().unwrap();
     drop(s);
-    // strip the times and baselines, as an older version would have written the snapshot
+    // strip the times and baselines
     let snap = std::fs::read_to_string(lib.join("catalog.snap")).unwrap();
     let mut v: serde_json::Value = serde_json::from_str(&snap).unwrap();
     v["catalog"].as_object_mut().unwrap().remove("browsed");
@@ -208,11 +208,11 @@ fn upgraded_catalogs_forget_nothing_at_first() {
     std::fs::write(lib.join("catalog.snap"), serde_json::to_vec(&v).unwrap()).unwrap();
     set(&clock, "2027-01-01T10:00:00");
     let s = open(&lib, &clock);
-    assert_eq!(local_paths(&s).len(), 1, "kept on the first open after the upgrade");
-    assert_eq!(s.catalog.last_browsed(&a.to_string_lossy()), Some("2027-01-01T10:00:00"));
+    assert_eq!(local_paths(&s).len(), 1, "kept");
+    assert_eq!(s.catalog.last_browsed(&a.to_string_lossy()), None, "nothing stamped");
     drop(s);
     set(&clock, "2027-02-15T10:00:00");
     let s = open(&lib, &clock);
-    assert!(local_paths(&s).is_empty(), "the untouched legacy record goes once 30 days passed");
+    assert_eq!(local_paths(&s).len(), 1, "still kept");
     let _ = std::fs::remove_dir_all(&root);
 }

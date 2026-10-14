@@ -1,7 +1,8 @@
-//! Scene-linear Clone spots and compatibility adapters for saved Heal / Remove spots.
+//! Scene-linear Clone spots and the source-based renderer for Heal / Remove spots.
 //!
-//! New automatic heals are background jobs stored as patches. Older source-based edits and
-//! Camera Raw Filter spots use the same patch/Poisson backend through a bounded region adapter.
+//! New automatic heals are background jobs stored as patches. Source-based Heal / Remove spots
+//! (with a source position, e.g. imported Camera Raw `crs:RetouchAreas` and Camera Raw Filter
+//! spots) use the same patch/Poisson backend through a bounded region adapter.
 //! Clone keeps its original feathered copy renderer and automatic-source APIs.
 
 use lightcraft_develop::{Spot, SpotMode};
@@ -152,7 +153,7 @@ pub fn apply_timed(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64, mu
             .collect();
         let Some(&first) = pts.first() else { continue };
         if spot.mode != SpotMode::Clone {
-            apply_legacy_heal(img, spot, &pts, r, to_out, stages.as_deref_mut());
+            apply_source_heal(img, spot, &pts, r, to_out, stages.as_deref_mut());
             continue;
         }
         let t0 = Instant::now();
@@ -356,9 +357,9 @@ fn inflate(b: PxBox, m: usize, w: usize, h: usize) -> PxBox {
     PxBox { x0: b.x0.saturating_sub(m), y0: b.y0.saturating_sub(m), x1: (b.x1 + m).min(w), y1: (b.y1 + m).min(h) }
 }
 
-/// Legacy settings keep their coordinates, source pin, feather and opacity. The work is
+/// Source-based spots keep their coordinates, source pin, feather and opacity. The work is
 /// restricted to the stroke plus three diameters of context, just like the background worker.
-fn apply_legacy_heal(img: &mut Rgb32f, spot: &Spot, pts: &[(f32, f32)], r: f32, to_out: lightcraft_geom::Affine, stages: Option<&mut Stages>) {
+fn apply_source_heal(img: &mut Rgb32f, spot: &Spot, pts: &[(f32, f32)], r: f32, to_out: lightcraft_geom::Affine, stages: Option<&mut Stages>) {
     use std::time::Instant;
     let start = Instant::now();
     let margin = (r * 6.0).ceil().clamp(48.0, 600.0);

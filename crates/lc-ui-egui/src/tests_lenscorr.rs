@@ -107,16 +107,17 @@ fn lenscorr_master_and_database_switches_click_and_preserve_precedence() {
     h.step();
     assert_ne!(settings(&h).optics.profile_vignetting, before.optics.profile_vignetting);
 
-    // A legacy catalog has no embedded header field, but decoding discovers vendor data.
-    // The UI must use the same cached source facts as rendering, without probing the file.
-    let mut legacy = h.app.session.catalog.photo(id).unwrap().as_ref().clone();
-    let decoded_lens = legacy.embedded_lens.unwrap();
-    legacy.embedded_lens = None;
-    legacy.source = lightcraft_catalog::Source::File { path: "/synthetic/legacy-vendor-lens.arw".into() };
-    legacy.width = 32;
-    legacy.height = 24;
+    // A photo without the embedded lens field (a host or probe that skips it), but decoding
+    // discovers vendor data. The UI must use the same cached source facts as rendering, without
+    // probing the file.
+    let mut unprobed = h.app.session.catalog.photo(id).unwrap().as_ref().clone();
+    let decoded_lens = unprobed.embedded_lens.unwrap();
+    unprobed.embedded_lens = None;
+    unprobed.source = lightcraft_catalog::Source::File { path: "/synthetic/unprobed-vendor-lens.arw".into() };
+    unprobed.width = 32;
+    unprobed.height = 24;
     h.app.session.catalog.apply(lightcraft_catalog::Op::RemovePhoto { id }).unwrap();
-    h.app.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(legacy) }).unwrap();
+    h.app.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(unprobed) }).unwrap();
     h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| {
         Ok((
             lightcraft_raster::Rgb32f::from_fn(32, 24, |_, _| [0.2, 0.3, 0.4]),

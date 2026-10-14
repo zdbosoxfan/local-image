@@ -1314,8 +1314,9 @@ impl LayerTools {
         self.used_keys().contains(&key)
     }
 
-    /// Editable sections the layer holds, in [`LAYER_KEYS`] order. Legacy global-only
-    /// fields remain loadable/renderable but do not advertise a layer tool in the UI.
+    /// Editable sections the layer holds, in [`LAYER_KEYS`] order. Sections that are whole-image
+    /// only in the UI (Treatment, B&W mix, Vignette, Grain) are still part of the layer data model
+    /// (rendered when set) but do not advertise a layer tool in the UI.
     pub fn used_keys(&self) -> Vec<&'static str> {
         let set = [
             self.wb.is_some(),
