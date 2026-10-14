@@ -21,10 +21,14 @@ mod sony;
 pub use dji::{DJI_NS, DjiMetadata};
 pub use sony::{SonyLensCorrection, SonyMetadata, SonyPixelShift};
 mod exif;
+mod file_info;
 mod gpx;
 mod iptc;
 pub mod tags;
 mod xmp;
+mod xmp_orientation;
+pub use file_info::{copyright_xmp, read_file_info, try_write_file_info, write_file_info};
+pub use xmp_orientation::upright_xmp;
 mod xmp_merge;
 
 pub use container::{Embedded, embedded, jpeg_segments, png_chunks, webp_chunks};
@@ -132,6 +136,9 @@ pub struct Metadata {
     /// artist edit is one literal creator, never a string to split on semicolons.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub creators: Vec<String>,
+    /// Creator job title (`photoshop:AuthorsPosition`), shared with editor File Info.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_title: Option<String>,
     pub copyright: Option<String>,
     /// Copyright status (`xmpRights:Marked`): `true` = copyrighted, `false` = public domain, `None` = unknown.
     pub copyright_marked: Option<bool>,
@@ -222,6 +229,7 @@ impl Metadata {
             gps,
             width,
             height,
+            author_title,
             copyright,
             copyright_marked,
             usage_terms,
@@ -255,7 +263,7 @@ impl Metadata {
             self.artist = other.artist.clone();
             self.creators = other.creators.clone();
         }
-        overlay!(self, other, rating, label, title, caption, copyright, copyright_marked, usage_terms, copyright_url, gps);
+        overlay!(self, other, rating, label, title, caption, author_title, copyright, copyright_marked, usage_terms, copyright_url, gps);
         if !other.keywords.is_empty() {
             self.keywords = other.keywords.clone();
         }

@@ -17,9 +17,6 @@
 
 use std::borrow::Cow;
 
-use lightcraft_tiff::ByteOrder as Order;
-use lightcraft_tiff::directory::{Entry, File};
-
 use crate::error::CodecError;
 use crate::image::Image;
 
@@ -31,135 +28,9 @@ pub(crate) fn encoded_xmp(xmp: &str, keep_orientation: bool) -> Cow<'_, str> {
     if keep_orientation { Cow::Borrowed(xmp) } else { upright_xmp(xmp) }
 }
 
-/// The TIFF/EXIF Orientation tag.
-const TAG_ORIENTATION: u16 = 274;
-/// Field types accepted for the Orientation tag: SHORT (the spec) and LONG
-/// (written by some cameras and tools).
-const TYPE_SHORT: u16 = 3;
-const TYPE_LONG: u16 = 4;
-/// The TIFF payload of an EXIF block (a JPEG-style `Exif\0\0` prefix is skipped).
-fn tiff_body(b: &[u8]) -> &[u8] {
-    b.strip_prefix(b"Exif\0\0").unwrap_or(b)
-}
-
-/// A well-formed Orientation entry's value: where it sits and its field type.
-#[derive(Clone, Copy)]
-struct Value {
-    at: usize,
-    ty: u16,
-}
-
-impl Value {
-    /// The stored value (a SHORT or LONG, left-justified in the 4-byte field).
-    fn read(self, order: Order, b: &[u8]) -> Option<u32> {
-        match self.ty {
-            TYPE_SHORT => order.read_u16(b, self.at).map(u32::from),
-            _ => order.read_u32(b, self.at),
-        }
-    }
-
-    /// 1 in this entry's own type, width and byte order.
-    fn one(self, order: Order) -> Vec<u8> {
-        match (self.ty, order) {
-            (TYPE_SHORT, Order::Little) => 1u16.to_le_bytes().to_vec(),
-            (TYPE_SHORT, Order::Big) => 1u16.to_be_bytes().to_vec(),
-            (_, Order::Little) => 1u32.to_le_bytes().to_vec(),
-            (_, Order::Big) => 1u32.to_be_bytes().to_vec(),
-        }
-    }
-}
-
-/// The value of the entry at `e` if it is a well-formed Orientation entry:
-/// exactly one SHORT or LONG.
-fn orientation_value(entry: &Entry) -> Option<Value> {
-    if entry.tag != TAG_ORIENTATION || entry.count != 1 || !matches!(entry.ty, TYPE_SHORT | TYPE_LONG) {
-        return None;
-    }
-    Some(Value { at: usize::try_from(entry.value_at).ok()?, ty: entry.ty })
-}
-
-/// Locate the first Orientation entry, retaining unknown types so a malformed first
-/// duplicate cannot be overridden by a later well-formed entry.
-fn find_entry(b: &[u8]) -> Option<(Order, Value)> {
-    let file = File::parse(b)?;
-    let entry = file.entries_at(file.first_ifd)?.find(|entry| entry.tag == TAG_ORIENTATION)?;
-    Some((file.order(), orientation_value(&entry)?))
-}
-
-/// The orientation (1–8) recorded in a TIFF-structured block: an EXIF payload
-/// (with or without the `Exif\0\0` prefix) or a whole TIFF file. Missing,
-/// malformed or out-of-range values give 1.
-pub fn exif_orientation(exif: &[u8]) -> u16 {
-    let b = tiff_body(exif);
-    find_entry(b).and_then(|(order, v)| v.read(order, b)).and_then(|v| u16::try_from(v).ok()).filter(|v| (1..=8).contains(v)).unwrap_or(1)
-}
-
-/// `exif` with its Orientation rewritten to 1, borrowed when there is nothing
-/// to change (no well-formed tag, already 1, or unparseable).
-///
-/// Only the value bytes of each well-formed Orientation entry change, written
-/// as 1 in the entry's existing type and width (SHORT or LONG); every other
-/// byte (other tags, their offset-based values, sub-IFDs) is kept as is.
-/// Well-formed duplicates are all set to 1, so a reader that lets a later
-/// duplicate win cannot rotate the upright pixels either.
-pub fn upright_exif(exif: &[u8]) -> Cow<'_, [u8]> {
-    let body = tiff_body(exif);
-    let prefix = exif.len() - body.len();
-    let Some(file) = File::parse(body) else {
-        return Cow::Borrowed(exif);
-    };
-    let Some(entries) = file.entries_at(file.first_ifd) else {
-        return Cow::Borrowed(exif);
-    };
-    let order = file.order();
-    let values: Vec<Value> = entries.filter_map(|entry| orientation_value(&entry)).collect();
-    if values.iter().all(|v| v.read(order, body) == Some(1)) {
-        return Cow::Borrowed(exif);
-    }
-    let mut out = exif.to_vec();
-    for v in values {
-        let one = v.one(order);
-        let slot = prefix.checked_add(v.at).and_then(|at| out.get_mut(at..at.checked_add(one.len())?));
-        if let Some(slot) = slot {
-            slot.copy_from_slice(&one);
-        }
-    }
-    Cow::Owned(out)
-}
-
-/// `xmp` with any `tiff:Orientation` (attribute or element form) set to 1,
-/// borrowed when there is nothing to change.
-pub fn upright_xmp(xmp: &str) -> Cow<'_, str> {
-    const KEY: &str = "tiff:Orientation";
-    if !xmp.contains(KEY) {
-        return Cow::Borrowed(xmp);
-    }
-    let mut out = String::with_capacity(xmp.len());
-    let mut rest = xmp;
-    let mut changed = false;
-    while let Some(i) = rest.find(KEY) {
-        let (head, tail) = rest.split_at(i + KEY.len());
-        out.push_str(head);
-        rest = tail;
-        // `tiff:Orientation="6"`, `tiff:Orientation='6'` or `<tiff:Orientation>6<`.
-        let open = rest.char_indices().take_while(|&(_, c)| c.is_ascii_whitespace() || matches!(c, '=' | '"' | '\'' | '>')).last();
-        let Some((at, c)) = open else { continue };
-        if !matches!(c, '"' | '\'' | '>') {
-            continue;
-        }
-        let start = at + 1;
-        let digits = rest.get(start..).map_or(0, |s| s.bytes().take_while(u8::is_ascii_digit).count());
-        if digits == 0 || rest.get(start..start + digits) == Some("1") {
-            continue;
-        }
-        out.push_str(rest.get(..start).unwrap_or_default());
-        out.push('1');
-        rest = rest.get(start + digits..).unwrap_or_default();
-        changed = true;
-    }
-    out.push_str(rest);
-    if changed { Cow::Owned(out) } else { Cow::Borrowed(xmp) }
-}
+pub use lightcraft_meta::upright_xmp;
+/// Shared byte-preserving metadata helpers. Pixel orientation remains codec-local.
+pub use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 
 /// Source pixel index for output pixel `(0, y2)` and the step per output column, for
 /// orientation `o` of a `w`×`h` source (values 2–8; see the module docs).
@@ -291,6 +162,7 @@ impl Image {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightcraft_tiff::{ByteOrder as Order, directory::File};
 
     #[test]
     fn shared_directory_orientation_keeps_unknown_first_duplicate_and_patches_later_values() {
@@ -335,5 +207,16 @@ mod tests {
         assert!(matches!(alloc_zeroed(usize::MAX), Err(CodecError::LimitExceeded(_))));
         assert!(matches!(orient_n::<1>(&[], 6, (0, 0), 0), Ok(v) if v.is_empty()));
         assert_eq!(alloc_zeroed(3).unwrap(), vec![0, 0, 0]);
+    }
+    #[test]
+    fn j03_metadata_adapters_share_the_library_backend_policy() {
+        for value in 1..=8 {
+            let exif = lightcraft_tiff::exif::minimal_exif(value);
+            assert_eq!(exif_orientation(&exif), lightcraft_tiff::exif::orientation(&exif));
+            assert_eq!(upright_exif(&exif), lightcraft_tiff::exif::upright(&exif));
+        }
+        let packet = r#"<rdf:Description xmlns:o="http://ns.adobe.com/tiff/1.0/" o:Orientation='6'/>"#;
+        assert_eq!(upright_xmp(packet), packet.replace("'6'", "'1'"));
+        assert_eq!(upright_xmp(packet), lightcraft_meta::upright_xmp(packet));
     }
 }

@@ -298,6 +298,10 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
         (t::EXPOSURE_TIME, r(meta.exposure_time)),
         (t::F_NUMBER, r(meta.f_number)),
         (t::FOCAL_LENGTH, r(meta.focal_length)),
+        (
+            t::FOCAL_LENGTH_35MM,
+            meta.focal_length_35mm.filter(|v| v.is_finite() && *v > 0.0 && *v <= f64::from(u16::MAX)).map(|v| Value::Short(vec![v.round() as u16])),
+        ),
         (t::ISO_SPEED, meta.iso.map(|i| Value::Short(vec![i.min(65_535) as u16]))),
         (t::LENS_MAKE, ascii(&meta.lens_make)),
         (t::LENS_MODEL, ascii(&meta.lens_model)),
@@ -306,6 +310,11 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
         if let Some(v) = v {
             ex.set(tag, v);
         }
+    }
+    if let Some(iso) = meta.iso.filter(|i| *i > u32::from(u16::MAX)) {
+        // Exif 2.32: 65535 in PhotographicSensitivity plus a LONG ISO Speed.
+        ex.set(t::SENSITIVITY_TYPE, Value::Short(vec![3]));
+        ex.set(t::ISO_SPEED_RATINGS_EXT, Value::Long(vec![iso]));
     }
     ifd0.set_child(t::EXIF_IFD, ex);
     if let Some(g) = meta.gps {

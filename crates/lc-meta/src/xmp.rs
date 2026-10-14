@@ -167,6 +167,7 @@ fn canonical(qname: &str, scopes: &[Vec<(String, String)>]) -> String {
         Some(u) => match NAMESPACES.iter().find(|(_, nu)| *nu == u) {
             Some((p, _)) => format!("{p}:{local}"),
             None if prefix.is_empty() => local.to_string(),
+            None if NAMESPACES.iter().any(|(known, _)| *known == prefix) => format!("{{{u}}}{local}"),
             None => qname.to_string(),
         },
         None => qname.to_string(),
@@ -242,7 +243,13 @@ fn parse_tree(s: &str) -> Result<Node, XmpError> {
                 }
                 scopes.push(scope);
                 let name = canonical(&String::from_utf8_lossy(e.name().as_ref()), &scopes);
-                let attrs = raw_attrs.into_iter().map(|(k, v)| (canonical(&k, &scopes), v)).collect();
+                let attrs = raw_attrs
+                    .into_iter()
+                    .map(|(k, v)| {
+                        let name = if k.contains(':') { canonical(&k, &scopes) } else { k };
+                        (name, v)
+                    })
+                    .collect();
                 let node = Node { name, attrs, ..Default::default() };
                 if matches!(ev, Event::Empty(_)) {
                     scopes.pop();
@@ -491,6 +498,7 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         height: num("tiff:ImageLength").or_else(|| num("exif:PixelYDimension")).map(|v| v as u32),
         title: first("dc:title"),
         caption: first("dc:description"),
+        author_title: first("photoshop:AuthorsPosition"),
         alt_text: first("Iptc4xmpCore:AltTextAccessibility"),
         extended_description: first("Iptc4xmpCore:ExtDescrAccessibility"),
         sublocation: first("Iptc4xmpCore:Location"),
@@ -606,6 +614,7 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     push("exifEX:LensModel", meta.lens_model.clone());
     push("exifEX:LensSerialNumber", meta.lens_serial_number.clone());
     push("Iptc4xmpCore:Location", meta.sublocation.clone());
+    push("photoshop:AuthorsPosition", meta.author_title.clone());
     push("photoshop:City", meta.city.clone());
     push("photoshop:State", meta.state.clone());
     push("photoshop:Country", meta.country.clone());
@@ -772,6 +781,7 @@ mod tests {
             height: Some(6000),
             artist: Some("Ann \"Photo\" Lee".into()),
             creators: Vec::new(),
+            author_title: None,
             copyright: Some("© 2022".into()),
             copyright_marked: Some(true),
             usage_terms: Some("Editorial use only; no <resale>".into()),
