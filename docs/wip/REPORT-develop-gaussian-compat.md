@@ -35,5 +35,30 @@ The first sandbox GPU attempt failed the physical-device requirement on software
 rendering; the subsequent host/device run passed without a skip or software fallback.
 These checks establish rendering compatibility, not Match Look quality or throughput.
 
-The independent PR onto current v2 records its base, cache version and fresh validation
-below when prepared. It does not require merging the unfinished Match Look feature.
+## Independent v2 PR validation
+
+The fix is isolated onto v2 `d4d24ead`; it contains no Match Look implementation or
+RAW changes. Upstream has already advanced the render-cache version to 19, so this
+PR bumps it to 20 (the older feature checkpoint used 18).
+
+Fresh baseline versus fix checks on current v2:
+
+| Check | v2 baseline | With fix |
+| --- | --- | --- |
+| Full pipeline unit suite | 231 pass, 4 fail, 3 existing ignores | 234 pass, 1 fail, 3 existing ignores |
+| Unchanged render golden rows | 11 of 20 exact | 19 of 20 exact |
+| Fourteen settings hashes | All exact | All exact |
+
+The remaining failure is `tests_toolset::old_settings_load_and_match_detail_goldens`,
+specifically `optics + geometry + crop/raw`. Its actual hash is **identical before and
+after this fix**, `0xb7a97257711456dc`, while the unchanged expectation is
+`0xded90c5d0013a5d1`. Newer v2 lens/geometry work lies outside this PR. No new golden
+row fails; eight previously changed rows are restored. No expected value, fixture,
+threshold or ignore was edited. The full pipeline suite is therefore not reported green.
+
+Shared/Library raster tests pass (35 total, one existing ignore); the host GPU-plan
+test, full app check and narrow formatting/diff checks also pass. Fresh physical
+RTX 5090/Vulkan checks pass all 32 Gaussian cases (maximum float difference 7.15e-7)
+and eighteen full-render cases (maximum one output code), with hardware required.
+A compact machine-readable summary is in `develop-gaussian-validation.json`. Strict Clippy
+remains unavailable for the compiler/driver mismatch described above.
