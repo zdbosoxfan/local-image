@@ -1167,3 +1167,7 @@ mod j04_proxy_tests {
         assert!(max < 1e-4, "proxy/commit resampling error={max}");
     }
 }
+
+#[cfg(test)]
+#[path = "camera_raw_gpu_tests.rs"]
+mod cr_gpu_tests;

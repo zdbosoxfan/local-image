@@ -679,9 +679,17 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let alpha=alpha_at(layer,i,n);
         if(alpha>0.0 && (descriptor(layer,2u)&64u)!=0u){layer_context(layer);let q=apply_grain(e,x,y);clear_context();e=e+(q-e)*alpha;}
     }
+    if (P[F_DEPTH] == 2u) {
+        // Match finish_deep(F32Linear): decode the unquantized sRGB-curve values,
+        // after grain, into the requested primaries. Keep the preview alpha sentinel.
+        let q = vec3<f32>(srgb_to_linear(clamp(e.x,0.0,1.0)), srgb_to_linear(clamp(e.y,0.0,1.0)), srgb_to_linear(clamp(e.z,0.0,1.0)));
+        out[n + 3u*i] = bitcast<u32>(q.x);
+        out[n + 3u*i + 1u] = bitcast<u32>(q.y);
+        out[n + 3u*i + 2u] = bitcast<u32>(q.z);
+    }
     e = vec3<f32>(out_encode(e.x), out_encode(e.y), out_encode(e.z));
     out[i] = enc8(e.x, x, y, 0u) | (enc8(e.y, x, y, 1u) << 8u) | (enc8(e.z, x, y, 2u) << 16u) | (255u << 24u);
-    if (P[F_DEPTH] != 0u) {
+    if (P[F_DEPTH] == 1u) {
         // Match finish_deep: rounded encoded RGB, without the preview's 8-bit dither.
         let q = vec3<u32>(clamp(e, vec3<f32>(0.0), vec3<f32>(1.0)) * 65535.0 + 0.5);
         out[n + 2u*i] = q.x | (q.y << 16u);

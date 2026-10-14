@@ -533,8 +533,8 @@ pub fn render_hs_candidate(
     CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     #[cfg(not(target_arch = "wasm32"))]
     {
-        // Linear float exports and soft proofs still use the CPU.
-        if !enabled() || req.depth == lightcraft_pipeline::OutputDepth::F32Linear || req.proof.is_some() {
+        // Soft proofs still use the CPU.
+        if !enabled() || req.proof.is_some() {
             return None;
         }
         let ext = stages.map(|c| c.extension::<GpuStages>());
@@ -764,6 +764,44 @@ mod recovery_tests {
         let recovered = render(&src, &info, &settings, &req, Some(&stages)).expect("automatic retry recreates device");
         assert!(GENERATION.load(Ordering::Acquire) > generation);
         assert_eq!(reference.image, recovered.image);
+        drop(stages);
+        drop(old);
+        assert!(shutdown(Duration::from_secs(120)));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod cr_float_recovery_tests {
+    #[test]
+    #[ignore = "requires a real hardware GPU; destroys only this test process's compute device"]
+    fn cr_gpu_float_device_loss_recovers_cached_deep_output() {
+        use super::*;
+        use std::time::Duration;
+        let _guard = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let old = device().expect("real GPU required");
+        assert_ne!(old.info.device_type, wgpu::DeviceType::Cpu);
+        println!("Float device-loss adapter: {} ({:?})", old.info.name, old.info.backend);
+        let src = Arc::new(lightcraft_scenes::demo_library()[0].render(192, 128));
+        let info = SourceInfo::default();
+        let mut settings = DevelopSettings::default();
+        settings.light.exposure = 0.5;
+        settings.effects.texture = 25.0;
+        let req = RenderRequest {
+            space: lightcraft_pipeline::OutputSpace::Rec2020,
+            depth: lightcraft_pipeline::OutputDepth::F32Linear,
+            ..RenderRequest::fit(192, 128)
+        };
+        let stages = StageCache::default();
+        let reference = render(&src, &info, &settings, &req, Some(&stages)).expect("initial float GPU render");
+        let generation = GENERATION.load(Ordering::Acquire);
+        old.device.destroy();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| old.device.poll(wgpu::PollType::Poll)));
+        assert!(!old.health.is_ok(), "the device-loss callback must close admission");
+        assert!(render(&src, &info, &settings, &req, Some(&stages)).is_none(), "caller must use CPU while device is lost");
+        std::thread::sleep(Duration::from_millis(4100));
+        let recovered = render(&src, &info, &settings, &req, Some(&stages)).expect("automatic retry must recreate device");
+        assert!(GENERATION.load(Ordering::Acquire) > generation);
+        assert_eq!(reference.deep.unwrap().samples, recovered.deep.unwrap().samples, "replacement must invalidate/rebuild cached float stages");
         drop(stages);
         drop(old);
         assert!(shutdown(Duration::from_secs(120)));

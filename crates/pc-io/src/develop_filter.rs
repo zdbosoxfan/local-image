@@ -1,11 +1,11 @@
 //! local-image: **Filter › Camera Raw Filter…** (`filter.develop`) on layer pixels, through the
-//! Library's develop engine ([`lightcraft_pipeline::render`]), so a layer develops exactly like a
+//! Library's develop engine ([`lightcraft_engine::media::develop`]), so a layer develops exactly like a
 //! rendered photo (a JPEG or TIFF) in the Library's Develop module.
 //!
 //! ```text
 //! layer RGBA (document colour space, 8/16/32-bit)
 //!   ──document profile → linear Rec.2020──► Rgb32f (alpha set aside)
-//!   ──lightcraft_pipeline::render(SourceInfo::default(), settings)──► linear Rec.2020
+//!   ──shared GPU Develop (automatic CPU fallback)──► linear Rec.2020
 //!   ──linear Rec.2020 → document profile──► layer RGB, alpha copied back unchanged
 //! ```
 //!
@@ -190,7 +190,8 @@ impl Conv {
 // ------------------------------------------------------------------------------ rendering
 
 /// Develops linear Rec.2020 pixels (`w × h`) with `s` as a rendered (non-raw) photo, at full
-/// size. The result is linear Rec.2020 (0..1).
+/// size. Uses Library Develop's GPU/DeviceHealth path with automatic CPU fallback.
+/// The result is linear Rec.2020 (0..1).
 pub fn render_working(rgb: Vec<[f32; 3]>, w: usize, h: usize, s: &DevelopSettings) -> Result<Vec<[f32; 3]>, String> {
     render_working_scaled(rgb, w, h, s, 1.0)
 }
@@ -200,10 +201,10 @@ fn render_working_scaled(rgb: Vec<[f32; 3]>, w: usize, h: usize, s: &DevelopSett
     if w.checked_mul(h) != Some(rgb.len()) || w == 0 || h == 0 {
         return Err("develop: bad image size".into());
     }
-    let src = lightcraft_raster::Rgb32f { width: w, height: h, data: rgb };
+    let src = Arc::new(lightcraft_raster::Rgb32f { width: w, height: h, data: rgb });
     let req = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
     let info = SourceInfo { sensor_scale: pixel_scale.recip(), ..Default::default() };
-    let out = lightcraft_pipeline::render(&src, &info, s, &req);
+    let out = lightcraft_engine::media::develop(&src, &info, s, &req, None, true);
     match out.deep {
         Some(d) if d.width == w && d.height == h => match d.samples {
             DeepSamples::F32(v) => Ok(v.as_chunks::<3>().0.to_vec()),
