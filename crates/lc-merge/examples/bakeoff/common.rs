@@ -198,7 +198,8 @@ fn pair(image: &Image, dx: f64, dy: f64, angle: f64, scale: f64, gain: f32) -> P
     let truth = [c, -s, tx, s, c, ty, 0.0, 0.0, 1.0];
     let det = c * c + s * s;
     let inv = [c / det, s / det, -(c * tx + s * ty) / det, -s / det, c / det, (s * tx - c * ty) / det, 0.0, 0.0, 1.0];
-    let b = (0..image.w * image.h).map(|i| (sample(&a, image.w, image.h, apply(&inv, [(i % image.w) as f64, (i / image.w) as f64])) * gain).min(1.0)).collect();
+    let warped = |i: usize| sample(&a, image.w, image.h, apply(&inv, [(i % image.w) as f64, (i / image.w) as f64]));
+    let b = (0..image.w * image.h).map(|i| (warped(i) * gain).min(1.0)).collect();
     Pair { w: image.w, h: image.h, a, b, truth }
 }
 
@@ -224,10 +225,9 @@ fn match_quality(pair: &Pair, r: &Registration) -> MatchQuality {
             yes
         })
         .count();
-    let residual = r.fit.and_then(|h| {
-        (!r.inliers.is_empty())
-            .then(|| (r.inliers.iter().map(|&i| distance(apply(&h, r.matches[i].0), r.matches[i].1).powi(2)).sum::<f64>() / r.inliers.len() as f64).sqrt())
-    });
+    let squared = |h: &[f64; 9], i: usize| distance(apply(h, r.matches[i].0), r.matches[i].1).powi(2);
+    let mean = |h: &[f64; 9]| r.inliers.iter().map(|&i| squared(h, i)).sum::<f64>() / r.inliers.len() as f64;
+    let residual = r.fit.and_then(|h| (!r.inliers.is_empty()).then(|| mean(&h).sqrt()));
     let grid = r.fit.and_then(|h| {
         let mut errors = Vec::new();
         for y in 1..=5 {
