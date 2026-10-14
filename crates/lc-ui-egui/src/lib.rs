@@ -17,10 +17,12 @@ pub mod headless;
 pub mod i18n;
 pub mod icons;
 pub mod import;
+mod library_safety_ui;
 pub mod links;
 pub mod menubar;
 pub mod menus;
 pub mod merge;
+pub mod proof_sheet;
 #[rustfmt::skip] // Keep shared artwork code under Compositing's rustfmt configuration.
 #[path = "../../pc-ui-egui/src/mono_tool_icons.rs"]
 mod mono_tool_icons;
@@ -260,10 +262,12 @@ pub struct LightcraftApp {
     pub merge: merge::MergeState,
     /// An import in progress (the import review dialog's batches).
     pub import: Option<import::ImportTask>,
+    pub(crate) import_preview_queue: std::collections::VecDeque<(u64, String, Vec<u64>)>,
     /// A folder scan in progress (feeds the import review).
     pub scan: Option<import::ScanTask>,
     /// A background export in progress.
     pub export: Option<export_task::ExportTask>,
+    pub proof: Option<proof_sheet::ProofTask>,
     pub smart_sort: Option<smart_sort_task::SmartSortTask>,
     pub people_task: Option<people_task::PeopleTask>,
     pub people_images: people_task::SeedImages,
@@ -357,8 +361,10 @@ impl LightcraftApp {
             loupe_shown: None,
             merge: merge::MergeState::default(),
             import: None,
+            import_preview_queue: Default::default(),
             scan: None,
             export: None,
+            proof: None,
             smart_sort: None,
             people_task: None,
             people_images: Default::default(),
@@ -993,6 +999,7 @@ impl LightcraftApp {
         panels::enhance::poll(self, &ctx);
         // Completion/failure collection continues even while interactive windows are suspended.
         export_task::poll(self, &ctx);
+        proof_sheet::poll(self, &ctx);
         if self.ui.fullscreen {
             // full-screen preview: the photo alone on black
             egui::CentralPanel::default().frame(egui::Frame::NONE.fill(egui::Color32::BLACK)).show(ui, |ui| panels::detail::show(self, ui));
@@ -1448,3 +1455,6 @@ mod tests_library_navigation;
 
 #[cfg(test)]
 mod shared_shell_tests;
+
+#[cfg(test)]
+mod library_safety_tests;

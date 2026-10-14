@@ -417,26 +417,31 @@ pub fn flyout_row(ui: &mut Ui, id: &str, title: &str, icon: Icon, open: bool) ->
     resp
 }
 
+fn text_button_size(label_width: f32) -> egui::Vec2 {
+    vec2((label_width + 18.0).max(37.0), 24.0)
+}
+
 /// A small bordered text button (Auto, B&W, HDR…).
 pub fn text_button(ui: &mut Ui, id: &str, label: &str, active: bool) -> Response {
     let label = if id.starts_with("labelSet-") { label } else { crate::i18n::tr(label) };
     let t = Tokens::get(ui.ctx());
+    let text = if ui.is_enabled() { t.text } else { t.text_disabled };
     let font = t.semibold(11.5);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, t.text);
-    let size = vec2((galley.size().x + 18.0).max(37.0), 24.0);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, text);
+    let size = text_button_size(galley.size().x);
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, label));
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), active, label));
     register(ui.ctx(), format!("button:{id}"), r);
     let fill = if active {
         t.pressed
-    } else if resp.hovered() {
+    } else if resp.hovered() || resp.has_focus() {
         t.hover
     } else {
         t.button
     };
     let p = ui.painter();
     p.rect(r, CornerRadius::same(4), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
-    p.galley(r.center() - galley.size() / 2.0, galley, t.text);
+    p.galley(r.center() - galley.size() / 2.0, galley, text);
     resp
 }
 
@@ -709,12 +714,13 @@ pub fn stars(ui: &mut Ui, id: &str, rating: u8, size: f32) -> Option<u8> {
 /// A borderless dropdown button: `text` followed by a painted chevron (no font glyph needed).
 pub fn dropdown(ui: &mut Ui, id: &str, text: &str, font: egui::FontId, color: Color32) -> Response {
     let t = Tokens::get(ui.ctx());
+    let color = if ui.is_enabled() { color } else { t.text_disabled };
     let galley = ui.painter().layout_no_wrap(text.to_string(), font, color);
     let size = vec2(galley.size().x + 20.0, galley.size().y.max(20.0));
     let (r, resp) = ui.allocate_exact_size(size, Sense::click());
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, text));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), text));
     register(ui.ctx(), format!("dropdown:{id}"), r);
-    let c = if resp.hovered() { t.text } else { color };
+    let c = if resp.hovered() || resp.has_focus() { t.text } else { color };
     ui.painter().galley(pos2(r.left(), r.center().y - galley.size().y / 2.0), galley, c);
     paint(ui.painter(), Rect::from_center_size(pos2(r.right() - 7.0, r.center().y + 1.0), vec2(12.0, 12.0)), Icon::ChevronDown, c);
     resp
@@ -850,4 +856,71 @@ mod access_tests {
         run(vec![egui::Event::Text("1.25".into())]);
         assert!(seen, "focused numeric TextInput must expose its control name and current draft to accessibility");
     }
+}
+
+/// The themed, accessible checkbox used by import and catalog/proof settings.
+/// Styling comes from the global theme; automation uses `check:{id}`.
+pub fn checkbox(ui: &mut Ui, id: &str, value: &mut bool, label: &str) -> Response {
+    let response = ui.checkbox(value, crate::i18n::tr(label));
+    register(ui.ctx(), format!("check:{id}"), response.rect);
+    response
+}
+
+/// A reusable choice dropdown: themed shell and menu rows, translated accessible labels.
+/// Import, backup preferences and proof sheet options use `dropdown:{id}` and `button:{id}-{i}`.
+pub fn choice<T: PartialEq + Clone>(ui: &mut Ui, id: &str, value: &mut T, options: &[(T, &str)]) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let label = options.iter().find(|(v, _)| *v == *value).map_or("Choose…", |(_, l)| *l);
+    let response = dropdown(ui, id, crate::i18n::tr(label), t.font(12.), t.text);
+    let mut changed = false;
+    egui::Popup::menu(&response).show(|ui| {
+        for (i, (v, label)) in options.iter().enumerate() {
+            if text_button(ui, &format!("{id}-{i}"), label, *value == *v).clicked() {
+                changed = *value != *v;
+                *value = v.clone();
+                ui.close();
+            }
+        }
+    });
+    changed
+}
+
+/// A labelled, width-adaptive text field for dialogs and settings. Registers `field:{id}`.
+/// Used for PDF captions/destinations; retains the native theme, keyboard and screen-reader behavior.
+pub fn text_field(ui: &mut Ui, id: &str, value: &mut String, label: &str) -> Response {
+    // TextEdit's desired width excludes its frame padding. Bound the complete field so an
+    // auto-sized window doesn't grow on every frame, moving targets between down and up.
+    let padding = ui.spacing().button_padding;
+    let width = (ui.available_width().min(ui.spacing().text_edit_width) - padding.x * 2.).max(0.);
+    let response = ui.add(egui::TextEdit::singleline(value).margin(padding).desired_width(width).hint_text(crate::i18n::tr(label)));
+    response.widget_info(|| {
+        let mut info = egui::WidgetInfo::text_edit(ui.is_enabled(), value.as_str(), value.as_str(), "");
+        info.label = Some(crate::i18n::tr(label).to_string());
+        info
+    });
+    register(ui.ctx(), format!("field:{id}"), response.rect);
+    response
+}
+
+/// A text field with a labelled action, stacked when the row cannot fit. Import backup folders
+/// and proof-sheet output use this so a narrow panel never clips its Choose button.
+pub fn field_with_action(ui: &mut Ui, id: &str, value: &mut String, label: &str, action: &str, enabled: bool) -> bool {
+    let t = Tokens::get(ui.ctx());
+    let action_width = text_button_size(ui.painter().layout_no_wrap(crate::i18n::tr(action).to_string(), t.semibold(11.5), t.text).size().x).x;
+    let fits = ui.available_width() >= ui.spacing().text_edit_width + action_width + ui.spacing().item_spacing.x;
+    let mut clicked = false;
+    if !fits {
+        text_field(ui, id, value, label);
+    }
+    ui.horizontal(|ui| {
+        if fits {
+            text_field(ui, id, value, label);
+        }
+        clicked = ui
+            .add_enabled_ui(enabled, |ui| text_button(ui, id, action, false))
+            .inner
+            .on_disabled_hover_text(crate::i18n::tr("Folder picker is not available here"))
+            .clicked();
+    });
+    clicked
 }

@@ -198,6 +198,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("dialog.pasteSettings", "Paste Selected Settings…", Some("Cmd+Shift+V"), "Edit"),
     ("dialog.syncSettings", "Sync Settings…", Some("Cmd+Shift+S"), "Photo"),
     ("view.focusSearch", "Find…", Some("Cmd+F"), "Edit"),
+    ("dialog.proofSheet", "Export Proof Sheet…", None, "File"),
     ("dialog.export", "Export…", Some("Cmd+Shift+E"), "File"),
     ("dialog.smartSort", "Smart Sort & Export…", None, "File"),
     // replace the original with the edited render (asks first; raws get a JPEG beside them)
@@ -1003,6 +1004,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             crate::panels::smart_sort::open(app, p["selectedOnly"] == true);
             Ok(Value::Null)
         }
+        "dialog.proofSheet" => {
+            app.ui.dialog =
+                Some(Dialog::ProofSheet { opts: Default::default(), folder: crate::control::default_export_dir(), name: "Proof Sheet.pdf".into() });
+            Ok(Value::Null)
+        }
         "dialog.export" => {
             let prev = app.session.last_export.clone().unwrap_or_default();
             let dir = prev.get("dir").and_then(Value::as_str).map(str::to_string).unwrap_or_else(crate::control::default_export_dir);
@@ -1442,9 +1448,13 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "view.back" => can_go_back(app),
         "file.addPhotos" => app.services.pick_files.is_some(),
         s if s.starts_with("panel.") || s.starts_with("tool.") || s.starts_with("section.") => app.session.active().is_some() || s == "panel.close",
-        "app.export" | "dialog.export" | "dialog.createPreset" | "dialog.rename" | "dialog.captureTime" | "dialog.copySettings" => {
-            app.session.active().is_some()
-        }
+        "dialog.proofSheet"
+        | "app.export"
+        | "dialog.export"
+        | "dialog.createPreset"
+        | "dialog.rename"
+        | "dialog.captureTime"
+        | "dialog.copySettings" => app.session.active().is_some(),
         "dialog.saveOverOriginal" => app.session.active().and_then(|id| app.session.catalog.photo(id)).is_some_and(|p| {
             matches!(p.source, lightcraft_engine::catalog::Source::File { .. })
                 && p.copy_of.is_none()

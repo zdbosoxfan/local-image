@@ -4035,6 +4035,7 @@ name = "lightcraft-engine"
 version = "2.0.0-alpha.1"
 dependencies = [
  "ab_glyph",
+ "krilla",
  "lensfun",
  "li-seg",
  "libc",
@@ -4056,7 +4057,10 @@ dependencies = [
  "log",
  "miniz_oxide 0.8.9",
  "photocraft-algo",
+ "photocraft-doc",
+ "photocraft-geom",
  "photocraft-raster",
+ "photocraft-text",
  "rayon",
  "serde",
  "serde_json",
