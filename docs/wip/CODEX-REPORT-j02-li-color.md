@@ -2,10 +2,13 @@
 
 Status: ready for owner review. The isolated branch checks below passed.
 
-Base: published `origin/v2` commit `8e2e763b21a0f0c1e6184c2a69ea5043ebfed4e1`.
+Base: published `origin/v2` commit `b82273a1365a5edf6dbfcdfacdc637050fe6adc3` (J4 Camera Raw retirement), merged into the J2 branch after its initial `8e2e763b` validation.
 This branch contains J2 colour math and LUT integration only. It retains the latest v2
 library-safety, demosaic, RAW/CMS routing, camera metadata, Basic/WB layout, preferences
-and DeviceHealth behavior. There are no edits to `crates/lc-raw` and no Match Look feature changes.
+and DeviceHealth behavior. J4's model-only `pc-algo/src/camera_raw.rs` is retained exactly;
+its retired processing engine is not restored. The surviving sRGB and Develop grayscale
+adapters keep forwarding to `li-color`. There are no edits to `crates/lc-raw` and no Match Look
+feature changes.
 
 ## Shared backend and compatibility
 
@@ -101,7 +104,7 @@ allocate no per-pixel memory. These measurements describe tradeoffs, not hardwar
 
 ## Validation on the isolated v2 branch
 
-Base: `8e2e763b`. The regenerated lockfile adds the internal `li-color` package and its caller
+Initial isolated validation base: `8e2e763b`. The regenerated lockfile adds the internal `li-color` package and its caller
 edges; no new registry or native dependencies are introduced.
 
 - Full `local-image` app check: passed.
@@ -116,6 +119,14 @@ edges; no new registry or native dependencies are introduced.
 - Workspace formatting and strict `li-color` Clippy for all targets: passed.
 - Physical RTX 5090 Vulkan: all 12 depth/interpolation/paging LUT cases passed, with required
   hardware enforced. U8 maximum difference is 1 code; U16 is 1/32768; F32 is 1.192092896e-7.
+
+Post-merge checks on v2 `b82273a1` also pass: the full `local-image` app check;
+62 shared-colour and 31 document-colour tests; 2 Camera Raw model/legacy-metadata tests;
+and 10 shared Develop/Camera Raw bridge tests, covering J4 setting precision, proxy scale,
+shared curve rendering, grayscale, exposure, alpha and Photoshop descriptor roundtrips.
+The conflict was resolved with v2's model-only Camera Raw file; the remaining photo-util
+transfer and Develop grayscale forwarders retain both J4 and J2 behavior. No test expectations
+were changed for this integration.
 
 The implementation was also tested in its original integration checkout: 8/10-bit hardware
 display readback passed with the identical display-shader source, as did the larger codec

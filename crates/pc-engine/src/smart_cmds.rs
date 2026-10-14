@@ -432,7 +432,11 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         Some(p) => photocraft_algo::warp::place_source_projective(&img.surface, img.bounds, &Homography(*p), sm.warp.as_ref()),
         None => photocraft_algo::warp::place_source(&img.surface, img.bounds, &sm.transform, sm.warp.as_ref()),
     };
-    let profile = sm.smart_filters.iter().any(|f| f.command == crate::develop_filter_cmds::DEVELOP).then(|| crate::color_cmds::composite_profile(doc));
+    let profile = sm
+        .smart_filters
+        .iter()
+        .any(|f| f.command == crate::develop_filter_cmds::DEVELOP || f.command == crate::lens_cmds::RAW)
+        .then(|| crate::color_cmds::composite_profile(doc));
     let cmyk = photocraft_compose::cmyk_space(doc);
     Ok(Some(photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref()))))
 }
