@@ -1,7 +1,8 @@
 # Match Look continuation checkpoint — 2026-10-14
 
-Status: implementation in progress; photographic quality and large-batch acceptance are
-not complete. Work stays on `wip/cx-matchlook`, targeting `v2` through draft PR #14.
+Status: paused at the owner's request on 2026-10-14. Photographic quality and large-batch
+acceptance are not complete. Work is preserved on `wip/cx-matchlook` through draft PR #14.
+Start with `MATCHLOOK-FINDINGS-HANDOFF.md` for the final findings and resumption checklist.
 Historical reports describe earlier checkpoints and are not current completion claims.
 
 ## Integration and workflow
@@ -228,8 +229,18 @@ capture clipped/border preservation, Upright vertical precision, and two unchang
 old-settings golden tests. The palette change reproduces identical failures and all
 twenty printed golden rows. A controlled Gaussian-policy experiment restores all four
 tests and all twenty expected rows using the existing box engine. An explicit Develop
-compatibility policy is being implemented; Library/PC sampled blur and small-sigma
-behavior must remain intact. No golden values, thresholds or ignores were changed.
+compatibility policy is now implemented and validated: 291 pipeline tests and 36 raster
+tests pass; all twenty expected render rows and fourteen settings hashes are unchanged.
+Physical RTX 5090/Vulkan checks pass 32 Gaussian cases and eighteen full-render cases.
+The full app check, formatting and diff checks pass. Library/PC sampled defaults and
+small-sigma behavior remain intact. No golden values, thresholds or ignores were changed.
+Strict Clippy is unavailable because the installed driver and Fedora compiler metadata
+do not match. See `REPORT-develop-gaussian-compat.md`; the fix is being submitted
+independently of the unfinished Match Look feature.
+
+Phase B (editable-control response rank/alias analysis) was prepared but never executed.
+No further experiments are authorized by this paused checkpoint. Private originals,
+research runners, model weights, annotations and detailed logs remain local.
 
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;
