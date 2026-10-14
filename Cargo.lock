@@ -4005,6 +4005,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-matte"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "li-color",
+ "li-raster",
+ "rayon",
+ "serde",
+]
+
+[[package]]
 name = "li-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -4021,6 +4031,7 @@ dependencies = [
  "image",
  "li-color",
  "li-fs",
+ "li-matte",
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
@@ -4296,6 +4307,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "image",
  "li-color",
+ "li-matte",
  "lightcraft-color",
  "lightcraft-develop",
  "lightcraft-geom",
@@ -5681,6 +5693,7 @@ name = "photocraft-algo"
 version = "2.0.0-alpha.1"
 dependencies = [
  "li-color",
+ "li-matte",
  "li-raster",
  "lightcraft-merge",
  "lightcraft-meta",

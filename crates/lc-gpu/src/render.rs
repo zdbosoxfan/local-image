@@ -1488,6 +1488,25 @@ fn masks_impl(
             continue;
         }
         let plane_index = offset as usize / n;
+        if lightcraft_pipeline::masks::uses_subject_matting(m) {
+            // The iterative matting solver is shared with CPU rendering. AI shapes already
+            // use host RGB/log-luminance; retain that cache and upload the finalized plane.
+            crate::record_cpu_stage("mask matting");
+            let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(lin, w, h))).clone();
+            let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(&prep.log_l, w, h))).clone();
+            let v = lightcraft_pipeline::masks::evaluate_one_tone(
+                m,
+                frame,
+                w,
+                h,
+                &img,
+                &l,
+                ev,
+                Some(&FinishParams::new(s, frame, info, w, h, plan.px_per_long, lightcraft_pipeline::OutputSpace::Srgb).tone),
+            );
+            cx.copy_into(&cx.gpu.upload(&v.data), &alpha, offset as usize);
+            continue;
+        }
         let mut first = true;
         for comp in &m.components {
             let op = match comp.op {
@@ -1872,6 +1891,29 @@ mod embedded_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j14_shared_matte_host_dispatch_contract() {
+        use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape, SegMask};
+        let mut mask = Mask {
+            refine: 100.0,
+            components: vec![MaskComponent {
+                name: None,
+                op: MaskOp::Add,
+                invert: false,
+                shape: MaskShape::Subject { seg: Some(SegMask::from_logits(4, &[12.0; 16])) },
+            }],
+            ..Default::default()
+        };
+        assert!(lightcraft_pipeline::masks::uses_subject_matting(&mask));
+        mask.refine = 0.0;
+        assert!(!lightcraft_pipeline::masks::uses_subject_matting(&mask));
+        mask.refine = 100.0;
+        mask.components[0].shape = MaskShape::DepthRange { lo: 0.2, hi: 0.8, feather: 0.1, seg: None };
+        assert!(!lightcraft_pipeline::masks::uses_subject_matting(&mask));
+        mask.components[0].shape = MaskShape::Full;
+        assert!(!lightcraft_pipeline::masks::uses_subject_matting(&mask));
+    }
 
     #[test]
     fn capture_source_cache_reuses_upload_and_invalidates_parameters() {
