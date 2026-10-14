@@ -1,6 +1,8 @@
 //! Vector paint proxy and compact flyout host. Original Local Image, GPL-3.0-or-later.
 //! Uses 08's detached appearance transaction and 35's draw-mode widget. Pixel never calls it.
-use egui::{Color32, Key, KeyboardShortcut, Modifiers, Sense, Ui};
+#[cfg(test)]
+use egui::Modifiers;
+use egui::{Color32, Key, Sense, Ui};
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem, StrokeItem};
 use photocraft_doc::{Color, Fill, LayerId, ShapeStroke};
 use photocraft_engine::vector_toolbar_layout::{self as layout, Preset};
@@ -194,15 +196,8 @@ fn edit(a: &mut Appearance, active: ActivePaint, action: &Action) {
         }
     }
 }
-/// Parser extension is local: egui calls the US tilde key Backtick, with Shift held.
-pub fn shortcut(s: &str) -> Option<KeyboardShortcut> {
-    match s {
-        "Shift+~" => Some(KeyboardShortcut::new(Modifiers::SHIFT, Key::Backtick)),
-        "\\" => Some(KeyboardShortcut::new(Modifiers::NONE, Key::Backslash)),
-        "/" => Some(KeyboardShortcut::new(Modifiers::NONE, Key::Slash)),
-        _ => crate::shortcuts::parse(s),
-    }
-}
+/// Vector presets use the same vocabulary, including the Shift+~ Backtick alias.
+pub use crate::shortcuts::parse as shortcut;
 pub fn tool_key(ctx: &egui::Context, preset: Preset, registered: &[&str], current: &str) -> Option<String> {
     if crate::shortcut_dispatch::Focus::of(ctx) == crate::shortcut_dispatch::Focus::Text {
         return None;

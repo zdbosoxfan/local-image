@@ -9,6 +9,7 @@ description = "LightCraft egui frontend (Lightroom-style UI); swappable — noth
 workspace = true
 
 [dependencies]
+li-keys = { workspace = true, features = ["egui"] }
 li-color = { workspace = true }
 li-seg = { workspace = true }
 # The editor owns the shared display transform (existing workspace package).

@@ -33,74 +33,18 @@ pub const ALIASES: &[(&str, &str, &str)] = &[
     ("Alt+9", "keyword.toggleFromSet", r#"{"index": 9}"#),
 ];
 
+/// Keep the Library's public Delete→Backspace representation; matching is shared.
 pub fn parse(s: &str) -> Option<(Modifiers, Key)> {
-    let mut m = Modifiers::NONE;
-    let mut key = None;
-    let plus = s == "+" || s.ends_with("++");
-    let body = if plus { s.trim_end_matches('+') } else { s };
-    for part in body.split('+').filter(|part| !part.is_empty()) {
-        match part {
-            "Cmd" => m.command = true,
-            "Shift" => m.shift = true,
-            "Alt" => m.alt = true,
-            "Ctrl" => m.ctrl = true,
-            // "Delete" means the key labelled ⌫ (egui's Backspace); forward-delete also matches, see `matches`.
-            "Delete" => {
-                if key.is_some() {
-                    return None;
-                }
-                key = Some(Key::Backspace);
-            }
-            k => {
-                if key.is_some() {
-                    return None;
-                }
-                key = Some(Key::from_name(k).or(match k {
-                    "Right" => Some(Key::ArrowRight),
-                    "Left" => Some(Key::ArrowLeft),
-                    "Up" => Some(Key::ArrowUp),
-                    "Down" => Some(Key::ArrowDown),
-                    "\\" => Some(Key::Backslash),
-                    "/" => Some(Key::Slash),
-                    "=" => Some(Key::Equals),
-                    "-" => Some(Key::Minus),
-                    "[" => Some(Key::OpenBracket),
-                    "]" => Some(Key::CloseBracket),
-                    "'" => Some(Key::Quote),
-                    "," => Some(Key::Comma),
-                    _ => None,
-                })?)
-            }
-        }
-    }
-    if plus {
-        if key.is_some() {
-            return None;
-        }
-        key = Some(Key::Plus);
-    }
-    key.map(|k| (m, k))
+    let sc = li_keys::input::parse(s)?;
+    Some((sc.modifiers, if sc.logical_key == Key::Delete { Key::Backspace } else { sc.logical_key }))
 }
-
-/// One exact identity for dispatch, row navigation, held actions and collision precedence.
-pub(crate) fn chord_identity(mut modifiers: Modifiers, mut key: Key) -> (Modifiers, Key) {
-    if !cfg!(target_os = "macos") {
-        modifiers.command |= modifiers.ctrl;
-        modifiers.ctrl = false;
-    } else {
-        modifiers.command |= modifiers.mac_cmd;
-    }
-    modifiers.mac_cmd = false;
-    if key == Key::Delete {
-        key = Key::Backspace;
-    }
-    (modifiers, key)
-}
+pub(crate) use li_keys::input::identity as chord_identity;
 pub(crate) fn key_matches(pattern: Modifiers, key: Key, actual: Modifiers, actual_key: Key) -> bool {
-    chord_identity(pattern, key) == chord_identity(actual, actual_key)
+    li_keys::input::key_matches(&egui::KeyboardShortcut::new(pattern, key), actual_key, actual)
 }
+#[cfg(test)]
 fn matches(i: &egui::InputState, m: Modifiers, k: Key) -> bool {
-    i.events.iter().any(|event| matches!(event,egui::Event::Key{key,pressed:true,modifiers,..} if key_matches(m,k,*modifiers,*key)))
+    i.events.iter().any(|event| matches!(event, egui::Event::Key { key, pressed: true, modifiers, .. } if key_matches(m, k, *modifiers, *key)))
 }
 
 /// Labels use the same command lookup as dispatch, including UI wrappers of engine keys.
@@ -130,8 +74,8 @@ pub fn hint_in(ctx: &egui::Context, label: &str, command: &str) -> String {
     label_in(ctx, command).map_or_else(|| label.to_string(), |key| format!("{label} ({key})"))
 }
 
-pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
-    if !ctx.input(|input| input.focused) || app.host_modal
+fn keyboard_blocked(app: &LightcraftApp, ctx: &egui::Context) -> bool {
+    !ctx.input(|input| input.focused) || app.host_modal
         || egui::Popup::is_any_open(ctx)
         // application dialogs are modal: they own their keys (text editing, Esc), and photo
         // shortcuts must not act on the grid behind them (upstream LightCraft e1267a7)
@@ -139,7 +83,10 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         || app.ui.people.queue.is_some()
         || app.ui.people.finder.is_some()
         || app.ui.people.merge.is_some()
-    {
+}
+
+pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if keyboard_blocked(app, ctx) {
         return;
     }
     crate::panels::layer_bar::keyboard(app, ctx);
@@ -147,31 +94,29 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() {
         return;
     }
-    let mut fire: Vec<String> = Vec::new();
-    // shortcuts the native menu bar handles (it consumes those key presses itself)
-    let native = |sc: &str| app.native_shortcuts.contains(sc);
-    let mut aliased: Vec<(String, serde_json::Value)> = Vec::new();
-    ctx.input(|i| {
-        for (binding, sc) in catalog::effective(app) {
-            if native(&sc) {
-                continue;
-            }
-            if let Some((m, k)) = parse(&sc)
-                && matches(i, m, k)
-            {
-                if let Some(params) = binding.params {
-                    aliased.push((binding.command, params));
-                } else {
-                    fire.push(binding.command);
-                }
-            }
-        }
-    });
-    // local-image: a Camera Raw Filter session keeps to Develop
-    if let Some(h) = &app.host_session {
-        fire.retain(|id| h.allows(id));
-        aliased.retain(|(id, _)| h.allows(id));
+    if !ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))) {
+        return;
     }
+    let table: Vec<_> = catalog::effective(app)
+        .into_iter()
+        .filter_map(|(binding, chord)| {
+            if app.native_shortcuts.contains(&chord) || app.host_session.as_ref().is_some_and(|h| !h.allows(&binding.command)) {
+                return None;
+            }
+            let id = binding.command.as_str();
+            // Held Original and row-aware grid navigation keep ownership of their events.
+            if binding.params.is_none()
+                && (id == "view.showOriginal"
+                    || id.starts_with("grid.")
+                    || (!app.ui.fullscreen
+                        && matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid)
+                        && matches!(id, "library.next" | "library.previous")))
+            {
+                return None;
+            }
+            Some((binding, li_keys::input::parse(&chord)?))
+        })
+        .collect();
     use crate::panels::compare;
     // rating/flag/label keys: in Compare/Survey they act on the active photo only; Shift+key or
     // Auto Advance then moves on (next candidate in Compare, next photo elsewhere)
@@ -190,41 +135,38 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
         }
     };
-    fire.retain(|id| {
-        id != "view.showOriginal"
-            && !id.starts_with("grid.")
-            // The grid's own row-aware navigation owns the arrows, except in the full-screen
-            // preview, which hides the grid (Lightroom: arrows step photos there too).
-            && !(matches!(app.ui.view, crate::state::ViewMode::PhotoGrid | crate::state::ViewMode::SquareGrid)
-                && !app.ui.fullscreen
-                && matches!(id.as_str(), "library.next" | "library.previous"))
-    });
-    for (id, params) in aliased {
-        let id = id.as_str();
-        // Space pauses / resumes a slideshow
-        if id == "view.zoomToggle"
-            && let Some((interval, _, paused)) = app.ui.slideshow
-        {
-            let now = ctx.input(|i| i.time);
-            app.ui.slideshow = Some((interval, now + interval, !paused));
-            app.toast(ctx, if paused { "Slideshow resumed" } else { "Slideshow paused" });
+    // Shared ordered consumption; a newly opened modal owns every later event.
+    while !keyboard_blocked(app, ctx) && !ctx.egui_wants_keyboard_input() {
+        let Some((binding, _)) = li_keys::input::take_pressed(ctx, &table) else {
+            break;
+        };
+        let f = binding.command;
+        if let Some(params) = binding.params {
+            let id = f.as_str();
+            // Space pauses / resumes a slideshow
+            if id == "view.zoomToggle"
+                && let Some((interval, _, paused)) = app.ui.slideshow
+            {
+                let now = ctx.input(|i| i.time);
+                app.ui.slideshow = Some((interval, now + interval, !paused));
+                app.toast(ctx, if paused { "Slideshow resumed" } else { "Slideshow paused" });
+                continue;
+            }
+            // flag/rate aliases (Shift+X…) go through the culling path: active photo in Compare/Survey,
+            // `advance` moves to the next candidate there
+            if matches!(id, "photo.flag" | "photo.rate" | "photo.label") {
+                let mut params = params;
+                let advance = params.get("advance").and_then(serde_json::Value::as_bool).unwrap_or(false);
+                if let Some(o) = params.as_object_mut() {
+                    o.remove("advance");
+                }
+                cull(app, id, params, advance);
+            } else if let Err(e) = app.run(id, params) {
+                // an export that can't start (e.g. no folder) says why instead of doing nothing
+                app.toast(ctx, e);
+            }
             continue;
         }
-        // flag/rate aliases (Shift+X…) go through the culling path: active photo in Compare/Survey,
-        // `advance` moves to the next candidate there
-        if matches!(id, "photo.flag" | "photo.rate" | "photo.label") {
-            let mut params = params;
-            let advance = params.get("advance").and_then(serde_json::Value::as_bool).unwrap_or(false);
-            if let Some(o) = params.as_object_mut() {
-                o.remove("advance");
-            }
-            cull(app, id, params, advance);
-        } else if let Err(e) = app.run(id, params) {
-            // an export that can't start (e.g. no folder) says why instead of doing nothing
-            app.toast(ctx, e);
-        }
-    }
-    for f in fire {
         if let Some(rest) = f.strip_prefix("rate:") {
             let (n, adv) = rest.split_once(':').unwrap_or(("0", "0"));
             let changed = cull(app, "photo.rate", json!({"rating": n.parse::<u8>().unwrap_or(0)}), adv == "1");
@@ -481,5 +423,90 @@ mod tests {
                 assert!(k != k2 || contextual, "{a} and {b} share a key");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod j20_tests {
+    use super::*;
+
+    fn frame(app: &mut LightcraftApp, events: Vec<egui::Event>) -> egui::Context {
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(egui::RawInput { events, ..Default::default() }, |ui| handle(app, ui.ctx()));
+        output.textures_delta.clear();
+        ctx
+    }
+    fn press(key: Key, modifiers: Modifiers) -> egui::Event {
+        egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
+    }
+    #[test]
+    fn j20_library_aliases_order_conflicts_and_modal_ownership() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        app.ui.right = crate::state::RightPanel::Edit;
+        app.ui.view = crate::state::ViewMode::Detail;
+        app.shortcut_overrides.insert("library::__profile".into(), "Capture One".into());
+        let ctx = frame(&mut app, vec![press(Key::E, Modifiers::NONE), press(Key::B, Modifiers::NONE)]);
+        assert_eq!(app.ui.tool, "brush");
+        assert!(!app.ui.brush_erase, "B must run after E in event order");
+        assert!(ctx.input(|i| i.events.is_empty()));
+        app.shortcut_overrides.insert("library::view.maskOverlay".into(), "control+shift+semicolon".into());
+        let before = app.ui.mask_overlay;
+        frame(&mut app, vec![press(Key::Colon, Modifiers::CTRL | Modifiers::COMMAND | Modifiers::SHIFT)]);
+        assert_ne!(app.ui.mask_overlay, before, "lowercase aliases and shifted logical punctuation must dispatch");
+        app.shortcut_overrides.insert("library::tool.linear".into(), "control+z".into());
+        if !cfg!(target_os = "macos") {
+            assert!(!catalog::effective(&app).iter().any(|(b, _)| b.key == "library::tool.linear"));
+        }
+        app.shortcut_overrides.insert("library::view.maskOverlay".into(), "O".into());
+        let before = app.ui.mask_overlay;
+        let ctx = frame(&mut app, vec![press(Key::E, Modifiers::COMMAND | Modifiers::SHIFT), press(Key::O, Modifiers::NONE)]);
+        assert!(app.ui.dialog.is_some(), "export opens a modal");
+        assert_eq!(app.ui.mask_overlay, before, "the later key belongs to the modal");
+        assert!(ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::O, pressed: true, .. }))));
+    }
+
+    #[test]
+    fn j20_library_catalog_and_adapter_parity() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        for parent in ["Lightroom", "Capture One"] {
+            app.shortcut_overrides.insert("library::__profile".into(), parent.into());
+            for (binding, chord) in catalog::effective(&app) {
+                let (mods, key) = parse(&chord).unwrap();
+                let shared = li_keys::input::parse(&chord).unwrap();
+                assert_eq!(chord_identity(mods, key), li_keys::input::identity(shared.modifiers, shared.logical_key), "{}", binding.command);
+            }
+        }
+        for key in Key::ALL {
+            let (mods, library_key) = parse(key.name()).unwrap();
+            assert_eq!(chord_identity(mods, library_key), li_keys::input::identity(Modifiers::NONE, *key));
+        }
+    }
+
+    #[test]
+    fn j20_library_real_dispatch_sample() {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        app.ui.right = crate::state::RightPanel::Edit;
+        app.ui.view = crate::state::ViewMode::Detail;
+        let ctx = egui::Context::default();
+        let mut samples = Vec::new();
+        for n in 0..25 {
+            let before = app.ui.mask_overlay;
+            let start = std::time::Instant::now();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::Key { key: Key::O, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }],
+                    ..Default::default()
+                },
+                |ui| handle(&mut app, ui.ctx()),
+            );
+            let elapsed = start.elapsed();
+            output.textures_delta.clear();
+            assert_ne!(app.ui.mask_overlay, before);
+            if n >= 5 {
+                samples.push(elapsed);
+            }
+        }
+        samples.sort();
+        eprintln!("J20 Library CPU key-event frame: median={:?}, min={:?}, max={:?}, n={}", samples[10], samples[0], samples[19], samples.len());
     }
 }

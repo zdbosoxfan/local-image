@@ -11,7 +11,6 @@ use egui::{Key, KeyboardShortcut};
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::shortcuts::key_matches;
 
 /// What a dispatched shortcut did (kept for tests and `ui.inspect`-style debugging).
 #[derive(Clone, Debug, PartialEq)]
@@ -102,18 +101,7 @@ pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
             explicit.insert(0, ((*id).into(), (*key).into()));
         }
     }
-    let mut seen = Vec::new();
-    explicit.retain(|(_, key)| {
-        let Some(shortcut) = crate::fill_stroke_proxy::shortcut(key) else {
-            return false;
-        };
-        if seen.contains(&shortcut) {
-            false
-        } else {
-            seen.push(shortcut);
-            true
-        }
-    });
+    li_keys::input::retain_first(&mut explicit, |(_, key)| key);
     explicit
 }
 pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
@@ -182,24 +170,7 @@ impl Focus {
     /// ones: select all, clipboard, undo) and the function keys.
     pub fn allows(self, sc: &KeyboardShortcut) -> bool {
         let k = sc.logical_key;
-        let function = matches!(
-            k,
-            Key::F1
-                | Key::F2
-                | Key::F3
-                | Key::F4
-                | Key::F5
-                | Key::F6
-                | Key::F7
-                | Key::F8
-                | Key::F9
-                | Key::F10
-                | Key::F11
-                | Key::F12
-                | Key::F13
-                | Key::F14
-                | Key::F15
-        );
+        let function = li_keys::input::is_function_key(k);
         let navigation = matches!(
             k,
             Key::ArrowLeft
@@ -262,20 +233,9 @@ pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Foc
         .into_iter()
         .filter(|(id, sc)| focus.allows(sc) && !(editing && TEXT_OWNED.contains(&id.as_str())) && (id != "view.togglePanels" || panels_allowed))
         .collect();
-    let command = |e: &egui::Event| match e {
-        egui::Event::Key { key, pressed: true, modifiers, .. } => {
-            table.iter().find(|(_, sc)| key_matches(sc, *key, *modifiers)).map(|(id, _)| (id.clone(), *key == Key::Tab))
-        }
-        _ => None,
-    };
     let mut ran = false;
-    loop {
-        let next = ctx.input_mut(|i| {
-            let (at, id) = i.events.iter().enumerate().find_map(|(at, e)| Some((at, command(e)?)))?;
-            i.events.remove(at);
-            Some(id)
-        });
-        let Some((id, tab)) = next else { break };
+    while let Some((id, key)) = li_keys::input::take_pressed(ctx, &table) {
+        let tab = key == Key::Tab;
         if tab {
             // begin_pass already queued traversal; this key belongs to an app command.
             ctx.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));

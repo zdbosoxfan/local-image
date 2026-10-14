@@ -1,39 +1,12 @@
 //! Keyboard shortcuts: Photoshop defaults from the command registry, plus single-key tools.
 
-use egui::{Key, KeyboardShortcut, Modifiers};
+use egui::{Key, Modifiers};
 use serde_json::json;
 
 use crate::PhotocraftApp;
 use crate::state::Tool;
 
-/// Parse `Cmd+Shift+N` style strings. `Cmd` maps to ⌘ on macOS and Ctrl elsewhere.
-pub fn parse(s: &str) -> Option<KeyboardShortcut> {
-    let normalized = photocraft_engine::prefs::normalize_shortcut(s)?;
-    let s = normalized.as_str();
-    let mut mods = Modifiers::NONE;
-    let mut key = None;
-    for part in s.split('+') {
-        match part {
-            "Cmd" => mods |= Modifiers::COMMAND,
-            "Shift" => mods |= Modifiers::SHIFT,
-            "Alt" => mods |= Modifiers::ALT,
-            "Ctrl" => mods |= Modifiers::CTRL,
-            "" => key = Some(Key::Plus),
-            k => {
-                key = Key::from_name(k).or(match k {
-                    "=" => Some(Key::Equals),
-                    "-" => Some(Key::Minus),
-                    "[" => Some(Key::OpenBracket),
-                    ";" => Some(Key::Semicolon),
-                    "'" => Some(Key::Quote),
-                    "]" => Some(Key::CloseBracket),
-                    _ => None,
-                })
-            }
-        }
-    }
-    Some(KeyboardShortcut::new(mods, key?))
-}
+pub use li_keys::input::parse;
 
 /// Human-readable form for menus, tooltips and inline hints (`Cmd+Shift+N` → `⌘⇧N` on
 /// macOS, `Ctrl+Shift+N` elsewhere). Works for lone keys too: `pretty("Alt")` is `⌥`/`Alt`,
@@ -152,51 +125,7 @@ pub fn default_shortcut(id: &str) -> Option<String> {
         .or_else(|| crate::tool_tips::CameraRawTool::ALL.into_iter().find(|t| t.shortcut_id() == id).map(|t| t.default_shortcut().into()))
 }
 
-/// With ⇧ held the OS reports the shifted character as the logical key (US layout): ⇧; is `:`.
-fn shifted(k: Key) -> Option<Key> {
-    Some(match k {
-        Key::Equals => Key::Plus,
-        Key::Semicolon => Key::Colon,
-        Key::OpenBracket => Key::OpenCurlyBracket,
-        Key::CloseBracket => Key::CloseCurlyBracket,
-        Key::Slash => Key::Questionmark,
-        Key::Backslash => Key::Pipe,
-        Key::Num1 => Key::Exclamationmark,
-        _ => return None,
-    })
-}
-
-/// Does a key press match a shortcut, the way Photoshop matches them?
-///
-/// - Modifiers match exactly (⌘⌥I is not ⌘I), with ⌘ = Ctrl off the Mac.
-/// - `=` also matches `+` (⌘+ with ⇧ on a US layout, the numpad `+`, the `+` key of Nordic and
-///   German layouts): Photoshop zooms in on both.
-/// - Delete also matches Backspace (the Mac's "delete" key), and Backspace matches Delete (⌥⌫
-///   and ⌥Delete both fill on Windows).
-/// - A ⇧ shortcut on a punctuation key matches the shifted character (⌘⇧; arrives as ⌘`:`).
-pub fn key_matches(sc: &KeyboardShortcut, key: Key, mods: Modifiers) -> bool {
-    let k = sc.logical_key;
-    let direct = key == k || (k == Key::Delete && key == Key::Backspace) || (k == Key::Backspace && key == Key::Delete);
-    let plus = k == Key::Equals && key == Key::Plus;
-    let via_shift = sc.modifiers.shift && shifted(k) == Some(key);
-    if !(direct || plus || via_shift) {
-        return false;
-    }
-    // Typing `+` (or another shifted symbol) may need ⇧ on this layout: don't require it absent.
-    let shifted_symbol =
-        matches!(key, Key::Plus | Key::Colon | Key::OpenCurlyBracket | Key::CloseCurlyBracket | Key::Questionmark | Key::Pipe | Key::Exclamationmark);
-    let shift_ok = mods.shift == sc.modifiers.shift || (shifted_symbol && !sc.modifiers.shift);
-    mods.alt == sc.modifiers.alt && shift_ok && mods.cmd_ctrl_matches(sc.modifiers)
-}
-
-/// Consume a press of `sc` (see [`key_matches`]); true when one was found.
-pub fn consume(ctx: &egui::Context, sc: &KeyboardShortcut) -> bool {
-    ctx.input_mut(|i| {
-        let before = i.events.len();
-        i.events.retain(|e| !matches!(e, egui::Event::Key { key, pressed: true, modifiers, .. } if key_matches(sc, *key, *modifiers)));
-        i.events.len() != before
-    })
-}
+pub use li_keys::input::{consume, key_matches};
 
 /// View navigation that Photoshop keeps live while a dialog is open (so the image can be judged
 /// at any zoom): Zoom In / Out, Fit on Screen, 100%.
@@ -663,5 +592,71 @@ mod tests {
                 panic!("shortcut {s} bound to both {prev} and {id}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod j20_tests {
+    use super::*;
+
+    #[test]
+    fn j20_editor_catalog_native_event_and_conflict_parity() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        for parent in ["Photoshop", "Affinity Photo"] {
+            app.session.edit_prefs(|p| p.shortcut_profiles.editor.active = parent.into());
+            for (_, value) in crate::shortcut_dispatch::binding_strings(&app) {
+                let parsed = parse(&value).unwrap();
+                assert_eq!(parsed, li_keys::input::parse(&value).unwrap());
+                let native = crate::native_menu::Chord::parse(&value).unwrap();
+                for platform in [li_keys::Platform::Mac, li_keys::Platform::Ctrl] {
+                    let Some(egui::Event::Key { key, modifiers, .. }) = native.key_event_on(true, platform) else {
+                        panic!("{value}");
+                    };
+                    assert!(li_keys::input::key_matches_on(&parsed, key, modifiers, platform), "{value}");
+                }
+            }
+        }
+        app.session.edit_prefs(|p| {
+            p.shortcut_profiles.editor.active = "Photoshop".into();
+            p.shortcut_profiles.editor.duplicate("Overlap").unwrap();
+            let overrides = &mut p.shortcut_profiles.editor.custom.get_mut("Overlap").unwrap().overrides;
+            overrides.insert("view.zoomIn".into(), "Cmd++".into());
+            overrides.insert("view.zoomOut".into(), "Cmd+=".into());
+        });
+        let bindings = crate::shortcut_dispatch::binding_strings(&app);
+        assert!(bindings.iter().any(|(id, key)| id == "view.zoomIn" && key == "Cmd++"));
+        assert!(!bindings.iter().any(|(id, _)| id == "view.zoomOut"));
+        for key in Key::ALL {
+            let parsed = parse(key.name()).unwrap();
+            if li_keys::input::is_function_key(*key) {
+                assert!(crate::shortcut_dispatch::Focus::Text.allows(&parsed));
+            }
+        }
+    }
+
+    #[test]
+    fn j20_editor_real_dispatch_sample() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        crate::shortcut_dispatch::set_dry_run(&ctx, true);
+        let mut samples = Vec::new();
+        for n in 0..25 {
+            let start = std::time::Instant::now();
+            let mut output = ctx.run_ui(
+                egui::RawInput {
+                    events: vec![egui::Event::Key { key: Key::K, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::COMMAND }],
+                    ..Default::default()
+                },
+                |ui| handle(&mut app, ui.ctx()),
+            );
+            let elapsed = start.elapsed();
+            output.textures_delta.clear();
+            assert_eq!(crate::shortcut_dispatch::take_log(&ctx), vec![("edit.preferences.general".into(), crate::shortcut_dispatch::Outcome::Ran)]);
+            if n >= 5 {
+                samples.push(elapsed);
+            }
+        }
+        samples.sort();
+        eprintln!("J20 editor CPU key-event frame: median={:?}, min={:?}, max={:?}, n={}", samples[10], samples[0], samples[19], samples.len());
     }
 }
