@@ -388,7 +388,8 @@ pub fn prepare_raw(bytes: &[u8]) -> Result<lightcraft_raw::RawImage, String> {
 /// Apply the source camera transform to camera RGB, without changing crop or orientation.
 pub fn camera_rgb_to_working(raw: &lightcraft_raw::RawImage, bytes: &[u8], rgb: &mut Rgb32f) {
     let t = lightcraft_raw::color::camera_transform(raw, lightcraft_raw::color::as_shot_white_xy(raw));
-    let look = crate::camera_preview::fit_preview(raw, bytes, &t);
+    let lens = crate::files::embedded_lens(&raw.info());
+    let look = crate::camera_preview::fit_preview(raw, bytes, &t, lens.as_ref());
     let matrix = look.as_ref().map_or(t.matrix, |p| p.matrix.mul(&t.matrix));
     let hue = look.as_ref().and_then(|p| p.hue_sat.as_ref()).and_then(crate::camera_preview::HueSat::new);
     let gain = 2f32.powf(t.baseline_exposure as f32);
@@ -466,6 +467,7 @@ fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Phot
             color,
             wb_multipliers: None,
             linearized: false,
+            vendor_lens: None,
             opcodes: Default::default(),
             metadata,
         };
@@ -584,6 +586,7 @@ mod tests {
             color: Default::default(),
             wb_multipliers: None,
             linearized: false,
+            vendor_lens: None,
             opcodes: OpcodeLists {
                 list3: vec![Opcode::ScalePerRow {
                     area: Area { top: 0, left: 0, bottom: 6, right: 8, plane: 0, planes: 3, row_pitch: 1, col_pitch: 1 },

@@ -29,6 +29,7 @@ fn raw(n: Normalized) -> RawImage {
         wb_multipliers: None,
         linearized: true,
         opcodes: Default::default(),
+        vendor_lens: None,
         metadata: Default::default(),
     }
 }

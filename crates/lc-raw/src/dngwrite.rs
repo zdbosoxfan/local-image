@@ -451,6 +451,7 @@ mod sony_dji_roundtrip_tests {
         // intentionally camera-independent and contains no owner image values.
         metadata.dji.as_mut().unwrap().properties.insert("CalibrationTag".into(), "1.2340".into());
         let raw = RawImage {
+            vendor_lens: None,
             format: crate::RawFormat::Dng,
             width: 4,
             height: 3,
@@ -490,6 +491,7 @@ mod triple_illuminant_tests {
     fn triple_raw() -> RawImage {
         let table = |shift| crate::profile::HsvTable::from_tags(&[1, 2, 1], &[shift, 1.0, 1.0, shift, 1.0, 1.0], 0).unwrap();
         RawImage {
+            vendor_lens: None,
             format: RawFormat::Dng,
             width: 2,
             height: 2,

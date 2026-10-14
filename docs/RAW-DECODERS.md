@@ -117,6 +117,20 @@ libraries (`jxl-oxide`, `libflate`) are Rust. Its build script joins camera/lens
 Existing unrelated workspace dependencies are outside this addition; do not mistake the whole
 workspace tree for the new rawler closure.
 
+Camera-embedded lens metadata is read independently of the pixel decoder by
+`lc-raw::embedded_lens`, including rawler fallback files. Sony tags have one
+reader in `lc-meta::sony`; the raw adapter and render-source handoff consume
+those metadata curves. Develop selects one profile: embedded vendor/DNG data,
+then lensfun, then user-imported Adobe LCP. Enable Lens
+Corrections gates automatic profiles. Vendor data is not baked into decoded
+pixels; CPU and WGSL apply the same inverse map and source attenuation. DNG
+WarpRectilinear/FixVignetteRadial are deferred only when the list can be
+represented without changing opcode order. Built-in DJI, mixed, repeated, or
+per-plane DNG lens operations stay in camera-RGB raw development. The render
+source records that they are baked and suppresses automatic profile fallbacks.
+Rectilinear and GainMap retain the Sony/DJI job's SDK coordinate fixes. Calibrated
+CA samples camera planes before colour mixing; the fitted nonlinear camera look
+runs afterwards. See `docs/wip/CODEX-REPORT-lenscorr.md` for sources and validation.
 Camera data calibration is applied after this decoder boundary. The `testgen` contract uses
 decoder-only samples/headers so per-camera calibration does not silently regenerate sensor
 goldens. The calibrated header/full geometry and levels are audited separately by

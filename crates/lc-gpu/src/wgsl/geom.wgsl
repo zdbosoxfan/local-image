@@ -77,7 +77,11 @@ fn sample_affine(@builtin(global_invocation_id) g: vec3<u32>) {
 // 66..69 strength-scaled distortion k (poly3/poly5/ptlens), 69 TCA kind (0/1/2),
 // 70..73 red TCA [v,c,b], 73..76 blue TCA [v,c,b] (linear v is strength-scaled),
 // 76 database vignette?, 77..80 pa k, 80 ns, 81 cx, 82 cy, 83 TCA strength, 84 vig strength.
-const WP_N: u32 = 85u;
+// 85 radial count, 86 attenuation count, 87..103 radial knots, 103..151 radial scales (3 × 16),
+// 151..167 attenuation knots, 167..183 attenuation, 183 radial centre x, 184 y, 185 radius.
+// 186 camera basis?, 187..196 working → camera matrix, 196..205 camera → working matrix (row-major).
+// 205 DNG fisheye? (the existing warp's first four coefficients).
+const WP_N: u32 = 206u;
 
 fn centre() -> vec2<f32> {
     return vec2<f32>(pf(12u) / 2.0, pf(13u) / 2.0);
@@ -107,12 +111,50 @@ fn embedded_warp(p: vec2<f32>, ch: u32) -> vec2<f32> {
     let o = 30u + 6u * min(ch, 2u);
     let d = (p - cc) / m;
     let r2 = d.x * d.x + d.y * d.y;
+    if (pu(205u) != 0u) {
+        // DNG WarpFisheye uses theta = atan(r), with the kr0 limit at
+        // the optical centre. It has no tangential coefficients.
+        let r = sqrt(r2);
+        if (r == 0.0) {
+            return cc + m * d * pf(o);
+        }
+        let theta = atan(r);
+        let t2 = theta * theta;
+        let f = theta / r * (pf(o) + t2 * (pf(o + 1u) + t2 * (pf(o + 2u) + t2 * pf(o + 3u))));
+        return cc + m * d * f;
+    }
     let f = pf(o) + r2 * (pf(o + 1u) + r2 * (pf(o + 2u) + r2 * pf(o + 3u)));
     let kt0 = pf(o + 4u);
     let kt1 = pf(o + 5u);
     let sx = d.x * f + kt0 * 2.0 * d.x * d.y + kt1 * (r2 + 2.0 * d.x * d.x);
     let sy = d.y * f + kt1 * 2.0 * d.x * d.y + kt0 * (r2 + 2.0 * d.y * d.y);
     return cc + m * vec2<f32>(sx, sy);
+}
+
+// Vendor tables use darktable's clamp-ended, piecewise linear interpolation.
+fn embedded_radial_value(r: f32, count: u32, knots: u32, values: u32) -> f32 {
+    if (count == 0u) {
+        return 1.0;
+    }
+    if (r <= pf(knots)) {
+        return pf(values);
+    }
+    for (var k = 1u; k < count; k++) {
+        if (r <= pf(knots + k)) {
+            let t = (r - pf(knots + k - 1u)) / (pf(knots + k) - pf(knots + k - 1u));
+            return mix(pf(values + k - 1u), pf(values + k), t);
+        }
+    }
+    return pf(values + count - 1u);
+}
+
+fn embedded_radial_centre() -> vec2<f32> {
+    return vec2<f32>(pf(183u) * pf(12u), pf(184u) * pf(13u));
+}
+
+fn embedded_radial_radius(p: vec2<f32>) -> f32 {
+    let m = max(pf(185u) * max(pf(12u), pf(13u)), 1e-9);
+    return length(p - embedded_radial_centre()) / m;
 }
 
 // LensMap::to_source_real: distortion first, then TCA at the distorted radius.
@@ -167,6 +209,11 @@ fn corrected_to_source(p: vec2<f32>, ch: u32) -> vec2<f32> {
         let s = embedded_warp(q, ch);
         q = q + (s - q) * ld;
     }
+    if (ld != 0.0 && pu(85u) != 0u) {
+        let scale = embedded_radial_value(embedded_radial_radius(q), pu(85u), 87u, 103u + 16u * min(ch, 2u));
+        let cc = embedded_radial_centre();
+        q = cc + (q - cc) * (1.0 + (scale - 1.0) * ld);
+    }
     q = database_warp(q, ch);
     let k = pf(25u + ch);
     if (k != 0.0) {
@@ -199,6 +246,10 @@ fn warp_gain(s: vec2<f32>) -> f32 {
         }
         g *= 1.0 + (vg - 1.0) * lv;
     }
+    if (lv != 0.0 && pu(86u) != 0u) {
+        let attenuation = embedded_radial_value(embedded_radial_radius(s), pu(86u), 151u, 167u);
+        g *= 1.0 / max(1.0 - lv * (1.0 - attenuation), 1e-6);
+    }
     if (pu(76u) != 0u) {
         // LensMap::gain uses the GREEN source position, after manual CA.
         let d = (s - vec2<f32>(pf(81u), pf(82u))) * pf(80u);
@@ -209,6 +260,14 @@ fn warp_gain(s: vec2<f32>) -> f32 {
         }
     }
     return g;
+}
+
+fn camera_basis(v: vec3<f32>, offset: u32) -> vec3<f32> {
+    return vec3<f32>(
+        dot(v, vec3<f32>(pf(offset), pf(offset + 1u), pf(offset + 2u))),
+        dot(v, vec3<f32>(pf(offset + 3u), pf(offset + 4u), pf(offset + 5u))),
+        dot(v, vec3<f32>(pf(offset + 6u), pf(offset + 7u), pf(offset + 8u)))
+    );
 }
 
 @compute @workgroup_size(16, 16)
@@ -236,9 +295,17 @@ fn sample_warp(@builtin(global_invocation_id) g: vec3<u32>) {
     var v = bilinear(bw, bh, s.x * sx, s.y * sy);
     if (pu(63u) != 0u) {
         let qr = corrected_to_source(c, 0u);
-        v.x = bilinear(bw, bh, qr.x * sx, qr.y * sy).x;
         let qb = corrected_to_source(c, 2u);
-        v.z = bilinear(bw, bh, qb.x * sx, qb.y * sy).z;
+        let red = bilinear(bw, bh, qr.x * sx, qr.y * sy);
+        let blue = bilinear(bw, bh, qb.x * sx, qb.y * sy);
+        if (pu(186u) != 0u) {
+            // Calibrated CA refers to camera planes. Undo the loader's linear
+            // colour conversion before assembling independently sampled planes.
+            v = vec3<f32>(camera_basis(red, 187u).x, camera_basis(v, 187u).y, camera_basis(blue, 187u).z);
+            v = camera_basis(v, 196u);
+        } else {
+            v = vec3<f32>(red.x, v.y, blue.z);
+        }
     }
     if (pu(64u) != 0u) {
         v = v * warp_gain(s);

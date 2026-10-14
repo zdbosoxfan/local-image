@@ -59,6 +59,7 @@ fn synthetic(w: usize, h: usize, cfa: Option<Cfa>, cpp: usize) -> RawImage {
         wb_multipliers: None,
         linearized: false,
         opcodes: OpcodeLists::default(),
+        vendor_lens: None,
         metadata,
     }
 }

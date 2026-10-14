@@ -103,6 +103,7 @@ pub fn write_linear_dng(
         color: cd,
         wb_multipliers: None,
         linearized: false,
+        vendor_lens: None,
         opcodes: OpcodeLists::default(),
         metadata: meta,
     };

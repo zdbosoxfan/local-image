@@ -15,6 +15,8 @@ pub const BUTTON_FONT_SIZE: f32 = 11.5;
 pub const DROPDOWN_ARROW_SPACE: f32 = 20.0;
 
 pub const FONT_SEMIBOLD: &str = "semibold";
+/// Shared inset for controls in a Develop section, matching the inherited panel grammar.
+pub const DEVELOP_INSET: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {

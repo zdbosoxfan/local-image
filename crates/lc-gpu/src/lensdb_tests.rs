@@ -37,6 +37,7 @@ fn profiles() -> [LensCorrection; 3] {
 
 fn settings(orientation: Orientation, strength: f64) -> DevelopSettings {
     let mut s = DevelopSettings { orientation, ..Default::default() };
+    s.optics.lens_profile = true;
     s.lens_db.enabled = true;
     s.lens_db.distortion = strength;
     s.lens_db.tca = strength;

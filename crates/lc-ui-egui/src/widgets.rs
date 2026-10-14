@@ -23,6 +23,29 @@ pub fn take_registry(ctx: &egui::Context) -> Vec<(String, Rect)> {
     ctx.data_mut(|d| std::mem::take(&mut d.get_temp_mut_or_default::<Registry>(egui::Id::new("lc-registry")).0))
 }
 
+/// Standard Develop content inset, used by Optics and its lens database rows.
+pub fn develop_body(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
+    egui::Frame::NONE.inner_margin(crate::theme::DEVELOP_INSET).show(ui, add);
+}
+
+/// The shared, keyboard-accessible checkbox with a stable automation id. `label` is translated
+/// by the caller; egui supplies the check mark, focus and disabled treatment from the theme.
+pub fn checkbox(ui: &mut Ui, id: &str, checked: &mut bool, label: &str) -> Response {
+    let response = ui.add(egui::Checkbox::new(checked, crate::i18n::tr(label)));
+    register(ui.ctx(), id, response.rect);
+    // Preserve both jobs' public automation IDs with one widget implementation.
+    if !id.starts_with("check:") {
+        register(ui.ctx(), format!("check:{id}"), response.rect);
+    }
+    response
+}
+
+/// Wrapping secondary text inside a Develop section, using the theme's Small type style.
+pub fn panel_note(ui: &mut Ui, text: &str) -> Response {
+    let t = Tokens::get(ui.ctx());
+    ui.add(egui::Label::new(egui::RichText::new(text).small().color(t.text_dim)).wrap())
+}
+
 // ------------------------------------------------------------------ preview-only raws
 
 /// The decoder's reason why a raw is shown from its embedded preview, shortened for the UI
@@ -957,14 +980,6 @@ pub fn cpu_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) -> 
 pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimate) {
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.caution } else { t.text_dim }));
-}
-
-/// The themed, accessible checkbox used by import and catalog/proof settings.
-/// Styling comes from the global theme; automation uses `check:{id}`.
-pub fn checkbox(ui: &mut Ui, id: &str, value: &mut bool, label: &str) -> Response {
-    let response = ui.checkbox(value, crate::i18n::tr(label));
-    register(ui.ctx(), format!("check:{id}"), response.rect);
-    response
 }
 
 /// A reusable choice dropdown: themed shell and menu rows, translated accessible labels.

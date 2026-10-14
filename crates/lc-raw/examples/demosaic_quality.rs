@@ -59,6 +59,7 @@ fn dng(n: Normalized, path: &Path) {
         color,
         wb_multipliers: Some([1.0; 3]),
         linearized: true,
+        vendor_lens: None,
         opcodes: Default::default(),
         metadata: Default::default(),
     };

@@ -789,6 +789,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         wb_multipliers: if linear_rgb { Some([1.0; 3]) } else { wb },
         linearized: info.compression == 32766,
         opcodes: OpcodeLists::default(),
+        vendor_lens: None,
         metadata,
     };
     img.validate_for(mode)?;
@@ -798,6 +799,24 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lenscorr_merge_native_decode_keeps_calibration_after_the_decoder() {
+        let bytes = packed_arw(8, 8, pack12(&[1500; 64]));
+        let native = crate::decode_native(&bytes, RawFormat::Arw, Mode::Full).unwrap();
+        let mut expected = native.clone();
+        crate::camera_data::apply(&mut expected, Mode::Full);
+        let actual = crate::decode(&bytes).unwrap();
+        assert_eq!(actual.data, expected.data);
+        assert_eq!(actual.black, expected.black);
+        assert_eq!(actual.white, expected.white);
+        assert_eq!(actual.active_area, expected.active_area);
+        assert_eq!(actual.crop, expected.crop);
+        assert_eq!(actual.color, expected.color);
+        let header = crate::probe_info(&bytes).unwrap();
+        assert_eq!(header.active_area, actual.active_area);
+        assert_eq!(header.crop, actual.crop);
+    }
 
     #[test]
     #[ignore = "explicit CC0 ARW1 aligned active-area diagnostic"]

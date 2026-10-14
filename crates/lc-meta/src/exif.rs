@@ -107,9 +107,8 @@ pub fn from_tiff(tiff: &Tiff) -> Metadata {
     m.height = exif.and_then(|e| e.u32(t::PIXEL_Y_DIMENSION)).filter(|&v| v > 0).or_else(|| ifd0.and_then(|i| i.u32(t::IMAGE_LENGTH)));
 
     m.gps = gps.and_then(read_gps);
-    if m.make.as_deref().is_some_and(|s| s.to_ascii_uppercase().contains("SONY"))
-        && let Some(lens) = crate::sony::lens_correction(tiff)
-    {
+    // The validated Sony curves may also survive a DNG round trip in IFD0.
+    if let Some(lens) = crate::sony::lens_correction(tiff) {
         m.sony = Some(crate::SonyMetadata { lens_correction: Some(lens), ..Default::default() });
     }
     if let Some(iptc) = ifd0.and_then(|i| i.value(t::IPTC_NAA)) {

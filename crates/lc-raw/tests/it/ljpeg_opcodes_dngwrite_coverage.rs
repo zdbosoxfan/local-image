@@ -26,6 +26,7 @@ fn raw_u16(w: usize, h: usize, cfa: Option<Cfa>, cpp: usize, data: Vec<u16>) -> 
         wb_multipliers: None,
         linearized: false,
         opcodes: Default::default(),
+        vendor_lens: None,
         metadata: Metadata::default(),
     }
 }
@@ -48,6 +49,7 @@ fn raw_f32(w: usize, h: usize, data: Vec<f32>) -> RawImage {
         wb_multipliers: None,
         linearized: false,
         opcodes: Default::default(),
+        vendor_lens: None,
         metadata: Metadata::default(),
     }
 }

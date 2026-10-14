@@ -18,6 +18,7 @@ pub mod crs;
 pub mod crs_masks;
 pub mod demo;
 pub mod devices;
+mod embedded_lens;
 pub mod enhance;
 pub mod ephemeral;
 pub mod export;

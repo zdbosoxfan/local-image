@@ -559,30 +559,43 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
     section(app, ui, &d, "optics", "Optics", |app, ui, d| {
         crate::panels::profiles::lens_profile_row(app, ui, id, d);
-        let has_lens = app.session.catalog.photo(id).is_some_and(|p| {
-            p.embedded_lens.is_some() || !lightcraft_engine::dcp_profiles::available_lenses(&p.meta.camera, &p.meta.lens, p.develops_raw()).is_empty()
-        });
-        egui::Frame::NONE.inner_margin(egui::Margin { left: 24, right: 22, top: 4, bottom: 4 }).show(ui, |ui| {
+        let source = app.session.source_info(id);
+        let embedded = app.session.catalog.photo(id).and_then(|p| source.embedded_lens(f64::from(p.width), f64::from(p.height)));
+        crate::widgets::develop_body(ui, |ui| {
             let mut ca = d.optics.remove_ca;
-            if ui.checkbox(&mut ca, crate::i18n::tr("Remove Chromatic Aberration")).changed() {
+            if crate::widgets::checkbox(ui, "optics:removeCa", &mut ca, crate::i18n::tr("Remove Chromatic Aberration")).changed() {
                 let _ = app.run("develop.merge", json!({"settings": {"optics": {"remove_ca": ca}}, "label": "Remove CA"}));
             }
             let mut lp = d.optics.lens_profile;
-            if !crate::panels::host_session::hides(app, "lensProfile") && ui.checkbox(&mut lp, crate::i18n::tr("Enable Lens Corrections")).changed() {
-                let _ = app.run("develop.merge", json!({"settings": {"optics": {"lens_profile": lp}}, "label": "Lens Corrections"}));
-            }
-            if lp && !has_lens {
-                ui.label(
-                    egui::RichText::new(crate::i18n::tr("No compatible embedded or imported lens profile. Choose a lens in the lens database."))
-                        .size(11.0)
-                        .color(Tokens::get(ui.ctx()).text_dim),
-                );
+            if !crate::panels::host_session::hides(app, "lensProfile") {
+                if crate::widgets::checkbox(ui, "optics:lensProfile", &mut lp, crate::i18n::tr("Enable Lens Corrections")).changed() {
+                    let settings = if lp && embedded.is_none() && !source.embedded_lens_baked {
+                        json!({"optics": {"lens_profile": true}, "lens_db": {"enabled": true}})
+                    } else {
+                        json!({"optics": {"lens_profile": lp}})
+                    };
+                    let _ = app.run("develop.merge", json!({"settings": settings, "label": "Lens Corrections"}));
+                }
+                let status = if source.embedded_lens_baked {
+                    "Built-in DNG lens corrections are already applied."
+                } else if embedded.is_some() {
+                    "Embedded lens corrections available. These take priority over the lens database."
+                } else if source.lcp.is_some() && source.lens_db.is_none() {
+                    "Imported lens correction profile available."
+                } else {
+                    "No embedded lens corrections. Use the lens database for a fallback profile."
+                };
+                crate::widgets::panel_note(ui, crate::i18n::tr(status));
             }
         });
-        if d.optics.lens_profile {
-            for c in ["optics.profileDistortion", "optics.profileVignetting"] {
-                control(app, ui, d, c, has_lens);
-            }
+        if d.optics.lens_profile && (embedded.is_some() || source.lcp.is_some()) && !source.embedded_lens_baked {
+            let lcp = source.lcp.filter(|_| embedded.is_none() && source.lens_db.is_none());
+            let distortion = embedded.is_some_and(|l| l.warp.is_some() || l.radial.is_some_and(|r| r.count > 0))
+                || lcp.is_some_and(|l| l.geometric_model().is_some());
+            let vignetting = embedded.is_some_and(|l| l.vignette.is_some() || l.radial.is_some_and(|r| r.vig_count > 0))
+                || lcp.is_some_and(|l| l.vignette.is_some());
+            control(app, ui, d, "optics.profileDistortion", distortion);
+            control(app, ui, d, "optics.profileVignetting", vignetting);
         }
         if !crate::panels::host_session::hides(app, "lensProfile") {
             crate::panels::develop_tools::lens_db_rows(app, ui, id, d);

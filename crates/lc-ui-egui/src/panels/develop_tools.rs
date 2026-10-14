@@ -195,12 +195,13 @@ pub fn raw_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettin
 pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &DevelopSettings) {
     let t = Tokens::get(ui.ctx());
     let l = d.lens_db.clone();
-    pad(ui, |ui| {
+    crate::widgets::develop_body(ui, |ui| {
         let mut on = l.enabled;
-        let r = ui.checkbox(&mut on, crate::i18n::tr("Use Lens Database"));
-        register(ui.ctx(), "lensDb:enabled", r.rect);
+        let r = crate::widgets::checkbox(ui, "lensDb:enabled", &mut on, crate::i18n::tr("Use Lens Database"));
         if r.changed() {
-            merge(app, json!({"lens_db": {"enabled": on}}), "Lens Database");
+            let settings =
+                if on { json!({"lens_db": {"enabled": true}, "optics": {"lens_profile": true}}) } else { json!({"lens_db": {"enabled": false}}) };
+            merge(app, settings, "Lens Database");
         }
     });
     if !l.enabled {
@@ -218,32 +219,43 @@ pub fn lens_db_rows(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: 
     });
     let chosen = l.lens.as_ref().map(|n| lightcraft_engine::lens_db::Named { maker: n.maker.clone(), model: n.model.clone() });
     let found = lightcraft_engine::lens_db::for_photo(&photo, d).is_some();
-    pad(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(crate::i18n::tr("Lens")).font(t.font(13.0)).color(t.text_dim));
+    crate::widgets::develop_body(ui, |ui| {
+        ui.vertical(|ui| {
+            ui.label(egui::RichText::new(crate::i18n::tr("Lens")).text_style(egui::TextStyle::Body).color(t.text_dim));
             let text = match (&chosen, &auto_lens) {
                 (Some(n), _) => n.label(),
                 (None, Some(n)) => crate::i18n::tr_format!("Auto: {lens}", lens = n.label()),
                 (None, None) => crate::i18n::tr("Choose…").to_string(),
             };
-            let r = crate::widgets::dropdown(ui, "lensDbLens", &text, t.font(13.0), t.text_label);
+            let r = crate::widgets::dropdown(ui, "lensDbLens", &text, egui::TextStyle::Body.resolve(ui.style()), t.text_label);
             egui::Popup::menu(&r).show(|ui| lens_picker(app, ui, camera_label.is_some().then(|| camera_of(&photo)).flatten()));
         });
         if let Some(c) = &camera_label {
-            ui.label(egui::RichText::new(crate::i18n::tr_format!("Camera: {camera}", camera = c)).size(11.0).color(t.text_dim));
+            crate::widgets::panel_note(ui, &crate::i18n::tr_format!("Camera: {camera}", camera = c));
         }
         if !found {
-            ui.label(
-                egui::RichText::new(crate::i18n::tr(
-                    "No profile for this lens and focal length: choose the lens, or check the photo's focal length.",
-                ))
-                .size(11.0)
-                .color(t.text_dim),
+            crate::widgets::panel_note(
+                ui,
+                crate::i18n::tr("No profile for this lens and focal length: choose the lens, or check the photo's focal length."),
             );
         }
     });
+    let reason = if !d.optics.lens_profile {
+        Some("Enable Lens Corrections to apply the lens database profile.")
+    } else if app.session.source_info(id).embedded_lens_baked {
+        Some("Built-in DNG lens corrections are already applied.")
+    } else if app.session.source_info(id).embedded_lens(f64::from(photo.width), f64::from(photo.height)).is_some() {
+        Some("Embedded lens corrections take priority; lens database amounts are inactive.")
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        crate::widgets::develop_body(ui, |ui| {
+            crate::widgets::panel_note(ui, crate::i18n::tr(reason));
+        });
+    }
     for c in ["lensDb.distortion", "lensDb.tca", "lensDb.vignetting"] {
-        control(app, ui, d, c, found);
+        control(app, ui, d, c, found && reason.is_none());
     }
 }
 

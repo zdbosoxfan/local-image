@@ -104,7 +104,7 @@ fn ca_per_channel_and_scaling() {
 
 #[test]
 fn embedded_warp_identity_maps_center() {
-    let warp = EmbeddedWarp { planes: [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; 3], center: Point::new(0.5, 0.5), radius: 0.6 };
+    let warp = EmbeddedWarp { fisheye: false, planes: [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; 3], center: Point::new(0.5, 0.5), radius: 0.6 };
     let w = 100.0;
     let h = 80.0;
     let p = Point::new(10.0, 20.0);
@@ -139,8 +139,9 @@ fn embedded_vignette_gain_nonzero_increases_gain() {
 #[test]
 fn reorient_lens_normal_returns_same() {
     let lens = EmbeddedLens {
-        warp: Some(EmbeddedWarp { planes: [[1.0, 0.01, 0.0, 0.0, 0.001, 0.002]; 3], center: Point::new(0.4, 0.5), radius: 0.6 }),
+        warp: Some(EmbeddedWarp { fisheye: false, planes: [[1.0, 0.01, 0.0, 0.0, 0.001, 0.002]; 3], center: Point::new(0.4, 0.5), radius: 0.6 }),
         vignette: Some(EmbeddedVignette { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.4, 0.5), radius: 0.6 }),
+        radial: None,
     };
     let r = reorient_lens(&lens, Orientation::Normal, 300.0, 200.0);
     let w = r.warp.unwrap();
@@ -158,8 +159,9 @@ fn reorient_lens_normal_returns_same() {
 #[test]
 fn reorient_lens_rotate90_keeps_mapping() {
     let lens = EmbeddedLens {
-        warp: Some(EmbeddedWarp { planes: [[1.0, 0.01, 0.0, 0.0, 0.001, 0.002]; 3], center: Point::new(0.4, 0.5), radius: 0.6 }),
+        warp: Some(EmbeddedWarp { fisheye: false, planes: [[1.0, 0.01, 0.0, 0.0, 0.001, 0.002]; 3], center: Point::new(0.4, 0.5), radius: 0.6 }),
         vignette: Some(EmbeddedVignette { k: [0.2, 0.0, 0.0, 0.0, 0.0], center: Point::new(0.4, 0.5), radius: 0.6 }),
+        radial: None,
     };
     let r = reorient_lens(&lens, Orientation::Rotate90, 300.0, 200.0);
     let w = r.warp.unwrap();

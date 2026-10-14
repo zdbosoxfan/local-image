@@ -253,3 +253,14 @@ mean improves while its held-out skin errors increase; full-chart means alone
 must not be used to select it for portraits. The original as-shot table remains
 above because white balance is a separate user choice. The new exact measurements
 are in `neutral-comparison.json` and the `*neutral*` CSV/JSON files under `target/`.
+
+Lens-source precedence is **embedded vendor/DNG → lensfun → user LCP**. The
+selected LCP remains available in the picker but applies only when no higher
+profile source is active. Profiles are selected as a whole; CA and vignetting
+never fill gaps by stacking another provider. The master Enable Lens
+Corrections switch controls editable profiles. Built-in ordered DJI DNG
+operations remain part of raw development and suppress all automatic fallbacks.
+LCP CA honours Remove Chromatic Aberration, uses the same camera-plane sampling
+basis as embedded CA, and suppresses blind automatic CA estimation when active.
+LCP retains its existing bounded CPU geometry path; embedded radial corrections
+and lensfun remain native GPU geometry.

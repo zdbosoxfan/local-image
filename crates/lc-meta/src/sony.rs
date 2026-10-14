@@ -37,14 +37,14 @@ pub(crate) fn lens_correction(tiff: &Tiff) -> Option<SonyLensCorrection> {
         let Some(n) = d.first().and_then(|n| usize::try_from(*n).ok()).filter(|n| (2..=16).contains(n)) else {
             continue;
         };
-        if d.len() != n + 1 || c.len() != 2 * n + 1 || v.len() != n + 1 || c[0] != (2 * n) as i16 || v[0] != n as i16 {
+        if d.len() < n + 1 || c.len() < 2 * n + 1 || v.len() < n + 1 || c[0] != (2 * n) as i16 || v[0] != n as i16 {
             continue;
         }
         return Some(SonyLensCorrection {
-            distortion: d[1..].to_vec(),
+            distortion: d[1..n + 1].to_vec(),
             ca_red: c[1..n + 1].to_vec(),
-            ca_blue: c[n + 1..].to_vec(),
-            vignetting: v[1..].to_vec(),
+            ca_blue: c[n + 1..2 * n + 1].to_vec(),
+            vignetting: v[1..n + 1].to_vec(),
         });
     }
     None
@@ -83,7 +83,7 @@ pub(crate) fn read(bytes: &[u8], tiff: &Tiff, metadata: &mut crate::Metadata) {
         return;
     };
     let mut sony = from_ifd(&note.ifd, note.order, metadata.model.as_deref().unwrap_or_default());
-    sony.lens_correction = lens_correction(tiff);
+    sony.lens_correction = metadata.sony.as_ref().and_then(|s| s.lens_correction.clone());
     if sony != SonyMetadata::default() {
         metadata.sony = Some(sony);
     }
@@ -402,6 +402,34 @@ mod tests {
             }
         }
         bytes
+    }
+
+    #[test]
+    fn lenscorr_merge_sony_padded_curves_and_dng_handoff_have_one_reader() {
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            let mut d = vec![0i16; 17];
+            d[..4].copy_from_slice(&[3, -100, 20, 30]);
+            let mut c = vec![0i16; 33];
+            c[..7].copy_from_slice(&[6, -2, 3, 4, 5, -6, 7]);
+            let mut v = vec![0i16; 17];
+            v[..4].copy_from_slice(&[3, 100, 200, 300]);
+            let mut root = IfdBuilder::new();
+            root.set(tags::MAKE, Value::Ascii("Converted DNG".into()));
+            root.set(0x7037, Value::SShort(d));
+            root.set(0x7035, Value::SShort(c));
+            root.set(0x7032, Value::SShort(v));
+            let bytes = TiffWriter::new(order, false).write(&[root]).unwrap();
+            let header = crate::from_tiff(&Tiff::parse(&bytes).unwrap());
+            let full = crate::read_exif(&bytes);
+            let expected = SonyLensCorrection {
+                distortion: vec![-100, 20, 30],
+                ca_red: vec![-2, 3, 4],
+                ca_blue: vec![5, -6, 7],
+                vignetting: vec![100, 200, 300],
+            };
+            assert_eq!(header.sony.as_ref().unwrap().lens_correction, Some(expected.clone()));
+            assert_eq!(full.sony.unwrap().lens_correction, Some(expected));
+        }
     }
 
     #[test]

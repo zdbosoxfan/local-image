@@ -45,6 +45,7 @@ pub(crate) fn textured_dng() -> Vec<u8> {
         },
         wb_multipliers: None,
         linearized: false,
+        vendor_lens: None,
         opcodes: Default::default(),
         metadata: Default::default(),
     };
@@ -172,6 +173,7 @@ fn lens_database_corrections_follow_the_settings() {
     let mut s = lightcraft_develop::DevelopSettings::default();
     assert_eq!(crate::lens_db::for_photo(&p, &s), None, "off by default");
     s.lens_db.enabled = true;
+    s.optics.lens_profile = true;
     s.lens_db.lens = Some(lightcraft_develop::LensName { maker: lens.maker.clone(), model: lens.model.clone() });
     assert!(crate::lens_db::for_photo(&p, &s).is_some());
     assert!(crate::media::job_info(&p, &s).lens_db.is_some());

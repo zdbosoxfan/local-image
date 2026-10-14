@@ -234,6 +234,7 @@ fn map_image(raw: rawler::RawImage, bytes: &[u8], format: RawFormat, mode: Mode)
         wb_multipliers: wb,
         linearized: false,
         opcodes: OpcodeLists::default(),
+        vendor_lens: None,
         metadata,
     };
     image.validate_for(mode)?;

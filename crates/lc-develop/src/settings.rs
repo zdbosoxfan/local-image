@@ -839,15 +839,33 @@ impl Default for Optics {
     }
 }
 
-/// Lens corrections embedded in a DNG file (`OpcodeList3`: `WarpRectilinear`, `FixVignetteRadial`), converted
+/// Lens corrections embedded in a raw file (DNG opcodes or vendor metadata), converted
 /// to the oriented, default-cropped image. This is camera/file data (stored on the photo record, not in the develop
 /// settings); "Enable Profile Corrections" applies it, scaled by the profile distortion/vignetting amounts.
+/// Embedded data takes precedence over lensfun and any user profile.
 /// User-imported Adobe LCP profiles are carried separately by the render source.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EmbeddedLens {
     pub warp: Option<EmbeddedWarp>,
     pub vignette: Option<EmbeddedVignette>,
+    pub radial: Option<EmbeddedRadial>,
+}
+
+/// Vendor radial corrections, following darktable's metadata v2 linear splines.
+/// Scales map corrected radii to source radii; attenuation is divided out at the
+/// source position before resampling. Unused array entries are ignored.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EmbeddedRadial {
+    pub count: usize,
+    pub vig_count: usize,
+    pub knots: [f64; 16],
+    pub scales: [[f64; 16]; 3],
+    pub vig_knots: [f64; 16],
+    pub attenuation: [f64; 16],
+    pub center: Point,
+    pub radius: f64,
 }
 
 /// Sony's embedded radial correction samples, in the original vendor units.
@@ -862,14 +880,18 @@ pub struct SonyLensData {
     pub vignetting: Vec<i16>,
 }
 
-/// DNG `WarpRectilinear`: per plane (R, G, B) `[kr0, kr1, kr2, kr3, kt0, kt1]`. For an output (corrected) point at
+/// DNG warp: per plane (R, G, B) `[kr0, kr1, kr2, kr3, kt0, kt1]`. For an output (corrected) point at
 /// offset `d = (p − center) / radius`, the source point is `center + radius · (d·f(r²) + tangential(d))`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddedWarp {
+    /// DNG WarpFisheye uses atan(radius) before the radial polynomial.
+    #[serde(default)]
+    pub fisheye: bool,
     pub planes: [[f64; 6]; 3],
     /// Optical centre, normalized to the oriented image (0..1).
     pub center: Point,
     /// Normalisation radius as a fraction of the oriented image's long edge.
+    /// Rectilinear uses SDK half-open bounds; fisheye follows the raw opcode evaluator.
     pub radius: f64,
 }
 

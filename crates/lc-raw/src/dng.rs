@@ -306,6 +306,7 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         wb_multipliers: None,
         linearized,
         opcodes,
+        vendor_lens: None,
         metadata,
     };
     img.validate_for(mode)?;
@@ -320,6 +321,7 @@ mod sony_dji_strip_tests {
     #[test]
     fn sony_dji_terminal_strip_count_recovery_requires_complete_eof_pixels() {
         let raw = RawImage {
+            vendor_lens: None,
             format: RawFormat::Dng,
             width: 4,
             height: 3,

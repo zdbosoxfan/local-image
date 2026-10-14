@@ -32,6 +32,7 @@ pub mod color;
 pub mod demosaic;
 mod dng;
 pub mod dngwrite;
+pub mod embedded_lens;
 pub mod highlight;
 pub mod ljpeg;
 mod numerics;
@@ -55,6 +56,7 @@ mod vendor;
 
 pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
+pub use embedded_lens::VendorLens;
 pub use lightcraft_color::Mat3;
 pub use lightcraft_geom::Orientation;
 pub use lightcraft_meta::Metadata;
@@ -249,6 +251,7 @@ fn decode_impl(bytes: &[u8], mode: Mode, calibrate: bool) -> Result<RawImage> {
         if calibrate {
             camera_data::apply(&mut image, mode);
         }
+        image.vendor_lens = embedded_lens::extract(bytes, format, &image.metadata);
         image
     })
 }
@@ -300,6 +303,9 @@ pub struct RawInfo {
     pub color: ColorData,
     pub wb_multipliers: Option<[f32; 3]>,
     pub opcodes: OpcodeLists,
+    /// Camera-embedded correction data, available with either pixel decoder.
+    #[serde(default)]
+    pub vendor_lens: Option<VendorLens>,
     pub metadata: Metadata,
 }
 
@@ -541,6 +547,9 @@ pub struct RawImage {
     /// Whether a `LinearizationTable` was applied to `data`.
     pub linearized: bool,
     pub opcodes: OpcodeLists,
+    /// Camera-embedded correction data, available with either pixel decoder.
+    #[serde(default)]
+    pub vendor_lens: Option<VendorLens>,
     pub metadata: Metadata,
 }
 
@@ -597,6 +606,7 @@ impl RawImage {
             color: self.color.clone(),
             wb_multipliers: self.wb_multipliers,
             opcodes: self.opcodes.clone(),
+            vendor_lens: self.vendor_lens.clone(),
             metadata: self.metadata.clone(),
         }
     }
@@ -616,6 +626,7 @@ impl RawImage {
             color: self.color,
             wb_multipliers: self.wb_multipliers,
             opcodes: self.opcodes,
+            vendor_lens: self.vendor_lens,
             metadata: self.metadata,
         }
     }

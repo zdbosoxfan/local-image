@@ -363,6 +363,7 @@ pub(crate) fn synthetic_dng_with(xmp: Option<&str>, metadata: lightcraft_meta::M
         },
         wb_multipliers: None,
         linearized: false,
+        vendor_lens: None,
         opcodes: OpcodeLists::default(),
         metadata,
     };

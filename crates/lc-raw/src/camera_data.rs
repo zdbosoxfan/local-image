@@ -672,6 +672,7 @@ mod tests {
     use super::*;
     pub(super) fn raw(w: usize, h: usize) -> RawImage {
         RawImage {
+            vendor_lens: None,
             format: RawFormat::Arw,
             width: w,
             height: h,

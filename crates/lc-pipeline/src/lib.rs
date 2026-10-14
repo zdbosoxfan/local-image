@@ -34,6 +34,8 @@
 
 #[cfg(test)]
 mod test_vectors;
+#[cfg(test)]
+mod tests_lenscorr_merge;
 
 pub mod auto;
 pub mod balance;
@@ -62,6 +64,7 @@ pub mod patches;
 pub mod primary;
 pub mod profiles;
 pub mod redeye;
+pub mod source_color;
 pub mod spots;
 pub mod tone;
 pub mod tone2;
@@ -147,13 +150,18 @@ pub struct SourceInfo {
     pub raw_clip_level: Option<f32>,
     pub camera_noise: Option<detail::nr::NoiseCalibration>,
     pub camera_wb_presets: Vec<CameraWbPreset>,
-    /// Lens corrections embedded in the file (DNG opcodes), relative to the EXIF-oriented source.
+    /// Embedded DNG/vendor correction relative to the EXIF-oriented source.
     pub lens: Option<lightcraft_develop::EmbeddedLens>,
-    /// Complete Sony vendor curves handed to the lens-correction boundary.
-    /// They are not approximated as DNG polynomials or baked into sensor samples.
+    /// Original Sony curves from the single lc-meta reader; converted only if no embedded map exists.
     pub sony_lens: Option<lightcraft_develop::SonyLensData>,
-    /// EXIF orientation applied by the decoder, retained for imported lens calibration.
     pub source_orientation: lightcraft_geom::Orientation,
+    /// Linear camera -> working basis for calibrated per-plane CA.
+    pub lens_camera_to_working: Option<lightcraft_color::Mat3>,
+    /// Nonlinear fitted look is evaluated after lens geometry.
+    pub source_hue_sat: Option<Arc<lightcraft_color::profile::HsvTable>>,
+    /// Ordered built-in DNG lens operations already applied in camera RGB.
+    pub embedded_lens_baked: bool,
+    pub embedded_ca_baked: bool,
     /// Raw sources use absolute Kelvin white balance; rendered sources use a relative scale around
     /// their as-shot white.
     pub raw: bool,
@@ -189,6 +197,13 @@ pub struct SourceInfo {
     pub profile_curve: Option<tone::CameraTone>,
 }
 
+impl SourceInfo {
+    /// Prefer the decoded embedded model; otherwise consume the metadata-only Sony handoff.
+    pub fn embedded_lens(&self, w: f64, h: f64) -> Option<lightcraft_develop::EmbeddedLens> {
+        self.lens.or_else(|| self.sony_lens.as_ref().and_then(|data| optics::sony_embedded_lens(data, w, h)))
+    }
+}
+
 impl Default for SourceInfo {
     fn default() -> Self {
         Self {
@@ -200,6 +215,10 @@ impl Default for SourceInfo {
             as_shot_temp: 6500.0,
             as_shot_tint: 0.0,
             lens: None,
+            lens_camera_to_working: None,
+            source_hue_sat: None,
+            embedded_lens_baked: false,
+            embedded_ca_baked: false,
             sony_lens: None,
             source_orientation: lightcraft_geom::Orientation::Normal,
             relative_wb: false,
@@ -310,9 +329,28 @@ pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f
 
 /// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
 pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
-    let mut frame = geometry::Frame::with_lcp(src.width, src.height, s, apply_crop, info.lens.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
-    let calibrated_ca = frame.warp.as_ref().is_some_and(|w| w.lcp.is_some_and(|m| m.correction.chromatic.is_some()));
-    if s.optics.remove_ca && s.section_enabled("optics") && !calibrated_ca {
+    let embedded = info.embedded_lens(src.width as f64, src.height as f64);
+    // Built-in ordered DNG corrections have already run before colour conversion.
+    // Suppress all automatic fallbacks, while preserving manual Optics controls.
+    let settings = if info.embedded_lens_baked && s.optics.lens_profile {
+        let mut disabled = s.clone();
+        disabled.optics.lens_profile = false;
+        Cow::Owned(disabled)
+    } else {
+        Cow::Borrowed(s)
+    };
+    let mut frame =
+        geometry::Frame::with_lcp(src.width, src.height, &settings, apply_crop, embedded.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
+    let profile_ca = frame.warp.as_ref().is_some_and(|w| w.profile_ca());
+    if let Some(warp) = frame.warp.as_mut().filter(|_| profile_ca)
+        && let Some(forward) = info.lens_camera_to_working
+        && let Some(undo) = forward.inverse()
+    {
+        warp.camera_basis = Some([undo, forward]);
+    }
+    // The estimator sees the uncorrected source. Applying it on top of a
+    // calibrated CA profile would correct the same displacement twice.
+    if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
         frame.add_lateral_ca(optics::estimate_lateral_ca(src));
     }
     frame
@@ -517,6 +555,7 @@ pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &R
         format!("{:?}", info.camera_color),
         (
             info.camera_profile.as_ref().map(|p| p.hash64()),
+            info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize),
             info.camera_noise.map(|n| (n.a.map(f32::to_bits), n.b.map(f32::to_bits), n.camera_to_working.map(|r| r.map(f32::to_bits)))),
         ),
         (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
@@ -551,6 +590,11 @@ pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
 /// the positive image.
 pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
+    if let Some(table) = info.source_hue_sat.as_ref()
+        && let Some(look) = source_color::HueSat::new(table)
+    {
+        img.map_in_place(|rgb| look.apply(rgb));
+    }
     // AI removals first: their patches are in the source's own light (before white balance)
     patches::apply_spots(img, &s.spots, &p.frame);
     local::white_balance(img, info, s);

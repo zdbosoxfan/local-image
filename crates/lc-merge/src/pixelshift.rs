@@ -402,6 +402,7 @@ mod tests {
                     })
                     .collect();
                 RawImage {
+                    vendor_lens: None,
                     format: RawFormat::Arw,
                     width: 24,
                     height: 20,

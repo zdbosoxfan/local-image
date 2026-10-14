@@ -33,8 +33,13 @@ pub(crate) fn file_local_look(format: RawFormat) -> bool {
     matches!(format, RawFormat::Arw | RawFormat::Nef | RawFormat::Nrw | RawFormat::Rw2)
 }
 
-pub(crate) fn fit_preview(raw: &RawImage, bytes: &[u8], transform: &CameraTransform) -> Option<CameraLook> {
-    let (sensor, reference) = proxies(raw, bytes, transform, PROXY)?;
+pub(crate) fn fit_preview(
+    raw: &RawImage,
+    bytes: &[u8],
+    transform: &CameraTransform,
+    lens: Option<&lightcraft_develop::EmbeddedLens>,
+) -> Option<CameraLook> {
+    let (sensor, reference) = proxies(raw, bytes, transform, PROXY, lens)?;
     // A camera profile pooled from many photos knows colours this photo shows too little of;
     // only the tone and chroma curves are fitted per photo (DRO and picture styles vary).
     let profile = raw.metadata.model.as_deref().and_then(crate::camera_profiles::get);
@@ -59,7 +64,13 @@ pub(crate) fn fit_preview(raw: &RawImage, bytes: &[u8], transform: &CameraTransf
 
 /// Same-size proxies of the sensor (white-balanced, baseline exposure, through `transform`'s
 /// matrix: the generic camera ≈ sRGB model) and of the file's embedded camera JPEG (linear Rec.2020).
-fn proxies(raw: &RawImage, bytes: &[u8], transform: &CameraTransform, size: usize) -> Option<(Rgb32f, Rgb32f)> {
+fn proxies(
+    raw: &RawImage,
+    bytes: &[u8],
+    transform: &CameraTransform,
+    size: usize,
+    lens: Option<&lightcraft_develop::EmbeddedLens>,
+) -> Option<(Rgb32f, Rgb32f)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
     let edge = (2 * size).max(384) as u32;
     let decoded = lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions { max_size: Some((edge, edge)), max_pixels: 64_000_000 }).ok()?;
@@ -84,9 +95,10 @@ fn proxies(raw: &RawImage, bytes: &[u8], transform: &CameraTransform, size: usiz
     }
     // Fixed, bounded proxy: the selected look cannot depend on thumbnail/export resolution.
     let k = (crop.width.max(crop.height).div_ceil(edge as usize).max(2)).div_ceil(2) * 2;
-    let sensor = sensor_proxy(raw, k, edge as usize)?;
+    let sensor = sensor_proxy(raw, k, edge as usize)?.into_oriented(raw.orientation);
+    let sensor = corrected_proxy(&sensor, lens);
     let mut sensor = fit(&sensor, size, size, Filter::Box);
-    let reference = fit(&reference, sensor.width, sensor.height, Filter::Box);
+    let reference = fit(&reference.into_oriented(raw.orientation), sensor.width, sensor.height, Filter::Box);
     let gain = 2f32.powf(transform.baseline_exposure as f32);
     let tables = lightcraft_raw::profile::ProfileTables::new_weighted(
         &raw.color.profile,
@@ -107,7 +119,8 @@ pub(crate) fn profile_pairs(raw: &RawImage, bytes: &[u8]) -> Option<Vec<([f64; 3
         return None;
     }
     let transform = lightcraft_raw::color::camera_transform(raw, lightcraft_raw::color::as_shot_white_xy(raw));
-    let (sensor, reference) = proxies(raw, bytes, &transform, PROFILE_PROXY)?;
+    let lens = crate::files::embedded_lens(&raw.info());
+    let (sensor, reference) = proxies(raw, bytes, &transform, PROFILE_PROXY, lens.as_ref())?;
     let to_camera = transform.matrix.inverse()?;
     let (pairs, _) = collect_pairs(&sensor, &reference)?;
     Some(pairs.into_iter().map(|(x, y)| (to_camera.apply(x), y)).collect())
@@ -121,11 +134,30 @@ pub(crate) fn fit_profile(pairs: &[([f64; 3], [f64; 3])]) -> Option<(Mat3, Optio
 }
 
 fn sensor_proxy(raw: &RawImage, k: usize, edge: usize) -> Option<Rgb32f> {
+    let unbaked = (raw.opcodes.list3.iter().any(crate::files::is_lens_opcode) && crate::files::embedded_lens(&raw.info()).is_some()).then(|| {
+        let mut source = raw.clone();
+        source.opcodes.list3.retain(|op| !crate::files::is_lens_opcode(op));
+        source
+    });
+    let raw = unbaked.as_ref().unwrap_or(raw);
     Some(match raw.develop_binned(k, 0.99).ok()? {
         Some(sensor) => sensor,
         None if raw.cpp == 3 && raw.cfa.is_none() => fit(&raw.develop(lightcraft_raw::Method::Bilinear).ok()?, edge, edge, Filter::Box),
         None => return None,
     })
+}
+
+// This proxy is camera RGB: correcting it before the colour matrix prevents
+// lens shading/geometry from being fitted into the global colour/tone look.
+fn corrected_proxy(sensor: &Rgb32f, lens: Option<&lightcraft_develop::EmbeddedLens>) -> Rgb32f {
+    let Some(lens) = lens else { return sensor.clone() };
+    let mut settings = lightcraft_develop::DevelopSettings::default();
+    settings.optics.lens_profile = true;
+    lightcraft_pipeline::geometry::Frame::with_lens(sensor.width, sensor.height, &settings, false, Some(lens)).sample(
+        sensor,
+        sensor.width,
+        sensor.height,
+    )
 }
 
 /// A fit must cut the held-out squared error to below this share of the fallback's.
@@ -282,28 +314,7 @@ fn to_prophoto() -> Mat3 {
     PROPHOTO.from_xyz().mul(&bradford(D65, D50)).mul(&REC2020.to_xyz())
 }
 
-/// A fitted [`CameraLook::hue_sat`] table, ready to apply to linear Rec.2020 pixels. It changes
-/// hue and saturation only: luminance is restored, the camera tone curve owns it.
-pub(crate) struct HueSat<'a> {
-    table: &'a HsvTable,
-    to: [[f32; 3]; 3],
-    from: [[f32; 3]; 3],
-}
-
-impl<'a> HueSat<'a> {
-    pub fn new(table: &'a HsvTable) -> Option<HueSat<'a>> {
-        let to = to_prophoto();
-        Some(HueSat { table, to: to.to_f32(), from: to.inverse()?.to_f32() })
-    }
-
-    #[inline]
-    pub fn apply(&self, rgb: [f32; 3]) -> [f32; 3] {
-        let mul = |m: &[[f32; 3]; 3], v: [f32; 3]| -> [f32; 3] { std::array::from_fn(|i| m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]) };
-        let out = mul(&self.from, self.table.apply(mul(&self.to, rgb)));
-        let (before, after) = (luminance_2020(rgb), luminance_2020(out));
-        if before > 0.0 && after > 0.0 && out.iter().all(|v| v.is_finite()) { out.map(|v| v * before / after) } else { rgb }
-    }
-}
+pub(crate) use lightcraft_pipeline::source_color::HueSat;
 
 /// HSV hue (degrees) and saturation; `None` for black or non-finite colours.
 fn hue_saturation(p: [f64; 3]) -> Option<(f64, f64)> {
@@ -527,6 +538,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn lenscorr_camera_look_proxy_removes_lens_falloff_before_fitting() {
+        let lens = lightcraft_develop::EmbeddedLens {
+            vignette: Some(lightcraft_develop::EmbeddedVignette {
+                k: [0.3, 0.05, 0.0, 0.0, 0.0],
+                center: lightcraft_geom::Point::new(0.5, 0.5),
+                radius: 0.6,
+            }),
+            ..Default::default()
+        };
+        let v = lens.vignette.unwrap();
+        let source = Rgb32f::from_fn(120, 80, |x, y| {
+            let gain =
+                lightcraft_pipeline::optics::embedded_vignette_gain(&v, lightcraft_geom::Point::new(x as f64 + 0.5, y as f64 + 0.5), 120.0, 80.0)
+                    as f32;
+            [0.4 / gain; 3]
+        });
+        let flat = corrected_proxy(&source, Some(&lens));
+        assert!(flat.data.iter().all(|p| (p[0] - 0.4).abs() < 1e-6));
+        assert_eq!(corrected_proxy(&source, None).data, source.data);
+    }
+
+    #[test]
     fn linear_arw_gets_a_sensor_proxy_without_demosaicing() {
         use lightcraft_raw::{BlackLevel, ColorData, OpcodeLists, Orientation, RawData, RawFormat, Rect};
         let mut raw = RawImage {
@@ -545,6 +578,7 @@ mod tests {
             color: ColorData::default(),
             wb_multipliers: Some([1.0; 3]),
             linearized: true,
+            vendor_lens: None,
             opcodes: OpcodeLists::default(),
             metadata: lightcraft_meta::Metadata::default(),
         };

@@ -362,6 +362,7 @@ mod tests {
             })
             .collect();
         RawImage {
+            vendor_lens: None,
             format: RawFormat::Arw,
             width: w,
             height: h,
@@ -623,6 +624,7 @@ mod tests {
                 FrameColor::Linear { .. } => ColorData::default(),
             };
             crops.push(RawImage {
+                vendor_lens: None,
                 format: RawFormat::Dng,
                 width: 128,
                 height: 128,
