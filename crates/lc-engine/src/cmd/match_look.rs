@@ -426,6 +426,12 @@ fn release_decode_for_verification(permit: &mut lightcraft_sysmem::Permit<'_>) {
     permit.shrink(0);
 }
 
+/// Larger verification is CPU work after decoding. Keep the entire admitted memory
+/// forecast through hashing and full public measurement while freeing the decode slot.
+fn finish_verification_decode(permit: &mut lightcraft_sysmem::Permit<'_>) {
+    permit.finish_heavy(permit.bytes());
+}
+
 /// Audit near matches at the user-visible preview level. Proxy fitting is an approximation;
 /// its local-contrast frequency and conditional palette support must not worsen a good photo.
 fn near_match_errors(
@@ -1180,9 +1186,10 @@ impl SolveWork {
                             release_decode_for_verification(&mut permit);
                             let retained_thumb = (src.image.data.len() as u64).saturating_mul(32).saturating_add(16 << 20);
                             let verify_bytes = i.verification_bytes.saturating_add(retained_thumb);
-                            if let Some(_verify_permit) = lightcraft_sysmem::heavy_jobs().admit(verify_bytes, &stop) {
+                            if let Some(mut verify_permit) = lightcraft_sysmem::heavy_jobs().admit(verify_bytes, &stop) {
                                 if let Ok(verified) = lightcraft_sysmem::in_background_pool(|| i.verification.load_source()) {
                                     let verified_info = verified.info_or(info.clone());
+                                    finish_verification_decode(&mut verify_permit);
                                     if let Some(evidence) = batch_cache::SourceEvidence::capture(&verified, &verified_info) {
                                         out.verification_evidence.insert(i.identity.id, evidence);
                                     }

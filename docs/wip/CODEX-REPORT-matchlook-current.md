@@ -49,6 +49,28 @@ images and held-out target exports. Originals are read only. Private photographs
 session databases, annotations, extracted binaries/models and experimental runners are
 not included in this checkpoint.
 
+New private behavioral runs use six preexisting native captures: Sony A1 ARW,
+100-MP DJI/Hasselblad DNG and merged HDR DNG, with references edited through this app.
+All three pairs decoded natively. Four fixed-reference applications produced exact
+settings/pixel equality and kept the same managed layer. Opacity zero restored pristine
+float/display output, half opacity attenuated normalization, and global B&W survived
+zero opacity exactly. Twenty-four changed Apply transactions passed exact Undo/Redo;
+nine repeat no-ops added no Undo. These are Preview sources up to 2560 pixels and
+1024-pixel output checks, not full-resolution export or photographic quality acceptance.
+
+Five alternating cross-view transfers, each starting at camera defaults, produced drift:
+
+| Source class | A4 versus original A0 mean/max OkLab ×100 | B5 versus first B1 mean/max |
+| --- | ---: | ---: |
+| Sony ARW | 3.264 / 6.131 | 3.096 / 7.615 |
+| DJI DNG | 4.157 / 9.066 | 3.785 / 12.128 |
+| Merged HDR DNG | 1.349 / 16.617 | 1.078 / 14.204 |
+
+This records actual drift, without asserting mathematical inversion or zero-drift parity.
+Assistant visual review also found wall-cast and later cool/cyan shifts in the Sony pair;
+it is not owner acceptance. Private settings, source/binary hashes, panels, regional
+diagnostics and original-file stat checks are retained outside the repository.
+
 Two private experiments tested whether manually paired materials could repair the
 global-statistics objective. Both used equal render budgets against control variants;
 target finals were opened only after fitting. Neither is production behavior.
@@ -153,6 +175,25 @@ Two three-target configuration smoke checks passed on the physical GPU: independ
 Apply with twenty references/four-GB planning and consistent Preview/Apply with one
 reference/eight-GB planning, both with two workers. These small runs validate configuration
 and GPU/Undo paths, not five-hundred throughput or a physical low-memory machine.
+
+A subsequent quiet five-hundred-target independent run with twenty references and
+four-GB memory planning failed the 300-second watchdog. Its last progress entry was
+400 targets at 262.417 seconds; it has no completed five-hundred result. The seven-target
+diagnostic confirms all seven targets require larger near-match verification. That path
+held a heavy decode slot through CPU hashing and two render/measurement calls. The new
+resource transition releases the decode slot after loading but retains every admitted
+byte. Forty-nine affected engine tests pass, including exact near-match/failure/cancel
+and memory-pressure regressions. Seven-target old/new metadata and logical renders match,
+but wall time was 3.738 versus 3.753 seconds: no speedup is demonstrated. Conservative
+byte admission remains a likely bottleneck; no reservation was weakened to pass a gate.
+
+Independent style-prior capability research now uses a visually reviewed, frozen
+14-train/5-dev/5-test split, with whole room/view families separated and Kaufman held
+out from training/development. Earlier timestamp-only split labels were discarded after
+overlapping rooms were identified. The five test captures span only two Sony room
+families; this limited experiment cannot establish broad camera or photographic quality.
+Training/evaluation uses the original public-input protocol, ordinary editable controls,
+one configuration/seed and private local weights; it is not production behavior.
 
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;

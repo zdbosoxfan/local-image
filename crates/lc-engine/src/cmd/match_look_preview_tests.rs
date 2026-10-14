@@ -459,3 +459,100 @@ fn cancelled_independent_apply_discards_genuine_partial_work_and_creates_no_undo
         assert_eq!(session.develop_of(*id).unwrap(), settings);
     }
 }
+
+#[test]
+fn larger_verification_releases_decode_slot_but_preserves_all_admitted_bytes() {
+    const MIB: u64 = 1 << 20;
+    let jobs = lightcraft_sysmem::HeavyJobs::new(2, 100 * MIB, || lightcraft_sysmem::MemoryNow { available: (1 << 30) + 100 * MIB, rss: Some(0) });
+    let mut audit = jobs.try_admit(40 * MIB).unwrap();
+    let second_decode = jobs.try_admit(30 * MIB).unwrap();
+    assert!(jobs.try_admit(10 * MIB).is_none(), "two decode slots are occupied before verification load finishes");
+    finish_verification_decode(&mut audit);
+    assert_eq!(audit.bytes(), 40 * MIB, "CPU audit retains its entire forecast");
+    assert_eq!(jobs.in_flight(), (1, 70 * MIB));
+    let third_decode = jobs.try_admit(10 * MIB).expect("CPU audit must not hold a decode slot");
+    assert_eq!(jobs.in_flight(), (2, 80 * MIB));
+    drop(third_decode);
+    assert!(jobs.try_admit(40 * MIB).is_none(), "free decode slots do not bypass memory pressure");
+    drop(audit);
+    assert_eq!(jobs.in_flight(), (1, 30 * MIB));
+    let after_audit = jobs.try_admit(40 * MIB).unwrap();
+    drop(after_audit);
+    drop(second_decode);
+    assert_eq!(jobs.in_flight(), (0, 0));
+}
+
+#[test]
+fn larger_verification_resource_transition_preserves_near_match_results_failure_and_cancel() {
+    let (mut session, ids, inputs, opts, _) = fixture(false, false);
+    let id = ids[1];
+    let mut input = inputs[1].clone();
+    let source = input.source.load_source().unwrap();
+    let info = source.info_or(input.info.clone());
+    let mut desired = (*input.baseline).clone();
+    desired.light.exposure += 0.03;
+    session.saved_looks.file.looks[0].looks = vec![match_look::analyze(&source.image, &info, &desired)];
+    let references = selected_looks(&session).unwrap();
+    let verified = Arc::new(lightcraft_raster::Rgb32f::from_fn(64, 48, |x, y| source.image.get(x / 2, y / 2)));
+    input.verification = SourceRef::Loaded(Box::new(DecodedSource::new(verified.clone(), Some(info.clone()))));
+    // Reproduce the original solve and the unchanged larger-audit decision as oracle.
+    let solved = match_look::solve_batch_with_faces(&source.image, &info, &input.baseline, &references, opts, &input.faces, &|| false).unwrap();
+    assert!(solved.before_error < 0.05 && solved.settings != *input.identity.settings, "fixture must enter the actual audit branch");
+    let errors = lightcraft_raster::sequential(|| {
+        near_match_errors(&verified, &info, &input.identity.settings, &solved.settings, &references, &solved.weights, opts, solved.similarity)
+    });
+    let (expected, expected_full) = if errors.1 >= errors.0 {
+        ((*input.identity.settings).clone(), (*input.identity.settings).clone())
+    } else {
+        (solved.settings.clone(), solved.full_settings.clone())
+    };
+    let mut work = prepare(&mut session, &params(&[id], opts, None)).unwrap();
+    work.inputs = vec![input.clone()];
+    let result = work.run_with_mode(&Control::default(), false, false);
+    assert_eq!(result.audited.iter().copied().collect::<Vec<_>>(), vec![id]);
+    assert_eq!(result.renders, solved.renders + 2);
+    assert_eq!(serde_json::to_vec(&result.rows[0].1).unwrap(), serde_json::to_vec(&expected).unwrap());
+    assert_eq!(serde_json::to_vec(&result.applications[&id].full).unwrap(), serde_json::to_vec(&expected_full).unwrap());
+    assert!(result.verification_evidence.contains_key(&id));
+
+    let mut failed = input.clone();
+    failed.verification = SourceRef::File {
+        path: "failed-audit".into(),
+        max_edge: 64,
+        fallback: None,
+        loader: Some(Arc::new(|_, _| Err("audit decode failed".into()))),
+    };
+    let mut work = prepare(&mut session, &params(&[id], opts, None)).unwrap();
+    work.inputs = vec![failed];
+    let failed = work.run_with_mode(&Control::default(), false, false);
+    assert_eq!(failed.rows[0].1, *input.identity.settings);
+    assert_eq!(failed.applications[&id].full, *input.identity.settings);
+    assert_eq!(failed.renders, solved.renders);
+    assert!(failed.audited.contains(&id) && !failed.verification_evidence.contains_key(&id));
+
+    let control = Arc::new(Control::default());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut cancelled = input;
+    cancelled.verification = SourceRef::File {
+        path: "cancel-during-audit-load".into(),
+        max_edge: 64,
+        fallback: None,
+        loader: Some(Arc::new({
+            let control = control.clone();
+            let calls = calls.clone();
+            move |_, _| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                control.cancel.store(true, Ordering::Relaxed);
+                Ok(((*verified).clone(), info.clone()))
+            }
+        })),
+    };
+    let mut work = prepare(&mut session, &params(&[id], opts, None)).unwrap();
+    work.inputs = vec![cancelled];
+    let undo = session.undo.len();
+    let result = work.run_with_mode(&control, false, false);
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert!(result.rows.is_empty() && result.applications.is_empty());
+    assert_eq!(apply(&mut session, result).unwrap()["changed"], 0);
+    assert_eq!(session.undo.len(), undo);
+}
