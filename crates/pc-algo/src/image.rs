@@ -3,16 +3,9 @@
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 
-/// How samples outside an image are read.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Edge {
-    /// Zero (transparent).
-    Transparent,
-    /// Clamp to the nearest edge pixel.
-    Repeat,
-    /// Wrap around.
-    Wrap,
-}
+/// How samples outside an image are read (the shared dense-frame policy).
+pub use li_raster::frame::Edge;
+use li_raster::frame::Frame;
 
 /// A rectangle of interleaved, normalized samples.
 #[derive(Clone, Debug, PartialEq)]
@@ -94,13 +87,10 @@ impl Image {
         if area.contains(x, y) {
             return self.get(x, y, c);
         }
-        match edge {
-            Edge::Transparent => 0.0,
-            Edge::Repeat => self.get(x.clamp(area.x0, area.x1 - 1), y.clamp(area.y0, area.y1 - 1), c),
-            Edge::Wrap => {
-                let (w, h) = (area.width().max(1) as i32, area.height().max(1) as i32);
-                self.get(area.x0 + (x - area.x0).rem_euclid(w), area.y0 + (y - area.y0).rem_euclid(h), c)
-            }
+        let (w, h) = (i64::from(area.width().max(1)), i64::from(area.height().max(1)));
+        match edge.resolve(x.into(), y.into(), area.x0.into(), area.y0.into(), w, h) {
+            Some((x, y)) => self.get(x as i32, y as i32, c),
+            None => 0.0,
         }
     }
 
@@ -148,6 +138,62 @@ impl Image {
         }
         v
     }
+
+    /// Dense frame of an `N`-channel region (the shared `li-raster` type); `None` when the
+    /// channel count differs. Used where editor regions meet the shared/AI kernels.
+    pub fn to_frame<const N: usize>(&self) -> Option<Frame<[f32; N]>>
+    where
+        [f32; N]: Default,
+    {
+        if self.ch != N {
+            return None;
+        }
+        let (w, h) = (self.rect.width() as usize, self.rect.height() as usize);
+        Frame::from_vec(w, h, self.data.as_chunks::<N>().0.to_vec())
+    }
+
+    /// Region at `(x0, y0)` holding `frame`'s pixels.
+    pub fn from_frame<const N: usize>(x0: i32, y0: i32, frame: &Frame<[f32; N]>) -> Self {
+        Image { rect: Rect::from_xywh(x0, y0, frame.width as u32, frame.height as u32), ch: N, data: frame.data.as_flattened().to_vec() }
+    }
 }
 
 pub use li_raster::blur::{premultiply, unpremultiply};
+
+#[cfg(test)]
+mod j28_tests {
+    use super::*;
+
+    #[test]
+    fn j28_shared_edge_matches_previous_editor_reads() {
+        let rect = Rect::new(-2, 3, 3, 6);
+        let img = Image { rect, ch: 2, data: (0..rect.width() * rect.height() * 2).map(|v| v as f32).collect() };
+        let area = Rect::new(-1, 3, 2, 5);
+        // The previous inline policy, kept as the golden reference.
+        let old = |x: i32, y: i32, c: usize, edge: Edge| -> f32 {
+            if area.contains(x, y) {
+                return img.get(x, y, c);
+            }
+            match edge {
+                Edge::Transparent => 0.0,
+                Edge::Repeat => img.get(x.clamp(area.x0, area.x1 - 1), y.clamp(area.y0, area.y1 - 1), c),
+                Edge::Wrap => {
+                    let (w, h) = (area.width().max(1) as i32, area.height().max(1) as i32);
+                    img.get(area.x0 + (x - area.x0).rem_euclid(w), area.y0 + (y - area.y0).rem_euclid(h), c)
+                }
+            }
+        };
+        for edge in [Edge::Transparent, Edge::Repeat, Edge::Wrap] {
+            for y in -4..10 {
+                for x in -7..8 {
+                    for c in 0..2 {
+                        assert_eq!(img.get_edge(x, y, c, edge, area).to_bits(), old(x, y, c, edge).to_bits(), "{edge:?} {x},{y},{c}");
+                    }
+                }
+            }
+        }
+        let frame = img.to_frame::<2>().unwrap();
+        assert_eq!(Image::from_frame(rect.x0, rect.y0, &frame), img);
+        assert!(img.to_frame::<4>().is_none());
+    }
+}

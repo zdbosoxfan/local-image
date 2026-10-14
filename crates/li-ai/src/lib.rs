@@ -34,6 +34,8 @@ pub mod workflows;
 
 pub use catalog::ModelId;
 pub use comfy::{Cancelled, ComfyClient, JobControl, Progress, Stage};
+/// The shared dense float frame used at every AI pixel boundary (PNG only at the ComfyUI wire).
+pub use li_raster::{Filter, Frame, GrayFrame, RgbFrame, RgbaFrame};
 pub use ops::{Ai, GenerateMode, GenerateRequest, RefineStep, RemoveEngine};
 pub use settings::AiSettings;
 

@@ -1,10 +1,12 @@
 //! Shared raster kernels. Existing product crates keep their public image/surface adapters.
 #![forbid(unsafe_code)]
 pub mod blur;
+pub mod frame;
 pub mod histogram;
 pub mod resample;
 pub mod resize_u8;
-pub use resample::Filter;
+pub use frame::{Edge, Frame, GrayFrame, RgbFrame, RgbaFrame, quantize_u8};
+pub use resample::{Filter, Pixel};
 pub use resize_u8::{resize_gray8, resize_rgb8, resize_rgba8, resize_u8};
 /// Independent rows; sequential on wasm or without the parallel feature.
 pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {

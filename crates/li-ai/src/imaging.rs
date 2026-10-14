@@ -3,6 +3,7 @@
 //! reference sizing and cutout alpha cleanup. Plain `image` buffers in, plain buffers out.
 
 use image::{GrayImage, Luma, Rgb, RgbImage, Rgba, RgbaImage, imageops};
+use li_raster::{RgbFrame, RgbaFrame};
 
 /// An integer pixel rectangle `[x0, x1) × [y0, y1)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -213,13 +214,19 @@ pub fn klein_highlight(crop: &RgbImage, region_in_crop: Rect) -> RgbImage {
 /// interpolation) with a coarse-to-fine Gauss–Seidel solver. Pixels outside the selection are
 /// returned untouched.
 pub fn poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage) -> RgbImage {
-    let (w, h) = original.dimensions();
-    assert_eq!(generated.dimensions(), (w, h));
+    poisson_blend_frame(&RgbFrame::from_rgb8(original), &RgbFrame::from_rgb8(generated), mask).to_rgb8()
+}
+
+/// [`poisson_blend`] on normalized frames: the boundary is matched against the unquantized
+/// original (a 16-bit or float document), and the result is not rounded.
+pub fn poisson_blend_frame(original: &RgbFrame, generated: &RgbFrame, mask: &GrayImage) -> RgbFrame {
+    let (w, h) = (original.width as u32, original.height as u32);
+    assert_eq!(generated.dimensions(), original.dimensions());
     assert_eq!(mask.dimensions(), (w, h));
     let inside = |x: u32, y: u32| mask.get_pixel(x, y)[0] > 0;
     let Some(b) = bbox(mask, 0) else { return original.clone() };
     if b.width() < 4 || b.height() < 4 {
-        return RgbImage::from_fn(w, h, |x, y| if inside(x, y) { *generated.get_pixel(x, y) } else { *original.get_pixel(x, y) });
+        return RgbFrame::from_fn(original.width, original.height, |x, y| if inside(x as u32, y as u32) { generated.get(x, y) } else { original.get(x, y) });
     }
     // Work in the bbox grown by one pixel (the Dirichlet boundary ring).
     let r = b.expand(1, w, h);
@@ -236,9 +243,9 @@ pub fn poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage
             if inside(gx, gy) && !on_edge {
                 unknown[i] = true;
             } else {
-                let o = original.get_pixel(gx, gy);
-                let g = generated.get_pixel(gx, gy);
-                boundary[i] = [o[0] as f32 - g[0] as f32, o[1] as f32 - g[1] as f32, o[2] as f32 - g[2] as f32];
+                let o = original.get(gx as usize, gy as usize);
+                let g = generated.get(gx as usize, gy as usize);
+                boundary[i] = [o[0] - g[0], o[1] - g[1], o[2] - g[2]];
             }
         }
     }
@@ -247,13 +254,13 @@ pub fn poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage
     for y in 0..rh {
         for x in 0..rw {
             let i = y * rw + x;
-            let (gx, gy) = (r.x0 + x as u32, r.y0 + y as u32);
-            if !inside(gx, gy) {
+            let (gx, gy) = (r.x0 as usize + x, r.y0 as usize + y);
+            if !inside(gx as u32, gy as u32) {
                 continue;
             }
-            let g = generated.get_pixel(gx, gy);
-            let c = if unknown[i] { field[i] } else { [0.0; 3] };
-            out.put_pixel(gx, gy, Rgb([0, 1, 2].map(|k| (g[k] as f32 + if unknown[i] { c[k] } else { boundary[i][k] }).round().clamp(0.0, 255.0) as u8)));
+            let g = generated.get(gx, gy);
+            let c = if unknown[i] { field[i] } else { boundary[i] };
+            out.set(gx, gy, [0, 1, 2].map(|k| (g[k] + c[k]).clamp(0.0, 1.0)));
         }
     }
     out
@@ -416,6 +423,11 @@ pub fn decode_rgba(bytes: &[u8]) -> anyhow::Result<RgbaImage> {
     Ok(image::load_from_memory(bytes)?.to_rgba8())
 }
 
+/// Decode a wire image at its own precision (8-bit, 16-bit or float) as straight RGBA.
+pub fn decode_frame(bytes: &[u8]) -> anyhow::Result<RgbaFrame> {
+    Ok(RgbaFrame::from_dynamic(&image::load_from_memory(bytes)?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -542,5 +554,103 @@ mod tests {
         cut.put_pixel(1, 0, Rgba([0, 0, 0, 128]));
         let a = finish_cutout(&cut).unwrap();
         assert_eq!((a.get_pixel(0, 0)[0], a.get_pixel(1, 0)[0], a.get_pixel(2, 0)[0]), (0, 128, 255));
+    }
+}
+
+#[cfg(test)]
+mod j28_tests {
+    use super::*;
+
+    /// The pre-J28 8-bit blend, verbatim: the golden reference for the adapter.
+    fn pre_j28_poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage) -> RgbImage {
+        let (w, h) = original.dimensions();
+        let inside = |x: u32, y: u32| mask.get_pixel(x, y)[0] > 0;
+        let Some(b) = bbox(mask, 0) else { return original.clone() };
+        if b.width() < 4 || b.height() < 4 {
+            return RgbImage::from_fn(w, h, |x, y| if inside(x, y) { *generated.get_pixel(x, y) } else { *original.get_pixel(x, y) });
+        }
+        let r = b.expand(1, w, h);
+        let (rw, rh) = (r.width() as usize, r.height() as usize);
+        let n = rw * rh;
+        let mut unknown = vec![false; n];
+        let mut boundary = vec![[0f32; 3]; n];
+        for y in 0..rh {
+            for x in 0..rw {
+                let (gx, gy) = (r.x0 + x as u32, r.y0 + y as u32);
+                let i = y * rw + x;
+                let on_edge = gx == 0 || gy == 0 || gx == w - 1 || gy == h - 1;
+                if inside(gx, gy) && !on_edge {
+                    unknown[i] = true;
+                } else {
+                    let o = original.get_pixel(gx, gy);
+                    let g = generated.get_pixel(gx, gy);
+                    boundary[i] = [o[0] as f32 - g[0] as f32, o[1] as f32 - g[1] as f32, o[2] as f32 - g[2] as f32];
+                }
+            }
+        }
+        let field = solve_membrane(rw, rh, &unknown, &boundary);
+        let mut out = original.clone();
+        for y in 0..rh {
+            for x in 0..rw {
+                let i = y * rw + x;
+                let (gx, gy) = (r.x0 + x as u32, r.y0 + y as u32);
+                if !inside(gx, gy) {
+                    continue;
+                }
+                let g = generated.get_pixel(gx, gy);
+                let c = if unknown[i] { field[i] } else { [0.0; 3] };
+                out.put_pixel(gx, gy, Rgb([0, 1, 2].map(|k| (g[k] as f32 + if unknown[i] { c[k] } else { boundary[i][k] }).round().clamp(0.0, 255.0) as u8)));
+            }
+        }
+        out
+    }
+
+    fn case(w: u32, h: u32) -> (RgbFrame, RgbImage, GrayImage) {
+        // A deep gradient (16-bit document) and a generated patch: the same scene, brighter, and
+        // 8-bit as everything coming back over the ComfyUI wire.
+        let truth = RgbFrame::from_fn(w as usize, h as usize, |x, y| [0.30 + 0.03 * x as f32 / w as f32, 0.50 + 0.02 * y as f32 / h as f32, 0.62]);
+        let generated = truth.map(|p| p.map(|v| v + 0.08)).to_rgb8();
+        let mask = GrayImage::from_fn(w, h, |x, y| Luma([if (w / 4..3 * w / 4).contains(&x) && (h / 4..3 * h / 4).contains(&y) { 255 } else { 0 }]));
+        (truth, generated, mask)
+    }
+
+    #[test]
+    fn j28_poisson_u8_adapter_matches_the_pre_j28_blend() {
+        for (w, h) in [(48, 40), (160, 120), (6, 6)] {
+            let (truth, generated, mask) = case(w, h);
+            let original = truth.to_rgb8();
+            let old = pre_j28_poisson_blend(&original, &generated, &mask);
+            let new = poisson_blend(&original, &generated, &mask);
+            let diff = old.as_raw().iter().zip(new.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+            assert!(diff <= 1, "{w}x{h}: max difference {diff}");
+            let differing = old.as_raw().iter().zip(new.as_raw()).filter(|(a, b)| a != b).count();
+            eprintln!("j28 poisson {w}x{h}: adapter vs pre-J28 max {diff} level(s), {differing} of {} samples differ", old.as_raw().len());
+        }
+    }
+
+    #[test]
+    fn j28_poisson_float_meets_the_unquantized_document() {
+        let (truth, generated, mask) = case(160, 120);
+        let old = pre_j28_poisson_blend(&truth.to_rgb8(), &generated, &mask);
+        let new = poisson_blend_frame(&truth, &RgbFrame::from_rgb8(&generated), &mask);
+        // Seam: step between each selected edge pixel and its unselected neighbour, against the
+        // document's own step there.
+        let (mut seam_old, mut seam_new) = (0f32, 0f32);
+        for y in 30..90usize {
+            for (inner, outer) in [(40usize, 39usize), (119, 120)] {
+                for k in 0..3 {
+                    let want = truth.get(inner, y)[k] - truth.get(outer, y)[k];
+                    seam_new = seam_new.max((new.get(inner, y)[k] - truth.get(outer, y)[k] - want).abs());
+                    seam_old = seam_old.max((old.get_pixel(inner as u32, y as u32)[k] as f32 / 255.0 - truth.get(outer, y)[k] - want).abs());
+                }
+            }
+        }
+        eprintln!("j28 poisson seam vs 16-bit document: before {:.1}, after {:.1} 16-bit levels", seam_old * 65535.0, seam_new * 65535.0);
+        assert!(seam_new < seam_old, "float blend must meet the document more closely ({seam_new} vs {seam_old})");
+        for (i, m) in mask.as_raw().iter().enumerate() {
+            if *m == 0 {
+                assert_eq!(new.data[i], truth.data[i], "unselected samples keep every bit");
+            }
+        }
     }
 }

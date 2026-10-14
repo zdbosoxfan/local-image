@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result, bail};
 use image::{GrayImage, Luma, RgbImage, RgbaImage, imageops};
+use li_raster::RgbFrame;
 
 use crate::builders::{self, Params, Slot, Task};
 use crate::catalog::{self, Availability, ModelId};
@@ -279,20 +280,33 @@ impl Ai {
     }
 
     /// Repairs the selected area of `image` (the visible composite). Returns the repaired image;
-    /// pixels outside the (cleaned) selection are unchanged.
+    /// pixels outside the (cleaned) selection are unchanged. 8-bit adapter of
+    /// [`Self::remove_objects_frame`].
     pub fn remove_objects(&self, image: &RgbImage, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
-        self.remove_output(image, mask, engine, seed, ctl, false)
+        Ok(self.remove_output(&RgbFrame::from_rgb8(image), mask, engine, seed, ctl, false)?.to_rgb8())
     }
 
     /// Patch pixels for the existing document/develop compositor. Local soft coverage is
     /// applied by that compositor exactly once; standalone callers use remove_objects.
+    /// 8-bit adapter of [`Self::remove_patch_frame`].
     pub fn remove_patch(&self, image: &RgbImage, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
+        Ok(self.remove_output(&RgbFrame::from_rgb8(image), mask, engine, seed, ctl, true)?.to_rgb8())
+    }
+
+    /// [`Self::remove_objects`] on normalized encoded RGB (no 8-bit step outside the ComfyUI wire).
+    pub fn remove_objects_frame(&self, image: &RgbFrame, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl) -> Result<RgbFrame> {
+        self.remove_output(image, mask, engine, seed, ctl, false)
+    }
+
+    /// [`Self::remove_patch`] on normalized encoded RGB: the on-device engine stays in float end
+    /// to end; ComfyUI engines quantize only the PNG they send and blend against `image`.
+    pub fn remove_patch_frame(&self, image: &RgbFrame, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl) -> Result<RgbFrame> {
         self.remove_output(image, mask, engine, seed, ctl, true)
     }
 
-    fn remove_output(&self, image: &RgbImage, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl, patch: bool) -> Result<RgbImage> {
+    fn remove_output(&self, image: &RgbFrame, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl, patch: bool) -> Result<RgbFrame> {
         ctl.check()?;
-        if image.dimensions() != mask.dimensions() {
+        if image.dimensions() != (mask.width() as usize, mask.height() as usize) {
             bail!("The selection does not match the image size.");
         }
         let mask = imaging::clean_selection_mask(mask);
@@ -306,7 +320,7 @@ impl Ai {
             ctl.check()?;
             ctl.set_message("Removing on this computer");
             let progress = |done: usize, total: usize| ctl.set_step(done as u32, total as u32);
-            if patch { model.run_patch(image, &mask, &|| ctl.check(), &progress) } else { model.run(image, &mask, &|| ctl.check(), &progress) }
+            if patch { model.run_patch_frame(image, &mask, &|| ctl.check(), &progress) } else { model.run_frame(image, &mask, &|| ctl.check(), &progress) }
         };
         if let RemoveEngine::Lama { models_dir } = engine {
             return local(models_dir);
@@ -326,9 +340,9 @@ impl Ai {
         }
     }
 
-    fn remove_klein(&self, image: &RgbImage, mask: &GrayImage, seed: u64, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbImage> {
+    fn remove_klein(&self, image: &RgbFrame, mask: &GrayImage, seed: u64, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbFrame> {
         let a = self.resolve(ModelId::KleinRemove, "bf16", info)?;
-        let (w, h) = image.dimensions();
+        let (w, h) = mask.dimensions();
         let regions = imaging::plan_regions(mask, 64);
         let mut current = image.clone();
         for (i, region) in regions.iter().enumerate() {
@@ -339,47 +353,56 @@ impl Ai {
                 Luma([if inside { mask.get_pixel(x, y)[0] } else { 0 }])
             });
             let b = imaging::klein_crop_box(w, h, *region);
-            let crop = imageops::crop_imm(&current, b.x0, b.y0, b.width(), b.height()).to_image();
+            let (bx, by, bw, bh) = (b.x0 as usize, b.y0 as usize, b.width() as usize, b.height() as usize);
+            let crop = current.crop(bx, by, bw, bh);
             let in_crop = Rect { x0: region.x0 - b.x0, y0: region.y0 - b.y0, x1: region.x1 - b.x0, y1: region.y1 - b.y0 };
-            let highlighted = imaging::klein_highlight(&crop, in_crop);
+            // The wire is 8-bit PNG; everything around it stays float.
+            let highlighted = imaging::klein_highlight(&crop.to_rgb8(), in_crop);
             let built = workflows::klein_remove(&a.files, highlighted.width(), highlighted.height(), seed.wrapping_add(i as u64));
             let png = imaging::encode_png(&highlighted)?;
             let bytes = self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?;
-            let out = image::load_from_memory(&bytes)?.to_rgb8();
-            if out.dimensions() != highlighted.dimensions() {
+            let out = imaging::decode_frame(&bytes)?.rgb();
+            if (out.width as u32, out.height as u32) != highlighted.dimensions() {
                 bail!("The removal model returned an unexpected size.");
             }
-            let generated = li_raster::resize_rgb8(&out, b.width(), b.height(), li_raster::Filter::Lanczos3);
+            let mut generated = out.resize(bw, bh, li_raster::Filter::Lanczos3);
+            generated.clamp01();
             let crop_mask = imageops::crop_imm(&region_mask, b.x0, b.y0, b.width(), b.height()).to_image();
-            let blended = imaging::poisson_blend(&crop, &generated, &crop_mask);
-            for (x, y, p) in blended.enumerate_pixels() {
-                if crop_mask.get_pixel(x, y)[0] > 0 {
-                    current.put_pixel(b.x0 + x, b.y0 + y, *p);
+            let blended = imaging::poisson_blend_frame(&crop, &generated, &crop_mask);
+            for (x, y, m) in crop_mask.enumerate_pixels() {
+                if m[0] > 0 {
+                    current.set(bx + x as usize, by + y as usize, blended.get(x as usize, y as usize));
                 }
             }
         }
         Ok(current)
     }
 
-    fn remove_qwen(&self, image: &RgbImage, mask: &GrayImage, variant: &str, seed: u64, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbImage> {
+    fn remove_qwen(&self, image: &RgbFrame, mask: &GrayImage, variant: &str, seed: u64, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbFrame> {
         let instruction = "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the unwanted object or area to remove and black marks the area to keep. Remove the selected object completely and reconstruct a natural empty continuation of the surrounding background in its place. Match the surrounding texture, perspective, lighting and color. Do not insert any new objects, people, text or symbols. Do not draw the mask in the result. Keep the original composition and all other areas unchanged. ";
-        let rgba = image::DynamicImage::ImageRgb8(image.clone()).to_rgba8();
+        let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
         let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl)?;
-        let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
+        let edited = RgbFrame::from_rgb8(&image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8());
         // Match the surrounding colour while preserving generated gradients, as Klein does.
-        let blended = imaging::poisson_blend(image, &edited, mask);
-        Ok(RgbImage::from_fn(image.width(), image.height(), |x, y| {
-            let m = mask.get_pixel(x, y)[0] as u32;
-            let (a, b) = (image.get_pixel(x, y), blended.get_pixel(x, y));
-            image::Rgb([0, 1, 2].map(|k| ((a[k] as u32 * (255 - m) + b[k] as u32 * m + 127) / 255) as u8))
+        let blended = imaging::poisson_blend_frame(image, &edited, mask);
+        Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
+            let m = mask.get_pixel(x as u32, y as u32)[0] as f32 / 255.0;
+            let (a, b) = (image.get(x, y), blended.get(x, y));
+            [0, 1, 2].map(|k| a[k] * (1.0 - m) + b[k] * m)
         }))
     }
 
     /// Generative fill: changes only the selected area according to `prompt` (Qwen edit with the
-    /// selection as a second reference, composited through the selection).
+    /// selection as a second reference, composited through the selection). 8-bit adapter of
+    /// [`Self::fill_frame`].
     pub fn fill(&self, image: &RgbImage, mask: &GrayImage, prompt: &str, variant: &str, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
-        if image.dimensions() != mask.dimensions() {
+        Ok(self.fill_frame(&RgbFrame::from_rgb8(image), mask, prompt, variant, seed, ctl)?.to_rgb8())
+    }
+
+    /// [`Self::fill`] on normalized encoded RGB; unselected pixels keep their full precision.
+    pub fn fill_frame(&self, image: &RgbFrame, mask: &GrayImage, prompt: &str, variant: &str, seed: u64, ctl: &JobControl) -> Result<RgbFrame> {
+        if image.dimensions() != (mask.width() as usize, mask.height() as usize) {
             bail!("The selection does not match the image size.");
         }
         if prompt.trim().is_empty() {
@@ -394,11 +417,14 @@ impl Ai {
             "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the area to change and black marks the area to keep. In the white area only: {}. Blend it naturally with the surrounding light, perspective and colour. Do not draw the mask in the result. Keep all other areas unchanged.",
             prompt.trim()
         );
-        let rgba = image::DynamicImage::ImageRgb8(image.clone()).to_rgba8();
+        let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
         let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
-        Ok(RgbImage::from_fn(image.width(), image.height(), |x, y| if mask.get_pixel(x, y)[0] > 0 { *edited.get_pixel(x, y) } else { *image.get_pixel(x, y) }))
+        Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
+            let p = edited.get_pixel(x as u32, y as u32);
+            if mask.get_pixel(x as u32, y as u32)[0] > 0 { p.0.map(|v| v as f32 / 255.0) } else { image.get(x, y) }
+        }))
     }
 
     /// Qwen "edit": the output follows reference 1 and is resized back to its size.
@@ -1080,7 +1106,7 @@ fn final_review_qwen_remove_blends_the_boundary_and_preserves_unmasked_pixels() 
     let info = ai.inventory().unwrap();
     let src = RgbImage::from_pixel(64, 48, image::Rgb([105, 166, 205]));
     let mask = GrayImage::from_fn(64, 48, |x, y| Luma([if (16..48).contains(&x) && (12..36).contains(&y) { 255 } else { 0 }]));
-    let out = ai.remove_qwen(&src, &mask, "int8", 42, &info, &JobControl::new()).unwrap();
+    let out = ai.remove_qwen(&RgbFrame::from_rgb8(&src), &mask, "int8", 42, &info, &JobControl::new()).unwrap().to_rgb8();
     let boundary_jump = out.get_pixel(16, 20).0.into_iter().zip(src.get_pixel(15, 20).0).map(|(a, b)| a.abs_diff(b)).max().unwrap();
     assert!(boundary_jump < 12, "Qwen repair must meet the surrounding colour: jump {boundary_jump}");
     for (x, y, p) in out.enumerate_pixels() {
