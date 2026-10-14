@@ -21,6 +21,10 @@ pub fn new_seed() -> u64 {
 pub enum RemoveEngine {
     /// FLUX.2 Klein + fal's object-removal LoRA (16 GB).
     Klein,
+    /// On-device FP32 big-LaMa, independent of ComfyUI.
+    Lama { models_dir: std::path::PathBuf },
+    /// Klein when connected; on-device LaMa when ComfyUI is unreachable.
+    Auto { models_dir: std::path::PathBuf },
     /// Qwen Image 2.1 instruction edit, composited through the selection.
     Qwen { variant: String },
 }
@@ -277,6 +281,17 @@ impl Ai {
     /// Repairs the selected area of `image` (the visible composite). Returns the repaired image;
     /// pixels outside the (cleaned) selection are unchanged.
     pub fn remove_objects(&self, image: &RgbImage, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
+        self.remove_output(image, mask, engine, seed, ctl, false)
+    }
+
+    /// Patch pixels for the existing document/develop compositor. Local soft coverage is
+    /// applied by that compositor exactly once; standalone callers use remove_objects.
+    pub fn remove_patch(&self, image: &RgbImage, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl) -> Result<RgbImage> {
+        self.remove_output(image, mask, engine, seed, ctl, true)
+    }
+
+    fn remove_output(&self, image: &RgbImage, mask: &GrayImage, engine: &RemoveEngine, seed: u64, ctl: &JobControl, patch: bool) -> Result<RgbImage> {
+        ctl.check()?;
         if image.dimensions() != mask.dimensions() {
             bail!("The selection does not match the image size.");
         }
@@ -285,9 +300,28 @@ impl Ai {
             bail!("Paint over what you want to remove first.");
         }
         ctl.set_stage(Stage::Preparing);
-        let info = self.inventory()?;
+        let local = |models_dir: &std::path::Path| {
+            ctl.set_message("Loading on-device AI Remove");
+            let model = li_seg::lama::shared(catalog::on_device_default(li_seg::Group::Remove), models_dir, &|| ctl.check())?;
+            ctl.check()?;
+            ctl.set_message("Removing on this computer");
+            let progress = |done: usize, total: usize| ctl.set_step(done as u32, total as u32);
+            if patch { model.run_patch(image, &mask, &|| ctl.check(), &progress) } else { model.run(image, &mask, &|| ctl.check(), &progress) }
+        };
+        if let RemoveEngine::Lama { models_dir } = engine {
+            return local(models_dir);
+        }
+        let info = match self.inventory() {
+            Ok(info) => info,
+            Err(_) if matches!(engine, RemoveEngine::Auto { .. }) => {
+                let RemoveEngine::Auto { models_dir } = engine else { unreachable!() };
+                return local(models_dir);
+            }
+            Err(error) => return Err(error),
+        };
         match engine {
-            RemoveEngine::Klein => self.remove_klein(image, &mask, seed, &info, ctl),
+            RemoveEngine::Lama { .. } => unreachable!(),
+            RemoveEngine::Auto { .. } | RemoveEngine::Klein => self.remove_klein(image, &mask, seed, &info, ctl),
             RemoveEngine::Qwen { variant } => self.remove_qwen(image, &mask, variant, seed, &info, ctl),
         }
     }
@@ -1114,4 +1148,17 @@ mod cutout_tier_tests {
             assert!(error.to_string().contains("Install the selected"));
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn lama_local_validation_and_cancellation_never_need_comfy() {
+    let ai = Ai::new("http://127.0.0.1:1");
+    let engine = RemoveEngine::Lama { models_dir: std::path::PathBuf::from("/nonexistent-lama") };
+    let rgb = RgbImage::new(8, 8);
+    let mask = GrayImage::from_pixel(8, 8, Luma([255]));
+    let ctl = JobControl::new();
+    assert!(ai.remove_objects(&rgb, &mask, &engine, 0, &ctl).unwrap_err().to_string().contains("Download AI Remove"));
+    ctl.cancel();
+    assert!(ai.remove_patch(&rgb, &mask, &engine, 0, &ctl).unwrap_err().is::<crate::Cancelled>());
 }

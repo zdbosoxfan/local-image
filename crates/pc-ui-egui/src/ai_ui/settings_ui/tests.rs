@@ -41,10 +41,16 @@ fn ai_preferences_function_labels_hide_model_details_until_manage() {
     let mut h = harness("ai.tools", vec2(1100.0, 850.0), 1.0, crate::theme::ThemeKind::ProMedium);
     h.get_by_label("Download Subject Selection");
     h.get_by_label("Download Sky Selection");
+    h.get_by_label("Download AI Remove");
     assert!(h.query_by_label("Fast · BRIA RMBG-1.4").is_none());
     h.get_by_label("Manage Subject Selection").click();
     h.run_steps(4);
     h.get_by_label("Fast · BRIA RMBG-1.4");
+    h.get_by_label("Manage AI Remove").scroll_to_me();
+    h.run_steps(3);
+    h.get_by_label("Manage AI Remove").click();
+    h.run_steps(4);
+    h.get_by_label("LaMa · On-device");
     reset();
     TEST_STATUS.with(|s| *s.borrow_mut() = None);
 }

@@ -164,7 +164,7 @@ fn object_flood_keeps_the_clicked_region_only() {
 /// One official model per function, each explained in plain language.
 #[test]
 fn one_official_model_per_function() {
-    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 9);
+    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 10);
     assert_eq!(MODELS.iter().filter(|m| m.task == Task::Upscale).count(), 4);
     assert!(MODELS.iter().filter(|m| m.task == Task::Upscale).all(|m| m.group.is_none()));
     for g in Group::ALL {

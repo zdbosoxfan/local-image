@@ -182,8 +182,7 @@ pub(crate) fn detected(app: &mut PhotocraftApp, mask: image::GrayImage, colouris
 }
 
 fn ready(app: &PhotocraftApp) -> bool {
-    let (m, v) = crate::ai_ui::remove_engine(&app.ui.ai.remove_engine);
-    crate::ai_ui::status().ready(m, v).is_ok()
+    crate::ai_ui::remove_ready(&app.ui.ai.remove_engine).is_ok()
 }
 
 fn remove(app: &mut PhotocraftApp) {
@@ -200,7 +199,7 @@ fn remove(app: &mut PhotocraftApp) {
         app.ai_remove = Some(p);
         return;
     }
-    let params = json!({"mask": p.mask, "engine": app.ui.ai.remove_engine});
+    let params = json!({"mask": p.mask, "engine": crate::ai_ui::effective_remove_key(&app.ui.ai.remove_engine)});
     #[cfg(not(test))]
     let result = app.run("ai.remove", params);
     #[cfg(test)]
@@ -312,7 +311,8 @@ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 fn engine(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
-    let opts: Vec<_> = crate::ai_ui::REMOVE_ENGINES.iter().map(|(k, label, _, _)| ((*k).to_owned(), *label)).collect();
+    let mut opts = vec![("auto".to_owned(), "Automatic"), ("lama".to_owned(), "On-device · LaMa")];
+    opts.extend(crate::ai_ui::REMOVE_ENGINES.iter().map(|(k, label, _, _)| ((*k).to_owned(), *label)));
     widgets::dropdown(ui, "remove-engine", &mut app.ui.ai.remove_engine, &opts, 130.0);
 }
 
@@ -348,8 +348,7 @@ pub(crate) fn options(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     widgets::checkbox(ui, &mut app.ui.ai.remove_immediately, tl!("Remove immediately on release"));
     ui.label(tl!("Paint to mark removal; Alt/Option-drag subtracts"));
-    let (m, v) = crate::ai_ui::remove_engine(&app.ui.ai.remove_engine);
-    crate::ai_ui::readiness(app, ui, m, v);
+    crate::ai_ui::remove_readiness(app, ui);
 }
 
 pub(crate) fn overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXform) {
@@ -412,8 +411,7 @@ pub(crate) fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 engine(app, ui);
             });
             if !ready(app) {
-                let (model, variant) = crate::ai_ui::remove_engine(&app.ui.ai.remove_engine);
-                crate::ai_ui::readiness(app, ui, model, variant);
+                crate::ai_ui::remove_readiness(app, ui);
             }
         });
     });

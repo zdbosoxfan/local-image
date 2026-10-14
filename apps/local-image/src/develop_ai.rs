@@ -21,7 +21,8 @@ impl DevelopAi {
 }
 
 fn engine(key: &str) -> li_ai::RemoveEngine {
-    match key {
+    match ai_ui::effective_remove_key(key) {
+        "lama" => li_ai::RemoveEngine::Lama { models_dir: photocraft_engine::seg::models_dir() },
         "qwen-bf16" => li_ai::RemoveEngine::Qwen { variant: "bf16".into() },
         "qwen-int8" => li_ai::RemoveEngine::Qwen { variant: "int8".into() },
         _ => li_ai::RemoveEngine::Klein,
@@ -80,20 +81,30 @@ impl AiHost for DevelopAi {
 
     fn remove_engines(&self) -> Vec<RemoveEngine> {
         let st = ai_ui::status();
-        ENGINES
+        let local = RemoveEngine { key: "lama".into(), label: "On-device · LaMa".into(), problem: ai_ui::remove_ready("lama").err() };
+        let mut engines: Vec<_> = ENGINES
             .iter()
             .map(|(key, label)| {
                 let (model, variant) = ai_ui::remove_engine(key);
                 RemoveEngine { key: (*key).to_owned(), label: (*label).to_owned(), problem: st.ready(model, variant).err() }
             })
-            .collect()
+            .collect();
+        engines.insert(0, local);
+        engines.insert(0, RemoveEngine { key: "auto".into(), label: "Automatic".into(), problem: ai_ui::remove_ready("auto").err() });
+        engines
     }
 
     fn remove(&self, req: &RemoveRequest, ctl: &JobCtl) -> Result<RemoveResult, String> {
-        let (w, h) = (req.width as u32, req.height as u32);
-        if req.rgb.len() != req.width * req.height || req.mask.len() != req.rgb.len() {
+        if req.width == 0
+            || req.height == 0
+            || req.width > u32::MAX as usize
+            || req.height > u32::MAX as usize
+            || req.width.checked_mul(req.height) != Some(req.rgb.len())
+            || req.mask.len() != req.rgb.len()
+        {
             return Err("image and mask sizes differ".into());
         }
+        let (w, h) = (req.width as u32, req.height as u32);
         let rgb = image::RgbImage::from_fn(w, h, |x, y| image::Rgb(req.rgb[(y * w + x) as usize]));
         let mask = image::GrayImage::from_fn(w, h, |x, y| image::Luma([req.mask[(y * w + x) as usize]]));
         // li-ai's progress and cancellation mirrored onto the Develop job
@@ -116,7 +127,7 @@ impl AiHost for DevelopAi {
                 }
             });
             let _done = ProgressDone(&done);
-            let r = li_ai::service().remove_objects(&rgb, &mask, &engine(&req.engine), req.seed, &lctl);
+            let r = li_ai::service().remove_patch(&rgb, &mask, &engine(&req.engine), req.seed, &lctl);
             done.store(true, Ordering::SeqCst);
             r
         });
@@ -133,6 +144,18 @@ impl AiHost for DevelopAi {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lama_remove_rejects_invalid_dimensions_and_keeps_registered_engine() {
+        for (width, height) in [(usize::MAX, 2), (0, 0)] {
+            let req = RemoveRequest { width, height, rgb: vec![], mask: vec![], engine: "lama".into(), seed: 1 };
+            assert!(DevelopAi.remove(&req, &JobCtl::new()).is_err());
+        }
+        assert!(matches!(engine("lama"), li_ai::RemoveEngine::Lama { .. }));
+        let engines = DevelopAi.remove_engines();
+        assert_eq!(engines[0].key, "auto");
+        assert!(engines.iter().any(|e| e.key == "lama"));
+        assert!(engines.iter().any(|e| e.key == "qwen-int8"));
+    }
     #[test]
     fn ds2_upscale_rejects_overflow_and_zero_dimensions() {
         for (width, height) in [(usize::MAX, 2), (0, 0)] {

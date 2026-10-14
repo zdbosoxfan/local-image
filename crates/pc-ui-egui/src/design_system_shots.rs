@@ -7,7 +7,7 @@ use super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 use photocraft_engine::Session;
 
-fn renderer() -> egui_kittest::wgpu::WgpuTestRenderer {
+pub(crate) fn renderer() -> egui_kittest::wgpu::WgpuTestRenderer {
     use eframe::egui_wgpu::{WgpuSetup, WgpuSetupCreateNew};
     use eframe::wgpu;
     let mut setup = WgpuSetupCreateNew::without_display_handle();
@@ -31,7 +31,7 @@ fn output(name: &str) -> std::path::PathBuf {
 
 const THEMES: [(crate::theme::ThemeKind, &str); 2] = [(crate::theme::ThemeKind::Pro, "dark"), (crate::theme::ThemeKind::StudioLight, "light")];
 
-pub(super) fn fonts_ready(ui: &egui::Ui) -> bool {
+pub(crate) fn fonts_ready(ui: &egui::Ui) -> bool {
     let ready = egui::Id::new("design-system-fonts-ready");
     if ui.ctx().data(|d| d.get_temp::<bool>(ready)).unwrap_or(false) {
         return true;

@@ -3007,7 +3007,7 @@ mod keymap_tests;
 
 #[cfg(test)]
 #[path = "design_system_shots.rs"]
-mod design_system_shots;
+pub(crate) mod design_system_shots;
 
 #[cfg(test)]
 mod display_info_tests {

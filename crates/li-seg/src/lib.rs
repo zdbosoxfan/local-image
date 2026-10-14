@@ -25,6 +25,7 @@ use tract_onnx::tract_hir::infer::Factoid;
 pub mod denoise;
 pub mod enhance;
 pub mod faces;
+pub mod lama;
 pub mod restoration;
 pub mod restoration_graph;
 
@@ -69,10 +70,11 @@ pub enum Group {
     Faces,
     RawDenoise,
     RgbDenoise,
+    Remove,
 }
 
 impl Group {
-    pub const ALL: [Group; 7] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces, Group::RawDenoise, Group::RgbDenoise];
+    pub const ALL: [Group; 8] = [Group::Subject, Group::Sky, Group::Depth, Group::Tagging, Group::Faces, Group::RawDenoise, Group::RgbDenoise, Group::Remove];
 
     pub fn label(self) -> &'static str {
         match self {
@@ -83,6 +85,7 @@ impl Group {
             Group::Faces => "Faces",
             Group::RawDenoise => "Raw Denoise",
             Group::RgbDenoise => "RGB Denoise",
+            Group::Remove => "AI Remove",
         }
     }
 
@@ -96,6 +99,7 @@ impl Group {
             Group::Faces => "faces",
             Group::RawDenoise => "raw-denoise",
             Group::RgbDenoise => "rgb-denoise",
+            Group::Remove => "remove",
         }
     }
 
@@ -117,6 +121,7 @@ impl Group {
             Group::RawDenoise => {
                 "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback."
             }
+            Group::Remove => "Repairs brushed areas with LaMa on this computer. No AI server needed; photos stay on this device.",
             Group::RgbDenoise => "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
             Group::Faces => {
                 "Finds faces and recognises the same person across photos. Off until you turn it on in Smart Sort. Face data stays in your library."
@@ -137,6 +142,7 @@ impl Group {
             Group::Faces => "sface",
             Group::RawDenoise => denoise::DENOISE_ID,
             Group::RgbDenoise => "denoise-nind",
+            Group::Remove => lama::MODEL_ID,
         };
         MODELS.iter().find(|m| m.id == id).expect("the official model is in MODELS")
     }
@@ -214,6 +220,8 @@ pub enum Task {
     FaceEmbed,
     /// RGB restoration and enlargement, through the dedicated enhance API.
     Upscale,
+    /// Masked RGB reconstruction, through the dedicated LaMa API.
+    Inpaint,
     /// A verified ONNX inside an official darktable-ai ZIP package.
     Denoise {
         companion_inners: &'static [&'static str],
@@ -224,6 +232,7 @@ pub enum Task {
 }
 
 pub const MODELS: &[ModelSpec] = &[
+    lama::MODEL,
     ModelSpec {
         id: "rmbg-1.4",
         label: "Fast · BRIA RMBG-1.4",
@@ -578,7 +587,7 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
-        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Denoise { .. }) {
+        if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Inpaint | Task::Denoise { .. }) {
             bail!("use the dedicated embedding or face inference API");
         }
         init_executor();
@@ -855,7 +864,7 @@ impl Custom {
             Group::Depth => Task::Depth,
             Group::Tagging => Task::ImageText,
             Group::Faces => Task::FaceEmbed,
-            Group::RawDenoise | Group::RgbDenoise => self.group.official().task,
+            Group::RawDenoise | Group::RgbDenoise | Group::Remove => self.group.official().task,
         };
         Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task, post: Post::MinMax }
     }
@@ -1058,7 +1067,7 @@ fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
     let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
     match custom.group {
-        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise => return Err(CustomModelError::UnsupportedFunction),
+        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise | Group::Remove => return Err(CustomModelError::UnsupportedFunction),
         Group::Subject => {
             if single_map(&shape).is_none() {
                 return Err(CustomModelError::NotSubjectModel);
@@ -1318,7 +1327,7 @@ pub fn file_installed(models_dir: &Path, file: Companion) -> bool {
 
 /// Size of the installed copy of `spec`, when it is installed.
 pub fn installed_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
-    bundle_bytes(models_dir, spec, !matches!(spec.task, Task::Denoise { .. }))
+    bundle_bytes(models_dir, spec, !matches!(spec.task, Task::Denoise { .. } | Task::Inpaint))
 }
 /// Restoration hashes run on the inference/download worker, never the Settings paint thread.
 pub fn verified_denoise_bytes(models_dir: &Path, spec: &ModelSpec) -> Option<u64> {
@@ -1330,13 +1339,17 @@ fn bundle_bytes(models_dir: &Path, spec: &ModelSpec, verify: bool) -> Option<u64
     for file in spec.files() {
         let path = companion_path(models_dir, file.file);
         let m = std::fs::metadata(&path).ok()?;
-        if !m.is_file() || ((!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Denoise { .. })) && m.len() != file.bytes) {
+        if !m.is_file() || ((!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Inpaint | Task::Denoise { .. })) && m.len() != file.bytes)
+        {
             return None;
         }
         total += m.len();
         stamp.push((path, m.len(), m.modified().ok(), file.sha256));
     }
-    if verify && (!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Denoise { .. })) && !stamp.into_iter().all(verified_file) {
+    if verify
+        && (!spec.companions.is_empty() || matches!(spec.task, Task::Upscale | Task::Inpaint | Task::Denoise { .. }))
+        && !stamp.into_iter().all(verified_file)
+    {
         return None;
     }
     Some(total)
@@ -1396,6 +1409,9 @@ pub fn remove_bundle_with(models_dir: &Path, spec: &ModelSpec, dispose: &dyn Fn(
 
 /// Drops the process-wide loaded copy of `spec` (after it is removed).
 fn forget(spec: &ModelSpec) {
+    if spec.task == Task::Inpaint {
+        lama::forget();
+    }
     if matches!(spec.task, Task::ImageText) {
         clip::forget();
     }
@@ -1474,7 +1490,7 @@ fn slot(group: Group) -> Option<&'static Slot> {
         Group::Subject => Some(&SUBJECT),
         Group::Sky => Some(&SKY),
         Group::Depth => Some(&DEPTH),
-        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise => None,
+        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise | Group::Remove => None,
     }
 }
 

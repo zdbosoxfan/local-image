@@ -204,6 +204,9 @@ pub struct InstalledModel {
 pub struct Catalog {
     pub models: Vec<ModelInfo>,
     pub presets: Vec<Preset>,
+    /// On-device resources in the same catalog, borrowing the established runner table.
+    /// No copied descriptors or separate registry; J15 can later unify the descriptor types.
+    pub on_device: &'static [li_seg::ModelSpec],
 }
 
 fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
@@ -263,7 +266,7 @@ impl ModelId {
 
 /// Builds the catalogue from the registry and the installed models.
 pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Catalog {
-    let mut cat = Catalog::default();
+    let mut cat = Catalog { on_device: li_seg::MODELS, ..Catalog::default() };
     for (f, m) in reg.models() {
         let info = info_for(f, m, Origin::Profile);
         for p in &m.presets {
@@ -374,6 +377,16 @@ pub fn refine_default_denoise(model: ModelId) -> f32 {
         Some(i) if matches!(i.resolved.pipeline.reference, crate::family::RefMethod::ReferenceLatent | crate::family::RefMethod::TextEncoder) => 1.0,
         _ => 0.35,
     }
+}
+
+/// The on-device resource with this stable key, served by the existing catalog.
+pub fn on_device_spec(id: &str) -> Option<&'static li_seg::ModelSpec> {
+    catalog().on_device.iter().find(|model| model.id == id)
+}
+
+/// Default descriptor for an on-device function. Pin, files and license have one source.
+pub fn on_device_default(group: li_seg::Group) -> &'static li_seg::ModelSpec {
+    on_device_spec(group.official().id).expect("the runner's official model is cataloged")
 }
 
 pub fn presets() -> &'static [Preset] {
@@ -609,5 +622,21 @@ fn final_review_realvis_lightning_uses_author_sampling_profile() {
     let generic = crate::family::registry().family("sdxl").unwrap();
     for file in ["realvisxlV50_v50Bakedvae.safetensors", "OtherXL_Lightning.safetensors"] {
         assert_eq!(generic.resolved_for_file(file), generic.clone());
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn lama_on_device_catalog_borrows_existing_registry_and_pins() {
+    let cat = catalog();
+    assert!(std::ptr::eq(cat.on_device.as_ptr(), li_seg::MODELS.as_ptr()));
+    let model = on_device_default(li_seg::Group::Remove);
+    assert_eq!(model.id, "big-lama");
+    assert_eq!(model.sha256, li_seg::lama::MODEL.sha256);
+    assert_eq!(model.file, "big-lama-fp32.onnx");
+    assert_eq!(on_device_spec(model.id), Some(model));
+    assert!(on_device_spec("missing-local-model").is_none());
+    for group in li_seg::Group::ALL {
+        assert_eq!(on_device_default(group), group.official());
     }
 }
