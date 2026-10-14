@@ -6445,7 +6445,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Design system: themes, colour tokens, radii, typography.",
+          "used_for": "Compatibility facade for the shared design system and editor-specific CJK source policy.",
           "upstream": "crates/ui-egui/src/theme.rs",
           "commit": "9cdcfbb1b7b204b57e04bd6bc3a4a3815a0225a1",
           "ours": "crates/pc-ui-egui/src/theme.rs",
