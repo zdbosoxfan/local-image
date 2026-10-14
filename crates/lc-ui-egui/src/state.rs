@@ -468,6 +468,9 @@ pub struct UiState {
     /// Transient toast text and its expiry (seconds of app time).
     #[serde(skip)]
     pub toast: Option<(String, f64)>,
+    /// Shared session diagnostics survive HUD expiry and remain accessible through History.
+    #[serde(skip)]
+    pub toast_history: li_ui_kit::notices::ToastHistory,
     /// The result of the last Find Missing Photos (it searches in the background).
     #[serde(skip)]
     pub last_find_missing: Option<serde_json::Value>,
@@ -783,6 +786,7 @@ impl Default for UiState {
             compare: None,
             reference: None,
             toast: None,
+            toast_history: Default::default(),
             last_find_missing: None,
             status: String::new(),
             dialog: None,

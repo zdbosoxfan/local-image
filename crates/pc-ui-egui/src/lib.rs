@@ -2302,3 +2302,6 @@ mod panel_visibility_tests;
 
 #[cfg(test)]
 mod reasons_ux_tests;
+
+#[cfg(test)]
+mod j18_widget_tests;

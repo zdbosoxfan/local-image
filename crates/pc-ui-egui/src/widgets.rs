@@ -1,7 +1,7 @@
 //! Custom widgets for the Photocraft look: cards with pill tabs, thin sliders with round knobs,
 //! monospace value fields with dimmed units, toggle switches, primary/secondary buttons.
 
-use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
+use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 
 use crate::theme::{self, Tokens};
 
@@ -20,16 +20,7 @@ pub fn drop_line(ui: &Ui, r: Rect, after: bool, vertical: bool, t: &Tokens) {
 
 /// Draw a bevelled box (Classic theme) or a flat rounded box.
 pub fn surface(ui: &Ui, rect: Rect, fill: Color32, raised: bool) {
-    let t = Tokens::get(ui.ctx());
-    let p = ui.painter();
-    p.rect_filled(rect, t.radius_sm, fill);
-    if t.bevel {
-        let (hi, lo) = if raised { (Color32::WHITE, Color32::from_gray(64)) } else { (Color32::from_gray(64), Color32::WHITE) };
-        p.line_segment([rect.left_bottom(), rect.left_top()], Stroke::new(1.0, hi));
-        p.line_segment([rect.left_top(), rect.right_top()], Stroke::new(1.0, hi));
-        p.line_segment([rect.right_top(), rect.right_bottom()], Stroke::new(1.0, lo));
-        p.line_segment([rect.right_bottom(), rect.left_bottom()], Stroke::new(1.0, lo));
-    }
+    li_ui_kit::widgets::surface(ui, rect, fill, raised)
 }
 
 /// A dock card: rounded container with a header of pill tabs and optional trailing actions.
@@ -144,24 +135,7 @@ pub fn pill_tab(ui: &mut Ui, label: &str, selected: bool) -> Response {
 
 /// [`pill_tab`] for a label already in the UI language (see [`slider_row_translated`]).
 pub fn pill_tab_translated(ui: &mut Ui, label: &str, selected: bool) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let font = theme::medium(12.5);
-    let galley = ui.painter().layout_no_wrap(label.to_owned(), font, t.text);
-    let size = vec2(galley.size().x + crate::theme::PILL_TAB_PADDING, crate::theme::PILL_TAB_HEIGHT);
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    // the label is painted, not a widget: tell accessibility (and kittest) what the tab says
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, label));
-    if selected {
-        surface(ui, rect, t.hover, true);
-        if !t.bevel {
-            ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
-        }
-    } else if resp.hovered() {
-        ui.painter().rect_filled(rect, t.radius_sm, t.hover.gamma_multiply(0.6));
-    }
-    let color = if selected { t.text } else { t.text_dim };
-    ui.painter().galley_with_override_text_color(rect.center() - galley.size() / 2.0, galley, color);
-    resp
+    li_ui_kit::widgets::selection(ui, label, selected, li_ui_kit::widgets::SelectionStyle::Pill, None)
 }
 
 /// Monospace numeric field with a dimmed unit suffix, Photoshop style. Drag to scrub.
@@ -249,63 +223,7 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
 
 /// Thin-track slider with a round knob. `gradient` paints the track (e.g. hue spectrum).
 pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, gradient: Option<&[Color32]>) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let width = ui.available_width().max(60.0);
-    let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 18.0), Sense::click_and_drag());
-    let (lo, hi) = (*range.start(), *range.end());
-    let track = Rect::from_center_size(rect.center(), vec2(rect.width() - 14.0, if gradient.is_some() { 5.0 } else { 3.0 }));
-    if let Some(p) = resp.interact_pointer_pos()
-        && (resp.dragged() || resp.clicked())
-    {
-        let f = ((p.x - track.left()) / track.width()).clamp(0.0, 1.0);
-        let nv = lo + f * (hi - lo);
-        if (nv - *value).abs() > f32::EPSILON {
-            *value = nv;
-            resp.mark_changed();
-        }
-    }
-    let f = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
-    let knob_x = track.left() + f * track.width();
-    let painter = ui.painter();
-    match gradient {
-        Some(colors) if colors.len() >= 2 => {
-            let n = colors.len() - 1;
-            for (i, w) in colors.windows(2).enumerate() {
-                let x0 = track.left() + track.width() * i as f32 / n as f32;
-                let x1 = track.left() + track.width() * (i + 1) as f32 / n as f32;
-                let mut mesh = egui::Mesh::default();
-                let r = Rect::from_min_max(pos2(x0, track.top()), pos2(x1, track.bottom()));
-                mesh.colored_vertex(r.left_top(), w[0]);
-                mesh.colored_vertex(r.right_top(), w[1]);
-                mesh.colored_vertex(r.right_bottom(), w[1]);
-                mesh.colored_vertex(r.left_bottom(), w[0]);
-                mesh.add_triangle(0, 1, 2);
-                mesh.add_triangle(0, 2, 3);
-                painter.add(mesh);
-            }
-        }
-        _ => {
-            painter.rect_filled(track, 2.0, t.field_border);
-            let filled = Rect::from_min_max(track.min, pos2(knob_x, track.max.y));
-            painter.rect_filled(filled, 2.0, if t.bevel { t.accent } else { t.text_dim });
-        }
-    }
-    let knob = pos2(knob_x, rect.center().y);
-    if t.bevel {
-        let kr = Rect::from_center_size(knob, vec2(10.0, 16.0));
-        surface(ui, kr, t.card, true);
-    } else {
-        let kr = if t.pro { 6.0 } else { 7.0 };
-        painter.circle_filled(knob + vec2(0.0, 1.0), kr + 0.5, Color32::from_black_alpha(90));
-        painter.circle_filled(knob, kr, if t.pro { Color32::from_gray(236) } else { Color32::WHITE });
-        if t.pro {
-            painter.circle_stroke(knob, kr, Stroke::new(1.0, Color32::from_gray(40)));
-        }
-        if resp.hovered() || resp.dragged() {
-            painter.circle_stroke(knob, 9.5, Stroke::new(2.0, t.accent_soft));
-        }
-    }
-    resp
+    li_ui_kit::slider::editor(ui, value, li_ui_kit::slider::Scale { min: f64::from(*range.start()), max: f64::from(*range.end()), step: None }, gradient)
 }
 
 /// Labelled slider row: `Label ........ [value field]` above a full-width thin slider.
@@ -381,13 +299,11 @@ pub fn toggle(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
 
 /// Big white primary button.
 pub fn primary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
-    let t = Tokens::get(ui.ctx());
-    button_impl(ui, label, min_width, t.primary_bg, t.primary_text, true)
+    li_ui_kit::widgets::primary_button(ui, tl!(label), min_width)
 }
 
 pub fn secondary_button(ui: &mut Ui, label: &str, min_width: f32) -> Response {
-    let t = Tokens::get(ui.ctx());
-    button_impl(ui, label, min_width, t.field, t.text, false)
+    li_ui_kit::widgets::secondary_button(ui, tl!(label), min_width)
 }
 
 /// What a dialog button does, which decides where the platform's button order puts it.
@@ -473,70 +389,12 @@ fn button_size(ui: &Ui, label: &str, min_width: f32) -> Vec2 {
 }
 
 fn button_layout(ui: &Ui, label: &str, min_width: f32, fg: Color32) -> (std::sync::Arc<egui::Galley>, Vec2) {
-    let galley = ui.painter().layout_no_wrap(tl!(label).to_owned(), theme::medium(13.0), fg);
-    let h = if Tokens::get(ui.ctx()).pro { 28.0 } else { 30.0 };
-    let size = vec2((galley.size().x + 28.0).max(min_width), h);
-    (galley, size)
-}
-
-fn button_impl(ui: &mut Ui, label: &str, min_width: f32, bg: Color32, fg: Color32, primary: bool) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let (galley, size) = button_layout(ui, label, min_width, fg);
-    let h = size.y;
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
-    // Painted text: name the button for accessibility (and so tests and agents can find it).
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label));
-    if resp.has_focus() {
-        // Keyboard focus (Tab); clicks don't focus egui buttons.
-        let r = if t.pro { h / 2.0 } else { t.radius_sm } + 2.0;
-        ui.painter().rect_stroke(rect.expand(2.0), r, Stroke::new(2.0, t.accent), StrokeKind::Outside);
-    }
-    if t.pro {
-        // Spectrum buttons: fully rounded; primary = filled accent, secondary = outline.
-        let down = resp.is_pointer_button_down_on();
-        let r = h / 2.0;
-        if primary {
-            let fill = if down {
-                bg.gamma_multiply(0.8)
-            } else if resp.hovered() {
-                bg.gamma_multiply(0.9)
-            } else {
-                bg
-            };
-            ui.painter().rect_filled(rect, r, fill);
-        } else {
-            if resp.hovered() || down {
-                ui.painter().rect_filled(rect, r, t.hover);
-            }
-            ui.painter().rect_stroke(rect, r, Stroke::new(1.5, if resp.hovered() { t.text } else { t.text_dim }), StrokeKind::Inside);
-        }
-        ui.painter().galley(rect.center() - galley.size() / 2.0, galley, fg);
-        return resp;
-    }
-    let fill = if resp.is_pointer_button_down_on() {
-        bg.gamma_multiply(0.85)
-    } else if resp.hovered() {
-        if primary { bg.gamma_multiply(0.93) } else { t.hover }
-    } else {
-        bg
-    };
-    surface(ui, rect, fill, !resp.is_pointer_button_down_on());
-    if !t.bevel && !primary {
-        ui.painter().rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
-    }
-    ui.painter().galley(rect.center() - galley.size() / 2.0, galley, fg);
-    resp
+    li_ui_kit::widgets::button_layout(ui, tl!(label), min_width, fg)
 }
 
 /// Cached RGB data; drawing work is bounded by the 256 display bins, never the image size.
 pub fn rgb_histogram(ui: &mut Ui, histogram: &photocraft_algo::histogram::RgbHistogram, height: f32) -> egui::Response {
-    let t = Tokens::get(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(1.0), height.max(1.0)), egui::Sense::hover());
-    ui.painter().rect_filled(rect, t.radius_sm, t.histogram_background());
-    let plot = rect.shrink(4.0);
-    crate::rgb_histogram::paint(ui.painter(), plot, histogram, &t);
-    ui.painter().rect_stroke(rect, t.radius_sm, egui::Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
-    response
+    li_ui_kit::histogram::editor(ui, li_ui_kit::histogram::Histogram::u64(&histogram.channels, Some(&histogram.luma)), height, tl!("Histogram"))
 }
 
 /// Small caps section label.
@@ -546,22 +404,17 @@ pub fn section_label(ui: &mut Ui, text: &str) {
 
 /// [`section_label`] for text already in the UI language (see [`slider_row_translated`]).
 pub fn section_label_translated(ui: &mut Ui, text: &str) {
-    let t = Tokens::get(ui.ctx());
-    ui.label(egui::RichText::new(text).font(theme::medium(11.5)).color(t.text_faint));
+    li_ui_kit::widgets::heading(ui, text, li_ui_kit::widgets::Profile::Editor, false);
 }
 
 /// Hairline separator.
 pub fn hairline(ui: &mut Ui) {
-    let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-    ui.painter().line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, t.separator));
+    li_ui_kit::widgets::separator(ui, li_ui_kit::widgets::Profile::Editor, None);
 }
 
 /// Vertical hairline for horizontal layouts.
 pub fn vline(ui: &mut Ui, height: f32) {
-    let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(9.0, height), Sense::hover());
-    ui.painter().line_segment([r.center_top(), r.center_bottom()], Stroke::new(1.0, t.separator));
+    li_ui_kit::widgets::separator(ui, li_ui_kit::widgets::Profile::Editor, Some(height));
 }
 
 /// Hue spectrum stops for colour sliders.
@@ -592,7 +445,7 @@ pub fn dropdown<T: PartialEq + Clone>(ui: &mut Ui, id: &str, current: &mut T, op
 
 /// The same dropdown shell for grouped choices with icons, hints and trailing actions.
 pub fn dropdown_menu<R>(ui: &mut Ui, id: &str, selected: &str, width: f32, contents: impl FnOnce(&mut Ui) -> R) {
-    egui::ComboBox::from_id_salt(id).selected_text(selected).width(width).height(420.0).icon(chevron_icon).show_ui(ui, contents);
+    li_ui_kit::widgets::choice_menu(ui, id, selected, width, contents);
 }
 
 /// The body of a right-click menu: as tall as its items up to the part of the window that can be
@@ -667,13 +520,10 @@ pub fn dropdown_with_tooltips<T: PartialEq + Clone>(ui: &mut Ui, id: &str, curre
 /// its icon fades to `text_faint`, `why` becomes the tooltip and screen readers see it disabled.
 /// `label` and `tip` are shown as given (translate them first).
 pub fn icon_action(ui: &mut Ui, icon: &str, box_size: f32, label: &str, tip: &str, disabled: Option<&str>) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let enabled = disabled.is_none() && ui.is_enabled();
-    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(box_size), if enabled { Sense::click() } else { Sense::hover() });
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
-    let tint = if enabled { crate::icons::button_chrome(ui, rect, false, resp.hovered() || resp.has_focus()) } else { t.text_faint.gamma_multiply(0.6) };
-    crate::icons::paint(ui, rect, icon, (box_size * ICON_ACTION_GLYPH).round(), tint);
-    resp.on_hover_text(disabled.unwrap_or(tip))
+    li_ui_kit::widgets::icon_button(ui, Vec2::splat(box_size), false, disabled.is_none(), label, li_ui_kit::widgets::Profile::Editor, |ui, rect, tint| {
+        crate::icons::paint(ui, rect, icon, (box_size * ICON_ACTION_GLYPH).round(), tint);
+    })
+    .on_hover_text(disabled.unwrap_or(tip))
 }
 
 /// Glyph size of an [`icon_action`] relative to its box (16 pt in the 24 pt footer box).
@@ -686,13 +536,7 @@ const ICON_ACTION_GLYPH: f32 = 2.0 / 3.0;
 /// control that owns the click (a button, a chip) and give that control the accessible name.
 /// The colour is document data, not a token.
 pub fn color_tile(ui: &Ui, rect: Rect, color: Color32) {
-    let t = Tokens::get(ui.ctx());
-    let p = ui.painter();
-    if color.a() < 255 {
-        checker(&p.with_clip_rect(rect.intersect(p.clip_rect())), rect, (rect.height() / 3.0).clamp(3.0, 6.0));
-    }
-    p.rect_filled(rect, t.radius_sm, color);
-    p.rect_stroke(rect, t.radius_sm, Stroke::new(1.0, t.field_border), StrokeKind::Inside);
+    li_ui_kit::widgets::color_tile(ui, rect, color, li_ui_kit::widgets::Profile::Editor);
 }
 
 /// Named colour swatch opening the ordinary Color Picker in a shared popup.
@@ -750,56 +594,17 @@ pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str
 
 /// Paint a small checkerboard (transparency) in `rect`.
 pub fn checker(painter: &egui::Painter, rect: Rect, cell: f32) {
-    painter.rect_filled(rect, 0.0, Color32::from_gray(250));
-    let nx = (rect.width() / cell).ceil() as i32;
-    let ny = (rect.height() / cell).ceil() as i32;
-    for j in 0..ny {
-        for i in 0..nx {
-            if (i + j) % 2 == 1 {
-                let r = Rect::from_min_size(Pos2::new(rect.left() + i as f32 * cell, rect.top() + j as f32 * cell), Vec2::splat(cell)).intersect(rect);
-                painter.rect_filled(r, 0.0, Color32::from_gray(214));
-            }
-        }
-    }
+    li_ui_kit::widgets::checker(painter, rect, cell)
 }
 
 /// Spectrum-style checkbox (blue when checked).
 pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
-    let t = Tokens::get(ui.ctx());
-    let mut resp = ui
-        .horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            let (rect, resp) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::click());
-            let p = ui.painter();
-            if *on {
-                p.rect_filled(rect, 2.0, t.accent);
-                let a = rect.left_center() + vec2(3.0, 0.5);
-                let b = rect.center_bottom() + vec2(-1.0, -3.5);
-                let c = rect.right_top() + vec2(-3.0, 3.5);
-                p.line_segment([a, b], Stroke::new(1.8, Color32::WHITE));
-                p.line_segment([b, c], Stroke::new(1.8, Color32::WHITE));
-            } else {
-                p.rect_filled(rect, 2.0, t.field);
-                p.rect_stroke(rect, 2.0, Stroke::new(1.5, if resp.hovered() { t.text_dim } else { t.text_faint }), StrokeKind::Inside);
-            }
-            let l = ui.add(egui::Label::new(egui::RichText::new(tl!(label)).color(t.text_dim)).sense(Sense::click()));
-            resp.union(l)
-        })
-        .inner;
-    if resp.clicked() {
-        *on = !*on;
-        resp.mark_changed();
-    }
-    resp
+    li_ui_kit::widgets::checkbox(ui, on, tl!(label), li_ui_kit::widgets::Profile::Editor)
 }
 
 /// Small chevron for dropdowns (replaces egui's filled triangle).
 pub fn chevron_icon(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _open: bool) {
-    let c = rect.center();
-    let s = 3.2;
-    let stroke = Stroke::new(1.3, visuals.fg_stroke.color.gamma_multiply(0.8));
-    ui.painter().line_segment([c + vec2(-s, -s * 0.5), c + vec2(0.0, s * 0.5)], stroke);
-    ui.painter().line_segment([c + vec2(0.0, s * 0.5), c + vec2(s, -s * 0.5)], stroke);
+    li_ui_kit::widgets::chevron_icon(ui, rect, visuals, _open)
 }
 
 /// Photoshop-style numbers: "100", "12.5" (never "100.0").
@@ -1103,11 +908,7 @@ pub fn command_menu_item(ui: &mut Ui, label: &str, shortcut: Option<&str>, check
 /// A disabled-command tooltip that wraps within the current viewport, including narrow
 /// context menus. Uses egui’s tooltip popup; sizes come from the active spacing tokens.
 pub fn disabled_reason_tooltip(response: Response, reason: &str) -> Response {
-    response.on_disabled_hover_ui(|ui| {
-        let room = ui.ctx().content_rect().width() - ui.spacing().window_margin.sum().x;
-        ui.set_max_width(ui.spacing().tooltip_width.min(room.max(ui.spacing().interact_size.x)));
-        ui.add(egui::Label::new(reason).wrap());
-    })
+    li_ui_kit::widgets::disabled_reason_tooltip(response, reason)
 }
 
 #[test]

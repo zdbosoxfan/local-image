@@ -3,34 +3,11 @@
 //! flattened", files that couldn't be opened). Notices live in [`UiState`](crate::UiState) so the
 //! control channel can read them (`ui.inspect`) and clear them (`ui.set`).
 
-use serde::{Deserialize, Serialize};
-
 use crate::PhotocraftApp;
+use li_ui_kit::widget_style as metrics;
 
 const WAYLAND_FILE_DROP_DISMISSED: &str = "ui.waylandFileDropGuidanceDismissed";
-/// At most this many notices stay active; older entries remain in session history.
-pub const MAX_NOTICES: usize = 3;
-/// Keep a bounded session history; disclose truncation rather than silently losing diagnostics.
-const MAX_HISTORY: usize = 256;
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct Notice {
-    pub id: u64,
-    pub title: String,
-    #[serde(default)]
-    pub lines: Vec<String>,
-    /// An error (warning colour) rather than an informational notice.
-    #[serde(default)]
-    pub error: bool,
-    /// Command errors use the existing status bar instead of adding a layout-changing row.
-    #[serde(default)]
-    pub status_only: bool,
-    #[serde(default)]
-    pub warning_count: usize,
-    /// Preference key to set when this notice is dismissed.
-    #[serde(default)]
-    pub dismiss_pref: Option<String>,
-}
+pub use li_ui_kit::notices::{MAX_NOTICES, Notice};
 
 /// Show a notice (newest last); returns its id.
 pub fn post(app: &mut PhotocraftApp, title: impl Into<String>, lines: Vec<String>, error: bool, dismiss_pref: Option<&str>) -> u64 {
@@ -64,18 +41,7 @@ pub(crate) fn history_button(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
 }
 
 fn remember(app: &mut PhotocraftApp, notice: Notice) {
-    if let Some(previous) = app.ui.notice_history.iter_mut().find(|entry| entry.id == notice.id) {
-        *previous = notice;
-    } else {
-        app.ui.notice_history.push(notice);
-    }
-    while app.ui.notice_history.len() > MAX_HISTORY {
-        // Never evict an actionable current notice; old details remain available until
-        // the explicit, displayed recent-history limit is reached.
-        let oldest = app.ui.notice_history.iter().position(|entry| !app.ui.notices.iter().any(|active| active.id == entry.id)).unwrap_or(0);
-        app.ui.notice_history.remove(oldest);
-        app.ui.notice_history_omitted += 1;
-    }
+    li_ui_kit::notices::remember(&mut app.ui.notice_history, &app.ui.notices, &mut app.ui.notice_history_omitted, notice);
 }
 
 /// One result for a file operation. The host updates this same id when Library work finishes.
@@ -100,11 +66,7 @@ pub fn complete_file_result(app: &mut PhotocraftApp, id: Option<u64>, title: Str
     let mut notice = id
         .and_then(|id| app.ui.notices.iter().chain(app.ui.notice_history.iter()).find(|notice| notice.id == id).cloned())
         .unwrap_or_else(|| Notice { id: app.ui.alloc_id(), ..Default::default() });
-    notice.title = title;
-    notice.error |= error;
-    if !detail.is_empty() && !notice.lines.contains(&detail) {
-        notice.lines.push(detail);
-    }
+    li_ui_kit::notices::complete(&mut notice, title, detail, error);
     let id = notice.id;
     app.ui.notices.retain(|entry| entry.id != id);
     app.ui.notices.push(notice.clone());
@@ -114,11 +76,7 @@ pub fn complete_file_result(app: &mut PhotocraftApp, id: Option<u64>, title: Str
 }
 
 fn cap_notices(app: &mut PhotocraftApp) {
-    while app.ui.notices.len() > MAX_NOTICES {
-        let newest = app.ui.notices.last().map(|notice| notice.id);
-        let oldest_temporary = app.ui.notices.iter().position(|notice| notice.dismiss_pref.is_none() && Some(notice.id) != newest).unwrap_or(0);
-        app.ui.notices.remove(oldest_temporary);
-    }
+    li_ui_kit::notices::cap_active(&mut app.ui.notices);
 }
 
 /// Show the Wayland-specific fallback guidance unless the user dismissed it in preferences.
@@ -198,32 +156,41 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     let errors = app.ui.notices.iter().filter(|notice| notice.error).count();
     let t = crate::theme::Tokens::get(ui.ctx());
     let mut dismissed = None;
-    egui::Panel::bottom("notice-results").exact_size(32.0).frame(egui::Frame::NONE.fill(t.card).inner_margin(egui::Margin::symmetric(8, 2))).show(ui, |ui| {
-        ui.horizontal_centered(|ui| {
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if let Some(notice) = &latest {
-                    let response = ui.button(tl!("Dismiss"));
-                    record(ui, "dismiss", &response);
-                    if response.clicked() {
-                        dismissed = Some(notice.id);
+    let button_height = if t.pro { metrics::PRO_BUTTON_HEIGHT } else { metrics::EDITOR_BUTTON_HEIGHT };
+    let row_height = metrics::NOTICE_ROW_HEIGHT.max(button_height + metrics::NOTICE_ROW_MARGIN.sum().y);
+    egui::Panel::bottom("notice-results").exact_size(row_height).frame(egui::Frame::NONE.fill(t.card).inner_margin(metrics::NOTICE_ROW_MARGIN)).show(
+        ui,
+        |ui| {
+            ui.horizontal_centered(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if let Some(notice) = &latest {
+                        let response = crate::widgets::secondary_button(ui, tl!("Dismiss"), 0.0);
+                        record(ui, "dismiss", &response);
+                        if response.clicked() {
+                            dismissed = Some(notice.id);
+                        }
                     }
-                }
-                let response = ui.button(tl!("Details / History"));
-                record(ui, "details", &response);
-                if response.clicked() {
-                    app.ui.notice_history_open = true;
-                }
-                let text = latest
-                    .as_ref()
-                    .map(|notice| if notice.warning_count > 0 { format!("{} · {} warnings", notice.title, notice.warning_count) } else { notice.title.clone() })
-                    .unwrap_or_else(|| tl!("No new notices").to_owned());
-                let text = if errors > 0 && latest.as_ref().is_some_and(|notice| !notice.error) { format!("{errors} errors · {text}") } else { text };
-                let color = if errors > 0 || latest.as_ref().is_some_and(|notice| notice.warning_count > 0) { t.warning } else { t.text };
-                ui.add(egui::Label::new(egui::RichText::new(text).color(color)).truncate())
-                    .on_hover_text(latest.as_ref().map(|n| n.title.as_str()).unwrap_or(""));
+                    let response = crate::widgets::secondary_button(ui, tl!("Details / History"), 0.0);
+                    record(ui, "details", &response);
+                    if response.clicked() {
+                        app.ui.notice_history_open = true;
+                    }
+                    let text = latest
+                        .as_ref()
+                        .map(
+                            |notice| {
+                                if notice.warning_count > 0 { format!("{} · {} warnings", notice.title, notice.warning_count) } else { notice.title.clone() }
+                            },
+                        )
+                        .unwrap_or_else(|| tl!("No new notices").to_owned());
+                    let text = if errors > 0 && latest.as_ref().is_some_and(|notice| !notice.error) { format!("{errors} errors · {text}") } else { text };
+                    let color = if errors > 0 || latest.as_ref().is_some_and(|notice| notice.warning_count > 0) { t.warning } else { t.text };
+                    ui.add(egui::Label::new(egui::RichText::new(text).color(color)).truncate())
+                        .on_hover_text(latest.as_ref().map(|n| n.title.as_str()).unwrap_or(""));
+                });
             });
-        });
-    });
+        },
+    );
     if let Some(id) = dismissed {
         dismiss(app, id);
     }
@@ -232,53 +199,22 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
 
 /// Full details appear only when requested, in a bounded, scrollable history window.
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    if !app.ui.notice_history_open {
-        return;
-    }
-    let mut open = true;
-    let size = ctx.content_rect().size();
-    let mut dismissed = Vec::new();
-    egui::Window::new(tl!("Operation details and history"))
-        .id(egui::Id::new("notice-history"))
-        .open(&mut open)
-        .resizable(true)
-        .default_width(620.0_f32.min((size.x - 40.0).max(240.0)))
-        .max_width((size.x - 40.0).max(240.0))
-        .show(ctx, |ui| {
-            if app.ui.notice_history_omitted > 0 {
-                ui.label(format!("Showing recent results; {} older notices were removed from this session history.", app.ui.notice_history_omitted));
-            }
-            egui::ScrollArea::vertical().max_height((size.y - 140.0).max(120.0)).show(ui, |ui| {
-                for notice in app.ui.notice_history.iter().rev() {
-                    ui.push_id(notice.id, |ui| {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.strong(&notice.title);
-                            if notice.error {
-                                ui.label(tl!("Error"));
-                            }
-                            if notice.warning_count > 0 {
-                                ui.label(format!("{} warnings", notice.warning_count));
-                            }
-                            if ui.button(tl!("Copy details")).clicked() {
-                                ctx.copy_text(format!("{}\n{}", notice.title, notice.lines.join("\n")));
-                            }
-                            let dismissible = app.ui.notices.iter().any(|active| active.id == notice.id)
-                                || notice
-                                    .dismiss_pref
-                                    .as_ref()
-                                    .is_some_and(|key| app.session.prefs().dialogs.get(key).and_then(serde_json::Value::as_bool) != Some(true));
-                            if dismissible && ui.button(tl!("Dismiss notice")).clicked() {
-                                dismissed.push(notice.id);
-                            }
-                        });
-                        for line in &notice.lines {
-                            ui.add(egui::Label::new(line).wrap());
-                        }
-                        ui.separator();
-                    });
-                }
-            });
-        });
+    let omitted = (app.ui.notice_history_omitted > 0)
+        .then(|| format!("Showing recent results; {} older notices were removed from this session history.", app.ui.notice_history_omitted));
+    let labels = li_ui_kit::notices::Labels {
+        profile: li_ui_kit::widgets::Profile::Editor,
+        history: tl!("Details / History"),
+        title: tl!("Operation details and history"),
+        copy: tl!("Copy details"),
+        dismiss: tl!("Dismiss notice"),
+        error: tl!("Error"),
+        warnings: tl!("warnings"),
+    };
+    let mut open = app.ui.notice_history_open;
+    let dismissed = li_ui_kit::notices::history_window(ctx, "editor", &app.ui.notice_history, omitted.as_deref(), &mut open, &labels, |notice| {
+        app.ui.notices.iter().any(|active| active.id == notice.id)
+            || notice.dismiss_pref.as_ref().is_some_and(|key| app.session.prefs().dialogs.get(key).and_then(serde_json::Value::as_bool) != Some(true))
+    });
     for id in dismissed {
         dismiss(app, id);
     }
@@ -291,6 +227,81 @@ mod tests {
     use crate::{PhotocraftApp, Services};
     use photocraft_engine::Session;
     use std::sync::{Arc, Mutex};
+
+    #[derive(Default)]
+    struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
+    impl egui_kittest::TestRenderer for CpuRenderer {
+        fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
+            self.0.apply(std::mem::take(delta));
+        }
+        fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
+            let scale = output.pixels_per_point;
+            let size = ctx.content_rect().size() * scale;
+            let primitives = ctx.tessellate(output.shapes.clone(), scale);
+            let image =
+                crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, crate::theme::Tokens::get(ctx).canvas);
+            image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
+                .ok_or_else(|| "invalid CPU image".into())
+        }
+    }
+
+    #[test]
+    fn j18_editor_notice_shared_history_clicks_keep_file_warnings() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        for kind in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::StudioLight] {
+            for width in [760.0, 1440.0] {
+                let mut app = PhotocraftApp::new(Session::new(), Services::default());
+                let warnings = vec!["Encoder warning: adjustment flattened".into()];
+                let id = file_result(&mut app, "Saved", "/test/result.psd", &warnings);
+                complete_file_result(&mut app, Some(id), "Saved result.psd".into(), "Added to Library".into(), false);
+                let mut initialized = false;
+                let mut h = Harness::builder().with_size(egui::vec2(width, 480.0)).with_max_steps(64).renderer(CpuRenderer::default()).build_ui_state(
+                    move |ui, app: &mut PhotocraftApp| {
+                        if !initialized {
+                            PhotocraftApp::setup_context(ui.ctx(), Default::default());
+                            crate::theme::apply(ui.ctx(), kind);
+                            initialized = true;
+                            ui.ctx().request_repaint();
+                            return;
+                        }
+                        panel(app, ui);
+                        show(app, ui.ctx());
+                    },
+                    app,
+                );
+                h.run_steps(4);
+                let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/notices-ux");
+                std::fs::create_dir_all(&dir).unwrap();
+                let theme = if kind == crate::theme::ThemeKind::StudioLight { "light" } else { "dark" };
+                h.render().unwrap().save(dir.join(format!("editor-row-{theme}-{}.png", width as u32))).unwrap();
+                h.get_by_label("Details / History").click();
+                h.run_steps(4);
+                assert!(h.state().ui.notice_history_open);
+                h.render().unwrap().save(dir.join(format!("editor-history-{theme}-{}.png", width as u32))).unwrap();
+                h.get_by_label("Copy details").click();
+                let mut copied = None;
+                for _ in 0..4 {
+                    h.run_steps(1);
+                    for command in &h.output().platform_output.commands {
+                        if let egui::OutputCommand::CopyText(text) = command {
+                            copied = Some(text.clone());
+                        }
+                    }
+                }
+                let copied = copied.expect("actual Copy details click emits a clipboard command");
+                assert!(copied.contains("Encoder warning: adjustment flattened"));
+                assert!(copied.contains("Added to Library"));
+                assert_eq!(h.state().ui.notice_history[0].warning_count, 1);
+                assert_eq!(h.state().ui.notice_history[0].lines, ["/test/result.psd", "Encoder warning: adjustment flattened", "Added to Library"]);
+                h.state_mut().ui.notice_history_open = false;
+                h.run_steps(2);
+                h.get_by_label("Dismiss").click();
+                h.run_steps(2);
+                assert!(h.state().ui.notices.is_empty());
+                assert_eq!(h.state().ui.notice_history[0].id, id);
+            }
+        }
+    }
 
     #[test]
     fn wayland_guidance_is_only_shown_in_wayland_sessions() {
@@ -371,22 +382,6 @@ mod tests {
     #[test]
     fn notice_row_and_details_are_clickable_at_normal_and_narrow_sizes() {
         use egui_kittest::{Harness, kittest::Queryable};
-        #[derive(Default)]
-        struct CpuRenderer(crate::tool_icon_tests::cpu::TextureStore);
-        impl egui_kittest::TestRenderer for CpuRenderer {
-            fn handle_delta(&mut self, delta: &mut egui::TexturesDelta) {
-                self.0.apply(std::mem::take(delta));
-            }
-            fn render(&mut self, ctx: &egui::Context, output: &egui::FullOutput) -> Result<image::RgbaImage, String> {
-                let scale = output.pixels_per_point;
-                let size = ctx.content_rect().size() * scale;
-                let primitives = ctx.tessellate(output.shapes.clone(), scale);
-                let image =
-                    crate::tool_icon_tests::cpu::paint(&primitives, &self.0, [size.x as usize, size.y as usize], scale, crate::theme::Tokens::get(ctx).canvas);
-                image::RgbaImage::from_raw(image.size[0] as u32, image.size[1] as u32, image.pixels.iter().flat_map(|p| p.to_array()).collect())
-                    .ok_or_else(|| "invalid CPU image".into())
-            }
-        }
         fn click(h: &mut Harness<'_, PhotocraftApp>, at: egui::Pos2) {
             h.hover_at(at);
             h.run_steps(1);

@@ -319,6 +319,27 @@ impl Tokens {
         self.histogram_color(mask).gamma_multiply(0.3)
     }
 
+    /// Library scopes preserve the inherited display hues, independent of chrome/accent.
+    pub fn histogram_library_color(&self, channel: usize) -> Color32 {
+        match channel {
+            0 => Color32::from_rgb(0xdf, 0x39, 0x39),
+            1 => Color32::from_rgb(0x44, 0xb0, 0x72),
+            _ => Color32::from_rgb(0x3b, 0x6f, 0xe0),
+        }
+    }
+    pub fn histogram_library_luma_fill(&self) -> Color32 {
+        Color32::from_gray(120).gamma_multiply(0.35)
+    }
+    pub fn histogram_library_neutral(&self) -> Color32 {
+        Color32::from_gray(200)
+    }
+    pub fn histogram_clip_background(&self) -> Color32 {
+        Color32::from_gray(60)
+    }
+    pub fn histogram_clip_color(&self, clipped: bool) -> Color32 {
+        if clipped { Color32::WHITE } else { Color32::from_gray(130) }
+    }
+
     /// Analysis colours are semantic hues, independent of the application accent palette.
     pub fn scope_hue(&self, h: f32, s: f32) -> Color32 {
         let v = f32::from(self.histogram_level) / 255.0;
@@ -674,6 +695,28 @@ impl Default for LibraryRoles {
             overlay_fg: Color32::from_gray(235),
             overlay_reject: Color32::from_rgb(255, 120, 120),
             metrics: Metrics::default(),
+        }
+    }
+}
+
+/// Inherited editor slider and Classic bevel roles, shared by reusable controls.
+#[derive(Clone, Copy, Debug)]
+pub struct SliderColors {
+    pub knob: Color32,
+    pub knob_border: Color32,
+    pub knob_shadow: Color32,
+    pub bevel_highlight: Color32,
+    pub bevel_shadow: Color32,
+}
+
+impl Tokens {
+    pub fn slider_colors(self) -> SliderColors {
+        SliderColors {
+            knob: if self.pro { Color32::from_gray(236) } else { Color32::WHITE },
+            knob_border: Color32::from_gray(40),
+            knob_shadow: Color32::from_black_alpha(90),
+            bevel_highlight: Color32::WHITE,
+            bevel_shadow: Color32::from_gray(64),
         }
     }
 }
