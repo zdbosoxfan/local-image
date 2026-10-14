@@ -226,7 +226,7 @@ fn raf() -> Vec<u8> {
     raf_file(W, H, 16, strip, Some(layout), b"\xff\xd8\xff\xd9")
 }
 
-fn samples() -> Vec<Vec<u8>> {
+pub(crate) fn samples() -> Vec<Vec<u8>> {
     vec![
         cfa_tiff("NIKON CORPORATION", 1, 12, ByteOrder::Big),
         cfa_tiff("NIKON CORPORATION", 34713, 14, ByteOrder::Big),

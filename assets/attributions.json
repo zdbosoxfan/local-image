@@ -6941,7 +6941,7 @@
         },
         {
           "name": "rawler",
-          "used_for": "Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, compressed Fujifilm RAF and Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table.",
+          "used_for": "Unmodified crates.io 0.8.0 dependency for Canon CR3 RAW/C-RAW/dual-pixel, measured RAF/NRW/RW2 primary paths and compressed Olympus/OM ORF; fallback for any native Unsupported variant, and runtime camera calibration missing from our first-choice table.",
           "upstream": "rawler/Cargo.toml",
           "commit": "ae01bcb2d0f8a74f9dfbb9f7b5c7e315c8e668b7",
           "ours": "crates/lc-raw/src/rawler_adapter.rs",
