@@ -4210,6 +4210,7 @@ dependencies = [
 name = "lightcraft-merge"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "li-raster",
  "lightcraft-codecs",
  "lightcraft-color",
  "lightcraft-geom",
@@ -5617,6 +5618,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "li-color",
  "li-raster",
+ "lightcraft-merge",
  "photocraft-color",
  "photocraft-geom",
  "photocraft-raster",
