@@ -19,21 +19,10 @@ use sha2::{Digest, Sha256};
 pub const UPLOAD_SUBFOLDER: &str = "local-image";
 const DEADLINE: Duration = Duration::from_secs(20 * 60);
 
-/// What a running job is doing, for the progress bar and status line.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct Progress {
-    pub stage: Stage,
-    /// Sampling step `value / max`, when ComfyUI reports it.
-    pub step: Option<(u32, u32)>,
-    pub message: String,
-}
-
-impl Progress {
-    /// 0..1 when known.
-    pub fn fraction(&self) -> Option<f32> {
-        self.step.filter(|s| s.1 > 0).map(|(v, m)| v as f32 / m as f32)
-    }
-}
+/// What a running job is doing, for the progress bar and status line: the shared
+/// [`lightcraft_sysmem::JobStatus`] with this crate's [`Stage`] (`stage`, `step`, `message`;
+/// `fraction()` is the step fraction).
+pub type Progress = lightcraft_sysmem::JobStatus<Stage>;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Stage {
@@ -74,47 +63,48 @@ impl Stage {
 }
 
 /// Shared between the UI thread and a job thread: progress out, cancellation in.
-#[derive(Clone, Default)]
-pub struct JobControl {
-    cancel: Arc<AtomicBool>,
-    progress: Arc<Mutex<Progress>>,
-}
+///
+/// A thin adapter over the app's one job primitive, [`lightcraft_sysmem::JobCtl`] with this
+/// crate's [`Stage`] (it derefs to it: `cancel`, `is_cancelled`, `set_stage`, `set_message`,
+/// `fraction`, `cancel_flag`, `interrupt` for `pc-raster` algorithms…). Only two methods differ:
+/// [`JobControl::set_step`] also enters [`Stage::Sampling`], and [`JobControl::check`] returns an
+/// `anyhow` error (still `is::<Cancelled>()`).
+#[derive(Clone, Debug, Default)]
+pub struct JobControl(lightcraft_sysmem::JobCtl<Stage>);
 
 impl JobControl {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn cancel(&self) {
-        self.cancel.store(true, Ordering::SeqCst);
+    /// The shared job handle (for runners and code written against `JobCtl`).
+    pub fn ctl(&self) -> &lightcraft_sysmem::JobCtl<Stage> {
+        &self.0
     }
-    pub fn is_cancelled(&self) -> bool {
-        self.cancel.load(Ordering::SeqCst)
-    }
+    /// Stage, sampling step and message (a snapshot).
     pub fn progress(&self) -> Progress {
-        self.progress.lock().map(|p| p.clone()).unwrap_or_default()
+        self.0.status()
     }
-    pub fn set_stage(&self, stage: Stage) {
-        if let Ok(mut p) = self.progress.lock() {
-            if p.stage != stage {
-                p.step = None;
-            }
-            p.stage = stage;
-        }
-    }
-    pub fn set_message(&self, message: impl Into<String>) {
-        if let Ok(mut p) = self.progress.lock() {
-            p.message = message.into();
-        }
-    }
+    /// Sampling step `value / max` (enters [`Stage::Sampling`]).
     pub fn set_step(&self, value: u32, max: u32) {
-        if let Ok(mut p) = self.progress.lock() {
-            p.stage = Stage::Sampling;
-            p.step = Some((value, max));
-        }
+        self.0.set_stage(Stage::Sampling);
+        self.0.set_step(value, max);
     }
     /// Fails with a "cancelled" error once cancellation was requested.
     pub fn check(&self) -> Result<()> {
-        if self.is_cancelled() { Err(anyhow!(Cancelled)) } else { Ok(()) }
+        Ok(self.0.check()?)
+    }
+}
+
+impl std::ops::Deref for JobControl {
+    type Target = lightcraft_sysmem::JobCtl<Stage>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<lightcraft_sysmem::JobCtl<Stage>> for JobControl {
+    fn from(ctl: lightcraft_sysmem::JobCtl<Stage>) -> Self {
+        Self(ctl)
     }
 }
 
@@ -128,15 +118,9 @@ impl std::fmt::Display for Busy {
 }
 impl std::error::Error for Busy {}
 
-/// The error a cancelled job ends with (test with `err.is::<Cancelled>()`).
-#[derive(Debug, Clone, Copy)]
-pub struct Cancelled;
-impl std::fmt::Display for Cancelled {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("Cancelled")
-    }
-}
-impl std::error::Error for Cancelled {}
+/// The error a cancelled job ends with (test with `err.is::<Cancelled>()`): the app's one
+/// cancel error, shared with `pc-raster` and `li-seg`.
+pub use lightcraft_sysmem::Cancelled;
 
 /// ComfyUI's node inventory (`/object_info`).
 #[derive(Clone, Debug, Default)]
@@ -796,6 +780,27 @@ pub fn stage_for_class(class: &str) -> Stage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn job_control_is_a_view_of_the_shared_jobctl() {
+        let ctl = JobControl::new();
+        let shared = ctl.ctl().clone();
+        ctl.set_stage(Stage::Loading);
+        ctl.set_step(2, 8);
+        let p = ctl.progress();
+        assert_eq!((p.stage, p.step, p.fraction()), (Stage::Sampling, Some((2, 8)), Some(0.25)));
+        assert_eq!(shared.fraction(), Some(0.25));
+        // pc-raster algorithms report through the borrowed view; an li-seg/pc-raster cancel is
+        // the same `Cancelled` an AI job ends with
+        ctl.interrupt().progress(0.5);
+        assert_eq!(shared.fraction(), Some(0.5));
+        shared.cancel();
+        assert!(ctl.is_cancelled() && ctl.cancel_flag().load(Ordering::SeqCst));
+        assert!(ctl.check().unwrap_err().is::<Cancelled>());
+        assert!(anyhow::Error::new(ctl.interrupt().check().unwrap_err()).is::<li_seg::Cancelled>());
+        let wrapped = JobControl::from(shared);
+        assert!(wrapped.is_cancelled());
+    }
 
     #[test]
     fn cancellation_retries_keep_prompt_ownership_and_never_fetch_cancelled_output() {

@@ -6030,6 +6030,7 @@ dependencies = [
 name = "photocraft-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "lightcraft-sysmem",
  "photocraft-color",
  "photocraft-geom",
  "proptest",

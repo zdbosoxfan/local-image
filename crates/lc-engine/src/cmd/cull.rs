@@ -19,7 +19,9 @@ fn secs(iso: &str) -> Option<i64> {
     Some(((d.year as i64 * 372 + d.month as i64 * 31 + d.day as i64) * 24 + d.hour as i64) * 3600 + d.minute as i64 * 60 + d.second as i64)
 }
 
-/// Progress and cancellation shared with the culling worker.
+/// Progress and cancellation shared with the culling worker (the Library task strip's counter).
+/// Kept until that task moves to the shared job runner (J25); new code drives [`Work::run_job`]
+/// with a `lightcraft_sysmem::JobCtl` instead (cancel flag + `step` = photos done / total).
 #[derive(Default)]
 pub struct Control {
     pub cancel: std::sync::atomic::AtomicBool,
@@ -72,9 +74,22 @@ impl Work {
     }
     pub fn run(self, control: &Control) -> Measured {
         use std::sync::atomic::Ordering;
+        self.run_with(&|| control.cancel.load(Ordering::Relaxed), &|_| {
+            control.completed.fetch_add(1, Ordering::Relaxed);
+        })
+    }
+    /// [`Work::run`] as a job: stops at the next photo once `job` is cancelled and reports
+    /// `step` = photos done / total (and the fraction).
+    pub fn run_job<S>(self, job: &lightcraft_sysmem::JobCtl<S>) -> Measured {
+        let total = u32::try_from(self.inputs.len()).unwrap_or(u32::MAX);
+        job.set_step(0, total);
+        self.run_with(&|| job.is_cancelled(), &|done| job.set_step(u32::try_from(done).unwrap_or(u32::MAX), total))
+    }
+    /// Measure photo by photo; `stop()` is asked before each one, `done(n)` after each.
+    fn run_with(self, stop: &dyn Fn() -> bool, done: &dyn Fn(usize)) -> Measured {
         let mut result = Measured { generation: self.generation, rows: Vec::new(), failed: Vec::new(), identities: Vec::new() };
-        for input in self.inputs {
-            if control.cancel.load(Ordering::Relaxed) {
+        for (index, input) in self.inputs.into_iter().enumerate() {
+            if stop() {
                 break;
             }
             let source = crate::guard::catch("Assisted Culling", || input.source.load_source()).and_then(|r| r);
@@ -86,14 +101,14 @@ impl Work {
                 }
                 Err(e) => result.failed.push(json!([input.id.0, e])),
             }
-            control.completed.fetch_add(1, Ordering::Relaxed);
+            done(index + 1);
         }
         result
     }
 }
 fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
     let work = prepare(s, p);
-    let measured = work.run(&Control::default());
+    let measured = work.run_job(&lightcraft_sysmem::JobCtl::new());
     apply(s, measured, p)
 }
 /// Apply only to the same library, sources and flags that were measured. A switched library
@@ -214,4 +229,38 @@ pub fn specs() -> Vec<CommandSpec> {
             analyze
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use crate::Session;
+
+    #[test]
+    fn cull_run_job_counts_photos_and_stops_when_cancelled() {
+        let dir = std::env::temp_dir().join(format!("lc-cull-jobctl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (i, name) in ["a.png", "b.png", "c.png"].iter().enumerate() {
+            let data = vec![[40 * i as u8, 90, 160, 255]; 16 * 16];
+            let image = lightcraft_raster::Rgba8 { width: 16, height: 16, data };
+            let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+            std::fs::write(dir.join(name), png).unwrap();
+        }
+        let mut s = Session::new().with_fs();
+        s.execute("library.import", &json!({"paths": [dir.to_string_lossy()]})).unwrap();
+        let job = lightcraft_sysmem::JobCtl::new();
+        let measured = super::prepare(&mut s, &json!({})).run_job(&job);
+        assert_eq!(measured.rows.len() + measured.failed.len(), 3);
+        assert_eq!(job.status().step, Some((3, 3)));
+        assert_eq!(job.fraction(), Some(1.0));
+
+        let job = lightcraft_sysmem::JobCtl::new();
+        job.cancel();
+        let measured = super::prepare(&mut s, &json!({})).run_job(&job);
+        assert!(measured.rows.is_empty() && measured.failed.is_empty());
+        assert_eq!(job.status().step, Some((0, 3)));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
