@@ -7,41 +7,14 @@
 //! (`ui.menu.tree`). Items are a command id plus parameters, run through [`run_item`] so they
 //! behave exactly like their keyboard shortcuts.
 
-use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::menus::MenuEntry;
 use crate::state::{RightPanel, ViewMode};
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum MenuNode {
-    Item {
-        id: String,
-        #[serde(skip_serializing_if = "Value::is_null")]
-        params: Value,
-        label: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        shortcut: Option<String>,
-        enabled: bool,
-        /// `Some` for toggles and radio-style choices.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        checked: Option<bool>,
-    },
-    Separator,
-    Submenu {
-        label: String,
-        children: Vec<MenuNode>,
-    },
-}
-
-impl MenuNode {
-    /// `id|params` — a stable key for one item (native menu ids).
-    pub fn key(id: &str, params: &Value) -> String {
-        if params.is_null() { id.to_string() } else { format!("{id}|{params}") }
-    }
-}
+/// Compatibility path for the shared parameterized command menu model.
+pub use li_commands::menu::CommandMenuNode as MenuNode;
 
 /// User-defined names in parameterized menus are data, not message keys.
 pub fn display_item_label<'a>(id: &str, params: &Value, label: &'a str) -> &'a str {
@@ -627,8 +600,15 @@ fn tidy(v: Vec<MenuNode>) -> Vec<MenuNode> {
 
 /// The whole menu bar: (title, items) per menu in [`MENUS`] order.
 pub fn menu_bar(app: &LightcraftApp) -> Vec<(String, Vec<MenuNode>)> {
-    let entries: Vec<MenuEntry> =
-        crate::menus::menu_entries(app).into_iter().filter(|e| !HIDDEN.contains(&e.id.as_str()) && host_supports(app, &e.id)).collect();
+    crate::i18n::set_language(app.ui.language);
+    menu_bar_with_bindings(app, &crate::shortcuts::catalog::effective(app))
+}
+
+fn menu_bar_with_bindings(app: &LightcraftApp, bindings: &[(crate::shortcuts::catalog::Binding, String)]) -> Vec<(String, Vec<MenuNode>)> {
+    let entries: Vec<MenuEntry> = crate::menus::menu_entries_with_bindings(app, bindings)
+        .into_iter()
+        .filter(|e| !HIDDEN.contains(&e.id.as_str()) && host_supports(app, &e.id))
+        .collect();
     let mut used = vec![false; entries.len()];
     let mut bar = Vec::new();
     for title in MENUS {
@@ -686,7 +666,114 @@ pub fn menu_bar(app: &LightcraftApp) -> Vec<(String, Vec<MenuNode>)> {
         }
         bar.push((title.to_string(), tidy(items)));
     }
+    // Expanded rows use exactly the same effective bindings as keyboard dispatch. This also
+    // respects explicit unbinding and parent profiles for rating/flag/label pseudo commands.
+    fn shortcuts(nodes: &mut [MenuNode], bindings: &[(crate::shortcuts::catalog::Binding, String)]) {
+        for node in nodes {
+            match node {
+                MenuNode::Submenu { children, .. } => shortcuts(children, bindings),
+                MenuNode::Item { id, params, shortcut, .. } => {
+                    let command = match id.as_str() {
+                        "photo.rate" => params["rating"].as_u64().map(|r| format!("rate:{r}:0")),
+                        "photo.label" => params["label"].as_str().map(|label| format!("label:{label}")),
+                        "photo.flag" => params["flag"].as_str().and_then(|flag| match flag {
+                            "pick" => Some("photo.pick".into()),
+                            "reject" => Some("photo.reject".into()),
+                            "none" => Some("photo.unflag".into()),
+                            _ => None,
+                        }),
+                        _ => None,
+                    };
+                    if let Some(command) = command {
+                        *shortcut = bindings.iter().find(|(b, _)| b.command == command && b.params.is_none()).map(|(_, key)| key.clone());
+                    } else if let Some((_, key)) = bindings.iter().find(|(b, _)| b.command == *id && b.params.as_ref() == Some(params)) {
+                        *shortcut = Some(key.clone());
+                    }
+                }
+                MenuNode::Separator => {}
+            }
+        }
+    }
+    for (_, nodes) in &mut bar {
+        shortcuts(nodes, bindings);
+    }
     bar
+}
+
+/// The active Library/Develop menu tree, laid out for the native macOS bar.
+/// Parameterized rows retain their stable command-and-parameters identity.
+pub fn native_menu_bar(app: &LightcraftApp) -> li_commands::menu::MenuBar {
+    crate::i18n::set_language(app.ui.language);
+    use li_commands::menu::{Item, ItemRole, Menu, MenuBar, MenuRole, Node};
+    fn convert(nodes: Vec<MenuNode>) -> Vec<Node> {
+        nodes
+            .into_iter()
+            .map(|node| match node {
+                MenuNode::Separator => Node::Separator,
+                MenuNode::Submenu { label, children } => Node::Submenu { label, children: convert(children), role: None },
+                MenuNode::Item { id, params, label, shortcut, enabled, checked } => Node::Item(Item {
+                    id: MenuNode::key(&id, &params),
+                    label: display_item_label(&id, &params, &label).to_owned(),
+                    shortcut,
+                    enabled,
+                    checked,
+                    role: None,
+                }),
+            })
+            .collect()
+    }
+    let bindings = crate::shortcuts::catalog::effective(app);
+    let mut bar = MenuBar {
+        menus: menu_bar_with_bindings(app, &bindings)
+            .into_iter()
+            .map(|(title, nodes)| Menu { title, role: MenuRole::Normal, children: convert(nodes) })
+            .collect(),
+    };
+    bar.tag_item("app.about", ItemRole::About);
+    bar.tag_item("app.quit", ItemRole::Quit);
+    bar.tag_item("app.settings", ItemRole::Settings);
+    bar.tag_submenu("Edit", "Language", ItemRole::Language);
+    bar.tag_menu("Window", MenuRole::Window);
+    bar.tag_menu("Help", MenuRole::Help);
+    let mut bar = li_commands::menu::mac_layout_with_bindings(
+        &bar,
+        |s| crate::i18n::tr(s).to_owned(),
+        bindings.into_iter().map(|(binding, shortcut)| (binding.command, shortcut)),
+    )
+    .bar;
+    fn translate(nodes: &mut [Node]) {
+        for node in nodes {
+            if let Node::Submenu { label, children, .. } = node {
+                *label = crate::i18n::tr(label).to_owned();
+                translate(children);
+            }
+        }
+    }
+    for menu in &mut bar.menus {
+        if menu.role != MenuRole::App {
+            menu.title = crate::i18n::tr(&menu.title).to_owned();
+        }
+        translate(&mut menu.children);
+    }
+    bar
+}
+
+/// Resolve a native identity against the live tree before invoking it. Removed presets and
+/// newly disabled actions cannot execute from an old native menu snapshot.
+pub fn run_native_item(app: &mut LightcraftApp, key: &str) -> Result<Value, String> {
+    fn resolve(nodes: &[MenuNode], key: &str) -> Option<(String, Value, bool)> {
+        nodes.iter().find_map(|node| match node {
+            MenuNode::Item { id, params, enabled, .. } if MenuNode::key(id, params) == key => Some((id.clone(), params.clone(), *enabled)),
+            MenuNode::Submenu { children, .. } => resolve(children, key),
+            _ => None,
+        })
+    }
+    let item = menu_bar(app).iter().find_map(|(_, nodes)| resolve(nodes, key));
+    match item {
+        Some((id, params, true)) => run_item(app, &id, params),
+        Some(_) => Err("menu command is unavailable".into()),
+        None => Err("menu item is no longer available".into()),
+    }
 }
 
 /// Run a menu item. Rating, flag and label items behave like their keys (the active photo only in
@@ -794,20 +881,17 @@ fn nodes_ui(ui: &mut egui::Ui, nodes: &[MenuNode], mac: bool, clicked: &mut Opti
                 ui.separator();
             }
             MenuNode::Submenu { label, children } => {
-                ui.menu_button(format!("      {}", crate::i18n::tr(label)), |ui| nodes_ui(ui, children, mac, clicked));
+                ui.menu_button(li_commands::widgets::menu_row_label(ui, crate::i18n::tr(label)), |ui| nodes_ui(ui, children, mac, clicked));
             }
             MenuNode::Item { id, params, label, shortcut, enabled, checked } => {
-                // a gutter for check marks, like native menus
-                let mut b = egui::Button::new(format!("      {}", display_item_label(id, params, label)));
+                let text = display_item_label(id, params, label);
+                let mut button = li_commands::widgets::menu_row_button(ui, text);
                 if let Some(sc) = shortcut {
-                    b = b.shortcut_text(shortcut_text(sc, mac));
+                    button = button.shortcut_text(shortcut_text(sc, mac));
                 }
-                let r = ui.add_enabled(*enabled, b);
-                if *checked == Some(true) {
-                    let t = crate::theme::Tokens::get(ui.ctx());
-                    let c = egui::Rect::from_center_size(egui::pos2(r.rect.left() + 11.0, r.rect.center().y), egui::vec2(13.0, 13.0));
-                    crate::icons::paint(ui.painter(), c, crate::icons::Icon::Check, if *enabled { t.text } else { t.text_disabled });
-                }
+                let r = li_commands::widgets::command_menu_item(ui, button, text, *enabled, *checked, |ui, rect, _, color| {
+                    crate::icons::paint(ui.painter(), rect, crate::icons::Icon::Check, color);
+                });
                 crate::widgets::register(ui.ctx(), format!("menuItem:{id}"), r.rect);
                 if r.clicked() {
                     *clicked = Some((id.clone(), params.clone()));
@@ -821,6 +905,87 @@ fn nodes_ui(ui: &mut egui::Ui, nodes: &[MenuNode], mac: bool, clicked: &mut Opti
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j21_library_native_preserves_every_live_row_and_profile_shortcut() {
+        fn rows(nodes: &[MenuNode], out: &mut Vec<(String, String, Option<String>, bool, Option<bool>)>) {
+            for node in nodes {
+                match node {
+                    MenuNode::Item { id, params, label, shortcut, enabled, checked } => {
+                        out.push((MenuNode::key(id, params), display_item_label(id, params, label).to_owned(), shortcut.clone(), *enabled, *checked))
+                    }
+                    MenuNode::Submenu { children, .. } => rows(children, out),
+                    MenuNode::Separator => {}
+                }
+            }
+        }
+        let mut app = app();
+        app.shortcut_overrides.insert("library::app.settings".into(), String::new());
+        app.shortcut_overrides.insert("library::rate:4:0".into(), "Cmd+H".into());
+        app.shortcut_overrides.insert("library::label:red".into(), "Cmd+Alt+R".into());
+        app.shortcut_overrides.insert("library::photo.pick".into(), "Cmd+M".into());
+        app.shortcut_overrides.insert("library::view.gridToggle".into(), "Cmd+W".into());
+        let mut source = Vec::new();
+        for (_, nodes) in menu_bar(&app) {
+            rows(&nodes, &mut source);
+        }
+        let native = native_menu_bar(&app);
+        for (key, label, shortcut, enabled, checked) in &source {
+            let actual = native
+                .items()
+                .into_iter()
+                .find(|item| item.id == *key && (matches!(key.as_str(), "app.about" | "app.quit" | "app.settings") || item.label == *label))
+                .unwrap_or_else(|| panic!("lost {key}: {label}"));
+            assert_eq!((actual.enabled, actual.checked, &actual.shortcut), (*enabled, *checked, shortcut), "{key}");
+            if !matches!(key.as_str(), "app.about" | "app.quit" | "app.settings") {
+                assert_eq!(&actual.label, label, "{key}");
+            }
+        }
+        assert!(source.len() > 150, "parity covers the whole Library model: {}", source.len());
+        assert_eq!(native.items().len(), source.len() + 2, "only Hide and custom Minimize are synthetic command rows");
+        assert_eq!(native.find("app.settings").unwrap().shortcut, None, "explicit unbinding survives Mac layout");
+        assert_eq!(native.find(&MenuNode::key("photo.rate", &json!({"rating":4}))).unwrap().shortcut.as_deref(), Some("Cmd+H"));
+        assert_eq!(native.find(li_commands::menu::HIDE).unwrap().shortcut.as_deref(), Some("Ctrl+Cmd+H"));
+        assert_eq!(native.find(li_commands::menu::MINIMIZE).unwrap().shortcut.as_deref(), Some("Ctrl+Cmd+M"));
+        app.shortcut_overrides.insert("library::app.settings".into(), "Cmd+Alt+K".into());
+        assert_eq!(native_menu_bar(&app).find("app.settings").unwrap().shortcut.as_deref(), Some("Cmd+Alt+K"));
+        eprintln!("J21 Library parity: {} source rows retained", source.len());
+    }
+
+    #[test]
+    fn j21_library_native_rejects_stale_and_disabled_parameterized_rows() {
+        let mut app = app();
+        let key = MenuNode::key("photo.rate", &json!({"rating": 4}));
+        let photo = app.session.active().unwrap();
+        run_native_item(&mut app, &key).unwrap();
+        assert_eq!(app.session.catalog.photo(photo).unwrap().rating, 4);
+        assert!(run_native_item(&mut app, "photo.rate|{\"rating\":400}").is_err());
+        app.session.selection = Default::default();
+        assert!(run_native_item(&mut app, &key).is_err());
+        assert_eq!(app.session.catalog.photo(photo).unwrap().rating, 4);
+    }
+
+    #[test]
+    fn j21_library_shared_row_is_clicked_in_the_real_menu() {
+        use std::time::{Duration, Instant};
+        let mut app = app();
+        app.ui.settings.gpu = false;
+        let mut headless = crate::headless::Headless::new(app, [1200.0, 800.0], 1.0);
+        headless.step();
+        headless.step();
+        let before = headless.app.ui.filmstrip;
+        let start = Instant::now();
+        for id in ["menu:View", "menuItem:view.filmstrip"] {
+            let result = headless.request("ui.clickWidget", json!({"id": id}), Duration::from_secs(20));
+            assert_eq!(result["ok"], true, "{id}: {result}");
+            headless.step();
+        }
+        assert_eq!(headless.app.ui.filmstrip, !before);
+        eprintln!("J21 real Library menu open + click: {:?}", start.elapsed());
+        let start = Instant::now();
+        let bar = native_menu_bar(&headless.app);
+        eprintln!("J21 Library native model: {} items in {:?}", bar.items().len(), start.elapsed());
+    }
 
     #[test]
     fn camera_raw_history_menu_tracks_only_filter_steps() {

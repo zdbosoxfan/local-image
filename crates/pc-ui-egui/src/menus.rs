@@ -11,7 +11,7 @@ pub const TOP_MENUS: [&str; 10] = ["File", "Edit", "Image", "Layer", "Type", "Se
 // Vector editing follows the familiar Object / Type / Select / Effect sequence.
 const VECTOR_TOP_MENUS: [&str; 12] = ["File", "Edit", "Object", "Type", "Select", "Effect", "Image", "Layer", "Filter", "View", "Window", "Help"];
 
-fn persona_menus(app: &PhotocraftApp) -> &'static [&'static str] {
+pub(crate) fn persona_menus(app: &PhotocraftApp) -> &'static [&'static str] {
     if app.session.prefs().toolbar.persona == photocraft_engine::toolsets::Persona::Vector { &VECTOR_TOP_MENUS } else { &TOP_MENUS }
 }
 
@@ -746,21 +746,8 @@ pub(crate) fn checked(app: &PhotocraftApp, id: &str) -> Option<bool> {
     })
 }
 
-/// Menu tree entry for rendering and for `ui.inspect`.
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct MenuItem {
-    pub id: String,
-    pub label: String,
-    pub path: Vec<String>,
-    pub shortcut: Option<String>,
-    pub enabled: bool,
-    pub checked: Option<bool>,
-    /// Edit › Menus colour (red, orange, …).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub color: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tooltip: Option<String>,
-}
+/// Shared menu tree entry for rendering and `ui.inspect`.
+pub use li_commands::menu::MenuItem;
 
 /// Is `id` implemented by the engine or the shell (a live menu item)? Shared by the menus and
 /// the parity report ([`crate::parity`]).
@@ -1311,8 +1298,9 @@ fn render_level_rows(ui: &mut egui::Ui, items: &[&MenuItem], depth: usize, click
                 b = b.shortcut_text(crate::shortcuts::pretty(sc));
             }
             let hit = nav.row(ui, depth - 1, it.enabled, Some(&it.id), |ui, _| {
-                let r = ui.add_enabled(it.enabled, b);
-                crate::widgets::menu_row_check(ui, &r, text, it.checked);
+                let r = li_commands::widgets::command_menu_item(ui, b, text, it.enabled, it.checked, |ui, rect, width, color| {
+                    crate::icons::paint(ui, rect, "check", width, color);
+                });
                 let r = match it.id.as_str() {
                     "image.mode.bits8" | "image.mode.bits16" => r.on_hover_text(crate::i18n::tr(lang, "Integer")),
                     "image.mode.bits32" => r.on_hover_text(crate::i18n::tr(lang, "Floating point")),
@@ -1397,6 +1385,25 @@ pub fn apply_workspace(app: &mut PhotocraftApp) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn j21_editor_shared_command_row_opens_the_new_dialog() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(
+            |ui, app| {
+                menu_bar(app, ui);
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, Default::default());
+        h.run_steps(3);
+        h.get_by_label("File").click();
+        h.run_steps(3);
+        h.get_by_label("New…").click();
+        h.run_steps(3);
+        assert!(!h.state().ui.dialogs.is_empty(), "the real shared command row must open New");
+    }
 
     #[test]
     fn select_menu_contains_every_selection_context_action_and_more() {

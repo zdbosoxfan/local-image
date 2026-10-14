@@ -1,6 +1,7 @@
 //! The macOS menu bar, through muda (Tauri's menu crate: AppKit menus behind a safe API, no GTK on
 //! macOS). The menus themselves, their Mac layout and how their keys reach PhotoCraft are in
-//! `photocraft_ui_egui::native_menu`; this file only builds and updates the `NSMenu`s.
+//! the shared `li_commands::menu` model (re-exported by `photocraft_ui_egui::native_menu`);
+//! this file only builds and updates the `NSMenu`s for the active module.
 //!
 //! - Item ids are command ids; a command in two menus (Keyboard Shortcuts is in Edit and Window)
 //!   gets `id#2` for its second copy, as muda ids must be unique.
@@ -28,6 +29,8 @@ enum Handle {
 /// One native item.
 struct Entry {
     handle: Handle,
+    /// Depth-first position in the shared tree; duplicate commands can have different labels.
+    index: usize,
     /// The command id (several entries can share one).
     command: String,
     chord: Option<Chord>,
@@ -136,7 +139,8 @@ impl MacMenu {
                             Handle::Plain(h)
                         }
                     };
-                    self.entries.insert(id, Entry { handle, command: it.id.clone(), chord, label: it.label.clone(), enabled: it.enabled });
+                    let index = self.entries.len();
+                    self.entries.insert(id, Entry { handle, index, command: it.id.clone(), chord, label: it.label.clone(), enabled: it.enabled });
                 }
             }
         }
@@ -160,9 +164,9 @@ impl Backend for MacMenu {
             self.build(bar);
             return;
         }
-        let items: HashMap<&str, &native_menu::Item> = bar.items().into_iter().map(|it| (it.id.as_str(), it)).collect();
+        let items = bar.items();
         for e in self.entries.values_mut() {
-            let Some(it) = items.get(e.command.as_str()) else { continue };
+            let Some(it) = items.get(e.index) else { continue };
             if e.label != it.label {
                 let text = escape(&it.label);
                 match &e.handle {
@@ -215,9 +219,7 @@ impl Backend for MacMenu {
 
 /// Install the menu bar now (in eframe's creator closure, so winit's default menu doesn't stay).
 pub fn install(ctx: &egui::Context, app: &photocraft_ui_egui::PhotocraftApp) -> Option<native_menu::NativeMenu> {
-    let language = &app.session.prefs().interface.language;
-    let lang = photocraft_ui_egui::i18n::Lang::from_pref(language);
-    let bar = native_menu::photocraft_layout(&photocraft_ui_egui::menus::menu_items(app), lang, language).bar;
+    let bar = native_menu::app_layout(app).bar;
     // Never crash for a menu: if AppKit refuses, keep the in-window menus.
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut menu = MacMenu::new(ctx);
@@ -348,6 +350,21 @@ mod tests {
             }
         }
         assert!(native > 70, "{native} key equivalents");
+    }
+
+    #[test]
+    fn j21_every_library_menu_shortcut_maps_to_a_key_equivalent() {
+        let app = lightcraft_ui_egui::LightcraftApp::new(lightcraft_engine::Session::new(), lightcraft_ui_egui::Services::default());
+        let bar = lightcraft_ui_egui::menubar::native_menu_bar(&app);
+        let mut native = 0;
+        for item in bar.items() {
+            let Some(chord) = item.shortcut.as_deref().and_then(Chord::parse) else { continue };
+            if chord.native_ok() {
+                assert!(accelerator(&chord).is_some(), "{} ({}) has no key equivalent", chord.portable(), item.id);
+                native += 1;
+            }
+        }
+        assert!(native > 30, "{native} Library key equivalents");
     }
 
     #[test]

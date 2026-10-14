@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+li-commands = { workspace = true, features = ["egui"] }
 li-gpu.workspace = true
 li-keys = { workspace = true, features = ["egui"] }
 li-ui-kit.workspace = true

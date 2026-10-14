@@ -34,55 +34,15 @@ mod smart_sort;
 mod smart_sort_people;
 mod xmp;
 
-use serde::Serialize;
 use serde_json::Value;
 
 use crate::{EngineError, Result, Session};
 
-pub type Run = fn(&mut Session, &Value) -> Result<Value>;
-pub type Enabled = fn(&Session) -> std::result::Result<(), String>;
-
-pub struct CommandSpec {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Menu placement (`["Photo", "Rotate"]`); empty = not in menus.
-    pub menu: &'static [&'static str],
-    /// Default shortcut (`Cmd+Shift+C`), mapped per platform by the UI.
-    pub shortcut: Option<&'static str>,
-    /// Human/agent-readable parameter description.
-    pub params: &'static str,
-    pub enabled: Enabled,
-    pub run: Run,
-    /// Record in the journal (false for queries).
-    pub journal: bool,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct CommandInfo {
-    pub id: &'static str,
-    pub label: &'static str,
-    pub menu: Vec<&'static str>,
-    pub shortcut: Option<&'static str>,
-    pub params: &'static str,
-    pub enabled: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub disabled_reason: Option<String>,
-}
-
-impl CommandSpec {
-    pub fn info(&self, s: &Session) -> CommandInfo {
-        let e = (self.enabled)(s);
-        CommandInfo {
-            id: self.id,
-            label: self.label,
-            menu: self.menu.to_vec(),
-            shortcut: self.shortcut,
-            params: self.params,
-            enabled: e.is_ok(),
-            disabled_reason: e.err(),
-        }
-    }
-}
+// Compatibility aliases keep the Library API while both engines use one command model.
+pub type Run = li_commands::Run<Session, EngineError>;
+pub type Enabled = li_commands::Enabled<Session>;
+pub type CommandSpec = li_commands::CommandSpec<Session, EngineError>;
+pub use li_commands::CommandInfo;
 
 // ---------- enablement predicates
 

@@ -491,6 +491,7 @@ impl Host {
             }
         }
         if let Some(lib) = self.library.as_mut() {
+            lib.native_menu = self.editor.services.native_menu.is_some();
             lib.hosted_menus = true;
             lib.shared_shortcuts = true;
             lib.host_modal = !self.editor.ui.dialogs.is_empty();
@@ -536,6 +537,7 @@ impl Host {
             self.editor.session.edit_prefs(|prefs| prefs.interface.language = library.ui.language.code().to_string());
         }
         library.set_host_theme(library_palette(theme));
+        library.native_menu = self.editor.services.native_menu.is_some();
         library.hosted_menus = true;
         library.shared_shortcuts = true;
         library.host_modal = !self.editor.ui.dialogs.is_empty();
@@ -550,6 +552,91 @@ impl Host {
             .collect();
         library.shortcut_overrides.insert("library::__profile".into(), self.editor.session.prefs().shortcut_profiles.library.parent().into());
         library
+    }
+
+    /// The native menu follows the module that owns the canvas, including the first frame.
+    /// The shared backend keeps AppKit updates in place while the Library retains its own
+    /// command parameters, enabled state, translations and shortcut rules.
+    pub fn sync_native_menu(&mut self, ctx: &egui::Context) {
+        if self.editor.services.native_menu.is_none() {
+            if let Some(lib) = self.library.as_mut() {
+                lib.native_menu = false;
+            }
+            return;
+        }
+        photocraft_ui_egui::i18n::set_current(photocraft_ui_egui::i18n::Lang::from_pref(&self.editor.session.prefs().interface.language));
+        if self.mode == Module::Compositing {
+            photocraft_ui_egui::native_menu::sync(&mut self.editor, ctx);
+            return;
+        }
+        self.library();
+        self.shared_shell(ctx);
+        let Some(library) = self.library.as_ref() else { return };
+        let mut bar = lightcraft_ui_egui::menubar::native_menu_bar(library);
+        // Appearance belongs to the application even while the Library owns its command set.
+        if let Some(app_menu) = bar.menus.iter_mut().find(|menu| menu.role == photocraft_ui_egui::native_menu::MenuRole::App) {
+            if let Some(language) = app_menu.children.iter_mut().find(|node| {
+                matches!(node, photocraft_ui_egui::native_menu::Node::Submenu { role: Some(photocraft_ui_egui::native_menu::ItemRole::Language), .. })
+            }) {
+                *language = photocraft_ui_egui::native_menu::language_menu(&self.editor);
+            }
+            let at =
+                app_menu.children.iter().position(|node| matches!(node, photocraft_ui_egui::native_menu::Node::Standard(_))).unwrap_or(app_menu.children.len());
+            let at = if at > 0 && matches!(app_menu.children[at - 1], photocraft_ui_egui::native_menu::Node::Separator) { at - 1 } else { at };
+            app_menu.children.insert(at, photocraft_ui_egui::native_menu::appearance_menu(&self.editor));
+        }
+        if !self.library_native_commands_available() {
+            fn disable(nodes: &mut [photocraft_ui_egui::native_menu::Node]) {
+                use photocraft_ui_egui::native_menu::{HIDE, MINIMIZE, Node};
+                for node in nodes {
+                    match node {
+                        Node::Item(item) if item.id != HIDE && item.id != MINIMIZE => item.enabled = false,
+                        Node::Submenu { children, .. } => disable(children),
+                        _ => {}
+                    }
+                }
+            }
+            for menu in &mut bar.menus {
+                disable(&mut menu.children);
+            }
+        }
+        if let Some(menu) = self.editor.services.native_menu.as_mut() {
+            menu.sync_bar(&bar);
+        }
+    }
+
+    fn library_native_commands_available(&self) -> bool {
+        self.editor.ui.dialogs.is_empty()
+            && self
+                .library
+                .as_ref()
+                .is_none_or(|lib| lib.ui.dialog.is_none() && lib.ui.people.queue.is_none() && lib.ui.people.finder.is_none() && lib.ui.people.merge.is_none())
+    }
+
+    fn run_library_native_menu(&mut self, ctx: &egui::Context) {
+        if self.mode == Module::Compositing {
+            return;
+        }
+        let Some(menu) = self.editor.services.native_menu.as_mut() else { return };
+        for id in menu.drain_clicks() {
+            if id == photocraft_ui_egui::native_menu::MINIMIZE {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
+            } else if !self.library_native_commands_available() {
+                continue;
+            } else if id == "file.exit"
+                || id.starts_with("window.theme.")
+                || id.strip_prefix("app.language.").is_some_and(|code| code == "auto" || photocraft_ui_egui::i18n::Lang::all().any(|lang| lang.code() == code))
+            {
+                // Application appearance uses the host palette. A Quit queued from the
+                // editor before a module change still uses its unsaved-document review.
+                if let Err(error) = photocraft_ui_egui::menus::invoke(&mut self.editor, ctx, &id, serde_json::json!({})) {
+                    photocraft_ui_egui::notices::error(&mut self.editor, error);
+                }
+            } else if let Err(error) = lightcraft_ui_egui::menubar::run_native_item(self.library(), &id) {
+                self.library().toast_error(ctx, error);
+            }
+            self.shared_shell(ctx);
+        }
     }
 
     fn with_preferences_ui(&mut self, ctx: &egui::Context, draw: impl FnOnce(&mut PhotocraftApp)) {
@@ -1490,6 +1577,7 @@ impl eframe::App for Host {
         self.frames += 1;
         self.editor.current_module = self.mode;
         self.shared_shell(ctx);
+        self.run_library_native_menu(ctx);
         // A file dialog that couldn't open on this system (no desktop portal, no zenity) is
         // explained where the user asked for it, not taken for Cancel.
         if let Some(why) = photocraft_ui_egui::dialog_filter::take_unavailable() {
@@ -1520,10 +1608,6 @@ impl eframe::App for Host {
             self.editor.logic(ctx, frame);
         } else {
             self.editor.background_tick(ctx);
-            // Native menus belong to the host, including while the Library owns the canvas.
-            // The editor's normal logic/UI are dormant here, so drain clicks and sync explicitly.
-            photocraft_ui_egui::native_menu::run(&mut self.editor, ctx);
-            photocraft_ui_egui::native_menu::sync(&mut self.editor, ctx);
             // Started in the Library or Develop: the editor's frames (which run the started hook)
             // don't happen, so the GPU start-up marker stayed for the whole session and any later
             // exit that wasn't clean (out-of-memory killer, logout, a crash elsewhere) read as a
@@ -1648,6 +1732,7 @@ impl eframe::App for Host {
             let ctx = ui.ctx().clone();
             self.with_preferences_ui(&ctx, |editor| editor.ui(ui, frame));
             self.filmstrip_previews_ui(&ctx);
+            self.sync_native_menu(&ctx);
             return;
         }
         let title = match &self.camera_raw {
@@ -1658,6 +1743,8 @@ impl eframe::App for Host {
         let Some(library) = self.library.as_mut() else {
             let ctx = ui.ctx().clone();
             self.with_preferences_ui(&ctx, |editor| editor.ui(ui, frame));
+            self.shared_shell(&ctx);
+            self.sync_native_menu(&ctx);
             return;
         };
         let picked = photocraft_ui_egui::panels::library_title_bar_with_menus(&mut self.editor, ui, &title, self.mode, |ui, room| {
@@ -1704,6 +1791,9 @@ impl eframe::App for Host {
             lib.widgets.extend(lightcraft_ui_egui::widgets::take_registry(ui.ctx()));
         }
         photocraft_ui_egui::panels::host_resize_zones(&self.editor, ui);
+        // Include actions and module switches performed during this UI frame before the next
+        // native event arrives. One model refresh per frame also keeps checks immediately live.
+        self.sync_native_menu(ui.ctx());
     }
 
     fn on_exit(&mut self) {
@@ -3009,6 +3099,87 @@ mod tests {
         events.lock().unwrap().push(Event::Click("file.exit".into()));
         let commands = h.step_at(egui::vec2(1200., 900.), vec![]);
         assert!(commands.contains(&egui::ViewportCommand::Close), "native Quit was lost in Library: {commands:?}");
+        drop(h);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn j21_native_library_menu_tracks_active_module_parameters_and_modal_state() {
+        use photocraft_ui_egui::native_menu::{Backend, Event, MenuBar, NativeMenu};
+        struct Queue {
+            events: Arc<Mutex<Vec<Event>>>,
+            bar: Arc<Mutex<MenuBar>>,
+        }
+        impl Backend for Queue {
+            fn sync(&mut self, bar: &MenuBar) {
+                *self.bar.lock().unwrap() = bar.clone();
+            }
+            fn drain(&mut self) -> Vec<Event> {
+                std::mem::take(&mut *self.events.lock().unwrap())
+            }
+        }
+        let (dir, mut host) = workflow_host("native-active-module");
+        host.mode = Module::Library;
+        let photo = host.library.as_ref().unwrap().session.catalog.photos().next().unwrap().id;
+        host.library.as_mut().unwrap().session.selection = lightcraft_engine::Selection::single(photo);
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let bar = Arc::new(Mutex::new(MenuBar::default()));
+        host.editor.services.native_menu = Some(NativeMenu::new(Box::new(Queue { events: events.clone(), bar: bar.clone() })));
+        let mut h = RoundTripUi::new(host);
+        h.host.sync_native_menu(&h.view.ctx);
+        let rate = lightcraft_ui_egui::menubar::MenuNode::key("photo.rate", &json!({"rating": 4}));
+        assert!(bar.lock().unwrap().find(&rate).unwrap().enabled);
+        assert!(bar.lock().unwrap().find("file.open").is_none());
+        assert!(h.host.library.as_ref().unwrap().native_menu, "native Library must hide in-window menus from startup");
+        h.step(vec![]);
+        h.step(vec![]);
+        assert!(!h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "menu:File"));
+
+        assert!(bar.lock().unwrap().find("window.theme.toggle").is_some(), "application Appearance remains available in Library");
+        assert!(bar.lock().unwrap().find("app.language.auto").is_some(), "application Language retains system-language selection");
+        let old_theme = h.host.editor.ui.theme;
+        events.lock().unwrap().push(Event::Click("window.theme.toggle".into()));
+        h.step(vec![]);
+        assert_ne!(h.host.editor.ui.theme, old_theme);
+
+        let editor_layers = h.host.editor.session.active().unwrap().doc.layers.len();
+        events.lock().unwrap().push(Event::Click(rate.clone()));
+        h.step(vec![]);
+        assert_eq!(catalog(&h.host).catalog.photo(photo).unwrap().rating, 4);
+        assert_eq!(bar.lock().unwrap().find(&rate).unwrap().checked, Some(true));
+        events.lock().unwrap().push(Event::Click("edit.undo".into()));
+        h.step(vec![]);
+        assert_eq!(catalog(&h.host).catalog.photo(photo).unwrap().rating, 0, "Library Undo must use Library history");
+        assert_eq!(h.host.editor.session.active().unwrap().doc.layers.len(), editor_layers);
+
+        events.lock().unwrap().push(Event::Click("app.settings".into()));
+        h.step(vec![]);
+        assert!(!h.host.editor.ui.dialogs.is_empty(), "native Preferences must use shared host dialog");
+        assert!(!bar.lock().unwrap().find(&rate).unwrap().enabled);
+        events.lock().unwrap().push(Event::Click(rate.clone()));
+        h.step(vec![]);
+        assert_eq!(catalog(&h.host).catalog.photo(photo).unwrap().rating, 0, "queued native clicks cannot bypass a modal");
+        h.host.editor.ui.dialogs.clear();
+        h.step(vec![]);
+        assert!(bar.lock().unwrap().find(&rate).unwrap().enabled);
+
+        h.host.mode = Module::Compositing;
+        h.step(vec![]);
+        assert!(bar.lock().unwrap().find("file.open").is_some());
+        assert!(bar.lock().unwrap().find(&rate).is_none());
+        h.host.mode = Module::Develop;
+        h.step(vec![]);
+        assert!(bar.lock().unwrap().find(&rate).is_some());
+        assert!(bar.lock().unwrap().find("file.open").is_none());
+
+        h.host.editor.services.native_menu = None;
+        h.step(vec![]);
+        assert!(!h.host.library.as_ref().unwrap().native_menu);
+        assert!(h.host.library.as_ref().unwrap().widgets.iter().any(|(id, _)| id == "menu:File"), "in-window Library menus return without a native backend");
+        let filmstrip = h.host.library.as_ref().unwrap().ui.filmstrip;
+        h.click("menu:View");
+        h.click("menuItem:view.filmstrip");
+        assert_ne!(h.host.library.as_ref().unwrap().ui.filmstrip, filmstrip, "fallback menus remain clickable");
         drop(h);
         std::fs::remove_dir_all(dir).unwrap();
     }

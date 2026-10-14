@@ -9,6 +9,7 @@ description = "LightCraft egui frontend (Lightroom-style UI); swappable — noth
 workspace = true
 
 [dependencies]
+li-commands = { workspace = true, features = ["egui"] }
 li-keys = { workspace = true, features = ["egui"] }
 li-ui-kit.workspace = true
 li-color = { workspace = true }

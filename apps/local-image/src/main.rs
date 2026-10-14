@@ -536,8 +536,10 @@ fn main() -> eframe::Result {
             if let Some(w) = &app_dirs::current().warning {
                 photocraft_ui_egui::notices::post(&mut app, "Portable mode is off", vec![w.clone()], false, None);
             }
-            // The Library mode (LightCraft's catalog) next to the editor.
-            Ok(Box::new(library_host::Host::new(app)))
+            // The native bar and in-window menu visibility start in the remembered module.
+            let mut host = library_host::Host::new(app);
+            host.sync_native_menu(&cc.egui_ctx);
+            Ok(Box::new(host))
         }),
     );
     // Release the shared service before native driver exit handlers, after workers/queue drain.

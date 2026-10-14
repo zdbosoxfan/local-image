@@ -18,6 +18,7 @@
 //! [`crate::shortcuts::handle`] exactly as without a native menu. A click is [`Event::Click`] and
 //! runs the command like an in-window menu click.
 
+#[cfg(test)]
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
@@ -25,408 +26,13 @@ use crate::PhotocraftApp;
 use crate::i18n::{Lang, tr, tr_id};
 use crate::menus::MenuItem;
 
-pub const APP_NAME: &str = "Local Image";
+pub use li_commands::menu::{
+    APP_NAME, Backend, Chord, Clash, Event, HIDE, Item, ItemRole, Layout, MINIMIZE, Menu, MenuBar, MenuRole, Node, Standard, from_items, structure_key,
+};
 
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct MenuBar {
-    pub menus: Vec<Menu>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Menu {
-    pub title: String,
-    pub role: MenuRole,
-    pub children: Vec<Node>,
-}
-
-/// What a top-level menu is for. macOS treats the app, Window and Help menus specially.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum MenuRole {
-    #[default]
-    Normal,
-    App,
-    Window,
-    Help,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum Node {
-    Item(Item),
-    Separator,
-    Submenu {
-        label: String,
-        children: Vec<Node>,
-        role: Option<ItemRole>,
-    },
-    /// An item AppKit provides and runs itself (Services, Zoom, …).
-    Standard(Standard),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct Item {
-    /// The command id (`file.open`), or one of [`HIDE`] / [`MINIMIZE`].
-    pub id: String,
-    pub label: String,
-    /// `Cmd+Shift+Z` form; `Ctrl` is the real Control key.
-    pub shortcut: Option<String>,
-    pub enabled: bool,
-    /// `Some` for check items.
-    pub checked: Option<bool>,
-    pub role: Option<ItemRole>,
-}
-
-/// Items macOS expects in fixed places.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum ItemRole {
-    About,
-    Settings,
-    Quit,
-    Hide,
-    Minimize,
-    /// Window › Theme and Next Theme, which become the app menu's Appearance submenu.
-    Appearance,
-    /// The app menu's Language submenu (its labels are final, never translated by id).
-    Language,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Standard {
-    Services,
-    HideOthers,
-    ShowAll,
-    Minimize,
-    Zoom,
-    BringAllToFront,
-    CloseWindow,
-}
-
-/// Hide Local Image: a custom item (the predefined one always takes ⌘H, which is View › Extras).
-pub const HIDE: &str = "app.hide";
-/// Minimize: a custom item (the predefined one always takes ⌘M, which is Curves).
-pub const MINIMIZE: &str = "window.minimize";
-
-impl Item {
-    fn new(id: &str, label: &str) -> Item {
-        Item { id: id.into(), label: label.into(), shortcut: None, enabled: true, checked: None, role: None }
-    }
-}
-
-impl MenuBar {
-    /// Every item, depth first.
-    pub fn items(&self) -> Vec<&Item> {
-        fn walk<'a>(nodes: &'a [Node], out: &mut Vec<&'a Item>) {
-            for n in nodes {
-                match n {
-                    Node::Item(it) => out.push(it),
-                    Node::Submenu { children, .. } => walk(children, out),
-                    Node::Separator | Node::Standard(_) => {}
-                }
-            }
-        }
-        let mut out = Vec::new();
-        for m in &self.menus {
-            walk(&m.children, &mut out);
-        }
-        out
-    }
-
-    pub fn find(&self, id: &str) -> Option<&Item> {
-        self.items().into_iter().find(|it| it.id == id)
-    }
-
-    pub fn menu(&self, role: MenuRole) -> Option<&Menu> {
-        self.menus.iter().find(|m| m.role == role)
-    }
-
-    fn tag_item(&mut self, id: &str, role: ItemRole) {
-        fn walk(nodes: &mut [Node], id: &str, role: ItemRole) {
-            for n in nodes {
-                match n {
-                    Node::Item(it) if it.id == id => it.role = Some(role),
-                    Node::Submenu { children, .. } => walk(children, id, role),
-                    _ => {}
-                }
-            }
-        }
-        for m in &mut self.menus {
-            walk(&mut m.children, id, role);
-        }
-    }
-
-    fn tag_submenu(&mut self, top: &str, name: &str, role: ItemRole) {
-        let Some(menu) = self.menus.iter_mut().find(|m| m.title == top) else { return };
-        for n in &mut menu.children {
-            if let Node::Submenu { label, role: r, .. } = n
-                && label == name
-            {
-                *r = Some(role);
-            }
-        }
-    }
-
-    fn tag_menu(&mut self, title: &str, role: MenuRole) {
-        if let Some(m) = self.menus.iter_mut().find(|m| m.title == title) {
-            m.role = role;
-        }
-    }
-}
-
-/// The menus as a tree, from the flat rows [`crate::menus::menu_items`] returns, in the order the
-/// in-window bar draws them: at each depth leaves and separators in order, and a submenu where its
-/// first child is.
-pub fn from_items(tops: &[&str], items: &[MenuItem]) -> MenuBar {
-    fn level(rows: &[&MenuItem], depth: usize) -> Vec<Node> {
-        let mut out = Vec::new();
-        let mut shown: Vec<&str> = Vec::new();
-        for it in rows {
-            if it.path.len() == depth {
-                if it.label == "---" {
-                    out.push(Node::Separator);
-                } else {
-                    out.push(Node::Item(Item {
-                        id: it.id.clone(),
-                        label: it.label.clone(),
-                        shortcut: it.shortcut.clone(),
-                        enabled: it.enabled,
-                        checked: it.checked,
-                        role: None,
-                    }));
-                }
-            } else if let Some(name) = it.path.get(depth) {
-                let name = name.as_str();
-                if shown.contains(&name) {
-                    continue;
-                }
-                shown.push(name);
-                let child: Vec<&MenuItem> = rows.iter().copied().filter(|c| c.path.get(depth).map(String::as_str) == Some(name)).collect();
-                out.push(Node::Submenu { label: name.to_string(), children: level(&child, depth + 1), role: None });
-            }
-        }
-        tidy(out)
-    }
-    let menus = tops
-        .iter()
-        .map(|top| {
-            let rows: Vec<&MenuItem> = items.iter().filter(|i| i.path.first().map(String::as_str) == Some(*top)).collect();
-            Menu { title: top.to_string(), role: MenuRole::Normal, children: level(&rows, 1) }
-        })
-        .collect();
-    MenuBar { menus }
-}
-
-/// Drop separators at the start or end of a level and collapse runs of them, at every depth.
-fn tidy(nodes: Vec<Node>) -> Vec<Node> {
-    let mut out: Vec<Node> = Vec::with_capacity(nodes.len());
-    for n in nodes {
-        let n = match n {
-            Node::Submenu { label, children, role } => Node::Submenu { label, children: tidy(children), role },
-            other => other,
-        };
-        if matches!(n, Node::Separator) && matches!(out.last(), None | Some(Node::Separator)) {
-            continue;
-        }
-        out.push(n);
-    }
-    while matches!(out.last(), Some(Node::Separator)) {
-        out.pop();
-    }
-    out
-}
-
-/// A hash of everything a native menu can only change by rebuilding: menus, roles, item ids,
-/// kinds (plain or check), shortcuts and submenu labels. Labels, enabled and checked are updated
-/// in place.
-pub fn structure_key(bar: &MenuBar) -> u64 {
-    fn walk(nodes: &[Node], h: &mut DefaultHasher) {
-        for n in nodes {
-            match n {
-                Node::Item(it) => ('i', &it.id, it.checked.is_some(), &it.shortcut, it.role).hash(h),
-                Node::Separator => '-'.hash(h),
-                Node::Submenu { label, children, role } => {
-                    ('[', label, role).hash(h);
-                    walk(children, h);
-                    ']'.hash(h);
-                }
-                Node::Standard(s) => ('s', s).hash(h),
-            }
-        }
-    }
-    let mut h = DefaultHasher::new();
-    for m in &bar.menus {
-        (&m.title, m.role).hash(&mut h);
-        walk(&m.children, &mut h);
-    }
-    h.finish()
-}
-
-// ----------------------------------------------------------------------------- shortcuts
-
-/// Public compatibility path for the one portable chord and native-event adapter.
-pub use li_keys::Chord;
-
-// ----------------------------------------------------------------------------- macOS layout
-
-/// A system key equivalent Local Image already uses for something else.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Clash {
-    pub shortcut: &'static str,
-    /// What macOS uses it for.
-    pub system: &'static str,
-    /// The Local Image command bound to it.
-    pub command: String,
-    /// What the layout did about it.
-    pub resolution: &'static str,
-}
-
-pub struct Layout {
-    pub bar: MenuBar,
-    pub clashes: Vec<Clash>,
-}
-
-/// Turn Local Image's menus (tagged with roles) into a Mac menu bar. See the module docs.
+/// Apply the shared macOS layout using the editor's translation catalog.
 pub fn mac_layout(bar: &MenuBar, lang: Lang) -> Layout {
-    let mut bar = bar.clone();
-    let mut clashes = Vec::new();
-    let bound: HashMap<String, String> = bar.items().iter().filter_map(|it| Some((Chord::parse(it.shortcut.as_deref()?)?.portable(), it.id.clone()))).collect();
-    let taken = |sc: &str, own: Option<&str>| bound.get(sc).filter(|cmd| Some(cmd.as_str()) != own).cloned();
-    let named = |s: &str| crate::i18n::fmt(tr(lang, s), &[("app", APP_NAME)]);
-
-    let about = take(&mut bar, |n| matches!(n, Node::Item(it) if it.role == Some(ItemRole::About)));
-    let settings = take(&mut bar, |n| match n {
-        Node::Item(it) => it.role == Some(ItemRole::Settings),
-        Node::Submenu { role, .. } => *role == Some(ItemRole::Settings),
-        _ => false,
-    });
-    let quit = take(&mut bar, |n| matches!(n, Node::Item(it) if it.role == Some(ItemRole::Quit)));
-    let appearance = appearance_node(&mut bar, lang);
-
-    let mut menu = Vec::new();
-    if let Some(Node::Item(mut it)) = about {
-        it.label = named("About {app}");
-        menu.extend([Node::Item(it), Node::Separator]);
-    }
-    if let Some(s) = settings {
-        let own = node_ids(&s);
-        let comma = bound.get("Cmd+,").filter(|cmd| !own.contains(*cmd)).cloned();
-        menu.push(settings_node(s, comma, lang, &mut clashes));
-    }
-    menu.extend(appearance);
-    if !menu.is_empty() && menu.last() != Some(&Node::Separator) {
-        menu.push(Node::Separator);
-    }
-    menu.extend([Node::Standard(Standard::Services), Node::Separator]);
-    let mut hide = Item::new(HIDE, &named("Hide {app}"));
-    hide.role = Some(ItemRole::Hide);
-    match taken("Cmd+H", None) {
-        Some(command) => {
-            let free = taken("Ctrl+Cmd+H", None).is_none();
-            if free {
-                hide.shortcut = Some("Ctrl+Cmd+H".into());
-            }
-            let resolution = if free { "Hide moves to ⌃⌘H, as in Photoshop" } else { "Hide has no shortcut" };
-            clashes.push(Clash { shortcut: "Cmd+H", system: "Hide", command, resolution });
-        }
-        None => hide.shortcut = Some("Cmd+H".into()),
-    }
-    menu.push(Node::Item(hide));
-    if let Some(command) = taken("Cmd+Alt+H", None) {
-        clashes.push(Clash { shortcut: "Cmd+Alt+H", system: "Hide Others", command, resolution: "AppKit's Hide Others keeps ⌥⌘H" });
-    }
-    menu.extend([Node::Standard(Standard::HideOthers), Node::Standard(Standard::ShowAll), Node::Separator]);
-    if let Some(Node::Item(mut quit)) = quit {
-        quit.label = named("Quit {app}");
-        match taken("Cmd+Q", Some(&quit.id)) {
-            Some(command) => {
-                clashes.push(Clash { shortcut: "Cmd+Q", system: "Quit", command, resolution: "Quit has no shortcut" });
-                quit.shortcut = None;
-            }
-            None => quit.shortcut = Some("Cmd+Q".into()),
-        }
-        menu.push(Node::Item(quit));
-    }
-    bar.menus.insert(0, Menu { title: APP_NAME.into(), role: MenuRole::App, children: menu });
-
-    match taken("Cmd+W", None) {
-        Some(command) => clashes.push(Clash { shortcut: "Cmd+W", system: "Close Window", command, resolution: "no system Close Window item" }),
-        None => {
-            if let Some(file) = bar.menus.iter_mut().find(|m| m.title == "File") {
-                file.children.extend([Node::Separator, Node::Standard(Standard::CloseWindow)]);
-            }
-        }
-    }
-
-    if bar.menu(MenuRole::Window).is_none() {
-        let at = bar.menus.iter().position(|m| m.role == MenuRole::Help).unwrap_or(bar.menus.len());
-        bar.menus.insert(at, Menu { title: "Window".into(), role: MenuRole::Window, children: Vec::new() });
-    }
-    let minimize = match taken("Cmd+M", None) {
-        Some(command) => {
-            let mut it = Item::new(MINIMIZE, tr(lang, "Minimize"));
-            it.role = Some(ItemRole::Minimize);
-            let free = taken("Ctrl+Cmd+M", None).is_none();
-            if free {
-                it.shortcut = Some("Ctrl+Cmd+M".into());
-            }
-            let resolution = if free { "Minimize moves to ⌃⌘M, as in Photoshop" } else { "Minimize has no shortcut" };
-            clashes.push(Clash { shortcut: "Cmd+M", system: "Minimize", command, resolution });
-            Node::Item(it)
-        }
-        None => Node::Standard(Standard::Minimize),
-    };
-    if let Some(window) = bar.menus.iter_mut().find(|m| m.role == MenuRole::Window) {
-        let mut children = vec![minimize, Node::Standard(Standard::Zoom), Node::Separator];
-        children.append(&mut window.children);
-        children.extend([Node::Separator, Node::Standard(Standard::BringAllToFront)]);
-        window.children = children;
-    }
-
-    for m in &mut bar.menus {
-        m.children = tidy(std::mem::take(&mut m.children));
-    }
-    // A menu emptied by the moves goes away (the Help menu stays: it has the search field).
-    bar.menus.retain(|m| !m.children.is_empty() || m.role == MenuRole::Help);
-    Layout { bar, clashes }
-}
-
-/// Settings in the app menu: Edit › Preferences, a submenu of settings pages, becomes "Settings"
-/// with ⌘, on its first page unless Local Image binds ⌘, elsewhere.
-fn settings_node(node: Node, comma_taken: Option<String>, lang: Lang, clashes: &mut Vec<Clash>) -> Node {
-    if let Some(command) = &comma_taken {
-        clashes.push(Clash { shortcut: "Cmd+,", system: "Settings", command: command.clone(), resolution: "Settings has no shortcut" });
-    }
-    let give = |it: &mut Item| {
-        if comma_taken.is_none() && it.shortcut.is_none() {
-            it.shortcut = Some("Cmd+,".into());
-        }
-    };
-    match node {
-        Node::Item(mut it) => {
-            it.label = tr(lang, "Settings…").into();
-            give(&mut it);
-            Node::Item(it)
-        }
-        Node::Submenu { mut children, role, .. } => {
-            if let Some(Node::Item(first)) = children.iter_mut().find(|n| matches!(n, Node::Item(i) if i.enabled)) {
-                give(first);
-            }
-            Node::Submenu { label: tr(lang, "Settings").into(), children, role }
-        }
-        other => other,
-    }
-}
-
-/// Appearance in the app menu: the themes (Window › Theme, tagged [`ItemRole::Appearance`]), then
-/// Next Theme, both leaving the Window menu. None when there are no themes.
-fn appearance_node(bar: &mut MenuBar, lang: Lang) -> Option<Node> {
-    let Some(Node::Submenu { mut children, .. }) = take(bar, |n| matches!(n, Node::Submenu { role, .. } if *role == Some(ItemRole::Appearance))) else {
-        return None;
-    };
-    if let Some(Node::Item(mut next)) = take(bar, |n| matches!(n, Node::Item(it) if it.role == Some(ItemRole::Appearance))) {
-        // Placed now: translated by id like the themes above it.
-        next.role = None;
-        children.extend([Node::Separator, Node::Item(next)]);
-    }
-    Some(Node::Submenu { label: tr(lang, "Appearance").into(), children, role: Some(ItemRole::Appearance) })
+    li_commands::menu::mac_layout(bar, |text| tr(lang, text).to_string())
 }
 
 /// Command ids of the app menu's Language items: `app.language.<code>`, where `auto` follows the
@@ -447,28 +53,6 @@ fn language_node(pref: &str, lang: Lang) -> Node {
     let mut children = vec![Node::Item(item("auto", tr(lang, "Auto"))), Node::Separator];
     children.extend(Lang::all().map(|l| Node::Item(item(l.code(), l.name()))));
     Node::Submenu { label: tr(lang, "Language").into(), children, role: Some(ItemRole::Language) }
-}
-
-fn node_ids(node: &Node) -> Vec<String> {
-    match node {
-        Node::Item(it) => vec![it.id.clone()],
-        Node::Submenu { children, .. } => children.iter().flat_map(node_ids).collect(),
-        _ => Vec::new(),
-    }
-}
-
-/// Remove and return the first node matching `pred`, at any depth.
-fn take(bar: &mut MenuBar, pred: impl Fn(&Node) -> bool + Copy) -> Option<Node> {
-    fn walk(nodes: &mut Vec<Node>, pred: impl Fn(&Node) -> bool + Copy) -> Option<Node> {
-        if let Some(i) = nodes.iter().position(pred) {
-            return Some(nodes.remove(i));
-        }
-        nodes.iter_mut().find_map(|n| match n {
-            Node::Submenu { children, .. } => walk(children, pred),
-            _ => None,
-        })
-    }
-    bar.menus.iter_mut().find_map(|m| walk(&mut m.children, pred))
 }
 
 /// Translate menu titles, submenus and items the layout didn't name itself.
@@ -498,7 +82,57 @@ fn translate(bar: &mut MenuBar, lang: Lang) {
 /// Local Image's menus as a Mac menu bar, in the UI language; `language` is the
 /// `interface.language` preference (`auto` or a code), checked in the app menu's Language.
 pub fn photocraft_layout(items: &[MenuItem], lang: Lang, language: &str) -> Layout {
-    let mut bar = from_items(&crate::menus::TOP_MENUS, items);
+    photocraft_layout_impl(items, lang, language, &crate::menus::TOP_MENUS, None)
+}
+
+/// App-wide language choices, including following the operating system.
+pub fn language_menu(app: &PhotocraftApp) -> Node {
+    let pref = &app.session.prefs().interface.language;
+    language_node(pref, Lang::from_pref(pref))
+}
+
+/// App-wide appearance choices for a host whose active module has its own command set.
+/// Labels and checked state use the editor's canonical command declarations. These rows have
+/// no key equivalents outside the editor, where its scoped shortcut bindings do not dispatch.
+pub fn appearance_menu(app: &PhotocraftApp) -> Node {
+    let lang = Lang::from_pref(&app.session.prefs().interface.language);
+    let item = |id: &str, label: &str| {
+        Node::Item(Item {
+            id: id.into(),
+            label: tr_id(lang, id, label).into(),
+            shortcut: None,
+            enabled: true,
+            checked: crate::menus::checked(app, id),
+            role: None,
+        })
+    };
+    let mut children: Vec<_> = crate::menus::UI_COMMANDS
+        .iter()
+        .filter(|(id, _, path, _)| id.starts_with("window.theme.") && path.last() == Some(&"Theme"))
+        .map(|(id, label, _, _)| item(id, label))
+        .collect();
+    if let Some((id, label, _, _)) = crate::menus::UI_COMMANDS.iter().find(|(id, _, _, _)| *id == "window.theme.toggle") {
+        children.extend([Node::Separator, item(id, label)]);
+    }
+    Node::Submenu { label: tr(lang, "Appearance").into(), children, role: Some(ItemRole::Appearance) }
+}
+
+/// Native menus use all active bindings, including commands hidden from the menu tree, so
+/// system accelerators cannot steal a customized shortcut. The current persona sets the tops.
+pub fn app_layout(app: &PhotocraftApp) -> Layout {
+    let lang = Lang::from_pref(&app.session.prefs().interface.language);
+    crate::i18n::set_current(lang);
+    photocraft_layout_impl(
+        &crate::menus::menu_items(app),
+        lang,
+        &app.session.prefs().interface.language,
+        crate::menus::persona_menus(app),
+        Some(crate::shortcut_dispatch::binding_strings(app)),
+    )
+}
+
+fn photocraft_layout_impl(items: &[MenuItem], lang: Lang, language: &str, tops: &[&str], bindings: Option<Vec<(String, String)>>) -> Layout {
+    let mut bar = from_items(tops, items);
     bar.tag_item("help.about", ItemRole::About);
     bar.tag_item("file.exit", ItemRole::Quit);
     bar.tag_submenu("Edit", "Preferences", ItemRole::Settings);
@@ -506,7 +140,10 @@ pub fn photocraft_layout(items: &[MenuItem], lang: Lang, language: &str) -> Layo
     bar.tag_item("window.theme.toggle", ItemRole::Appearance);
     bar.tag_menu("Window", MenuRole::Window);
     bar.tag_menu("Help", MenuRole::Help);
-    let mut layout = mac_layout(&bar, lang);
+    let mut layout = match bindings {
+        Some(bindings) => li_commands::menu::mac_layout_with_bindings(&bar, |text| tr(lang, text).to_string(), bindings),
+        None => mac_layout(&bar, lang),
+    };
     // Language goes right after Settings (before Appearance), as in the other Craft apps.
     if let Some(app_menu) = layout.bar.menus.iter_mut().find(|m| m.role == MenuRole::App) {
         let settings = |n: &Node| match n {
@@ -523,30 +160,12 @@ pub fn photocraft_layout(items: &[MenuItem], lang: Lang, language: &str) -> Layo
 
 // ----------------------------------------------------------------------------- the app's side
 
-/// What the native menu reports.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Event {
-    /// An item was chosen with the mouse (or the keyboard inside an open menu).
-    Click(String),
-    /// A key equivalent was pressed: the shortcut, to be handled as the key press it was.
-    Key(Chord),
-}
-
-/// A platform's native menu bar (the desktop app implements it for macOS with muda).
-pub trait Backend {
-    /// Bring the menu in step with `bar`: update labels, enabled and checked in place, or
-    /// rebuild when its structure changed.
-    fn sync(&mut self, bar: &MenuBar);
-    /// Events since the last call. Platform items (Hide, Services, Zoom, …) are handled by the
-    /// backend and not reported.
-    fn drain(&mut self) -> Vec<Event>;
-}
-
 /// The native menu bar, while Local Image uses one (the in-window menus are hidden then).
 pub struct NativeMenu {
     backend: Box<dyn Backend>,
     /// Hash of the state the menus were last built from.
     state: Option<u64>,
+    external_state: Option<u64>,
     clicks: Vec<String>,
     /// AppKit toggled a check item itself: re-sync.
     dirty: bool,
@@ -555,7 +174,24 @@ pub struct NativeMenu {
 
 impl NativeMenu {
     pub fn new(backend: Box<dyn Backend>) -> NativeMenu {
-        NativeMenu { backend, state: None, clicks: Vec::new(), dirty: true, logged: false }
+        NativeMenu { backend, state: None, external_state: None, clicks: Vec::new(), dirty: true, logged: false }
+    }
+
+    /// Native clicks awaiting dispatch by the active module's host.
+    pub fn drain_clicks(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.clicks)
+    }
+
+    /// Display another module's shared menu model. Invalidate the editor cache so returning
+    /// to Compositing always restores its own menus, even when its session did not change.
+    pub fn sync_bar(&mut self, bar: &MenuBar) {
+        let state = li_commands::menu::state_key(bar);
+        if self.external_state != Some(state) || self.dirty {
+            self.backend.sync(bar);
+            self.external_state = Some(state);
+        }
+        self.state = None;
+        self.dirty = false;
     }
 
     /// Before egui sees this frame's input: key equivalents become the key presses they were,
@@ -600,8 +236,7 @@ pub fn sync(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if menu.state == Some(state) && !menu.dirty {
         return;
     }
-    let lang = crate::i18n::current();
-    let layout = photocraft_layout(&crate::menus::menu_items(app), lang, &app.session.prefs().interface.language);
+    let layout = app_layout(app);
     let Some(menu) = app.services.native_menu.as_mut() else { return };
     if !menu.logged {
         for c in &layout.clashes {
@@ -609,6 +244,7 @@ pub fn sync(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         menu.logged = true;
     }
+    menu.external_state = None;
     menu.backend.sync(&layout.bar);
     menu.state = Some(state);
     menu.dirty = false;
@@ -662,6 +298,61 @@ mod tests {
                 Node::Standard(s) => format!("<{s:?}>"),
             })
             .collect()
+    }
+
+    #[test]
+    fn j21_editor_native_adapter_retains_every_command_row() {
+        let app = app(true);
+        let source = crate::menus::menu_items(&app);
+        let native = app_layout(&app).bar;
+        let mut count = 0;
+        for row in source.iter().filter(|row| row.label != "---" && row.path.first().is_some_and(|top| crate::menus::TOP_MENUS.contains(&top.as_str()))) {
+            let item = native.find(&row.id).unwrap_or_else(|| panic!("lost {}", row.id));
+            assert_eq!((item.enabled, item.checked), (row.enabled, row.checked), "{}", row.id);
+            assert_eq!(item.shortcut, row.shortcut, "{}", row.id);
+            if !matches!(row.id.as_str(), "help.about" | "file.exit") {
+                assert_eq!(item.label, crate::i18n::tr_id(crate::i18n::current(), &row.id, &row.label), "{}", row.id);
+            }
+            count += 1;
+        }
+        assert!(count > 500, "{count} complete editor rows checked");
+        eprintln!("J21 editor parity: {count} command rows retained");
+    }
+
+    #[test]
+    fn j21_native_external_sync_skips_unchanged_state_and_refreshes_checks() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Counter(Rc<Cell<usize>>);
+        impl Backend for Counter {
+            fn sync(&mut self, _: &MenuBar) {
+                self.0.set(self.0.get() + 1);
+            }
+            fn drain(&mut self) -> Vec<Event> {
+                Vec::new()
+            }
+        }
+        let count = Rc::new(Cell::new(0));
+        let mut menu = NativeMenu::new(Box::new(Counter(count.clone())));
+        let mut bar = MenuBar {
+            menus: vec![Menu {
+                title: "Photo".into(),
+                role: MenuRole::Normal,
+                children: vec![Node::Item(Item { checked: Some(false), ..Item::new("photo.rate", "Rate") })],
+            }],
+        };
+        for _ in 0..10 {
+            menu.sync_bar(&bar);
+        }
+        assert_eq!(count.get(), 1, "idle frames must not touch AppKit");
+        if let Node::Item(item) = &mut bar.menus[0].children[0] {
+            item.checked = Some(true);
+        }
+        menu.sync_bar(&bar);
+        assert_eq!(count.get(), 2, "check changes update without rebuilding");
+        menu.dirty = true;
+        menu.sync_bar(&bar);
+        assert_eq!(count.get(), 3, "native auto-toggled checks are reconciled");
     }
 
     #[test]

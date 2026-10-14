@@ -8,24 +8,11 @@ use serde_json::{Value, json};
 
 use crate::{EngineError, Result, Session, inspect, pixels};
 
-type Run = fn(&mut Session, &Value) -> Result<Value>;
-type Enabled = fn(&Session) -> std::result::Result<(), String>;
-
-/// Metadata + implementation for one command.
-pub struct CommandSpec {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Menu placement, e.g. `["Layer", "New"]`. Empty = not in menus.
-    pub menu: &'static [&'static str],
-    /// Default shortcut in egui-style notation (`Cmd+Shift+N`), mapped per platform by the UI.
-    pub shortcut: Option<&'static str>,
-    /// Human/agent-readable parameter description (JSON-ish).
-    pub params: &'static str,
-    pub enabled: Enabled,
-    pub run: Run,
-    /// Record in the session journal (false for queries).
-    pub journal: bool,
-}
+// Compatibility aliases keep the editor API while both engines use one command model.
+pub type Run = li_commands::Run<Session, EngineError>;
+pub type Enabled = li_commands::Enabled<Session>;
+pub type CommandSpec = li_commands::CommandSpec<Session, EngineError>;
+pub use li_commands::CommandInfo;
 
 /// The largest canvas side `file.new` creates (Photoshop's PSB limit).
 pub(crate) const MAX_NEW_DIMENSION: u32 = 300_000;

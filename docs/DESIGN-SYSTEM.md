@@ -109,6 +109,12 @@ except where marked new. **New here** (not upstream): `icon_action`, `color_tile
 Rule of thumb: reach for these before touching `egui::Button`, `ui.checkbox` or `Painter` directly. Editor
 file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/src/widgets.rs` (`lc`).
 
+The Library and editor command menu rows share `li-commands::widgets`: themed icon gutter,
+button enablement, accessible checked state and row rendering. Each shell supplies translated
+labels, effective shortcut text and its existing monochrome icon painter. The editor's
+`widgets::menu_row_*` and `command_menu_item` remain compatibility adapters; menu navigation,
+scrolling and saved menu tints stay with their established surfaces.
+
 ### Editor (`pc`)
 
 | Widget | Purpose and usage | Line |
