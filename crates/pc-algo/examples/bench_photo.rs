@@ -2,6 +2,11 @@
 //! Lens Correction, Adaptive Wide Angle, HDR merge + tone mapping, Crop and
 //! Straighten detection, and a 4-image panorama registration + blend (2 MP sources).
 //! `cargo run --release -p photocraft-algo --example bench_photo [case-substring]`
+//! J10 small CC0 sample: `cargo +1.98.1 run --offline -p photocraft-algo --example bench_photo --
+//! bakeoff target/j10/data/lebombo_1k.hdr target/j10/data/kiara_1_dawn_1k.hdr`
+//! Both stacks compile the same bounded input synthesis and scoring protocol.
+#[path = "../../lc-merge/examples/bakeoff/common.rs"]
+mod common;
 use std::time::Instant;
 
 use photocraft_algo::hdr::{self, MergeOptions, ToneMethod};
@@ -34,8 +39,12 @@ fn time<T>(name: &str, only: &Option<String>, f: impl FnOnce() -> T) -> Option<T
     Some(r)
 }
 
-fn main() {
-    let only = std::env::args().nth(1);
+fn main() -> common::Result<()> {
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|s| s == "bakeoff") {
+        return common::run::<Photocraft>(&args[1..]);
+    }
+    let only = args.first().cloned();
     let (w, h) = (6000usize, 4000usize);
     let px = pattern(w, h);
     let r = Rect::new(0, 0, w as i32, h as i32);
@@ -123,4 +132,74 @@ fn main() {
         let _ = panorama::multiband(cw, sh, &rois, &wts, panorama::blend_levels(cw, sh));
         println!("  multiband {:.1} ms", t1.elapsed().as_secs_f64() * 1000.0);
     });
+    Ok(())
+}
+
+struct Photocraft;
+impl common::Backend for Photocraft {
+    const NAME: &'static str = "pc_brief";
+    fn register(pair: &common::Pair) -> common::Registration {
+        use photocraft_algo::features;
+        let t = Instant::now();
+        let a = panorama::detect(pair.w, pair.h, &pair.a, None, common::MAX_FEATURES);
+        let b = panorama::detect(pair.w, pair.h, &pair.b, None, common::MAX_FEATURES);
+        let detect_ms = common::elapsed_ms(t);
+        let t = Instant::now();
+        let matches = features::match_descriptors(&a.desc, &b.desc, 0.8);
+        let match_ms = common::elapsed_ms(t);
+        let src: Vec<_> = matches.iter().map(|&(i, _)| a.points[i]).collect();
+        let dst: Vec<_> = matches.iter().map(|&(_, j)| b.points[j]).collect();
+        let t = Instant::now();
+        let fit = features::ransac(features::Model::Homography, &src, &dst, 2000, common::THRESHOLD, common::SEED).filter(|(_, inliers)| inliers.len() >= 8);
+        let fit_ms = common::elapsed_ms(t);
+        common::Registration {
+            features: [a.points.len(), b.points.len()],
+            matches: src.into_iter().zip(dst).collect(),
+            fit: fit.as_ref().map(|(h, _)| h.0),
+            inliers: fit.map_or_else(Vec::new, |(_, i)| i),
+            detect_ms,
+            match_ms,
+            fit_ms,
+        }
+    }
+    fn merge(b: &common::Bracket, deghost: bool) -> common::Result<common::Merged> {
+        // The editor merger expects non-linear sources. Test its actual sRGB8 input model
+        // against the same scene radiance, rather than feeding it linear camera pixels.
+        let encoded: Vec<Vec<[f32; 4]>> = b
+            .frames
+            .iter()
+            .map(|rgb| {
+                rgb.iter()
+                    .map(|q| {
+                        let c = q.map(srgb8);
+                        [c[0], c[1], c[2], 1.0]
+                    })
+                    .collect()
+            })
+            .collect();
+        let refs: Vec<_> = encoded.iter().map(Vec::as_slice).collect();
+        let out = hdr::merge(
+            b.truth.w,
+            b.truth.h,
+            &refs,
+            &MergeOptions { exposures: common::EXPOSURES.map(f64::from).to_vec(), remove_ghosts: deghost, ghost_base: Some(1), response: None },
+        )?;
+        Ok(common::Merged { rgb: out.px.iter().map(|q| [q[0], q[1], q[2]]).collect(), ghost_fraction: out.ghost_fraction })
+    }
+}
+
+fn srgb8(v: f32) -> f32 {
+    let s = if v <= 0.0031308 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
+    (s.clamp(0.0, 1.0) * 255.0).round() / 255.0
+}
+
+#[cfg(test)]
+mod j10_tests {
+    use super::*;
+    #[test]
+    fn j10_rendered_inputs_are_srgb8() {
+        assert_eq!(srgb8(0.0), 0.0);
+        assert_eq!(srgb8(1.0), 1.0);
+        assert_eq!(srgb8(0.18), 118.0 / 255.0);
+    }
 }
