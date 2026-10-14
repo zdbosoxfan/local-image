@@ -777,3 +777,30 @@ fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
         assert!(cold.data == warm.data);
     }
 }
+
+#[test]
+fn camdata_profiled_nr_real_gpu_matches_cpu() {
+    let gpu_device = device().expect("camera-profile test requires a real GPU");
+    let g = &*gpu_device;
+    let _scope = crate::ctx::RenderScope::new(g);
+    let src = Arc::new(input(96, 64));
+    let info = SourceInfo {
+        camera_noise: Some(lightcraft_pipeline::detail::nr::NoiseCalibration {
+            a: [0.001, 0.002, 0.003],
+            b: [1e-6, -1e-7, 1e-6],
+            camera_to_working: [[1.5, 0.1, -0.2], [-0.1, 0.9, 0.2], [0.0, -0.2, 1.3]],
+        }),
+        ..Default::default()
+    };
+    let mut settings = DevelopSettings::default();
+    settings.detail.nr_luminance = 60.0;
+    settings.detail.nr_color = 60.0;
+    let req = RenderRequest::fit(96, 64);
+    let errors = crate::ctx::ErrorScopes::push(g);
+    let gpu = render(g, &src, &info, &settings, &req, Some(&GpuStages::default()), None, HsMethod::LiTone).unwrap().image;
+    assert!(errors.pop().is_none());
+    assert!(crate::last_cpu_stages().contains(&"profiled camera NR"));
+    let cpu = lightcraft_pipeline::render(&src, &info, &settings, &req).image;
+    let max = cpu.data.iter().zip(&gpu.data).flat_map(|(p, q)| (0..3).map(move |c| p[c].abs_diff(q[c]))).max().unwrap();
+    assert!(max <= 3, "profiled NR CPU/GPU max difference {max}");
+}

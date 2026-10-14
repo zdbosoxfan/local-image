@@ -1,7 +1,12 @@
 //! Version-bump contract for the unmodified rawler dependency. Sensor hashes were independently
 //! checked with LibRaw 0.22.2; the NEF/ARW rows lock our native decoders' existing output.
 //! Fetch CC0 data with scripts/rawdecode_samples.py; the large sample tests are explicitly ignored.
-use lightcraft_raw::{RawData, RawFormat, Rect, decode, probe_info};
+//! Run these decoder-only goldens with --features testgen; camera calibration has its own audit.
+use lightcraft_raw::{RawData, RawFormat, Rect};
+#[cfg(not(feature = "testgen"))]
+use lightcraft_raw::{decode, probe_info};
+#[cfg(feature = "testgen")]
+use lightcraft_raw::{decode_without_camera_data as decode, probe_info_without_camera_data as probe_info};
 use proptest::prelude::*;
 use std::{path::PathBuf, time::Instant};
 
@@ -30,9 +35,9 @@ fn contract(extension: &str) {
         let raw = decode(&bytes).unwrap_or_else(|e| panic!("{}: {e}", row[1]));
         eprintln!("{} {} sensor decode {:.1} ms", row[1], row[3], start.elapsed().as_secs_f64() * 1000.);
         assert_eq!(probe_info(&bytes).unwrap(), raw.info(), "{}: headers differ from full decode", row[1]);
-        assert_eq!(raw.width, row[5].parse().unwrap());
-        assert_eq!(raw.height, row[6].parse().unwrap());
-        assert_eq!(raw.bits, row[7].parse().unwrap());
+        assert_eq!(raw.width, row[5].parse::<usize>().unwrap());
+        assert_eq!(raw.height, row[6].parse::<usize>().unwrap());
+        assert_eq!(raw.bits, row[7].parse::<u32>().unwrap());
         assert_eq!(raw.cfa.as_ref().unwrap().name(), row[8]);
         let rect = |start: usize| {
             Rect::new(row[start].parse().unwrap(), row[start + 1].parse().unwrap(), row[start + 2].parse().unwrap(), row[start + 3].parse().unwrap())
