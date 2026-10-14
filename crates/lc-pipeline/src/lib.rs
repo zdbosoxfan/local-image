@@ -37,6 +37,7 @@ mod test_vectors;
 
 pub mod auto;
 pub mod balance;
+pub mod blur;
 pub mod capture;
 pub mod colorcal;
 pub mod colorequal;

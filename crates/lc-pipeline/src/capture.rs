@@ -219,7 +219,7 @@ pub fn blend_mask(img: &Rgb32f, p: &CaptureParams) -> (Plane, Plane) {
         }
     });
     let unblurred = Plane { width: w, height: h, data: modified };
-    let mut blurred = lightcraft_raster::blur::gaussian(&unblurred, 2.0);
+    let mut blurred = crate::blur::gaussian(&unblurred, 2.0);
     // after the blur, tiny edges keep the unblurred strength
     for (b, u) in blurred.data.iter_mut().zip(&unblurred.data) {
         let wt = 1.0 / (1.0 + (5.0 - 10.0 * (u - *b)).exp());

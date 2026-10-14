@@ -207,16 +207,55 @@ fn gaussian_fine_buffer<T: Pixel>(img: &Buffer<T>, sigma: f32) -> Buffer<T> {
     b
 }
 
+/// Numerical policy of a Gaussian consumer. The general raster/editor default remains
+/// sampled; Develop's existing reference images use the three-box workflow.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum GaussianPolicy {
+    #[default]
+    Sampled,
+    Boxes,
+}
+
+/// Shared CPU/GPU plan. Box radii include the nonzero small-sigma guard (#706).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GaussianPlan {
+    Identity,
+    Sampled,
+    Boxes([usize; 3]),
+}
+
+impl GaussianPolicy {
+    pub fn plan(self, sigma: f32) -> GaussianPlan {
+        if !sigma.is_finite() || sigma <= 0.05 || (self == Self::Boxes && sigma <= 0.3) {
+            GaussianPlan::Identity
+        } else if self == Self::Sampled && sigma <= EXACT_SIGMA {
+            GaussianPlan::Sampled
+        } else {
+            GaussianPlan::Boxes(box_radii(sigma))
+        }
+    }
+}
+
 /// Gaussian blur of dense pixels with replicated borders. No-op at sigma <= 0.05.
 /// Unlike rounded box-only filtering, sigma 0.5 produces a real blur (#706).
 pub fn gaussian<T: Pixel>(src: &[T], width: usize, height: usize, sigma: f32) -> Vec<T> {
+    gaussian_with_policy(src, width, height, sigma, GaussianPolicy::Sampled)
+}
+
+/// Select an explicit consumer policy without changing either kernel's arithmetic.
+pub fn gaussian_with_policy<T: Pixel>(src: &[T], width: usize, height: usize, sigma: f32, policy: GaussianPolicy) -> Vec<T> {
     assert_eq!(src.len(), width * height);
     let mut img = Buffer { width, height, data: src.to_vec() };
-    if img.is_empty() || sigma <= 0.05 || !sigma.is_finite() {
+    let plan = policy.plan(sigma);
+    if img.is_empty() || plan == GaussianPlan::Identity {
         return img.data;
     }
     img.data.iter_mut().for_each(|p| *p = p.premultiplied());
-    let mut out = if sigma > EXACT_SIGMA { gaussian_boxes(&img, sigma).data } else { convolve(&img.data, width, height, &gaussian_kernel(sigma)) };
+    let mut out = match plan {
+        GaussianPlan::Sampled => convolve(&img.data, width, height, &gaussian_kernel(sigma)),
+        GaussianPlan::Boxes(_) => gaussian_boxes(&img, sigma).data,
+        GaussianPlan::Identity => img.data,
+    };
     out.iter_mut().for_each(|p| *p = p.straight());
     out
 }
@@ -231,6 +270,47 @@ pub fn gaussian_fine<T: Pixel>(src: &[T], width: usize, height: usize, sigma: f3
     let mut out = gaussian_fine_buffer(&Buffer { width, height, data }, sigma).data;
     out.iter_mut().for_each(|p| *p = p.straight());
     out
+}
+
+#[cfg(test)]
+mod gaussian_policy_tests {
+    use super::*;
+
+    #[test]
+    fn gaussian_policy_plan_keeps_sampled_default_and_box_consumer_distinct() {
+        for sigma in [f32::NAN, f32::INFINITY, -1.0, 0.0, 0.05] {
+            assert_eq!(GaussianPolicy::Sampled.plan(sigma), GaussianPlan::Identity);
+            assert_eq!(GaussianPolicy::Boxes.plan(sigma), GaussianPlan::Identity);
+        }
+        assert_eq!(GaussianPolicy::Sampled.plan(0.3), GaussianPlan::Sampled);
+        assert_eq!(GaussianPolicy::Boxes.plan(0.3), GaussianPlan::Identity);
+        assert_eq!(GaussianPolicy::Sampled.plan(0.5), GaussianPlan::Sampled);
+        assert_eq!(GaussianPolicy::Boxes.plan(0.5), GaussianPlan::Boxes([1, 0, 0]));
+        assert_eq!(GaussianPolicy::Boxes.plan(0.8), GaussianPlan::Boxes([0, 0, 1]));
+        assert_eq!(GaussianPolicy::Boxes.plan(2.0), GaussianPlan::Boxes([1, 1, 2]));
+        assert_eq!(GaussianPolicy::Sampled.plan(5.0), GaussianPolicy::Boxes.plan(5.0));
+    }
+
+    #[test]
+    fn gaussian_policy_preserves_mass_and_alpha_without_changing_the_default() {
+        let mut impulse = vec![0.0; 41];
+        impulse[20] = 1.0;
+        let sampled = gaussian(&impulse, 41, 1, 2.0);
+        let boxes = gaussian_with_policy(&impulse, 41, 1, 2.0, GaussianPolicy::Boxes);
+        assert_ne!(sampled, boxes);
+        for result in [&sampled, &boxes] {
+            assert!((result.iter().sum::<f32>() - 1.0).abs() < 1e-5);
+            assert!(result.iter().all(|v| v.is_finite() && *v >= -1e-6));
+        }
+        assert_eq!(gaussian_with_policy(&impulse, 41, 1, 0.3, GaussianPolicy::Boxes), impulse);
+        let source = [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
+        for policy in [GaussianPolicy::Sampled, GaussianPolicy::Boxes] {
+            let result = gaussian_with_policy(&source, 3, 1, 0.5, policy);
+            assert!(result[1][3] > 0.0, "#706: both consumers retain a real small-sigma blur");
+            assert_eq!(result[1][0], 1.0);
+            assert_eq!(result[1][2], 0.0, "hidden blue must not contaminate visible red");
+        }
+    }
 }
 
 /// Dense separable convolution, replicated borders, full odd symmetric kernel.

@@ -1,10 +1,10 @@
 //! Scene-linear preparation: white balance + exposure, and the spatial planes the per-pixel stage
 //! needs (edge-aware base layer for highlights/shadows, clarity/texture bands, dehaze veil).
 
+use crate::blur::gaussian;
 use lightcraft_color::cct::{temp_tint_to_xy, wb_matrix};
 use lightcraft_color::{REC2020, luminance_2020};
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::blur::gaussian;
 use std::sync::Arc;
 
 use lightcraft_raster::{Plane, Rgb32f, par_join};
