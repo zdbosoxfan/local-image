@@ -1077,7 +1077,7 @@ fn match_look_final_contact_sheets() {
     assert!(directories.len() >= 46, "22 RAW + 24 JPEG rows required");
     let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
     let mut html = String::from(
-        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Match Look final proof sheets</title><style>body{margin:2rem;background:#202020;color:#eee;font:16px system-ui}h1{font-size:1.6rem}a{color:#b9d8ff}figure{margin:2rem 0;border-top:1px solid #555;padding-top:1rem}img{display:block;width:100%;height:auto}figcaption{margin:0.5rem 0}nav{display:flex;flex-wrap:wrap;gap:1rem}</style><h1>Match Look — final photographer proof sheets</h1><p>Every row includes all finished analyzed references, the target before, and the target after. Click a sheet for full resolution. RAW all-camera rows use the expanded error; RAW mode gates retain the original 30-feature distribution error. JPEG rows use distribution ΔE against the adapted reachable goal.</p><nav><a href=\"#RAW-all-cameras\">All RAW cameras</a><a href=\"#RAW-modes\">RAW modes</a><a href=\"#JPEG-looks\">JPEG looks</a></nav>",
+        "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Match Look final proof sheets</title><style>body{margin:2rem;background:#202020;color:#eee;font:16px system-ui}h1{font-size:1.6rem}a{color:#b9d8ff}figure{margin:2rem 0;border-top:1px solid #555;padding-top:1rem}img{display:block;width:100%;height:auto}figcaption{margin:0.5rem 0}nav{display:flex;flex-wrap:wrap;gap:1rem}</style><h1>Match Look — final photographer proof sheets</h1><p>Every row includes all finished analyzed references, the target before, and the target after. Click a sheet for full resolution. RAW all-camera rows use the expanded error; RAW mode gates retain the original 30-feature distribution error. JPEG rows report distribution distance against the solver goal. These historical diagnostics do not establish matched materials, perceptual quality or full-pipeline attainability.</p><nav><a href=\"#RAW-all-cameras\">All RAW cameras</a><a href=\"#RAW-modes\">RAW modes</a><a href=\"#JPEG-looks\">JPEG looks</a></nav>",
     );
     let mut records = Vec::new();
     for dir in directories {
@@ -1108,7 +1108,7 @@ fn match_look_final_contact_sheets() {
         let bottom = std::cell::Cell::new(0.0);
         let title = format!("{} · {}", metadata["camera"].as_str().unwrap(), metadata["mode"].as_str().unwrap());
         let caption = format!(
-            "Fit {:.0}% · Reach {:.0}% · error {:.6} → {:.6}{}",
+            "Distribution fit {:.0}% · curve regularity {:.0}% · diagnostic error {:.6} → {:.6}{}",
             metadata["fit"].as_f64().unwrap() * 100.0,
             metadata["reach"].as_f64().unwrap() * 100.0,
             metadata["errorBefore"].as_f64().unwrap(),

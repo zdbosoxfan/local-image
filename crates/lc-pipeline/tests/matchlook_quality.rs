@@ -1,4 +1,6 @@
-//! Reproducible photograph quality/rail audit; RAW coverage lives in engine::tests_match_look_raw.
+//! Historical photograph distribution/rail diagnostic; not held-out appearance acceptance.
+//! RAW coverage lives in engine::tests_match_look_raw. The standalone consistent flag
+//! changes reference weighting here; real shared batch locks require the engine workflow.
 //! CC0 originals stay external; no private catalog data is used. See CODEX-REPORT-matchlook.md.
 use lightcraft_color::{REC2020, SRGB, Xy, cct::xy_to_temp_tint, perceptual::oklab_from_2020, transfer::srgb_to_linear};
 use lightcraft_develop::{DevelopSettings, WbMode, Wheel};
@@ -181,7 +183,7 @@ fn matchlook_quality() {
                         .save(sheet_dir.join(file))
                         .unwrap();
                 }
-                let metadata = serde_json::json!({"name":sheet_name,"kind":"JPEG looks","camera":NAMES[index+2],"mode":format!("{name} · {}",if consistent {"Consistent"} else {"Similarity"}),"fit":result.fit,"reach":result.reach,"errorBefore":de(original,goal),"errorAfter":de(after,goal),"references":[{"label":"Analyzed reference 1 · Portrait","file":"ref-0.png"},{"label":"Analyzed reference 2 · Street","file":"ref-1.png"}],"before":"before.png","after":"after.png"});
+                let metadata = serde_json::json!({"name":sheet_name,"kind":"JPEG looks","camera":NAMES[index+2],"mode":format!("{name} · {}",if consistent {"Fixed reference weighting"} else {"Similarity weighting"}),"metricDomain":"Per-image distribution distance against solver goal; not perceptual/material accuracy or an engine batch-lock test","fit":result.fit,"reach":result.reach,"errorBefore":de(original,goal),"errorAfter":de(after,goal),"references":[{"label":"Analyzed reference 1 · Portrait","file":"ref-0.png"},{"label":"Analyzed reference 2 · Street","file":"ref-1.png"}],"before":"before.png","after":"after.png"});
                 std::fs::write(sheet_dir.join("sheet.json"), serde_json::to_vec_pretty(&metadata).unwrap()).unwrap();
                 total += de(after, goal);
                 before += de(original, goal);
