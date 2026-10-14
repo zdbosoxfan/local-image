@@ -50,10 +50,13 @@ recolours both. Use your own crate's module; do not reach across.
 
 Source: PhotoCraft's `ui-design.md` (Themes, Rules) for the editor; LightCraft's `theme.rs` for the library.
 
-**Where.** `Tokens` is a plain `Copy` struct read each frame; widgets never store colours.
-Editor: `pc-ui-egui/src/theme.rs:68` (`Tokens`), built by `Tokens::for_kind` (`:121`) and read with
-`Tokens::get(ctx)` (`:300`). Library: `lc-ui-egui/src/theme.rs:11` (`Tokens`), default in `:63`, read with
-`Tokens::get(ctx)` (`:112`); a host palette is installed through `apply_tokens` (`:201`).
+**Where.** `li-ui-kit` owns the canonical `Copy` token union (`src/theme.rs::Tokens`),
+`ThemeKind`, Library-only semantic roles (`LibraryRoles`) and Library/Develop layout (`Metrics`).
+`pc-ui-egui::theme` re-exports that backend; `lc-ui-egui::theme::Tokens` is a flattened compatibility
+view for existing struct literals, with lossless conversion and no independent palette values.
+Both style applicators live in the kit. The host's `library_palette` delegates to
+`lc-ui-egui::theme::host_palette`, which calls the kit's Library profile and contrast mapping.
+Continue using your UI crate's facade while widgets migrate in J18.
 
 **Themes.** `ThemeKind` (`pc theme.rs:17`): `Pro` (darkest), `ProMedium` (default, Photoshop mid-grey),
 `Studio`, `StudioLight`, `Classic` (bevelled, square). `Tokens::dark()` (`:328`) tells dark from light.
@@ -85,10 +88,17 @@ panel rows (`pc theme.rs:547`), `TOOLTIP_DELAY` 0.35 s (`:543`). Library: item s
 never `FontId::new(..)` by hand. Preferences > Interface > UI Font Size scales every face at once
 (`pc theme.rs:414`), so do not multiply sizes yourself.
 
-**Add a token.** Add the field to `Tokens`, give it a value in every theme (`for_kind` arms in the editor;
-`Default` and `library_palette` plus `tests_develop_c::light()` in the library), use it, and check contrast
-in light and dark. Do not add a token for a one-off; first try an existing role. Debug builds can tune
-tokens live with `PHOTOCRAFT_THEME_FILE` (`pc theme.rs:672`).
+**Add a token.** Add common/editor roles to `li-ui-kit::theme::Tokens` and its theme constructors.
+Library-only roles belong in `LibraryRoles`, layout in `Metrics`; update the shared Library profile
+mapping and the flattened compatibility conversions when a Library role is exposed to old callers.
+Use the role and check contrast in light and dark. The kit's frozen pre-J17 goldens guard every
+existing value, style and font metric. Do not add a token for a one-off; first try an existing role.
+Debug builds still support `PHOTOCRAFT_THEME_FILE` through the editor facade.
+
+**Font backend.** `li-ui-kit::fonts` builds both inherited fallback profiles from the existing
+`pc-text::fonts` statics; no UI crate embeds another copy of the Latin fonts. The shared scaling
+plugin retains the saved-size first-frame fix. Locale-specific craft-font ordering and the editor's
+lazy system CJK source selection remain in their existing UI adapters.
 
 ## 3. Widget catalogue
 
@@ -172,10 +182,17 @@ accessible labels, register automation IDs, and text fields adapt to the availab
 Both crates have their own icon button (`icons::button`+`icon_action` vs `icon_button`), colour tile
 (`color_tile` vs `color_swatch`), dropdown (`dropdown` vs `dropdown`), segmented/tab control (`pill_tab` vs
 `segmented`), separator (`hairline` vs `divider`) and section heading (`section_label` vs `section_header`).
-Merging needs a token trait both crates share, so until then keep the two in step: change both when you
+J17 now supplies the common token backend. Until J18 moves the widget pairs, keep them in step: change both when you
 change the look of one, and name a new widget the same in each crate.
 
 ## 4. Icons
+
+J17 backend: `li-ui-kit::icons` interns the existing registries by SVG content, prepares white SVGs
+lazily, rasterizes through the existing egui_extras/resvg implementation, and shares one per-context
+texture cache across image widgets, Library painters and colour tools. The normal resident limits
+are 1024 entries and 8 MiB; textures used in the current frame remain alive until they can be retired.
+Keys use physical pixels, stroke profile, tint, disabled state and texture options. Interface strokes
+retain 1.75 px; tools retain their sourced 2 px (or 1.5 px) geometry. Public IDs and artwork are unchanged.
 
 Owner decision 2026-10-13: industry-standard **monochrome line icons**, the set PhotoCraft and VectorCraft
 ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted glyphs are retired.
@@ -207,13 +224,13 @@ ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted gly
 - **Add a tool icon.** Copy the upstream SVG unchanged (or draw an original) to
   `assets/icons/tools/<id>.svg`; add its row (set, source, licence, family, SHA-256) to
   `assets/icons/source-manifest.json` and to the table in `assets/icons/SOURCES.md`; register it in
-  `pc-ui-egui/src/tool_icon_data.rs` (or the vector table in
-  `vector_packages/fill_stroke_proxy/icons.rs`) and its family in `color_icon_data.rs`. Then run
+  `li-ui-kit/src/tool_icon_data.rs` (or `li-ui-kit/src/vector_icon_data.rs`) and its family in
+  `li-ui-kit/src/color_icon_data.rs`. The old editor modules are re-export adapters. Then run
   `cargo xtask icons` (hashes, licences, line style and registries), `cargo xtask attributions`, and
   `cargo xtask tool-icons`, and look at `docs/design/tool-icons.png` at 16 and 20 px on both themes.
 - **Add an interface icon.** Put the Lucide 0.468.0 SVG in `assets/icons/<name>.svg` unchanged.
-  Editor: register it in `pc-ui-egui/src/icon_data.rs` (`ICONS`). Library/Develop: add an `Icon`
-  variant and its file in `lc icons.rs` (`svg`). List it in `assets/icons/SOURCES.md`.
+  Editor: register it in `li-ui-kit/src/icon_data.rs` (`ICONS`). Library/Develop: add an `Icon`
+  variant and its file in `li-ui-kit/src/library_icons.rs` (`svg`). List it in `assets/icons/SOURCES.md`.
 - **Attribution.** Every asset needs a licence row or `cargo xtask assets` (part of `cargo xtask ci`)
   fails. Licence texts: `licenses/lucide-ISC.txt`, `licenses/feather-MIT.txt`,
   `licenses/photocraft-LICENSE-{MIT,APACHE}`, `licenses/vectorcraft-LICENSE-{MIT,APACHE}`,

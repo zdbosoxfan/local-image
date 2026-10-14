@@ -7,282 +7,21 @@
 use egui::vec2;
 use egui::{Color32, Painter, Rect, Vec2, pos2};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Icon {
-    Sidebar,
-    Back,
-    Forward,
-    Search,
-    Filter,
-    Bell,
-    Share,
-    Help,
-    Cloud,
-    Sliders,
-    Crop,
-    Eraser,
-    Mask,
-    Eye,
-    /// Eye with a slash (hidden).
-    EyeOff,
-    Presets,
-    Versions,
-    Activity,
-    More,
-    Tag,
-    Info,
-    GridPhoto,
-    GridSquare,
-    Loupe,
-    Compare,
-    Survey,
-    Sort,
-    Star,
-    StarFilled,
-    Circle,
-    FlagPick,
-    FlagReject,
-    Gear,
-    Filmstrip,
-    BeforeAfter,
-    ChevronDown,
-    ChevronRight,
-    ChevronLeft,
-    TriangleLeft,
-    Plus,
-    Minus,
-    Collection,
-    SmartCollection,
-    Stack,
-    Folder,
-    /// Edit (a pencil).
-    Pencil,
-    Photos,
-    Clock,
-    Trash,
-    Curve,
-    ProfileGrid,
-    Close,
-    Check,
-    Brush,
-    Linear,
-    Radial,
-    Sky,
-    Subject,
-    Picker,
-    WhiteBalance,
-    SkinTone,
-    Defringe,
-    Rotate,
-    Flip,
-    Invert,
-    Dots,
-    Video,
-    Heart,
-    Edited,
-    /// Targeted adjustment: a ring with a centre dot and up/down arrows (drag vertically).
-    Target,
-    /// Chat: a speech bubble with three dots (no longer drawn in the top bar). Our own
-    /// generic drawing, not any service's logo.
-    Chat,
-    /// Face boxes on/off: four corner brackets round a small face.
-    FaceBox,
-}
-
-/// Every icon, for coverage tests and the review sheet.
 #[cfg(test)]
-pub(crate) const ALL: &[Icon] = &[
-    Icon::Sidebar,
-    Icon::Back,
-    Icon::Forward,
-    Icon::Search,
-    Icon::Filter,
-    Icon::Bell,
-    Icon::Share,
-    Icon::Help,
-    Icon::Cloud,
-    Icon::Sliders,
-    Icon::Crop,
-    Icon::Eraser,
-    Icon::Mask,
-    Icon::Eye,
-    Icon::EyeOff,
-    Icon::Presets,
-    Icon::Versions,
-    Icon::Activity,
-    Icon::More,
-    Icon::Tag,
-    Icon::Info,
-    Icon::GridPhoto,
-    Icon::GridSquare,
-    Icon::Loupe,
-    Icon::Compare,
-    Icon::Survey,
-    Icon::Sort,
-    Icon::Star,
-    Icon::StarFilled,
-    Icon::Circle,
-    Icon::FlagPick,
-    Icon::FlagReject,
-    Icon::Gear,
-    Icon::Filmstrip,
-    Icon::BeforeAfter,
-    Icon::ChevronDown,
-    Icon::ChevronRight,
-    Icon::ChevronLeft,
-    Icon::TriangleLeft,
-    Icon::Plus,
-    Icon::Minus,
-    Icon::Collection,
-    Icon::SmartCollection,
-    Icon::Stack,
-    Icon::Folder,
-    Icon::Pencil,
-    Icon::Photos,
-    Icon::Clock,
-    Icon::Trash,
-    Icon::Curve,
-    Icon::ProfileGrid,
-    Icon::Close,
-    Icon::Check,
-    Icon::Brush,
-    Icon::Linear,
-    Icon::Radial,
-    Icon::Sky,
-    Icon::Subject,
-    Icon::Picker,
-    Icon::WhiteBalance,
-    Icon::SkinTone,
-    Icon::Defringe,
-    Icon::Rotate,
-    Icon::Flip,
-    Icon::Invert,
-    Icon::Dots,
-    Icon::Video,
-    Icon::Heart,
-    Icon::Edited,
-    Icon::Target,
-    Icon::Chat,
-    Icon::FaceBox,
-];
+pub(crate) use li_ui_kit::library_icons::ALL;
+pub use li_ui_kit::library_icons::Icon;
+pub(crate) use li_ui_kit::library_icons::svg;
 
-/// The line SVG that draws `icon`: Lucide 0.468.0 (ISC) in `assets/icons`, or the matching tool
-/// icon in `assets/icons/tools` so a control and its tool share one glyph.
-pub(crate) fn svg(icon: Icon) -> &'static [u8] {
-    macro_rules! file {
-        ($path:literal) => {
-            include_bytes!(concat!("../../../assets/icons/", $path)).as_slice()
-        };
-    }
-    use Icon::*;
-    match icon {
-        Sidebar => file!("panel-left.svg"),
-        Back => file!("arrow-left.svg"),
-        Forward => file!("arrow-right.svg"),
-        Search => file!("search.svg"),
-        Filter => file!("filter.svg"),
-        Bell => file!("bell.svg"),
-        Share => file!("share.svg"),
-        Help => file!("circle-help.svg"),
-        Cloud => file!("cloud.svg"),
-        Sliders => file!("sliders-horizontal.svg"),
-        Crop => file!("tools/crop.svg"),
-        Eraser => file!("tools/eraser.svg"),
-        Mask => file!("tools/mask.svg"),
-        Eye => file!("eye.svg"),
-        EyeOff => file!("eye-off.svg"),
-        Presets => file!("tools/presets.svg"),
-        Versions | Stack => file!("tools/versions.svg"),
-        Activity => file!("tools/activity.svg"),
-        More | Dots => file!("ellipsis.svg"),
-        Tag => file!("tools/keywords.svg"),
-        Info => file!("tools/info.svg"),
-        GridPhoto => file!("layout-grid.svg"),
-        GridSquare => file!("grid-2x2.svg"),
-        Loupe => file!("rectangle-horizontal.svg"),
-        Compare => file!("columns-2.svg"),
-        Survey => file!("layout-dashboard.svg"),
-        Sort => file!("arrow-down-wide-narrow.svg"),
-        Star => file!("star.svg"),
-        StarFilled => file!("star-filled.svg"),
-        Circle => file!("circle.svg"),
-        FlagPick => file!("flag.svg"),
-        FlagReject => file!("flag-off.svg"),
-        Gear => file!("settings.svg"),
-        Filmstrip => file!("film.svg"),
-        BeforeAfter => file!("square-split-horizontal.svg"),
-        ChevronDown => file!("chevron-down.svg"),
-        ChevronRight => file!("chevron-right.svg"),
-        ChevronLeft | TriangleLeft => file!("chevron-left.svg"),
-        Plus => file!("plus.svg"),
-        Minus => file!("minus.svg"),
-        Collection => file!("images.svg"),
-        SmartCollection => file!("smart-album.svg"),
-        Folder => file!("folder.svg"),
-        Pencil | Edited => file!("pencil.svg"),
-        Photos => file!("images.svg"),
-        Clock => file!("clock.svg"),
-        Trash => file!("trash-2.svg"),
-        Curve => file!("chart-spline.svg"),
-        ProfileGrid => file!("grid-3x3.svg"),
-        Close => file!("x.svg"),
-        Check => file!("check.svg"),
-        Brush => file!("tools/brush.svg"),
-        Linear => file!("tools/linear-mask.svg"),
-        Radial => file!("tools/radial-mask.svg"),
-        Sky => file!("tools/sky-mask.svg"),
-        Subject => file!("tools/subject-mask.svg"),
-        Picker => file!("tools/pipette.svg"),
-        WhiteBalance => file!("tools/wb-picker.svg"),
-        SkinTone => file!("tools/skin-picker.svg"),
-        Defringe => file!("tools/defringe-picker.svg"),
-        Rotate => file!("rotate-cw.svg"),
-        Flip => file!("flip-horizontal-2.svg"),
-        Invert => file!("contrast.svg"),
-        Video => file!("video.svg"),
-        Heart => file!("heart.svg"),
-        Target => file!("tools/targeted-adjust.svg"),
-        Chat => file!("message-circle.svg"),
-        FaceBox => file!("scan-face.svg"),
-    }
-}
-
-#[derive(Clone, Default)]
-struct SvgTextures(std::collections::HashMap<(Icon, u32), egui::TextureHandle>);
-
-/// White raster of `icon` at `px` physical pixels, cached per context. The source's 2 px stroke is
-/// drawn at 1.75, like the editor's generic icons (`pc-ui-egui icons.rs`).
-fn texture(ctx: &egui::Context, icon: Icon, bytes: &[u8], px: u32) -> Option<egui::TextureId> {
-    let id = egui::Id::new("lc-icon-svg-textures");
-    if let Some(t) = ctx.data_mut(|d| d.get_temp_mut_or_default::<SvgTextures>(id).0.get(&(icon, px)).map(|t| t.id())) {
-        return Some(t);
-    }
-    let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff").replace("stroke-width=\"2\"", "stroke-width=\"1.75\"");
-    let image = egui_extras::image::load_svg_bytes_with_size(svg.as_bytes(), egui::load::SizeHint::Width(px), &Default::default()).ok()?;
-    let handle = ctx.load_texture(format!("lc-icon/{icon:?}/{px}"), image, egui::TextureOptions::LINEAR);
-    let tex = handle.id();
-    ctx.data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<SvgTextures>(id);
-        // Scale changes should not keep an unbounded set of sizes.
-        if cache.0.len() >= 1024 {
-            cache.0.clear();
-        }
-        cache.0.insert((icon, px), handle);
-    });
-    Some(tex)
-}
-
-/// Paint `icon` centred in `rect` (square area used) with `color`.
+/// Paint the shared SVG centred at the existing physical-pixel size.
 pub fn paint(p: &Painter, rect: Rect, icon: Icon, color: Color32) {
     let side = rect.width().min(rect.height());
     let ppp = p.ctx().pixels_per_point();
     let px = (side * ppp).round().clamp(1.0, 512.0) as u32;
-    if let Some(tex) = texture(p.ctx(), icon, svg(icon), px) {
+    if let Some(tex) = li_ui_kit::icons::texture(p.ctx(), svg(icon), li_ui_kit::icons::StrokeStyle::Interface, px, Color32::WHITE, false) {
         let r = Rect::from_center_size(rect.center(), Vec2::splat(px as f32 / ppp));
         p.image(tex, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), color);
     }
 }
-
 /// The tool image for rich tooltips: theme-tinted line icon, or its family tint in colour mode.
 pub fn tool_icon(ui: &egui::Ui, name: &str, size: f32) -> Option<egui::Image<'static>> {
     egui_extras::install_image_loaders(ui.ctx());
@@ -436,4 +175,63 @@ fn write_ui_icon_review_sheet() {
     let mut ppm = format!("P6\n{} {}\n255\n", image.size[0], image.size[1]).into_bytes();
     ppm.extend(image.pixels.iter().flat_map(|p| [p.r(), p.g(), p.b()]));
     std::fs::write(dir.join(format!("ui-icons-{tag}.ppm")), ppm).unwrap();
+}
+
+#[cfg(test)]
+#[test]
+fn j17_library_icon_controls_keep_palette_clicks_and_disabled_behavior() {
+    use crate::headless::HeadlessView;
+    for kind in li_ui_kit::theme::ThemeKind::ALL {
+        for scale in [1.0, 1.25, 2.0] {
+            for colored in [false, true] {
+                let mut view = HeadlessView::new();
+                crate::theme::apply_tokens(&view.ctx, crate::theme::host_palette(kind));
+                crate::color_icons::set_enabled(&view.ctx, colored);
+                let mut bounds = [Rect::NOTHING; 3];
+                let mut clicks = [0; 3];
+                let mut frame = 0;
+                {
+                    let mut draw = |ui: &mut egui::Ui| {
+                        ui.horizontal(|ui| {
+                            for (index, enabled) in [(0, true), (1, true), (2, false)] {
+                                let response = if index == 0 {
+                                    crate::widgets::icon_button(ui, "j17-nav", Icon::Back, vec2(40., 40.), false, enabled, "Back")
+                                } else {
+                                    crate::widgets::tool_button(ui, "crop", Icon::Crop, vec2(40., 40.), false, enabled, "Crop")
+                                };
+                                bounds[index] = response.rect;
+                                clicks[index] += usize::from(response.clicked());
+                            }
+                        });
+                    };
+                    view.run(HeadlessView::raw_input(vec2(240., 100.), scale, frame as f64 / 60., vec![]), &mut draw);
+                }
+                for index in 0..3 {
+                    for pressed in [true, false] {
+                        frame += 1;
+                        let pos = bounds[index].center();
+                        let events = vec![
+                            egui::Event::PointerMoved(pos),
+                            egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE },
+                        ];
+                        view.run(HeadlessView::raw_input(vec2(240., 100.), scale, frame as f64 / 60., events), |ui| {
+                            ui.horizontal(|ui| {
+                                let back = crate::widgets::icon_button(ui, "j17-nav", Icon::Back, vec2(40., 40.), false, true, "Back");
+                                let crop = crate::widgets::tool_button(ui, "crop", Icon::Crop, vec2(40., 40.), false, true, "Crop");
+                                let disabled = crate::widgets::tool_button(ui, "crop", Icon::Crop, vec2(40., 40.), false, false, "Crop");
+                                for (i, response) in [back, crop, disabled].into_iter().enumerate() {
+                                    assert_eq!(response.rect, bounds[i]);
+                                    clicks[i] += usize::from(response.clicked());
+                                }
+                            });
+                        });
+                    }
+                }
+                assert_eq!(clicks, [1, 1, 0], "{kind:?}/{scale}/{colored}");
+                let pixels = view.paint(&Default::default());
+                assert!(pixels.pixels.iter().any(|p| *p != pixels.pixels[0]), "toolbar must render");
+                assert_eq!(crate::theme::Tokens::get(&view.ctx), crate::theme::host_palette(kind));
+            }
+        }
+    }
 }

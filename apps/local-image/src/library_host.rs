@@ -47,42 +47,7 @@ type SaveSourcesKey = (String, u64, u64, Vec<photocraft_ui_egui::develop_layer::
 
 /// One theme authority: reuse editor semantic colours while retaining Library metrics.
 fn library_palette(kind: photocraft_ui_egui::theme::ThemeKind) -> lightcraft_ui_egui::theme::Tokens {
-    use lightcraft_ui_egui::theme::{Tokens, readable_text, text_on};
-    let palette = photocraft_ui_egui::theme::Tokens::for_kind(kind);
-    let text = readable_text(palette.text, palette.pressed);
-    Tokens {
-        dark: palette.dark(),
-        selection: palette.pressed,
-        selection_text: text_on(palette.pressed),
-        chrome: palette.chrome,
-        canvas: palette.canvas,
-        grid_bg: palette.canvas,
-        cell: palette.card,
-        cell_selected: palette.hover,
-        divider: palette.separator,
-        inset: palette.dock,
-        field: palette.field,
-        field_border: palette.field_border,
-        button: palette.card,
-        button_border: palette.card_border,
-        hover: palette.hover,
-        pressed: palette.pressed,
-        tool_active: palette.pressed,
-        text,
-        text_label: text,
-        text_dim: readable_text(palette.text_dim, palette.chrome),
-        text_disabled: palette.text_faint,
-        icon: palette.icon,
-        track: palette.text_dim,
-        thumb: palette.icon,
-        thumb_hover: text,
-        accent: palette.accent,
-        star: text,
-        pick: text,
-        reject: readable_text(palette.danger, palette.chrome),
-        caution: readable_text(palette.warning, palette.chrome),
-        ..Tokens::default()
-    }
+    lightcraft_ui_egui::theme::host_palette(kind)
 }
 
 pub struct Host {
@@ -3567,6 +3532,35 @@ mod tests {
         assert!(!host.editor.has_unsaved(), "theme fixture has no user edits to bypass");
         (dir, host)
     }
+    #[test]
+    fn j17_host_theme_union_survives_real_module_switches() {
+        use photocraft_ui_egui::theme::{ThemeKind, Tokens as EditorTokens};
+        let (dir, host) = workflow_host("j17-theme");
+        let mut h = RoundTripUi::new(host);
+        let size = egui::vec2(1200., 900.);
+        for kind in [ThemeKind::ProMedium, ThemeKind::StudioLight] {
+            workflow_theme(&mut h.host, kind);
+            for mode in [Module::Library, Module::Develop, Module::Compositing] {
+                let started = std::time::Instant::now();
+                h.host.switch(&h.view.ctx, mode);
+                for _ in 0..3 {
+                    h.step_at(size, vec![]);
+                }
+                let micros = started.elapsed().as_micros();
+                if mode == Module::Compositing {
+                    assert_eq!(EditorTokens::get(&h.view.ctx).kind, kind);
+                } else {
+                    assert_eq!(lightcraft_ui_egui::theme::Tokens::get(&h.view.ctx), library_palette(kind));
+                }
+                println!("J17 real host CPU UI sample: {kind:?}/{mode:?}, switch + 3 frames {micros} us");
+            }
+        }
+        let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();
+        drop(h);
+        previews.retire();
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     fn workflow_click(h: &mut RoundTripUi, size: egui::Vec2, id: &str) {
         let rect = h.host.library.as_ref().unwrap().widgets.iter().find(|(key, _)| key == id).unwrap_or_else(|| panic!("missing {id}")).1;
         assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(rect), "{id}: {rect:?}");

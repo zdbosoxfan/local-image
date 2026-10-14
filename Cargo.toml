@@ -14,6 +14,7 @@ rust-version = "1.95"
 repository = "https://github.com/zdbosoxfan/local-image"
 
 [workspace.dependencies]
+li-ui-kit = { path = "crates/li-ui-kit" }
 photocraft-vecfx = { path = "crates/pc-vecfx" }
 photocraft-affinity = { path = "crates/pc-affinity" }
 photocraft-pdf = { path = "crates/pc-pdf" }

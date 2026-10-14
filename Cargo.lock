@@ -3989,6 +3989,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "li-ui-kit"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "egui",
+ "egui_extras",
+ "li-color",
+ "log",
+ "photocraft-text",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "libc"
 version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4350,6 +4363,7 @@ dependencies = [
  "li-attributions",
  "li-color",
  "li-seg",
+ "li-ui-kit",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-color",
@@ -6042,6 +6056,7 @@ dependencies = [
  "li-attributions",
  "li-color",
  "li-seg",
+ "li-ui-kit",
  "lightcraft-codecs",
  "lightcraft-raw",
  "lightcraft-sysmem",

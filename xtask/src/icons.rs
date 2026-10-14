@@ -38,7 +38,7 @@ struct Tool {
     upstream_sha256: Option<String>,
 }
 
-/// Colour-mode families (`pc-ui-egui/src/color_icon_data.rs`).
+/// Colour-mode families (`li-ui-kit/src/color_icon_data.rs`).
 const FAMILIES: [&str; 9] = ["blue", "green", "orange", "cyan", "purple", "measure", "yellow", "liquify", "grey"];
 
 /// Lucide's style rules on the root element; Local Image originals must also be 2 px with no fills.
@@ -125,7 +125,7 @@ pub fn check(root: &Path) -> Result<(usize, usize)> {
         );
     }
     let mut used = BTreeSet::new();
-    for registry in ["crates/pc-ui-egui/src/tool_icon_data.rs", "crates/pc-ui-egui/src/vector_packages/fill_stroke_proxy/icons.rs"] {
+    for registry in ["crates/li-ui-kit/src/tool_icon_data.rs", "crates/li-ui-kit/src/vector_icon_data.rs"] {
         used.extend(registered(&std::fs::read_to_string(root.join(registry)).with_context(|| registry.to_string())?));
     }
     ensure!(
@@ -134,7 +134,7 @@ pub fn check(root: &Path) -> Result<(usize, usize)> {
         ids.difference(&used).collect::<Vec<_>>(),
         used.difference(&ids).collect::<Vec<_>>()
     );
-    let families = std::fs::read_to_string(root.join("crates/pc-ui-egui/src/color_icon_data.rs"))?;
+    let families = std::fs::read_to_string(root.join("crates/li-ui-kit/src/color_icon_data.rs"))?;
     for tool in &manifest.tools {
         ensure!(families.contains(&format!("(\"{}\", \"{}\")", tool.id, tool.family)), "{}: colour family row differs from the manifest", tool.id);
     }
@@ -155,6 +155,20 @@ mod tests {
     fn vendored_tool_icons_match_the_manifest() {
         let (sourced, drawn) = check(&crate::root()).unwrap();
         assert_eq!((sourced, drawn), (144, 24));
+    }
+
+    #[test]
+    fn j17_shared_icon_registries_remain_audited_through_compatibility_facades() {
+        let root = crate::root();
+        for facade in [
+            "crates/pc-ui-egui/src/tool_icon_data.rs",
+            "crates/pc-ui-egui/src/color_icon_data.rs",
+            "crates/pc-ui-egui/src/vector_packages/fill_stroke_proxy/icons.rs",
+        ] {
+            let source = std::fs::read_to_string(root.join(facade)).unwrap();
+            assert!(source.contains("pub use li_ui_kit::"), "{facade}");
+        }
+        assert_eq!(check(&root).unwrap(), (144, 24), "the asset audit must still cover every moved registry row");
     }
 
     #[test]

@@ -6,46 +6,15 @@
 //! (History: the first shell used Unicode glyphs; half of them rendered as tofu boxes because the
 //! bundled fonts lacked them. Vector icons fix that for good.)
 
-use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
-
-use egui::{Color32, Rect, Response, Sense, Vec2};
-
+#[cfg(test)]
 use crate::icon_data::ICONS;
 use crate::state::Tool;
 use crate::theme::Tokens;
-
-fn white_icons() -> &'static HashMap<&'static str, Arc<[u8]>> {
-    static MAP: OnceLock<HashMap<&'static str, Arc<[u8]>>> = OnceLock::new();
-    MAP.get_or_init(|| {
-        ICONS
-            .iter()
-            .map(|(name, bytes)| {
-                let svg = String::from_utf8_lossy(bytes).replace("currentColor", "#ffffff").replace("stroke-width=\"2\"", "stroke-width=\"1.75\"");
-                (*name, Arc::from(svg.into_bytes().into_boxed_slice()))
-            })
-            .collect()
-    })
-}
-
-pub fn exists(name: &str) -> bool {
-    crate::mono_tool_icons::exists(name) || white_icons().contains_key(name)
-}
-
-/// An egui image for an icon, tinted.
-pub fn image(name: &str, size: f32, tint: Color32) -> egui::Image<'static> {
-    // Generic tool IDs embed the same sourced mono geometry; the cursor has its own ID.
-    if !white_icons().contains_key(name)
-        && let Some(image) = crate::mono_tool_icons::image(name, size, tint)
-    {
-        return image;
-    }
-    let bytes = white_icons().get(name).or_else(|| white_icons().get("square")).cloned().unwrap_or_default();
-    egui::Image::from_bytes(format!("bytes://icons/{name}.svg"), egui::load::Bytes::Shared(bytes)).fit_to_exact_size(Vec2::splat(size)).tint(tint)
-}
-
+use egui::{Color32, Rect, Response, Sense, Vec2};
+pub use li_ui_kit::icons::{exists, image};
 /// Paint an icon centred in `rect`.
 pub fn paint(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
+    li_ui_kit::icons::install(ui.ctx());
     let r = Rect::from_center_size(rect.center(), Vec2::splat(size));
     image(name, size, tint).paint_at(ui, r);
 }
@@ -301,14 +270,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generic_cursor_artwork_and_tool_artwork_use_separate_sources() {
+    fn j17_cursor_hotspot_artwork_remains_separate_from_tool_artwork() {
         let ctx = egui::Context::default();
-        for (icon, expected) in [
-            (image("cursor-pipette", 20.0, Color32::WHITE), "bytes://icons/cursor-pipette.svg"),
-            (monochrome_tool_image("pipette", 20.0, Color32::WHITE), "bytes://sourced-tool-icons/pipette.svg"),
+        let cursor = image("cursor-pipette", 20.0, Color32::WHITE);
+        let tool = monochrome_tool_image("pipette", 20.0, Color32::WHITE);
+        assert_ne!(cursor.uri(), tool.uri());
+        for (icon, source, style) in [
+            (cursor, ICONS.iter().find(|(n, _)| *n == "cursor-pipette").unwrap().1, li_ui_kit::icons::StrokeStyle::Interface),
+            (tool, crate::mono_tool_icons::svg("pipette").unwrap(), li_ui_kit::icons::StrokeStyle::Tool),
         ] {
             match icon.source(&ctx) {
-                egui::ImageSource::Bytes { uri, .. } => assert_eq!(uri.as_ref(), expected),
+                egui::ImageSource::Bytes { bytes, .. } => assert_eq!(bytes.as_ref(), li_ui_kit::icons::prepared(source, style).as_ref()),
                 other => panic!("unexpected source: {other:?}"),
             }
         }
@@ -354,11 +326,41 @@ mod tests {
 
     #[test]
     fn icons_are_recoloured() {
-        let m = white_icons();
-        assert!(m.len() >= 60);
-        for (name, b) in m.iter() {
-            let s = std::str::from_utf8(b).unwrap();
+        assert!(ICONS.len() >= 60);
+        for (name, source) in ICONS {
+            let b = li_ui_kit::icons::prepared(source, li_ui_kit::icons::StrokeStyle::Interface);
+            let s = std::str::from_utf8(&b).unwrap();
             assert!(!s.contains("currentColor"), "{name}");
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn j17_editor_icon_controls_keep_accessible_clicks_and_disabled_behavior() {
+    use egui_kittest::kittest::Queryable;
+    for kind in crate::theme::ThemeKind::ALL {
+        for colored in [false, true] {
+            let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(240., 100.)).build_ui_state(
+                |ui, clicked: &mut [usize; 3]| {
+                    crate::theme::apply(ui.ctx(), kind);
+                    crate::color_icons::set_enabled(ui.ctx(), colored);
+                    ui.horizontal(|ui| {
+                        clicked[0] += usize::from(button(ui, "crop", 40., false, "Crop").clicked());
+                        clicked[1] += usize::from(tool_button(ui, "brush", 40., false, "Brush Tool").clicked());
+                        ui.add_enabled_ui(false, |ui| {
+                            clicked[2] += usize::from(tool_button(ui, "crop", 40., false, "Disabled tool").clicked());
+                        });
+                    });
+                },
+                [0usize; 3],
+            );
+            h.run_steps(3);
+            for label in ["Crop", "Brush Tool", "Disabled tool"] {
+                h.get_by_label(label).click();
+                h.run_steps(2);
+            }
+            assert_eq!(*h.state(), [1, 1, 0], "{kind:?}/{colored}");
         }
     }
 }

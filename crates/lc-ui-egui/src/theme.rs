@@ -3,20 +3,11 @@
 
 use std::sync::Arc;
 
-use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
+use egui::{Color32, FontData, FontDefinitions, FontFamily, FontId};
 
-/// Standard Develop section content inset.
-pub const PANEL_CONTENT_MARGIN: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
-
-/// Existing Library Preferences body width, shared by standalone and hosted rows.
-pub const PREFERENCES_BODY_WIDTH: f32 = 560.0;
-pub const CONTROL_FONT_SIZE: f32 = 13.0;
-pub const BUTTON_FONT_SIZE: f32 = 11.5;
-pub const DROPDOWN_ARROW_SPACE: f32 = 20.0;
-
-pub const FONT_SEMIBOLD: &str = "semibold";
-/// Shared inset for controls in a Develop section, matching the inherited panel grammar.
-pub const DEVELOP_INSET: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
+pub use li_ui_kit::library::{
+    BUTTON_FONT_SIZE, CONTROL_FONT_SIZE, DEVELOP_INSET, DROPDOWN_ARROW_SPACE, FONT_SEMIBOLD, PANEL_CONTENT_MARGIN, PREFERENCES_BODY_WIDTH,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
@@ -74,79 +65,130 @@ pub struct Tokens {
     pub panel_inset_right: i8,
 }
 
-impl Default for Tokens {
-    fn default() -> Self {
-        Tokens {
-            dark: true,
-            selection: Color32::from_rgb(0x01, 0x65, 0xdd).gamma_multiply(0.6),
-            selection_text: Color32::from_rgb(0x01, 0x65, 0xdd),
-            chrome: Color32::from_rgb(0x2d, 0x2d, 0x2d),
-            canvas: Color32::from_rgb(0x1c, 0x1c, 0x1c),
-            grid_bg: Color32::from_rgb(0x0f, 0x0f, 0x0f),
-            cell: Color32::from_rgb(0x1c, 0x1c, 0x1c),
-            cell_selected: Color32::from_rgb(0x2d, 0x2d, 0x2d),
-            divider: Color32::from_rgb(0x1c, 0x1c, 0x1c),
-            inset: Color32::from_rgb(0x23, 0x23, 0x23),
-            field: Color32::from_rgb(0x22, 0x22, 0x22),
-            field_border: Color32::from_rgb(0x3c, 0x3c, 0x3c),
-            button: Color32::from_rgb(0x24, 0x24, 0x24),
-            button_border: Color32::from_rgb(0x4c, 0x4c, 0x4c),
-            hover: Color32::from_rgb(0x3a, 0x3a, 0x3a),
-            pressed: Color32::from_rgb(0x3f, 0x3f, 0x3f),
-            tool_active: Color32::from_rgb(0x3f, 0x3f, 0x3f),
-            text: Color32::from_rgb(0xe2, 0xe2, 0xe2),
-            text_label: Color32::from_rgb(0xbc, 0xbc, 0xbc),
-            text_dim: Color32::from_rgb(0x8e, 0x8e, 0x8e),
-            text_disabled: Color32::from_rgb(0x5c, 0x5c, 0x5c),
-            icon: Color32::from_rgb(0x9a, 0x9a, 0x9a),
-            track: Color32::from_rgb(0x5a, 0x5a, 0x5a),
-            thumb: Color32::from_rgb(0xa0, 0xa0, 0xa0),
-            thumb_hover: Color32::from_rgb(0xe0, 0xe0, 0xe0),
-            accent: Color32::from_rgb(0x01, 0x65, 0xdd),
-            star: Color32::from_rgb(0xd8, 0xd8, 0xd8),
-            pick: Color32::from_rgb(0xf0, 0xf0, 0xf0),
-            reject: Color32::from_rgb(0xe0, 0x4a, 0x4a),
-            caution: Color32::from_rgb(0xe3, 0xa8, 0x3c),
-            mask_overlay: Color32::from_rgba_unmultiplied(0xe0, 0x20, 0x30, 110),
-            overlay_bg: Color32::from_gray(26),
-            overlay_fg: Color32::from_gray(235),
-            overlay_reject: Color32::from_rgb(255, 120, 120),
-            top_bar_h: 42.0,
-            bottom_bar_h: 48.0,
-            panel_w: 270.0,
-            strip_w: 48.0,
-            slider_row_h: 45.0,
-            section_h: 57.0,
-            film_h: 142.0,
-            panel_inset_left: 24,
-            panel_inset_right: 22,
+impl From<li_ui_kit::theme::Tokens> for Tokens {
+    fn from(t: li_ui_kit::theme::Tokens) -> Self {
+        Self {
+            dark: t.library.dark,
+            selection: t.library.selection,
+            selection_text: t.library.selection_text,
+            chrome: t.chrome,
+            canvas: t.canvas,
+            grid_bg: t.library.grid_bg,
+            cell: t.library.cell,
+            cell_selected: t.library.cell_selected,
+            divider: t.library.divider,
+            inset: t.library.inset,
+            field: t.field,
+            field_border: t.field_border,
+            button: t.library.button,
+            button_border: t.library.button_border,
+            hover: t.hover,
+            pressed: t.pressed,
+            tool_active: t.library.tool_active,
+            text: t.text,
+            text_label: t.library.text_label,
+            text_dim: t.text_dim,
+            text_disabled: t.library.text_disabled,
+            icon: t.icon,
+            track: t.library.track,
+            thumb: t.library.thumb,
+            thumb_hover: t.library.thumb_hover,
+            accent: t.accent,
+            star: t.library.star,
+            pick: t.library.pick,
+            reject: t.library.reject,
+            caution: t.library.caution,
+            mask_overlay: t.library.mask_overlay,
+            overlay_bg: t.library.overlay_bg,
+            overlay_fg: t.library.overlay_fg,
+            overlay_reject: t.library.overlay_reject,
+            top_bar_h: t.library.metrics.top_bar_h,
+            bottom_bar_h: t.library.metrics.bottom_bar_h,
+            panel_w: t.library.metrics.panel_w,
+            strip_w: t.library.metrics.strip_w,
+            slider_row_h: t.library.metrics.slider_row_h,
+            section_h: t.library.metrics.section_h,
+            film_h: t.library.metrics.film_h,
+            panel_inset_left: t.library.metrics.panel_inset_left,
+            panel_inset_right: t.library.metrics.panel_inset_right,
         }
     }
 }
-
-impl Tokens {
-    pub fn get(ctx: &egui::Context) -> Tokens {
-        ctx.data(|d| d.get_temp::<Tokens>(egui::Id::NULL)).unwrap_or_default()
+impl From<Tokens> for li_ui_kit::theme::Tokens {
+    fn from(old: Tokens) -> Self {
+        let mut t = li_ui_kit::library::standalone();
+        t.library.dark = old.dark;
+        t.library.selection = old.selection;
+        t.library.selection_text = old.selection_text;
+        t.chrome = old.chrome;
+        t.canvas = old.canvas;
+        t.library.grid_bg = old.grid_bg;
+        t.library.cell = old.cell;
+        t.library.cell_selected = old.cell_selected;
+        t.library.divider = old.divider;
+        t.library.inset = old.inset;
+        t.field = old.field;
+        t.field_border = old.field_border;
+        t.library.button = old.button;
+        t.library.button_border = old.button_border;
+        t.hover = old.hover;
+        t.pressed = old.pressed;
+        t.library.tool_active = old.tool_active;
+        t.text = old.text;
+        t.library.text_label = old.text_label;
+        t.text_dim = old.text_dim;
+        t.library.text_disabled = old.text_disabled;
+        t.icon = old.icon;
+        t.library.track = old.track;
+        t.library.thumb = old.thumb;
+        t.library.thumb_hover = old.thumb_hover;
+        t.accent = old.accent;
+        t.library.star = old.star;
+        t.library.pick = old.pick;
+        t.library.reject = old.reject;
+        t.library.caution = old.caution;
+        t.library.mask_overlay = old.mask_overlay;
+        t.library.overlay_bg = old.overlay_bg;
+        t.library.overlay_fg = old.overlay_fg;
+        t.library.overlay_reject = old.overlay_reject;
+        t.library.metrics.top_bar_h = old.top_bar_h;
+        t.library.metrics.bottom_bar_h = old.bottom_bar_h;
+        t.library.metrics.panel_w = old.panel_w;
+        t.library.metrics.strip_w = old.strip_w;
+        t.library.metrics.slider_row_h = old.slider_row_h;
+        t.library.metrics.section_h = old.section_h;
+        t.library.metrics.film_h = old.film_h;
+        t.library.metrics.panel_inset_left = old.panel_inset_left;
+        t.library.metrics.panel_inset_right = old.panel_inset_right;
+        t
     }
-    /// Curve channels retain their hue with an AA-readable stroke on the current plot fill.
-    /// Derive this from host tokens so light palettes never inherit dark-theme grey strokes.
+}
+impl Default for Tokens {
+    fn default() -> Self {
+        li_ui_kit::library::standalone().into()
+    }
+}
+impl Tokens {
+    pub fn get(ctx: &egui::Context) -> Self {
+        li_ui_kit::library::get(ctx).into()
+    }
     pub fn curve_color(&self, channel: &str) -> Color32 {
-        let color = match channel {
-            "red" => Color32::from_rgb(0xdd, 0x33, 0x33),
-            "green" => Color32::from_rgb(0x33, 0xbb, 0x55),
-            "blue" => Color32::from_rgb(0x33, 0x77, 0xee),
-            _ => self.text,
-        };
-        readable_text(color, self.grid_bg)
+        li_ui_kit::library::curve_color(&(*self).into(), channel)
     }
     pub fn font(&self, size: f32) -> FontId {
         FontId::proportional(size)
     }
     pub fn semibold(&self, size: f32) -> FontId {
-        FontId::new(size, FontFamily::Name(FONT_SEMIBOLD.into()))
+        li_ui_kit::fonts::semibold(size)
     }
 }
-
+pub use li_ui_kit::library::{readable_text, text_on};
+pub fn apply(ctx: &egui::Context) {
+    li_ui_kit::library::apply(ctx);
+}
+pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
+    li_ui_kit::library::apply_tokens(ctx, t.into());
+}
 pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(font_definitions(lightcraft_engine::CRAFT_FONTS));
 }
@@ -156,12 +198,7 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// that language's forms. Without craft-fonts (`craft` empty) CJK text has no glyphs and shows as
 /// boxes.
 pub fn font_definitions(craft: &'static [lightcraft_engine::CraftFont]) -> FontDefinitions {
-    let mut fonts = FontDefinitions::default();
-    fonts.font_data.insert("Inter".into(), Arc::new(FontData::from_static(include_bytes!("../../../assets/fonts/Inter-Regular.ttf"))));
-    fonts.font_data.insert("Inter-SemiBold".into(), Arc::new(FontData::from_static(include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"))));
-    fonts
-        .font_data
-        .insert("JetBrainsMono".into(), Arc::new(FontData::from_static(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"))));
+    let mut fonts = li_ui_kit::fonts::definitions(li_ui_kit::fonts::Profile::Library);
     // Craft-fonts faces in preference order for a family drawn in `style`.
     let fallback = |style: &str| {
         lightcraft_engine::fonts::cjk_fallback(craft, crate::i18n::language().script(), style)
@@ -175,21 +212,9 @@ pub fn font_definitions(craft: &'static [lightcraft_engine::CraftFont]) -> FontD
             fonts.font_data.insert(name.clone(), Arc::new(FontData::from_static(font.bytes)));
         }
     }
-    let mut defaults: Vec<String> = fonts.families.get(&FontFamily::Proportional).cloned().unwrap_or_default();
-    // Inter/default egui fonts omit the small disclosure triangles used in labels.
-    // Reuse the bundled mono face only after those fonts, preserving Latin metrics.
-    defaults.push("JetBrainsMono".into());
-    let mut prop = vec!["Inter".to_string()];
-    prop.extend(defaults.iter().cloned());
-    prop.extend(regular);
-    fonts.families.insert(FontFamily::Proportional, prop);
-    let mut semi = vec!["Inter-SemiBold".to_string()];
-    semi.extend(defaults);
-    semi.extend(bold);
-    fonts.families.insert(FontFamily::Name(FONT_SEMIBOLD.into()), semi);
-    let mono = fonts.families.entry(FontFamily::Monospace).or_default();
-    mono.push("JetBrainsMono".into());
-    mono.extend(fallback("Regular"));
+    fonts.families.entry(FontFamily::Proportional).or_default().extend(regular);
+    fonts.families.entry(FontFamily::Name(FONT_SEMIBOLD.into())).or_default().extend(bold);
+    fonts.families.entry(FontFamily::Monospace).or_default().extend(fallback("Regular"));
     fonts
 }
 
@@ -209,73 +234,7 @@ fn craft_font_name(f: &lightcraft_engine::CraftFont) -> String {
     format!("craft-fonts {} {}", f.family, f.style)
 }
 
-pub fn apply(ctx: &egui::Context) {
-    apply_tokens(ctx, Tokens::default());
-}
-
-/// Apply a host palette while preserving Library layout metrics and font ownership.
-pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
-    ctx.data_mut(|d| d.insert_temp(egui::Id::NULL, t));
-    let mut v = if t.dark { Visuals::dark() } else { Visuals::light() };
-    v.panel_fill = t.chrome;
-    v.window_fill = t.chrome;
-    v.extreme_bg_color = t.field;
-    v.faint_bg_color = t.inset;
-    v.window_stroke = Stroke::new(1.0, t.button_border);
-    v.window_corner_radius = CornerRadius::same(6);
-    v.menu_corner_radius = CornerRadius::same(6);
-    v.selection.bg_fill = t.selection;
-    v.selection.stroke = Stroke::new(1.0, t.selection_text);
-    v.override_text_color = Some(t.text_label);
-    v.popup_shadow = egui::epaint::Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(140) };
-    v.window_shadow = egui::epaint::Shadow { offset: [0, 8], blur: 30, spread: 0, color: Color32::from_black_alpha(160) };
-    let w = &mut v.widgets;
-    for (wv, fill) in [
-        (&mut w.noninteractive, t.chrome),
-        (&mut w.inactive, t.button),
-        (&mut w.hovered, t.hover),
-        (&mut w.active, t.pressed),
-        (&mut w.open, t.hover),
-    ] {
-        wv.bg_fill = fill;
-        wv.weak_bg_fill = fill;
-        wv.corner_radius = CornerRadius::same(4);
-        wv.fg_stroke = Stroke::new(1.0, t.text_label);
-    }
-    w.noninteractive.bg_stroke = Stroke::new(1.0, t.divider);
-    w.inactive.bg_stroke = Stroke::new(1.0, t.button_border);
-    ctx.set_visuals(v);
-    ctx.global_style_mut(|s| {
-        s.spacing.item_spacing = egui::vec2(6.0, 4.0);
-        s.spacing.button_padding = egui::vec2(8.0, 3.0);
-        s.spacing.interact_size.y = 22.0;
-        s.text_styles.insert(egui::TextStyle::Body, FontId::proportional(13.0));
-        s.text_styles.insert(egui::TextStyle::Button, FontId::proportional(13.0));
-        s.text_styles.insert(egui::TextStyle::Small, FontId::proportional(11.0));
-        s.text_styles.insert(egui::TextStyle::Heading, FontId::new(16.0, FontFamily::Name(FONT_SEMIBOLD.into())));
-        s.animation_time = 0.08;
-    });
-}
-
-fn luminance(color: Color32) -> f32 {
-    li_color::luminance_709([color.r(), color.g(), color.b()].map(|v| li_color::transfer::srgb_to_linear(f32::from(v) / 255.0)))
-}
-/// Choose a readable foreground on an opaque UI fill, not a document/image colour.
-pub fn text_on(background: Color32) -> Color32 {
-    if luminance(background) > 0.179 { Color32::BLACK } else { Color32::WHITE }
-}
-/// Retain a semantic text hue when legible, otherwise move it toward the stronger
-/// black/white foreground. Called only when constructing a host palette.
-pub fn readable_text(foreground: Color32, background: Color32) -> Color32 {
-    let back = luminance(background);
-    let target = text_on(background);
-    for step in 0..=16 {
-        let mix = |a: u8, b: u8| ((u16::from(a) * (16 - step) + u16::from(b) * step) / 16) as u8;
-        let candidate = Color32::from_rgb(mix(foreground.r(), target.r()), mix(foreground.g(), target.g()), mix(foreground.b(), target.b()));
-        let front = luminance(candidate);
-        if (front.max(back) + 0.05) / (front.min(back) + 0.05) >= 4.5 {
-            return candidate;
-        }
-    }
-    target
+/// Host palette from the single shared theme authority.
+pub fn host_palette(kind: li_ui_kit::theme::ThemeKind) -> Tokens {
+    li_ui_kit::library::for_kind(kind).into()
 }

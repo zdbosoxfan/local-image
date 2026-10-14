@@ -2192,7 +2192,7 @@ mod tests {
     /// The status bar's AI controls: Eject and a red Stop (shown while AI jobs run) render, and
     /// Stop cancels the AI jobs only.
     #[test]
-    fn stop_cancels_ai_jobs_and_the_icons_render() {
+    fn j17_stop_cancels_ai_jobs_and_shared_icons_render() {
         assert!(crate::icons::exists("eject") && crate::icons::exists("circle-stop"));
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let connected = EngineStatus { checked: true, connected: true, ..Default::default() };
@@ -2220,8 +2220,8 @@ mod tests {
         assert_eq!(h.state().ui.status, "Stopping generation…");
         // Both icons were rasterised from their SVGs.
         for icon in ["eject", "circle-stop"] {
-            let poll = h.ctx.try_load_image(&format!("bytes://icons/{icon}.svg"), egui::SizeHint::default());
-            assert!(matches!(poll, Ok(egui::load::ImagePoll::Ready { .. })), "{icon} did not rasterise");
+            let poll = crate::icons::image(icon, 13.0, Color32::WHITE).load_for_size(&h.ctx, vec2(13.0, 13.0));
+            assert!(matches!(poll, Ok(egui::load::TexturePoll::Ready { .. })), "{icon} did not rasterise");
         }
         gate.store(true, std::sync::atomic::Ordering::Relaxed);
         let _ = h.state_mut().session.wait_job(other);
