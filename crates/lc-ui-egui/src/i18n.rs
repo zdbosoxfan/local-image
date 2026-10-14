@@ -388,6 +388,14 @@ pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
 
 /// Library final-review polish: tracked English fallback until translated.
 pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
+    "Paused on battery",
+    "CPU estimate: about {min}–{max} s (first run may take longer)",
+    "CPU estimate: about {min}–{max} s (based on recent runs)",
+    "CPU estimate: about {min}–{max} min. This may take a while; cancellation remains available.",
+    "CPU estimate: about {min}–{max} min. Too slow for an interactive CPU job; use a GPU or a smaller input.",
+    "CPU estimate: about {min}–{max} s. This may take a while; cancellation remains available.",
+    "Estimated CPU analysis: {min}–{max} min. Runs in the background; you can cancel at any time.",
+    "Estimated CPU analysis: {min}–{max} s. Runs in the background; you can cancel at any time.",
     "AI…",
     "Back",
     "Photo Grid",

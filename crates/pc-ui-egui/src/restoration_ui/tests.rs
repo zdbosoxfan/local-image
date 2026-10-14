@@ -832,3 +832,50 @@ fn restoration_install_confirmation_escape_closes_only_the_top_modal_at_compact_
         assert!(!h.state().restoration.open);
     }
 }
+
+#[test]
+fn restoration_cpu_estimate_is_visible_before_preview_click() {
+    let mut h = harness();
+    open_menu(&mut h);
+    h.get_by_label("Colourise").click();
+    h.run_steps(2);
+    assert_eq!(h.state().restoration.task, Task::Colourise);
+    let notice = li_seg::restoration::cpu_estimate(li_seg::restoration::Kind::Colourise, 64, 48).unwrap().label();
+    h.get_by_label(&notice);
+    assert!(h.state().restoration.pending.is_none(), "estimate precedes inference");
+    inject(&mut h);
+    assert!(h.state().restoration.result.is_some());
+}
+
+#[test]
+#[ignore = "power/CPU-estimate shared widgets visual QA at both widths/themes/scales"]
+fn gpu_resources_shared_widgets_theme_width_screenshots() {
+    for (theme, name) in [(crate::theme::ThemeKind::Pro, "dark"), (crate::theme::ThemeKind::StudioLight, "light")] {
+        for width in [250.0, 400.0] {
+            for scale in [1.0, 1.5] {
+                let mut first = true;
+                let mut full_speed = false;
+                let mut h =
+                    Harness::builder().with_size(vec2(width, 260.0)).with_pixels_per_point(scale).renderer(CpuRenderer::default()).build_ui(move |ui| {
+                        if first {
+                            PhotocraftApp::setup_context(ui.ctx(), theme);
+                            first = false;
+                            ui.ctx().request_repaint();
+                            return;
+                        }
+                        ui.set_width(ui.available_width());
+                        widgets::checkbox(ui, &mut full_speed, "Keep full speed on battery");
+                        widgets::cpu_estimate(ui, li_seg::estimate::Estimate { seconds: 25.0, measured: false });
+                        widgets::cpu_batch_estimate(ui, li_seg::estimate::Estimate { seconds: 360.0, measured: true });
+                        widgets::primary_button(ui, "Preview restoration", 0.0);
+                    });
+                h.run_steps(4);
+                h.get_by_label("Keep full speed on battery").click();
+                h.run_steps(2);
+                let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/gpu-resources-ui");
+                std::fs::create_dir_all(&root).unwrap();
+                h.render().unwrap().save(root.join(format!("{name}-{width}-{scale}.png"))).unwrap();
+            }
+        }
+    }
+}

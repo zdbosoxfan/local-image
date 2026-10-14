@@ -182,6 +182,16 @@ thread_local! {
     pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
 
+/// Start resource telemetry even when Generate/Local AI is closed. The existing status worker
+/// performs the network probes; a changed pressure sample wakes all host views.
+pub(crate) fn watch_resources(ctx: &egui::Context) {
+    let repaint = ctx.clone();
+    lightcraft_sysmem::gpu::set_waker(Arc::new(move || repaint.request_repaint()));
+    if let Ok(mut c) = shared().ctx.lock() {
+        *c = Some(ctx.clone());
+    }
+}
+
 /// Ask the poller to check again now.
 pub fn refresh() {
     dialogs_mut(|d| d.subject_quality = None);
@@ -194,7 +204,7 @@ fn poll_loop(s: Arc<Shared>) {
     loop {
         let forced = s.refresh.swap(false, std::sync::atomic::Ordering::SeqCst);
         let connected_before = s.status.lock().map(|x| x.connected).unwrap_or(false);
-        let interval = if connected_before { Duration::from_secs(5) } else { Duration::from_secs(3) };
+        let interval = if connected_before { Duration::from_secs(2) } else { Duration::from_secs(3) };
         if !forced && last.elapsed() < interval {
             std::thread::sleep(Duration::from_millis(200));
             continue;
@@ -203,6 +213,23 @@ fn poll_loop(s: Arc<Shared>) {
         let ai = li_ai::service();
         let host = ai.client.host().to_owned();
         let stats = ai.client.system_stats().ok();
+        let old_sample = lightcraft_sysmem::gpu::sample();
+        let was_pressured = lightcraft_sysmem::gpu::pressured();
+        let old_host = s.status.lock().map(|x| x.host.clone()).unwrap_or_default();
+        if old_host != host {
+            lightcraft_sysmem::gpu::clear_sample();
+        }
+        if let Some(stats) = &stats
+            && let Ok(queue) = ai.client.queue_state()
+            && ai.client.host() == li_ai::service().client.host()
+        {
+            if let Some(sample) = li_ai::resources::parse(&host, stats, &queue) {
+                lightcraft_sysmem::gpu::publish(sample);
+            } else {
+                lightcraft_sysmem::gpu::clear_sample();
+            }
+        }
+        let pressure_changed = old_sample != lightcraft_sysmem::gpu::sample() || was_pressured != lightcraft_sysmem::gpu::pressured();
         let connected = stats.is_some();
         let gpu = stats.as_ref().and_then(|st| li_ai::setup::gpus_from_stats(st).into_iter().next());
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
@@ -251,7 +278,9 @@ fn poll_loop(s: Arc<Shared>) {
         let changed;
         if let Ok(mut st) = s.status.lock() {
             let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
-            changed = st.connected != new.connected
+            changed = pressure_changed
+                || st.host != new.host
+                || st.connected != new.connected
                 || st.presets != new.presets
                 || st.starting != new.starting
                 || st.limits != new.limits
@@ -607,6 +636,9 @@ fn model_function_row(
         ui.set_width(ui.available_width());
         let title = if custom_controls_enabled { group.label() } else { crate::background_ui::MODELS[1].1 };
         ui.label(RichText::new(tl!(title)).size(13.0).strong().color(t.text));
+        if !matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
+            widgets::cpu_estimate(ui, li_seg::estimate::estimate(spec.id, (spec.size * spec.size) as u64));
+        }
         if custom_controls_enabled {
             ui.label(RichText::new(tl!(group.about())).color(t.text_dim).size(11.5));
         }
@@ -631,7 +663,7 @@ fn model_function_row(
             });
             ui.label(
                 RichText::new(if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-                    tl!("Your selected restoration model, with CPU fallback.")
+                    tl!("Your selected restoration model. Requires a GPU/NPU.")
                 } else {
                     tl!("Your own model, run on the CPU instead of the official one.")
                 })
@@ -680,7 +712,7 @@ fn model_function_row(
         ui.label(
             RichText::new(crate::i18n::fmt(
                 if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-                    tl!("{name} · {size} download · GPU with CPU fallback · {licence}")
+                    tl!("{name} · {size} download · GPU/NPU required · {licence}")
                 } else {
                     tl!("{name} · {size} download · runs on the CPU · {licence}")
                 },
@@ -1383,18 +1415,9 @@ pub(crate) fn enhance_controls(ui: &mut egui::Ui, method: &mut li_ai::enhance::M
     if !matches!(*scale, 2.0 | 4.0) {
         *scale = 2.0;
     }
-    if *method == Method::Generative {
-        *backend = Backend::Auto;
-    } else {
-        ui.horizontal(|ui| {
-            for (b, label) in [(Backend::Auto, tl!("Auto")), (Backend::Cpu, "CPU"), (Backend::Gpu, "GPU")] {
-                ui.selectable_value(backend, b, label);
-            }
-        });
-        let Some(spec) = enhance_settings::selected_spec(&photocraft_engine::seg::models_dir(), *method) else { return };
-        let downloads = shared().downloads.lock().map(|d| d.clone()).unwrap_or_default();
-        enhance_settings::download_controls(ui, &downloads, &photocraft_engine::seg::models_dir(), spec);
-    }
+    // Legacy CPU selections still deserialize, but all enlargement routes require GPU/NPU.
+    *backend = Backend::Gpu;
+    ui.label(tl!("AI enlargement requires a GPU/NPU."));
 }
 
 fn custom_seed_ready(status: &EngineStatus, unet: &str, vae: &str) -> bool {
@@ -1424,26 +1447,12 @@ pub(crate) fn enhance_ready(method: li_ai::enhance::Method, backend: li_ai::enha
         }
         return status().ready(ModelId::SeedVr2, "fp16");
     }
+    if backend == Backend::Cpu {
+        return Err(tl!("AI enlargement requires a GPU/NPU.").into());
+    }
     let dir = photocraft_engine::seg::models_dir();
-    let choice = li_ai::enhance::selection::load(&dir, method);
-    let Some(spec) = enhance_settings::selected_spec(&dir, method) else {
-        if backend == Backend::Gpu {
-            return Err(tl!("Custom ONNX restoration models run on the CPU.").into());
-        }
-        return li_ai::enhance::selection::custom_path(&dir, &choice)
-            .ok()
-            .filter(|p| p.is_file())
-            .map(|_| ())
-            .ok_or_else(|| tl!("Choose the custom model again in Settings › Local AI.").into());
-    };
-    let cpu = li_seg::installed_bytes(&dir, spec).is_some();
-    if backend != Backend::Gpu && cpu {
-        return Ok(());
-    }
-    if backend != Backend::Cpu {
-        return status().ready(ModelId::intern(spec.id), "default");
-    }
-    Err(tl!("Download the CPU model first.").to_owned())
+    let spec = enhance_settings::selected_spec(&dir, method).ok_or_else(|| tl!("Choose a GPU enlargement model in Settings › Local AI.").to_owned())?;
+    status().ready(ModelId::intern(spec.id), "default")
 }
 
 fn enhance_dialog(app: &mut PhotocraftApp, ctx: &egui::Context) {
@@ -1709,9 +1718,9 @@ mod tests {
         h.get_by_label("Faithful").click();
         h.run_steps(2);
         assert_eq!(h.state().ui.ai.enhance_method, li_ai::enhance::Method::Faithful);
-        h.get_by_label("CPU").click();
-        h.run_steps(2);
-        assert_eq!(h.state().ui.ai.enhance_backend, li_ai::enhance::Backend::Cpu);
+        assert!(h.query_by_label("CPU").is_none());
+        h.get_by_label("AI enlargement requires a GPU/NPU.");
+        assert_eq!(h.state().ui.ai.enhance_backend, li_ai::enhance::Backend::Gpu);
         h.get_by_label("4×").click();
         h.run_steps(2);
         assert_eq!(dialogs_mut(|d| d.enhance_scale), 4.0);
@@ -1859,6 +1868,8 @@ mod tests {
             settle(&mut h, &dir, group);
             assert!(li_seg::custom(&dir, group).is_some());
             h.get_by_label("Custom: restore.onnx");
+            h.get_by_label("Your selected restoration model. Requires a GPU/NPU.");
+            assert!(h.query_by_label_contains("CPU fallback").is_none());
             h.get_by_label("Use default").click();
             h.run_steps(3);
             assert!(li_seg::custom(&dir, group).is_none());

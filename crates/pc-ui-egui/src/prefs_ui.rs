@@ -1312,6 +1312,8 @@ fn processing_rows(ui: &mut egui::Ui, obj: &mut Map<String, Value>) {
         crate::widgets::dropdown(ui, "pref-processing-memory", &mut c.memory_percent, &opts, 220.0);
         ui.end_row();
     });
+    crate::widgets::checkbox(ui, &mut c.full_speed_on_battery, tl!("Keep full speed on battery"))
+        .on_hover_text(tl!("Otherwise use fewer compute threads and pause indexing, Smart Sort and background preview builds on battery."));
     let hybrid = match (hw.perf_cores, hw.eff_cores) {
         (Some(pc), Some(ec)) => format!(" ({pc}P + {ec}E)"),
         _ => String::new(),
@@ -2643,6 +2645,18 @@ mod tests {
             app
         });
         h.run_steps(4);
+        let processing = h.get_by_label(PROCESSING_THREADS).rect();
+        h.hover_at(egui::pos2(processing.center().x, h.ctx.content_rect().center().y));
+        h.event(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Point,
+            delta: vec2(0.0, -800.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::NONE,
+        });
+        h.run_steps(4);
+        h.get_by_label("Keep full speed on battery").click();
+        h.run_steps(2);
+        assert_eq!(h.state().ui.dialogs.iter().find(|d| d.id == id).unwrap().fields["values"]["performance"]["system"]["fullSpeedOnBattery"], true);
         let auto = format!("Automatic ({})", lightcraft_sysmem::profile().threads_auto);
         assert!(h.query_by_label(PROCESSING_THREADS).is_some());
         // The dropdown shows its choice as the combo box's value (a label in some egui versions).

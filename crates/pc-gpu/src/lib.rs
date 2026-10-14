@@ -951,6 +951,7 @@ impl Compositor {
         mut sink: impl FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
         finish: impl FnOnce(&mut wgpu::CommandEncoder),
     ) -> Result<Stats, Unsupported> {
+        self.admit_compute()?;
         self.uniform_cursor = 0;
         let errors = self.health.as_ref().map(DeviceHealth::errors);
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("pc_compose") });
@@ -958,6 +959,9 @@ impl Compositor {
         finish(&mut encoder);
         queue.submit([encoder.finish()]);
         self.check_errors(errors)?;
+        if let Some(health) = &self.health {
+            health.operation_succeeded();
+        }
         Ok(stats)
     }
 
@@ -1002,6 +1006,16 @@ impl Compositor {
     }
 
     #[allow(clippy::too_many_arguments)]
+    fn admit_compute(&self) -> Result<(), Unsupported> {
+        if let Some(health) = &self.health {
+            health.resume_retry(web_time::Instant::now(), None);
+            if !health.can_render() {
+                return Err(Unsupported(health.fault().map_or_else(|| "GPU compute is waiting to retry after an error".into(), |fault| fault.to_string())));
+            }
+        }
+        Ok(())
+    }
+
     fn encode_inner(
         &mut self,
         device: &wgpu::Device,
@@ -1012,6 +1026,7 @@ impl Compositor {
         sink: &mut dyn FnMut(&mut wgpu::CommandEncoder, ChunkOut<'_>),
         flush: bool,
     ) -> Result<Stats, Unsupported> {
+        self.admit_compute()?;
         if let Some(f) = self.fault() {
             return Err(Unsupported(f.to_string()));
         }

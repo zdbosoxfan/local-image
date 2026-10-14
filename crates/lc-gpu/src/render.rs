@@ -21,6 +21,7 @@ use crate::params::{Present, finish_block};
 #[derive(Default)]
 pub struct GpuStages {
     entries: Mutex<Vec<Entry>>,
+    generation: std::sync::atomic::AtomicU64,
     /// The uploaded source and last capture result (shared by all output sizes).
     source: Mutex<Option<Source>>,
     primary_dispatches: std::sync::atomic::AtomicUsize,
@@ -74,6 +75,12 @@ struct Planes {
 }
 
 impl GpuStages {
+    /// Cached buffers from a previous device may never be bound on its replacement.
+    pub(crate) fn prepare(&self, generation: u64) {
+        if self.generation.swap(generation, std::sync::atomic::Ordering::AcqRel) != generation {
+            self.clear();
+        }
+    }
     fn get(&self, src: &Arc<Rgb32f>, geo: u64, capture: Option<CaptureParams>) -> Option<Entry> {
         self.lock().iter().find(|e| e.geo == geo && e.capture == capture && Arc::ptr_eq(&e.src, src)).cloned()
     }
@@ -192,6 +199,18 @@ impl GpuStages {
     pub fn clear(&self) {
         self.lock().clear();
         *self.source.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    }
+
+    pub(crate) fn try_clear(&self) -> bool {
+        let Ok(mut entries) = self.entries.try_lock() else {
+            return false;
+        };
+        let Ok(mut source) = self.source.try_lock() else {
+            return false;
+        };
+        entries.clear();
+        *source = None;
+        true
     }
 
     pub fn is_empty(&self) -> bool {

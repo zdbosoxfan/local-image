@@ -168,10 +168,17 @@ mod tests {
         let custom = import_custom(&dir, Method::Faithful, &source).unwrap();
         assert!(matches!(&custom, Choice::Custom { scale: 2, tile: 32, .. }));
         let input = image::RgbaImage::from_pixel(17, 13, image::Rgba([30, 100, 200, 255]));
-        let out =
-            crate::Ai::new("127.0.0.1:1").enhance(&input, 34, 26, Method::Faithful, super::super::Backend::Cpu, &dir, 1, &crate::JobControl::new()).unwrap();
+        // Model import/validation retains its independent CPU reference test. The app route
+        // follows the owner's GPU/NPU-only policy and must refuse a legacy CPU selection.
+        let reference_model = load_custom(&dir, &custom).unwrap();
+        let rgb = image::DynamicImage::ImageRgba8(input.clone()).to_rgb8();
+        let out = reference_model.run(&rgb, &|| Ok(()), &|_, _| {}).unwrap();
         assert_eq!(out.dimensions(), (34, 26));
-        assert_eq!(*out.get_pixel(10, 10), image::Rgba([30, 100, 200, 255]));
+        assert_eq!(*out.get_pixel(10, 10), image::Rgb([30, 100, 200]));
+        let error = crate::Ai::new("127.0.0.1:1")
+            .enhance(&input, 34, 26, Method::Faithful, super::super::Backend::Cpu, &dir, 1, &crate::JobControl::new())
+            .unwrap_err();
+        assert!(error.to_string().contains("CPU inference is disabled"));
         let mut upper = custom.clone();
         if let Choice::Custom { sha256, .. } = &mut upper {
             *sha256 = sha256.to_ascii_uppercase();

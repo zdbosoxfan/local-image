@@ -24,6 +24,7 @@ use tract_onnx::tract_hir::infer::Factoid;
 
 pub mod denoise;
 pub mod enhance;
+pub mod estimate;
 pub mod faces;
 pub mod restoration;
 pub mod restoration_graph;
@@ -115,7 +116,7 @@ impl Group {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
             Group::RawDenoise => {
-                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Uses the GPU when available, with a CPU fallback."
+                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU/NPU."
             }
             Group::RgbDenoise => "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
             Group::Faces => {
@@ -153,6 +154,14 @@ impl Group {
 pub enum InUse {
     Official(&'static ModelSpec),
     Custom(Custom),
+}
+impl InUse {
+    pub fn cpu_estimate(&self) -> estimate::Estimate {
+        match self {
+            Self::Official(spec) => estimate::estimate(spec.id, (spec.size * spec.size) as u64),
+            Self::Custom(custom) => estimate::estimate(&format!("custom:{}", custom.file), (custom.size as u64).saturating_mul(custom.size as u64)),
+        }
+    }
 }
 
 /// How a subject model wants its input normalised.
@@ -441,7 +450,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
         },
         group: Some(Group::RawDenoise),
-        about: "Raw denoising and Bayer demosaic on the GPU, with CPU fallback. Linear Rec.2020 variant for other sensors.",
+        about: "Raw denoising and Bayer demosaic requires a GPU/NPU. Linear Rec.2020 variant for other sensors.",
     },
     ModelSpec {
         id: "denoise-nind",
@@ -461,7 +470,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "5d615c5026a3c579455b9082f72b91e109adb54f4125b5b5cde45983bd6776b2",
         },
         group: Some(Group::RgbDenoise),
-        about: "Local denoising for JPEG, TIFF and edited RGB images. Uses the GPU with a CPU fallback.",
+        about: "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU/NPU.",
     },
 ];
 
@@ -504,11 +513,13 @@ pub fn is_cancelled(e: &anyhow::Error) -> bool {
 /// stage instead of after the whole network. API: tract-core 0.23.8 `SimpleState::run_plan_with_eval`.
 fn run_checked(plan: &Arc<TypedRunnableModel>, inputs: TVec<TValue>, stop: &dyn Fn() -> bool) -> TractResult<TVec<TValue>> {
     let mut state = plan.spawn()?;
-    state.run_plan_with_eval(inputs, |ctx, op_state, node, input| {
-        if stop() {
-            return Err(anyhow::Error::new(Cancelled));
-        }
-        tract_onnx::tract_core::plan::eval(ctx, op_state, node, input)
+    cpu_compute(|| {
+        state.run_plan_with_eval(inputs, |ctx, op_state, node, input| {
+            if stop() {
+                return Err(anyhow::Error::new(Cancelled));
+            }
+            tract_onnx::tract_core::plan::eval(ctx, op_state, node, input)
+        })
     })
 }
 
@@ -581,6 +592,7 @@ impl Segmenter {
         if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Denoise { .. }) {
             bail!("use the dedicated embedding or face inference API");
         }
+        estimate::estimate(&cfg.id, (cfg.size as u64).saturating_mul(cfg.size as u64)).check()?;
         init_executor();
         let s = cfg.size;
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
@@ -636,7 +648,7 @@ impl Segmenter {
     fn predict_checked(&self, rgba: &[u8], w: usize, h: usize, stop: &dyn Fn() -> bool) -> Result<Option<Vec<f32>>> {
         check(stop)?;
         let input = self.input(rgba, w, h, self.cfg.post == Post::MinMax)?;
-        let out = (self.run)(input.into(), stop)?;
+        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), stop))?;
         check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("The model's output {:?} isn't a single map", map.shape()) };
@@ -678,7 +690,7 @@ impl Segmenter {
         anyhow::ensure!(classes > 0 && class < classes, "sky class is outside the model output");
         check(stop)?;
         let input = self.input(rgba, w, h, false)?;
-        let out = (self.run)(input.into(), stop)?;
+        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), stop))?;
         check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let shape = map.shape().to_vec();
@@ -711,7 +723,7 @@ impl Segmenter {
             bail!("not a depth model");
         }
         let input = self.input(rgba, w, h, false)?;
-        let out = (self.run)(input.into(), &never)?;
+        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), &never))?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
         let vals: Vec<f32> = map.iter().copied().collect();
@@ -1507,4 +1519,43 @@ fn ds2_shared_model_removal_requires_explicit_bundle() {
     assert_eq!(remove_bundle_with(&dir, spec, &|p| std::fs::remove_file(p)).unwrap(), 14);
     assert!(!path.exists());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Lower the tract matmul budget on battery without changing its process-wide executor.
+/// The override is scoped to this inference; foreground/global settings stay intact.
+pub(crate) fn cpu_compute<R>(f: impl FnOnce() -> R) -> R {
+    cpu_compute_policy(lightcraft_sysmem::power::conserving(), f)
+}
+fn cpu_compute_policy<R>(saving: bool, f: impl FnOnce() -> R) -> R {
+    if !saving {
+        return f();
+    }
+    // tract's scoped executor restores TLS only on normal return. Catch within the scope,
+    // restore it, then propagate a panic to the existing job guard; never leave a shared
+    // worker permanently in battery mode after one failed model.
+    let result = tract_linalg::multithread::multithread_tract_scope(tract_linalg::multithread::Executor::SingleThread, || {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+    });
+    match result {
+        Ok(value) => value,
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+#[cfg(test)]
+mod battery_executor_tests {
+    #[test]
+    fn battery_executor_override_restores_after_model_panic() {
+        use tract_linalg::multithread::{Executor, current_tract_executor, multithread_tract_scope};
+        multithread_tract_scope(Executor::RayonGlobal, || {
+            let result = std::panic::catch_unwind(|| {
+                super::cpu_compute_policy(true, || {
+                    assert!(matches!(current_tract_executor(), Executor::SingleThread));
+                    panic!("injected model panic");
+                })
+            });
+            assert!(result.is_err());
+            assert!(matches!(current_tract_executor(), Executor::RayonGlobal));
+        });
+    }
 }

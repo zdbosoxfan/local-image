@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, ensure};
 use image::{GrayImage, RgbaImage};
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 use tract_onnx::prelude::*;
 
@@ -141,7 +142,8 @@ fn model(pin: Pin, dir: &Path, w: usize, h: usize) -> Result<Arc<Model>> {
         run: Box::new(move |input| {
             ensure!(input.len() == channels * w * h && input.iter().all(|v| v.is_finite()), "invalid Restore input");
             let t = tract_ndarray::Array4::from_shape_vec((1, channels, h, w), input)?.into_tensor();
-            let output = plan.run(tvec!(t.into()))?;
+            let id = if pin.kind == Kind::Colourise { "ddcolor-tiny" } else { "microsoft-scratches" };
+            let output = crate::estimate::run(id, (w * h) as u64, || plan.run(tvec!(t.into())))?;
             let a = output.first().context("Restore model returned nothing")?.to_plain_array_view::<f32>()?;
             ensure!(a.shape() == [1, out_channels, h, w] && a.iter().all(|v| v.is_finite()), "invalid Restore output");
             Ok(a.iter().copied().collect())
@@ -181,6 +183,7 @@ fn lab_rgb(l: f32, a: f32, b: f32) -> [f32; 3] {
 /// Half-pixel bilinear resize, matching OpenCV INTER_LINEAR and PyTorch align_corners=false.
 fn bilinear(values: &[f32], sw: usize, sh: usize, w: usize, h: usize) -> Vec<f32> {
     (0..w * h)
+        .into_par_iter()
         .map(|i| {
             let x = ((i % w) as f32 + 0.5) * sw as f32 / w as f32 - 0.5;
             let y = ((i / w) as f32 + 0.5) * sh as f32 / h as f32 - 0.5;
@@ -195,27 +198,45 @@ fn bilinear(values: &[f32], sw: usize, sh: usize, w: usize, h: usize) -> Vec<f32
 }
 fn colour_input(source: &RgbaImage) -> Vec<f32> {
     let (w, h) = source.dimensions();
-    let channels: Vec<Vec<f32>> =
-        (0..3).map(|c| bilinear(&source.pixels().map(|p| f32::from(p[c]) / 255.0).collect::<Vec<_>>(), w as usize, h as usize, 512, 512)).collect();
-    let grey: Vec<f32> =
-        (0..512 * 512).map(|i| srgb(lab_inv((luminance([channels[0][i], channels[1][i], channels[2][i]]) + 16.0) / 116.0)).clamp(0.0, 1.0)).collect();
+    let channels: Vec<Vec<f32>> = (0..3)
+        .into_par_iter()
+        .map(|c| bilinear(&source.as_raw().par_chunks_exact(4).map(|p| f32::from(p[c]) / 255.0).collect::<Vec<_>>(), w as usize, h as usize, 512, 512))
+        .collect();
+    let grey: Vec<f32> = (0..512 * 512)
+        .into_par_iter()
+        .map(|i| srgb(lab_inv((luminance([channels[0][i], channels[1][i], channels[2][i]]) + 16.0) / 116.0)).clamp(0.0, 1.0))
+        .collect();
     [grey.as_slice(), grey.as_slice(), grey.as_slice()].concat()
 }
 fn colour_output(source: &RgbaImage, ab: &[f32]) -> RgbaImage {
     let mut result = source.clone();
     let (w, h) = source.dimensions();
-    for (x, y, p) in result.enumerate_pixels_mut() {
+    result.as_mut().par_chunks_exact_mut(4).enumerate().for_each(|(j, p)| {
+        let (x, y) = ((j % w as usize) as u32, (j / w as usize) as u32);
         let i = (y as usize * 512 / h as usize) * 512 + x as usize * 512 / w as usize;
         let l = luminance([f32::from(p[0]) / 255.0, f32::from(p[1]) / 255.0, f32::from(p[2]) / 255.0]);
         let rgb = lab_rgb(l, ab[i], ab[512 * 512 + i]);
         for c in 0..3 {
             p[c] = (rgb[c] * 255.0).round() as u8;
         }
-    }
+    });
     result
 }
+/// Estimate the actual fixed colour tensor or the aspect-preserving scratch tensor, before
+/// model verification/load. The UI and worker share this calculation and refusal threshold.
+pub fn cpu_estimate(kind: Kind, width: u32, height: u32) -> Result<crate::estimate::Estimate> {
+    let (id, units) = if kind == Kind::Colourise {
+        ("ddcolor-tiny", 512 * 512)
+    } else {
+        let (w, h) = scratch_size(width, height)?;
+        ("microsoft-scratches", (w * h) as u64)
+    };
+    Ok(crate::estimate::estimate(id, units))
+}
+
 pub fn colourise(dir: &Path, source: &RgbaImage, keep_going: &dyn Fn() -> bool) -> Result<RgbaImage> {
     ensure!(source.width() > 0 && source.height() > 0, "Restore needs a non-empty image");
+    cpu_estimate(Kind::Colourise, source.width(), source.height())?.check()?;
     check(keep_going)?;
     let m = model(DD_COLOR, dir, 512, 512)?;
     check(keep_going)?;
@@ -237,7 +258,8 @@ fn scratch_size(w: u32, h: u32) -> Result<(usize, usize)> {
 fn scratch_input(source: &RgbaImage, w: usize, h: usize) -> Vec<f32> {
     // PIL RGB -> L fixed-point coefficients, rounded once to 8 bits.
     let grey: Vec<f32> = source
-        .pixels()
+        .as_raw()
+        .par_chunks_exact(4)
         .map(|p| {
             let l = (19595 * u32::from(p[0]) + 38470 * u32::from(p[1]) + 7471 * u32::from(p[2]) + 32768) >> 16;
             l as f32 / 127.5 - 1.0
@@ -246,14 +268,17 @@ fn scratch_input(source: &RgbaImage, w: usize, h: usize) -> Vec<f32> {
     bilinear(&grey, source.width() as usize, source.height() as usize, w, h)
 }
 fn scratch_output(source: &RgbaImage, logits: &[f32], w: usize, h: usize) -> GrayImage {
-    GrayImage::from_fn(source.width(), source.height(), |x, y| {
-        let i = (y as usize * h / source.height() as usize) * w + x as usize * w / source.width() as usize;
-        // sigmoid(x)>=0.4, using the equivalent logit threshold to avoid overflow.
-        image::Luma([if logits[i] >= (0.4f32 / 0.6).ln() && source.get_pixel(x, y)[3] > 0 { 255 } else { 0 }])
-    })
+    let mut out = GrayImage::new(source.width(), source.height());
+    out.as_mut().par_iter_mut().enumerate().for_each(|(j, p)| {
+        let (x, y) = (j % source.width() as usize, j / source.width() as usize);
+        let i = (y * h / source.height() as usize) * w + x * w / source.width() as usize;
+        *p = if logits[i] >= (0.4f32 / 0.6).ln() && source.as_raw()[j * 4 + 3] > 0 { 255 } else { 0 };
+    });
+    out
 }
 pub fn scratches(dir: &Path, source: &RgbaImage, keep_going: &dyn Fn() -> bool) -> Result<GrayImage> {
     let (w, h) = scratch_size(source.width(), source.height())?;
+    cpu_estimate(Kind::Scratches, source.width(), source.height())?.check()?;
     check(keep_going)?;
     let m = model(SCRATCHES, dir, w, h)?;
     check(keep_going)?;
@@ -265,6 +290,20 @@ pub fn scratches(dir: &Path, source: &RgbaImage, keep_going: &dyn Fn() -> bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn restoration_pre_post_byte_identical_across_thread_counts() {
+        let source = RgbaImage::from_fn(91, 57, |x, y| image::Rgba([(x * 13) as u8, (y * 19) as u8, 73, (x * y) as u8]));
+        let one = rayon::ThreadPoolBuilder::new().num_threads(1).build().unwrap();
+        let four = rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap();
+        let run = || {
+            let input = colour_input(&source).into_iter().map(f32::to_bits).collect::<Vec<_>>();
+            let scratch = scratch_input(&source, 336, 256).into_iter().map(f32::to_bits).collect::<Vec<_>>();
+            let out = colour_output(&source, &vec![0.25; 2 * 512 * 512]).into_raw();
+            let mask = scratch_output(&source, &vec![0.5; 336 * 256], 336, 256).into_raw();
+            (input, scratch, out, mask)
+        };
+        assert_eq!(one.install(run), four.install(run));
+    }
     #[test]
     fn restoration_lab_neutral_roundtrip_preserves_luminance_and_alpha() {
         let source = RgbaImage::from_fn(19, 13, |x, y| image::Rgba([(x * 13) as u8, (y * 19) as u8, 73, (x * y) as u8]));

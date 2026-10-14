@@ -1,5 +1,5 @@
 //! RawNIND UtNet2 / NIND compute, using validated ONNX weights and the shared CPU tiler.
-//! GPU failure is an error; the engine retries the complete image through tract.
+//! GPU failure is an error; the engine retains GPU/NPU-only admission and can retry a fresh context.
 use crate::ctx::{self, Buf};
 use li_seg::{
     denoise::{Variant, match_variant_gain, run_tiled_channels},
@@ -40,8 +40,8 @@ impl Denoiser {
         Self::from_graph(graph, kind)
     }
     pub fn from_graph(graph: Graph, kind: Variant) -> Result<Self, String> {
-        if !crate::enabled() {
-            return Err("GPU denoise is disabled".into());
+        if !crate::enabled() || lightcraft_sysmem::gpu::pressured() {
+            return Err("GPU denoise is temporarily unavailable; retry after other GPU work finishes".into());
         }
         let g = crate::device().ok_or_else(|| crate::unavailable_reason().unwrap_or_else(|| "no GPU".into()))?;
         let _scope = ctx::RenderScope::new(&g);
@@ -63,16 +63,30 @@ impl Denoiser {
         }
         Ok(Self { graph, weights, buffers, kind, serial: std::sync::Mutex::new(()), gpu: g.clone() })
     }
+    /// Whether the weights' owning context remains healthy. Normal cache release does not
+    /// invalidate a retained device lease; actual loss/strikes do.
+    pub fn is_current(&self) -> bool {
+        self.gpu.health.is_ok()
+    }
+
     /// Raw graph output, CHW. Exposed for CPU/GPU equivalence tests.
     pub fn run_tile(&self, input: &[f32]) -> Result<Vec<f32>, String> {
         let _serial = self.serial.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if input.len() != self.graph.input.len() || !input.iter().all(|v| v.is_finite()) {
             return Err("invalid denoise tile".into());
         }
-        if !crate::enabled() {
-            return Err("GPU denoise is disabled".into());
+        if !crate::enabled() || !self.is_current() || lightcraft_sysmem::gpu::pressured() {
+            return Err("GPU denoise needs a healthy context with free VRAM; retry after other GPU work finishes".into());
         }
         let g = &self.gpu;
+        let epoch = lightcraft_sysmem::gpu::idle_epoch();
+        g.health.resume_retry(std::time::Instant::now(), Some(epoch));
+        if !g.health.can_render() {
+            return Err("GPU denoise is waiting to retry".into());
+        }
+        g.health.tick();
+        g.health.begin_operation(epoch);
+        let errors_before = g.health.errors();
         let _scope = ctx::RenderScope::new(g);
         let _ = ctx::take_failure();
         let errors = ctx::ErrorScopes::push(g);
@@ -137,11 +151,18 @@ impl Denoiser {
         let output_shape = if self.graph.output == 0 { self.graph.input } else { self.graph.nodes[self.graph.output - 1].shape };
         let out = g.finish_and_read(enc, &self.buffers[self.graph.output], output_shape.len());
         if let Some(f) = errors.pop().or_else(ctx::take_failure) {
+            if matches!(f.kind, ctx::FailKind::Fatal | ctx::FailKind::OutOfMemory) {
+                g.health.operation_failed(&f.reason, epoch);
+            }
             return Err(f.reason);
+        }
+        if !g.health.is_ok() || g.health.errors() != errors_before {
+            return Err(g.health.fault().map_or_else(|| g.health.last_error().unwrap_or_default(), |fault| fault.to_string()));
         }
         if !out.iter().all(|v: &f32| v.is_finite()) {
             return Err("GPU denoise produced non-finite output".into());
         }
+        g.health.operation_succeeded();
         Ok(out)
     }
     pub fn denoise(&self, pixels: &[f32], w: usize, h: usize, progress: &(dyn Fn(usize, usize) -> bool + Sync)) -> Result<Vec<[f32; 3]>, String> {
@@ -159,5 +180,26 @@ impl Denoiser {
         .map_err(|e| format!("{e:#}"))?;
         match_variant_gain(&mut out, pixels, kind, w * kind.scale());
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod recovery_tests {
+    #[test]
+    #[ignore = "real GPU denoise transient recovery; run with LC_REQUIRE_GPU=1"]
+    fn gpu_denoiser_resumes_its_own_health_after_transient_backoff() {
+        use super::*;
+        use li_seg::restoration_graph::Node;
+        let _gpu = crate::test_device().expect("real GPU required");
+        let shape = Shape { c: 3, h: 16, w: 16 };
+        let graph =
+            Graph { input: shape, nodes: vec![Node { inputs: vec![0], shape, op: Op::Activation { alpha: 0.0, sigmoid: false } }], output: 1 };
+        let d = Denoiser::from_graph(graph, Variant::Rgb).unwrap();
+        let input = vec![0.3; shape.len()];
+        assert_eq!(d.run_tile(&input).unwrap(), input);
+        d.gpu.health.operation_failed("injected transient operation error", lightcraft_sysmem::gpu::idle_epoch());
+        assert!(d.run_tile(&input).is_err());
+        std::thread::sleep(std::time::Duration::from_millis(4100));
+        assert_eq!(d.run_tile(&input).unwrap(), input, "cached denoiser retries without needing a Develop render first");
     }
 }

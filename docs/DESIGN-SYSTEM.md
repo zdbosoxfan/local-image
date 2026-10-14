@@ -110,6 +110,7 @@ file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/
 | `slider` / `slider_row` (`_translated`) | Thin slider; labelled row with value field and optional gradient track | 251 / 312 |
 | `value_field` (`_with_precision`) | Monospace number field with unit suffix, drag to scrub | 168 / 174 |
 | `toggle` | Switch for an immediate on/off setting | 346 |
+| `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices; hardware/tensor-sized estimate, theme warning/caution, interactive refusal vs cancellable batch warning | widgets.rs |
 | `checkbox` | The only checkbox: `widgets::checkbox(ui, &mut on, "Label")` | 705 |
 | `primary_button` / `secondary_button` | Filled main action / outlined action, `(ui, label, min_width)` | 375 / 380 |
 | `dialog_buttons`, `DialogButton`, `ButtonRole` | Every modal's button row, in the platform's order (Default, Alternate, Cancel, Apply) | 435 / 414 / 387 |
@@ -151,6 +152,7 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | `image_badge` | Badge over photo pixels (`overlay_bg`/`overlay_fg`); `BADGE_H` 24, `BADGE_RADIUS` 6 | 654 |
 | `stars` | Five-star rating row | 685 |
 | `divider` | Thin divider between groups | 388 |
+| `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices, styled with `text_dim` / `caution`; mask and Smart Sort controls | widgets.rs |
 | `preview_only_notice` | Amber panel notice for a raw shown from its embedded preview | 45 |
 | `register` / `take_registry` | Record a widget's automation id and rect for the control protocol and tests | 17 / 22 |
 | `hex`, `lerp`, `BAND_COLORS`, `nudged` | Colour and value helpers | 70 / 75 / 82 / 348 |

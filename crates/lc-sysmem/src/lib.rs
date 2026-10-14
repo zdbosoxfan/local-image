@@ -13,7 +13,9 @@
 //! on other platforms it falls back (see each function) instead of failing.
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod gpu;
 pub mod permits;
+pub mod power;
 pub mod priority;
 pub mod profile;
 mod sys;

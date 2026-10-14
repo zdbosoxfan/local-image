@@ -17,6 +17,8 @@ photocraft-compose = { workspace = true }
 # Same major version as eframe's wgpu so the app's device can be shared.
 wgpu = { version = "30", default-features = false, features = ["std", "wgsl"] }
 log = { workspace = true }
+# Existing pure-Rust clock; health backoff also works with WebGPU.
+web-time = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Effect distance fields are computed in parallel bands.

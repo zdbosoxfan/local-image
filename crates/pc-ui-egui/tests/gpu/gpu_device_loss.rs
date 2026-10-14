@@ -178,7 +178,9 @@ fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
     assert_eq!(retried.kind, "full");
     assert!(retried.fallback.as_deref().unwrap().contains("retrying this frame on the CPU"));
     assert!(g.fault().is_none());
-    assert_eq!(g.refresh(key, &d, None, None).kind, "gpu-full");
+    assert_eq!(g.refresh(key, &d, None, None).kind, "full", "backoff keeps compute on CPU");
+    std::thread::sleep(std::time::Duration::from_millis(4100));
+    assert_eq!(g.refresh(key, &d, None, None).kind, "gpu-full", "automatic retry after backoff");
     assert!(!g.recover_transient_errors());
     let (_, _, pixels) = g.read_texels(key).unwrap();
     assert!((pixels[0][0] - 0.2).abs() < 1.0 / 255.0);

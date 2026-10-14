@@ -481,6 +481,8 @@ pub struct Performance {
 pub struct SystemResources {
     /// Processing threads; 0 = Automatic.
     pub threads: u32,
+    /// Continue at full speed and run background jobs on battery (off by default).
+    pub full_speed_on_battery: bool,
     pub background_priority: BackgroundPriority,
     /// Memory heavy work may plan for, in percent of RAM; 0 = Automatic.
     pub memory_percent: u32,
@@ -2333,5 +2335,19 @@ mod shortcut_profile_tests {
         assert!(global_shortcut_conflict("Cmd+Alt+1"));
         assert!(global_shortcut_conflict("Cmd+K"));
         assert!(!global_shortcut_conflict("Cmd+,"), "Library Settings and Photoshop layer visibility are workspace keys");
+    }
+}
+
+#[cfg(test)]
+mod battery_compatibility_tests {
+    use super::*;
+    #[test]
+    fn old_processing_preferences_default_to_battery_saving_and_preserve_override() {
+        let old: SystemResources = serde_json::from_str(r#"{"threads":3,"memoryPercent":60}"#).unwrap();
+        assert!(!old.full_speed_on_battery);
+        assert_eq!(old.threads, 3);
+        let full = SystemResources { full_speed_on_battery: true, ..old };
+        let round: SystemResources = serde_json::from_value(serde_json::to_value(&full).unwrap()).unwrap();
+        assert_eq!(round, full);
     }
 }

@@ -1,7 +1,7 @@
 //! Issue #78: a GPU render that cannot be trusted — over the device's buffer limits, a device
 //! error, work that silently did not run — must come back as `None` (the caller renders on the
 //! CPU) with the reason recorded, never as an image of zeros. One test, sequential: the fatal
-//! faults stop GPU use for the whole process until `reset_failures`.
+//! faults pause GPU use until automatic recovery.
 //! Skips (passes with a note) when no GPU adapter exists.
 mod support;
 
@@ -59,6 +59,22 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
         assert!(d < 0.5, "{what}: GPU differs from the CPU by {d:.3} LSB");
     };
     ok("healthy");
+    eprintln!("GPU recovery adapter: {}", lightcraft_gpu::adapter_name().unwrap());
+    let stages = lightcraft_pipeline::StageCache::default();
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, Some(&stages)).is_some());
+    assert!(lightcraft_gpu::stage_bytes(&stages) > 0);
+    {
+        let _ai = lightcraft_sysmem::gpu::AiJob::new(true);
+        assert!(lightcraft_gpu::render(&src, &info, &s, &req, Some(&stages)).is_none());
+        assert_eq!(lightcraft_gpu::stage_bytes(&stages), 0);
+        assert_eq!(lightcraft_gpu::memory().pooled, 0);
+        assert!(lightcraft_gpu::enabled(), "VRAM pressure never latches a device failure");
+    }
+    {
+        let _remote = lightcraft_sysmem::gpu::AiJob::new(false);
+        ok("remote ComfyUI job leaves local GPU available");
+    }
+    ok("after local AI releases VRAM");
 
     // the output itself is over the limit: refused up front, the GPU stays in use
     lightcraft_gpu::inject_fault(Fault::Limit(1 << 20));
@@ -83,8 +99,8 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
     assert!(why.contains("device error"), "{why}");
     assert!(!lightcraft_gpu::available());
     assert!(lightcraft_gpu::unavailable_reason().is_some_and(|r| r.contains("device error")), "{:?}", lightcraft_gpu::unavailable_reason());
-    lightcraft_gpu::reset_failures();
-    ok("after a device error");
+    std::thread::sleep(std::time::Duration::from_millis(4100));
+    ok("after automatic device-error recovery");
 
     // the per-pixel work never runs (a driver dropping a submission without an error): before
     // the fix this came back as a fully black image

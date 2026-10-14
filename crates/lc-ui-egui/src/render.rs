@@ -508,6 +508,12 @@ impl Renderer {
 
     /// Collect finished jobs into textures. Returns true if anything changed.
     pub fn poll(&mut self, ctx: &egui::Context, session: &mut Session) -> bool {
+        if lightcraft_sysmem::gpu::pressured() || lightcraft_engine::gpu::recovering() {
+            for stages in self.stages.values() {
+                lightcraft_engine::gpu::trim_stages(stages);
+            }
+            lightcraft_engine::gpu::trim_pool(0);
+        }
         let cache = &session.media.rendered;
         let generation = cache.generation();
         if self.preview_generation.as_ref().is_some_and(|(old, g)| old.as_ptr() != Arc::as_ptr(cache) || *g != generation) {

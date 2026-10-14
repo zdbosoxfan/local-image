@@ -5,6 +5,7 @@
 //! The configured local ComfyUI interpreter must recognise the verified weights with main
 //! spandrel alone. DDColor currently lives in extra arches and is deliberately refused.
 
+use rayon::prelude::*;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -315,9 +316,9 @@ fn execute_checked(client: &ComfyClient, task: Task, source: &RgbaImage, ctl: &J
     if result.dimensions() != source.dimensions() {
         bail!("Restoration returned unexpected dimensions; the source image was not changed");
     }
-    for (after, before) in result.pixels_mut().zip(source.pixels()) {
+    result.as_mut().par_chunks_exact_mut(4).zip(source.as_raw().par_chunks_exact(4)).for_each(|(after, before)| {
         after[3] = before[3];
-    }
+    });
     Ok(result)
 }
 

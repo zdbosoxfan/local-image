@@ -1392,6 +1392,7 @@ impl eframe::App for PhotocraftApp {
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.resource_policy_tick(ctx);
         i18n::set_current(i18n::Lang::from_pref(&self.session.prefs().interface.language));
         if !self.styled {
             Self::setup_context(ctx, self.ui.theme);
@@ -1789,7 +1790,25 @@ impl PhotocraftApp {
 
     /// local-image: work that goes on while the host shows another mode: finished background
     /// jobs are applied.
+    fn resource_policy_tick(&self, ctx: &egui::Context) {
+        lightcraft_sysmem::power::set_full_speed(self.session.prefs().performance.system.full_speed_on_battery);
+        ai_ui::watch_resources(ctx);
+        if let Some(gpu) = &self.gpu {
+            gpu.resume_compute_after_backoff();
+        }
+        if lightcraft_sysmem::gpu::pressured()
+            && let Some(gpu) = &self.gpu
+            && let Some(budget) = gpu.memory_budget()
+        {
+            let reduced = lightcraft_sysmem::gpu::cache_budget(budget);
+            if reduced < budget {
+                gpu.set_memory_budget(reduced);
+            }
+        }
+    }
+
     pub fn background_tick(&mut self, ctx: &egui::Context) {
+        self.resource_policy_tick(ctx);
         if !self.styled {
             return;
         }

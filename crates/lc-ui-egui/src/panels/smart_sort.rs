@@ -332,6 +332,16 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                 ui.colored_label(egui::Color32::LIGHT_RED, &s.error);
             }
             ui.separator();
+            if s.step == 0 {
+                let n = ids(app, s).len() as u64;
+                let estimate = li_seg::estimate::estimate("clip-b32-laion", 224 * 224 * n * 5);
+                // A batch is cancellable background work: warn for its total, refuse only an
+                // individual inference that exceeds the interactive limit.
+                crate::widgets::cpu_batch_estimate(ui, estimate);
+                if lightcraft_sysmem::power::conserving() {
+                    ui.label(crate::i18n::tr("Paused on battery"));
+                }
+            }
             ui.horizontal(|ui| {
                 if button(ui, "smartSort:cancel", "Cancel").clicked() {
                     if let Some(task) = &app.smart_sort {

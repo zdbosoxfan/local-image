@@ -54,7 +54,12 @@ impl Clip {
         let text_i32 = dt == i32::datum_type();
         let textual = textual.with_input_fact(0, InferenceFact::dt_shape(dt, tvec!(1, 77)))?.into_optimized()?.into_runnable()?;
         let bpe = Bpe::load(&companion_path(models_dir, spec.companions[1].file), &companion_path(models_dir, spec.companions[2].file))?;
-        Ok(Self { visual: Arc::new(move |t| visual.run(tvec!(t.into()))), textual: Arc::new(move |t| textual.run(tvec!(t.into()))), bpe, text_i32 })
+        Ok(Self {
+            visual: Arc::new(move |t| crate::estimate::run("clip-b32-laion", (SIDE * SIDE) as u64, || visual.run(tvec!(t.into())))),
+            textual: Arc::new(move |t| crate::estimate::run("clip-text", 77, || textual.run(tvec!(t.into())))),
+            bpe,
+            text_i32,
+        })
     }
 
     pub fn dim(&self) -> usize {

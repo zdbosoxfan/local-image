@@ -323,6 +323,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
         }
         Tool::HistoryBrush => opt(ui, "Paints from the document's opening state"),
         Tool::QuickSelection => {
+            if let Some(model) = photocraft_engine::seg::installed() {
+                crate::widgets::cpu_estimate(ui, model.cpu_estimate());
+            }
             crate::widgets::checkbox(ui, &mut o.sample_all_layers, tl!("Sample All Layers"));
             crate::widgets::checkbox(ui, &mut o.enhance_edge, tl!("Enhance Edge"));
             if seg_installed(ui) {
@@ -336,6 +339,9 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             }
         }
         Tool::ObjectSelection => {
+            if let Some(model) = photocraft_engine::seg::installed() {
+                crate::widgets::cpu_estimate(ui, model.cpu_estimate());
+            }
             crate::widgets::checkbox(ui, &mut o.sample_all_layers, tl!("Sample All Layers"));
             opt(ui, tl!("Drag a rectangle around the object"));
             crate::widgets::vline(ui, 22.0);
