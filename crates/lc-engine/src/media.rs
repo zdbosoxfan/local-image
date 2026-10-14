@@ -210,6 +210,32 @@ impl SourceRef {
     }
 }
 
+/// Working-memory forecast for the source that will actually load, without file IO. An
+/// uncached RAW keeps its full-frame budget at Thumb/Preview; a cached source or offline
+/// smart preview reserves proxy work only. Full sensor/channel metadata can refine this later.
+pub(crate) fn source_working_bytes(photo: &Photo, source: &SourceRef) -> u64 {
+    let proxy = |pixels: u64| pixels.saturating_mul(32).saturating_add(16 << 20);
+    let fitted_pixels = |edge: usize| {
+        let edge = if edge == 0 { u64::MAX } else { edge as u64 };
+        u64::from(photo.width).min(edge).saturating_mul(u64::from(photo.height).min(edge))
+    };
+    match source {
+        SourceRef::Loaded(decoded) => proxy(decoded.image.data.len() as u64),
+        // Native smart previews are built from the Preview source and load at that size,
+        // including when the caller asked for a thumbnail. No original RAW is decoded.
+        SourceRef::Smart { .. } => proxy(fitted_pixels(SourceLevel::Preview.max_edge())),
+        SourceRef::Demo { max_edge, .. } => proxy(fitted_pixels(*max_edge)),
+        SourceRef::File { max_edge, .. } | SourceRef::RawFile { max_edge, .. } => {
+            let work = proxy(fitted_pixels(*max_edge));
+            if photo.develops_raw() {
+                work.saturating_add(crate::files::raw_input_working_bytes(photo.width, photo.height, photo.file_size))
+            } else {
+                work
+            }
+        }
+    }
+}
+
 pub struct MediaCache {
     settings_hashes: SettingsHashes,
     /// Decoded thumbnail-level sources (LRU by bytes).
@@ -1228,6 +1254,29 @@ mod thumbnail_hash_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_working_bytes_uses_actual_cached_or_smart_proxy() {
+        let mut photo = Photo::new(PhotoId(1), Source::File { path: "unread-hdr.dng".into() }, "HDR.dng", "DNG", 10_000, 10_000, "2026-10-14");
+        photo.kind = MediaKind::Raw;
+        photo.file_size = 200 << 20;
+        let loaded = SourceRef::Loaded(Box::new(DecodedSource::new(Arc::new(Rgb32f::new(512, 256)), None)));
+        assert_eq!(source_working_bytes(&photo, &loaded), 512 * 256 * 32 + (16 << 20));
+        let smart = SourceRef::Smart { path: "unread-proxy.lcsp".into() };
+        assert_eq!(source_working_bytes(&photo, &smart), 2560 * 2560 * 32 + (16 << 20));
+        let cold = SourceRef::File { path: "unread-hdr.dng".into(), max_edge: 512, loader: None, fallback: None };
+        assert!(source_working_bytes(&photo, &cold) > 4_000_000_000);
+        let with_options = SourceRef::RawFile {
+            path: "unread-hdr.dng".into(),
+            max_edge: 512,
+            opts: Default::default(),
+            fallback: None,
+            loader: Arc::new(|_, _, _| panic!("forecast must never invoke a loader")),
+        };
+        assert_eq!(source_working_bytes(&photo, &cold), source_working_bytes(&photo, &with_options));
+        photo.preview_only = Some("unsupported sensor".into());
+        assert_eq!(source_working_bytes(&photo, &cold), 512 * 512 * 32 + (16 << 20));
+    }
 
     #[test]
     fn ds_finding_smart_preview_keeps_distinct_look_curve() {

@@ -294,6 +294,7 @@ struct Input {
     verification: SourceRef,
     info: SourceInfo,
     bytes: u64,
+    verification_bytes: u64,
     faces: Vec<[f32; 4]>,
     preview_only: bool,
     name: String,
@@ -306,18 +307,15 @@ fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
     if photo.kind == lightcraft_catalog::MediaKind::Video || !photo.in_library() {
         return Err(bad(C, format!("Choose a still photo in the catalog: {}", photo.file_name)));
     }
+    let source = s.media.source_ref(&photo, SourceLevel::Thumb);
+    let verification = s.media.source_ref(&photo, SourceLevel::Preview);
+    let bytes = crate::media::source_working_bytes(&photo, &source);
+    let verification_bytes = crate::media::source_working_bytes(&photo, &verification);
     Ok(Input {
         preview_only: photo.preview_only.is_some(),
         name: photo.file_name.clone(),
-        bytes: u64::from(photo.width.min(512))
-            .saturating_mul(u64::from(photo.height.min(512)))
-            .saturating_mul(32)
-            .saturating_add(16 << 20)
-            .saturating_add(if photo.develops_raw() {
-                u64::from(photo.width).saturating_mul(u64::from(photo.height)).saturating_mul(6).saturating_add(photo.file_size)
-            } else {
-                0
-            }),
+        bytes,
+        verification_bytes,
         faces: s
             .smart
             .people
@@ -332,8 +330,8 @@ fn input(s: &mut Session, id: PhotoId) -> Result<Input> {
         previous: None,
         identity: identity(s, id).ok_or_else(|| bad(C, "Missing photo"))?,
         info: s.source_info(id),
-        source: s.media.source_ref(&photo, SourceLevel::Thumb),
-        verification: s.media.source_ref(&photo, SourceLevel::Preview),
+        source,
+        verification,
     })
 }
 fn relative_tools(mask: &lightcraft_develop::Mask) -> DevelopSettings {
@@ -1002,7 +1000,8 @@ impl SolveWork {
                         if i.previous.is_none() && self.shared_color.is_none() && already_close && solved.settings != *i.identity.settings {
                             // A separate heavy permit bounds the rare larger preview decode.
                             release_decode_for_verification(&mut permit);
-                            let verify_bytes = i.bytes.saturating_add(2560 * 2560 * 32);
+                            let retained_thumb = (src.image.data.len() as u64).saturating_mul(32).saturating_add(16 << 20);
+                            let verify_bytes = i.verification_bytes.saturating_add(retained_thumb);
                             if let Some(_verify_permit) = lightcraft_sysmem::heavy_jobs().admit(verify_bytes, &stop) {
                                 if let Ok(verified) = lightcraft_sysmem::in_background_pool(|| i.verification.load_source()) {
                                     let verified_info = verified.info_or(info.clone());
@@ -1557,6 +1556,32 @@ mod tests {
         s.execute("develop.analyzeLook", &json!({})).unwrap();
         s
     }
+    #[test]
+    fn match_look_cached_thumbnail_does_not_hide_cold_raw_verification_cost() {
+        let mut s = Session::new();
+        let id = s.catalog.alloc_photo_id();
+        let mut photo = lightcraft_catalog::Photo::new(
+            id,
+            lightcraft_catalog::Source::File { path: "unread-hdr.dng".into() },
+            "HDR.dng",
+            "DNG",
+            10_000,
+            10_000,
+            "2026-10-14",
+        );
+        photo.kind = lightcraft_catalog::MediaKind::Raw;
+        photo.file_size = 200 << 20;
+        s.apply_silent(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
+        s.media.insert(id, SourceLevel::Thumb, Arc::new(lightcraft_raster::Rgb32f::new(512, 256)));
+        let work = input(&mut s, id).unwrap();
+        assert!(matches!(work.source, SourceRef::Loaded(_)));
+        assert!(matches!(work.verification, SourceRef::File { .. }));
+        assert!(work.bytes <= 24 << 20);
+        assert!(work.verification_bytes > 4_000_000_000);
+        s.media.insert(id, SourceLevel::Preview, Arc::new(lightcraft_raster::Rgb32f::new(64, 32)));
+        assert!(input(&mut s, id).unwrap().verification_bytes <= 24 << 20);
+    }
+
     #[test]
     fn match_look_consistent_representative_is_robust_and_order_independent() {
         let opts = Options { color_tone: false, ..Default::default() };

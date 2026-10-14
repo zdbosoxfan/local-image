@@ -20,6 +20,15 @@ use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
 /// JPEG previews retain DCT scaling before colour conversion; other formats decode fully.
 const MAX_STILL_IMAGE_PIXELS: u64 = 128 << 20;
 
+/// Admission fallback when catalog metadata has no channel/sample-format facts. RGB float
+/// RAWs can keep original, normalized and RGB samples plus clipping confidence (40 B/pixel)
+/// even for a thumbnail. Catalog dimensions may omit masked borders/opcode work, so this is
+/// a conservative planning model for ordinary files, not a decoder allocation limit.
+/// No file is opened or probed to compute this estimate.
+pub(crate) fn raw_input_working_bytes(width: u32, height: u32, file_bytes: u64) -> u64 {
+    u64::from(width).saturating_mul(u64::from(height)).saturating_mul(40).saturating_add(file_bytes).saturating_add(128 << 20)
+}
+
 fn still_image_decode_options(max_edge: usize) -> lightcraft_codecs::DecodeOptions {
     let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
     lightcraft_codecs::DecodeOptions { max_size: Some((edge, edge)), max_pixels: MAX_STILL_IMAGE_PIXELS }
@@ -708,6 +717,14 @@ mod tests {
         }
         jpeg.extend([0xff, 0xd9]);
         jpeg
+    }
+
+    #[test]
+    fn raw_input_working_bytes_covers_large_float_frames_and_saturates() {
+        let file_bytes = 200 << 20;
+        assert_eq!(raw_input_working_bytes(10_000, 10_000, file_bytes), 4_000_000_000 + file_bytes + (128 << 20));
+        assert!(raw_input_working_bytes(10_000, 10_000, file_bytes) > raw_input_working_bytes(5_000, 5_000, file_bytes));
+        assert_eq!(raw_input_working_bytes(u32::MAX, u32::MAX, u64::MAX), u64::MAX);
     }
 
     #[test]
