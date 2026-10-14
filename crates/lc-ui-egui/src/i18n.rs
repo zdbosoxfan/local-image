@@ -387,6 +387,59 @@ pub const PENDING_SAVE_TRANSLATIONS: &[&str] = &[
 ];
 
 /// Library final-review polish: tracked English fallback until translated.
+/// Lightroom Classic terminology and unified Preferences; translation work is deferred.
+pub const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &[
+    "Basic",
+    "Tone",
+    "Loupe",
+    "Add tool",
+    "The Library is not available for Preferences.",
+    "Some Library settings used defaults: {fields}. Original values were kept in Preferences for recovery.",
+    "Catalog settings and maintenance actions apply immediately.",
+    "The stored Catalog path could not be recovered. Choose your existing Library folder.",
+    "The stored Library settings could not be read. Choose your existing Library.",
+    "The stored Library settings could not be read: {path}. Choose your existing Library.",
+    "@Add to Collection",
+    "Add to Collection",
+    "Add {local_n} to Catalog",
+    "Added {n} photo{} to Catalog",
+    "Also create a smart collection for each folder",
+    "Catalog",
+    "Catalog Panel",
+    "Collection",
+    "Collections",
+    "Collections group photos; adding a photo does not move its file.",
+    "Create Collection",
+    "Create Collection…",
+    "Create Smart Collection",
+    "Create Smart Collection from Filter…",
+    "Create Smart Collection…",
+    "Edit Smart Collection",
+    "Edit Smart Collection…",
+    "Export Collection with Preset",
+    "Export Collection…",
+    "Largest long edge the Loupe view renders at; larger is sharper on big displays but slower.",
+    "New Collection…",
+    "New Smart Collection",
+    "New Smart Collection from Filter…",
+    "New Smart Collection…",
+    "New collection",
+    "New collection…",
+    "Open in Loupe",
+    "Remove from Collection",
+    "Rename Collection",
+    "Save as Smart Collection…",
+    "Scores stay on the photos: filter or make smart collections with Focus and Best of Similar Shots.",
+    "Set as Collection Cover",
+    "Set as Target Collection (B adds to it)",
+    "Show/hide Catalog panel",
+    "Smart Collection",
+    "Smart collection: {}",
+    "Stop Using as Target Collection",
+    "no image on screen (switch to Loupe view)",
+    "smart collection",
+];
+
 pub const PENDING_LIBRARY_UX_TRANSLATIONS: &[&str] = &[
     "Check for Updates…",
     "AI…",
@@ -479,6 +532,7 @@ mod tests {
             .iter()
             .flat_map(|language| language.catalog().keys().map(String::as_str))
             .chain(PENDING_LIBRARY_UX_TRANSLATIONS.iter().copied())
+            .chain(PENDING_LRC_UX_TRANSLATIONS.iter().copied())
             .collect();
         for language in &translated {
             let catalog = language.catalog();
@@ -737,18 +791,18 @@ mod tests {
         let english_ids = ids(&app);
         for language in Locale::ALL {
             let text = painted_text(&ctx, &mut app, *language);
-            for label in ["My Photos", "All Photos"] {
+            for label in ["Catalog", "All Photos"] {
                 assert!(text.contains(language.tr(label)), "{language:?}: {label} -> {:?} not in\n{text}", language.tr(label));
             }
             assert_eq!(app.font_language, *language, "the fonts follow the language");
             assert_eq!(ids(&app), english_ids, "{language:?}: command ids are presentation-independent");
         }
         let text = painted_text(&ctx, &mut app, Locale::Ja);
-        assert!(text.contains("マイフォト") && text.contains("すべての写真"), "{text}");
+        assert!(text.contains(Locale::Ja.tr("Catalog")) && text.contains("すべての写真"), "{text}");
         let text = painted_text(&ctx, &mut app, Locale::ZhHans);
-        assert!(text.contains("我的照片") && text.contains("所有照片"), "{text}");
+        assert!(text.contains(Locale::ZhHans.tr("Catalog")) && text.contains("所有照片"), "{text}");
         let text = painted_text(&ctx, &mut app, Locale::PtBr);
-        assert!(text.contains("Minhas fotos") && text.contains("Todas as fotos"), "{text}");
+        assert!(text.contains(Locale::PtBr.tr("Catalog")) && text.contains("Todas as fotos"), "{text}");
         set_language(Locale::En);
     }
 

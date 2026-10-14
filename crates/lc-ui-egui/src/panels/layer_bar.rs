@@ -273,7 +273,7 @@ fn mask_thumb(ui: &egui::Ui, r: Rect, m: Option<&Mask>, aspect: f64, visible: bo
     let Some(m) = m else {
         // Background: the photo itself
         p.rect_filled(r, 2.0, t.inset);
-        crate::icons::paint(p, r.shrink2(vec2((r.width() - r.height()) / 2.0 + 2.0, 2.0)), Icon::Single, t.text_label);
+        crate::icons::paint(p, r.shrink2(vec2((r.width() - r.height()) / 2.0 + 2.0, 2.0)), Icon::Loupe, t.text_label);
         p.rect_stroke(r, 2.0, frame_stroke, egui::StrokeKind::Inside);
         return;
     };

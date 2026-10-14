@@ -24,7 +24,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                     let modes = [
                         ("photoGrid", Icon::GridPhoto, ViewMode::PhotoGrid, "Photo Grid"),
                         ("squareGrid", Icon::GridSquare, ViewMode::SquareGrid, "Square Grid"),
-                        ("detail", Icon::Single, ViewMode::Detail, "Loupe"),
+                        ("detail", Icon::Loupe, ViewMode::Detail, "Loupe"),
                         ("compare", Icon::Compare, ViewMode::Compare, "Compare"),
                         ("survey", Icon::Survey, ViewMode::Survey, "Survey"),
                         ("people", Icon::Subject, ViewMode::People, "People"),

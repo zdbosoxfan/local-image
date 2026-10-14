@@ -1286,7 +1286,7 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
             s.settings = Some(settings);
         }
     }
-    check(ui, "smartSort:albums", &mut s.albums, "Also create a smart album for each folder");
+    check(ui, "smartSort:albums", &mut s.albums, "Also create a smart collection for each folder");
     let resolved = plan::resolve_tokens(&app.session.catalog, &planned, &s.preset, &sessions).unwrap_or_default();
     let files: usize = planned.iter().map(|p| p.ids.len()).sum();
     let photos: std::collections::BTreeSet<_> = planned.iter().flat_map(|p| p.ids.iter()).collect();

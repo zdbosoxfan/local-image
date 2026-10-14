@@ -796,3 +796,11 @@ pub mod live {
         }
     }
 }
+
+/// Inherited pill-tab metrics, shared by dock tabs and the module picker.
+pub const PILL_TAB_FONT_SIZE: f32 = 12.5;
+pub const PREFERENCES_TAB_HEIGHT: f32 = 22.0;
+pub const PREFERENCES_TAB_INSET: f32 = 8.0;
+pub const PREFERENCES_TAB_TEXT_MARGIN: f32 = 12.0;
+pub const PILL_TAB_PADDING: f32 = 20.0;
+pub const PILL_TAB_HEIGHT: f32 = 24.0;

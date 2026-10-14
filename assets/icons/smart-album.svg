@@ -9,7 +9,8 @@
   stroke-linecap="round"
   stroke-linejoin="round"
 >
-  <!-- Smart Album: Lucide 0.468.0 `book` (ISC) holding a funnel (Local Image, GPL-3.0-or-later): an album that is a saved filter. -->
-  <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" />
-  <path d="M8.5 6h8l-3 3.6V13l-2-1V9.6z" />
+  <!-- Smart Collection: Lucide 0.468.0 stacked image outline (ISC) with a Local Image funnel (GPL-3.0-or-later). Legacy asset path is stable. -->
+  <path d="M18 22H4a2 2 0 0 1-2-2V6" />
+  <rect width="16" height="16" x="6" y="2" rx="2" />
+  <path d="M9 6h10l-4 5v4l-2-1v-3z" />
 </svg>

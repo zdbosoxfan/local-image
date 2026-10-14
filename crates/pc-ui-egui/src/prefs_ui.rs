@@ -9,7 +9,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use egui::{Color32, RichText, Sense, vec2};
+use egui::{Color32, RichText, vec2};
 use photocraft_doc::DocId;
 use photocraft_engine::prefs::{self, SECTIONS, Theme};
 use photocraft_engine::snap::{SnapLine, SnapTargets};
@@ -19,12 +19,24 @@ use crate::PhotocraftApp;
 use crate::state::DialogKind;
 use crate::theme::{ThemeKind, Tokens};
 
+/// Extra preference pages supplied by the app host. The editor provides the only modal shell,
+/// navigation and Apply/OK/Cancel actions. A host keeps the draft as JSON and owns its validation.
+/// Catalog maintenance actions can remain immediate, with an explicit notice in their page.
+pub trait HostPreferencesPages {
+    fn pages(&self) -> &'static [(&'static str, &'static str)];
+    fn values(&self) -> Value;
+    fn body(&mut self, ui: &mut egui::Ui, section: &str, draft: &mut Value);
+    fn validate(&self, draft: &Value) -> Result<(), String>;
+    fn apply(&mut self, draft: &Value) -> Result<(), String>;
+}
+
 /// Shell runtime state for preferences, autosave and snapping (not serialised).
 #[derive(Default)]
 pub struct Runtime {
     loaded: bool,
     /// Preferences revision last written to storage (or loaded from it).
     saved_rev: u64,
+    ai_revision: u64,
     /// This instance's preferences as of `saved_rev`: the base of the three-way merge on save.
     saved_value: Option<Value>,
     /// Defaults/current state before an initial I/O failure; local edits are rebased
@@ -246,6 +258,7 @@ fn sync_tooltips(app: &PhotocraftApp, ctx: &egui::Context) {
 
 /// Per-frame upkeep: theme sync, persistence, autosave and the history log.
 pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    sync_ai_preferences(app);
     if !app.prefs_rt.loaded {
         load(app);
     }
@@ -289,8 +302,20 @@ const SAVE_RETRY_MAX_S: f64 = 30.0;
 /// Failed writes in a row before a notice says preferences aren't being saved.
 const SAVE_NOTICE_AFTER: u32 = 3;
 
+fn sync_ai_preferences(app: &mut PhotocraftApp) {
+    let revision = li_ai::settings::revision();
+    if app.prefs_rt.ai_revision != revision {
+        let settings = li_ai::AiSettings::load();
+        if app.session.prefs().ai != settings {
+            app.session.edit_prefs(|prefs| prefs.ai = settings);
+        }
+        app.prefs_rt.ai_revision = revision;
+    }
+}
+
 /// Persist hosted edits while Library/Develop is visible, without applying editor visuals.
 pub fn persist_background(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    sync_ai_preferences(app);
     if let Some(wait) = persist(app, ctx.input(|i| i.time)) {
         ctx.request_repaint_after(std::time::Duration::try_from_secs_f64(wait).unwrap_or_default());
     }
@@ -864,7 +889,8 @@ fn preference_values(p: &prefs::Preferences) -> Map<String, Value> {
 /// Compare the editable sections, excluding settings managed outside Preferences.
 pub fn preferences_changed(app: &PhotocraftApp, fields: &Map<String, Value>) -> bool {
     is_preferences(fields)
-        && (crate::ai_ui::settings_ui::changed()
+        && (fields.get("hostValues").is_some_and(|v| app.host_preferences.as_ref().is_some_and(|host| *v != host.values()))
+            || crate::ai_ui::settings_ui::changed()
             || fields.get("values").and_then(Value::as_object).is_some_and(|values| *values != preference_values(app.session.prefs())))
 }
 
@@ -880,6 +906,7 @@ pub fn apply(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     if let Some(d) = app.ui.dialog_mut(id) {
         // Use the validated values as the next draft, including any normalisation by prefs.set.
         d.fields.insert("values".into(), values);
+        d.fields.insert("hostValues".into(), app.host_preferences.as_ref().map_or_else(|| app.host_preferences_values.clone(), |host| host.values()));
     }
     Ok(result)
 }
@@ -895,12 +922,26 @@ pub fn width(fields: &Map<String, Value>) -> Option<f32> {
 
 /// Open Edit › Preferences on `section`.
 pub fn open_preferences(app: &mut PhotocraftApp, section: &str) -> u64 {
-    crate::ai_ui::settings_ui::reset();
-    let known = SECTIONS.iter().any(|(id, _)| *id == section) || section == crate::attributions::SECTION || crate::ai_ui::settings_ui::owns(section);
+    let known = app.host_preferences_pages.iter().any(|(id, _)| *id == section)
+        || SECTIONS.iter().any(|(id, _)| *id == section)
+        || section == crate::attributions::SECTION
+        || crate::ai_ui::settings_ui::owns(section);
     let section = if known && section != "integrations" { section } else { "general" };
+
+    if let Some(existing) = app.ui.dialogs.iter_mut().find(|d| is_preferences(&d.fields)) {
+        existing.fields.insert("section".into(), json!(section));
+        return existing.id;
+    }
+    crate::ai_ui::settings_ui::reset();
     let working = preference_values(app.session.prefs());
     let order = field_order(app.session.prefs(), &working);
-    open_kind(app, "prefs", "Preferences", json!({"section": section, "values": working, "__order": order}))
+    open_kind(
+        app,
+        "prefs",
+        "Preferences",
+        json!({"section": section, "values": working, "__order": order,
+        "hostValues": app.host_preferences.as_ref().map_or_else(|| app.host_preferences_values.clone(), |host| host.values())}),
+    )
 }
 
 /// Each section's keys in declaration order (JSON objects sort their keys; the serialised text
@@ -1129,31 +1170,7 @@ fn color_of(s: &str) -> Color32 {
 }
 
 fn prefs_nav_row(ui: &mut egui::Ui, title: &str, selected: bool, empty: bool) -> bool {
-    let t = Tokens::get(ui.ctx());
-    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
-    if selected || response.hovered() {
-        ui.painter().rect_filled(rect, t.radius_sm, if selected { t.row_selected } else { t.hover });
-    }
-    let color = if selected {
-        t.text
-    } else if empty {
-        t.text_faint
-    } else {
-        t.text_dim
-    };
-    let mut job = egui::text::LayoutJob::simple_singleline(title.to_owned(), crate::theme::medium(12.5), color);
-    job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 12.0);
-    let galley = ui.painter().layout_job(job);
-    let elided = galley.elided;
-    ui.painter().galley(rect.left_center() + vec2(8.0, -galley.size().y / 2.0), galley, color);
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, title));
-    let response = if elided { response.on_hover_text(title) } else { response };
-    let seen = ui.id().with(("prefs-nav-seen", title));
-    if selected && !ui.data(|d| d.get_temp::<bool>(seen).unwrap_or(false)) {
-        response.scroll_to_me(Some(egui::Align::Center));
-        ui.data_mut(|d| d.insert_temp(seen, true));
-    }
-    response.clicked()
+    crate::widgets::preferences_tab(ui, title, selected, empty).clicked()
 }
 
 /// Preferences: section list on the left, the section's settings on the right.
@@ -1173,17 +1190,40 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
             ui.set_width(nav_width);
             egui::ScrollArea::vertical().max_height(body_height).id_salt("prefs-navigation").show(ui, |ui| {
                 for (id, title) in SECTIONS {
-                    if id == "integrations" {
+                    if id == "integrations" || (!app.host_preferences_pages.is_empty() && !["general", "interface", "performance"].contains(&id)) {
                         continue;
                     }
-                    if prefs_nav_row(ui, tl!(title), section == id, !has_visible_fields(&values, id)) {
+                    if ui.push_id(id, |ui| prefs_nav_row(ui, tl!(title), section == id, !has_visible_fields(&values, id))).inner {
                         section = id.to_string();
+                    }
+                }
+                if !app.host_preferences_pages.is_empty() {
+                    crate::widgets::hairline(ui);
+                    crate::widgets::section_label(ui, "Library & Develop");
+                    for (id, title) in app.host_preferences_pages {
+                        let response = ui.push_id(id, |ui| crate::widgets::preferences_tab(ui, tl!(title), section == *id, false)).inner;
+                        ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("host-prefs-tab", *id)), response.rect));
+                        if response.clicked() {
+                            section = id.to_string();
+                        }
+                    }
+                }
+                if !app.host_preferences_pages.is_empty() {
+                    crate::widgets::hairline(ui);
+                    crate::widgets::section_label(ui, "Compositing");
+                    for (id, title) in SECTIONS {
+                        if ["general", "interface", "performance", "integrations"].contains(&id) {
+                            continue;
+                        }
+                        if ui.push_id(id, |ui| prefs_nav_row(ui, tl!(title), section == id, !has_visible_fields(&values, id))).inner {
+                            section = id.to_string();
+                        }
                     }
                 }
                 ui.separator();
                 crate::widgets::section_label(ui, "AI");
                 for (id, title) in crate::ai_ui::settings_ui::PAGES {
-                    if prefs_nav_row(ui, tl!(title), section == id, false) {
+                    if ui.push_id(id, |ui| prefs_nav_row(ui, tl!(title), section == id, false)).inner {
                         section = id.to_string();
                     }
                 }
@@ -1197,6 +1237,13 @@ fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Va
         crate::widgets::vline(ui, body_height + 30.0);
         ui.vertical(|ui| {
             ui.set_width(body_width);
+            if app.host_preferences_pages.iter().any(|(id, _)| *id == section) {
+                if let Some(host) = app.host_preferences.as_mut() {
+                    let draft = f.entry("hostValues").or_insert_with(|| host.values());
+                    egui::ScrollArea::vertical().max_height(body_height).id_salt("host-prefs-scroll").show(ui, |ui| host.body(ui, &section, draft));
+                }
+                return;
+            }
             if crate::ai_ui::settings_ui::page(app, ui, &section) {
                 return;
             }
@@ -1966,7 +2013,13 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     match f.get("__prefsui").and_then(Value::as_str).unwrap_or("") {
         "prefs" => {
             let values = f.get("values").cloned().unwrap_or(Value::Null);
+            if let (Some(host), Some(draft)) = (&app.host_preferences, f.get("hostValues")) {
+                host.validate(draft)?;
+            }
             let result = app.run("prefs.set", json!({"path": "", "value": values}))?;
+            if let (Some(host), Some(draft)) = (&mut app.host_preferences, f.get("hostValues")) {
+                host.apply(draft)?;
+            }
             crate::ai_ui::settings_ui::apply()?;
             if !app.ui.dialogs.iter().any(|dialog| is_preferences(&dialog.fields)) {
                 crate::ai_ui::settings_ui::reset();
@@ -2613,6 +2666,55 @@ mod tests {
         for n in ["Early", "Late"] {
             assert!(s2.tools.presets.iter().any(|p| p.name == n), "{n}");
         }
+    }
+
+    #[test]
+    fn j16_ai_preferences_real_click_apply_updates_the_single_root() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        let initial = serde_json::to_string(&prefs::Preferences::default()).unwrap();
+        let (app, store) = app_with_saved(Some(initial));
+        let read = store.clone();
+        let write = store.clone();
+        let backend = li_ai::settings::StoreBackend {
+            load: Arc::new(move || {
+                Ok(read.lock().unwrap().as_ref().and_then(|text| serde_json::from_str::<Value>(text).ok()).and_then(|root| root.get("ai").cloned()))
+            }),
+            save: Arc::new(move |ai| {
+                let mut saved = write.lock().unwrap();
+                let mut root: Value = serde_json::from_str(saved.as_ref().unwrap()).unwrap();
+                root["ai"] = ai;
+                *saved = Some(serde_json::to_string(&root).unwrap());
+                Ok(())
+            }),
+        };
+        li_ai::settings::with_store_backend(backend, || {
+            let mut app = app;
+            let id = open_preferences(&mut app, "ai.connection");
+            let mut harness = Harness::builder().with_size(vec2(1100.0, 850.0)).build_ui_state(
+                |ui, app: &mut PhotocraftApp| {
+                    if !super::design_system_shots::fonts_ready(ui) {
+                        return;
+                    }
+                    crate::dialogs::show(app, ui.ctx());
+                },
+                app,
+            );
+            harness.run_steps(4);
+            harness.get_by_role_and_label(egui::accesskit::Role::CheckBox, "Use a remote ComfyUI server").click();
+            harness.run();
+            assert_eq!(harness.state().ui.dialogs.len(), 1);
+            assert_eq!(harness.state().ui.dialogs[0].id, id);
+            harness.get_by_label("Apply").click();
+            harness.run();
+            let root: Value = serde_json::from_str(store.lock().unwrap().as_ref().unwrap()).unwrap();
+            assert_eq!(root["ai"]["setup_mode"], "remote");
+            assert!(root.get("library").is_some());
+            assert!(root.get("general").is_some());
+            assert_eq!(harness.state().ui.dialogs.len(), 1);
+            harness.get_by_label("Cancel").click();
+            harness.run();
+            assert!(harness.state().ui.dialogs.is_empty());
+        });
     }
 
     #[test]

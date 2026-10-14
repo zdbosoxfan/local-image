@@ -73,6 +73,15 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
         return;
     }
     let Some(mut dlg) = app.ui.dialog.clone() else { return };
+    if let Dialog::Settings { tab } = &mut dlg {
+        let response = crate::widgets::modal(ctx, "library-preferences", |ui| {
+            ui.heading(crate::i18n::tr("Preferences"));
+            crate::panels::settings::body(app, ui, tab);
+            crate::widgets::text_button(ui, "dialogOk", "Close", false).clicked()
+        });
+        app.ui.dialog = if response.inner || response.should_close() { None } else { Some(dlg) };
+        return;
+    }
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
     // The backdrop is an area below the dialog window (a bare `Middle` layer painter would be
@@ -87,22 +96,22 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
     let title: String = match &dlg {
         Dialog::TextPrompt { title, .. } => title.as_str(),
         Dialog::NewAlbum { folder: true, .. } => "Create Folder",
-        Dialog::NewAlbum { .. } => "Create Album",
-        Dialog::RenameAlbum { .. } => "Rename Album",
+        Dialog::NewAlbum { .. } => "Create Collection",
+        Dialog::RenameAlbum { .. } => "Rename Collection",
         Dialog::Rename { .. } => "Rename Photos",
         Dialog::Import { .. } => "Import Photos",
         Dialog::LabelNames { .. } => "Edit Color Label Names",
         Dialog::CaptureTime { .. } => "Edit Capture Time",
         Dialog::RenameKeyword { .. } => "Rename Keyword",
         Dialog::MergeKeywords { .. } => "Merge Keywords",
-        Dialog::NewSmartAlbum { .. } => "Create Smart Album",
+        Dialog::NewSmartAlbum { .. } => "Create Smart Collection",
         Dialog::AllMetadata { .. } => "All Metadata",
         Dialog::SystemInfo { .. } => "System Info",
         Dialog::SmartSort { .. } => "Smart Sort & Export…",
         Dialog::WhatsNew => "What's New",
         Dialog::Cull { .. } => "Assisted Culling",
-        Dialog::SmartRules { id: None, .. } => "New Smart Album",
-        Dialog::SmartRules { .. } => "Edit Smart Album",
+        Dialog::SmartRules { id: None, .. } => "New Smart Collection",
+        Dialog::SmartRules { .. } => "Edit Smart Collection",
         Dialog::AutoStack { .. } => "Auto-Stack by Capture Time",
         Dialog::CreatePreset { .. } => "Create Preset",
         Dialog::CopySettings { .. } => "Choose Edit Settings to Copy",
@@ -168,7 +177,7 @@ pub fn show(app: &mut LightcraftApp, ctx: &egui::Context) {
                     ui.label(egui::RichText::new(if *reject_below > 0.0 { "Blurry photos below the score are flagged as rejects." } else { "0: nothing is rejected." }).color(t.text_dim));
                     let r = ui.checkbox(pick_best, crate::i18n::tr("Pick the sharpest photo of each burst"));
                     crate::widgets::register(ui.ctx(), "check:cullPick", r.rect);
-                    ui.label(egui::RichText::new(crate::i18n::tr("Scores stay on the photos: filter or make smart albums with Focus and Best of Similar Shots.")).color(t.text_dim));
+                    ui.label(egui::RichText::new(crate::i18n::tr("Scores stay on the photos: filter or make smart collections with Focus and Best of Similar Shots.")).color(t.text_dim));
                 }
                 Dialog::WhatsNew => {
                     egui::ScrollArea::vertical().max_height(460.0).auto_shrink([false, true]).show(ui, |ui| {
@@ -880,7 +889,7 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
             crate::tasks::start_culling(app, p)
         }
         Dialog::SmartRules { id, name, rules } => {
-            let name = if name.trim().is_empty() { "Smart Album".to_string() } else { name.trim().to_string() };
+            let name = if name.trim().is_empty() { "Smart Collection".to_string() } else { name.trim().to_string() };
             match id {
                 Some(id) => {
                     if app.session.catalog.album(lightcraft_catalog::AlbumId(*id)).is_some_and(|a| a.name != name) {
@@ -891,7 +900,9 @@ pub fn confirm_dialog(app: &mut LightcraftApp, dlg: &Dialog) -> Result<serde_jso
                 None => app.run("album.createSmart", json!({"name": name, "rules": {"ruleSet": rules}})),
             }
         }
-        Dialog::NewSmartAlbum { name } => app.run("album.createSmart", json!({"name": if name.trim().is_empty() { "Smart Album" } else { name }})),
+        Dialog::NewSmartAlbum { name } => {
+            app.run("album.createSmart", json!({"name": if name.trim().is_empty() { "Smart Collection" } else { name }}))
+        }
         Dialog::CreatePreset { name, group, groups } => app.run(
             "preset.create",
             json!({

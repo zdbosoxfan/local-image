@@ -120,7 +120,7 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("compare.makeSelect", "Make Candidate the Select", None, "View"),
     ("view.autoAdvance", "Auto Advance", None, "Photo"),
     ("view.filmstrip", "Filmstrip", Some("/"), "View"),
-    ("view.leftPanel", "My Photos Panel", Some("Cmd+Shift+L"), "View"),
+    ("view.leftPanel", "Catalog Panel", Some("Cmd+Shift+L"), "View"),
     ("view.beforeAfter", "Compare Before and After", Some("Y"), "View"),
     ("view.beforeAfterSplit", "Before/After Split", Some("Shift+Y"), "View"),
     ("view.beforeAfterTopBottom", "Before/After Top/Bottom", Some("Alt+Y"), "View"),
@@ -182,16 +182,16 @@ pub const UI_COMMANDS: &[UiCommand] = &[
     ("brush.larger", "Increase Brush Size", Some("]"), "Window>Tools"),
     ("brush.featherLess", "Decrease Brush Feather", Some("Shift+["), "Window>Tools"),
     ("brush.featherMore", "Increase Brush Feather", Some("Shift+]"), "Window>Tools"),
-    ("dialog.newAlbum", "New Album…", None, "File"),
+    ("dialog.newAlbum", "New Collection…", None, "File"),
     ("dialog.newFolder", "New Folder…", Some("Cmd+Shift+N"), "File"),
-    ("dialog.smartAlbum", "New Smart Album…", None, "File"),
+    ("dialog.smartAlbum", "New Smart Collection…", None, "File"),
     ("view.photoCounts", "Show Photo Counts", None, "View"),
     ("view.slideshow", "Slideshow", Some("Cmd+Alt+Enter"), "View"),
     ("view.secondWindow", "Second Window", Some("Cmd+F11"), "Window"),
     ("tool.keywordPainter", "Keyword Painter", None, ""),
     ("view.gridInfo", "Grid Info", None, ""),
     ("dialog.allMetadata", "All Metadata…", None, "Photo"),
-    ("dialog.newSmartAlbum", "New Smart Album from Filter…", Some("Cmd+Alt+N"), "File"),
+    ("dialog.newSmartAlbum", "New Smart Collection from Filter…", Some("Cmd+Alt+N"), "File"),
     ("dialog.createPreset", "Create Preset…", Some("Cmd+Shift+P"), "Photo"),
     ("dialog.autoStack", "Auto-Stack by Capture Time…", None, "Photo>Stack"),
     ("dialog.copySettings", "Choose Edit Settings to Copy…", Some("Cmd+Shift+C"), "Edit"),
@@ -321,6 +321,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
     }
     if let Some(language) = language_from_command(id) {
         app.ui.language = language;
+        if app.hosted_menus {
+            app.open_shared_language = Some(language);
+        }
         // Immediately, not on the next frame: the reply and anything else run this frame
         // (menus rebuilt from it, toasts) are already in the new language.
         crate::i18n::set_language(app.ui.language);
@@ -522,7 +525,11 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             if !crate::panels::settings::TABS.iter().any(|(id, _)| *id == tab) {
                 return Some(Err(format!("unknown settings tab `{tab}` (general|import|performance|interface)")));
             }
-            app.ui.dialog = Some(Dialog::Settings { tab: tab.into() });
+            if app.hosted_menus {
+                app.open_shared_preferences = Some(tab.into());
+            } else {
+                app.ui.dialog = Some(Dialog::Settings { tab: tab.into() });
+            }
             Ok(Value::Null)
         }
         "app.openLibrary" => {
@@ -1078,7 +1085,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 ("Memory budget".to_string(), mb(lightcraft_engine::memory::default_budget() as u64)),
                 ("Preview size".to_string(), format!("{} px", app.ui.settings.preview_edge)),
                 ("Photos".to_string(), info["photos"].to_string()),
-                ("Albums".to_string(), info["albums"].to_string()),
+                ("Collections".to_string(), info["albums"].to_string()),
             ];
             if let Some(dir) = info["dir"].as_str().or(info["path"].as_str()) {
                 rows.push(("Library".into(), dir.to_string()));
@@ -1491,6 +1498,11 @@ pub struct MenuEntry {
     pub enabled: bool,
 }
 
+/// Lightroom Classic names for legacy engine action labels (never catalog names or IDs).
+pub fn action_label(label: &str) -> String {
+    label.replace("Albums", "Collections").replace("Album", "Collection").replace("albums", "collections").replace("album", "collection")
+}
+
 /// The flattened menu model (UI commands + engine commands with menu paths).
 pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
     let effective: std::collections::BTreeMap<_, _> =
@@ -1509,7 +1521,7 @@ pub fn menu_entries(app: &LightcraftApp) -> Vec<MenuEntry> {
         if !c.menu.is_empty() {
             v.push(MenuEntry {
                 id: c.id.into(),
-                label: c.label.into(),
+                label: action_label(c.label),
                 menu: c.menu.iter().map(|s| s.to_string()).collect(),
                 shortcut: effective.get(c.id).cloned(),
                 enabled: crate::panels::smart_sort::review_history_enabled(app, c.id).unwrap_or(c.enabled),
