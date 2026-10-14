@@ -42,8 +42,11 @@ fn make_photo() -> Photo {
 #[test]
 fn supported_extensions_are_case_insensitive_and_unknown_rejected() {
     for ext in EXTENSIONS {
-        assert!(is_supported(Path::new(&format!("a.{ext}"))));
-        assert!(is_supported(Path::new(&format!("a.{}", ext.to_uppercase()))));
+        // Known export-only formats are listed in EXTENSIONS too. The importer
+        // must use this build's readable capabilities and preserve case folding.
+        let readable = lightcraft_codecs::readable_extensions().contains(ext) || lightcraft_codecs::RAW_EXTENSIONS.contains(ext);
+        assert_eq!(is_supported(Path::new(&format!("a.{ext}"))), readable, "{ext}");
+        assert_eq!(is_supported(Path::new(&format!("a.{}", ext.to_uppercase()))), readable, "{ext}");
     }
     assert!(!is_supported(Path::new("a.txt")));
     assert!(!is_supported(Path::new("noext")));

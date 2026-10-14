@@ -479,6 +479,15 @@ impl LightcraftApp {
     fn preview_build_status(&mut self, ctx: &egui::Context) {
         use std::sync::atomic::Ordering;
         let Some(b) = self.session.preview_build.clone() else { return };
+        // Import/restore feedback must remain readable when the queued preview
+        // builder starts in the same frame. Announce its current state afterward.
+        let now = ctx.input(|i| i.time);
+        if let Some((_, until)) = &self.ui.toast
+            && *until > now
+        {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(*until - now));
+            return;
+        }
         let key = std::sync::Arc::as_ptr(&b) as usize;
         if b.finished.load(Ordering::Relaxed) {
             if self.ui.preview_build_seen != Some((key, true)) {

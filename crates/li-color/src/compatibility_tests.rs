@@ -1,8 +1,12 @@
-use crate::{cms_math as math, curve, space::Trc};
+use crate::cms_math as math;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::{curve, space::Trc};
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn hash32(h: &mut u64, v: f32) {
     hash64(h, v.to_bits() as u64);
 }
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn hash64(h: &mut u64, v: u64) {
     *h = (*h ^ v).wrapping_mul(0x100000001b3);
 }

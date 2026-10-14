@@ -204,7 +204,7 @@ fn merge_handles_nan_input_without_panicking() {
     let f2 = make_frame(8, 8, [0.5; 3], 1.0, Some(0.0));
     f1.image.data[0] = [f32::NAN, f32::NAN, f32::NAN];
     let res = merge_hdr(vec![f1, f2], &simple_opts(), &no_progress);
-    assert!(res.is_ok());
+    assert!(matches!(res, Err(MergeError::Mismatch(_))), "non-finite sensor pixels are rejected safely");
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn merge_handles_infinite_input_without_panicking() {
     let f2 = make_frame(8, 8, [0.5; 3], 1.0, Some(0.0));
     f1.image.data[0] = [f32::INFINITY, f32::INFINITY, f32::INFINITY];
     let res = merge_hdr(vec![f1, f2], &simple_opts(), &no_progress);
-    assert!(res.is_ok());
+    assert!(matches!(res, Err(MergeError::Mismatch(_))), "non-finite sensor pixels are rejected safely");
 }
 
 #[test]

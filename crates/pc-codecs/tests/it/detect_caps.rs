@@ -246,7 +246,7 @@ fn extension_specific_cases() {
     assert_eq!(from_extension("pfm"), Some(Format::Pnm));
     assert_eq!(from_extension("pam"), Some(Format::Pnm));
     assert_eq!(from_extension("exr"), Some(Format::OpenExr));
-    assert_eq!(from_extension("psd"), None);
+    assert_eq!(from_extension("psd"), Some(Format::Psd));
     assert_eq!(from_extension(""), None);
     assert_eq!(from_extension("png.bak"), None);
 }

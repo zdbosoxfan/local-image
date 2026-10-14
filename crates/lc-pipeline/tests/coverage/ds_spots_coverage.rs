@@ -216,8 +216,9 @@ fn apply_timed_matches_apply_and_populates_stages() {
     spots::apply_timed(&mut img_b, &[spot_b], &frame, ppl, Some(&mut stages));
 
     assert_eq!(img_a.data, img_b.data, "apply and apply_timed differ");
-    // Auto source search should take some measurable time (usually >0)
-    assert!(stages.search > Duration::ZERO, "search stage should be timed");
+    // Heal's PatchMatch search is part of its shared solve, rather than the
+    // separate automatic source-offset search used by Clone.
+    assert_eq!(stages.search, Duration::ZERO);
     assert!(stages.feather > Duration::ZERO, "feather stage should be timed");
     assert!(stages.solve > Duration::ZERO, "solve stage should be timed");
     assert!(stages.render > Duration::ZERO, "render stage should be timed");

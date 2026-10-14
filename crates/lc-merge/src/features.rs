@@ -17,11 +17,18 @@
 //!   mutually consistent.
 
 use lightcraft_raster::Plane;
-use lightcraft_raster::blur::gaussian;
+use lightcraft_raster::blur::{GaussianPolicy, gaussian_with_policy};
 use lightcraft_raster::resample::half;
 use rayon::prelude::*;
 
 pub const DESC_LEN: usize = 64;
+
+// Feature locations and descriptors were calibrated with the legacy three-box
+// Gaussian. Keep that policy after sharing the raster backend: its sampled
+// small-radius default changes panorama camera fits and seam quality.
+fn gaussian(image: &Plane, sigma: f32) -> Plane {
+    gaussian_with_policy(image, sigma, GaussianPolicy::Boxes)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keypoint {

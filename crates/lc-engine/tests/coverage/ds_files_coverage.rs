@@ -23,11 +23,14 @@ fn raw_options_default_is_default() {
 }
 
 #[test]
-fn raw_options_of_default_settings_is_default() {
+fn raw_options_of_default_settings_preserve_camera_profile_generation() {
     let settings = develop::DevelopSettings::default();
     let opts = RawOptions::of(&settings);
-    assert!(opts.is_default());
-    assert_eq!(opts, RawOptions::default());
+    assert_eq!(opts.profile_generation, lightcraft_engine::dcp_profiles::cache_key());
+    assert_eq!(opts, RawOptions::of(&settings), "default source options have a stable cache identity");
+    let without_profiles = RawOptions { profile_generation: 0, ..opts };
+    assert!(without_profiles.is_default());
+    assert_eq!(without_profiles, RawOptions::default());
 }
 
 #[test]

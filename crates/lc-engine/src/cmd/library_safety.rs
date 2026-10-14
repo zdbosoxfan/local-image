@@ -40,13 +40,13 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!(
             "library.verifyOptimize",
             "Verify / Optimize Library",
-            ["Library"],
+            ["File"],
             None,
             "{} — verify persisted bytes without repair, then compact the journal",
             on_disk,
             |s, _| { s.verify_optimize_library().map(|photos| json!({"verified":photos,"optimized":true})) }
         ),
-        cmd!("library.backupNow", "Back Up Catalog Now", ["Library"], None, "{} — snapshot, verify and publish a backup", on_disk, |s, _| {
+        cmd!("library.backupNow", "Back Up Catalog Now", ["File"], None, "{} — snapshot, verify and publish a backup", on_disk, |s, _| {
             s.end_interaction()?;
             s.compact_library()?;
             s.backup_library_after_snapshot(true).map(|path| json!({"path":path.map(|p| p.display().to_string())}))

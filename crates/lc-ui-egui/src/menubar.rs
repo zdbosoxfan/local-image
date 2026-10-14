@@ -86,6 +86,8 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "---",
             "file.findMissing",
             "library.compact",
+            "library.verifyOptimize",
+            "library.backupNow",
             "library.toggleAutoWriteXmp",
             "@Previews",
             "---",

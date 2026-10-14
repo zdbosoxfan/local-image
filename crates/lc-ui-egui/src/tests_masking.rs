@@ -127,8 +127,9 @@ fn remove_spots_by_pointer_and_keyboard() {
     let mut h = detail("panel.remove");
     assert_eq!(h.app.ui.right, RightPanel::Remove);
     let spots = |h: &Headless| develop(h).spots;
-    // paint a spot: it's added with the brush's size/feather/opacity and selected
-    let r = h.request("ui.set", json!({"removeFeather": 30.0, "removeOpacity": 80.0}), T);
+    // Clone retains editable spots; Remove/Heal now produce shared local patches.
+    // Paint a spot with the brush's size/feather/opacity and select it.
+    let r = h.request("ui.set", json!({"tool": "clone", "removeFeather": 30.0, "removeOpacity": 80.0}), T);
     assert_eq!(r["ok"], true, "{r}");
     pointer(&mut h, json!([{"kind": "down", "x": 0.3, "y": 0.6}, {"kind": "up", "x": 0.3, "y": 0.6}]));
     assert_eq!(spots(&h).len(), 1);

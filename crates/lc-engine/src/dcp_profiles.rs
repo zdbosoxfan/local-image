@@ -136,8 +136,11 @@ fn profile_paths(roots: &[PathBuf]) -> Vec<PathBuf> {
             }
         }
     }
-    paths.sort();
-    paths.dedup();
+    // The stack visits the explicitly configured root (last) first. Preserve
+    // that priority through the file/byte limits: global sorting can otherwise
+    // fill the budget with Adobe's system profiles before reaching that folder.
+    let mut seen = std::collections::BTreeSet::new();
+    paths.retain(|path| seen.insert(path.clone()));
     paths.truncate(4096);
     paths
 }
@@ -285,6 +288,23 @@ pub fn lens_for_photo(p: &lightcraft_catalog::Photo, s: &lightcraft_develop::Dev
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn colorprofiles_explicit_folder_survives_a_full_system_profile_scan() {
+        let dir = std::env::temp_dir().join(format!("lc-profile-priority-{}", std::process::id()));
+        let standard = dir.join("a-system");
+        let chosen = dir.join("z-chosen");
+        std::fs::create_dir_all(&standard).unwrap();
+        std::fs::create_dir_all(&chosen).unwrap();
+        for i in 0..4096 {
+            std::fs::write(standard.join(format!("{i:04}.dcp")), b"invalid").unwrap();
+        }
+        std::fs::write(chosen.join("custom.dcp"), include_bytes!("../../lc-raw/data/dcp/NIKON_D7500.dcp")).unwrap();
+        let registry = read_roots(&[standard, chosen.clone()]);
+        assert_eq!(registry.profiles.len(), 1, "the chosen folder must not be displaced by the bounded system scan");
+        assert!(registry.profiles.values().all(|(info, _)| info.path.starts_with(&chosen)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn colorprofiles_recursive_read_only_registry_preserves_alternates() {
         let dir = std::env::temp_dir().join(format!("lc-colorprofiles-{}", std::process::id()));
