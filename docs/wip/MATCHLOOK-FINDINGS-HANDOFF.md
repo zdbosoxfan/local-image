@@ -6,11 +6,18 @@ Paused at the owner's request. This is an archived implementation and research
 checkpoint, not a completed or photographically accepted feature. Draft PR #14
 targets v2 from `wip/cx-matchlook`. Shared color/LUT job J2 is already merged through
 PR #15. The rendering compatibility fix is submitted separately so v2 does not need
-the unfinished matching feature to receive it.
+the unfinished matching feature to receive it. The separate rendering fix is
+[PR #16](https://github.com/zdbosoxfan/local-image/pull/16), head
+`codex/develop-gaussian-compat`, targeting v2. It is submitted for review, not merged.
 
 The feature checkpoint incorporates v2 through `c061f5d5`. v2 advanced to `d4d24ead`
 while this work was being closed out; that newer integration is used for the separate
 rendering PR, not claimed as tested in the archived Match Look implementation.
+The isolated rendering PR advances current v2's cache version 19 to 20. On that base,
+pipeline failures decrease from four to one and exact render golden rows increase from
+11/20 to 19/20. The remaining optics/geometry RAW hash is identical before/after the
+fix; no expectation was changed. App/raster and physical GPU checks pass. See the PR's
+current validation report rather than assuming the older all-green checkpoint applies.
 The feature branch also inherits the high-resolution prerequisite separately submitted
 in PR #13. Current matching/color/cache work did not author RAW decoder changes.
 

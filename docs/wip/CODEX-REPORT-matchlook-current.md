@@ -235,8 +235,11 @@ Physical RTX 5090/Vulkan checks pass 32 Gaussian cases and eighteen full-render 
 The full app check, formatting and diff checks pass. Library/PC sampled defaults and
 small-sigma behavior remain intact. No golden values, thresholds or ignores were changed.
 Strict Clippy is unavailable because the installed driver and Fedora compiler metadata
-do not match. See `REPORT-develop-gaussian-compat.md`; the fix is being submitted
-independently of the unfinished Match Look feature.
+do not match. See `REPORT-develop-gaussian-compat.md` for this feature checkpoint;
+the fix is submitted independently in PR #16 onto newer v2. On that newer base it
+restores three of four existing test failures and eight render golden rows; one
+optics/geometry RAW hash remains identical before/after the fix. PR #16 records the
+fresh validation and advances the newer cache version to 20.
 
 Phase B (editable-control response rank/alias analysis) was prepared but never executed.
 No further experiments are authorized by this paused checkpoint. Private originals,
