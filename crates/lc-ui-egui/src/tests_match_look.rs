@@ -598,6 +598,15 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
     let adapter = lightcraft_engine::gpu::adapter_name().unwrap();
     assert!(!adapter.to_lowercase().contains("llvmpipe") && !adapter.to_lowercase().contains("software"), "{adapter}");
     let raw_dir = std::env::var("LOCAL_IMAGE_TEST_RAW_DIR").ok();
+    let reference_count = std::env::var("LC_MATCH_LOOK_BENCH_REFERENCES")
+        .map(|value| value.parse::<usize>().expect("LC_MATCH_LOOK_BENCH_REFERENCES must be an integer"))
+        .unwrap_or(if raw_dir.is_some() { 2 } else { 10 });
+    assert!((1..=20).contains(&reference_count), "Benchmark requires 1–20 references");
+    let consistent_batch = match std::env::var("LC_MATCH_LOOK_BENCH_MODE").as_deref() {
+        Ok("independent") => false,
+        Ok("consistent") | Err(_) => true,
+        Ok(other) => panic!("Unknown LC_MATCH_LOOK_BENCH_MODE {other:?}; use independent or consistent"),
+    };
     if let Some(dir) = &raw_dir {
         h.app.session = lightcraft_engine::Session::new().with_fs();
         let mut paths = std::fs::read_dir(dir)
@@ -610,10 +619,9 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
         paths.sort();
         request(&mut h, "library.import", json!({"paths":paths,"mode":"add"}));
         assert!(h.app.session.catalog.photos().all(|p| p.develops_raw()));
-        analyze(&mut h, 2);
-    } else {
-        analyze(&mut h, 10);
     }
+    assert!(h.app.session.catalog.photos().count() > reference_count, "Benchmark needs references plus at least one target source");
+    analyze(&mut h, reference_count);
     let seeds = h
         .app
         .session
@@ -628,7 +636,10 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
         let info = h.app.session.source_info(seed.id);
         h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| Ok(((*source).clone(), info.clone()))));
     }
-    let count = std::env::var("LC_MATCH_LOOK_BENCH_COUNT").ok().and_then(|v| v.parse::<usize>().ok()).unwrap_or(500);
+    let count = std::env::var("LC_MATCH_LOOK_BENCH_COUNT")
+        .map(|value| value.parse::<usize>().expect("LC_MATCH_LOOK_BENCH_COUNT must be an integer"))
+        .unwrap_or(500);
+    assert!(count > 0, "Benchmark needs at least one target instance");
     let mut ids = Vec::new();
     let mut ops = Vec::new();
     for n in 0..count {
@@ -646,7 +657,10 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
     h.app.ui.open_sections = vec!["matchLook".into()];
     h.step();
     click(&mut h, "button:matchLook");
-    click(&mut h, "check:matchConsistent");
+    if h.app.session.match_look.options.consistent_batch != consistent_batch {
+        click(&mut h, "check:matchConsistent");
+    }
+    assert_eq!(h.app.session.match_look.options.consistent_batch, consistent_batch);
     let (preview_metrics, preview_peak_rss) = if direct_apply {
         assert!(h.app.match_look.preview.is_none(), "Direct Apply must not inherit a Preview");
         assert!(h.app.match_look.control.is_none(), "Direct Apply must begin without a running Preview");
@@ -708,7 +722,7 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
     let p95 = frames[((frames.len() - 1) as f64 * 0.95) as usize];
     let solve = h.app.match_look.last_result.as_ref().unwrap()["elapsedMs"].as_f64().unwrap() / 1000.0;
     println!(
-        "MATCH_LOOK_BENCH direct_apply={direct_apply} adapter={adapter} raw={} workers={} profile={:?} memory_override={:?} photos={count} solve_seconds={solve:.3} wall_seconds={wall:.3} per_photo_ms={:.3} ui_frame_p95_ms={p95:.3} frames={}",
+        "MATCH_LOOK_BENCH direct_apply={direct_apply} consistent_batch={consistent_batch} references={reference_count} adapter={adapter} raw={} workers={} profile={:?} memory_override={:?} photos={count} solve_seconds={solve:.3} wall_seconds={wall:.3} per_photo_ms={:.3} ui_frame_p95_ms={p95:.3} frames={}",
         raw_dir.is_some(),
         h.app.match_look.last_result.as_ref().unwrap()["workers"],
         lightcraft_sysmem::profile(),
@@ -720,15 +734,38 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
     println!("MATCH_LOOK_PHASES load_ms={} solve_ms={} renders={}", metrics["loadMs"], metrics["solveMs"], metrics["renders"]);
     metrics["benchmark"] = json!({
         "photos":count,"nativeRaw":raw_dir.is_some(),"directApply":direct_apply,
+        "references":reference_count,"consistentBatch":consistent_batch,
+        "uniqueTargetSources":if raw_dir.is_some() { count.min(seeds.len()) } else { 1 },
+        "sourceSetRepeated":count > if raw_dir.is_some() { seeds.len() } else { 1 },
+        "memoryPlanningOverrideGb":std::env::var("LOCAL_IMAGE_MEMORY_GB").ok(),
+        "adapter":adapter,"profileThreads":lightcraft_sysmem::profile().threads,
         "previewWallSeconds":preview_metrics.map(|(wall, _)| wall),
         "applyWallSeconds":wall,"previewFrameP95Ms":preview_metrics.map(|(_, p95)| p95),"applyFrameP95Ms":p95,
         "peakRssBytes":peak_rss,"proxy500WallLimitSeconds":90.0,
-        "proxy500WallGateApplies":count == 500 && raw_dir.is_none()
+        "proxy500WallGateApplies":count == 500 && raw_dir.is_none(),
+        "wall500LimitSeconds":90.0,"wall500GateApplies":count == 500
     });
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/matchlook-revision3");
     std::fs::create_dir_all(&out).unwrap();
+    let configuration = if raw_dir.is_none() && reference_count == 10 && consistent_batch && std::env::var("LOCAL_IMAGE_MEMORY_GB").is_err() {
+        String::new()
+    } else {
+        let memory = std::env::var("LOCAL_IMAGE_MEMORY_GB")
+            .ok()
+            .map(|value| value.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.').collect::<String>());
+        format!(
+            "-r{reference_count}-{}{}{}",
+            if consistent_batch { "consistent" } else { "independent" },
+            if raw_dir.is_some() { "-raw" } else { "" },
+            memory.map_or(String::new(), |gb| format!("-mem{gb}gb"))
+        )
+    };
     std::fs::write(
-        out.join(format!("benchmark-{count}-{}{}.json", lightcraft_sysmem::profile().threads, if direct_apply { "-direct" } else { "" })),
+        out.join(format!(
+            "benchmark-{count}-{}{}{configuration}.json",
+            lightcraft_sysmem::profile().threads,
+            if direct_apply { "-direct" } else { "" }
+        )),
         serde_json::to_vec_pretty(&metrics).unwrap(),
     )
     .unwrap();
@@ -745,10 +782,10 @@ fn run_match_look_app_benchmark(direct_apply: bool) {
         peak_rss as f64 / (1 << 20) as f64
     );
     request(&mut h, "edit.undo", json!({}));
-    if count == 500 && raw_dir.is_none() {
+    if count == 500 {
         assert!(
             preview_metrics.is_none_or(|(wall, _)| wall <= 90.0) && wall <= 90.0,
-            "500-proxy throughput gate: Preview {preview_metrics:?}, Apply {wall:.3}s; each measured phase must be <=90s"
+            "500-photo throughput gate: Preview {preview_metrics:?}, Apply {wall:.3}s; each measured phase must be <=90s"
         );
     }
 }

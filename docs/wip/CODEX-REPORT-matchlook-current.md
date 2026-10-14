@@ -136,6 +136,24 @@ against the actual panel bounds, pins/compares references, matches an underexpos
 and reaches its quality summary and weak-match review through real UI actions. This
 expanded focused test passes; the prior ten-reference coverage was insufficient for the cap.
 
+At `e4c78800`, target identification skips appearance statistics that the solver discarded.
+Its signature/content bits, every solved field, logical render budget and cancellation
+poll boundary match the original full-measure oracle. Public reference analysis is
+unchanged. The focused pipeline suite passes sixty-four tests with two timing diagnostics
+intentionally ignored. A contended isolated 128-by-96 descriptor measurement improved
+from 7.142 ms to 1.835 ms; no end-to-end throughput claim follows.
+
+The ignored app benchmarks now accept `LC_MATCH_LOOK_BENCH_REFERENCES=1..20` and
+`LC_MATCH_LOOK_BENCH_MODE=independent|consistent`, in addition to target count, thread,
+memory-planning and RAW-directory options. Output records the mode/reference count,
+actual target source count/repetition and planning override, with separate configuration
+filenames. Five hundred native target instances now face the same ninety-second wall
+assertion; they no longer bypass it. Actual native five-hundred acceptance is still absent.
+Two three-target configuration smoke checks passed on the physical GPU: independent
+Apply with twenty references/four-GB planning and consistent Preview/Apply with one
+reference/eight-GB planning, both with two workers. These small runs validate configuration
+and GPU/Undo paths, not five-hundred throughput or a physical low-memory machine.
+
 Remaining work includes automatic evidence that separates material, composition and
 illumination; stable color/tone fitting with regional and output-resolution safeguards;
 held-out native photographic acceptance; measured low-memory acceptance of bounded retention;
