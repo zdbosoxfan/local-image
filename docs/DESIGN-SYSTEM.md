@@ -162,6 +162,11 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | `register` / `take_registry` | Record a widget's automation id and rect for the control protocol and tests | 17 / 22 |
 | `hex`, `lerp`, `BAND_COLORS`, `nudged` | Colour and value helpers | 70 / 75 / 82 / 348 |
 
+Library also provides `checkbox(ui, id, value, label)`, `choice(ui, id, value, options)` and
+`text_field(ui, id, value, label)` and `field_with_action` in `widgets.rs`. Import safety, catalog backup preferences and
+proof-sheet dialogs use these shared controls. They inherit the active light/dark theme, expose
+accessible labels, register automation IDs, and text fields adapt to the available width. Fields with an action stack the button below at narrow widths.
+
 ### Duplicates across the crates (consolidation later)
 
 Both crates have their own icon button (`icons::button`+`icon_action` vs `icon_button`), colour tile

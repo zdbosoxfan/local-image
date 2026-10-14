@@ -83,45 +83,17 @@ impl Store for FsStore {
     }
 
     fn write_atomic(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
-        use std::io::Write;
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        let tmp = self.path(&format!("{name}.tmp"));
-        {
-            let mut f = std::fs::File::create(&tmp)?;
-            f.write_all(data)?;
-            f.sync_all()?;
-        }
-        std::fs::rename(&tmp, self.path(name))?;
-        self.sync_dir();
-        Ok(())
+        crate::safe_file::write_atomic(&self.path(name), data)
     }
 
     fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
-        use std::io::Write;
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        let tmp = self.path(&format!("{name}.tmp"));
-        let written = (|| {
-            let mut w = Counter { inner: io::BufWriter::with_capacity(1 << 20, std::fs::File::create(&tmp)?), n: 0 };
-            fill(&mut w)?;
-            w.flush()?;
-            let f = w.inner.into_inner().map_err(|e| e.into_error())?;
-            f.sync_all()?;
-            Ok(w.n)
-        })();
-        let n = match written {
-            Ok(n) => n,
-            Err(e) => {
-                let _ = std::fs::remove_file(&tmp);
-                return Err(e);
-            }
-        };
-        std::fs::rename(&tmp, self.path(name))?;
-        self.sync_dir();
-        Ok(n)
+        crate::safe_file::write_atomic_with(&self.path(name), fill)
     }
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
@@ -166,23 +138,6 @@ impl Store for FsStore {
     #[cfg(not(target_arch = "wasm32"))]
     fn background_writer(&self) -> Option<Box<dyn Store>> {
         Some(Box::new(FsStore { dir: self.dir.clone(), appender: None }))
-    }
-}
-
-/// Counts the bytes written through it.
-struct Counter<W> {
-    inner: W,
-    n: u64,
-}
-
-impl<W: io::Write> io::Write for Counter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let k = self.inner.write(buf)?;
-        self.n += k as u64;
-        Ok(k)
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        self.inner.flush()
     }
 }
 

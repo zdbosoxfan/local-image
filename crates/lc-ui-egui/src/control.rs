@@ -301,7 +301,8 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
                 if (r.is_err()
                     && matches!(
                         d,
-                        crate::state::Dialog::Import { .. }
+                        crate::state::Dialog::ProofSheet { .. }
+                            | crate::state::Dialog::Import { .. }
                             | crate::state::Dialog::Export { .. }
                             | crate::state::Dialog::SaveOverOriginal { .. }
                             | crate::state::Dialog::SamModel { .. }

@@ -493,6 +493,11 @@ impl Dialog {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Dialog {
+    ProofSheet {
+        opts: lightcraft_engine::proof_sheet::ProofOptions,
+        folder: String,
+        name: String,
+    },
     SmartSort {
         state: Box<crate::panels::smart_sort::SmartSortDialog>,
     },

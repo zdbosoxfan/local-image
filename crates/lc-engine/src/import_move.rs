@@ -20,8 +20,8 @@
 //! (Not `std::fs::rename`: it would remove the source before the catalog knows the new place,
 //! and on Unix it silently replaces an existing destination.)
 
-use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read, Write};
+use std::fs::{self, File};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 /// A photo put in place by [`place`]; its source is untouched.
@@ -276,35 +276,33 @@ fn link_or_copy(src: &Path, dst: &Path) -> io::Result<()> {
 /// source) when given, else byte for byte against the source. On any failure the partial copy is
 /// removed.
 pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_preview::Hash128>) -> io::Result<()> {
-    let mut out = OpenOptions::new().write(true).create_new(true).open(dst)?;
-    let r = (|| {
-        let mut inp = File::open(src)?;
-        if injected(Fault::FailWrite) {
-            out.write_all(b"partial")?;
-            return Err(io::Error::other("write failed (injected)"));
-        }
-        io::copy(&mut inp, &mut out)?;
-        if injected(Fault::Corrupt) {
-            out.write_all(b"!")?;
-        }
-        out.sync_all()?;
-        if let Ok(m) = fs::metadata(src).and_then(|m| m.modified()) {
-            let _ = out.set_modified(m);
-        }
-        match expect {
-            Some(h) if hash_file(dst)? != h => {
+    lightcraft_catalog::safe_file::write_new_with(
+        dst,
+        &mut |out| {
+            let mut inp = File::open(src)?;
+            if injected(Fault::FailWrite) {
+                out.write_all(b"partial")?;
+                return Err(io::Error::other("write failed (injected)"));
+            }
+            io::copy(&mut inp, out)?;
+            if injected(Fault::Corrupt) {
+                out.write_all(b"!")?;
+            }
+            Ok(())
+        },
+        &mut |tmp| match expect {
+            Some(h) if hash_file(tmp)? != h => {
                 Err(io::Error::other("the copy differs from the original as it was read for the import (a bad copy, or the file changed meanwhile)"))
             }
             Some(_) => Ok(()),
-            None if !same_bytes(src, dst)? => Err(io::Error::other("the copy differs from the original")),
+            None if !same_bytes(src, tmp)? => Err(io::Error::other("the copy differs from the original")),
             None => Ok(()),
-        }
-    })();
-    drop(out);
-    if r.is_err() {
-        let _ = fs::remove_file(dst);
+        },
+    )?;
+    if let Ok(m) = fs::metadata(src).and_then(|m| m.modified()) {
+        let _ = File::options().write(true).open(dst).and_then(|f| f.set_modified(m));
     }
-    r
+    Ok(())
 }
 
 /// [`lightcraft_preview::hash_bytes`] of a file's content, read in chunks.
