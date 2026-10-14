@@ -1,8 +1,6 @@
-//! Where Local Image keeps its data, and the AI settings in `config.json`.
-//!
-//! The data root and `config.json` keys are the same as Local Image 0.7, so an existing ComfyUI
-//! setup, model folder and generated library are picked up by V2 unchanged. Unknown keys written by
-//! other versions are preserved.
+//! AI settings live in the application `preferences.json` under `ai`.
+//! Legacy `config.json` is a read-only migration input; generated resources keep their data root.
+//! Unknown settings and existing model directories are preserved.
 
 use std::path::{Path, PathBuf};
 
@@ -21,20 +19,26 @@ pub fn data_root() -> PathBuf {
     if cfg!(target_os = "linux") { base.join("local-image") } else { base.join("Local Image") }
 }
 
+/// The single application preferences file. `config.json` is a migration input only.
 pub fn config_path() -> PathBuf {
+    lightcraft_sysmem::app_dirs::config_dir().unwrap_or_else(|| PathBuf::from(".")).join("preferences.json")
+}
+pub fn legacy_config_path() -> PathBuf {
     data_root().join("config.json")
 }
 pub fn state_dir() -> PathBuf {
     data_root().join("state")
 }
 pub fn default_model_dir() -> PathBuf {
-    std::env::var_os("LOCAL_IMAGE_MODELS_DIR").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| data_root().join("models"))
+    lightcraft_sysmem::app_dirs::default_models_root()
 }
 
 /// The AI-related settings. Field names match 0.7's `config.json`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct AiSettings {
     pub comfy_host: String,
+    #[serde(deserialize_with = "checked_port")]
     pub comfy_port: u16,
     /// A ComfyUI installation folder (contains `main.py`), used to start it.
     pub comfy_directory: String,
@@ -45,7 +49,9 @@ pub struct AiSettings {
     pub hardware_guide_dismissed: bool,
     pub lora_show_adult_content: bool,
     /// Start ComfyUI with Local Image when an installation is configured.
+    #[serde(rename = "auto_start_comfy", alias = "auto_start")]
     pub auto_start: bool,
+    #[serde(flatten)]
     rest: Map<String, Value>,
 }
 
@@ -96,12 +102,25 @@ impl AiSettings {
 
     /// Model folder for frame-time callers. Explicit settings loads and successful saves refresh it.
     pub fn cached_model_dir() -> PathBuf {
-        cached_model_dir_for(&config_path(), default_model_dir())
+        let path = config_path();
+        let cached = MODEL_DIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cache) = cached.as_ref().filter(|cache| cache.config == path) {
+            return cache.directory.clone();
+        }
+        drop(cached);
+        Self::load().model_dir()
     }
 
     pub fn load() -> Self {
         let path = config_path();
-        let settings = Self::load_from(&path);
+        let settings = match store_backend() {
+            Some(store) => (store.load)().ok().flatten().map(Self::from_value).unwrap_or_else(Self::load_legacy),
+            None => {
+                let value = std::fs::read_to_string(&path).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
+                value.and_then(|root| root.get("ai").cloned()).map(Self::from_value).unwrap_or_else(Self::load_legacy)
+            }
+        };
+        publish(&settings);
         refresh_model_dir_cache(&path, &settings);
         settings
     }
@@ -109,7 +128,12 @@ impl AiSettings {
     pub fn load_from(path: &Path) -> Self {
         let text = std::fs::read_to_string(path).unwrap_or_default();
         let text = text.trim_start_matches('\u{feff}');
-        let Ok(Value::Object(mut m)) = serde_json::from_str::<Value>(text) else { return Self::default() };
+        let Ok(value) = serde_json::from_str::<Value>(text) else { return Self::default() };
+        Self::from_value(value.get("ai").cloned().unwrap_or(value))
+    }
+    /// Lenient typed adapter; unknown keys are retained for forwards compatibility.
+    pub fn from_value(value: Value) -> Self {
+        let Value::Object(mut m) = value else { return Self::default() };
         let d = Self::default();
         let mut take_str = |k: &str, def: &str| m.remove(k).and_then(|v| v.as_str().map(str::to_owned)).unwrap_or_else(|| def.to_owned());
         let comfy_host = take_str("comfy_host", &d.comfy_host);
@@ -121,7 +145,9 @@ impl AiSettings {
         let mut take_bool = |k: &str, def: bool| m.remove(k).and_then(|v| v.as_bool()).unwrap_or(def);
         let hardware_guide_dismissed = take_bool("hardware_guide_dismissed", false);
         let lora_show_adult_content = take_bool("lora_show_adult_content", false);
-        let auto_start = take_bool("auto_start_comfy", true);
+        let auto_start = m.remove("auto_start_comfy").and_then(|value| value.as_bool());
+        let legacy_auto_start = m.remove("auto_start").and_then(|value| value.as_bool());
+        let auto_start = auto_start.or(legacy_auto_start).unwrap_or(d.auto_start);
         Self {
             comfy_host,
             comfy_port,
@@ -137,7 +163,31 @@ impl AiSettings {
     }
 
     pub fn save(&self) -> Result<()> {
-        self.save_to(&config_path())
+        let value = serde_json::to_value(self)?;
+        if let Some(store) = store_backend() {
+            (store.save)(value).map_err(anyhow::Error::msg)?;
+        } else {
+            let path = config_path();
+            let mut root = match std::fs::read(&path) {
+                Ok(bytes) => serde_json::from_slice::<Value>(&bytes).context("The preferences file cannot be read; it was not replaced")?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+                Err(error) => return Err(error.into()),
+            };
+            root.as_object_mut().context("Preferences must be an object; the original was not replaced")?.insert("ai".into(), value);
+            write_atomic(&path, serde_json::to_string_pretty(&root)?.as_bytes())?;
+        }
+        publish(self);
+        refresh_model_dir_cache(&config_path(), self);
+        SETTINGS_REV.fetch_add(1, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+    pub fn load_legacy() -> Self {
+        let mut settings = Self::load_from(&legacy_config_path());
+        let legacy_models = data_root().join("models");
+        if settings.model_directory.trim().is_empty() && legacy_models.is_dir() {
+            settings.model_directory = legacy_models.to_string_lossy().into_owned();
+        }
+        settings
     }
 
     /// Atomic write (temp file + rename), keeping keys this version doesn't know.
@@ -163,10 +213,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let dir = path.parent().context("path has no folder")?;
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(".{}.{}.tmp", path.file_name().and_then(|n| n.to_str()).unwrap_or("file"), uuid::Uuid::new_v4().simple()));
-    std::fs::write(&tmp, bytes)?;
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().create_new(true).write(true).open(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
     std::fs::rename(&tmp, path).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })?;
+    #[cfg(unix)]
+    std::fs::File::open(dir)?.sync_all()?;
     Ok(())
 }
 
@@ -214,6 +270,7 @@ struct ModelDirCache {
 }
 static MODEL_DIR: std::sync::Mutex<Option<ModelDirCache>> = std::sync::Mutex::new(None);
 
+#[cfg(test)]
 fn cached_model_dir_for(path: &Path, fallback: PathBuf) -> PathBuf {
     let mut cached = MODEL_DIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some(c) = cached.as_ref().filter(|c| c.config == path && c.fallback == fallback) {
@@ -251,4 +308,62 @@ fn dsfix_model_dir_cache_avoids_frame_reads_and_refreshes_after_save() {
     AiSettings::default().save_to(&config).unwrap();
     assert_eq!(cached_model_dir_for(&config, fallback.clone()), fallback);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// The host binds AI to its existing checked preferences writer, never a second settings file.
+#[derive(Clone)]
+pub struct StoreBackend {
+    pub load: std::sync::Arc<dyn Fn() -> std::result::Result<Option<Value>, String> + Send + Sync>,
+    pub save: std::sync::Arc<dyn Fn(Value) -> std::result::Result<(), String> + Send + Sync>,
+}
+static STORE: std::sync::OnceLock<StoreBackend> = std::sync::OnceLock::new();
+pub fn install_store_backend(store: StoreBackend) {
+    let _ = STORE.set(store);
+}
+thread_local! { static SESSION_STORE: std::cell::RefCell<Option<StoreBackend>> = const { std::cell::RefCell::new(None) }; }
+fn store_backend() -> Option<StoreBackend> {
+    SESSION_STORE.with(|store| store.borrow().clone()).or_else(|| STORE.get().cloned())
+}
+/// A scoped store binding for embedded sessions and offscreen UI fixtures; restores the previous
+/// binding even if the caller unwinds. Native windows normally use the installed process store.
+pub fn with_store_backend<R>(store: StoreBackend, run: impl FnOnce() -> R) -> R {
+    struct Restore(Option<StoreBackend>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SESSION_STORE.with(|store| *store.borrow_mut() = self.0.take());
+        }
+    }
+    let _restore = Restore(SESSION_STORE.with(|slot| slot.replace(Some(store))));
+    run()
+}
+static SETTINGS_REV: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub fn revision() -> u64 {
+    SETTINGS_REV.load(std::sync::atomic::Ordering::Acquire)
+}
+pub fn publish(settings: &AiSettings) {
+    lightcraft_sysmem::app_dirs::set_models_root(settings.model_dir());
+    *MODEL_DIR.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some(ModelDirCache { config: config_path(), fallback: default_model_dir(), directory: settings.model_dir() });
+}
+
+fn checked_port<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<u16, D::Error> {
+    let port = <u16 as serde::Deserialize>::deserialize(deserializer)?;
+    if port == 0 || port == 51247 {
+        return Err(serde::de::Error::custom("not a usable ComfyUI port"));
+    }
+    Ok(port)
+}
+
+#[test]
+fn j16_ai_aliases_normalize_without_duplicate_fields_and_preserve_unknowns() {
+    for (value, expected) in
+        [(serde_json::json!({"auto_start":false,"future":[1,2]}), false), (serde_json::json!({"auto_start_comfy":true,"auto_start":false}), true)]
+    {
+        let settings = AiSettings::from_value(value.clone());
+        let normalized = serde_json::to_value(&settings).unwrap();
+        assert_eq!(normalized["auto_start_comfy"], expected);
+        assert!(normalized.get("auto_start").is_none());
+        assert_eq!(normalized.get("future"), value.get("future"));
+        assert_eq!(serde_json::from_value::<AiSettings>(normalized).unwrap(), settings);
+    }
 }

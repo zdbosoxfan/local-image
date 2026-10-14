@@ -219,6 +219,10 @@ pub struct LightcraftApp {
     pub open_shared_updates: bool,
     /// Open the host's shared AI resource preferences from Library or Develop.
     pub open_shared_ai: bool,
+    /// Hosted Preferences request (legacy command/tab ids are unchanged).
+    pub open_shared_preferences: Option<String>,
+    /// Legacy language commands update the shared Interface preference when hosted.
+    pub open_shared_language: Option<i18n::Locale>,
     pub host_modal: bool,
     /// Runtime mirror of the host's single persisted shortcut authority.
     pub shortcut_overrides: std::collections::BTreeMap<String, String>,
@@ -341,6 +345,8 @@ impl LightcraftApp {
             open_shared_shortcuts: false,
             open_shared_updates: false,
             open_shared_ai: false,
+            open_shared_preferences: None,
+            open_shared_language: None,
             host_modal: false,
             shortcut_overrides: Default::default(),
             native_shortcuts: Default::default(),
@@ -1467,3 +1473,6 @@ mod shared_shell_tests;
 
 #[cfg(test)]
 mod tests_updates;
+
+#[cfg(test)]
+mod tests_lrc_ux;

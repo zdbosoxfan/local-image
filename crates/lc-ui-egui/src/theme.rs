@@ -5,6 +5,15 @@ use std::sync::Arc;
 
 use egui::{Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, Visuals};
 
+/// Standard Develop section content inset.
+pub const PANEL_CONTENT_MARGIN: egui::Margin = egui::Margin { left: 24, right: 22, top: 4, bottom: 4 };
+
+/// Existing Library Preferences body width, shared by standalone and hosted rows.
+pub const PREFERENCES_BODY_WIDTH: f32 = 560.0;
+pub const CONTROL_FONT_SIZE: f32 = 13.0;
+pub const BUTTON_FONT_SIZE: f32 = 11.5;
+pub const DROPDOWN_ARROW_SPACE: f32 = 20.0;
+
 pub const FONT_SEMIBOLD: &str = "semibold";
 
 #[derive(Clone, Copy, Debug, PartialEq)]

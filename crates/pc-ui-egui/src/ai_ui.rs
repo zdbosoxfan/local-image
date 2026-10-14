@@ -40,7 +40,7 @@ use crate::widgets;
 pub struct AiOptions {
     /// Expanded model families in AI Preferences.
     pub settings_families: std::collections::BTreeSet<String>,
-    /// AI Remove engine: `klein`, `qwen-int8` or `qwen-bf16`.
+    /// AI Remove engine: `auto`, `lama`, `klein`, `qwen-int8` or `qwen-bf16`.
     pub remove_engine: String,
     /// Apply a painted removal stroke on release. Off by default (owner decision): the user brushes,
     /// adjusts the mask, then confirms with Remove.
@@ -75,7 +75,7 @@ impl Default for AiOptions {
     fn default() -> Self {
         Self {
             settings_families: Default::default(),
-            remove_engine: "klein".into(),
+            remove_engine: "auto".into(),
             remove_immediately: false,
             cutout_engine: "fast".into(),
             cutout_refine: true,
@@ -626,7 +626,7 @@ fn model_function_row(
                             Err(e) => set_custom_job(dir, group, Some(CustomJob::Failed(format!("{e:#}")))),
                         }
                     }
-                    ui.label(RichText::new(tl!("In use")).color(Color32::from_rgb(70, 190, 110)));
+                    ui.label(RichText::new(tl!("In use")).color(t.accent));
                 });
             });
             ui.label(
@@ -667,7 +667,7 @@ fn model_function_row(
                         ask_remove(spec.label.to_owned(), RemoveTarget::Seg(spec));
                     }
                     let text = if official_in_use { tl!("In use") } else { tl!("Installed") };
-                    ui.label(RichText::new(text).color(Color32::from_rgb(70, 190, 110)));
+                    ui.label(RichText::new(text).color(t.accent));
                 }
                 _ => {
                     if widgets::secondary_button(ui, tl!("Download"), 0.0).clicked() {
@@ -772,7 +772,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
             li_seg::Group::RawDenoise => {
                 ui.label(tl!("Custom Raw Denoise models use three-channel linear Rec.2020 input and output."));
             }
-            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces => {}
+            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces | li_seg::Group::Remove => {}
         }
         if job == Some(CustomJob::Testing) {
             ui.horizontal(|ui| {
@@ -1052,6 +1052,43 @@ pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
+#[cfg(test)]
+thread_local! { pub(crate) static TEST_LAMA_READY: std::cell::RefCell<Option<bool>> = const { std::cell::RefCell::new(None) }; }
+
+/// Resolve Automatic from the background connection status. Explicit choices persist.
+pub fn effective_remove_key(key: &str) -> &str {
+    if key == "auto" || key.is_empty() { if status().connected { "klein" } else { "lama" } } else { key }
+}
+
+/// Shared readiness for Remove, selection actions and the Develop host.
+pub fn remove_ready(key: &str) -> Result<(), String> {
+    let key = effective_remove_key(key);
+    if key == "lama" {
+        #[cfg(test)]
+        if let Some(ready) = TEST_LAMA_READY.with(|r| *r.borrow()) {
+            return if ready { Ok(()) } else { Err("Download AI Remove in Preferences › AI › On-device Tools first.".into()) };
+        }
+        if li_seg::installed_bytes(&photocraft_engine::seg::models_dir(), catalog::on_device_default(li_seg::Group::Remove)).is_some() {
+            Ok(())
+        } else {
+            Err(tl!("Download AI Remove in Preferences › AI › On-device Tools first.").into())
+        }
+    } else {
+        let (model, variant) = remove_engine(key);
+        status().ready(model, variant)
+    }
+}
+
+pub(crate) fn remove_readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    if let Err(why) = remove_ready(&app.ui.ai.remove_engine) {
+        if effective_remove_key(&app.ui.ai.remove_engine) == "lama" {
+            readiness_warning_to(app, ui, &why, tl!("On-device Tools…"), "ai.tools");
+        } else {
+            readiness_warning(app, ui, &why, status().connected);
+        }
+    }
+}
+
 /// The model behind an AI Remove engine key (`klein`, `qwen-int8`, `qwen-bf16`).
 pub fn remove_engine(key: &str) -> (ModelId, &'static str) {
     engine_for(key)
@@ -1074,6 +1111,11 @@ pub(crate) fn readiness(app: &mut PhotocraftApp, ui: &mut egui::Ui, model: Model
 }
 
 pub(crate) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, connected: bool) {
+    let label = if connected { tl!("Get models…") } else { tl!("Set up AI…") };
+    readiness_warning_to(app, ui, why, label, settings_ui::CONNECTION);
+}
+
+fn readiness_warning_to(app: &mut PhotocraftApp, ui: &mut egui::Ui, why: &str, label: &str, section: &str) {
     let t = Tokens::get(ui.ctx());
     let compact = ui.layout().main_dir().is_horizontal();
     let mut warning = |ui: &mut egui::Ui| {
@@ -1083,9 +1125,8 @@ pub(crate) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why:
         if !compact {
             ui.label(RichText::new(why).color(t.warning));
         }
-        let label = if connected { tl!("Get models…") } else { tl!("Set up AI…") };
         if widgets::secondary_button(ui, label, 0.0).clicked() {
-            open_local_ai(app);
+            crate::prefs_ui::open_preferences(app, section);
         }
     };
     if compact {
@@ -1817,7 +1858,7 @@ mod tests {
     fn settings_lists_one_row_per_function() {
         let dir = temp_dir("rows");
         let h = seg_harness(&dir, None);
-        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces", "Raw Denoise", "RGB Denoise"] {
+        for title in ["Subject & Background", "Sky", "Depth", "Smart Sort (scenes)", "Faces", "Raw Denoise", "RGB Denoise", "AI Remove"] {
             h.get_by_label(title);
         }
         for model in [
@@ -1827,6 +1868,7 @@ mod tests {
             "Depth Anything V2 Small",
             "CLIP ViT-B-32 LAION",
             "YuNet + SFace",
+            "LaMa · On-device",
         ] {
             h.get_by_label(model);
         }
@@ -1834,7 +1876,7 @@ mod tests {
             assert!(h.query_by_label(gone).is_none(), "{gone} is still listed");
         }
         assert_eq!(h.get_all_by_label("Custom model…").count(), 3);
-        assert_eq!(h.get_all_by_label("Download").count(), 8);
+        assert_eq!(h.get_all_by_label("Download").count(), 9);
         for title in ["Upscale Faithful", "Upscale Rescue", "Generative"] {
             h.get_by_label(title);
         }
@@ -2402,4 +2444,45 @@ fn dsfix_subject_quality_refresh_is_change_driven() {
     assert!(!subject_quality_changed(&mut previous, "better"));
     previous = None; // Local AI settings refresh invalidates the cache.
     assert!(subject_quality_changed(&mut previous, "better"));
+}
+
+#[cfg(test)]
+mod lama_screens {
+    use super::*;
+    use egui_kittest::Harness;
+    #[test]
+    #[ignore = "real RTX 5090 offscreen screenshots; run explicitly"]
+    fn lama_model_manager_rtx5090_screens() {
+        let _gpu_gate = crate::gpu_test_support::lock();
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lama/ui");
+        std::fs::create_dir_all(&root).unwrap();
+        for theme in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::StudioLight] {
+            for width in [250.0, 400.0] {
+                for scale in [1.0, 1.5] {
+                    let mut h = Harness::builder()
+                        .with_size(vec2(width, 460.0))
+                        .with_pixels_per_point(scale)
+                        .renderer(crate::prefs_ui::design_system_shots::renderer())
+                        .build_ui(|ui| {
+                            if !crate::prefs_ui::design_system_shots::fonts_ready(ui) {
+                                return;
+                            }
+                            crate::theme::apply(ui.ctx(), theme);
+                            let t = Tokens::get(ui.ctx());
+                            model_function_row(
+                                ui,
+                                &t,
+                                &BTreeMap::new(),
+                                std::path::Path::new("/nonexistent-lama-screens"),
+                                li_seg::Group::Remove,
+                                &li_seg::lama::MODEL,
+                                true,
+                            );
+                        });
+                    h.run_steps(6);
+                    h.render().unwrap().save(root.join(format!("model-{theme:?}-{width}-{scale}.png"))).unwrap();
+                }
+            }
+        }
+    }
 }

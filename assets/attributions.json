@@ -7315,6 +7315,18 @@
             "licenses/restoration-scratches-NOTICE.md"
           ],
           "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE"
+        },
+        {
+          "name": "LaMa · On-device",
+          "author": "Samsung Research; Carve-Photos ONNX export",
+          "used_for": "On-device AI Remove in Compositing and Develop: unmodified FP32 big-LaMa ONNX through tract, with brush → adjust → confirm and the existing undo/patch store. Downloaded separately; no weights bundled.",
+          "ours": "crates/li-seg/src/lama.rs; crates/li-ai/src/ops.rs",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lama-Apache-2.0.txt",
+            "licenses/lama-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/Carve/LaMa-ONNX/tree/c3c0c9e468934d62e79c329e35d82dd09ff8c444"
         }
       ]
     },

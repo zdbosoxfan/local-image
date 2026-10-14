@@ -53,7 +53,9 @@ fn has_selection(s: &Session) -> std::result::Result<(), String> {
 
 /// `engine` param: `klein` (default), `qwen-int8`, `qwen-bf16`.
 fn remove_engine(p: &Value) -> RemoveEngine {
-    match p.get("engine").and_then(Value::as_str).unwrap_or("klein") {
+    match p.get("engine").and_then(Value::as_str).unwrap_or("auto") {
+        "auto" => RemoveEngine::Auto { models_dir: crate::seg::models_dir() },
+        "lama" => RemoveEngine::Lama { models_dir: crate::seg::models_dir() },
         "qwen-bf16" => RemoveEngine::Qwen { variant: "bf16".into() },
         "qwen-int8" | "qwen" => RemoveEngine::Qwen { variant: "int8".into() },
         _ => RemoveEngine::Klein,
@@ -361,7 +363,8 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
     let engine = remove_engine(p);
     let seed = seed(p);
     let label = match engine {
-        RemoveEngine::Klein => "AI Remove",
+        RemoveEngine::Auto { .. } | RemoveEngine::Klein => "AI Remove",
+        RemoveEngine::Lama { .. } => "AI Remove (On-device)",
         RemoveEngine::Qwen { .. } => "AI Remove (Qwen)",
     };
     crate::jobs::run(
@@ -373,7 +376,7 @@ fn ai_remove(s: &mut Session, p: &Value) -> Result<Value> {
             let local = GrayImage::from_fn(region.width(), region.height(), |x, y| {
                 Luma([mask[(region.y0 as usize + y as usize) * size.width as usize + region.x0 as usize + x as usize]])
             });
-            let out = bridged(ctx, |ctl| li_ai::service().remove_objects(&rgb, &local, &engine, seed, ctl))?;
+            let out = bridged(ctx, |ctl| li_ai::service().remove_patch(&rgb, &local, &engine, seed, ctl))?;
             // Only the cleaned selection changed; its coverage becomes the new layer's alpha.
             let cleaned = li_ai::imaging::clean_selection_mask(&local);
             ctx.check()?;
@@ -735,7 +738,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "AI Remove",
             menu: &[],
             shortcut: None,
-            params: r#"{"points"?: [[x,y,pressure]], "size"?: px, "hardness"?: 0-100, "engine"?: "klein"|"qwen-int8"|"qwen-bf16", "seed"?: int} — without points, removes the selection"#,
+            params: r#"{"points"?: [[x,y,pressure]], "size"?: px, "hardness"?: 0-100, "engine"?: "auto"|"lama"|"klein"|"qwen-int8"|"qwen-bf16", "seed"?: int} — without points, removes the selection"#,
             enabled: has_doc,
             run: ai_remove,
             journal: true,
@@ -1081,4 +1084,64 @@ mod tests {
         assert_eq!(s.documents().len(), before);
         li_ai::set_service_override(None);
     }
+}
+
+/// Real local inference followed by the actual compositor and document undo/redo path.
+#[cfg(test)]
+#[test]
+#[ignore = "requires pinned LaMa under LOCAL_IMAGE_SEG_MODELS and real RTX 5090 Vulkan"]
+fn lama_real_rtx5090_patch_undo_redo_parity() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends: wgpu::Backends::VULKAN, ..wgpu::InstanceDescriptor::new_without_display_handle() });
+    let adapter = pollster::block_on(
+        instance.request_adapter(&wgpu::RequestAdapterOptions { power_preference: wgpu::PowerPreference::HighPerformance, ..Default::default() }),
+    )
+    .expect("real RTX 5090 required");
+    let info = adapter.get_info();
+    assert_eq!(info.backend, wgpu::Backend::Vulkan);
+    assert_eq!(info.device_type, wgpu::DeviceType::DiscreteGpu);
+    assert!(info.name.contains("RTX 5090"), "{info:?}");
+    eprintln!("LaMa compositor adapter: {info:?}");
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+    let mut gpu = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lama/photos/portrait.jpg");
+    let input = image::imageops::resize(&image::open(source).unwrap().to_rgba8(), 320, 240, image::imageops::FilterType::Lanczos3);
+    let format = photocraft_color::PixelFormat::RGBA8;
+    let mut doc = Document::new("CC0 LaMa GPU test", Size::new(320, 240), photocraft_color::ColorMode::Rgb, photocraft_color::SampleType::U8);
+    let mut layer = Layer::raster("CC0 source", format);
+    *layer.surface_mut().unwrap() = Surface::from_interleaved(format, doc.bounds(), input.as_raw());
+    doc.layers.push(layer);
+    let mut session = Session::new();
+    session.add_document(doc, None);
+    let before = session.active().unwrap().doc.clone();
+    let start = std::time::Instant::now();
+    let result = session.execute("ai.remove", json!({"engine":"lama","points":[[160.0,120.0,1.0]],"size":32.0,"hardness":75})).unwrap();
+    let seconds = start.elapsed().as_secs_f64();
+    assert!(result["layer"].is_u64());
+    let repaired = session.active().unwrap().doc.clone();
+    let mut check = |doc: &Document| {
+        let cpu = photocraft_compose::flatten(doc);
+        let pixels = photocraft_gpu::render_to_vec(&mut gpu, &device, &queue, doc, doc.bounds()).unwrap();
+        let max = cpu
+            .px
+            .iter()
+            .zip(&pixels)
+            .flat_map(|(a, b)| {
+                (0..4).map(move |c| {
+                    let x = if c == 3 { a[c] } else { a[c] * a[3] };
+                    (x - b[c]).abs()
+                })
+            })
+            .fold(0f32, f32::max);
+        assert!(max <= 0.5 / 255.0, "GPU max difference {max}");
+        eprintln!("LaMa GPU max difference {max}");
+    };
+    check(&repaired);
+    session.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(session.active().unwrap().doc, before);
+    check(&before);
+    session.execute("edit.redo", json!({})).unwrap();
+    assert_eq!(session.active().unwrap().doc, repaired);
+    check(&repaired);
+    eprintln!("actual ai.remove (CPU LaMa + layer) {seconds:.3}s; GPU patch undo/redo passed");
 }

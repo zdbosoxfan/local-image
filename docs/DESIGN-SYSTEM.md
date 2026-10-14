@@ -104,6 +104,8 @@ file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/
 | Widget | Purpose and usage | Line |
 | --- | --- | --- |
 | `card` / `card_ex` | Dock card with pill-tab header, collapsible; `card(ui, id, &tabs, &mut sel, \|ui, i\| ..)` | 37 / 59 |
+| `module_switcher` | Shared title-bar module picker; the first control in the right-to-left group in every module/persona | widgets.rs |
+| `preferences_tab` | Shared accessible Preferences navigation for application, Library/Develop and AI pages | widgets.rs |
 | `pill_tab` (`_translated`) | One tab in a strip or a two-way switch: `pill_tab(ui, "Layers", on)` | 141 |
 | `surface` | Flat or Classic-bevelled box behind custom content | 22 |
 | `drop_line` | Accent insertion line while dragging onto a row | 10 |
@@ -138,13 +140,16 @@ Also in `pc-ui-egui/src/icons.rs`: `icons::button` (`:235`, square icon button),
 | Widget | Purpose and usage | Line |
 | --- | --- | --- |
 | `slider` / `numeric_slider` | Lightroom slider row: label, value, ring thumb; double-click resets, Shift fine | 147 / 162 |
-| `section_header` | Collapsible 52 pt panel section: `section_header(ui, id, "Light", open, enabled)` | 355 |
+| `section_header` | Collapsible 52 pt panel section: `section_header(ui, id, "Basic", open, enabled)` | 355 |
 | `disclosure` | One-line chevron + title for a fold inside a panel; `DISCLOSURE_H` 24 | 548 |
 | `flyout_row` | Inset row with icon tile that opens a sub-editor (Curve, Color Mixer) | 396 |
 | `text_button` | Small bordered text button (Auto, B&W); shared `TEXT_BUTTON_H` for virtualized rows | 421 |
 | `segmented` | Equal-width segmented control, `per_row` wraps | 445 |
 | `icon_button` / `icon_button_as` | Icon-only button; `_as` keeps a legacy automation id like `button:layerNew` | 480 / 486 |
 | `tool_button` | Tool-strip button with tool image | 490 |
+| `modal` | Shared Preferences fallback with a stable top anchor and egui modal focus/backdrop | widgets.rs |
+| `panel_content` | Standard inset for Develop section content and Add tool actions (`theme::PANEL_CONTENT_MARGIN`) | widgets.rs |
+| `checkbox`, `choice_menu` | Shared Preferences checkbox and dropdown shell; callers retain legacy automation IDs | widgets.rs |
 | `dropdown` | Borderless text + chevron button that opens a menu | 710 |
 | `color_swatch` | Colour sample tile, optionally a selectable choice; `SWATCH_RADIUS` 3 | 587 |
 | `range_strip` | Caption over a colour strip with selected window(s) outlined; `RANGE_STRIP_H` 14 | 620 |
@@ -271,3 +276,9 @@ In practice: no `Color32::from_rgb` or `from_gray` in chrome, no `rect_filled` f
 `ui.checkbox`/`ComboBox`/`ui.button` where `widgets::` has one, no private copy of a widget in a panel file.
 A new widget goes in `widgets.rs` with a doc comment saying what it is for and where it is used, themes
 through tokens, names itself for accessibility, and replaces every ad hoc copy in the same change.
+
+Shared navigation metrics retain the existing pill typography/padding/height as
+`PILL_TAB_FONT_SIZE`, `PILL_TAB_PADDING`, `PILL_TAB_HEIGHT`. Preferences navigation uses
+`PREFERENCES_TAB_HEIGHT`, `PREFERENCES_TAB_INSET`, `PREFERENCES_TAB_TEXT_MARGIN`.
+Library Preferences rows share `PREFERENCES_BODY_WIDTH`; choices use `BUTTON_FONT_SIZE`,
+`CONTROL_FONT_SIZE` and `DROPDOWN_ARROW_SPACE`. These metrics preserve the existing visual sizes.

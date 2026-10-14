@@ -160,9 +160,8 @@ impl Segmenter {
     /// Whether the model's files are in place.
     pub fn installed(&self) -> bool {
         #[cfg(feature = "sam")]
-        if let Some(dir) = &self.dir {
-            return lightcraft_segment::is_model_dir(dir);
-        }
+        return lightcraft_segment::is_model_dir(&self.dir.clone().unwrap_or_else(|| lightcraft_sysmem::app_dirs::models_root().join("sam3")));
+        #[cfg(not(feature = "sam"))]
         false
     }
 
@@ -230,7 +229,7 @@ impl Segmenter {
         if !Self::AVAILABLE {
             return Err("AI masks are not available in this build".into());
         }
-        let dir = self.dir.clone().ok_or("no folder is set for the SAM 3 model")?;
+        let dir = self.dir.clone().unwrap_or_else(|| lightcraft_sysmem::app_dirs::models_root().join("sam3"));
         if self.installed() {
             return Ok(dir);
         }
@@ -252,7 +251,7 @@ impl Segmenter {
         if !Self::AVAILABLE {
             return Err("AI masks are not available in this build".into());
         }
-        let dir = self.dir.clone().ok_or("no folder is set for the SAM 3 model")?;
+        let dir = self.dir.clone().unwrap_or_else(|| lightcraft_sysmem::app_dirs::models_root().join("sam3"));
         if self.installed() {
             return Ok(false);
         }
