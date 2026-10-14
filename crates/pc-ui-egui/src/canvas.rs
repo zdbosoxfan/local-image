@@ -3467,10 +3467,16 @@ fn tool_event_with_pose(
                 // local-image: Red Eye, on a click.
                 Tool::RedEye => {
                     let o = &app.ui.tool_options;
-                    let p = json!({"x": x.floor(), "y": y.floor(), "pupilSize": o.red_eye_pupil, "darken": o.red_eye_darken});
+                    let pet = o.red_eye_pet;
+                    let p = json!({"x": x.floor(), "y": y.floor(), "pupilSize": o.red_eye_pupil, "darken": o.red_eye_darken, "pet": pet, "catchlight": o.red_eye_catchlight});
                     match app.run("paint.redEye", p) {
                         Ok(r) if r["changed"] == false => {
-                            app.ui.status = "No red eye found there: click on the red pupil.".into();
+                            app.ui.status = if pet {
+                                "No pet eye glow found there: click on the glowing pupil."
+                            } else {
+                                "No red eye found there: click on the red pupil."
+                            }
+                            .into();
                             app.ui.status_error = false;
                         }
                         Err(e) => {

@@ -594,7 +594,8 @@ mod tests {
         "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
     ];
 
-    const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop"];
+    // J26: the editor's Red Eye tool gained Lightroom's Pet Eye (translations deferred).
+    const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop", "Pet Eye", "Add Catchlight", "Click a pet's glowing pupil"];
 
     const PENDING_AI_TRANSLATIONS: &[&str] = &[
         "Automatic",
