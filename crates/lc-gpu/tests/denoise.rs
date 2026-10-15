@@ -78,6 +78,27 @@ fn ai_denoise_gpu_transpose_and_shuffle() {
 #[ignore = "approved pinned model copies required; run explicitly on the RTX 5090"]
 fn ai_denoise_real_models_match_tract_on_5090() {
     let _gpu = support::lock();
+    real_models_match_tract();
+    assert!(lightcraft_gpu::adapter_name().unwrap().contains("5090"));
+}
+
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[test]
+#[ignore = "approved pinned model copies and physical Apple Silicon Metal GPU required; run explicitly"]
+fn ai_denoise_real_models_match_tract_on_apple_silicon() {
+    let _gpu = support::lock();
+    let name = lightcraft_gpu::adapter_name().expect("physical Apple Silicon Metal GPU is required");
+    let shared = li_gpu::device::current().expect("production GPU context must register its shared device");
+    let info = shared.adapter.get_info();
+    assert!(info.name.contains("Apple"), "Apple Silicon adapter required: {info:?}");
+    assert_eq!(info.backend, wgpu::Backend::Metal, "Metal backend required: {info:?}");
+    assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "software adapters do not count: {info:?}");
+    assert_eq!(name, format!("{} ({:?})", info.name, info.backend), "denoiser and production shared device must identify the same adapter");
+    eprintln!("Apple Silicon denoise parity: adapter {info:?}, shared device {}", shared.id());
+    real_models_match_tract();
+}
+
+fn real_models_match_tract() {
     for kind in [Variant::Linear, Variant::Bayer, Variant::Rgb] {
         let dir = std::env::var_os("LOCAL_IMAGE_DENOISE_MODELS").map(std::path::PathBuf::from).expect("set model-test directory");
         let path = li_seg::companion_path(&dir, kind.file());
@@ -108,7 +129,6 @@ fn ai_denoise_real_models_match_tract_on_5090() {
         );
         assert!(max < peak.max(1.) * 2e-4 && rms < peak.max(1.) as f64 * 2e-5, "{kind:?}: mismatch {max} / {peak}");
     }
-    assert!(lightcraft_gpu::adapter_name().unwrap().contains("5090"));
 }
 
 #[test]

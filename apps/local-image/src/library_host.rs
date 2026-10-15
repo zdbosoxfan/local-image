@@ -1711,6 +1711,14 @@ impl eframe::App for Host {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // Native menu synchronization may create the Library before the first frame. The
+        // editor queues our named font families in that frame's logic, and egui activates
+        // them on the next pass. Shared title/dialog controls need the same first-frame
+        // admission as the editor UI, even when an eagerly created Library owns the canvas.
+        if self.frames <= 1 {
+            ui.ctx().request_repaint();
+            return;
+        }
         crate::monitor_profile::configure_surface(frame, &self.editor.session.color);
         self.shared_shell(ui.ctx());
         if self.mode == Module::Compositing || self.library.is_none() {
@@ -3001,6 +3009,49 @@ mod tests {
         fn pixel_at(&self, pos: egui::Pos2) -> egui::Color32 {
             let img = self.view.paint(&self.host.library.as_ref().unwrap().renderer.cpu_textures());
             img.pixels[pos.y as usize * img.size[0] + pos.x as usize]
+        }
+    }
+
+    #[test]
+    fn native_library_startup_waits_for_the_first_named_font_pass() {
+        use eframe::App;
+        use li_commands::menu::{Backend, Event, MenuBar};
+        use photocraft_ui_egui::native_menu::NativeMenu;
+        struct Menu;
+        impl Backend for Menu {
+            fn sync(&mut self, _: &MenuBar) {}
+            fn drain(&mut self) -> Vec<Event> {
+                Vec::new()
+            }
+        }
+        for kind in [photocraft_ui_egui::theme::ThemeKind::ProMedium, photocraft_ui_egui::theme::ThemeKind::StudioLight] {
+            for mode in [Module::Library, Module::Develop] {
+                let (dir, mut host) = workflow_host("native-library-font-startup");
+                workflow_theme(&mut host, kind);
+                host.mode = mode;
+                set_library_view(host.library.as_mut().unwrap(), mode == Module::Develop);
+                host.editor.custom_titlebar = true;
+                host.editor.services.native_menu = Some(NativeMenu::new(Box::new(Menu)));
+                // Unlike RoundTripUi, the native creator has not preinstalled any fonts.
+                let ctx = egui::Context::default();
+                host.sync_native_menu(&ctx);
+                assert!(host.library.is_some(), "native menu synchronization eagerly opens Library");
+                let mut frame = eframe::Frame::_new_kittest();
+                for pass in 0..2 {
+                    let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(1200., 900.), 1., pass as f64 / 60., vec![]);
+                    let mut output = ctx.run_ui(raw, |ui| {
+                        let medium_active = ui.ctx().fonts(|fonts| fonts.definitions().families.contains_key(&egui::FontFamily::Name("medium".into())));
+                        assert_eq!(medium_active, pass > 0, "{kind:?}/{mode:?}: fonts become active after the first pass");
+                        host.logic(ui.ctx(), &mut frame);
+                        host.ui(ui, &mut frame);
+                    });
+                    output.textures_delta.clear();
+                    let title_drawn = ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new(("host-mode-rect", mode.digit())))).is_some();
+                    assert_eq!(title_drawn, pass > 0, "{kind:?}/{mode:?}: shared title waits for installed fonts");
+                }
+                drop(host);
+                std::fs::remove_dir_all(dir).unwrap();
+            }
         }
     }
 
@@ -4611,16 +4662,20 @@ mod tests {
                 let mut view = lightcraft_ui_egui::headless::HeadlessView::new();
                 app.set_host_theme(library_palette(kind));
                 app.restyle(&view.ctx);
+                view.ctx.global_style_mut(|style| style.animation_time = 0.0);
                 let canvas = egui::Rect::from_min_max(egui::pos2(10., 10.), egui::pos2(630., 300.));
                 app.canvas_rect = Some(canvas);
                 app.ui.toast = Some(("Versions Off".into(), 2.));
                 let mut rectangles = Vec::new();
-                let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(640., 320.), 1., 0.1, vec![]);
-                view.run(raw, |ui| {
-                    ui.painter().rect_filled(canvas, 0., background);
-                    lightcraft_ui_egui::panels::toast(&mut app, ui.ctx());
-                    rectangles = lightcraft_ui_egui::widgets::take_registry(ui.ctx());
-                });
+                // Shared egui Areas need their sizing/font frames before visual assertions.
+                for _ in 0..4 {
+                    let raw = lightcraft_ui_egui::headless::HeadlessView::raw_input(egui::vec2(640., 320.), 1., 0.1, vec![]);
+                    view.run(raw, |ui| {
+                        ui.painter().rect_filled(canvas, 0., background);
+                        lightcraft_ui_egui::panels::toast(&mut app, ui.ctx());
+                        rectangles = lightcraft_ui_egui::widgets::take_registry(ui.ctx());
+                    });
+                }
                 let body = rectangles.iter().find(|(id, _)| id == "toast:body").unwrap().1;
                 let text = rectangles.iter().find(|(id, _)| id == "toast:text").unwrap().1;
                 assert!(canvas.contains_rect(body) && body.contains_rect(text));

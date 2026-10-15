@@ -11,8 +11,8 @@
 //!   … fh.autosave`;
 //! - or the JSON path as a string literal (`"fileHandling.autosave"`), for code that reads
 //!   preferences by path;
-//! - or `self.<snake_key>` in an inherent `impl` of the section's struct in `prefs.rs` (helpers
-//!   such as `TransparencyAndGamut::colors`).
+//! - or `self.<snake_key>` in an inherent `impl` of the section's struct, including its own
+//!   module or a shared crate (helpers such as `TransparencyAndGamut::colors`).
 
 use photocraft_engine::prefs::{HIDDEN_UNTIL_IMPLEMENTED, Preferences};
 use std::path::{Path, PathBuf};
@@ -44,12 +44,18 @@ fn has_ident(text: &str, prefix: &str, ident: &str) -> bool {
     })
 }
 
-/// Production source of a file: everything before its unit-test module.
+/// Production source of a file: everything before its inline unit-test module.
 fn production(text: &str) -> &str {
-    // Windows checkouts may use CRLF; test-only reads must stay excluded.
+    // External test modules have no body in this file and can precede production items (lib.rs).
+    // Only an inline test body ends the scan. Windows checkouts may use CRLF.
     let cut = ["#[cfg(test)]\nmod ", "#[cfg(test)]\r\nmod ", "#[cfg(test)]\npub mod ", "#[cfg(test)]\r\npub mod "]
         .into_iter()
-        .filter_map(|marker| text.find(marker))
+        .flat_map(|marker| {
+            text.match_indices(marker).filter_map(move |(index, _)| {
+                let declaration = &text[index + marker.len()..];
+                (declaration.chars().find(|&c| matches!(c, '{' | ';')) == Some('{')).then_some(index)
+            })
+        })
         .min()
         .unwrap_or(text.len());
     &text[..cut]
@@ -145,8 +151,10 @@ fn every_preference_is_read_or_hidden() {
                 let field = snake(k);
                 let path = format!("{section}.{k}");
                 let ty = section_types.iter().find(|(f, _)| *f == section_rs).map(|(_, t)| t.clone()).unwrap_or_default();
-                let in_helpers =
-                    !ty.is_empty() && struct_fields(&prefs_rs, &ty).contains(&field) && has_ident(&inherent_impls(&prefs_rs, &ty), "self.", &field);
+                let in_helpers = !ty.is_empty()
+                    && std::iter::once(&prefs_rs)
+                        .chain(sources.iter())
+                        .any(|source| struct_fields(source, &ty).contains(&field) && has_ident(&inherent_impls(source, &ty), "self.", &field));
                 let read =
                     in_helpers || sources.iter().any(|t| (has_ident(t, ".", &field) && has_ident(t, "", &section_rs)) || t.contains(&format!("\"{path}\"")));
                 (path, read)
@@ -199,5 +207,26 @@ fn production_excludes_test_modules_with_lf_or_crlf() {
 fn production_keeps_sources_without_a_test_module() {
     for source in ["", "fn a() {}\n", "// Préférences\r\nfn a() {}\r\n"] {
         assert_eq!(production(source), source);
+    }
+}
+
+#[test]
+fn production_keeps_reads_after_external_test_modules_and_excludes_inline_tests() {
+    for newline in ["\n", "\r\n"] {
+        for visibility in ["", "pub "] {
+            let prefix = format!(
+                "#[cfg(test)]{newline}{visibility}mod translations_tests;{newline}\
+                 fn live() {{ let _ = p.file_handling.recent_file_count; let _ = p.performance.cache_tile_size; }}{newline}"
+            );
+            assert_eq!(production(&prefix), prefix);
+            let source = format!(
+                "{prefix}#[cfg(test)]{newline}{visibility}mod inline_tests {{{newline}\
+                     fn test_only() {{ let _ = p.type_.smart_quotes; }}{newline}}}{newline}"
+            );
+            assert_eq!(production(&source), prefix);
+            assert!(has_ident(production(&source), ".", "recent_file_count"));
+            assert!(has_ident(production(&source), ".", "cache_tile_size"));
+            assert!(!has_ident(production(&source), ".", "smart_quotes"));
+        }
     }
 }

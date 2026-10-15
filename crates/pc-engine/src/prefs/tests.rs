@@ -221,7 +221,13 @@ fn menus_and_toolbar_customisation_persist() {
 fn preference_sections_are_commands() {
     let mut s = Session::new();
     for (id, title) in SECTIONS {
-        let r = s.execute(&format!("edit.preferences.{id}"), json!({})).unwrap();
+        let result = s.execute(&format!("edit.preferences.{id}"), json!({}));
+        if id == "integrations" {
+            // The hidden storage section remains, but its obsolete UI alias was retired.
+            assert!(matches!(result, Err(crate::EngineError::UnknownCommand(_))));
+            continue;
+        }
+        let r = result.unwrap();
         assert_eq!(r["section"], id);
         assert_eq!(r["title"], title);
         assert!(r["values"].is_object(), "{id}");

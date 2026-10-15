@@ -131,8 +131,8 @@ fn preferences_persist_with_the_library() {
     let mut s = Session::new().with_fs();
     s.open_library(&lib, false).unwrap();
     assert_eq!(s.export_params(&json!({"preset": "Proof"})).unwrap(), json!({"format": "jpeg", "percent": 25}));
-    // older prefs.json files (snake_case `last_export`, no import section) still load
-    std::fs::write(lib.join("prefs.json"), r#"{"xmp": {"autoWrite": false}, "last_export": {"format": "png"}}"#).unwrap();
+    // Sparse current preferences retain the last export and default the omitted import section.
+    std::fs::write(lib.join("prefs.json"), r#"{"xmp": {"autoWrite": false}, "lastExport": {"format": "png"}}"#).unwrap();
     drop(s);
     let mut s = Session::new().with_fs();
     s.open_library(&lib, false).unwrap();

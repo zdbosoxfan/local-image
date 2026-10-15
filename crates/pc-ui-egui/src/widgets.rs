@@ -663,6 +663,58 @@ fn product(s: &str) -> Option<f64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn shared_checkbox_has_one_accessible_control_for_box_and_text() {
+        use egui_kittest::{
+            Harness,
+            kittest::{NodeT, Queryable},
+        };
+        for profile in [li_ui_kit::widgets::Profile::Editor, li_ui_kit::widgets::Profile::Library] {
+            let mut h = Harness::builder().with_size(egui::vec2(360.0, 120.0)).build_ui_state(
+                move |ui, state: &mut (bool, bool)| {
+                    if state.0 {
+                        li_ui_kit::widgets::checkbox(ui, &mut state.1, "Sample All Layers", profile);
+                        ui.add_enabled_ui(false, |ui| {
+                            li_ui_kit::widgets::checkbox(ui, &mut false, "Unavailable", profile);
+                        });
+                        let _ = ui.button("Next");
+                    }
+                },
+                (false, false),
+            );
+            crate::PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+            h.state_mut().0 = true;
+            h.run();
+            let control = h.get_by_label("Sample All Layers");
+            assert_eq!(control.accesskit_node().role(), egui::accesskit::Role::CheckBox);
+            assert_eq!(control.accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+            assert!(h.get_by_label("Unavailable").accesskit_node().is_disabled());
+            let rect = control.rect();
+            // Both the box and the end of the text activate the same labelled control.
+            for (at, checked) in [(egui::pos2(rect.left() + 7.0, rect.center().y), true), (egui::pos2(rect.right() - 3.0, rect.center().y), false)] {
+                h.hover_at(at);
+                h.run_steps(1);
+                h.drag_at(at);
+                h.run_steps(1);
+                h.drop_at(at);
+                h.run_steps(2);
+                assert_eq!(h.state().1, checked);
+                assert_eq!(
+                    h.get_by_label("Sample All Layers").accesskit_node().toggled(),
+                    Some(if checked { egui::accesskit::Toggled::True } else { egui::accesskit::Toggled::False })
+                );
+            }
+            h.get_by_label("Sample All Layers").focus();
+            h.run_steps(1);
+            h.key_press(egui::Key::Space);
+            h.run_steps(2);
+            assert!(h.state().1, "keyboard activation uses the checkbox's accessible id");
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+            assert!(h.get_by_label("Next").accesskit_node().is_focused(), "the checkbox text must not create a second Tab stop");
+        }
+    }
+
     /// A right-aligned OK / Cancel / Apply row as `os` draws it: labels left to right, and the
     /// row's right edge with the window's.
     fn button_row(os: egui::os::OperatingSystem) -> (Vec<String>, f32, f32) {

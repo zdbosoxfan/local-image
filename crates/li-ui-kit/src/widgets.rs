@@ -324,8 +324,16 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str, profile: Profile) -> Re
                     StrokeKind::Inside,
                 );
             }
-            let l = ui.add(egui::Label::new(egui::RichText::new(label).color(t.text_dim)).sense(Sense::click()));
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label));
+            // The text belongs to the checkbox, so expose one accessible control for the
+            // complete hit target. Adding a Label widget here would also announce a separate
+            // node with the same name (and make automation by label ambiguous).
+            let (text_pos, galley, l) =
+                egui::Label::new(egui::RichText::new(label).color(t.text_dim)).sense(Sense::click() - Sense::FOCUSABLE).layout_in_ui(ui);
+            if ui.is_rect_visible(l.rect) {
+                let response_color = ui.style().interact(&l).text_color();
+                let underline = if l.has_focus() || l.highlighted() { Stroke::new(1.0, response_color) } else { Stroke::NONE };
+                ui.painter().add(egui::epaint::TextShape::new(text_pos, galley, response_color).with_underline(underline));
+            }
             resp.union(l)
         })
         .inner;
@@ -333,6 +341,7 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str, profile: Profile) -> Re
         *on = !*on;
         resp.mark_changed();
     }
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *on, label));
     resp
 }
 

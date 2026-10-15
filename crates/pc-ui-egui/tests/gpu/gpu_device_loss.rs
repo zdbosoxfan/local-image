@@ -1,7 +1,8 @@
 //! A lost wgpu device must not take the app down (#243): the GPU canvas stops issuing GPU work,
 //! the app falls back to the CPU canvas for the rest of the session with a notice, and the
-//! documents stay. Both an injected loss and a real `Device::destroy()` are covered. Skips when
-//! there is no GPU adapter.
+//! documents stay. Recoverable compute errors keep the window device alive to display CPU
+//! uploads while acceleration waits for retry. Both an injected loss and a real
+//! `Device::destroy()` are covered. Skips when there is no GPU adapter.
 
 use eframe::egui_wgpu::RenderState;
 use li_gpu::health::Fault;
@@ -176,10 +177,16 @@ fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
     assert!(g.recover_transient_errors());
     let retried = g.refresh(key, &d, None, None);
     assert_eq!(retried.kind, "full");
-    assert!(retried.fallback.as_deref().unwrap().contains("retrying this frame on the CPU"));
+    assert!(retried.fallback.as_deref().unwrap().contains("paused for recovery; using the CPU compositor"));
     assert!(g.fault().is_none());
+    assert!(g.health().can_present(), "CPU uploads remain visible during backoff");
+    assert!(!g.health().can_render(), "acceleration remains paused during backoff");
     assert_eq!(g.refresh(key, &d, None, None).kind, "full", "backoff keeps compute on CPU");
     std::thread::sleep(std::time::Duration::from_millis(4100));
+    // The shell calls this admission check before refreshing a production canvas.
+    g.resume_compute_after_backoff();
+    assert!(g.health().can_render());
+    assert_eq!(g.refresh(key, &d, None, None).kind, "full", "the invalidated refresh is retried once on CPU");
     assert_eq!(g.refresh(key, &d, None, None).kind, "gpu-full", "automatic retry after backoff");
     assert!(!g.recover_transient_errors());
     let (_, _, pixels) = g.read_texels(key).unwrap();
@@ -187,7 +194,7 @@ fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
 }
 
 #[test]
-fn validation_errors_in_three_frames_disable_the_canvas() {
+fn validation_errors_in_three_frames_pause_compute_and_keep_the_canvas() {
     let _gpu = gpu_lock();
     let Some(rs) = render_state() else { return };
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
@@ -195,12 +202,23 @@ fn validation_errors_in_three_frames_disable_the_canvas() {
     app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
     let health = app.gpu_health().unwrap().clone();
     for frame in 0..3 {
-        health
-            .uncaptured(&eframe::wgpu::Error::Validation { source: Box::new(std::io::Error::other("test")), description: "injected validation error".into() });
         app.frame = frame;
         app.check_gpu(&egui::Context::default());
-        assert_eq!(app.gpu_active(), frame < 2);
+        health
+            .uncaptured(&eframe::wgpu::Error::Validation { source: Box::new(std::io::Error::other("test")), description: "injected validation error".into() });
+        app.check_gpu(&egui::Context::default());
+        assert!(app.gpu_active(), "recoverable compute errors retain the window device");
     }
+    assert_eq!(health.strikes(), 3);
+    assert!(matches!(health.fault(), Some(Fault::Error(_))));
+    assert!(!health.can_render());
+    assert!(health.can_present());
     assert_eq!(app.session.documents().len(), 1);
-    assert_eq!(app.ui.status, gpu_status::ERROR_MESSAGE);
+    assert!(app.ui.gpu_fallback_notice.is_none(), "only terminal device loss requires the recovery notice");
+    health.retry_now();
+    app.check_gpu(&egui::Context::default());
+    assert!(app.gpu_active());
+    assert!(health.can_render());
+    assert!(health.fault().is_none());
+    assert!(app.gpu_health().unwrap().can_render(), "the shell observes retry on the same health flag");
 }

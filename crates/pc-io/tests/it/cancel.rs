@@ -59,5 +59,5 @@ fn cancelled_brush_import_fails() {
     assert_eq!(photocraft_io::abr_map::read_abr(&bytes, "g").unwrap().presets.len(), 2);
     let yes = || true;
     let r = photocraft_io::abr_map::read_abr_with(&bytes, "g", &Interrupt::cancel_only(&yes));
-    assert_eq!(r.err().as_deref(), Some("cancelled"));
+    assert_eq!(r.unwrap_err(), lightcraft_sysmem::jobs::Cancelled.to_string());
 }
