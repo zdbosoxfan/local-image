@@ -670,6 +670,169 @@ async fn new_from_clipboard_opens_the_copy_as_a_document() {
     client.cancel().await.unwrap();
 }
 
+/// Every tool, in both modes, tells the client whether it only reads, may destroy, or reaches
+/// beyond the local session (MCP tool annotations).
+#[tokio::test(flavor = "multi_thread")]
+async fn every_tool_carries_annotations() {
+    for server in [PhotocraftMcp::headless(), PhotocraftMcp::bridge("127.0.0.1:9", CONTROL_TOKEN).unwrap()] {
+        let client = connect(server).await;
+        let tools = client.list_all_tools().await.unwrap();
+        assert!(tools.len() > 20);
+        for t in &tools {
+            let a = t.annotations.as_ref().unwrap_or_else(|| panic!("{} has no annotations", t.name));
+            let read_only = a.read_only_hint.unwrap_or_else(|| panic!("{}: readOnlyHint", t.name));
+            assert!(a.open_world_hint.is_some(), "{}: openWorldHint", t.name);
+            if !read_only {
+                assert!(a.destructive_hint.is_some() && a.idempotent_hint.is_some(), "{}: {a:?}", t.name);
+            }
+        }
+        let get = |n: &str| tools.iter().find(|t| t.name == n).and_then(|t| t.annotations.clone()).unwrap_or_else(|| panic!("{n}"));
+        for n in ["session_list", "doc_inspect", "doc_render_preview", "command_list", "jobs_list", "ui_inspect", "ui_screenshot", "library_query_photos"] {
+            assert_eq!(get(n).read_only_hint, Some(true), "{n}");
+        }
+        for n in ["command_run", "command_batch", "doc_save", "doc_export", "library_command_run", "ui_pointer", "ui_menu_invoke", "ui_set", "control_call"] {
+            let a = get(n);
+            assert_eq!((a.read_only_hint, a.destructive_hint, a.idempotent_hint), (Some(false), Some(true), Some(false)), "{n}");
+        }
+        assert_eq!(get("command_run").open_world_hint, Some(true), "AI commands may reach a model server");
+        assert_eq!(get("doc_open").open_world_hint, Some(false));
+        client.cancel().await.unwrap();
+    }
+}
+
+/// Library commands that cannot be undone need `--allow-destructive`; soft deletes do not.
+#[tokio::test(flavor = "multi_thread")]
+async fn library_irreversible_commands_need_allow_destructive() {
+    let root = tmp("destructive");
+    write_image(&root, "a.png", photocraft_codecs::Format::Png);
+    for allow in [false, true] {
+        let client = connect(headless_in(&root).allow_destructive(allow)).await;
+        let imported = json_of(&call(&client, "library_import", json!({"paths": ["a.png"]})).await);
+        let id = imported["imported"][0].as_u64().expect("photo id");
+        let r = call(&client, "library_command_run", json!({"command": "photo.deletePermanently", "params": {"ids": [id]}})).await;
+        if allow {
+            assert_eq!(json_of(&r)["deleted"], 1);
+        } else {
+            assert_eq!(r.is_error, Some(true));
+            assert!(text(&r).contains("--allow-destructive"), "{}", text(&r));
+            // The soft delete stays available, and undoable.
+            json_of(&call(&client, "library_command_run", json!({"command": "photo.delete", "params": {"ids": [id]}})).await);
+            json_of(&call(&client, "library_command_run", json!({"command": "edit.undo"})).await);
+            let photos = json_of(&call(&client, "library_query_photos", json!({})).await);
+            assert_eq!(photos["photos"].as_array().map(Vec::len), Some(1), "the soft delete was undone: {photos}");
+        }
+        client.cancel().await.unwrap();
+    }
+    cleanup(&root);
+}
+
+/// A control server that records every method it receives and answers `ui.inspect` with `ui`.
+async fn recording_app(ui: Value) -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    let h = tokio::spawn(async move {
+        let (sock, _) = listener.accept().await.unwrap();
+        let (r, mut w) = sock.into_split();
+        let mut lines = BufReader::new(r).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let req: Value = serde_json::from_str(&line).unwrap();
+            let method = req["method"].as_str().unwrap_or("").to_owned();
+            let result = if method == "ui.inspect" { ui.clone() } else { json!({"method": method}) };
+            log.lock().unwrap().push(method);
+            w.write_all(format!("{}\n", json!({"id": req["id"], "ok": true, "result": result})).as_bytes()).await.unwrap();
+        }
+    });
+    (addr, seen, h)
+}
+
+/// The live desktop session holds the user's cloud API keys: the bridge refuses credential
+/// requests and, without `--allow-cloud-ai`, paid cloud generation, before anything is sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn bridge_guard_refuses_credentials_and_cloud_ai_before_sending() {
+    use photocraft_automation::BridgePolicy;
+    let generate_open = json!({"panels": {"generate": true}, "session": {"documents": [{"index": 0}]}, "dialogs": []});
+    let (addr, seen, app) = recording_app(generate_open.clone()).await;
+    let client = connect(PhotocraftMcp::bridge(&addr, CONTROL_TOKEN).unwrap()).await;
+    for (tool, args) in [
+        ("command_run", json!({"id": "prefs.get", "params": {"path": "ai.openai_api_key"}})),
+        ("command_run", json!({"id": "prefs.set", "params": {"path": "ai.openai_api_key", "value": "sk-x"}})),
+        ("ui_menu_invoke", json!({"id": "li.panel.generate"})),
+        ("ui_set", json!({"fields": {"panels": {"generate": true}}})),
+        ("control_call", json!({"method": "ui.menu.invoke", "params": {"id": "li.newFromPrompt"}})),
+        ("control_call", json!({"method": "ui.dialog.set", "params": {"dialog": 1, "field": "section", "value": "ai.providers"}})),
+        ("command_batch", json!({"steps": [{"id": "li.localAi"}]})),
+    ] {
+        let r = call(&client, tool, args.clone()).await;
+        let reply = text(&r);
+        assert!(r.is_error == Some(true) || reply.contains("\"ok\":false"), "{tool} {args}: {reply}");
+        assert!(reply.contains("bridge:"), "{tool} {args}: {reply}");
+    }
+    // Synthetic input is judged against the live UI: refused while Generate is open.
+    let r = call(&client, "control_call", json!({"method": "ui.click", "params": {"x": 10, "y": 10}})).await;
+    assert_eq!(r.is_error, Some(true));
+    assert!(text(&r).contains("Generate panel") && text(&r).contains("--allow-cloud-ai"), "{}", text(&r));
+    json_of(&call(&client, "command_run", json!({"id": "layer.new.layer"})).await);
+    assert_eq!(*seen.lock().unwrap(), ["auth", "ui.inspect", "engine.execute"], "denied requests never reached the app");
+    client.cancel().await.unwrap();
+    app.abort();
+
+    let (addr, seen, app) = recording_app(generate_open).await;
+    let client = connect(PhotocraftMcp::bridge_with_policy(&addr, CONTROL_TOKEN, BridgePolicy { allow_cloud_ai: true }).unwrap()).await;
+    json_of(&call(&client, "ui_menu_invoke", json!({"id": "li.panel.generate"})).await);
+    json_of(&call(&client, "control_call", json!({"method": "ui.click", "params": {"x": 10, "y": 10}})).await);
+    let r = call(&client, "command_run", json!({"id": "prefs.get", "params": {"path": "ai.openai_api_key"}})).await;
+    assert_eq!(r.is_error, Some(true), "credentials stay out of reach with --allow-cloud-ai");
+    assert_eq!(*seen.lock().unwrap(), ["auth", "ui.menu.invoke", "ui.inspect", "ui.click"]);
+    client.cancel().await.unwrap();
+    app.abort();
+}
+
+/// A control server whose first connection reads one request and closes without replying;
+/// later connections answer normally. Returns how many connections it accepted.
+async fn dropping_app() -> (String, tokio::task::JoinHandle<usize>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap().to_string();
+    let h = tokio::spawn(async move {
+        let mut accepted = 0;
+        while let Ok(Ok((sock, _))) = tokio::time::timeout(std::time::Duration::from_millis(300), listener.accept()).await {
+            accepted += 1;
+            let (r, mut w) = sock.into_split();
+            let mut lines = BufReader::new(r).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let req: Value = serde_json::from_str(&line).unwrap();
+                if req["method"] != "auth" && accepted == 1 {
+                    break;
+                }
+                w.write_all(format!("{}\n", json!({"id": req["id"], "ok": true, "result": {"method": req["method"]}})).as_bytes()).await.unwrap();
+            }
+        }
+        accepted
+    });
+    (addr, h)
+}
+
+/// A request that reached the app may have run: only read-only requests are repeated after a
+/// transport failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn bridge_retries_only_read_only_requests_after_a_transport_failure() {
+    use photocraft_automation::BridgeClient;
+    let (addr, app) = dropping_app().await;
+    let bridge = BridgeClient::new(&addr, CONTROL_TOKEN).unwrap();
+    let e = bridge.call("engine.execute", json!({"command": "layer.new.layer", "params": {}})).await.unwrap_err().to_string();
+    assert!(e.contains("may have completed") && e.contains("not retried"), "{e}");
+    drop(bridge);
+    assert_eq!(app.await.unwrap(), 1, "the edit was not sent again");
+
+    let (addr, app) = dropping_app().await;
+    let bridge = BridgeClient::new(&addr, CONTROL_TOKEN).unwrap();
+    let r = bridge.call("ui.inspect", json!({})).await.unwrap();
+    assert_eq!(r["method"], "ui.inspect");
+    drop(bridge);
+    assert_eq!(app.await.unwrap(), 2, "the read-only request was repeated on a fresh connection");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn command_batch_rejects_too_many_steps() {
     let client = connect(PhotocraftMcp::headless()).await;

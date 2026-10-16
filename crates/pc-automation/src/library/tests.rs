@@ -8,7 +8,7 @@ use lightcraft_engine::Session;
 use serde_json::{Value, json};
 
 use super::tools::{LibraryReply, call_tool, tool_definitions};
-use super::{LibraryHeadless, expand_paths, library_command_allowed};
+use super::{LibraryHeadless, expand_paths, library_command_allowed, library_command_destructive};
 use crate::AuthorizedWorkspace;
 
 type TestResult = std::result::Result<(), Box<dyn std::error::Error>>;
@@ -383,6 +383,53 @@ fn j05_untrusted_library_commands_are_deny_by_default() {
     // `library.import` through command_run takes the same workspace route as the helper.
     let r = json_of(call_tool(&mut lib, "library_command_run", &json!({"command": "library.import", "params": {"paths": ["shots/a.png"]}})));
     assert_eq!(r["files"], 1, "{r}");
+}
+
+#[test]
+fn untrusted_library_refuses_irreversible_commands_without_allow_destructive() {
+    let (_root, mut lib) = workspace("ws-destructive");
+    let r = json_of(call_tool(&mut lib, "library_import", &json!({"paths": ["shots"]})));
+    let ids: Vec<u64> = r["imported"].as_array().unwrap().iter().filter_map(Value::as_u64).collect();
+    assert_eq!(ids.len(), 2, "{r}");
+    let run = |lib: &mut LibraryHeadless, command: &str, params: Value| call_tool(lib, "library_command_run", &json!({"command": command, "params": params}));
+    for id in ["photo.deletePermanently", "album.delete", "keyword.delete", "keyword.merge", "preset.delete", "export.deletePreset"] {
+        assert!(library_command_allowed(id) && library_command_destructive(id), "{id}");
+        let e = run(&mut lib, id, json!({"ids": [ids[0]]})).unwrap_err();
+        assert!(e.contains("--allow-destructive") && e.contains(id), "{id}: {e}");
+    }
+    assert_eq!(json_of(call_tool(&mut lib, "library_query_photos", &json!({})))["photos"].as_array().unwrap().len(), 2, "nothing was removed");
+    // Soft, undoable operations stay available.
+    for id in ["photo.delete", "photo.restore", "photo.rate", "album.removePhotos", "history.clear"] {
+        assert!(!library_command_destructive(id), "{id}");
+    }
+    json_of(run(&mut lib, "photo.rate", json!({"ids": [ids[0]], "rating": 3})));
+    json_of(run(&mut lib, "photo.delete", json!({"ids": [ids[0]]})));
+    json_of(run(&mut lib, "photo.restore", json!({"ids": [ids[0]]})));
+
+    lib.set_allow_destructive(true);
+    let r = json_of(run(&mut lib, "photo.deletePermanently", json!({"ids": [ids[1]]})));
+    assert_eq!(r["deleted"], 1, "{r}");
+    // Trusted (CLI) sessions are not gated.
+    let mut trusted = demo();
+    assert!(!trusted.allow_destructive);
+    let first = json_of(call_tool(&mut trusted, "library_query_photos", &json!({})))["photos"][0]["id"].as_u64().unwrap();
+    json_of(run(&mut trusted, "photo.deletePermanently", json!({"ids": [first]})));
+}
+
+#[test]
+fn library_tool_definitions_carry_mcp_annotations() {
+    for t in tool_definitions() {
+        let a = &t["annotations"];
+        let n = t["name"].as_str().unwrap();
+        assert!(a["readOnlyHint"].is_boolean() && a["openWorldHint"] == false, "{n}: {a}");
+        if a["readOnlyHint"] == false {
+            assert!(a["destructiveHint"].is_boolean() && a["idempotentHint"].is_boolean(), "{n}: {a}");
+        }
+    }
+    let by_name = |n: &str| tool_definitions().into_iter().find(|t| t["name"] == n).unwrap()["annotations"].clone();
+    assert_eq!(by_name("library_command_run")["destructiveHint"], true);
+    assert_eq!(by_name("library_command_run")["idempotentHint"], false);
+    assert_eq!(by_name("library_query_photos")["readOnlyHint"], true);
 }
 
 #[test]

@@ -15,7 +15,8 @@
 //!   the catalog names files by their path below the read root. Library commands are
 //!   deny-by-default: only commands that never touch the filesystem run
 //!   ([`library_command_allowed`]); import, export and the write-target check are mapped to the
-//!   capabilities.
+//!   capabilities. Those that cannot be undone ([`library_command_destructive`]) also need
+//!   `--allow-destructive`.
 //! * **Trusted local** (the CLI's own arguments): host paths, every command.
 
 pub mod tools;
@@ -53,6 +54,9 @@ pub(crate) enum LibraryFs {
 pub struct LibraryHeadless {
     pub session: Session,
     fs: LibraryFs,
+    /// Untrusted sessions run [`library_command_destructive`] commands only when this is set
+    /// (`local-image-cli mcp --allow-destructive`).
+    allow_destructive: bool,
 }
 
 impl Drop for LibraryHeadless {
@@ -84,7 +88,7 @@ impl LibraryHeadless {
     /// A trusted Library around an existing session (tests, the demo library). The caller
     /// installs the session's file hooks.
     pub fn from_session(session: Session) -> Self {
-        Self { session, fs: LibraryFs::TrustedLocal }
+        Self { session, fs: LibraryFs::TrustedLocal, allow_destructive: false }
     }
 
     /// An in-memory Library whose files are read and written only through `workspace`.
@@ -99,11 +103,17 @@ impl LibraryHeadless {
             LibraryFs::TrustedLocal => session = session.with_fs(),
             LibraryFs::Workspace(ws) => install_workspace_hooks(&mut session, ws),
         }
-        Self { session, fs }
+        Self { session, fs, allow_destructive: false }
     }
 
     pub(crate) fn policy(&self) -> LibraryFs {
         self.fs.clone()
+    }
+
+    /// Let an untrusted session run the commands that cannot be undone
+    /// ([`library_command_destructive`]). Trusted sessions always run them.
+    pub fn set_allow_destructive(&mut self, allow: bool) {
+        self.allow_destructive = allow;
     }
 
     /// Whether this session takes host paths and runs every command (the CLI).
@@ -169,6 +179,11 @@ impl LibraryHeadless {
                 _ if !library_command_allowed(id) => {
                     return Err(format!(
                         "automation command `{id}` reads or writes files outside the automation roots and is disabled; use library_import, library_export and library_render_photo for files"
+                    ));
+                }
+                _ if library_command_destructive(id) && !self.allow_destructive => {
+                    return Err(format!(
+                        "automation command `{id}` cannot be undone and is disabled; start the MCP server with --allow-destructive to permit it (photo.delete moves photos to Recently Deleted and stays available)"
                     ));
                 }
                 _ => {}
@@ -531,6 +546,27 @@ pub fn library_command_allowed(id: &str) -> bool {
         "enhance.cancel",
     ];
     EXACT.contains(&id) || FAMILIES.iter().any(|f| id.starts_with(f))
+}
+
+/// Allowed Library commands whose effect cannot be undone: they bypass Recently Deleted, or
+/// remove presets, keywords, keyword and label sets or albums for good. An untrusted session
+/// runs them only with [`LibraryHeadless::set_allow_destructive`]; soft, undoable operations
+/// (`photo.delete` to Recently Deleted, ratings, develop edits) are not listed.
+pub fn library_command_destructive(id: &str) -> bool {
+    matches!(
+        id,
+        "photo.deletePermanently"
+            | "album.delete"
+            | "keyword.delete"
+            | "keyword.merge"
+            | "keyword.deleteSet"
+            | "label.deleteSet"
+            | "preset.delete"
+            | "curve.deletePreset"
+            | "filter.deletePreset"
+            | "metadata.deletePreset"
+            | "export.deletePreset"
+    )
 }
 
 /// Expand folders (recursively, sorted) into photo files and make paths absolute (host paths;
