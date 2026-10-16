@@ -14,6 +14,7 @@ photocraft-vector.workspace = true
 photocraft-pathops.workspace = true
 photocraft-text.workspace = true
 photocraft-compose.workspace = true
+photocraft-export-common.workspace = true
 image.workspace = true
 kurbo.workspace = true
 base64 = "=0.22.1"
