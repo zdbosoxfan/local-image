@@ -19,6 +19,8 @@ struct RootCapability {
     /// The launch-time root path (canonical when it resolves). Reads and writes never go through
     /// it; it only names files to engines that key records by path (the Library catalog).
     path: PathBuf,
+    /// Trusted lexical names of this launch-time root, including platform path aliases.
+    aliases: Vec<PathBuf>,
 }
 
 /// Shared writer operations resolved exclusively through the granted directory capability.
@@ -112,6 +114,12 @@ impl AuthorizedWorkspace {
     /// The read root's path (launch-time configuration), when read authority was granted.
     pub fn read_root_path(&self) -> Option<&Path> {
         self.read.as_ref().map(|r| r.path.as_path())
+    }
+
+    /// Trusted lexical spellings of the read root. These only route displayed source names;
+    /// actual reads continue through the held directory capability.
+    pub fn read_root_aliases(&self) -> Option<&[PathBuf]> {
+        self.read.as_ref().map(|root| root.aliases.as_slice())
     }
 
     /// The write root's path (launch-time configuration), when write authority was granted.
@@ -241,8 +249,24 @@ fn open_root(path: Option<&Path>, authority: &str) -> Result<Option<RootCapabili
     }
     let dir = Dir::open_ambient_dir(path, ambient_authority())
         .map_err(|e| AutomationError::Io(format!("cannot open automation {authority} root `{}`: {e}", path.display())))?;
-    let path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    Ok(Some(RootCapability { dir: Arc::new(dir), path }))
+    let absolute = std::path::absolute(path).map_err(|error| AutomationError::Io(format!("cannot name automation {authority} root: {error}")))?;
+    let path = std::fs::canonicalize(path).unwrap_or_else(|_| absolute.clone());
+    let mut aliases = vec![path.clone()];
+    if !aliases.contains(&absolute) {
+        aliases.push(absolute);
+    }
+    #[cfg(target_os = "macos")]
+    for alias in ["/var", "/tmp", "/etc"] {
+        if let Ok(canonical) = std::fs::canonicalize(alias)
+            && let Ok(relative) = path.strip_prefix(&canonical)
+        {
+            let spelling = Path::new(alias).join(relative);
+            if !aliases.contains(&spelling) {
+                aliases.push(spelling);
+            }
+        }
+    }
+    Ok(Some(RootCapability { dir: Arc::new(dir), path, aliases }))
 }
 
 pub(crate) fn relative_path(raw: &str) -> Result<PathBuf, AutomationError> {

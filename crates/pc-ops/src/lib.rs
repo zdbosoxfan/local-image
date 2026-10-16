@@ -181,13 +181,16 @@ impl History {
         self.undo.iter().chain(self.redo.iter()).fold(own, |n, s| n.saturating_add(backing_bytes(&s.doc, &mut seen)))
     }
 
-    /// Keep backing memory within [`History::max_bytes`]: the current document's allocations plus
+    /// Apply [`History::max_states`] immediately, then keep backing memory within
+    /// [`History::max_bytes`]: the current document's allocations plus
     /// those only history holds (newest states first). The oldest undo states that don't fit are
     /// dropped; the most recent one is always kept so the last step can be undone. Returns how
     /// many states were dropped.
     pub fn trim(&mut self, current: &Document) -> usize {
+        let count_drop = self.undo.len().saturating_sub(self.max_states.max(1));
+        self.undo.drain(..count_drop);
         if self.max_bytes == 0 || self.undo.len() <= 1 {
-            return 0;
+            return count_drop;
         }
         let mut seen = HashSet::new();
         let mut total = backing_bytes(current, &mut seen);
@@ -204,7 +207,7 @@ impl History {
         }
         let drop = self.undo.len() - keep;
         self.undo.drain(..drop);
-        drop
+        count_drop + drop
     }
 }
 
@@ -417,6 +420,50 @@ mod tests {
         }
         assert_eq!(n, 3);
         assert_eq!(cur.name, "6");
+    }
+
+    #[test]
+    fn lowering_history_state_limit_trims_existing_undo_and_preserves_current_and_redo() {
+        let tile = 256 * 256 * 4;
+        for (budget, kept, removed) in [(0, 3, 2), (4 * tile, 2, 3)] {
+            let mut history = History::new(50);
+            let mut current = Arc::new(base());
+            for n in 0..6 {
+                edit(&mut history, &mut current, &format!("paint {n}"), |doc| {
+                    doc.name = format!("paint {n}");
+                    doc.layers[0].surface_mut().unwrap().write_pixel(1, 1, &[n as f32 / 8.0, 0.0, 0.0, 1.0]);
+                });
+            }
+            current = history.undo(current).unwrap().0;
+            let before = current.clone();
+            let redo = history.redo_labels().map(str::to_owned).collect::<Vec<_>>();
+            history.max_states = 3;
+            history.max_bytes = budget;
+            assert_eq!(history.trim(&current), removed, "reports count and byte removals together");
+            assert_eq!(history.past_len(), kept);
+            assert!(Arc::ptr_eq(&before, &current), "changing the limit is not a document edit");
+            assert_eq!(history.redo_labels().map(str::to_owned).collect::<Vec<_>>(), redo);
+            assert_eq!(history.trim(&current), 0, "applying an unchanged limit is idempotent");
+            current = history.undo(current).unwrap().0;
+            assert_eq!(current.name, "paint 3", "the most recent undo stays available");
+            current = history.redo(current).unwrap().0;
+            assert!(Arc::ptr_eq(&before, &current));
+            current = history.redo(current).unwrap().0;
+            assert_eq!(current.name, "paint 5", "the preexisting redo is preserved");
+        }
+    }
+
+    #[test]
+    fn lowering_history_state_limit_to_zero_keeps_one_undo() {
+        let mut history = History::new(50);
+        let mut current = Arc::new(base());
+        for n in 0..3 {
+            edit(&mut history, &mut current, &format!("rename {n}"), |doc| doc.name = n.to_string());
+        }
+        history.max_states = 0;
+        assert_eq!(history.trim(&current), 2);
+        assert_eq!(history.past_len(), 1);
+        assert_eq!(history.undo(current).unwrap().0.name, "1");
     }
 
     #[test]

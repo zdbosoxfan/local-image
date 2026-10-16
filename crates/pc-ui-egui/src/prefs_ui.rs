@@ -2808,6 +2808,11 @@ mod tests {
                     assert_eq!(*h.state().session.active().unwrap().doc, *pixels);
                     assert!(!host.get(), "host values remain unchanged");
                     assert!(h.state().ui.dialogs.iter().any(|dialog| dialog.id == id), "failed OK retains its draft too");
+                    assert_eq!(
+                        h.state().ui.dialogs.iter().find(|dialog| dialog.id == id).unwrap().fields.get("__error").and_then(Value::as_str),
+                        Some("injected AI preferences write failure"),
+                        "{button} must reach the checked writer after validating a new provider key"
+                    );
                     assert!(h.query_by_label_contains("injected AI preferences write failure").is_some());
                     h.get_by_label("Cancel").click();
                     h.run_steps(2);
@@ -2918,9 +2923,11 @@ mod tests {
             let id = open_preferences(&mut app, "performance");
             app.ui.dialog_mut(id).unwrap().fields.get_mut("values").unwrap()["performance"]["historyStates"] = invalid;
             let draft = app.ui.dialog_mut(id).unwrap().fields.clone();
-            assert!(apply(&mut app, id).is_err());
+            let error = apply(&mut app, id).unwrap_err();
             assert_eq!(app.session.prefs().to_json(), before);
-            assert_eq!(app.ui.dialog_mut(id).unwrap().fields, draft);
+            let mut retained = app.ui.dialog_mut(id).unwrap().fields.clone();
+            assert_eq!(retained.remove("__error"), Some(json!(error)), "a failed Apply adds its error without changing the draft");
+            assert_eq!(retained, draft, "every editable value and existing dialog field remains intact");
             app.ui.close_dialog(id);
         }
         let id = open_preferences(&mut app, "interface");

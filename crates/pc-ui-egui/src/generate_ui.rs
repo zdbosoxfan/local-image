@@ -2736,8 +2736,10 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     let out = b.output.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| tl!("a “cutouts” folder beside each image").into());
                     ui.label(out);
                     #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, tl!("Choose…"), 0.0).clicked() {
-                        b.output = file_dialog().pick_folder();
+                    if widgets::secondary_button(ui, tl!("Choose…"), 0.0).clicked()
+                        && let Some(folder) = file_dialog().pick_folder()
+                    {
+                        b.output = Some(folder);
                     }
                 });
                 ui.add_space(6.0);

@@ -147,8 +147,8 @@ pub fn params(f: &Map<String, Value>) -> Value {
 
 /// OK: run the command on the document (one history step).
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
-    validate_target(app, f)?;
     app.color_range = None;
+    validate_target(app, f)?;
     app.run(COMMAND, params(f))
 }
 
@@ -573,6 +573,7 @@ mod tests {
             let journal = h.state().session.journal.len();
             let fields = h.state().ui.dialogs.iter().find(|dialog| dialog.id == id).unwrap().fields.clone();
             assert!(confirm(h.state_mut(), &fields).is_err(), "{change} must invalidate the captured target");
+            assert!(h.state().color_range.is_none(), "a rejected confirmation must discard its stale preview immediately");
             assert_eq!(h.state().session.journal.len(), journal);
             assert_eq!(h.state().session.documents().iter().map(|state| state.doc.clone()).collect::<Vec<_>>(), documents);
             h.run_steps(2);

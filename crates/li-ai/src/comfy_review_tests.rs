@@ -222,9 +222,7 @@ fn review_accepted_submission_with_lost_reply_reconciles_unique_client_without_r
                         assert!(OURS.lock().unwrap().iter().any(|p| p.host == server_host && p.client_id == client_id && p.vram.is_some()));
                         live.store(false, Ordering::SeqCst);
                         (200, json!({}))
-                    } else if path == "/history?max_items=64" {
-                        (200, if completed { json!({id.clone():history_entry}) } else { json!({}) })
-                    } else if path == format!("/history/{id}") {
+                    } else if path == "/history?max_items=64" || path == format!("/history/{id}") {
                         (200, if completed { json!({id.clone():history_entry}) } else { json!({}) })
                     } else if path == format!("/api/jobs/{id}/cancel") && !legacy {
                         assert!(OURS.lock().unwrap().iter().any(|p| p.host == server_host && p.client_id == client_id && p.vram.is_some()));

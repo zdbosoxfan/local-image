@@ -192,7 +192,15 @@ fn sparse_mask_defaults_invalidate_warm_resident_pages() {
         for comp in [&mut g.comp, &mut g.paged] {
             let rendered = render_to_vec(comp, &g.device, &g.queue, &doc, doc.bounds()).unwrap();
             let gap = 10 * 768 + 300;
-            assert_eq!(rendered[gap][3], cpu.px[gap][3], "{name}: missing middle tile alpha");
+            let (actual, expected) = (rendered[gap][3], cpu.px[gap][3]);
+            if expected == 0.0 || expected == 1.0 {
+                assert_eq!(actual, expected, "{name}: missing middle tile alpha endpoint");
+            } else {
+                // The CPU skips density arithmetic at 100%; WGSL evaluates
+                // 1 - (1 - v), which can differ by one f32 ULP. The GRAY8 mask
+                // must retain exactly the same coverage byte, including the gap.
+                assert_eq!((actual * 255.0).round() as u8, (expected * 255.0).round() as u8, "{name}: missing middle tile coverage");
+            }
         }
     }
 }

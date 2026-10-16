@@ -22,15 +22,19 @@ across default1->0 inversion->1 undo and0.25->0.75 inversion->0.25 undo; compare
 unchanged1/255 bound and checks missing middle tile alpha.
 
 SEC-001 [P1] Desktop app.module browse bypasses automation filesystem roots
-Fix: Capability enumeration and actual staged reads before control view mutation; retained capability source
-hooks protect subsequent loads and reject post-stage symlink escapes; ordinary human Library browse remains
-native. Hook wrapper retained once per native session, reused on repeat browse. Outside-root native byte
-fallback and all five native hooks preserved; scoped decode/probe hooks retain shared work-gate accounting.
-Capability opens are Unix nonblocking and regular-handle validated, including post-staging FIFO substitution.
+Fix: UI admission validates/enumerates capability paths only. A retained serial worker with one replaceable
+pending scan performs reads/probes off the UI thread. Scoped ScanTask results use cancellation/library-
+generation guards and join Local eight records per frame without ambient import/sidecar I/O. All five source
+hooks retain capability authority for canonical and trusted launch/macOS alias spellings. Native outside-root
+hooks preserved.
 Regression: automation_library::tests::capability_browse_preserves_in_root_photos_and_reuses_hooks
 Regression: automation_library::tests::retained_browse_reader_rejects_escaping_symlinks_after_staging
 Regression: control::tests::module_browse_stages_authority_before_changing_view_state
 Regression: automation_library::tests::retained_browse_reader_cannot_block_on_a_fifo_substitution
+Regression: automation_library::tests::stage_validates_paths_without_reading_or_probing_photo_contents
+Regression:
+automation_library::tests::blocked_reader_keeps_admission_responsive_and_only_latest_browse_can_publish
+Regression: automation_library::tests::late_worker_completion_cannot_apply_after_library_generation_changes
 
 SEC-004 [P1] Pinned ruzstd0.9.0 allows document decompression bombs before outer size limits
 Fix: Advanced both decoder requirements to ruzstd0.9.1; root fetched and updated lock with only0.9.1. Ten-byte
@@ -89,17 +93,18 @@ Regression: archive_budget_includes_headers_and_rejects_before_appending
 Regression: saved_file_admission_matches_the_reader_boundary
 
 UI-001 [P1] Block native editor commands while a modal owns the document
-Fix: ["Native command enablement/dispatch share modal ownership and recheck queued batches/custom egui modal
-layers. Non-modal native Draft/Refinement windows retain normal root commands.", "Common document-editing
-dialogs capture document/revision/active-layer/selection IDs; generic render/confirm and proxy previews reject
-stale captures. Global Preferences/New Document/Color Settings/tool swatches and separately targeted profile
-prompts are exempt. Layer Style captures document identity only because its explicit-layer style swatches
-intentionally apply immediately.", "Gallery/Liquify capture typed SelectionTarget and reject stale
+Fix: Native command enablement/dispatch share modal ownership and recheck queued batches/custom egui modal
+layers. Non-modal native Draft/Refinement windows retain normal root commands. Common document-editing dialogs
+capture document/revision/active-layer/selection IDs; generic render/confirm and proxy previews reject stale
+captures. Global Preferences/New Document/Color Settings/tool swatches and separately targeted profile prompts
+are exempt. Layer Style captures document identity only because its explicit-layer style swatches
+intentionally apply immediately. Gallery/Liquify capture typed SelectionTarget and reject stale
 edits/previews/commits. Commit errors preserve draft, produce notices and propagate to control; no false
-committed:true. Stale recovery offers Cancel/reopen using shared modal widgets.", "Host module switches
-respect custom modal ownership so keyboard/queued switches cannot hide Cancel in another workspace;
-intentional Camera Raw module-switch cancellation remains supported. Safe native Hide/Minimize remain
-enabled."]
+committed:true. Stale recovery offers Cancel/reopen using shared modal widgets. Host module switches respect
+custom modal ownership so keyboard/queued switches cannot hide Cancel in another workspace; intentional Camera
+Raw module-switch cancellation remains supported. Safe native Hide/Minimize remain enabled. Rejected Color
+Range confirmations and stale-dialog rendering immediately discard the owned preview cache while preserving
+the captured document and editable draft.
 Regression: native_menu::tests::queued_native_clicks_cannot_bypass_modal_ownership
 Regression: native_menu::tests::native_commands_are_disabled_for_custom_prompts_and_egui_modals
 Regression: color_range_ui::tests::captured_document_rejects_tab_switch_close_and_later_edits
@@ -241,6 +246,7 @@ CONC-003 [P2] Import cancellation cannot interrupt waiting for a shared heavy-jo
 Fix: Copies carries shared cancel flag and injected HeavyJobs; serial/parallel/fallback branches use
 cancellable admission and recheck before copy; all skipped outcomes complete.
 Regression: cancelled_import_releases_permit_wait_without_starting_copy
+Regression: cancellation_keeps_later_completed_copies_and_prepared_moves_after_a_skipped_waiter
 
 CONC-004 [P2] Smart Sort copies its entire embedding cache synchronously on the UI thread for every result batch
 Fix: UI publishes at most one32-row result batch and hands immutable dirty-record snapshots back to existing
@@ -285,10 +291,15 @@ Regression: browser::security_tests::redirects_resolve_before_rechecking_origin_
 SEC-003 [P2] Authenticated scoped control clients can read saved provider credentials through prefs.get
 Fix: Automation-gated prefs reads/set replies/section aliases redact credential leaves and secret ancestors to
 configured state; raw persistence/internal trusted reads retained. Added opaque prepared preference update
-token coordinated with UI004. Nested descendants of secret-bearing fields are redacted too.
+token coordinated with UI004. Nested descendants of secret-bearing fields are redacted too. UI004 follow-up:
+whole AI updates retain typed serde validation and accept first-time free-form provider keys, rather than
+flattening them into nonexistent dotted paths.
 Regression: prefs::security_tests::scoped_preference_reads_redact_direct_parent_whole_and_section_aliases
 Regression: prefs::security_tests::prepared_update_has_no_live_effects_until_infallible_publication
 Regression: prefs::security_tests::prepared_update_authorizes_once_before_any_publication
+Regression: prefs::security_tests::first_provider_credentials_stage_through_root_and_ai_section
+Regression: prefs::security_tests::whole_ai_preparation_rejects_invalid_known_fields_without_publication
+Regression: prefs::security_tests::first_provider_updates_authorize_original_input_and_redact_publication
 
 SIO-04 [P2] Library imports bypass safe file reads and can hang on FIFOs or read unbounded devices
 Fix: Shared li-fs regular-file reader validates paths and handles, uses nonblocking Unix open, bounds actual
@@ -311,31 +322,46 @@ Regression: desktop_photo_facades_share_pixel_and_allocation_limits
 Regression: j6_limits_preserve_explicit_large_capture_budget_without_allocating_pixels
 
 UI-002 [P2] Synchronize shared Interface preferences while Library or Develop is active
-Fix: ["Shared Interface reconciliation updates theme identity, display scale, font size/language and icon mode
+Fix: Shared Interface reconciliation updates theme identity, display scale, font size/language and icon mode
 independent of editor rendering. Host calls it before reapplying the current module palette, then synchronizes
-tooltip policy.", "Core editor tick reuses the same reconciliation; hosted drafts remain reversible until
-Apply/OK."]
+tooltip policy. Core editor tick reuses the same reconciliation; hosted drafts remain reversible until
+Apply/OK. Hosted Library painting preserves the canonical shared icon style. Standalone Library retains its
+independent setting, and hosted Library Preferences omit the duplicate Tool icons row.
 Regression: library_host::tests::shared_interface_apply_updates_library_and_develop_before_switching_modules
 Regression: existing
 library_host::tests::lrc_one_preferences_shell_drafts_apply_cancel_and_one_store_in_every_module
 Regression: existing
 prefs_ui::tests::preferences_apply_button_saves_without_closing_and_cancel_keeps_applied_values
+Regression: icons::hosted_library_paints_the_shared_icon_style_and_standalone_keeps_its_setting (real Library
+UI + painted pixel chroma, both hosted/standalone and both conflicting style directions, duplicate row
+availability)
 
 UI-003 [P2] Give default Enter handling only to the topmost dialog
-Fix: ["Default Enter handling occurs after ModalResponse, requires topmost modal and no open popup, and
-consumes the key exactly once."]
+Fix: Default Enter handling occurs after ModalResponse, requires topmost modal and no open popup, and consumes
+the key exactly once.
 Regression: dialogs::tests::enter_confirms_only_the_visible_profile_prompt
 Regression: dialogs::tests::popup_enter_does_not_confirm_its_parent_dialog
 
 UI-004 [P2] Keep unified Preferences drafts atomic when the AI save fails
-Fix: ["Core values are strictly staged/authorized using security reviewer PreparedPreferencesUpdate API,
-without live history/cache effects. Host prepare validates/reserves a typed draft and returns an infallible
-publisher.", "Current AI draft joins the staged core state. Its checked save must succeed before core and host
-publish; temporary automation authorization is restored and replies retain engine redaction.", "Failed
-Apply/OK retains all drafts and prior runtime values/history. Errors render inline on every Preferences page;
-Cancel leaves prior state. Successful retry publishes all portions coherently; failed OK no longer destroys
-its draft."]
+Fix: Core preference updates are authorized and strictly staged in an opaque PreparedPreferencesUpdate without
+changing live values, history, or cache budgets. Host draft preparation reserves validated typed values and
+returns an infallible publisher. Typed whole-AI staging supports root, explicit AI-section, and values.ai
+updates, including first-time provider credentials and unknown provider extensions. Known AI fields retain
+strict validation; authorization receives original inputs and automated replies redact credentials. The
+checked AI write must succeed before core and host runtime publication. The current AI draft is included in
+the prepared core state, temporary automation authorization is restored, and publication cannot subsequently
+fail validation. Failed Apply or OK retains the complete editable draft and prior core, host, document, and
+history state. Errors are visible inline; Cancel leaves prior values. Successful retry commits all portions
+coherently. Successful publication applies history and resource settings once. History.trim immediately
+enforces the state-count cap before its byte budget, preserves the current snapshot and redo, and keeps at
+least the newest undo state.
 Regression: prefs_ui::tests::failed_ai_save_keeps_core_host_history_and_preferences_drafts_atomic
+Regression: prefs::security_tests::prepared_update_has_no_live_effects_until_infallible_publication
+Regression: prefs::security_tests::first_provider_credentials_stage_through_root_and_ai_section
+Regression: prefs::security_tests::whole_ai_preparation_rejects_invalid_known_fields_without_publication
+Regression: prefs::security_tests::first_provider_updates_authorize_original_input_and_redact_publication
+Regression: tests::lowering_history_state_limit_trims_existing_undo_and_preserves_current_and_redo
+Regression: tests::lowering_history_state_limit_to_zero_keeps_one_undo
 
 AI-008 [P3] Unload AI models reports success for HTTP errors from ComfyUI
 Fix: Treat HTTP errors from ComfyUI model unloading as failures.

@@ -267,11 +267,10 @@ fn group_nesting_past_the_cap_is_rejected() {
     let bytes = b.to_bytes().unwrap();
     let err = import("deep.psd", &bytes).unwrap_err();
     assert!(err.to_string().contains("nested deeper than 100"), "{err}");
-    // The never-fail converter still returns a document — capped, with a warning
-    // about the part that was not imported (it used to recurse to the file's depth).
-    let (d, warnings) = psd_to_document(&photocraft_psd::PsdFile::from_bytes(&bytes).unwrap()).unwrap();
-    assert_eq!(d.max_group_depth(), 100);
-    assert!(warnings.iter().any(|w| w.contains("deeper than 100")), "{warnings:?}");
+    // Direct conversion enforces the same admission rule: callers must never
+    // receive an editable document with the deepest group's pixels omitted.
+    let err = psd_to_document(&photocraft_psd::PsdFile::from_bytes(&bytes).unwrap()).unwrap_err();
+    assert!(err.to_string().contains("nested deeper than 100"), "{err}");
 }
 
 #[test]

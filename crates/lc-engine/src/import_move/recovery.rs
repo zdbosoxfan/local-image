@@ -95,13 +95,13 @@ impl Capture {
         };
         let capture = Self { path: dir.join("payload"), dir, lock, parent_handle, dir_handle, record_handle, record_hash };
         capture.validate()?;
-        if let Err(error) = li_fs::RealFs.rename_new(&source, &capture.path).or_else(|error| {
+        if let Err(error) = li_fs::RealFs.rename_new(&source, &capture.path).map_err(|error| {
             if error.kind() != io::ErrorKind::Unsupported {
-                return Err(error);
+                return error;
             }
             // The private directory was exclusively created and is still empty.
             // Unsupported platforms keep the original rather than use replace.
-            Err(io::Error::other("atomic Move capture is unavailable; original kept"))
+            io::Error::other("atomic Move capture is unavailable; original kept")
         }) {
             capture.clean();
             return Err(error);

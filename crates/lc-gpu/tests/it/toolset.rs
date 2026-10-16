@@ -1479,12 +1479,35 @@ fn cropped_refine_mask_keeps_source_scale_on_gpu() {
         }],
         ..Default::default()
     });
-    let full = check("refine full frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(256, 256));
+    // Keep the normal preview CPU/GPU parity check at each viewport size.
+    check("refine full frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(256, 256));
+    let full_settings = s.clone();
     s.crop.geometry.rect = Rect::new(0.25, 0.25, 0.75, 0.75);
-    let cropped = check("refine cropped frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(128, 128));
+    check("refine cropped frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(128, 128));
+
+    // Compare the actual developed light, before preview quantization. dither8 is
+    // intentionally anchored to output coordinates: the same source pixel at
+    // (130,128) versus (66,64) can differ by two TPDF codes even on the CPU.
+    let linear = |settings: &DevelopSettings, edge| {
+        let req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::F32Linear, ..RenderRequest::fit(edge, edge) };
+        let cpu = render(&src, &SourceInfo::default(), settings, &req).deep.unwrap();
+        let gpu = lightcraft_gpu::render(&src, &SourceInfo::default(), settings, &req, None).unwrap().deep.unwrap();
+        let (lightcraft_pipeline::DeepSamples::F32(cpu), lightcraft_pipeline::DeepSamples::F32(gpu)) = (cpu.samples, gpu.samples) else {
+            panic!("requested float output");
+        };
+        for (a, b) in cpu.iter().zip(&gpu) {
+            assert!((a - b).abs() < 2e-6, "float mask render differs between CPU and GPU");
+        }
+        (cpu, gpu)
+    };
+    let (full_cpu, full_gpu) = linear(&full_settings, 256);
+    let (crop_cpu, crop_gpu) = linear(&s, 128);
     for x in 96..160 {
-        let a = full.get(x, 128);
-        let b = cropped.get(x - 64, 64);
-        assert!(a.iter().zip(b).all(|(a, b)| a.abs_diff(b) <= 1), "refine changed at x={x}");
+        for channel in 0..3 {
+            let a = (128 * 256 + x) * 3 + channel;
+            let b = (64 * 128 + x - 64) * 3 + channel;
+            assert_eq!(full_cpu[a], crop_cpu[b], "CPU reference changed at source x={x}");
+            assert!((full_gpu[a] - crop_gpu[b]).abs() < 2e-6, "refine changed at source x={x}: {} != {}", full_gpu[a], crop_gpu[b]);
+        }
     }
 }

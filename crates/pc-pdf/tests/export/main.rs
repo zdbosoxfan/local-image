@@ -510,15 +510,41 @@ fn pdf_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal() {
                 TextRun { len: 1, style: CharStyle { size_pt: 64., tracking: -650., color, ..Default::default() } }
             })
             .collect();
-        photocraft_text::TextEngine::new().render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+        let mut engine = photocraft_text::TextEngine::new();
+        let layout = engine.layout(&text, doc.resolution_dpi);
+        // Prove the landmark lies inside every individual paint, not just the final
+        // opaque composite. A top opaque glyph can conceal a lower glyph's AA edge.
+        let (x, y) = (125, 65);
+        for run in 0..3 {
+            let mut single = layout.clone();
+            single.glyphs.retain(|glyph| glyph.style as usize == run);
+            single.decorations.clear();
+            for style in &mut single.styles {
+                style.color.alpha = 1.0;
+            }
+            let coverage = photocraft_text::render::rasterize(&single, &text.transform, photocraft_doc::PixelFormat::RGBA32F, text.antialias).surface;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    assert!((coverage.sample_channel(x + dx, y + dy, 3) - 1.0).abs() < 1e-5, "run {run} landmark must be a full-coverage interior");
+                }
+            }
+        }
+        engine.render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
         doc.layers.push(Layer::new("Type", LayerContent::Text(text)));
         let options = ExportOptions { text_as_curves: true, ..Default::default() };
         let bytes = export::export(&doc, &ExportScope::Document, &options).unwrap().bytes;
         let rendered = render(&bytes, &format!("ordered-text-{alpha}"), doc.resolution_dpi);
-        let expected = photocraft_compose::flatten(&doc).get(147, 67);
-        let pixel = rendered.get_pixel(147, 67).0;
+        let expected = photocraft_compose::flatten(&doc).get(x, y);
+        // Red, then blue, then red at full coverage: straight source-over gives
+        // alpha 1-(1-a)^3 and premultiplied RGB [a+a(1-a)^2, 0, a(1-a)].
+        let analytical = [alpha + alpha * (1.0 - alpha).powi(2), 0.0, alpha * (1.0 - alpha), 1.0 - (1.0 - alpha).powi(3)];
+        for channel in 0..4 {
+            let native = if channel == 3 { expected[3] } else { expected[channel] * expected[3] };
+            assert!((native - analytical[channel]).abs() < 0.005, "native cache must match source-over away from AA edges");
+        }
+        let pixel = rendered.get_pixel(x as u32, y as u32).0;
         for channel in 0..3 {
-            let value = expected[channel] * expected[3] + 1. - expected[3];
+            let value = analytical[channel] + 1.0 - analytical[3];
             assert!((f32::from(pixel[channel]) / 255. - value).abs() < 0.02, "alpha={alpha}: {pixel:?} versus {expected:?}");
         }
         let limited = ExportOptions { max_bytes: 256, ..options.clone() };

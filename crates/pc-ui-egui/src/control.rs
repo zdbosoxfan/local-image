@@ -890,8 +890,9 @@ mod tests {
             }
             Ok(crate::AutomationBrowse {
                 root: "/grant".into(),
+                root_aliases: vec!["/grant".into()],
                 folder: "/grant/photos".into(),
-                photos: Vec::new(),
+                files: Vec::new(),
                 read: std::sync::Arc::new(|_| Err("fixture contains no files".into())),
             })
         }));

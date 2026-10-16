@@ -175,6 +175,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             ui.add_space(8.0);
             if let Err(error) = validate_document_target(app, &fields) {
                 app.filter_preview = None;
+                if crate::color_range_ui::owns(&fields) {
+                    app.color_range = None;
+                }
                 ui.add(egui::Label::new(egui::RichText::new(error).color(crate::theme::Tokens::get(ctx).warning)).wrap());
             } else {
                 match d.kind {

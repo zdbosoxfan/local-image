@@ -53,7 +53,7 @@ pub struct SubjectModel(ModelKind);
 
 #[derive(Clone)]
 enum ModelKind {
-    Installed(li_seg::ModelSnapshot),
+    Installed(Box<li_seg::ModelSnapshot>),
     Mock(Arc<MockModel>),
 }
 
@@ -82,7 +82,7 @@ impl SubjectModel {
         if let Some(m) = MOCK.with(|m| m.borrow().clone()) {
             return Some(Self(ModelKind::Mock(m)));
         }
-        li_seg::snapshot(li_seg::Group::Subject, &models_dir()).map(|snapshot| Self(ModelKind::Installed(snapshot)))
+        li_seg::snapshot(li_seg::Group::Subject, &models_dir()).map(|snapshot| Self(ModelKind::Installed(Box::new(snapshot))))
     }
 
     /// Foreground probability (0–1) at the image's size, or `None` (no clear subject, or the model
@@ -305,7 +305,7 @@ impl SkyModel {
         if let Some(m) = SKY_MOCK.with(|m| m.borrow().clone()) {
             return Some(Self(ModelKind::Mock(m)));
         }
-        li_seg::snapshot(li_seg::Group::Sky, &models_dir()).map(|snapshot| Self(ModelKind::Installed(snapshot)))
+        li_seg::snapshot(li_seg::Group::Sky, &models_dir()).map(|snapshot| Self(ModelKind::Installed(Box::new(snapshot))))
     }
 }
 
@@ -384,7 +384,7 @@ mod tests {
             std::fs::create_dir_all(&custom).unwrap();
             std::fs::write(custom.join("subject-same.onnx"), b"not an ONNX plan").unwrap();
             std::fs::write(custom.join("custom.txt"), "subject\tsubject-same.onnx\tSame\t32\tisnet\t1\t0\n").unwrap();
-            models.push(SubjectModel(ModelKind::Installed(li_seg::snapshot(li_seg::Group::Subject, &dir).unwrap())));
+            models.push(SubjectModel(ModelKind::Installed(Box::new(li_seg::snapshot(li_seg::Group::Subject, &dir).unwrap()))));
         }
         // Use an isolated cache to avoid racing the process-wide cache in parallel tests.
         // No-subject entries matter too: a different artifact must not inherit a negative hit.

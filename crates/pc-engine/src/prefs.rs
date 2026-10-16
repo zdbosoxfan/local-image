@@ -1583,7 +1583,11 @@ impl Session {
             return Ok(());
         }
         let mut next = self.prefs().clone();
-        if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "menus" | "toolbar" | "library" | "ai") {
+        if path == "ai" {
+            // The typed AI section owns a flattened provider-settings map. Setting the
+            // entire section must admit first-time provider keys while checking known fields.
+            next.set(path, value)?;
+        } else if path.is_empty() || SECTIONS.iter().any(|(id, _)| *id == path) || matches!(path, "menus" | "toolbar" | "library") {
             // Whole section (or everything): merge the object key by key so each value is checked.
             let obj = value.as_object().ok_or_else(|| format!("`{path}` needs an object"))?;
             for (k, v) in obj {
@@ -1592,7 +1596,7 @@ impl Session {
                     self.set_pref("colorSettings", v.clone())?;
                     continue;
                 }
-                if v.is_object() && p != "shortcutProfiles" && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
+                if v.is_object() && p != "ai" && p != "shortcutProfiles" && !p.ends_with(".colors") && next.get(&p).is_some_and(|c| c.is_object()) {
                     for (k2, v2) in v.as_object().into_iter().flatten() {
                         next.set(&format!("{p}.{k2}"), v2.clone())?;
                     }

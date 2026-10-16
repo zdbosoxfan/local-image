@@ -321,12 +321,13 @@ pub type StageWriteFn = std::sync::Arc<dyn Fn(&str, &[u8], &lightcraft_sysmem::j
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
 pub type AutomationSourceRead = std::sync::Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
-/// A staged Library view: metadata came only from the read capability. Future media reads
-/// retain that capability rather than reopening the displayed paths through ambient I/O.
+/// A staged Library view: paths came only from the read capability. The scan worker and
+/// subsequent media reads retain that capability rather than reopening ambient paths.
 pub struct AutomationBrowse {
     pub root: String,
+    pub root_aliases: Vec<String>,
     pub folder: String,
-    pub photos: Vec<Value>,
+    pub files: Vec<String>,
     pub read: AutomationSourceRead,
 }
 pub type AutomationBrowseFn = Box<dyn FnMut(&str) -> Result<AutomationBrowse, String>>;
