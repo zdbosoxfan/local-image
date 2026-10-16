@@ -59,6 +59,9 @@ pub fn files_in(root: &Path, skip: Option<&Path>, limits: Limits, mut keep: impl
     // (path, depth of the folder it is in, is a folder); popped in path order
     let mut stack: Vec<(PathBuf, usize, bool)> = vec![(root.to_path_buf(), 0, true)];
     while let Some((path, depth, is_dir)) = stack.pop() {
+        if path.components().any(|part| part.as_os_str().to_string_lossy().starts_with("Local Image Move Recovery - ")) {
+            continue;
+        }
         if !is_dir {
             if keep(&path) {
                 out.files.push(path);
@@ -112,6 +115,22 @@ pub fn files_in(root: &Path, skip: Option<&Path>, limits: Limits, mut keep: impl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recovery_folders_are_not_traversed_or_mutated_by_an_ordinary_scan() {
+        let dir = tmp("move-recovery");
+        let recovery = dir.join("Local Image Move Recovery - interrupted");
+        std::fs::create_dir_all(&recovery).unwrap();
+        let captured = recovery.join("original.jpg");
+        std::fs::write(&captured, b"captured source").unwrap();
+        std::fs::write(dir.join("visible.jpg"), b"visible").unwrap();
+        let walked = files_in(&dir, None, Limits::default(), |_| true);
+        assert_eq!(walked.files, vec![dir.join("visible.jpg")]);
+        assert!(files_in(&recovery, None, Limits::default(), |_| true).files.is_empty());
+        assert_eq!(std::fs::read(&captured).unwrap(), b"captured source");
+        assert!(!dir.join("original.jpg").exists(), "a read-only walk must not restore a capture");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     fn tmp(tag: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lc-walk-{tag}-{}", std::process::id()));

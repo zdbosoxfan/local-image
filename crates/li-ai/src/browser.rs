@@ -26,6 +26,10 @@ use serde_json::Value;
 use crate::comfy::ObjectInfo;
 use crate::family::{Family, Loader, Registry, Role};
 
+#[cfg(test)]
+#[path = "browser_security_tests.rs"]
+mod security_tests;
+
 /// Where the catalogues are.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Config {
@@ -785,13 +789,73 @@ pub struct HttpNet {
     agent: ureq::Agent,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Origin {
+    scheme: String,
+    host: String,
+    port: u16,
+}
+
+fn origin(url: &str) -> Option<Origin> {
+    let uri: ureq::http::Uri = url.parse().ok()?;
+    let authority = uri.authority()?;
+    if authority.as_str().contains('@') {
+        return None;
+    }
+    let scheme = uri.scheme_str()?.to_ascii_lowercase();
+    let default_port = match scheme.as_str() {
+        "https" => 443,
+        "http" => 80,
+        _ => return None,
+    };
+    let host = authority.host();
+    if host.is_empty() {
+        return None;
+    }
+    let suffix = authority.as_str().strip_prefix(host)?;
+    let port = if suffix.is_empty() { default_port } else { suffix.strip_prefix(':')?.parse::<u16>().ok()? };
+    Some(Origin { scheme, host: authority.host().to_ascii_lowercase(), port })
+}
+
+fn same_origin(url: &str, base: &str) -> bool {
+    origin(url).zip(origin(base)).is_some_and(|(url, base)| url == base)
+}
+
+fn routed_token<'a>(token: Option<&'a str>, initial: &Origin, destination: &str) -> Option<&'a str> {
+    token.filter(|token| !token.is_empty() && origin(destination).as_ref() == Some(initial))
+}
+
+fn redirect_url(current: &str, location: &str) -> Result<String> {
+    let uri: ureq::http::Uri = current.parse().context("Invalid catalogue URL")?;
+    let scheme = uri.scheme_str().context("Catalogue URL has no scheme")?;
+    let authority = uri.authority().context("Catalogue URL has no authority")?;
+    let next = if location.starts_with("//") {
+        format!("{scheme}:{location}")
+    } else if location.contains("://") {
+        location.to_owned()
+    } else if location.starts_with('/') {
+        format!("{scheme}://{authority}{location}")
+    } else if location.starts_with('?') {
+        format!("{scheme}://{authority}{}{location}", uri.path())
+    } else {
+        let directory = uri.path().rsplit_once('/').map_or("", |(directory, _)| directory);
+        format!("{scheme}://{authority}{directory}/{location}")
+    };
+    let next_origin = origin(&next).context("Invalid catalogue redirect")?;
+    if scheme == "https" && next_origin.scheme != "https" {
+        bail!("Catalogue redirect would downgrade HTTPS");
+    }
+    Ok(next)
+}
+
 impl HttpNet {
     pub fn new(cfg: Config) -> Self {
         let agent = ureq::Agent::config_builder()
             .tls_config(crate::tls::config())
             .timeout_connect(Some(std::time::Duration::from_secs(15)))
             .timeout_global(Some(std::time::Duration::from_secs(60)))
-            .max_redirects(4)
+            .max_redirects(0)
+            .http_status_as_error(false)
             .user_agent(concat!("LocalImage/", env!("CARGO_PKG_VERSION")))
             .build()
             .into();
@@ -799,19 +863,20 @@ impl HttpNet {
     }
 
     fn allowed(&self, url: &str) -> bool {
+        let Some(candidate) = origin(url) else { return false };
         let c = &self.cfg;
         let bases = [c.hf.as_str(), c.civitai.as_str(), c.manager_list.as_str(), c.templates.as_str()];
-        bases.iter().any(|b| !b.is_empty() && url.starts_with(b.trim_end_matches('/')))
-            || url.starts_with("https://image.civitai.com/")
-            || url.starts_with(crate::family::REMOTE_BASE)
-            || std::env::var("LOCAL_IMAGE_FAMILIES_BASE").is_ok_and(|b| !b.is_empty() && url.starts_with(&b))
-            || crate::download::host_allowed(url)
+        bases.iter().any(|base| same_origin(url, base))
+            || same_origin(url, "https://image.civitai.com")
+            || same_origin(url, crate::family::REMOTE_BASE)
+            || std::env::var("LOCAL_IMAGE_FAMILIES_BASE").is_ok_and(|base| same_origin(url, &base))
+            || (candidate.scheme == "https" && candidate.port == 443 && crate::download::host_allowed(url))
     }
 
     fn token(&self, url: &str) -> Option<&str> {
-        if url.starts_with(&self.cfg.hf) {
+        if same_origin(url, &self.cfg.hf) {
             self.cfg.hf_token.as_deref()
-        } else if url.starts_with(&self.cfg.civitai) {
+        } else if same_origin(url, &self.cfg.civitai) {
             self.cfg.civitai_token.as_deref()
         } else {
             None
@@ -821,15 +886,29 @@ impl HttpNet {
 
 impl Net for HttpNet {
     fn get(&self, url: &str) -> Result<Vec<u8>> {
-        if !self.allowed(url) {
-            bail!("Local Image doesn't read catalogues from {url}");
+        let first = origin(url).context("Invalid catalogue URL")?;
+        let token = self.token(url).filter(|token| !token.is_empty());
+        let mut current = url.to_owned();
+        for _ in 0..5 {
+            if !self.allowed(&current) {
+                bail!("Local Image doesn't read catalogues from this origin");
+            }
+            let mut req = self.agent.get(&current);
+            if let Some(token) = routed_token(token, &first, &current) {
+                req = req.header("Authorization", &format!("Bearer {token}"));
+            }
+            let mut response = req.call().context("Could not reach catalogue source")?;
+            if response.status().is_redirection() {
+                let location = response.headers().get("location").and_then(|value| value.to_str().ok()).context("Catalogue redirect has no location")?;
+                current = redirect_url(&current, location)?;
+                continue;
+            }
+            if !response.status().is_success() {
+                bail!("Catalogue source returned HTTP {}", response.status());
+            }
+            return Ok(response.body_mut().with_config().limit(48 << 20).read_to_vec()?);
         }
-        let mut req = self.agent.get(url);
-        if let Some(t) = self.token(url).filter(|t| !t.is_empty()) {
-            req = req.header("Authorization", &format!("Bearer {t}"));
-        }
-        let mut r = req.call().with_context(|| format!("Could not reach {}", url.split('?').next().unwrap_or(url)))?;
-        Ok(r.body_mut().with_config().limit(48 << 20).read_to_vec()?)
+        bail!("Too many catalogue redirects")
     }
     fn head_size(&self, url: &str) -> Result<Option<u64>> {
         crate::download::remote_size(url, self.token(url))
@@ -1173,9 +1252,9 @@ pub fn install(plan: &Plan, model_dir: &Path, cfg: &Config, ctl: &crate::comfy::
             done += f.bytes;
             continue;
         }
-        let token = if f.url.starts_with(&cfg.hf) {
+        let token = if same_origin(&f.url, &cfg.hf) {
             cfg.hf_token.as_deref()
-        } else if f.url.starts_with(&cfg.civitai) {
+        } else if same_origin(&f.url, &cfg.civitai) {
             cfg.civitai_token.as_deref()
         } else {
             None

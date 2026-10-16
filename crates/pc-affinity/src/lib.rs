@@ -27,6 +27,10 @@ pub mod stream;
 pub mod synth;
 mod text;
 
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod zstd_security_tests;
+
 pub use container::{Archive, Limits, MAGIC, is_affinity};
 pub use model::{Document, read};
 pub use preview::{MAX_PREVIEW_BYTES, MAX_PREVIEW_DIMENSION, Preview, preview};

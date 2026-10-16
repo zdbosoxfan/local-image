@@ -69,7 +69,13 @@ impl DevelopSettings {
     }
 
     pub fn from_json(v: &Value) -> Result<DevelopSettings, serde_json::Error> {
-        serde_json::from_value(v.clone())
+        let settings: Self = serde_json::from_value(v.clone())?;
+        if !settings.color_cal.valid_illuminant() {
+            return Err(<serde_json::Error as serde::de::Error>::custom(
+                "invalid custom calibration illuminant: choose a physical white with positive adaptation responses",
+            ));
+        }
+        Ok(settings)
     }
 
     /// Merge a partial JSON object into these settings (fields not mentioned are kept).

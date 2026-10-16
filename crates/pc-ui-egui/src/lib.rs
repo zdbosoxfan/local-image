@@ -320,6 +320,16 @@ pub type StageWriteFn = std::sync::Arc<dyn Fn(&str, &[u8], &lightcraft_sysmem::j
 
 /// Read bytes through the desktop control session's authorized read root.
 pub type AutomationReadFn = Box<dyn FnMut(&str) -> Result<(String, Vec<u8>), String>>;
+pub type AutomationSourceRead = std::sync::Arc<dyn Fn(&str) -> Result<Vec<u8>, String> + Send + Sync>;
+/// A staged Library view: metadata came only from the read capability. Future media reads
+/// retain that capability rather than reopening the displayed paths through ambient I/O.
+pub struct AutomationBrowse {
+    pub root: String,
+    pub folder: String,
+    pub photos: Vec<Value>,
+    pub read: AutomationSourceRead,
+}
+pub type AutomationBrowseFn = Box<dyn FnMut(&str) -> Result<AutomationBrowse, String>>;
 /// Write bytes through the desktop control session's authorized write root.
 pub type AutomationWriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// Reject engine commands which still perform ambient filesystem I/O.
@@ -416,6 +426,7 @@ pub struct Services {
     /// File access used only by control/MCP requests. Interactive dialogs keep
     /// using `pick_open`, `pick_save` and `write` with the user's authority.
     pub automation_read: Option<AutomationReadFn>,
+    pub automation_browse: Option<AutomationBrowseFn>,
     pub automation_write: Option<AutomationWriteFn>,
     pub automation_command: Option<AutomationCommandFn>,
     /// Same policy as [`Self::automation_command`], as a function pointer the engine calls for
@@ -566,6 +577,7 @@ pub struct PhotocraftApp {
     pub switch_module: Option<Module>,
     /// local-image: a folder for the Library to show (the filmstrip's Review in Library).
     pub browse_in_library: Option<String>,
+    pub automation_browse: Option<AutomationBrowse>,
     /// local-image: a Develop layer was double-clicked: the host shows Develop on this Library photo.
     pub develop_request: Option<develop_layer::LibraryOrigin>,
     /// local-image: files written by Save / Save As since the host last looked (the host takes
@@ -595,6 +607,10 @@ pub struct PhotocraftApp {
     thumbs: HashMap<(photocraft_doc::LayerId, u8), (u64, egui::TextureHandle)>,
     /// Snapshots whose live layer/mask keys were last used to prune thumbnail handles.
     thumb_documents: Vec<(DocId, std::sync::Weak<Document>)>,
+    /// Navigator resources belong to open documents, not egui's process-lifetime temp map.
+    pub(crate) navigator_textures: HashMap<DocId, canvas::NavigatorTexture>,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) navigator_jobs: HashMap<DocId, canvas::NavigatorJob>,
     /// Content bounds cached per (key, revision): scanning a 36 MP layer every frame cost ~77 ms.
     bounds_cache: HashMap<u64, (u64, photocraft_geom::Rect)>,
     /// Downsampled proxy of the active document for live previews: (doc, revision, k, proxy).
@@ -743,6 +759,7 @@ impl PhotocraftApp {
             host_preferences_values: Value::Null,
             switch_module: None,
             browse_in_library: None,
+            automation_browse: None,
             develop_request: None,
             library_saves: Vec::new(),
             library_save_sources: Default::default(),
@@ -758,6 +775,9 @@ impl PhotocraftApp {
             last_frame_time: 0.0,
             thumbs: HashMap::new(),
             thumb_documents: Vec::new(),
+            navigator_textures: HashMap::new(),
+            #[cfg(not(target_arch = "wasm32"))]
+            navigator_jobs: HashMap::new(),
             bounds_cache: HashMap::new(),
             proxy: None,
             proxy_uploaded: None,

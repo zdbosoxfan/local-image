@@ -19,7 +19,7 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
     if codecs::detect(bytes) == Some(Format::Tiff) {
         return import_tiff_page(name, bytes, None);
     }
-    let img = codecs::decode(bytes)?;
+    let img = codecs::decode_with(bytes, &codecs::DecodeOptions { limits: codecs::Limits::desktop_photo(), ..Default::default() })?;
     let mut r = image_to_document(name, &img)?;
     // OpenEXR and Radiance HDR hold linear, scene-referred values (Rec. 709 primaries unless
     // stated otherwise): tag them linear sRGB so they display and convert correctly.
@@ -36,7 +36,7 @@ pub fn import_flat(name: &str, bytes: &[u8]) -> Result<ImportResult, IoError> {
 pub fn import_tiff_page(name: &str, bytes: &[u8], page: Option<usize>) -> Result<ImportResult, IoError> {
     // The orientation is applied after the layer check: rotating the composite but not the
     // layers would misalign them, so a layered TIFF keeps its stored orientation.
-    let keep = codecs::DecodeOptions { keep_orientation: true, ..Default::default() };
+    let keep = codecs::DecodeOptions { keep_orientation: true, limits: codecs::Limits::desktop_photo() };
     let (img, orientation) = match page {
         None => (codecs::decode_with(bytes, &keep)?, codecs::tiff_orientation(bytes)),
         Some(p) => (codecs::decode_tiff_page(bytes, p, &keep)?, codecs::tiff_page_orientation(bytes, p)),
@@ -138,6 +138,73 @@ mod shared_decode_color_tests {
         assert!(profile.matrix.unwrap()[0][0] > 0.6, "Rec.2020, not sRGB primaries");
         img.icc = Some(vec![1, 2, 3]);
         assert_eq!(decoded_profile(&img).unwrap().as_slice(), &[1, 2, 3]);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod desktop_photo_tests {
+    use super::*;
+
+    // Constant-gray baseline JPEG: each 8x8 block needs only a one-bit DC difference
+    // and a one-bit EOB. The encoded fixture stays small without allocating source pixels.
+    fn constant_gray_jpeg(width: u16, height: u16) -> Vec<u8> {
+        fn segment(jpeg: &mut Vec<u8>, marker: u8, payload: &[u8]) {
+            jpeg.extend([0xff, marker]);
+            jpeg.extend(((payload.len() + 2) as u16).to_be_bytes());
+            jpeg.extend(payload);
+        }
+        let mut jpeg = vec![0xff, 0xd8];
+        let mut quant = vec![0];
+        quant.extend([1; 64]);
+        segment(&mut jpeg, 0xdb, &quant);
+        let mut frame = vec![8];
+        frame.extend(height.to_be_bytes());
+        frame.extend(width.to_be_bytes());
+        frame.extend([1, 1, 0x11, 0]);
+        segment(&mut jpeg, 0xc0, &frame);
+        let mut huffman = Vec::new();
+        for class in [0, 0x10] {
+            huffman.extend([class, 1]);
+            huffman.extend([0; 15]);
+            huffman.push(0);
+        }
+        segment(&mut jpeg, 0xc4, &huffman);
+        segment(&mut jpeg, 0xda, &[1, 1, 0, 0, 63, 0]);
+        let bits = (width as usize).div_ceil(8) * (height as usize).div_ceil(8) * 2;
+        jpeg.resize(jpeg.len() + bits.div_ceil(8), 0);
+        if !bits.is_multiple_of(8) {
+            *jpeg.last_mut().unwrap() = (1 << (8 - bits % 8)) - 1;
+        }
+        jpeg.extend([0xff, 0xd9]);
+        jpeg
+    }
+
+    #[test]
+    fn desktop_photo_import_preserves_full_resolution_above_generic_limit() {
+        let bytes = constant_gray_jpeg(8_000, 6_000);
+        assert!(bytes.len() < 200_000);
+        assert!(matches!(codecs::decode(&bytes), Err(codecs::CodecError::LimitExceeded(_))));
+        let imported = crate::import("synthetic-48mp.jpg", &bytes).unwrap();
+        assert_eq!(imported.document.size, Size::new(8_000, 6_000));
+        assert_eq!(imported.document.mode, ColorMode::Grayscale);
+        assert_eq!(imported.document.depth, SampleType::U8);
+        assert_eq!(imported.document.layers.len(), 1);
+        let surface = imported.document.layers[0].surface().unwrap();
+        for (x, y) in [(0, 0), (4_000, 3_000), (7_999, 5_999)] {
+            assert_eq!(surface.pixel(x, y), [128.0 / 255.0, 1.0]);
+        }
+    }
+
+    #[test]
+    fn desktop_photo_import_rejects_over_budget_header_before_pixels() {
+        let mut bytes = constant_gray_jpeg(16_384, 8_193);
+        let scan = bytes.windows(2).position(|pair| pair == [0xff, 0xda]).unwrap();
+        bytes.truncate(scan + 11); // SOS header plus one byte: far too little image data.
+        bytes.extend([0xff, 0xd9]);
+        let error = crate::import("over-budget.jpg", &bytes).unwrap_err();
+        assert!(matches!(error, IoError::Codec(codecs::CodecError::LimitExceeded(_))), "{error}");
+        assert!(error.to_string().contains("pixels exceed max"), "the declared pixel ceiling must fire before decoding: {error}");
     }
 }
 

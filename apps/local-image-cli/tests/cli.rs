@@ -275,6 +275,57 @@ fn batch_with(d: &Path, input: &Path, name: &str, actions: &str, extra: &[&str])
     bin().args(["batch", "--actions"]).arg(&file).arg("--in").arg(input).arg("--out").arg(d.join(name)).args(extra).output().unwrap()
 }
 
+#[test]
+fn batch_processes_raw_only_and_mixed_directories() {
+    use lightcraft_raw::testgen::{DngSpec, mosaic, scene};
+    let d = tmp("batch-raw");
+    let input = d.join("in");
+    std::fs::create_dir_all(&input).unwrap();
+    let (w, h) = (24, 24);
+    let bytes = DngSpec::cfa(w, h, mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535)).build();
+    std::fs::write(input.join("raw.DNG"), bytes).unwrap();
+    let output = batch_with(&d, &input, "raw-only", "[]", &["--format", "png"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 succeeded, 0 failed"));
+    let image = photocraft_codecs::decode(&std::fs::read(d.join("raw-only/raw.png")).unwrap()).unwrap();
+    assert_eq!((image.width(), image.height()), (w as u32, h as u32));
+
+    let output = batch_with(&d, &input, "raw-default", "[]", &[]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(photocraft_format::is_pcraft(&std::fs::read(d.join("raw-default/raw.pcraft")).unwrap()));
+
+    write_png(&input.join("raster.png"), 8, 4, 3);
+    std::fs::write(input.join("notes.txt"), "not an image").unwrap();
+    let output = batch_with(&d, &input, "mixed", "[]", &["--format", "png"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("2 succeeded, 0 failed"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("notes.txt: unsupported input format"));
+    assert!(d.join("mixed/raw.png").is_file() && d.join("mixed/raster.png").is_file());
+    std::fs::remove_dir_all(d).unwrap();
+}
+
+#[test]
+fn batch_reports_empty_unsupported_and_invalid_raw_inputs() {
+    let d = tmp("batch-empty-and-unsupported");
+    let input = d.join("in");
+    std::fs::create_dir_all(&input).unwrap();
+    for name in ["empty", "unsupported"] {
+        if name == "unsupported" {
+            std::fs::write(input.join("notes.txt"), "not an image").unwrap();
+        }
+        let output = batch_with(&d, &input, name, "[]", &["--format", "png"]);
+        assert_eq!(output.status.code(), Some(1));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("no supported input images"));
+        assert!(!d.join(name).exists(), "empty batch must not create an output directory");
+    }
+    std::fs::write(input.join("damaged.CR3"), b"not a valid camera raw").unwrap();
+    let output = batch_with(&d, &input, "invalid-raw", "[]", &["--format", "png"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stdout).contains("0 succeeded, 1 failed"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("damaged.CR3"));
+    std::fs::remove_dir_all(d).unwrap();
+}
+
 /// #489: `batch --actions` takes `[id, params]` steps and a droplet's steps, with the same results
 /// as the object form; a malformed step fails before anything is written.
 #[test]

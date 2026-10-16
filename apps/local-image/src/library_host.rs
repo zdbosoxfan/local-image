@@ -53,6 +53,7 @@ fn library_palette(kind: photocraft_ui_egui::theme::ThemeKind) -> lightcraft_ui_
 pub struct Host {
     pub editor: PhotocraftApp,
     library: Option<LightcraftApp>,
+    automation_media: Option<crate::automation_library::MediaHooks>,
     prefs: PrefsWriter,
     mode: Module,
     /// The module whose visuals are applied to the context (Library and Develop share LightCraft's).
@@ -376,15 +377,19 @@ impl photocraft_ui_egui::prefs_ui::HostPreferencesPages for LibraryPreferencesPa
             lightcraft_ui_egui::panels::settings::shared_page(lib, ui, section.trim_start_matches("library."), draft);
         }
     }
-    fn validate(&self, draft: &serde_json::Value) -> Result<(), String> {
-        serde_json::from_value::<lightcraft_ui_egui::panels::settings::PreferencesDraft>(draft.clone()).map(|_| ()).map_err(|e| e.to_string())
-    }
-    fn apply(&mut self, draft: &serde_json::Value) -> Result<(), String> {
+    fn prepare(&self, draft: &serde_json::Value) -> Result<Box<dyn FnOnce() + '_>, String> {
         let values = serde_json::from_value::<lightcraft_ui_egui::panels::settings::PreferencesDraft>(draft.clone()).map_err(|e| e.to_string())?;
         let mut library = self.0.borrow_mut();
-        let lib = library.as_mut().ok_or_else(|| li_i18n::library::t("The Library is not available for Preferences.").to_string())?;
-        values.install(&mut lib.ui);
-        Ok(())
+        if library.is_none() {
+            return Err(li_i18n::library::t("The Library is not available for Preferences.").to_string());
+        }
+        // Keep the borrow through publication so the validated Library cannot disappear or
+        // change between the checked write and its infallible runtime installation.
+        Ok(Box::new(move || {
+            if let Some(lib) = library.as_mut() {
+                values.install(&mut lib.ui);
+            }
+        }))
     }
 }
 
@@ -407,6 +412,7 @@ impl Host {
         Self {
             editor,
             library: None,
+            automation_media: None,
             prefs: PrefsWriter::default(),
             mode,
             styled: None,
@@ -591,7 +597,7 @@ impl Host {
     }
 
     fn library_native_commands_available(&self) -> bool {
-        self.editor.ui.dialogs.is_empty()
+        photocraft_ui_egui::native_menu::commands_available(&self.editor)
             && self
                 .library
                 .as_ref()
@@ -1187,6 +1193,11 @@ impl Host {
             self.end_camera_raw(ctx, false);
             return;
         }
+        // A custom full-canvas modal owns module navigation too. Otherwise a host chord or
+        // queued switch could hide its only Cancel action in another workspace.
+        if !photocraft_ui_egui::native_menu::commands_available(&self.editor) {
+            return;
+        }
         let from = self.mode;
         if from == Module::Compositing
             && to == Module::Develop
@@ -1634,6 +1645,16 @@ impl eframe::App for Host {
             self.switch(ctx, Module::Compositing);
         }
         if let Some(m) = self.editor.switch_module.take() {
+            if let Some(browse) = self.editor.automation_browse.take() {
+                let mut hooks = self.automation_media.take();
+                let result = crate::automation_library::show(self.library(), browse, &mut hooks);
+                self.automation_media = hooks;
+                if let Err(error) = result {
+                    self.editor.ui.status = error;
+                    self.editor.ui.status_error = true;
+                    return;
+                }
+            }
             self.switch(ctx, m);
             // The filmstrip's Review in Library: the folder in the Library's grid, read in place.
             if let Some(dir) = self.editor.browse_in_library.take()
@@ -1695,7 +1716,9 @@ impl eframe::App for Host {
             }
         }
         self.capture_library_preferences(ctx, false);
+        photocraft_ui_egui::prefs_ui::sync_shared_interface(&mut self.editor, ctx);
         self.restyle(ctx);
+        photocraft_ui_egui::prefs_ui::sync_shared_tooltips(&self.editor, ctx);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
@@ -3009,6 +3032,29 @@ mod tests {
         fn pixel_at(&self, pos: egui::Pos2) -> egui::Color32 {
             let img = self.view.paint(&self.host.library.as_ref().unwrap().renderer.cpu_textures());
             img.pixels[pos.y as usize * img.size[0] + pos.x as usize]
+        }
+    }
+
+    #[test]
+    fn module_shortcuts_cannot_hide_custom_filter_modals() {
+        for command in ["filter.filterGallery", "filter.liquify"] {
+            let mut editor = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            editor.run("file.new", json!({"width":32,"height":24,"background":"transparent"})).unwrap();
+            editor.run("edit.fill", json!({"color":"#3366cc"})).unwrap();
+            let mut host = Host::new(editor);
+            host.editor.host_modes = true;
+            host.mode = Module::Compositing;
+            let mut h = RoundTripUi::new(host);
+            for _ in 0..3 {
+                h.step(vec![]);
+            }
+            let ctx = h.view.ctx.clone();
+            photocraft_ui_egui::distort_ui::menu(&mut h.host.editor, &ctx, command, &json!({})).unwrap().unwrap();
+            h.key(egui::Key::Num1, egui::Modifiers::COMMAND | egui::Modifiers::ALT);
+            assert_eq!(h.host.mode, Module::Compositing);
+            assert!(!photocraft_ui_egui::native_menu::commands_available(&h.host.editor));
+            photocraft_ui_egui::distort_ui::menu(&mut h.host.editor, &ctx, command, &json!({"ui":{"cancel":true}})).unwrap().unwrap();
+            assert!(photocraft_ui_egui::native_menu::commands_available(&h.host.editor));
         }
     }
 
@@ -4889,6 +4935,58 @@ mod tests {
         let rect = h.view.ctx.data(|data| data.get_temp::<egui::Rect>(egui::Id::new(("dialog-button-role", role as u8)))).expect("dialog button");
         lrc_click_rect(h, rect);
     }
+    #[test]
+    fn shared_interface_apply_updates_library_and_develop_before_switching_modules() {
+        use photocraft_ui_egui::widgets::ButtonRole;
+        for mode in [Module::Library, Module::Develop] {
+            let (dir, host) = workflow_host("shared-interface-apply");
+            let mut h = RoundTripUi::new(host);
+            let ctx = h.view.ctx.clone();
+            h.host.switch(&ctx, mode);
+            for _ in 0..4 {
+                h.step(vec![]);
+            }
+            let id = photocraft_ui_egui::prefs_ui::open_preferences(&mut h.host.editor, "interface");
+            for _ in 0..4 {
+                h.step(vec![]);
+            }
+            let values = h.host.editor.ui.dialog_mut(id).unwrap().fields.get_mut("values").unwrap();
+            values["interface"]["theme"] = json!("studioLight");
+            values["interface"]["uiScale"] = json!("150");
+            values["interface"]["uiFontSize"] = json!("large");
+            values["interface"]["toolIcons"] = json!("colour");
+            values["interface"]["showTooltips"] = json!(false);
+            values["interface"]["language"] = json!("ja");
+            for _ in 0..2 {
+                h.step(vec![]);
+            }
+            lrc_click_dialog_button(&mut h, ButtonRole::Apply);
+            for _ in 0..4 {
+                h.step(vec![]);
+            }
+            assert_eq!(h.host.mode, mode, "Apply must not require a workspace switch");
+            assert_eq!(h.host.editor.ui.theme, photocraft_ui_egui::theme::ThemeKind::StudioLight);
+            assert_eq!(lightcraft_ui_egui::theme::Tokens::get(&ctx), library_palette(photocraft_ui_egui::theme::ThemeKind::StudioLight));
+            assert_eq!(ctx.zoom_factor(), 1.5);
+            assert_eq!(ctx.fonts(|fonts| fonts.definitions().font_data["Inter"].tweak.scale), 16.0 / 12.0);
+            assert_eq!(ctx.data(|data| data.get_temp::<bool>(egui::Id::new(("li-ui-kit", "colour-tool-icons")))), Some(true));
+            assert_eq!(ctx.data(|data| data.get_temp::<li_i18n::Lang>(egui::Id::new("photocraft-ui-language"))), Some(li_i18n::Lang::Ja));
+            assert!(ctx.global_style().interaction.tooltip_delay.is_infinite());
+            // An unapplied new draft is still reversible in the same module.
+            let values = h.host.editor.ui.dialog_mut(id).unwrap().fields.get_mut("values").unwrap();
+            values["interface"]["theme"] = json!("pro");
+            values["interface"]["uiScale"] = json!("100");
+            lrc_click_dialog_button(&mut h, ButtonRole::Cancel);
+            for _ in 0..3 {
+                h.step(vec![]);
+            }
+            assert_eq!(h.host.editor.ui.theme, photocraft_ui_egui::theme::ThemeKind::StudioLight);
+            assert_eq!(ctx.zoom_factor(), 1.5);
+            drop(h);
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
     #[test]
     fn lrc_one_preferences_shell_drafts_apply_cancel_and_one_store_in_every_module() {
         use photocraft_ui_egui::widgets::ButtonRole;

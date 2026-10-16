@@ -1,4 +1,5 @@
 use super::*;
+use photocraft_doc::PathOp;
 
 fn session(depth: u32) -> Session {
     let mut s = Session::new();
@@ -174,9 +175,9 @@ fn work_path_and_shape_follow_the_glyphs() {
         let before = ink(&s, id);
         s.execute("type.createWorkPath", json!({})).unwrap();
         let wp = s.active().unwrap().doc.work_path.clone().unwrap();
-        // 'o' has an outer contour and a counter (subtracted), plus 'i' (stem + dot) and 'l'.
+        // 'o' has joined outer/counter contours, plus 'i' (stem + dot) and 'l'.
         assert!(wp.subpaths.len() >= 5, "{}", wp.subpaths.len());
-        assert!(wp.subpaths.iter().any(|sp| sp.op == PathOp::Subtract));
+        assert!(wp.subpaths.iter().any(|sp| sp.op == PathOp::Join));
         let (x0, y0, x1, y1) = wp.control_bounds().unwrap();
         assert!((x0 - before.x0 as f64).abs() < 3.0 && (x1 - before.x1 as f64).abs() < 3.0, "{x0},{x1} vs {before:?}");
         assert!((y0 - before.y0 as f64).abs() < 3.0 && (y1 - before.y1 as f64).abs() < 3.0);
@@ -281,4 +282,65 @@ fn rasterize_type_layer() {
     s.execute("type.rasterizeTypeLayer", json!({})).unwrap();
     assert!(matches!(s.active().unwrap().doc.layer(id).unwrap().content, LayerContent::Raster(_)));
     assert!(!s.is_enabled("type.rasterizeTypeLayer"));
+}
+
+#[test]
+fn convert_to_shape_preserves_overlapping_counter_geometry_and_paint_order() {
+    use photocraft_doc::text::{CharStyle, TextRun};
+    use photocraft_doc::{Color, ColorMode, SampleType, Size};
+    for (word, colored) in [("HO", false), ("OO", false), ("HHH", true)] {
+        let mut doc = Document::new("conversion", Size::new(256, 128), ColorMode::Rgb, SampleType::U8);
+        let mut text = TextLayer { text: word.into(), transform: Affine::translate(100., 90.), ..Default::default() };
+        text.runs = word
+            .chars()
+            .enumerate()
+            .map(|(i, _)| TextRun {
+                len: 1,
+                style: CharStyle {
+                    size_pt: 64.,
+                    tracking: -650.,
+                    color: if colored && i == 1 { Color::rgb(0., 0., 1.) } else { Color::rgb(1., 0., 0.) },
+                    ..Default::default()
+                },
+            })
+            .collect();
+        photocraft_text::TextEngine::new().render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+        let layer = Layer::new("Type", LayerContent::Text(text));
+        let id = layer.id;
+        doc.layers.push(layer);
+        let before = photocraft_compose::flatten(&doc);
+        let mut session = Session::new();
+        session.add_document(doc, None);
+        session.select_layer(id).unwrap();
+        session.execute("type.convertToShape", json!({})).unwrap();
+        let converted = &session.active().unwrap().doc;
+        let after = photocraft_compose::flatten(converted);
+        let mut compared = 0;
+        for y in 1..127 {
+            for x in 1..255 {
+                let i = y * 256 + x;
+                let expected = before.px[i];
+                // Compare constant interior regions; exact-area and curve tessellation may
+                // differ at antialiased boundaries, but must not erase/repaint solid artwork.
+                if expected[3] > 0.99
+                    && (-1isize..=1).all(|dy| {
+                        (-1isize..=1).all(|dx| {
+                            let p = before.px[((y as isize + dy) * 256 + x as isize + dx) as usize];
+                            p.iter().zip(expected).all(|(a, b)| (a - b).abs() < 0.01)
+                        })
+                    })
+                {
+                    assert!(after.px[i].iter().zip(expected).all(|(a, b)| (a - b).abs() < 0.03), "{word} at {x},{y}: {:?} != {expected:?}", after.px[i]);
+                    compared += 1;
+                }
+            }
+        }
+        assert!(compared > 100);
+        if colored {
+            let layer = converted.layer(id).unwrap();
+            assert_eq!(layer.children().unwrap().len(), 3, "retain adjacent red/blue/red paint runs");
+        }
+        assert!(session.undo());
+        assert!(matches!(session.active().unwrap().doc.layer(id).unwrap().content, LayerContent::Text(_)));
+    }
 }

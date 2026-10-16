@@ -162,7 +162,7 @@ fn vector_fallback_exports_mirrors_with_exact_cache_channels_and_one_notice() {
         let fill = crate::blocks::parse_fill(b"SoCo", &record.block(b"SoCo").unwrap().data).unwrap();
         assert_eq!(fill, Fill::Solid(Color::rgb(0., 1., 0.)));
         assert_eq!(super::super::parse_vstk(&record.block(b"vstk").unwrap().data, 72.).unwrap().stroke.unwrap().width, 2.);
-        let imported = crate::psd_to_document(&file).0;
+        let imported = crate::psd_to_document(&file).unwrap().0;
         assert_eq!(imported.layers[0].surface().unwrap().to_interleaved(d.bounds()), d.layers[0].surface().unwrap().to_interleaved(d.bounds()));
         // Independent premultiplied merged-composite oracle, including PSD matting quantization.
         let expected = photocraft_compose::flatten(&d);
@@ -275,7 +275,7 @@ fn vector_fallback_cache_is_clipped_before_hash_and_channel_encoding() {
     let (file, _) = crate::document_to_psd_with(&d, &Default::default());
     let rect = file.layers()[0].rect;
     assert!(rect.right <= 32 && rect.bottom <= 24);
-    let back = crate::psd_to_document(&file).0;
+    let back = crate::psd_to_document(&file).unwrap().0;
     assert!(cache_matches(&back.layers[0]));
 }
 

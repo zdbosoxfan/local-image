@@ -4,7 +4,7 @@
 //! are cached per mask state; unchanged masks return the same tiles (cheap to clone, and the
 //! GPU sees no change).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -39,8 +39,24 @@ fn cache() -> &'static Mutex<Cache> {
 const CAPACITY: usize = 1024;
 const BUDGET_BYTES: usize = 512 << 20;
 
-fn surface_bytes(s: &Surface) -> usize {
-    s.tiles().map(|(_, t)| t.bytes().len()).sum()
+impl Cache {
+    /// Include the source tiles pinned for ABA protection, counting shared allocations once.
+    fn retained_bytes(&self) -> usize {
+        let mut seen = HashSet::new();
+        self.map
+            .values()
+            .flat_map(|entry| std::iter::once(&entry.surface).chain(entry._pixel_input.iter()))
+            .flat_map(Surface::tiles)
+            .filter(|(_, tile)| seen.insert(Arc::as_ptr(tile) as usize))
+            .fold(0usize, |total, (_, tile)| total.saturating_add(tile.bytes().len()))
+    }
+
+    fn trim(&mut self, capacity: usize, budget: usize) {
+        while self.map.len() > capacity || self.retained_bytes() > budget {
+            let Some(old) = self.map.iter().min_by_key(|(_, entry)| entry.tick).map(|(key, _)| *key) else { break };
+            self.map.remove(&old);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -169,13 +185,8 @@ pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
     let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
     let tick = c.tick;
     c.map.insert(k, CacheEntry { surface: s.clone(), tick, _pixel_input: layer.mask.as_ref().map(|m| m.surface.clone()) });
-    let mut bytes: usize = c.map.values().map(|e| surface_bytes(&e.surface)).sum();
-    while c.map.len() > 1 && (c.map.len() > CAPACITY || bytes > BUDGET_BYTES) {
-        let Some(old) = c.map.iter().filter(|e| *e.0 != k).min_by_key(|e| e.1.tick).map(|e| *e.0) else { break };
-        if let Some(e) = c.map.remove(&old) {
-            bytes -= surface_bytes(&e.surface);
-        }
-    }
+    // An individually oversized result is returned to this render without retaining it.
+    c.trim(CAPACITY, BUDGET_BYTES);
     Some(s)
 }
 
@@ -286,4 +297,48 @@ fn j01_d2_compositing_half_pixel_feather_blurs() {
     assert!(mask[40] < 1.0);
     assert!(mask[39] > 0.0);
     assert!((mask.iter().sum::<f32>() - 1.0).abs() < 1e-6);
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod retained_input_regression {
+    use super::*;
+
+    fn input() -> Surface {
+        let mut surface = Surface::new(PixelFormat::GRAY8);
+        surface.fill_rect(Rect::new(1024, 1024, 1280, 1280), &[1.0]);
+        surface
+    }
+    fn entry(input: Surface, tick: u64) -> CacheEntry {
+        CacheEntry { surface: Surface::new(FORMAT), tick, _pixel_input: Some(input) }
+    }
+
+    #[test]
+    fn cache_budget_counts_pinned_inputs_and_evicts_them_after_source_drop() {
+        let first = input();
+        let weak = Arc::downgrade(first.tiles().next().unwrap().1);
+        let mut cache = Cache { map: HashMap::new(), tick: 0 };
+        cache.map.insert(1, entry(first, 1));
+        let budget = 256 * 256;
+        assert_eq!(cache.retained_bytes(), budget);
+        cache.map.insert(2, entry(input(), 2));
+        cache.trim(CAPACITY, budget);
+        assert_eq!(cache.map.len(), 1);
+        assert!(cache.map.contains_key(&2));
+        assert!(weak.upgrade().is_none(), "evicted cache must release the old source's tiles");
+        assert_eq!(cache.retained_bytes(), budget);
+        cache.trim(CAPACITY, budget - 1);
+        assert!(cache.map.is_empty(), "do not retain an individually oversized entry");
+    }
+
+    #[test]
+    fn cache_budget_deduplicates_shared_input_and_output_tiles() {
+        let source = input();
+        let mut cache = Cache { map: HashMap::new(), tick: 0 };
+        cache.map.insert(1, CacheEntry { surface: source.clone(), tick: 1, _pixel_input: Some(source.clone()) });
+        cache.map.insert(2, entry(source, 2));
+        cache.trim(CAPACITY, 256 * 256);
+        assert_eq!(cache.map.len(), 2);
+        assert_eq!(cache.retained_bytes(), 256 * 256);
+    }
 }

@@ -46,11 +46,28 @@ pub struct Params<'a> {
     pub sampler: Option<(&'a str, &'a str)>,
     /// Z-Image Turbo Create: 0 = Off, 100 = the tested maximum conditioning blend.
     pub variety: f32,
+    /// Create with an InitImage reference: how much of the starting latent to re-noise.
+    pub init_denoise: f32,
 }
 
 impl<'a> Params<'a> {
     pub fn create(prompt: &'a str, width: u32, height: u32, seed: u64, steps: u32, cfg: f32) -> Self {
-        Self { task: Task::Create, prompt, negative: "", width, height, seed, steps, cfg, references: 0, loras: &[], batch: 1, sampler: None, variety: 0.0 }
+        Self {
+            task: Task::Create,
+            prompt,
+            negative: "",
+            width,
+            height,
+            seed,
+            steps,
+            cfg,
+            references: 0,
+            loras: &[],
+            batch: 1,
+            sampler: None,
+            variety: 0.0,
+            init_denoise: 1.0,
+        }
     }
 }
 
@@ -340,6 +357,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     // ---- Latent.
     let denoise = match p.task {
         Task::Refine { denoise } | Task::Inpaint { denoise } => denoise.clamp(0.01, 1.0),
+        Task::Create if pl.reference == RefMethod::InitImage && !refs.is_empty() => p.init_denoise.clamp(0.0, 1.0),
         _ => 1.0,
     };
     let empty = |g: &mut G| {

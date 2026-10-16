@@ -55,12 +55,14 @@ pub(crate) struct Ctx<'a> {
     pub txt2: Option<photocraft_text::engine_data::Value>,
     /// Smart-filter caches from the global `FEid`/`FXid` blocks (filter masks, by placed id).
     pub filter_effects: Vec<photocraft_psd::filter_effects::FilterEffectsItem>,
+    pub filter_effects_error: Option<String>,
     /// Cancellation and progress for background opens (checked per layer record).
     pub ctl: lightcraft_sysmem::jobs::Interrupt<'a>,
     /// Layer records decoded so far, out of `total` (progress).
     pub done: usize,
     pub total: usize,
     pub remaining: usize,
+    pub fatal: Option<String>,
     pub generation_remaining: usize,
 }
 
@@ -103,10 +105,13 @@ fn soft_shape_fill(rec: &LayerRecord, has_vector: bool, fill_key: Option<&[u8; 4
 
 impl Ctx<'_> {
     fn charge(&mut self, w: usize, h: usize, channels: usize) -> bool {
+        if self.fatal.is_some() {
+            return false;
+        }
         let cost =
             w.saturating_add(128).saturating_mul(h.saturating_add(128)).saturating_mul(channels).saturating_mul(self.fmt.sample.bytes()).saturating_mul(3);
         if cost > self.remaining {
-            self.warn("PSD import exceeds the decoded image memory limit; pixels were omitted");
+            self.fatal = Some("PSD import exceeds the decoded image memory limit; no document was opened".into());
             return false;
         }
         self.remaining -= cost;
@@ -118,11 +123,14 @@ impl Ctx<'_> {
     }
 
     fn channel_plane(&mut self, rec: &LayerRecord, id: i16, name: &str) -> Option<Vec<u8>> {
+        if self.fatal.is_some() {
+            return None;
+        }
         rec.channel(id)?;
         match rec.decode_channel(id, self.file.header.depth, self.file.header.version) {
             Ok(p) => Some(p),
             Err(e) => {
-                self.warn(format!("layer \"{name}\": channel {id} could not be decoded ({e}); treated as empty"));
+                self.fatal = Some(format!("layer \"{name}\": channel {id} could not be decoded ({e}); no document was opened"));
                 None
             }
         }
@@ -149,8 +157,8 @@ impl Ctx<'_> {
             planes.push(self.channel_plane(rec, c as i16, name));
         }
         planes.push(self.channel_plane(rec, CHANNEL_TRANSPARENCY, name));
-        // A channel that is in the file but could not be decoded leaves the layer empty, as the
-        // warning says. Filling in for it would paint an opaque black layer over the document.
+        // A failed required channel leaves this temporary layer empty; the caller refuses
+        // the whole conversion instead of exposing an incomplete editable document.
         let ids = (0..self.cc as i16).chain([CHANNEL_TRANSPARENCY]);
         if ids.zip(&planes).any(|(id, p)| p.is_none() && rec.channel(id).is_some()) {
             return Surface::new(self.fmt);
@@ -203,11 +211,27 @@ impl Ctx<'_> {
     /// document coordinates, white beyond its bounds (`filterMaskExtendWithWhite`). An all-white
     /// mask remains an explicitly stored mask.
     fn filter_mask(&mut self, placed: &str, stack: &crate::smart_map::FilterStack, name: &str) -> Option<LayerMask> {
-        let item = self.filter_effects.iter().find(|i| i.id == placed)?;
-        match crate::smart_map::mask_from_item(item, self.mask_fmt.sample, stack) {
+        let Some(index) = self.filter_effects.iter().position(|i| i.id == placed) else {
+            if let Some(error) = &self.filter_effects_error {
+                self.fatal = Some(format!("layer \"{name}\": the smart filter mask could not be read ({error}); no document was opened"));
+            }
+            return None;
+        };
+        let (rect, _) = self.filter_effects[index].mask.as_ref()?;
+        let (w, h) = match rect.size() {
+            Ok(size) => size,
+            Err(error) => {
+                self.fatal = Some(format!("layer \"{name}\": invalid smart filter mask bounds ({error}); no document was opened"));
+                return None;
+            }
+        };
+        if !self.charge(w, h, 1) {
+            return None;
+        }
+        match crate::smart_map::mask_from_item(&self.filter_effects[index], self.mask_fmt.sample, stack) {
             Ok(m) => m,
             Err(e) => {
-                self.warn(format!("layer \"{name}\": {e}; the filter mask was ignored"));
+                self.fatal = Some(format!("layer \"{name}\": {e}; no document was opened"));
                 None
             }
         }
@@ -546,16 +570,26 @@ fn parse_guides(data: &[u8], doc: &mut Document) {
     }
 }
 
-/// Converts a parsed PSD into a document. Never fails: problems become warnings.
-pub fn psd_to_document(file: &PsdFile) -> (Document, Vec<String>) {
-    // Never cancelled, so always `Some`; the fallback is unreachable.
+/// Converts a parsed PSD into a complete document. Required pixel/mask failures
+/// are fatal: a partial editable document must never overwrite its source.
+pub fn psd_to_document(file: &PsdFile) -> Result<(Document, Vec<String>), crate::IoError> {
     psd_to_document_with(file, &lightcraft_sysmem::jobs::Interrupt::NONE)
-        .unwrap_or_else(|| (Document::new("Untitled", Size::new(1, 1), ColorMode::Rgb, SampleType::U8), Vec::new()))
 }
 
-/// [`psd_to_document`] for a background open: checks `ctl` per layer record and reports
-/// progress. `None` when cancelled.
-pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Option<(Document, Vec<String>)> {
+/// The whole conversion is bounded as well as each decoder allocation. Use the
+/// configured machine budget without letting one import consume it all.
+fn conversion_budget() -> usize {
+    let bytes = (lightcraft_sysmem::profile().memory_budget() / 4).clamp(512 << 20, 4 << 30);
+    usize::try_from(bytes).unwrap_or(usize::MAX)
+}
+
+/// [`psd_to_document`] for a cancellable background open.
+pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<(Document, Vec<String>), crate::IoError> {
+    psd_to_document_with_budget(file, ctl, conversion_budget())
+}
+
+fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Interrupt, budget: usize) -> Result<(Document, Vec<String>), crate::IoError> {
+    check_group_depth(file)?;
     let h = &file.header;
     let mut warnings = Vec::new();
     let mode = doc_mode(h.color_mode).unwrap_or_else(|| {
@@ -637,24 +671,30 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Inter
         dpi: doc.resolution_dpi,
         txt2: file.global_blocks.iter().find(|b| &b.key == b"Txt2").and_then(|b| photocraft_text::psd::parse_txt2(&b.data)),
         filter_effects: Vec::new(),
+        filter_effects_error: None,
         ctl: *ctl,
         done: 0,
         total: file.layers().len(),
-        remaining: 512 << 20,
+        remaining: budget,
+        fatal: None,
         generation_remaining: crate::psd_generation::DOCUMENT_BYTES,
     };
     for b in file.global_blocks.iter().filter(|b| matches!(&b.key, b"FEid" | b"FXid")) {
         // Smart-filter caches can be large: a cancelled open stops between blocks.
         if ctl.cancelled() {
-            return None;
+            return Err(crate::IoError::Cancelled);
         }
         match photocraft_psd::filter_effects::FilterEffects::parse(&b.data) {
             Ok(fx) => cx.filter_effects.extend(fx.items),
-            Err(e) => cx.warn(format!("smart filter masks ({}) could not be read: {e}", b.key_str())),
+            Err(e) => {
+                let message = format!("smart filter masks ({}) could not be read: {e}", b.key_str());
+                cx.filter_effects_error = Some(message.clone());
+                cx.warn(message);
+            }
         }
     }
     if ctl.cancelled() {
-        return None;
+        return Err(crate::IoError::Cancelled);
     }
 
     let (w, hh) = (h.width as usize, h.height as usize);
@@ -672,11 +712,11 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Inter
             Err(photocraft_psd::PsdError::LimitExceeded("PSD import memory budget"))
         };
         if ctl.cancelled() {
-            return None;
+            return Err(crate::IoError::Cancelled);
         }
         ctl.progress(0.1);
         if let Err(e) = &m {
-            cx.warn(format!("merged image could not be decoded: {e}"));
+            return Err(crate::IoError::Unsupported(format!("merged image could not be decoded ({e}); no document was opened")));
         }
         Some(m)
     } else {
@@ -786,7 +826,8 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Inter
             }
             Ok::<_, photocraft_psd::PsdError>(photocraft_psd::RgbaImage { left: 0, top: 0, width: h.width, height: h.height, data })
         });
-        if let Ok(img) = rgba {
+        let img = rgba.map_err(|e| crate::IoError::Unsupported(format!("merged image could not be decoded ({e}); no document was opened")))?;
+        {
             let mut s = Surface::new(fmt);
             let vals: Vec<f32> = img
                 .data
@@ -842,16 +883,177 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::Inter
     cx.warnings.extend(crate::text_styles_map::import(&mut doc));
 
     if ctl.cancelled() {
-        return None;
+        return Err(crate::IoError::Cancelled);
+    }
+    if let Some(error) = cx.fatal {
+        return Err(crate::IoError::Unsupported(error));
     }
     ctl.progress(1.0);
-    Some((doc, cx.warnings))
+    Ok((doc, cx.warnings))
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod file_input_regressions {
     use super::*;
+
+    fn layered_document() -> Document {
+        let mut doc = Document::new("budget fixture", Size::new(2, 2), ColorMode::Rgb, SampleType::U8);
+        for (name, color) in [("bottom", [0.2, 0.4, 0.6, 1.0]), ("top", [0.8, 0.6, 0.4, 1.0])] {
+            let mut surface = Surface::new(doc.pixel_format());
+            surface.write_region(doc.bounds(), &color.repeat(4));
+            doc.layers.push(Layer::new(name, LayerContent::Raster(surface)));
+        }
+        let mut mask = LayerMask::reveal_all();
+        mask.surface.write_region(doc.bounds(), &[0.2, 0.4, 0.6, 0.8]);
+        doc.layers[0].mask = Some(mask);
+        doc
+    }
+
+    fn parsed_file(doc: &Document, force_psb: bool) -> PsdFile {
+        let (file, _) = crate::document_to_psd_with(doc, &crate::PsdExportOptions { force_psb, ..Default::default() });
+        PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn psd_psb_multilayer_and_mask_budget_failure_never_returns_partial_document() {
+        let original = layered_document();
+        // Two 2x2 RGBA layers and one grayscale mask, with the conversion's padding
+        // and temporary-buffer allowance; well below one MiB for both file versions.
+        let exact_budget = 130 * 130 * (4 + 4 + 1) * 3;
+        for force_psb in [false, true] {
+            let file = parsed_file(&original, force_psb);
+            for budget in [exact_budget - 1, 130 * 130 * 4 * 3] {
+                let error = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, budget).unwrap_err();
+                assert!(error.to_string().contains("no document was opened"), "{error}");
+                assert!(error.to_string().contains("memory limit"), "{error}");
+            }
+            let (complete, _) = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, exact_budget).unwrap();
+            assert_eq!(complete.layers.len(), 2);
+            for layer in &original.layers {
+                let loaded = complete.layers.iter().find(|candidate| candidate.name == layer.name).unwrap();
+                assert_eq!(loaded.surface().unwrap().to_interleaved(original.bounds()), layer.surface().unwrap().to_interleaved(original.bounds()));
+                assert_eq!(
+                    loaded.mask.as_ref().map(|mask| mask.surface.to_interleaved(original.bounds())),
+                    layer.mask.as_ref().map(|mask| mask.surface.to_interleaved(original.bounds()))
+                );
+            }
+            assert_eq!(crate::import("complete.psd", &file.to_bytes().unwrap()).unwrap().document.layers.len(), 2);
+        }
+    }
+
+    #[test]
+    fn psd_psb_flattened_budget_failure_is_an_error_and_exact_budget_keeps_pixels() {
+        let original = layered_document();
+        let exact_budget = 130 * 130 * 8 * 3;
+        for force_psb in [false, true] {
+            let mut file = parsed_file(&original, force_psb);
+            file.layer_info = None;
+            let file = PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap();
+            assert!(file.layers().is_empty());
+            let error = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, exact_budget - 1).unwrap_err();
+            assert!(error.to_string().contains("merged image could not be decoded"), "{error}");
+            assert!(error.to_string().contains("no document was opened"), "{error}");
+            let (complete, _) = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, exact_budget).unwrap();
+            assert_eq!(complete.layers.len(), 1);
+            assert_eq!(
+                complete.layers[0].surface().unwrap().to_interleaved(original.bounds()),
+                original.layers[1].surface().unwrap().to_interleaved(original.bounds())
+            );
+            let mut corrupt = file;
+            corrupt.image_data.data.clear();
+            assert!(psd_to_document(&corrupt).is_err());
+            assert!(crate::import("broken.psd", &corrupt.to_bytes().unwrap()).is_err());
+        }
+    }
+
+    #[test]
+    fn psd_psb_required_layer_and_mask_decode_failures_are_errors() {
+        let original = layered_document();
+        for force_psb in [false, true] {
+            for channel_id in [0, CHANNEL_USER_MASK] {
+                let mut file = parsed_file(&original, force_psb);
+                let channel = file.layers_mut().iter_mut().flat_map(|layer| &mut layer.channels).find(|channel| channel.id == channel_id).unwrap();
+                channel.compression = Some(photocraft_psd::Compression::Raw);
+                channel.data.clear();
+                let error = psd_to_document(&file).unwrap_err();
+                assert!(error.to_string().contains(&format!("channel {channel_id} could not be decoded")), "{error}");
+                assert!(error.to_string().contains("no document was opened"), "{error}");
+                assert!(crate::import("broken.psd", &file.to_bytes().unwrap()).is_err());
+            }
+        }
+    }
+
+    fn smart_mask_file(force_psb: bool) -> PsdFile {
+        use photocraft_psd::filter_effects::{EffectsPlane, FilterEffects, FilterEffectsItem};
+        let mut doc = layered_document();
+        doc.layers.truncate(1);
+        doc.layers[0].mask = None;
+        let mut file = parsed_file(&doc, force_psb);
+        let stack = crate::smart_map::FilterStack {
+            filters: vec![photocraft_doc::SmartFilter {
+                command: "filter.blur.gaussianBlur".into(),
+                params: serde_json::json!({"radius": 1.0}),
+                blend: BlendMode::Normal,
+                opacity: 1.0,
+                visible: true,
+            }],
+            ..Default::default()
+        };
+        let mut warnings = Vec::new();
+        let spec = crate::smart_map::PlacedSpec {
+            idnt: "synthetic-source",
+            placed: "synthetic-placement",
+            transform: photocraft_geom::Affine::IDENTITY,
+            perspective: None,
+            size: (2.0, 2.0),
+            dpi: 72.0,
+            warp: None,
+            filter_fx: Some(crate::smart_map::filter_fx(&stack, "smart", &mut warnings)),
+        };
+        file.layers_mut()[0].blocks.push(TaggedBlock::new(*b"SoLd", crate::smart_map::sold_bytes(None, &spec, &mut warnings)));
+        let rect = photocraft_psd::Rect { top: 0, left: 0, bottom: 2, right: 2 };
+        let item = FilterEffectsItem {
+            id: spec.placed.into(),
+            version: 1,
+            rect,
+            depth: 8,
+            max_channels: 0,
+            slots: vec![None, None],
+            mask: Some((rect, EffectsPlane::encode(photocraft_psd::Compression::Raw, &[51, 102, 153, 204], 2, 2, 8).unwrap())),
+        };
+        file.global_blocks.push(TaggedBlock::new(*b"FEid", FilterEffects { version: 3, items: vec![item] }.to_bytes()));
+        PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap()
+    }
+
+    #[test]
+    fn psd_psb_smart_filter_mask_is_budgeted_and_required_decode_errors_are_fatal() {
+        use photocraft_psd::filter_effects::FilterEffects;
+        let exact_budget = 130 * 130 * (4 + 1) * 3;
+        for force_psb in [false, true] {
+            let file = smart_mask_file(force_psb);
+            assert!(psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, exact_budget - 1).is_err());
+            let (complete, _) = psd_to_document_with_budget(&file, &lightcraft_sysmem::jobs::Interrupt::NONE, exact_budget).unwrap();
+            let LayerContent::Smart(smart) = &complete.layers[0].content else { panic!("expected a smart object") };
+            assert_eq!(smart.filter_mask.as_ref().unwrap().surface.to_interleaved(complete.bounds()), [51, 102, 153, 204]);
+            for malformed_block in [false, true] {
+                let mut broken = file.clone();
+                let block = broken.global_blocks.iter_mut().find(|block| &block.key == b"FEid").unwrap();
+                if malformed_block {
+                    block.data.clear();
+                } else {
+                    let mut effects = FilterEffects::parse(&block.data).unwrap();
+                    effects.items[0].mask.as_mut().unwrap().1.data.clear();
+                    block.data = effects.to_bytes();
+                }
+                let error = psd_to_document(&broken).unwrap_err();
+                assert!(error.to_string().contains("smart filter mask"), "{error}");
+                assert!(error.to_string().contains("no document was opened"), "{error}");
+                assert!(crate::import("broken-smart.psd", &broken.to_bytes().unwrap()).is_err());
+            }
+        }
+    }
+
     fn file() -> PsdFile {
         let doc = Document::new("test", Size::new(1, 1), ColorMode::Rgb, SampleType::U8);
         crate::document_to_psd(&doc)
@@ -864,7 +1066,7 @@ mod file_input_regressions {
             layers: vec![LayerRecord { rect: photocraft_psd::Rect { top: 0, left: 0, bottom: 300_000, right: 300_000 }, ..Default::default() }],
             padding: None,
         });
-        let (doc, _) = psd_to_document(&file);
+        let (doc, _) = psd_to_document(&file).unwrap();
         assert!(doc.layers[0].surface().unwrap().tiles().next().is_none());
     }
     #[test]
@@ -872,9 +1074,8 @@ mod file_input_regressions {
         let mut file = file();
         file.header.width = 300_000;
         file.header.height = 300_000;
-        let (doc, warnings) = psd_to_document(&file);
-        assert!(doc.layers.is_empty());
-        assert!(warnings.iter().any(|w| w.contains("memory limit")));
+        let error = psd_to_document(&file).unwrap_err();
+        assert!(error.to_string().contains("memory budget"));
     }
     #[test]
     fn layers_share_one_conversion_budget() {
@@ -890,10 +1091,12 @@ mod file_input_regressions {
             dpi: 72.0,
             txt2: None,
             filter_effects: vec![],
+            filter_effects_error: None,
             ctl: lightcraft_sysmem::jobs::Interrupt::NONE,
             done: 0,
             total: 0,
             remaining: 400_000,
+            fatal: None,
             generation_remaining: crate::psd_generation::DOCUMENT_BYTES,
         };
         assert!(ctx.charge(1, 1, 4));

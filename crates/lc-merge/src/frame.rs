@@ -104,17 +104,36 @@ pub fn detect_clip(img: &Rgb32f) -> f32 {
     if maxv >= 1.0 || piled { level * 0.995 } else { 1.0 }
 }
 
+/// Metadata for pixels whose DNG lens operations have already been evaluated.
+/// Keep the camera/lens identification, but persist the fact that automatic lens
+/// corrections must not be inferred and applied again when the output is opened.
+pub(crate) fn developed_metadata(raw: &lightcraft_raw::RawImage) -> Metadata {
+    let mut metadata = raw.metadata.clone();
+    metadata.lens_corrections_baked |= raw.opcodes.list3.iter().any(|op| {
+        matches!(
+            op,
+            lightcraft_raw::Opcode::WarpRectilinear { .. }
+                | lightcraft_raw::Opcode::WarpFisheye { .. }
+                | lightcraft_raw::Opcode::FixVignetteRadial { .. }
+        )
+    });
+    metadata.chromatic_aberration_baked |= raw.opcodes.list3.iter().any(|op| match op {
+        lightcraft_raw::Opcode::WarpRectilinear { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+        lightcraft_raw::Opcode::WarpFisheye { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+        _ => false,
+    });
+    metadata
+}
+
 /// Decode a photo (raw or standard format) into a frame no larger than `max_edge` (when given).
 /// `orient` applies the EXIF orientation to the pixels.
 pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result<Frame> {
     let metadata = lightcraft_meta::extract(bytes);
     let exposure = exif_exposure(&metadata);
     if lightcraft_raw::probe(bytes).is_some() {
-        let mut raw = lightcraft_raw::decode(bytes).map_err(|e| MergeError::Decode(e.to_string()))?;
-        // geometric lens corrections stay with the develop settings ("profile corrections")
-        raw.opcodes
-            .list3
-            .retain(|op| !matches!(op, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
+        let raw = lightcraft_raw::decode(bytes).map_err(|e| MergeError::Decode(e.to_string()))?;
+        // Each panorama input must have its own ordered camera-RGB corrections
+        // applied before registration. The final mosaic has no source lens frame.
         let small = max_edge.is_some_and(|m| m <= 1200);
         let method = if small { lightcraft_raw::Method::Bilinear } else { lightcraft_raw::Method::Ahd };
         let mut image = raw.develop(method).map_err(|e| MergeError::Decode(e.to_string()))?;
@@ -134,9 +153,12 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
             raw: true,
             color: FrameColor::Camera(Box::new(raw.color.clone())),
             orientation: raw.orientation,
-            metadata: if raw.metadata == Metadata::default() { metadata } else { raw.metadata.clone() },
+            metadata: if raw.metadata == Metadata::default() { metadata } else { developed_metadata(&raw) },
             baseline_exposure: raw.color.baseline_exposure,
         };
+        let correction_metadata = developed_metadata(&raw);
+        f.metadata.lens_corrections_baked |= correction_metadata.lens_corrections_baked;
+        f.metadata.chromatic_aberration_baked |= correction_metadata.chromatic_aberration_baked;
         if f.exposure.is_none() {
             f.exposure = exif_exposure(&f.metadata);
         }
@@ -197,5 +219,82 @@ mod tests {
             *p = p.map(|v| v.min(0.9));
         }
         assert!((detect_clip(&img) - 0.9 * 0.995).abs() < 1e-6);
+    }
+}
+
+#[cfg(test)]
+mod correction_regressions {
+    use super::*;
+    use lightcraft_raw::{BlackLevel, ColorData, Opcode, OpcodeLists, RawData, RawFormat, RawImage, Rect};
+
+    #[test]
+    fn merge_bakes_ordered_dng_corrections_and_marks_the_output() {
+        let (w, h) = (32, 24);
+        let raw = RawImage {
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 3,
+            data: RawData::F32((0..w * h).flat_map(|i| [0.08 + (i % w) as f32 * 0.002, 0.12, 0.09 + (i / w) as f32 * 0.003]).collect()),
+            cfa: None,
+            bits: 32,
+            black: BlackLevel::uniform(0.),
+            white: vec![1.],
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            orientation: Orientation::Normal,
+            color: ColorData::default(),
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: OpcodeLists {
+                list3: vec![
+                    Opcode::WarpRectilinear {
+                        planes: vec![[1., 0.04, 0., 0., 0., 0.], [1., 0.02, 0., 0., 0., 0.], [1., 0.06, 0., 0., 0., 0.]],
+                        center: [0.5, 0.5],
+                    },
+                    Opcode::FixVignetteRadial { k: [0.5, 0., 0., 0., 0.], center: [0.5, 0.5] },
+                    Opcode::WarpRectilinear { planes: vec![[1., -0.015, 0., 0., 0., 0.]], center: [0.4, 0.6] },
+                ],
+                ..Default::default()
+            },
+            metadata: Metadata { make: Some("DJI".into()), model: Some("merge fixture".into()), ..Default::default() },
+        };
+        let expected = raw.develop(lightcraft_raw::Method::Ahd).unwrap();
+        let merged = crate::merge_raw_hdr(
+            &[raw.clone(), raw.clone()],
+            &crate::HdrOptions { align: false, deghost: crate::Deghost::None },
+            &crate::no_progress,
+        )
+        .unwrap();
+        let close = |a: &Rgb32f, b: &Rgb32f| {
+            assert_eq!((a.width, a.height), (b.width, b.height));
+            let error = a.data.iter().flatten().zip(b.data.iter().flatten()).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+            assert!(error < 2e-6, "ordered correction error {error}");
+        };
+        close(&merged.radiance, &expected);
+        assert!(merged.metadata.lens_corrections_baked);
+        let bytes = crate::write_linear_dng(
+            &merged.radiance,
+            &merged.color,
+            merged.orientation,
+            &merged.metadata,
+            merged.baseline_exposure,
+            crate::DngSamples::Float,
+        )
+        .unwrap();
+        let reopened = lightcraft_raw::decode(&bytes).unwrap();
+        assert!(reopened.metadata.lens_corrections_baked);
+        assert!(reopened.metadata.chromatic_aberration_baked);
+        assert!(reopened.opcodes.list3.is_empty(), "corrections already baked, never repeated");
+        close(&reopened.develop(lightcraft_raw::Method::Ahd).unwrap(), &expected);
+        let input = lightcraft_raw::write_dng(
+            &raw,
+            &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Deflate { tile: 16, half: false }, ..Default::default() },
+        )
+        .unwrap();
+        let frame = load_frame(&input, None, false).unwrap();
+        close(&frame.image, &expected);
+        assert!(frame.metadata.lens_corrections_baked);
     }
 }

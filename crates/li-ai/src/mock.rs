@@ -23,6 +23,7 @@ struct State {
     history: HashMap<String, Value>,
     outputs: HashMap<String, Vec<u8>>,
     prompts: Vec<Value>,
+    next_output: Option<Vec<u8>>,
     next: u64,
     host: String,
     /// A model folder whose files `/object_info` lists too (installs show up after a refresh).
@@ -95,6 +96,13 @@ impl MockComfy {
     /// Makes the next job end with an execution error (e.g. out of memory).
     pub fn fail_next(&self) {
         self.fail_next.store(true, Ordering::SeqCst);
+    }
+
+    /// A synthetic encoded result for the next prompt, for production-path regressions.
+    pub fn next_output(&self, png: Vec<u8>) {
+        if let Ok(mut state) = self.state.lock() {
+            state.next_output = Some(png);
+        }
     }
 }
 
@@ -466,13 +474,13 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         ("POST", "/prompt") => {
             let v: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
             let graph = v.get("prompt").cloned().unwrap_or(Value::Null);
-            let id = {
+            let (id, output) = {
                 let Ok(mut s) = st.lock() else { return };
                 s.next += 1;
                 s.prompts.push(graph.clone());
                 let id = format!("mock-{}", s.next);
                 s.running.push(id.clone());
-                id
+                (id, s.next_output.take())
             };
             json_resp(req, 200, json!({ "prompt_id": id, "number": 1 }));
             let (st, ms, fail_now) = (st.clone(), delay.load(Ordering::SeqCst), fail.swap(false, Ordering::SeqCst));
@@ -486,7 +494,7 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
                     s.history.insert(id.clone(), json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_error", { "exception_message": "CUDA out of memory. Tried to allocate 2.00 GiB" }]] }, "outputs": {} }));
                     return;
                 }
-                let out = render(&graph, &s.uploads);
+                let out = output.unwrap_or_else(|| render(&graph, &s.uploads));
                 let file = format!("{id}.png");
                 s.outputs.insert(file.clone(), out);
                 s.history.insert(id, json!({ "status": { "status_str": "success", "completed": true, "messages": [] }, "outputs": { "8": { "images": [{ "filename": file, "subfolder": "", "type": "output" }] } } }));

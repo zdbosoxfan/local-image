@@ -194,6 +194,10 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
                     if t.text.len() > 1 << 20 {
                         return Err(ExportError::Budget("text bytes"));
                     }
+                    // Admit shaping work before any scope/bounds/fallback pass can lay out text.
+                    if t.text.chars().take(100_001).count() > 100_000 {
+                        return Err(ExportError::Budget("text characters"));
+                    }
                     for n in t.transform.m {
                         bounded(n)?;
                     }

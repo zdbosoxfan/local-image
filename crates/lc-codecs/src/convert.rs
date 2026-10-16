@@ -100,9 +100,9 @@ pub(crate) fn shared_limits(opts: &DecodeOptions) -> photocraft_codecs::Limits {
         max_pixels: opts.max_pixels,
         max_width: u32::MAX,
         max_height: u32::MAX,
-        // Preserve the Library's explicit source-pixel override, including large 16-bit
-        // captures. Bound decoder work to that request; never tune to the host's RAM.
-        max_alloc: opts.max_pixels.saturating_mul(32).max(photocraft_codecs::Limits::default().max_alloc),
+        // Preserve explicit source-pixel overrides, including large 16-bit captures,
+        // while sharing the desktop photo decoder's fixed allocation ceiling.
+        max_alloc: opts.max_pixels.saturating_mul(32).clamp(photocraft_codecs::Limits::default().max_alloc, photocraft_codecs::DESKTOP_PHOTO_BYTES),
     }
 }
 
@@ -441,7 +441,20 @@ mod alpha_tests {
         assert!(limits.check(10_000, 10_000, ChannelLayout::Rgb, SampleType::U16).is_ok());
         assert!(limits.check(10_001, 10_000, ChannelLayout::Rgb, SampleType::U16).is_err());
         assert_eq!(limits.max_width, u32::MAX);
-        assert_eq!(limits.max_alloc, 3_200_000_000);
+        assert_eq!(limits.max_alloc, photocraft_codecs::DESKTOP_PHOTO_BYTES);
+    }
+
+    #[test]
+    fn desktop_photo_facades_share_pixel_and_allocation_limits() {
+        use photocraft_codecs::{ChannelLayout, Limits, SampleType};
+        let desktop = Limits::desktop_photo();
+        let limits = shared_limits(&DecodeOptions { max_pixels: photocraft_codecs::DESKTOP_PHOTO_PIXELS, ..Default::default() });
+        assert_eq!(limits.max_pixels, desktop.max_pixels);
+        assert_eq!(limits.max_alloc, desktop.max_alloc);
+        assert!(limits.check(16_384, 8_192, ChannelLayout::Rgba, SampleType::F32).is_ok());
+        assert!(limits.check(16_384, 8_192, ChannelLayout::CmykA, SampleType::F32).is_err());
+        assert!(limits.check(16_384, 8_193, ChannelLayout::Gray, SampleType::U8).is_err());
+        assert_eq!(shared_limits(&DecodeOptions::default()).max_pixels, Limits::default().max_pixels);
     }
 
     #[test]

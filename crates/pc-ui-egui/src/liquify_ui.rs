@@ -118,6 +118,7 @@ impl LiquifyOpts {
 }
 
 pub struct LiquifyDialog {
+    target: crate::command_feedback::SelectionTarget,
     pub layer: LayerId,
     layer_name: String,
     canvas: Rect,
@@ -347,6 +348,7 @@ pub fn open(app: &mut PhotocraftApp, ctx: &egui::Context) -> Result<(), String> 
     let out = vec![[0u8; 4]; proxy.w * proxy.h];
     let center = [f64::from(canvas.x0 + canvas.x1) / 2.0, f64::from(canvas.y0 + canvas.y1) / 2.0];
     let mut d = LiquifyDialog {
+        target: crate::command_feedback::SelectionTarget::capture(app).ok_or("no document")?,
         layer,
         layer_name: name,
         canvas,
@@ -396,26 +398,36 @@ pub fn cancel(app: &mut PhotocraftApp) {
 }
 
 /// OK: runs `filter.liquify` with the recorded strokes (one history step).
-pub fn commit(app: &mut PhotocraftApp) {
-    let Some(mut d) = app.distort.liquify.take() else { return };
-    remember(app, &d.opts);
-    d.end();
-    if d.strokes.is_empty() {
-        return;
+pub fn commit(app: &mut PhotocraftApp) -> Result<Value, String> {
+    let d = app.distort.liquify.as_ref().ok_or(tl!("Liquify is not open"))?;
+    if !d.target.is_current(app) {
+        return Err(tl!("The document or layer changed; reopen the dialog").into());
     }
-    let p = json!({"strokes": d.strokes, "meshSize": d.cell, "layer": d.layer.0});
-    let _ = app.run("filter.liquify", p);
+    let d = app.distort.liquify.as_mut().ok_or(tl!("Liquify is not open"))?;
+    d.end();
+    let params = (!d.strokes.is_empty()).then(|| json!({"strokes": d.strokes, "meshSize": d.cell, "layer": d.layer.0}));
+    let result = match params {
+        Some(params) => app.run("filter.liquify", params)?,
+        None => json!({"committed": false}),
+    };
+    if let Some(d) = app.distort.liquify.take() {
+        remember(app, &d.opts);
+    }
+    Ok(result)
 }
 
 /// Control channel: `filter.liquify {"ui": {...}}` while the dialog is open.
 pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     if ui.get("commit").and_then(Value::as_bool) == Some(true) {
-        commit(app);
-        return Ok(json!({"committed": true}));
+        let result = commit(app)?;
+        return Ok(json!({"committed": result.get("committed").and_then(Value::as_bool).unwrap_or(true), "result": result}));
     }
     if ui.get("cancel").and_then(Value::as_bool) == Some(true) {
         cancel(app);
         return Ok(json!({"cancelled": true}));
+    }
+    if app.distort.liquify.as_ref().is_some_and(|dialog| !dialog.target.is_current(app)) {
+        return Err(tl!("The document or layer changed; reopen the dialog").into());
     }
     let d = app.distort.liquify.as_mut().ok_or(tl!("Liquify is not open"))?;
     d.opts.apply(ui)?;
@@ -444,6 +456,9 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
 /// Pointer in document coordinates (from the preview or the control channel). Alt = subtract
 /// from the freeze mask (lasso only); Shift adds, same as no modifier.
 pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
+    if app.distort.liquify.as_ref().is_some_and(|dialog| !dialog.target.is_current(app)) {
+        return;
+    }
     let now = crate::gpu_canvas::now_ms();
     let Some(d) = app.distort.liquify.as_mut() else { return };
     match ev {
@@ -480,6 +495,9 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) {
 }
 
 pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if app.distort.liquify.as_ref().is_some_and(|dialog| !dialog.target.is_current(app)) {
+        return;
+    }
     let Some(d) = app.distort.liquify.as_mut() else { return };
     let cmd_shift = egui::Modifiers::COMMAND | egui::Modifiers::SHIFT;
     if ctx.input_mut(|i| i.consume_key(cmd_shift, egui::Key::Z)) {
@@ -582,6 +600,12 @@ fn load_backdrop(app: &PhotocraftApp, ctx: &egui::Context, layer: LayerId, canva
 
 /// Draws the dialog (a full-window layer over the app).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if app.distort.liquify.as_ref().is_some_and(|dialog| !dialog.target.is_current(app)) {
+        if crate::dialogs::stale_document_notice(ctx, "liquify-stale-document", tl!("Liquify…")) {
+            cancel(app);
+        }
+        return;
+    }
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
     if app.distort.liquify.as_ref().is_some_and(|d| d.opts.show_backdrop && d.backdrop.is_none()) {
@@ -801,7 +825,11 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         pointer(app, ev, mods);
     }
     match action {
-        Some("ok") => commit(app),
+        Some("ok") => {
+            if let Err(error) = commit(app) {
+                crate::notices::error(app, error);
+            }
+        }
         Some("cancel") => cancel(app),
         _ => {}
     }
@@ -966,7 +994,7 @@ mod tests {
         });
         // OK and Esc keep the latest settings too.
         control(&mut app, &json!({"density": 90})).unwrap();
-        commit(&mut app);
+        commit(&mut app).unwrap();
         open(&mut app, &ctx).unwrap();
         assert_eq!(app.distort.liquify.as_ref().unwrap().opts.density, 90.0);
         control(&mut app, &json!({"density": 70})).unwrap();

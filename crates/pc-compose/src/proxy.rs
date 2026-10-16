@@ -39,6 +39,8 @@ pub fn downsample(s: &Surface, k: u32) -> Surface {
 fn shrink_layer(l: &mut Layer, k: u32) {
     if let Some(m) = &mut l.mask {
         m.surface = downsample(&m.surface, k);
+        // Feather is a document-pixel distance, just like the mask geometry.
+        m.feather = if m.feather.is_finite() { m.feather.clamp(0.0, 1000.0) / k as f32 } else { 0.0 };
     }
     if let Some(fc) = &mut l.fill_cache {
         fc.surface = downsample(&fc.surface, k);
@@ -138,5 +140,34 @@ mod tests {
         let s = p.selection.as_ref().expect("selection kept");
         assert_eq!((s.pixel(7, 15)[0], s.pixel(8, 0)[0]), (1.0, 0.0));
         assert!(proxy_document(&Document::new("n", Size::new(8, 8), ColorMode::Rgb, SampleType::U8), 4).selection.is_none());
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod feather_proxy_regression {
+    use super::*;
+    use photocraft_doc::{Color, ColorMode, LayerMask, SampleType};
+
+    #[test]
+    fn proxy_mask_feather_keeps_its_source_pixel_scale() {
+        let mut doc = Document::with_background("feather", Size::new(512, 512), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        let mut mask = LayerMask::hide_all();
+        mask.surface.fill_rect(Rect::new(0, 0, 256, 512), &[1.0]);
+        mask.feather = 16.0;
+        doc.layers[0].mask = Some(mask);
+        let original = crate::masks::combined_mask(&doc.layers[0], doc.bounds()).unwrap();
+        for k in [2, 4, 8] {
+            assert!(proxy_faithful(&doc));
+            let proxy = proxy_document(&doc, k);
+            assert_eq!(proxy.layers[0].mask.as_ref().unwrap().feather, 16.0 / k as f32);
+            let reduced = crate::masks::combined_mask(&proxy.layers[0], proxy.bounds()).unwrap();
+            for x in [192, 208, 224, 288, 304, 320] {
+                let expected = original.sample_channel(x, 256, 0);
+                let got = reduced.sample_channel(x / k as i32, 256 / k as i32, 0);
+                assert!((got - expected).abs() < 0.04, "k={k} x={x}: {got} versus {expected}");
+            }
+        }
+        assert_eq!(doc.layers[0].mask.as_ref().unwrap().feather, 16.0);
     }
 }

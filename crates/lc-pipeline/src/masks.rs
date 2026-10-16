@@ -135,7 +135,7 @@ pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb3
         // Refine Edges: the mask's edges follow the photo's (window up to ~4 % of the long edge,
         // the width of a soft brush edge or gradient)
         let k = (m.refine / 100.0).clamp(0.0, 1.0) as f32;
-        let sigma = (0.04 * w.max(h) as f32 * k).max(1.0);
+        let sigma = refine_sigma(frame, w, k);
         let refined = if uses_subject_matting(m) {
             Plane { width: w, height: h, data: li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, &img.data), &alpha.data, sigma) }
         } else {
@@ -153,6 +153,12 @@ pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb3
         alpha.data.iter_mut().for_each(|v| *v *= amt);
     }
     alpha
+}
+
+/// Refine's radius is measured against the uncropped oriented image, like brush
+/// and feather sizes. Cropping at the same source pixel scale cannot change it.
+pub fn refine_sigma(frame: &Frame, out_w: usize, amount: f32) -> f32 {
+    (0.04 * frame.px_per_long(out_w) as f32 * amount).max(1.0)
 }
 
 /// Whether this mask requests image-guided subject matting. Used by the GPU planner
@@ -828,5 +834,36 @@ mod tests {
         };
         let (plain, sharp) = (step(&soft), step(&refined));
         assert!(sharp > plain * 1.5 && sharp > 0.1, "the edge in the mask follows the photo's: {plain} → {sharp}");
+    }
+}
+
+#[cfg(test)]
+mod crop_refine_regression {
+    use super::*;
+    use lightcraft_develop::{DevelopSettings, MaskComponent};
+    use lightcraft_geom::Rect;
+
+    #[test]
+    fn refine_coverage_is_invariant_under_crop_at_the_same_pixel_scale() {
+        let mask = Mask {
+            refine: 100.,
+            components: vec![MaskComponent {
+                name: None,
+                op: Default::default(),
+                invert: false,
+                shape: MaskShape::Linear { start: Point::new(0.499999, 0.5), end: Point::new(0.500001, 0.5) },
+            }],
+            ..Default::default()
+        };
+        let full = Frame::new(256, 256, &DevelopSettings::default(), true);
+        let mut s = DevelopSettings::default();
+        s.crop.geometry.rect = Rect::new(0.25, 0.25, 0.75, 0.75);
+        let crop = Frame::new(256, 256, &s, true);
+        let a = evaluate_one(&mask, &full, 256, 256, &Rgb32f::filled(256, 256, [0.18; 3]), &Plane::new(256, 256), 0.);
+        let b = evaluate_one(&mask, &crop, 128, 128, &Rgb32f::filled(128, 128, [0.18; 3]), &Plane::new(128, 128), 0.);
+        assert_eq!(full.px_per_long(256), crop.px_per_long(128));
+        for x in 96..160 {
+            assert!((a.get(x, 128) - b.get(x - 64, 64)).abs() < 2e-5, "coverage moved at source x={x}");
+        }
     }
 }

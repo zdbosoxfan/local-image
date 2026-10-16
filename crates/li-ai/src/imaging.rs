@@ -391,6 +391,18 @@ pub fn over_white(img: &RgbaImage) -> RgbaImage {
     })
 }
 
+/// Validate the raw alpha of a dedicated empty background before white compositing.
+pub fn finish_background(img: &RgbaImage) -> anyhow::Result<RgbaImage> {
+    // Permit incidental edge transparency up to 1% missing coverage, before flattening.
+    let missing: u64 = img.pixels().map(|p| u64::from(255 - p[3])).sum();
+    let pixels = u64::from(img.width()) * u64::from(img.height());
+    anyhow::ensure!(
+        pixels > 0 && missing <= pixels * 255 / 100,
+        "The model returned a transparent subject instead of an empty background. Try again with a new seed or describe the empty scene more clearly."
+    );
+    Ok(over_white(img))
+}
+
 /// Pads `img` into `w × h` keeping its aspect (letterboxed with transparency), as Qwen's first
 /// generation reference.
 pub fn pad_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {

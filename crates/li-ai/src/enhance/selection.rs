@@ -32,7 +32,7 @@ pub fn load(dir: &Path, method: Method) -> Choice {
 
 pub fn save(dir: &Path, method: Method, choice: Option<Choice>) -> Result<()> {
     if let Some(c) = &choice {
-        validate(method, c)?;
+        supported(method, c)?;
     }
     static SAVES: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _save = SAVES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -51,6 +51,16 @@ pub fn save(dir: &Path, method: Method, choice: Option<Choice>) -> Result<()> {
         choices.remove(method.key());
     }
     li_fs::write_atomic(&path, &serde_json::to_vec_pretty(&choices)?)?;
+    Ok(())
+}
+
+/// The product only submits accelerator-backed choices. Structural custom validation remains
+/// available to CPU reference tools, but it cannot authorize a production setting.
+pub fn supported(method: Method, choice: &Choice) -> Result<()> {
+    validate(method, choice)?;
+    if matches!(choice, Choice::Custom { .. }) {
+        bail!("Custom CPU ONNX enlargement is unavailable; choose an approved GPU enlargement model.");
+    }
     Ok(())
 }
 
@@ -83,6 +93,13 @@ pub fn custom_path(dir: &Path, choice: &Choice) -> Result<std::path::PathBuf> {
 /// Validate and run a small sample before publishing a user-selected model. Input and output
 /// must be float NCHW RGB in 0–1; dimensions identify its fixed tile and native 2×/4× scale.
 pub fn import_custom(dir: &Path, method: Method, source: &Path) -> Result<Choice> {
+    // Reject before reading, compiling, copying or changing a model choice.
+    let _ = (dir, method, source);
+    bail!("Custom CPU ONNX enlargement is unavailable; choose an approved GPU enlargement model.")
+}
+
+#[cfg(test)]
+fn import_reference(dir: &Path, method: Method, source: &Path) -> Result<Choice> {
     if method == Method::Generative || source.extension().is_none_or(|e| e != "onnx") {
         bail!("Choose an ONNX restoration model");
     }
@@ -102,7 +119,6 @@ pub fn import_custom(dir: &Path, method: Method, source: &Path) -> Result<Choice
     let path = custom_path(dir, &choice)?;
     std::fs::create_dir_all(path.parent().context("Model folder")?)?;
     li_fs::write_atomic(&path, &bytes)?;
-    save(dir, method, Some(choice.clone()))?;
     Ok(choice)
 }
 
@@ -119,28 +135,20 @@ pub fn load_custom(dir: &Path, choice: &Choice) -> Result<li_seg::enhance::Upsca
 mod tests {
 
     #[test]
-    fn j11_custom_upscaler_import_parity_and_staging_failure_cleanup() {
-        let dir = std::env::temp_dir().join(format!("j11-enhance-import-{}", uuid::Uuid::new_v4()));
+    fn review_custom_cpu_import_never_changes_production_choice_or_files() {
+        let dir = std::env::temp_dir().join(format!("review-enhance-import-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("nearest.onnx");
         let bytes = include_bytes!("../../../li-seg/tests/fixtures/nearest_2x_32.onnx");
         std::fs::write(&source, bytes).unwrap();
-        {
-            let _fault = li_fs::fail_writes_after(3);
-            assert!(import_custom(&dir, Method::Faithful, &source).is_err());
+        for method in Method::ALL {
+            save(&dir, method, Some(default_choice(method))).unwrap();
+            let before = std::fs::read(dir.join("enhance-functions.json")).unwrap();
+            assert!(import_custom(&dir, method, &source).unwrap_err().to_string().contains("Custom CPU ONNX"));
+            assert_eq!(std::fs::read(dir.join("enhance-functions.json")).unwrap(), before);
+            assert_eq!(std::fs::read(&source).unwrap(), bytes);
+            assert!(!dir.join("segmentation").exists());
         }
-        let model_dir = dir.join("segmentation");
-        // A failed import must never publish a model choice or retain its partial model.
-        assert!(!dir.join("enhance-functions.json").exists());
-        let partials: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().filter(|entry| entry.path() != source && entry.path().is_file()).collect();
-        assert!(partials.is_empty());
-        if model_dir.exists() {
-            assert_eq!(std::fs::read_dir(&model_dir).unwrap().count(), 0);
-        }
-        let choice = import_custom(&dir, Method::Faithful, &source).unwrap();
-        assert_eq!(std::fs::read(custom_path(&dir, &choice).unwrap()).unwrap(), bytes);
-        assert_eq!(std::fs::read(&source).unwrap(), bytes);
-        assert_eq!(load(&dir, Method::Faithful), choice);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -203,7 +211,8 @@ mod tests {
         save(&dir, Method::Rescue, None).unwrap();
         let source = dir.join("nearest.onnx");
         std::fs::write(&source, include_bytes!("../../../li-seg/tests/fixtures/nearest_2x_32.onnx")).unwrap();
-        let custom = import_custom(&dir, Method::Faithful, &source).unwrap();
+        let custom = import_reference(&dir, Method::Faithful, &source).unwrap();
+        assert!(save(&dir, Method::Faithful, Some(custom.clone())).is_err());
         assert!(matches!(&custom, Choice::Custom { scale: 2, tile: 32, .. }));
         let input = image::RgbaImage::from_pixel(17, 13, image::Rgba([30, 100, 200, 255]));
         // Model import/validation retains its independent CPU reference test. The app route

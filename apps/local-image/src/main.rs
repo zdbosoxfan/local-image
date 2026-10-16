@@ -24,6 +24,7 @@ mod app_icon;
 mod app_log;
 #[cfg(target_os = "macos")]
 mod apple_events;
+mod automation_library;
 mod compute_policy;
 mod control_server;
 mod crash_guard;

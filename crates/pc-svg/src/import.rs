@@ -46,7 +46,7 @@ pub fn import_with(bytes: &[u8], options: &ImportOptions, mut fonts: Option<&mut
         let xml = preflight::xml(&source, options, cancel)?;
         let mut warnings = Vec::new();
         preflight::warnings(&xml, &mut warnings);
-        let (prepared, slots) = text::prepare(&source, &xml, options, fonts.as_deref_mut(), &mut warnings)?;
+        let (prepared, slots) = text::prepare(&source, &xml, options, fonts.as_deref_mut(), &mut warnings, cancel)?;
         cancelled(cancel)?;
         let limit = options.limits.decompressed_bytes;
         let opt = usvg::Options {

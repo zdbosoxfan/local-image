@@ -178,11 +178,39 @@ impl AuthorizedWorkspace {
         Ok(out)
     }
 
+    /// Enumerate one folder through its held read capability; never follow entry symlinks.
+    pub fn list_folder(&self, path: &str) -> Result<Vec<String>, AutomationError> {
+        let root = self.read.as_ref().ok_or_else(|| AutomationError::BadRequest(format!("{DENIED}: read authority is absent")))?;
+        let relative = if matches!(path, "" | ".") { PathBuf::from(".") } else { relative_path(path)? };
+        let folder = root.dir.open_dir(relative).map_err(|error| file_error("browse", path, error))?;
+        let mut files = Vec::new();
+        for entry in folder.entries().map_err(|error| file_error("browse", path, error))? {
+            let entry = entry.map_err(|error| file_error("browse", path, error))?;
+            let name = entry.file_name().to_str().map(str::to_owned).ok_or_else(|| path_error(path, "folder names must be valid UTF-8"))?;
+            if name.starts_with('.') || !entry.file_type().map_err(|error| file_error("browse", path, error))?.is_file() {
+                continue;
+            }
+            if files.len() >= MAX_LISTED_FILES {
+                return Err(path_error(path, "folder contains too many files"));
+            }
+            files.push(if matches!(path, "" | ".") { name } else { format!("{path}/{name}") });
+        }
+        files.sort();
+        Ok(files)
+    }
+
     /// Read one regular file below the configured read root.
     pub fn read(&self, path: &str) -> Result<Vec<u8>, AutomationError> {
         let relative = relative_path(path)?;
         let root = self.read.as_ref().ok_or_else(|| AutomationError::BadRequest(format!("{DENIED}: read authority is absent")))?;
-        let mut file = root.dir.open(&relative).map_err(|e| file_error("read", path, e))?;
+        let mut options = OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use cap_std::fs::OpenOptionsExt;
+            options.custom_flags(li_fs::read::REGULAR_READ_OPEN_FLAGS);
+        }
+        let mut file = root.dir.open_with(&relative, &options).map_err(|e| file_error("read", path, e))?;
         let metadata = file.metadata().map_err(|e| file_error("read", path, e))?;
         if !metadata.is_file() {
             return Err(AutomationError::BadRequest(format!("automation read path is not a regular file: `{path}`")));

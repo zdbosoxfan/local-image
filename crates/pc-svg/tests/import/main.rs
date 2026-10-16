@@ -736,3 +736,99 @@ fn svg_import_removed_text_descendant_ids_cannot_hide_duplicate_expansion() {
     assert!(matches!(photocraft_svg::import(hostile.as_bytes(), &options), Err(photocraft_svg::ImportError::Limit("expanded object"))));
     assert!(start.elapsed() < Duration::from_secs(1));
 }
+
+#[test]
+fn svg_text_content_respects_display_visibility_opacity_and_metadata() {
+    for (body, expected, alphas) in [
+        ("A<tspan display='none'>OMIT</tspan>B<title>TOOLTIP</title><desc>DESCRIPTION</desc>", "AB", vec![1., 1.]),
+        ("A<tspan class='gone'>OMIT</tspan>B", "AB", vec![1., 1.]),
+        ("A<tspan visibility='hidden'>HIDDEN</tspan>B", "AHIDDENB", vec![1., 0., 1.]),
+        ("A<tspan opacity='0'>HIDDEN<tspan opacity='1'>ALSOHIDDEN</tspan></tspan>B", "AHIDDENALSOHIDDENB", vec![1., 0., 0., 1.]),
+        ("<tspan visibility='hidden'>H<tspan visibility='visible'>V</tspan>I</tspan>", "HVI", vec![0., 1., 0.]),
+    ] {
+        let source = format!(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='400' height='100'><style>.gone{{display:none}}</style><text x='10' y='40' font-family='Inter'>{body}</text></svg>"
+        );
+        let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+        let layers = flat(&scene.layers);
+        let text = layers.iter().find_map(|layer| if let LayerContent::Text(text) = &layer.content { Some(text) } else { None }).unwrap();
+        assert_eq!(text.text, expected);
+        assert_eq!(text.runs.iter().map(|run| run.style.color.alpha).collect::<Vec<_>>(), alphas);
+    }
+    let source = "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><text visibility='hidden' x='10' y='40' font-family='Inter'>H<tspan visibility='visible'>V</tspan>I</text></svg>";
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    let layers = flat(&scene.layers);
+    let text = layers.iter().find_map(|layer| if let LayerContent::Text(text) = &layer.content { Some(text) } else { None }).unwrap();
+    assert_eq!(text.text, "HVI");
+    assert_eq!(text.runs.iter().map(|run| run.style.color.alpha).collect::<Vec<_>>(), [0., 1., 0.]);
+    let rendered = photocraft_compose::flatten(&document(scene));
+    assert!(rendered.px.iter().any(|pixel| pixel[3] > 0.9), "a visible child must survive its hidden text parent");
+}
+
+#[test]
+fn svg_nested_fractional_text_opacity_preserves_grouped_overlap_and_hidden_runs() {
+    use photocraft_doc::{
+        Affine, Color, Size, TextLayer,
+        text::{CharStyle, TextRun},
+    };
+    let colored = "H<tspan fill='blue'>H</tspan>H";
+    for (body, opacity, hidden) in [
+        (format!("<tspan opacity='.5'>{colored}</tspan>"), 0.5, false),
+        (format!("<tspan opacity='.5'><tspan opacity='.5'>{colored}</tspan></tspan>"), 0.25, false),
+        ("<tspan opacity='.5'>H<tspan fill='blue' visibility='hidden'>H</tspan>H</tspan>".into(), 0.5, true),
+    ] {
+        let source = format!(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='256' height='128'><text x='100' y='90' font-family='Inter' font-size='64' letter-spacing='-41.6' fill='red'>{body}</text></svg>"
+        );
+        let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+        assert!(scene.warnings.iter().any(|warning| warning.feature == "text-opacity-outlines"));
+        assert!(flat(&scene.layers).iter().any(|layer| matches!(layer.content, LayerContent::Shape(_))));
+        assert!(!flat(&scene.layers).iter().any(|layer| matches!(layer.content, LayerContent::Text(_))));
+        let got = photocraft_compose::flatten(&document(scene));
+        let mut reference = Document::new("group reference", Size::new(256, 128), ColorMode::Rgb, SampleType::F32);
+        let mut text = TextLayer { text: "HHH".into(), transform: Affine::translate(100., 90.), ..Default::default() };
+        text.runs = (0..3)
+            .map(|i| {
+                let mut color = if i == 1 { Color::rgb(0., 0., 1.) } else { Color::rgb(1., 0., 0.) };
+                if hidden && i == 1 {
+                    color.alpha = 0.;
+                }
+                TextRun { len: 1, style: CharStyle { size_pt: 64., tracking: -650., color, ..Default::default() } }
+            })
+            .collect();
+        photocraft_text::TextEngine::new().render_layer(&mut text, 72., reference.pixel_format());
+        let mut layer = Layer::new("grouped native text", LayerContent::Text(text));
+        layer.opacity = opacity;
+        reference.layers.push(layer);
+        let expected = photocraft_compose::flatten(&reference);
+        let mean: f32 = got
+            .px
+            .iter()
+            .zip(&expected.px)
+            .map(|(a, b)| {
+                (0..4)
+                    .map(|c| {
+                        let premul = |p: &[f32; 4]| if c == 3 { p[3] } else { p[c] * p[3] };
+                        (premul(a) - premul(b)).abs()
+                    })
+                    .sum::<f32>()
+            })
+            .sum::<f32>()
+            / (got.px.len() * 4) as f32;
+        assert!(mean < 0.002, "opacity={opacity} hidden={hidden} mean={mean}");
+        assert!(got.px.iter().all(|pixel| pixel[3] <= opacity + 1e-6), "apply subtree opacity once, never 0.75 from two half-alpha glyphs");
+        assert!((got.get(147, 67)[3] - opacity).abs() < 1e-5);
+        let mut limited = ImportOptions::default();
+        limited.limits.segments = 10;
+        assert!(matches!(photocraft_svg::import(source.as_bytes(), &limited), Err(photocraft_svg::ImportError::Limit(_))));
+        assert!(matches!(
+            photocraft_svg::import_with(source.as_bytes(), &ImportOptions::default(), None, &AtomicBool::new(true)),
+            Err(photocraft_svg::ImportError::Cancelled)
+        ));
+    }
+    // Ordinary text and root opacity retain editable text with the existing group semantics.
+    let source = "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='80'><text opacity='.5' x='10' y='50' font-family='Inter'>AB</text></svg>";
+    let scene = photocraft_svg::import(source.as_bytes(), &ImportOptions::default()).unwrap();
+    assert!(flat(&scene.layers).iter().any(|layer| matches!(layer.content, LayerContent::Text(_))));
+    assert!(!scene.warnings.iter().any(|warning| warning.feature == "text-opacity-outlines"));
+}

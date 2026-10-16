@@ -157,6 +157,47 @@ fn first_frame_renders() {
 }
 
 #[test]
+fn sparse_mask_defaults_invalidate_warm_resident_pages() {
+    let Some(mut g) = gpu() else { return };
+    let mut doc = Document::new("Sparse mask defaults", Size::new(768, 32), ColorMode::Rgb, SampleType::U8);
+    let mut pixels = photocraft_raster::Surface::new(doc.pixel_format());
+    pixels.fill_rect(doc.bounds(), &[1.0, 0.0, 0.0, 1.0]);
+    let mut layer = Layer::new("red", LayerContent::Raster(pixels));
+    let sparse = |default: f32| {
+        let mut surface = photocraft_raster::Surface::with_default(PixelFormat::GRAY8, &[default]);
+        for x in [10, 700] {
+            surface.fill_rect(Rect::new(x, 10, x + 1, 11), &[1.0 - default]);
+        }
+        surface.prune();
+        assert_eq!(surface.tile_count(), 2, "the middle tile must remain absent");
+        surface
+    };
+    let original = sparse(1.0);
+    let partial = sparse(0.25);
+    layer.mask = Some(LayerMask { surface: original.clone(), ..LayerMask::reveal_all() });
+    doc.layers.push(layer);
+    // Keep both compositors warm across mask inversion, undo, and changes between
+    // two nonzero defaults. A nonzero/zero flag alone cannot invalidate correctly.
+    for (name, surface) in [
+        ("original", original.clone()),
+        ("inverted", sparse(0.0)),
+        ("undo inversion", original),
+        ("partial", partial.clone()),
+        ("inverted partial", sparse(0.75)),
+        ("undo partial inversion", partial),
+    ] {
+        doc.layers[0].mask.as_mut().unwrap().surface = surface;
+        check(&mut g, &doc, name);
+        let cpu = photocraft_compose::render(&doc, doc.bounds());
+        for comp in [&mut g.comp, &mut g.paged] {
+            let rendered = render_to_vec(comp, &g.device, &g.queue, &doc, doc.bounds()).unwrap();
+            let gap = 10 * 768 + 300;
+            assert_eq!(rendered[gap][3], cpu.px[gap][3], "{name}: missing middle tile alpha");
+        }
+    }
+}
+
+#[test]
 fn blend_modes() {
     let Some(mut g) = gpu() else { return };
     for mode in BlendMode::LAYER_MODES {

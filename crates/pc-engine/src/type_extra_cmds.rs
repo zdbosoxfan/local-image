@@ -7,10 +7,8 @@
 //! and the layer saves as editable text.
 
 use photocraft_doc::text::{AntiAlias, FontFeature, Orientation, TextAlign, TextShape, TextWarp};
-use photocraft_doc::vector::{Knot, Path, PathOp, Subpath};
+use photocraft_doc::vector::Path;
 use photocraft_doc::{Affine, Document, Fill, Layer, LayerContent, LayerId, ShapeLayer, TextLayer};
-use photocraft_geom::Point;
-use photocraft_text::render::PathEl;
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, layer_param};
@@ -213,85 +211,21 @@ fn to_point(s: &mut Session, p: &Value) -> Result<Value> {
 
 // ---------- outlines → paths ----------
 
-fn signed_area(knots: &[Knot]) -> f64 {
-    let n = knots.len();
-    (0..n)
-        .map(|i| {
-            let (a, b) = (knots[i].anchor, knots[(i + 1) % n].anchor);
-            a.x * b.y - b.x * a.y
-        })
-        .sum::<f64>()
-        / 2.0
-}
-
-/// One glyph's outline elements as closed subpaths.
-fn contours(els: &[PathEl]) -> Vec<Vec<Knot>> {
-    let mut out: Vec<Vec<Knot>> = Vec::new();
-    let mut cur: Vec<Knot> = Vec::new();
-    let p = |v: [f64; 2]| Point::new(v[0], v[1]);
-    let finish = |cur: &mut Vec<Knot>, out: &mut Vec<Vec<Knot>>| {
-        if cur.len() >= 2 {
-            // The closing point duplicates the first anchor: fold its incoming handle in.
-            let (f, l) = (cur[0], cur[cur.len() - 1]);
-            if (f.anchor.x - l.anchor.x).abs() < 1e-9 && (f.anchor.y - l.anchor.y).abs() < 1e-9 {
-                cur[0].in_ctrl = l.in_ctrl;
-                cur.pop();
-            }
-        }
-        if cur.len() >= 2 {
-            out.push(std::mem::take(cur));
-        } else {
-            cur.clear();
-        }
-    };
-    for el in els {
-        match *el {
-            PathEl::MoveTo(a) => {
-                finish(&mut cur, &mut out);
-                cur.push(Knot::corner(a[0], a[1]));
-            }
-            PathEl::LineTo(a) => cur.push(Knot::corner(a[0], a[1])),
-            PathEl::QuadTo(c, a) => {
-                // Exact quadratic → cubic elevation.
-                let Some(last) = cur.last_mut() else { continue };
-                let s = last.anchor;
-                last.out_ctrl = Point::new(s.x + 2.0 / 3.0 * (c[0] - s.x), s.y + 2.0 / 3.0 * (c[1] - s.y));
-                let c2 = Point::new(a[0] + 2.0 / 3.0 * (c[0] - a[0]), a[1] + 2.0 / 3.0 * (c[1] - a[1]));
-                cur.push(Knot { anchor: p(a), in_ctrl: c2, out_ctrl: p(a), smooth: false });
-            }
-            PathEl::CurveTo(c1, c2, a) => {
-                let Some(last) = cur.last_mut() else { continue };
-                last.out_ctrl = p(c1);
-                cur.push(Knot { anchor: p(a), in_ctrl: p(c2), out_ctrl: p(a), smooth: false });
-            }
-            PathEl::Close => finish(&mut cur, &mut out),
-        }
-    }
-    finish(&mut cur, &mut out);
-    out
-}
-
-/// The type layer's glyph outlines as a document-space path. Within each glyph, contours wound
-/// like its largest contour combine and the others (counters such as the hole in "o") subtract,
-/// which reproduces the nonzero fill under Photoshop's per-subpath path operations.
-pub fn text_path(doc: &Document, t: &TextLayer) -> Path {
+/// The type layer's contours as a document-space path. Each glyph is one nonzero-winding
+/// component; its counters must not subtract the artwork of earlier overlapping glyphs.
+pub fn text_path(doc: &Document, t: &TextLayer) -> Result<Path> {
     path_from_layout(t, layout(doc, t))
 }
 pub(crate) fn text_path_with_vector(doc: &Document, t: &TextLayer, vector: &photocraft_doc::VectorData) -> Result<Path> {
     let mut engine = photocraft_text::shared().lock().map_err(|_| EngineError::Other("text engine unavailable".into()))?;
-    Ok(path_from_layout(t, crate::vector_integration::text_layout(&mut engine, doc, t, vector)?))
+    path_from_layout(t, crate::vector_integration::text_layout(&mut engine, doc, t, vector)?)
 }
-fn path_from_layout(t: &TextLayer, l: photocraft_text::TextLayout) -> Path {
-    let warp = photocraft_text::render::layout_warp(&l, t.warp.as_ref());
-    let mut subpaths = Vec::new();
-    for glyph in photocraft_text::render::outlines(&l, &t.transform, warp.as_ref()) {
-        let cs = contours(&glyph);
-        let Some(outer) = cs.iter().map(|k| signed_area(k)).max_by(|a, b| a.abs().total_cmp(&b.abs())) else { continue };
-        let (fills, holes): (Vec<_>, Vec<_>) = cs.into_iter().partition(|k| signed_area(k).signum() == outer.signum());
-        subpaths.extend(fills.into_iter().map(|knots| Subpath { closed: true, knots, op: PathOp::Combine }));
-        subpaths.extend(holes.into_iter().map(|knots| Subpath { closed: true, knots, op: PathOp::Subtract }));
-    }
-    Path::new(subpaths)
+fn painted_paths(t: &TextLayer, layout: photocraft_text::TextLayout) -> Result<Vec<(photocraft_doc::Color, Path)>> {
+    let paints = crate::vector_packages::transform_tools::ordinary_text_outlines(t, layout)?;
+    Ok(crate::vector_packages::path_text::curves::paths(&paints))
+}
+fn path_from_layout(t: &TextLayer, layout: photocraft_text::TextLayout) -> Result<Path> {
+    Ok(Path::new(painted_paths(t, layout)?.into_iter().flat_map(|(_, path)| path.subpaths).collect()))
 }
 
 fn create_work_path(s: &mut Session, p: &Value) -> Result<Value> {
@@ -307,7 +241,7 @@ fn create_work_path(s: &mut Session, p: &Value) -> Result<Value> {
     } else if crate::vector_integration::frame_options(&layer.vector).enabled {
         text_path_with_vector(&d.doc, t, &layer.vector)?
     } else {
-        text_path(&d.doc, t)
+        text_path(&d.doc, t)?
     };
     let n = path.subpaths.len();
     s.edit("Create Work Path", |doc, _| {
@@ -329,11 +263,26 @@ fn convert_to_shape(s: &mut Session, p: &Value) -> Result<Value> {
         let snapshot = doc.clone();
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         let LayerContent::Text(t) = &l.content else { return Err(EngineError::Other("not a type layer".into())) };
-        let color = t.char_runs().first().map_or(t.color, |r| r.style.color);
-        let mut sh = ShapeLayer { path: text_path_with_vector(&snapshot, t, &l.vector)?, fill: Some(Fill::Solid(color)), ..Default::default() };
-        crate::vector_cmds::refresh_shape(&snapshot, &mut sh);
-        let n = sh.path.subpaths.len();
-        l.content = LayerContent::Shape(sh);
+        let mut engine = photocraft_text::shared().lock().map_err(|_| EngineError::Other("text engine unavailable".into()))?;
+        let layout = crate::vector_integration::text_layout(&mut engine, &snapshot, t, &l.vector)?;
+        drop(engine);
+        let mut children = Vec::new();
+        let mut n = 0;
+        for (color, path) in painted_paths(t, layout)? {
+            n += path.subpaths.len();
+            let mut shape = ShapeLayer { path, fill: Some(Fill::Solid(color)), ..Default::default() };
+            crate::vector_cmds::refresh_shape(&snapshot, &mut shape);
+            children.push(Layer::new("Text curves", LayerContent::Shape(shape)));
+        }
+        l.content = if children.len() == 1 {
+            children.remove(0).content
+        } else {
+            if snapshot.path_of(id).is_some_and(|path| path.len() >= photocraft_doc::MAX_GROUP_DEPTH) {
+                return Err(EngineError::Other("text conversion exceeds the group depth limit".into()));
+            }
+            Layer::group("Text curves", children).content
+        };
+        l.vector.frame_compose = None;
         l.psd_blocks.retain(|(k, _)| k != b"TySh");
         Ok(n)
     })?;

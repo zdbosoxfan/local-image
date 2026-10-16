@@ -185,6 +185,7 @@ struct GpuProxy {
 /// The open adjustment dialog: (kind, params, Preview on).
 fn dialog(app: &PhotocraftApp) -> Option<(String, Value, bool)> {
     let d = app.ui.dialogs.iter().find(|d| crate::adjust_dialog::owns(&d.fields))?;
+    crate::dialogs::validate_document_target(app, &d.fields).ok()?;
     let kind = d.fields.get("__adjust")?.as_str()?.to_string();
     let preview = d.fields.get("__preview").and_then(Value::as_bool).unwrap_or(true);
     Some((kind, crate::filter_dialog::params_of(&d.fields), preview))

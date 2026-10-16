@@ -473,7 +473,7 @@ pub fn open(app: &mut PhotocraftApp, select: Option<&str>) -> Option<u64> {
     let light = st.doc.global_light.angle;
     let mut f = initial_fields(&layer, select, light);
     f.insert("patternList".into(), pattern_list(app));
-    Some(app.ui.open_dialog(crate::state::DialogKind::LayerStyle, f))
+    Some(crate::dialogs::open_document_dialog(app, crate::state::DialogKind::LayerStyle, f))
 }
 
 /// `[[id, name], …]` of the patterns a style can use (document's, then the library's).

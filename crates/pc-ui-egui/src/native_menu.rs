@@ -26,9 +26,9 @@ use crate::PhotocraftApp;
 use li_commands::menu::MenuItem;
 use li_i18n::{Lang, tr, tr_id};
 
-use li_commands::menu::{Backend, Event, Item, ItemRole, Layout, MINIMIZE, MenuBar, MenuRole, Node, from_items};
+use li_commands::menu::{Backend, Event, HIDE, Item, ItemRole, Layout, MINIMIZE, MenuBar, MenuRole, Node, from_items};
 #[cfg(test)]
-use li_commands::menu::{HIDE, Menu, Standard, structure_key};
+use li_commands::menu::{Menu, Standard, structure_key};
 #[cfg(test)]
 use li_keys::Chord;
 
@@ -124,13 +124,50 @@ pub fn appearance_menu(app: &PhotocraftApp) -> Node {
 pub fn app_layout(app: &PhotocraftApp) -> Layout {
     let lang = Lang::from_pref(&app.session.prefs().interface.language);
     li_i18n::set_current(lang);
-    photocraft_layout_impl(
+    let mut layout = photocraft_layout_impl(
         &crate::menus::menu_items(app),
         lang,
         &app.session.prefs().interface.language,
         crate::menus::persona_menus(app),
         Some(crate::shortcut_dispatch::binding_strings(app)),
-    )
+    );
+    if !commands_available(app) {
+        disable_commands(&mut layout.bar);
+    }
+    layout
+}
+
+/// Modal ownership applies equally to native menu clicks and keyboard shortcuts. Check the
+/// application state as well as egui's layer at dispatch: a prompt can open after clicks queue.
+pub fn commands_available(app: &PhotocraftApp) -> bool {
+    app.ui.dialogs.is_empty()
+        && app.camera_raw.is_none()
+        && !app.develop_filter.prompting()
+        && !app.develop_filter.in_session()
+        && !crate::restoration_ui::is_open(app)
+        && app.discard.is_none()
+        && app.overwrite_prompt.is_none()
+        && app.distort.liquify.is_none()
+        && app.distort.gallery.is_none()
+}
+
+fn modal_owns_commands(app: &PhotocraftApp, ctx: &egui::Context) -> bool {
+    !commands_available(app) || (app.draft_refine.open && ctx.embed_viewports()) || ctx.memory(|memory| memory.top_modal_layer().is_some())
+}
+
+fn disable_commands(bar: &mut MenuBar) {
+    fn walk(nodes: &mut [Node]) {
+        for node in nodes {
+            match node {
+                Node::Item(item) if item.id != HIDE && item.id != MINIMIZE => item.enabled = false,
+                Node::Submenu { children, .. } => walk(children),
+                _ => {}
+            }
+        }
+    }
+    for menu in &mut bar.menus {
+        walk(&mut menu.children);
+    }
 }
 
 fn photocraft_layout_impl(items: &[MenuItem], lang: Lang, language: &str, tops: &[&str], bindings: Option<Vec<(String, String)>>) -> Layout {
@@ -221,6 +258,9 @@ pub fn run(app: &mut PhotocraftApp, ctx: &egui::Context) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
             continue;
         }
+        if modal_owns_commands(app, ctx) {
+            continue;
+        }
         if let Err(e) = crate::menus::invoke(app, ctx, &id, serde_json::json!({})) {
             app.ui.status = e;
             app.ui.status_error = true;
@@ -234,11 +274,15 @@ pub fn run(app: &mut PhotocraftApp, ctx: &egui::Context) {
 pub fn sync(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(menu) = app.services.native_menu.as_ref() else { return };
     let input = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. } | egui::Event::PointerButton { pressed: false, .. })));
-    let state = state_hash(app, input.then_some(app.frame));
+    let modal = modal_owns_commands(app, ctx);
+    let state = state_hash(app, input.then_some(app.frame), modal);
     if menu.state == Some(state) && !menu.dirty {
         return;
     }
-    let layout = app_layout(app);
+    let mut layout = app_layout(app);
+    if modal {
+        disable_commands(&mut layout.bar);
+    }
     let Some(menu) = app.services.native_menu.as_mut() else { return };
     if !menu.logged {
         for c in &layout.clashes {
@@ -255,9 +299,11 @@ pub fn sync(app: &mut PhotocraftApp, ctx: &egui::Context) {
 /// What the menus' rows depend on, cheaply: commands run, the documents and their revisions,
 /// selection, recent files, panels and view state, the language. `input` forces a change on
 /// frames with a click or key press, which covers state the hash doesn't list.
-fn state_hash(app: &PhotocraftApp, input: Option<u64>) -> u64 {
+fn state_hash(app: &PhotocraftApp, input: Option<u64>, modal: bool) -> u64 {
     let mut h = DefaultHasher::new();
     input.hash(&mut h);
+    modal.hash(&mut h);
+    commands_available(app).hash(&mut h);
     let s = &app.session;
     s.journal.len().hash(&mut h);
     s.active_index().hash(&mut h);
@@ -276,6 +322,84 @@ fn state_hash(app: &PhotocraftApp, input: Option<u64>) -> u64 {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn queued_native_clicks_cannot_bypass_modal_ownership() {
+        use std::sync::{
+            Arc, Mutex,
+            atomic::{AtomicUsize, Ordering},
+        };
+        struct Queue(Arc<Mutex<Vec<Event>>>);
+        impl Backend for Queue {
+            fn sync(&mut self, _: &MenuBar) {}
+            fn drain(&mut self) -> Vec<Event> {
+                std::mem::take(&mut *self.0.lock().unwrap())
+            }
+        }
+        let mut app = app(true);
+        let ctx = egui::Context::default();
+        let opens = Arc::new(AtomicUsize::new(0));
+        let count = opens.clone();
+        app.services.pick_open = Some(Box::new(move || {
+            count.fetch_add(1, Ordering::SeqCst);
+            None
+        }));
+        let events = Arc::new(Mutex::new(vec![Event::Click("file.open".into()), Event::Click("edit.clear".into())]));
+        app.services.native_menu = Some(NativeMenu::new(Box::new(Queue(events.clone()))));
+        // Events can arrive before a dialog is opened, so dispatch must check fresh state.
+        app.services.native_menu.as_mut().unwrap().raw_input(&mut Default::default());
+        let before = app.session.active().unwrap().doc.clone();
+        let id = crate::color_range_ui::open(&mut app);
+        assert!(!app_layout(&app).bar.find("file.open").unwrap().enabled);
+        assert!(!app_layout(&app).bar.find("edit.clear").unwrap().enabled);
+        assert!(app_layout(&app).bar.find(HIDE).unwrap().enabled);
+        assert!(app_layout(&app).bar.find(MINIMIZE).unwrap().enabled);
+        run(&mut app, &ctx);
+        assert_eq!(opens.load(Ordering::SeqCst), 0);
+        assert_eq!(*app.session.active().unwrap().doc, *before);
+        assert!(app.ui.dialog_mut(id).is_some());
+        crate::dialogs::cancel(&mut app, id);
+        // A first click in a batch can itself open a modal. Later clicks must not run under it.
+        *events.lock().unwrap() = vec![Event::Click("file.new".into()), Event::Click("file.open".into()), Event::Click("edit.clear".into())];
+        app.services.native_menu.as_mut().unwrap().raw_input(&mut Default::default());
+        run(&mut app, &ctx);
+        assert_eq!(opens.load(Ordering::SeqCst), 0);
+        assert_eq!(*app.session.active().unwrap().doc, *before);
+        assert_eq!(app.ui.dialogs.len(), 1);
+        assert_eq!(app.ui.dialogs[0].kind, crate::state::DialogKind::NewDocument);
+    }
+
+    #[test]
+    fn native_commands_are_disabled_for_custom_prompts_and_egui_modals() {
+        let mut app = app(true);
+        let ctx = egui::Context::default();
+        crate::develop_filter_ui::open(&mut app, &ctx, None, None).unwrap();
+        assert!(app.develop_filter.prompting());
+        assert!(!commands_available(&app));
+        assert!(!app_layout(&app).bar.find("file.open").unwrap().enabled);
+        crate::develop_filter_ui::answer(&mut app, &ctx, "cancel").unwrap();
+        assert!(commands_available(&app));
+        // Modal layers also cover custom frontends whose state is not a generic Dialog.
+        let mut output = ctx.run_ui(Default::default(), |ui| {
+            egui::Modal::new(egui::Id::new("custom-test-modal")).show(ui.ctx(), |ui| {
+                ui.label("Custom modal");
+            });
+        });
+        output.textures_delta.clear();
+        let mut menu = NativeMenu::new(Box::new(NoEvents));
+        menu.clicks.push("file.new".into());
+        app.services.native_menu = Some(menu);
+        run(&mut app, &ctx);
+        assert!(app.ui.dialogs.is_empty());
+    }
+
+    struct NoEvents;
+    impl Backend for NoEvents {
+        fn sync(&mut self, _: &MenuBar) {}
+        fn drain(&mut self) -> Vec<Event> {
+            Vec::new()
+        }
+    }
 
     fn app(doc: bool) -> PhotocraftApp {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());

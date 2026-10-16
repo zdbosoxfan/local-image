@@ -161,6 +161,23 @@ fn blur_with(
 /// black pixels or at the outermost 2 px (darktable's `_prepare_blend` + `_modify_blend` + the
 /// blurred/unblurred mix). Also returns the luminance.
 pub fn blend_mask(img: &Rgb32f, p: &CaptureParams) -> (Plane, Plane) {
+    blend_mask_with_confidence(img, p, None)
+}
+
+/// Whether sensor metadata marks a source pixel clipped. The metadata already
+/// follows the source's crop/orientation; no RGB threshold or white balance is used.
+pub fn sensor_clipped(clip: Option<&crate::ClipConfidence>, x: usize, y: usize, w: usize, h: usize) -> bool {
+    let Some(c) = clip.filter(|c| c.width > 0 && c.height > 0 && c.width.checked_mul(c.height) == Some(c.data.len())) else { return false };
+    if w == 0 || h == 0 {
+        return false;
+    }
+    let sx = (((x as f64 + 0.5) * c.width as f64 / w as f64) as usize).min(c.width - 1);
+    let sy = (((y as f64 + 0.5) * c.height as f64 / h as f64) as usize).min(c.height - 1);
+    c.data[sy * c.width + sx] > 0.0
+}
+
+/// Capture preparation with pre-reconstruction sensor saturation metadata.
+pub fn blend_mask_with_confidence(img: &Rgb32f, p: &CaptureParams, clip: Option<&crate::ClipConfidence>) -> (Plane, Plane) {
     let (w, h) = (img.width, img.height);
     let lum: Vec<f32> = img.data.iter().map(|c| li_color::luminance_2020(*c).max(0.0)).collect();
     // 1. clipped / black pixels exclude their 5×5 (diamond-ish) neighbourhood; borders excluded
@@ -172,7 +189,7 @@ pub fn blend_mask(img: &Rgb32f, p: &CaptureParams) -> (Plane, Plane) {
                 mask[k] = 0.0;
                 continue;
             }
-            let heat = p.clip.is_some_and(|c| img.data[k].iter().any(|v| *v >= c));
+            let heat = p.clip.is_some_and(|c| img.data[k].iter().any(|v| *v >= c)) || sensor_clipped(clip, col, row, w, h);
             if heat || lum[k] < YMIN {
                 for (dy, dxs) in [(-2isize, 1isize), (-1, 2), (0, 2), (1, 2), (2, 1)] {
                     for dx in -dxs..=dxs {
@@ -225,17 +242,31 @@ pub fn blend_mask(img: &Rgb32f, p: &CaptureParams) -> (Plane, Plane) {
         let wt = 1.0 / (1.0 + (5.0 - 10.0 * (u - *b)).exp());
         *b = (wt * u + (1.0 - wt) * *b).clamp(0.0, 1.0);
     }
+    // Smoothing may bleed a positive blend back into the exclusion. Sensor-clipped
+    // samples themselves must stay untouched even when their developed RGB is dim.
+    if clip.is_some() {
+        for (i, b) in blurred.data.iter_mut().enumerate() {
+            if sensor_clipped(clip, i % w, i / w, w, h) {
+                *b = 0.0;
+            }
+        }
+    }
     (blurred, Plane { width: w, height: h, data: lum })
 }
 
 /// Sharpen `img` in place. Does nothing for σ ≤ 0.2 px, no iterations or images smaller than
 /// 9 × 9.
 pub fn sharpen(img: &mut Rgb32f, p: &CaptureParams) {
+    sharpen_with_confidence(img, p, None);
+}
+
+/// Source-scale capture sharpening with sensor saturation protection.
+pub fn sharpen_with_confidence(img: &mut Rgb32f, p: &CaptureParams, clip: Option<&crate::ClipConfidence>) {
     let (w, h) = (img.width, img.height);
     if p.sigma <= 0.2 || p.iterations == 0 || w < 9 || h < 9 {
         return;
     }
-    let (blend, lum) = blend_mask(img, p);
+    let (blend, lum) = blend_mask_with_confidence(img, p, clip);
     let idx = sigma_index(w, h, p);
     let kernels: Vec<[f32; 25]> = (0..256).map(|i| kernel(i as f32 * SIGMA_STEP)).collect();
     // Richardson–Lucy: estimate ← estimate · blur(observed / blur(estimate))
@@ -379,5 +410,41 @@ mod refvec_tests {
             blur_with(&ratio, &mut est, &blend, &kernels, &idx, w, h, |o, v, _| o * v);
         }
         crate::test_vectors::compare("capture-rl/estimate.f32", &est, 3e-6);
+    }
+}
+
+#[cfg(test)]
+mod sensor_protection_regression {
+    use super::*;
+    use crate::{ClipConfidence, SourceInfo, StageCache};
+    use lightcraft_develop::DevelopSettings;
+    use std::sync::Arc;
+
+    #[test]
+    fn capture_source_uses_sensor_clipping_and_invalidates_warm_cache() {
+        // The sensor-clipped half is below 1 in working RGB, and the unclipped
+        // half includes over-white colour: working-RGB thresholds are incorrect.
+        let src = Arc::new(Rgb32f::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
+        let mut s = DevelopSettings::default();
+        s.raw.capture.enabled = true;
+        s.raw.capture.radius = 1.;
+        s.raw.capture.threshold = 20.;
+        s.raw.capture.iterations = 20.;
+        let cache = StageCache::default();
+        let mut info = SourceInfo { raw: true, ..Default::default() };
+        let unprotected = crate::presource(&src, &info, &s, Some(&cache)).unwrap();
+        info.clip_confidence =
+            Some(Arc::new(ClipConfidence { width: 32, height: 32, data: (0..1024).map(|i| if i % 32 >= 16 { 1. / 3. } else { 0. }).collect() }));
+        let protected = crate::presource(&src, &info, &s, Some(&cache)).unwrap();
+        assert!(!Arc::ptr_eq(&unprotected, &protected));
+        assert!((unprotected.get(32, 32)[1] - src.get(32, 32)[1]).abs() > 0.01);
+        for y in 0..64 {
+            for x in 32..64 {
+                assert_eq!(protected.get(x, y), src.get(x, y));
+            }
+        }
+        assert!(Arc::ptr_eq(&protected, &crate::presource(&src, &info, &s, Some(&cache)).unwrap()));
+        info.clip_confidence = None;
+        assert_eq!(crate::presource(&src, &info, &s, Some(&cache)).unwrap().data, unprotected.data);
     }
 }

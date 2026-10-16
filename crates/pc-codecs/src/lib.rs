@@ -22,6 +22,7 @@ mod format;
 mod image;
 pub mod jpeg_par;
 mod options;
+pub use options::{DESKTOP_PHOTO_BYTES, DESKTOP_PHOTO_PIXELS};
 pub mod orientation;
 pub mod web;
 

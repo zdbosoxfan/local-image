@@ -112,7 +112,7 @@ pub fn open_for_command(app: &mut PhotocraftApp, label: &str, rgb: [f32; 3], com
     f.insert("__hsv".into(), json!(hsv));
     f.insert("__mode".into(), json!("h"));
     f.insert("__webOnly".into(), json!(false));
-    app.ui.open_dialog(DialogKind::Command, f)
+    if command.starts_with("tools.") { app.ui.open_dialog(DialogKind::Command, f) } else { crate::dialogs::open_document_dialog(app, DialogKind::Command, f) }
 }
 
 pub fn owns(f: &Map<String, Value>) -> bool {

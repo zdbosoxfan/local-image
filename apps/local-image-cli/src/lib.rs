@@ -29,6 +29,8 @@ USAGE:
       {\"command\": id, \"params\": {…}} objects or bare ids, as a recorded action or droplet stores them
       (a list, or wrapped in {\"actions\": …}, {\"steps\": …} or a droplet). An --out folder that is the
       --in folder is refused, as the results would replace the originals; --in-place allows it.
+      Camera RAW files are included and default to .pcraft output unless --format is supplied.
+      Unsupported files are reported as skipped; no supported inputs is an error.
   local-image-cli droplet <file.pcdroplet> <file-or-dir>… [--out <dir>]
       Run a droplet (File › Automate › Create Droplet) on images and folders.
   local-image-cli commands [--json] [--filter <text>]
@@ -336,7 +338,11 @@ fn same_dir(a: &Path, b: &Path) -> bool {
 }
 
 fn is_input(p: &Path) -> bool {
-    let known = |e: &str| matches!(e, "pcraft" | "psd" | "psb") || photocraft_codecs::from_extension(e).is_some_and(|f| photocraft_codecs::caps(f).read);
+    let known = |e: &str| {
+        matches!(e, "pcraft" | "psd" | "psb")
+            || photocraft_codecs::raw_from_extension(e)
+            || photocraft_codecs::from_extension(e).is_some_and(|f| photocraft_codecs::caps(f).read)
+    };
     p.is_file() && p.extension().is_some_and(|e| known(&e.to_string_lossy().to_ascii_lowercase()))
 }
 
@@ -355,16 +361,29 @@ fn batch(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> R {
             out_dir.display()
         ));
     }
-    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
-    let mut inputs: Vec<PathBuf> =
-        std::fs::read_dir(&in_dir).map_err(|e| format!("{}: {e}", in_dir.display()))?.flatten().map(|e| e.path()).filter(|p| is_input(p)).collect();
+    let mut inputs = Vec::new();
+    for entry in std::fs::read_dir(&in_dir).map_err(|e| format!("{}: {e}", in_dir.display()))? {
+        let path = entry.map_err(|e| format!("{}: {e}", in_dir.display()))?.path();
+        if is_input(&path) {
+            inputs.push(path);
+        } else if path.is_file() {
+            let _ = writeln!(err, "SKIP  {}: unsupported input format", path.display());
+        }
+    }
     inputs.sort();
+    if inputs.is_empty() {
+        return Err(format!("{}: no supported input images", in_dir.display()));
+    }
+    std::fs::create_dir_all(&out_dir).map_err(|e| e.to_string())?;
     let (mut ok, mut failed) = (0, 0);
     let mut written = photocraft_engine::file_cmds::OutputClaims::default();
     // `--format .jpg` names outputs `<stem>.jpg`, as `--format jpg` does (#490).
     let format = a.get("--format").map(|f| f.strip_prefix('.').unwrap_or(f));
     for input in &inputs {
-        let ext = format.map(str::to_owned).or_else(|| input.extension().map(|e| e.to_string_lossy().into_owned())).unwrap_or_else(|| "png".into());
+        let ext = format.map(str::to_owned).unwrap_or_else(|| {
+            let input_ext = input.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_else(|| "png".into());
+            if photocraft_codecs::raw_from_extension(&input_ext) { "pcraft".into() } else { input_ext }
+        });
         let stem = input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
         let target = out_dir.join(format!("{stem}.{ext}"));
         let target_text = target.to_string_lossy();

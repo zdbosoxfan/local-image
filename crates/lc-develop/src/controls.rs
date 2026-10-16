@@ -129,10 +129,15 @@ macro_rules! controls {
             }
         }
 
-        /// Write a control value by id (clamped to the spec range). Returns false for unknown ids.
+        /// Write a control value by id (clamped to the spec range). Returns false for unknown ids or an invalid custom illuminant.
         pub fn set(s: &mut DevelopSettings, id: &str, v: f64) -> bool {
             let Some(spec) = find(id) else { return false };
             let v = spec.clamp(v);
+            if matches!(id, "colorCal.x" | "colorCal.y") {
+                let mut candidate = s.color_cal;
+                if id == "colorCal.x" { candidate.x = v; } else { candidate.y = v; }
+                if !candidate.valid_illuminant() { return false; }
+            }
             match id {
                 $( $id => { s.$($field).+ = v as _; true } )*
                 _ => indexed_set(s, id, v),

@@ -101,7 +101,7 @@ pub fn open(app: &mut PhotocraftApp) -> u64 {
     f.insert("__tool".into(), json!("sample"));
     f.insert("__view".into(), json!("selection"));
     app.color_range = None;
-    app.ui.open_dialog(DialogKind::Command, f)
+    crate::dialogs::open_document_dialog(app, DialogKind::Command, f)
 }
 
 pub fn owns(f: &Map<String, Value>) -> bool {
@@ -147,8 +147,13 @@ pub fn params(f: &Map<String, Value>) -> Value {
 
 /// OK: run the command on the document (one history step).
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    validate_target(app, f)?;
     app.color_range = None;
     app.run(COMMAND, params(f))
+}
+
+fn validate_target(app: &PhotocraftApp, f: &Map<String, Value>) -> Result<(), String> {
+    crate::dialogs::validate_document_target(app, f)
 }
 
 /// Cached preview: the document proxy (per revision) and the textures drawn from it.
@@ -224,6 +229,10 @@ fn report(app: &mut PhotocraftApp, error: Option<String>) {
 /// Refresh the cached proxy / textures for the active document and the dialog's params. Returns
 /// (texture to show, its size in proxy pixels, k).
 fn preview(app: &mut PhotocraftApp, ctx: &egui::Context, f: &Map<String, Value>) -> Option<(egui::TextureId, [usize; 2], u32)> {
+    if validate_target(app, f).is_err() {
+        app.color_range = None;
+        return None;
+    }
     let (doc_id, revision, doc) = {
         let st = app.session.active()?;
         (st.doc.id, st.revision, st.doc.clone())
@@ -320,6 +329,11 @@ fn set_points(f: &mut Map<String, Value>, k: &str, pts: &[[f64; 2]]) {
 /// Dialog body.
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
+    if let Err(error) = validate_target(app, f) {
+        app.color_range = None;
+        ui.label(egui::RichText::new(error).color(t.warning));
+        return;
+    }
     let c = controls(f);
     let select = s(f, "select", "sampledColors").to_string();
     ui.horizontal(|ui| {
@@ -462,6 +476,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 /// An eyedropper click at document pixel `at`: the plain eyedropper replaces the samples, the
 /// + one (or Shift) adds one, the − one (or Alt) subtracts one.
 pub fn pick(app: &PhotocraftApp, f: &mut Map<String, Value>, at: [f64; 2], mods: egui::Modifiers) {
+    if validate_target(app, f).is_err() {
+        return;
+    }
     let Some(st) = app.session.active() else { return };
     let (w, h) = (f64::from(st.doc.size.width.max(1)), f64::from(st.doc.size.height.max(1)));
     let [x, y] = at;
@@ -532,6 +549,38 @@ mod tests {
 
     fn dialog_id(app: &PhotocraftApp) -> u64 {
         app.ui.dialogs.iter().find(|d| owns(&d.fields)).map(|d| d.id).expect("Color Range dialog open")
+    }
+
+    #[test]
+    fn captured_document_rejects_tab_switch_close_and_later_edits() {
+        for change in ["switch", "close", "edit"] {
+            let mut h = harness(app_with_doc());
+            let id = open(h.state_mut());
+            h.run_steps(4);
+            let original = h.state().session.active().unwrap().doc.clone();
+            match change {
+                "switch" => {
+                    h.state_mut().run("file.new", json!({"width":40,"height":30})).unwrap();
+                }
+                "close" => {
+                    h.state_mut().run("file.close", json!({})).unwrap();
+                }
+                _ => {
+                    h.state_mut().run("edit.fill", json!({"color":"#00ff00"})).unwrap();
+                }
+            }
+            let documents: Vec<_> = h.state().session.documents().iter().map(|state| state.doc.clone()).collect();
+            let journal = h.state().session.journal.len();
+            let fields = h.state().ui.dialogs.iter().find(|dialog| dialog.id == id).unwrap().fields.clone();
+            assert!(confirm(h.state_mut(), &fields).is_err(), "{change} must invalidate the captured target");
+            assert_eq!(h.state().session.journal.len(), journal);
+            assert_eq!(h.state().session.documents().iter().map(|state| state.doc.clone()).collect::<Vec<_>>(), documents);
+            h.run_steps(2);
+            assert!(h.state().color_range.is_none(), "the preview must not follow a different document");
+            if change == "switch" {
+                assert_eq!(*h.state().session.documents()[0].doc, *original);
+            }
+        }
     }
 
     fn set(h: &mut Harness<'static, PhotocraftApp>, key: &str, v: Value) {

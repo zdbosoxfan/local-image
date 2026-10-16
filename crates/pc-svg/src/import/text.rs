@@ -7,13 +7,22 @@ use photocraft_doc::{
     text::{CharStyle, ParagraphRun, ParagraphStyle, TextAlign, TextRun},
     vector_design::exchange::{ImportOptions, VectorWarning},
 };
-use std::{collections::HashSet, fmt::Write, str::FromStr};
+use std::{
+    collections::HashSet,
+    fmt::Write,
+    str::FromStr,
+    sync::{Arc, atomic::AtomicBool},
+};
+#[path = "text_opacity.rs"]
+mod opacity;
+pub(super) use opacity::OutlineNode;
 
 pub(super) struct Slots {
     pub prefix: String,
     pub texts: Vec<TextLayer>,
     pub names: Vec<String>,
     pub markers: Vec<[f32; 4]>,
+    pub outlined: Vec<Option<Arc<Vec<OutlineNode>>>>,
 }
 impl Slots {
     pub fn find(&self, p: &usvg::Path) -> Option<usize> {
@@ -175,12 +184,48 @@ fn style(css: &Styles, n: roxmltree::Node<'_, '_>, dpi: f32) -> CharStyle {
         ..Default::default()
     }
 }
+fn node_opacity(css: &Styles, node: roxmltree::Node<'_, '_>) -> f32 {
+    let Some(value) = css.own(node, "opacity") else { return 1.0 };
+    let value = if value == "inherit" { css.prop(node, "opacity").unwrap_or_else(|| "1".into()) } else { value };
+    let (value, factor) = value.strip_suffix('%').map_or((value.as_str(), 1.0), |v| (v, 0.01));
+    value.parse::<f32>().ok().filter(|v| v.is_finite()).map_or(1.0, |v| (v * factor).clamp(0.0, 1.0))
+}
+/// Text-content elements have layout semantics; metadata and non-rendered subtrees do not.
+fn content_style(css: &Styles, root: roxmltree::Node<'_, '_>, parent: roxmltree::Node<'_, '_>, dpi: f32) -> Option<(CharStyle, Vec<opacity::GroupRef>)> {
+    let mut alpha = 1.0;
+    let mut groups = Vec::new();
+    for node in parent.ancestors().take_while(|node| *node != root) {
+        if !node.is_element()
+            || node.tag_name().namespace() != Some("http://www.w3.org/2000/svg")
+            || !matches!(node.tag_name().name(), "tspan" | "textPath" | "a" | "tref")
+            || css.own(node, "display").as_deref() == Some("none")
+        {
+            return None;
+        }
+        let opacity = node_opacity(css, node);
+        if opacity == 0.0 {
+            alpha = 0.0;
+        }
+        if opacity != 1.0 {
+            groups.push(opacity::GroupRef { id: node.id(), opacity });
+        }
+    }
+    groups.reverse();
+    let mut style = style(css, parent, dpi);
+    if matches!(value(css, parent, "visibility", "visible").as_str(), "hidden" | "collapse") {
+        alpha = 0.0;
+    }
+    style.color.alpha *= alpha;
+    Some((style, groups))
+}
+
 pub(super) fn prepare(
     source: &str,
     xml: &roxmltree::Document<'_>,
     options: &ImportOptions,
     mut fonts: Option<&mut photocraft_text::TextEngine>,
     warnings: &mut Vec<VectorWarning>,
+    cancel: &AtomicBool,
 ) -> Result<(String, Slots)> {
     let css = Styles::new(xml);
     let used: HashSet<usize> = xml
@@ -190,12 +235,14 @@ pub(super) fn prepare(
         .collect();
     let namespace = (0usize..).find(|i| !used.contains(i)).ok_or(ImportError::Limit("text marker namespace"))?;
     let prefix = format!("local-image-svg-text-{namespace}-");
-    let mut slots = Slots { prefix, texts: vec![], names: vec![], markers: vec![] };
+    let mut slots = Slots { prefix, texts: vec![], names: vec![], markers: vec![], outlined: vec![] };
     let mut bundled = None;
     let mut out = String::new();
     let mut copied = 0;
     let mut characters = 0usize;
+    let mut outline_segments = 0usize;
     for n in xml.descendants().filter(|n| n.is_element() && n.tag_name().name() == "text" && n.tag_name().namespace() == Some("http://www.w3.org/2000/svg")) {
+        super::cancelled(cancel)?;
         let range = n.range();
         if range.start < copied {
             continue;
@@ -212,11 +259,12 @@ pub(super) fn prepare(
         let name = n.attribute("id").unwrap_or("Text");
         let st = style(&css, n, options.dpi);
         let mut text = TextLayer::default();
+        let mut paint_sources = Vec::new();
         let preserve = n.ancestors().any(|n| n.attribute(("http://www.w3.org/XML/1998/namespace", "space")) == Some("preserve"));
         let mut was_space = true;
         for t in n.descendants().filter(|n| n.is_text()) {
             let parent = t.parent().unwrap_or(n);
-            let s = style(&css, parent, options.dpi);
+            let Some((s, groups)) = content_style(&css, n, parent, options.dpi) else { continue };
             let mut chars = String::new();
             for c in t.text().unwrap_or("").chars() {
                 if !preserve && matches!(c, '\r' | '\n') {
@@ -230,6 +278,7 @@ pub(super) fn prepare(
                 chars.push(c);
             }
             if !chars.is_empty() {
+                paint_sources.push(groups);
                 text.runs.push(TextRun { len: chars.len(), style: s });
                 text.text.push_str(&chars);
             }
@@ -271,6 +320,18 @@ pub(super) fn prepare(
         }
         let engine = fonts.as_deref_mut().or(bundled.as_mut()).ok_or_else(|| ImportError::Invalid("missing text engine".into()))?;
         let layout = engine.layout(&text, options.dpi);
+        let outlined = if paint_sources.iter().flatten().any(|group| group.opacity > 0.0 && group.opacity < 1.0) {
+            for style in &layout.styles {
+                if !engine.fonts.has_family(&style.font_family) {
+                    warn(warnings, "font-substitution", name, "An unavailable font was substituted before text was converted to outlines.");
+                }
+            }
+            let nodes = opacity::build(&layout, &text.transform, &paint_sources, options, cancel, &mut outline_segments)?;
+            warn(warnings, "text-opacity-outlines", name, "Nested text opacity was preserved as grouped outlines; this text is no longer editable.");
+            Some(Arc::new(nodes))
+        } else {
+            None
+        };
         let rect = photocraft_text::render::ink_rect(&layout, &text.transform);
         let marker = [rect.x0 as f32, rect.y0 as f32, rect.width().max(1) as f32, rect.height().max(1) as f32];
         if marker.iter().any(|v| !v.is_finite() || f64::from(*v).abs() > MAX_COORD) || rect.size().area() > options.limits.pixels {
@@ -309,11 +370,12 @@ pub(super) fn prepare(
         ] {
             let _ = write!(group_style, "{key}:{};", css.own(n, key).as_deref().unwrap_or(default));
         }
-        let _ = write!(group_style, "visibility:{};", value(&css, n, "visibility", "visible"));
+        // Visibility was resolved per text run, including visible descendants of a hidden root.
+        group_style.push_str("visibility:visible;");
         let index = slots.texts.len();
         let _ = write!(
             out,
-            " style=\"{}\"><{q}path id=\"{}{index}\" d=\"M{} {}h{}v{}h-{}Z M{} {}l0.0625 0.03125\" style=\"fill:#{index:06x}!important;stroke:none!important;opacity:1!important;display:inline!important;marker:none!important;clip-path:none!important;mask:none!important;filter:none!important\"/></{q}g>",
+            " style=\"{}\"><{q}path id=\"{}{index}\" d=\"M{} {}h{}v{}h-{}Z M{} {}l0.0625 0.03125\" style=\"fill:#{index:06x}!important;stroke:none!important;opacity:1!important;display:inline!important;visibility:visible!important;marker:none!important;clip-path:none!important;mask:none!important;filter:none!important\"/></{q}g>",
             escape(&group_style),
             slots.prefix,
             marker[0],
@@ -325,6 +387,7 @@ pub(super) fn prepare(
             marker[1] + 0.25
         );
         copied = range.end;
+        slots.outlined.push(outlined);
         slots.texts.push(text);
         slots.names.push(name.to_string());
         slots.markers.push(marker);

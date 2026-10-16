@@ -54,6 +54,47 @@ fn job(r: Started) -> JobId {
 }
 
 #[test]
+fn compressed_open_estimate_reserves_decoded_buffers_and_saturates() {
+    let mut png = vec![0u8; 33];
+    png[..8].copy_from_slice(b"\x89PNG\r\n\x1a\n");
+    png[8..12].copy_from_slice(&13u32.to_be_bytes());
+    png[12..16].copy_from_slice(b"IHDR");
+    png[16..20].copy_from_slice(&8000u32.to_be_bytes());
+    png[20..24].copy_from_slice(&6000u32.to_be_bytes());
+    png[24] = 16;
+    png[25] = 2;
+    // Dimensions may require more header validity in a particular codec; either estimate
+    // covers the declared float working buffers or the full desktop allocation ceiling.
+    assert!(open_working_bytes(&png, 33) >= 8000 * 6000 * 64);
+    assert!(open_working_bytes(b"PK", 2) >= photocraft_format::LoadOptions::default().max_total_bytes * 2);
+    assert_eq!(open_working_bytes(b"", u64::MAX), u64::MAX);
+}
+
+#[test]
+fn waiting_for_last_queued_open_delivers_earlier_admissions() {
+    let document = photocraft_doc::Document::with_background(
+        "tiny",
+        photocraft_doc::Size::new(2, 2),
+        photocraft_doc::ColorMode::Rgb,
+        photocraft_doc::SampleType::U8,
+        photocraft_doc::Color::WHITE,
+    );
+    let bytes = Arc::new(photocraft_format::save_to_bytes(&document, &Default::default()).unwrap());
+    let mut session = Session::new();
+    let count = lightcraft_sysmem::heavy_jobs().max_jobs() + 2;
+    let mut last = None;
+    for n in 0..count {
+        last = Some(job(session.start_open(&format!("{n}.pcraft"), OpenSource::Bytes(bytes.clone())).unwrap()));
+    }
+    session.wait_job(last.unwrap()).unwrap();
+    // Readiness can be out of order; wait for any earlier jobs still completing as well.
+    for id in session.jobs().iter().map(|job| job.id).collect::<Vec<_>>() {
+        session.wait_job(id).unwrap();
+    }
+    assert_eq!(session.documents().len(), count);
+}
+
+#[test]
 fn a_job_applies_as_one_undo_step_and_matches_the_inline_result() {
     let mut inline = session(300, 200);
     inline.execute("filter.blur.gaussianBlur", json!({"radius": 4})).unwrap();

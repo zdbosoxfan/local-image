@@ -25,6 +25,11 @@ use serde_json::{Map, Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
+#[cfg(test)]
+#[path = "prefs/security_tests.rs"]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod security_tests;
+
 /// Load valid preference fields independently. One obsolete enum or malformed nested field
 /// uses its default without throwing away neighbouring values. Runtime commands remain strict.
 pub fn lenient<T: Serialize + serde::de::DeserializeOwned + Default>(input: Value) -> std::result::Result<(T, Vec<String>), serde_json::Error> {
@@ -1430,6 +1435,52 @@ impl PrefsStore {
 }
 
 impl Session {
+    /// Validate and authorize an entire preferences update without applying live effects.
+    /// The UI may durably save another participant before publishing this infallible token.
+    pub fn prepare_preferences_update(&self, params: &Value) -> Result<PreparedPreferencesUpdate> {
+        if let Some(authorize) = self.authorize {
+            authorize("prefs.set", params)?;
+        }
+        self.prepare_preferences_update_inner(params)
+    }
+
+    fn prepare_preferences_update_inner(&self, params: &Value) -> Result<PreparedPreferencesUpdate> {
+        let changes = preference_changes(params)?;
+        let mut scratch = Session::new();
+        scratch.prefs = self.prefs.clone();
+        scratch.color.settings = self.color.settings.clone();
+        for (path, value) in &changes {
+            scratch.set_pref(path, value.clone()).map_err(|error| bad("prefs.set", error))?;
+        }
+        Ok(PreparedPreferencesUpdate {
+            preferences: scratch.prefs().clone(),
+            color: scratch.color.settings,
+            paths: changes.into_iter().map(|(path, _)| path).collect(),
+            automation: self.authorize.is_some(),
+        })
+    }
+
+    /// Publish an already validated update. No second authorization/validation can fail after
+    /// another preferences participant has saved. History/cache effects run exactly once.
+    pub fn publish_prepared_preferences(&mut self, prepared: PreparedPreferencesUpdate) -> Value {
+        self.color.settings = prepared.color;
+        self.prefs.edit(|prefs| *prefs = prepared.preferences);
+        self.apply_prefs();
+        let view = self.prefs_view();
+        let values: Map<String, Value> = prepared
+            .paths
+            .into_iter()
+            .map(|path| {
+                let mut value = self.prefs().get(&path).or_else(|| get_path(&view, &path).cloned()).unwrap_or(Value::Null);
+                if prepared.automation {
+                    redact_preference_result(&path, &mut value);
+                }
+                (path, value)
+            })
+            .collect();
+        Value::Object(values)
+    }
+
     /// The current preferences.
     pub fn prefs(&self) -> &Preferences {
         self.prefs.get()
@@ -1559,6 +1610,67 @@ impl Session {
 
 // ------------------------------------------------------------------ commands
 
+/// Opaque, fully checked preferences state. Only its preparing Session should publish it.
+pub struct PreparedPreferencesUpdate {
+    preferences: Preferences,
+    color: crate::color_cmds::ColorSettings,
+    paths: Vec<String>,
+    automation: bool,
+}
+
+fn preference_changes(params: &Value) -> Result<Vec<(String, Value)>> {
+    let mut changes = Vec::new();
+    if let Some(path) = params.get("path").and_then(Value::as_str) {
+        changes.push((path.to_string(), params.get("value").cloned().ok_or_else(|| bad("prefs.set", "missing `value`"))?));
+    }
+    if let Some(values) = params.get("values").and_then(Value::as_object) {
+        changes.extend(values.iter().map(|(key, value)| (key.clone(), value.clone())));
+    }
+    if changes.is_empty() {
+        return Err(bad("prefs.set", "give `path` and `value`, or `values: {path: value, …}`"));
+    }
+    Ok(changes)
+}
+
+fn secret_preference_key(key: &str) -> bool {
+    let key: String = key.chars().filter(char::is_ascii_alphanumeric).flat_map(char::to_lowercase).collect();
+    key.ends_with("apikey") || key.ends_with("token") || key.ends_with("password") || key.ends_with("secret")
+}
+
+fn redacted_secret(value: &Value) -> Value {
+    json!({"configured": !value.is_null() && value.as_str().is_none_or(|text| !text.trim().is_empty())})
+}
+
+fn redact_ai_settings(value: &mut Value) {
+    match value {
+        Value::Object(fields) => {
+            for (key, value) in fields {
+                if secret_preference_key(key) {
+                    *value = redacted_secret(value);
+                } else {
+                    redact_ai_settings(value);
+                }
+            }
+        }
+        Value::Array(values) => values.iter_mut().for_each(redact_ai_settings),
+        _ => {}
+    }
+}
+
+fn redact_preference_result(path: &str, value: &mut Value) {
+    let segments: Vec<_> = path.split('.').filter(|segment| !segment.is_empty()).collect();
+    match segments.first().copied() {
+        None => {
+            if let Some(ai) = value.get_mut("ai") {
+                redact_ai_settings(ai);
+            }
+        }
+        Some("ai") if segments.iter().skip(1).any(|key| secret_preference_key(key)) => *value = redacted_secret(value),
+        Some("ai") => redact_ai_settings(value),
+        _ => {}
+    }
+}
+
 fn always(_: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
@@ -1570,35 +1682,17 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
 fn prefs_get(s: &mut Session, p: &Value) -> Result<Value> {
     let path = p.get("path").and_then(Value::as_str).unwrap_or("");
     let v = s.prefs_view();
-    s.prefs().get(path).or_else(|| get_path(&v, path).cloned()).ok_or_else(|| bad("prefs.get", format!("unknown preference `{path}`")))
+    let mut value = s.prefs().get(path).or_else(|| get_path(&v, path).cloned()).ok_or_else(|| bad("prefs.get", format!("unknown preference `{path}`")))?;
+    if s.authorize.is_some() {
+        redact_preference_result(path, &mut value);
+    }
+    Ok(value)
 }
 
 fn prefs_set(s: &mut Session, p: &Value) -> Result<Value> {
-    let cmd = "prefs.set";
-    let mut changes: Vec<(String, Value)> = Vec::new();
-    if let Some(path) = p.get("path").and_then(Value::as_str) {
-        changes.push((path.to_string(), p.get("value").cloned().ok_or_else(|| bad(cmd, "missing `value`"))?));
-    }
-    if let Some(m) = p.get("values").and_then(Value::as_object) {
-        changes.extend(m.iter().map(|(k, v)| (k.clone(), v.clone())));
-    }
-    if changes.is_empty() {
-        return Err(bad(cmd, "give `path` and `value`, or `values: {path: value, …}`"));
-    }
-    // All or nothing: validate against a scratch copy first.
-    let (saved_prefs, saved_color) = (s.prefs().clone(), s.color.settings.clone());
-    for (path, v) in &changes {
-        if let Err(e) = s.set_pref(path, v.clone()) {
-            s.prefs.edit(|p| *p = saved_prefs);
-            s.color.settings = saved_color;
-            return Err(bad(cmd, e));
-        }
-    }
-    s.apply_prefs();
-    let view = s.prefs_view();
-    let out: Map<String, Value> =
-        changes.iter().map(|(k, _)| (k.clone(), s.prefs().get(k).or_else(|| get_path(&view, k).cloned()).unwrap_or(Value::Null))).collect();
-    Ok(Value::Object(out))
+    // Session::dispatch has already authorized this command; do not authorize twice.
+    let prepared = s.prepare_preferences_update_inner(p)?;
+    Ok(s.publish_prepared_preferences(prepared))
 }
 
 fn prefs_reset(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1634,7 +1728,10 @@ fn prefs_reset(s: &mut Session, p: &Value) -> Result<Value> {
 fn preferences_section(s: &mut Session, p: &Value) -> Result<Value> {
     let section = p.get("__section").and_then(Value::as_str).unwrap_or("general").to_string();
     let title = SECTIONS.iter().find(|(id, _)| *id == section).map_or("General", |(_, t)| *t);
-    let values = s.prefs().get(&section).unwrap_or(Value::Null);
+    let mut values = s.prefs().get(&section).unwrap_or(Value::Null);
+    if s.authorize.is_some() {
+        redact_preference_result(&section, &mut values);
+    }
     Ok(json!({"section": section, "title": title, "values": values}))
 }
 

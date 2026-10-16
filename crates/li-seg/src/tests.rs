@@ -248,6 +248,42 @@ fn a_custom_subject_model_is_validated_copied_and_used() {
 }
 
 #[test]
+fn review_model_snapshot_distinguishes_equal_length_artifacts_and_roots() {
+    for group in [Group::Subject, Group::Sky, Group::Depth] {
+        let a = temp_models();
+        let b = temp_models();
+        let source_a = picked(&a, "same.onnx", Some((32, 32)), Out::Map);
+        let mut different = std::fs::read(&source_a).unwrap();
+        let at = different.windows(7).position(|s| s == b"Sigmoid").unwrap();
+        different[at..at + 7].copy_from_slice(b"Softmax");
+        let source_b = b.join("same.onnx");
+        std::fs::write(&source_b, &different).unwrap();
+        add_custom(&a, group, &source_a, CustomOptions::default(), &keep).unwrap();
+        add_custom(&b, group, &source_b, CustomOptions::default(), &keep).unwrap();
+        let first = snapshot(group, &a).unwrap();
+        let second = snapshot(group, &b).unwrap();
+        assert_eq!(first.key, second.key, "same basename/config/length reproduces the previous collision");
+        assert_ne!(first, second);
+        let old = first.segmenter().unwrap();
+        let new = second.segmenter().unwrap();
+        assert!(!Arc::ptr_eq(&old.run, &new.run), "another root must load its own plan");
+        if group == Group::Subject {
+            let input = vec![255; 32 * 32 * 4];
+            assert!(old.predict(&input, 32, 32).unwrap().is_some());
+            assert!(new.predict(&input, 32, 32).unwrap().is_none());
+        }
+        // Captured requests keep their original artifact when the selected root changes.
+        assert_eq!(first.segmenter().unwrap().id(), old.id());
+        different.push(0);
+        std::fs::write(&first.path, &different).unwrap();
+        assert!(!first.is_current());
+        assert!(first.segmenter().is_none(), "a changed artifact cannot reuse the old plan");
+        std::fs::remove_dir_all(a).unwrap();
+        std::fs::remove_dir_all(b).unwrap();
+    }
+}
+
+#[test]
 fn the_custom_model_beats_an_installed_official_one() {
     let dir = temp_models();
     std::fs::write(model_path(&dir, Group::Depth.official()), b"not a real model").unwrap();

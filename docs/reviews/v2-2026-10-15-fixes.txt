@@ -1,0 +1,351 @@
+V2 REVIEW FIXES — 15 OCTOBER 2026
+
+Scope: the 41 actionable findings reviewed at 869c4a43d9813f20853fb959cb4f617f12b02a09.
+The IDs below connect the reported defects to their implementation and regression coverage.
+Test names describe required coverage; execution results are recorded in the pull request validation summary.
+P1: urgent; P2: significant; P3: lower impact. Separate product/optimization proposals are outside this repair set.
+
+CONC-001 [P1] Multi-file Open starts unbounded full decodes outside the shared memory admission policy
+Fix: Process-wide fixed Open coordinators derived from shared heavy-job cap; queued cancellation drops inputs;
+safe header-aware working estimate uses desktop/native contracts, cancellable read on same handle,
+reservations retained through UI result delivery, wait_job delivers ready work to avoid permit deadlock.
+Regression: open_queue_bounds_active_workers_and_drops_cancelled_inputs
+Regression: compressed_open_estimate_reserves_decoded_buffers_and_saturates
+Regression: waiting_for_last_queued_open_delivers_earlier_admissions
+
+GPU-1 [P1] Invalidate resident pages when the sparse surface default changes
+Fix: Resident stores exact sparse default bytes. Default changes invalidate/rebuild the resident page even if
+region, format, CMYK conversion and explicit tile bounds are unchanged. This refreshes untouched missing tiles
+and default_nonzero bookkeeping.
+Regression: sparse_mask_defaults_invalidate_warm_resident_pages keeps normal and256px-paged compositors warm
+across default1->0 inversion->1 undo and0.25->0.75 inversion->0.25 undo; compares all pixels against CPU at
+unchanged1/255 bound and checks missing middle tile alpha.
+
+SEC-001 [P1] Desktop app.module browse bypasses automation filesystem roots
+Fix: Capability enumeration and actual staged reads before control view mutation; retained capability source
+hooks protect subsequent loads and reject post-stage symlink escapes; ordinary human Library browse remains
+native. Hook wrapper retained once per native session, reused on repeat browse. Outside-root native byte
+fallback and all five native hooks preserved; scoped decode/probe hooks retain shared work-gate accounting.
+Capability opens are Unix nonblocking and regular-handle validated, including post-staging FIFO substitution.
+Regression: automation_library::tests::capability_browse_preserves_in_root_photos_and_reuses_hooks
+Regression: automation_library::tests::retained_browse_reader_rejects_escaping_symlinks_after_staging
+Regression: control::tests::module_browse_stages_authority_before_changing_view_state
+Regression: automation_library::tests::retained_browse_reader_cannot_block_on_a_fifo_substitution
+
+SEC-004 [P1] Pinned ruzstd0.9.0 allows document decompression bombs before outer size limits
+Fix: Advanced both decoder requirements to ruzstd0.9.1; root fetched and updated lock with only0.9.1. Ten-byte
+RLE frame declares2KiB output against1KiB window; bounded regression covers decoder and both document
+containers, no bomb.
+Regression: zstd_security::zstd_rejects_a_small_block_larger_than_its_window_before_outer_read_limit
+Regression: zstd_security::native_loader_rejects_the_invalid_block_inside_a_tile
+Regression: zstd_security_tests::affinity_decoder_enforces_block_bound_despite_accepted_container_sizes
+
+SIO-01 [P1] PSD budget exhaustion silently discards pixels and admits the incomplete document
+Fix: PSD conversion returns Result; required layer, merged pixel, ordinary mask and smart-filter-mask failures
+reject the whole document before admission. All decoded masks consume the cumulative conversion budget. Public
+conversion independently checks group depth. PSD/PSB/layered-TIFF callsites propagate errors.
+Regression: undecodable_channel_refuses_the_document
+Regression: oversized_flattened_psd_is_refused_before_decode
+Regression: layers_share_one_conversion_budget
+Regression: psd_psb_multilayer_and_mask_budget_failure_never_returns_partial_document
+Regression: psd_psb_flattened_budget_failure_is_an_error_and_exact_budget_keeps_pixels
+Regression: psd_psb_required_layer_and_mask_decode_failures_are_errors
+Regression: psd_psb_smart_filter_mask_is_budgeted_and_required_decode_errors_are_fatal
+
+SIO-02 [P1] Move import can delete a replacement source because final verification compares only lengths
+Fix: Move holds stable source/destination handles, metadata and BLAKE3 receipts, captures the current source
+into a durable private UUID directory before verifying/deleting it, and restores mismatches without replacing
+occupants. Rollback also verifies the exact owned bytes. Recovery validates same-folder basename, UUID record,
+locks, bounded regular-file reads and held directory/file handles; ordinary scans stay read-only and exclude
+recovery directories. Final review follow-up: Move consumes the held actual publication handle even for
+exclusive-copy fallback, and checks destination content and parent-directory durability before deleting
+captured source; synchronization failure restores the source.
+Regression: replacement_source_is_kept_for_link_and_copy_moves
+Regression: rewritten_source_with_restored_mtime_is_kept
+Regression: changed_destination_is_never_removed_by_finish_or_rollback
+Regression: source_replaced_between_validation_and_capture_is_restored
+Regression: replaced_sidecar_is_kept_after_photo_move
+Regression: recovery_preserves_live_captures_and_occupied_names
+Regression: recovery_refuses_malformed_records_and_replaced_handles
+Regression: recovery_does_not_follow_payload_or_record_symlinks
+Regression: crashed_capture_recovers_in_selected_folder_only
+Regression: recovery_folders_are_not_traversed_or_mutated_by_an_ordinary_scan
+Regression: exclusive_copy_publication_tracks_the_actual_destination
+Regression: exclusive_copy_receipt_does_not_claim_a_replacement_destination
+Regression: destination_sync_failures_restore_the_source_for_link_and_copy_moves
+Regression: new_file_receipt_keeps_created_file_after_destination_replacement
+Regression: forced_copy_receipt_never_reopens_a_replacement_before_returning
+
+SIO-03 [P1] Normal Save can publish native files that the app cannot reopen or save again
+Fix: Native writer enforces shared reader archive, manifest, blob and expanded-byte contracts before
+publication, including bounded manifest serialization and final ZIP headers. Export output admission also
+protects ordinary PSD/PSB saves. Small injected budgets exercise actual save paths, prior destination
+preservation, reopen and subsequent save.
+Regression: native_save_budget_boundaries_match_reader_accounting
+Regression: native_save_limit_failures_preserve_previous_zip_and_allow_subsequent_save
+Regression: native_save_limit_failures_preserve_previous_directory_and_allow_subsequent_save
+Regression: archive_budget_bounds_empty_archive_and_multiple_entries
+Regression: archive_budget_includes_headers_and_rejects_before_appending
+Regression: saved_file_admission_matches_the_reader_boundary
+
+UI-001 [P1] Block native editor commands while a modal owns the document
+Fix: ["Native command enablement/dispatch share modal ownership and recheck queued batches/custom egui modal
+layers. Non-modal native Draft/Refinement windows retain normal root commands.", "Common document-editing
+dialogs capture document/revision/active-layer/selection IDs; generic render/confirm and proxy previews reject
+stale captures. Global Preferences/New Document/Color Settings/tool swatches and separately targeted profile
+prompts are exempt. Layer Style captures document identity only because its explicit-layer style swatches
+intentionally apply immediately.", "Gallery/Liquify capture typed SelectionTarget and reject stale
+edits/previews/commits. Commit errors preserve draft, produce notices and propagate to control; no false
+committed:true. Stale recovery offers Cancel/reopen using shared modal widgets.", "Host module switches
+respect custom modal ownership so keyboard/queued switches cannot hide Cancel in another workspace;
+intentional Camera Raw module-switch cancellation remains supported. Safe native Hide/Minimize remain
+enabled."]
+Regression: native_menu::tests::queued_native_clicks_cannot_bypass_modal_ownership
+Regression: native_menu::tests::native_commands_are_disabled_for_custom_prompts_and_egui_modals
+Regression: color_range_ui::tests::captured_document_rejects_tab_switch_close_and_later_edits
+Regression: dialogs::tests::admitted_file_open_cannot_retarget_document_editing_dialogs
+Regression: dialogs::tests::custom_filter_dialogs_reject_stale_targets_and_keep_cancel_available
+Regression: library_host::tests::module_shortcuts_cannot_hide_custom_filter_modals
+
+AI-001 [P2] Curated Faithful and Rescue upscaler presets cannot be downloaded
+Fix: Accept only the exact vetted download pins for curated BSRGAN/RealPLKSR models.
+Regression: download::tests::review_upscaler_download_pins_are_exact_and_immutable
+
+AI-002 [P2] Z-Image starting-image Variation strength never reaches the sampler
+Fix: Carry reference-image variation strength into the Z-Image sampler and report effective settings.
+Regression: ops::review_tests::review_generation_controls_match_submitted_graph_and_metadata
+
+AI-003 [P2] Qwen Create and Edit ignore selected sampler/scheduler and save false metadata
+Fix: Apply Qwen sampler/scheduler overrides to Create/Edit workflows and record effective settings.
+Regression: ops::review_tests::review_generation_controls_match_submitted_graph_and_metadata
+
+AI-004 [P2] Qwen AI Remove applies soft selection coverage twice in patch mode
+Fix: Return unblended repaired RGB for patch removal so Editor and Develop apply soft coverage once.
+Regression: ops::review_tests::review_qwen_patch_applies_soft_coverage_exactly_once
+
+AI-005 [P2] Segmentation caches can reuse a different custom model after the model folder changes
+Fix: Capture model artifact identity for loaded segmenters and probability caches, including model-root/file
+replacement.
+Regression: tests::review_model_snapshot_distinguishes_equal_length_artifacts_and_roots
+Regression: seg::tests::review_probability_cache_uses_captured_artifact_identity
+
+AI-006 [P2] A transient ComfyUI polling failure discards ownership of a still-running prompt
+Fix: Retain bounded submission/prompt ownership across transport failures, reconcile unique client IDs on
+modern/legacy servers, cancel only owned jobs, and recover idle local GPU pressure without discarding
+uncertain work.
+Regression: comfy::review_tests::review_failed_polling_and_deadline_retain_and_reconcile_owned_prompts
+Regression: comfy::review_tests::review_absent_then_listed_and_malformed_queues_never_disown_live_prompt
+Regression:
+comfy::review_tests::review_accepted_submission_with_lost_reply_reconciles_unique_client_without_reposting
+Regression: comfy::review_tests::review_explicit_prompt_rejection_releases_submission_lease
+Regression:
+comfy::review_tests::review_pre_send_failures_release_ownership_but_response_failures_remain_uncertain
+Regression: comfy::review_tests::review_unknown_submission_pressure_recovers_without_discarding_identity
+
+AI-007 [P2] Generate empty background flattens transparent failures into a successful white plate
+Fix: Validate raw alpha before flattening dedicated background-generation output; ordinary generation keeps
+its existing contract.
+Regression: ops::review_tests::review_empty_background_validates_raw_alpha_before_flattening
+
+AI-009 [P2] Settings offers CPU/custom upscalers that no current enhancement entry point can use
+Fix: Align enhancement setup and saved choices with the supported GPU/NPU execution capabilities.
+Regression: enhance::selection::tests::review_custom_cpu_import_never_changes_production_choice_or_files
+Regression: ai_ui::enhance_settings::tests::enhance_settings_clicks_candidates_custom_and_default_per_function
+Regression: enhance::selection::tests::enhance_function_choices_default_custom_validation_and_shared_execution
+
+ALG-01 [P2] RAW merge discards lens corrections instead of baking or preserving them
+Fix: Ordered list3 corrections are baked before crop/output; panorama inputs retain full corrections before
+registration. Separate persisted XMP lens/CA-baked flags suppress repeated automatic correction after reopen.
+HDR ghost metadata follows the green-plane geometry.
+Regression: merge_bakes_ordered_dng_corrections_and_marks_the_output;
+merged_dng_reopen_suppresses_automatic_lens_correction; xmp roundtrip_all_fields
+
+ALG-02 [P2] Smart Object Stack Mode destroys HDR and signed float values
+Fix: Statistical float results retain signed/HDR range; integer surface storage retains bounded quantization.
+Regression: stack_float_statistics_preserve_signed_hdr_through_smart_source; stack::tests
+
+ALG-03 [P2] Cropping changes existing mask refinement at identical source pixel scale
+Fix: CPU/GPU use shared source long-edge radius via frame.px_per_long instead of cropped output extent.
+Regression: refine_coverage_is_invariant_under_crop_at_the_same_pixel_scale;
+cropped_refine_mask_keeps_source_scale_on_gpu
+
+ALG-04 [P2] Capture sharpening never enables its clipped-highlight exclusion in application renders
+Fix: Sensor clip-confidence guides capture exclusion in source coordinates; saturated pixels remain protected
+after blend smoothing, including below-white working RGB. CPU/GPU source caches retain metadata Arc and
+invalidate by its identity. Metal CPU control preparation and device deconvolution preserved.
+Regression: capture_source_uses_sensor_clipping_and_invalidates_warm_cache;
+capture_sensor_protection_matches_and_invalidates_cached_source; existing capture tests
+
+ALG-05 [P2] Allowed custom illuminant settings produce NaNs in Full Bradford adaptation
+Fix: Joint physical chromaticity/positive cone-response validation prevents invalid settings commits; renderer
+try_new rejects malformed externally constructed settings before ratios/powers. Shared cone constants avoid
+new duplicated numerical definitions.
+Regression: custom_calibration_rejects_invalid_white_before_settings_commit;
+custom_white_domain_never_constructs_nonfinite_adaptation
+
+AV-01 [P2] Outlined SVG/PDF text reorders repeated colors and changes overlapping artwork
+Fix: SVG/PDF outline writers retain adjacent paint runs including decorations, through shared incremental pc-
+text visitor. Repeated colors are no longer globally regrouped.
+Regression: photocraft-svg --test export svg_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal
+Regression: photocraft-pdf --test export pdf_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal
+Regression: photocraft-text --lib painted_stream_orders_decorations_and_enforces_one_segment_budget
+
+AV-02 [P2] The ordinary Convert to Shape command loses text colors and punches later glyph holes through earlier letters
+Fix: Ordinary text conversion and work paths reuse the existing painted-outline and nonzero contour grouping
+adapter. Multiple paint runs become ordered child shapes under the original compositing envelope; source
+ID/undo/PSD cleanup retained. Removed duplicate transform contours module.
+Regression: photocraft-engine --lib convert_to_shape_preserves_overlapping_counter_geometry_and_paint_order
+Regression: photocraft-engine --lib work_path_and_shape_follow_the_glyphs
+
+AV-03 [P2] SVG import makes hidden text and tooltip metadata visibly opaque
+Fix: SVG editable text filters metadata/display:none, preserves invisible advances and visible descendant
+overrides. Fractional nested opacity uses one authoritative layout and bounded incremental outlines projected
+as native isolated groups; each subtree opacity is applied once. Ordinary/root-opacity text stays editable.
+Regression: photocraft-svg --test import svg_text_content_respects_display_visibility_opacity_and_metadata
+Regression: photocraft-svg --test import
+svg_nested_fractional_text_opacity_preserves_grouped_overlap_and_hidden_runs
+
+AV-04 [P2] Reduced previews keep full-resolution pixel-mask feather radii
+Fix: Reduced pixel masks scale their feather distance by the proxy factor, retaining original effective radius
+cap and leaving source untouched.
+Regression: photocraft-compose --lib proxy_mask_feather_keeps_its_source_pixel_scale
+
+AV-05 [P2] The global mask cache excludes retained input tiles from its memory budget
+Fix: Mask cache counts unique retained output and ABA-pinned input tile allocations. Trims oldest entries to
+the byte/capacity bounds, including an individually oversized result rather than retaining it over budget.
+Regression: photocraft-compose --lib cache_budget_counts_pinned_inputs_and_evicts_them_after_source_drop
+Regression: photocraft-compose --lib cache_budget_deduplicates_shared_input_and_output_tiles
+Regression: photocraft-compose --lib pixel_edits_refresh_cached_masks_at_every_depth
+
+AV-06 [P2] Ordinary outline export materializes all glyph geometry before budget and cancellation checks
+Fix: Both ordinary outline exporters stream outlines with cancellation/glyph/segment/scratch limits instead of
+allocating all glyph geometry first. Decorations share cumulative segment budget. PDF working path geometry is
+also capped by output byte budget. Character admission runs in document preflight before scope/bounds/fallback
+shaping.
+Regression: photocraft-svg --test export svg_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal
+Regression: photocraft-pdf --test export pdf_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal
+Regression: photocraft-text --lib painted_stream_orders_decorations_and_enforces_one_segment_budget
+
+CLI-01 [P2] Batch processing silently skips camera RAW files and exits successfully
+Fix: Include shared RAW registry in batch discovery; use native output by default for RAW; report unsupported
+files and reject empty batches.
+Regression: batch_processes_raw_only_and_mixed_directories
+Regression: batch_reports_empty_unsupported_and_invalid_raw_inputs
+
+CONC-002 [P2] Closing a document never releases its Navigator texture and pending thumbnail entry
+Fix: Navigator textures and pending results moved from permanent Context temp data into document-owned maps;
+existing sync_views cleanup prunes closed documents.
+Regression: closing_documents_releases_navigator_textures_and_pending_results
+
+CONC-003 [P2] Import cancellation cannot interrupt waiting for a shared heavy-job permit
+Fix: Copies carries shared cancel flag and injected HeavyJobs; serial/parallel/fallback branches use
+cancellable admission and recheck before copy; all skipped outcomes complete.
+Regression: cancelled_import_releases_permit_wait_without_starting_copy
+
+CONC-004 [P2] Smart Sort copies its entire embedding cache synchronously on the UI thread for every result batch
+Fix: UI publishes at most one32-row result batch and hands immutable dirty-record snapshots back to existing
+analysis coordinator for disk writes; compute workers never block on channels. Store appends durable immutable
+segments instead of recopying entire caches. Acknowledgements are conditional on current record value;
+failures retain pending data and missing bases rebuild on retry; snapshots own original library path. Corrupt
+sharpness segments are discarded and rebuilt on subsequent save.
+Regression: incremental_segments_keep_the_base_unchanged_and_survive_reopen
+Regression: failed_batches_retry_and_late_acknowledgements_preserve_newer_changes
+Regression: ui_poll_only_hands_off_pending_bytes_and_write_keeps_original_library_path
+Regression: store_appends_atomically_and_retries_a_failed_batch
+Regression: ds_finding_deleted_embedding_cache_is_rebuilt_completely
+Regression: analysis_retries_a_failed_save_even_when_every_photo_is_cached
+
+CONC-005 [P2] History byte budgets omit retained embedded Smart Object and preserved source payloads
+Fix: History accounts unique Arc backing allocations for embedded originals, PSD resources/global/layer
+blocks, ICC/EXIF and LUT data alongside pixel tiles; adds smart-filter masks, fill caches, video frames and
+selection tiles. Shared allocations are charged once; current plus most recent undo remains kept. Pattern
+surfaces are included after independent GPU reviewer spot-check.
+Regression: history_budget_counts_replaced_embedded_sources_and_shared_psd_payloads_once
+Regression: byte_budget_drops_oldest_states_but_keeps_one
+Regression: history_shares_untouched_tiles
+Regression: history_counts_replaced_pattern_tiles_across_undo_redo_without_double_counting
+
+GPU-2 [P2] Release per-view GPU resources when secondary document windows close
+Fix: Canvas supplies live main/secondary view keys. GpuCanvas prunes closed scaled frames, view uniforms and
+Move viewport resources while preserving children of live Move views. Removing scaled frames immediately
+restores cache-budget shares for surviving compositors, including document-close retention.
+Regression: closed_secondary_views_release_scaled_resources_and_restore_budget uses the physical offscreen
+harness and actual secondary-window command/state, prepares real secondary GPU callbacks for ten unique window
+IDs, keeps source document/main view open, and asserts closed-window view/frame counts, allocated display
+texture bytes and active compositor budget return to baseline.
+
+SEC-002 [P2] Catalogue preview URLs can send provider tokens to lookalike origins
+Fix: Parsed scheme/hostname/effective-port origin matching, userinfo rejected; credential routing exact-
+origin; manual per-hop redirect validation and HTTPS downgrade rejection, no automatic redirected auth. Tests
+also cover malformed ports and allowed CDN redirects stripping credentials.
+Regression: browser::security_tests::preview_origins_and_credentials_are_exact_not_prefix_matches
+Regression: browser::security_tests::attacker_catalogue_preview_stays_untrusted_after_parsing
+Regression: browser::security_tests::redirects_resolve_before_rechecking_origin_and_never_downgrade_tls
+
+SEC-003 [P2] Authenticated scoped control clients can read saved provider credentials through prefs.get
+Fix: Automation-gated prefs reads/set replies/section aliases redact credential leaves and secret ancestors to
+configured state; raw persistence/internal trusted reads retained. Added opaque prepared preference update
+token coordinated with UI004. Nested descendants of secret-bearing fields are redacted too.
+Regression: prefs::security_tests::scoped_preference_reads_redact_direct_parent_whole_and_section_aliases
+Regression: prefs::security_tests::prepared_update_has_no_live_effects_until_infallible_publication
+Regression: prefs::security_tests::prepared_update_authorizes_once_before_any_publication
+
+SIO-04 [P2] Library imports bypass safe file reads and can hang on FIFOs or read unbounded devices
+Fix: Shared li-fs regular-file reader validates paths and handles, uses nonblocking Unix open, bounds actual
+bytes and fallible allocation, supports cancellation, and replaces Library filesystem hook reads. Streaming
+Move verification also bounds opened handles and actual bytes.
+Regression: actual_bytes_and_cancellation_are_bounded
+Regression: fifo_and_symlink_to_fifo_are_rejected_without_a_writer
+Regression: library_hooks_reject_nonregular_and_oversized_files
+Regression: sparse_oversized_file_is_rejected_before_reservation
+Regression: fifo_is_rejected_without_waiting_for_a_writer
+
+SIO-05 [P2] Compositing rejects normal high-resolution images already supported by Library
+Fix: Shared desktop photo admission128MiPixel/2GiB is passed explicitly for editor flat/TIFF opens; generic
+decoder defaults remain conservative. Library shares the same constants.
+Regression: high_resolution_jpeg_import_and_scaled_reference_loading
+Regression: still_image_import_keeps_a_source_pixel_ceiling
+Regression: desktop_photo_import_preserves_full_resolution_above_generic_limit
+Regression: desktop_photo_import_rejects_over_budget_header_before_pixels
+Regression: desktop_photo_facades_share_pixel_and_allocation_limits
+Regression: j6_limits_preserve_explicit_large_capture_budget_without_allocating_pixels
+
+UI-002 [P2] Synchronize shared Interface preferences while Library or Develop is active
+Fix: ["Shared Interface reconciliation updates theme identity, display scale, font size/language and icon mode
+independent of editor rendering. Host calls it before reapplying the current module palette, then synchronizes
+tooltip policy.", "Core editor tick reuses the same reconciliation; hosted drafts remain reversible until
+Apply/OK."]
+Regression: library_host::tests::shared_interface_apply_updates_library_and_develop_before_switching_modules
+Regression: existing
+library_host::tests::lrc_one_preferences_shell_drafts_apply_cancel_and_one_store_in_every_module
+Regression: existing
+prefs_ui::tests::preferences_apply_button_saves_without_closing_and_cancel_keeps_applied_values
+
+UI-003 [P2] Give default Enter handling only to the topmost dialog
+Fix: ["Default Enter handling occurs after ModalResponse, requires topmost modal and no open popup, and
+consumes the key exactly once."]
+Regression: dialogs::tests::enter_confirms_only_the_visible_profile_prompt
+Regression: dialogs::tests::popup_enter_does_not_confirm_its_parent_dialog
+
+UI-004 [P2] Keep unified Preferences drafts atomic when the AI save fails
+Fix: ["Core values are strictly staged/authorized using security reviewer PreparedPreferencesUpdate API,
+without live history/cache effects. Host prepare validates/reserves a typed draft and returns an infallible
+publisher.", "Current AI draft joins the staged core state. Its checked save must succeed before core and host
+publish; temporary automation authorization is restored and replies retain engine redaction.", "Failed
+Apply/OK retains all drafts and prior runtime values/history. Errors render inline on every Preferences page;
+Cancel leaves prior state. Successful retry publishes all portions coherently; failed OK no longer destroys
+its draft."]
+Regression: prefs_ui::tests::failed_ai_save_keeps_core_host_history_and_preferences_drafts_atomic
+
+AI-008 [P3] Unload AI models reports success for HTTP errors from ComfyUI
+Fix: Treat HTTP errors from ComfyUI model unloading as failures.
+Regression: comfy::review_tests::review_unload_refuses_http_errors_and_keeps_busy_queue_untouched
+
+VALIDATION CONTRACT
+
+Run the unfiltered workspace suite with the release HEIF features, plus explicit physical Metal acceptance for sparse defaults, secondary-view cleanup, native Develop/HDR output, existing local denoisers and real RAW preview paths.
+Run strict all-target lint, formatting, asset/dependency and packaging/signing checks. Test input is synthetic or public fixtures; do not run large generative models on the Mac.
+Build the arm64 installer from the final commit. Verify bundle signatures, system-only runtime libraries, installer payload and installed executable hashes before native launch acceptance.
+Open admission bounds active decoding and accounts conservative work estimates. It is not a hard cap on total process RSS. On filesystems without safe no-replace Move finalization, retain the source and report the limitation.
+Nested SVG text opacity may use a faithful outlined group fallback with a warning; ordinary editable text is preserved. AI enhancement setup intentionally exposes only executable supported capabilities.
+Uncertain remote submissions keep bounded tracking records. Cleanup never retries submission blindly or interrupts another client's job.

@@ -57,7 +57,7 @@ fn kernels() -> &'static [[f32; 25]; 256] {
     })
 }
 
-fn params(w: usize, h: usize, p: &CaptureParams) -> [u32; 8] {
+fn params(w: usize, h: usize, p: &CaptureParams) -> [u32; 9] {
     [
         w as u32,
         h as u32,
@@ -67,6 +67,7 @@ fn params(w: usize, h: usize, p: &CaptureParams) -> [u32; 8] {
         p.center.to_bits(),
         p.clip.is_some() as u32,
         p.clip.unwrap_or(0.0).to_bits(),
+        0,
     ]
 }
 
@@ -76,19 +77,36 @@ struct Prepared {
     indices: Buf,
 }
 
+#[cfg(test)]
 fn prepare(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &CaptureParams) -> Prepared {
+    prepare_with_confidence(cx, src, host, p, None)
+}
+
+fn prepare_with_confidence(
+    cx: &mut Cx<'_>,
+    src: &Buf,
+    host: &lightcraft_raster::Rgb32f,
+    p: &CaptureParams,
+    clip: Option<&lightcraft_pipeline::ClipConfidence>,
+) -> Prepared {
     let (w, h) = (host.width, host.height);
     if cx.gpu.info.backend == wgpu::Backend::Metal {
         // The mask is both a continuous final blend and a discrete participation decision.
         // Even a positive residual of one ulp changes the ratio plane seen by neighbours.
         // Reuse the unchanged CPU preparation once per cached source, then do every expensive
         // deconvolution iteration on Metal. Exact indices also preserve corner-radius bins.
-        let (blend, lum) = lightcraft_pipeline::capture::blend_mask(host, p);
+        let (blend, lum) = lightcraft_pipeline::capture::blend_mask_with_confidence(host, p, clip);
         let indices: Vec<u32> = lightcraft_pipeline::capture::sigma_index(w, h, p).into_iter().map(u32::from).collect();
         return Prepared { lum: cx.gpu.upload(&lum.data), blend: cx.gpu.upload(&blend.data), indices: cx.gpu.upload(&indices) };
     }
     let n = w * h;
-    let k = params(w, h, p);
+    let clipped = clip.map(|_| {
+        let pixels: Vec<f32> =
+            (0..w * h).map(|i| if lightcraft_pipeline::capture::sensor_clipped(clip, i % w, i / w, w, h) { 1.0 } else { 0.0 }).collect();
+        cx.gpu.upload(&pixels)
+    });
+    let mut k = params(w, h, p);
+    k[8] = u32::from(clipped.is_some());
     let groups = groups2(w, h, [16, 16]);
     let lum = cx.gpu.buffer(n);
     let indices = cx.gpu.buffer(n);
@@ -96,10 +114,10 @@ fn prepare(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &Cap
     // don't use it. Unused writable bindings must not alias the read-only dummy.
     cx.run("capture_lum", &k, &[Some(src), None, None, None, Some(&indices), None, Some(&lum)], groups);
     let modified = cx.gpu.buffer(n);
-    cx.run("capture_mask", &k, &[Some(src), Some(&lum), None, None, Some(&indices), None, Some(&modified)], groups);
+    cx.run("capture_mask", &k, &[Some(src), Some(&lum), clipped.as_ref(), None, Some(&indices), None, Some(&modified)], groups);
     let blurred = mask_blur(cx, &modified, w, h);
     let blend = cx.gpu.buffer(n);
-    cx.run("capture_blend", &k, &[None, Some(&modified), Some(&blurred), None, Some(&indices), None, Some(&blend)], groups);
+    cx.run("capture_blend", &k, &[clipped.as_ref(), Some(&modified), Some(&blurred), None, Some(&indices), None, Some(&blend)], groups);
     drop((modified, blurred));
     cx.flush(); // release mask scratch before allocating RL scratch
     Prepared { lum, blend, indices }
@@ -131,12 +149,23 @@ fn iteration(cx: &mut Cx<'_>, est: &Buf, next: &Buf, ratio: &Buf, prep: &Prepare
     cx.run("capture_mul", &k, &[None, Some(ratio), Some(est), Some(&prep.blend), Some(&prep.indices), Some(table), Some(next)], groups);
 }
 
+#[cfg(test)]
 pub(crate) fn sharpen(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &CaptureParams) -> Buf {
+    sharpen_with_confidence(cx, src, host, p, None)
+}
+
+pub(crate) fn sharpen_with_confidence(
+    cx: &mut Cx<'_>,
+    src: &Buf,
+    host: &lightcraft_raster::Rgb32f,
+    p: &CaptureParams,
+    clip: Option<&lightcraft_pipeline::ClipConfidence>,
+) -> Buf {
     let (w, h) = (host.width, host.height);
     if p.sigma <= 0.2 || p.iterations == 0 || w < 9 || h < 9 {
         return cx.copy(src);
     }
-    let prep = prepare(cx, src, host, p);
+    let prep = prepare_with_confidence(cx, src, host, p, clip);
     let table = cx.gpu.upload(kernels());
     let mut est = cx.copy(&prep.lum);
     let mut next = cx.gpu.buffer(w * h);

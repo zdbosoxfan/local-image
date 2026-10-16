@@ -169,6 +169,10 @@ impl State<'_, '_> {
                         continue;
                     }
                     if let Some(i) = self.slots.find(p) {
+                        if let Some(nodes) = self.slots.outlined.get(i).and_then(Option::as_ref).cloned() {
+                            out.extend(self.outlined_text(&nodes, transform, depth + 1)?);
+                            continue;
+                        }
                         let mut t = self.slots.texts[i].clone();
                         let name = self.name(&self.slots.names[i], "Text");
                         t.transform = geometry::bounded(transform.mul(&t.transform))?;
@@ -215,6 +219,52 @@ impl State<'_, '_> {
         }
         Ok(out)
     }
+    fn outlined_text(&mut self, nodes: &[super::text::OutlineNode], transform: Affine, depth: usize) -> Result<Vec<Layer>> {
+        use super::text::OutlineNode;
+        if depth >= self.options.limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH).saturating_sub(1) {
+            return Err(ImportError::Limit("outlined text depth"));
+        }
+        let mut out = Vec::new();
+        for node in nodes {
+            cancelled(self.cancel)?;
+            self.objects += 1;
+            if self.objects > self.options.limits.objects {
+                return Err(ImportError::Limit("outlined text object"));
+            }
+            match node {
+                OutlineNode::Group { opacity, children, .. } => {
+                    let mut group = Layer::group("Text opacity", self.outlined_text(children, transform, depth + 1)?);
+                    group.opacity = *opacity;
+                    group.blend = BlendMode::Normal;
+                    if let LayerContent::Group(data) = &mut group.content {
+                        data.isolation = photocraft_doc::GroupIsolation::Isolated;
+                    }
+                    out.push(group);
+                }
+                OutlineNode::Paint { color, paths } => {
+                    let mut path = Path::default();
+                    for source in paths {
+                        path.subpaths.extend(self.path(source, transform, usvg::FillRule::NonZero)?.subpaths);
+                    }
+                    let bounds = path.control_bounds().unwrap_or((0., 0., 0., 0.));
+                    let rect = rect_of(&[Point::new(bounds.0, bounds.1), Point::new(bounds.2, bounds.3)])?.intersect(&self.canvas);
+                    self.charge(rect)?;
+                    let mut shape = ShapeLayer { path, fill: Some(photocraft_doc::Fill::Solid(*color)), ..Default::default() };
+                    let compiled = photocraft_vector::CompiledShape::new(&shape, photocraft_vector::DEFAULT_TOLERANCE, self.canvas);
+                    let mut cache = Surface::new(PixelFormat::RGBA32F);
+                    for band in bands(rect) {
+                        cancelled(self.cancel)?;
+                        cache.write_region(band, compiled.render_rgba(band).as_flattened());
+                    }
+                    cache.prune();
+                    shape.cache = Some(cache);
+                    out.push(Layer::new("Text outlines", LayerContent::Shape(shape)));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     fn shape(&mut self, p: &usvg::Path, m: Affine) -> Result<Layer> {
         let rule = p.fill().map_or(usvg::FillRule::NonZero, |f| f.rule());
         let path = self.path(p.data(), m, rule)?;
@@ -504,7 +554,7 @@ mod dsfix_tests {
         // Exercise conversion directly: XML preflight conservatively reserves four
         // normalized commands per source command, independently of this exact budget.
         let xml = roxmltree::Document::parse(std::str::from_utf8(source).unwrap()).unwrap();
-        let slots = Slots { prefix: "unused-slot-".into(), texts: Vec::new(), names: Vec::new(), markers: Vec::new() };
+        let slots = Slots { prefix: "unused-slot-".into(), texts: Vec::new(), names: Vec::new(), markers: Vec::new(), outlined: Vec::new() };
         let scene = convert(&normalized, &xml, slots, &options, None, &AtomicBool::new(false), Vec::new()).unwrap();
         assert_eq!(scene.layers[0].name, "Label");
         assert_eq!(scene.layers[1].name, "Path");

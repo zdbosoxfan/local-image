@@ -425,6 +425,92 @@ fn j11_published_cleanup_error_keeps_complete_new_file_and_marks_its_outcome() {
     assert_eq!(fs::read(target).unwrap(), b"verified complete file");
 }
 
+#[test]
+fn new_file_receipt_keeps_created_file_after_destination_replacement() {
+    use std::io::{Read, Seek};
+    for copy_only in [false, true] {
+        let dir = Dir::new();
+        let target = dir.target();
+        let displaced = dir.0.join("displaced");
+        let mut staging_metadata = None;
+        let mut receipt = {
+            let _copy = copy_only.then(force_copy_publication);
+            write_new_with_receipt(&target, &mut |out| out.write_all(b"verified destination"), &mut |tmp| {
+                staging_metadata = Some(fs::metadata(tmp)?);
+                assert_eq!(fs::read(tmp)?, b"verified destination");
+                Ok(())
+            })
+            .unwrap()
+        };
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let staged = staging_metadata.as_ref().unwrap();
+            let published = receipt.metadata().unwrap();
+            assert_eq!(published.ino(), fs::metadata(&target).unwrap().ino());
+            if copy_only {
+                assert_ne!(published.ino(), staged.ino(), "copy publication must return the new inode's handle");
+            }
+        }
+        fs::rename(&target, &displaced).unwrap();
+        fs::write(&target, b"another publisher").unwrap();
+        receipt.rewind().unwrap();
+        let mut bytes = Vec::new();
+        receipt.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, b"verified destination");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            assert_eq!(receipt.metadata().unwrap().ino(), fs::metadata(&displaced).unwrap().ino());
+            assert_ne!(receipt.metadata().unwrap().ino(), fs::metadata(&target).unwrap().ino());
+        }
+        let error = write_new_with_receipt(&target, &mut |out| out.write_all(b"would overwrite"), &mut |_| Ok(())).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&target).unwrap(), b"another publisher");
+        dir.clean();
+    }
+}
+
+#[test]
+fn forced_copy_receipt_never_reopens_a_replacement_before_returning() {
+    use std::io::{Read, Seek};
+    let dir = Dir::new();
+    let staged = dir.0.join("staged");
+    let target = dir.target();
+    let displaced = dir.0.join("displaced");
+    fs::write(&staged, b"verified destination").unwrap();
+    let staging_handle = File::open(&staged).unwrap();
+    let replace = |fraction: f32| {
+        if fraction == 1.0 {
+            // Replacement happens after the copy is synced and verified, but before
+            // its publication function returns. Reopening the final path is wrong.
+            fs::rename(&target, &displaced).unwrap();
+            fs::write(&target, b"another publisher").unwrap();
+        }
+    };
+    let (publication, receipt) = {
+        let _copy = force_copy_publication();
+        publish_new_inner(&RealFs, &staged, &target, &Interrupt::new(&|| false, &replace), Some(staging_handle)).unwrap()
+    };
+    assert_eq!(publication, Publication::Copied);
+    let mut receipt = receipt.unwrap();
+    receipt.rewind().unwrap();
+    let mut bytes = Vec::new();
+    receipt.read_to_end(&mut bytes).unwrap();
+    assert_eq!(bytes, b"verified destination");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        assert_ne!(receipt.metadata().unwrap().ino(), fs::metadata(&staged).unwrap().ino(), "receipt must identify the destination, not staging");
+        assert_eq!(receipt.metadata().unwrap().ino(), fs::metadata(&displaced).unwrap().ino());
+        assert_ne!(receipt.metadata().unwrap().ino(), fs::metadata(&target).unwrap().ino(), "do not claim another publisher's replacement");
+    }
+    finish_new_publication(&staged, &target, publication).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"another publisher");
+    assert!(!staged.exists());
+    dir.clean();
+}
+
 // Test volume exposing native failure kinds while using real exclusive-create/copy IO.
 #[derive(Clone, Copy)]
 struct VolumeFs {

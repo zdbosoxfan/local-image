@@ -249,3 +249,29 @@ fn smart_colour_filter_mask_mix_preserves_hdr_and_negative_float_values() {
     mask.surface.write_region(area, &[0.5]);
     close(&mask_mix(&base, &filtered, &mask).read_region(area), &[8.0 / 3.0, -0.2, 1.0, 0.75], 1e-6);
 }
+
+#[test]
+fn stack_float_statistics_preserve_signed_hdr_through_smart_source() {
+    use photocraft_doc::StackMode;
+    let mut doc = document(ColorMode::Rgb, SampleType::F32, Builtin::Srgb.profile(), &[2., -0.25, 0.25, 1.]);
+    let mut second = Layer::raster("Second", doc.pixel_format());
+    second.surface_mut().unwrap().write_region(doc.bounds(), &[4., -0.5, 0.75, 1.]);
+    doc.layers.push(second);
+    let bytes = encode_source(&doc).unwrap();
+    for (mode, expected) in [
+        (StackMode::Mean, [3., -0.375, 0.5, 1.]),
+        (StackMode::Median, [3., -0.375, 0.5, 1.]),
+        (StackMode::Maximum, [4., -0.25, 0.75, 1.]),
+        (StackMode::Minimum, [2., -0.5, 0.25, 1.]),
+        (StackMode::Summation, [6., -0.75, 1., 1.]),
+        (StackMode::Range, [2., 0.25, 0.5, 1.]),
+        (StackMode::Variance, [1., 0.015625, 0.0625, 1.]),
+        (StackMode::StandardDeviation, [1., 0.125, 0.25, 1.]),
+    ] {
+        let image = stack_image_in_profile("hdr.pcraft", &bytes, PixelFormat::RGBA32F, mode, Builtin::Srgb.profile()).unwrap();
+        close(&image.surface.read_region(doc.bounds()), &expected, 2e-6);
+        // The same values still quantize normally in integer destinations.
+        let integer = stack_image_in_profile("hdr.pcraft", &bytes, PixelFormat::RGBA8, mode, Builtin::Srgb.profile()).unwrap();
+        close(&integer.surface.read_region(doc.bounds()), &expected.map(|v| v.clamp(0., 1.)), 1. / 255.);
+    }
+}

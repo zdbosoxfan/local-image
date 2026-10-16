@@ -300,7 +300,7 @@ pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_p
             anyhow::bail!("This model is user-installed only; Local Image never downloads it");
         }
         if f.name.to_ascii_lowercase().ends_with(".pth") || crate::restoration::pinned_file(&f.name).is_some() {
-            crate::restoration::validate_download(&f.name, &f.folder, &f.url, f.bytes, &f.sha256)?;
+            validate_pinned_weights(f)?;
         }
     }
     let total: u64 = preset.files.iter().map(|f| f.bytes).sum();
@@ -327,6 +327,23 @@ pub fn download_preset(model_dir: &Path, preset: &Preset, ctl: &JobControl, on_p
         done += spec.bytes;
     }
     Ok(())
+}
+
+/// PTH exceptions come only from embedded pins, never the mutable family registry.
+fn validate_pinned_weights(file: &FileSpec) -> Result<()> {
+    static UPSCALERS: std::sync::OnceLock<Vec<FileSpec>> = std::sync::OnceLock::new();
+    let pins = UPSCALERS.get_or_init(|| {
+        [include_str!("../families/bsrgan.json"), include_str!("../families/realplksr.json")]
+            .into_iter()
+            .flat_map(|source| serde_json::from_str::<crate::family::Family>(source).expect("embedded upscaler profile").models)
+            .flat_map(|model| model.presets)
+            .flat_map(|preset| preset.files)
+            .collect()
+    });
+    if pins.iter().any(|pin| pin == file) {
+        return Ok(());
+    }
+    crate::restoration::validate_download(&file.name, &file.folder, &file.url, file.bytes, &file.sha256)
 }
 
 struct PartialDownload {
@@ -449,6 +466,27 @@ pub fn human_bytes(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_upscaler_download_pins_are_exact_and_immutable() {
+        for key in ["bsrgan-2x", "bsrgan-4x", "realplksr-2x", "realplksr-4x"] {
+            let file = &crate::catalog::preset(crate::ModelId::intern(key), "default").unwrap().files[0];
+            validate_pinned_weights(file).unwrap();
+            for mutation in 0..7 {
+                let mut changed = file.clone();
+                match mutation {
+                    0 => changed.bytes += 1,
+                    1 => changed.sha256 = "0".repeat(64),
+                    2 => changed.url.push_str("?different"),
+                    3 => changed.folder = "checkpoints".into(),
+                    4 => changed.role = crate::family::Role::Checkpoint,
+                    5 => changed.compatible.push((1, "0".repeat(64))),
+                    _ => changed.name = "arbitrary.pth".into(),
+                }
+                assert!(validate_pinned_weights(&changed).is_err(), "{key}: mutation {mutation}");
+            }
+        }
+    }
 
     #[test]
     fn body_timeout_grows_with_the_file() {

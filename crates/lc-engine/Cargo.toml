@@ -12,6 +12,7 @@ workspace = true
 li-commands.workspace = true
 # The shared crash-safe file writer (atomic replace, new-file publication, fault injection).
 li-fs.workspace = true
+same-file = "1.0.6"
 li-raster = { path = "../li-raster" }
 # Existing locked pure-Rust PDF stack; no new crate versions.
 krilla = { workspace = true }

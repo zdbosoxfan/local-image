@@ -355,6 +355,9 @@ pub fn expand_within(paths: &[String], skip: Option<&Path>, limits: crate::walk:
     let mut truncated = false;
     for p in paths {
         let p = Path::new(p);
+        if p.components().any(|part| part.as_os_str().to_string_lossy().starts_with("Local Image Move Recovery - ")) {
+            continue;
+        }
         if skip.is_some_and(|s| p == s) {
             continue;
         }
@@ -790,6 +793,12 @@ impl ImportJob {
     /// Expand `paths` (folders recursively, the library's own folder skipped) into the files an
     /// import would handle; counted in [`ImportJob::total`].
     pub fn expand(&self, paths: &[String]) -> Vec<String> {
+        if self.mode == ImportMode::Move {
+            for path in paths {
+                let path = Path::new(path);
+                crate::import_move::recover_pending(if path.is_dir() { path } else { path.parent().unwrap_or(Path::new(".")) });
+            }
+        }
         let files = expand(paths, self.lib_dir.as_deref());
         self.total.fetch_add(files.len(), std::sync::atomic::Ordering::Relaxed);
         files
@@ -866,7 +875,7 @@ impl ImportJob {
         } else {
             self.copy_workers.unwrap_or_else(|| lightcraft_sysmem::heavy_jobs().max_jobs()).min(todo.len())
         };
-        let copies = Copies::new(workers, self.file_bytes.clone(), self.done.clone());
+        let copies = Copies::new(workers, self.file_bytes.clone(), self.done.clone(), cancel, lightcraft_sysmem::heavy_jobs());
         let mut entries: Vec<Entry> = Vec::new();
         // content hash → the copy (task) of an earlier file in this batch that had it, until known
         let mut pending_hash: HashMap<String, usize> = HashMap::new();
@@ -1120,6 +1129,45 @@ fn copy_cost(file_size: u64, dng: bool) -> u64 {
     (16 << 20) + if dng { file_size.saturating_mul(6) } else { 0 }
 }
 
+#[cfg(test)]
+#[test]
+fn cancelled_import_releases_permit_wait_without_starting_copy() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+    for workers in [1, 2] {
+        let permits = lightcraft_sysmem::HeavyJobs::new(1, 1024, || lightcraft_sysmem::MemoryNow { available: 4 << 30, rss: None });
+        let held = permits.try_admit(1).unwrap();
+        let cancel = AtomicBool::new(false);
+        let copies = Copies::new(workers, None, Arc::new(AtomicUsize::new(0)), &cancel, &permits);
+        let (finished, result) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                copies.run(&cancel, |copies| {
+                    copies.submit(CopyTask {
+                        root: PathBuf::new(),
+                        src: "must-not-read".into(),
+                        folders: vec![],
+                        name: None,
+                        hash: None,
+                        dng: false,
+                        cost: 1,
+                    });
+                });
+                finished.send(()).unwrap();
+            });
+            assert!(result.recv_timeout(Duration::from_millis(30)).is_err(), "the unrelated permit remains held");
+            cancel.store(true, Ordering::Relaxed);
+            result.recv_timeout(Duration::from_secs(2)).expect("cancel must finish without the unrelated job releasing its permit");
+        });
+        assert_eq!(copies.into_outcomes(), vec![CopyOutcome::Skipped]);
+        drop(held);
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum CopyOutcome {
     Copied {
@@ -1142,7 +1190,9 @@ impl CopyOutcome {
 /// take each other's names one after the other ([`CopyTask::name_key`]). Copies are only skipped
 /// when a cancel comes before they are taken up, and they are taken up in order, so the copies
 /// made are always the first ones.
-struct Copies {
+struct Copies<'a> {
+    cancel: &'a std::sync::atomic::AtomicBool,
+    permits: &'a lightcraft_sysmem::HeavyJobs,
     workers: usize,
     file_bytes: Option<crate::merge::ByteReader>,
     done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -1152,9 +1202,17 @@ struct Copies {
     last_by_key: std::sync::Mutex<HashMap<String, usize>>,
 }
 
-impl Copies {
-    fn new(workers: usize, file_bytes: Option<crate::merge::ByteReader>, done: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Copies {
+impl<'a> Copies<'a> {
+    fn new(
+        workers: usize,
+        file_bytes: Option<crate::merge::ByteReader>,
+        done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        cancel: &'a std::sync::atomic::AtomicBool,
+        permits: &'a lightcraft_sysmem::HeavyJobs,
+    ) -> Copies<'a> {
         Copies {
+            cancel,
+            permits,
             workers: workers.max(1),
             file_bytes,
             done,
@@ -1213,16 +1271,23 @@ impl Copies {
                 if let Err(e) = tx.send((n, after, task)) {
                     // no worker left (can't happen while `run` is active): copy it here
                     let (_, _, task) = e.0;
-                    self.set(n, task.run(self.file_bytes.as_ref()));
+                    self.set(n, self.copy(task));
                 }
             }
             None => {
-                let permit = lightcraft_sysmem::heavy_jobs().admit(task.cost, &|| false);
-                self.set(n, task.run(self.file_bytes.as_ref()));
-                drop(permit);
+                self.set(n, self.copy(task));
             }
         }
         n
+    }
+
+    fn copy(&self, task: CopyTask) -> CopyOutcome {
+        let cancelled = || self.cancel.load(std::sync::atomic::Ordering::Relaxed);
+        let Some(_permit) = self.permits.admit(task.cost, &cancelled) else { return CopyOutcome::Skipped };
+        if cancelled() {
+            return CopyOutcome::Skipped;
+        }
+        task.run(self.file_bytes.as_ref())
     }
 
     /// Run `plan` (which submits copies) with the worker threads going; returns once every copy
@@ -1254,9 +1319,7 @@ impl Copies {
                         if let Some(a) = after {
                             let _ = self.outcome(a);
                         }
-                        let permit = lightcraft_sysmem::heavy_jobs().admit(task.cost, &|| false);
-                        self.set(task_n, task.run(self.file_bytes.as_ref()));
-                        drop(permit);
+                        self.set(task_n, self.copy(task));
                     }
                 });
                 match spawned {

@@ -693,7 +693,7 @@ fn form(app: &mut PhotocraftApp, command: &str, label: &str, fields: Value, choi
     if let Value::Object(m) = fields {
         f.extend(m);
     }
-    app.ui.open_dialog(DialogKind::Command, f)
+    crate::dialogs::open_document_dialog(app, DialogKind::Command, f)
 }
 
 fn label_of(key: &str) -> String {

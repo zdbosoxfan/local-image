@@ -314,7 +314,7 @@ fn document_to_psd_direct_api() {
     let d = gen_doc(ColorMode::Rgb, SampleType::U8, Features::ALL);
     let f = document_to_psd(&d);
     assert_eq!(f.header.width, 24);
-    let (d2, _warnings) = psd_to_document(&f);
+    let (d2, _warnings) = psd_to_document(&f).unwrap();
     assert_docs_eq(&d, &d2);
 }
 
@@ -380,7 +380,7 @@ fn group_effects_use_lfxs() {
     let f = document_to_psd(&d);
     let rec = f.layers().iter().find(|r| r.name() == d.layers[n].name && r.section_type().is_folder()).unwrap();
     assert!(rec.block(b"lfxs").is_some() && rec.block(b"lfx2").is_none());
-    let (back, _) = psd_to_document(&f);
+    let (back, _) = psd_to_document(&f).unwrap();
     assert_eq!(back.layers[n].effects.items.len(), 1);
 }
 

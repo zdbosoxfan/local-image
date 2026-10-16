@@ -135,7 +135,7 @@ fn testgen_small_all_compressions() {
 #[test]
 fn testgen_import_details() {
     let f = testgen::layered(Version::Psd, ColorMode::Rgb, 8, Compression::Rle);
-    let (d, warnings) = psd_to_document(&f);
+    let (d, warnings) = psd_to_document(&f).unwrap();
     // Unknown blend mode warned about.
     assert!(warnings.iter().any(|w| w.contains("unknown blend mode")), "{warnings:?}");
     // Groups: Outer (open) containing Inner (closed).
@@ -167,7 +167,7 @@ fn fallback_modes_import_flattened() {
     for mode in [ColorMode::Indexed, ColorMode::Bitmap, ColorMode::Duotone] {
         let depth = testgen::mode_depths(mode)[0];
         let f = testgen::merged_only(Version::Psd, mode, depth, Compression::Rle, 9, 5);
-        let (d, w) = psd_to_document(&f);
+        let (d, w) = psd_to_document(&f).unwrap();
         assert_eq!(d.layers.len(), 1, "{mode:?}");
         assert!(!w.is_empty(), "{mode:?} should warn");
         assert_eq!(d.depth, photocraft_color::SampleType::U8);
@@ -181,7 +181,7 @@ fn fallback_modes_import_flattened() {
 fn multichannel_imports_ink_channels() {
     for depth in testgen::mode_depths(ColorMode::Multichannel) {
         let f = testgen::merged_only(Version::Psd, ColorMode::Multichannel, *depth, Compression::Rle, 9, 5);
-        let (d, _) = psd_to_document(&f);
+        let (d, _) = psd_to_document(&f).unwrap();
         assert_eq!(d.mode, photocraft_color::ColorMode::Multichannel);
         assert!(d.layers.is_empty());
         assert_eq!(d.channels.len(), usize::from(f.header.channels));
@@ -201,7 +201,7 @@ fn multichannel_imports_ink_channels() {
 #[test]
 fn indexed_colors_match_palette() {
     let f = testgen::merged_only(Version::Psd, ColorMode::Indexed, 8, Compression::Raw, 4, 2);
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let s = d.layers[0].surface().unwrap();
     let rgba = f.composite_rgba8().unwrap();
     for y in 0..2 {
@@ -218,7 +218,7 @@ fn indexed_colors_match_palette() {
 #[test]
 fn flattened_psd_becomes_background() {
     let f = testgen::merged_only(Version::Psd, ColorMode::Rgb, 16, Compression::ZipPrediction, 7, 3);
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     assert_eq!(d.layers.len(), 1);
     assert_eq!(d.layers[0].name, "Background");
     assert_eq!(d.depth, photocraft_color::SampleType::U16);
@@ -269,7 +269,7 @@ fn group_nesting_past_the_cap_is_rejected() {
     assert!(err.to_string().contains("nested deeper than 100"), "{err}");
     // The never-fail converter still returns a document — capped, with a warning
     // about the part that was not imported (it used to recurse to the file's depth).
-    let (d, warnings) = psd_to_document(&photocraft_psd::PsdFile::from_bytes(&bytes).unwrap());
+    let (d, warnings) = psd_to_document(&photocraft_psd::PsdFile::from_bytes(&bytes).unwrap()).unwrap();
     assert_eq!(d.max_group_depth(), 100);
     assert!(warnings.iter().any(|w| w.contains("deeper than 100")), "{warnings:?}");
 }
@@ -303,14 +303,14 @@ fn layered_import_skips_the_unused_merged_composite() {
     let mut f = photocraft_psd::PsdFile::from_bytes(&b.to_bytes().unwrap()).unwrap();
     f.image_data.data.clear();
     f.layer_info.as_mut().unwrap().merged_alpha = true;
-    let (d, warnings) = psd_to_document(&f);
+    let (d, warnings) = psd_to_document(&f).unwrap();
     assert_eq!(d.layers.len(), 1);
     assert!(!warnings.iter().any(|w| w.contains("merged image")), "an unused composite is not decoded: {warnings:?}");
     // A real extra channel behind the colour ones is part of the composite: it is decoded,
-    // and the garbage above surfaces as a warning.
+    // and the garbage above must refuse the incomplete document.
     f.layer_info.as_mut().unwrap().merged_alpha = false;
-    let (_, warnings) = psd_to_document(&f);
-    assert!(warnings.iter().any(|w| w.contains("merged image")), "{warnings:?}");
+    let error = psd_to_document(&f).unwrap_err().to_string();
+    assert!(error.contains("merged image"), "{error}");
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn locks_and_labels_from_psd() {
     let mut f = testgen::small(Version::Psd, Compression::Raw);
     f.layers_mut()[0].blocks.push(TaggedBlock::protection(0b101));
     f.layers_mut()[0].blocks.push(TaggedBlock::sheet_color(3));
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let l = &d.layers[0];
     assert!(l.locks.transparency && l.locks.position && !l.locks.pixels);
     assert_eq!(l.label, photocraft_doc::LabelColor::Yellow);
@@ -356,7 +356,7 @@ fn adjustment_and_fill_layers_from_psd() {
     f.layers_mut().push(mk("post", b"post", vec![0, 4, 0, 0]));
     f.layers_mut().push(mk("sel", b"selc", vec![1, 2, 3]));
     f.layers_mut().push(mk("red", b"SoCo", soco));
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let n = d.layers.len();
     use photocraft_doc::{Adjustment, Fill};
     assert!(matches!(d.layers[n - 4].content, LayerContent::Adjustment(Adjustment::Invert)));
@@ -372,7 +372,7 @@ fn unmodelled_blocks_are_preserved() {
     use photocraft_psd::TaggedBlock;
     let mut f = testgen::small(Version::Psd, Compression::Raw);
     f.layers_mut()[0].blocks.push(TaggedBlock::new(*b"vmsk", vec![0; 8]));
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     assert!(d.layers[0].psd_blocks.iter().any(|b| &b.0 == b"vmsk"));
     assert!(!d.layers[0].psd_blocks.iter().any(|b| &b.0 == b"luni" || &b.0 == b"lyid"));
     assert_eq!(d.layers[0].psd_id, f.layers()[0].layer_id());
@@ -400,7 +400,7 @@ fn fill_layer_keeps_photoshop_pixels() {
         blocks: vec![TaggedBlock::unicode_name("fill"), TaggedBlock::new(*b"SoCo", soco)],
         ..Default::default()
     });
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let l = d.layers.last().unwrap();
     assert!(matches!(l.content, LayerContent::Fill(_)));
     let fc = l.fill_cache.as_ref().expect("cache");
@@ -428,7 +428,7 @@ fn text_and_smart_detected() {
             ..Default::default()
         });
     }
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let n = d.layers.len();
     assert_eq!(d.layers[n - 3].content.kind_name(), "Type");
     assert_eq!(d.layers[n - 2].content.kind_name(), "Smart Object");
@@ -453,7 +453,7 @@ fn guides_and_alpha_names_roundtrip() {
     let f = document_to_psd(&d);
     // RGB + merged transparency (the empty document is transparent) + 2 alpha channels.
     assert_eq!(f.header.channels, 6);
-    let (d2, _) = psd_to_document(&f);
+    let (d2, _) = psd_to_document(&f).unwrap();
     assert_eq!(d2.guides, d.guides);
     let names: Vec<_> = d2.channels.iter().map(|c| c.name.as_str()).collect();
     assert_eq!(names, ["Spot \u{e9}", "Alpha 2"]);
@@ -465,7 +465,7 @@ fn resolution_in_cm_converted() {
     let mut ri = photocraft_psd::ResolutionInfo::from_dpi(100.0);
     ri.h_res_unit = 2;
     f.resources[0] = photocraft_psd::ImageResource::new(1005, ri.to_bytes());
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     assert!((d.resolution_dpi - 254.0).abs() < 1e-3);
 }
 
@@ -475,7 +475,7 @@ fn stale_index_resources_dropped() {
     for id in [1024u16, 1026, 1036, 1057, 1069, 1072] {
         f.resources.push(photocraft_psd::ImageResource::new(id, vec![0, 0]));
     }
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     assert!(d.metadata.psd_resources.iter().all(|r| ![1024u16, 1026, 1036, 1057, 1069, 1072].contains(&r.0)));
 }
 
@@ -488,7 +488,7 @@ fn merged_composite_unmattes_photoshop_white() {
     f.image_data = photocraft_psd::ImageData { compression: Compression::Raw, data: vec![255, 128, 128, 128] };
     let m = merged_composite(&f).unwrap();
     assert!((m[0][0] - 1.0).abs() < 0.01 && m[0][1] < 0.01 && m[0][2] < 0.01, "{:?}", m[0]);
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let p = d.layers[0].surface().unwrap().pixel(0, 0);
     assert!(p[1] < 0.01 && (p[3] - 128.0 / 255.0).abs() < 1e-6, "{p:?}");
 
@@ -515,7 +515,7 @@ fn vector_rendered_mask_not_doubled_on_shapes() {
         blocks: vec![TaggedBlock::unicode_name("shape"), TaggedBlock::new(*b"SoCo", vec![]), TaggedBlock::new(*b"vmsk", vec![0; 8])],
         ..Default::default()
     });
-    let (d, _) = psd_to_document(&f);
+    let (d, _) = psd_to_document(&f).unwrap();
     let l = d.layers.last().unwrap();
     assert_eq!(l.content.kind_name(), "Shape");
     assert!(l.mask.is_none());
@@ -524,7 +524,7 @@ fn vector_rendered_mask_not_doubled_on_shapes() {
     let photocraft_psd::MaskData::Mask(mask) = &mut record.mask else { panic!("fixture has a mask") };
     mask.real = Some(photocraft_psd::RealMask { flags: 0, background: 255, rect: photocraft_psd::Rect { top: 0, left: 0, bottom: 1, right: 1 } });
     record.channels.push(photocraft_psd::ChannelData { id: -3, compression: Some(Compression::Raw), data: vec![64] });
-    let (imported, _) = psd_to_document(&f);
+    let (imported, _) = psd_to_document(&f).unwrap();
     assert_eq!(imported.layers.last().unwrap().content.kind_name(), "Shape");
     let mask = imported.layers.last().unwrap().mask.as_ref().expect("selected real mask must survive synthetic cleanup");
     assert!((mask.surface.sample_channel(0, 0, 0) - 64.0 / 255.0).abs() < 1e-6);
@@ -553,7 +553,7 @@ fn layer_bounds_without_channel_data_allocate_nothing() {
     f.layers_mut().push(LayerRecord { rect, name: b"huge".to_vec(), ..Default::default() });
     let mask_only = ChannelData { id: -2, compression: Some(Compression::Raw), data: Vec::new() };
     f.layers_mut().push(LayerRecord { rect, channels: vec![mask_only], name: b"masked".to_vec(), ..Default::default() });
-    let (d, warnings) = psd_to_document(&f);
+    let (d, warnings) = psd_to_document(&f).unwrap();
     for name in ["huge", "masked"] {
         let l = d.layers.iter().find(|l| l.name == name).unwrap();
         assert!(matches!(&l.content, LayerContent::Raster(s) if s.tile_count() == 0), "{name}");

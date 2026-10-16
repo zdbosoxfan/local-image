@@ -32,6 +32,32 @@ use serde_json::{Value, json};
 
 use crate::{EngineError, Result, Session};
 
+#[cfg(not(target_arch = "wasm32"))]
+mod open_pool;
+
+#[cfg(not(target_arch = "wasm32"))]
+enum WorkerHandle {
+    Thread(std::thread::JoinHandle<()>),
+    Open(Arc<open_pool::Completion>),
+}
+#[cfg(not(target_arch = "wasm32"))]
+impl WorkerHandle {
+    fn is_finished(&self) -> bool {
+        match self {
+            Self::Thread(thread) => thread.is_finished(),
+            Self::Open(done) => done.is_finished(),
+        }
+    }
+    fn join(self) {
+        match self {
+            Self::Thread(thread) => {
+                let _ = thread.join();
+            }
+            Self::Open(done) => done.wait(),
+        }
+    }
+}
+
 /// Identifies one background job for the session's lifetime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, serde::Deserialize)]
 pub struct JobId(pub u64);
@@ -123,7 +149,7 @@ struct Running {
     rx: std::sync::mpsc::Receiver<Result<Payload>>,
     apply: Option<Apply>,
     #[cfg(not(target_arch = "wasm32"))]
-    handle: Option<std::thread::JoinHandle<()>>,
+    handle: Option<WorkerHandle>,
 }
 
 impl Running {
@@ -149,6 +175,8 @@ pub struct Jobs {
     next: u64,
     /// Set while [`Session::start`] runs a command: [`run`] spawns instead of running inline.
     spawn: bool,
+    /// File opens use the bounded process-wide coordinators, including before the first read.
+    open_queue: bool,
     /// The job a command registered while `spawn` was set (picked up by `start`).
     pending: Option<Running>,
     running: Vec<Running>,
@@ -158,7 +186,7 @@ pub struct Jobs {
     recent: Vec<JobInfo>,
     /// Workers of cancelled jobs that may still be unwinding (native).
     #[cfg(not(target_arch = "wasm32"))]
-    draining: Vec<std::thread::JoinHandle<()>>,
+    draining: Vec<WorkerHandle>,
 }
 
 const RECENT: usize = 16;
@@ -196,6 +224,8 @@ impl Drop for Jobs {
         for r in self.running.iter().chain(self.pending.iter()) {
             r.ctx.cancel();
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        open_pool::discard_cancelled();
     }
 }
 
@@ -284,15 +314,24 @@ pub fn run<T: Send + 'static>(
         let label_w = label.to_string();
         // The work closure is moved into the thread. If spawning fails (thread limits), there is
         // no way to get it back, so the error is reported instead.
-        let spawned = std::thread::Builder::new().name(format!("photocraft-job-{}", id.0)).spawn(move || {
+        let task = move || {
             // local-image: a job with a progress bar (threading rule 7); fails soft.
             lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&wctx).map(|t| Box::new(t) as Payload)))
                 .unwrap_or_else(|_| Err(EngineError::Other(format!("`{label_w}` failed with an internal error (logged); the document is unchanged"))));
             // The receiver is gone when the job was cancelled: nothing to report.
             let _ = tx.send(r);
-        });
-        Some(spawned.map_err(|e| EngineError::Other(format!("could not start a background job: {e}")))?)
+        };
+        Some(if s.jobs.open_queue {
+            WorkerHandle::Open(open_pool::submit(ctx.clone(), task).map_err(EngineError::Other)?)
+        } else {
+            WorkerHandle::Thread(
+                std::thread::Builder::new()
+                    .name(format!("photocraft-job-{}", id.0))
+                    .spawn(task)
+                    .map_err(|e| EngineError::Other(format!("could not start a background job: {e}")))?,
+            )
+        })
     };
     #[cfg(target_arch = "wasm32")]
     {
@@ -401,6 +440,68 @@ pub enum OpenSource {
 /// The command id open jobs report (there is no engine command: opening is the shell's).
 pub const OPEN_JOB: &str = "file.open";
 
+/// Flat headers bound pixels without decoding. Layered/native/RAW containers can carry much
+/// more than their canvas or compressed file, so use the native expanded-data ceiling instead.
+fn open_working_bytes(header: &[u8], input_bytes: u64) -> u64 {
+    use photocraft_codecs::{Format, Limits};
+    let decoded = match photocraft_codecs::detect(header) {
+        Some(Format::Psd | Format::Tiff) | None => photocraft_format::LoadOptions::default().max_total_bytes.saturating_mul(2),
+        Some(format) => {
+            let ceiling = Limits::desktop_photo().max_alloc.saturating_mul(4);
+            photocraft_codecs::dimensions(format, header)
+                .ok()
+                .map(|(w, h)| u64::from(w).saturating_mul(u64::from(h)).saturating_mul(64).min(ceiling))
+                .unwrap_or(ceiling)
+        }
+    };
+    decoded.max(input_bytes.saturating_mul(8)).max(16 << 20)
+}
+
+fn admitted_open(source: OpenSource, ctx: &JobCtl) -> Result<(Arc<Vec<u8>>, lightcraft_sysmem::Permit<'static>)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let failure =
+        |error: std::io::Error| if error.kind() == std::io::ErrorKind::Interrupted { EngineError::Cancelled } else { EngineError::Other(error.to_string()) };
+    ctx.check()?;
+    let (mut file, existing, estimated) = match source {
+        OpenSource::Bytes(bytes) => {
+            let estimate = open_working_bytes(&bytes, bytes.len() as u64);
+            (None, Some(bytes), estimate)
+        }
+        OpenSource::Path(path) => {
+            let mut file = li_fs::read::open_regular(std::path::Path::new(&path), li_fs::read::MAX_FILE_BYTES).map_err(failure)?;
+            let len = file.metadata().map_err(failure)?.len();
+            let mut header = Vec::new();
+            (&mut file).take(64 << 10).read_to_end(&mut header).map_err(failure)?;
+            file.seek(SeekFrom::Start(0)).map_err(failure)?;
+            (Some(file), None, open_working_bytes(&header, len))
+        }
+    };
+    ctx.report(0.0, "Waiting for memory");
+    let jobs = lightcraft_sysmem::heavy_jobs();
+    let mut permit = jobs.admit(estimated, &|| ctx.is_cancelled()).ok_or(EngineError::Cancelled)?;
+    ctx.check()?;
+    ctx.report(0.0, "Reading");
+    let bytes = match existing {
+        Some(bytes) => bytes,
+        None => {
+            let input = file.as_mut().ok_or_else(|| EngineError::Other("Open file handle unavailable".into()))?;
+            let len = input.metadata().map_err(failure)?.len();
+            Arc::new(li_fs::read::all(input, len, li_fs::read::MAX_FILE_BYTES, 1 << 20, &ctx.interrupt()).map_err(failure)?)
+        }
+    };
+    ctx.check()?;
+    let actual = open_working_bytes(&bytes, bytes.len() as u64);
+    if actual > estimated {
+        // A source can change while admission waits. Retained input is bounded by the shared
+        // file contract; never hold one permit while waiting to enlarge it (would deadlock).
+        drop(permit);
+        ctx.report(0.0, "Waiting for memory");
+        permit = jobs.admit(actual, &|| ctx.is_cancelled()).ok_or(EngineError::Cancelled)?;
+    }
+    ctx.check()?;
+    Ok((bytes, permit))
+}
+
 impl Session {
     /// Run a command, in the background when it supports it (see [`jobs`](crate::jobs)). Errors
     /// like [`Session::execute`] for unknown, disabled or failing commands.
@@ -425,37 +526,35 @@ impl Session {
         let label = format!("Opening {name}");
         let name_w = name.to_string();
         let name_a = name.to_string();
-        self.start_job(
+        self.jobs.open_queue = true;
+        let result = self.start_job(
             OPEN_JOB,
             json!({"name": name}),
             &label,
             false,
             move |ctx| {
-                ctx.report(0.0, "Reading");
-                let bytes = match source {
-                    OpenSource::Bytes(b) => b,
-                    OpenSource::Path(p) => Arc::new(read_path(&p)?),
-                };
-                ctx.check()?;
+                let (bytes, permit) = admitted_open(source, ctx)?;
                 ctx.report(0.02, "Decoding");
                 if let Some(result) = crate::vector_integration::read_vector_file(&name_w, &bytes, ctx.cancel_flag()) {
-                    return result.map(|r| (r, true));
+                    return result.map(|r| (r, true, permit));
                 }
                 ctx.stage(0.02, 1.0, "Decoding", |ctl| photocraft_io::import_with(&name_w, &bytes, ctl))
                     .map_err(|e| match e {
                         photocraft_io::IoError::Cancelled => EngineError::Cancelled,
                         e => EngineError::Other(e.to_string()),
                     })
-                    .map(|r| (r, false))
+                    .map(|r| (r, false, permit))
             },
-            move |s, (r, native_import): (photocraft_io::ImportResult, bool)| {
+            move |s, (r, native_import, _permit): (photocraft_io::ImportResult, bool, lightcraft_sysmem::Permit<'static>)| {
                 let (index, color) = if deferred { s.open_document_deferred(r.document, None) } else { s.open_document(r.document, None) };
                 // `document` is the tab index at completion, as other commands report it. Completion
                 // consumers must use the admitted ID: other jobs/callbacks may reorder or close tabs.
                 let document = s.documents()[index].doc.id;
                 Ok(json!({"document": index, "documentId": document.0, "name": name_a, "warnings": r.warnings, "color": color, "nativeImport": native_import}))
             },
-        )
+        );
+        self.jobs.open_queue = false;
+        result
     }
 
     /// Start a job that isn't an engine command (opening a file, a shell operation, a test's fake
@@ -521,10 +620,22 @@ impl Session {
     /// Block until job `id` ends, apply it, and return its result (the control channel's and
     /// MCP's default `wait`, and the CLI). `Err(Cancelled)` if it was cancelled.
     pub fn wait_job(&mut self, id: JobId) -> Result<Value> {
-        if let Some(i) = self.jobs.running.iter().position(|r| r.id == id) {
-            let job = self.jobs.running.remove(i);
-            let r = job.rx.recv().unwrap_or_else(|_| Err(EngineError::Other(format!("`{}` stopped unexpectedly", job.label))));
-            self.finish_job(job, r);
+        while self.jobs.running.iter().any(|job| job.id == id) {
+            // Completed opens retain their admission until applied. Waiting for a later open
+            // must also deliver earlier results, or they could hold every permit it needs.
+            let events = self.poll_jobs();
+            let outcome = events.iter().find(|event| event.id == id).map(|event| event.outcome.clone());
+            self.jobs.events.extend(events);
+            if let Some(outcome) = outcome {
+                return match outcome {
+                    JobOutcome::Done(value) => Ok(value),
+                    JobOutcome::Cancelled => Err(EngineError::Cancelled),
+                    JobOutcome::Failed(error) => Err(EngineError::Other(error)),
+                };
+            }
+            if self.jobs.running.iter().any(|job| job.id == id) {
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
         }
         match self.jobs.recent.iter().rev().find(|j| j.id == id) {
             Some(j) if j.state == "done" => Ok(j.result.clone().unwrap_or(Value::Null)),
@@ -540,6 +651,8 @@ impl Session {
         let Some(i) = self.jobs.running.iter().position(|r| r.id == id) else { return false };
         let job = self.jobs.running.remove(i);
         job.ctx.cancel();
+        #[cfg(not(target_arch = "wasm32"))]
+        open_pool::discard_cancelled();
         self.end_job(&job, JobOutcome::Cancelled);
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(h) = job.handle {
@@ -591,7 +704,7 @@ impl Session {
     pub fn join_cancelled_jobs(&mut self) {
         #[cfg(not(target_arch = "wasm32"))]
         for h in self.jobs.draining.drain(..) {
-            let _ = h.join();
+            h.join();
         }
     }
 

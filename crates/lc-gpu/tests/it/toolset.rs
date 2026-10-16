@@ -1433,3 +1433,58 @@ fn tone_equalizer_layer_curve_across_finish_bands_matches() {
     s.masks.push(m);
     check("native finish row bands", &src, &SourceInfo::default(), &s, &RenderRequest::fit(w, h));
 }
+
+#[test]
+fn capture_sensor_protection_matches_and_invalidates_cached_source() {
+    let _gpu = crate::support::lock();
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 1., 20., 20.);
+    let req = RenderRequest::fit(64, 64);
+    let cache = StageCache::default();
+    let mut info = raw();
+    let unprotected = gpu_render(&src, &info, &s, &req, Some(&cache));
+    info.clip_confidence = Some(Arc::new(lightcraft_pipeline::ClipConfidence {
+        width: 32,
+        height: 32,
+        data: (0..1024).map(|i| if i % 32 >= 16 { 1. / 3. } else { 0. }).collect(),
+    }));
+    let expected = check("sensor-clipped capture", &src, &info, &s, &req);
+    let warm = gpu_render(&src, &info, &s, &req, Some(&cache));
+    assert_eq!(warm, expected, "source cache observes changed clipping metadata");
+    assert_ne!(warm, unprotected, "sensor protection changes saturated boundaries");
+    info.clip_confidence = None;
+    assert_eq!(gpu_render(&src, &info, &s, &req, Some(&cache)), unprotected);
+}
+
+#[test]
+fn cropped_refine_mask_keeps_source_scale_on_gpu() {
+    let _gpu = crate::support::lock();
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::filled(256, 256, [0.18; 3]));
+    let mut s = DevelopSettings::default();
+    s.masks.push(Mask {
+        refine: 100.,
+        adjust: LocalAdjustments { exposure: 1., ..Default::default() },
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::Linear { start: Point::new(0.499999, 0.5), end: Point::new(0.500001, 0.5) },
+        }],
+        ..Default::default()
+    });
+    let full = check("refine full frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(256, 256));
+    s.crop.geometry.rect = Rect::new(0.25, 0.25, 0.75, 0.75);
+    let cropped = check("refine cropped frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(128, 128));
+    for x in 96..160 {
+        let a = full.get(x, 128);
+        let b = cropped.get(x - 64, 64);
+        assert!(a.iter().zip(b).all(|(a, b)| a.abs_diff(b) <= 1), "refine changed at x={x}");
+    }
+}

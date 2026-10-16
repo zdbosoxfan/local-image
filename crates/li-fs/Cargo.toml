@@ -13,6 +13,9 @@ workspace = true
 # The shared cancellation/progress type (`Interrupt`); no new registry dependencies.
 lightcraft-sysmem.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 # Already locked and in the build tree: safe renameat2/renameatx_np wrappers.
 rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }

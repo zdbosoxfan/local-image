@@ -340,6 +340,20 @@ impl Default for ColorCal {
 }
 
 impl ColorCal {
+    /// Validate the joint custom white before publishing slider or imported settings.
+    pub fn valid_illuminant(&self) -> bool {
+        use li_color::cms_math::{BRADFORD, CAT16, IDENTITY, valid_adaptation_white};
+        if self.illuminant != Illuminant::Custom {
+            return true;
+        }
+        let cones = match self.adaptation {
+            Adaptation::Cat16 => &CAT16,
+            Adaptation::Bradford | Adaptation::FullBradford => &BRADFORD,
+            Adaptation::Xyz => &IDENTITY,
+        };
+        valid_adaptation_white([self.x, self.y], cones)
+    }
+
     pub fn is_default(&self) -> bool {
         *self == ColorCal::default()
     }
@@ -360,5 +374,22 @@ mod raw_quality_tests {
         }
         assert_eq!(serde_json::to_value(HighlightMode::Segmentation).unwrap(), serde_json::json!("segmentation"));
         assert!(HighlightMode::ALL.contains(&HighlightMode::Segmentation));
+    }
+}
+
+#[cfg(test)]
+mod calibration_domain_regression {
+    use super::*;
+    #[test]
+    fn custom_calibration_rejects_invalid_white_before_settings_commit() {
+        let mut s = crate::DevelopSettings::default();
+        s.color_cal.illuminant = Illuminant::Custom;
+        s.color_cal.adaptation = Adaptation::FullBradford;
+        assert!(crate::controls::set(&mut s, "colorCal.x", 0.55));
+        let before = s.clone();
+        assert!(!crate::controls::set(&mut s, "colorCal.y", 0.5));
+        assert_eq!(s, before);
+        assert!(s.merged(&serde_json::json!({"color_cal":{"y":0.5}})).is_err());
+        assert!(s.color_cal.valid_illuminant());
     }
 }

@@ -292,14 +292,10 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Ahd);
     drop(merged);
     let ref_raw = &raws[reference];
-    let opcodes: Vec<_> = ref_raw
-        .opcodes
-        .list3
-        .iter()
-        .filter(|op| !matches!(op, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }))
-        .cloned()
-        .collect();
-    lightcraft_raw::opcodes::apply_list3(&opcodes, &mut result.radiance);
+    // The output has no source opcode list. Apply every operation in its declared
+    // camera-RGB order after fusion, before cropping; splitting lens operations
+    // out loses mandatory DJI corrections and changes mixed/per-plane lists.
+    lightcraft_raw::opcodes::apply_list3(&ref_raw.opcodes.list3, &mut result.radiance);
     result.ghost = if let Some((maps, ghost_factor)) = &ghosts {
         let mut ghost = Plane::new(w, h);
         let scale = (factor * ghost_factor) as f32;
@@ -315,6 +311,27 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     } else {
         Plane::new(0, 0)
     };
+    // The deghost overlay follows the same geometric sequence as the radiance.
+    // It is scalar metadata: use the green plane and never apply shading/gain.
+    if !result.ghost.data.is_empty() {
+        let mut overlay = result.ghost.map(|v| [v; 3]);
+        for op in &ref_raw.opcodes.list3 {
+            match op {
+                lightcraft_raw::Opcode::WarpRectilinear { planes, center } => {
+                    if let Some(plane) = planes.get(1).or_else(|| planes.first()) {
+                        overlay = lightcraft_raw::opcodes::warp_rectilinear(&overlay, &[*plane], *center);
+                    }
+                }
+                lightcraft_raw::Opcode::WarpFisheye { planes, center } => {
+                    if let Some(plane) = planes.get(1).or_else(|| planes.first()) {
+                        overlay = lightcraft_raw::opcodes::warp_fisheye(&overlay, &[*plane], *center);
+                    }
+                }
+                _ => {}
+            }
+        }
+        result.ghost = overlay.map(|p| p[1]);
+    }
     let crop = ref_raw.crop.clipped(w, h);
     let crop = if crop.width == 0 || crop.height == 0 { Rect::new(0, 0, w, h) } else { crop };
     if crop != Rect::new(0, 0, w, h) {
@@ -338,7 +355,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     result.color = camera_color(ref_raw);
     result.raw = true;
     result.orientation = ref_raw.orientation;
-    result.metadata = ref_raw.metadata.clone();
+    result.metadata = crate::frame::developed_metadata(ref_raw);
     result.baseline_exposure = ref_raw.color.baseline_exposure;
     check(progress, 1.0, "Raw HDR ready")?;
     Ok(result)

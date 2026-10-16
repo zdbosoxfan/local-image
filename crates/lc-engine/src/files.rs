@@ -19,7 +19,7 @@ use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
 /// conservative generic default, but admit these stills explicitly here. At this ceiling,
 /// one full linear RGB buffer is 1.5 GiB, below the RAW decoder's 2 GiB output ceiling.
 /// JPEG previews retain DCT scaling before colour conversion; other formats decode fully.
-const MAX_STILL_IMAGE_PIXELS: u64 = 128 << 20;
+const MAX_STILL_IMAGE_PIXELS: u64 = lightcraft_codecs::DESKTOP_PHOTO_PIXELS;
 
 fn still_image_decode_options(max_edge: usize) -> lightcraft_codecs::DecodeOptions {
     let edge = u32::try_from(max_edge).unwrap_or(u32::MAX);
@@ -94,7 +94,7 @@ pub fn embedded_lens(raw: &lightcraft_raw::RawInfo) -> Option<lightcraft_develop
     // checkbox is off. Splitting them into a later working-RGB correction would
     // change per-plane CA, GainMap order, and profile-table interpolation.
     let dji_dng = built_in_dji_dng(raw.format, &raw.metadata);
-    if dji_dng {
+    if dji_dng || raw.metadata.lens_corrections_baked {
         return None;
     }
     let warps = raw
@@ -465,13 +465,15 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 .chain(&raw.opcodes.list2)
                 .chain(&raw.opcodes.list3)
                 .any(|op| matches!(op, lightcraft_raw::Opcode::GainMap { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
-        let embedded_lens_baked = builtin_shading || (lens.is_none() && raw.opcodes.list3.iter().any(is_lens_opcode));
-        let embedded_ca_baked = embedded_lens_baked
-            && raw.opcodes.list3.iter().any(|op| match op {
-                lightcraft_raw::Opcode::WarpRectilinear { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
-                lightcraft_raw::Opcode::WarpFisheye { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
-                _ => false,
-            });
+        let embedded_lens_baked =
+            raw.metadata.lens_corrections_baked || builtin_shading || (lens.is_none() && raw.opcodes.list3.iter().any(is_lens_opcode));
+        let embedded_ca_baked = raw.metadata.chromatic_aberration_baked
+            || embedded_lens_baked
+                && raw.opcodes.list3.iter().any(|op| match op {
+                    lightcraft_raw::Opcode::WarpRectilinear { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+                    lightcraft_raw::Opcode::WarpFisheye { planes, .. } => planes.windows(2).any(|p| p[0] != p[1]),
+                    _ => false,
+                });
         if lens.is_some() {
             raw.opcodes.list3.retain(|op| !is_lens_opcode(op));
         }
@@ -722,17 +724,22 @@ pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<lightcraft
 
 /// Filesystem-backed embedded-preview hook (native).
 pub fn fs_preview_loader() -> PreviewLoader {
-    Arc::new(|path: &str, max_edge: usize| embedded_preview_srgb(&std::fs::read(path).ok()?, max_edge))
+    Arc::new(|path: &str, max_edge: usize| embedded_preview_srgb(&read_photo(path).ok()?, max_edge))
+}
+
+fn read_photo(path: &str) -> Result<Vec<u8>, String> {
+    li_fs::read::file(std::path::Path::new(path), li_fs::read::MAX_FILE_BYTES, &lightcraft_sysmem::jobs::Interrupt::NONE)
+        .map_err(|e| format!("{path}: {e}"))
 }
 
 /// The filesystem loader for raw files decoded with non-default options (see [`fs_hooks`]).
 pub fn fs_loader_with() -> crate::media::FileLoaderWith {
     Arc::new(|path: &str, max_edge: usize, opts: &RawOptions| {
         let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
-        let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 };
+        let weight = len.saturating_mul(if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 });
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
-        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let bytes = read_photo(path)?;
         let r = load_vec_with(bytes, max_edge, opts);
         crate::memory::release();
         r
@@ -749,10 +756,10 @@ pub fn fs_loader_with() -> crate::media::FileLoaderWith {
 pub fn fs_hooks() -> (FileLoader, FileProbe) {
     let loader: FileLoader = Arc::new(|path: &str, max_edge: usize| {
         let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
-        let weight = len * if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 };
+        let weight = len.saturating_mul(if max_edge <= crate::media::SourceLevel::Thumb.max_edge() { 3 } else { 6 });
         let gate = crate::memory::work_gate();
         let _permit = if crate::memory::is_background() { gate.acquire(weight) } else { gate.acquire_urgent(weight) };
-        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let bytes = read_photo(path)?;
         let r = load_vec(bytes, max_edge);
         // the file, the samples and the intermediate images are gone: give their pages back
         crate::memory::release();
@@ -761,7 +768,7 @@ pub fn fs_hooks() -> (FileLoader, FileProbe) {
     let probe: FileProbe = Arc::new(|path: &str| {
         let len = std::fs::metadata(path).map(|m| m.len() as usize).unwrap_or(0);
         let _permit = crate::memory::work_gate().acquire(len);
-        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let bytes = read_photo(path)?;
         probe_bytes(path, &bytes)
     });
     (loader, probe)
@@ -1213,5 +1220,35 @@ mod sony_dji_app_tests {
             assert!(image.width > 0 && image.height > 0 && image.width.max(image.height) <= 32);
             assert!(image.data.iter().flatten().all(|v| v.is_finite()), "{id}: finite developed image");
         }
+    }
+}
+
+#[cfg(test)]
+mod baked_merge_lens_regression {
+    use super::*;
+
+    #[test]
+    fn merged_dng_reopen_suppresses_automatic_lens_correction() {
+        let image = Rgb32f::filled(16, 12, [0.2; 3]);
+        let color =
+            lightcraft_merge::FrameColor::Linear { to_xyz_d50: li_color::bradford(li_color::D65, li_color::D50).mul(&li_color::REC2020.to_xyz()) };
+        let metadata = lightcraft_meta::Metadata {
+            lens_corrections_baked: true,
+            make: Some("Test camera".into()),
+            lens_model: Some("Original lens".into()),
+            ..Default::default()
+        };
+        let bytes =
+            lightcraft_merge::write_linear_dng(&image, &color, Orientation::Normal, &metadata, 0., lightcraft_merge::DngSamples::Float).unwrap();
+        let raw = lightcraft_raw::decode(&bytes).unwrap();
+        assert!(raw.metadata.lens_corrections_baked);
+        assert!(embedded_lens(&raw.info()).is_none());
+        let (_, info) = load_bytes(&bytes, 16).unwrap();
+        assert!(info.embedded_lens_baked);
+        let mut s = lightcraft_develop::DevelopSettings::default();
+        s.optics.lens_profile = true;
+        // A baked source must keep manual optics usable, but never resolve a
+        // second automatic correction from the retained camera/lens metadata.
+        assert!(lightcraft_pipeline::frame_for(&image, &info, &s, false).warp.is_none());
     }
 }

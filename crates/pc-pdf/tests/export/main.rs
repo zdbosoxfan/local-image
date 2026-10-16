@@ -496,3 +496,41 @@ fn review_additional_pdf_selection_of_empty_artboard_keeps_page_and_background()
 mod blends;
 
 mod clipping;
+
+#[test]
+fn pdf_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal() {
+    use photocraft_doc::text::{CharStyle, TextRun};
+    for alpha in [1.0, 0.5] {
+        let mut doc = Document::new("paint order", Size::new(256, 128), ColorMode::Rgb, SampleType::U8);
+        let mut text = photocraft_doc::TextLayer { text: "HHH".into(), transform: photocraft_doc::Affine::translate(100., 90.), ..Default::default() };
+        text.runs = (0..3)
+            .map(|i| {
+                let mut color = if i == 1 { Color::rgb(0., 0., 1.) } else { Color::rgb(1., 0., 0.) };
+                color.alpha = alpha;
+                TextRun { len: 1, style: CharStyle { size_pt: 64., tracking: -650., color, ..Default::default() } }
+            })
+            .collect();
+        photocraft_text::TextEngine::new().render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+        doc.layers.push(Layer::new("Type", LayerContent::Text(text)));
+        let options = ExportOptions { text_as_curves: true, ..Default::default() };
+        let bytes = export::export(&doc, &ExportScope::Document, &options).unwrap().bytes;
+        let rendered = render(&bytes, &format!("ordered-text-{alpha}"), doc.resolution_dpi);
+        let expected = photocraft_compose::flatten(&doc).get(147, 67);
+        let pixel = rendered.get_pixel(147, 67).0;
+        for channel in 0..3 {
+            let value = expected[channel] * expected[3] + 1. - expected[3];
+            assert!((f32::from(pixel[channel]) / 255. - value).abs() < 0.02, "alpha={alpha}: {pixel:?} versus {expected:?}");
+        }
+        let limited = ExportOptions { max_bytes: 256, ..options.clone() };
+        assert!(matches!(export::export(&doc, &ExportScope::Document, &limited), Err(ExportError::Budget(_))));
+        let checks = std::cell::Cell::new(0);
+        let cancel = || {
+            checks.set(checks.get() + 1);
+            checks.get() > 30
+        };
+        let mut text = photocraft_text::TextEngine::new();
+        let mut context = export::ExportContext { cancelled: &cancel, projection: None, text: &mut text };
+        assert!(matches!(export::export_with(&doc, &ExportScope::Document, &options, &mut context), Err(ExportError::Cancelled)));
+        assert!(checks.get() < 100);
+    }
+}

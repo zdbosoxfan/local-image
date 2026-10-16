@@ -174,7 +174,7 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &lightcraft_sysmem::jobs::Interr
         psd_import::check_group_depth(&file)?;
         ctl.check().map_err(|_| IoError::Cancelled)?;
         ctl.progress(0.05);
-        let (mut document, warnings) = psd_import::psd_to_document_with(&file, ctl).ok_or(IoError::Cancelled)?;
+        let (mut document, warnings) = psd_import::psd_to_document_with(&file, ctl)?;
         document.name = name.to_string();
         return Ok(ImportResult { document, warnings });
     }
@@ -200,6 +200,17 @@ pub fn export(doc: &Document, name_or_ext: &str, opts: &ExportOptions) -> Result
 
 /// Layered saves can use the application's common display projection for live/crop fallback.
 pub fn export_with_projection(
+    doc: &Document,
+    name_or_ext: &str,
+    opts: &ExportOptions,
+    projection: Option<&dyn vector_map::fallback::Projection>,
+) -> Result<ExportResult, IoError> {
+    let result = export_with_projection_inner(doc, name_or_ext, opts, projection)?;
+    photocraft_format::read::admit_output_size(result.bytes.len() as u64).map_err(|e| IoError::Unsupported(e.to_string()))?;
+    Ok(result)
+}
+
+fn export_with_projection_inner(
     doc: &Document,
     name_or_ext: &str,
     opts: &ExportOptions,
@@ -264,7 +275,7 @@ pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
             .collect());
     }
     // Generic path (Lab, CMYK and others) via the raster model conversion.
-    let (doc, _) = psd_to_document(&PsdFile { layer_info: None, ..file.clone() });
+    let (doc, _) = psd_to_document(&PsdFile { layer_info: None, ..file.clone() })?;
     // Multichannel documents keep their channels apart (no layer): composite them.
     if doc.layers.is_empty() && doc.mode == photocraft_color::ColorMode::Multichannel {
         return Ok(photocraft_compose::flatten(&doc).px);

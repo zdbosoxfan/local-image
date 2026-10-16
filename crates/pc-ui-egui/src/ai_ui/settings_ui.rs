@@ -31,10 +31,18 @@ fn draft() -> AiSettings {
 pub(crate) fn changed() -> bool {
     dialogs_mut(|d| d.settings.as_ref().zip(d.applied_settings.as_ref()).is_some_and(|(draft, applied)| draft != applied))
 }
+pub(crate) fn pending_settings() -> Option<AiSettings> {
+    changed().then(draft)
+}
 pub(crate) fn apply() -> Result<(), String> {
     if changed() {
         let settings = draft();
-        save_all(&settings)?;
+        if let Err(error) = save_all(&settings) {
+            // The unified Preferences shell presents this transaction error on every page.
+            // Connection actions still use save_all's local message independently.
+            dialogs_mut(|dialogs| dialogs.message.clear());
+            return Err(error);
+        }
     }
     Ok(())
 }

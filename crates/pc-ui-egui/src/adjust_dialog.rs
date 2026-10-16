@@ -40,7 +40,7 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     if let Value::Object(p) = photocraft_engine::adjust_params::to_params(&defaults) {
         fields.extend(p);
     }
-    Some(app.ui.open_dialog(crate::state::DialogKind::Command, fields))
+    Some(crate::dialogs::open_document_dialog(app, crate::state::DialogKind::Command, fields))
 }
 
 /// Dialog body: the kind's editor over the fields, then the Preview checkbox.

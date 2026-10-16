@@ -126,6 +126,7 @@ fn default_params(f: GalleryFilter) -> Map<String, Value> {
 }
 
 pub struct GalleryDialog {
+    target: crate::command_feedback::SelectionTarget,
     pub layer: LayerId,
     layer_name: String,
     canvas: Rect,
@@ -258,6 +259,7 @@ pub fn open(app: &mut PhotocraftApp) -> Result<(), String> {
     let sel = effects.len() - 1;
     let open_cats = std::array::from_fn(|i| effects[sel].filter.category() == GALLERY_CATEGORIES[i]);
     app.distort.gallery = Some(GalleryDialog {
+        target: crate::command_feedback::SelectionTarget::capture(app).ok_or("no document")?,
         layer,
         layer_name,
         canvas,
@@ -280,14 +282,20 @@ pub fn open(app: &mut PhotocraftApp) -> Result<(), String> {
 
 /// OK: runs `filter.filterGallery` with the stack (one history step).
 pub fn commit(app: &mut PhotocraftApp) -> Result<Value, String> {
-    let Some(d) = app.distort.gallery.take() else { return Err("the Filter Gallery is not open".into()) };
+    let Some(d) = app.distort.gallery.as_ref() else { return Err("the Filter Gallery is not open".into()) };
+    if !d.target.is_current(app) {
+        return Err(tl!("The document or layer changed; reopen the dialog").into());
+    }
     if !d.effects.iter().any(|e| e.visible) {
+        app.distort.gallery = None;
         return Ok(json!({"committed": false}));
     }
     let mut p = d.params();
     let remembered = remembered_effects(&p).map(|effects| crate::filter_dialog::Remembered::gallery(effects.iter().map(EffectLayer::to_json).collect()));
     p["layer"] = json!(d.layer.0);
-    crate::filter_dialog::submit(app, "filter.filterGallery".into(), p, remembered)
+    let result = crate::filter_dialog::submit(app, "filter.filterGallery".into(), p, remembered)?;
+    app.distort.gallery = None;
+    Ok(result)
 }
 
 /// Control channel: `filter.filterGallery {"ui": {...}}` while the dialog is open.
@@ -295,11 +303,14 @@ pub fn control(app: &mut PhotocraftApp, ui: &Value) -> Result<Value, String> {
     let flag = |k: &str| ui.get(k).and_then(Value::as_bool) == Some(true);
     if flag("commit") {
         let r = commit(app)?;
-        return Ok(json!({"committed": true, "result": r}));
+        return Ok(json!({"committed": r.get("committed").and_then(Value::as_bool).unwrap_or(true), "result": r}));
     }
     if flag("cancel") {
         app.distort.gallery = None;
         return Ok(json!({"cancelled": true}));
+    }
+    if app.distort.gallery.as_ref().is_some_and(|dialog| !dialog.target.is_current(app)) {
+        return Err(tl!("The document or layer changed; reopen the dialog").into());
     }
     let d = app.distort.gallery.as_mut().ok_or("the Filter Gallery is not open")?;
     if let Some(i) = ui.get("select").and_then(Value::as_u64) {
@@ -400,6 +411,12 @@ fn update_thumbs(d: &mut GalleryDialog, ctx: &egui::Context, budget: usize) {
 
 /// Draws the dialog (a full-window layer over the app).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    if app.distort.gallery.as_ref().is_some_and(|dialog| !dialog.target.is_current(app)) {
+        if crate::dialogs::stale_document_notice(ctx, "gallery-stale-document", tl!("Filter Gallery…")) {
+            app.distort.gallery = None;
+        }
+        return;
+    }
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
     let mut action: Option<&str> = None;
@@ -633,7 +650,9 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     });
     match action {
         Some("ok") => {
-            let _ = commit(app);
+            if let Err(error) = commit(app) {
+                crate::notices::error(app, error);
+            }
         }
         Some("cancel") => app.distort.gallery = None,
         _ => {}
