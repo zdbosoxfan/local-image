@@ -2131,7 +2131,7 @@ fn convert_tile(surface: &Surface, tile: Option<&Arc<Tile>>, kind: TexKind, c: T
             TexKind::Rgba16F => {
                 let v = photocraft_raster::to_rgba(&fmt, px);
                 for x in v {
-                    out.extend(f32_to_f16(x).to_le_bytes());
+                    out.extend(half::f16::from_f32(x).to_le_bytes());
                 }
             }
             TexKind::Rgba32F => {
@@ -2182,55 +2182,6 @@ fn words(v: &[W]) -> Vec<u8> {
             F(f) => f.to_le_bytes(),
         })
         .collect()
-}
-
-/// IEEE half from f32 (round to nearest even; overflow → inf).
-pub fn f32_to_f16(x: f32) -> u16 {
-    let b = x.to_bits();
-    let sign = ((b >> 16) & 0x8000) as u16;
-    let exp = ((b >> 23) & 0xff) as i32;
-    let man = b & 0x7f_ffff;
-    if exp == 0xff {
-        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
-    }
-    let e = exp - 127 + 15;
-    if e >= 0x1f {
-        return sign | 0x7c00;
-    }
-    if e <= 0 {
-        if e < -10 {
-            return sign;
-        }
-        let m = man | 0x80_0000;
-        let shift = (14 - e) as u32;
-        let half = 1u32 << (shift - 1);
-        let rounded = (m + half - 1 + ((m >> shift) & 1)) >> shift;
-        return sign | rounded as u16;
-    }
-    let mut h = ((e as u32) << 10) | (man >> 13);
-    let rest = man & 0x1fff;
-    if rest > 0x1000 || (rest == 0x1000 && (h & 1) == 1) {
-        h += 1;
-    }
-    sign | h as u16
-}
-
-/// f32 from IEEE half.
-pub fn f16_to_f32(h: u16) -> f32 {
-    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exp = ((h >> 10) & 0x1f) as i32;
-    let man = (h & 0x3ff) as f32;
-    match exp {
-        0 => sign * man * 2f32.powi(-24),
-        0x1f => {
-            if man == 0.0 {
-                sign * f32::INFINITY
-            } else {
-                f32::NAN
-            }
-        }
-        e => sign * (1.0 + man / 1024.0) * 2f32.powi(e - 15),
-    }
 }
 
 /// Blocking readback of a composite (native tests and tools).
@@ -2342,14 +2293,6 @@ mod tests {
             assert_eq!(actual, expected, "{sample:?}");
         }
         assert_eq!(TexKind::for_surface(Role::Content, PixelFormat::RGBA8, false), TexKind::Rgba8Direct);
-    }
-
-    #[test]
-    fn half_roundtrip() {
-        for v in [0.0f32, 1.0, 0.5, 0.25, 1.0 / 255.0, 0.333, 65504.0, -2.5, 1e-6] {
-            let r = f16_to_f32(f32_to_f16(v));
-            assert!((r - v).abs() <= v.abs() / 1024.0 + 1e-7, "{v} -> {r}");
-        }
     }
 
     #[test]

@@ -137,10 +137,6 @@ fn deflate_roundtrips_integer_and_float() {
             assert!((a - b).abs() <= tol, "{a} vs {b} (half: {half})");
         }
     }
-    assert_eq!(lightcraft_raw::dngwrite::f32_to_f16(1.0), 0x3c00);
-    assert_eq!(lightcraft_raw::dngwrite::f32_to_f16(-2.0), 0xc000);
-    assert_eq!(lightcraft_raw::dngwrite::f32_to_f16(1e9), 0x7c00);
-    assert_eq!(lightcraft_raw::dngwrite::f32_to_f16(2f32.powi(-24)), 0x0001);
 }
 
 #[test]

@@ -406,8 +406,8 @@ fn unpack_chunk(
             for (i, o) in out[y * row_n..(y + 1) * row_n].iter_mut().enumerate() {
                 let b = &rowbuf[i * bp..(i + 1) * bp];
                 *o = match (bp, big) {
-                    (2, true) => f16_to_f32(u16::from_be_bytes([b[0], b[1]])),
-                    (2, false) => f16_to_f32(u16::from_le_bytes([b[0], b[1]])),
+                    (2, true) => half::f16::from_be_bytes([b[0], b[1]]).to_f32(),
+                    (2, false) => half::f16::from_le_bytes([b[0], b[1]]).to_f32(),
                     (3, true) => f24_to_f32(u32::from_be_bytes([0, b[0], b[1], b[2]])),
                     (3, false) => f24_to_f32(u32::from_le_bytes([b[0], b[1], b[2], 0])),
                     (4, true) => f32::from_be_bytes([b[0], b[1], b[2], b[3]]),

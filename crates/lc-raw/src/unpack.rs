@@ -59,32 +59,6 @@ pub fn read_u16s(src: &[u8], order: ByteOrder, out: &mut [u16]) {
     }
 }
 
-/// IEEE 754 half → f32.
-pub fn f16_to_f32(h: u16) -> f32 {
-    let sign = ((h >> 15) as u32) << 31;
-    let exp = ((h >> 10) & 0x1f) as u32;
-    let man = (h & 0x3ff) as u32;
-    let bits = if exp == 0 {
-        if man == 0 {
-            sign
-        } else {
-            // subnormal: normalise
-            let mut e = 127 - 15 + 1;
-            let mut m = man;
-            while m & 0x400 == 0 {
-                m <<= 1;
-                e -= 1;
-            }
-            sign | (e << 23) | ((m & 0x3ff) << 13)
-        }
-    } else if exp == 31 {
-        sign | 0x7f80_0000 | (man << 13)
-    } else {
-        sign | ((exp + 127 - 15) << 23) | (man << 13)
-    };
-    f32::from_bits(bits)
-}
-
 /// DNG 24-bit float (1 sign, 7 exponent bias 63, 16 mantissa) → f32.
 pub fn f24_to_f32(v: u32) -> f32 {
     let sign = (v >> 23) & 1;
@@ -187,10 +161,6 @@ mod tests {
 
     #[test]
     fn floats() {
-        assert_eq!(f16_to_f32(0x3c00), 1.0);
-        assert_eq!(f16_to_f32(0xc000), -2.0);
-        assert_eq!(f16_to_f32(0x0001), 2f32.powi(-24));
-        assert!(f16_to_f32(0x7c00).is_infinite());
         // 24-bit: 1.0 = exp 63, mantissa 0
         assert_eq!(f24_to_f32(63 << 16), 1.0);
         assert_eq!(f24_to_f32((1 << 23) | (64 << 16) | 0x8000), -3.0);

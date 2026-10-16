@@ -25,38 +25,6 @@ pub enum DngCompression {
     },
 }
 
-/// IEEE 754 binary32 → binary16 (round to nearest even; overflow → ±inf, NaN kept).
-pub fn f32_to_f16(v: f32) -> u16 {
-    let b = v.to_bits();
-    let sign = ((b >> 16) & 0x8000) as u16;
-    let exp = ((b >> 23) & 0xff) as i32;
-    let man = b & 0x7f_ffff;
-    if exp == 0xff {
-        return sign | 0x7c00 | if man != 0 { 0x200 } else { 0 };
-    }
-    let e = exp - 127 + 15;
-    if e >= 0x1f {
-        return sign | 0x7c00;
-    }
-    if e <= 0 {
-        if e < -10 {
-            return sign;
-        }
-        // subnormal half
-        let m = man | 0x80_0000;
-        let shift = (14 - e) as u32;
-        let half = m >> shift;
-        let rem = m & ((1 << shift) - 1);
-        let mid = 1 << (shift - 1);
-        let r = if rem > mid || (rem == mid && half & 1 == 1) { half + 1 } else { half };
-        return sign | r as u16;
-    }
-    let half = ((e as u32) << 10) | (man >> 13);
-    let rem = man & 0x1fff;
-    let r = if rem > 0x1000 || (rem == 0x1000 && half & 1 == 1) { half + 1 } else { half };
-    sign | r as u16
-}
-
 /// Apply the floating-point predictor (inverse of `unpack::undo_float_predictor`) to one row of
 /// `n` big-endian samples of `bytes_per` bytes: split into byte planes (most significant first), then
 /// byte-difference with `stride` samples.
@@ -317,7 +285,7 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
                             for s in 0..cpp {
                                 let f = v[(sy * w + sx) * cpp + s];
                                 if half {
-                                    row.extend_from_slice(&f32_to_f16(f).to_be_bytes());
+                                    row.extend_from_slice(&half::f16::from_f32(f).to_be_bytes());
                                 } else {
                                     row.extend_from_slice(&f.to_bits().to_be_bytes());
                                 }
