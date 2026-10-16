@@ -137,7 +137,7 @@ fn filter_search_sort() {
     assert_eq!(c.query(&Filter { text: "iso:>800".into(), ..Default::default() }, &Sort::default()), vec![a]);
     assert_eq!(c.query(&Filter { text: "date:2025".into(), ..Default::default() }, &Sort::default()), vec![d]);
     assert_eq!(c.query(&Filter { date: Some("2026-04".into()), ..Default::default() }, &Sort::default()), vec![b]);
-    c.apply(Op::SetDeleted { id: d, deleted: true }).unwrap();
+    c.apply(Op::SetDeleted { id: d, deleted: true, deleted_at: None }).unwrap();
     assert_eq!(c.query(&Filter::default(), &Sort::default()).len(), 2);
     assert_eq!(c.query(&Filter { deleted: true, ..Default::default() }, &Sort::default()), vec![d]);
     let g = c.date_groups();
@@ -209,9 +209,9 @@ fn smart_albums_update_live() {
     // via the album filter (what the grid uses)
     assert_eq!(c.query(&Filter { album: Some(id), ..Default::default() }, &Sort::default()), vec![a]);
     // deleted photos drop out
-    c.apply(Op::SetDeleted { id: a, deleted: true }).unwrap();
+    c.apply(Op::SetDeleted { id: a, deleted: true, deleted_at: None }).unwrap();
     assert!(c.album_photos(id).is_empty());
-    c.apply(Op::SetDeleted { id: a, deleted: false }).unwrap();
+    c.apply(Op::SetDeleted { id: a, deleted: false, deleted_at: None }).unwrap();
     // change the rules; inverse restores
     let inv = c.apply(Op::SetAlbumRules { id, rules: Box::new(Filter { rating: 4, rating_op: RatingOp::Exactly, ..Default::default() }) }).unwrap();
     assert_eq!(c.album_photos(id), vec![a, b, z]);
