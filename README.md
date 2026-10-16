@@ -6,6 +6,8 @@
 
 [Features](#major-features) · [Tools](#tools-and-workflows) · [Under the hood](#how-the-pieces-fit-together) · [Interface](#interface) · [Install](#install-or-build)
 
+[Security](SECURITY.md) · [Privacy](PRIVACY.md) · [Changelog](CHANGELOG.md)
+
 ## Major features
 
 ### Catalog and photo management
