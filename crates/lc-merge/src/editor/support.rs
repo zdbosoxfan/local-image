@@ -51,9 +51,7 @@ impl Rng {
     }
 }
 
-pub(super) fn srgb_to_linear(v: f32) -> f32 {
-    li_color::transfer::srgb_to_linear(v)
-}
+pub(super) use li_color::transfer::srgb_to_linear;
 pub(super) fn gauss_blur_n(buf: &mut [f32], w: usize, h: usize, n: usize, sigma: f32) {
     li_raster::blur::gaussian_boxes_n(buf, w, h, n, sigma);
 }

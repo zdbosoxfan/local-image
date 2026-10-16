@@ -5,6 +5,7 @@ use egui::{Align2, Color32, CornerRadius, Rect, Response, Sense, Stroke, StrokeK
 
 use crate::theme::{self, Tokens};
 use li_commands::widgets::menu_row_button;
+pub use li_ui_kit::widgets::{checker, chevron_icon, disabled_reason_tooltip, surface};
 
 /// An accent insertion line on one edge of `r` while a drag hovers it (vertical: on its left or,
 /// `after`, right edge; else on its top or bottom).
@@ -17,11 +18,6 @@ pub fn drop_line(ui: &Ui, r: Rect, after: bool, vertical: bool, t: &Tokens) {
         let y = if after { r.bottom() } else { r.top() };
         ui.painter().line_segment([pos2(r.left() + 4.0, y), pos2(r.right() - 4.0, y)], s);
     }
-}
-
-/// Draw a bevelled box (Classic theme) or a flat rounded box.
-pub fn surface(ui: &Ui, rect: Rect, fill: Color32, raised: bool) {
-    li_ui_kit::widgets::surface(ui, rect, fill, raised)
 }
 
 /// A dock card: rounded container with a header of pill tabs and optional trailing actions.
@@ -593,19 +589,9 @@ pub fn color_control(ui: &mut Ui, color: &mut photocraft_doc::Color, label: &str
     changed
 }
 
-/// Paint a small checkerboard (transparency) in `rect`.
-pub fn checker(painter: &egui::Painter, rect: Rect, cell: f32) {
-    li_ui_kit::widgets::checker(painter, rect, cell)
-}
-
 /// Spectrum-style checkbox (blue when checked).
 pub fn checkbox(ui: &mut Ui, on: &mut bool, label: &str) -> Response {
     li_ui_kit::widgets::checkbox(ui, on, tl!(label), li_ui_kit::widgets::Profile::Editor)
-}
-
-/// Small chevron for dropdowns (replaces egui's filled triangle).
-pub fn chevron_icon(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _open: bool) {
-    li_ui_kit::widgets::chevron_icon(ui, rect, visuals, _open)
 }
 
 /// Photoshop-style numbers: "100", "12.5" (never "100.0").
@@ -951,12 +937,6 @@ pub fn command_menu_item(ui: &mut Ui, label: &str, shortcut: Option<&str>, check
         crate::icons::paint(ui, rect, "check", width, color);
     });
     if let Some(reason) = reason { disabled_reason_tooltip(response, reason) } else { response }
-}
-
-/// A disabled-command tooltip that wraps within the current viewport, including narrow
-/// context menus. Uses egui’s tooltip popup; sizes come from the active spacing tokens.
-pub fn disabled_reason_tooltip(response: Response, reason: &str) -> Response {
-    li_ui_kit::widgets::disabled_reason_tooltip(response, reason)
 }
 
 #[test]

@@ -182,10 +182,7 @@ impl Tokens {
         li_ui_kit::fonts::semibold(size)
     }
 }
-pub use li_ui_kit::library::{readable_text, text_on};
-pub fn apply(ctx: &egui::Context) {
-    li_ui_kit::library::apply(ctx);
-}
+pub use li_ui_kit::library::{apply, readable_text, text_on};
 pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
     li_ui_kit::library::apply_tokens(ctx, t.into());
 }

@@ -106,15 +106,7 @@ pub(crate) fn hash01(x: i64, y: i64, seed: u64) -> f32 {
     (z >> 40) as f32 / (1u64 << 24) as f32
 }
 
-/// sRGB transfer function, decode (extended linearly below 0 and as a power above 1).
-pub(crate) fn srgb_to_linear(v: f32) -> f32 {
-    li_color::transfer::srgb_to_linear(v)
-}
-
-/// sRGB transfer function, encode.
-pub(crate) fn linear_to_srgb(v: f32) -> f32 {
-    li_color::transfer::linear_to_srgb(v)
-}
+pub(crate) use li_color::transfer::{linear_to_srgb, srgb_to_linear};
 
 /// Bilinear sample of channel `c` of a `w × h × ch` buffer, clamped to the edges.
 #[cfg(test)]
