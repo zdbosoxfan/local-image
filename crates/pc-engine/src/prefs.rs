@@ -2086,6 +2086,20 @@ mod shortcut_profile_tests {
 mod j16_tests {
     use super::*;
     #[test]
+    fn cloud_spend_preferences_default_safe_and_validate() {
+        let mut preferences = Preferences::default();
+        assert_eq!(preferences.get("ai.cloud_confirm_each_run"), Some(json!(true)));
+        assert_eq!(preferences.get("ai.cloud_session_cap_images"), Some(json!(0)));
+        preferences.set("ai.cloud_confirm_each_run", json!(false)).unwrap();
+        preferences.set("ai.cloud_session_cap_images", json!(8)).unwrap();
+        assert_eq!(preferences.get("ai.cloud_confirm_each_run"), Some(json!(false)));
+        assert_eq!(preferences.get("ai.cloud_session_cap_images"), Some(json!(8)));
+        assert!(preferences.set("ai.cloud_session_cap_images", json!(-1)).is_err());
+        let restored: Preferences = serde_json::from_value(preferences.to_json()).unwrap();
+        assert_eq!(restored, preferences);
+    }
+
+    #[test]
     fn j16_library_and_ai_namespaces_round_trip_and_old_preferences_default() {
         let mut preferences = Preferences::default();
         preferences.set("library.settings.previewEdge", json!(3840)).unwrap();

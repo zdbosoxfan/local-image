@@ -19,6 +19,12 @@ pub(super) fn draw(ui: &mut egui::Ui, settings: &mut AiSettings, t: &Tokens) {
             }
         });
     }
+    widgets::checkbox(ui, &mut settings.cloud_confirm_each_run, tl!("Confirm before each cloud generation"));
+    ui.horizontal(|ui| {
+        let label = ui.label(RichText::new(tl!("Session limit (images):")).color(t.text_dim));
+        ui.add(egui::DragValue::new(&mut settings.cloud_session_cap_images).range(0..=10_000).speed(1.0)).labelled_by(label.id);
+        ui.label(RichText::new(tl!("0 means no limit")).color(t.text_faint).size(11.0));
+    });
     ui.add_space(8.0);
     widgets::section_label(ui, tl!("ACCOUNTS (OPTIONAL)"));
     ui.label(

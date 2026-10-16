@@ -43,6 +43,17 @@ const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
 const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop", "Pet Eye", "Add Catchlight", "Click a pet's glowing pupil"];
 
 const PENDING_AI_TRANSLATIONS: &[&str] = &[
+    "Cloud limit reached: {used} of {cap} images used this session, and this run needs {images}. Raise or clear the limit in Local AI › Cloud.",
+    "Generate with {provider}?",
+    "Provider: {provider}",
+    "Model: {model}",
+    "Images: {count}",
+    "Your prompt and any selected or reference pixels are uploaded to {provider} and billed to your own API key.",
+    "{used} of {cap} cloud images used this session.",
+    "Don't ask again this session",
+    "Confirm before each cloud generation",
+    "Session limit (images):",
+    "0 means no limit",
     "Automatic",
     "Loading on-device AI Remove",
     "Removing on this computer",
