@@ -220,38 +220,10 @@ fn capture(app: &PhotocraftApp) -> Option<Capture> {
 fn current(app: &PhotocraftApp, c: &Capture) -> bool {
     capture(app).is_some_and(|now| now == *c)
 }
-/// Package 00 installs package 07's read-only query adapter. The query excludes the selected
-/// nodes in targets and returns document-space geometry; previews and releases use it alike.
-pub type SnapQuery = fn(&Document, &[Target], Point, f64) -> Result<Point, String>;
-static SNAP_QUERY: std::sync::OnceLock<SnapQuery> = std::sync::OnceLock::new();
-pub fn install_snapping(query: SnapQuery) -> Result<(), SnapQuery> {
-    SNAP_QUERY.set(query)
-}
 fn pick_tolerance(app: &PhotocraftApp) -> f64 {
     // Canvas input and overlays use logical points. DPI scales both together;
     // only document zoom converts the six-point hit radius to document units.
     6.0 / f64::from(app.current_zoom().max(0.01))
-}
-fn snapped_end(app: &PhotocraftApp, base: &Path, edit: &Edit, targets: &[Target], start: [f64; 2], end: [f64; 2], mods: Modifiers) -> [f64; 2] {
-    if mods.shift || mods.command || !app.ui.extras.snap {
-        return end;
-    }
-    let Some(query) = SNAP_QUERY.get() else { return end };
-    let grab = match edit {
-        Edit::Anchors(anchors) => anchors
-            .iter()
-            .filter_map(|[s, k]| base.subpaths.get(*s)?.knots.get(*k).map(|kn| kn.anchor))
-            .min_by(|a, b| (a.x - start[0]).hypot(a.y - start[1]).total_cmp(&(b.x - start[0]).hypot(b.y - start[1]))),
-        Edit::Handle(_, _, from, _) => Some(*from),
-        _ => None,
-    };
-    let Some(grab) = grab else { return end };
-    let Some(st) = app.session.active() else { return end };
-    let p = Point::new(grab.x + end[0] - start[0], grab.y + end[1] - start[1]);
-    match query(&st.doc, targets, p, pick_tolerance(app)) {
-        Ok(to) if to.x.is_finite() && to.y.is_finite() => [start[0] + to.x - grab.x, start[1] + to.y - grab.y],
-        _ => end,
-    }
 }
 fn bounded_end(start: [f64; 2], mut end: [f64; 2], shift: bool) -> [f64; 2] {
     if shift {
@@ -392,8 +364,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
             match &mut drag {
                 Drag::Edit { base, edit, start, end, preview, targets, .. } => {
                     let previous = edit.operation(*start, *end);
-                    let snapped = snapped_end(app, base, edit, targets, *start, [x, y], mods);
-                    *end = adjusted_end(base, edit, *start, snapped, mods);
+                    *end = adjusted_end(base, edit, *start, [x, y], mods);
                     if let Edit::Handle(_, _, _, independent) = edit {
                         *independent = mods.alt;
                     }
@@ -431,8 +402,7 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: Modifiers) -> bool 
             app.ui.direct_selection.preview_doc = None;
             match app.ui.direct_selection.drag.take() {
                 Some(Drag::Edit { target, base, mut edit, start, targets, capture, .. }) => {
-                    let end = snapped_end(app, &base, &edit, &targets, start, [x, y], mods);
-                    let end = adjusted_end(&base, &edit, start, end, mods);
+                    let end = adjusted_end(&base, &edit, start, [x, y], mods);
                     if let Edit::Handle(_, _, _, independent) = &mut edit {
                         *independent = mods.alt;
                     }
