@@ -791,44 +791,10 @@ mod tests {
     use super::*;
     use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, Samples, encode_jpeg};
 
-    /// A valid baseline grayscale JPEG with constant 128 samples. Zero DC differences and
-    /// EOB each use a one-bit Huffman code, so large dimensions need no full-size test pixels.
-    fn constant_gray_jpeg(width: u16, height: u16) -> Vec<u8> {
-        fn segment(jpeg: &mut Vec<u8>, marker: u8, payload: &[u8]) {
-            jpeg.extend([0xff, marker]);
-            jpeg.extend(((payload.len() + 2) as u16).to_be_bytes());
-            jpeg.extend(payload);
-        }
-        let mut jpeg = vec![0xff, 0xd8];
-        let mut quant = vec![0];
-        quant.extend([1; 64]);
-        segment(&mut jpeg, 0xdb, &quant);
-        let mut frame = vec![8];
-        frame.extend(height.to_be_bytes());
-        frame.extend(width.to_be_bytes());
-        frame.extend([1, 1, 0x11, 0]);
-        segment(&mut jpeg, 0xc0, &frame);
-        let mut huffman = Vec::new();
-        for class in [0, 0x10] {
-            huffman.extend([class, 1]);
-            huffman.extend([0; 15]);
-            huffman.push(0);
-        }
-        segment(&mut jpeg, 0xc4, &huffman);
-        segment(&mut jpeg, 0xda, &[1, 1, 0, 0, 63, 0]);
-        let bits = (width as usize).div_ceil(8) * (height as usize).div_ceil(8) * 2;
-        jpeg.resize(jpeg.len() + bits.div_ceil(8), 0);
-        if !bits.is_multiple_of(8) {
-            *jpeg.last_mut().unwrap() = (1 << (8 - bits % 8)) - 1;
-        }
-        jpeg.extend([0xff, 0xd9]);
-        jpeg
-    }
-
     #[test]
     fn high_resolution_jpeg_import_and_scaled_reference_loading() {
         // A real ~95 MP finished-export size, above the generic 32 MP codec limit.
-        let jpeg = constant_gray_jpeg(11_928, 7_952);
+        let jpeg = li_testkit::constant_gray_jpeg(11_928, 7_952);
         assert!(matches!(
             lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions::fit(64, 64)),
             Err(lightcraft_codecs::Error::TooLarge(_, _))
@@ -843,7 +809,7 @@ mod tests {
 
     #[test]
     fn still_image_import_keeps_a_source_pixel_ceiling() {
-        let jpeg = constant_gray_jpeg(16_384, 8_193); // just beyond the explicit still-image budget
+        let jpeg = li_testkit::constant_gray_jpeg(16_384, 8_193); // just beyond the explicit still-image budget
         const { assert!((16_384u64 * 8_193) > MAX_STILL_IMAGE_PIXELS) };
         assert!(probe_bytes("over-budget.jpg", &jpeg).unwrap_err().contains("image too large"));
         assert!(load_vec(jpeg, 64).unwrap_err().contains("image too large"));

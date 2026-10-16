@@ -4210,6 +4210,7 @@ dependencies = [
  "li-fs",
  "li-raster",
  "li-seg",
+ "li-testkit",
  "libc",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -5934,6 +5935,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
  "li-color",
+ "li-testkit",
  "lightcraft-codecs",
  "lightcraft-develop",
  "lightcraft-engine",

@@ -62,130 +62,14 @@ pub fn render_layout_view(layout: &super::TextLayout, layer: &TextLayer, format:
     Ok(out)
 }
 
-// Drawing semantics adapted from this crate's render.rs. Both paths use the existing
-// skrifa outlines and exact-area Coverage; no new shaping or vector rasterizer.
-use super::layout::{GlyphOrient, PlacedGlyph, TextLayout};
-use super::raster::{Coverage, LineSink, Pen, Xform, rect_to};
-use super::render::{FAUX_BOLD_RADIUS, FAUX_ITALIC_DEG};
+// Drawing is shared with this crate's render.rs: the existing skrifa outlines and
+// exact-area Coverage; no new shaping or vector rasterizer.
+use super::layout::TextLayout;
+use super::raster::{Coverage, LineSink, Xform};
+use super::render::{color_in, draw};
 use super::warp::Warp;
 use photocraft_color::Color;
 use photocraft_doc::text::AntiAlias;
-use skrifa::instance::{LocationRef, NormalizedCoord, Size as FontSize};
-use skrifa::outline::DrawSettings;
-use skrifa::{GlyphId, MetadataProvider};
-/// Bends text-space lines with a [`Warp`], then maps them through `post` into `inner`.
-struct WarpSink<'a, S: LineSink> {
-    inner: &'a mut S,
-    warp: &'a Warp,
-    post: Xform,
-}
-
-impl<S: LineSink> LineSink for WarpSink<'_, S> {
-    fn line(&mut self, p0: (f64, f64), p1: (f64, f64)) {
-        let len = ((p1.0 - p0.0).powi(2) + (p1.1 - p0.1).powi(2)).sqrt();
-        let n = ((len / self.warp.max_segment()).ceil() as usize).clamp(1, 256);
-        let map = |t: f64| {
-            let (x, y) = self.warp.apply(p0.0 + (p1.0 - p0.0) * t, p0.1 + (p1.1 - p0.1) * t);
-            self.post.apply(x, y)
-        };
-        let mut a = map(0.0);
-        for i in 1..=n {
-            let b = map(i as f64 / n as f64);
-            self.inner.line(a, b);
-            a = b;
-        }
-    }
-}
-
-/// Draws every glyph and decoration of `layout` whose style colour is `color` (or all of them
-/// when `color` is `None`) into `sink`, through `transform` (text space → sink space), bending
-/// the outlines with `warp` first (in text space).
-fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>) {
-    for g in &layout.glyphs {
-        let st = &layout.styles[g.style as usize];
-        if only_color.is_some_and(|c| c != &st.color) {
-            continue;
-        }
-        let face = &layout.faces[g.face as usize];
-        let Ok(font) = skrifa::FontRef::from_index(face.font.data.as_ref(), face.font.index) else {
-            continue;
-        };
-        let Some(outline) = font.outline_glyphs().get(GlyphId::new(g.id)) else {
-            continue;
-        };
-        let coords: Vec<NormalizedCoord> = face.coords.iter().map(|&c| NormalizedCoord::from_bits(c)).collect();
-        let glyph = glyph_xform(layout, g, face.skew_deg);
-        let bold = st.faux_bold || face.embolden;
-        let r = (face.size_px * FAUX_BOLD_RADIUS) as f64;
-        let offsets: &[(f64, f64)] =
-            if bold { &[(-1.0, 0.0), (1.0, 0.0), (0.0, -1.0), (0.0, 1.0), (0.7, 0.7), (-0.7, -0.7), (0.7, -0.7), (-0.7, 0.7)] } else { &[(0.0, 0.0)] };
-        for &(ox, oy) in offsets {
-            let local = Xform([1.0, 0.0, 0.0, 1.0, ox * r, oy * r]).mul(&glyph);
-            let settings = DrawSettings::unhinted(FontSize::new(face.size_px), LocationRef::new(&coords));
-            match warp {
-                Some(w) => {
-                    let mut ws = WarpSink { inner: &mut *sink, warp: w, post: *transform };
-                    let mut pen = Pen::new(&mut ws, local);
-                    if outline.draw(settings, &mut pen).is_ok() {
-                        skrifa::outline::OutlinePen::close(&mut pen);
-                    }
-                }
-                None => {
-                    let mut pen = Pen::new(&mut *sink, transform.mul(&local));
-                    if outline.draw(settings, &mut pen).is_ok() {
-                        skrifa::outline::OutlinePen::close(&mut pen);
-                    }
-                }
-            }
-        }
-    }
-    for d in &layout.decorations {
-        let st = &layout.styles[d.style as usize];
-        if only_color.is_some_and(|c| c != &st.color) {
-            continue;
-        }
-        match warp {
-            Some(w) => {
-                let mut ws = WarpSink { inner: &mut *sink, warp: w, post: *transform };
-                rect_to(&mut ws, &Xform::IDENTITY, d.x0 as f64, d.y0 as f64, d.x1 as f64, d.y1 as f64);
-            }
-            None => rect_to(sink, transform, d.x0 as f64, d.y0 as f64, d.x1 as f64, d.y1 as f64),
-        }
-    }
-}
-
-/// Font units (scaled to px, y up) → text space for a placed glyph: scales, faux italic,
-/// baseline shift, and the vertical-type orientation.
-fn glyph_xform(layout: &TextLayout, g: &PlacedGlyph, face_skew_deg: f32) -> Xform {
-    let Some(st) = layout.styles.get(g.style as usize) else { return Xform([1.0, 0.0, 0.0, -1.0, g.x as f64, g.y as f64]) };
-    let hs = if st.horizontal_scale > 0.0 { st.horizontal_scale } else { 1.0 } as f64;
-    let vs = if st.vertical_scale > 0.0 { st.vertical_scale } else { 1.0 } as f64;
-    let skew_deg = if st.faux_italic { FAUX_ITALIC_DEG } else { 0.0 } + face_skew_deg;
-    let skew = (skew_deg as f64).to_radians().tan() * vs;
-    let shift = (st.baseline_shift_pt * layout.px_per_pt) as f64;
-    let (x, y) = (g.x as f64, g.y as f64);
-    match g.orient {
-        GlyphOrient::Horizontal => Xform([hs, 0.0, skew, -vs, x, y - shift]),
-        // Baseline shift moves upright glyphs in vertical type to the right.
-        GlyphOrient::Upright => Xform([hs, 0.0, skew, -vs, x + shift, y]),
-        // 90° clockwise: the glyph's up direction (and its baseline shift) points right.
-        GlyphOrient::Rotated => Xform([0.0, 1.0, -1.0, 0.0, x, y]).mul(&Xform([hs, 0.0, skew, -vs, 0.0, -shift])),
-    }
-}
-
-/// Colour components in `format`'s model (without alpha).
-fn color_in(format: &PixelFormat, c: &Color) -> Vec<f32> {
-    let n = format.mode.color_channels();
-    if c.mode == format.mode {
-        c.c[..n].to_vec()
-    } else {
-        let [r, g, b] = c.to_rgb();
-        let mut v = photocraft_raster::from_rgba(&PixelFormat { alpha: false, ..*format }, [r, g, b, 1.0]);
-        v.truncate(n);
-        v
-    }
-}
-
 #[derive(Clone, Copy)]
 struct ProjectedLine {
     a: (f64, f64),

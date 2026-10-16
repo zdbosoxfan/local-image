@@ -407,9 +407,8 @@ fn gradient_t(style: GradientStyle, angle: f32, scale: f32, reverse: bool, offse
 }
 
 /// Where a segment of relative position `u` lands once its midpoint is `m` (0.5 = unchanged):
-/// the colour is half-way at `m`, linear on either side. Mirrors the compositor's
-/// `gradient_fill::midpoint_remap`.
-fn midpoint_remap(u: f32, m: f32) -> f32 {
+/// the colour is half-way at `m`, linear on either side.
+pub fn midpoint_remap(u: f32, m: f32) -> f32 {
     let m = m.clamp(0.05, 0.95);
     if (m - 0.5).abs() < 1e-6 {
         u
@@ -438,7 +437,7 @@ fn sample_color(stops: &[(f32, [f32; 4])], mids: &[f32], t: f32) -> [f32; 4] {
 }
 
 /// Opacity stops at `t` (stops sorted by location; 1.0 when empty).
-fn sample_opacity(stops: &[(f32, f32)], t: f32) -> f32 {
+pub fn sample_opacity(stops: &[(f32, f32)], t: f32) -> f32 {
     let (Some(first), Some(last)) = (stops.first(), stops.last()) else { return 1.0 };
     if t <= first.0 {
         return first.1;

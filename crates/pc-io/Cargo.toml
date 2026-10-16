@@ -53,3 +53,4 @@ lightcraft-gpu = { workspace = true }
 photocraft-psd = { workspace = true, features = ["testgen"] }
 lightcraft-raw = { workspace = true, features = ["testgen"] }
 proptest = { workspace = true }
+li-testkit = { workspace = true }
