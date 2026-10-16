@@ -19,7 +19,7 @@ use std::collections::HashSet;
 mod conversion;
 pub(crate) use conversion::ordinary as ordinary_text_outlines;
 pub(crate) mod metadata;
-pub use conversion::{ConversionChoice, EnvelopeRequest, EnvelopeRouter, conversion_targets};
+pub use conversion::{ConversionChoice, EnvelopeRequest, conversion_targets};
 
 pub const MAX_TARGETS: usize = 1024;
 pub const MAX_CACHE_BYTES: u128 = 512 << 20;

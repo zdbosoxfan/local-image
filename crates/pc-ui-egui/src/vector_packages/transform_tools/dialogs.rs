@@ -213,19 +213,4 @@ impl State {
             }
         }
     }
-    pub fn preview_envelope(&mut self, s: &Session, router: &dyn engine::EnvelopeRouter) -> Result<(), String> {
-        let request = self.envelope_request.as_ref().ok_or("no envelope request")?;
-        request.transform.capture.check(s).map_err(|e| e.to_string())?;
-        self.preview = Some(router.preview(s, request).map_err(|e| e.to_string())?);
-        self.generation = self.generation.wrapping_add(1) | (1 << 59);
-        Ok(())
-    }
-    pub fn commit_envelope(&mut self, s: &mut Session, router: &dyn engine::EnvelopeRouter) -> Result<(), String> {
-        let request = self.envelope_request.as_ref().ok_or("no envelope request")?;
-        request.transform.capture.check(s).map_err(|e| e.to_string())?;
-        let ids = router.commit(s, request).map_err(|e| e.to_string())?;
-        self.cancel();
-        self.targets = ids;
-        Ok(())
-    }
 }
