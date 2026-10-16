@@ -125,7 +125,7 @@ fn run_helper(cmd: &mut std::process::Command, timeout: std::time::Duration) -> 
 }
 
 #[cfg(not(target_os = "macos"))]
-#[allow(dead_code)]
+#[cfg_attr(target_os = "linux", allow(dead_code))]
 fn detect() -> Detection {
     Err("this platform doesn't report display profiles".into())
 }
