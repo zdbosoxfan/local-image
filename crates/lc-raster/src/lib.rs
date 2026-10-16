@@ -14,21 +14,7 @@ pub mod resample;
 
 pub use histogram::Histogram;
 
-/// Run `f` over row chunks, in parallel when the `parallel` feature is on.
-pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
-    if row_len == 0 {
-        return;
-    }
-    #[cfg(feature = "parallel")]
-    {
-        use rayon::prelude::*;
-        data.par_chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
-    }
-    #[cfg(not(feature = "parallel"))]
-    {
-        data.chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
-    }
-}
+pub use li_raster::par_rows;
 
 /// Run `a` and `b` potentially in parallel (sequentially without the `parallel` feature). For
 /// independent passes that each scale poorly on their own (small images, short rows).
