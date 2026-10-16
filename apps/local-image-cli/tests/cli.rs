@@ -479,6 +479,21 @@ fn in_process_run_matches_binary() {
     assert!(String::from_utf8(out).unwrap().contains("file.new"));
 }
 
+/// The agent opt-ins are mode-specific: a flag that would have no effect is an error, not a
+/// silently ignored grant.
+#[test]
+fn mcp_opt_in_flags_match_the_mode() {
+    let token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let o = bin().args(["mcp", "--bridge", "127.0.0.1:9", "--control-token", token, "--allow-destructive"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--allow-destructive applies to the headless"), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = bin().args(["mcp", "--allow-cloud-ai"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(o.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("--allow-cloud-ai applies to --bridge"), "{}", String::from_utf8_lossy(&o.stderr));
+    let o = bin().args(["mcp", "--allow-destructive=yes"]).stdin(Stdio::null()).output().unwrap();
+    assert_eq!(o.status.code(), Some(2), "a bare flag takes no value");
+}
+
 #[test]
 fn mcp_stdio_handshake_and_tool_call() {
     let mut child = bin().arg("mcp").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
@@ -507,6 +522,9 @@ fn mcp_stdio_handshake_and_tool_call() {
     let tools = recv(2);
     let names: Vec<&str> = tools["result"]["tools"].as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
     assert!(names.contains(&"command_run") && names.contains(&"doc_render_preview"), "{names:?}");
+    for t in tools["result"]["tools"].as_array().unwrap() {
+        assert!(t["annotations"]["readOnlyHint"].is_boolean(), "{t}");
+    }
     send(json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"doc_new","arguments":{"width":8,"height":8}}}));
     let r = recv(3);
     assert_ne!(r["result"]["isError"], true, "{r}");
