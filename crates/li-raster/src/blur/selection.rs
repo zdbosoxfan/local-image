@@ -20,17 +20,7 @@
 fn par_rows<T: Send + Sync>(buf: &mut [T], w: usize, ch: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
     crate::par_rows(buf, w * ch, f);
 }
-fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
-    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
-    {
-        use rayon::prelude::*;
-        (0..n).into_par_iter().map(f).collect()
-    }
-    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
-    {
-        (0..n).map(f).collect()
-    }
-}
+use crate::par_map;
 
 /// Cosine terms in the wide-kernel series (5 gives ≈ 0.1/255 per pass; see the module docs).
 const TERMS: usize = 5;

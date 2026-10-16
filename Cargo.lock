@@ -4210,6 +4210,7 @@ dependencies = [
  "li-fs",
  "li-raster",
  "li-seg",
+ "li-testkit",
  "libc",
  "lightcraft-catalog",
  "lightcraft-codecs",
@@ -4352,6 +4353,7 @@ dependencies = [
 name = "lightcraft-raw"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "half",
  "jpeg-encoder",
  "li-color",
  "li-raster",
@@ -5747,6 +5749,7 @@ dependencies = [
 name = "photocraft-cms"
 version = "2.0.0-alpha.1"
 dependencies = [
+ "half",
  "li-color",
  "moxcms",
  "rayon",
@@ -5949,6 +5952,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
  "li-color",
+ "li-testkit",
  "lightcraft-codecs",
  "lightcraft-develop",
  "lightcraft-engine",
@@ -6161,6 +6165,7 @@ dependencies = [
  "egui",
  "egui_extras",
  "egui_kittest",
+ "half",
  "image",
  "li-ai",
  "li-attributions",

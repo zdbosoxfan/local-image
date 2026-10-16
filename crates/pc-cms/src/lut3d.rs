@@ -48,7 +48,7 @@ impl Lut3d {
         let mut o = Vec::with_capacity(self.data.len() * 8);
         for px in &self.data {
             for v in px {
-                o.extend_from_slice(&f32_to_f16(*v).to_le_bytes());
+                o.extend_from_slice(&half::f16::from_f32(*v).to_le_bytes());
             }
         }
         o
@@ -57,73 +57,5 @@ impl Lut3d {
     /// RGBA8 texels (for backends without float 3D textures).
     pub fn to_rgba8(&self) -> Vec<u8> {
         self.data.iter().flat_map(|p| p.map(|v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)).collect()
-    }
-}
-
-/// IEEE 754 binary16 bits of `v` (round to nearest even; overflow → ±inf, NaN kept).
-pub fn f32_to_f16(v: f32) -> u16 {
-    let x = v.to_bits();
-    let sign = ((x >> 16) & 0x8000) as u16;
-    let exp = ((x >> 23) & 0xFF) as i32;
-    let man = x & 0x7F_FFFF;
-    if exp == 0xFF {
-        return sign | 0x7C00 | if man != 0 { 0x200 } else { 0 };
-    }
-    let e = exp - 127 + 15;
-    if e >= 0x1F {
-        return sign | 0x7C00;
-    }
-    if e <= 0 {
-        if e < -10 {
-            return sign;
-        }
-        let m = man | 0x80_0000;
-        let shift = (14 - e) as u32;
-        let half = 1u32 << (shift - 1);
-        let rem = m & ((1 << shift) - 1);
-        let mut r = m >> shift;
-        if rem > half || (rem == half && r & 1 == 1) {
-            r += 1;
-        }
-        return sign | r as u16;
-    }
-    let mut r = ((e as u32) << 10) | (man >> 13);
-    let rem = man & 0x1FFF;
-    if rem > 0x1000 || (rem == 0x1000 && r & 1 == 1) {
-        r += 1;
-    }
-    sign | r as u16
-}
-
-/// binary16 bits → f32.
-pub fn f16_to_f32(h: u16) -> f32 {
-    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let e = ((h >> 10) & 0x1F) as i32;
-    let m = (h & 0x3FF) as f32;
-    match e {
-        0 => sign * m * 2f32.powi(-24),
-        0x1F => {
-            if m == 0.0 {
-                sign * f32::INFINITY
-            } else {
-                f32::NAN
-            }
-        }
-        _ => sign * (1.0 + m / 1024.0) * 2f32.powi(e - 15),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn half_float_roundtrip() {
-        for v in [0.0f32, 1.0, 0.5, 0.333, 1e-5, 65504.0, -2.25, 0.1] {
-            let back = f16_to_f32(f32_to_f16(v));
-            assert!((back - v).abs() <= v.abs() * 1e-3 + 1e-7, "{v} -> {back}");
-        }
-        assert_eq!(f32_to_f16(1.0), 0x3C00);
-        assert_eq!(f32_to_f16(1e6), 0x7C00);
     }
 }

@@ -1276,32 +1276,13 @@ fn f32_to_f16(v: f32) -> u16 {
     sign | h
 }
 
-/// IEEE 754 binary16 → binary32.
-#[cfg(not(target_arch = "wasm32"))]
-fn f16_to_f32(h: u16) -> f32 {
-    let sign = if h & 0x8000 != 0 { -1.0 } else { 1.0 };
-    let exp = i32::from((h >> 10) & 0x1f);
-    let man = f32::from(h & 0x3ff);
-    sign * match exp {
-        0 => man * 2f32.powi(-24),
-        0x1f => {
-            if man == 0.0 {
-                f32::INFINITY
-            } else {
-                f32::NAN
-            }
-        }
-        e => (1.0 + man / 1024.0) * 2f32.powi(e - 15),
-    }
-}
-
 /// One stored texel of `format` as f32 RGBA.
 #[cfg(not(target_arch = "wasm32"))]
 fn texel_to_f32(format: wgpu::TextureFormat, b: &[u8]) -> [f32; 4] {
     let mut o = [0.0f32; 4];
     for (i, v) in o.iter_mut().enumerate() {
         *v = if format == FORMAT_HIGH {
-            f16_to_f32(u16::from_le_bytes([b.get(i * 2).copied().unwrap_or(0), b.get(i * 2 + 1).copied().unwrap_or(0)]))
+            half::f16::from_le_bytes([b.get(i * 2).copied().unwrap_or(0), b.get(i * 2 + 1).copied().unwrap_or(0)]).to_f32()
         } else {
             f32::from(b.get(i).copied().unwrap_or(0)) / 255.0
         };
@@ -2870,7 +2851,7 @@ mod tests {
         // Every finite half survives the round trip; ties round to even; overflow saturates.
         for h in 0..=u16::MAX {
             if h & 0x7c00 != 0x7c00 && h != 0x8000 {
-                assert_eq!(f32_to_f16(f16_to_f32(h)), h, "{h:#06x}");
+                assert_eq!(f32_to_f16(half::f16::from_bits(h).to_f32()), h, "{h:#06x}");
             }
         }
         assert_eq!(f32_to_f16(1.0), 0x3c00);

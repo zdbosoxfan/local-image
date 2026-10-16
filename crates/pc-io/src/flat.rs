@@ -146,43 +146,9 @@ mod shared_decode_color_tests {
 mod desktop_photo_tests {
     use super::*;
 
-    // Constant-gray baseline JPEG: each 8x8 block needs only a one-bit DC difference
-    // and a one-bit EOB. The encoded fixture stays small without allocating source pixels.
-    fn constant_gray_jpeg(width: u16, height: u16) -> Vec<u8> {
-        fn segment(jpeg: &mut Vec<u8>, marker: u8, payload: &[u8]) {
-            jpeg.extend([0xff, marker]);
-            jpeg.extend(((payload.len() + 2) as u16).to_be_bytes());
-            jpeg.extend(payload);
-        }
-        let mut jpeg = vec![0xff, 0xd8];
-        let mut quant = vec![0];
-        quant.extend([1; 64]);
-        segment(&mut jpeg, 0xdb, &quant);
-        let mut frame = vec![8];
-        frame.extend(height.to_be_bytes());
-        frame.extend(width.to_be_bytes());
-        frame.extend([1, 1, 0x11, 0]);
-        segment(&mut jpeg, 0xc0, &frame);
-        let mut huffman = Vec::new();
-        for class in [0, 0x10] {
-            huffman.extend([class, 1]);
-            huffman.extend([0; 15]);
-            huffman.push(0);
-        }
-        segment(&mut jpeg, 0xc4, &huffman);
-        segment(&mut jpeg, 0xda, &[1, 1, 0, 0, 63, 0]);
-        let bits = (width as usize).div_ceil(8) * (height as usize).div_ceil(8) * 2;
-        jpeg.resize(jpeg.len() + bits.div_ceil(8), 0);
-        if !bits.is_multiple_of(8) {
-            *jpeg.last_mut().unwrap() = (1 << (8 - bits % 8)) - 1;
-        }
-        jpeg.extend([0xff, 0xd9]);
-        jpeg
-    }
-
     #[test]
     fn desktop_photo_import_preserves_full_resolution_above_generic_limit() {
-        let bytes = constant_gray_jpeg(8_000, 6_000);
+        let bytes = li_testkit::constant_gray_jpeg(8_000, 6_000);
         assert!(bytes.len() < 200_000);
         assert!(matches!(codecs::decode(&bytes), Err(codecs::CodecError::LimitExceeded(_))));
         let imported = crate::import("synthetic-48mp.jpg", &bytes).unwrap();
@@ -198,7 +164,7 @@ mod desktop_photo_tests {
 
     #[test]
     fn desktop_photo_import_rejects_over_budget_header_before_pixels() {
-        let mut bytes = constant_gray_jpeg(16_384, 8_193);
+        let mut bytes = li_testkit::constant_gray_jpeg(16_384, 8_193);
         let scan = bytes.windows(2).position(|pair| pair == [0xff, 0xda]).unwrap();
         bytes.truncate(scan + 11); // SOS header plus one byte: far too little image data.
         bytes.extend([0xff, 0xd9]);

@@ -40,6 +40,7 @@ egui_extras = { version = "0.36", default-features = false }
 egui_kittest = { version = "0.36" }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 getrandom = { version = "0.3" }
+half = { version = "2" }
 hex = { version = "0.4" }
 # Owner-approved vector bootstrap (architecture §2). Keep these exact pins and selected
 # features; xtask's optional vector-bootstrap anchors the lock until the adapters land.

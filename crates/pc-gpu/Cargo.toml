@@ -9,7 +9,7 @@ workspace = true
 
 [dependencies]
 li-gpu.workspace = true
-half = "2"
+half.workspace = true
 photocraft-geom = { workspace = true }
 photocraft-color = { workspace = true }
 photocraft-raster = { workspace = true }

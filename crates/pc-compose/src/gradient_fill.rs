@@ -10,6 +10,8 @@
 
 use photocraft_doc::{Fill, GradientStyle};
 use photocraft_geom::Rect;
+pub use photocraft_vector::midpoint_remap;
+use photocraft_vector::sample_opacity;
 
 use crate::effects::gradient_units;
 
@@ -52,19 +54,6 @@ impl Ramp {
     }
 }
 
-/// Where a segment of relative position `u` lands once its midpoint is `m` (0.5 = unchanged):
-/// the colour is half-way at `m`, linear on either side.
-pub fn midpoint_remap(u: f32, m: f32) -> f32 {
-    let m = m.clamp(0.05, 0.95);
-    if (m - 0.5).abs() < 1e-6 {
-        u
-    } else if u <= m {
-        0.5 * u / m
-    } else {
-        0.5 + 0.5 * (u - m) / (1.0 - m)
-    }
-}
-
 fn sample_color(stops: &[(f32, [f32; 4])], mids: &[f32], t: f32) -> [f32; 4] {
     let (Some(first), Some(last)) = (stops.first(), stops.last()) else { return [0.0; 4] };
     if t <= first.0 {
@@ -76,20 +65,6 @@ fn sample_color(stops: &[(f32, [f32; 4])], mids: &[f32], t: f32) -> [f32; 4] {
             let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
             let k = midpoint_remap(u, mids.get(i).copied().unwrap_or(0.5));
             return std::array::from_fn(|c| a.1[c] + (b.1[c] - a.1[c]) * k);
-        }
-    }
-    last.1
-}
-
-fn sample_opacity(stops: &[(f32, f32)], t: f32) -> f32 {
-    let (Some(first), Some(last)) = (stops.first(), stops.last()) else { return 1.0 };
-    if t <= first.0 {
-        return first.1;
-    }
-    for w in stops.windows(2) {
-        if t <= w[1].0 {
-            let u = if w[1].0 > w[0].0 { (t - w[0].0) / (w[1].0 - w[0].0) } else { 0.0 };
-            return w[0].1 + (w[1].1 - w[0].1) * u;
         }
     }
     last.1

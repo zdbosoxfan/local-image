@@ -65,14 +65,7 @@ impl SparseLs {
 
 /// Runs `f(y, row)` for every row of a `w × h × ch` buffer, in parallel on native targets.
 pub(crate) fn par_rows<T: Send + Sync>(buf: &mut [T], w: usize, ch: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
-    let stride = (w * ch).max(1);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use rayon::prelude::*;
-        buf.par_chunks_mut(stride).enumerate().for_each(|(y, row)| f(y, row));
-    }
-    #[cfg(target_arch = "wasm32")]
-    buf.chunks_mut(stride).enumerate().for_each(|(y, row)| f(y, row));
+    li_raster::par_rows(buf, (w * ch).max(1), f);
 }
 
 /// Like [`par_rows`] but over two row-aligned buffers in lockstep (e.g. index + pixels).
@@ -87,16 +80,7 @@ pub(crate) fn par_rows2<A: Send, B: Send>(a: &mut [A], b: &mut [B], w: usize, f:
     a.chunks_mut(s).zip(b.chunks_mut(s)).enumerate().for_each(|(y, (ar, br))| f(y, ar, br));
 }
 
-/// Maps `f` over `0..n` (in parallel on native targets), keeping order.
-pub(crate) fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use rayon::prelude::*;
-        (0..n).into_par_iter().map(f).collect()
-    }
-    #[cfg(target_arch = "wasm32")]
-    (0..n).map(f).collect()
-}
+pub(crate) use li_raster::par_map;
 
 /// Deterministic 64-bit generator (SplitMix64).
 #[cfg(test)]
@@ -122,15 +106,7 @@ pub(crate) fn hash01(x: i64, y: i64, seed: u64) -> f32 {
     (z >> 40) as f32 / (1u64 << 24) as f32
 }
 
-/// sRGB transfer function, decode (extended linearly below 0 and as a power above 1).
-pub(crate) fn srgb_to_linear(v: f32) -> f32 {
-    li_color::transfer::srgb_to_linear(v)
-}
-
-/// sRGB transfer function, encode.
-pub(crate) fn linear_to_srgb(v: f32) -> f32 {
-    li_color::transfer::linear_to_srgb(v)
-}
+pub(crate) use li_color::transfer::{linear_to_srgb, srgb_to_linear};
 
 /// Bilinear sample of channel `c` of a `w × h × ch` buffer, clamped to the edges.
 #[cfg(test)]

@@ -23,6 +23,18 @@ pub fn par_rows<T: Send>(data: &mut [T], row_len: usize, f: impl Fn(usize, &mut 
         data.chunks_mut(row_len).enumerate().for_each(|(y, row)| f(y, row));
     }
 }
+/// Maps `f` over `0..n`, keeping order; sequential on wasm or without the parallel feature.
+pub fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
+    #[cfg(all(feature = "parallel", not(target_arch = "wasm32")))]
+    {
+        use rayon::prelude::*;
+        (0..n).into_par_iter().map(f).collect()
+    }
+    #[cfg(any(not(feature = "parallel"), target_arch = "wasm32"))]
+    {
+        (0..n).map(f).collect()
+    }
+}
 /// Half-open raster region in document pixel coordinates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Region {
