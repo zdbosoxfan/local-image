@@ -1,0 +1,121 @@
+   Compiling bytemuck v1.25.2
+   Compiling smallvec v1.16.2
+   Compiling arrayvec v0.7.8
+   Compiling thiserror v2.0.21
+   Compiling tracing v0.1.44
+   Compiling profiling-procmacros v1.0.18
+   Compiling serde v1.0.229
+   Compiling parking_lot_core v0.9.12
+   Compiling jxl-bitstream v1.1.0
+   Compiling serde_json v1.0.151
+   Compiling jxl-grid v0.6.2
+   Compiling parking_lot v0.12.5
+   Compiling jxl-oxide-common v1.0.0
+   Compiling minijinja v2.24.0
+   Compiling jxl-coding v1.0.1
+   Compiling jxl-threadpool v1.0.0
+   Compiling tract-data v0.23.8
+   Compiling equator-macro v0.4.2
+   Compiling naga-types v30.0.1
+   Compiling profiling v1.0.18
+   Compiling jxl-modular v0.11.3
+   Compiling jxl-image v0.13.0
+   Compiling polycool v0.4.0
+   Compiling stable_deref_trait v1.2.1
+   Compiling as-slice v0.2.1
+   Compiling wgpu-types v30.0.1
+   Compiling naga v30.0.1
+   Compiling jxl-vardct v0.11.1
+   Compiling equator v0.4.2
+   Compiling aligned-vec v0.6.4
+   Compiling v_frame v0.3.9
+   Compiling kurbo v0.13.1
+   Compiling font-types v0.12.5
+   Compiling color v0.3.3
+   Compiling gpu-allocator v0.28.0
+   Compiling peniko v0.6.1
+   Compiling read-fonts v0.41.0
+   Compiling jxl-frame v0.13.3
+   Compiling aligned v0.4.3
+   Compiling rgb v0.8.53
+   Compiling wgpu-naga-bridge v30.0.1
+   Compiling ahash v0.8.12
+   Compiling arg_enum_proc_macro v0.3.4
+   Compiling fearless_simd v0.4.1
+   Compiling float-cmp v0.9.0
+   Compiling strict-num v0.1.1
+   Compiling av-scenechange v0.14.1
+   Compiling wgpu-hal v30.0.1
+   Compiling vello_common v0.1.0
+   Compiling image v0.25.10
+   Compiling tract-linalg v0.23.8
+   Compiling av1-grain v0.2.5
+   Compiling jxl-color v0.11.0
+   Compiling lightcraft-tiff v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-tiff)
+   Compiling num-derive v0.4.2
+   Compiling emath v0.36.2
+   Compiling tiny-skia-path v0.11.4
+   Compiling ecolor v0.36.2
+   Compiling lightcraft-meta v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-meta)
+   Compiling rav1e v0.8.1
+   Compiling jxl-render v0.12.4
+   Compiling tract-core v0.23.8
+   Compiling jxl-jbr v0.2.1
+   Compiling vello_cpu v0.1.0
+   Compiling wgpu-core-deps-windows-linux-android v30.0.1
+   Compiling skrifa v0.44.0
+   Compiling harfrust v0.12.0
+   Compiling tract-nnef v0.23.8
+   Compiling tract-hir v0.23.8
+   Compiling tract-extra v0.23.8
+   Compiling tract-onnx-opl v0.23.8
+   Compiling tract-transformers v0.23.8
+   Compiling lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-develop)
+   Compiling avif-serialize v0.8.9
+   Compiling kurbo v0.11.3
+   Compiling winnow v1.0.4
+   Compiling uuid v1.26.1
+   Compiling accesskit v0.24.1
+   Compiling epaint v0.36.2
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling tract-onnx v0.23.8
+   Compiling photocraft-color v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-color)
+   Compiling svgtypes v0.15.3
+   Compiling ravif v0.13.0
+   Compiling wgpu-core v30.0.1
+   Compiling jxl-oxide v0.12.6
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling photocraft-geom v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-geom)
+   Compiling toml v1.1.6+spec-1.1.0
+   Compiling wgpu v30.0.1
+   Compiling usvg v0.45.1
+   Compiling photocraft-raster v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-raster)
+   Compiling lightcraft-codecs v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-codecs)
+   Compiling li-seg v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/li-seg)
+   Compiling egui v0.36.2
+   Compiling tiny-skia v0.11.4
+   Compiling lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-pipeline)
+   Compiling lightcraft-raw v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-raw)
+   Compiling li-attributions v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/li-attributions)
+   Compiling enum-map-derive v0.17.0
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-catalog)
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-gpu)
+   Compiling enum-map v2.7.3
+   Compiling lightcraft-merge v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-merge)
+   Compiling resvg v0.45.1
+   Compiling lensfun v0.7.0
+   Compiling photocraft-algo v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-algo)
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-ui-egui)
+   Compiling lightcraft-preview v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-preview)
+   Compiling egui_extras v0.36.2
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-engine)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 56s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_ui_egui-5bc96e08ca179c9c)
+
+running 1 test
+Library shutdown completed on NVIDIA GeForce RTX 5090 (Vulkan)
+test tool_icon_tests::library_shutdown_waits_for_kernel_warm_up_even_without_a_photo ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 267 filtered out; finished in 2.32s
+

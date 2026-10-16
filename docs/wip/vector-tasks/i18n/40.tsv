@@ -1,0 +1,15 @@
+context	English	note
+blob40	Blob Brush	Tool/history label; blobBrush; Shift+B
+blob40	Vector Eraser	Tool/history label; vectorEraser; Shift+E
+blob40	Size	Tip diameter in document units
+blob40	Angle	Tip angle; degrees counter-clockwise
+blob40	Roundness	Minor-to-major tip axis ratio
+blob40	Pressure	Stylus diameter modulation
+blob40	Fidelity	Freehand smoothing
+blob40	Tolerance	Fitting error in document pixels
+blob40	Rope length	Stabilizer length in document pixels
+blob40	Keep Selected	Blob selection option
+blob40	Merge Only with Selection	Blob merging option
+blob40	Alt-drag to erase a rectangle	Eraser context instruction
+blob40	Text and symbols excluded	Eraser status
+blob40	Vector Eraser does not erase text or symbol instances. Convert or detach them first.	Exclusion tooltip

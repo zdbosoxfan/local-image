@@ -1,0 +1,16 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Liquify Reconstruct All: a double undo arrow. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="M8 14 3 9l5-5" />
+  <path d="M12 14 7 9l5-5" />
+  <path d="M7 9h8.5a5.5 5.5 0 0 1 0 11H11" />
+</svg>

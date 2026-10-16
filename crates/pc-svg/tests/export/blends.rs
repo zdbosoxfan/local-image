@@ -1,0 +1,215 @@
+use super::*;
+use photocraft_doc::BlendMode;
+
+fn shape(doc: &Document, name: &str, xywh: (f64, f64, f64, f64), color: Color) -> Layer {
+    let mut shape = ShapeLayer { path: photocraft_vector::shapes::rect(xywh.0, xywh.1, xywh.2, xywh.3), fill: Some(Fill::Solid(color)), ..Default::default() };
+    shape.cache = Some(photocraft_vector::render_shape(&shape, doc.pixel_format(), doc.bounds()));
+    Layer::new(name, LayerContent::Shape(shape))
+}
+fn fixture(mode: BlendMode) -> Document {
+    let mut doc = Document::new("Native blends", Size::new(256, 256), ColorMode::Rgb, SampleType::U8);
+    doc.resolution_dpi = 96.;
+    doc.layers.push(shape(&doc, "Backdrop", (0., 0., 256., 256.), Color::rgb(0.22, 0.53, 0.81)));
+    for i in 0..20 {
+        doc.layers.push(shape(
+            &doc,
+            "Retained vector",
+            (8. + f64::from(i % 5) * 46., 8. + f64::from(i / 5) * 45., 32., 28.),
+            Color::rgb(0.12 + (i % 3) as f32 * 0.3, 0.25, 0.65),
+        ));
+    }
+    let mut text = photocraft_doc::TextLayer {
+        text: "Vector type".into(),
+        font_family: "Inter".into(),
+        size_pt: 16.,
+        color: Color::BLACK,
+        transform: photocraft_doc::Affine::translate(30., 228.),
+        ..Default::default()
+    };
+    photocraft_text::TextEngine::new().render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+    doc.layers.push(Layer::new("Retained type", LayerContent::Text(text)));
+    let mut color = Color::rgb(0.78, 0.18, 0.37);
+    color.alpha = 0.8;
+    let mut top = shape(&doc, "Blend", (25., 26., 190., 145.), color);
+    top.blend = mode;
+    top.opacity = 0.7;
+    top.fill_opacity = 0.8;
+    doc.layers.push(top);
+    doc
+}
+const MODES: [BlendMode; 14] = [
+    BlendMode::Multiply,
+    BlendMode::Screen,
+    BlendMode::Overlay,
+    BlendMode::Darken,
+    BlendMode::Lighten,
+    BlendMode::ColorDodge,
+    BlendMode::ColorBurn,
+    BlendMode::HardLight,
+    BlendMode::Difference,
+    BlendMode::Exclusion,
+    BlendMode::Hue,
+    BlendMode::Saturation,
+    BlendMode::Color,
+    BlendMode::Luminosity,
+];
+
+#[test]
+fn native_blends_preserve_vectors_text_and_rendering() {
+    for mode in MODES {
+        let doc = fixture(mode);
+        assert_native(&doc, false, &format!("native-blend-{mode:?}"));
+    }
+}
+#[test]
+fn native_blends_preserve_group_isolation_and_pass_through() {
+    let mut base = fixture(BlendMode::Multiply);
+    let first = base.layers.pop().unwrap();
+    let mut second = shape(&base, "Screen child", (90., 70., 145., 120.), Color::rgb(0.1, 0.72, 0.31));
+    second.blend = BlendMode::Screen;
+    let mut passthrough_pixels = None;
+    for (mode, fill) in [(BlendMode::PassThrough, 1.), (BlendMode::Normal, 1.), (BlendMode::Multiply, 0.75), (BlendMode::PassThrough, 0.75)] {
+        let mut doc = base.clone();
+        let mut group = Layer::group("Blend group", vec![first.clone(), second.clone()]);
+        group.blend = mode;
+        group.fill_opacity = fill;
+        if mode == BlendMode::Multiply {
+            group.opacity = 0.65;
+        }
+        doc.layers.push(group);
+        let pixels = photocraft_compose::flatten(&doc).to_rgba8().pixels;
+        if mode == BlendMode::PassThrough && fill == 1. {
+            passthrough_pixels = Some(pixels.clone());
+        }
+        if mode == BlendMode::Normal {
+            assert_ne!(passthrough_pixels.as_ref().unwrap(), &pixels, "fixture must distinguish group isolation");
+        }
+        assert_native(&doc, false, &format!("native-group-{mode:?}-{fill}"));
+    }
+}
+#[test]
+fn native_blends_apply_to_raster_source_once() {
+    for mode in [BlendMode::Multiply, BlendMode::Screen] {
+        let mut doc = fixture(mode);
+        let top = doc.layers.last_mut().unwrap();
+        let LayerContent::Shape(shape) = &top.content else { panic!() };
+        top.content = LayerContent::Raster(shape.cache.clone().unwrap());
+        let mut mask = photocraft_doc::LayerMask::reveal_all();
+        mask.density = 0.65;
+        mask.surface.fill_rect(photocraft_doc::Rect::new(50, 20, 110, 180), &[0.]);
+        top.mask = Some(mask);
+        assert_native(&doc, true, &format!("native-raster-blend-{mode:?}"));
+    }
+}
+#[test]
+fn unsupported_compositions_keep_warned_visual_fallback() {
+    for kind in ["soft-light", "linear-dodge", "blend-if", "adjustment", "clipping", "effect-blend"] {
+        let mut doc = fixture(BlendMode::Multiply);
+        let top = doc.layers.last_mut().unwrap();
+        match kind {
+            "soft-light" => top.blend = BlendMode::SoftLight,
+            "linear-dodge" => top.blend = BlendMode::LinearDodge,
+            "blend-if" => top.blend_if.set(0, [photocraft_doc::BlendRange::FULL, photocraft_doc::BlendRange { black: [60, 130], white: [200, 240] }]),
+            "adjustment" => doc.layers.push(Layer::new("Invert", LayerContent::Adjustment(photocraft_doc::Adjustment::Invert))),
+            "clipping" => top.clipped = true,
+            "effect-blend" => top.effects.items.push(photocraft_doc::Effect::default_drop_shadow()),
+            _ => unreachable!(),
+        }
+        assert_fallback(&doc, &format!("unsupported-{kind}"));
+    }
+}
+
+fn result(doc: &Document) -> photocraft_doc::vector_design::exchange::ExportedVector {
+    export::export(doc, &ExportScope::Document, &ExportOptions { text_as_curves: true, ..Default::default() }).unwrap()
+}
+fn assert_native(doc: &Document, raster: bool, label: &str) {
+    let out = result(doc);
+    assert!(!out.warnings.iter().any(|w| w.feature == "compositing"), "{label}: {:?}", out.warnings);
+    let source = String::from_utf8(out.bytes).unwrap();
+    let parsed = xml(&source);
+    assert!(parsed.descendants().filter(|n| n.has_tag_name("path")).count() >= 22, "vectors and outlined type remain: {label}");
+    assert_eq!(parsed.descendants().filter(|n| n.has_tag_name("image")).count(), usize::from(raster));
+    assert!(source.contains("mix-blend-mode:"));
+    assert_raster_oracle_svg(doc, &source, label);
+}
+fn assert_fallback(doc: &Document, label: &str) {
+    let out = result(doc);
+    assert!(out.warnings.iter().any(|w| w.feature == "compositing"), "{label}");
+    let source = String::from_utf8(out.bytes).unwrap();
+    let parsed = xml(&source);
+    assert_eq!(parsed.descendants().filter(|n| n.has_tag_name("image")).count(), 1);
+    assert!(!parsed.descendants().any(|n| n.has_tag_name("path")));
+    assert_raster_oracle_svg(doc, &source, label);
+}
+
+#[test]
+fn explicit_group_isolation_keeps_vector_isolated_output_and_backdrop_safe_fallback() {
+    let mut doc = scene(photocraft_vector::shapes::rect(20., 20., 80., 80.), Fill::Solid(Color::rgb(0.7, 0.3, 0.5)));
+    let child = doc.layers.pop().unwrap();
+    let mut group = Layer::group("isolated", vec![child]);
+    if let LayerContent::Group(g) = &mut group.content {
+        g.isolation = photocraft_doc::GroupIsolation::Isolated;
+    }
+    let id = group.id;
+    doc.layers.push(group);
+    let text = svg(&doc);
+    assert!(text.contains("isolation:isolate"));
+    assert!(!text.contains("<image"));
+    assert_oracle_svg(&doc, &text, "explicit-isolated-vector");
+    let LayerContent::Group(g) = &mut doc.layers[0].content else { panic!("group") };
+    g.isolation = photocraft_doc::GroupIsolation::NonIsolated;
+    doc.layers[0].blend = BlendMode::Multiply;
+    let before = doc.clone();
+    let text = svg(&doc);
+    assert!(text.contains("<image"));
+    assert_raster_oracle_svg(&doc, &text, "explicit-nonisolated-document");
+    assert!(export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).is_err());
+    assert_eq!(doc, before);
+}
+
+#[test]
+fn normal_nonisolated_legacy_subset_keeps_native_vectors_and_safe_partial_scope() {
+    let mut doc = scene(photocraft_vector::shapes::rect(0., 0., 256., 256.), Fill::Solid(Color::rgb(0.2, 0.4, 0.6)));
+    let mut child = shape(&doc, "multiply", (16., 16., 48., 48.), Color::rgb(0.8, 0.6, 0.4));
+    child.blend = BlendMode::Multiply;
+    let mut g = Layer::group("normal nonisolated", vec![child]);
+    g.blend = BlendMode::Normal;
+    if let LayerContent::Group(group) = &mut g.content {
+        group.isolation = photocraft_doc::GroupIsolation::NonIsolated;
+    }
+    let id = g.id;
+    doc.layers.push(g);
+    let original = doc.clone();
+    let text = svg(&doc);
+    assert!(!text.contains("<image"));
+    assert_oracle_svg(&doc, &text, "legacy-normal-nonisolated-vector");
+    assert!(export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).is_ok());
+    doc.layers[1].opacity = 0.6;
+    assert!(export::export(&doc, &ExportScope::Selection(vec![id]), &ExportOptions::default()).is_err(), "partial raster fallback must not discard B");
+    doc.layers[1].opacity = 1.0;
+    assert_eq!(doc, original);
+}
+
+#[test]
+fn pass_through_masked_group_of_normal_children_keeps_native_clip_path() {
+    // A pass-through group (e.g. Make Clipping Mask) with opacity and a vector mask whose
+    // children all paint Normal equals an isolated group, so it stays a native <clipPath>.
+    let mut doc = fixture(BlendMode::Normal);
+    let top = doc.layers.pop().unwrap();
+    let second = shape(&doc, "Second", (90., 70., 145., 120.), Color::rgb(0.1, 0.72, 0.31));
+    let mut group = Layer::group("Clipping Group", vec![top, second]);
+    assert_eq!(group.blend, BlendMode::PassThrough);
+    group.vector_mask = Some(photocraft_doc::VectorMask::new(photocraft_vector::shapes::rect(40., 40., 150., 110.)));
+    group.opacity = 0.8;
+    doc.layers.push(group);
+    let out = result(&doc);
+    assert!(!out.warnings.iter().any(|w| w.feature == "compositing"), "{:?}", out.warnings);
+    let source = String::from_utf8(out.bytes).unwrap();
+    assert!(source.contains("<clipPath") && source.contains("clip-path="), "native clip");
+    assert!(!source.contains("<image"));
+    assert_raster_oracle_svg(&doc, &source, "pass-through-clip-normal");
+    // a Multiply child composites with the backdrop through the pass-through group: fallback
+    let LayerContent::Group(g) = &mut doc.layers.last_mut().unwrap().content else { unreachable!() };
+    g.children[1].blend = BlendMode::Multiply;
+    assert_fallback(&doc, "pass-through-clip-multiply");
+}

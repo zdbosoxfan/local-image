@@ -1,0 +1,24 @@
+[package]
+name = "li-testkit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared Local Image UI test toolkit: deterministic CPU egui rasteriser (softpaint), a kittest renderer on it, and one strict hardware-GPU test prelude"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+# `SoftpaintRenderer`: egui_kittest screenshots on the CPU, no GPU or window.
+kittest = ["dep:egui_kittest", "dep:image"]
+# `gpu::hardware_device`: the one strict real-GPU test prelude (Vulkan or Apple Metal).
+gpu = ["dep:wgpu", "dep:pollster"]
+
+[dependencies]
+egui.workspace = true
+egui_kittest = { workspace = true, optional = true, features = ["snapshot"] }
+image = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+rayon.workspace = true

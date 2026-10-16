@@ -1,0 +1,75 @@
+[package]
+name = "photocraft-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+svg-import-integrated = ["photocraft-svg/svg-import-integrated"]
+pdf-import-integrated = []
+# Real-file corpus tests (opt-in; `cargo xtask test-corpus`). Fail when the corpus is missing.
+corpus = []
+
+[dependencies]
+li-commands.workspace = true
+# The shared crash-safe file writer (atomic replace, staged writes).
+li-fs.workspace = true
+li-keys = { workspace = true }
+lightcraft-meta.workspace = true
+li-color.workspace = true
+photocraft-vecfx.workspace = true
+photocraft-affinity.workspace = true
+photocraft-pdf.workspace = true
+photocraft-svg.workspace = true
+pc-trace.workspace = true
+# local-image: AI services (ComfyUI client, workflows) and the image buffers they use.
+li-ai = { workspace = true }
+li-seg = { workspace = true }
+li-raster = { path = "../li-raster" }
+li-matte = { path = "../li-matte" }
+lightcraft-merge = { workspace = true }
+# local-image: thread priority classes for job workers (jobs.rs).
+lightcraft-sysmem = { workspace = true }
+image = { workspace = true }
+anyhow = "1"
+photocraft-geom = { workspace = true }
+photocraft-color = { workspace = true }
+photocraft-cms = { workspace = true }
+photocraft-raster = { workspace = true }
+photocraft-doc = { workspace = true }
+photocraft-ops = { workspace = true }
+photocraft-compose = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+rayon = { workspace = true }
+photocraft-paint = { workspace = true }
+photocraft-algo = { workspace = true }
+photocraft-text = { workspace = true }
+photocraft-pathops.workspace = true
+photocraft-vector = { workspace = true }
+photocraft-io = { workspace = true }
+photocraft-psd = { workspace = true }
+photocraft-format = { workspace = true }
+photocraft-plugins = { workspace = true }
+blake3 = { version = "1.8", default-features = false, features = ["pure"] }
+photocraft-codecs = { workspace = true }
+flate2 = { workspace = true }
+
+[dev-dependencies]
+# Cross-surface LUT domain interpretation must match Develop.
+lightcraft-pipeline = { workspace = true }
+# Synthetic camera raw files for the open tests.
+lightcraft-raw = { workspace = true, features = ["testgen"] }
+# WebAssembly text -> binary for plug-in test modules (Apache-2.0 WITH LLVM-exception).
+wat = "1.228"
+
+# Existing locked crates: real-GPU verification of the vector transaction/cache boundary.
+photocraft-gpu = { workspace = true }
+wgpu = { workspace = true }
+pollster = { workspace = true }
+# The one strict real-GPU test prelude (Vulkan, or Metal on macOS) shared by the GPU gates (J7).
+li-testkit = { workspace = true, features = ["gpu"] }

@@ -1,0 +1,74 @@
+{
+  "conflicts": [
+    "crates/pc-engine/src/align_cmds.rs",
+    "crates/pc-engine/src/pathops_cmds.rs",
+    "crates/pc-engine/src/prefs.rs",
+    "crates/pc-engine/src/prefs/tests.rs",
+    "crates/pc-engine/src/transform_cmds.rs",
+    "crates/pc-engine/src/vector_packages/clip_compound.rs",
+    "crates/pc-engine/src/vector_packages/clip_compound/tests.rs",
+    "crates/pc-engine/src/vector_packages/constructive.rs",
+    "crates/pc-engine/src/vector_packages/constructive/tests.rs",
+    "crates/pc-engine/src/vector_packages/expand/tests.rs",
+    "crates/pc-engine/src/vector_packages/node.rs",
+    "crates/pc-engine/src/vector_packages/node/tests.rs",
+    "crates/pc-engine/src/vector_packages/pen/tests.rs",
+    "crates/pc-engine/src/vector_packages/pencil/tests.rs",
+    "crates/pc-engine/src/vector_packages/snapping/tests.rs",
+    "crates/pc-engine/src/vector_packages/styles/tests.rs",
+    "crates/pc-engine/src/vector_packages/symbols/tests.rs",
+    "crates/pc-engine/src/vector_snap.rs"
+  ],
+  "ports": {
+    "crates/pc-engine/src/align_cmds.rs": [
+      "dsfix_v059_spacing_uses_farthest_edge_on_both_axes"
+    ],
+    "crates/pc-engine/src/pathops_cmds.rs": [
+      "dsfix_v044_boolean_op_rejects_present_nonstrings"
+    ],
+    "crates/pc-engine/src/prefs/tests.rs": [
+      "dsfix_v029_default_persona_preferences_are_addressable",
+      "dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona"
+    ],
+    "crates/pc-engine/src/transform_cmds.rs": [
+      "dsfix_v026_symbol_linked_mask_moves_whole_with_selection"
+    ],
+    "crates/pc-engine/src/vector_packages/clip_compound/tests.rs": [
+      "dsfix_v111_release_rejects_density_and_feather_without_mutating_source"
+    ],
+    "crates/pc-engine/src/vector_packages/constructive/tests.rs": [
+      "dsfix_v122_v123_split_and_erase_preserve_fill_semantics"
+    ],
+    "crates/pc-engine/src/vector_packages/expand/tests.rs": [
+      "dsfix_v102_expand_availability_reuses_preparation_and_invalidates"
+    ],
+    "crates/pc-engine/src/vector_packages/node/tests.rs": [
+      "dsfix_v137_indexed_provenance_keeps_coincident_and_signed_zero_rules"
+    ],
+    "crates/pc-engine/src/vector_packages/pen/tests.rs": [
+      "dsfix_v187_begin_new_subpath_checks_knot_budget_but_allows_endpoint",
+      "dsfix_v188_zero_length_line_release_changes_generation"
+    ],
+    "crates/pc-engine/src/vector_packages/pencil/tests.rs": [
+      "dsfix_v149_sculpt_equal_endpoints_fail_at_capture_for_open_and_closed_paths"
+    ],
+    "crates/pc-engine/src/vector_packages/snapping/tests.rs": [
+      "dsfix_v204_curve_nearest_skips_distant_bounds_but_keeps_tolerance_edge"
+    ],
+    "crates/pc-engine/src/vector_packages/styles/tests.rs": [
+      "dsfix_v170_raw_effects_budget_precedes_serialization"
+    ],
+    "crates/pc-engine/src/vector_packages/symbols/tests.rs": [
+      "dsfix_v172_symbol_placement_ignores_locked_sibling_descendants",
+      "dsfix_v199_minimal_symbol_render_matches_full_document_compositor"
+    ]
+  },
+  "decisions": [
+    "Retain current far-edge spacing, strict boolean validation, canonical persona toolbar aliases/reset, symbol-mask mapping, density/feather rejection, constructive SubpathOp plus fill semantics, indexed provenance, control-bound curve culling.",
+    "Keep automatically ported missing Expand availability and envelope background caches and their tests.",
+    "V060 strengthens existing knot-count assertions without weakening quantization tolerance.",
+    "V137 restore source NaN non-equality guard without replacing current index.",
+    "V165 keep required hardware test active; do not add source default ignore.",
+    "V132 remains an unimplemented source proposal; V158 saved app test registration/hardware verdict still pending."
+  ]
+}

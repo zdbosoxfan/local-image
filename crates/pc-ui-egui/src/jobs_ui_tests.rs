@@ -1,0 +1,504 @@
+//! UI tests for background jobs (#210): the whole app (eframe harness, CPU canvas) keeps
+//! rendering frames while a slow job runs, shows the status-bar progress and the modal progress
+//! dialog, and Esc / Cancel leave the document unchanged.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use egui::vec2;
+use egui_kittest::Harness;
+use egui_kittest::kittest::Queryable;
+use photocraft_engine::jobs::{JobId, Started};
+use serde_json::{Value, json};
+
+use crate::PhotocraftApp;
+
+fn app_harness() -> Harness<'static, PhotocraftApp> {
+    let mut h = Harness::builder().with_size(vec2(1280.0, 800.0)).with_max_steps(8).build_eframe(|cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 320, "height": 240})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"color": "#3366cc"})).unwrap();
+        let mut app = PhotocraftApp::new(s, crate::Services::default());
+        app.background_jobs = true;
+        app
+    });
+    h.run_steps(4);
+    h
+}
+
+/// A fake document job that runs until `gate` opens (or it is cancelled), reporting 40 %.
+fn slow_job(app: &mut PhotocraftApp, gate: &Arc<AtomicBool>) -> JobId {
+    let gate = gate.clone();
+    let r = app
+        .session
+        .start_job(
+            "test.slow",
+            json!({}),
+            "Slow Filter",
+            true,
+            move |ctx| {
+                ctx.report(0.4, "Filtering tiles");
+                while !gate.load(Ordering::Relaxed) {
+                    ctx.check()?;
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                Ok(())
+            },
+            |s, ()| {
+                s.edit("Slow Filter", |_, _| Ok(()))?;
+                Ok(json!({"slow": true}))
+            },
+        )
+        .unwrap();
+    match r {
+        Started::Job(id) => id,
+        Started::Done(v) => panic!("ran inline: {v}"),
+    }
+}
+
+/// Step frames for `ms` of wall time; returns (frames, slowest frame in ms).
+fn frames_for(h: &mut Harness<'_, PhotocraftApp>, ms: u64) -> (u64, f64) {
+    let t = Instant::now();
+    let (mut n, mut worst) = (0, 0.0f64);
+    while t.elapsed() < Duration::from_millis(ms) {
+        let f = Instant::now();
+        h.step();
+        worst = worst.max(f.elapsed().as_secs_f64() * 1000.0);
+        n += 1;
+    }
+    (n, worst)
+}
+
+#[test]
+fn the_frame_loop_keeps_running_during_a_slow_job_and_esc_cancels_it() {
+    let mut h = app_harness();
+    let gate = Arc::new(AtomicBool::new(false));
+    let doc_before = h.state().session.active().unwrap().doc.clone();
+    let job = slow_job(h.state_mut(), &gate);
+    let frame0 = h.state().frame;
+    let (n, worst) = frames_for(&mut h, 400);
+    assert!(h.state().frame - frame0 >= 10, "the UI kept rendering ({n} frames)");
+    eprintln!("{n} frames during the job, slowest {worst:.1} ms");
+    // The status bar shows the job, and after the delay the modal progress dialog.
+    assert!(h.query_all_by_label("Slow Filter").count() >= 2, "job label in the status bar and the dialog title");
+    assert!(h.query_by_label("Cancel").is_some(), "the progress dialog's Cancel");
+    assert!(h.query_by_label("Filtering tiles").is_some(), "the job's status message");
+    // Commands that would edit the busy document are disabled with a clear reason.
+    assert!(!h.state().session.is_enabled("layer.new.layer"));
+    let err = h.state_mut().run("layer.new.layer", json!({})).unwrap_err();
+    assert!(err.contains("Slow Filter"), "{err}");
+    // Esc cancels; the document is untouched.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(h.state().session.job(job).is_none());
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc_before));
+    assert!(h.state().ui.status.contains("Cancelled"), "{}", h.state().ui.status);
+    assert!(h.query_by_label("Esc to cancel").is_none(), "the dialog closed");
+}
+
+/// Upstream be877c27 (#3961): a job started from a menu or dialog after the frame's initial
+/// `jobs_ui::tick` must still schedule a poll, or an idle Wayland event loop leaves the document
+/// locked after the worker finishes and blocks Edit › Undo / Redo until the mouse moves.
+#[test]
+fn a_job_started_while_drawing_requests_the_follow_up_poll() {
+    let mut h = app_harness();
+    let gate = Arc::new(AtomicBool::new(false));
+    let job = slow_job(h.state_mut(), &gate);
+    let repaints = Arc::new(AtomicUsize::new(0));
+    let seen = repaints.clone();
+    h.ctx.set_request_repaint_callback(move |_| {
+        seen.fetch_add(1, Ordering::Relaxed);
+    });
+    assert!(crate::jobs_ui::keep_polling(h.state(), &h.ctx));
+    assert_eq!(repaints.load(Ordering::Relaxed), 1);
+    crate::jobs_ui::cancel(h.state_mut(), job);
+    h.run_steps(2);
+}
+
+#[test]
+fn a_finished_job_lands_as_one_undo_step_and_the_dialog_cancel_button_works() {
+    let mut h = app_harness();
+    let gate = Arc::new(AtomicBool::new(false));
+    let steps = h.state().session.active().unwrap().history.past_len();
+    slow_job(h.state_mut(), &gate);
+    frames_for(&mut h, 320);
+    gate.store(true, Ordering::Relaxed);
+    let t = Instant::now();
+    while h.state().session.has_jobs() && t.elapsed() < Duration::from_secs(10) {
+        h.step();
+    }
+    h.run_steps(2);
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 1);
+
+    // A second job, cancelled from the dialog's button.
+    let gate = Arc::new(AtomicBool::new(false));
+    let job = slow_job(h.state_mut(), &gate);
+    frames_for(&mut h, 320);
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(h.state().session.job(job).is_none());
+    assert_eq!(h.state().session.active().unwrap().history.past_len(), steps + 1);
+}
+
+#[test]
+fn filters_from_the_ui_run_in_the_background() {
+    let mut h = app_harness();
+    let steps = h.state().session.active().unwrap().history.past_len();
+    let r = h.state_mut().run("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+    assert_eq!(r["pending"], true, "{r}");
+    let t = Instant::now();
+    while h.state().session.has_jobs() && t.elapsed() < Duration::from_secs(30) {
+        h.step();
+    }
+    h.run_steps(2);
+    let st = h.state().session.active().unwrap();
+    assert_eq!(st.history.past_len(), steps + 1, "one step for the blur");
+    assert_eq!(h.state().ui.status, "Gaussian Blur");
+}
+
+#[test]
+fn control_requests_wait_for_jobs_unless_asked_not_to() {
+    let mut h = app_harness();
+    let ctx = h.ctx.clone();
+    let (req, _rx) = crate::ControlRequest::new("engine.execute", json!({"command": "filter.blur.gaussianBlur", "params": {"radius": 2}}));
+    let job = match crate::control::handle(h.state_mut(), &ctx, &req) {
+        crate::control::Outcome::AfterJob(job) => job,
+        _ => panic!("expected a deferred reply"),
+    };
+    assert!(h.state().session.jobs().iter().any(|j| j.id == job) || h.state().session.jobs_with_recent().iter().any(|j| j.id == job));
+    // The app's frame loop answers the request when the job lands.
+    let (req, rx) = crate::ControlRequest::new("engine.execute", json!({"command": "jobs.list"}));
+    let _ = crate::control::handle(h.state_mut(), &ctx, &req);
+    drop(rx);
+    let reply = job_reply(&mut h, job);
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert!(reply["result"]["filter"].is_object(), "{reply}");
+
+    // `wait: false` replies with the job id at once.
+    let (req, _rx) = crate::ControlRequest::new("engine.execute", json!({"command": "filter.blur.gaussianBlur", "params": {"radius": 2}, "wait": false}));
+    let crate::control::Outcome::Done(v) = crate::control::handle(h.state_mut(), &ctx, &req) else { panic!("expected an immediate reply") };
+    let id = v["result"]["job"].as_u64().unwrap();
+    let (req, _rx) = crate::ControlRequest::new("jobs.cancel", json!({"job": id}));
+    let crate::control::Outcome::Done(v) = crate::control::handle(h.state_mut(), &ctx, &req) else { panic!() };
+    assert_eq!(v["ok"], true, "{v}");
+    let (req, _rx) = crate::ControlRequest::new("jobs.cancel", json!({"job": 99999}));
+    let crate::control::Outcome::Done(v) = crate::control::handle(h.state_mut(), &ctx, &req) else { panic!() };
+    assert_eq!(v["ok"], false);
+}
+
+/// The control reply for `job`, once the app's frame loop has applied it.
+fn job_reply(h: &mut Harness<'static, PhotocraftApp>, job: JobId) -> Value {
+    let (tx, rx) = std::sync::mpsc::channel();
+    h.state_mut().jobs.waiters.push((job, tx));
+    let t = Instant::now();
+    loop {
+        h.step();
+        if let Ok(v) = rx.try_recv() {
+            return v;
+        }
+        assert!(t.elapsed() < Duration::from_secs(30));
+    }
+}
+
+/// #511: a filter started by a menu item (Blur More has no dialog) or by a filter dialog's OK
+/// replies with its result once applied, like `engine.execute`; `wait: false` replies at once.
+#[test]
+fn menu_and_dialog_requests_wait_for_jobs_unless_asked_not_to() {
+    let mut h = app_harness();
+    let ctx = h.ctx.clone();
+    let control = |h: &mut Harness<'static, PhotocraftApp>, method: &str, params: Value| {
+        let (req, _rx) = crate::ControlRequest::new(method, params);
+        crate::control::handle(h.state_mut(), &ctx, &req)
+    };
+    // The job a request started: deferred while waiting, `{job, pending}` at once otherwise.
+    // Lets it land and checks the filter's result.
+    let land = |h: &mut Harness<'static, PhotocraftApp>, what: &str, outcome: crate::control::Outcome, wait: bool| {
+        let job = match (outcome, wait) {
+            (crate::control::Outcome::AfterJob(job), true) => job,
+            (crate::control::Outcome::Done(v), false) => {
+                assert_eq!(v["result"]["pending"], true, "{what}: {v}");
+                JobId(v["result"]["job"].as_u64().unwrap())
+            }
+            _ => panic!("{what}, wait {wait}: wrong reply kind"),
+        };
+        let reply = job_reply(h, job);
+        assert!(reply["result"]["filter"].is_object(), "{what}: {reply}");
+    };
+    let steps = |h: &Harness<'static, PhotocraftApp>| h.state().session.active().unwrap().history.past_len();
+    for wait in [true, false] {
+        let before = steps(&h);
+        let outcome = control(&mut h, "ui.menu.invoke", json!({"id": "filter.blur.blurMore", "wait": wait}));
+        land(&mut h, "Blur More", outcome, wait);
+        let crate::control::Outcome::Done(v) = control(&mut h, "ui.menu.invoke", json!({"id": "filter.blur.gaussianBlur"})) else { panic!("dialog") };
+        let dialog = v["result"]["dialog"].as_u64().expect("Gaussian Blur opens its dialog");
+        control(&mut h, "ui.dialog.set", json!({"dialog": dialog, "field": "radius", "value": 3}));
+        let outcome = control(&mut h, "ui.dialog.confirm", json!({"dialog": dialog, "wait": wait}));
+        land(&mut h, "Gaussian Blur", outcome, wait);
+        assert_eq!(steps(&h), before + 2, "both filters applied");
+    }
+}
+
+fn psd_bytes() -> Vec<u8> {
+    let mut s = photocraft_engine::Session::new();
+    s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let doc = (*s.active().unwrap().doc).clone();
+    photocraft_io::export(&doc, "x.psd", &Default::default()).unwrap().bytes
+}
+
+#[test]
+fn files_open_in_the_background_with_a_tab_and_cancel_closes_it() {
+    let mut h = app_harness();
+    let bytes = psd_bytes();
+    h.state_mut().open_file("/tmp/photocraft-test/bg.psd", &bytes).unwrap();
+    // The tab is there before the document.
+    assert_eq!(h.state().jobs.opens.len(), 1);
+    assert_eq!(h.state().session.documents().len(), 1);
+    let t = Instant::now();
+    while !h.state().jobs.opens.is_empty() && t.elapsed() < Duration::from_secs(30) {
+        h.step();
+    }
+    h.run_steps(2);
+    let st = h.state().session.active().unwrap();
+    assert_eq!(st.doc.size.width, 64);
+    assert_eq!(st.path.as_deref(), Some("/tmp/photocraft-test/bg.psd"));
+    assert_eq!(h.state().ui.recent_files.first().map(String::as_str), Some("/tmp/photocraft-test/bg.psd"));
+
+    // Cancel: the half-open tab closes, no document is added.
+    h.state_mut().open_file("/tmp/photocraft-test/bg2.psd", &bytes).unwrap();
+    let job = h.state().jobs.opens[0].job;
+    crate::jobs_ui::cancel(h.state_mut(), job);
+    h.run_steps(3);
+    assert!(h.state().jobs.opens.is_empty());
+    assert_eq!(h.state().session.documents().len(), 2);
+    assert!(h.state().jobs.focus.is_none());
+}
+
+#[test]
+fn templates_open_untitled_in_the_background() {
+    let mut h = app_harness();
+    h.state_mut().open_file("/tmp/photocraft-test/card.psdt", &psd_bytes()).unwrap();
+    assert_eq!(h.state().jobs.opens[0].name, "Untitled-1");
+    let t = Instant::now();
+    while !h.state().jobs.opens.is_empty() && t.elapsed() < Duration::from_secs(30) {
+        h.step();
+    }
+    h.run_steps(2);
+    let st = h.state().session.active().unwrap();
+    assert_eq!((st.doc.name.as_str(), st.path.as_deref()), ("Untitled-1", None));
+    assert_eq!(h.state().ui.recent_files.first().map(String::as_str), Some("/tmp/photocraft-test/card.psdt"));
+}
+
+#[test]
+fn photo_background_completion_respects_focus_and_cancelled_opens_keep_persona() {
+    use crate::state::Tool;
+    use photocraft_engine::toolsets::Persona;
+    for focused in [false, true] {
+        let mut h = app_harness();
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        let original = h.state().session.active().unwrap().doc.id;
+        let tool = h.state().ui.tool;
+        h.state_mut().open_file("/tmp/photocraft-test/persona-photo.psd", &psd_bytes()).unwrap();
+        if !focused {
+            h.state_mut().jobs.focus = None; // User returned to the existing document tab.
+            h.state_mut().ui.crop_rect = Some([1., 2., 20., 20.]);
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !h.state().jobs.opens.is_empty() {
+            assert!(Instant::now() < deadline);
+            h.run_steps(1);
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        h.run_steps(3);
+        if focused {
+            assert_ne!(h.state().session.active().unwrap().doc.id, original);
+            assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Pixel);
+            assert_eq!(h.state().ui.tool, Tool::Move);
+        } else {
+            assert_eq!(h.state().session.active().unwrap().doc.id, original);
+            assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector);
+            assert_eq!(h.state().ui.tool, tool);
+            assert_eq!(h.state().ui.crop_rect, Some([1., 2., 20., 20.]));
+        }
+        h.get_by_label("Vector persona").click();
+        h.run_steps(3);
+        let active = h.state().session.active().unwrap().doc.id;
+        h.state_mut().open_file("/tmp/photocraft-test/persona-cancel.psd", &psd_bytes()).unwrap();
+        let job = h.state().jobs.opens[0].job;
+        crate::jobs_ui::cancel(h.state_mut(), job);
+        h.run_steps(3);
+        assert_eq!(h.state().session.active().unwrap().doc.id, active);
+        assert_eq!(h.state().session.prefs().toolbar.persona, Persona::Vector);
+        assert!(h.state().ui.photo_admission.is_none());
+    }
+}
+
+/// Reproduce two decoded opens in one poll without depending on worker timing.
+fn admitted_open(app: &mut PhotocraftApp, job: u64, name: &str) -> (photocraft_engine::jobs::JobEvent, photocraft_doc::DocId) {
+    let mut doc = (*app.session.active().unwrap().doc).clone();
+    doc.name = name.into();
+    let index = app.session.add_document(doc, None);
+    let document = app.session.documents()[index].doc.id;
+    app.jobs.opens.push(super::OpenTab { job: JobId(job), name: name.into(), path: Some(format!("/photos/{name}")), slot: None });
+    (
+        photocraft_engine::jobs::JobEvent {
+            id: JobId(job),
+            command: photocraft_engine::jobs::OPEN_JOB.into(),
+            label: format!("Opening {name}"),
+            document: None,
+            outcome: photocraft_engine::jobs::JobOutcome::Done(json!({"document":index,"documentId":document.0,"nativeImport":false})),
+        },
+        document,
+    )
+}
+
+#[test]
+fn photo_batch_completion_pins_all_targets_before_reordering_callbacks() {
+    use photocraft_engine::jobs::{JobEvent, JobOutcome};
+    for (focused, reordered_before_dispatch) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut h = app_harness();
+        let app = h.state_mut();
+        let original = app.session.active().unwrap().doc.id;
+        app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"openDocument","steps":[["document.move",{"document":2,"to":0}]]}})).unwrap();
+        app.ui.tool = crate::state::Tool::Lasso;
+        crate::canvas::tool_event(app, crate::canvas::ToolEvent::Down { x: 10., y: 10., pressure: 1. }, egui::Modifiers::NONE);
+        assert!(crate::lasso_ui::active(app));
+        let points = app.drag.as_ref().unwrap().points.clone();
+        let (b_event, b) = admitted_open(app, 9001, "B.psd");
+        let (c_event, c) = admitted_open(app, 9002, "C.psd");
+        app.jobs.focus = focused.then_some(JobId(9002));
+        if reordered_before_dispatch {
+            app.session.move_document(2, 0).unwrap();
+        }
+        // This generic event syncs views. It must see A, not poll_jobs' last admitted C.
+        let generic = JobEvent {
+            id: JobId(9000),
+            command: "test.completed".into(),
+            label: "Completed".into(),
+            document: Some(original),
+            outcome: JobOutcome::Done(json!({})),
+        };
+        super::dispatch_events(app, vec![generic, b_event, c_event], Some(original));
+        for (id, path) in [(b, "/photos/B.psd"), (c, "/photos/C.psd")] {
+            assert_eq!(app.session.documents().iter().find(|st| st.doc.id == id).unwrap().path.as_deref(), Some(path));
+        }
+        assert!(app.session.documents().iter().find(|st| st.doc.id == original).unwrap().path.is_none());
+        assert_eq!(app.session.active().unwrap().doc.id, if focused { c } else { original });
+        assert_eq!(app.ui.photo_admission, focused.then_some(c), "admission must use C's pinned ID");
+        if !focused {
+            assert!(crate::lasso_ui::active(app), "mixed events must preserve A's live lasso");
+            assert_eq!(app.drag.as_ref().unwrap().points, points);
+            assert_eq!(app.ui.tool, crate::state::Tool::Lasso);
+        }
+    }
+}
+
+#[test]
+fn photo_batch_completion_does_not_retarget_a_document_closed_by_an_earlier_callback() {
+    let mut h = app_harness();
+    let app = h.state_mut();
+    let original = app.session.active().unwrap().doc.id;
+    app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"openDocument","steps":[["file.close",{"document":2}]]}})).unwrap();
+    let (b_event, b) = admitted_open(app, 9011, "B.psd");
+    let (c_event, c) = admitted_open(app, 9012, "C.psd");
+    app.jobs.focus = Some(JobId(9012));
+    super::dispatch_events(app, vec![b_event, c_event], Some(original));
+    assert!(!app.session.documents().iter().any(|st| st.doc.id == c));
+    assert_eq!(app.session.documents().iter().find(|st| st.doc.id == b).unwrap().path.as_deref(), Some("/photos/B.psd"));
+    assert!(app.session.documents().iter().find(|st| st.doc.id == original).unwrap().path.is_none());
+    assert_eq!(app.session.active().unwrap().doc.id, original);
+    assert!(app.ui.photo_admission.is_none());
+    assert!(app.ui.status_error);
+    assert!(app.ui.status.contains("no longer available"));
+}
+
+#[test]
+fn photo_completion_requires_admission_id_instead_of_falling_back_to_an_index() {
+    let mut h = app_harness();
+    let app = h.state_mut();
+    let original = app.session.active().unwrap().doc.id;
+    let (mut event, b) = admitted_open(app, 9021, "B.psd");
+    let photocraft_engine::jobs::JobOutcome::Done(value) = &mut event.outcome else { panic!("fixture") };
+    value.as_object_mut().unwrap().remove("documentId");
+    app.jobs.focus = Some(JobId(9021));
+    super::dispatch_events(app, vec![event], Some(original));
+    assert_eq!(app.session.active().unwrap().doc.id, original);
+    assert!(app.session.documents().iter().find(|st| st.doc.id == b).unwrap().path.is_none());
+    assert!(app.ui.photo_admission.is_none());
+    assert!(app.ui.status_error);
+}
+
+/// Audit F13: a subject model stand-in (a centred disc) held by `gate`, installed for this test
+/// thread (the harness runs the app on it).
+fn mock_subject(gate: Option<Arc<AtomicBool>>) -> Arc<photocraft_engine::seg::MockModel> {
+    let model = photocraft_engine::seg::MockModel::new(gate, |w, h| {
+        let (cx, cy, r) = (w as f32 / 2.0, h as f32 / 2.0, w.min(h) as f32 * 0.3);
+        Some((0..w * h).map(|i| (((i % w) as f32 + 0.5 - cx).hypot((i / w) as f32 + 0.5 - cy) <= r) as u8 as f32).collect())
+    });
+    photocraft_engine::seg::mock_subject_model_on_thread(Some(model.clone()));
+    model
+}
+
+/// Audit F13: Select › Subject runs on a worker. The frame that starts it returns at once, frames
+/// keep coming, the status bar says "Selecting subject…" with Cancel (no modal dialog, so the
+/// view still zooms), other selections are refused with the job's name, and Esc cancels.
+#[test]
+fn select_subject_keeps_the_canvas_responsive_and_esc_cancels_it() {
+    let gate = Arc::new(AtomicBool::new(false));
+    let model = mock_subject(Some(gate.clone()));
+    let mut h = app_harness();
+    let ctx = h.ctx.clone();
+    let doc_before = h.state().session.active().unwrap().doc.clone();
+    let t = Instant::now();
+    let r = crate::menus::invoke(h.state_mut(), &ctx, "select.subject", json!({})).unwrap();
+    assert_eq!(r["pending"], true, "{r}");
+    assert!(t.elapsed() < Duration::from_secs(2), "the UI thread did not wait for the model");
+    let frame0 = h.state().frame;
+    let (n, worst) = frames_for(&mut h, 400);
+    assert!(h.state().frame - frame0 >= 10, "the UI kept rendering ({n} frames, slowest {worst:.1} ms)");
+    assert_eq!(model.calls(), 1, "the model is running on the worker");
+    assert!(h.query_by_label("Selecting subject…").is_some(), "status-bar readout");
+    assert!(h.query_by_label("Esc to cancel").is_none(), "no modal progress dialog over the canvas");
+    // The view still zooms while the selection runs.
+    let zoom = h.state().ui.views[0].zoom;
+    crate::menus::invoke(h.state_mut(), &ctx, "view.zoomIn", json!({})).unwrap();
+    assert!(h.state().ui.views[0].zoom > zoom);
+    // Another selection on the busy document is refused with a clear reason.
+    let err = h.state_mut().run("select.object", json!({"point": [160, 120]})).unwrap_err();
+    assert!(err.contains("Select Subject"), "{err}");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    assert!(!h.state().session.has_jobs());
+    assert!(Arc::ptr_eq(&h.state().session.active().unwrap().doc, &doc_before));
+    assert!(h.state().ui.status.contains("Cancelled Select Subject"), "{}", h.state().ui.status);
+    gate.store(true, Ordering::SeqCst);
+    h.state_mut().session.join_cancelled_jobs();
+    h.run_steps(2);
+    assert!(h.state().session.active().unwrap().doc.selection.is_none(), "the cancelled result never lands");
+    photocraft_engine::seg::mock_subject_model_on_thread(None);
+}
+
+/// Audit F13: the finished selection lands as one undo step named after the command.
+#[test]
+fn a_finished_select_subject_job_is_one_undo_step() {
+    let _model = mock_subject(None);
+    let mut h = app_harness();
+    let steps = h.state().session.active().unwrap().history.past_len();
+    let r = h.state_mut().run("select.subject", json!({})).unwrap();
+    assert_eq!(r["pending"], true, "{r}");
+    let t = Instant::now();
+    while h.state().session.has_jobs() && t.elapsed() < Duration::from_secs(30) {
+        h.step();
+    }
+    h.run_steps(2);
+    let st = h.state().session.active().unwrap();
+    assert!(st.doc.selection.as_ref().is_some_and(|m| m.sample_channel(160, 120, 0) > 0.5 && m.sample_channel(5, 5, 0) < 0.5));
+    assert_eq!(st.history.past_len(), steps + 1);
+    assert_eq!(st.history.undo_label(), Some("Select Subject"));
+    assert_eq!(h.state().ui.status, "Select Subject");
+    photocraft_engine::seg::mock_subject_model_on_thread(None);
+}

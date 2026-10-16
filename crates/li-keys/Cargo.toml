@@ -1,0 +1,19 @@
+[package]
+name = "li-keys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared portable shortcut chords, profiles and conflict resolution"
+
+[lints]
+workspace = true
+
+[features]
+egui = ["dep:egui"]
+
+[dependencies]
+serde.workspace = true
+egui = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,14 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Square Star: a four-point star. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="M12 2 14.26 9.74 22 12 14.26 14.26 12 22 9.74 14.26 2 12 9.74 9.74z" />
+</svg>

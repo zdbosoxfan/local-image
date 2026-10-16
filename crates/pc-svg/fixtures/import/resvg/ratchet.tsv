@@ -1,0 +1,19 @@
+case	reason	baseline_metric
+shapes/path/A.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 1
+shapes/path/invalid-data-in-L.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: invalid number at position 24
+shapes/path/invalid-transform.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected end of stream
+shapes/path/negative-large-arc-flag-value.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 27
+shapes/path/no-commawsp-before-arc-flags.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 31
+shapes/path/out-of-range-sweep-flag-value.svg	Strict malformed path/transform rejection; reference recovers a partial path or ignores the attribute.	invalid SVG: unexpected data at position 28
+painting/marker/recursive-1.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+painting/marker/recursive-5.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+painting/shape-rendering/inheritance.svg	SVG crispEdges/optimizeSpeed hint uses native exact-area antialiasing; warned.	IoU=0.956252 premultiplied RGB MAE=0.000199
+structure/svg/negative-size.svg	Invalid negative viewport; the pinned normalizer rejects this malformed fixture.	reference normalizer: SVG has an invalid size
+structure/use/indirect-recursive-2.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+structure/use/nested-recursive-2.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+structure/use/self-recursive.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+paint-servers/linearGradient/recursive-xlink-href-1.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+paint-servers/linearGradient/recursive-xlink-href-3.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+paint-servers/radialGradient/recursive-xlink-href.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+masking/clipPath/recursive.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference
+masking/mask/recursive-on-self.svg	Security policy rejects reference cycles; reference renderer omits the cyclic edge.	invalid SVG: cyclic SVG reference

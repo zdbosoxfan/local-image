@@ -1,0 +1,523 @@
+{
+  "note": "These are implementation milestones, not final Linux release/UX acceptance. Original static triage reports remain preserved.",
+  "findings": {
+    "FJ-001": {
+      "commit": "21c4fd63",
+      "status": "fixed; final UX gate pending",
+      "evidence": [
+        "state-group-view-before (failure reproduced)",
+        "state-group-view-after (20 passed, 1 pre-existing ignore)",
+        "state-group-view-lint-final"
+      ]
+    },
+    "FJ-007": {
+      "commit": "75612bbc",
+      "status": "fixed; native desktop quit/restart gate pending",
+      "evidence": [
+        "state-discard-focused",
+        "state-discard-rasterize-checked (44 passed)",
+        "state-discard-rasterize-lint"
+      ]
+    },
+    "XC06": {
+      "commit": "75612bbc",
+      "status": "fixed; final UX gate pending",
+      "evidence": [
+        "state-discard-focused",
+        "state-discard-rasterize-checked",
+        "state-discard-rasterize-lint"
+      ]
+    },
+    "O-057": {
+      "commit": "3812afda",
+      "status": "fixed; final UX gate pending",
+      "evidence": [
+        "state-discard-rasterize-checked",
+        "state-discard-rasterize-lint"
+      ]
+    },
+    "FC-005": {
+      "commit": "22266499",
+      "status": "fixed; final export workflow gate pending",
+      "evidence": [
+        "formats-vp8-boundary (25 passed)",
+        "formats-ai-safety-lint"
+      ]
+    },
+    "O-051": {
+      "commit": "caf03be3",
+      "status": "fixed; final integration gate pending",
+      "evidence": [
+        "ai-model-destinations (13 passed)",
+        "ai-model-destinations-fast (13 passed)",
+        "formats-ai-safety-lint"
+      ]
+    },
+    "FJ-006": {
+      "commit": "ac96a6d8",
+      "status": "fixed; final hardware/UX workflow gate pending",
+      "evidence": [
+        "ai-cancel-retry (2 passed)",
+        "ai-cancel-desktop (4 passed)",
+        "ai-cancel-terminal-gates (6 passed, including actual lost-prompt timeout)",
+        "ai-publication-desktop (7 passed)",
+        "ai-publication-gesture (3 passed)",
+        "ai-cancellation-publication-lint"
+      ]
+    },
+    "O-052": {
+      "commit": "ac96a6d8",
+      "status": "fixed; final hardware/UX workflow gate pending",
+      "evidence": [
+        "ai-cancel-retry (2 passed)",
+        "ai-cancel-desktop (4 passed)",
+        "ai-cancel-terminal-gates (6 passed, including actual lost-prompt timeout)",
+        "ai-publication-desktop (7 passed)",
+        "ai-publication-gesture (3 passed)",
+        "ai-cancellation-publication-lint"
+      ]
+    },
+    "FJ-005": {
+      "commit": "d5db3b90",
+      "status": "fixed; final import/export/Library UX gate pending",
+      "evidence": [
+        "library-origin-focused (7 passed)",
+        "library-history-focused (27 passed)",
+        "library-history-menu (11 passed)",
+        "library-isolation-lint-final"
+      ]
+    },
+    "XC02": {
+      "commit": "3e772cf9",
+      "status": "fixed; final native Camera Raw workflow gate pending",
+      "evidence": [
+        "library-history-focused (27 passed)",
+        "library-history-menu (11 passed)",
+        "library-isolation-lint-final"
+      ]
+    },
+    "FC-002": {
+      "commit": "76745237",
+      "status": "fixed; final release/export UX gates pending",
+      "evidence": [
+        "metadata-tiff-roundtrip (16 passed)",
+        "metadata-xml-review-regressions (56 passed)",
+        "metadata-jpeg-and-origin-roundtrip (16 passed)",
+        "identity-final-behavior (GUID vectors pass)",
+        "identity-metadata-lint-accepted",
+        "METADATA-INDEPENDENT-REVIEW.md (M1-M4 resolved statically)"
+      ]
+    },
+    "FC-003": {
+      "commit": "76745237",
+      "status": "fixed; final release/export UX gates pending",
+      "evidence": [
+        "metadata-tiff-roundtrip (16 passed)",
+        "metadata-xml-review-regressions (56 passed)",
+        "metadata-jpeg-and-origin-roundtrip (16 passed)",
+        "identity-final-behavior (GUID vectors pass)",
+        "identity-metadata-lint-accepted",
+        "METADATA-INDEPENDENT-REVIEW.md (M1-M4 resolved statically)"
+      ]
+    },
+    "FC-006": {
+      "commit": "76745237",
+      "status": "fixed; final release/export UX gates pending",
+      "evidence": [
+        "metadata-tiff-roundtrip (16 passed)",
+        "metadata-xml-review-regressions (56 passed)",
+        "metadata-jpeg-and-origin-roundtrip (16 passed)",
+        "identity-final-behavior (GUID vectors pass)",
+        "identity-metadata-lint-accepted",
+        "METADATA-INDEPENDENT-REVIEW.md (M1-M4 resolved statically)"
+      ]
+    },
+    "XC01": {
+      "commit": "2e28e97e",
+      "status": "fixed; final native Library/Develop UX gate pending",
+      "policy": "Catalog UUID + lossless location hash; copied/moved locations and legacy unbound links require deliberate relinking. No implicit adoption by photo ID.",
+      "evidence": [
+        "library-identity-desktop (19 passed)",
+        "library-identity-review-regressions (22 passed)",
+        "library-identity-legacy-final (7 passed)",
+        "identity-final-behavior (9 passed)",
+        "identity-final-format-roundtrips (5 passed)",
+        "identity-metadata-lint-accepted",
+        "XC01-INDEPENDENT-REVIEW.md"
+      ]
+    },
+    "SAVE-CALLBACK-ASSETS": {
+      "commit": "929f0349",
+      "status": "fixed; final release gate pending",
+      "evidence": [
+        "identity-final-behavior",
+        "identity-metadata-lint-accepted"
+      ]
+    },
+    "XC07": {
+      "commit": "c5c83740",
+      "status": "profile-aware smart-object caching and rendering; final native release gates pending",
+      "evidence": [
+        "native-export-colour-final",
+        "smart-export-affected",
+        "native-vector-export-lint-final"
+      ]
+    },
+    "SF01": {
+      "commit": "7fcdb6b1",
+      "status": "unsaved Library previews convert document composite to sRGB; failure reported once per revision",
+      "evidence": [
+        "colour-boundary-reviewed",
+        "colour-affected-workflows",
+        "colour-psd-tiff-strict-lint"
+      ]
+    },
+    "FC-009": {
+      "commit": "55c6dd34",
+      "status": "opaque PSD/TIFF tagged blocks and unknown shmd items preserved in source-order envelopes; foreign editability not claimed",
+      "evidence": [
+        "tiff-private-blocks (24 passed)",
+        "tiff-layered-persistence (22 passed)",
+        "colour-psd-tiff-strict-lint"
+      ]
+    },
+    "FC-010": {
+      "commit": "1344acbc",
+      "status": "safe refusal for opaque TIFF MakerNotes; vendor-preserving overwrite remains unsupported. No old raster retention or silent metadata loss. All overwrite outputs constrained to reopen size limit.",
+      "evidence": [
+        "tiff-safe-overwrite-metadata-v2 (3 passed)",
+        "psd-editability-admission (size-boundary included)",
+        "psd-contracts-and-overwrite-reviewed (12 overwrite cases)",
+        "colour-psd-tiff-strict-lint"
+      ]
+    },
+    "PSD-CONTRACTS": {
+      "commit": "55c6dd34",
+      "status": "four remaining ignored PSD cases re-enabled; bounded native text/shape records and explicit white filter masks preserve editable state; stale external edits invalidate private state",
+      "evidence": [
+        "psd-editability-admission (4 passed including 3 geometry/24MP cases)",
+        "psd-contracts-and-overwrite-reviewed (8 PSD cases)",
+        "colour-psd-tiff-strict-lint"
+      ]
+    },
+    "FJ-003": {
+      "commit": "48df02a5",
+      "status": "stalled download reads cancel promptly with owned cleanup; DNS/connect/write phases retain finite setup bounds, not universal subsecond cancellation",
+      "evidence": [
+        "download-cancellation-final (20 passed, 156.8ms stalled-body cancel)",
+        "downloads-creators-strict-lint-final"
+      ]
+    },
+    "FC-004": {
+      "commit": "e5d13ce9",
+      "status": "structured XMP creators survive unrelated edits, new sidecars, catalog reopen and exports; explicit scalar edits remain literal and undoable",
+      "evidence": [
+        "creators-metadata (60 passed)",
+        "creators-catalog-sidecars (27 passed)",
+        "downloads-creators-strict-lint-final"
+      ]
+    },
+    "O-050": {
+      "commit": "ebf78bb8",
+      "status": "serialized owned ComfyUI start/stop; retains uncertain/failed handles and reaps exited children; no external process control",
+      "evidence": [
+        "process-preference-safety-final (37 combined passes including concurrent start, stop-during-start and reaping)",
+        "process-preference-strict-lint-final"
+      ]
+    },
+    "FS-003": {
+      "commit": "2610dff4",
+      "status": "durable exact-byte corrupt preference backup, checked unreadable errors, transient-read rebase and bounded verified retry reuse; final native restart UX pending",
+      "evidence": [
+        "process-preference-safety-final (37 combined passes)",
+        "process-preference-strict-lint-final"
+      ]
+    },
+    "XC04": {
+      "commit": "4f70f5a6",
+      "status": "fixed; final native UX/release gate pending",
+      "evidence": [
+        "clipboard-colour-focused (26 passed)",
+        "clipboard-colour-reviewed (50 passed, including rendered dialog flow)",
+        "clipboard-svg-strict-lint-final",
+        "target/clipboard-colour-ux/paste-colour-dialog.png (visually inspected)"
+      ]
+    },
+    "FS-004": {
+      "commit": "18cf9468",
+      "status": "fixed; final integration gate pending",
+      "evidence": [
+        "svg-compatibility-accepted (22 passed, corpus ratchet improves by three cases)",
+        "clipboard-svg-strict-lint-final",
+        "SVG-COMPATIBILITY-IMPLEMENTATION.md"
+      ]
+    },
+    "FS-005": {
+      "commit": "18cf9468",
+      "status": "fixed; final integration gate pending",
+      "evidence": [
+        "svg-compatibility-accepted (22 passed, corpus ratchet improves by three cases)",
+        "clipboard-svg-strict-lint-final",
+        "SVG-COMPATIBILITY-IMPLEMENTATION.md"
+      ]
+    },
+    "XC03": {
+      "commit": "adb49650",
+      "status": "fixed; final native smart-object UX pending",
+      "evidence": [
+        "smart-resources-focused (2 passed)",
+        "smart-generation-workflows (29 smart_cmds tests passed)",
+        "smart-generation-strict-lint-final"
+      ]
+    },
+    "XC05": {
+      "commit": "3933d84e",
+      "status": "layered persistence fixed; flat-export editability warning/final native AI gates pending",
+      "evidence": [
+        "generation-metadata-focused (10 passed)",
+        "smart-generation-workflows (Library Save/Return+update passed)",
+        "generation-regenerate-layered (Context Bar Generative Fill Regenerate after PSD/PSB/layered TIFF)",
+        "generation-psd-contracts (14 passed)",
+        "generation-tiff-preservation (22+25 passed)",
+        "smart-generation-strict-lint-final",
+        "GENERATION-METADATA-IMPLEMENTATION.md"
+      ]
+    },
+    "FC-008": {
+      "commit": "1a4d84c1",
+      "status": "fixed; final native/release acceptance pending",
+      "evidence": [
+        "handoff-alpha-text-accepted",
+        "alpha-tiff-integration (23 passed)",
+        "ALPHA-TEXT-IMPLEMENTATION.md",
+        "handoff-alpha-text-strict-lint"
+      ]
+    },
+    "FC-007": {
+      "commit": "938dd90b",
+      "status": "fixed; final native/release acceptance pending",
+      "evidence": [
+        "handoff-alpha-text-accepted",
+        "text-navigation-coverage (76 passed)",
+        "handoff-alpha-text-strict-lint"
+      ]
+    },
+    "SF-02": {
+      "commit": "282e2a9f",
+      "status": "fixed; final native/release acceptance pending",
+      "evidence": [
+        "handoff-import-sidecar-final (72 passed, overlapping groups)",
+        "source byte/catalog preservation and sidecar/filter assertions",
+        "handoff-alpha-text-strict-lint"
+      ]
+    },
+    "SF-04": {
+      "commit": "8bac0695",
+      "status": "fixed; final native/release acceptance pending",
+      "evidence": [
+        "handoff-import-sidecar-final",
+        "actual Open Document callback tab-switch/stale/closed/authorization controls",
+        "handoff-alpha-text-strict-lint"
+      ]
+    },
+    "SF-03": {
+      "commit": "d48e0e76",
+      "status": "source/history/baseline/recovery preservation fixed; final native release gates pending",
+      "evidence": [
+        "overwrite-compact-source-workflows (35 passed, pre-existing timing benchmark ignored)",
+        "overwrite-compact-source-formats (51 passed)",
+        "overwrite-colour-strict-lint-final",
+        "native Develop/derivative/mask/overwrite/return and real RTX5090 Vulkan tests"
+      ]
+    },
+    "external-colour-decisions": {
+      "commit": "d48e0e76",
+      "status": "interactive source pixels/profile retained until explicit choice; final native release gates pending",
+      "evidence": [
+        "overwrite-compact-source-workflows",
+        "overwrite-colour-strict-lint-final",
+        "DEFERRED-COLOUR-IMPLEMENTATION.md"
+      ]
+    },
+    "SF-05": {
+      "commit": "f0558183",
+      "status": "new mask targeting/first stroke/undo/delete fixed; final installed UX/release gate pending",
+      "evidence": [
+        "consolidated-ux-accepted (126passed,3pre-existing ignored cases recorded for audit)",
+        "generate-readable-controls (3passed)",
+        "consolidated-ux-strict-lint-final",
+        "target/notices-ux and target/generate-panel-ux: visual inspection of relevant normal/narrow/squeezed screenshots"
+      ]
+    },
+    "SF-06": {
+      "commit": "f0558183",
+      "status": "reserved operation results, warning retention/history and coalesced Library completion fixed; final installed UX/release gate pending",
+      "evidence": [
+        "consolidated-ux-accepted (126passed,3pre-existing ignored cases recorded for audit)",
+        "generate-readable-controls (3passed)",
+        "consolidated-ux-strict-lint-final",
+        "target/notices-ux and target/generate-panel-ux: visual inspection of relevant normal/narrow/squeezed screenshots"
+      ]
+    },
+    "SF-07": {
+      "commit": "f0558183",
+      "status": "fixed Generate actions/progress/completion plus readable squeezed-dock fallback; final installed UX/release gate pending",
+      "evidence": [
+        "consolidated-ux-accepted (126passed,3pre-existing ignored cases recorded for audit)",
+        "generate-readable-controls (3passed)",
+        "consolidated-ux-strict-lint-final",
+        "target/notices-ux and target/generate-panel-ux: visual inspection of relevant normal/narrow/squeezed screenshots"
+      ]
+    },
+    "FS-006": {
+      "commit": "0673ee58",
+      "status": "native cancellable worker export and staged publication; final end-to-end UX gate pending",
+      "evidence": [
+        "smart-export-affected",
+        "native-export-colour-final",
+        "native-vector-export-lint-final"
+      ]
+    },
+    "FS-007": {
+      "commit": "0673ee58",
+      "status": "bounded cropped SVG fallback preserves effects masks paint frame and warped text",
+      "evidence": [
+        "svg-warped-crop-final (20 passed)",
+        "svg-warped-crop-lint"
+      ]
+    },
+    "FC-001": {
+      "commit": "99ba382b",
+      "status": "obsolete binding owners released on replacement/removal; separate primary pattern cache budget still outstanding",
+      "evidence": [
+        "gpu-binding-cache-before (reproduced)",
+        "gpu-binding-replacement-before (reproduced)",
+        "gpu-cache-ownership-reviewed (3 passed)",
+        "gpu-cache-affected (49 passed RTX5090 Vulkan)",
+        "gpu-cache-strict-lint"
+      ]
+    },
+    "FS-008": {
+      "commit": "77f58614",
+      "status": "partial: fourteen native layer blend modes implemented; faithful native clips in SVG/PDF remain required, along with final appearance/structure acceptance",
+      "evidence": [
+        "vector-native-blends-reviewed (8 passed)",
+        "vector-blend-affected (43 passed)",
+        "vector-blend-strict-lint"
+      ],
+      "original_requirement_source": "/home/zdavidson/.local/share/local-image-dev/specs/bugfix/settings-vecfiles.md:13",
+      "scope_provenance": "FS009-SCOPE-CHECK.md"
+    },
+    "GPU-pattern-budget": {
+      "commit": "2a69229c",
+      "status": "bounded primary pattern cache, close cleanup, profile/pixel-dependent CPU/GPU effect invalidation",
+      "evidence": [
+        "gpu-primary-pattern-before (reproduced)",
+        "gpu-pattern-context-before (reproduced)",
+        "pattern-context-affected (243 passed, including55actualGPU)",
+        "pattern-context-strict-lint"
+      ]
+    },
+    "FS-009": {
+      "commit": "8538dab0",
+      "commits": [
+        "ef7e3e09",
+        "b95b1fee",
+        "bc8da440",
+        "8538dab0",
+        "346cdab0",
+        "1a45f738",
+        "1ddba7c5"
+      ],
+      "status": "partial: bounded common codecs/lengths/headers/inline and R2-R4 empty-password import implemented; normal-outer group milestone committed, app projection and broader ordinary-group support under correction; remaining cases need safe usable handling",
+      "evidence": [
+        "pdf-compatibility-affected (34 passed)",
+        "pdf-compatibility-strict-lint",
+        "pdf-lzw-affected (41 passed)",
+        "pdf-lzw-strict-lint",
+        "independent pinned-decoder review",
+        "pdf-ccitt-affected (47 passed)",
+        "pdf-ccitt-strict-lint",
+        "pdf-inline-bounded-final (58 passed)",
+        "inline-preferences-strict-lint"
+      ],
+      "original_requirement_source": "/home/zdavidson/.local/share/local-image-dev/specs/bugfix/settings-vecfiles.md:13; reviews/fable-settings-vecfiles-review.md:81-93",
+      "scope_provenance": "FS009-SCOPE-CHECK.md",
+      "allowed_routes": {
+        "knockout": "Original review explicitly permits /K true refusal; native knockout is not mandatory.",
+        "unsupported_remainder": "A reachable bounded/cancellable faithful Place-as-image route is allowed; a warning or nonexistent fallback is insufficient.",
+        "ordinary_groups": "Omitted/false page/Form groups and representative backdrop/blend/opacity/mask/clip interactions remain required.",
+        "general_native_coverage": "Universal native colour-space/wrapper/pattern support is not separately mandated; admitted/ordinary cases must be correct and unsupported remainder handled honestly.",
+        "nonempty_password": "Password-entry UI is not an original FS009 requirement; ordinary empty-password permissions-only support remains required."
+      }
+    },
+    "O-040": {
+      "commit": "2a34c3a3",
+      "status": "scaled per-view compositor reuse and exact refusal memoization verified; release timings/firstMove profiling still pending",
+      "evidence": [
+        "scaled-compositor-before (reproduced1to2constructionattempts)",
+        "scaled-compositor-reviewed (7 passed)",
+        "scaled-node-routing-probe (1 passed, obsoleteignore removed)",
+        "scaled-compositor-strict-lint"
+      ]
+    },
+    "background-save": {
+      "commit": "ce65e239",
+      "status": "native snapshot worker/staging, guarded publication, continuations, Library source family preservation/reset; measured release/native desktop acceptance still pending",
+      "evidence": [
+        "save-worker-codecs-fixed (19 passed)",
+        "save-worker-affected-final (73 passed; headless Host keyboard/cancel/retry/return included)",
+        "save-worker-lint-accepted (all-target strict lint)",
+        "17owned source hash/format/diff verification"
+      ]
+    },
+    "FS-001": {
+      "commit": "258257c7",
+      "status": "named keys executable through capture/persistence/dispatch; keyedreset and transactional legacy-preserving updates verified",
+      "evidence": [
+        "preferences-shortcuts-affected (59 passed)",
+        "inline-preferences-strict-lint",
+        "independent boundedreview and fiveownedhash/fmt/diffchecks"
+      ]
+    },
+    "FS-002": {
+      "commit": "258257c7",
+      "status": "named keys executable through capture/persistence/dispatch; keyedreset and transactional legacy-preserving updates verified",
+      "evidence": [
+        "preferences-shortcuts-affected (59 passed)",
+        "inline-preferences-strict-lint",
+        "independent boundedreview and fiveownedhash/fmt/diffchecks"
+      ]
+    },
+    "release-font-coverage": {
+      "commit": "ddd5411e",
+      "status": "fixed; full native release UX remains pending",
+      "evidence": [
+        "release-font-ui-reviewed: 28 passed",
+        "release-font-text-reviewed: 89 passed, three diagnostic ignores",
+        "release-font-lint-accepted: strict all-target pass",
+        "target/font-coverage-qa/chinese-ui.png: inspected"
+      ]
+    },
+    "O-059": {
+      "commit": "6acff845",
+      "status": "fixed; full native release UX remains pending",
+      "evidence": [
+        "hidpi-picking-before: reproduced missed node drag; corrected new Pen fixture Escape assumption",
+        "hidpi-picking-affected: 40 passed, two pre-existing opt-in ignores",
+        "hidpi-native-node-acceptance: 1 RTX5090 full-app pixel/input gate passed",
+        "pdf-hidpi-strict-lint: all-target pass"
+      ]
+    },
+    "FS009-encryption": {
+      "commit": "1a45f738",
+      "status": "Standard R2-R4 empty-password classic-xref implemented; full FS009 remains open",
+      "evidence": [
+        "pdf-encryption-first: 9 passed",
+        "pdf-encryption-affected: 69 passed, zero ignored",
+        "independent stream-free bootstrap review",
+        "pdf-hidpi-strict-lint: all-target pass"
+      ]
+    }
+  }
+}

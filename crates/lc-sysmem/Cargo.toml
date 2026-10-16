@@ -1,0 +1,26 @@
+[package]
+name = "lightcraft-sysmem"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform helper (L0): compute profile and rayon pool sizing, thread priority classes, returning freed allocator memory to the OS. The workspace's isolated crate allowed `unsafe` (one FFI call per OS query)."
+
+# Opts out of the workspace lints only to keep `unsafe_code = "deny"` overridable for the FFI
+# modules (`sys.rs`, `macos` in lib.rs); every other crate root has `#![forbid(unsafe_code)]`. See AGENTS.md and craftrules
+# standards/never-crash.md ("isolated helper library crate").
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+[dependencies]
+# All three already in Cargo.lock; only dependency edges are added.
+# rayon: builds the global compute pool and the shared background pool.
+rayon = { workspace = true }
+log = { workspace = true }
+
+# Linux thread priority (nice, SCHED_BATCH) and gettid.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = { workspace = true }

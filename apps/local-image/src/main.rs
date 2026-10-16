@@ -1,0 +1,666 @@
+//! Photocraft desktop app.
+//!
+//! Usage: `photocraft [--control <port>] [--control-token <64-hex> |
+//! --control-token-file <path>] [--automation-read-root <dir>]
+//! [--automation-write-root <dir>] [--safe-gpu] [--in-window-menus] [files…]`
+//!
+//! `--safe-gpu` starts with the CPU renderer (no GPU canvas; a software adapter for the window
+//! where the platform has one) for this launch, e.g. after a graphics driver crash. A start that
+//! crashes inside the driver also falls back by itself next time (see `gpu_startup`).
+//!
+//! `--in-window-menus` (or `LOCAL_IMAGE_IN_WINDOW_MENUS=1`) keeps the menus inside the window on
+//! macOS instead of the macOS menu bar (`mac_menu`).
+//!
+//! `--control <port>` (or `LOCAL_IMAGE_CONTROL_PORT`) starts a localhost JSON-lines control server.
+//! The first line must authenticate; subsequent request lines get reply lines.
+//! `{"id":1,"ok":true,"result":…}`. See `photocraft_ui_egui::control` for the methods.
+
+// Release builds on Windows are GUI-subsystem apps, so launching from the Start Menu or Explorer
+// doesn't open a console window. (`--version` output then only shows when redirected.)
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+
+mod app_icon;
+mod app_log;
+#[cfg(target_os = "macos")]
+mod apple_events;
+mod automation_library;
+mod compute_policy;
+mod control_server;
+mod crash_guard;
+mod cursor;
+#[cfg(target_os = "linux")]
+mod desktop_install;
+mod develop_ai;
+mod doc_layers;
+mod file_dialog_probe;
+mod gpu_startup;
+mod library_host;
+#[cfg(target_os = "macos")]
+mod mac_menu;
+#[cfg(target_os = "macos")]
+mod mac_window;
+// Pure logic is tested on every platform; only Linux runs the check.
+#[cfg(any(target_os = "linux", test))]
+mod linux_libs;
+mod monitor_profile;
+mod services;
+// Windows gets pen pressure from winit (WM_POINTER); the web runner has its own listener.
+#[cfg(any(target_os = "macos", target_os = "linux", test))]
+mod tablet;
+mod ui_state;
+
+use photocraft_engine::Session;
+use photocraft_ui_egui::PhotocraftApp;
+
+/// Matches the `.desktop` file and hicolor icon name, so Wayland docks pick up the icon.
+const APP_ID: &str = "io.github.zdbosoxfan.LocalImage";
+
+/// Windows and Linux: no OS title bar; the app's top bar is the title bar, with its own caption
+/// buttons and edge resizing (`photocraft_ui_egui::titlebar`), as Photoshop does on Windows. macOS
+/// keeps its traffic lights over the integrated title strip.
+const CUSTOM_TITLEBAR: bool = !cfg!(target_os = "macos");
+
+/// The main window: 1440 × 900 (shrunk to fit the monitor, and maximized on the first frame
+/// when it still doesn't fit, `work_area::fit_window`), centred on the main monitor. Without
+/// `centered`, Windows cascades each new window from the top-left corner, so it opened at a
+/// different offset every launch (#419). Wayland compositors place windows themselves.
+fn native_options() -> eframe::NativeOptions {
+    eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_icon(app_icon::window_icon())
+            .with_app_id(APP_ID)
+            .with_title("Local Image")
+            .with_inner_size([1440.0, 900.0])
+            .with_min_inner_size([760.0, 480.0])
+            .with_drag_and_drop(true)
+            .with_decorations(!CUSTOM_TITLEBAR)
+            .with_fullsize_content_view(true)
+            .with_titlebar_shown(false)
+            .with_title_shown(false),
+        centered: true,
+        // eframe saves native window geometry and egui panel/window sizes on exit.
+        // Keep that state beside preferences, including config overrides and portable mode.
+        persistence_path: services::config_dir().map(|dir| dir.join("ui.ron")),
+        ..Default::default()
+    }
+}
+
+/// Parse a `--control` / `LOCAL_IMAGE_CONTROL_PORT` value. An unparseable port is an error that
+/// names the value (issue #701): silently running with no control server leaves a launcher or
+/// agent unable to tell a typo from a successful grant.
+fn parse_control_port(value: &str, source: &str) -> Result<u16, String> {
+    value.trim().parse().map_err(|_| format!("{source}: `{value}` is not a valid port (expected a number from 0 to 65535)"))
+}
+
+/// Process exit status for the collected `--control` / `LOCAL_IMAGE_CONTROL_PORT` errors: `None`
+/// when there are none, else 2 (a command-line usage error), never 0.
+fn control_args_exit_code(errors: &[String]) -> Option<i32> {
+    if errors.is_empty() { None } else { Some(2) }
+}
+
+#[cfg(test)]
+mod control_port_tests {
+    use super::{control_args_exit_code, parse_control_port};
+
+    #[test]
+    fn control_port_errors_exit_non_zero() {
+        assert_eq!(control_args_exit_code(&[]), None);
+        let errors = vec![parse_control_port("nope", "--control").unwrap_err()];
+        assert_eq!(control_args_exit_code(&errors), Some(2));
+    }
+
+    #[test]
+    fn control_port_accepts_valid_numbers() {
+        assert_eq!(parse_control_port("50494", "--control"), Ok(50494));
+        assert_eq!(parse_control_port(" 8080 ", "--control"), Ok(8080));
+        assert_eq!(parse_control_port("0", "LOCAL_IMAGE_CONTROL_PORT"), Ok(0));
+    }
+
+    #[test]
+    fn control_port_rejects_unparseable_values_naming_them() {
+        // Out of range, a following flag eaten as the value, and an empty value all fail,
+        // naming the offending value in the message.
+        let err = parse_control_port("78787", "--control").unwrap_err();
+        assert!(err.contains("78787"), "{err}");
+        assert!(parse_control_port("--safe-gpu", "--control").is_err());
+        assert!(parse_control_port("", "--control").is_err());
+    }
+}
+
+fn main() -> eframe::Result {
+    crash_guard::install_hook();
+    let mut control_port: Option<u16> = None;
+    let mut control_arg_errors: Vec<String> = Vec::new();
+    if let Some(value) = std::env::var("LOCAL_IMAGE_CONTROL_PORT").ok().filter(|v| !v.trim().is_empty()) {
+        match parse_control_port(&value, "LOCAL_IMAGE_CONTROL_PORT") {
+            Ok(port) => control_port = Some(port),
+            Err(error) => control_arg_errors.push(error),
+        }
+    }
+    let mut control_token = None;
+    let mut control_token_file = None;
+    let mut automation_read_root = std::env::var_os("LOCAL_IMAGE_AUTOMATION_READ_ROOT").map(std::path::PathBuf::from);
+    let mut automation_write_root = std::env::var_os("LOCAL_IMAGE_AUTOMATION_WRITE_ROOT").map(std::path::PathBuf::from);
+    let mut files = Vec::new();
+    let mut safe_gpu = false;
+    let mut in_window_menus = std::env::var_os("LOCAL_IMAGE_IN_WINDOW_MENUS").is_some_and(|v| !v.is_empty() && v != "0");
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--control" => match args.next() {
+                Some(value) => match parse_control_port(&value, "--control") {
+                    Ok(port) => control_port = Some(port),
+                    Err(error) => control_arg_errors.push(error),
+                },
+                None => control_arg_errors.push("--control: missing port value (expected `--control <port>`)".to_string()),
+            },
+            "--control-token" => control_token = args.next(),
+            "--control-token-file" => control_token_file = args.next().map(std::path::PathBuf::from),
+            "--automation-read-root" => automation_read_root = args.next().map(std::path::PathBuf::from),
+            "--automation-write-root" => automation_write_root = args.next().map(std::path::PathBuf::from),
+            "--safe-gpu" => safe_gpu = true,
+            "--in-window-menus" => in_window_menus = true,
+            "--version" => {
+                println!("local-image {}", photocraft_engine::build_info::long_version());
+                return Ok(());
+            }
+            // Linux: add to (or remove from) the application menu; `--system` for /usr/local.
+            #[cfg(target_os = "linux")]
+            "--install" | "--uninstall" => {
+                let system = std::env::args().any(|a| a == "--system");
+                let r = if a == "--install" { desktop_install::install(system) } else { desktop_install::uninstall(system) };
+                match r {
+                    Ok(msg) => println!("{msg}"),
+                    Err(e) => {
+                        eprintln!("local-image: {e}");
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
+            // Old macOS passes a process serial number when launched from Finder.
+            _ if a.starts_with("-psn_") => {}
+            _ => files.push(a),
+        }
+    }
+
+    // The log file (stderr is lost when launched from the desktop menu): GPU start-up, warnings,
+    // errors and panics. Opened after the arguments so `--version` doesn't rotate it.
+    let log_path = app_log::init();
+    log::info!(
+        "Local Image {} starting (pid {}); settings in {:?}; log file {:?}",
+        photocraft_engine::build_info::long_version(),
+        std::process::id(),
+        lightcraft_sysmem::app_dirs::config_dir(),
+        log_path
+    );
+    // One compute pool sized from the hardware, built before anything uses rayon (threading rules 1-2).
+    compute_policy::init(services::prefs_file().as_deref());
+
+    // A malformed control port must not silently drop the control server (issue #701): name the
+    // bad value and fail the launch, like `local-image-cli serve --port` does for the same typo.
+    // Exit status 2 is the usual command-line usage error, so a launcher sees the failure.
+    if let Some(code) = control_args_exit_code(&control_arg_errors) {
+        for error in &control_arg_errors {
+            eprintln!("local-image: {error}");
+        }
+        std::process::exit(code);
+    }
+
+    // winit and wgpu dlopen the windowing and GPU libraries, and some of those crates panic when
+    // one is missing (issue #201). Name the package to install and exit instead.
+    #[cfg(target_os = "linux")]
+    if let Err(message) = linux_libs::preflight() {
+        eprint!("{message}");
+        std::process::exit(1);
+    }
+
+    let control = if let Some(port) = control_port {
+        let (supplied, token_file) = photocraft_automation::security::token_inputs(control_token, control_token_file);
+        let token = match photocraft_automation::security::server_token(supplied.as_deref(), token_file.as_deref()) {
+            Ok(token) => token,
+            Err(e) => {
+                eprintln!("local-image: cannot configure control authentication: {e}");
+                return Ok(());
+            }
+        };
+        if let Some(path) = token_file {
+            eprintln!("local-image: control token file: {}", path.display());
+        } else if supplied.is_none() {
+            eprintln!("local-image: control token: {token}");
+        } else {
+            eprintln!("local-image: using supplied control token");
+        }
+        let workspace = match photocraft_automation::AuthorizedWorkspace::new(automation_read_root.as_deref(), automation_write_root.as_deref()) {
+            Ok(workspace) => workspace,
+            Err(error) => {
+                eprintln!("local-image: cannot configure automation workspace: {error}");
+                return Ok(());
+            }
+        };
+        Some((port, token, workspace))
+    } else {
+        None
+    };
+    // Finder / Dock / Open With deliver files as Apple events, not arguments; catch the one that
+    // launched us as well as later ones. Lives until the event loop returns.
+    #[cfg(target_os = "macos")]
+    let apple_events = apple_events::AppleEvents::install();
+    #[cfg(target_os = "macos")]
+    let apple_events = &apple_events;
+
+    // Pen tablet samples on macOS (AppKit event monitor, before winit sees each event) and X11
+    // (started once eframe says which display server it is on). The monitor lives until the event
+    // loop returns.
+    let stylus_feed = photocraft_ui_egui::stylus::StylusFeed::default();
+    #[cfg(target_os = "macos")]
+    let _tablet = tablet::install_macos(&stylus_feed);
+
+    // Read the displays' ICC profiles while the window opens (colour-managed canvas; `None`
+    // where the platform has no reader).
+
+    // Brush presets load in the background; the app attaches them when they arrive.
+    let presets = services::presets_dir().map(photocraft_engine::preset_store::open_dir_async);
+    let mut options = native_options();
+    if std::env::var("LOCAL_IMAGE_OUTPUT_DEPTH").ok().as_deref() != Some("8") {
+        options.wgpu_options.preferred_formats = vec![eframe::wgpu::TextureFormat::Rgb10a2Unorm];
+    }
+    if cfg!(target_os = "macos") {
+        options.wgpu_options.surface.color_space = eframe::wgpu::SurfaceColorSpace::DisplayP3;
+    }
+    // eframe restores the saved window layout before our code runs; drop values that would crash it.
+    ui_state::sanitize(options.persistence_path.as_deref());
+    // Crash-safe GPU startup (#4): pick the backend (a marker left by a start that died in the
+    // driver moves to a safer one), and lock this start's marker until the first frames render.
+    let t_sentinel = std::time::Instant::now();
+    let os = gpu_startup::Os::current();
+    let (pref, mode) = gpu_startup::read_rendering_prefs(services::prefs_file().as_deref());
+    let (previous, sentinel) = match services::config_dir() {
+        Some(dir) => gpu_startup::Sentinel::begin(&dir),
+        None => (gpu_startup::Previous::Clean, None),
+    };
+    let local_image_backend = std::env::var("LOCAL_IMAGE_GPU_BACKEND").ok();
+    let wgpu_backend = std::env::var("WGPU_BACKEND").ok();
+    let env_backend = li_gpu::backend::startup_environment(local_image_backend.as_deref(), wgpu_backend.as_deref());
+    // The override came from LOCAL_IMAGE_GPU_BACKEND (WGPU_BACKEND alone would choose nothing).
+    let local_image_override = env_backend.is_some() && li_gpu::backend::startup_environment(None, wgpu_backend.as_deref()).is_none();
+    // Why GPU acceleration is reduced or off after an earlier failure, while that still applies
+    // (choosing GPU again in Preferences or the CPU-mode notice makes it stale).
+    let config_dir = services::config_dir();
+    let mut recovery = config_dir.as_deref().and_then(gpu_startup::Recovery::load);
+    if recovery.is_some() && !gpu_startup::Recovery::applies(pref, mode, os) {
+        if let Some(dir) = config_dir.as_deref() {
+            gpu_startup::Recovery::clear(dir);
+        }
+        recovery = None;
+    }
+    let mut plan = gpu_startup::plan_with_mode(pref, mode, previous.crashed(), env_backend.as_deref(), safe_gpu, os);
+    if local_image_override {
+        plan.reason = plan.reason.map(|reason| reason.replace("WGPU_BACKEND", "LOCAL_IMAGE_GPU_BACKEND"));
+    }
+    // A process re-launched after its parent's renderer couldn't initialise (see the end of main).
+    let retry_env = std::env::var(gpu_startup::RETRY_ENV).ok();
+    let retry_reason = std::env::var(gpu_startup::RETRY_REASON_ENV).ok();
+    let plan = gpu_startup::with_init_retry(plan, retry_env.as_deref(), retry_reason.as_deref(), os);
+    let plan = gpu_startup::with_recovery(plan, recovery.as_ref(), os);
+    if let Some(m) = previous.crashed() {
+        log::warn!(
+            "the previous start didn't finish (GPU backend {}, adapter {:?} on {:?}, driver {:?}, attempt {}); {}",
+            m.backend,
+            m.adapter,
+            m.adapter_backend,
+            m.driver,
+            m.attempt,
+            plan.reason.as_deref().unwrap_or("")
+        );
+    }
+    if let Some(r) = &recovery {
+        log::info!("GPU recovery in effect: {}", r.reason);
+    }
+    let sentinel: gpu_startup::SharedSentinel = std::sync::Arc::new(std::sync::Mutex::new(sentinel));
+    if let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut() {
+        let backend = match &plan.env {
+            Some(v) => format!("env:{v}"),
+            None => plan.backend.name().to_string(),
+        };
+        let marker =
+            gpu_startup::Marker { backend, version: photocraft_engine::build_info::long_version().to_string(), attempt: plan.attempt, ..Default::default() };
+        if let Err(e) = s.write(marker) {
+            log::warn!("GPU startup marker: {e}");
+        }
+    }
+    let gpu_note: std::sync::Arc<std::sync::Mutex<Option<String>>> = Default::default();
+    // The adapter's real texture limits (egui asks for 8192 px), so big documents stay on the GPU.
+    gpu_startup::configure(&mut options.wgpu_options.wgpu_setup, &plan, os, sentinel.clone(), gpu_note.clone());
+    let sentinel_ms = t_sentinel.elapsed().as_secs_f64() * 1000.0;
+    log::info!("GPU startup: {:?}, preference {} / {:?} ({sentinel_ms:.2} ms)", plan, pref.name(), mode);
+    let retry_cpu = !safe_gpu && plan.backend != photocraft_engine::prefs::GpuBackend::Cpu;
+    let startup_failure = std::env::var("LOCAL_IMAGE_GPU_STARTUP_FAILURE").ok().filter(|r| !r.trim().is_empty());
+    let saved_recovery = recovery.clone();
+    // For the re-launch after a renderer initialisation failure (the closure below takes `plan`).
+    let planned_backend = plan.backend;
+    let next_after_failure = gpu_startup::after_init_failure(&plan, os);
+    let app_created = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let created_in_callback = app_created.clone();
+    let started_sentinel = sentinel.clone();
+    let result = eframe::run_native(
+        "Local Image",
+        options,
+        Box::new(move |cc| {
+            created_in_callback.store(true, std::sync::atomic::Ordering::Relaxed);
+            // File dialogs are children of this window, so the portal picker on Wayland isn't a
+            // stray top-level hidden behind a fullscreen window (upstream LightCraft 9c2bad1).
+            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+            photocraft_ui_egui::dialog_filter::set_dialog_parent(rfd::FileDialog::new().set_parent(cc));
+            let automation = control.as_ref().map(|(_, _, workspace)| workspace.clone());
+            let mut services = services::native(automation);
+            services.preset_store = presets;
+            #[cfg(target_os = "linux")]
+            let display = tablet::DisplayKind::of(cc);
+            #[cfg(target_os = "linux")]
+            {
+                services.is_wayland = display == Some(tablet::DisplayKind::Wayland);
+                // Explains a file dialog that can't open (no portal, no zenity) instead of silence.
+                file_dialog_probe::start();
+            }
+            let mut app = PhotocraftApp::new(Session::new(), services);
+            #[cfg(target_os = "linux")]
+            let wayland = display == Some(tablet::DisplayKind::Wayland);
+            #[cfg(not(target_os = "linux"))]
+            let wayland = false;
+            app.session.color.output_environment = if cfg!(target_os = "macos") {
+                photocraft_engine::display_color::OutputEnvironment::MacOs
+            } else if wayland {
+                photocraft_engine::display_color::OutputEnvironment::Wayland
+            } else {
+                photocraft_engine::display_color::OutputEnvironment::AppManaged
+            };
+            app.integrated_titlebar = cfg!(target_os = "macos");
+            app.custom_titlebar = CUSTOM_TITLEBAR;
+            // Only the title bar's free gap drags the window, never the menus (mac_window.rs).
+            #[cfg(target_os = "macos")]
+            mac_window::disable_native_title_drag();
+            // Long commands and file opens run as background jobs with progress and Cancel (#210).
+            app.background_jobs = std::env::var_os("LOCAL_IMAGE_INLINE_JOBS").is_none();
+            // Snapshot monitor geometry, then read profiles entirely off the UI thread.
+            // The shell re-reads on focus, topology changes and Color Settings.
+            let window = cc.winit_window().cloned();
+            let monitor_window = window.clone();
+            let reader: photocraft_ui_egui::monitor_status::ReadDisplaysFn = std::sync::Arc::new(move || {
+                let outputs = monitor_window
+                    .as_ref()
+                    .map(|w| {
+                        w.available_monitors()
+                            .map(|m| {
+                                let p = m.position();
+                                let size = m.size();
+                                let scale = m.scale_factor();
+                                monitor_profile::Output {
+                                    name: m.name().unwrap_or_default(),
+                                    frame: [f64::from(p.x) / scale, f64::from(p.y) / scale, f64::from(size.width) / scale, f64::from(size.height) / scale],
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                #[cfg(target_os = "linux")]
+                let x11 = display == Some(tablet::DisplayKind::X11);
+                #[cfg(not(target_os = "linux"))]
+                let x11 = false;
+                monitor_profile::detect_async_with(outputs, x11)
+            });
+            if let Some(rx) = reader() {
+                app.services.read_displays = Some(reader);
+                photocraft_ui_egui::monitor_status::pending(&mut app, rx);
+            }
+            app.services.display_topology = window.clone().map(|w| {
+                std::sync::Arc::new(move || {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    for m in w.available_monitors() {
+                        (m.name(), m.position(), m.size(), m.scale_factor().to_bits()).hash(&mut h);
+                    }
+                    h.finish()
+                }) as _
+            });
+            app.services.current_display_name = window.map(|w| std::sync::Arc::new(move || w.current_monitor().and_then(|m| m.name())) as _);
+            // Preferences › Performance › Use Graphics Processor (and the GPU backend: `cpu`
+            // composites on the CPU).
+            let info = &mut app.perf.gpu_info;
+            info.preference = pref.name().to_string();
+            info.selected = if plan.env.is_some() { "env".into() } else { plan.backend.name().to_string() };
+            info.fallback = match (plan.reason.clone(), gpu_note.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()) {
+                (Some(reason), Some(note)) => Some(format!("{reason}. {note}")),
+                (reason, note) => reason.or(note),
+            };
+            info.canvas = "cpu".into();
+            if let Some(rs) = cc.wgpu_render_state.clone() {
+                li_gpu::install_window(&rs.instance, &rs.adapter, &rs.device, &rs.queue);
+                app.perf.gpu_info.set_adapter(&rs.adapter.get_info());
+                app.perf.gpu_info.output_depth = if rs.target_format == eframe::wgpu::TextureFormat::Rgb10a2Unorm { 10 } else { 8 };
+                app.perf.gpu_info.output_note = if cfg!(target_os = "linux") && !wayland {
+                    "X11 / XWayland uses 8-bit output; pen tablet compatibility mode forces this backend"
+                } else {
+                    "panel depth is controlled by the OS/compositor"
+                }
+                .into();
+                let software_window = rs.adapter.get_info().device_type == eframe::wgpu::DeviceType::Cpu;
+                if software_window && mode != photocraft_engine::prefs::RenderingMode::Cpu {
+                    app.perf.gpu_info.fallback = Some("No compatible hardware graphics adapter; using software graphics.".into());
+                }
+                if !software_window
+                    && plan.backend != photocraft_engine::prefs::GpuBackend::Cpu
+                    && std::env::var_os("LOCAL_IMAGE_CPU_CANVAS").is_none()
+                    && app.session.prefs().performance.rendering_mode != photocraft_engine::prefs::RenderingMode::Cpu
+                {
+                    app.set_wgpu(rs);
+                }
+            }
+            let fallback_reason = startup_failure.clone().or_else(|| {
+                (app.perf.gpu_info.canvas == "cpu" && mode != photocraft_engine::prefs::RenderingMode::Cpu)
+                    .then(|| app.perf.gpu_info.fallback.clone())
+                    .flatten()
+            });
+            if let Some(reason) = &fallback_reason {
+                log::warn!("GPU acceleration is off for this launch: {reason}");
+                photocraft_ui_egui::gpu_status::queue_fallback_notice(&mut app, reason);
+            }
+            // Keep saying why while the app stays in CPU mode after a failure (status bar, title
+            // bar and Preferences › Performance), not just in the one-time warning.
+            app.perf.gpu_info.recovery =
+                fallback_reason.clone().or_else(|| (app.perf.gpu_info.canvas == "cpu").then(|| saved_recovery.as_ref().map(|r| r.reason.clone())).flatten());
+            app.perf.span("gpuSentinel", sentinel_ms);
+            // Once the first frames rendered: clear the marker, and keep a crash fallback.
+            let remember_cpu = startup_failure.is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
+            let remember = plan.remember.then_some(plan.backend);
+            // What to write to `gpu-recovery.json` once this start has worked.
+            let new_recovery = if remember_cpu {
+                fallback_reason.clone().or_else(|| plan.reason.clone()).map(|reason| gpu_startup::Recovery { reason, avoid: None })
+            } else if plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Gl && os == gpu_startup::Os::Other {
+                plan.reason.clone().map(|reason| gpu_startup::Recovery { reason, avoid: plan.avoid.clone() })
+            } else {
+                None
+            };
+            let recovery_dir = config_dir.clone();
+            app.on_started(move |app| {
+                if let Some(s) = started_sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+                    s.finish();
+                }
+                log::info!("GPU startup finished: {} canvas on {:?}", app.perf.gpu_info.canvas, app.perf.gpu_info.adapter);
+                if let (Some(r), Some(dir)) = (&new_recovery, recovery_dir.as_deref())
+                    && let Err(e) = r.save(dir)
+                {
+                    log::warn!("couldn't save the GPU recovery note: {e}");
+                }
+                if remember_cpu
+                    && let Err(error) = app.run(
+                        "prefs.set",
+                        serde_json::json!({"values": {
+                            "performance.renderingMode": "cpu"
+                        }}),
+                    )
+                {
+                    log::warn!("couldn't remember CPU recovery: {error}");
+                }
+                if let Some(b) = remember
+                    && app.session.prefs().performance.gpu_backend != b
+                    && let Err(e) = app.run("prefs.set", serde_json::json!({"path": "performance.gpuBackend", "value": b.name()}))
+                {
+                    log::warn!("couldn't remember GPU backend {}: {e}", b.name());
+                }
+            });
+            if let Some((port, token, _)) = control {
+                let rx = control_server::start(port, token, cc.egui_ctx.clone());
+                app = app.with_control(rx);
+            }
+            #[cfg(target_os = "macos")]
+            {
+                app.services.os_events = Some(apple_events.connect(&cc.egui_ctx));
+                // The macOS menu bar, installed now so winit's default menu doesn't stay up.
+                if !in_window_menus {
+                    app.services.native_menu = mac_menu::install(&cc.egui_ctx, &app);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = in_window_menus;
+            // Where file drags and drops are (winit 0.30 doesn't say).
+            app.services.cursor_pos = cursor::service(cc);
+            // Tablet pressure/tilt/eraser (winit drops them): the macOS monitor installed above
+            // and the X11 reader write into this feed.
+            app.stylus.feed = stylus_feed;
+            #[cfg(target_os = "linux")]
+            tablet::spawn_x11(&app.stylus.feed, display);
+            // Paths on the command line (Linux/Windows file associations, `photocraft a.psd`).
+            app.open_paths(&files);
+            // Portable marker found but its data folder isn't writable (#228): say where settings went.
+            if let Some(w) = &lightcraft_sysmem::app_dirs::current().warning {
+                photocraft_ui_egui::notices::post(&mut app, "Portable mode is off", vec![w.clone()], false, None);
+            }
+            // The native bar and in-window menu visibility start in the remembered module.
+            let mut host = library_host::Host::new(app);
+            host.sync_native_menu(&cc.egui_ctx);
+            Ok(Box::new(host))
+        }),
+    );
+    // Release the shared service before native driver exit handlers, after workers/queue drain.
+    if lightcraft_gpu::shutdown(std::time::Duration::from_secs(3)) {
+        li_gpu::device::release_window();
+    }
+    // Closed before the first frames rendered: not a driver crash. (A start that failed to
+    // create its device keeps the marker, so the next one tries a safer backend.)
+    if result.is_ok()
+        && let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+    {
+        s.finish();
+    }
+    if let Err(e) = &result {
+        log::error!("the window couldn't start: {e}");
+    }
+    // Retry in a fresh process: winit event loops cannot be recreated reliably in-process.
+    // Only renderer initialization failures qualify; never restart after editing has begun.
+    // Linux tries the compatible GPU set first (`gpu_startup::after_init_failure`), then the CPU.
+    if retry_cpu && !app_created.load(std::sync::atomic::Ordering::Relaxed) && matches!(&result, Err(eframe::Error::Wgpu(_))) {
+        let error = result.as_ref().err().map(ToString::to_string).unwrap_or_default();
+        // The whole chain's reasons, so the CPU-mode notice says what each step hit.
+        let reason = match retry_reason.as_deref().map(str::trim).filter(|r| !r.is_empty()) {
+            Some(earlier) => format!("{earlier}; then on {}: {error}", planned_backend.name()),
+            None => format!("{}: {error}", planned_backend.name()),
+        };
+        if let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+            s.finish();
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            let mut command = std::process::Command::new(exe);
+            command
+                .args(std::env::args_os().skip(1))
+                .env_remove("WGPU_BACKEND")
+                .env_remove(gpu_startup::RETRY_ENV)
+                .env_remove(gpu_startup::RETRY_REASON_ENV)
+                .env(app_log::APPEND_ENV, "1");
+            clear_gpu_retry_environment(&mut command);
+            match next_after_failure {
+                Some(b) => {
+                    log::warn!("the renderer couldn't start on {}; retrying with {}", planned_backend.name(), gpu_startup::describe(b, os));
+                    command.env(gpu_startup::RETRY_ENV, b.name()).env(gpu_startup::RETRY_REASON_ENV, &reason);
+                }
+                None => {
+                    log::warn!("the renderer couldn't start on {}; retrying in CPU compatibility mode", planned_backend.name());
+                    command.arg("--safe-gpu").env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", &reason);
+                }
+            }
+            match command.spawn() {
+                Ok(_) => return Ok(()),
+                Err(error) => log::error!("could not re-launch after the GPU start-up failure: {error}"),
+            }
+        }
+    }
+    log::logger().flush();
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn window_and_panel_geometry_survive_a_restart() {
+        let options = super::native_options();
+        assert!(options.persist_window);
+        assert_eq!(options.persistence_path, super::services::config_dir().map(|dir| dir.join("ui.ron")));
+
+        #[derive(Default)]
+        struct Storage(std::collections::BTreeMap<String, String>);
+        impl eframe::Storage for Storage {
+            fn get_string(&self, key: &str) -> Option<String> {
+                self.0.get(key).cloned()
+            }
+            fn set_string(&mut self, key: &str, value: String) {
+                self.0.insert(key.into(), value);
+            }
+            fn remove_string(&mut self, key: &str) {
+                self.0.remove(key);
+            }
+            fn flush(&mut self) {}
+        }
+        let ctx = egui::Context::default();
+        let input = || egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 800.0))), ..Default::default() };
+        let mut output = ctx.run_ui(input(), |ui| {
+            egui::Panel::right("dock").exact_size(410.0).show(ui, |ui| ui.set_min_width(ui.available_width()));
+        });
+        output.textures_delta.clear();
+        let mut storage = Storage::default();
+        ctx.memory(|memory| eframe::set_value(&mut storage, "egui", memory));
+        let restored = egui::Context::default();
+        restored.memory_mut(|memory| *memory = eframe::get_value(&storage, "egui").unwrap());
+        let mut output = restored.run_ui(input(), |ui| {
+            egui::Panel::right("dock").default_size(290.0).show(ui, |ui| ui.set_min_width(ui.available_width()));
+        });
+        output.textures_delta.clear();
+        let panel = egui::containers::panel::PanelState::load(&restored, egui::Id::new("dock")).unwrap();
+        assert_eq!(panel.size().x, 410.0);
+    }
+
+    #[test]
+    fn the_window_opens_centred_at_its_default_size() {
+        let o = super::native_options();
+        assert!(o.centered, "#419: centred, not cascaded from the top-left corner");
+        assert_eq!(o.viewport.inner_size, Some(egui::vec2(1440.0, 900.0)));
+        // eframe shrinks the start size to the monitor, so the centred position is on-screen.
+        assert_ne!(o.viewport.clamp_size_to_monitor_size, Some(false));
+    }
+}
+
+fn clear_gpu_retry_environment(command: &mut std::process::Command) {
+    command.env_remove("LOCAL_IMAGE_GPU_STARTUP_FAILURE");
+}
+
+#[cfg(test)]
+#[test]
+fn ds_finding_gpu_retry_clears_inherited_cpu_failure_reason() {
+    let mut child = std::process::Command::new("unused");
+    child.env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", "old failure");
+    clear_gpu_retry_environment(&mut child);
+    assert!(child.get_envs().any(|(key, value)| key == "LOCAL_IMAGE_GPU_STARTUP_FAILURE" && value.is_none()));
+    // A deliberate CPU retry can subsequently record this attempt's reason.
+    child.env("LOCAL_IMAGE_GPU_STARTUP_FAILURE", "current failure");
+    assert!(child.get_envs().any(|(key, value)| key == "LOCAL_IMAGE_GPU_STARTUP_FAILURE" && value == Some(std::ffi::OsStr::new("current failure"))));
+}

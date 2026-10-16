@@ -1,0 +1,344 @@
+//! A layer's effective mask (pixel mask × vector mask, each feathered) as one surface, for
+//! backends that sample masks from textures (the GPU compositor) and for feathered masks on the
+//! CPU. Rasterising a vector mask costs a path coverage pass and feathering a blur, so results
+//! are cached per mask state; unchanged masks return the same tiles (cheap to clone, and the
+//! GPU sees no change).
+
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use photocraft_color::{ColorMode, PixelFormat, SampleType};
+use photocraft_doc::Layer;
+use photocraft_geom::Rect;
+use photocraft_raster::Surface;
+
+const FORMAT: PixelFormat = PixelFormat { mode: ColorMode::Grayscale, sample: SampleType::F32, alpha: false };
+
+struct Cache {
+    map: HashMap<u64, CacheEntry>,
+    tick: u64,
+}
+
+struct CacheEntry {
+    surface: Surface,
+    tick: u64,
+    // The key contains input tile addresses. Keep those tiles alive until eviction: edits must
+    // copy them, and the allocator cannot reuse their addresses for new tiles (upstream 57681126).
+    _pixel_input: Option<Surface>,
+}
+
+fn cache() -> &'static Mutex<Cache> {
+    static C: OnceLock<Mutex<Cache>> = OnceLock::new();
+    C.get_or_init(|| Mutex::new(Cache { map: HashMap::new(), tick: 0 }))
+}
+
+/// Entries kept (least recently used dropped first). Plan rebuilds look up every masked layer in
+/// turn, so fewer entries than a document's masked layers missed on all of them (LRU under a
+/// cyclic scan; see `shape_split`). Bounded by memory as well.
+const CAPACITY: usize = 1024;
+const BUDGET_BYTES: usize = 512 << 20;
+
+impl Cache {
+    /// Include the source tiles pinned for ABA protection, counting shared allocations once.
+    fn retained_bytes(&self) -> usize {
+        let mut seen = HashSet::new();
+        self.map
+            .values()
+            .flat_map(|entry| std::iter::once(&entry.surface).chain(entry._pixel_input.iter()))
+            .flat_map(Surface::tiles)
+            .filter(|(_, tile)| seen.insert(Arc::as_ptr(tile) as usize))
+            .fold(0usize, |total, (_, tile)| total.saturating_add(tile.bytes().len()))
+    }
+
+    fn trim(&mut self, capacity: usize, budget: usize) {
+        while self.map.len() > capacity || self.retained_bytes() > budget {
+            let Some(old) = self.map.iter().min_by_key(|(_, entry)| entry.tick).map(|(key, _)| *key) else { break };
+            self.map.remove(&old);
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn key(layer: &Layer, canvas: Rect) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    layer.id.0.hash(&mut h);
+    (canvas.x0, canvas.y0, canvas.x1, canvas.y1).hash(&mut h);
+    format!("{:?}", layer.vector_mask).hash(&mut h);
+    if let Some(m) = &layer.mask {
+        (m.enabled, m.density.to_bits(), m.feather.to_bits()).hash(&mut h);
+        format!("{:?}", m.surface.default_pixel()).hash(&mut h);
+        for (c, t) in m.surface.tiles() {
+            (c.tx, c.ty, Arc::as_ptr(t) as usize).hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
+/// Gaussian sigma of a mask feather of `px` pixels (Properties › Feather). Fitted on the
+/// psd-tools corpus (layer_mask_data.psd, mask-parameters-no-real-channel.psd: sigma = feather
+/// beats 0.33, 0.5, 0.7, 1.3 and 1.6 times it).
+pub fn feather_sigma(px: f32) -> f32 {
+    if px.is_finite() { (px * FEATHER_SIGMA).clamp(0.0, MAX_FEATHER_SIGMA) } else { 0.0 }
+}
+
+const FEATHER_SIGMA: f32 = 1.0;
+/// Photoshop's feather tops out at 1000 px.
+const MAX_FEATHER_SIGMA: f32 = 1000.0 * FEATHER_SIGMA;
+
+/// Whether `layer` has an enabled mask with a feather (rendered through [`combined_mask`]).
+pub fn has_feather(layer: &Layer) -> bool {
+    layer.mask.as_ref().is_some_and(|m| m.enabled && feather_sigma(m.feather) > 0.0)
+        || layer.vector_mask.as_ref().is_some_and(|v| v.enabled && feather_sigma(v.feather) > 0.0)
+}
+
+/// Shared Gaussian feather (replicated borders).
+fn gaussian(v: &mut [f32], w: usize, h: usize, sigma: f32) {
+    li_raster::blur::gaussian_n(v, w, h, 1, sigma, false);
+}
+
+/// The layer's mask values (pixel mask with density × vector mask, each blurred by its feather,
+/// exactly as the CPU compositor applies them) as a single-channel f32 surface over `canvas`, or
+/// `None` when the layer has no enabled vector mask and no feathered pixel mask (use the pixel
+/// mask directly). Values outside the computed area are the surface's default.
+pub fn combined_mask(layer: &Layer, canvas: Rect) -> Option<Surface> {
+    let vm = layer.vector_mask.as_ref().filter(|v| v.enabled);
+    let pixel = layer.mask.as_ref().filter(|m| m.enabled);
+    let (sv, sp) = (vm.map_or(0.0, |v| feather_sigma(v.feather)), pixel.map_or(0.0, |m| feather_sigma(m.feather)));
+    if vm.is_none() && sp <= 0.0 {
+        return None;
+    }
+    let k = key(layer, canvas);
+    {
+        let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
+        c.tick += 1;
+        let tick = c.tick;
+        if let Some(e) = c.map.get_mut(&k) {
+            e.tick = tick;
+            return Some(e.surface.clone());
+        }
+    }
+    #[cfg(test)]
+    BUILDS.with(|b| b.set(b.get() + 1));
+    // Far outside the path the vector mask is constant.
+    let far = Rect::from_xywh(canvas.x0 - 1_000_000, canvas.y0 - 1_000_000, 1, 1);
+    let v_out = vm.map_or(1.0, |vm| photocraft_vector::vector_mask_values(vm, far)[0]);
+    let p_def = pixel.map_or(1.0, |m| {
+        let d = m.surface.default_pixel().first().copied().unwrap_or(1.0);
+        1.0 - m.density * (1.0 - d)
+    });
+    let grow = |r: Rect, sigma: f32| {
+        let m = (sigma * 3.0).ceil() as i32 + 2;
+        if r.is_empty() { r } else { Rect::new(r.x0.saturating_sub(m), r.y0.saturating_sub(m), r.x1.saturating_add(m), r.y1.saturating_add(m)) }
+    };
+    // Where the product can differ from `p_def × v_out`: the path's bounds, plus the pixel
+    // mask's painted tiles when the vector mask lets them through outside the path, each grown
+    // by its feather.
+    let mut area = match vm.and_then(|vm| vm.path.control_bounds()) {
+        // Upstream 2842973d: hostile path coordinates saturate the casts; don't overflow past them.
+        Some((x0, y0, x1, y1)) => grow(
+            Rect::new(
+                (x0.floor() as i32).saturating_sub(2),
+                (y0.floor() as i32).saturating_sub(2),
+                (x1.ceil() as i32).saturating_add(2),
+                (y1.ceil() as i32).saturating_add(2),
+            ),
+            sv,
+        ),
+        None => Rect::EMPTY,
+    };
+    if let Some(m) = pixel
+        && v_out > 0.0
+    {
+        let b = grow(m.surface.content_bounds(), sp);
+        area = if area.is_empty() {
+            b
+        } else if b.is_empty() {
+            area
+        } else {
+            area.union(&b)
+        };
+    }
+    let area = area.intersect(&canvas);
+    let mut s = Surface::with_default(FORMAT, &[p_def * v_out]);
+    if !area.is_empty() {
+        let (w, h) = (area.width() as usize, area.height() as usize);
+        let mut v = match vm {
+            Some(vm) => photocraft_vector::vector_mask_values(vm, area),
+            None => vec![1.0; w * h],
+        };
+        gaussian(&mut v, w, h, sv);
+        if let Some(m) = pixel {
+            let mut pm = Vec::new();
+            m.values_into(area, &mut pm);
+            gaussian(&mut pm, w, h, sp);
+            for (a, b) in v.iter_mut().zip(pm) {
+                *a *= b;
+            }
+        }
+        s.write_region(area, &v);
+    }
+    let mut c = cache().lock().unwrap_or_else(|e| e.into_inner());
+    let tick = c.tick;
+    c.map.insert(k, CacheEntry { surface: s.clone(), tick, _pixel_input: layer.mask.as_ref().map(|m| m.surface.clone()) });
+    // An individually oversized result is returned to this render without retaining it.
+    c.trim(CAPACITY, BUDGET_BYTES);
+    Some(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use photocraft_doc::LayerMask;
+    use photocraft_doc::vector::{Knot, Path, Subpath, VectorMask};
+
+    #[test]
+    fn pixel_edits_refresh_cached_masks_at_every_depth() {
+        // Upstream 57681126 (#1645).
+        let canvas = Rect::new(0, 0, 64, 64);
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut layer = Layer::raster("edited mask", PixelFormat::RGBA8);
+            let mut mask = LayerMask::hide_all();
+            mask.surface = Surface::new(PixelFormat { sample, ..FORMAT });
+            mask.surface.fill_rect(canvas, &[1.0]);
+            mask.feather = 4.0;
+            layer.mask = Some(mask);
+
+            let first = combined_mask(&layer, canvas).unwrap();
+            assert!((first.sample_channel(32, 32, 0) - 1.0).abs() < 1e-6);
+            drop(first);
+            // No document/undo snapshot shares the input. Previously this write could reuse the
+            // original tile address and return the old cached white mask.
+            layer.mask.as_mut().unwrap().surface.fill_rect(canvas, &[0.0]);
+            let edited = combined_mask(&layer, canvas).unwrap();
+            assert_eq!(edited.sample_channel(32, 32, 0), 0.0, "{sample:?}");
+
+            layer.mask.as_mut().unwrap().surface.fill_rect(canvas, &[0.5]);
+            let repainted = combined_mask(&layer, canvas).unwrap();
+            assert!((repainted.sample_channel(32, 32, 0) - 0.5).abs() < 0.005, "{sample:?}");
+            let warm = combined_mask(&layer, canvas).unwrap();
+            assert!(repainted.tiles().zip(warm.tiles()).all(|((_, a), (_, b))| Arc::ptr_eq(a, b)));
+        }
+    }
+
+    /// More vector-masked layers than the old 64 entries: the next plan rebuild rasterises none.
+    #[test]
+    fn many_masked_layers_stay_cached_across_rebuilds() {
+        let canvas = Rect::new(0, 0, 64, 48);
+        let layers: Vec<Layer> = (0..96)
+            .map(|i| {
+                let mut l = Layer::raster("l", PixelFormat::RGBA8);
+                let o = (i % 20) as f64;
+                let knots = [(2.0 + o, 2.0), (40.0, 6.0 + o), (20.0, 30.0)].iter().map(|&(x, y)| Knot::corner(x, y)).collect();
+                let mut path = Path::default();
+                path.subpaths.push(Subpath { knots, closed: true, ..Default::default() });
+                l.vector_mask = Some(VectorMask::new(path));
+                l
+            })
+            .collect();
+        let builds = || BUILDS.with(std::cell::Cell::get);
+        let n0 = builds();
+        for l in &layers {
+            combined_mask(l, canvas).unwrap();
+        }
+        assert_eq!(builds() - n0, layers.len());
+        for l in &layers {
+            combined_mask(l, canvas).unwrap();
+        }
+        assert_eq!(builds() - n0, layers.len(), "every mask came from the cache the second time");
+    }
+
+    #[test]
+    fn matches_the_cpu_mask_and_is_cached() {
+        let mut l = Layer::raster("l", PixelFormat::RGBA8);
+        let pts = [(5.0, 5.0), (30.0, 6.0), (20.0, 28.0)];
+        let knots = pts.iter().map(|&(x, y)| Knot::corner(x, y)).collect();
+        let mut path = Path::default();
+        path.subpaths.push(Subpath { knots, closed: true, ..Default::default() });
+        let mut vm = VectorMask::new(path);
+        vm.density = 0.9;
+        l.vector_mask = Some(vm);
+        let canvas = Rect::new(0, 0, 40, 32);
+        let s = combined_mask(&l, canvas).unwrap();
+        let want = photocraft_vector::vector_mask_values(l.vector_mask.as_ref().unwrap(), canvas);
+        let mut got = Vec::new();
+        s.read_region_into(canvas, &mut got);
+        for (a, b) in got.iter().zip(&want) {
+            assert!((a - b).abs() < 1e-6);
+        }
+        let again = combined_mask(&l, canvas).unwrap();
+        assert!(s.tiles().zip(again.tiles()).all(|(a, b)| Arc::ptr_eq(a.1, b.1)));
+        l.vector_mask = None;
+        assert!(combined_mask(&l, canvas).is_none());
+    }
+
+    #[test]
+    fn hostile_path_coordinates_do_not_overflow() {
+        // Upstream 2842973d.
+        let mut l = Layer::raster("l", PixelFormat::RGBA8);
+        let knots = [(-1.0e30, -1.0e30), (1.0e30, 0.0), (0.0, 1.0e30)].iter().map(|&(x, y)| Knot::corner(x, y)).collect();
+        let mut path = Path::default();
+        path.subpaths.push(Subpath { knots, closed: true, ..Default::default() });
+        l.vector_mask = Some(VectorMask::new(path));
+        let _ = combined_mask(&l, Rect::new(0, 0, 8, 8));
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn j01_d2_compositing_half_pixel_feather_blurs() {
+    let mut mask = vec![0.0; 81];
+    mask[40] = 1.0;
+    gaussian(&mut mask, 9, 9, 0.5);
+    assert!(mask[40] < 1.0);
+    assert!(mask[39] > 0.0);
+    assert!((mask.iter().sum::<f32>() - 1.0).abs() < 1e-6);
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod retained_input_regression {
+    use super::*;
+
+    fn input() -> Surface {
+        let mut surface = Surface::new(PixelFormat::GRAY8);
+        surface.fill_rect(Rect::new(1024, 1024, 1280, 1280), &[1.0]);
+        surface
+    }
+    fn entry(input: Surface, tick: u64) -> CacheEntry {
+        CacheEntry { surface: Surface::new(FORMAT), tick, _pixel_input: Some(input) }
+    }
+
+    #[test]
+    fn cache_budget_counts_pinned_inputs_and_evicts_them_after_source_drop() {
+        let first = input();
+        let weak = Arc::downgrade(first.tiles().next().unwrap().1);
+        let mut cache = Cache { map: HashMap::new(), tick: 0 };
+        cache.map.insert(1, entry(first, 1));
+        let budget = 256 * 256;
+        assert_eq!(cache.retained_bytes(), budget);
+        cache.map.insert(2, entry(input(), 2));
+        cache.trim(CAPACITY, budget);
+        assert_eq!(cache.map.len(), 1);
+        assert!(cache.map.contains_key(&2));
+        assert!(weak.upgrade().is_none(), "evicted cache must release the old source's tiles");
+        assert_eq!(cache.retained_bytes(), budget);
+        cache.trim(CAPACITY, budget - 1);
+        assert!(cache.map.is_empty(), "do not retain an individually oversized entry");
+    }
+
+    #[test]
+    fn cache_budget_deduplicates_shared_input_and_output_tiles() {
+        let source = input();
+        let mut cache = Cache { map: HashMap::new(), tick: 0 };
+        cache.map.insert(1, CacheEntry { surface: source.clone(), tick: 1, _pixel_input: Some(source.clone()) });
+        cache.map.insert(2, entry(source, 2));
+        cache.trim(CAPACITY, 256 * 256);
+        assert_eq!(cache.map.len(), 2);
+        assert_eq!(cache.retained_bytes(), 256 * 256);
+    }
+}

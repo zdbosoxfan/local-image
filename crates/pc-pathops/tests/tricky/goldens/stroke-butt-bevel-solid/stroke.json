@@ -1,0 +1,137 @@
+{
+  "actions": "select-by-id:a;object-stroke-to-path",
+  "case": "stroke-butt-bevel-solid",
+  "execution_actions": "select-by-id:a;object-stroke-to-path;export-do",
+  "input_svg": "<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\"><path id=\"a\" d=\"M24 52 L48 28 L72 60\" fill=\"none\" stroke=\"black\" stroke-width=\"8\" stroke-linecap=\"butt\" stroke-linejoin=\"bevel\" stroke-miterlimit=\"4\"/></svg>\n",
+  "normalizer": "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry",
+  "operation": "stroke",
+  "parameters": {
+    "cap": "butt",
+    "dash_offset": 0,
+    "dashes": [],
+    "join": "bevel",
+    "miter": 4,
+    "width": 8
+  },
+  "paths": [
+    {
+      "fill_rule": "NonZero",
+      "inverted": false,
+      "subpaths": [
+        {
+          "closed": true,
+          "knots": [
+            {
+              "anchor": {
+                "x": 45.1715726852417,
+                "y": 25.1715726852417
+              },
+              "in_ctrl": {
+                "x": 45.1715726852417,
+                "y": 25.1715726852417
+              },
+              "out_ctrl": {
+                "x": 45.1715726852417,
+                "y": 25.1715726852417
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 21.1715726852417,
+                "y": 49.1715726852417
+              },
+              "in_ctrl": {
+                "x": 21.1715726852417,
+                "y": 49.1715726852417
+              },
+              "out_ctrl": {
+                "x": 21.1715726852417,
+                "y": 49.1715726852417
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 26.8284273147583,
+                "y": 54.8284273147583
+              },
+              "in_ctrl": {
+                "x": 26.8284273147583,
+                "y": 54.8284273147583
+              },
+              "out_ctrl": {
+                "x": 26.8284273147583,
+                "y": 54.8284273147583
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 47.56722354888916,
+                "y": 34.08963108062744
+              },
+              "in_ctrl": {
+                "x": 47.56722354888916,
+                "y": 34.08963108062744
+              },
+              "out_ctrl": {
+                "x": 47.56722354888916,
+                "y": 34.08963108062744
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 68.80000019073486,
+                "y": 62.40000009536743
+              },
+              "in_ctrl": {
+                "x": 68.80000019073486,
+                "y": 62.40000009536743
+              },
+              "out_ctrl": {
+                "x": 68.80000019073486,
+                "y": 62.40000009536743
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 75.19999980926514,
+                "y": 57.59999990463257
+              },
+              "in_ctrl": {
+                "x": 75.19999980926514,
+                "y": 57.59999990463257
+              },
+              "out_ctrl": {
+                "x": 75.19999980926514,
+                "y": 57.59999990463257
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 51.19999980926514,
+                "y": 25.59999990463257
+              },
+              "in_ctrl": {
+                "x": 51.19999980926514,
+                "y": 25.59999990463257
+              },
+              "out_ctrl": {
+                "x": 51.19999980926514,
+                "y": 25.59999990463257
+              },
+              "smooth": false
+            }
+          ],
+          "op": "Combine"
+        }
+      ]
+    }
+  ],
+  "source_svg": "<!-- Original Local Image synthetic output. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 393216 393216\" version=\"1.1\" id=\"svg1\">\n  <defs id=\"defs1\" />\n  <path style=\"baseline-shift:baseline;display:inline;overflow:visible;vector-effect:none;stroke-linejoin:bevel;enable-background:accumulate;stop-color:#000000;stop-opacity:1;opacity:1\" d=\"m 185022.76171875,103102.76171875 -98304,98304 23170.4765625,23170.4765625 84946.109375,-84946.109375 86969.453125,115959.271484375 26214.3984375,-19660.80078125 -98304,-131072 z\" id=\"a\" />\n</svg>\n",
+  "tool": "Inkscape 1.4.4"
+}

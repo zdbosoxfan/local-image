@@ -1,0 +1,872 @@
+use super::*;
+
+fn varint(mut v: u64, out: &mut Vec<u8>) {
+    loop {
+        let b = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(b);
+            break;
+        }
+        out.push(b | 0x80);
+    }
+}
+
+fn field_varint(f: u32, v: u64, out: &mut Vec<u8>) {
+    varint(u64::from(f) << 3, out);
+    varint(v, out);
+}
+
+fn field_bytes(f: u32, b: &[u8], out: &mut Vec<u8>) {
+    varint(u64::from(f) << 3 | 2, out);
+    varint(b.len() as u64, out);
+    out.extend_from_slice(b);
+}
+
+fn bytes_of(f: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
+    let mut v = Vec::new();
+    f(&mut v);
+    v
+}
+
+/// An ONNX `ValueInfoProto` (float tensor); `dims: None` leaves the shape unspecified, `None`
+/// entries are symbolic.
+fn value_info(name: &str, dims: Option<&[Option<u64>]>) -> Vec<u8> {
+    bytes_of(|o| {
+        field_bytes(1, name.as_bytes(), o);
+        let tensor = bytes_of(|t| {
+            field_varint(1, 1, t);
+            if let Some(dims) = dims {
+                let shape = bytes_of(|s| {
+                    for (i, d) in dims.iter().enumerate() {
+                        let dim = bytes_of(|x| match d {
+                            Some(v) => field_varint(1, *v, x),
+                            None => field_bytes(2, format!("d{i}").as_bytes(), x),
+                        });
+                        field_bytes(1, &dim, s);
+                    }
+                });
+                field_bytes(2, &shape, t);
+            }
+        });
+        let typ = bytes_of(|t| field_bytes(1, &tensor, t));
+        field_bytes(2, &typ, o);
+    })
+}
+
+fn node(op: &str, inputs: &[&str], output: &str, attrs: &[Vec<u8>]) -> Vec<u8> {
+    bytes_of(|o| {
+        for i in inputs {
+            field_bytes(1, i.as_bytes(), o);
+        }
+        field_bytes(2, output.as_bytes(), o);
+        field_bytes(4, op.as_bytes(), o);
+        for a in attrs {
+            field_bytes(5, a, o);
+        }
+    })
+}
+
+fn attr_int(name: &str, v: u64) -> Vec<u8> {
+    bytes_of(|o| {
+        field_bytes(1, name.as_bytes(), o);
+        field_varint(3, v, o);
+        field_varint(20, 2, o);
+    })
+}
+
+fn attr_ints(name: &str, vs: &[u64]) -> Vec<u8> {
+    bytes_of(|o| {
+        field_bytes(1, name.as_bytes(), o);
+        for v in vs {
+            field_varint(8, *v, o);
+        }
+        field_varint(20, 7, o);
+    })
+}
+
+/// What the tiny test model outputs.
+#[derive(Clone, Copy)]
+enum Out {
+    /// `[1, 1, h, w]`: the sigmoid of the channel mean.
+    Map,
+    /// `[1, h, w]`.
+    Flat,
+    /// `[1, n, h, w]`: the channel mean repeated n times.
+    Classes(usize),
+    /// `[1, 3, h, w]`: the input itself (not a single map).
+    Echo,
+}
+
+/// A tiny ONNX model (opset 13) with the given input size (`None`: flexible) and output.
+fn tiny_onnx(input: Option<(u64, u64)>, out: Out) -> Vec<u8> {
+    let dims: Vec<Option<u64>> = match input {
+        Some((h, w)) => vec![Some(1), Some(3), Some(h), Some(w)],
+        None => vec![Some(1), Some(3), None, None],
+    };
+    let mean = |keep: u64| node("ReduceMean", &["x"], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", keep)]);
+    let nodes = match out {
+        Out::Map => vec![mean(1), node("Sigmoid", &["m"], "y", &[])],
+        Out::Flat => vec![mean(0), node("Identity", &["m"], "y", &[])],
+        Out::Classes(n) => vec![mean(1), node("Concat", &vec!["m"; n], "y", &[attr_int("axis", 1)])],
+        Out::Echo => vec![node("Identity", &["x"], "y", &[])],
+    };
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"tiny", g);
+        field_bytes(11, &value_info("x", Some(&dims)), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+fn temp_models() -> PathBuf {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let dir = std::env::temp_dir().join(format!("li-seg-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+    dir
+}
+
+/// Writes a tiny model into a scratch "downloads" folder and returns its path.
+fn picked(dir: &Path, name: &str, input: Option<(u64, u64)>, out: Out) -> PathBuf {
+    let p = dir.join("picked").join(name);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, tiny_onnx(input, out)).unwrap();
+    p
+}
+
+fn keep(_: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+#[test]
+fn object_flood_keeps_the_clicked_region_only() {
+    let (w, h) = (10, 4);
+    let mut p = vec![0.0f32; w * h];
+    for y in 0..4 {
+        p[y * w + 1] = 1.0;
+        p[y * w + 2] = 0.9;
+        p[y * w + 7] = 1.0;
+    }
+    let o = object_at(&p, w, h, 1, 1).unwrap();
+    assert!(o[1] > 0.0 && o[2] > 0.0 && o[7] == 0.0);
+    assert!(object_at(&p, w, h, 5, 1).is_none());
+}
+
+/// One official model per function, each explained in plain language.
+#[test]
+fn one_official_model_per_function() {
+    assert_eq!(MODELS.iter().filter(|m| m.group.is_some()).count(), 10);
+    assert_eq!(MODELS.iter().filter(|m| m.task == Task::Upscale).count(), 4);
+    assert!(MODELS.iter().filter(|m| m.task == Task::Upscale).all(|m| m.group.is_none()));
+    for g in Group::ALL {
+        let m = g.official();
+        assert_eq!(m.group, Some(g));
+        assert_eq!(MODELS.iter().filter(|x| x.group == Some(g)).count(), if matches!(g, Group::Faces | Group::Subject) { 2 } else { 1 }, "{g:?}");
+        assert!(m.about.len() > 60 && !g.about().is_empty() && !g.label().is_empty());
+        // Match size units, not the letters inside the RMBG model's name.
+        let size_label = m
+            .label
+            .split_whitespace()
+            .any(|word| matches!(word, "MB" | "MiB") || ((word.ends_with("MB") || word.ends_with("MiB")) && word.starts_with(|c: char| c.is_ascii_digit())));
+        assert!(!size_label, "{}", m.label);
+        assert!(g.in_use(Path::new("/nonexistent")).is_none());
+        assert!(!available(g, Path::new("/nonexistent")));
+    }
+    assert_eq!(Group::Subject.official().id, "rmbg-1.4");
+    assert_eq!(Group::Sky.official().id, "sky-mobileseg");
+    assert_eq!(Group::Depth.official().id, "depth-anything-v2-small");
+    assert_eq!(Group::Subject.official().task, Task::Subject);
+    assert!(matches!(Group::Sky.official().task, Task::Sky { .. }));
+    assert_eq!(Group::Depth.official().task, Task::Depth);
+    assert_eq!(Group::Tagging.official().task, Task::ImageText);
+    assert_eq!(Group::Tagging.official().files().count(), 4);
+    for group in [Group::Subject, Group::Sky, Group::Depth] {
+        assert!(group.supports_custom());
+        assert!(group.official().companions.is_empty());
+    }
+    assert!(!Group::Tagging.supports_custom());
+}
+
+#[test]
+fn remove_deletes_only_that_model_and_reports_the_size() {
+    let dir = temp_models();
+    let (isnet, sky) = (spec("rmbg-1.4").unwrap(), spec("sky-mobileseg").unwrap());
+    std::fs::write(model_path(&dir, sky), vec![1u8; 1234]).unwrap();
+    std::fs::write(model_path(&dir, isnet), vec![2u8; 99]).unwrap();
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(isnet)));
+    assert_eq!(installed_bytes(&dir, sky), Some(1234));
+    assert_eq!(remove(&dir, isnet).unwrap(), 99);
+    assert!(!model_path(&dir, isnet).exists());
+    assert!(model_path(&dir, sky).exists(), "other models stay");
+    assert!(Group::Subject.in_use(&dir).is_none());
+    // removing a model that isn't installed is a no-op
+    assert_eq!(remove(&dir, isnet).unwrap(), 0);
+    // a custom disposer (the Trash) gets the file instead
+    let moved = dir.join("trashed.onnx");
+    let freed = remove_with(&dir, sky, &|p| std::fs::rename(p, &moved)).unwrap();
+    assert_eq!(freed, 1234);
+    assert!(moved.exists() && !available(Group::Sky, &dir));
+    // a disposer that fails leaves the model installed and says so
+    std::fs::write(model_path(&dir, sky), b"x").unwrap();
+    assert!(remove_with(&dir, sky, &|_| Err(std::io::Error::other("nope"))).is_err());
+    assert!(model_path(&dir, sky).exists());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_custom_subject_model_is_validated_copied_and_used() {
+    let dir = temp_models();
+    let src = picked(&dir, "my model.onnx", Some((64, 64)), Out::Map);
+    let c = add_custom(&dir, Group::Subject, &src, CustomOptions { norm: Norm::ImageNet, sky_class: 2, ..Default::default() }, &keep).unwrap();
+    assert_eq!((c.size, c.norm, c.name.as_str()), (64, Norm::ImageNet, "my model.onnx"));
+    assert!(c.path(&dir).starts_with(custom_dir(&dir)) && c.path(&dir).is_file(), "copied into the custom folder");
+    assert!(src.is_file(), "the picked file stays where it was");
+    // remembered, and used instead of the official one (which isn't even installed)
+    assert_eq!(custom(&dir, Group::Subject), Some(c.clone()));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Custom(c.clone())));
+    assert!(custom(&dir, Group::Sky).is_none());
+    let seg = shared(&dir).expect("the custom model loads");
+    assert!(seg.id().starts_with("custom:subject-"));
+    let (w, h) = (80, 50);
+    seg.predict(&synthetic(w, h), w, h).unwrap();
+    // reverting puts the copy away and forgets the setting
+    let moved = dir.join("trash.onnx");
+    let freed = clear_custom(&dir, Group::Subject, &|p| std::fs::rename(p, &moved)).unwrap();
+    assert!(freed > 0 && moved.is_file());
+    assert!(custom(&dir, Group::Subject).is_none() && shared(&dir).is_none() && !custom_list(&dir).exists());
+    assert_eq!(clear_custom(&dir, Group::Subject, &keep).unwrap(), 0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn review_model_snapshot_distinguishes_equal_length_artifacts_and_roots() {
+    for group in [Group::Subject, Group::Sky, Group::Depth] {
+        let a = temp_models();
+        let b = temp_models();
+        let source_a = picked(&a, "same.onnx", Some((32, 32)), Out::Map);
+        let mut different = std::fs::read(&source_a).unwrap();
+        let at = different.windows(7).position(|s| s == b"Sigmoid").unwrap();
+        different[at..at + 7].copy_from_slice(b"Softmax");
+        let source_b = b.join("same.onnx");
+        std::fs::write(&source_b, &different).unwrap();
+        add_custom(&a, group, &source_a, CustomOptions::default(), &keep).unwrap();
+        add_custom(&b, group, &source_b, CustomOptions::default(), &keep).unwrap();
+        let first = snapshot(group, &a).unwrap();
+        let second = snapshot(group, &b).unwrap();
+        assert_eq!(first.key, second.key, "same basename/config/length reproduces the previous collision");
+        assert_ne!(first, second);
+        let old = first.segmenter().unwrap();
+        let new = second.segmenter().unwrap();
+        assert!(!Arc::ptr_eq(&old.run, &new.run), "another root must load its own plan");
+        if group == Group::Subject {
+            let input = vec![255; 32 * 32 * 4];
+            assert!(old.predict(&input, 32, 32).unwrap().is_some());
+            assert!(new.predict(&input, 32, 32).unwrap().is_none());
+        }
+        // Captured requests keep their original artifact when the selected root changes.
+        assert_eq!(first.segmenter().unwrap().id(), old.id());
+        different.push(0);
+        std::fs::write(&first.path, &different).unwrap();
+        assert!(!first.is_current());
+        assert!(first.segmenter().is_none(), "a changed artifact cannot reuse the old plan");
+        std::fs::remove_dir_all(a).unwrap();
+        std::fs::remove_dir_all(b).unwrap();
+    }
+}
+
+#[test]
+fn the_custom_model_beats_an_installed_official_one() {
+    let dir = temp_models();
+    std::fs::write(model_path(&dir, Group::Depth.official()), b"not a real model").unwrap();
+    assert!(matches!(Group::Depth.in_use(&dir), Some(InUse::Official(_))));
+    let src = picked(&dir, "d.onnx", Some((32, 32)), Out::Flat);
+    add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap();
+    assert!(matches!(Group::Depth.in_use(&dir), Some(InUse::Custom(_))));
+    let seg = shared_depth(&dir).unwrap();
+    let (w, h) = (40, 30);
+    let d = seg.predict_depth(&synthetic(w, h), w, h).unwrap();
+    assert_eq!(d.len(), w * h);
+    // back to the official one
+    clear_custom(&dir, Group::Depth, &|p| std::fs::remove_file(p)).unwrap();
+    assert!(matches!(Group::Depth.in_use(&dir), Some(InUse::Official(_))));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn a_flexible_input_falls_back_to_the_official_size() {
+    let dir = temp_models();
+    let src = picked(&dir, "flex.onnx", None, Out::Map);
+    assert_eq!(input_size(&src).unwrap(), None);
+    let c = add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap();
+    assert_eq!(c.size, Group::Depth.official().size);
+    let fixed = picked(&dir, "fixed.onnx", Some((48, 48)), Out::Map);
+    assert_eq!(input_size(&fixed).unwrap(), Some(48));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn models_that_do_not_fit_are_refused_with_a_reason_and_change_nothing() {
+    let dir = temp_models();
+    let echo = picked(&dir, "echo.onnx", Some((32, 32)), Out::Echo);
+    let err = add_custom(&dir, Group::Subject, &echo, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotSubjectModel)), "{err:#}");
+    let err = add_custom(&dir, Group::Depth, &echo, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotDepthModel)), "{err:#}");
+    // a sky model needs one map or one per class: this is 3 channels (RGB echoed), so class 5 is out of range
+    let err = add_custom(&dir, Group::Sky, &echo, CustomOptions { sky_class: 5, ..Default::default() }, &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 5, classes: 3 })), "{err:#}");
+    // a sky model must have a channel axis
+    let flat = picked(&dir, "flat.onnx", Some((32, 32)), Out::Flat);
+    let err = add_custom(&dir, Group::Sky, &flat, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotSkyModelOutput { .. })), "{err:#}");
+    // not square, not an image input, not ONNX at all
+    let wide = picked(&dir, "wide.onnx", Some((64, 32)), Out::Map);
+    let err = add_custom(&dir, Group::Subject, &wide, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NonSquareInput { height: 64, width: 32 })), "{err:#}");
+    let junk = dir.join("picked/junk.onnx");
+    std::fs::write(&junk, b"this is not a model").unwrap();
+    assert!(add_custom(&dir, Group::Subject, &junk, CustomOptions::default(), &keep).is_err());
+    let txt = dir.join("picked/readme.txt");
+    std::fs::write(&txt, b"hi").unwrap();
+    let err = add_custom(&dir, Group::Subject, &txt, CustomOptions::default(), &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::NotOnnx)), "{err:#}");
+    assert!(add_custom(&dir, Group::Subject, &dir.join("missing.onnx"), CustomOptions::default(), &keep).is_err());
+    for g in Group::ALL {
+        assert!(custom(&dir, g).is_none());
+    }
+    assert!(!custom_dir(&dir).exists() || std::fs::read_dir(custom_dir(&dir)).unwrap().next().is_none(), "nothing was copied");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn sky_models_are_one_sigmoid_map_or_class_logits() {
+    let dir = temp_models();
+    let one = picked(&dir, "one.onnx", Some((32, 32)), Out::Map);
+    let c = add_custom(&dir, Group::Sky, &one, CustomOptions { sky_class: 7, ..Default::default() }, &keep).unwrap();
+    assert_eq!((c.classes, c.class), (1, 0), "a single map ignores the class index");
+    let seg = shared_sky(&dir).unwrap();
+    let (w, h) = (30, 20);
+    let p = seg.predict_sky(&synthetic(w, h), w, h).unwrap();
+    assert_eq!(p.len(), w * h);
+    // ADE20K-style class logits: the sky class is the one the user names
+    let many = picked(&dir, "many.onnx", Some((32, 32)), Out::Classes(4));
+    let c = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
+    assert_eq!((c.classes, c.class), (4, 2));
+    assert_eq!(custom(&dir, Group::Sky).unwrap().classes, 4, "replaced, not added");
+    assert!(shared_sky(&dir).unwrap().predict_sky(&synthetic(w, h), w, h).is_ok());
+    let err = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err();
+    assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 4, classes: 4 })), "{err:#}");
+    assert_eq!(custom(&dir, Group::Sky).unwrap().class, 2, "a refused model leaves the setting alone");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn ds_finding_custom_sky_class_is_validated_on_reload() {
+    let dir = temp_models();
+    let model = picked(&dir, "many.onnx", Some((32, 32)), Out::Classes(4));
+    let c = add_custom(&dir, Group::Sky, &model, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
+    std::fs::write(custom_list(&dir), format!("sky\t{}\tSky\t32\tisnet\t4\t4\n", c.file)).unwrap();
+    assert!(custom(&dir, Group::Sky).is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn replacing_a_custom_model_puts_the_old_copy_away() {
+    let dir = temp_models();
+    let a = picked(&dir, "a.onnx", Some((32, 32)), Out::Map);
+    let b = picked(&dir, "b.onnx", Some((32, 32)), Out::Map);
+    let first = add_custom(&dir, Group::Subject, &a, CustomOptions::default(), &keep).unwrap();
+    let put_away = std::sync::Mutex::new(Vec::new());
+    let second = add_custom(&dir, Group::Subject, &b, CustomOptions::default(), &|p| {
+        put_away.lock().unwrap().push(p.to_path_buf());
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(*put_away.lock().unwrap(), vec![first.path(&dir)]);
+    assert_eq!(custom(&dir, Group::Subject), Some(second));
+    // the same function twice with the same file is fine and puts nothing away
+    let again = add_custom(&dir, Group::Subject, &b, CustomOptions { norm: Norm::ImageNet, ..Default::default() }, &|_| panic!("nothing to put away")).unwrap();
+    assert_eq!(again.norm, Norm::ImageNet);
+    // functions are independent
+    let d = picked(&dir, "d.onnx", Some((32, 32)), Out::Flat);
+    add_custom(&dir, Group::Depth, &d, CustomOptions::default(), &keep).unwrap();
+    assert!(custom(&dir, Group::Subject).is_some() && custom(&dir, Group::Depth).is_some());
+    clear_custom(&dir, Group::Depth, &keep).unwrap();
+    assert!(custom(&dir, Group::Subject).is_some() && custom(&dir, Group::Depth).is_none());
+    // a custom model whose file has gone is ignored
+    std::fs::remove_file(custom(&dir, Group::Subject).unwrap().path(&dir)).unwrap();
+    assert!(custom(&dir, Group::Subject).is_none());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_custom_list_survives_odd_names_and_bad_lines() {
+    let dir = temp_models();
+    let src = picked(&dir, "wé ird:na/me?.onnx", Some((32, 32)), Out::Map);
+    let c = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
+    assert!(!c.file.contains(['/', ':', '?']), "{}", c.file);
+    assert_eq!(custom(&dir, Group::Subject).unwrap().file, c.file);
+    let mut text = std::fs::read_to_string(custom_list(&dir)).unwrap();
+    text.push_str("garbage line\nsky\tx\n");
+    std::fs::write(custom_list(&dir), text).unwrap();
+    assert_eq!(custom(&dir, Group::Subject), Some(c));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Runs the official subject model on a synthetic subject when it's available (downloaded by the
+/// developer to `LI_SEG_TEST_MODELS`).
+#[test]
+fn isnet_finds_a_centred_subject() {
+    let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
+    let spec = spec("rmbg-1.4").unwrap();
+    let path = Path::new(&dir).join(spec.file);
+    if !path.is_file() {
+        return;
+    }
+    let seg = Segmenter::load(spec, &path).unwrap();
+    let (w, h) = (256, 192);
+    let mut img = vec![0u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let inside = ((x as f32 - 128.0) / 60.0).powi(2) + ((y as f32 - 96.0) / 70.0).powi(2) < 1.0;
+            let c = if inside { [220, 60, 40] } else { [70 + (x % 9) as u8, 120, 160] };
+            img[i..i + 3].copy_from_slice(&c);
+            img[i + 3] = 255;
+        }
+    }
+    let p = seg.predict(&img, w, h).unwrap().expect("a subject");
+    assert!(p[96 * w + 128] > 0.5, "centre {}", p[96 * w + 128]);
+    assert!(p[5 * w + 5] < 0.5, "corner {}", p[5 * w + 5]);
+}
+
+/// The sky model on a synthetic landscape when available (`LI_SEG_TEST_MODELS` holding the
+/// PP-MobileSeg file).
+#[test]
+fn sky_model_finds_the_sky() {
+    let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
+    let spec = spec("sky-mobileseg").unwrap();
+    let path = Path::new(&dir).join(spec.file);
+    if !path.is_file() {
+        return;
+    }
+    let seg = Segmenter::load(spec, &path).unwrap();
+    let (w, h) = (320, 240);
+    let mut img = vec![0u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let c = if y < 110 { [90 + (y / 3) as u8, 150 + (y / 4) as u8, 230] } else { [70 + (x % 13) as u8, 110 + (y % 7) as u8, 50] };
+            img[i..i + 3].copy_from_slice(&c);
+            img[i + 3] = 255;
+        }
+    }
+    let p = seg.predict_sky(&img, w, h).unwrap();
+    assert!(p[30 * w + 160] > 0.5, "sky {}", p[30 * w + 160]);
+    assert!(p[200 * w + 160] < 0.5, "ground {}", p[200 * w + 160]);
+}
+
+/// A photo-like scene with depth cues: a checkered ground plane receding to the horizon
+/// (in perspective) under a plain sky, and a box standing on the near ground.
+fn ground_scene(w: usize, h: usize) -> Vec<u8> {
+    let horizon = h as f32 * 0.4;
+    let mut img = vec![0u8; w * h * 4];
+    for y in 0..h {
+        for x in 0..w {
+            let i = (y * w + x) * 4;
+            let c = if (y as f32) < horizon {
+                [150 + (y * 60 / h) as u8, 185, 235]
+            } else {
+                // ground point at distance z ∝ 1 / (y − horizon)
+                let dy = (y as f32 - horizon + 0.5).max(0.5);
+                let z = 40.0 / dy;
+                let gx = (x as f32 - w as f32 / 2.0) * z / 40.0;
+                let check = ((gx.floor() as i64 + (z * 2.0).floor() as i64) & 1) == 0;
+                let fog = (z / 4.0).min(1.0);
+                let base = if check { [120.0, 100.0, 70.0] } else { [70.0, 60.0, 45.0] };
+                std::array::from_fn(|k| (base[k] * (1.0 - fog) + [150.0, 175.0, 210.0][k] * fog) as u8)
+            };
+            let in_box = x > w * 2 / 5 && x < w * 3 / 5 && y > h * 3 / 5 && y < h * 9 / 10;
+            let c = if in_box { [200, 40, 40] } else { c };
+            img[i..i + 3].copy_from_slice(&c);
+            img[i + 3] = 255;
+        }
+    }
+    img
+}
+
+/// The depth model runs under tract and sees the near ground as nearer than the horizon
+/// (`LI_SEG_TEST_MODELS` holding the Depth Anything V2 Small file).
+#[test]
+fn depth_model_finds_the_near_ground() {
+    let Some(dir) = std::env::var_os("LI_SEG_TEST_MODELS") else { return };
+    let spec = spec("depth-anything-v2-small").unwrap();
+    let path = Path::new(&dir).join(spec.file);
+    if !path.is_file() {
+        return;
+    }
+    let seg = Segmenter::load(spec, &path).unwrap();
+    let (w, h) = (384, 288);
+    let img = ground_scene(w, h);
+    let d = seg.predict_depth(&img, w, h).unwrap();
+    assert_eq!(d.len(), w * h);
+    assert!(d.iter().all(|v| (0.0..=1.0).contains(v)));
+    let at = |x: usize, y: usize| d[y * w + x];
+    let (near, far) = (at(w / 8, h - 6), at(w / 8, (h as f32 * 0.42) as usize));
+    assert!(near > far + 0.2, "near ground {near}, horizon {far}");
+    assert!(at(w / 2, h * 3 / 4) > far, "the box is nearer than the horizon");
+}
+
+#[test]
+fn companions_install_and_remove_as_one_bundle() {
+    let dir = temp_models();
+    let mut bundle = *spec("clip-b32-laion").unwrap();
+    bundle.bytes = 2;
+    bundle.sha256 = "";
+    bundle.companions = &[Companion { file: "tiny-text", url: "https://huggingface.co/tiny", bytes: 3, sha256: "" }];
+    std::fs::write(model_path(&dir, &bundle), b"xx").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), None);
+    std::fs::write(companion_path(&dir, "tiny-text"), b"x").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), None, "partial companion");
+    std::fs::write(companion_path(&dir, "tiny-text"), b"xxx").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), Some(5));
+    assert_eq!(bundle.download_bytes(), 5);
+    assert_eq!(remove(&dir, &bundle).unwrap(), 5);
+    assert!(!model_path(&dir, &bundle).exists());
+    assert!(!companion_path(&dir, "tiny-text").exists());
+    std::fs::write(model_path(&dir, &bundle), b"x").unwrap();
+    assert_eq!(remove(&dir, &bundle).unwrap(), 1, "remove partial bundle too");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn wrong_bundle_hash_is_not_installed() {
+    let dir = temp_models();
+    let mut bundle = *spec("clip-b32-laion").unwrap();
+    bundle.bytes = 2;
+    bundle.sha256 = "incorrect";
+    bundle.companions = &[Companion { file: "tiny-vocab", url: "", bytes: 1, sha256: "" }];
+    std::fs::write(model_path(&dir, &bundle), b"xx").unwrap();
+    std::fs::write(companion_path(&dir, "tiny-vocab"), b"x").unwrap();
+    assert_eq!(installed_bytes(&dir, &bundle), None);
+    // Invalid bundles can still be removed in full.
+    assert_eq!(remove(&dir, &bundle).unwrap(), 3);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn tagging_requires_its_bundle_and_refuses_custom_models() {
+    let dir = temp_models();
+    let source = picked(&dir, "single.onnx", Some((32, 32)), Out::Map);
+    let err = add_custom(&dir, Group::Tagging, &source, CustomOptions::default(), &keep).unwrap_err();
+    assert_eq!(err.downcast_ref::<CustomModelError>(), Some(&CustomModelError::UnsupportedFunction));
+    assert!(!custom_dir(&dir).exists(), "nothing is copied for tagging");
+    std::fs::write(model_path(&dir, Group::Tagging.official()), b"partial bundle").unwrap();
+    assert!(Group::Tagging.in_use(&dir).is_none());
+    assert!(!available(Group::Tagging, &dir));
+    // A hand-edited custom list cannot activate a single file in place of CLIP's bundle.
+    std::fs::create_dir_all(custom_dir(&dir)).unwrap();
+    std::fs::copy(&source, custom_dir(&dir).join("single.onnx")).unwrap();
+    std::fs::write(custom_list(&dir), "tagging\tsingle.onnx\tCustom CLIP\t32\tisnet\t1\t0\n").unwrap();
+    assert!(custom(&dir, Group::Tagging).is_none());
+    assert!(Group::Tagging.in_use(&dir).is_none());
+    assert!(Segmenter::load(Group::Tagging.official(), &source).is_err());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn faces_official_bundle_contains_both_pinned_models_and_no_custom_flow() {
+    let spec = Group::Faces.official();
+    assert_eq!(spec.id, "sface");
+    assert_eq!(spec.task, Task::FaceEmbed);
+    assert!(!Group::Faces.supports_custom());
+    let files: Vec<_> = spec.files().collect();
+    assert_eq!(files.len(), 2);
+    assert_eq!(spec.download_bytes(), faces::SFACE.bytes + faces::YUNET.bytes);
+    for (id, pinned) in [("yunet", faces::YUNET), ("sface", faces::SFACE)] {
+        let m = crate::spec(id).unwrap();
+        assert_eq!(m.group, Some(Group::Faces));
+        assert_eq!(m.file, pinned.file);
+        assert_eq!(m.bytes, pinned.bytes);
+        assert_eq!(m.sha256, pinned.sha256);
+        assert_eq!(m.url, pinned.url);
+    }
+    let dir = temp_models();
+    std::fs::create_dir_all(dir.join("segmentation")).unwrap();
+    std::fs::write(model_path(&dir, spec), b"partial").unwrap();
+    assert!(installed_bytes(&dir, spec).is_none());
+    assert!(Group::Faces.in_use(&dir).is_none());
+    std::fs::write(companion_path(&dir, faces::YUNET.file), b"wrong").unwrap();
+    assert!(installed_bytes(&dir, spec).is_none());
+    let removed = remove_with(&dir, spec, &|p| std::fs::remove_file(p)).unwrap();
+    assert_eq!(removed, 12);
+    assert!(!model_path(&dir, spec).exists());
+    assert!(!companion_path(&dir, faces::YUNET.file).exists());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ds_finding_failed_custom_publication_keeps_old_registration_and_file() {
+    let dir = temp_models();
+    let source = picked(&dir, "a.onnx", Some((32, 32)), Out::Map);
+    let old = add_custom(&dir, Group::Subject, &source, CustomOptions::default(), &keep).unwrap();
+    let bytes = std::fs::read(old.path(&dir)).unwrap();
+    let registry = std::fs::read(custom_list(&dir)).unwrap();
+    for src in [&source, &picked(&dir, "b.onnx", Some((32, 32)), Out::Map)] {
+        assert!(
+            add_custom_with(
+                &dir,
+                Group::Subject,
+                src,
+                CustomOptions { norm: Norm::ImageNet, ..Default::default() },
+                &|_| panic!("old file disposed before publication"),
+                &|_, _| Err(anyhow::anyhow!("disk full"))
+            )
+            .is_err()
+        );
+        assert_eq!(std::fs::read(old.path(&dir)).unwrap(), bytes);
+        assert_eq!(std::fs::read(custom_list(&dir)).unwrap(), registry);
+        assert_eq!(custom(&dir, Group::Subject), Some(old.clone()));
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn ai_denoise_custom_model_and_use_default() {
+    let dir = temp_models();
+    let path = picked(&dir, "restore.onnx", Some((32, 32)), Out::Echo);
+    for group in [Group::RawDenoise, Group::RgbDenoise] {
+        let c = add_custom(&dir, group, &path, CustomOptions::default(), &keep).unwrap();
+        assert_eq!(c.size, 32);
+        assert_eq!(c.classes, 3);
+        assert_eq!(c.class, usize::from(group == Group::RawDenoise));
+        assert_eq!(group.in_use(&dir), Some(InUse::Custom(c)));
+        clear_custom(&dir, group, &|p| std::fs::remove_file(p)).unwrap();
+        assert!(custom(&dir, group).is_none());
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn bg_tier_tiny_smoke_preserves_probabilities_and_no_subject() {
+    let dir = temp_models();
+    let path = picked(&dir, "sigmoid.onnx", Some((8, 8)), Out::Map);
+    for id in ["rmbg-1.4", "inspyrenet"] {
+        let model = ModelSpec { size: 8, ..*spec(id).unwrap() };
+        let seg = Segmenter::load(&model, &path).unwrap();
+        let bright = vec![255u8; 4 * 4 * 4];
+        let p = seg.predict(&bright, 4, 4).unwrap().expect("bright subject");
+        assert!(p.iter().all(|v| *v > 0.5 && *v < 1.0), "constant probabilities must not become zero via min–max");
+        let dark: Vec<_> = (0..16).flat_map(|_| [0, 0, 0, 255]).collect();
+        assert!(seg.predict(&dark, 4, 4).unwrap().is_none());
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn bg_tier_input_uses_255_not_image_peak() {
+    let dir = temp_models();
+    let path = picked(&dir, "sigmoid.onnx", Some((8, 8)), Out::Map);
+    let model = ModelSpec { size: 8, ..*spec("rmbg-1.4").unwrap() };
+    let seg = Segmenter::load(&model, &path).unwrap();
+    let rgba: Vec<_> = (0..16).flat_map(|_| [64, 64, 64, 255]).collect();
+    assert!(seg.predict(&rgba, 4, 4).unwrap().is_none(), "dark image must not be peak-scaled to white");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "opt-in real ONNX compatibility, LI_SEG_TEST_MODELS"]
+fn bg_real_model_compatibility() {
+    let dir = PathBuf::from(std::env::var_os("LI_SEG_TEST_MODELS").expect("LI_SEG_TEST_MODELS"));
+    for (file, size, isnet, task) in [
+        ("isnet-general-use.onnx", 1024, true, Task::Subject),
+        ("u2netp.onnx", 320, false, Task::Subject),
+        ("modnet.onnx", 512, false, Task::Subject),
+        ("rmbg-1.4.onnx", 1024, true, Task::Subject),
+        ("inspyrenet-swinb-plus-ultra.onnx", 1024, false, Task::Subject),
+        ("pp_mobileseg_base_ade20k_512.onnx", 512, false, spec("sky-mobileseg").unwrap().task),
+        ("depth_anything_v2_vits_dynamic.onnx", 518, false, Task::Depth),
+    ] {
+        let model = ModelSpec { id: file, file, size, isnet, task, ..*spec("rmbg-1.4").unwrap() };
+        Segmenter::load(&model, &dir.join(file)).unwrap_or_else(|e| panic!("{file}: {e:#}"));
+    }
+}
+
+#[test]
+fn bg_subject_group_uses_chosen_tier_for_all_callers() {
+    let dir = temp_models();
+    for id in ["rmbg-1.4", "inspyrenet"] {
+        let model = spec(id).unwrap();
+        std::fs::write(model_path(&dir, model), b"installed").unwrap();
+    }
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
+    set_subject_quality(&dir, true);
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
+    set_subject_quality(&dir, false);
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ------------------------------------------------------------ threading: shared pool and cancel
+
+/// An ONNX `TensorProto` (float) initializer.
+fn initializer(name: &str, dims: &[u64], data: &[f32]) -> Vec<u8> {
+    bytes_of(|t| {
+        for d in dims {
+            field_varint(1, *d, t);
+        }
+        field_varint(2, 1, t);
+        field_bytes(8, name.as_bytes(), t);
+        field_bytes(9, &data.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>(), t);
+    })
+}
+
+/// A small conv net (opset 13): `layers` 3×3 convolutions of `channels` channels with ReLU, then
+/// the sigmoid of the channel mean as a `[1, 1, s, s]` map. Positive weights, so the map is a
+/// clear subject (> 0.5). Big enough for tract's matrix kernels to split across threads.
+fn conv_onnx(s: u64, channels: u64, layers: usize) -> Vec<u8> {
+    let mut nodes = Vec::new();
+    let mut inits = Vec::new();
+    let mut prev = "x".to_string();
+    for l in 0..layers {
+        let cin = if l == 0 { 3 } else { channels };
+        let n = (channels * cin * 9) as usize;
+        let scale = 1.0 / (cin * 9) as f32;
+        let w: Vec<f32> = (0..n).map(|i| ((i as u64 * 2_654_435_761 + l as u64) % 997) as f32 / 997.0 * scale).collect();
+        inits.push(initializer(&format!("w{l}"), &[channels, cin, 3, 3], &w));
+        nodes.push(node("Conv", &[&prev, &format!("w{l}")], &format!("c{l}"), &[attr_ints("kernel_shape", &[3, 3]), attr_ints("pads", &[1, 1, 1, 1])]));
+        nodes.push(node("Relu", &[&format!("c{l}")], &format!("r{l}"), &[]));
+        prev = format!("r{l}");
+    }
+    nodes.push(node("ReduceMean", &[&prev], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]));
+    nodes.push(node("Sigmoid", &["m"], "y", &[]));
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"conv", g);
+        for i in &inits {
+            field_bytes(5, i, g);
+        }
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+/// A Fast-tier style segmenter (probability output) over the conv net.
+fn conv_segmenter(dir: &Path, s: u64, channels: u64, layers: usize) -> Segmenter {
+    let p = dir.join("picked").join(format!("conv-{s}-{channels}-{layers}.onnx"));
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, conv_onnx(s, channels, layers)).unwrap();
+    let model = ModelSpec { size: s as usize, ..*spec("rmbg-1.4").unwrap() };
+    Segmenter::load(&model, &p).unwrap()
+}
+
+fn test_photo(w: usize, h: usize) -> Vec<u8> {
+    (0..w * h).flat_map(|i| [(i * 7 % 251) as u8, (i * 13 % 241) as u8, (i * 29 % 239) as u8, 255]).collect()
+}
+
+/// Threading rule 11: tract on the shared pool gives the same bits on 1 thread and on N threads
+/// (its kernels split over output panels, never over the reduction).
+#[test]
+fn tract_output_is_identical_on_one_and_many_threads() {
+    init_executor();
+    let dir = temp_models();
+    let seg = conv_segmenter(&dir, 64, 32, 3);
+    let (w, h) = (96, 80);
+    let photo = test_photo(w, h);
+    let on = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
+        pool.install(|| seg.predict(&photo, w, h)).unwrap().expect("a clear subject")
+    };
+    let bits = |v: Vec<f32>| v.into_iter().map(f32::to_bits).collect::<Vec<u32>>();
+    let one = bits(on(1));
+    assert_eq!(one.len(), w * h);
+    for n in [2, 4, 7] {
+        assert_eq!(one, bits(on(n)), "{n} threads");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Cancel is checked before every model stage: the run stops at the stage where the flag goes up,
+/// with an error `is_cancelled` recognises, and does no further work.
+#[test]
+fn cancel_stops_predict_at_the_next_model_stage() {
+    init_executor();
+    let dir = temp_models();
+    let seg = conv_segmenter(&dir, 32, 8, 6);
+    let photo = test_photo(40, 40);
+    let checks = std::sync::atomic::AtomicUsize::new(0);
+    let count = || {
+        checks.fetch_add(1, Ordering::SeqCst);
+        false
+    };
+    assert!(seg.predict_checked(&photo, 40, 40, &count).unwrap().is_some());
+    let full = checks.swap(0, Ordering::SeqCst);
+    assert!(full > 8, "one check per stage plus before and after: {full}");
+    let stop_at_4th = || checks.fetch_add(1, Ordering::SeqCst) + 1 >= 4;
+    let err = seg.predict_checked(&photo, 40, 40, &stop_at_4th).unwrap_err();
+    assert!(is_cancelled(&err), "{err:#}");
+    assert_eq!(checks.load(Ordering::SeqCst), 4, "no stage ran after the cancel");
+    // The public API: a flag that is already set runs nothing, for subject and sky alike.
+    let cancelled = AtomicBool::new(true);
+    assert!(is_cancelled(&seg.predict_with_cancel(&photo, 40, 40, &cancelled).unwrap_err()));
+    let fresh = AtomicBool::new(false);
+    assert!(seg.predict_with_cancel(&photo, 40, 40, &fresh).unwrap().is_some());
+    let sky_path = picked(&dir, "sky.onnx", Some((32, 32)), Out::Map);
+    let sky = Segmenter::load(&ModelSpec { size: 32, ..*spec("sky-mobileseg").unwrap() }, &sky_path);
+    if let Ok(sky) = sky
+        && sky.predict_sky(&photo, 40, 40).is_ok()
+    {
+        assert!(is_cancelled(&sky.predict_sky_with_cancel(&photo, 40, 40, &cancelled).unwrap_err()));
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A cancel from another thread ends a long run well before it would have finished.
+#[test]
+fn cancel_from_another_thread_ends_a_long_predict_promptly() {
+    init_executor();
+    let dir = temp_models();
+    let seg = conv_segmenter(&dir, 192, 48, 12);
+    let (w, h) = (192, 192);
+    let photo = test_photo(w, h);
+    let t = std::time::Instant::now();
+    assert!(seg.predict(&photo, w, h).unwrap().is_some());
+    let full = t.elapsed();
+    let flag = AtomicBool::new(false);
+    let t = std::time::Instant::now();
+    let r = std::thread::scope(|sc| {
+        let run = sc.spawn(|| seg.predict_with_cancel(&photo, w, h, &flag));
+        std::thread::sleep(full / 5);
+        flag.store(true, Ordering::Relaxed);
+        run.join().unwrap()
+    });
+    let cancelled_after = t.elapsed();
+    assert!(is_cancelled(&r.unwrap_err()));
+    // One stage of twelve plus scheduling noise; generous for a loaded machine.
+    assert!(cancelled_after < full.mul_f32(0.8) || full < std::time::Duration::from_millis(30), "cancelled after {cancelled_after:?}, full run {full:?}");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn j14_shared_matte_entrypoint_needs_no_model() {
+    let mask = vec![0.2; 24];
+    let params = li_matte::RefineParams::default();
+    assert_eq!(li_matte::matting::refine_buffer(None, &mask, 6, 4, &params), mask);
+    assert_eq!(li_matte::refine::MAX_SOLVE_EDGE, 1024);
+}

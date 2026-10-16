@@ -1,0 +1,9 @@
+apps/local-image/src/services.rs
+apps/local-image/src/services/pdf_raster.rs
+apps/local-image/src/services/pdf_raster_tests.rs
+crates/pc-pdf/src/import.rs
+crates/pc-pdf/src/import/preflight.rs
+crates/pc-ui-egui/src/lib.rs
+crates/pc-ui-egui/src/pdf_raster.rs
+crates/pc-ui-egui/src/vector_packages/pdf_import.rs
+crates/pc-ui-egui/src/file_open.rs

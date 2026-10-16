@@ -1,0 +1,375 @@
+{
+  "base": "3207abd2b23c6f1f4f93b2e06b25b2079d8a8810",
+  "worktree": "/home/zdavidson/.codex/worktrees/editor-rotate-activation/Local Image - Testing",
+  "predecessor": "/tmp/editor-rotate-activation-v1",
+  "files": [
+    {
+      "path": "crates/pc-engine/src/prefs.rs",
+      "sha256": "20ec88e55f308cc2f0ec6f52739ff11cc61e3b1a5504a5c29dd9cfc1d4180e10",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-engine/src/toolsets.rs",
+      "sha256": "355cd149447cc993c114fab1781b05e3f4f9c13dd2f69e06238e923b3acaf177",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-engine/src/vector_toolbar_layout.rs",
+      "sha256": "ad2b47d49f89713a46ee5e25195c262076282e3f9eaa736e8f0942634e49317f",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/ai_remove_ui.rs",
+      "sha256": "0ff76f030cd45dd3db2e0defb0ffb8b714c0bb1abed1e0e8c2412b85d4712d56",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/ai_remove_ui/tests.rs",
+      "sha256": "884081b382e473de9fbcf66b1733ec744e4d243d28b8606948db04e4db2bbd9d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/artboard_ui.rs",
+      "sha256": "a8dcc23ef0e94a26a6705e8257a1b60a2a05178678162f22c4dacf877df1f95e",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/brush_resize.rs",
+      "sha256": "897923b0a15e57fa8d229b694491d747cad1c23f09b16fc899a97f77392ef24d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/canvas.rs",
+      "sha256": "4ce9342d2289f2fe9e223e35effb3d6343dc6d952d7c24ab32f7cd7e0582c76b",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/crop_ui.rs",
+      "sha256": "57d0c877ab817dfcd2781a9fb798add4a4aecda85aaa16a784396bc41c7281b7",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/direct_select_tests.rs",
+      "sha256": "002e8be2138b2130ec28e0e2d5398b201d8ef516a157b9780beb935e1724500d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/gpu_canvas_view_tests.rs",
+      "sha256": "5722dabdf3c9dbce08c43e6a3f1180757236abaaec610c587dcaa2c7bd8ed4ea",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/hold_keys/tests.rs",
+      "sha256": "2a0b6492b4af01a38c95d2514747a68c6e1d796db13d0b84287fe6d0617049c1",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/i18n/pending_vector.rs",
+      "sha256": "def73652737ae03dbe651f98d97c4182fae038ba4f78ccef2719e084013341dc",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/icons.rs",
+      "sha256": "76837cd7987be6647e303d83f2f7cca8c9616e84df116350af350e662e5b28a7",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/lasso_ui/tests.rs",
+      "sha256": "3268556d71427fd38f0e87db3f6f9239e90e331666b533afda76bb85ad5cf052",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/lib.rs",
+      "sha256": "025db5ca864fede5a860244e1fa493ba7c152c5e9af55d66cf6889dc1e05167f",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/magnetic_lasso_ui/tests.rs",
+      "sha256": "fc0f3ba2f41ba06711af83d228be9cfa3b3e2c776bc1cae5d07784caf8cc6780",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/marquee_tests.rs",
+      "sha256": "f6d35d4ee9ff033c897a3f994da03e7c8ffd7eec826ae6d7bff28918be293b6d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/menus.rs",
+      "sha256": "38cba928f3b4516f2bc01dcfbe8c5b4ae5390e3e0496797d2f3718455e44d43d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/move_input.rs",
+      "sha256": "89f9647b3838723f9357d4e906c698533c5c7ab8c46aacbae7661bbdcf437f8d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/move_input/tests.rs",
+      "sha256": "4314b3ecd0ffa169cbc26b1d640f351fbd45b9d76b31e9856a048286ddd2dc68",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/panels.rs",
+      "sha256": "7ea3d1d76d5b9941f015bce5eaddc134f76657c164a8985d439de4e20781b5fe",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/pencil_tests.rs",
+      "sha256": "73e3c4146059d60d16f8def35acf83825fcd9efd97bc2fe2dcaa854f3e835a2e",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/polygon_lasso_tests.rs",
+      "sha256": "880aa8dea3d374615c91c548728479f27776fed7ec84e18e7dde088fe0a471b9",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/preset_panels.rs",
+      "sha256": "b721516e5a624dfc9aa1202c3cb7830e175428090bf74d7c76d569923f40f91c",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/rotate_view.rs",
+      "sha256": "c1aeb43635c36926bed9b523e65de7a27697c8fe639334226bcd9076335efefd",
+      "tracked": false
+    },
+    {
+      "path": "crates/pc-ui-egui/src/rotate_view/tests.rs",
+      "sha256": "8f7e4091d1bb91e7b2e8925803134018b21c0e2aad62dc47efbaf610e2c973a5",
+      "tracked": false
+    },
+    {
+      "path": "crates/pc-ui-egui/src/rulers.rs",
+      "sha256": "9b6ff6b7001ac21f77e018168341bdd0078a0b60a8d77f86a38934568e9711e0",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/scrollbars.rs",
+      "sha256": "88070b79f595be68eafcd5c61b812b224781336b154c74231bbd602e1b1e165d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/shared_tools/tests.rs",
+      "sha256": "5787257e896a724adc967f54f0be8b0bd0cdb1c8ff4104e45ef9c76279cefa8f",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/shortcuts.rs",
+      "sha256": "68aeba18a1cf98459b484861014560da89a94f4c3c0b31d97914df08f84f509f",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/slice_ui.rs",
+      "sha256": "9d7fc735523e0986599be92e06ea5e1b11eec24d2b159885e3e5343b26915381",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/snap_ui.rs",
+      "sha256": "275da7017ac7abfaf4872873ef1a1507aaac60fdea87114cf9757b5f16246009",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/state.rs",
+      "sha256": "205302953ca6e8b7670235c3541f8697e9dddaf9015464497f127879a561c365",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/stroke_constraint.rs",
+      "sha256": "cbea25955e84dcdb8711146183a13e272418295291d1c0152b10ae9bc3c1202b",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/stroke_trail.rs",
+      "sha256": "2ad23c9166c38e6b0abb50b9d872786b397a4d47e45e24345e0e74be3dfe2967",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/tool_tips.rs",
+      "sha256": "a54e5eda03eca084af760f7bf5042e9260467589b0fb2e0a800cb664f66c236c",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/transform_tool.rs",
+      "sha256": "32fbc1ec768f274d1f659ee54ea1b3de121806f901bf03d29ca1bb08d565cd0c",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/transform_undo_tests.rs",
+      "sha256": "33ab1b38149adcb34974afe9dc560aeaccc249588c1b4a79aaebd00930280d50",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/type_tool_tests.rs",
+      "sha256": "253fb7b11e930539c83ef7622e5bb8558658c25581a68f26610c4a0ffb5b0213",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_integration.rs",
+      "sha256": "839899576b58e56709e0109e1e731961f0d818f416cfeb0077fd5feb3015feb7",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_integration/review_tests.rs",
+      "sha256": "03c78cdd6d2789e27426981b62cc6e3bef32b8b79389e206ff4db9db2a3da185",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_integration/views.rs",
+      "sha256": "ea45f70b3c237ceb39dc44a83b0cf1e20d7e255f6cc695ed61cb421add6c2fbc",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/affinity/app_gpu.rs",
+      "sha256": "33b786b63fbec9e3d6b30168d47e3f0d74fe37845b12bad84a7a3c79678d295d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/blob_eraser/tests.rs",
+      "sha256": "2b18687906ea5e6c000a9f6d1415eff416f8dfe004c0544107365fd487fc8494",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/brushes/tests.rs",
+      "sha256": "4cd9366a816aab244f7ae904d5300f281ccec4c223089b97ea4140a79e92f793",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/constructive.rs",
+      "sha256": "bd38f4fc5bbae02c9fc0e722d998ed37ce44698dd3d686ddf026ace79b0f0b28",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/constructive/tests.rs",
+      "sha256": "3dc5a648d5451aa51eb63086c570c3e250ba0ef4419c2156fb1b64c696500c37",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/corners.rs",
+      "sha256": "7ba9bb91983b6f9699d46b32abe8eeda13b8d8b9f9f018b961b6c4bae4424943",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/corners/app_gpu_tests.rs",
+      "sha256": "0c8d1520dc61f199a120c72cd00604ad767c81f60d0e187e66f04cca4aab5cae",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/corners/tests.rs",
+      "sha256": "b9d4979c32c4934c1a091f7bcbcfaa93b947559d588e98139e4939063fa88a32",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/drawing/app_gpu.rs",
+      "sha256": "13b08017997f1287cc74a9de9ab7d569b69e58deecdefaa48991ee5ebf3e9b57",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/envelope/tests.rs",
+      "sha256": "754acaf93b7cde3c21a152fbb4f31821743ad40a882a72da2094eb975f46541c",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/eyedropper/app_gpu.rs",
+      "sha256": "3ed42f2600b7f1745a67ec109bd1627bf36f107a09b10f35661e96171cd6925d",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/live_paint/tests.rs",
+      "sha256": "de9df97ad01ba7f439cf40050be5f4822403ea3fcd03d85fc45831b6d246ed8f",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/measure.rs",
+      "sha256": "f09c97e97e02b0c230cd954cc2c1bd98ed1e56d08481d78ef85d576edcfeab68",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/measure/tests.rs",
+      "sha256": "8c151951cda7a9c5ae166437c431652df2f5aff7dbe337043348d36023afef46",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/pencil/tests.rs",
+      "sha256": "bb5e85712ef08daf08ebad42f19c5d6a063313344d1ce59e8b72fabc0e963562",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/persona.rs",
+      "sha256": "02d858bcd8f4f2598965ee93c59dc40b9f22e71d61db06cbc4ff4283c749c870",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/repeat.rs",
+      "sha256": "2c1eb0cad611f18e2e22f53b0390a3b6b468fc1a4621864e9f8424ae9ce04af3",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/repeat/app_hooks.rs",
+      "sha256": "47edfec0d5fd55dcf311bb4a07a5f0d3b6a2a197ac054f5bb7a1e572321948eb",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/repeat/tests.rs",
+      "sha256": "0d7e551d12ad6dbd3452ae6b14c0c56189627dc89da557fa15467f487a72c5bc",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/selection.rs",
+      "sha256": "1a0bb0e77dc4b9beaaca54629f7d8fe77273dbc3d24c7834f2dc028726694789",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/selection/tests.rs",
+      "sha256": "7d1e6c5928de3cbfb9fbfe74c3395da2c88295e914a6a48a9367236acd459641",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/snapping/tests_gpu.rs",
+      "sha256": "9a6bca5349c2539ae49d0b03be20d6663e3c0b52b6474345e1848007bc94264f",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/symbols.rs",
+      "sha256": "21f455a0a9b05f0b1a08324b923663aee182940c292ab9ccf55a8af914dc4bae",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_packages/symbols/app_gpu.rs",
+      "sha256": "c92ed02bb208d60a23c9a9e7be8c6a981433b4538a628bb8f910eafd7b23d775",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/view_cmds.rs",
+      "sha256": "09435948bcd8e39cd5ad011cb674838b6c0db873dc429d8ec500e7e025781c4e",
+      "tracked": true
+    },
+    {
+      "path": "crates/pc-ui-egui/src/zoom_tool.rs",
+      "sha256": "6446d13bb845e600dda4f06709ab2cf523557d7b3b537ee50c211bd8c5b7ba06",
+      "tracked": true
+    }
+  ],
+  "correction_paths": [
+    "crates/pc-ui-egui/src/ai_remove_ui.rs",
+    "crates/pc-ui-egui/src/ai_remove_ui/tests.rs",
+    "crates/pc-ui-egui/src/brush_resize.rs",
+    "crates/pc-ui-egui/src/canvas.rs",
+    "crates/pc-ui-egui/src/rotate_view/tests.rs",
+    "crates/pc-ui-egui/src/scrollbars.rs",
+    "crates/pc-ui-egui/src/shortcuts.rs",
+    "crates/pc-ui-egui/src/vector_integration.rs"
+  ],
+  "patches": {
+    "activation.patch": "62c4485cbc6b99066398108472ef48e1a8535c7d643fadb804faad9db19fcd5e",
+    "corrections-from-v1.patch": "8f167711d76e0072a5fcb159d5f51751623046b35de095de25daa8980b2c391c",
+    "gpu-scheduling-only.patch": "5914395f4810dfc7fecee9168a53021f8b905b032c84c69e1bff33fbb1b37c65",
+    "integration-main.patch": "cf4963c5e5d2813ffa2dd0c06afdd551f744c58f50e0799d8c68b74e75da784c",
+    "shared-hunks/ai_remove_ui.patch": "b5f67453ae03237d9347d5f1ca74d4d23a0b344be7b0eb1cb2e54e594edbfd0a",
+    "shared-hunks/canvas.patch": "d8c7bd9b76885c87cbb554a89a6ccedb0950f0f23bc8b1c874cfd57fe5749b2d",
+    "shared-hunks/lib.patch": "7ed230df1588bb8e591f4afa9789130c0be3208636f26d5cbe036105b733d509",
+    "shared-hunks/menus.patch": "ddcbe45c4ea0f3a9792c400b23edbcf14689f060cfb958d5f2d6778ce4acdba7",
+    "shared-hunks/pending_vector.patch": "b48ee2582397c00e8c6cb88e41d770ec2aa8bb3177b922f7a4006864caed0c32",
+    "shared-hunks/state.patch": "e5a1b8727ac212f2f7e1f6a7c377cafd45f4e481886f0756b458edcc9b9244bc"
+  },
+  "runtime": "Not run; source-only worker handoff."
+}

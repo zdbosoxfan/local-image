@@ -1,0 +1,25 @@
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+    Finished `test` profile [optimized + debuginfo] target(s) in 13.44s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_ui_egui-18f70eb28d7b50bd)
+
+running 1 test
+before Some(("dialog:window", [[250.0 60.0] - [1150.0 1090.0]])) Some(("button:exportExisting-0", [[275.0 1011.0] - [405.2 1035.0]])) Some(220.0) Some((960.0, 960.0))
+after Some(("dialog:window", [[250.0 32.0] - [1150.0 1068.0]])) Some(("button:exportExisting-0", [[275.0 989.0] - [405.2 1013.0]])) Some(220.0) Some((966.0, 966.0))
+after Some(("dialog:window", [[250.0 32.0] - [1150.0 1068.0]])) Some(("button:exportExisting-0", [[275.0 989.0] - [405.2 1013.0]])) Some(220.0) Some((966.0, 966.0))
+after Some(("dialog:window", [[250.0 32.0] - [1150.0 1068.0]])) Some(("button:exportExisting-0", [[275.0 989.0] - [405.2 1013.0]])) Some(220.0) Some((966.0, 966.0))
+after Some(("dialog:window", [[250.0 32.0] - [1150.0 1068.0]])) Some(("button:exportExisting-0", [[275.0 989.0] - [405.2 1013.0]])) Some(220.0) Some((966.0, 966.0))
+
+thread 'headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing' (2662390) panicked at crates/lc-ui-egui/src/headless.rs:852:9:
+export failed: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing ... FAILED
+
+failures:
+
+failures:
+    headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 275 filtered out; finished in 0.34s
+
+error: test failed, to rerun pass `-p lightcraft-ui-egui --lib`

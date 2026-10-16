@@ -1,0 +1,169 @@
+//! Issue #78: a GPU render that cannot be trusted — over the device's buffer limits, a device
+//! error, work that silently did not run — must come back as `None` (the caller renders on the
+//! CPU) with the reason recorded, never as an image of zeros. One test, sequential: the fatal
+//! faults pause GPU use until automatic recovery.
+//! Skips (passes with a note) when no GPU adapter exists.
+mod support;
+
+use std::sync::Arc;
+
+use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape};
+use lightcraft_geom::Point;
+use lightcraft_gpu::Fault;
+use lightcraft_pipeline::{RenderRequest, SourceInfo, render};
+use lightcraft_raster::Rgba8;
+
+fn mean_abs_diff(a: &Rgba8, b: &Rgba8) -> f64 {
+    let sum: u64 = a.data.iter().zip(&b.data).map(|(p, q)| (0..3).map(|c| p[c].abs_diff(q[c]) as u64).sum::<u64>()).sum();
+    sum as f64 / (a.data.len() * 3) as f64
+}
+
+fn masked(s: &mut DevelopSettings, k: usize) {
+    for i in 0..k {
+        let c = Point::new(0.2 + 0.2 * i as f64, 0.5);
+        s.masks.push(Mask {
+            id: i as u32 + 1,
+            components: vec![MaskComponent {
+                name: None,
+                op: MaskOp::Add,
+                invert: false,
+                shape: MaskShape::Radial { center: c, rx: 0.2, ry: 0.15, angle: 0.0, feather: 50.0, invert: false },
+            }],
+            ..Default::default()
+        });
+        s.masks[i].adjust.exposure = 0.5;
+    }
+}
+
+#[test]
+fn failed_gpu_renders_fall_back_with_a_reason() {
+    let _gpu = support::lock();
+    if !lightcraft_gpu::available() {
+        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
+        return;
+    }
+    assert_eq!(lightcraft_gpu::unavailable_reason(), None);
+    let (w, h) = (1200, 800);
+    let src = Arc::new(lightcraft_scenes::demo_library()[0].render(w, h));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let mut s = DevelopSettings::default();
+    s.light.exposure = 0.3;
+    s.effects.clarity = 20.0;
+    masked(&mut s, 4);
+    let req = RenderRequest::fit(w, h);
+    let cpu = render(&src, &info, &s, &req).image;
+    let ok = |what: &str| {
+        let g = lightcraft_gpu::render(&src, &info, &s, &req, None)
+            .unwrap_or_else(|| panic!("{what}: gpu render ({:?})", lightcraft_gpu::last_fallback()));
+        let d = mean_abs_diff(&cpu, &g.image);
+        assert!(d < 0.5, "{what}: GPU differs from the CPU by {d:.3} LSB");
+    };
+    ok("healthy");
+    eprintln!("GPU recovery adapter: {}", lightcraft_gpu::adapter_name().unwrap());
+    let stages = lightcraft_pipeline::StageCache::default();
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, Some(&stages)).is_some());
+    assert!(lightcraft_gpu::stage_bytes(&stages) > 0);
+    {
+        let _ai = lightcraft_sysmem::gpu::AiJob::new(true);
+        assert!(lightcraft_gpu::render(&src, &info, &s, &req, Some(&stages)).is_none());
+        assert_eq!(lightcraft_gpu::stage_bytes(&stages), 0);
+        assert_eq!(lightcraft_gpu::memory().pooled, 0);
+        assert!(lightcraft_gpu::enabled(), "VRAM pressure never latches a device failure");
+    }
+    {
+        let _remote = lightcraft_sysmem::gpu::AiJob::new(false);
+        ok("remote ComfyUI job leaves local GPU available");
+    }
+    ok("after local AI releases VRAM");
+
+    // the output itself is over the limit: refused up front, the GPU stays in use
+    lightcraft_gpu::inject_fault(Fault::Limit(1 << 20));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+    assert!(why.contains("limit"), "{why}");
+    assert!(lightcraft_gpu::available(), "a limit is no device failure");
+
+    // the output fits but the mask planes (4 masks: 4 planes in one buffer) don't: caught when the
+    // buffer is created, without a device error, and the GPU stays in use
+    lightcraft_gpu::inject_fault(Fault::Limit((w * h * 3 * 4 + 1024) as u64));
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+    assert!(why.contains("exceeds"), "{why}");
+    assert!(lightcraft_gpu::available(), "{:?}", lightcraft_gpu::unavailable_reason());
+    ok("after the limit faults");
+
+    // a device (validation) error: captured by the render's error scope; the GPU is not used again
+    lightcraft_gpu::inject_fault(Fault::Validation);
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none());
+    let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+    assert!(why.contains("device error"), "{why}");
+    assert!(!lightcraft_gpu::available());
+    assert!(lightcraft_gpu::unavailable_reason().is_some_and(|r| r.contains("device error")), "{:?}", lightcraft_gpu::unavailable_reason());
+    std::thread::sleep(std::time::Duration::from_millis(4100));
+    ok("after automatic device-error recovery");
+
+    // the per-pixel work never runs (a driver dropping a submission without an error): before
+    // the fix this came back as a fully black image
+    lightcraft_gpu::inject_fault(Fault::DropWork);
+    assert!(lightcraft_gpu::render(&src, &info, &s, &req, None).is_none(), "an unwritten image must not be returned");
+    let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+    assert!(why.contains("incomplete"), "{why}");
+    assert!(!lightcraft_gpu::available());
+    lightcraft_gpu::reset_failures();
+    ok("after dropped work");
+
+    // The deep output uses the same completion sentinel and must never return cleared pixels.
+    let deep_req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::U16, space: lightcraft_pipeline::OutputSpace::ProPhoto, ..req };
+    lightcraft_gpu::inject_fault(Fault::DropWork);
+    assert!(lightcraft_gpu::render(&src, &info, &s, &deep_req, None).is_none());
+    assert!(lightcraft_gpu::last_fallback().unwrap_or_default().contains("incomplete"));
+    lightcraft_gpu::reset_failures();
+    assert!(lightcraft_gpu::render(&src, &info, &s, &deep_req, None).unwrap().deep.is_some());
+
+    // a black photo is still rendered (on the CPU, to be sure)
+    let black = Arc::new(lightcraft_raster::Rgb32f::from_fn(256, 256, |_, _| [0.0; 3]));
+    let s0 = DevelopSettings::default();
+    assert!(lightcraft_gpu::render(&black, &info, &s0, &RenderRequest::fit(256, 256), None).is_none());
+    assert!(lightcraft_gpu::last_fallback().unwrap_or_default().contains("black"));
+    assert!(lightcraft_gpu::available());
+}
+
+/// A curve on a mask runs natively and remains within the CPU image bounds.
+#[test]
+fn develop_layer_tools_render_natively() {
+    let _gpu = support::lock();
+    if !lightcraft_gpu::available() {
+        eprintln!("skipped: no GPU adapter");
+        return;
+    }
+    let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    masked(&mut s, 1);
+    s.masks[0].tools.curve = Some(lightcraft_develop::ToneCurve { darks: 40.0, ..Default::default() });
+    assert!(!lightcraft_pipeline::layers_need_cpu(&s));
+    let req = RenderRequest::fit(320, 240);
+    let cpu = render(&src, &info, &s, &req).image;
+    let gpu = lightcraft_gpu::render(&src, &info, &s, &req, None).unwrap().image;
+    assert!(mean_abs_diff(&cpu, &gpu) < 0.5);
+    assert!(cpu.data.iter().zip(gpu.data).all(|(p, q)| (0..3).all(|c| p[c].abs_diff(q[c]) <= 3)));
+}
+
+/// A render request far beyond any device (a fit into `usize::MAX`: `w × h × 3` overflows) is
+/// refused up front as over the limit, not wrapped into a small size that dispatches forever.
+#[test]
+fn absurd_render_sizes_are_refused() {
+    let _gpu = support::lock();
+    if !lightcraft_gpu::available() {
+        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
+        return;
+    }
+    let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    for (w, h) in [(usize::MAX, usize::MAX), (1 << 33, 1 << 33)] {
+        assert!(lightcraft_gpu::render(&src, &info, &DevelopSettings::default(), &RenderRequest::fit(w, h), None).is_none());
+        let why = lightcraft_gpu::last_fallback().unwrap_or_default();
+        assert!(why.contains("limit"), "{why}");
+    }
+    assert!(lightcraft_gpu::available(), "a refused size is no device failure");
+}

@@ -1,0 +1,566 @@
+    Blocking waiting for file lock on build directory
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+   Compiling photocraft-io v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-io)
+   Compiling photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-engine)
+   Compiling photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ui-egui)
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+    Finished `test` profile [optimized + debuginfo] target(s) in 43.94s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_pipeline-6db19a752f9378a0)
+
+running 211 tests
+test colorcal::tests::d65_is_the_identity_and_methods_differ_off_white ... ok
+test colorops::tests::grading_tints_shadows_only ... ok
+test auto::tests::neutral_image_keeps_as_shot_wb ... ok
+test basecurves::tests::all_presets_match_extracted_darktable_hermite ... ok
+test colorcal::tests::the_illuminant_becomes_white ... ok
+test basecurves::tests::selection_and_shoulders ... ok
+test colorops::tests::mixer_targets_its_band ... ok
+test colorops::tests::shadow_tint_targets_shadows ... ok
+test colorcal::tests::gamut_compression_tames_saturated_colours_only ... ok
+test colorops::tests::point_color_targets_its_range ... ok
+test detail::haze::ds_review_tests::ds_finding_quantile_keeps_pivot_outside_partition ... ok
+test auto::tests::blue_cast_is_corrected_by_higher_temp ... ok
+test colorcal::refvec_tests::upstream_adaptation_vectors ... ok
+test colorops::tests::point_color_variance_compresses_towards_the_sample ... ok
+test colorops::tests::neutral_is_identity ... ok
+test colorops::tests::calibration_keeps_white_and_moves_primaries ... ok
+test colorops::tests::saturation_and_bw ... ok
+test finish::colour_tone_tests::dehaze_unit_transmission_preserves_negative_scene_channels ... ok
+test finish::colour_tone_tests::dither_is_deterministic_neutral_unbiased_and_keeps_endpoints ... ok
+test colorops::tests::weights_partition_unity ... ok
+test finish::colour_tone_tests::luminance_master_keeps_channel_ratios_and_rgb_mode_refines_saturation ... ok
+test geometry::tests::crop_changes_aspect_and_mapping ... ok
+test geometry::tests::default_frame_is_identity ... ok
+test geometry::tests::flip_mirrors ... ok
+test geometry::tests::lens_database_zero_strength_and_identity_use_the_fast_sample_plan ... ok
+test geometry::tests::rotation_swaps_aspect ... ok
+test lensdb::tests::corrections_move_and_brighten_corners ... ok
+test lensdb::tests::every_model_runs ... ok
+test lensdb::tests::identity_and_centre ... ok
+test lensdb::tests::independent_of_resolution ... ok
+test finish::tests::refine_saturation_restores_the_pre_curve_saturation ... ok
+test finish::colour_tone_tests::soft_gamut_is_identity_interior_monotone_and_continuous ... ok
+test llf::tests::fast_expf_is_darktables ... ok
+test finish::tests::srgb_table_matches_the_exact_curve ... ok
+test eigf::review_tests::review_zero_feathering_keeps_constant_planes ... ok
+test eigf::review_tests::ds_finding_quantized_negative_guide_stays_finite ... ok
+test llf::tests::identity_curve_keeps_the_image ... ok
+test local::tests::exposure_doubles ... ok
+test local::tests::wb_as_shot_is_identity_and_warming_adds_red ... ok
+test local::tests::guided_preserves_step_edges_and_flattens_texture ... ok
+test masks::tests::ai_shapes_without_a_segmentation_select_nothing ... ok
+test local::nr_tests::luminance_nr_reduces_noise_keeps_mean ... ok
+test lut::tests::identity_and_swap ... ok
+test local::fast_tests::fast_guided_close_to_reference ... ok
+test masks::tests::linear_gradient_ramps ... ok
+test masks::tests::brush_and_subtract ... ok
+test masks::tests::detail_patches_replace_the_coarse_mask_inside_their_rectangle ... ok
+test masks::tests::radial_inside_and_invert ... ok
+test masks::tests::the_edge_setting_hardens_or_feathers_the_transition ... ok
+test capture::tests::kernels_and_helpers ... ok
+test auto::bw_tests::auto_bw_mix_pushes_light_and_dark_hues_apart ... ok
+test masks::tests::stored_segmentations_render_at_any_size_and_follow_the_crop ... ok
+test metrics::tests::ds_finding_lightness_order_shared_samples ... ok
+test negative::tests::area_statistics ... ok
+test negative::tests::auto_pickers_recover_the_film ... ok
+test negative::refvec_tests::upstream_negative_vectors ... ok
+test negative::tests::black_and_white_negative_uses_one_base_density ... ok
+test negative::tests::highlights_roll_off_below_one ... ok
+test negative::tests::orange_masked_colour_negative_converts_back_to_the_positive ... ok
+test negative::tests::slides_and_disabled_settings_pass_through ... ok
+test metrics::tests::sharma_published_pairs ... ok
+test metrics::tests::review_halo_empty_and_outside_edges ... ok
+test llf::tests::a_constant_tone_shift_moves_everything ... ok
+test optics::tests::defringe_removes_purple_at_edges_only ... ok
+test auto::tests::dark_image_gets_positive_exposure ... ok
+test optics::tests::manual_vignette_brightens_corners ... ok
+test optics::tests::reorient_keeps_centre_mapping ... ok
+test masks::tests::refine_edges_follows_the_photo ... ok
+test optics::tests::warp_identity_and_distortion_direction ... ok
+test output::tests::parse_and_serde_names ... ok
+test output::tests::trcs_invert ... ok
+test patches::bugfix_develop_tests::bugfix_develop_rotated_patch_pixels_follow_quarter_turn ... ok
+test patches::tests::a_large_patch_on_a_small_preview_is_averaged ... ok
+test patches::tests::a_patch_replaces_its_rectangle_only ... ok
+test dust::tests::finds_spots_on_smooth_areas ... ok
+test patches::tests::crop_and_flip_keep_the_patch_on_the_photo ... ok
+test capture::tests::flat_areas_borders_and_clipped_pixels_stay ... ok
+test output::tests::white_maps_to_white ... ok
+test patches::tests::opacity_and_alpha_blend ... ok
+test patches::tests::registry_finds_patches_and_skips_missing_ones ... ok
+test patches::tests::the_ai_view_round_trips ... ok
+test patches::tests::the_transformed_image_is_the_uncropped_render_frame ... ok
+test profiles::tests::default_profile_is_borrowed_and_others_change_things ... ok
+test profiles::tests::looks_scale_with_amount_and_never_add_grain ... ok
+test redeye::tests::detects_the_red_pupil_off_centre ... ok
+test redeye::tests::orientation_inverse_matches_raster ... ok
+test redeye::tests::red_pupil_is_neutralized_and_darkened_iris_kept ... ok
+test masks::tests::auto_mask_stops_at_edges ... ok
+test profiles::tests::wheels_and_fades_compose_with_user_settings ... ok
+test spots::tests::clone_copies_source ... ok
+test optics::tests::interval_framing_encloses_every_f64_result ... ok
+test spots::tests::spots_bench ... ignored, benchmark: run explicitly in release mode
+test spots::tests::remove_erases_a_dot ... ok
+test optics::tests::warp_f64_results_are_bit_identical_to_the_pre_generic_formulas ... ok
+test tests::crop_and_straighten_output_size ... ok
+test cull::tests::blur_lowers_focus_and_signatures_match ... ok
+test tests::calibration_shifts_colours_but_keeps_greys ... ok
+test redeye::tests::pet_eye_finds_the_glow_darkens_it_and_adds_a_catchlight ... ok
+test tests::default_render_is_sane ... ok
+test masks::tests::a_hostile_number_of_detail_patches_is_capped ... ok
+test optics::tests::block_coverage_agrees_with_every_pixel ... ok
+test tests::grey_ramp_stays_neutral ... ok
+test tests::perf_report ... ignored
+test tests::mask_brightens_only_inside ... ok
+test dust::tests::textured_scenes_give_few_false_spots ... ok
+test optics::tests::ca_estimate_recovers_scale ... ok
+test negative::tests::sampling_a_rim_area_and_the_image ... ok
+test tests::unedited_rendered_source_is_passthrough ... ok
+test tests::refine_saturation_tames_a_contrast_curve ... ok
+test patches::tests::ai_spots_render_their_patch_and_nothing_else ... ok
+test tests_detail::colour_nr_does_not_bleed_across_a_colour_edge ... ok
+test spots::tests::matches_reference_bit_exactly ... ok
+test redeye::tests::renders_fix_the_red_pupil_at_any_size ... ok
+test tests::exposure_is_monotone ... ok
+test tests_detail::masking_preview_is_grey_even_when_sharpening_is_subpixel ... ok
+test capture::tests::deconvolution_restores_edges ... ok
+test tests_detail::obsolete_process_field_is_ignored ... ok
+test tests::soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit ... ok
+test tests_detail::masking_spares_flat_areas ... ok
+test tests_detail::detail_trades_halo_control_for_fine_detail ... ok
+test tests_detail::luminance_nr_contrast_keeps_texture ... ok
+test tests_detail::layer_sharpen_radius_and_sensor_scale_are_used ... ok
+test tests_detail_refvec::upstream_ambient_transmission_guidance_and_boxes ... ok
+test tests_detail_refvec::upstream_vst_matrices_and_fast_exp ... ok
+test tests::negative_conversion_renders ... ok
+test tests_geometry::debug_upright_scene ... ignored
+test tests_geometry::constrain_crop_removes_blank_areas ... ok
+test tests_detail_refvec::upstream_eaw_bayes_shrink_and_synthesis ... ok
+test tests_detail::tiny_black_negative_and_hdr_detail_stays_finite ... ok
+test tests_detail::sharpening_preview_matches_the_downscaled_full_size_render ... ok
+test tests_geometry::manual_vertical_keystone_widens_the_top ... ok
+test tests_geometry::guided_upright_from_two_vertical_guides ... ok
+test tests_geometry::level_degrees_sign_matches_crop_angle ... ok
+test tests_geometry::manual_distortion_straightens_barrel_grid ... ok
+test tests_geometry::profile_corrections_use_embedded_lens_only_when_enabled ... ok
+test tests_geometry::segment_detector_finds_known_lines ... ok
+test finish::colour_tone_tests::cpu_shape_roundoff_does_not_clip_unselected_scene_channels ... ok
+test tests_geometry::transforms_preview_matches_export ... ok
+test tests_geometry::remove_ca_aligns_colour_planes ... ok
+test capture::refvec_tests::upstream_rl_vectors ... ok
+test tests_detail::sharpening_raises_mtf50_and_radius_moves_the_response ... ok
+test tests_geometry::manual_transforms_straighten_known_keystone ... ok
+test tests_geometry::optics_preview_matches_export ... ok
+test tests_detail::dehaze_clears_haze_without_halos ... ok
+test tests_geometry::upright_level_straightens_a_tilted_horizon ... ok
+test tests_geometry::upright_full_fixes_both_families ... ok
+test tests_geometry::upright_analysis_is_resolution_independent ... ok
+test tests_geometry::upright_vertical_fixes_converging_verticals ... ok
+test tests_layers::layers_stack_on_the_photo_and_on_each_other ... ok
+test tests_local::local_defringe_desaturates_purple_edges_only ... ok
+test tests_local::local_moire_removes_colour_speckle_inside_the_mask ... ok
+test tests_local::local_noise_smooths_luminance_noise_inside_the_mask ... ok
+test tests_sliders::clipping_metadata_compresses_losslessly_and_defaults_for_old_sources ... ok
+test tests_sliders::every_neutral_primary_control_skips_its_stage ... ok
+test tests_sliders::extracted_c_balance_complete_pixel_ucs_and_alternate_jz ... ok
+test tests_sliders::extracted_c_colour_equalizer_periodic_rbf ... ok
+test tests_detail::previews_approximate_full_size ... ok
+test tests_sliders::extracted_c_colour_equalizer_uv_covariance_filters ... ok
+test tests_sliders::extracted_c_jz_hdr_roundtrips_and_neutral_stability ... ok
+test tests_sliders::extracted_c_eigf_both_paths_and_blends ... ok
+test tests_sliders::extracted_c_ucs_hdr_roundtrips ... ok
+test tests_sliders::extracted_c_local_laplacian_full_pyramids ... ok
+test tests_sliders::old_settings_default_new_controls_and_layer_roundtrip ... ok
+test tests_sliders::skin_uniformity_retains_pore_chroma_and_protects_lips ... ok
+test tests_toolset::cached_renders_with_new_tools_match_uncached ... ok
+test tests_toolset::depth_range_selects_a_band_of_the_stored_depth ... ok
+test tests_detail::cached_renders_match_uncached ... ok
+test tests::directional_sliders ... ok
+test tests_toolset::tone_equalizer_lifts_its_zone_and_shows_its_mask ... ok
+test tests_sliders::candidate_step_order_detail_hue_and_clip_protection ... ok
+test tone2::ds_review_tests::ds_finding_display_tone_preserves_white_without_positive_whites ... ok
+test tone2::reference_vectors::extracted_darktable_functions_match ... ok
+test tone2::tests::adobe_like_has_five_stops_of_headroom_and_no_knee ... ok
+test tone2::tests::compression_leaves_black_limited_colours_alone ... ok
+test tone2::tests::full_hue_preservation_keeps_hue_and_bleaches_towards_white ... ok
+test tests_layers::a_layer_over_everything_matches_the_global_tool ... ok
+test tone2::tests::lower_hue_preservation_lets_bright_reds_drift_towards_yellow ... ok
+test tone2::tests::rendered_sources_are_identity_at_neutral ... ok
+test tone2::tests::sigmoid_matches_darktable_targets ... ok
+test tone2::tests::sliders_move_the_right_way_on_every_look ... ok
+test tone::tests::camera_curve_preserves_black_and_extends_headroom ... ok
+test tone2::tests::looks_are_monotone_black_to_black_and_place_grey ... ok
+test tone::tests::display_identity_and_monotone ... ok
+test tone::tests::chroma_curve_is_identity_unless_set_and_survives_serde ... ok
+test tone::tests::grey_stays_near_grey_and_highlights_roll_off ... ok
+test tone::tests::monotone_and_bounded ... ok
+test tone::tests::sliders_move_the_right_way ... ok
+test toneeq::tests::a_zone_lifts_its_own_luminance_most ... ok
+test toneeq::tests::neutral_zones_do_nothing ... ok
+test toneeq::refvec_tests::upstream_solve_and_correction_vectors ... ok
+test toneeq::tests::the_mask_keeps_edges_and_smooths_texture ... ok
+test toneeq::tests::uniform_zones_are_an_exposure_change_and_clamped ... ok
+test ucs::tests::gamut_lut_is_positive ... ok
+test ucs::tests::round_trips ... ok
+test visualize::tests::mask_overlay_shows_the_evaluated_alpha ... ok
+test tests_toolset::tools_off_or_neutral_change_nothing ... ok
+test visualize::tests::point_color_range_keeps_the_selected_colour_only ... ok
+test visualize::tests::spots_view_marks_specks_at_any_size ... ok
+test tests_toolset::each_tool_changes_the_render ... ok
+test tests_sliders::modes_structure_skin_layers_and_cache_changes ... ok
+test tests::exposure_after_spatial_filters_equals_exposing_the_source ... ok
+test tests_layers::layers_without_tools_render_like_no_layer ... ok
+test tests::resolution_independence_of_local_contrast ... ok
+test tests_layers::cached_renders_with_layers_match_uncached ... ok
+test tests_layers::half_opacity_gives_half_the_effect ... ok
+test tests_layers::every_layer_tool_changes_only_the_masked_area ... ok
+test tests_toolset::old_settings_load_and_match_detail_goldens ... ok
+test tests_layers::old_settings_load_and_match_detail_goldens ... ok
+test tests::every_slider_changes_or_keeps_output_without_panicking ... ok
+test tests_geometry::upright_auto_leaves_natural_scenes_nearly_alone ... ok
+test tests::stage_cache_matches_uncached_render_through_a_slider_session ... ok
+
+test result: ok. 208 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 3.83s
+
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_ui_egui-6afe2759f84c18fa)
+
+running 276 tests
+test credits::tests::delta_and_dates ... ok
+test credits::tests::formatting ... ok
+test credits::tests::the_committed_json_is_baked_in ... ok
+test credits::tests::alphabetical_ignores_at_and_case ... ok
+test credits::tests::names_fall_back_to_the_username ... ok
+test drop_tests::dropped_presets_are_told_apart_from_photos ... ok
+test cache_tests::absolute_rules_ignore_the_clock ... ok
+test cache_tests::smart_album_counts_are_cached_until_something_changes ... ok
+test color_icons::tests::texture_cache_tracks_name_size_scale_and_disabled ... ok
+test color_icons::tests::all_svgs_parse_render_and_disable_at_toolbar_sizes ... ok
+test headless::tests::about_dialog_tabs_show_the_credits ... ok
+test headless::tests::add_folder_opens_the_import_review ... ok
+test headless::tests::click_zoom_ratio_animates ... ok
+test headless::tests::capture_time_dialog_shifts_time_zone ... ok
+test headless::tests::compare_survey_and_auto_advance_by_keyboard ... ok
+test headless::tests::crop_keys ... ok
+test headless::tests::bugfix_develop_classic_keys_and_sync_button_execute ... ok
+test headless::tests::add_folder_scans_in_the_background ... ok
+test headless::tests::browsing_the_same_folder_again_does_not_restart ... ok
+test headless::tests::browse_a_local_folder ... ok
+test headless::tests::cmd_q_quits ... ok
+test headless::tests::demo_grid_snapshot_has_ui_pixels ... ok
+test headless::tests::develop_tool_tips_cover_mask_tiles_brush_modifiers_and_wb_picker ... ok
+test headless::tests::drag_photos_onto_an_album ... ok
+test headless::tests::ds_finding_camera_folder_focus_and_picker_do_not_keep_stale_text ... ok
+test headless::tests::ds_finding_never_spot_overlay_hides_the_selected_pin ... ok
+test headless::tests::ds_finding_simple_tooltips_release_rich_hover_state ... ok
+test headless::tests::enhance_export_size_clicks_restore_methods_and_persists ... ok
+test headless::tests::export_dialog_keeps_its_width ... ok
+test headless::tests::export_dialog_runs_in_the_background ... ok
+test headless::tests::export_presets_sections_and_live_filename_are_interactive ... ok
+test headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing ... FAILED
+test headless::tests::filter_bar_filters_and_saves_a_smart_album ... ok
+test headless::tests::folder_scan_cancel_and_busy ... ok
+test headless::tests::full_screen_preview_and_info_overlay_by_keyboard ... ok
+test headless::tests::grid_groups_by_capture_date ... ok
+test headless::tests::import_copy_into_a_custom_folder_template ... ok
+test headless::tests::import_copy_renames_into_destination ... ok
+test headless::tests::import_move_into_a_folder_template ... ok
+test headless::tests::import_rename_tags_insert_at_the_cursor ... ok
+test headless::tests::import_review_dialog ... ok
+test headless::tests::info_fields_keep_typing_and_save ... ok
+test headless::tests::kept_local_root_stays_while_browsing_below_and_elsewhere ... ok
+test headless::tests::keyword_list_filters_renames_and_suggests ... ok
+test headless::tests::label_swatches_and_names ... ok
+test headless::tests::local_location_can_be_hidden_and_restored ... ok
+test headless::tests::navigator_pans_the_zoomed_loupe ... ok
+test headless::tests::paste_selected_settings_and_find ... ok
+test headless::tests::preset_hover_previews_and_create_preset_groups ... ok
+test headless::tests::preview_only_raw_shows_badge_and_notices ... ok
+test i18n::tests::catalog_characters_are_paintable ... ok
+test i18n::tests::catalogs_agree_on_placeholders_and_report_gaps ... ok
+test i18n::tests::catalogs_contain_core_workflows ... ok
+test i18n::tests::craft_fonts_render_cjk_in_the_ui ... ok
+test i18n::tests::date_headings_in_every_language ... ok
+test i18n::tests::every_language_has_a_catalog_covering_the_source ... ok
+test headless::tests::profile_browser_previews_on_hover_and_applies_on_click ... ok
+test i18n::tests::formats_render_in_every_language ... ok
+test i18n::tests::interface_symbols_are_paintable ... ok
+test i18n::tests::language_commands_cover_every_language ... ok
+test i18n::tests::locale_tags_normalize ... ok
+test i18n::tests::menu_labels_translate_but_user_names_survive ... ok
+test i18n::tests::preferences_round_trip_and_old_settings_remain_readable ... ok
+test i18n::tests::switching_language_translates_and_restores ... ok
+test headless::tests::readding_a_deleted_photo_shows_it_in_recently_deleted ... ok
+test headless::tests::rename_dialog_renames_the_selection ... ok
+test headless::tests::return_commits_the_crop_tool ... ok
+test icons::ds_finding_colored_tool_icon_is_square_in_a_wide_click_target ... ok
+test icons::tests::navigation_arrowheads_have_both_halves ... ok
+test headless::tests::save_over_confirmation_cancel_copy_overwrite_and_preference ... ok
+test headless::tests::screenshot_request_is_answered_without_a_window ... ok
+test headless::tests::settings_dialog_by_keyboard_and_clicks ... ok
+test links::tests::links_are_https_and_name_this_app ... ok
+test headless::tests::settle_waits_for_file_system_checks ... ok
+test headless::tests::bugfix_develop_export_fits_viewport_and_cancel_is_clickable ... ok
+test headless::tests::slider_nudge_and_pick_advance ... FAILED
+test headless::tests::strip_tool_tips_icon_pixels_follow_colour_preference_and_keep_text ... ok
+test headless::tests::strip_tool_tips_rich_simple_and_off ... ok
+test headless::tests::strip_tool_tips_simple_renders_name_and_key_and_settings_round_trip ... ok
+test headless::tests::versions_preview_on_hover_and_restore_on_click ... ok
+test i18n::tests::every_language_is_painted_and_menu_ids_stay_the_same ... ok
+test i18n::tests::the_ui_works_without_craft_fonts ... ok
+test i18n::tests::traditional_chinese_presets_and_panel_headers_are_painted ... ok
+test menubar::tests::shortcut_text_per_platform ... ok
+test i18n::tests::traditional_chinese_switches_through_menu_and_control_and_persists ... ok
+test import::bugfix_develop_tests::bugfix_develop_import_choices_survive_settings_roundtrip_and_new_scan ... ok
+test import::bugfix_save_tests::bugfix_save_o021_auto_import_keeps_selection_changed_while_worker_was_reading ... ok
+test menubar::tests::auto_tag_from_tracklog ... ok
+test menubar::tests::bar_follows_the_registry_and_state ... ok
+test menubar::tests::export_with_preset_submenu ... ok
+test menubar::tests::file_menu_starts_with_the_import_entry_points ... FAILED
+test panels::chips::tests::count_says_matching_of_total_only_when_a_filter_narrows ... ok
+test panels::crop_overlay::tests::diagonals_are_45_degrees_and_triangle_feet_are_perpendicular ... ok
+test panels::crop_overlay::tests::every_overlay_stays_inside_the_crop ... ok
+test panels::crop_overlay::tests::spiral_is_one_continuous_curve ... ok
+test panels::export_dialog::tests::params_round_trip_through_the_dialog ... ok
+test panels::export_dialog::tests::short_paths_keep_the_last_two_folders ... ok
+test mono_tool_icons::tests::every_tool_style_has_the_same_rendered_silhouette_at_actual_sizes ... ok
+test headless::tests::snapshots_are_deterministic_and_control_requests_work ... ok
+test panels::grid::tests::groups_start_new_rows_below_their_headers ... ok
+test panels::grid::tests::rows_index_every_cell_top_to_bottom ... ok
+test panels::grid::tests::square_grid_groups_and_auto_levels ... ok
+test panels::grid::tests::ungrouped_justified_rows_fill_the_width ... ok
+test menubar::tests::find_missing_and_locate ... ok
+test panels::host_session::tests::library_only_commands_and_hidden_tools_are_blocked ... ok
+test panels::left::tests::browsing_below_a_kept_root_keeps_the_root ... ok
+test panels::left::tests::equivalent_paths_are_one_local_location ... ok
+test menubar::tests::help_opens_the_docs_and_merge_last_needs_photos ... ok
+test panels::left::tests::hidden_folder_is_not_revealed_in_an_outer_tree ... ok
+test panels::left::tests::session_root_stays_while_browsing_below_it ... ok
+test panels::right::tests::short_times ... ok
+test panels::tool_tips::tests::every_strip_tool_has_a_complete_entry ... ok
+test panels::tool_tips::tests::shortcuts_come_from_the_command_table ... FAILED
+test menubar::tests::library_backup_items_follow_the_host ... ok
+test menubar::tests::metadata_preset_menu ... ok
+test menubar::tests::quit_ends_the_file_menu_after_unlisted_entries ... ok
+test panels::rules_editor::ds2_person_picker_can_remove_selected_missing_identity ... ok
+test menubar::tests::select_by_submenu_and_text_prompt ... ok
+test menubar::tests::sort_menu_lists_reshuffle_once_and_only_enables_it_for_random ... ok
+test people_task::ds2_tests::ds2_headshot_cache_bounds_textures_and_concurrent_decodes ... ok
+test render::thumbnail_tests::failures_retry_after_revision_and_quick_only_is_not_final ... ok
+test people_task::ds2_tests::ds2_missing_input_partition_includes_only_unprepared_ids ... ok
+test menus::bugfix_save_tests::bugfix_save_u006_delete_always_prompts_captures_targets_and_has_three_choices ... ok
+test menus::bugfix_save_tests::bugfix_save_u006_disk_failure_keeps_record_and_success_removes_it ... ok
+test render::thumbnail_tests::queue_promotions_running_work_and_cancellation ... ok
+test import::bugfix_save_tests::bugfix_save_o020_batches_never_absorb_intervening_ratings_or_develop_edits ... ok
+test menus::bugfix_save_tests::bugfix_save_u006_multiple_removals_keep_album_membership_consistent_and_shared_files_safe ... ok
+test render::thumbnail_tests::snapshot_tracks_cow_edits_undo_reload_and_replacement ... ok
+test panels::attributions::tests::about_has_an_attributions_tab ... ok
+test panels::attributions::tests::settings_has_an_attributions_tab ... ok
+test panels::grid::tests::bugfix_develop_context_copy_uses_clicked_selected_photo ... ok
+test panels::grid::tests::bugfix_save_u006_context_delete_uses_the_same_confirmation ... ok
+test render::thumbnail_tests::unchanged_ready_and_running_frames_build_no_jobs ... ok
+test shortcuts::tests::aliases_parse_and_target_existing_commands ... ok
+test shortcuts::tests::bugfix_develop_classic_keymap ... ok
+test people_task::ds2_tests::ds2_disconnected_face_worker_reports_failure_and_does_not_advance ... ok
+test shortcuts::tests::bugfix_develop_effective_chords_have_one_action ... ok
+test shortcuts::tests::delete_means_the_backspace_key ... ok
+test shortcuts::tests::no_conflicting_bindings ... ok
+test shortcuts::tests::parses_shortcuts ... ok
+test smart_sort_keys::ds_finding_extra_physical_modifiers_do_not_trigger_review_chords ... ok
+test smart_sort_keys::tests::apply_move_clamps_and_selects ... ok
+test smart_sort_keys::tests::apply_move_rows_use_columns ... ok
+test smart_sort_keys::tests::apply_move_zero_columns_falls_back_to_one ... ok
+test smart_sort_keys::tests::folder_hint_has_digits_through_nine ... ok
+test smart_sort_keys::tests::queue_mappings ... ok
+test smart_sort_keys::tests::review_arrows_move_and_extend ... ok
+test smart_sort_keys::tests::review_digits_cover_move_also_add_and_unsorted ... ok
+test smart_sort_keys::tests::review_home_end_and_select_all ... ok
+test smart_sort_keys::tests::review_undo_redo_remove_and_clear ... ok
+test people_task::ds2_tests::ds2_headshot_progress_counts_imported_and_skipped_images ... ok
+test softpaint::tests::clip_rect_and_scale_apply ... ok
+test softpaint::tests::opaque_rect_fills_exactly_its_pixels ... ok
+test softpaint::tests::partial_texture_updates_patch_the_mirror ... ok
+test softpaint::tests::textured_triangle_samples_texels ... ok
+test softpaint::tests::shared_diagonal_is_not_blended_twice ... ok
+test tests_ai::ai_denoise_real_app_preview_and_strength_latency ... ignored, real raw, approved model cache and physical GPU required
+test render::thumbnail_tests::closing_import_review_cancels_queued_and_running_identities ... ok
+test render::thumbnail_tests::ds2_missing_thumbnail_renders_committed_settings_once_during_interaction ... ok
+test render::thumbnail_tests::explicit_clear_repairs_same_key_bad_pixels_and_rejects_old_same_key_job ... ok
+test render::thumbnail_tests::library_reset_rejects_old_job_even_when_photo_id_and_key_are_reused ... ok
+test render::thumbnail_tests::loupe_shows_superseded_drafts_newer_than_its_pixels_during_a_drag ... ok
+test render::thumbnail_tests::raw_quick_path_frames_build_no_jobs ... ok
+test render::thumbnail_tests::resizing_the_disk_cache_keeps_textures_and_skips_rebuilds ... ok
+test render::thumbnail_tests::superseded_preview_with_repeated_key_does_not_clear_latest_pending_request ... ok
+test render::thumbnail_tests::unchanged_queued_frames_build_no_jobs ... ok
+test panels::host_session::tests::enter_is_ok_and_escape_is_cancel ... ok
+test render::thumbnail_tests::undo_to_existing_texture_supersedes_pending_edit ... ok
+test tests_doc_layers::only_documents_that_can_have_layers_are_asked_about ... ok
+test shortcuts::tests::bugfix_develop_failed_rating_never_shows_success ... ok
+test tasks::bugfix_develop_tests::bugfix_develop_culling_runs_as_cancellable_background_task ... FAILED
+test tests_ai::ai_denoise_ui_clicks_model_preview_apply_and_drags_strength ... ok
+test tests_ai::ai_remove_by_brush_and_lasso ... ok
+test tests_ai::ai_remove_waits_for_confirmation ... ok
+test tests_ai::heal_over_an_ai_removal_makes_a_new_heal_spot ... ok
+test tests_ai::masking_alt_preview_ends_with_the_drag ... ok
+test tests_curve::double_clicking_a_channel_resets_only_that_channel ... ok
+test tests_curve::dragging_a_point_moves_it_in_both_axes_with_one_undo_step ... ok
+test tests_curve::dragging_a_point_past_its_neighbour_is_clamped ... ok
+test render::thumbnail_tests::superseded_loupe_result_cannot_restore_another_photo_or_pre_reload_source ... ok
+test tests_curve::point_curve_preset_dropdown_applies_and_saves ... ok
+test tests_curve::reset_button_resets_every_curve ... ok
+test tests_doc_layers::layered_documents_list_their_layers_and_open_in_compositing ... ok
+test tests_masking::grid_frame_100k ... ignored
+test tests_host_composite::ds_finding_compositing_button_is_clipped_to_small_loupe ... ok
+test tests_grid::grid_headers_selection_scrolling_stacks_and_shape_changes ... ok
+test tests_host_composite::the_library_shows_the_unsaved_composite_of_a_photo_in_compositing ... ok
+test tests_library_problem::unopenable_library_asks_instead_of_running_a_demo ... ok
+test tests_masking::a_selected_mask_shows_its_layer_tools ... ok
+test tests_masking::ai_masks_without_the_model_offer_the_download ... ok
+test render::thumbnail_tests::late_results_and_errors_cannot_replace_newest_pixels_or_sources ... ok
+test tests_masking::b_adds_to_quick_collection_in_the_grid_and_brushes_in_edit ... FAILED
+test tests_masking::brush_strokes_carry_auto_mask ... ok
+test tests_masking::command_drag_straightens_in_crop ... ok
+test tests_masking::double_click_in_crop_box_applies_the_crop ... ok
+test tests_masking::edit_in_external_editor_opens_the_copy ... ok
+test tests_masking::g_toggles_grids_and_shift_g_starts_guided_upright ... ok
+test tests_masking::geometry_slider_drag_marks_the_grid ... ok
+test tests_masking::grid_info_cycles_caption ... ok
+test tests_masking::h_toggles_remove_overlay_when_panel_active ... ok
+test tests_masking::keyword_painter_toggles_on_click ... ok
+test tests_grid::unchanged_grid_frames_reuse_the_view_and_visit_only_nearby_rows ... ok
+test tests_masking::local_folder_tree_expands_and_browses ... ok
+test tests_masking::luminance_range_controls_and_map ... ok
+test tests_masking::mask_list_rename_hide_and_overlay_colour ... ok
+test tests_masking::mask_overlay_keys_and_pins ... ok
+test tests_masking::option_digit_toggles_keyword_from_set ... ok
+test tests_masking::reference_view_pins_a_photo_beside_the_active_one ... ok
+test tests_masking::remove_spots_by_pointer_and_keyboard ... ok
+test tests_masking::second_window_shows_the_active_photo ... ok
+test tests_masking::slideshow_advances_pauses_and_ends ... ok
+test tests_masking::smart_album_rule_editor_creates_and_edits ... ok
+test tests_masking::soft_proofing_flags_out_of_gamut_colours_and_makes_proof_copies ... ok
+test tests_offline::import_reads_files_off_the_ui_thread_and_can_be_cancelled ... ok
+test tests_offline::offline_originals_never_block_a_frame ... ok
+test tests_panels::a_narrow_window_shrinks_the_panels_without_forgetting_their_width ... ok
+test tests_panels::masking_contents_fit_the_right_panel_at_any_width ... ok
+test tests_panels::primary_controls_drag_modes_and_skin_pick_are_real_interactions ... ok
+test tests_panels::side_panels_resize_by_their_inner_edge_and_remember_it ... ok
+test tests_people::people_ui_real_gpu_interactions ... ignored, requires the owner's real Vulkan GPU; exercises the complete app without opening windows
+test tests_panels::sidebar_sections_collapse_and_remember_it ... ok
+test tests_people::ds2_clear_face_data_failure_is_displayed_in_settings ... ok
+test tests_people::ds2_finder_retains_download_error_and_settings_owns_input ... ok
+test tests_people::ds2_imported_people_cache_shares_snapshots_and_empty_filter_remains_actionable ... ok
+test tests_people::ds_finding_large_people_query_keeps_ui_cancellable ... FAILED
+test tests_people::people_ui_analysis_worker_cache_cancel_and_opt_out ... ok
+test tests_people::people_ui_confirm_queue_keys_rejection_skip_undo_live_ranking ... ok
+test tests_slider_speed::develop_slider_drag_latency ... ignored, continuous 120-step timing benchmark; optional LC_SLIDER_BENCH_FILE
+test tests_people::people_ui_export_person_folder_names_opt_in_and_live_smart_album ... ok
+test tests_people::people_ui_finder_face_click_name_find_create_folder_and_everyone_filter ... ok
+test tests_people::people_ui_headshots_seed_paste_and_clear_without_models ... ok
+test tests_people::people_ui_merge_drag_prompt_and_split_are_undoable ... ok
+test tests_people::people_ui_minimum_range_and_top_sixty_show_all ... ok
+test tests_people::people_ui_missing_model_download_progress_cancel_without_network ... ok
+test tests_people::people_ui_probable_merge_prompt_different_and_queue_merge_undo ... ok
+test tests_people::people_ui_smart_rule_picker_preserves_identity_sets_and_ignores_hidden_people ... ok
+test tests_people::people_ui_threshold_names_ignore_restore_pin_and_grid_filter ... ok
+test tests_quit_unsaved::damaged_settings_file_is_shown ... ok
+test tests_slider_speed::develop_slider_gpu_step_timings ... ok
+test tests_scroll::filmstrip_wheel_scrolls_and_keeps_its_position ... ok
+test tests_scroll::grid_keeps_the_users_scroll_position ... ok
+test tests_people::people_ui_faces_opt_in_analysis_and_person_folder_export_picker ... ok
+test tests_slider_speed::slider_drag_caps_hidpi_zoom_jobs_and_release_restores_full_quality ... ok
+test tests_slider_speed::slider_fine_drag_accumulates_substep_motion_and_missing_widget_releases ... ok
+test tests_slider_speed::slider_gesture_cannot_continue_into_another_photo_after_selection ... ok
+test tests_smart_sort::ds2_people_folder_switch_survives_back_navigation ... ok
+test tests_smart_sort::ds2_smart_sort_setup_failure_does_not_start_face_worker ... ok
+test tests_smart_sort::ds_finding_explicit_preset_destination_exports_without_conflict_dialog ... ok
+test tests_smart_sort::ds_finding_preset_change_reclassifies_and_replaces_stale_review_folder ... ok
+test tests_smart_sort::ds_finding_smart_sort_frames_keep_analyzed_rows ... ok
+test tool_icon_tests::all_develop_tools_panels_and_mask_variants_have_icons ... ok
+test tool_icon_tests::disabled_tool_button_is_dim_grey_and_cannot_be_clicked ... ok
+test tests_slider_speed::develop_slider_cpu_step_timings ... ok
+test tests_smart_sort::smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos ... ok
+test tests_quit_unsaved::quitting_with_unsaved_changes_asks_first ... ok
+test tests_smart_sort::smart_sort_click_tags_review_drag_context_and_export_both_overlap_modes ... ok
+test tests_smart_sort::smart_sort_downloads_clip_after_loading_retired_preference ... ok
+test tests_smart_sort::smart_sort_face_analysis_starts_once_after_setup ... ok
+test tests_smart_sort::smart_sort_model_download_uses_host_progress_and_cancel ... ok
+test widgets::access_tests::custom_widgets_describe_themselves ... ok
+test widgets::tests::nudges_are_a_sensible_step ... ok
+test tests_smart_sort::smart_sort_p2b_review_keyboard_assignments_selection_and_undo ... ok
+test tests_smart_sort::smart_sort_p2b_sessions_rename_nested_patterns_export_and_filter ... ok
+test tests_switch_library::opening_another_library_drops_the_old_librarys_cached_panels ... ok
+test tests_unsaved::failed_save_is_reported_and_shown_until_a_save_succeeds ... ok
+test tool_icon_tests::library_shutdown_waits_for_kernel_warm_up_even_without_a_photo ... ok
+test tool_icon_tests::retouch_icons_and_mask_tiles_select_their_tools_by_click ... ok
+test vectorize_handoff::integrated_tests::library_vectorize_integrated_headless_grid_context_click_preserves_multiselection_and_people_filters ... ok
+test vectorize_handoff::tests::library_vectorize_headless_right_click_exact_photo_single_handoff_preserves_people_and_selection ... ok
+test vectorize_handoff::tests::library_vectorize_request_rejects_catalog_replacement_without_changing_state ... ok
+test tests_smart_sort::smart_sort_p2b_burst_badges_best_all_export_and_library_stack ... ok
+test tests_smart_sort::smart_sort_p2b_example_folder_from_library_and_review_three_photos ... ok
+test tests_smart_sort::smart_sort_p2b_sessions_bursts_layout_at_both_sizes ... ok
+test tool_icon_tests::settings_click_switches_tool_strip_pixels_and_round_trips_at_both_scales ... ok
+test tests_smart_sort::smart_sort_dialog_layout_at_both_sizes_and_no_service_download ... ok
+test vectorize_handoff::tests::library_vectorize_headless_unavailable_and_demo_photos_cannot_dispatch ... ok
+
+failures:
+
+---- headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing stdout ----
+
+thread 'headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing' (2645815) panicked at crates/lc-ui-egui/src/headless.rs:850:9:
+export failed: None
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- headless::tests::slider_nudge_and_pick_advance stdout ----
+
+thread 'headless::tests::slider_nudge_and_pick_advance' (2646712) panicked at crates/lc-ui-egui/src/headless.rs:1308:9:
+assertion `left == right` failed
+  left: None
+ right: Pick
+
+---- menubar::tests::file_menu_starts_with_the_import_entry_points stdout ----
+
+thread 'menubar::tests::file_menu_starts_with_the_import_entry_points' (2647985) panicked at crates/lc-ui-egui/src/menubar.rs:868:9:
+assertion `left == right` failed
+  left: "Import Photos…"
+ right: "Import Photos… [Cmd+Shift+I]"
+
+---- panels::tool_tips::tests::shortcuts_come_from_the_command_table stdout ----
+
+thread 'panels::tool_tips::tests::shortcuts_come_from_the_command_table' (2648830) panicked at crates/lc-ui-egui/src/panels/tool_tips.rs:612:9:
+assertion `left == right` failed
+  left: None
+ right: Some("E")
+
+---- tasks::bugfix_develop_tests::bugfix_develop_culling_runs_as_cancellable_background_task stdout ----
+
+thread 'tasks::bugfix_develop_tests::bugfix_develop_culling_runs_as_cancellable_background_task' (2648880) panicked at /home/zdavidson/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/epaint-0.36.2/src/textures.rs:337:9:
+Dropped TexturesDelta with 1 unapplied deltas. Deltas need to be handled. If you want to drop this intentionally call `clear` before dropping.
+
+---- tests_masking::b_adds_to_quick_collection_in_the_grid_and_brushes_in_edit stdout ----
+
+thread 'tests_masking::b_adds_to_quick_collection_in_the_grid_and_brushes_in_edit' (2651241) panicked at crates/lc-ui-egui/src/tests_masking.rs:376:5:
+assertion `left == right` failed
+  left: ""
+ right: "brush"
+
+---- tests_people::ds_finding_large_people_query_keeps_ui_cancellable stdout ----
+
+thread 'tests_people::ds_finding_large_people_query_keeps_ui_cancellable' (2652677) panicked at crates/lc-ui-egui/src/tests_people.rs:115:5:
+People frames waited for clustering
+
+
+failures:
+    headless::tests::export_same_folder_conflicts_catalog_stack_and_postprocessing
+    headless::tests::slider_nudge_and_pick_advance
+    menubar::tests::file_menu_starts_with_the_import_entry_points
+    panels::tool_tips::tests::shortcuts_come_from_the_command_table
+    tasks::bugfix_develop_tests::bugfix_develop_culling_runs_as_cancellable_background_task
+    tests_masking::b_adds_to_quick_collection_in_the_grid_and_brushes_in_edit
+    tests_people::ds_finding_large_people_query_keeps_ui_cancellable
+
+test result: FAILED. 265 passed; 7 failed; 4 ignored; 0 measured; 0 filtered out; finished in 150.53s
+
+/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner: line 13: total +  : arithmetic syntax error: operand expected (error token is "+  ")
+/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner: line 18: [: : integer expected
+error: test failed, to rerun pass `-p lightcraft-ui-egui --lib`

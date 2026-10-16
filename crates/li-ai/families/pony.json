@@ -1,0 +1,51 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "pony",
+  "base": "sdxl",
+  "label": "Pony Diffusion",
+  "group": "Stable Diffusion",
+  "description": "SDXL fine-tunes in the Pony V6 line: stylised and character art, tag-based prompts with score tags.",
+  "pipeline": {
+    "clip": {
+      "node": "checkpoint",
+      "skip": -2
+    },
+    "sampler_name": "euler_ancestral",
+    "scheduler": "normal"
+  },
+  "sampling": {
+    "steps": {
+      "default": 25,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 7,
+      "min": 1,
+      "max": 20
+    },
+    "denoise": 0.6
+  },
+  "lora": {
+    "loader": "LoraLoader",
+    "compatible": [
+      "pony",
+      "sdxl"
+    ],
+    "max": 5
+  },
+  "prompt": {
+    "prefix": "score_9, score_8_up, score_7_up, ",
+    "negative": "score_4, score_5, score_6, lowres, blurry"
+  },
+  "license": "Fair AI Public License 1.0-SD",
+  "license_url": "https://civitai.com/models/257749",
+  "civitai_base_models": [
+    "Pony"
+  ],
+  "hf_tags": [
+    "pony"
+  ],
+  "models": []
+}

@@ -1,0 +1,111 @@
+//! Compiled registration slots for independent vector packages. Each package owns its
+//! module; the coordinator owns this aggregate. Empty slots deliberately advertise no
+//! command. See docs/wip/vector-tasks/README.md for ownership and integration.
+use crate::commands::CommandSpec;
+pub mod affinity;
+pub mod anchor_tools;
+pub mod appearance;
+pub mod blend;
+pub mod blob_eraser;
+pub mod brushes;
+pub mod clip_compound;
+pub mod colours;
+pub mod constraints;
+pub mod constructive;
+pub mod corners;
+pub mod drawing;
+pub mod envelope;
+pub mod layout;
+pub mod node;
+pub mod objects;
+pub mod path_text;
+pub mod pdf_export;
+pub mod pdf_import;
+pub mod pen;
+pub mod pencil;
+pub mod recolor;
+pub mod repeat;
+pub mod snapping;
+pub mod svg_export;
+pub mod svg_import;
+pub mod symbols;
+pub mod trace_centerline;
+pub mod trace_cleanup;
+pub mod trace_cutout;
+pub mod trace_output;
+pub mod vector_export_job;
+pub mod width;
+
+pub(crate) fn specs() -> Vec<CommandSpec> {
+    let mut out = Vec::new();
+    out.extend(objects::specs());
+    out.extend(drawing::specs());
+    out.extend(node::specs());
+    out.extend(pen::specs());
+    out.extend(pencil::specs());
+    out.extend(corners::specs());
+    out.extend(snapping::specs());
+    out.extend(appearance::specs());
+    out.extend(constructive::specs());
+    out.extend(width::specs());
+    out.extend(path_text::specs());
+    out.extend(symbols::specs());
+    out.extend(constraints::specs());
+    out.extend(layout::specs());
+    out.extend(brushes::specs());
+    out.extend(blend::specs());
+    out.extend(repeat::specs());
+    out.extend(envelope::specs());
+    out.extend(svg_import::specs());
+    out.extend(svg_export::specs());
+    out.extend(pdf_export::specs());
+    out.extend(pdf_import::specs());
+    out.extend(affinity::specs());
+    out.extend(trace_centerline::specs());
+    out.extend(trace_cleanup::specs());
+    out.extend(trace_cutout::specs());
+    out.extend(trace_output::specs());
+    out.extend(clip_compound::specs());
+    out.extend(path_commands::specs());
+    out.extend(path_commands::clipboard::specs());
+    out.extend(expand::specs());
+    out.extend(transform_tools::specs());
+    out.extend(blob_eraser::specs());
+    out.extend(live_paint::specs());
+    out.extend(anchor_tools::specs());
+    out.extend(styles::specs());
+    out.extend(colours::specs());
+    out.extend(recolor::specs());
+    out.extend(isolation::specs());
+    out.extend(view_modes::specs());
+    out.extend(distort_tools::specs());
+    out.extend(measure::specs());
+    out.extend(path_effects::specs());
+    out.extend(mesh::specs());
+    out.extend(toolbar::specs());
+    out.extend(selection::specs());
+    out
+}
+
+// Package 36 registration; UI menu/router fragments are in integration/36.md.
+pub mod expand;
+pub mod path_commands;
+// Package 37: commands join the aggregate through the 00 handoff.
+pub mod isolation;
+pub mod styles;
+pub mod transform_tools;
+
+// Package 41 command aggregate fragment: integration/41.md.
+pub mod distort_tools;
+pub mod live_paint;
+// Package 44: command aggregate wiring is supplied in integration/44.md.
+pub mod measure;
+pub mod path_effects;
+
+// Package 43 compiled slot. Aggregate command routing is handed to 00.
+pub mod mesh;
+// Package 46: 00 appends toolbar::specs() to the aggregate in the serial handoff.
+pub mod toolbar;
+
+pub mod selection;
+pub mod view_modes;

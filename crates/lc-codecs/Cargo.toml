@@ -1,0 +1,38 @@
+[package]
+name = "lightcraft-codecs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LightCraft standard image codecs: sniffing, decode to linear light, ICC, encoders (L1)"
+
+[lints]
+workspace = true
+
+[dependencies]
+li-color.workspace = true
+li-raster = { path = "../li-raster" }
+lightcraft-geom = { workspace = true }
+lightcraft-raster = { workspace = true }
+serde = { workspace = true }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+rayon = { workspace = true, optional = true }
+photocraft-codecs = { path = "../pc-codecs", default-features = false, features = ["heif"] }
+lightcraft-tiff.workspace = true
+photocraft-cms = { workspace = true }
+
+[features]
+default = ["parallel", "jxl", "avif"]
+parallel = ["dep:rayon", "lightcraft-raster/parallel", "photocraft-codecs/parallel"]
+jxl = ["photocraft-codecs/jxl"]
+## AVIF encoding via ravif/rav1e (pure Rust, BSD). Native targets only; a no-op on wasm32.
+avif = ["photocraft-codecs/avif"]
+
+[dev-dependencies]
+jpeg-decoder.workspace = true
+image = { workspace = true, features = ["gif", "bmp"] }
+png.workspace = true
+tiff.workspace = true
+# Existing benchmark oracle for the shared parallel encoder.
+jpeg-encoder = { workspace = true }
+proptest = { workspace = true }

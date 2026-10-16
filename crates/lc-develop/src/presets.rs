@@ -1,0 +1,373 @@
+//! Presets and copy/paste subsets.
+//!
+//! A preset is a *partial* settings object (JSON) — only the groups it includes. Applying merges it
+//! into the photo's settings; `amount` (0..200 %) interpolates numeric values between the current
+//! settings and the preset's. Copy/paste/sync use the same group selection ([`SettingsGroup`]).
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+use crate::DevelopSettings;
+
+/// Groups shown in "Choose settings to copy" / "Create preset" (Lightroom's checklist).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SettingsGroup {
+    Profile,
+    Treatment,
+    WhiteBalance,
+    Light,
+    ToneCurve,
+    Color,
+    ColorMixer,
+    ColorGrading,
+    Effects,
+    Vignette,
+    Grain,
+    Detail,
+    Optics,
+    Geometry,
+    Crop,
+    Masks,
+    Spots,
+    RedEye,
+    LensBlur,
+    Calibration,
+    Negative,
+}
+
+impl SettingsGroup {
+    pub const ALL: [SettingsGroup; 21] = [
+        SettingsGroup::Profile,
+        SettingsGroup::Treatment,
+        SettingsGroup::WhiteBalance,
+        SettingsGroup::Light,
+        SettingsGroup::ToneCurve,
+        SettingsGroup::Color,
+        SettingsGroup::ColorMixer,
+        SettingsGroup::ColorGrading,
+        SettingsGroup::Effects,
+        SettingsGroup::Vignette,
+        SettingsGroup::Grain,
+        SettingsGroup::Detail,
+        SettingsGroup::Optics,
+        SettingsGroup::Geometry,
+        SettingsGroup::Crop,
+        SettingsGroup::Masks,
+        SettingsGroup::Spots,
+        SettingsGroup::RedEye,
+        SettingsGroup::LensBlur,
+        SettingsGroup::Calibration,
+        SettingsGroup::Negative,
+    ];
+
+    /// Groups included by default when copying (Lightroom excludes crop, masks and spots by default).
+    pub fn default_copy() -> Vec<SettingsGroup> {
+        SettingsGroup::ALL
+            .into_iter()
+            .filter(|g| !matches!(g, SettingsGroup::Crop | SettingsGroup::Masks | SettingsGroup::Spots | SettingsGroup::RedEye))
+            .collect()
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SettingsGroup::Profile => "Profile",
+            SettingsGroup::Treatment => "Treatment",
+            SettingsGroup::WhiteBalance => "White Balance",
+            SettingsGroup::Light => "Light",
+            SettingsGroup::ToneCurve => "Tone Curve",
+            SettingsGroup::Color => "Color",
+            SettingsGroup::ColorMixer => "Color Mixer",
+            SettingsGroup::ColorGrading => "Color Grading",
+            SettingsGroup::Effects => "Effects",
+            SettingsGroup::Vignette => "Vignette",
+            SettingsGroup::Grain => "Grain",
+            SettingsGroup::Detail => "Detail",
+            SettingsGroup::Optics => "Optics",
+            SettingsGroup::Geometry => "Geometry",
+            SettingsGroup::Crop => "Crop",
+            SettingsGroup::Masks => "Masking",
+            SettingsGroup::Spots => "Remove",
+            SettingsGroup::RedEye => "Red Eye",
+            SettingsGroup::LensBlur => "Lens Blur",
+            SettingsGroup::Calibration => "Calibration",
+            SettingsGroup::Negative => "Negative",
+        }
+    }
+
+    /// Top-level JSON keys of `DevelopSettings` that belong to the group.
+    pub fn keys(self) -> &'static [&'static str] {
+        match self {
+            SettingsGroup::Profile => &["profile", "camera_profile", "look", "look_options"],
+            SettingsGroup::Treatment => &["treatment"],
+            SettingsGroup::WhiteBalance => &["wb"],
+            SettingsGroup::Light => &["light", "tone_eq"],
+            SettingsGroup::ToneCurve => &["curve"],
+            SettingsGroup::Color => &["color", "skin_tone"],
+            SettingsGroup::ColorMixer => &["mixer", "bw_mix", "point_colors"],
+            SettingsGroup::ColorGrading => &["grading"],
+            SettingsGroup::Effects => &["effects"],
+            SettingsGroup::Vignette => &["vignette"],
+            SettingsGroup::Grain => &["grain"],
+            SettingsGroup::Detail => &["detail", "enhance", "raw"],
+            SettingsGroup::Optics => &["optics", "lens_db", "lens_profile"],
+            SettingsGroup::Geometry => &["geometry"],
+            SettingsGroup::Crop => &["crop", "orientation"],
+            SettingsGroup::Masks => &["masks"],
+            SettingsGroup::Spots => &["spots"],
+            SettingsGroup::RedEye => &["red_eye"],
+            SettingsGroup::LensBlur => &["lens_blur"],
+            SettingsGroup::Calibration => &["calibration", "color_cal"],
+            SettingsGroup::Negative => &["negative"],
+        }
+    }
+}
+
+/// The subset of `s` covering `groups`, as a partial JSON object.
+pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
+    // (with the sections left out of the JSON at their defaults: copying a photo without a
+    // negative conversion onto one with it turns it off there)
+    let full = s.to_json_full();
+    let mut out = Map::new();
+    for g in groups {
+        for k in g.keys() {
+            if let Some(v) = full.get(*k) {
+                out.insert((*k).to_string(), v.clone());
+            }
+        }
+    }
+    strip_photo_bound(&mut out);
+    Value::Object(out)
+}
+
+/// local-image: drop what belongs to one photo's pixels — AI removals
+/// (generated from that photo) and cached AI mask selections — from settings copied to others (copy/paste, sync, presets).
+pub fn strip_photo_bound(out: &mut Map<String, Value>) {
+    if let Some(Value::Object(e)) = out.get_mut("enhance") {
+        e.remove("ai");
+    }
+    if let Some(Value::Array(masks)) = out.get_mut("masks") {
+        for mask in masks {
+            if let Some(components) = mask.get_mut("components").and_then(Value::as_array_mut) {
+                for component in components {
+                    if let Some(shape) = component.get_mut("shape").and_then(Value::as_object_mut) {
+                        shape.remove("seg");
+                        shape.remove("detail");
+                    }
+                }
+            }
+        }
+    }
+    if let Some(Value::Array(spots)) = out.get_mut("spots") {
+        spots.retain(|s| s.get("mode").and_then(Value::as_str) != Some("ai"));
+    }
+}
+
+/// Recursively merge `patch` into `base` (objects merge; everything else replaces).
+pub fn deep_merge(base: &mut Value, patch: &Value) {
+    match (base, patch) {
+        (Value::Object(b), Value::Object(p)) => {
+            for (k, v) in p {
+                match b.get_mut(k) {
+                    Some(bv) if bv.is_object() && v.is_object() => deep_merge(bv, v),
+                    _ => {
+                        b.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
+        (b, p) => *b = p.clone(),
+    }
+}
+
+/// Interpolate numbers in `patch` towards/away from `base` by `t` (1 = patch as-is); non-numeric
+/// values are taken from the patch when `t >= 0.5`.
+fn scale_patch(base: &Value, patch: &Value, t: f64) -> Value {
+    match (base, patch) {
+        (Value::Object(b), Value::Object(p)) => {
+            let mut out = Map::new();
+            for (k, pv) in p {
+                let bv = b.get(k).unwrap_or(&Value::Null);
+                out.insert(k.clone(), scale_patch(bv, pv, t));
+            }
+            Value::Object(out)
+        }
+        (Value::Number(b), Value::Number(p)) => {
+            let (b, p) = (b.as_f64().unwrap_or(0.0), p.as_f64().unwrap_or(0.0));
+            serde_json::Number::from_f64(b + (p - b) * t).map(Value::Number).unwrap_or(Value::Null)
+        }
+        (b, p) => {
+            if t >= 0.5 {
+                p.clone()
+            } else {
+                b.clone()
+            }
+        }
+    }
+}
+
+/// Apply a partial settings object with an amount (1.0 = 100 %). Out-of-range values are clamped
+/// through the control specs.
+pub fn apply_partial(s: &DevelopSettings, partial: &Value, amount: f64) -> DevelopSettings {
+    let base = s.to_json_full();
+    let patch = if (amount - 1.0).abs() < 1e-9 { partial.clone() } else { scale_patch(&base, partial, amount) };
+    let mut out = s.merged(&patch).unwrap_or_else(|_| s.clone());
+    if partial.get("spots").is_some() {
+        keep_ai_spots(s, &mut out);
+    }
+    clamp_controls(&mut out);
+    out
+}
+
+/// local-image: pasted, synced or preset spots replace the photo's Remove / Heal / Clone spots,
+/// never its AI removals (generated from its own pixels, they can't be pasted back). The photo's
+/// AI spots come first, then the incoming spots; incoming AI spots the photo already has (its own
+/// settings read back, e.g. from its sidecar) aren't doubled.
+fn keep_ai_spots(target: &DevelopSettings, out: &mut DevelopSettings) {
+    let mut spots: Vec<crate::Spot> = target.spots.iter().filter(|x| x.is_ai()).cloned().collect();
+    if spots.is_empty() {
+        return;
+    }
+    let key = |x: &crate::Spot| x.patch.as_ref().map(|p| p.key.clone());
+    let have: Vec<Option<String>> = spots.iter().map(key).collect();
+    spots.extend(out.spots.drain(..).filter(|x| !x.is_ai() || !have.contains(&key(x))));
+    out.spots = spots;
+}
+
+/// [`apply_partial`] at 100 %, failing (instead of keeping `s`) when the patch doesn't fit the
+/// settings schema.
+pub fn apply_partial_strict(s: &DevelopSettings, partial: &Value) -> Result<DevelopSettings, String> {
+    let mut out = s.merged(partial).map_err(|e| e.to_string())?;
+    clamp_controls(&mut out);
+    Ok(out)
+}
+
+fn clamp_controls(out: &mut DevelopSettings) {
+    for c in crate::controls::CONTROLS {
+        if let Some(v) = crate::controls::get(out, c.id) {
+            crate::controls::set(out, c.id, v);
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Preset {
+    pub id: String,
+    pub name: String,
+    pub group: String,
+    /// Partial settings.
+    pub settings: Value,
+    #[serde(default)]
+    pub favorite: bool,
+    /// Built-in presets ship with the app and can't be deleted.
+    #[serde(default)]
+    pub builtin: bool,
+}
+
+// Reapplying an adaptive preset compares its selection instructions, not a target's cached logits.
+fn mask_components_without_cache(mask: &crate::Mask) -> Vec<crate::MaskComponent> {
+    let mut components = mask.components.clone();
+    for component in &mut components {
+        match &mut component.shape {
+            crate::MaskShape::Subject { seg }
+            | crate::MaskShape::Sky { seg }
+            | crate::MaskShape::Background { seg }
+            | crate::MaskShape::DepthRange { seg, .. } => *seg = None,
+            crate::MaskShape::Object { seg, detail, .. } | crate::MaskShape::Prompt { seg, detail, .. } => {
+                *seg = None;
+                detail.clear();
+            }
+            _ => {}
+        }
+    }
+    components
+}
+
+impl Preset {
+    pub fn from_settings(id: &str, name: &str, group: &str, s: &DevelopSettings, groups: &[SettingsGroup]) -> Preset {
+        Preset { id: id.into(), name: name.into(), group: group.into(), settings: extract_groups(s, groups), favorite: false, builtin: false }
+    }
+    /// Apply at `amount` (1.0 = 100 %). Masks in the preset are added to the photo's own (ones it
+    /// already has are skipped), their effect scaled by the amount.
+    pub fn apply(&self, s: &DevelopSettings, amount: f64) -> DevelopSettings {
+        let mut settings = self.settings.clone();
+        if let Some(o) = settings.as_object_mut() {
+            strip_photo_bound(o);
+        }
+        let Some(masks) = settings.get("masks").and_then(Value::as_array).filter(|m| !m.is_empty()) else {
+            return apply_partial(s, &settings, amount);
+        };
+        let mut rest = settings.clone();
+        if let Some(o) = rest.as_object_mut() {
+            o.remove("masks");
+        }
+        let mut out = apply_partial(s, &rest, amount);
+        let mut next = out.masks.iter().map(|m| m.id).max().unwrap_or(0);
+        for m in masks {
+            let Ok(mut m) = serde_json::from_value::<crate::Mask>(m.clone()) else { continue };
+            if out.masks.iter().any(|q| q.name == m.name && mask_components_without_cache(q) == mask_components_without_cache(&m)) {
+                continue;
+            }
+            next += 1;
+            m.id = next;
+            m.adjust.amount = (m.adjust.amount * amount).clamp(0.0, 200.0);
+            out.masks.push(m);
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    #[test]
+    fn bugfix_develop_copy_discards_photo_bound_mask_pixels() {
+        let mut patch = json!({"masks":[{"components":[
+            {"shape":{"kind":"subject","seg":{"side":1,"data":"source"}}},
+            {"shape":{"kind":"object","hint":[[0.2,0.3]],"seg":{"side":1,"data":"source"},"detail":[{"side":1,"data":"source"}]}},
+            {"shape":{"kind":"prompt","text":"car","seg":{"side":1,"data":"source"},"detail":[{"side":1,"data":"source"}]}}
+        ]}]});
+        strip_photo_bound(patch.as_object_mut().unwrap());
+        for component in patch["masks"][0]["components"].as_array().unwrap() {
+            assert!(component["shape"].get("seg").is_none());
+            assert!(component["shape"].get("detail").is_none());
+        }
+        assert_eq!(patch["masks"][0]["components"][1]["shape"]["hint"], json!([[0.2, 0.3]]));
+    }
+
+    #[test]
+    fn extract_and_apply_roundtrip() {
+        let mut a = DevelopSettings::default();
+        a.light.exposure = 1.0;
+        a.effects.clarity = 30.0;
+        a.crop.geometry.angle = 5.0;
+        let p = Preset::from_settings("p", "P", "User", &a, &SettingsGroup::default_copy());
+        assert!(p.settings.get("crop").is_none());
+        let b = p.apply(&DevelopSettings::default(), 1.0);
+        assert_eq!(b.light.exposure, 1.0);
+        assert_eq!(b.effects.clarity, 30.0);
+        assert_eq!(b.crop.geometry.angle, 0.0);
+    }
+
+    #[test]
+    fn amount_scales_numbers() {
+        let base = DevelopSettings::default();
+        let partial = json!({"light": {"exposure": 1.0, "contrast": 40}});
+        let half = apply_partial(&base, &partial, 0.5);
+        assert!((half.light.exposure - 0.5).abs() < 1e-9);
+        assert!((half.light.contrast - 20.0).abs() < 1e-9);
+        let more = apply_partial(&base, &partial, 2.0);
+        assert!((more.light.contrast - 80.0).abs() < 1e-9);
+        // clamped through specs
+        let lots = apply_partial(&base, &json!({"light": {"exposure": 4.0}}), 2.0);
+        assert_eq!(lots.light.exposure, 5.0);
+    }
+
+    #[test]
+    fn deep_merge_objects() {
+        let mut a = json!({"x": {"a": 1, "b": 2}, "y": [1]});
+        deep_merge(&mut a, &json!({"x": {"b": 3}, "y": [2, 3]}));
+        assert_eq!(a, json!({"x": {"a": 1, "b": 3}, "y": [2, 3]}));
+    }
+}

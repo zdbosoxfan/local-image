@@ -1,0 +1,109 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -71,6 +71,8 @@
+ pub struct SurfaceConfig {
+     /// Present mode used for the primary surface.
+     pub present_mode: wgpu::PresentMode,
++    /// Standard colour space tagged on the surface (Local Image patch).
++    pub color_space: wgpu::SurfaceColorSpace,
+ 
+     /// Desired maximum number of frames that the presentation engine should queue in advance.
+     ///
+@@ -86,6 +88,7 @@
+     /// Good default for GUIs with very little (or no) extra GPU work.
+     pub const LOW_LATENCY: Self = Self {
+         present_mode: wgpu::PresentMode::AutoVsync,
++        color_space: wgpu::SurfaceColorSpace::Auto,
+ 
+         desired_maximum_frame_latency: if cfg!(target_os = "ios") {
+             None // The default is good on iOS, while `Some(1)` cuts FPS in half
+@@ -98,6 +101,7 @@
+     /// or that want to prioritize smoothness over latency.
+     pub const HIGH_THROUGHPUT: Self = Self {
+         present_mode: wgpu::PresentMode::AutoVsync,
++        color_space: wgpu::SurfaceColorSpace::Auto,
+         desired_maximum_frame_latency: Some(2), // High-throughput.
+     };
+ }
+@@ -275,7 +279,10 @@
+                 |s| s.get_capabilities(&adapter).formats,
+             )
+         };
+-        let target_format = crate::preferred_framebuffer_format(&surface_formats)?;
++        let target_format = config.framebuffer_format(&surface_formats)?;
++        // egui's noise is scaled for 8-bit; preserve it only on the 8-bit fallback.
++        let mut options = options;
++        options.dithering &= target_format != wgpu::TextureFormat::Rgb10a2Unorm;
+ 
+         let renderer = Renderer::new(&device, target_format, options);
+ 
+@@ -337,6 +344,8 @@
+     /// These are the fields exposed via [`RenderState::surface_config`] for live
+     /// reconfiguration at runtime.
+     pub surface: SurfaceConfig,
++    /// Preferred formats, in order; unsupported entries use the upstream fallback.
++    pub preferred_formats: Vec<wgpu::TextureFormat>,
+ 
+     /// How to create the wgpu adapter & device
+     pub wgpu_setup: WgpuSetup,
+@@ -362,6 +371,7 @@
+     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+         let Self {
+             surface,
++            preferred_formats: _,
+             wgpu_setup,
+             on_surface_status: _,
+         } = self;
+@@ -373,6 +383,11 @@
+ }
+ 
+ impl WgpuConfiguration {
++    /// Select from actual surface capabilities, preserving the upstream fallback.
++    pub fn framebuffer_format(&self, formats: &[wgpu::TextureFormat]) -> Result<wgpu::TextureFormat, WgpuError> {
++        self.preferred_formats.iter().copied().find(|f| formats.contains(f))
++            .map(Ok).unwrap_or_else(|| preferred_framebuffer_format(formats))
++    }
+     #[inline]
+     pub fn with_surface_config(mut self, surface_config: SurfaceConfig) -> Self {
+         self.surface = surface_config;
+@@ -384,6 +399,7 @@
+     fn default() -> Self {
+         Self {
+             surface: SurfaceConfig::HIGH_THROUGHPUT,
++            preferred_formats: Vec::new(),
+ 
+             // No display handle available at this point — callers should replace this with
+             // `WgpuSetup::from_display_handle(...)` before creating the instance if one is available.
+@@ -553,3 +569,14 @@
+         _ => "Unknown",
+     }
+ }
++
++#[test]
++fn local_image_display_surface_negotiation() {
++    use wgpu::TextureFormat::{Bgra8Unorm, Rgb10a2Unorm};
++    let mut config = WgpuConfiguration { preferred_formats: vec![Rgb10a2Unorm], ..Default::default() };
++    assert_eq!(config.framebuffer_format(&[Bgra8Unorm, Rgb10a2Unorm]).unwrap(), Rgb10a2Unorm);
++    assert_eq!(config.framebuffer_format(&[Bgra8Unorm]).unwrap(), Bgra8Unorm);
++    config.preferred_formats.clear(); // forced 8-bit application configuration
++    assert_eq!(config.framebuffer_format(&[Bgra8Unorm, Rgb10a2Unorm]).unwrap(), Bgra8Unorm);
++    assert!(config.framebuffer_format(&[]).is_err());
++}
+--- a/src/winit.rs
++++ b/src/winit.rs
+@@ -103,6 +103,7 @@
+         let SurfaceConfig {
+             present_mode,
+             desired_maximum_frame_latency,
++            color_space,
+         } = *config;
+ 
+         // Transaction presentation can hold a drawable during AppKit live resize. Keep the
+@@ -120,6 +121,7 @@
+         let mut surf_config = wgpu::SurfaceConfiguration {
+             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+             format: render_state.target_format,
++            color_space,
+             present_mode,
+             alpha_mode: surface_state.alpha_mode,
+             view_formats: vec![render_state.target_format],

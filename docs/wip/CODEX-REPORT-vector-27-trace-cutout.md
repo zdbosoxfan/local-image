@@ -1,0 +1,55 @@
+# Package 27 trace cutout report — 2026-10-10
+
+Status: owned evaluator/transaction implementation delivered; **integrated acceptance is NOT complete**. The compositor seam gate and competitor node gate fail. Package 00/28 routing and full-app interaction acceptance remain unintegrated. No commit made.
+
+## Work retained and implemented
+
+Continued the existing T1 tracer, document paths, sparse shape caches, engine Session/jobs and supplied package 09 scaled-provider source. Initially the tree contained only the untracked CODEX-TASK.md; the owned engine cutout module was an empty compiled registration slot, with no cutout algorithm to recover. No T1, cleanup, centreline, renderer, manifest/lock, aggregate registry or UI code was replaced. The only shared edit is append-only cutout module/test-helper registration in pc-trace/lib.rs, permitted by the task's registration override.
+
+- Added cutout/{graph,face,merge,fit,compose,topology,prepare}. One dense label partition follows T1 segmentation/palette assignment. Repeated paints are folded deterministically by their last occurrence. Near-colour adjacent gradient faces use upstream running-area-mean merging, retaining last paint order; explicit palettes and Pixel Art remain authoritative.
+- Extracted integer crack boundaries once, with degree≥3 junctions and nodeless rings. Face traversal separates checkerboard lobes into simple contours and preserves opposite hole winding. Output is one compound nonzero document Path per colour, with Combine followed by Join contours.
+- Fit each shared chain once. Adjacent faces copy exactly the same controls in reverse; quadratics are raised once before either face is emitted. Closed rings reuse existing T1 Potrace/spline fitters. Open chains use symmetric staircase centering and bounded kurbo optimized fitting. Endpoints/junctions and canvas-border corners are fixed. Pixel mode removes exact collinear vertices only.
+- Guard the entire fitted arrangement for crossings/overlap, ring inversion and missing endpoints. Unsafe fitted arrangements fall back to exact lattice geometry together, preserving shared controls. Source edges are counted before graph allocation (8,000,000 limit). Cancellation is polled during preparation, label flattening, merging, graph passes/walks, conversion, face assembly, fits, topology checks and composition. No partial Trace is published.
+- Added a detached engine evaluator plus Capture/Prepared adapter. Capture records document ID/revision/target and checks raster/smart-object type and inherited locks. Preparation validates finite/bounded input and creates bounds-limited caches on the snapshot. Commit rejects stale/missing/locked targets before one Session::edit. Package 28 must call this from its existing journaled command; no second command ID is registered.
+- Added a default-Stacked serde Layering type, exact routing/frontend factoring fragments, i18n/27.tsv, per-file PORTS fragments and fixture source records. Main Params/routing/defaults are still package 00-owned and untouched.
+
+## Acceptance evidence
+
+The focused cutout suite passes its geometry tests: 256 random 8×8 partitions match independent pc-vector exact-area coverage at 1/2/4/8x; 32 opaque random partitions also exercise both fitted modes. Tests cover open and closed byte-identical reversed cubic controls, three-colour junctions, counters, diagonal contact, canvas borders including 1px-wide inputs, alpha/ignore-colour, explicit palettes and deterministic paint order, old Params defaults, JPEG q60, rejection of invalid input, budgets and mid-flight cancellation. Runs with 1/2/4 concurrent threads serialize identical output. Engine transaction tests cover detached preparation, bounds-limited caches, one undo/redo, stale revisions/document switches/locks and rejected preparation without publication.
+
+RTX renderer-provider gate ran on **NVIDIA GeForce RTX 5090**, PCI 0000:01:00.0, Vulkan, DiscreteGpu, NVIDIA driver 615.71.09, asserted Rgba32Float. Maximum premultiplied CPU/GPU differences at 1/2/4/8x were approximately 0.000238/0.000242/0.000239/0.000234, below 1/255. The test compiles 09's supplied scaled provider by path, as 09's existing GPU test does, and renders actual traced colour paths through the normal compositor. Source document/caches remain unchanged. This does **not** establish registered scaled-canvas or live full-app preview/release acceptance.
+
+**Rendered seam gate fails.** Ordinary source-over of complementary antialias coverages produces alpha 1−a(1−a), rather than 1. Measured alpha deficits at 1/2/4/8x are 0.23906279/0.24997038/0.24999744/0.24999613 (limit 1/255). Geometric partition correctness and CPU/GPU parity therefore do not establish seam-free app rendering. The explicit required seam test is supplied and run separately; its ignored status in the ordinary suite is not counted as success. 00/09 own the needed shared-coverage mosaic composition policy. No geometric overlap, raster substitute, widened stroke or tolerance relaxation hides the failure.
+
+**Available competitor node gate fails.** Strict re-scoring of 18 supplied Logo fixtures (three shapes, 256px, six degraded variants) against committed vtracer-alpha4/0.6.5 SVGs gave:
+
+| Metric | Cutout | alpha4 | 0.6.5 |
+|---|---:|---:|---:|
+| Median fidelity | 0.854988 | 0.808410 | 0.808712 |
+| Median nodes | 633 | 48 | 77 |
+
+Cutout wins fidelity on 17/18 images (Logo requires ≥80%); median fidelity exceeds the required best-competitor−0.005 floor. Nodes fail: 633 > 1.2×77=92.4. The topology-preserving fallback and thin antialias/JPEG regions retain many lattice vertices. This gate remains unsuccessful; no fitter/default quality decision is claimed. Per-case measured fidelity/MS-SSIM/nodes are retained in tests/cutout/benchmark-results.tsv; complete raw scores are target/cutout27/competitor-scores.json. The supplied reference source record lacks updated parameter-generation provenance/scores.json, which is also recorded rather than invented.
+
+## Commands and final counts
+
+All cargo builds are offline, Rust 1.98.1, CARGO_BUILD_JOBS=3; full tests use RUST_TEST_THREADS=3. One build runs at a time.
+
+- Development: focused pc-trace cutout suite: **16 passed, 1 ignored** (competitor gate run explicitly below). Focused engine `cutout` filter: **30 passed, 1 ignored, 1008 filtered**; this broad filter includes 17 existing background-cutout tests, 9 supplied scaled-provider tests, 3 owned transaction tests and the owned RTX gate. pc-trace/engine checks passed. Meaningful coverage tests caught and fixed outer-corner smoothing; no whole-workspace suite was run.
+- Final strict clippy on only pc-trace and photocraft-engine, all targets, `-D warnings`: **passed**. Fixed two manual-is-multiple-of lint findings; no lint allowance was added to shipped code.
+- Final full pc-trace tests, once: **32 passed, 1 failed, 4 ignored** (library: 18/0/1; integration: 14/1/3). Failure is the unmodified T1 `benchmark::fast_six_image_benchmark`: stacked Logo `logo-02-256-blur1 crosses itself`. The T1 function body is byte-unchanged in the diff; task ownership forbids changing it. Cargo stopped before doctests. Log: target/cutout27/full-pc-trace.log. External corpus skip is recorded separately; it is not a passing fixture gate.
+- Final full photocraft-engine tests, once: **1666 passed, 0 failed, 20 ignored**, plus 0 doctests. Breakdown: library 1025/0/14 (includes 9 supplied scaled-provider tests, 3 owned transaction tests and the owned real-RTX gate), coverage 582/0/0, integration 47/0/5, vector_v1 12/0/1. The required seam gate is one of the ignored library tests and was then run explicitly. Log: target/cutout27/full-pc-engine.log.
+- Explicit available competitor benchmark: **0 passed, 1 failed**, node count gate above. It was repeated only after measured fitting/merge changes; its final result remains a failure.
+- Explicit compositor seam gate: **0 passed, 1 failed, 0 ignored, 1038 filtered**; measured deficits above. Command: `cargo +1.98.1 test --offline -p photocraft-engine --lib cutout_composited_mosaic_has_no_antialias_seam -- --ignored --nocapture`. Log: target/cutout27/seam-gate.log.
+- Final `cargo +1.98.1 fmt -p pc-trace -- --check`, `fmt -p photocraft-engine -- --check`, and `git diff --check`: **passed**. All Cargo manifests and Cargo.lock are unchanged. Changes remain uncommitted.
+
+## Remaining integration and limitations
+
+1. 00/28 must integrate the common frontend accessor, Layering field/default and existing command routing using integration/27.md. The compatibility wrapper currently repeats only orchestration and calls the actual existing T1 algorithms; it does not create a second clustering/fitting engine.
+2. 28 must actually click Cutout, run cancellable live preview, release/apply and undo/redo in its offscreen full-app harness. No package 28 dialog exists on this branch; public command/router ownership is explicitly outside 27. No UI or interactive speed success is claimed.
+3. 00/09 must register the supplied scaled provider and solve shared-coverage antialias composition, then run the full-app RTX canvas parity/seam gate. No desktop window was opened or existing app killed.
+4. The unmodified T1 fast benchmark also fails its blur-star self-intersection check and needs its owning integration lane. The 633-node competitor failure still needs resolution and measurement, including integrated cleanup/AA-aware palette treatment supplied by 26. Full B.4 references for all presets/sizes, Potrace 1.16 and licensed external CC0/PD clip art/owner scans are missing. Missing fixtures and partial reference populations are not successful gates.
+5. Fitting calls are bounded to 256-edge open slices and 4096-point closed rings; larger rings keep exact lattice geometry. The topology guard also has a bounded comparison budget. These conservative fallbacks can increase nodes. No release real-app pointer-frame performance claim was made.
+
+## Sources and attribution
+
+Read the required architecture/persona (including Owner decisions)/quality/package-index contracts and T1 report. Algorithm reference: pinned [vtracer mosaic source](https://github.com/visioncortex/vtracer/tree/928ed0a6f654408e28fb741b6133d4c456bd0160/crates/vtracer/src/mosaic) and [mosaic design](https://github.com/visioncortex/vtracer/blob/928ed0a6f654408e28fb741b6133d4c456bd0160/docs/design/mosaic.md), verified in the read-only local clone. Retained MIT/Apache copyright/license notices in adapted files; exact last-file commits and PORTS rows are in integration/27.md, with SHA-256 hashes in tests/cutout/SOURCES.md. Existing vtracer licence files remain intact. Official kurbo 0.13.1 cached simplify.rs was inspected for fit_to_bezpath_opt/angle/endpoint behavior; online fetch failed. T1 Potrace/spline algorithms were called without changes. Original adaptations include the cancellation/budget guard, simple checkerboard contours, bounded fitting, transaction bridge and independent tests. Zero dependencies added, no unsafe code or C/-sys additions, no brand assets, no owner files changed outside the worktree.

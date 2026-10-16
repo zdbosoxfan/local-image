@@ -1,0 +1,1170 @@
+diff --git a/apps/local-image/src/services/pdf_raster.rs b/apps/local-image/src/services/pdf_raster.rs
+--- a/apps/local-image/src/services/pdf_raster.rs
++++ b/apps/local-image/src/services/pdf_raster.rs
+@@ -9,7 +9,7 @@
+     path::{Path, PathBuf},
+     process::{Child, Command, Stdio},
+     sync::{
+-        OnceLock,
++        Mutex, OnceLock,
+         atomic::{AtomicBool, Ordering},
+     },
+     time::{Duration, Instant},
+@@ -22,6 +22,43 @@
+ const SYSTEMCTL: &str = "/usr/bin/systemctl";
+ const PDFINFO: &str = "/usr/bin/pdfinfo";
+ const PDFTOPPM: &str = "/usr/bin/pdftoppm";
++#[derive(Default)]
++struct Admission {
++    active: bool,
++    uncertain_unit: Option<String>,
++}
++static ADMISSION: Mutex<Admission> = Mutex::new(Admission { active: false, uncertain_unit: None });
++struct Permit<'a> {
++    slot: &'a Mutex<Admission>,
++}
++impl<'a> Permit<'a> {
++    fn acquire(slot: &'a Mutex<Admission>) -> Result<Self, Error> {
++        let mut state = slot.lock().map_err(|_| Error::Unavailable("PDF image admission is disabled for this session".into()))?;
++        if let Some(unit) = &state.uncertain_unit {
++            return Err(Error::Unavailable(format!("PDF image import is disabled for this session: cleanup of {unit} was not confirmed")));
++        }
++        if state.active {
++            return Err(Error::Unavailable("another PDF image import is still stopping".into()));
++        }
++        state.active = true;
++        Ok(Self { slot })
++    }
++    fn poison(slot: &Mutex<Admission>, unit: &str) {
++        if let Ok(mut state) = slot.lock() {
++            state.uncertain_unit = Some(unit.to_owned());
++        }
++    }
++}
++impl Drop for Permit<'_> {
++    fn drop(&mut self) {
++        if let Ok(mut state) = self.slot.lock() {
++            state.active = false;
++        }
++    }
++}
++fn uncertain_job(unit: &str) {
++    Permit::poison(&ADMISSION, unit);
++}
+ fn failed(e: impl std::fmt::Display) -> Error {
+     Error::Failed(e.to_string())
+ }
+@@ -264,8 +301,15 @@
+     unit: String,
+     child: Child,
+     terminal: bool,
++    started: bool,
++    supervisor: PathBuf,
+ }
+ impl Job {
++    fn observe_start(&mut self) {
++        let prefix = format!("Running as unit: {}", self.unit);
++        self.started |=
++            bounded_read(&self.supervisor, DIAGNOSTIC_LIMIT).is_ok_and(|bytes| String::from_utf8_lossy(&bytes).lines().any(|line| line.starts_with(&prefix)));
++    }
+     fn stop(&mut self) -> bool {
+         if self.terminal {
+             return true;
+@@ -273,10 +317,13 @@
+         let _ = control(&self.unit, &["stop", "--no-block"]);
+         let start = Instant::now();
+         loop {
++            self.observe_start();
+             if self.child.try_wait().ok().flatten().is_some() {
+                 // The launcher has finished: cover cancellation racing unit creation.
+                 let _ = control(&self.unit, &["stop", "--no-block"]);
+-                if unit_terminal(&self.unit) {
++                // An absent unit alone does not prove a cancelled start request cannot
++                // create it later. Require the launcher's confirmed-start acknowledgement.
++                if self.started && unit_terminal(&self.unit) {
+                     self.terminal = true;
+                     return true;
+                 }
+@@ -294,6 +341,7 @@
+ impl Drop for Job {
+     fn drop(&mut self) {
+         if !self.stop() {
++            uncertain_job(&self.unit);
+             // RuntimeMaxSec independently bounds the service even if the user bus disappears.
+             let _ = self.child.kill();
+             let _ = self.child.wait();
+@@ -312,7 +360,7 @@
+     private_file(&stderr)?;
+     let log = private_file(&supervisor)?;
+     let mut c = user_command(SYSTEMD_RUN)?;
+-    c.args(["--user", "--no-ask-password", "--quiet", "--collect", "--wait"])
++    c.args(["--user", "--no-ask-password", "--collect", "--wait"])
+         .arg(format!("--unit={unit}"))
+         .args([
+             "-p",
+@@ -342,7 +390,7 @@
+         .stdout(log.try_clone().map_err(failed)?)
+         .stderr(log);
+     let child = c.spawn().map_err(|e| Error::Unavailable(format!("cannot start contained renderer: {e}")))?;
+-    let mut job = Job { unit, child, terminal: false };
++    let mut job = Job { unit, child, terminal: false, started: false, supervisor: supervisor.clone() };
+     let start = Instant::now();
+     let status = loop {
+         let problem = if cancel.load(Ordering::Relaxed) {
+@@ -356,6 +404,7 @@
+         };
+         if let Some(error) = problem {
+             if !job.stop() {
++                uncertain_job(&job.unit);
+                 return Err(failed("renderer cleanup did not complete; its runtime deadline remains enforced"));
+             }
+             return Err(error);
+@@ -460,17 +509,7 @@
+     if request.bytes.len() > request.limits.bytes.min(64 << 20) {
+         return Err(Error::Limit("input byte"));
+     }
+-    static ACTIVE: AtomicBool = AtomicBool::new(false);
+-    if ACTIVE.compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed).is_err() {
+-        return Err(Error::Unavailable("another PDF image import is still stopping".into()));
+-    }
+-    struct Active;
+-    impl Drop for Active {
+-        fn drop(&mut self) {
+-            ACTIVE.store(false, Ordering::Release);
+-        }
+-    }
+-    let _active = Active;
++    let _permit = Permit::acquire(&ADMISSION)?;
+     static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+     let runtime = match RUNTIME.get() {
+         Some(r) => r.clone(),
+diff --git a/apps/local-image/src/services/pdf_raster_tests.rs b/apps/local-image/src/services/pdf_raster_tests.rs
+--- a/apps/local-image/src/services/pdf_raster_tests.rs
++++ b/apps/local-image/src/services/pdf_raster_tests.rs
+@@ -41,6 +41,45 @@
+     assert!(library_lines("libbad => /home/unknown/lib.so (0x1)").is_err());
+     assert!(library_lines("libbad => not found").is_err());
+ }
++#[test]
++fn uncertain_owned_job_poison_survives_guard_drop_and_denies_readmission() {
++    let slot = Mutex::new(Admission::default());
++    {
++        let _lease = Permit::acquire(&slot).unwrap();
++        assert!(Permit::acquire(&slot).is_err());
++    }
++    {
++        let _lease = Permit::acquire(&slot).unwrap();
++    }
++    let lease = Permit::acquire(&slot).unwrap();
++    Permit::poison(&slot, "local-image-pdf-owned-uncertain.service");
++    drop(lease);
++    let state = slot.lock().unwrap();
++    assert!(!state.active);
++    assert_eq!(state.uncertain_unit.as_deref(), Some("local-image-pdf-owned-uncertain.service"));
++    drop(state);
++    let Err(error) = Permit::acquire(&slot) else {
++        panic!("uncertain cleanup must not release admission");
++    };
++    assert!(error.to_string().contains("local-image-pdf-owned-uncertain.service"));
++}
++fn geometry_pdf(rotation: u16) -> Vec<u8> {
++    fixture::pdf(&[
++        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
++        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
++        format!("<< /Type /Page /Parent 2 0 R /MediaBox [10 20 90 60] /CropBox [20 25 80 55] /Rotate {rotation} /Resources << >> /Contents 4 0 R >>")
++            .into_bytes(),
++        fixture::stream("", b"1 0 0 rg 10 20 40 20 re f 0 1 0 rg 50 20 40 20 re f 0 0 1 rg 10 40 40 20 re f 1 1 0 rg 50 40 40 20 re f 0 0 0 rg 21 26 4 4 re f"),
++    ])
++}
++fn rotated_pixel(x: u32, y: u32, width: u32, height: u32, rotation: u16) -> (u32, u32) {
++    match rotation {
++        90 => (height - 1 - y, x),
++        180 => (width - 1 - x, height - 1 - y),
++        270 => (y, width - 1 - x),
++        _ => (x, y),
++    }
++}
+ fn calculator() -> Vec<u8> {
+     fixture::page(
+         "/S sh",
+@@ -70,20 +109,47 @@
+     for p in rgba.chunks_exact(4) {
+         assert!(p[0] >= 254 && p[1] <= 1 && p[2] <= 1 && p[3] == 255, "{p:?}");
+     }
+-    for (crop, apply_rotation, size) in [(true, true, (30, 60)), (true, false, (60, 30)), (false, true, (40, 80)), (false, false, (80, 40))] {
+-        let reply = run(
+-            Request {
+-                bytes: Arc::from(fixture::pages()),
+-                limits: ImportLimits::default(),
+-                operation: Operation::Render { page: 1, dpi: 72.0, crop, apply_rotation },
+-            },
+-            &AtomicBool::new(false),
+-        )
+-        .unwrap();
+-        let Reply::Pixels { width, height, .. } = reply else {
+-            panic!("pixels");
+-        };
+-        assert_eq!((width, height), size);
++    // Independent oracle: authored PDF-space quadrants and an off-centre black marker.
++    // The expected samples derive from these coordinates, never from another Poppler run.
++    for rotation in [0, 90, 180, 270] {
++        for crop in [false, true] {
++            for apply_rotation in [false, true] {
++                let reply = run(
++                    Request {
++                        bytes: Arc::from(geometry_pdf(rotation)),
++                        limits: ImportLimits::default(),
++                        operation: Operation::Render { page: 0, dpi: 72.0, crop, apply_rotation },
++                    },
++                    &AtomicBool::new(false),
++                )
++                .unwrap();
++                let Reply::Pixels { width, height, rgba, .. } = reply else {
++                    panic!("pixels");
++                };
++                let (w, h) = if crop { (60, 30) } else { (80, 40) };
++                let angle = if apply_rotation { rotation } else { 0 };
++                assert_eq!((width, height), if angle == 90 || angle == 270 { (h, w) } else { (w, h) });
++                let sample = |x, y, expected: [u8; 3]| {
++                    let (x, y) = rotated_pixel(x, y, w, h, angle);
++                    let index = ((y * width + x) * 4) as usize;
++                    for c in 0..3 {
++                        assert!(
++                            rgba[index + c].abs_diff(expected[c]) <= 1,
++                            "rotation={rotation},crop={crop},apply={apply_rotation},pixel={x},{y}: {:?}",
++                            &rgba[index..index + 4]
++                        );
++                    }
++                    assert_eq!(rgba[index + 3], 255);
++                };
++                sample(w / 4, h / 4, [0, 0, 255]);
++                sample(3 * w / 4, h / 4, [255, 255, 0]);
++                sample(w / 4, 3 * h / 4, [255, 0, 0]);
++                sample(3 * w / 4, 3 * h / 4, [0, 255, 0]);
++                let (x, y) = if crop { (3, 27) } else { (13, 32) };
++                sample(x, y, [0, 0, 0]);
++                sample(x + 6, y, [255, 0, 0]);
++            }
++        }
+     }
+     let mut runtime = Runtime::discover(&AtomicBool::new(false)).unwrap();
+     runtime.tools.push(PathBuf::from("/usr/bin/sleep"));
+diff --git a/crates/pc-ui-egui/src/vector_packages/pdf_import.rs b/crates/pc-ui-egui/src/vector_packages/pdf_import.rs
+--- a/crates/pc-ui-egui/src/vector_packages/pdf_import.rs
++++ b/crates/pc-ui-egui/src/vector_packages/pdf_import.rs
+@@ -12,11 +12,22 @@
+ use photocraft_pdf::{PageBox, PdfInfo};
+ use std::sync::{Arc, atomic::AtomicBool};
+ 
++#[derive(Clone)]
++struct Placement {
++    target: Place,
++    linked_source: Option<String>,
++    embedded_confirmed: bool,
++}
++
+ pub struct State {
+     pub background: bool,
+     source: Vec<u8>,
+     info_worker: Option<crate::import_worker::Task<std::result::Result<PdfInfo, photocraft_pdf::ImportError>>>,
+-    pending_source: Option<(String, Vec<u8>)>,
++    pending_source: Option<(String, Vec<u8>, Option<Placement>)>,
++    placement: Option<Placement>,
++    defer_publication: bool,
++    deferred_action: Option<u8>,
++    route_finished: Option<(u64, u64, photocraft_doc::LayerId)>,
+     raster_service: Option<crate::pdf_raster::Service>,
+     fallback_reason: Option<photocraft_pdf::import::RasterFallbackReason>,
+     image_mode: bool,
+@@ -37,6 +48,7 @@
+     pub error: Option<String>,
+     request: Option<Place>,
+     worker: Option<crate::import_worker::Task<(Option<Place>, std::result::Result<ImportedScene, photocraft_pdf::ImportError>)>>,
++    ready_result: Option<Result<(Option<Place>, std::result::Result<ImportedScene, photocraft_pdf::ImportError>)>>,
+     worker_action: u8,
+     scene: Option<ImportedScene>,
+     drag: Option<(Pos2, [i32; 2])>,
+@@ -50,6 +62,10 @@
+             source: vec![],
+             info_worker: None,
+             pending_source: None,
++            placement: None,
++            defer_publication: false,
++            deferred_action: None,
++            route_finished: None,
+             raster_service: None,
+             fallback_reason: None,
+             image_mode: false,
+@@ -70,6 +86,7 @@
+             error: None,
+             request: None,
+             worker: None,
++            ready_result: None,
+             worker_action: 0,
+             scene: None,
+             drag: None,
+@@ -85,9 +102,15 @@
+     }
+     pub fn set_named_source(&mut self, name: &str, bytes: Vec<u8>) -> Result<()> {
+         let result = photocraft_pdf::info(&bytes, &ImportOptions::default(), &Arc::new(AtomicBool::new(false)));
+-        self.accept_source(name, bytes, result)
+-    }
+-    fn accept_source(&mut self, name: &str, bytes: Vec<u8>, result: std::result::Result<PdfInfo, photocraft_pdf::ImportError>) -> Result<()> {
++        self.accept_source(name, bytes, result, None)
++    }
++    fn accept_source(
++        &mut self,
++        name: &str,
++        bytes: Vec<u8>,
++        result: std::result::Result<PdfInfo, photocraft_pdf::ImportError>,
++        placement: Option<Placement>,
++    ) -> Result<()> {
+         // Malformed/limited replacement must not discard an existing valid source.
+         if let Err(error) = &result
+             && error.raster_fallback_reason().is_none()
+@@ -98,6 +121,7 @@
+         self.cancel();
+         self.source = bytes;
+         self.name = name.to_owned();
++        self.placement = placement;
+         self.info = None;
+         self.page = 1;
+         self.fallback_reason = None;
+@@ -119,17 +143,17 @@
+             }
+         }
+     }
+-    fn set_named_source_async(&mut self, name: &str, bytes: Vec<u8>) -> Result<()> {
++    fn set_named_source_async(&mut self, name: &str, bytes: Vec<u8>, placement: Option<Placement>) -> Result<()> {
+         self.cancel();
+-        self.pending_source = Some((name.to_owned(), bytes.clone()));
++        self.pending_source = Some((name.to_owned(), bytes.clone(), placement));
+         self.info_worker = Some(crate::import_worker::Task::start(move |cancel| Ok(photocraft_pdf::info(&bytes, &ImportOptions::default(), cancel)))?);
+         Ok(())
+     }
+     fn poll_info(&mut self) -> Result<()> {
+         if let Some(result) = self.info_worker.as_ref().and_then(|w| w.poll()) {
+             self.info_worker = None;
+-            let (name, bytes) = self.pending_source.take().ok_or_else(|| EngineError::Other("Missing PDF source".into()))?;
+-            self.accept_source(&name, bytes, result?)?;
++            let (name, bytes, placement) = self.pending_source.take().ok_or_else(|| EngineError::Other("Missing PDF source".into()))?;
++            self.accept_source(&name, bytes, result?, placement)?;
+         }
+         if let Some(result) = self.image_info_worker.as_ref().and_then(|w| w.poll()) {
+             self.image_info_worker = None;
+@@ -163,7 +187,10 @@
+         Ok(())
+     }
+     pub fn cancel(&mut self) {
++        self.deferred_action = None;
++        self.route_finished = None;
+         self.worker = None;
++        self.ready_result = None;
+         self.info_worker = None;
+         self.pending_source = None;
+         self.image_info_worker = None;
+@@ -177,11 +204,35 @@
+         self.generation = self.generation.wrapping_add(1);
+     }
+     pub fn pending(&self) -> bool {
+-        self.request.is_some() || self.worker.is_some() || self.info_worker.is_some() || self.image_info_worker.is_some()
++        self.request.is_some() || self.worker.is_some() || self.ready_result.is_some() || self.info_worker.is_some() || self.image_info_worker.is_some()
++    }
++    /// Holds a canvas-drop queue while its page/representation choice is unresolved.
++    pub(crate) fn placement_pending(&self) -> bool {
++        self.dialog_open && (self.placement.is_some() || self.pending_source.as_ref().is_some_and(|(_, _, placement)| placement.is_some()))
++    }
++    pub(crate) fn take_route_finished(&mut self, session: &Session) -> bool {
++        self.route_finished.take().is_some_and(|(document, revision, layer)| {
++            session.active().is_some_and(|s| s.doc.id.0 == document && s.revision == revision && s.active_layer == Some(layer))
++        })
++    }
++    fn cancel_interaction(&mut self) {
++        let placing = self.placement_pending();
++        self.cancel();
++        if placing {
++            self.placement = None;
++            self.dialog_open = false;
++        }
++    }
++    fn embedding_allowed(&self) -> bool {
++        self.placement.as_ref().is_none_or(|p| p.linked_source.is_none() || p.embedded_confirmed)
+     }
+     pub fn synchronize(&mut self, session: &Session, enabled: bool) {
+-        if !enabled || self.request.as_ref().is_some_and(|r| pdf_import::check(session, r).is_err()) {
+-            self.cancel();
++        let target = match self.pending_source.as_ref() {
++            Some((_, _, placement)) => placement.as_ref().map(|p| &p.target),
++            None => self.placement.as_ref().map(|p| &p.target).or(self.request.as_ref()),
++        };
++        if !enabled || target.is_some_and(|r| pdf_import::check(session, r).is_err()) {
++            self.cancel_interaction();
+         }
+     }
+     pub fn synchronize_context(&mut self, session: &Session, tool: crate::state::Tool, module: crate::Module, enabled: bool) {
+@@ -189,7 +240,7 @@
+         if self.pending() {
+             let current = (tool, module);
+             if self.context.is_some_and(|last| last != current) {
+-                self.cancel();
++                self.cancel_interaction();
+             } else {
+                 self.context = Some(current);
+             }
+@@ -208,8 +259,20 @@
+         .map_err(|e| EngineError::Other(e.to_string()))
+     }
+     fn begin_worker(&mut self, session: &Session, action: u8) -> Result<()> {
++        if !self.embedding_allowed() || action == 3 && self.placement.is_some() {
++            return Err(EngineError::Other("Confirm embedded placement before importing this PDF".into()));
++        }
++        if let Some(placement) = &self.placement {
++            pdf_import::check(session, &placement.target)?;
++        }
+         self.cancel();
+-        let mut request = if action == 3 { None } else { Some(pdf_import::capture(session, self.source.clone())?) };
++        let mut request = if action == 3 {
++            None
++        } else if let Some(placement) = &self.placement {
++            Some(placement.target.clone())
++        } else {
++            Some(pdf_import::capture(session, self.source.clone())?)
++        };
+         if let Some(r) = &mut request {
+             r.pages = self.options().pages;
+             r.page_box = self.page_box;
+@@ -245,10 +308,29 @@
+         self.error = None;
+         Ok(())
+     }
++    fn collect_worker(&mut self) {
++        if self.ready_result.is_some() {
++            return;
++        }
++        let Some(result) = self.worker.as_ref().and_then(|w| w.poll()) else {
++            return;
++        };
++        self.worker = None;
++        self.ready_result = Some(result);
++    }
+     fn poll_worker(&mut self, session: &mut Session) -> Result<()> {
+-        let Some(result) = self.worker.as_ref().and_then(|w| w.poll()) else { return Ok(()) };
+-        self.worker = None;
++        self.collect_worker();
++        let Some(result) = self.ready_result.take() else {
++            return Ok(());
++        };
++        if !self.embedding_allowed() {
++            return Err(EngineError::Other("Confirm embedded placement before importing this PDF".into()));
++        }
+         let (request, scene) = result?;
++        // Reject a stale Place before publishing warnings, fallback choices or pixels.
++        if let Some(request) = &request {
++            pdf_import::check(session, request)?;
++        }
+         let scene = scene.map_err(|error| {
+             self.fallback_reason = error.raster_fallback_reason();
+             EngineError::Other(error.to_string())
+@@ -266,7 +348,12 @@
+         pdf_import::check(session, &request)?;
+         self.warning_document = Some(request.document);
+         if self.worker_action != 0 {
+-            return pdf_import::publish(session, &request, &scene).map(|_| ());
++            pdf_import::publish(session, &request, &scene)?;
++            if self.placement.take().is_some() {
++                self.dialog_open = false;
++                self.route_finished = session.active().and_then(|s| s.active_layer.map(|layer| (request.document, s.revision, layer)));
++            }
++            return Ok(());
+         }
+         let (preview, _) = pdf_import::preview(session, &request, &scene)?;
+         self.request = Some(request);
+@@ -276,8 +363,12 @@
+         Ok(())
+     }
+     pub fn stage(&mut self, session: &Session) -> Result<()> {
++        if !self.embedding_allowed() {
++            return Err(EngineError::Other("Confirm embedded placement before importing this PDF".into()));
++        }
+         self.cancel();
+-        let mut request = pdf_import::capture(session, self.source.clone())?;
++        let mut request = if let Some(placement) = &self.placement { placement.target.clone() } else { pdf_import::capture(session, self.source.clone())? };
++        pdf_import::check(session, &request)?;
+         request.pages = self.options().pages;
+         request.page_box = self.page_box;
+         request.ignore_rotation = !self.apply_rotation;
+@@ -294,6 +385,9 @@
+         Ok(())
+     }
+     pub fn place(&mut self, session: &mut Session) -> Result<()> {
++        if !self.embedding_allowed() {
++            return Err(EngineError::Other("Confirm embedded placement before importing this PDF".into()));
++        }
+         if !self.pending() {
+             self.stage(session)?;
+         }
+@@ -301,10 +395,18 @@
+         let scene = self.scene.as_ref().ok_or_else(|| EngineError::Other("missing PDF scene".into()))?;
+         // One Session::edit publishes the prepared caches. Release does not decode again.
+         pdf_import::publish(session, request, scene)?;
++        let completed = session.active().and_then(|s| s.active_layer.map(|layer| (request.document, s.revision, layer)));
+         self.cancel();
++        if self.placement.take().is_some() {
++            self.dialog_open = false;
++            self.route_finished = completed;
++        }
+         Ok(())
+     }
+     pub fn open(&mut self, session: &mut Session) -> Result<()> {
++        if self.placement.is_some() {
++            return Err(EngineError::Other("This PDF was selected for placement in its captured document".into()));
++        }
+         let scene = self.decode()?;
+         self.warning_targets = warning_targets(&scene);
+         let (doc, warnings) = pdf_import::document(scene, &self.name);
+@@ -327,11 +429,55 @@
+         self.generation = self.generation.wrapping_add(1);
+         Ok(())
+     }
++    fn publish_frame(&mut self, session: &mut Session) {
++        if let Some(action) = self.deferred_action.take() {
++            let result = if !self.background && !self.image_mode {
++                match action {
++                    0 => self.open(session),
++                    1 => self.stage(session),
++                    _ => self.place(session),
++                }
++            } else if action == 2 && self.request.is_some() {
++                self.place(session)
++            } else {
++                self.begin_worker(
++                    session,
++                    match action {
++                        0 => 3,
++                        1 => 0,
++                        _ => 1,
++                    },
++                )
++            };
++            if let Err(error) = result {
++                self.error = Some(error.to_string());
++                self.cancel_interaction();
++            }
++        }
++        if let Err(error) = self.poll_worker(session) {
++            self.error = Some(error.to_string());
++        }
++    }
++}
++fn cancellation_frame(ctx: &Context) -> bool {
++    let owns_escape = publication_available(ctx);
++    ctx.input(|i| {
++        !i.focused
++            || i.raw.events.iter().any(|event| {
++                matches!(event, Event::WindowFocused(false) | Event::PointerGone)
++                    || owns_escape && matches!(event, Event::Key { key: Key::Escape, pressed: true, .. })
++            })
++    })
++}
++fn publication_available(ctx: &Context) -> bool {
++    !ctx.text_edit_focused() && !egui::Popup::is_any_open(ctx) && ctx.memory(|m| m.top_modal_layer().is_none())
+ }
+ pub fn controls(ui: &mut Ui, state: &mut State, session: &mut Session) {
+-    if let Err(error) = state.poll_worker(session) {
+-        state.error = Some(error.to_string());
+-    }
++    if cancellation_frame(ui.ctx()) {
++        state.cancel_interaction();
++        return;
++    }
++    state.collect_worker();
+     if state.worker.is_some() {
+         ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+     }
+@@ -342,9 +488,20 @@
+     if state.info_worker.is_some() || state.image_info_worker.is_some() {
+         ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+     }
+-    let source_name = state.pending_source.as_ref().map_or(state.name.as_str(), |(name, _)| name.as_str());
++    let source_name = state.pending_source.as_ref().map_or(state.name.as_str(), |(name, _, _)| name.as_str());
+     ui.label(format!("{}: {source_name}", tl!("PDF source")));
+-    if state.fallback_reason.is_some() {
++    let mut link_changed = false;
++    if state.pending_source.is_none()
++        && let Some(placement) = &mut state.placement
++        && placement.linked_source.is_some()
++    {
++        ui.label(tl!("PDF placement cannot keep a live link to the source file."));
++        link_changed = ui.checkbox(&mut placement.embedded_confirmed, tl!("Place embedded artwork instead (no live link)")).changed();
++    }
++    if link_changed {
++        state.cancel();
++    }
++    if state.pending_source.is_none() && state.fallback_reason.is_some() {
+         ui.label(tl!("This PDF cannot be imported as editable artwork."));
+         ui.label(tl!("Image import uses an opaque white page. Text and paths will not be editable; keep the original PDF."));
+         if state.raster_service.is_none() {
+@@ -393,10 +550,18 @@
+         state.warning_document = None;
+         state.warning_targets.clear();
+     }
+-    let ready = count > 0 && state.info_worker.is_none() && state.image_info_worker.is_none() && state.worker.is_none();
++    let ready = count > 0
++        && state.info_worker.is_none()
++        && state.image_info_worker.is_none()
++        && state.worker.is_none()
++        && state.ready_result.is_none()
++        && state.embedding_allowed();
+     let mut action = None;
+     ui.horizontal(|ui| {
+-        if ui.add_enabled(ready, egui::Button::new(if state.image_mode { tl!("Open as image") } else { tl!("Open PDF") })).clicked() {
++        if ui
++            .add_enabled(ready && state.placement.is_none(), egui::Button::new(if state.image_mode { tl!("Open as image") } else { tl!("Open PDF") }))
++            .clicked()
++        {
+             action = Some(0);
+         }
+         if ui
+@@ -411,39 +576,24 @@
+         {
+             action = Some(2);
+         }
+-        if ui.add_enabled(state.pending(), egui::Button::new(tl!("Cancel"))).clicked() {
+-            state.cancel();
++        if ui.add_enabled(state.pending() || state.placement_pending(), egui::Button::new(tl!("Cancel"))).clicked() {
++            state.cancel_interaction();
++            action = None;
+         }
+     });
+-    if let Some(a) = action {
+-        state.error = if !state.background && !state.image_mode {
+-            match a {
+-                0 => state.open(session),
+-                1 => state.stage(session),
+-                _ => state.place(session),
+-            }
+-        } else if a == 2 && state.request.is_some() {
+-            state.place(session)
+-        } else {
+-            state.begin_worker(
+-                session,
+-                match a {
+-                    0 => 3,
+-                    1 => 0,
+-                    _ => 1,
+-                },
+-            )
+-        }
+-        .err()
+-        .map(|e| e.to_string());
+-        if state.error.is_some() {
+-            state.cancel();
+-        }
++    if action.is_some() {
++        state.deferred_action = action;
++        state.error = None;
+     }
+     if let Some(e) = &state.error {
+         ui.colored_label(egui::Color32::RED, e);
+     }
+     warning_controls(ui, state, session);
++    // Ready worker output is considered only after this frame's Cancel and option changes.
++    // Window hosts defer this further until the close button has also been processed.
++    if !state.defer_publication && publication_available(ui.ctx()) {
++        state.publish_frame(session);
++    }
+ }
+ fn warning_targets(scene: &ImportedScene) -> Vec<Option<photocraft_doc::LayerId>> {
+     let mut stack: Vec<_> = scene.layers.iter().rev().collect();
+@@ -495,9 +645,11 @@
+     }
+ }
+ pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Rect, to_doc: impl Fn(Pos2) -> Pos2, enabled: bool) -> Result<()> {
+-    if let Err(error) = state.poll_worker(session) {
+-        state.error = Some(error.to_string());
+-    }
++    if cancellation_frame(ctx) {
++        state.cancel_interaction();
++        return Ok(());
++    }
++    state.collect_worker();
+     if state.worker.is_some() {
+         ctx.request_repaint_after(std::time::Duration::from_millis(16));
+     }
+@@ -508,7 +660,7 @@
+     }
+     let (events, focused) = ctx.input(|i| (i.events.clone(), i.focused));
+     if !focused {
+-        state.cancel();
++        state.cancel_interaction();
+         return Ok(());
+     }
+     for event in events {
+@@ -523,8 +675,12 @@
+             Event::PointerButton { pos, button: PointerButton::Primary, pressed: false, .. } if state.drag.is_some() => {
+                 state.motion(session, to_doc(pos)).and_then(|()| state.place(session))
+             }
+-            Event::Key { key: Key::Escape, pressed: true, .. } | Event::WindowFocused(false) | Event::PointerGone => {
+-                state.cancel();
++            Event::Key { key: Key::Escape, pressed: true, .. } if publication_available(ctx) => {
++                state.cancel_interaction();
++                Ok(())
++            }
++            Event::WindowFocused(false) | Event::PointerGone => {
++                state.cancel_interaction();
+                 Ok(())
+             }
+             _ => Ok(()),
+@@ -546,13 +702,17 @@
+         return;
+     }
+     let mut open = true;
++    app.pdf_import.defer_publication = true;
+     egui::Window::new(tl!("Import PDF"))
+         .default_pos(egui::pos2(20.0, 80.0))
+         .open(&mut open)
+         .show(ctx, |ui| controls(ui, &mut app.pdf_import, &mut app.session));
++    app.pdf_import.defer_publication = false;
+     if !open {
++        app.pdf_import.cancel_interaction();
+         app.pdf_import.dialog_open = false;
+-        app.pdf_import.cancel();
++    } else if !cancellation_frame(ctx) && publication_available(ctx) {
++        app.pdf_import.publish_frame(&mut app.session);
+     }
+ }
+ pub fn display_doc(app: &crate::PhotocraftApp, idx: usize) -> Option<(Arc<Document>, u64)> {
+@@ -592,16 +752,38 @@
+ /// Common byte-file entry point. Returns true when the page chooser owns the request.
+ /// This must run before raster decoding/background-job routing in Open and Place.
+ pub fn offer(app: &mut crate::PhotocraftApp, name: &str, bytes: &[u8]) -> std::result::Result<bool, String> {
++    offer_with_placement(app, name, bytes, None)
++}
++/// Shared File/Place and byte-drop route. Capture the destination before metadata work.
++pub(crate) fn offer_place(app: &mut crate::PhotocraftApp, name: &str, bytes: &[u8], linked: Option<String>) -> std::result::Result<bool, String> {
+     if photocraft_pdf::import::header_offset(bytes).is_none() {
+         return Ok(false);
+     }
++    if app.pdf_import.placement_pending() {
++        return Err("Finish or cancel the current PDF placement first".into());
++    }
+     if bytes.len() > ImportOptions::default().limits.bytes {
+         return Err("PDF exceeds the input byte limit".into());
+     }
++    let target = pdf_import::capture(&app.session, bytes.to_vec()).map_err(|e| e.to_string())?;
++    offer_with_placement(app, name, bytes, Some(Placement { target, linked_source: linked, embedded_confirmed: false }))
++}
++fn offer_with_placement(app: &mut crate::PhotocraftApp, name: &str, bytes: &[u8], placement: Option<Placement>) -> std::result::Result<bool, String> {
++    if photocraft_pdf::import::header_offset(bytes).is_none() {
++        return Ok(false);
++    }
++    if bytes.len() > ImportOptions::default().limits.bytes {
++        return Err("PDF exceeds the input byte limit".into());
++    }
+     app.pdf_import.background = app.background_jobs;
+     app.pdf_import.raster_service = app.services.pdf_raster.clone();
+-    if app.background_jobs { app.pdf_import.set_named_source_async(name, bytes.to_vec()) } else { app.pdf_import.set_named_source(name, bytes.to_vec()) }
+-        .map_err(|e| e.to_string())?;
++    if app.background_jobs {
++        app.pdf_import.set_named_source_async(name, bytes.to_vec(), placement)
++    } else {
++        let result = photocraft_pdf::info(bytes, &ImportOptions::default(), &AtomicBool::new(false));
++        app.pdf_import.accept_source(name, bytes.to_vec(), result, placement)
++    }
++    .map_err(|e| e.to_string())?;
+     app.pdf_import.dialog_open = true;
+     app.current_module = crate::Module::Compositing;
+     Ok(true)
+@@ -609,6 +791,30 @@
+ /// Native paths are read with the PDF admission byte limit before the existing raster worker.
+ #[cfg(not(target_arch = "wasm32"))]
+ pub fn offer_path(app: &mut crate::PhotocraftApp, path: &str) -> std::result::Result<bool, String> {
++    let Some(bytes) = read_pdf_path(path)? else {
++        return Ok(false);
++    };
++    if !offer(app, &crate::file_open::display_name(path), &bytes)? {
++        return Err("invalid PDF: missing PDF header".into());
++    }
++    Ok(true)
++}
++#[cfg(not(target_arch = "wasm32"))]
++pub(crate) fn offer_place_path(app: &mut crate::PhotocraftApp, path: &str) -> std::result::Result<bool, String> {
++    let Some(bytes) = read_pdf_path(path)? else {
++        return Ok(false);
++    };
++    if !offer_place(app, path, &bytes, None)? {
++        return Err("invalid PDF: missing PDF header".into());
++    }
++    Ok(true)
++}
++#[cfg(target_arch = "wasm32")]
++pub(crate) fn offer_place_path(_app: &mut crate::PhotocraftApp, _path: &str) -> std::result::Result<bool, String> {
++    Ok(false)
++}
++#[cfg(not(target_arch = "wasm32"))]
++fn read_pdf_path(path: &str) -> std::result::Result<Option<Vec<u8>>, String> {
+     use std::io::Read;
+     let pdf_extension = std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"));
+     photocraft_format::read::validate_path(std::path::Path::new(path)).map_err(|e| e.to_string())?;
+@@ -619,7 +825,7 @@
+         if pdf_extension {
+             return Err("invalid PDF: missing PDF header".into());
+         }
+-        return Ok(false);
++        return Ok(None);
+     }
+     let limit = ImportOptions::default().limits.bytes;
+     let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+@@ -631,10 +837,7 @@
+     if bytes.len() > limit {
+         return Err("PDF exceeds the input byte limit".into());
+     }
+-    if !offer(app, &crate::file_open::display_name(path), &bytes)? {
+-        return Err("invalid PDF: missing PDF header".into());
+-    }
+-    Ok(true)
++    Ok(Some(bytes))
+ }
+ 
+ #[cfg(test)]
+@@ -791,7 +994,7 @@
+     }
+     fn finish_render(state: &mut State, session: &mut Session) -> Result<()> {
+         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+-        while state.worker.is_some() {
++        while state.worker.is_some() || state.ready_result.is_some() {
+             state.poll_worker(session)?;
+             assert!(std::time::Instant::now() < deadline, "render worker timed out");
+             std::thread::yield_now();
+@@ -885,4 +1088,295 @@
+             std::fs::remove_file(path).unwrap();
+         }
+     }
+-}
++    fn route_app(pick: Option<(String, Vec<u8>)>) -> crate::PhotocraftApp {
++        let mut session = Session::new();
++        session.execute("file.new", serde_json::json!({"width":128,"height":128,"background":"transparent"})).unwrap();
++        let mut pick = pick;
++        let services = crate::Services {
++            pdf_raster: Some(image_service()),
++            pick_open: Some(Box::new(move || pick.take().map(|(name, bytes)| (name, Ok(bytes))))),
++            ..Default::default()
++        };
++        let mut app = crate::PhotocraftApp::new(session, services);
++        app.background_jobs = false;
++        app
++    }
++    #[test]
++    fn actual_place_picker_retains_target_and_requires_explicit_link_conversion() {
++        let _serial = crate::import_worker::test_serial();
++        for linked in [false, true] {
++            let original = unsupported_pdf();
++            let path = "/chosen/source-calculator.pdf";
++            let mut app = route_app(Some((path.into(), original.clone())));
++            let before = app.session.active().unwrap().doc.clone();
++            let selected = app.session.active().unwrap().selected_layers.clone();
++            let result = app.run(if linked { "file.placeLinked" } else { "file.placeEmbedded" }, serde_json::json!({})).unwrap();
++            assert_eq!(result["pending"], true);
++            assert!(app.pdf_import.placement_pending());
++            assert!(app.pdf_import.fallback_reason.is_some());
++            let placement = app.pdf_import.placement.as_ref().unwrap();
++            assert_eq!(placement.target.document, before.id.0);
++            assert_eq!(placement.linked_source.as_deref(), linked.then_some(path));
++            assert!(!placement.embedded_confirmed);
++            assert_eq!(app.pdf_import.source, original);
++            assert_eq!(app.session.active().unwrap().doc, before);
++            assert_eq!(app.session.active().unwrap().selected_layers, selected);
++            if linked {
++                assert!(app.pdf_import.begin_worker(&app.session, 1).is_err());
++            }
++            let mut h = Harness::builder().with_size(egui::vec2(900.0, 650.0)).build_ui_state(|ui, app: &mut crate::PhotocraftApp| show(app, ui.ctx()), app);
++            h.run_steps(2);
++            if linked {
++                h.get_by_label("Cancel").click();
++                h.run_steps(2);
++                assert_eq!(h.state().session.active().unwrap().doc, before);
++                assert_eq!(h.state().session.active().unwrap().selected_layers, selected);
++                assert_eq!(h.state().pdf_import.source, original);
++                assert!(!h.state().pdf_import.dialog_open);
++                h.state_mut().services.pick_open = Some(Box::new(move || Some((path.into(), Ok(unsupported_pdf())))));
++                h.state_mut().run("file.placeLinked", serde_json::json!({})).unwrap();
++                h.run_steps(2);
++                assert!(!h.state().pdf_import.placement.as_ref().unwrap().embedded_confirmed);
++                h.get_by_label("Place embedded artwork instead (no live link)").click();
++                h.run_steps(2);
++                assert!(h.state().pdf_import.placement.as_ref().unwrap().embedded_confirmed);
++            }
++            h.get_by_label("Use image fallback").click();
++            h.run_steps(2);
++            finish_info(&mut h.state_mut().pdf_import);
++            h.run_steps(2);
++            h.get_by_label("Place as image").click();
++            h.run_steps(2);
++            {
++                let app = h.state_mut();
++                finish_render(&mut app.pdf_import, &mut app.session).unwrap();
++            }
++            assert_eq!(h.state().session.documents().len(), 1);
++            assert!(h.state().session.active().unwrap().path.is_none());
++            assert_eq!(h.state().session.active().unwrap().doc.layer_count(), before.layer_count() + 2);
++            assert!(h.state_mut().session.undo());
++            assert_eq!(h.state().session.active().unwrap().doc, before);
++            assert!(h.state_mut().session.redo());
++        }
++    }
++    struct PdfDrop(std::path::PathBuf, std::result::Result<Vec<u8>, String>);
++    impl egui::DroppedFile for PdfDrop {
++        fn path(&self) -> &std::path::Path {
++            &self.0
++        }
++        fn bytes(&self) -> std::result::Result<Vec<u8>, String> {
++            self.1.clone()
++        }
++    }
++    #[test]
++    fn actual_canvas_drop_waits_for_pdf_choice_and_cancel_preserves_queue_and_destination() {
++        let _serial = crate::import_worker::test_serial();
++        let mut app = route_app(None);
++        app.background_jobs = true;
++        let ctx = Context::default();
++        app.drop_canvas_rect = Some(Rect::from_min_max(Pos2::new(0., 0.), Pos2::new(500., 500.)));
++        let before = app.session.active().unwrap().doc.clone();
++        let selected = app.session.active().unwrap().selected_layers.clone();
++        let dir = std::env::temp_dir().join(format!(
++            "li-pdf-drops-{}-{}",
++            std::process::id(),
++            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
++        ));
++        std::fs::create_dir(&dir).unwrap();
++        let path = dir.join("leading.pdf");
++        let mut leading = vec![b' '; 1024];
++        leading.extend_from_slice(&unsupported_pdf());
++        std::fs::write(&path, &leading).unwrap();
++        let files: Vec<egui::DroppedFileHandle> = vec![
++            Arc::new(PdfDrop(path.clone(), Err("absolute drop must use its bounded native path".into()))),
++            Arc::new(PdfDrop("bytes.pdf".into(), Ok(unsupported_pdf()))),
++        ];
++        app.open_dropped(&ctx, files, Some(Pos2::new(10., 10.)));
++        app.place_next_dropped(&ctx);
++        assert_eq!(app.drop_places.len(), 1);
++        assert!(app.pdf_import.placement_pending());
++        assert!(app.ui.transform.is_none());
++        app.place_next_dropped(&ctx);
++        assert_eq!(app.drop_places.len(), 1, "the following drop must wait for the chooser");
++        app.pdf_import.cancel_interaction();
++        assert_eq!(app.drop_places.len(), 1);
++        assert_eq!(app.session.active().unwrap().doc, before);
++        assert_eq!(app.session.active().unwrap().selected_layers, selected);
++        app.place_next_dropped(&ctx);
++        assert!(app.drop_places.is_empty());
++        assert!(app.pdf_import.placement_pending());
++        assert!(app.ui.transform.is_none());
++        app.pdf_import.cancel_interaction();
++        assert_eq!(app.session.active().unwrap().doc, before);
++        std::fs::remove_dir_all(dir).unwrap();
++    }
++    fn queue_ready(state: &mut State) {
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
++        while state.ready_result.is_none() {
++            state.collect_worker();
++            assert!(std::time::Instant::now() < deadline);
++            std::thread::yield_now();
++        }
++    }
++    #[test]
++    fn ready_reply_loses_to_escape_cancel_close_and_focus_loss_in_real_window_frame() {
++        let _serial = crate::import_worker::test_serial();
++        for (action, with_document) in [("Open as image", false), ("Place as image", true), ("Preview image", true)] {
++            for cancel in ["escape", "button", "close", "focus", "none"] {
++                let gate = Arc::new(AtomicBool::new(false));
++                let flag = gate.clone();
++                let mut app = route_app(None);
++                if !with_document {
++                    app.session = Session::new();
++                }
++                app.services.pdf_raster = Some(Arc::new(move |request, cancel| {
++                    if matches!(request.operation, crate::pdf_raster::Operation::Render { .. }) {
++                        while !flag.load(std::sync::atomic::Ordering::Relaxed) && !cancel.load(std::sync::atomic::Ordering::Relaxed) {
++                            std::thread::yield_now();
++                        }
++                    }
++                    image_service()(request, cancel)
++                }));
++                offer(&mut app, "ready.pdf", &unsupported_pdf()).unwrap();
++                app.pdf_import.choose_image().unwrap();
++                finish_info(&mut app.pdf_import);
++                let documents = app.session.documents().len();
++                let before = app.session.active().map(|s| s.doc.clone());
++                let selected = app.session.active().map(|s| s.selected_layers.clone());
++                let revision = app.session.active().map(|s| s.revision);
++                let history = app.session.active().map(|s| s.history.past_len());
++                let paths: Vec<_> = app.session.documents().iter().map(|s| s.path.clone()).collect();
++                let journal = app.session.journal.len();
++                let mut h =
++                    Harness::builder().with_size(egui::vec2(900.0, 650.0)).build_ui_state(|ui, app: &mut crate::PhotocraftApp| show(app, ui.ctx()), app);
++                h.run_steps(2);
++                h.get_by_label(action).click();
++                h.run_steps(2);
++                assert!(h.state().pdf_import.worker.is_some(), "{action}/{cancel}");
++                gate.store(true, std::sync::atomic::Ordering::Relaxed);
++                queue_ready(&mut h.state_mut().pdf_import);
++                assert!(h.state().pdf_import.ready_result.is_some());
++                match cancel {
++                    "escape" => h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }),
++                    "button" => h.get_by_label("Cancel").click(),
++                    "close" => h.get_by_label("Close window").click(),
++                    "focus" => h.event(Event::WindowFocused(false)),
++                    _ => {}
++                }
++                h.run_steps(2);
++                if cancel == "none" {
++                    let accepted = h.state().session.active().map(|s| s.doc.clone());
++                    h.run_steps(2);
++                    assert_eq!(h.state().session.active().map(|s| s.doc.clone()), accepted, "ready result publishes at most once");
++                    if action == "Open as image" {
++                        assert_eq!(h.state().session.documents().len(), 1);
++                        assert!(h.state().session.active().unwrap().path.is_none());
++                    } else if action == "Place as image" {
++                        assert_eq!(h.state().session.active().unwrap().revision, revision.unwrap() + 1);
++                        assert_eq!(h.state().session.active().unwrap().history.past_len(), history.unwrap() + 1);
++                        assert!(h.state_mut().session.undo());
++                        assert_eq!(h.state().session.active().map(|s| s.doc.clone()), before);
++                        assert!(h.state_mut().session.redo());
++                    } else {
++                        assert_eq!(accepted, before);
++                        assert!(h.state().pdf_import.preview.is_some());
++                    }
++                    continue;
++                }
++                assert_eq!(h.state().session.documents().len(), documents, "{action}/{cancel}");
++                assert_eq!(h.state().session.active().map(|s| s.doc.clone()), before, "{action}/{cancel}");
++                assert_eq!(h.state().session.active().map(|s| s.selected_layers.clone()), selected);
++                assert_eq!(h.state().session.active().map(|s| s.revision), revision);
++                assert_eq!(h.state().session.active().map(|s| s.history.past_len()), history);
++                assert_eq!(h.state().session.documents().iter().map(|s| s.path.clone()).collect::<Vec<_>>(), paths);
++                assert_eq!(h.state().session.journal.len(), journal);
++                assert!(h.state().pdf_import.warnings.is_empty());
++                assert!(h.state().pdf_import.preview.is_none());
++                assert!(h.state().pdf_import.ready_result.is_none());
++            }
++        }
++    }
++    #[test]
++    fn ready_route_rejects_replaced_source_and_changed_destination_before_publish_frame() {
++        let _serial = crate::import_worker::test_serial();
++        for change in ["source", "closed", "switched", "revised", "selection"] {
++            let mut app = route_app(Some(("/chosen/captured.pdf".into(), unsupported_pdf())));
++            app.session.execute("layer.new.layer", serde_json::json!({"name":"second"})).unwrap();
++            app.run("file.placeEmbedded", serde_json::json!({})).unwrap();
++            app.pdf_import.choose_image().unwrap();
++            finish_info(&mut app.pdf_import);
++            app.pdf_import.begin_worker(&app.session, 1).unwrap();
++            queue_ready(&mut app.pdf_import);
++            match change {
++                "source" => {
++                    offer(&mut app, "replacement.pdf", &fixture::artwork()).unwrap();
++                }
++                "closed" => {
++                    app.session.execute("file.close", serde_json::json!({})).unwrap();
++                }
++                "switched" => {
++                    app.session.add_document(
++                        Document::new("other", photocraft_doc::Size::new(32, 32), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8),
++                        None,
++                    );
++                }
++                "revised" => {
++                    app.session.execute("layer.new.layer", serde_json::json!({"name":"newer edit"})).unwrap();
++                }
++                _ => {
++                    let id = app.session.active().unwrap().doc.layers[0].id;
++                    assert_ne!(app.session.active().unwrap().selected_layers, vec![id]);
++                    app.session.active_mut().unwrap().selected_layers = vec![id];
++                }
++            }
++            let snapshot: Vec<_> =
++                app.session.documents().iter().map(|s| (s.doc.clone(), s.revision, s.selected_layers.clone(), s.path.clone(), s.history.past_len())).collect();
++            let journal = app.session.journal.len();
++            let mut h = Harness::builder().with_size(egui::vec2(900., 650.)).build_ui_state(|ui, app: &mut crate::PhotocraftApp| show(app, ui.ctx()), app);
++            h.run_steps(2);
++            assert_eq!(
++                h.state()
++                    .session
++                    .documents()
++                    .iter()
++                    .map(|s| (s.doc.clone(), s.revision, s.selected_layers.clone(), s.path.clone(), s.history.past_len()))
++                    .collect::<Vec<_>>(),
++                snapshot,
++                "{change}"
++            );
++            assert_eq!(h.state().session.journal.len(), journal);
++            assert!(h.state().pdf_import.ready_result.is_none());
++            assert!(h.state().pdf_import.warnings.is_empty());
++        }
++    }
++    #[test]
++    fn another_top_modal_owns_escape_while_pdf_ready_reply_waits() {
++        let _serial = crate::import_worker::test_serial();
++        let mut app = route_app(None);
++        offer(&mut app, "ready.pdf", &unsupported_pdf()).unwrap();
++        app.pdf_import.choose_image().unwrap();
++        finish_info(&mut app.pdf_import);
++        app.pdf_import.begin_worker(&app.session, 1).unwrap();
++        queue_ready(&mut app.pdf_import);
++        let before = app.session.active().unwrap().doc.clone();
++        let mut h = Harness::builder().with_size(egui::vec2(900., 650.)).build_ui_state(
++            |ui, state: &mut (crate::PhotocraftApp, bool)| {
++                let modal = egui::Modal::new(egui::Id::new("other-owned-dialog")).show(ui.ctx(), |ui| {
++                    ui.label("Other dialog");
++                });
++                if modal.is_top_modal && ui.ctx().input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Escape)) {
++                    state.1 = true;
++                }
++                show(&mut state.0, ui.ctx());
++            },
++            (app, false),
++        );
++        h.run_steps(2);
++        assert!(h.state().0.pdf_import.ready_result.is_some());
++        h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
++        h.run_steps(1);
++        assert!(h.state().1);
++        assert!(h.state().0.pdf_import.ready_result.is_some());
++        assert_eq!(h.state().0.session.active().unwrap().doc, before);
++    }
++}
+diff --git a/crates/pc-ui-egui/src/file_open.rs b/crates/pc-ui-egui/src/file_open.rs
+--- a/crates/pc-ui-egui/src/file_open.rs
++++ b/crates/pc-ui-egui/src/file_open.rs
+@@ -201,10 +201,19 @@
+     /// Place the next file dropped on the canvas and start Free Transform on it, once no other
+     /// transform is in progress (so several files are placed and transformed one after another).
+     pub(crate) fn place_next_dropped(&mut self, ctx: &egui::Context) {
+-        while self.ui.transform.is_none() && self.session.active_job().is_none() {
++        if self.pdf_import.take_route_finished(&self.session)
++            && let Err(error) = crate::transform_tool::begin_placed(self, ctx)
++        {
++            self.ui.status = error;
++        }
++        while self.ui.transform.is_none() && self.session.active_job().is_none() && !self.pdf_import.placement_pending() {
+             let Some(f) = self.drop_places.pop_front() else { return };
+             let placed = if f.path().is_absolute() {
+-                self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()}))
++                match crate::pdf_import::offer_place_path(self, &f.path().to_string_lossy()) {
++                    Ok(true) => Ok(serde_json::json!({"pending":true,"pdfDialog":true})),
++                    Ok(false) => self.run("file.placeEmbedded", serde_json::json!({"path": f.path().to_string_lossy()})),
++                    Err(error) => Err(error),
++                }
+             } else {
+                 crate::read_dropped(&*f).and_then(|bytes| self.place_bytes(&dropped_name(&f), bytes, None))
+             };
+@@ -225,6 +234,9 @@
+     /// Place a file's bytes as a smart object layer (File › Place; `linked`: Place Linked, to that
+     /// path), for files that weren't read from a path the command can read.
+     pub(crate) fn place_bytes(&mut self, name: &str, bytes: Vec<u8>, linked: Option<String>) -> Result<serde_json::Value, String> {
++        if crate::pdf_import::offer_place(self, name, &bytes, linked.clone())? {
++            return Ok(serde_json::json!({"pending":true,"pdfDialog":true}));
++        }
+         if self.background_jobs {
+             let started = photocraft_engine::file_cmds::start_place(&mut self.session, name, crate::jobs_ui::bytes(&bytes), linked, serde_json::json!({}))
+                 .map_err(|e| e.to_string())?;

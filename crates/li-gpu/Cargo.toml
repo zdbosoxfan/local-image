@@ -1,0 +1,24 @@
+[package]
+name = "li-gpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared Local Image device, recovery health, backend policy and WGSL helpers"
+
+[lints]
+workspace = true
+
+[dependencies]
+wgpu = { version = "30", default-features = false, features = ["std", "wgsl"] }
+log.workspace = true
+web-time.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wgpu.workspace = true
+pollster.workspace = true
+
+[dev-dependencies]
+lightcraft-pipeline.workspace = true
+li-color.workspace = true
+pollster.workspace = true
+bytemuck.workspace = true

@@ -1,0 +1,65 @@
+name: Fast CI
+on:
+  push:
+    branches: [main, v2]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 4
+  RUST_TEST_THREADS: 2
+  CRAFT_FONTS_REQUIRED: 1
+  CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
+concurrency:
+  group: fast-ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fast:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: storytold/craft-fonts
+          ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
+          path: .cache/craft-fonts
+          persist-credentials: false
+      - name: Verify Apple Silicon
+        if: runner.os == 'macOS'
+        run: test "$(uname -m)" = arm64
+      - uses: dtolnay/rust-toolchain@1.98.1
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libx11-dev libxrandr-dev libxi-dev libgl1-mesa-dev
+      - name: Fetch locked dependencies (all following Cargo work is offline)
+        run: cargo +1.98.1 fetch --locked
+      - name: Format
+        run: cargo +1.98.1 fmt --all -- --check
+      - name: Fast portable lane
+        run: cargo +1.98.1 xtask test-fast
+      - name: Portable development queue tests
+        if: runner.os == 'Linux'
+        run: |
+          queue_test_root="$(mktemp -d)"
+          env PYTHONDONTWRITEBYTECODE=1 \
+            LI_DEV_DIR="$queue_test_root/dev" \
+            LI_BUILD_STATE_DIR="$queue_test_root/lanes" \
+            LI_REPO="$GITHUB_WORKSPACE" \
+            python3 -m unittest discover -s scripts/dev-queue/tests -v
+      - name: Release signing secret gates
+        run: python3 -B -m unittest discover -s scripts/tests -p test_release_packaging.py -v
+      - name: Asset and dependency gates
+        run: |
+          cargo +1.98.1 xtask assets
+          cargo +1.98.1 xtask deps-pure

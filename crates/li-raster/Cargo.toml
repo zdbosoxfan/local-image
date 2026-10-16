@@ -1,0 +1,19 @@
+[package]
+name = "li-raster"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Shared safe CPU resampling, blur and histogram kernels"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+image = { workspace = true }
+rayon = { workspace = true, optional = true }
+
+[features]
+default = ["parallel"]
+parallel = ["dep:rayon"]

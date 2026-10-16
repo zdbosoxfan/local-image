@@ -1,0 +1,280 @@
+diff --git a/crates/pc-ui-egui/src/filter_dialog.rs b/crates/pc-ui-egui/src/filter_dialog.rs
+--- a/crates/pc-ui-egui/src/filter_dialog.rs
++++ b/crates/pc-ui-egui/src/filter_dialog.rs
+@@ -188,7 +188,7 @@
+     }
+ }
+ 
+-fn durable_value(param: &Param, value: &Value) -> Option<Value> {
++pub(crate) fn durable_value(param: &Param, value: &Value) -> Option<Value> {
+     if param.key.starts_with("__")
+         || param.key.ends_with("Id")
+         || matches!(
+@@ -248,7 +248,14 @@
+     }
+ }
+ 
++pub(crate) const GALLERY_KEY: &str = "filter.dialog/filter.filterGallery";
++
+ impl Remembered {
++    /// Caller supplies Gallery's validated bounded typed recipe, not its runtime dialog.
++    pub(crate) fn gallery(effects: Vec<Value>) -> Self {
++        Self { key: GALLERY_KEY.into(), values: Map::from_iter([("effects".into(), Value::Array(effects))]) }
++    }
++
+     fn publish(self, app: &mut PhotocraftApp) {
+         app.session.edit_prefs(|prefs| prefs.dialogs.insert(self.key, Value::Object(self.values)));
+     }
+@@ -257,7 +264,10 @@
+ /// Run through the existing smart-filter adapter and command/job admission. Only
+ /// synchronous success or the matching job's applied result publishes preferences.
+ pub(crate) fn confirm(app: &mut PhotocraftApp, fields: &Map<String, Value>, command: String, params: Value) -> Result<Value, String> {
+-    let remembered = snapshot(fields);
++    submit(app, command, params, snapshot(fields))
++}
++
++pub(crate) fn submit(app: &mut PhotocraftApp, command: String, params: Value, remembered: Option<Remembered>) -> Result<Value, String> {
+     let result = app.run(&command, params)?;
+     if let Some(remembered) = remembered {
+         if result.get("pending").and_then(Value::as_bool) == Some(true) {
+diff --git a/crates/pc-ui-egui/src/gallery_ui.rs b/crates/pc-ui-egui/src/gallery_ui.rs
+--- a/crates/pc-ui-egui/src/gallery_ui.rs
++++ b/crates/pc-ui-egui/src/gallery_ui.rs
+@@ -21,6 +21,50 @@
+ use crate::filter_dialog::{Kind, parse_spec};
+ use crate::theme::Tokens;
+ use crate::widgets;
++
++const MAX_REMEMBERED_EFFECTS: usize = 64;
++
++/// Decode only reusable Gallery settings. Runtime layer/surface/path fields and
++/// current foreground/background swatches are deliberately not copied.
++fn remembered_effects(value: &Value) -> Option<Vec<EffectLayer>> {
++    let entries = value.get("effects")?.as_array()?;
++    if entries.is_empty() || entries.len() > MAX_REMEMBERED_EFFECTS {
++        return None;
++    }
++    entries
++        .iter()
++        .map(|entry| {
++            let filter = GalleryFilter::from_key(entry.get("filter")?.as_str()?)?;
++            let visible = match entry.get("visible") {
++                Some(value) => value.as_bool()?,
++                None => true,
++            };
++            let mut effect = EffectLayer::new(filter);
++            effect.visible = visible;
++            if let Some(values) = entry.get("params") {
++                let values = values.as_object()?;
++                for param in parse_spec(filter.params_doc()) {
++                    let Some(value) = values.get(&param.key) else { continue };
++                    if matches!(param.key.as_str(), "foreground" | "background") {
++                        continue;
++                    }
++                    let validated = if param.key == "glowColor" {
++                        let channels = value.as_array()?;
++                        if !(3..=4).contains(&channels.len()) || !channels.iter().all(|v| v.as_f64().is_some_and(|n| n.is_finite() && (0.0..=1.0).contains(&n)))
++                        {
++                            return None;
++                        }
++                        value.clone()
++                    } else {
++                        crate::filter_dialog::durable_value(&param, value)?
++                    };
++                    effect.params.insert(param.key, validated);
++                }
++            }
++            Some(effect)
++        })
++        .collect()
++}
+ 
+ const MID_W: f32 = 300.0;
+ const RIGHT_W: f32 = 290.0;
+@@ -175,22 +219,9 @@
+     let st = app.session.active().ok_or("no document")?;
+     let canvas = st.doc.bounds();
+     let layer_name = st.doc.layer(layer).map(|l| l.name.clone()).unwrap_or_default();
+-    let last = app.session.journal.iter().rev().find(|(id, _)| id == "filter.filterGallery").map(|(_, p)| p.clone());
+-    let mut effects: Vec<EffectLayer> = last
+-        .as_ref()
+-        .and_then(|p| p.get("effects").and_then(Value::as_array).cloned())
+-        .unwrap_or_default()
+-        .iter()
+-        .filter_map(|e| {
+-            let f = GalleryFilter::from_key(e.get("filter")?.as_str()?)?;
+-            let mut l = EffectLayer::new(f);
+-            if let Some(Value::Object(m)) = e.get("params") {
+-                l.params.extend(m.clone());
+-            }
+-            l.visible = e.get("visible").and_then(Value::as_bool).unwrap_or(true);
+-            Some(l)
+-        })
+-        .collect();
++    // Journal entries are session-local command records, not durable dialog
++    // settings. Do not fall back to a submitted/failed or stale runtime recipe.
++    let mut effects = app.session.prefs().dialogs.get(crate::filter_dialog::GALLERY_KEY).and_then(remembered_effects).unwrap_or_default();
+     if effects.is_empty() {
+         effects.push(EffectLayer::new(GalleryFilter::ColoredPencil));
+     }
+@@ -231,8 +262,9 @@
+         return Ok(json!({"committed": false}));
+     }
+     let mut p = d.params();
++    let remembered = remembered_effects(&p).map(|effects| crate::filter_dialog::Remembered::gallery(effects.iter().map(EffectLayer::to_json).collect()));
+     p["layer"] = json!(d.layer.0);
+-    app.run("filter.filterGallery", p)
++    crate::filter_dialog::submit(app, "filter.filterGallery".into(), p, remembered)
+ }
+ 
+ /// Control channel: `filter.filterGallery {"ui": {...}}` while the dialog is open.
+@@ -667,4 +699,148 @@
+         let worst = a.read_region(d.canvas).iter().zip(&b).map(|(x, y)| (x - y).abs()).fold(0.0, f32::max);
+         assert!(worst < 2e-3, "preview differs from the result by {worst}");
+     }
+-}
++    fn remembered_recipe(app: &PhotocraftApp) -> Option<Value> {
++        app.session.prefs().dialogs.get(crate::filter_dialog::GALLERY_KEY).cloned()
++    }
++
++    fn poll_remembered_gallery(app: &mut PhotocraftApp) {
++        let ctx = egui::Context::default();
++        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
++        loop {
++            crate::jobs_ui::tick(app, &ctx);
++            if !app.session.has_jobs() && app.jobs.filter_defaults.is_empty() {
++                break;
++            }
++            assert!(std::time::Instant::now() < deadline, "bounded Gallery completion");
++            std::thread::sleep(std::time::Duration::from_millis(1));
++        }
++    }
++
++    #[test]
++    fn remembered_gallery_success_restart_recipe_and_preview_cancel_failure() {
++        let mut app = app();
++        open(&mut app).unwrap();
++        control(&mut app, &json!({"filter":"cutout","params":{"numberOfLevels":3}})).unwrap();
++        control(&mut app, &json!({"add":true})).unwrap();
++        control(&mut app, &json!({"filter":"texturizer","params":{"texture":"brick","relief":8}})).unwrap();
++        control(&mut app, &json!({"toggle":1})).unwrap();
++        let submitted = app.distort.gallery.as_ref().unwrap().effects.clone();
++        commit(&mut app).unwrap();
++        let saved = remembered_recipe(&app).unwrap();
++        assert_eq!(saved["effects"].as_array().unwrap().len(), 2);
++        assert_eq!(saved["effects"][0]["filter"], "cutout");
++        assert_eq!(saved["effects"][1]["visible"], false);
++        assert!(!saved.as_object().unwrap().contains_key("layer"));
++        assert!(!saved.as_object().unwrap().contains_key("foreground"));
++        let encoded = serde_json::to_string(&app.session.prefs().to_json()).unwrap();
++        // A real new session has no journal; loading preferences still restores it.
++        let mut restarted = self::app();
++        restarted.session.load_prefs_json(&encoded).unwrap();
++        restarted.session.journal.clear();
++        restarted.session.tools.foreground = [0.9, 0.1, 0.2, 1.];
++        open(&mut restarted).unwrap();
++        assert_eq!(restarted.distort.gallery.as_ref().unwrap().effects, submitted);
++        assert_eq!(restarted.distort.gallery.as_ref().unwrap().foreground, [0.9, 0.1, 0.2, 1.]);
++        control(&mut restarted, &json!({"select":0,"params":{"numberOfLevels":7}})).unwrap();
++        let ctx = egui::Context::default();
++        update_preview(restarted.distort.gallery.as_mut().unwrap(), &ctx, ERect::from_min_size(pos2(0., 0.), vec2(180., 120.)));
++        assert_eq!(remembered_recipe(&restarted), Some(saved.clone()));
++        control(&mut restarted, &json!({"cancel":true})).unwrap();
++        assert_eq!(remembered_recipe(&restarted), Some(saved.clone()));
++        open(&mut restarted).unwrap();
++        control(&mut restarted, &json!({"params":{"numberOfLevels":5}})).unwrap();
++        restarted.automation_input = true;
++        restarted.services.automation_command = Some(Box::new(|_, _| Err("injected Gallery refusal".into())));
++        assert!(commit(&mut restarted).unwrap_err().contains("injected Gallery refusal"));
++        assert_eq!(remembered_recipe(&restarted), Some(saved));
++    }
++
++    #[test]
++    fn remembered_gallery_async_success_is_submitted_recipe_and_cancel_does_not_publish() {
++        let mut app = app();
++        open(&mut app).unwrap();
++        control(&mut app, &json!({"filter":"cutout","params":{"numberOfLevels":3}})).unwrap();
++        commit(&mut app).unwrap();
++        let previous = remembered_recipe(&app).unwrap();
++        app.background_jobs = true;
++        open(&mut app).unwrap();
++        control(&mut app, &json!({"params":{"numberOfLevels":6}})).unwrap();
++        let result = commit(&mut app).unwrap();
++        assert_eq!(result["pending"], true);
++        assert_eq!(remembered_recipe(&app), Some(previous));
++        open(&mut app).unwrap();
++        control(&mut app, &json!({"params":{"numberOfLevels":8}})).unwrap();
++        poll_remembered_gallery(&mut app);
++        let saved = remembered_recipe(&app).unwrap();
++        assert_eq!(saved["effects"][0]["params"]["numberOfLevels"], 6, "later runtime edits cannot replace the submitted snapshot");
++        control(&mut app, &json!({"cancel":true})).unwrap();
++        open(&mut app).unwrap();
++        control(&mut app, &json!({"params":{"numberOfLevels":4}})).unwrap();
++        let result = commit(&mut app).unwrap();
++        crate::jobs_ui::cancel(&mut app, photocraft_engine::jobs::JobId(result["job"].as_u64().unwrap()));
++        poll_remembered_gallery(&mut app);
++        assert_eq!(remembered_recipe(&app), Some(saved.clone()));
++        open(&mut app).unwrap();
++        control(&mut app, &json!({"params":{"numberOfLevels":5}})).unwrap();
++        assert_eq!(commit(&mut app).unwrap()["pending"], true);
++        // Simulate an externally replaced target after submission. The engine's
++        // real apply guard must fail the job instead of publishing stale work.
++        app.session
++            .edit("External change fixture", |doc, _| {
++                doc.name.push_str(" changed");
++                Ok(())
++            })
++            .unwrap();
++        poll_remembered_gallery(&mut app);
++        assert!(app.ui.status_error);
++        assert!(app.ui.status.contains("changed"));
++        assert_eq!(remembered_recipe(&app), Some(saved.clone()));
++        // Never fall back to a session command record after a cancelled submission.
++        app.session.journal.push(("filter.filterGallery".into(), json!({"effects":[{"filter":"cutout","params":{"numberOfLevels":2}}]})));
++        open(&mut app).unwrap();
++        assert_eq!(app.distort.gallery.as_ref().unwrap().effects[0].params["numberOfLevels"], 6);
++        control(&mut app, &json!({"toggle":0})).unwrap();
++        assert_eq!(commit(&mut app).unwrap()["committed"], false);
++        assert_eq!(remembered_recipe(&app), Some(saved), "all-hidden no-op is not a successful recipe publication");
++    }
++
++    #[test]
++    fn remembered_gallery_validates_bounded_typed_recipe_without_runtime_state() {
++        let good = json!({"effects":[{"filter":"glass","visible":false,"params":{"distortion":8,"texture":"canvas","invert":true,
++            "layer":123,"sourcePath":"private","foreground":[1,0,0,1],"surface":{"opaque":true}}}],"layer":123,"foreground":[1,0,0,1]});
++        let parsed = remembered_effects(&good).unwrap();
++        assert!(!parsed[0].visible);
++        assert_eq!(parsed[0].params["distortion"], 8);
++        assert_eq!(parsed[0].params["texture"], "canvas");
++        assert_eq!(parsed[0].params["invert"], true);
++        for forbidden in ["layer", "sourcePath", "foreground", "surface"] {
++            assert!(!parsed[0].params.contains_key(forbidden));
++        }
++        for bad in [
++            json!({"effects":[]}),
++            json!({"effects":vec![json!({"filter":"glass"});MAX_REMEMBERED_EFFECTS+1]}),
++            json!({"effects":[{"filter":"unknown"}]}),
++            json!({"effects":[{"filter":"glass","visible":"false"}]}),
++            json!({"effects":[{"filter":"glass","params":{"distortion":21}}]}),
++            json!({"effects":[{"filter":"glass","params":{"texture":"private/path"}}]}),
++            json!({"effects":[{"filter":"glass","params":{"invert":1}}]}),
++            json!({"effects":[{"filter":"neonGlow","params":{"glowColor":[1,2,0]}}]}),
++        ] {
++            assert!(remembered_effects(&bad).is_none(), "{bad}");
++        }
++        let color = json!({"effects":[{"filter":"neonGlow","params":{"glowColor":[0.1,0.2,0.3,1]}}]});
++        assert_eq!(remembered_effects(&color).unwrap()[0].params["glowColor"], color["effects"][0]["params"]["glowColor"]);
++        let mut app = app();
++        app.session.edit_prefs(|p| p.dialogs.insert(crate::filter_dialog::GALLERY_KEY.into(), json!({"effects":[{"filter":"unknown"}]})));
++        app.session.journal.push(("filter.filterGallery".into(), good));
++        let before = remembered_recipe(&app);
++        open(&mut app).unwrap();
++        assert_eq!(
++            app.distort.gallery.as_ref().unwrap().effects[0].filter,
++            GalleryFilter::ColoredPencil,
++            "malformed preferences cannot revive an unrelated journal record"
++        );
++        control(&mut app, &json!({"cancel":true})).unwrap();
++        assert_eq!(remembered_recipe(&app), before);
++    }
++}

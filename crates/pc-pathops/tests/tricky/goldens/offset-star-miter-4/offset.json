@@ -1,0 +1,179 @@
+{
+  "actions": "select-by-id:a;object-to-path;export-do",
+  "case": "offset-star-miter-4",
+  "execution_actions": "select-by-id:a;object-to-path;export-do",
+  "input_svg": "<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\"><path id=\"a\" d=\"M64 48 L53.6631189606 52.114496766 L52.94427191 63.2169042607 L45.8368810394 54.6573956141 L35.05572809 57.4045640367 L41 48 L35.05572809 38.5954359633 L45.8368810394 41.3426043859 L52.94427191 32.7830957393 L53.6631189606 43.885503234 Z\" fill=\"black\"/></svg>\n",
+  "normalizer": "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry",
+  "operation": "offset",
+  "parameters": {
+    "delta": 4,
+    "join": "miter",
+    "miter": 4
+  },
+  "paths": [
+    {
+      "fill_rule": "NonZero",
+      "inverted": false,
+      "subpaths": [
+        {
+          "closed": true,
+          "knots": [
+            {
+              "anchor": {
+                "x": 56.283203125,
+                "y": 22.5
+              },
+              "in_ctrl": {
+                "x": 56.283203125,
+                "y": 22.5
+              },
+              "out_ctrl": {
+                "x": 56.283203125,
+                "y": 22.5
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 44.375,
+                "y": 36.83984375
+              },
+              "in_ctrl": {
+                "x": 44.375,
+                "y": 36.83984375
+              },
+              "out_ctrl": {
+                "x": 44.375,
+                "y": 36.83984375
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 26.306640625,
+                "y": 32.23828125
+              },
+              "in_ctrl": {
+                "x": 26.306640625,
+                "y": 32.23828125
+              },
+              "out_ctrl": {
+                "x": 26.306640625,
+                "y": 32.23828125
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 36.26953125,
+                "y": 48.0
+              },
+              "in_ctrl": {
+                "x": 36.26953125,
+                "y": 48.0
+              },
+              "out_ctrl": {
+                "x": 36.26953125,
+                "y": 48.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 26.306640625,
+                "y": 63.76171875
+              },
+              "in_ctrl": {
+                "x": 26.306640625,
+                "y": 63.76171875
+              },
+              "out_ctrl": {
+                "x": 26.306640625,
+                "y": 63.76171875
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 44.375,
+                "y": 59.16015625
+              },
+              "in_ctrl": {
+                "x": 44.375,
+                "y": 59.16015625
+              },
+              "out_ctrl": {
+                "x": 44.375,
+                "y": 59.16015625
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 56.283203125,
+                "y": 73.5
+              },
+              "in_ctrl": {
+                "x": 56.283203125,
+                "y": 73.5
+              },
+              "out_ctrl": {
+                "x": 56.283203125,
+                "y": 73.5
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 57.4921875,
+                "y": 54.896484375
+              },
+              "in_ctrl": {
+                "x": 57.4921875,
+                "y": 54.896484375
+              },
+              "out_ctrl": {
+                "x": 57.4921875,
+                "y": 54.896484375
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 74.814453125,
+                "y": 48.0
+              },
+              "in_ctrl": {
+                "x": 74.814453125,
+                "y": 48.0
+              },
+              "out_ctrl": {
+                "x": 74.814453125,
+                "y": 48.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 57.4921875,
+                "y": 41.103515625
+              },
+              "in_ctrl": {
+                "x": 57.4921875,
+                "y": 41.103515625
+              },
+              "out_ctrl": {
+                "x": 57.4921875,
+                "y": 41.103515625
+              },
+              "smooth": false
+            }
+          ],
+          "op": "Combine"
+        }
+      ]
+    }
+  ],
+  "source_svg": "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n\n<svg\n   viewBox=\"0 0 96 96\"\n   width=\"96\"\n   height=\"96\"\n   version=\"1.1\"\n   id=\"svg1\"\n   xmlns=\"http://www.w3.org/2000/svg\"\n   xmlns:svg=\"http://www.w3.org/2000/svg\">\n  <defs\n     id=\"defs1\" />\n  <path\n     id=\"a\"\n     d=\"M 56.283203125,22.5 44.375,36.83984375 26.306640625,32.23828125 36.26953125,48 26.306640625,63.76171875 44.375,59.16015625 56.283203125,73.5 57.4921875,54.896484375 74.814453125,48 57.4921875,41.103515625 Z\"\n     fill=\"black\" />\n</svg>\n",
+  "tool": "Inkscape 1.4.4"
+}

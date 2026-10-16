@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ColorSet version="2.0" name="Fixture" columns="8" rows="1">
+<ColorSetEntry name="Café &amp; 🎨" spot="false" bitdepth="U8"><sRGB r="0.25" g="0.5" b="0.75"/><Position row="0" column="0"/></ColorSetEntry>
+<Group name="Inks" rows="1"><ColorSetEntry name="Spot Ink" spot="true" bitdepth="F32"><CMYK c="0.25" m="0.5" y="0.75" k="1"/><Position row="0" column="0"/></ColorSetEntry><ColorSetEntry name="Lab" spot="false" bitdepth="F32"><Lab L="50" a="20" b="-30"/><Position row="0" column="1"/></ColorSetEntry></Group>
+</ColorSet>

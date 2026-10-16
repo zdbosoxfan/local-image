@@ -1,0 +1,69 @@
+{
+  "actions": "select-by-id:a,b;path-difference",
+  "case": "cubic-cusp-normal",
+  "execution_actions": "select-by-id:a,b;path-difference;export-do",
+  "input_svg": "<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\">\n<g transform=\"matrix(1 0 0 1 0 0)\" fill-rule=\"nonzero\" fill=\"black\">\n<path id=\"a\" d=\"M16 64 C80 0 0 0 64 64 L40 80 Z\"/><path id=\"b\" d=\"M16 16 H64 V64 H16 Z\"/>\n</g></svg>\n",
+  "normalizer": "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry",
+  "operation": "difference",
+  "paths": [
+    {
+      "fill_rule": "NonZero",
+      "inverted": false,
+      "subpaths": [
+        {
+          "closed": true,
+          "knots": [
+            {
+              "anchor": {
+                "x": 16.0,
+                "y": 64.0
+              },
+              "in_ctrl": {
+                "x": 16.0,
+                "y": 64.0
+              },
+              "out_ctrl": {
+                "x": 16.0,
+                "y": 64.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.0,
+                "y": 80.0
+              },
+              "in_ctrl": {
+                "x": 40.0,
+                "y": 80.0
+              },
+              "out_ctrl": {
+                "x": 40.0,
+                "y": 80.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 64.0,
+                "y": 64.0
+              },
+              "in_ctrl": {
+                "x": 64.0,
+                "y": 64.0
+              },
+              "out_ctrl": {
+                "x": 64.0,
+                "y": 64.0
+              },
+              "smooth": false
+            }
+          ],
+          "op": "Combine"
+        }
+      ]
+    }
+  ],
+  "source_svg": "<!-- Original Local Image synthetic output. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 393216 393216\" version=\"1.1\" id=\"svg1\">\n  <defs id=\"defs1\" />\n  <g fill-rule=\"nonzero\" fill=\"black\" id=\"g1\">\n    <path id=\"a\" d=\"M 65536 262144 L 163840 327680 L 262144 262144 L 65536 262144 z \" />\n  </g>\n</svg>\n",
+  "tool": "Inkscape 1.4.4"
+}

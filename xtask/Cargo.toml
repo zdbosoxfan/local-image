@@ -1,0 +1,38 @@
+[package]
+name = "xtask"
+description = "Build tasks for Local Image: packaging, installer checks and signing (cargo xtask)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# attributions: Cargo.lock and manifests (already in Cargo.lock through the UI crates' build scripts)
+toml = "1"
+base64 = "0.22"
+sha2 = { workspace = true }
+hex = { workspace = true }
+flate2 = { workspace = true }
+tar = "0.4"
+zip = { version = "7", default-features = false, features = ["deflate-flate2"] }
+ureq = { workspace = true }
+rustls-rustcrypto = { workspace = true }
+quick-xml = { workspace = true }
+
+# Lock/compile the approved graph without a placeholder PDF/pathops implementation or
+# a runtime app dependency. Adapter packages inherit the same workspace pins when merged.
+hayro-interpret = { workspace = true, optional = true }
+hayro-syntax = { workspace = true, optional = true }
+krilla = { workspace = true, optional = true }
+kurbo = { workspace = true, optional = true }
+linesweeper = { workspace = true, optional = true }
+polycool = { workspace = true, optional = true }
+
+[features]
+vector-bootstrap = ["dep:hayro-interpret", "dep:hayro-syntax", "dep:krilla", "dep:kurbo", "dep:linesweeper", "dep:polycool"]

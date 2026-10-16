@@ -1,0 +1,315 @@
+//! Keyboard shortcut table and dispatch (#127): every shortcut the menus display fires.
+//!
+//! The menus show Photoshop's default shortcuts from [`crate::menu_catalog::CATALOG`], while
+//! commands also declare their own (`CommandSpec::shortcut`, [`crate::menus::UI_COMMANDS`]).
+//! The binding table merges all three, with Edit › Keyboard Shortcuts overrides on top, so a
+//! shortcut printed next to a live menu item always reaches that item. A shortcut whose command
+//! is disabled in the current state reports why on the status bar instead of doing nothing
+//! silently, as the greyed menu item shows.
+
+use egui::{Key, KeyboardShortcut};
+use serde_json::json;
+
+use crate::PhotocraftApp;
+
+/// What a dispatched shortcut did (kept for tests and `ui.inspect`-style debugging).
+#[derive(Clone, Debug, PartialEq)]
+pub enum Outcome {
+    Ran,
+    Disabled(String),
+    Failed(String),
+}
+
+fn log_id() -> egui::Id {
+    egui::Id::new("pc-shortcut-log")
+}
+
+fn dry_run_id() -> egui::Id {
+    egui::Id::new("pc-shortcut-dry-run")
+}
+
+/// Tests: resolve and check shortcuts without running them (File › Exit, Open, browser links…).
+pub fn set_dry_run(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(dry_run_id(), on));
+}
+
+/// The shortcuts dispatched since the last call (command id and outcome), oldest first.
+pub fn take_log(ctx: &egui::Context) -> Vec<(String, Outcome)> {
+    ctx.data_mut(|d| d.remove_temp::<Vec<(String, Outcome)>>(log_id())).unwrap_or_default()
+}
+
+/// Alternative default shortcuts Photoshop gives some commands besides the one its menu shows:
+/// (command, shortcut). Edit › Fill… is Shift+F5 and also Shift+Backspace (Shift+Delete on a Mac).
+pub const SECONDARY: &[(&str, &str)] = &[("edit.fill", "Shift+Backspace")];
+
+/// Every key binding, most modifiers first (so ⇧⌘Z wins over ⌘Z), each key owned by one command:
+/// command and shell shortcuts, then the menu catalogue's for live items without their own,
+/// then Edit › Keyboard Shortcuts assignments to any other menu item. D and X
+/// (`tools.defaultColors` / `tools.swapColors`) and the fill keys are commands like any other, so
+/// their overrides apply. Held temporary tools (Space…) are not here: see [`crate::hold_keys`].
+pub fn binding_strings(app: &PhotocraftApp) -> Vec<(String, String)> {
+    let prefs = app.session.prefs();
+    let ui = crate::menus::UI_COMMANDS.iter().map(|(id, _, _, sc)| (*id, crate::keymaps::effective(prefs, id, *sc)));
+    let engine = photocraft_engine::command_specs().iter().map(|c| (c.id, crate::keymaps::effective(prefs, c.id, c.shortcut)));
+    let own: std::collections::HashSet<&str> = crate::menus::UI_COMMANDS
+        .iter()
+        .map(|c| c.0)
+        .chain(photocraft_engine::command_specs().iter().filter(|c| c.shortcut.is_some() || prefs.shortcut_overrides(false).contains_key(c.id)).map(|c| c.id))
+        .collect();
+    let catalog = crate::menu_catalog::CATALOG
+        .iter()
+        .filter(|(_, _, sc, id)| sc.is_some() && !own.contains(id) && crate::menus::is_live(id))
+        .map(|&(_, _, sc, id)| (id, crate::keymaps::effective(prefs, id, sc)));
+    let overrides = prefs
+        .shortcut_overrides(false)
+        .iter()
+        .filter(|(id, sc)| {
+            !id.starts_with("library::")
+                && !sc.is_empty()
+                && photocraft_engine::commands::find(id).is_none()
+                && !crate::menus::UI_COMMANDS.iter().any(|c| c.0 == id.as_str())
+                && !crate::hold_keys::is_temporary(id)
+                && !id.starts_with("tools.select.")
+                && !id.starts_with("tools.liquify.")
+                && !id.starts_with("tools.cameraRaw.")
+        })
+        .map(|(id, sc)| (id.as_str(), Some(sc.as_str())));
+    // Photoshop's second shortcuts, kept while the command's main one is the default.
+    let secondary = SECONDARY.iter().filter(|(id, _)| !prefs.shortcut_overrides(false).contains_key(*id)).map(|&(id, sc)| (id, Some(sc)));
+    let pixel: Vec<_> =
+        ui.chain(engine).chain(catalog).chain(overrides).chain(secondary).filter_map(|(id, sc)| sc.map(|sc| (id.to_owned(), sc.to_owned()))).collect();
+    let mut result = photocraft_engine::vector_toolbar_layout::command_bindings_for(prefs.toolbar.persona, prefs.toolbar.vector_keyboard.preset, &pixel);
+    let custom: Vec<_> = prefs
+        .shortcut_overrides(false)
+        .iter()
+        .filter(|(id, _)| !id.starts_with("library::") && !id.starts_with("tools.select.") && !crate::hold_keys::is_temporary(id))
+        .collect();
+    result.retain(|(id, key)| {
+        !prefs.shortcut_overrides(false).contains_key(id)
+            && !prefs.shortcut_overrides(false).iter().any(|(id, binding)| {
+                crate::shortcuts::override_applies_in_persona(prefs.toolbar.persona, id)
+                    && !binding.is_empty()
+                    && li_keys::input::parse(binding) == li_keys::input::parse(key)
+            })
+    });
+    let mut explicit: Vec<_> = custom.into_iter().filter(|(_, key)| !key.is_empty()).map(|(id, key)| (id.clone(), key.clone())).collect();
+    explicit.extend(result);
+    explicit.retain(|(id, key)| li_keys::keymaps::is_global(id) || crate::keymaps::global_conflict(key).is_none());
+    for (id, _, key) in li_keys::GLOBAL_SHORTCUTS {
+        if !id.starts_with("host.") {
+            explicit.retain(|(command, _)| command != id);
+            explicit.insert(0, ((*id).into(), (*key).into()));
+        }
+    }
+    li_keys::input::retain_first(&mut explicit, |(_, key)| key);
+    explicit
+}
+pub fn bindings(app: &PhotocraftApp) -> Vec<(String, KeyboardShortcut)> {
+    let mut all = Vec::new();
+    for (id, value) in binding_strings(app) {
+        let Some(sc) = li_keys::input::parse(&value) else { continue };
+        if !all.iter().any(|(_, b)| *b == sc) {
+            all.push((id, sc));
+        }
+    }
+    // Control+Command on macOS is more specific than Command alone (e.g. Affinity's
+    // Unlock All vs Levels). Count physical Control so the shorter chord cannot steal it.
+    all.sort_by_key(|(_, sc)| std::cmp::Reverse(sc.modifiers.shift as u8 + sc.modifiers.alt as u8 + sc.modifiers.command as u8 + sc.modifiers.ctrl as u8));
+    all
+}
+
+/// Where keyboard focus is: nowhere (the canvas), on a widget (a slider, the Curves graph, a
+/// button reached with Tab), or in a text field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Focus {
+    None,
+    Widget,
+    Text,
+}
+
+#[derive(Default)]
+struct InputFocus;
+fn input_focus_id(viewport: egui::ViewportId) -> egui::Id {
+    egui::Id::new(("shortcut-input-focus", viewport))
+}
+impl egui::Plugin for InputFocus {
+    fn debug_name(&self) -> &'static str {
+        "Shortcut input focus"
+    }
+    fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        // egui clears widget focus on Escape before application handlers run.
+        let focus = if input.events.iter().any(|event| matches!(event, egui::Event::Key { key: Key::Escape, pressed: true, .. })) {
+            Focus::current(ctx)
+        } else {
+            Focus::None
+        };
+        ctx.data_mut(|data| data.insert_temp(input_focus_id(input.viewport_id), focus));
+    }
+}
+impl Focus {
+    pub fn of(ctx: &egui::Context) -> Focus {
+        if ctx.plugin_opt::<InputFocus>().is_none() {
+            ctx.add_plugin(InputFocus);
+        }
+        let current = Self::current(ctx);
+        if current == Focus::None { ctx.data(|data| data.get_temp(input_focus_id(ctx.viewport_id()))).unwrap_or(current) } else { current }
+    }
+    fn current(ctx: &egui::Context) -> Focus {
+        // A layer rename keeps its keys even in the frame egui drops its focus (Esc, Tab).
+        if ctx.text_edit_focused() || crate::layer_row_ui::rename_active(ctx) {
+            Focus::Text
+        } else if ctx.egui_wants_keyboard_input() {
+            Focus::Widget
+        } else {
+            Focus::None
+        }
+    }
+
+    /// May `sc` fire with this focus? A focused widget keeps its navigation keys (arrows, ↩,
+    /// Space, Delete…); a text field keeps everything but ⌘ shortcuts (minus its own editing
+    /// ones: select all, clipboard, undo) and the function keys.
+    pub fn allows(self, sc: &KeyboardShortcut) -> bool {
+        let k = sc.logical_key;
+        let function = li_keys::input::is_function_key(k);
+        let navigation = matches!(
+            k,
+            Key::ArrowLeft
+                | Key::ArrowRight
+                | Key::ArrowUp
+                | Key::ArrowDown
+                | Key::Enter
+                | Key::Space
+                | Key::Tab
+                | Key::Escape
+                | Key::Backspace
+                | Key::Delete
+                | Key::Home
+                | Key::End
+                | Key::PageUp
+                | Key::PageDown
+        );
+        match self {
+            Focus::None => true,
+            Focus::Widget => sc.modifiers.command || !navigation,
+            Focus::Text => {
+                let text_edit = !sc.modifiers.alt && matches!(k, Key::A | Key::C | Key::X | Key::V | Key::Z | Key::Y) || navigation;
+                function || (sc.modifiers.command && !text_edit)
+            }
+        }
+    }
+}
+
+/// What decides which keys [`crate::shortcuts::handle`] gives the shortcuts: an open menu, a
+/// dialog, the unsaved-changes prompt, a warp or the Filter Gallery, inline type.
+fn key_owner(app: &PhotocraftApp, ctx: &egui::Context) -> (bool, usize, bool, bool, bool) {
+    let distort = app.distort.active() || app.distort.gallery.is_some() || crate::restoration_ui::is_open(app);
+    (crate::menu_nav::is_open(ctx), app.ui.dialogs.len(), app.discard.is_some(), distort, app.ui.text_edit.is_some())
+}
+
+/// Dispatch this frame's shortcut presses in the order they arrived (⌘Z then ⌘S undoes, then
+/// saves the undone state; #440), consuming each. A press matching several bindings goes to the
+/// first in table order (⇧⌘Z before ⌘Z). Stops after a shortcut that hands the keyboard to
+/// someone else (opens a dialog, a prompt, a menu or inline type), leaving the later presses to
+/// it. While typing (inline type), clipboard and select-all shortcuts belong to the text.
+/// Returns true when a shortcut was dispatched.
+pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Focus, editing: bool) -> bool {
+    // Building the table walks the registry: only do it when a key went down.
+    if !ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { pressed: true, .. }))) {
+        return false;
+    }
+    const TEXT_OWNED: [&str; 6] = ["edit.copy", "edit.cut", "edit.paste", "edit.copyMerged", "select.all", "edit.pasteSpecial.pasteInPlace"];
+    let panels_allowed = focus == Focus::None
+        && !editing
+        && app.ui.text_edit.is_none()
+        && app.ui.dialogs.is_empty()
+        && app.discard.is_none()
+        && !app.distort.active()
+        && app.distort.gallery.is_none()
+        && !crate::restoration_ui::is_open(app)
+        && !crate::menu_nav::is_open(ctx)
+        && !egui::Popup::is_any_open(ctx)
+        && ctx.memory(|memory| memory.top_modal_layer().is_none());
+    let table: Vec<(String, KeyboardShortcut)> = bindings(app)
+        .into_iter()
+        .filter(|(id, sc)| focus.allows(sc) && !(editing && TEXT_OWNED.contains(&id.as_str())) && (id != "view.togglePanels" || panels_allowed))
+        .collect();
+    let mut ran = false;
+    while let Some((id, key)) = li_keys::input::take_pressed(ctx, &table) {
+        let tab = key == Key::Tab;
+        if tab {
+            // begin_pass already queued traversal; this key belongs to an app command.
+            ctx.memory_mut(|memory| memory.move_focus(egui::FocusDirection::None));
+        }
+        let owner = key_owner(app, ctx);
+        dispatch(app, ctx, &id);
+        ran = true;
+        if key_owner(app, ctx) != owner {
+            break;
+        }
+    }
+    ran
+}
+
+/// Why `id` can't run now (the engine's reason when it has one).
+pub fn disabled_reason(app: &PhotocraftApp, id: &str) -> String {
+    photocraft_engine::commands::find(id).and_then(|_| app.session.disabled_reason_with(id, &app.with_mask_target(id, serde_json::Value::Null))).unwrap_or_else(
+        || match id {
+            "tools.decreaseBrushHardness" | "tools.increaseBrushHardness" => "the current tool has no brush tip".into(),
+            _ if app.session.active().is_none() => "no document open".into(),
+            _ => "not available in the current state".into(),
+        },
+    )
+}
+
+fn label(id: &str) -> String {
+    crate::menu_catalog::CATALOG
+        .iter()
+        .find(|c| c.3 == id)
+        .map(|c| c.1)
+        .or_else(|| crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1))
+        .or_else(|| photocraft_engine::commands::find(id).map(|c| c.label))
+        .unwrap_or(id)
+        .trim_end_matches('…')
+        .to_string()
+}
+
+/// Run a shortcut's command like its menu item (dialogs included), or say why it can't run.
+pub fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str) {
+    if id == "global.fullscreen" {
+        ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!ctx.input(|i| i.viewport().fullscreen.unwrap_or(false))));
+        return;
+    }
+    let outcome = if !crate::menus::is_enabled(app, id) {
+        let why = disabled_reason(app, id);
+        app.ui.status = format!("{} is not available: {why}", label(id));
+        app.ui.status_error = true;
+        Outcome::Disabled(why)
+    } else if ctx.data(|d| d.get_temp::<bool>(dry_run_id())).unwrap_or(false) {
+        Outcome::Ran
+    } else {
+        let r = if crate::adjust_dialog::has_dialog(id) {
+            crate::adjust_dialog::open(app, id);
+            Ok(serde_json::Value::Null)
+        } else {
+            crate::menus::invoke(app, ctx, id, json!({}))
+        };
+        match r {
+            Ok(_) => Outcome::Ran,
+            Err(e) => {
+                app.ui.status = e.clone();
+                app.ui.status_error = true;
+                Outcome::Failed(e)
+            }
+        }
+    };
+    ctx.data_mut(|d| {
+        let log = d.get_temp_mut_or_default::<Vec<(String, Outcome)>>(log_id());
+        if log.len() >= 64 {
+            log.remove(0);
+        }
+        log.push((id.to_string(), outcome));
+    });
+}
+
+#[cfg(test)]
+mod tests;

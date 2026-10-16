@@ -1,0 +1,20 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Quick Selection: a round brush tip inside a dashed selection. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="m21 3-7.5 7.5" />
+  <path d="M13.5 10.5c-1.4-1.4-3.6-1.4-5 0s-1.4 3.6 0 5 3.6 1.4 5 0l1.5-3.5z" />
+  <path d="M4.3 9.5A8 8 0 0 0 4 12" />
+  <path d="M4.6 16.5a8 8 0 0 0 1.8 2.3" />
+  <path d="M10 21a8 8 0 0 0 3.2-.4" />
+  <path d="M7.5 4.7a8 8 0 0 1 2.5-.6" />
+  <path d="M17.4 16.8a8 8 0 0 0 1.5-2.3" />
+</svg>

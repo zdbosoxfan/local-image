@@ -1,0 +1,32 @@
+[package]
+name = "photocraft-vecfx"
+description = "Pure document-space vector feature projections (width profiles, brushes, ...)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+li-color.workspace = true
+photocraft-doc.workspace = true
+photocraft-color.workspace = true
+photocraft-geom.workspace = true
+photocraft-pathops.workspace = true
+photocraft-vector.workspace = true
+kurbo.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+
+[[test]]
+name = "brush17"
+path = "tests/brush/package17.rs"
+
+[[test]]
+name = "blend18"
+path = "tests/blend/suite.rs"

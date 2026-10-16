@@ -1,0 +1,49 @@
+[package]
+name = "lightcraft-ui-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LightCraft egui frontend (Lightroom-style UI); swappable — nothing below depends on it (L5)"
+
+[lints]
+workspace = true
+
+[dependencies]
+li-commands = { workspace = true, features = ["egui"] }
+li-keys = { workspace = true, features = ["egui"] }
+# The one translation engine (Library & Develop catalog, `tr_format!`).
+li-i18n.workspace = true
+li-ui-kit.workspace = true
+# The CPU egui rasteriser (`softpaint`) behind headless screenshots.
+li-testkit.workspace = true
+li-color = { workspace = true }
+li-seg = { workspace = true }
+li-raster = { path = "../li-raster" }
+# The editor owns the shared display transform (existing workspace package).
+photocraft-engine = { workspace = true }
+lightcraft-geom = { workspace = true }
+lightcraft-meta = { workspace = true }
+lightcraft-raster = { workspace = true }
+lightcraft-codecs = { workspace = true }
+lightcraft-develop = { workspace = true }
+lightcraft-pipeline = { workspace = true }
+lightcraft-catalog = { workspace = true }
+web-time = { workspace = true }
+lightcraft-engine = { workspace = true }
+# The shared background pool and thread priority classes (people_task.rs).
+lightcraft-sysmem = { workspace = true }
+lightcraft-preview = { workspace = true }
+egui = { workspace = true }
+# Reuse the workspace's existing pure-Rust usvg/resvg renderer (no new packages).
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+# The Attributions page (Settings / Preferences / About).
+li-attributions = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+rayon = { workspace = true }
+
+
+[build-dependencies]
+serde_json = { workspace = true }
+toml = "1"

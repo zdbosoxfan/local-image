@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "sd15",
+  "label": "Stable Diffusion 1.5",
+  "group": "Stable Diffusion",
+  "description": "The classic 512 px model and its thousands of fine-tunes. Light on memory; a huge choice of styles and LoRAs.",
+  "pipeline": {
+    "loader": "checkpoint",
+    "clip": {
+      "node": "checkpoint",
+      "skip": -1
+    },
+    "vae": "checkpoint",
+    "encode": "clip_text",
+    "latent": "EmptyLatentImage",
+    "sampler": "ksampler",
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras",
+    "reference": "ip_adapter",
+    "inpaint": "noise_mask",
+    "differential": true
+  },
+  "sizes": {
+    "native": 512,
+    "multiple": 8,
+    "min": 256,
+    "max": 1536
+  },
+  "sampling": {
+    "steps": {
+      "default": 25,
+      "min": 1,
+      "max": 100
+    },
+    "cfg": {
+      "default": 7,
+      "min": 1,
+      "max": 20
+    },
+    "denoise": 0.6
+  },
+  "capabilities": {
+    "create": true,
+    "edit": false,
+    "references": 0,
+    "inpaint": true,
+    "transparent": false,
+    "negative_prompt": true
+  },
+  "lora": {
+    "loader": "LoraLoader",
+    "compatible": [
+      "sd15"
+    ],
+    "max": 5
+  },
+  "prompt": {
+    "prefix": "",
+    "negative": "lowres, bad anatomy, blurry, watermark"
+  },
+  "vram_gb": 4,
+  "license": "CreativeML OpenRAIL-M",
+  "license_url": "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5",
+  "civitai_base_models": [
+    "SD 1.5",
+    "SD 1.4",
+    "SD 1.5 LCM",
+    "SD 1.5 Hyper"
+  ],
+  "hf_tags": [
+    "stable-diffusion",
+    "base_model:stable-diffusion-v1-5/stable-diffusion-v1-5"
+  ],
+  "models": []
+}

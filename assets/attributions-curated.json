@@ -1,0 +1,492 @@
+{
+  "_comment": "Hand-written input of `cargo xtask attributions`, which merges it with docs/PORTS.md, li-seg's MODELS, SAM 3, the li-ai family profiles and Cargo.lock into assets/attributions.json (the file the app shows in Settings / Preferences / About \u203a Attributions). Edit this file for assets, data and projects that have no machine-readable source; never edit assets/attributions.json by hand. Sections appear in this order; generated entries come before the ones listed here. licence_files are paths from the repository root and are built into the app.",
+  "app": {
+    "name": "Local Image",
+    "used_for": "A layered raster editor, photo library and raw developer with local AI, written in Rust.",
+    "licence": "GPL-3.0-or-later",
+    "licence_files": [
+      "LICENSE",
+      "assets/app-icon/LICENSE.txt"
+    ],
+    "url": "https://github.com/zdbosoxfan/local-image"
+  },
+  "sections": [
+    {
+      "id": "ports",
+      "title": "Algorithms & code ports",
+      "intro": "Algorithms re-implemented in Rust from other projects (docs/PORTS.md). No C, C++ or Python from them is compiled or shipped.",
+      "entries": [
+        {
+          "name": "vkdt",
+          "author": "Johannes Hanika",
+          "used_for": "The local-Laplacian reduce/assemble stencils and sampled construction in LI Tone, with Local Image's exposure remapping and rectangular pyramid extensions.",
+          "ours": "crates/lc-pipeline/src/primary.rs, crates/lc-gpu/src/wgsl/primary.wgsl",
+          "commit": "afc34256fb22bcaf6dcf6503d19d5f9a6f477af5",
+          "licence": "BSD-2-Clause",
+          "licence_files": [
+            "licenses/vkdt-NOTICE.md"
+          ],
+          "url": "https://github.com/hanatos/vkdt"
+        },
+        {
+          "name": "Hugging Face Transformers (SAM 3)",
+          "author": "The HuggingFace Team and Meta Platforms, Inc.",
+          "used_for": "The SAM 3 model code behind Develop's object masks, ported from Python/PyTorch to Rust on candle (crates/lc-segment).",
+          "upstream": "src/transformers/models/sam3, sam3_tracker",
+          "ours": "crates/lc-segment",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-NOTICE"
+          ],
+          "url": "https://github.com/huggingface/transformers"
+        },
+        {
+          "name": "Krita AI Diffusion",
+          "author": "Acly and the Krita AI Diffusion contributors",
+          "used_for": "Per-architecture ComfyUI workflow construction, inpaint geometry, prompt conventions and style presets of the AI tools.",
+          "ours": "crates/li-ai/src/{builders,inpaint,custom,presets}.rs, crates/li-ai/families/*.json",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/Acly/krita-ai-diffusion"
+        },
+        {
+          "name": "ComfyUI",
+          "author": "comfyanonymous and contributors",
+          "used_for": "The image-generation server the AI tools talk to over its HTTP API (installed separately; no ComfyUI code is included).",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/comfyanonymous/ComfyUI"
+        },
+        {
+          "name": "SwarmUI and InvokeAI",
+          "author": "mcmonkeyprojects; Invoke",
+          "used_for": "Ideas only (no code): the Model Browser's layout and describing model architectures as data.",
+          "licence": "MIT; Apache-2.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/mcmonkeyprojects/SwarmUI"
+        },
+        {
+          "name": "hayro-ccitt bounded decoder adaptation",
+          "version": "0.3.0",
+          "author": "The Hayro Authors",
+          "used_for": "Bounded, cancellable Group 3/4 fax admission before PDF rendering; adapted code is detailed in docs/PORTS.md.",
+          "commit": "4ad1532e1cd719170c4f4baf669f13ec0f406abb",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/hayro-ccitt-MIT.txt"
+          ],
+          "url": "https://github.com/LaurenzV/hayro/tree/4ad1532e1cd719170c4f4baf669f13ec0f406abb/hayro-ccitt"
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data",
+      "entries": [
+        {
+          "name": "LensFun database",
+          "author": "The LensFun community (Andrew Zabolotny, Klaus Post and contributors)",
+          "used_for": "Lens calibrations for Develop \u203a Optics \u203a Lens Profile (built into the app through the lensfun crate).",
+          "licence": "CC-BY-SA-3.0",
+          "licence_files": [
+            "licenses/lensfun-NOTICE.md"
+          ],
+          "url": "https://lensfun.github.io/"
+        },
+        {
+          "name": "Camera colour profile ILCE-7M4",
+          "author": "Harald Hoyer",
+          "used_for": "Colour matrix and hue/saturation/value table for the Sony \u03b17 IV, fitted to the contributor's own photos (assets/camera-profiles).",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "assets/ATTRIBUTION-lightcraft.md"
+          ]
+        },
+        {
+          "name": "ComfyUI workflow templates",
+          "author": "Comfy Org",
+          "used_for": "Ten templates and their thumbnails as test fixtures; at run time the Model Browser reads them from the connected ComfyUI.",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/comfyui-workflow-templates-LICENSE"
+          ],
+          "url": "https://github.com/Comfy-Org/workflow_templates"
+        },
+        {
+          "name": "ComfyUI-Manager model list",
+          "author": "ltdrdata and contributors",
+          "used_for": "Read at run time as a community catalogue of models (not included).",
+          "licence": "GPL-3.0",
+          "licence_files": [
+            "licenses/model-system-NOTICE.md"
+          ],
+          "url": "https://github.com/ltdrdata/ComfyUI-Manager"
+        },
+        {
+          "name": "CIE 1931 standard colorimetric observer (2 degree)",
+          "author": "CIE 2019, International Commission on Illumination, Vienna, AT",
+          "used_for": "Whole 471-row observer dataset for DNG IlluminantData spectral whites; CIE 018:2019 Table 6, DOI 10.25039/CIE.DS.xvudnb9b. CSV and metadata retained unmodified.",
+          "ours": "crates/lc-raw/data/color/",
+          "licence": "CC-BY-SA-4.0 (separate data work)",
+          "licence_files": [
+            "licenses/cie-NOTICE.md",
+            "licenses/cie-LICENSE-CC-BY-SA-4.0.txt"
+          ],
+          "url": "https://doi.org/10.25039/CIE.DS.xvudnb9b"
+        }
+      ]
+    },
+    {
+      "id": "models",
+      "title": "AI models",
+      "intro": "Downloaded only when you ask for them, never shipped with Local Image. Each model keeps its own licence.",
+      "entries": [
+        {
+          "name": "FBCNN \u00b7 JPEG cleanup",
+          "used_for": "FBCNN \u00b7 JPEG cleanup at original resolution; applies on a new layer. Automatic quality-factor prediction; the core node has no quality-factor input.",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-fbcnn-LICENSE.txt"
+          ],
+          "url": "https://github.com/jiaxi-jiang/FBCNN/blob/main/LICENSE",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        },
+        {
+          "name": "SCUNet-real \u00b7 Scan cleanup",
+          "used_for": "SCUNet-real \u00b7 Scan cleanup at original resolution; applies on a new layer. PSNR-trained real-image cleanup; no GAN weights.",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-scunet-LICENSE.txt"
+          ],
+          "url": "https://github.com/cszn/SCUNet/blob/main/LICENSE",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        },
+        {
+          "name": "NAFNet-SIDD \u00b7 Denoise",
+          "used_for": "NAFNet-SIDD \u00b7 Denoise at original resolution; applies on a new layer. SIDD real smartphone denoising, width 64.",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/restoration-nafnet-LICENSE.txt"
+          ],
+          "url": "https://github.com/megvii-research/NAFNet/blob/main/LICENSE",
+          "ours": "crates/li-ai/src/restoration.rs; crates/li-ai/families/restoration.json"
+        },
+        {
+          "name": "DDColor \u00b7 Colourise",
+          "used_for": "Apache-2.0 relicensed Hugging Face tiny weights only, pinned revision e9e7b527709c8aeb2f5e1bf701e72fd468a13baa. Verified FP32 ONNX export runs on-device in Rust through tract; original Lab luminance and alpha are preserved.",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/restoration-ddcolor-LICENSE.txt"
+          ],
+          "url": "https://huggingface.co/piddnad/DDColor-models/blob/e9e7b527709c8aeb2f5e1bf701e72fd468a13baa/README.md",
+          "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
+        },
+        {
+          "name": "Microsoft scratch detector \u00b7 Repair old photo",
+          "used_for": "MIT one-channel UNet from the official v1.0 release; verified FP32 ONNX export. Scratch mask reviewed in AI Remove before filling; optional DDColor preview after a successful repair. No dlib or face stage.",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/restoration-scratches-LICENSE.txt",
+            "licenses/restoration-scratches-NOTICE.md"
+          ],
+          "url": "https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life/blob/33875eccf4ebcd3665cf38cc56f3a0ce563d3a9c/LICENSE",
+          "ours": "crates/li-seg/src/restoration.rs; crates/pc-ui-egui/src/restoration_ui.rs; scripts/export_restore_models.py"
+        },
+        {
+          "name": "LaMa \u00b7 On-device",
+          "author": "Samsung Research; Carve-Photos ONNX export",
+          "used_for": "On-device AI Remove in Compositing and Develop: unmodified FP32 big-LaMa ONNX through tract, with brush \u2192 adjust \u2192 confirm and the existing undo/patch store. Downloaded separately; no weights bundled.",
+          "licence": "Apache-2.0",
+          "licence_files": [
+            "licenses/lama-Apache-2.0.txt",
+            "licenses/lama-NOTICE.md"
+          ],
+          "url": "https://huggingface.co/Carve/LaMa-ONNX/tree/c3c0c9e468934d62e79c329e35d82dd09ff8c444",
+          "ours": "crates/li-seg/src/lama.rs; crates/li-ai/src/ops.rs"
+        }
+      ]
+    },
+    {
+      "id": "assets",
+      "title": "Assets",
+      "entries": [
+        {
+          "name": "Local Image tool icons (originals)",
+          "author": "Local Image contributors",
+          "used_for": "24 tool icons with no existing equivalent (Content-Aware Move, Quick Selection, Sponge, History Brush, Magnetic Lasso, Spot Healing, Slice Select, the Liquify Freeze/Thaw/Reconstruct All family, the Skin Tone and Defringe pickers and eight vector shape/transform tools), drawn to Lucide's rules: 24 px grid, 2 px round stroke, no fills. List and hashes in assets/icons/source-manifest.json and assets/icons/SOURCES.md.",
+          "ours": "assets/icons/tools (set local-image in source-manifest.json)",
+          "licence": "GPL-3.0-or-later",
+          "licence_files": [
+            "LICENSE",
+            "assets/icons/SOURCES.md"
+          ]
+        },
+        {
+          "name": "Lucide tool icons",
+          "version": "0.468.0",
+          "author": "Lucide contributors; Cole Bemis (Feather)",
+          "used_for": "92 tool icons and the Library/Develop interface icons, unchanged upstream files (Path Selection adds a solid fill, the Photoshop convention). Three newer Lucide icons (spline-pointer and VectorCraft's pen-tool add/delete badges) come from lucide-static 1.49.0 as vendored by VectorCraft. See assets/icons/SOURCES.md.",
+          "upstream": "icons/<name>.svg",
+          "commit": "f12b0de177fbc2a6795e99be065887e72b237123",
+          "ours": "assets/icons/tools; assets/icons/*.svg",
+          "licence": "ISC AND MIT",
+          "licence_files": [
+            "licenses/lucide-ISC.txt",
+            "licenses/feather-MIT.txt"
+          ],
+          "url": "https://github.com/lucide-icons/lucide"
+        },
+        {
+          "name": "PhotoCraft tool icons",
+          "author": "PhotoCraft contributors (Lucide-derived files: Lucide contributors)",
+          "used_for": "Gradient, Layer Mask, Perspective Crop, Direct Selection, Background and Magic Eraser and Spot Removal tool icons, unchanged; the Lucide-derived ones keep Lucide's ISC notice.",
+          "commit": "72b499a28ff8f089fecc87963561e32ec272ec26",
+          "ours": "assets/icons/tools (set photocraft in source-manifest.json); assets/icons/star-filled.svg",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/lucide-ISC.txt"
+          ],
+          "url": "https://github.com/storytold/photocraft"
+        },
+        {
+          "name": "VectorCraft tool icons",
+          "author": "VectorCraft contributors",
+          "used_for": "37 original dc-* Illustrator-style tool icons (warp family, pathfinder and type tools, Rotate View and others), unchanged except Twirl CCW, which mirrors dc-twirl.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "assets/icons/tools (set vectorcraft in source-manifest.json)",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        },
+        {
+          "name": "Tabler Icons",
+          "version": "3.44.0",
+          "author": "Pawe\u0142 Kuna",
+          "used_for": "Three outline tool icons Lucide 0.468 lacks: Polygonal Lasso (lasso-polygon), Guided Upright (perspective) and Spiral (spiral), unchanged.",
+          "ours": "assets/icons/tools/{pentagon,guided-upright,vector-spiral}.svg",
+          "licence": "MIT",
+          "licence_files": [
+            "licenses/tabler-icons-MIT.txt"
+          ],
+          "url": "https://github.com/tabler/tabler-icons"
+        },
+        {
+          "name": "Inter",
+          "version": "4.001",
+          "author": "The Inter Project Authors (Rasmus Andersson)",
+          "used_for": "The interface font.",
+          "licence": "OFL-1.1",
+          "licence_files": [
+            "assets/fonts/OFL-Inter.txt"
+          ],
+          "url": "https://github.com/rsms/inter"
+        },
+        {
+          "name": "JetBrains Mono",
+          "version": "2.305",
+          "author": "The JetBrains Mono Project Authors",
+          "used_for": "The font for numbers and code.",
+          "licence": "OFL-1.1",
+          "licence_files": [
+            "assets/fonts/OFL-JetBrainsMono.txt"
+          ],
+          "url": "https://github.com/JetBrains/JetBrainsMono"
+        },
+        {
+          "name": "Lucide icons",
+          "author": "Lucide Icons and Contributors",
+          "used_for": "Toolbar and panel icons (assets/icons), some adapted with added marks.",
+          "licence": "ISC",
+          "licence_files": [
+            "assets/icons/LICENSE-lucide.txt"
+          ],
+          "url": "https://github.com/lucide-icons/lucide"
+        },
+        {
+          "name": "Feather icons",
+          "author": "Cole Bemis",
+          "used_for": "The Lucide icons derived from Feather (check, chevrons, search, trash, zoom and others).",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/icons/LICENSE-lucide.txt"
+          ],
+          "url": "https://github.com/feathericons/feather"
+        },
+        {
+          "name": "SCOWL English word list",
+          "version": "2020.12.07, size 50, en_US",
+          "author": "Kevin Atkinson and the SCOWL contributors",
+          "used_for": "The dictionary of Check Spelling.",
+          "licence": "SCOWL licence (permissive)",
+          "licence_files": [
+            "assets/dict/LICENSE-SCOWL.txt"
+          ],
+          "url": "http://wordlist.aspell.net/"
+        },
+        {
+          "name": "PhotoCraft Coated CMYK ICC profile",
+          "author": "PhotoCraft contributors (generated by photocraft-cms)",
+          "used_for": "The built-in CMYK profile; the other built-in profiles and LUT looks are generated by code.",
+          "licence": "CC0-1.0",
+          "licence_files": [
+            "licenses/photocraft-ATTRIBUTION.md"
+          ]
+        },
+        {
+          "name": "BIZ UDPGothic, BIZ UDMincho, Shippori Mincho, Noto Sans CJK SC, Noto Sans Arabic and Noto Sans Thai (craft-fonts)",
+          "author": "The BIZ UDGothic and BIZ UDMincho Project Authors (Morisawa); The Shippori Mincho Project Authors; The Noto Project Authors (Adobe, Google and contributors)",
+          "used_for": "Japanese, Simplified Chinese, Arabic and Thai UI/type fallback in desktop builds using the pinned craft-fonts input; all official desktop releases.",
+          "licence": "OFL-1.1",
+          "url": "https://github.com/storytold/craft-fonts/blob/3d9ab3a132ed0eff457e424226a435a901da30d3/ATTRIBUTION.md",
+          "commit": "3d9ab3a132ed0eff457e424226a435a901da30d3",
+          "licence_files": [
+            "licenses/OFL-shippori-mincho.txt",
+            "licenses/OFL-biz-ud-pgothic.txt",
+            "licenses/OFL-biz-ud-mincho.txt",
+            "licenses/OFL-noto-sans-cjk-sc.txt",
+            "licenses/OFL-noto-sans-arabic.txt",
+            "licenses/OFL-noto-sans-thai.txt",
+            "licenses/craft-fonts-NOTICE.md"
+          ]
+        },
+        {
+          "name": "Brush importer test artwork",
+          "author": "rubberduck; Krita resource artists; Jay Versluis; Martin Renold and the MyPaint team",
+          "used_for": "Small CC0 fixtures validating GIMP, Krita, Procreate and MyPaint brush pack import.",
+          "licence": "CC0-1.0",
+          "licence_files": [
+            "crates/pc-io/tests/fixtures/brushes/LICENSE-CC0.txt",
+            "crates/pc-io/tests/fixtures/brushes/LICENSE-VERSLUIS.txt",
+            "crates/pc-io/tests/fixtures/brushes/SOURCES.md"
+          ],
+          "url": "https://github.com/zdbosoxfan/local-image",
+          "ours": "crates/pc-io/tests/fixtures/brushes"
+        }
+      ]
+    },
+    {
+      "id": "upstream",
+      "title": "Upstream projects Local Image grew from",
+      "entries": [
+        {
+          "name": "LightCraft",
+          "author": "ArtCraft Team and the LightCraft contributors",
+          "used_for": "The photo library, raw developer and Develop module (the lc-* crates).",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/lightcraft-NOTICE",
+            "licenses/lightcraft-LICENSE-MIT",
+            "licenses/lightcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-lightcraft.md"
+          ],
+          "url": "https://getartcraft.com"
+        },
+        {
+          "name": "PhotoCraft",
+          "author": "ArtCraft Team and the PhotoCraft contributors",
+          "used_for": "The layered editor of the Compositing module (the pc-* crates).",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/photocraft-NOTICE",
+            "licenses/photocraft-LICENSE-MIT",
+            "licenses/photocraft-LICENSE-APACHE",
+            "licenses/photocraft-ATTRIBUTION.md"
+          ],
+          "url": "https://github.com/storytold/photocraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "The vector appearance and live-group data designs, adapted to Local Image's layers and paint model.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-NOTICE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        },
+        {
+          "name": "VectorCraft",
+          "author": "ArtCraft Team and the VectorCraft contributors",
+          "used_for": "Curve geometry, boolean and Pathfinder operations, shape builder, offsets, outline stroke and path editing, adapted to Local Image documents.",
+          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "ours": "crates/pc-pathops",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-NOTICE",
+            "assets/ATTRIBUTION-vectorcraft.md"
+          ],
+          "url": "https://github.com/storytold/vectorcraft"
+        }
+      ]
+    },
+    {
+      "id": "crates",
+      "title": "Rust crates",
+      "intro": "Every crate compiled into Local Image on any platform, from Cargo.lock.",
+      "entries": []
+    },
+    {
+      "id": "swatch-libraries",
+      "title": "Swatch Libraries",
+      "entries": [
+        {
+          "name": "Open Color",
+          "author": "yeun/open-color",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/palettes/open-color-LICENSE.txt"
+          ],
+          "url": "https://github.com/yeun/open-color",
+          "commit": "3a716ee1f5ff5456db33cb8a6e964afdca1e7bc3",
+          "upstream": "open-color.json",
+          "ours": "assets/palettes/open-color.gpl",
+          "used_for": "Bundled swatch library; original source and licence retained."
+        },
+        {
+          "name": "CSS Named Colours",
+          "author": "colorjs/color-name",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/palettes/color-name-LICENSE.txt"
+          ],
+          "url": "https://github.com/colorjs/color-name",
+          "commit": "9ec3195524951f58bc1d33797fccc0f8ecfe070c",
+          "upstream": "index.js",
+          "ours": "assets/palettes/color-name.gpl",
+          "used_for": "Bundled swatch library; original source and licence retained."
+        },
+        {
+          "name": "Tailwind CSS colours",
+          "author": "Tailwind Labs",
+          "licence": "MIT",
+          "licence_files": [
+            "assets/palettes/tailwind-LICENSE.txt"
+          ],
+          "url": "https://github.com/tailwindlabs/tailwindcss",
+          "commit": "4f9f603e12b51cc53b8a09c7739b8f88c8eb87eb",
+          "upstream": "src/public/colors.js (v3.4.17)",
+          "ours": "assets/palettes/tailwind.gpl",
+          "used_for": "Bundled swatch library; original source and licence retained."
+        }
+      ],
+      "intro": "Open-source colour libraries. Starter and web-safe sets are generated by Local Image (GPL-3.0-or-later)."
+    }
+  ]
+}

@@ -1,0 +1,630 @@
+    Blocking waiting for file lock on build directory
+    Checking cfg-if v1.0.5
+    Checking once_cell v1.21.4
+    Checking log v0.4.34
+    Checking memchr v2.8.3
+    Checking linux-raw-sys v0.12.1
+    Checking either v1.18.0
+    Checking serde_core v1.0.229
+    Checking libc v0.2.189
+    Checking libm v0.2.16
+    Checking crossbeam-utils v0.8.23
+    Checking simd-adler32 v0.3.10
+    Checking foldhash v0.2.0
+   Compiling syn v2.0.119
+    Checking bytemuck v1.25.2
+    Checking thiserror v2.0.21
+    Checking adler2 v2.0.1
+    Checking itoa v1.0.18
+    Checking equivalent v1.0.2
+    Checking rand_core v0.10.1
+    Checking zmij v1.0.23
+    Checking crc32fast v1.5.2
+   Compiling generic-array v0.14.7
+    Checking typenum v1.20.1
+    Checking miniz_oxide v0.9.1
+    Checking miniz_oxide v0.8.9
+    Checking pin-project-lite v0.2.17
+    Checking subtle v2.6.1
+    Checking zune-core v0.5.3
+    Checking fdeflate v0.3.7
+    Checking crossbeam-epoch v0.9.21
+    Checking allocator-api2 v0.2.21
+    Checking libloading v0.8.9
+    Checking quick-error v2.0.1
+    Checking const-oid v0.9.6
+    Checking scopeguard v1.2.0
+    Checking zune-jpeg v0.5.15
+    Checking pxfm v0.1.30
+    Checking weezl v0.1.12
+    Checking crossbeam-deque v0.8.8
+    Checking lock_api v0.4.14
+    Checking color_quant v1.1.0
+    Checking byteorder-lite v0.1.0
+    Checking flate2 v1.1.10
+    Checking hashbrown v0.16.1
+    Checking hashbrown v0.17.1
+    Checking nom v8.0.0
+    Checking rayon-core v1.13.0
+    Checking getrandom v0.4.3
+    Checking qoi v0.4.1
+    Checking num-traits v0.2.19
+    Checking gif v0.14.2
+    Checking image-webp v0.2.4
+    Checking dlib v0.5.3
+    Checking unicode-ident v1.0.26
+    Checking spin v0.9.9
+    Checking anyhow v1.0.104
+    Checking cpufeatures v0.2.17
+    Checking wayland-sys v0.31.11
+    Checking typeid v1.0.3
+    Checking memmap2 v0.9.11
+    Checking itertools v0.15.0
+    Checking rayon v1.12.0
+    Checking lazy_static v1.5.0
+    Checking tracing-core v0.1.36
+    Checking rawpointer v0.2.1
+    Checking cpufeatures v0.3.1
+    Checking dyn-clone v1.0.20
+    Checking downcast-rs v2.0.2
+    Checking maplit v1.0.2
+    Checking dyn-hash v1.0.0
+    Checking inventory v0.3.25
+    Checking matrixmultiply v0.3.11
+    Checking bytes v1.12.1
+    Checking strength_reduce v0.2.4
+    Checking bit-vec v0.10.1
+    Checking byteorder v1.5.0
+    Checking num-integer v0.1.47
+    Checking num-complex v0.4.6
+    Checking stable_deref_trait v1.2.1
+    Checking serde v1.0.229
+    Checking bitflags v2.13.2
+    Checking serde_json v1.0.151
+    Checking indexmap v2.14.2
+    Checking bit-set v0.11.1
+    Checking erased-serde v0.4.10
+    Checking anymap3 v1.1.0
+    Checking filetime v0.2.29
+    Checking num-bigint v0.4.8
+    Checking rustix v1.1.5
+    Checking png v0.18.1
+    Checking ndarray v0.17.2
+    Checking primal-check v0.3.4
+    Checking transpose v0.2.3
+    Checking static_assertions v1.1.0
+    Checking smallvec v1.16.2
+    Checking arrayvec v0.7.8
+    Checking string-interner v0.20.0
+    Checking rustfft v6.4.1
+    Checking lightcraft-geom v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-geom)
+    Checking parking_lot_core v0.9.12
+    Checking same-file v1.0.6
+    Checking getrandom v0.3.4
+    Checking chacha20 v0.10.2
+    Checking photocraft-geom v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-geom)
+    Checking walkdir v2.5.0
+    Checking lightcraft-color v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-color)
+    Checking raw-window-handle v0.6.2
+    Checking parking_lot v0.12.5
+    Checking float-ord v0.3.2
+    Checking rand v0.10.3
+    Checking unicode-width v0.2.2
+    Checking rustc-hash v1.1.0
+    Checking bit-vec v0.9.1
+    Checking spirv v0.4.0+sdk-1.4.341.0
+    Checking moxcms v0.8.1
+    Checking naga-types v30.0.1
+    Checking ash v0.38.0+1.3.281
+    Checking codespan-reporting v0.13.1
+    Checking photocraft-cms v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-cms)
+    Checking num-rational v0.4.2
+    Checking presser v0.3.1
+    Checking bit-set v0.10.0
+    Checking wgpu-types v30.0.1
+    Checking lightcraft-raster v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-raster)
+    Checking nom-language v0.1.0
+    Checking siphasher v1.0.4
+    Checking khronos-egl v6.0.0
+    Checking rand_distr v0.6.0
+    Checking ordered-float v5.5.0
+    Checking glow v0.17.0
+    Checking renderdoc-sys v1.1.0
+    Checking lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-develop)
+    Checking uuid v1.26.1
+    Checking polycool v0.4.0
+    Checking regex-syntax v0.8.11
+    Checking lightcraft-scenes v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-scenes)
+    Checking getrandom v0.2.17
+    Checking kurbo v0.13.1
+    Checking photocraft-color v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-color)
+    Checking fastrand v2.5.0
+    Checking pollster v1.0.1
+    Checking alloc-no-stdlib v2.0.4
+    Checking rand_core v0.6.4
+    Checking base64ct v1.8.3
+    Checking slab v0.4.12
+    Checking alloc-stdlib v0.2.4
+    Checking photocraft-raster v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-raster)
+    Checking rand_core v0.9.5
+    Checking as-slice v0.2.1
+    Checking brotli-decompressor v5.0.3
+    Checking pem-rfc7468 v0.7.0
+    Checking futures-core v0.3.34
+    Checking aligned v0.4.3
+    Checking no_std_io2 v0.9.4
+    Checking rgb v0.8.53
+    Checking web-time v1.1.0
+    Checking y4m v0.8.0
+    Checking roxmltree v0.20.0
+    Checking bitstream-io v4.10.0
+    Checking maybe-rayon v0.1.1
+    Checking font-types v0.12.5
+    Checking lightcraft-tiff v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-tiff)
+    Checking quick-xml v0.38.4
+    Checking itertools v0.14.0
+    Checking imgref v1.12.3
+    Checking new_debug_unreachable v1.0.6
+    Checking linebender_resource_handle v0.1.1
+    Checking zerofrom v0.1.8
+    Checking avif-serialize v0.8.9
+    Checking loop9 v0.1.5
+    Checking aho-corasick v1.1.5
+    Checking jpeg-encoder v0.7.1
+    Checking scoped-tls v1.0.1
+    Checking downcast-rs v1.2.1
+    Checking yoke v0.8.3
+    Checking read-fonts v0.41.0
+    Checking jpeg-decoder v0.3.2
+    Checking moxcms v0.9.1
+    Checking base64 v0.22.1
+    Checking lightcraft-meta v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-meta)
+    Checking ttf-parser v0.25.1
+    Checking futures-io v0.3.34
+    Checking hex v0.4.3
+    Checking percent-encoding v2.3.2
+    Checking xattr v1.6.1
+    Checking wayland-backend v0.3.17
+    Checking polling v3.11.0
+    Checking parking v2.2.1
+    Checking fearless_simd v0.4.1
+    Checking lightcraft-pipeline v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-pipeline)
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+    Checking tar v0.4.46
+    Checking ab_glyph_rasterizer v0.1.10
+    Checking lightcraft-preview v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-preview)
+    Checking photocraft-algo v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-algo)
+    Checking photocraft-doc v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-doc)
+    Checking regex-automata v0.4.18
+    Checking ff v0.13.1
+    Checking base16ct v0.2.0
+   Compiling semver v1.0.28
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+    Checking group v0.13.0
+    Checking lightcraft-raw v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-raw)
+    Checking lightcraft-catalog v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-catalog)
+    Checking wayland-client v0.31.15
+    Checking zerovec v0.11.8
+    Checking opaque-debug v0.3.1
+   Compiling rustc_version v0.4.1
+    Checking proc-macro2 v1.0.107
+    Checking winnow v1.0.4
+    Checking owned_ttf_parser v0.25.1
+    Checking untrusted v0.9.0
+    Checking writeable v0.6.4
+    Checking quote v1.0.47
+    Checking wayland-protocols v0.32.13
+    Checking ab_glyph v0.2.32
+   Compiling curve25519-dalek v4.1.3
+    Checking event-listener v5.4.2
+    Checking float-cmp v0.9.0
+    Checking concurrent-queue v2.5.0
+   Compiling num-bigint-dig v0.8.6
+   Compiling rustls v0.23.45
+    Checking regex v1.13.1
+    Checking event-listener-strategy v0.5.4
+    Checking strict-num v0.1.1
+    Checking syn v3.0.6
+    Checking httparse v1.10.1
+    Checking tinystr v0.8.4
+    Checking futures-lite v2.6.1
+    Checking http v1.5.0
+    Checking num-iter v0.1.46
+    Checking lensfun v0.7.0
+    Checking euclid v0.22.14
+    Checking color v0.3.3
+    Checking arrayref v0.3.9
+    Checking litemap v0.8.3
+    Checking rustc-hash v2.1.3
+    Checking potential_utf v0.1.6
+    Checking zerotrie v0.2.5
+    Checking icu_locale_core v2.3.0
+    Checking zcheapstr v1.1.0
+    Checking guillotiere v0.7.0
+    Checking option-ext v0.2.0
+    Checking base64 v0.23.1
+    Checking peniko v0.6.1
+    Checking endi v1.1.1
+    Checking emath v0.36.2
+    Checking dirs-sys v0.5.0
+    Checking errno v0.3.14
+    Checking vello_common v0.1.0
+    Checking utf-8 v0.7.6
+    Checking ascii v1.1.0
+    Checking ureq-proto v0.6.4
+    Checking utf8-zero v0.8.1
+    Checking utf8_iter v1.0.4
+    Checking async-task v4.7.1
+    Checking data-encoding v2.11.1
+    Checking httpdate v1.0.3
+    Checking chunked_transfer v1.5.0
+    Checking ecolor v0.36.2
+    Checking icu_collections v2.3.0
+    Checking dirs v6.0.0
+    Checking signal-hook-registry v1.4.8
+    Checking tiny_http v0.12.0
+    Checking icu_provider v2.3.1
+    Checking async-io v2.6.0
+    Checking unicode-general-category v1.1.0
+    Checking async-channel v2.5.0
+    Checking self_cell v1.3.0
+    Checking unicode-segmentation v1.13.3
+    Checking vello_cpu v0.1.0
+    Checking atomic-waker v1.1.2
+    Checking nohash-hasher v0.2.0
+    Checking epaint_default_fonts v0.36.2
+    Checking futures-sink v0.3.34
+    Checking tiny-skia-path v0.11.4
+    Checking piper v0.2.5
+    Checking async-signal v0.2.14
+    Checking async-lock v3.4.2
+    Checking phf_shared v0.13.1
+    Checking kurbo v0.11.3
+    Checking ron v0.12.2
+    Checking raw-cpuid v11.6.0
+    Checking reborrow v0.5.5
+    Checking pulp-wasm-simd-flag v0.1.1
+    Checking blocking v1.7.0
+    Checking futures-channel v0.3.34
+    Checking icu_properties_data v2.3.0
+    Checking async-process v2.5.0
+    Checking icu_locale_fallback_data v2.3.0
+    Checking zvariant_utils v4.2.0
+    Checking async-executor v1.14.0
+    Checking async-broadcast v0.7.2
+    Checking ordered-stream v0.2.0
+    Checking zune-inflate v0.2.54
+    Checking simplecss v0.2.2
+    Checking xcursor v0.3.11
+    Checking data-url v0.3.2
+    Checking pico-args v0.5.0
+    Checking svgtypes v0.15.3
+    Checking xkeysym v0.2.1
+    Checking linux-raw-sys v0.4.15
+    Checking lebe v0.5.3
+    Checking bit_field v0.10.3
+    Checking twox-hash v2.1.4
+    Checking futures-task v0.3.34
+    Checking cursor-icon v1.2.0
+    Checking photocraft-vector v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-vector)
+    Checking xmlwriter v0.1.0
+    Checking imagesize v0.13.0
+    Checking ruzstd v0.9.0
+    Checking wayland-cursor v0.31.14
+    Checking futures-util v0.3.34
+    Checking wayland-csd-frame v0.3.0
+    Checking icu_locale_fallback v2.3.0
+    Checking rustix v0.38.44
+    Checking skrifa v0.44.0
+    Checking harfrust v0.12.0
+    Checking icu_properties v2.3.0
+    Checking usvg v0.45.1
+    Checking icu_segmenter_data v2.3.0
+    Checking icu_normalizer_data v2.3.0
+    Checking gethostname v1.1.0
+    Checking tempfile v3.27.0
+    Checking gpu-allocator v0.28.0
+    Checking font-types v0.11.3
+    Checking x11rb-protocol v0.13.2
+    Checking pulp v0.22.3
+    Checking wayland-protocols-wlr v0.3.12
+    Checking as-raw-xcb-connection v1.0.1
+    Checking constant_time_eq v0.4.2
+    Checking parlance v0.1.0
+    Checking jpeg-encoder v0.6.1
+    Checking read-fonts v0.39.2
+    Checking blake3 v1.8.7
+    Checking fontique v0.11.1
+    Checking icu_segmenter v2.3.0
+    Checking parley_data v0.11.1
+    Checking icu_normalizer v2.3.0
+    Checking foldhash v0.1.5
+    Checking bitflags v1.3.2
+   Compiling photocraft-text v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-text)
+    Checking hashbrown v0.15.5
+    Checking photocraft-psd v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-psd)
+    Checking fixedbitset v0.5.7
+    Checking png v0.17.16
+    Checking x11-dl v2.21.0
+    Checking photocraft-compose v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-compose)
+    Checking wayland-protocols-plasma v0.3.12
+    Checking xkbcommon-dl v0.4.2
+    Checking linesweeper v0.4.0
+    Checking petgraph v0.8.3
+   Compiling li-attributions v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-attributions)
+    Checking smol_str v0.2.2
+    Checking hayro-ccitt v0.3.0
+    Checking tiny-skia v0.11.4
+    Checking dpi v0.1.2
+    Checking hayro-jbig2 v0.3.0
+    Checking wayland-protocols-misc v0.3.12
+    Checking parley v0.11.1
+    Checking wayland-protocols-experimental v20250721.0.1
+    Checking hayro-jpeg2000 v0.3.5
+    Checking photocraft-pathops v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-pathops)
+    Checking brotli v8.0.4
+    Checking wasmi_core v2.0.0
+    Checking os_pipe v1.2.3
+    Checking hayro-postscript v0.1.0
+    Checking ryu v1.0.23
+    Checking wasmparser v0.228.0
+    Checking tree_magic_mini v3.2.2
+    Checking tiny-skia-path v0.12.0
+    Checking pdf-writer v0.15.0
+    Checking imagesize v0.14.0
+    Checking hayro-syntax v0.7.2
+    Checking resvg v0.45.1
+    Checking wl-clipboard-rs v0.9.4
+    Checking wasmi_ir v2.0.0
+    Checking xmp-writer v0.3.3
+    Checking bumpalo v3.20.3
+    Checking wasmi_collections v2.0.0
+    Checking type-map v0.5.1
+    Checking photocraft-paint v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-paint)
+    Checking photocraft-raw v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-raw)
+    Checking photocraft-vecfx v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-vecfx)
+    Checking photocraft-ops v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ops)
+    Checking pc-trace v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-trace)
+    Checking is-docker v0.2.0
+   Compiling photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ui-egui)
+    Checking pollster v0.4.0
+    Checking is-wsl v0.4.0
+    Checking rfd v0.17.2
+    Checking open v5.4.4
+    Checking sys-locale v0.3.2
+    Checking toml_parser v1.1.3+spec-1.1.0
+    Checking getopts v0.2.24
+    Checking toml_datetime v1.1.1+spec-1.1.0
+    Checking serde_spanned v1.1.1
+    Checking colored v2.2.0
+    Checking memory-stats v1.2.0
+    Checking wait-timeout v0.2.1
+    Checking quick-error v1.2.3
+    Checking bit-vec v0.8.0
+    Checking fnv v1.0.7
+    Checking rand_xorshift v0.4.0
+    Checking unarray v0.1.4
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+    Checking io-lifetimes v2.0.4
+    Checking io-lifetimes v3.0.1
+    Checking rusty-fork v0.3.1
+    Checking toml v1.1.6+spec-1.1.0
+    Checking mio v1.2.3
+    Checking socket2 v0.6.5
+    Checking bit-set v0.8.0
+    Checking ref-cast v1.0.27
+    Checking fs-set-times v0.20.3
+    Checking io-extras v0.19.0
+    Checking futures-executor v0.3.34
+    Checking rustix-linux-procfs v0.1.1
+    Checking chrono v0.4.45
+    Checking ambient-authority v0.0.2
+    Checking hayro-cmap v0.1.0
+    Checking maybe-owned v0.3.4
+    Checking ipnet v2.12.2
+    Checking tokio v1.53.1
+   Compiling local-image v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/apps/local-image)
+    Checking futures v0.3.34
+    Checking cap-primitives v4.0.3
+    Checking wasmi v2.0.0
+    Checking schemars v1.2.2
+    Checking cap-std v4.0.3
+    Checking skrifa v0.42.1
+    Checking write-fonts v0.48.1
+   Compiling zerocopy-derive v0.8.59
+   Compiling zeroize_derive v1.5.0
+   Compiling fax_derive v0.2.0
+   Compiling tracing-attributes v0.1.31
+   Compiling derive-new v0.7.0
+   Compiling profiling-procmacros v1.0.18
+   Compiling prost-derive v0.14.4
+   Compiling equator-macro v0.4.2
+   Compiling arg_enum_proc_macro v0.3.4
+   Compiling num-derive v0.4.2
+   Compiling enumflags2_derive v0.7.12
+   Compiling enumn v0.1.14
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling phf_macros v0.13.1
+    Checking profiling v1.0.18
+   Compiling async-recursion v1.1.1
+   Compiling thiserror-impl v1.0.69
+    Checking x11rb v0.13.2
+    Checking fax v0.2.6
+    Checking accesskit v0.24.1
+   Compiling enumflags2 v0.7.12
+   Compiling enum-map-derive v0.17.0
+   Compiling zvariant v5.15.0
+    Checking subsetter v0.2.6
+    Checking photocraft-plugins v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-plugins)
+    Checking krilla v0.8.2
+    Checking equator v0.4.2
+    Checking accesskit_consumer v0.36.0
+    Checking aligned-vec v0.6.4
+    Checking accesskit_consumer v0.35.0
+    Checking v_frame v0.3.9
+    Checking tokio-util v0.7.19
+    Checking av1-grain v0.2.5
+    Checking av-scenechange v0.14.1
+    Checking kittest v0.4.0
+    Checking zbus_names v4.3.4
+    Checking photocraft-tablet v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-tablet)
+    Checking rav1e v0.8.1
+    Checking zeroize v1.9.1
+    Checking zbus_xml v5.2.1
+    Checking der v0.7.10
+    Checking rustls-pki-types v1.15.1
+    Checking crypto-common v0.1.7
+    Checking block-buffer v0.10.4
+    Checking inout v0.1.4
+    Checking universal-hash v0.5.1
+    Checking digest v0.10.7
+    Checking crypto-bigint v0.5.5
+    Checking cipher v0.4.4
+    Checking polyval v0.6.2
+    Checking sha2 v0.10.9
+    Checking hmac v0.12.1
+    Checking signature v2.2.0
+    Checking spki v0.7.3
+    Checking hkdf v0.12.4
+    Checking rfc6979 v0.4.0
+    Checking rustls-webpki v0.103.15
+    Checking pkcs5 v0.7.1
+    Checking aead v0.5.2
+    Checking ghash v0.5.1
+    Checking aes v0.8.4
+    Checking ctr v0.9.2
+    Checking pkcs8 v0.10.2
+    Checking chacha20 v0.9.1
+    Checking sec1 v0.7.3
+    Checking ed25519 v2.2.3
+    Checking pkcs1 v0.7.5
+    Checking poly1305 v0.8.0
+    Checking x25519-dalek v2.0.1
+    Checking elliptic-curve v0.13.8
+    Checking aes-gcm v0.10.3
+    Checking ed25519-dalek v2.2.0
+    Checking sha1 v0.10.7
+    Checking webpki-roots v1.0.9
+    Checking rustls-webpki v0.102.8
+    Checking chacha20poly1305 v0.10.1
+    Checking tracing v0.1.44
+    Checking phf v0.13.1
+    Checking zbus-lockstep v0.5.2
+    Checking enum-map v2.7.3
+    Checking ecdsa v0.16.9
+    Checking jxl-bitstream v1.1.0
+    Checking jxl-grid v0.6.2
+    Checking jxl-threadpool v1.0.0
+    Checking primeorder v0.13.6
+    Checking calloop v0.14.4
+    Checking hayro-interpret v0.7.0
+    Checking rmcp v3.5.0
+    Checking jxl-oxide-common v1.0.0
+    Checking jxl-coding v1.0.1
+   Compiling zbus_macros v5.19.0
+    Checking p256 v0.13.2
+    Checking jxl-image v0.13.0
+    Checking prost v0.14.4
+    Checking p384 v0.13.1
+    Checking jxl-modular v0.11.3
+    Checking jxl-color v0.11.0
+    Checking ravif v0.13.0
+    Checking calloop-wayland-source v0.4.1
+    Checking smithay-client-toolkit v0.20.0
+    Checking jxl-vardct v0.11.1
+    Checking thiserror v1.0.69
+    Checking jxl-frame v0.13.3
+    Checking smithay-clipboard v0.7.3
+    Checking zerocopy v0.8.59
+    Checking ureq v3.4.2
+    Checking calloop v0.13.0
+   Compiling zbus-lockstep-macros v0.5.2
+    Checking jxl-render v0.12.4
+    Checking jxl-jbr v0.2.1
+    Checking calloop-wayland-source v0.3.0
+    Checking smithay-client-toolkit v0.19.2
+    Checking jxl-oxide v0.12.6
+    Checking zbus v5.19.0
+    Checking half v2.7.1
+    Checking ppv-lite86 v0.2.21
+    Checking ahash v0.8.12
+    Checking epaint v0.36.2
+    Checking winit v0.30.13
+    Checking rand_chacha v0.9.0
+    Checking rand_chacha v0.3.1
+    Checking tiff v0.11.3
+    Checking tract-data v0.23.8
+    Checking naga v30.0.1
+    Checking exr v1.74.2
+    Checking rand v0.8.8
+    Checking rand v0.9.5
+    Checking tungstenite v0.27.0
+    Checking proptest v1.11.0
+   Compiling tract-linalg v0.23.8
+    Checking image v0.25.10
+    Checking rsa v0.9.10
+    Checking egui v0.36.2
+    Checking rustls-rustcrypto v0.0.2-alpha
+    Checking lightcraft-codecs v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-codecs)
+    Checking photocraft-codecs v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-codecs)
+    Checking arboard v3.6.1
+    Checking photocraft-svg v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-svg)
+    Checking photocraft-pdf v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-pdf)
+    Checking photocraft-affinity v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-affinity)
+    Checking dify v0.8.0
+    Checking photocraft-testkit v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-testkit)
+    Checking lightcraft-merge v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-merge)
+    Checking photocraft-format v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-format)
+    Checking atspi-common v0.13.0
+    Checking tract-core v0.23.8
+    Checking egui_extras v0.36.2
+    Checking wgpu-naga-bridge v30.0.1
+    Checking wgpu-hal v30.0.1
+    Checking atspi-proxies v0.13.0
+    Checking accesskit_atspi_common v0.18.1
+    Checking atspi v0.29.0
+    Checking accesskit_unix v0.21.1
+    Checking wgpu-core-deps-windows-linux-android v30.0.1
+    Checking wgpu-core v30.0.1
+    Checking accesskit_winit v0.32.2
+    Checking egui-winit v0.36.2
+    Checking wgpu v30.0.1
+    Checking egui-wgpu v0.36.2
+    Checking photocraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-gpu)
+    Checking eframe v0.36.2
+    Checking egui_kittest v0.36.2
+    Checking tract-nnef v0.23.8
+    Checking tract-hir v0.23.8
+    Checking tract-extra v0.23.8
+    Checking tract-transformers v0.23.8
+    Checking tract-onnx-opl v0.23.8
+    Checking tract-onnx v0.23.8
+    Checking li-seg v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-seg)
+    Checking lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-gpu)
+    Checking li-ai v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/li-ai)
+error: this `if` statement can be collapsed
+   --> crates/lc-engine/src/cmd/library.rs:177:17
+    |
+177 | /                 if let Some(patch) = &mut spot.patch {
+178 | |                     if patch.geometry == old_geometry {
+179 | |                         patch.geometry.clone_from(&new_geometry);
+180 | |                     }
+181 | |                 }
+    | |_________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+177 ~                 if let Some(patch) = &mut spot.patch
+178 ~                     && patch.geometry == old_geometry {
+179 |                         patch.geometry.clone_from(&new_geometry);
+180 ~                     }
+    |
+
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+error: could not compile `lightcraft-engine` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+error: could not compile `lightcraft-engine` (lib test) due to 1 previous error

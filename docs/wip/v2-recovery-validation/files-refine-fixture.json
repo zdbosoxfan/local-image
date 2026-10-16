@@ -1,0 +1,221 @@
+{
+  "label": "files-refine-fixture",
+  "command": [
+    "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "test",
+    "--offline",
+    "--lib",
+    "-p",
+    "lightcraft-codecs",
+    "-p",
+    "lightcraft-preview",
+    "-p",
+    "lightcraft-raw",
+    "-p",
+    "lightcraft-tiff",
+    "-p",
+    "photocraft-codecs",
+    "-p",
+    "photocraft-engine",
+    "-p",
+    "photocraft-format",
+    "-p",
+    "photocraft-io",
+    "-p",
+    "photocraft-paint",
+    "-p",
+    "photocraft-pdf",
+    "-p",
+    "photocraft-plugins",
+    "-p",
+    "photocraft-psd",
+    "-p",
+    "photocraft-svg",
+    "-p",
+    "photocraft-ui-egui",
+    "--",
+    "draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened",
+    "--nocapture"
+  ],
+  "cwd": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing",
+  "head": "e5f93cd313290378e73fca60cf3e10c0f15d856b",
+  "source_sha256": "27f5007897fdbb03caaadd53d8c1bb7d0828296559e6805262120b3e6cdf0d5a",
+  "cargo_lock_sha256": "dc9d7bea169dea8da5f5195da627507cf3e2486cc5e417d804920f60cffcdeba",
+  "environment": {
+    "RUSTC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "XDG_CONFIG_DIRS": "/home/zdavidson/.config/kdedefaults:/etc/xdg:/usr/share/kde-settings/kde-profile/default/xdg",
+    "RUST_TEST_THREADS": "2",
+    "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER": "/home/zdavidson/.local/share/local-image-dev/bin/li-test-runner",
+    "CARGO_TARGET_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target",
+    "CARGO_PROFILE_DEV_DEBUG": "line-tables-only",
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_BUILD_JOBS": "6",
+    "RUSTC_WRAPPER": "/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate",
+    "XDG_DATA_DIRS": "/home/zdavidson/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share",
+    "CARGO": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/cargo",
+    "RUSTDOC": "/home/zdavidson/.rustup/toolchains/1.98.1-x86_64-unknown-linux-gnu/bin/rustdoc",
+    "LOCAL_IMAGE_DATA_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/local-image",
+    "LOCAL_IMAGE_MODELS_DIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/models",
+    "XDG_CONFIG_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/config",
+    "XDG_DATA_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/data",
+    "XDG_CACHE_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/cache",
+    "XDG_STATE_HOME": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/state",
+    "TMPDIR": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/target/recovery-profiles/files-refine-fixture/tmp",
+    "LIGHTCRAFT_GPU": "1",
+    "LIGHTCRAFT_GPU_BACKEND": "vulkan",
+    "WGPU_BACKEND": "vulkan",
+    "WGPU_POWER_PREF": "high",
+    "LC_REQUIRE_GPU": "1",
+    "LOCAL_IMAGE_REQUIRE_GPU": "1",
+    "LOCAL_IMAGE_COMFY": "127.0.0.1:9"
+  },
+  "started": "2026-10-11T20:38:03.214694+00:00",
+  "log": "/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/docs/wip/v2-recovery-validation/files-refine-fixture.log",
+  "status": "finished",
+  "cargo_finish_lines": [
+    "    Finished `test` profile [optimized + debuginfo] target(s) in 22.82s"
+  ],
+  "test_elapsed_seconds": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    2.09
+  ],
+  "resource_wait_seconds": null,
+  "resource_wait_note": "Pinned compiler gate retained; separate wait telemetry is unavailable, no zero wait inferred.",
+  "exit": 0,
+  "elapsed_seconds": 28.08858864700005,
+  "finished": "2026-10-11T20:38:31.303372+00:00",
+  "log_sha256": "a3d734f3c565081b9982d26c6246535111315ccce6d115cabbc0543afa24db86",
+  "test_summaries": [
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "22"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "12"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "106"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "7"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "36"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "1328"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "33"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "118"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "76"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "1"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "4"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "160"
+    ],
+    [
+      "ok",
+      "0",
+      "0",
+      "0",
+      "0",
+      "12"
+    ],
+    [
+      "ok",
+      "1",
+      "0",
+      "0",
+      "0",
+      "1345"
+    ]
+  ],
+  "counts": {
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "measured": 0,
+    "filtered": 3260
+  }
+}

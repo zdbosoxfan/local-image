@@ -1,0 +1,32 @@
+    Blocking waiting for file lock on build directory
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+    Checking lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+    Checking photocraft-io v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-io)
+    Checking lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+    Checking photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-engine)
+error: this `if` statement can be collapsed
+   --> crates/lc-ui-egui/src/panels/dialogs.rs:642:9
+    |
+642 | /         if exporting {
+643 | |             if let Some(body) = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("export-body-height"))) {
+644 | |                 let overhead = (w.response.rect.height() - body).max(0.0);
+645 | |                 ctx.data_mut(|d| d.insert_temp(egui::Id::new("export-window-overhead"), overhead));
+646 | |             }
+647 | |         }
+    | |_________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+    = note: `-D clippy::collapsible-if` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+    |
+642 ~         if exporting
+643 ~             && let Some(body) = ctx.data(|d| d.get_temp::<f32>(egui::Id::new("export-body-height"))) {
+644 |                 let overhead = (w.response.rect.height() - body).max(0.0);
+645 |                 ctx.data_mut(|d| d.insert_temp(egui::Id::new("export-window-overhead"), overhead));
+646 ~             }
+    |
+
+error: could not compile `lightcraft-ui-egui` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `lightcraft-ui-egui` (lib test) due to 1 previous error

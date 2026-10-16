@@ -1,0 +1,34 @@
+    Blocking waiting for file lock on build directory
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling zerocopy v0.8.59
+   Compiling num-traits v0.2.19
+   Compiling miniz_oxide v0.8.9
+   Compiling serde_json v1.0.151
+   Compiling syn v3.0.6
+   Compiling ppv-lite86 v0.2.21
+   Compiling serde_derive v1.0.229
+   Compiling rand_chacha v0.9.0
+   Compiling proptest v1.11.0
+   Compiling serde v1.0.229
+   Compiling lightcraft-geom v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-geom)
+   Compiling lightcraft-color v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-color)
+   Compiling lightcraft-develop v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-develop)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 04s
+     Running unittests src/lib.rs (target/debug/deps/lightcraft_develop-8c9d69df051a5d25)
+
+running 1 test
+
+thread 'presets::tests::bugfix_develop_copy_discards_photo_bound_mask_pixels' (2436926) panicked at crates/lc-develop/src/presets.rs:298:13:
+assertion failed: component["shape"].get("seg").is_none()
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test presets::tests::bugfix_develop_copy_discards_photo_bound_mask_pixels ... FAILED
+
+failures:
+
+failures:
+    presets::tests::bugfix_develop_copy_discards_photo_bound_mask_pixels
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 32 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p lightcraft-develop --lib`

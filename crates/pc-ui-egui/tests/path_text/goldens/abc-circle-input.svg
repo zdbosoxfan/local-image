@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="256" height="256" viewBox="0 0 256 256">
+  <defs><path id="curve" d="M128 28 C183.22847498 28 228 72.77152502 228 128 C228 183.22847498 183.22847498 228 128 228 C72.77152502 228 28 183.22847498 28 128 C28 72.77152502 72.77152502 28 128 28 Z"/></defs>
+  <text fill="black" font-family="Inter" font-size="20"><textPath xlink:href="#curve" startOffset="25%">ABC</textPath></text>
+</svg>

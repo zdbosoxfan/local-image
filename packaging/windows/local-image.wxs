@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Local Image MSI (WiX Toolset v5: `dotnet tool install -g wix`). Built by package.ps1:
+
+    wix build local-image.wxs -arch x64 -d Version=1.2.3 -d BinDir=... -d IconPath=... -o out.msi
+
+  Per-machine install into Program Files, a Start Menu shortcut, `.pcraft` documents opened by
+  Local Image, and Local Image offered under "Open with" for PSD/PSB and the image formats it reads
+  (without taking over the user's default app for them).
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Local Image"
+      Manufacturer="Local Image contributors"
+      Version="$(var.Version)"
+      UpgradeCode="29A9A1D8-5CAD-45E7-8C98-2B54B978B70A"
+      Scope="perMachine"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="Local Image: image editor with local AI" Manufacturer="Local Image contributors" />
+    <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other
+         (MSI versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of Local Image is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- MSI caches this icon using its Id as the filename. Advertised shortcuts to an
+         .exe need an .exe icon identifier (ICE50), even when the source is an ICO. -->
+    <Icon Id="LocalImageIcon.exe" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="LocalImageIcon.exe" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/zdbosoxfan/local-image" />
+    <Property Id="ARPURLUPDATEINFO" Value="https://github.com/zdbosoxfan/local-image" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/zdbosoxfan/local-image/issues" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Local Image" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="Local Image" Level="1">
+      <ComponentGroupRef Id="LocalImageFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="LocalImageFiles" Directory="INSTALLFOLDER">
+      <Component Id="LocalImageApp" Guid="B9B36F04-B5A2-443A-A530-DD7CB1FCEF8D">
+        <File Id="LocalImageExe" Source="$(var.BinDir)\local-image.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Local Image"
+              Description="Local Image: image editor with local AI" WorkingDirectory="INSTALLFOLDER" Advertise="yes"
+              Icon="LocalImageIcon.exe" IconIndex="0" />
+        </File>
+
+        <!-- .pcraft: the layered document format; Local Image opens it by default. -->
+        <ProgId Id="LocalImage.Document" Description="Local Image Document" Icon="LocalImageExe" IconIndex="0">
+          <Extension Id="pcraft" ContentType="application/x-local-image">
+            <Verb Id="open" Command="Open" TargetFile="LocalImageExe" Argument="&quot;%1&quot;" />
+          </Extension>
+        </ProgId>
+        <!-- PSD/PSB and images: offered under "Open with", never forced as the default. -->
+        <ProgId Id="LocalImage.PhotoshopDocument" Description="Photoshop Document" Icon="LocalImageExe" IconIndex="0" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\LocalImage.PhotoshopDocument\shell\open\command" Value="&quot;[#LocalImageExe]&quot; &quot;%1&quot;" Type="string" />
+        <ProgId Id="LocalImage.Image" Description="Image" Icon="LocalImageExe" IconIndex="0" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\LocalImage.Image\shell\open\command" Value="&quot;[#LocalImageExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.psd\OpenWithProgids" Name="LocalImage.PhotoshopDocument" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.psb\OpenWithProgids" Name="LocalImage.PhotoshopDocument" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.png\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.jpg\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.jpeg\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.tif\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.tiff\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.webp\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.gif\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.bmp\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.tga\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.exr\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.hdr\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.avif\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.qoi\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\.ico\OpenWithProgids" Name="LocalImage.Image" Value="" Type="string" />
+
+        <!-- "Open with" app list and the Run dialog (Win+R "local-image"). -->
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe" Name="FriendlyAppName" Value="Local Image" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\shell\open\command" Value="&quot;[#LocalImageExe]&quot; &quot;%1&quot;" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".pcraft" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".psd" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".psb" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".png" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".jpg" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".jpeg" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".tif" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".tiff" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".webp" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".gif" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".bmp" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".tga" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".exr" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".hdr" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".avif" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".qoi" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Classes\Applications\local-image.exe\SupportedTypes" Name=".ico" Value="" Type="string" />
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\local-image.exe" Value="[#LocalImageExe]" Type="string" />
+      </Component>
+
+      <Component Id="LocalImageCli">
+        <File Id="LocalImageCliExe" Source="$(var.BinDir)\local-image-cli.exe" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

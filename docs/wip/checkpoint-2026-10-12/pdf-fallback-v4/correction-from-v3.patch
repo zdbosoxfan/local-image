@@ -1,0 +1,102 @@
+diff --git a/crates/pc-ui-egui/src/vector_packages/pdf_import.rs b/crates/pc-ui-egui/src/vector_packages/pdf_import.rs
+--- a/crates/pc-ui-egui/src/vector_packages/pdf_import.rs
++++ b/crates/pc-ui-egui/src/vector_packages/pdf_import.rs
+@@ -463,10 +463,8 @@
+     let owns_escape = escape_available(ctx);
+     ctx.input(|i| {
+         !i.focused
+-            || i.raw.events.iter().any(|event| {
+-                matches!(event, Event::WindowFocused(false) | Event::PointerGone)
+-                    || owns_escape && matches!(event, Event::Key { key: Key::Escape, pressed: true, .. })
+-            })
++            || i.raw.events.iter().any(|event| matches!(event, Event::WindowFocused(false) | Event::PointerGone))
++            || owns_escape && i.events.iter().any(|event| matches!(event, Event::Key { key: Key::Escape, pressed: true, .. }))
+     })
+ }
+ fn publication_available(ctx: &Context) -> bool {
+@@ -474,7 +472,9 @@
+     let escape = ctx.input(|i| i.raw.events.iter().any(|event| matches!(event, Event::Key { key: Key::Escape, pressed: true, .. })));
+     !ctx.input(|i| i.pointer.any_down())
+         && focus != crate::shortcut_dispatch::Focus::Text
+-        && !(escape && focus != crate::shortcut_dispatch::Focus::None)
++        // A consumed Escape can have closed another owner earlier in this pass. Hold
++        // publication for the whole pass, but cancel only on an unconsumed owned Escape.
++        && !escape
+         && !egui::Popup::is_any_open(ctx)
+         && ctx.memory(|m| m.top_modal_layer().is_none())
+ }
+@@ -705,10 +705,19 @@
+     Ok(())
+ }
+ /// Shared app hooks registered by 00. They share the app's ordinary canvas/GPU caches.
++fn app_modal_open(app: &crate::PhotocraftApp, ctx: &Context) -> bool {
++    // Match the app-known custom modal ownership used by the shortcut router. These
++    // editors paint after the vector/PDF hook, so egui's previous modal layer is insufficient.
++    !app.ui.dialogs.is_empty()
++        || crate::restoration_ui::is_open(app)
++        || app.camera_raw.is_some()
++        || app.develop_filter.prompting()
++        || app.draft_refine.open && ctx.embed_viewports()
++}
+ pub fn show(app: &mut crate::PhotocraftApp, ctx: &Context) {
+     // PC dialogs are opened before this hook but painted later. Their source state must
+     // reserve the first frame too, before egui has installed a top modal layer.
+-    if !app.ui.dialogs.is_empty() {
++    if app_modal_open(app, ctx) {
+         app.pdf_import.collect_worker();
+         if app.pdf_import.worker.is_some() {
+             ctx.request_repaint_after(std::time::Duration::from_millis(16));
+@@ -743,7 +752,7 @@
+ }
+ pub fn canvas_input(app: &mut crate::PhotocraftApp, response: &egui::Response, xf: &crate::canvas::ViewXform) -> bool {
+     let captured = app.pdf_import.pending();
+-    if !app.ui.dialogs.is_empty() {
++    if app_modal_open(app, &response.ctx) {
+         app.pdf_import.collect_worker();
+         return captured;
+     }
+@@ -1478,4 +1487,43 @@
+         assert_eq!(h.state().session.active().unwrap().doc, before);
+         assert!(h.state().pdf_import.warnings.is_empty());
+     }
+-}
++    #[test]
++    fn first_frame_restore_owns_ready_pdf_until_its_real_escape_close() {
++        let _serial = crate::import_worker::test_serial();
++        let mut app = route_app(None);
++        offer(&mut app, "ready.pdf", &unsupported_pdf()).unwrap();
++        app.pdf_import.choose_image().unwrap();
++        finish_info(&mut app.pdf_import);
++        let before = app.session.active().unwrap().doc.clone();
++        let mut h = Harness::builder().with_size(egui::vec2(1100., 800.)).build_ui_state(
++            |ui, app: &mut crate::PhotocraftApp| {
++                crate::restoration_ui::handle_keys(app, ui.ctx());
++                show(app, ui.ctx());
++                crate::restoration_ui::show(app, ui.ctx());
++            },
++            app,
++        );
++        h.run_steps(2);
++        assert!(!app_modal_open(h.state(), &h.ctx));
++        {
++            let app = h.state_mut();
++            app.pdf_import.begin_worker(&app.session, 1).unwrap();
++            queue_ready(&mut app.pdf_import);
++        }
++        assert!(h.ctx.memory(|m| m.top_modal_layer().is_none()));
++        h.state_mut().run("ai.restore", serde_json::json!({})).unwrap();
++        assert!(crate::restoration_ui::is_open(h.state()));
++        assert!(app_modal_open(h.state(), &h.ctx));
++        h.run_steps(1);
++        assert!(h.state().pdf_import.ready_result.is_some());
++        assert_eq!(h.state().session.active().unwrap().doc, before);
++        h.event(Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
++        h.run_steps(1);
++        assert!(!crate::restoration_ui::is_open(h.state()));
++        assert!(h.state().pdf_import.ready_result.is_some());
++        assert_eq!(h.state().session.active().unwrap().doc, before);
++        h.run_steps(2);
++        assert!(h.state().pdf_import.ready_result.is_none());
++        assert_eq!(h.state().session.active().unwrap().doc.layer_count(), before.layer_count() + 2);
++    }
++}

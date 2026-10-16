@@ -1,0 +1,52 @@
+diff --git a/crates/pc-ui-egui/src/ai_remove_ui.rs b/crates/pc-ui-egui/src/ai_remove_ui.rs
+index 72321bbd..1ba89048 100644
+--- a/crates/pc-ui-egui/src/ai_remove_ui.rs
++++ b/crates/pc-ui-egui/src/ai_remove_ui.rs
+@@ -19,7 +19,8 @@ pub(crate) struct Pending {
+ 
+ fn sync(app: &mut PhotocraftApp) {
+     if app.ai_remove.as_ref().is_some_and(|p| {
+-        app.ui.tool != Tool::AiRemove || !app.session.active().is_some_and(|d| d.doc.id.0 == p.doc && [d.doc.size.width, d.doc.size.height] == p.size)
++        !matches!(app.ui.tool, Tool::AiRemove | Tool::RotateView)
++            || !app.session.active().is_some_and(|d| d.doc.id.0 == p.doc && [d.doc.size.width, d.doc.size.height] == p.size)
+     }) {
+         app.ai_remove = None;
+     }
+@@ -183,6 +184,10 @@ fn remove(app: &mut PhotocraftApp) {
+ 
+ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+     sync(app);
++    // A retained mask is dormant while navigating; its keys belong to Remove only.
++    if app.ui.tool != Tool::AiRemove {
++        return;
++    }
+     let painting = app.drag.as_ref().is_some_and(|d| d.tool == Tool::AiRemove);
+     if (app.ai_remove.is_none() && !painting) || ctx.memory(|m| m.top_modal_layer().is_some()) {
+         return;
+@@ -263,12 +268,9 @@ pub(crate) fn overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &Vie
+         p.dirty = Rect::EMPTY;
+     }
+     if let Some(t) = &p.texture {
+-        let uv = if xf.flip {
+-            egui::Rect::from_min_max(egui::pos2(1.0, 0.0), egui::pos2(0.0, 1.0))
+-        } else {
+-            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0))
+-        };
+-        painter.image(t.id(), xf.doc_rect(Rect::from_xywh(0, 0, p.size[0], p.size[1])), uv, Color32::WHITE);
++        let uv = egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0));
++        let doc = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(p.size[0] as f32, p.size[1] as f32));
++        painter.add(xf.camera().textured_quad(t.id(), doc, uv, Color32::WHITE));
+     }
+ }
+ 
+@@ -301,5 +303,10 @@ thread_local! {
+     static TEST_REMOVE: std::cell::RefCell<Option<Box<dyn FnMut(&mut PhotocraftApp, &serde_json::Value) -> Result<serde_json::Value, String>>>> = const { std::cell::RefCell::new(None) };
+ }
+ 
++#[cfg(test)]
++pub(crate) fn mask_for_test(app: &PhotocraftApp) -> Option<&[u8]> {
++    app.ai_remove.as_ref().map(|p| p.mask.as_slice())
++}
++
+ #[cfg(test)]
+ mod tests;

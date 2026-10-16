@@ -1,0 +1,76 @@
+   Compiling photocraft-doc v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-doc)
+   Compiling photocraft-psd v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-psd)
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling photocraft-vector v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-vector)
+   Compiling photocraft-text v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-text)
+   Compiling photocraft-format v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-format)
+   Compiling pc-trace v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-trace)
+   Compiling photocraft-ops v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-ops)
+   Compiling photocraft-compose v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-compose)
+   Compiling photocraft-pathops v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-pathops)
+   Compiling photocraft-affinity v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-affinity)
+   Compiling photocraft-vecfx v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-vecfx)
+   Compiling photocraft-svg v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-svg)
+   Compiling photocraft-pdf v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-pdf)
+   Compiling photocraft-io v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-io)
+   Compiling photocraft-gpu v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-gpu)
+   Compiling photocraft-testkit v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-testkit)
+   Compiling photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-engine)
+   Compiling photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/pc-ui-egui)
+    Finished `test` profile [optimized + debuginfo] target(s) in 2m 11s
+     Running unittests src/lib.rs (target/debug/deps/photocraft_engine-ead05654226a4901)
+
+running 6 tests
+test vector_cmds::tests::bugfix_vector_flat_export_matches_projected_paints ... ok
+test vector_cmds::tests::bugfix_vector_flatten_and_merge_use_canvas_projection ... ok
+test vector_cmds::tests::bugfix_vector_legacy_paint_edits_update_appearance_and_rasterize_clears_metadata ... ok
+test vector_cmds::tests::bugfix_vector_lock_keeps_global_swatch_links ... ok
+test vector_cmds::tests::bugfix_vector_outline_stroke_refuses_unexpanded_appearance ... ok
+test vector_cmds::tests::bugfix_vector_rasterize_path_effect_bakes_pixels_and_clears_effect ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1346 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/photocraft_text-a8327af9c405bce9)
+
+running 2 tests
+test view::dsfix_tests::dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items ... ok
+test view::tests::bugfix_vector_overlapping_native_text_preserves_run_paint_order ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/photocraft_ui_egui-bb7a5587752aea0b)
+
+running 22 tests
+test ai_remove_ui::tests::bugfix_vector_remove_undo_keeps_document_and_removes_last_stroke ... ok
+test shared_tools::tests::bugfix_vector_path_text_survives_pointer_leaving_and_escape_keeps_text ... ok
+test shared_tools::tests::bugfix_vector_pen_keeps_draft_on_focus_loss_and_finishes_escape ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_actual_object_transform_menu_click ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_closed_document_releases_vector_view_cache ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_design_rectangle_move_bar_exposes_corners ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_escape_in_recolor_text_field_preserves_plan ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_floating_panel_click_does_not_start_pen ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_focus_loss_and_foreign_dialog_preserve_recolor_and_ase ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_menu_transform_numeric_ok_copy_and_undo ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_menu_transforms_survive_production_frames ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_path_dialog_drawn_with_text_focus ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_pixel_polygon_survives_focus_loss ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_place_svg_uses_picker ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_preferences_preset_apply_cancel_and_custom_keys ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_printed_command_and_tool_bindings_match_dispatch ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_puppet_delete_runs_before_generic_clear ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_shared_options_own_nodes_and_live_shapes ... ok
+test vector_integration::bugfix_vector_tests::bugfix_vector_space_pan_does_not_start_pen ... ok
+test vector_transform_tools::tests::bugfix_vector_conversion_prompt_offers_only_executable_action ... ok
+test width::tests::bugfix_vector_width_delete_runs_before_generic_clear ... ok
+test generate_ui::draft_refine::tests::draft_refine_mock_comfy_uses_source_and_library_results_can_be_used_or_opened ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 1345 filtered out; finished in 2.09s
+
+     Running unittests src/lib.rs (target/debug/deps/photocraft_vecfx-e48507197f2faecb)
+
+running 2 tests
+test live_paint::gaps::dsfix_tests::dsfix_curve_bridge_marks_coincident_endpoint_used ... ok
+test live_paint::gaps::dsfix_tests::bugfix_vector_gap_endpoint_curve_ties_reserve_both_ends ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 56 filtered out; finished in 0.00s
+

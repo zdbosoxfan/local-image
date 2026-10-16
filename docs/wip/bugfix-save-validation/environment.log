@@ -1,0 +1,10 @@
+$ cargo --version
+cargo 1.98.1 (797e8a9bc 2026-08-05) (Fedora 1.98.1-1.fc44)
+$ rustc --version
+rustc 1.98.1 (48a229cea 2026-09-01) (Fedora 1.98.1-1.fc44)
+$ cargo clippy --version
+clippy 0.1.98 (48a229ceae 2026-09-01)
+$ git rev-parse HEAD
+c8ca0b63f8be402084d4e85b1c589f4f47f3e94e
+RUSTC_WRAPPER=/home/zdavidson/.local/share/local-image-dev/bin/li-rustc-gate
+CARGO_BUILD_JOBS=<unset>

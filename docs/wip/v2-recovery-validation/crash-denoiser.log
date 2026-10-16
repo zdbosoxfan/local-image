@@ -1,0 +1,9 @@
+   Compiling lightcraft-gpu v2.0.0-alpha.1 (/home/zdavidson/.codex/worktrees/v2-recovery/Local Image - Testing/crates/lc-gpu)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1.96s
+     Running tests/denoise.rs (target/debug/deps/denoise-30bdada8a2f1c793)
+
+running 1 test
+test denoiser_retains_its_device_across_context_release ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3 filtered out; finished in 2.49s
+

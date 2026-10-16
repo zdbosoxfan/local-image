@@ -1,0 +1,87 @@
+[package]
+name = "photocraft-ui-egui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+li-commands = { workspace = true, features = ["egui"] }
+# The shared crash-safe file writer (atomic replace, staged writes).
+li-fs.workspace = true
+li-gpu.workspace = true
+li-keys = { workspace = true, features = ["egui"] }
+# The one translation engine (`tl!`, catalogs, languages).
+li-i18n.workspace = true
+li-ui-kit.workspace = true
+li-color.workspace = true
+photocraft-svg = { workspace = true, features = ["svg-import-integrated"] }
+photocraft-pdf.workspace = true
+photocraft-affinity.workspace = true
+# local-image: AI services and image buffers.
+li-ai = { workspace = true }
+li-seg = { workspace = true }
+li-raster = { path = "../li-raster" }
+li-matte = { path = "../li-matte" }
+# local-image: the detected compute profile shown in Preferences › Performance › Processing.
+lightcraft-sysmem = { workspace = true }
+image = { workspace = true }
+anyhow = { workspace = true }
+# local-image: LightCraft's fast thumbnails (embedded camera previews, DCT-scaled JPEG) for the filmstrip.
+lightcraft-codecs = { workspace = true }
+lightcraft-raw = { workspace = true }
+photocraft-geom = { workspace = true }
+photocraft-color = { workspace = true }
+photocraft-cms = { workspace = true }
+photocraft-raster = { workspace = true }
+photocraft-doc = { workspace = true }
+photocraft-compose = { workspace = true }
+photocraft-gpu = { workspace = true }
+photocraft-engine = { workspace = true, features = ["svg-import-integrated", "pdf-import-integrated"] }
+photocraft-io = { workspace = true }
+photocraft-plugins = { workspace = true }
+photocraft-algo = { workspace = true }
+photocraft-text = { workspace = true }
+photocraft-vector = { workspace = true }
+# Reading files to open them (bounded reads, a clear error for files larger than memory).
+photocraft-format = { workspace = true }
+# Decoding the brand mark's PNG (`brand.rs`); already linked through photocraft-io.
+photocraft-codecs = { workspace = true }
+egui = { workspace = true }
+# The Attributions page (Settings / Preferences / About).
+li-attributions = { workspace = true }
+egui_extras = { version = "0.36", default-features = false, features = ["svg"] }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+base64 = "0.22"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# local-image: folder and file pickers in the AI panels.
+rfd = { workspace = true }
+rayon = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+# tests/it/system_locale.rs asks the platform directly (li-i18n owns the app's detection).
+sys-locale = "=0.3.2"
+
+[dev-dependencies]
+photocraft-pathops = { workspace = true }
+egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
+# Deterministic CPU kittest renderer for UI screenshots (J7).
+li-testkit = { workspace = true, features = ["kittest"] }
+# Benchmark helpers for the `--json` benches `cargo xtask perf` runs (in-process RSS, percentiles).
+photocraft-testkit = { workspace = true }
+# Only for examples/perf_scenarios.rs (a 500-brush .abr for the #210 import row).
+photocraft-psd = { workspace = true }
+
+[build-dependencies]
+serde_json = { workspace = true }
+toml = "1"
+
+[features]
+default = ["pdf-import-integrated"]
+pdf-import-integrated = ["photocraft-engine/pdf-import-integrated"]

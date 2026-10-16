@@ -1,0 +1,204 @@
+{
+  "actions": "select-by-id:a,b;path-union",
+  "case": "near-degenerate-sliver-normal",
+  "execution_actions": "select-by-id:a,b;path-union;export-do",
+  "input_svg": "<!-- Original Local Image synthetic input. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 96 96\">\n<g transform=\"matrix(1 0 0 1 0 0)\" fill-rule=\"nonzero\" fill=\"black\">\n<path id=\"a\" d=\"M40 8 H40.0001 V80 H40 Z\"/><path id=\"b\" d=\"M16 16 H64 V64 H16 Z\"/>\n</g></svg>\n",
+  "normalizer": "usvg 0.45.1 + svgtypes 0.15.3 f64 geometry",
+  "operation": "union",
+  "paths": [
+    {
+      "fill_rule": "NonZero",
+      "inverted": false,
+      "subpaths": [
+        {
+          "closed": true,
+          "knots": [
+            {
+              "anchor": {
+                "x": 40.0,
+                "y": 8.0
+              },
+              "in_ctrl": {
+                "x": 40.0,
+                "y": 8.0
+              },
+              "out_ctrl": {
+                "x": 40.0,
+                "y": 8.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.0,
+                "y": 16.0
+              },
+              "in_ctrl": {
+                "x": 40.0,
+                "y": 16.0
+              },
+              "out_ctrl": {
+                "x": 40.0,
+                "y": 16.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 16.0,
+                "y": 16.0
+              },
+              "in_ctrl": {
+                "x": 16.0,
+                "y": 16.0
+              },
+              "out_ctrl": {
+                "x": 16.0,
+                "y": 16.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 16.0,
+                "y": 64.0
+              },
+              "in_ctrl": {
+                "x": 16.0,
+                "y": 64.0
+              },
+              "out_ctrl": {
+                "x": 16.0,
+                "y": 64.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.0,
+                "y": 64.0
+              },
+              "in_ctrl": {
+                "x": 40.0,
+                "y": 64.0
+              },
+              "out_ctrl": {
+                "x": 40.0,
+                "y": 64.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.0,
+                "y": 80.0
+              },
+              "in_ctrl": {
+                "x": 40.0,
+                "y": 80.0
+              },
+              "out_ctrl": {
+                "x": 40.0,
+                "y": 80.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.00009998679161,
+                "y": 80.0
+              },
+              "in_ctrl": {
+                "x": 40.00009998679161,
+                "y": 80.0
+              },
+              "out_ctrl": {
+                "x": 40.00009998679161,
+                "y": 80.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.00009998679161,
+                "y": 64.0
+              },
+              "in_ctrl": {
+                "x": 40.00009998679161,
+                "y": 64.0
+              },
+              "out_ctrl": {
+                "x": 40.00009998679161,
+                "y": 64.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 64.0,
+                "y": 64.0
+              },
+              "in_ctrl": {
+                "x": 64.0,
+                "y": 64.0
+              },
+              "out_ctrl": {
+                "x": 64.0,
+                "y": 64.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 64.0,
+                "y": 16.0
+              },
+              "in_ctrl": {
+                "x": 64.0,
+                "y": 16.0
+              },
+              "out_ctrl": {
+                "x": 64.0,
+                "y": 16.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.00009998679161,
+                "y": 16.0
+              },
+              "in_ctrl": {
+                "x": 40.00009998679161,
+                "y": 16.0
+              },
+              "out_ctrl": {
+                "x": 40.00009998679161,
+                "y": 16.0
+              },
+              "smooth": false
+            },
+            {
+              "anchor": {
+                "x": 40.00009998679161,
+                "y": 8.0
+              },
+              "in_ctrl": {
+                "x": 40.00009998679161,
+                "y": 8.0
+              },
+              "out_ctrl": {
+                "x": 40.00009998679161,
+                "y": 8.0
+              },
+              "smooth": false
+            }
+          ],
+          "op": "Combine"
+        }
+      ]
+    }
+  ],
+  "source_svg": "<!-- Original Local Image synthetic output. SPDX-License-Identifier: CC0-1.0 -->\n<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 6291456 6291456\" version=\"1.1\" id=\"svg1\">\n  <defs id=\"defs1\" />\n  <g fill-rule=\"nonzero\" fill=\"black\" id=\"g1\">\n    <path id=\"a\" d=\"M 2621440 524288 L 2621440 1048576 L 1048576 1048576 L 1048576 4194304 L 2621440 4194304 L 2621440 5242880 L 2621446.552734375 5242880 L 2621446.552734375 4194304 L 4194304 4194304 L 4194304 1048576 L 2621446.552734375 1048576 L 2621446.552734375 524288 L 2621440 524288 z \" />\n  </g>\n</svg>\n",
+  "tool": "Inkscape 1.4.4"
+}

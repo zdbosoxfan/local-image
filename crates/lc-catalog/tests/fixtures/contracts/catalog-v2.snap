@@ -1,0 +1,61 @@
+{
+  "format": "lightcraft-catalog",
+  "version": 2,
+  "seq": 4,
+  "catalog": {
+    "photos": {
+      "1": {
+        "id": 1,
+        "source": {
+          "type": "file",
+          "path": "/contracts/1.jpg"
+        },
+        "file_name": "1.jpg",
+        "format": "JPEG",
+        "width": 32,
+        "height": 24,
+        "imported": "2026-10-11",
+        "develop": {
+          "light": {
+            "exposure": 1.25
+          },
+          "color": {
+            "vibrance": 15.0
+          },
+          "profile": {
+            "id": "lc.vivid"
+          }
+        },
+        "rating": 4,
+        "flag": "pick",
+        "label": "purple",
+        "meta": {
+          "title": "Contract photo",
+          "keywords": [
+            "birds",
+            "places|海岸"
+          ]
+        }
+      }
+    },
+    "albums": {
+      "1": {
+        "id": 1,
+        "name": "Contract album",
+        "photos": [
+          1
+        ],
+        "cover": 1
+      }
+    },
+    "next_photo": 2,
+    "next_album": 2,
+    "next_stack": 1,
+    "label_names": {
+      "purple": "Deliver"
+    },
+    "browsed": {
+      "/contracts": "2026-10-11"
+    }
+  }
+}

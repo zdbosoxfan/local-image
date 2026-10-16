@@ -1,0 +1,17 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Liquify Freeze All: a frame filled by the freeze snowflake. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <rect width="18" height="18" x="3" y="3" rx="2" />
+  <path d="M12 6.5 12 17.5" />
+  <path d="M7.24 9.25 16.76 14.75" />
+  <path d="M16.76 9.25 7.24 14.75" />
+</svg>

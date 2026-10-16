@@ -1,0 +1,77 @@
+[
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-bugfix-develop/tracked.patch",
+    "sha256": "99ba414dc655d193df28d88382bf7ae22a21c620e1c54ec135736c38710ddf81",
+    "bytes": 3505
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-bugfix-develop/untracked.tar.gz",
+    "sha256": "d298a32863010982c09f4a7567fc84c36c29c5ebbc7d7101e4c8b91f434de39b",
+    "bytes": 14281
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-bugfix-files/tracked.patch",
+    "sha256": "cfbe2c04e8e56a58e7baaa35e81a05d4fab66e8c9b55523b8f7a42d8800e035c",
+    "bytes": 16050
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-bugfix-files/untracked.tar.gz",
+    "sha256": "99b68e883f88de2884f56070a90f136645331028383558f726f9e3c8cfc8b1da",
+    "bytes": 59
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-bugfix-vector/tracked.patch",
+    "sha256": "0e7d1418fc3c26809a144f04e3c6b9adba4741c2132fa09261a949fe2981d631",
+    "bytes": 16665
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-bugfix-vector/untracked.tar.gz",
+    "sha256": "9c488c6d8ef35be1c3eba2e6b216eccbdbca0d1a21862e95af680cefb07c6830",
+    "bytes": 85798
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-contract-tests/tracked.patch",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-contract-tests/untracked.tar.gz",
+    "sha256": "dac52b7211edf79a28b7b97ba1ff1253a28123ebcb9e7addafda57972e8a12cb",
+    "bytes": 32774
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-crash-hunt/tracked.patch",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-crash-hunt/untracked.tar.gz",
+    "sha256": "99b68e883f88de2884f56070a90f136645331028383558f726f9e3c8cfc8b1da",
+    "bytes": 59
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-dsfix-engine/tracked.patch",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-dsfix-engine/untracked.tar.gz",
+    "sha256": "99b68e883f88de2884f56070a90f136645331028383558f726f9e3c8cfc8b1da",
+    "bytes": 59
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-dsfix-libs/tracked.patch",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/codex-dsfix-libs/untracked.tar.gz",
+    "sha256": "99b68e883f88de2884f56070a90f136645331028383558f726f9e3c8cfc8b1da",
+    "bytes": 59
+  },
+  {
+    "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/saved-work-20261011-162017/manifest.json",
+    "sha256": "38c196e6a2811dcdb44d40ecc3a3cfdcfb69ccef8a8f1dadf2602258695096ba",
+    "bytes": 6106
+  }
+]

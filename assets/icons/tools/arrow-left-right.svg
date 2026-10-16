@@ -1,0 +1,23 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Content-Aware Move: a dashed selection moved out along an arrow. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="M3 13a2 2 0 0 1 2-2" />
+  <path d="M11 11a2 2 0 0 1 2 2" />
+  <path d="M13 19a2 2 0 0 1-2 2" />
+  <path d="M5 21a2 2 0 0 1-2-2" />
+  <path d="M7.5 11h1" />
+  <path d="M7.5 21h1" />
+  <path d="M3 15.5v1" />
+  <path d="M13 15.5v1" />
+  <path d="M11 13 21 3" />
+  <path d="M14 3h7v7" />
+</svg>

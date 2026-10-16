@@ -1,0 +1,34 @@
+[package]
+name = "photocraft-format"
+description = "Native .pcraft document bundle: manifest + content-addressed zstd tiles"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+li-fs.workspace = true
+# The shared compute pool for bundle compression (store.rs).
+rayon = { workspace = true }
+photocraft-geom = { workspace = true }
+photocraft-color = { workspace = true }
+photocraft-raster = { workspace = true }
+photocraft-doc = { workspace = true }
+photocraft-codecs = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["unbounded_depth"] }
+thiserror = { workspace = true }
+flate2 = { workspace = true }
+blake3 = { version = "1.8", default-features = false, features = ["pure"] }
+# RUSTSEC-2026-0344: enforce the decoder's per-block output bound before allocation.
+ruzstd = "0.9.1"
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+proptest = { workspace = true }
+lightcraft-sysmem = { workspace = true }

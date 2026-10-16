@@ -1,0 +1,26 @@
+{
+  "inputs": [
+    {
+      "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/PLAN.md",
+      "sha256": "a30811d243a0a2433383823a113638e2106609902d947d19de52317644f26d35"
+    },
+    {
+      "path": "/home/zdavidson/Documents/Local Image - Testing/docs/wip/queue-replan/recovery/STAGE1-TASK.md",
+      "sha256": "ffaae6b7a481925d570c3e290b82a7277dffd21a0772635341e330cfd9e7be2a"
+    }
+  ],
+  "initial_refs": {
+    "HEAD": "9fbc9ce8a8ae35c7671cd42d6cb5c3ebf2ebc24a",
+    "origin/v2": "97a456c39c8f19d5b8131aa99751f079f9fdc3e2",
+    "claude/sleepy-franklin-egimjb": "9247cc397d929a21e9abba721ad963a4410a7d2b",
+    "wip/codex-crash-hunt": "f14b1cc3ed97fea5f68a9cb20a2f6f5828ee9446",
+    "wip/codex-bugfix-files": "9f9f2e75c4cea666d1c2a970f1b57bb891f46313",
+    "wip/codex-bugfix-vector": "709846bfa15146cfa06b6ca5a1aa78bb5febbb8d",
+    "wip/codex-bugfix-develop": "ed6b9c1bf83b430dabb74c8acbd5ba94b51f53a6",
+    "wip/vector": "dac7df27bd4df7aa3e9a717177f81946f9fa0816"
+  },
+  "ancestor_exits": {
+    "origin/v2": 0,
+    "claude/sleepy-franklin-egimjb": 0
+  }
+}

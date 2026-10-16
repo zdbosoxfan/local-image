@@ -1,0 +1,332 @@
+[
+  {
+    "file": "CANON_EOS_250D.dcp",
+    "model": "CANON EOS REBEL SL3",
+    "copyright": "public domain",
+    "sha256": "a89f35cc730468159bbc670b1a13e5ca38c168e7f3892368ef8a533a379427e9"
+  },
+  {
+    "file": "CANON_EOS_800D.dcp",
+    "model": "CANON EOS 800D",
+    "copyright": "public domain",
+    "sha256": "01ff3fcea370670cb4141c96cec037137853ec0cb3089c644349745580d21c52"
+  },
+  {
+    "file": "CANON_EOS_M50.dcp",
+    "model": "CANON EOS M50",
+    "copyright": "public domain",
+    "sha256": "fb794bbda43e02dc8b7493d28664cb4b8e817e5a5119c5f2cdfac1bd4f55c5ca"
+  },
+  {
+    "file": "CANON_POWERSHOT_G5_X_MARK_II.dcp",
+    "model": "CANON POWERSHOT G5 X MARK II",
+    "copyright": "public domain",
+    "sha256": "0a3ffedbb200430fbc9a07dedf879c998d30026b46631bdbbea1665446544de6"
+  },
+  {
+    "file": "Canon_EOS-1D_X_Mark_III.dcp",
+    "model": "Canon EOS-1D X Mark III",
+    "copyright": "RawTherapee CC0",
+    "sha256": "fa7e06daac7aa65f1ca9f40f577deb0719960d7ea7656dc23289c289b4335242"
+  },
+  {
+    "file": "Canon_EOS-1Ds_Mark_II.dcp",
+    "model": "Canon EOS-1Ds Mark II",
+    "copyright": "RawTherapee CC0",
+    "sha256": "39a25ab64201096d42b76157bf5f15d21e12c149cb2358fd3d34ae0ac0c092d1"
+  },
+  {
+    "file": "Canon_EOS_5D_Mark_II.dcp",
+    "model": "Canon EOS 5D Mark II",
+    "copyright": "RawTherapee CC0",
+    "sha256": "3b1f931b77075362ed486571890ac3fa6dca2a9a7012cff22652d5ea8f789381"
+  },
+  {
+    "file": "Canon_EOS_5D_Mark_IV.dcp",
+    "model": "CANON EOS 5D MARK IV",
+    "copyright": "public domain",
+    "sha256": "eacbd3ffb00a0a992890dcbda8137722d453cff7957fb2894747f71e8fb2ce56"
+  },
+  {
+    "file": "Canon_EOS_M6_Mark_II.dcp",
+    "model": "CANON EOS M6 MARK II",
+    "copyright": "public domain",
+    "sha256": "e84be8dbfad04a36d79c8dff1fcaa26158a7a09272005ad7d9cea7e1e0bebd47"
+  },
+  {
+    "file": "Canon_EOS_R.dcp",
+    "model": "CANON EOS R",
+    "copyright": "public domain",
+    "sha256": "8c708031e6ad308affa70261c88cedd654e5ff1d2ad872af524071dfac4598ef"
+  },
+  {
+    "file": "Canon_EOS_R5.dcp",
+    "model": "CANON EOS R5",
+    "copyright": "public domain",
+    "sha256": "47dbb2573e1cb78de67ba63a42f47c109457920b7388fcde829a7b026c076b98"
+  },
+  {
+    "file": "Canon_EOS_R6.dcp",
+    "model": "CANON EOS R6",
+    "copyright": "public domain",
+    "sha256": "98f82e951c5243eded0045c54e5f428112a372338955ea604cc64338baf1996d"
+  },
+  {
+    "file": "Canon_EOS_R8.dcp",
+    "model": "Canon EOS R8",
+    "copyright": "RawTherapee CC0",
+    "sha256": "488f264aa090b2a1a2bd636e0361f4e00fd4a86c1d151dbed89fafec7e419bc0"
+  },
+  {
+    "file": "Canon_EOS_RP.dcp",
+    "model": "Canon EOS RP",
+    "copyright": "RawTherapee CC0",
+    "sha256": "27e08c7e3c62a5c698fca41402b004a8d076ea0db66ab3516fc0098ecca7027f"
+  },
+  {
+    "file": "Canon_PowerShot_G1_X_Mark_II.dcp",
+    "model": "CANON POWERSHOT G1 X MARK II",
+    "copyright": "public domain",
+    "sha256": "8648e287ff5749cc08174dbf46150342ba8662687d94ffc2bc2188cc20a4e618"
+  },
+  {
+    "file": "FUJIFILM_DBP_for_GX680.dcp",
+    "model": "FUJIFILM DBP for GX680",
+    "copyright": "RawTherapee CC0",
+    "sha256": "b04365bf883c84c6a3080938ab1cd58dbbd3dbc9132b354470eb50d8a8483d8f"
+  },
+  {
+    "file": "FUJIFILM_X-A5.dcp",
+    "model": "FUJIFILM X-A5",
+    "copyright": "public domain",
+    "sha256": "bc9baff104cef67499fc63fb1733ffd80469b1dd7929a5ff40e819433c127d06"
+  },
+  {
+    "file": "FUJIFILM_X-A7.dcp",
+    "model": "FUJIFILM X-A7",
+    "copyright": "public domain",
+    "sha256": "6360a31b20066b7c27619a7fe393d78885908faaa27292467b51d2ea31dc2e5d"
+  },
+  {
+    "file": "FUJIFILM_X-E3.dcp",
+    "model": "FUJIFILM X-E3",
+    "copyright": "public domain",
+    "sha256": "cfbeaf5832882f2363e2667c918c7222314785820f683e030bf6d49d6d37a3ed"
+  },
+  {
+    "file": "FUJIFILM_X-H1.dcp",
+    "model": "FUJIFILM X-H1",
+    "copyright": "public domain",
+    "sha256": "a64339856f77b44548e6b7aba75a62fe4abb66a89af35c13ace7bdf47f5f7f61"
+  },
+  {
+    "file": "FUJIFILM_X-Pro3.dcp",
+    "model": "FUJIFILM X-PRO3",
+    "copyright": "public domain",
+    "sha256": "568861079c16d7a8ab2d06afadae293d8a23cc2819eeafb3a394e3c59155377c"
+  },
+  {
+    "file": "FUJIFILM_X-S10.dcp",
+    "model": "FUJIFILM X-S10",
+    "copyright": "public domain",
+    "sha256": "8d7bea27da185984d717ccf077a061238417917941fb8505349d89fe7c7a0939"
+  },
+  {
+    "file": "FUJIFILM_X-T3.dcp",
+    "model": "FUJIFILM X-T3",
+    "copyright": "public domain",
+    "sha256": "f0687ad09e554536c7bd9cdc20650dc264b7de8f647a87ba9cdf1e3edbda5334"
+  },
+  {
+    "file": "FUJIFILM_X-T4.dcp",
+    "model": "FUJIFILM X-T4",
+    "copyright": "RawTherapee CC0",
+    "sha256": "1bfc63b7b782c652ef246759c510ec22b6c885eec2b48824e493639a15a28c40"
+  },
+  {
+    "file": "NIKON_D3300.dcp",
+    "model": "NIKON D3300",
+    "copyright": "public domain",
+    "sha256": "dfd4e9d33f02dc9715b358ee44d79fcabf3e23747af313ad0dff6bf3d8a99a4f"
+  },
+  {
+    "file": "NIKON_D500.dcp",
+    "model": "NIKON D500",
+    "copyright": "public domain",
+    "sha256": "41f756fa1625979eff53dc88feae0839e8f7cb1af7854320a245cb3e7606e848"
+  },
+  {
+    "file": "NIKON_D5300.dcp",
+    "model": "NIKON D5300",
+    "copyright": "public domain",
+    "sha256": "979ca824289aeb9f688360f70f036f136c5372506c1c9efcb94f181d75dfce32"
+  },
+  {
+    "file": "NIKON_D610.dcp",
+    "model": "NIKON D610",
+    "copyright": "public domain",
+    "sha256": "8fd57940d9ddfefa63cd33beb000b37f79209650777757340e2f084004daf3ee"
+  },
+  {
+    "file": "NIKON_D7100.dcp",
+    "model": "NIKON D7100",
+    "copyright": "public domain",
+    "sha256": "dba2090fc819e65eb56f778f526f661c952dd0eca3d64f8149301c6bb27cec4e"
+  },
+  {
+    "file": "NIKON_D7500.dcp",
+    "model": "NIKON D7500",
+    "copyright": "public domain",
+    "sha256": "be3dd3e117b2a4c04e946e5459e626beeb32b92e358237dde6a9ce7c40779e6e"
+  },
+  {
+    "file": "NIKON_D800.dcp",
+    "model": "NIKON D800",
+    "copyright": "public domain",
+    "sha256": "e79b0bddeef3e254f31bf9a9eab012732b32202375c1c0ad65ce5957c71c48c4"
+  },
+  {
+    "file": "NIKON_D850.dcp",
+    "model": "NIKON D850",
+    "copyright": "public domain",
+    "sha256": "0d699c2f7f1c32928ae4635aee22933c625d040a987b552d4e705d5fba6648ec"
+  },
+  {
+    "file": "NIKON_Z_5.dcp",
+    "model": "NIKON Z 5",
+    "copyright": "public domain",
+    "sha256": "9f9cbe66270704d5c811ee7e13bf2003a549a8521ff8a744f700d18b62c94d3a"
+  },
+  {
+    "file": "NIKON_Z_50.dcp",
+    "model": "NIKON Z 50",
+    "copyright": "public domain",
+    "sha256": "ac12c09c44fa185f717dfd4def3cca4a880f2cf4a005c34c5e4966271a150e6d"
+  },
+  {
+    "file": "NIKON_Z_6.dcp",
+    "model": "NIKON Z 6",
+    "copyright": "public domain",
+    "sha256": "690a233382579f96c635d7f330dcc99234bcb1c76a708f2b569435d57dd450df"
+  },
+  {
+    "file": "NIKON_Z_6_2.dcp",
+    "model": "NIKON Z 6_2",
+    "copyright": "public domain",
+    "sha256": "e843307c021cdd4b4208f4d17183ed0f318cf641a8ce95054db3520bd3f13bc9"
+  },
+  {
+    "file": "NIKON_Z_7.dcp",
+    "model": "NIKON Z 7",
+    "copyright": "public domain",
+    "sha256": "d359225a2fe6fb73385cc58c810c64b542727756f7683174266da8e4931eeff5"
+  },
+  {
+    "file": "NIKON_Z_8.dcp",
+    "model": "NIKON Z 8",
+    "copyright": "public domain",
+    "sha256": "eef2ad2709fcaeb3830a25f63bd9079d68166d4bcac5419bcefe21753cc3b228"
+  },
+  {
+    "file": "NIKON_Z_9.dcp",
+    "model": "NIKON Z 9",
+    "copyright": "public domain",
+    "sha256": "4691341158d79dd941df8de1dd9f2b5cf7e236dfd4b3f7df6b804fd73aa87077"
+  },
+  {
+    "file": "NIKON_Z_F.dcp",
+    "model": "NIKON Z F",
+    "copyright": "public domain",
+    "sha256": "740fc374967e1d18a3f81b1c24a61f99d9673a118971011b58a7898a07df23ca"
+  },
+  {
+    "file": "OLYMPUS_E-M1.dcp",
+    "model": "OLYMPUS E-M1",
+    "copyright": "public domain",
+    "sha256": "c40ef5040f4ee2ac01e10aeb75488a422eddb2a2a20dccef6662209011f547f4"
+  },
+  {
+    "file": "OLYMPUS_E-M5MarkII.dcp",
+    "model": "OLYMPUS E-M5MARKII",
+    "copyright": "public domain",
+    "sha256": "3bf68bc0a64386f426bfc5cb5b730de29ae84c1c0e2c960ac8061a9c84348080"
+  },
+  {
+    "file": "PANASONIC_DC-S5M2.dcp",
+    "model": "PANASONIC DC-S5M2",
+    "copyright": "public domain",
+    "sha256": "545b0349323a4a15cd9b5aabf9e8521564133bae9350db18e1f1163179abaea9"
+  },
+  {
+    "file": "PANASONIC_DMC-LX100.dcp",
+    "model": "PANASONIC DMC-LX100",
+    "copyright": "public domain",
+    "sha256": "45839ac9afa8dca3b9ac3c7f2357a8bb1bf39ec2e009cf78da8ba06f583446b4"
+  },
+  {
+    "file": "PENTAX_K-50.dcp",
+    "model": "PENTAX K-50",
+    "copyright": "public domain",
+    "sha256": "014e0670f831db0a03a76c21b306bc79826d06c025a1f60ad8f621a88a0a527e"
+  },
+  {
+    "file": "SONY_DSC-RX100M6.dcp",
+    "model": "SONY DSC-RX100M6",
+    "copyright": "public domain",
+    "sha256": "de21b7ee17bc95895c0bf9048659a9c20521a02105eb98e17174faa7ebc8d6c8"
+  },
+  {
+    "file": "SONY_ILCE-6400.dcp",
+    "model": "SONY ILCE-6400",
+    "copyright": "public domain",
+    "sha256": "9e05c295993f4234b9d320f177b0306e407ba7cfa2a00d8e2d4fdfb9a7fecf64"
+  },
+  {
+    "file": "SONY_ILCE-6600.dcp",
+    "model": "SONY ILCE-6600",
+    "copyright": "public domain",
+    "sha256": "a9c63f0a4952d97c7d2c5c9ec083db4843974e943154f9731562a3b4909a11e6"
+  },
+  {
+    "file": "SONY_ILCE-7.dcp",
+    "model": "SONY ILCE-7",
+    "copyright": "public domain",
+    "sha256": "a043c215c543bfbcf731a72993322e88b35d4462199863164dd9cbb95b212fc3"
+  },
+  {
+    "file": "SONY_ILCE-7C.dcp",
+    "model": "SONY ILCE-7C",
+    "copyright": "public domain",
+    "sha256": "e5f65867a18ae37d0745bd448300c9e80d41d2314f599ecee8c4c0f05abc04fb"
+  },
+  {
+    "file": "SONY_ILCE-7M4.dcp",
+    "model": "SONY ILCE-7M4",
+    "copyright": "RawTherapee CC0",
+    "sha256": "8b209fdcf76b996cd4a663a9a8d784895c7daf4a78415adc37141e8205ef7c4d"
+  },
+  {
+    "file": "SONY_ILCE-7RM4.dcp",
+    "model": "SONY ILCE-7RM4",
+    "copyright": "public domain",
+    "sha256": "c5cba52b7f7a957426b4cda286ec35802b8bf3da27d63ec559228df188d1f122"
+  },
+  {
+    "file": "SONY_ILCE-7SM3.dcp",
+    "model": "SONY ILCE-7SM3",
+    "copyright": "public domain",
+    "sha256": "4921d6d2e38d9fbc2ec10e61f09fd487c0b6cb08109013590e34c6f0ca7ca443"
+  },
+  {
+    "file": "SONY_ILCE-9.dcp",
+    "model": "SONY ILCE-9",
+    "copyright": "public domain",
+    "sha256": "3de07fa0380b2a34f351065d0804e49d49000d9fd810b4e24ac767bb9ce6490c"
+  },
+  {
+    "file": "samsung_SM-G930V.dcp",
+    "model": "samsung SM-G930V",
+    "copyright": "RawTherapee CC0",
+    "sha256": "f9a6d2352672ebb1929138874044eef92c4d451f47fc6174985d529d4255765d"
+  }
+]

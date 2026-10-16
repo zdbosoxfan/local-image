@@ -1,0 +1,348 @@
+diff --git a/crates/pc-ui-egui/src/ai_remove_ui.rs b/crates/pc-ui-egui/src/ai_remove_ui.rs
+index 2935fee6..1ba89048 100644
+--- a/crates/pc-ui-egui/src/ai_remove_ui.rs
++++ b/crates/pc-ui-egui/src/ai_remove_ui.rs
+@@ -184,6 +184,10 @@ fn remove(app: &mut PhotocraftApp) {
+ 
+ pub(crate) fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) {
+     sync(app);
++    // A retained mask is dormant while navigating; its keys belong to Remove only.
++    if app.ui.tool != Tool::AiRemove {
++        return;
++    }
+     let painting = app.drag.as_ref().is_some_and(|d| d.tool == Tool::AiRemove);
+     if (app.ai_remove.is_none() && !painting) || ctx.memory(|m| m.top_modal_layer().is_some()) {
+         return;
+diff --git a/crates/pc-ui-egui/src/ai_remove_ui/tests.rs b/crates/pc-ui-egui/src/ai_remove_ui/tests.rs
+index ae9db0fa..632571f4 100644
+--- a/crates/pc-ui-egui/src/ai_remove_ui/tests.rs
++++ b/crates/pc-ui-egui/src/ai_remove_ui/tests.rs
+@@ -297,3 +297,63 @@ fn bugfix_vector_remove_undo_keeps_document_and_removes_last_stroke() {
+     assert_eq!(h.state().session.active().unwrap().doc, before);
+     assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
+ }
++
++#[test]
++fn retained_remove_mask_keys_are_dormant_in_rotate_and_resume_in_remove() {
++    let calls = std::rc::Rc::new(std::cell::RefCell::new(Vec::<Vec<u8>>::new()));
++    let seen = calls.clone();
++    TEST_REMOVE.with(|mock| {
++        *mock.borrow_mut() = Some(Box::new(move |_, params| {
++            seen.borrow_mut().push(serde_json::from_value(params["mask"].clone()).unwrap());
++            Ok(json!({}))
++        }))
++    });
++    struct Reset;
++    impl Drop for Reset {
++        fn drop(&mut self) {
++            TEST_REMOVE.with(|mock| *mock.borrow_mut() = None);
++            crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = None);
++        }
++    }
++    let _reset = Reset;
++    let mut h = harness();
++    h.state_mut().ui.ai.remove_immediately = false;
++    let before_fill = h.state().session.active().unwrap().doc.clone();
++    h.state_mut().run("edit.fill", json!({"color":"#00ff00"})).unwrap();
++    let filled = h.state().session.active().unwrap().doc.clone();
++    let undo = h.state().session.active().unwrap().history.past_len();
++    stroke(&mut h, 60.0, 70.0, Modifiers::NONE);
++    stroke(&mut h, 190.0, 160.0, Modifiers::NONE);
++    let expected = h.state().ai_remove.as_ref().unwrap().mask.clone();
++    let mask_undo = h.state().ai_remove.as_ref().unwrap().undo.len();
++    assert!(mask_undo > 0);
++    h.key_press(Key::R);
++    h.run_steps(3);
++    assert_eq!(h.state().ui.tool, Tool::RotateView);
++    assert_eq!(crate::shortcut_dispatch::Focus::of(&h.ctx), crate::shortcut_dispatch::Focus::None);
++    for key in [Key::Enter, Key::Escape] {
++        h.key_press(key);
++        h.run_steps(2);
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
++        assert_eq!(h.state().ai_remove.as_ref().unwrap().undo.len(), mask_undo);
++        assert!(calls.borrow().is_empty());
++        assert_eq!(h.state().session.active().unwrap().doc, filled);
++    }
++    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
++    h.run_steps(3);
++    assert_eq!(h.state().session.active().unwrap().doc, before_fill, "Rotate leaves Ctrl+Z to document Undo");
++    assert_eq!(h.state().session.active().unwrap().history.past_len() + 1, undo);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().mask, expected);
++    assert_eq!(h.state().ai_remove.as_ref().unwrap().undo.len(), mask_undo);
++    assert!(calls.borrow().is_empty());
++    h.state_mut().session.edit_prefs(|p| {
++        p.shortcuts.insert("tools.select.AiRemove".into(), "F14".into());
++    });
++    h.key_press(Key::F14);
++    h.run_steps(3);
++    assert_eq!(h.state().ui.tool, Tool::AiRemove);
++    h.key_press(Key::Enter);
++    h.run_steps(3);
++    assert_eq!(calls.borrow().as_slice(), &[expected]);
++    assert!(h.state().ai_remove.is_none());
++}
+diff --git a/crates/pc-ui-egui/src/brush_resize.rs b/crates/pc-ui-egui/src/brush_resize.rs
+index 753ee794..1448db8b 100644
+--- a/crates/pc-ui-egui/src/brush_resize.rs
++++ b/crates/pc-ui-egui/src/brush_resize.rs
+@@ -35,6 +35,9 @@ pub struct Resize {
+     key: u64,
+     /// Begun by an Alt+right-drag (#297): it ends when the right button is up.
+     pub secondary: bool,
++    screen_x: egui::Vec2,
++    screen_y: egui::Vec2,
++    zoom: f32,
+ }
+ 
+ /// Tools the gesture resizes: every painting tool, and Quick Selection (it has a brush too).
+@@ -76,8 +79,20 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers, ar
+             if app.drag.is_some() || !applies(app.ui.tool) || !(armed || is_gesture(mods)) {
+                 return false;
+             }
++            let zoom = app.current_zoom().max(0.01);
++            let (screen_x, screen_y) = ViewXform::active(app)
++                .map(|xf| (xf.camera().screen_delta(vec2(1.0, 0.0)), xf.camera().screen_delta(vec2(0.0, 1.0))))
++                .unwrap_or((vec2(zoom * if app.ui.view.flip_horizontal { -1.0 } else { 1.0 }, 0.0), vec2(0.0, zoom)));
+             let b = &app.session.tools.brush;
+-            app.brush_resize = Some(Resize { anchor: [x, y], start: (b.size, b.hardness), key: KEY.fetch_add(1, Ordering::Relaxed), secondary: armed });
++            app.brush_resize = Some(Resize {
++                anchor: [x, y],
++                start: (b.size, b.hardness),
++                key: KEY.fetch_add(1, Ordering::Relaxed),
++                secondary: armed,
++                screen_x,
++                screen_y,
++                zoom,
++            });
+             true
+         }
+         ToolEvent::Move { x, y, .. } => match app.brush_resize {
+@@ -106,9 +121,10 @@ pub fn release_stale(app: &mut PhotocraftApp, secondary_down: bool) {
+ }
+ 
+ fn update(app: &mut PhotocraftApp, r: Resize, x: f64, y: f64) {
+-    // Right is bigger on screen, also in a flipped view (View › Flip Horizontal).
+-    let dx = (x - r.anchor[0]) * if app.ui.view.flip_horizontal { -1.0 } else { 1.0 };
+-    let (size, hardness) = resized(r.start, dx, y - r.anchor[1], app.current_zoom());
++    // Diameter and hardness are screen-axis gestures. Undo the pointer's camera inverse
++    // using the basis captured at the press, including rotation and reflection.
++    let screen = r.screen_x * (x - r.anchor[0]) as f32 + r.screen_y * (y - r.anchor[1]) as f32;
++    let (size, hardness) = resized(r.start, f64::from(screen.x / r.zoom), f64::from(screen.y / r.zoom), r.zoom);
+     let b = &app.session.tools.brush;
+     if b.size == size && b.hardness == hardness {
+         return;
+@@ -441,4 +457,50 @@ mod tests {
+         assert_eq!(a.session.tools.brush.size, 100.0);
+         assert!(a.ui.brush_picker.is_some());
+     }
++    #[test]
++    fn rotated_screen_axis_resize_preserves_diameter_hardness_and_document() {
++        for flip in [false, true] {
++            for (which, mods) in [(PointerButton::Primary, CTRL_ALT), (PointerButton::Secondary, Modifiers::ALT)] {
++                let mut a = app(Tool::Brush);
++                a.ui.view.flip_horizontal = flip;
++                a.ui.views[0].zoom = 2.0;
++                a.ui.views[0].center = [150.0, 100.0];
++                a.ui.views[0].rotation = std::f32::consts::FRAC_PI_2;
++                a.ui.views[0].fit_pending = false;
++                let mut h = canvas(a);
++                h.set_pixels_per_point(1.25);
++                h.run_steps(2);
++                let before = h.state().session.active().unwrap().doc.clone();
++                let revision = h.state().session.active().unwrap().revision;
++                let undo = history(h.state());
++                for (delta, size, hardness) in [(vec2(40.0, 0.0), 80.0, 0.2), (vec2(0.0, 40.0), 40.0, 0.4)] {
++                    h.state_mut().run("tools.setBrush", json!({"brush":{"size":40,"hardness":0.2}})).unwrap();
++                    let sets = h.state().session.journal.iter().filter(|(id, _)| id == "tools.setBrush").count();
++                    let start = h.state().last_canvas_rect.center();
++                    h.event(egui::Event::ModifiersChanged(mods));
++                    h.hover_at(start);
++                    h.step();
++                    button(&mut h, start, which, true, mods);
++                    h.hover_at(start + delta / 2.0);
++                    h.step();
++                    h.hover_at(start + delta);
++                    h.step();
++                    let resize = h.state().brush_resize.expect("actual resize capture");
++                    assert_eq!(resize.secondary, which == PointerButton::Secondary);
++                    button(&mut h, start + delta, which, false, mods);
++                    h.event(egui::Event::ModifiersChanged(Modifiers::NONE));
++                    h.run_steps(2);
++                    assert_eq!(h.state().session.tools.brush.size, size, "{flip}/{which:?}/{delta:?}");
++                    assert_eq!(h.state().session.tools.brush.hardness, hardness, "{flip}/{which:?}/{delta:?}");
++                    assert!(h.state().brush_resize.is_none() && h.state().ui.brush_picker.is_none());
++                    assert_eq!(h.state().session.journal.iter().filter(|(id, _)| id == "tools.setBrush").count(), sets + 1, "one coalesced resize");
++                }
++                let st = h.state().session.active().unwrap();
++                assert!(std::sync::Arc::ptr_eq(&before, &st.doc));
++                assert_eq!(st.revision, revision);
++                assert_eq!(history(h.state()), undo);
++                assert!(!h.state().session.journal.iter().any(|(id, _)| id == "paint.stroke"));
++            }
++        }
++    }
+ }
+diff --git a/crates/pc-ui-egui/src/canvas.rs b/crates/pc-ui-egui/src/canvas.rs
+index 49384607..ac3389ef 100644
+--- a/crates/pc-ui-egui/src/canvas.rs
++++ b/crates/pc-ui-egui/src/canvas.rs
+@@ -1803,6 +1803,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
+     let input_enabled = ui.is_enabled() && !crate::restoration_ui::is_open(app);
+     let rotate_owned = rotate_view::input(&ctx, &response, &mut view, doc.id, app.ui.tool, input_enabled && app.ui.dialogs.is_empty());
+     let xf = ViewXform { rect, zoom: view.zoom, center: view.center, flip, rotation: view.rotation };
++    // Captured screen-axis gestures must see the camera used by this frame's pointer inverse,
++    // including a just-applied Fit/resize/clamp, rather than last frame's cached View.
++    if primary {
++        app.ui.views[idx] = view.clone();
++    }
+     let vector_input = !rotate_owned && input_enabled && primary && crate::vector_integration::input(app, ui, idx, &response, &xf, rect);
+     let symbol_input = vector_input || (input_enabled && primary && crate::symbols::canvas_input(app, &response, &xf));
+     let move_input = rotate_owned || symbol_input || (input_enabled && primary && crate::move_input::canvas_input(app, &response, &xf));
+diff --git a/crates/pc-ui-egui/src/rotate_view/tests.rs b/crates/pc-ui-egui/src/rotate_view/tests.rs
+index 77e662d5..959879f5 100644
+--- a/crates/pc-ui-egui/src/rotate_view/tests.rs
++++ b/crates/pc-ui-egui/src/rotate_view/tests.rs
+@@ -144,6 +144,21 @@ fn rotate_view_real_drag_typed_angle_reset_and_export_are_view_only() {
+     pointer(&mut h, center + vec2(0.0, 80.0), PointerButton::Primary, false);
+     drag(&mut h, center + vec2(80.0, 0.0), center + vec2(0.0, 80.0));
+     near(angle(&h), 90.0);
++    let (sin, cos) = 23.0_f32.to_radians().sin_cos();
++    let start = center + vec2(80.0, 0.0);
++    let end = center + vec2(80.0 * cos, 80.0 * sin);
++    h.event(Event::ModifiersChanged(Modifiers::SHIFT));
++    h.hover_at(start);
++    h.step();
++    h.event(Event::PointerButton { pos: start, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::SHIFT });
++    h.step();
++    h.hover_at(end);
++    h.step();
++    h.event(Event::PointerButton { pos: end, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::SHIFT });
++    h.step();
++    h.event(Event::ModifiersChanged(Modifiers::NONE));
++    h.step();
++    near(angle(&h), 113.0); // Shift does not introduce an unrequested snapping increment.
+     typed_angle(&mut h, "37");
+     near(angle(&h), 37.0);
+     assert!(set_angle(h.state_mut(), f64::NAN).is_err());
+@@ -175,6 +190,8 @@ fn rotate_view_default_r_saved_overrides_and_vector_object_rotate_are_distinct()
+     key(&mut h, Key::R);
+     assert_eq!(h.state().ui.tool, Tool::AiRemove);
+     assert_eq!(h.state().session.prefs().shortcuts["tools.select.AiRemove"], "R");
++    assert_eq!(crate::shortcuts::tool_shortcut_id(Tool::AiRemove), "tools.select.AiRemove");
++    assert_eq!(crate::shortcuts::tool_shortcut(&h.state().session, Tool::AiRemove), Some("R".into()));
+     h.state_mut().session.edit_prefs(|p| {
+         p.shortcuts.remove("tools.select.AiRemove");
+         p.shortcuts.insert("tools.select.RotateView".into(), String::new());
+@@ -458,3 +475,47 @@ fn rotated_cpu_fallback_shadow_preserves_image_and_clear_pasteboard() {
+     );
+     artifact(&mut h, "cpu-shadow-37deg-125.png");
+ }
++
++#[test]
++fn rotated_scrollbar_owns_vector_press_and_absent_right_bar_does_not_block_drawing() {
++    let mut h = harness(ThemeKind::ProMedium, vec2(1200.0, 850.0), 1.25);
++    h.state_mut().run("file.new", json!({"width":100,"height":1000})).unwrap();
++    let index = h.state().session.active_index().unwrap();
++    h.state_mut().ui.views[index].zoom = 1.0;
++    h.state_mut().ui.views[index].center = [50.0, 500.0];
++    h.state_mut().ui.views[index].rotation = std::f32::consts::FRAC_PI_2;
++    h.state_mut().ui.views[index].fit_pending = false;
++    h.get_by_label("Vector persona").click();
++    h.run_steps(3);
++    key(&mut h, Key::B);
++    assert_eq!(h.state().ui.tool, Tool::VectorBrush);
++    let xf = ViewXform::active(h.state()).unwrap();
++    let (horizontal, vertical) = crate::scrollbars::visible_bar_rects(xf.rect, &h.state().ui.views[index], xf.flip);
++    let horizontal = horizontal.expect("quarter-turn creates horizontal scrollbar");
++    assert!(vertical.is_none(), "the upright vertical scrollbar must disappear");
++    let before = h.state().session.active().unwrap().doc.clone();
++    let revision = h.state().session.active().unwrap().revision;
++    let history = h.state().session.active().unwrap().history.past_len();
++    let center = h.state().ui.views[index].center;
++    let track = egui::pos2(horizontal.right() - 4.0, horizontal.center().y);
++    pointer(&mut h, track, PointerButton::Primary, true);
++    assert!(!h.state().vector_brush.active(), "scrollbar press cannot begin a vector stroke");
++    pointer(&mut h, track, PointerButton::Primary, false);
++    h.run_steps(2);
++    assert_ne!(h.state().ui.views[index].center, center, "actual scrollbar page click pans the view");
++    let st = h.state().session.active().unwrap();
++    assert!(std::sync::Arc::ptr_eq(&before, &st.doc));
++    assert_eq!(st.revision, revision);
++    assert_eq!(st.history.past_len(), history);
++    let xf = ViewXform::active(h.state()).unwrap();
++    let right = egui::pos2(xf.rect.right() - 5.0, xf.rect.center().y);
++    pointer(&mut h, right, PointerButton::Primary, true);
++    assert!(h.state().vector_brush.active(), "absent right scrollbar cannot reject a real canvas press");
++    h.hover_at(right + vec2(-25.0, 8.0));
++    h.step();
++    pointer(&mut h, right + vec2(-25.0, 8.0), PointerButton::Primary, false);
++    h.run_steps(2);
++    assert_eq!(h.state().session.active().unwrap().history.past_len(), history + 1);
++    h.state_mut().run("edit.undo", json!({})).unwrap();
++    assert_eq!(h.state().session.active().unwrap().doc, before);
++}
+diff --git a/crates/pc-ui-egui/src/scrollbars.rs b/crates/pc-ui-egui/src/scrollbars.rs
+index 19fce1e0..7b6af617 100644
+--- a/crates/pc-ui-egui/src/scrollbars.rs
++++ b/crates/pc-ui-egui/src/scrollbars.rs
+@@ -131,17 +131,25 @@ pub fn bar_rects(rect: Rect, horizontal: bool, vertical: bool) -> (Option<Rect>,
+     (h, v)
+ }
+ 
++fn axis_spans(rect: Rect, view: &View, flip: bool) -> [Option<(Span, (f32, f32))>; 2] {
++    let (camera, bounds) = screen_basis(view, flip);
++    let center = camera.to_screen(pos2(view.center[0], view.center[1])) - bounds.min;
++    [Span::of(bounds.width(), center.x, rect.width(), view.zoom), Span::of(bounds.height(), center.y, rect.height(), view.zoom)]
++        .map(|span| span.and_then(|span| span.extent(view.zoom).map(|extent| (span, extent))))
++}
++
++/// The same visible regions are used by raw-tool exclusion and actual scrollbar painting.
++pub(crate) fn visible_bar_rects(rect: Rect, view: &View, flip: bool) -> (Option<Rect>, Option<Rect>) {
++    let [horizontal, vertical] = axis_spans(rect, view, flip);
++    bar_rects(rect, horizontal.is_some(), vertical.is_some())
++}
++
+ /// Show the scrollbars of the canvas `rect` and apply their drags and page clicks to `view`.
+ /// `flip` is View › Flip Horizontal (the bar then runs the other way through the image).
+ /// Returns true when the pointer is over a bar (the canvas then leaves the pointer alone).
+ pub fn show(ui: &Ui, rect: Rect, view: &mut View, flip: bool, key: Id) -> bool {
+-    let zoom = view.zoom;
+     let (camera, bounds) = screen_basis(view, flip);
+-    let center = camera.to_screen(pos2(view.center[0], view.center[1])) - bounds.min;
+-    let sx = Span::of(bounds.width(), center.x, rect.width(), zoom);
+-    let sy = Span::of(bounds.height(), center.y, rect.height(), zoom);
+-    let ex = sx.and_then(|s| s.extent(zoom).map(|e| (s, e)));
+-    let ey = sy.and_then(|s| s.extent(zoom).map(|e| (s, e)));
++    let [ex, ey] = axis_spans(rect, view, flip);
+     if ex.is_none() && ey.is_none() {
+         return false;
+     }
+diff --git a/crates/pc-ui-egui/src/shortcuts.rs b/crates/pc-ui-egui/src/shortcuts.rs
+index f061b214..77eb8da0 100644
+--- a/crates/pc-ui-egui/src/shortcuts.rs
++++ b/crates/pc-ui-egui/src/shortcuts.rs
+@@ -81,7 +81,7 @@ pub fn effective_shortcut(app: &PhotocraftApp, id: &str, default: Option<&str>)
+ 
+ /// One id per toolbar key group. Hidden tools use the same lookup as visible tools.
+ pub fn tool_shortcut_id(tool: Tool) -> String {
+-    let leader = Tool::ALL.into_iter().find(|t| t.key() == tool.key()).unwrap_or(tool);
++    let leader = if tool.key() == '\0' { tool } else { Tool::ALL.into_iter().find(|t| t.key() == tool.key()).unwrap_or(tool) };
+     format!("tools.select.{leader:?}")
+ }
+ 
+diff --git a/crates/pc-ui-egui/src/vector_integration.rs b/crates/pc-ui-egui/src/vector_integration.rs
+index e8718f14..8f32924f 100644
+--- a/crates/pc-ui-egui/src/vector_integration.rs
++++ b/crates/pc-ui-egui/src/vector_integration.rs
+@@ -465,9 +465,8 @@ pub fn pointer(app: &mut PhotocraftApp, event: ToolEvent, mods: egui::Modifiers)
+ 
+ fn canvas_scrollbar_at(app: &PhotocraftApp, idx: usize, xf: &ViewXform, rect: egui::Rect, pos: egui::Pos2) -> bool {
+     let size = app.session.documents()[idx].doc.size;
+-    let horizontal = crate::scrollbars::Span::of(size.width as f32, xf.center[0], rect.width(), xf.zoom).is_some_and(|s| s.extent(xf.zoom).is_some());
+-    let vertical = crate::scrollbars::Span::of(size.height as f32, xf.center[1], rect.height(), xf.zoom).is_some_and(|s| s.extent(xf.zoom).is_some());
+-    let (h, v) = crate::scrollbars::bar_rects(rect, horizontal, vertical);
++    let view = crate::state::View { zoom: xf.zoom, center: xf.center, rotation: xf.rotation, doc_size: [size.width, size.height], ..Default::default() };
++    let (h, v) = crate::scrollbars::visible_bar_rects(rect, &view, xf.flip);
+     h.is_some_and(|r| r.contains(pos)) || v.is_some_and(|r| r.contains(pos))
+ }
+ 

@@ -1,0 +1,16 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Envelope Distort: a rectangle warped to a curved mesh. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="M3 4q9 5 18 0l-1 16q-8-5-16 0Z" />
+  <path d="M12 6.3v11.2" />
+  <path d="M3.5 12q8.5 3.5 17 0" />
+</svg>

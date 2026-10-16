@@ -1,0 +1,34 @@
+diff --git a/crates/pc-ui-egui/src/canvas.rs b/crates/pc-ui-egui/src/canvas.rs
+--- a/crates/pc-ui-egui/src/canvas.rs
++++ b/crates/pc-ui-egui/src/canvas.rs
+@@ -1597,7 +1597,8 @@
+                 ui.add_space(((card.width() - 3.0 * bw - 2.0 * 10.0) / 2.0).max(0.0));
+                 ui.spacing_mut().item_spacing.x = 10.0;
+                 if crate::widgets::primary_button(ui, &new_label, bw).clicked() {
+-                    app.ui.open_dialog(crate::state::DialogKind::NewDocument, crate::state::UiState::new_document_fields());
++                    let fields = crate::new_doc_ui::fields(app);
++                    app.ui.open_dialog(crate::state::DialogKind::NewDocument, fields);
+                 }
+                 if crate::widgets::secondary_button(ui, &open_label, bw).clicked() {
+                     app.open_dialog_file();
+diff --git a/crates/pc-ui-egui/src/control.rs b/crates/pc-ui-egui/src/control.rs
+--- a/crates/pc-ui-egui/src/control.rs
++++ b/crates/pc-ui-egui/src/control.rs
+@@ -37,7 +37,7 @@
+ 
+ use crate::PhotocraftApp;
+ use crate::canvas::{ToolEvent, tool_event};
+-use crate::state::{DialogKind, Tool, UiState};
++use crate::state::{DialogKind, Tool};
+ 
+ pub type ControlResponse = Value;
+ 
+@@ -376,7 +376,7 @@
+                 }
+                 other => return err(format!("unknown dialog kind `{other}`")),
+             };
+-            let mut fields = if kind == DialogKind::NewDocument { UiState::new_document_fields() } else { Default::default() };
++            let mut fields = if kind == DialogKind::NewDocument { crate::new_doc_ui::fields(app) } else { Default::default() };
+             if let Some(f) = p.get("fields").and_then(Value::as_object) {
+                 fields.extend(f.clone());
+             }

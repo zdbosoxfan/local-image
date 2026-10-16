@@ -1,0 +1,26 @@
+[package]
+name = "li-seg"
+description = "Local segmentation and image/text embeddings on the CPU with tract, pure Rust"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+li-matte = { path = "../li-matte" }
+li-raster = { path = "../li-raster" }
+li-color = { workspace = true }
+li-fs = { workspace = true }
+tract-onnx = "0.23"
+tract-linalg = { version = "=0.23.8", features = ["multithread-mm"] }
+anyhow = { workspace = true }
+image = { workspace = true }
+log = { workspace = true }
+miniz_oxide = { workspace = true }
+rayon = { workspace = true }
+sha2 = { workspace = true }
+serde_json = { workspace = true }
+
+lightcraft-sysmem = { workspace = true }

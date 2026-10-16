@@ -1,0 +1,32 @@
+{
+  "observed_unix": 1791755064.1616995,
+  "current": 40919154688,
+  "high": 42949672960,
+  "pending": [
+    {
+      "crate": "photocraft_io",
+      "wait_seconds": 231.3076000213623
+    },
+    {
+      "crate": "photocraft_gpu",
+      "wait_seconds": 236.50308656692505
+    },
+    {
+      "crate": "photocraft_svg",
+      "wait_seconds": 238.7947542667389
+    },
+    {
+      "crate": "photocraft_pdf",
+      "wait_seconds": 242.14598178863525
+    },
+    {
+      "crate": "photocraft_io",
+      "wait_seconds": 242.14695811271667
+    },
+    {
+      "crate": "photocraft_gpu",
+      "wait_seconds": 242.1470127105713
+    }
+  ],
+  "active": []
+}

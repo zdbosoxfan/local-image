@@ -1,0 +1,99 @@
+{
+  "observed_unix": 1791753738.068723,
+  "candidate_processes": [
+    {
+      "pid": 37652,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   13988 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    },
+    {
+      "pid": 225295,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   17360 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    },
+    {
+      "pid": 225407,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   17416 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    },
+    {
+      "pid": 225417,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   17536 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    },
+    {
+      "pid": 225429,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   17428 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    },
+    {
+      "pid": 225597,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   17376 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    },
+    {
+      "pid": 225965,
+      "comm": "python3",
+      "rss_line": "VmRSS:\t   17432 kB",
+      "cgroup": "0::/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service"
+    }
+  ],
+  "cgroup_limits": [
+    {
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice/li-codex-codex-v2-recovery-stage1-1791750178.service",
+      "memory.current": "41688252416",
+      "memory.high": "max",
+      "memory.max": "max",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "pids.current": "283"
+    },
+    {
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/li.slice/li-jobs.slice",
+      "memory.current": "41688297472",
+      "memory.high": "42949672960",
+      "memory.max": "47244640256",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "pids.current": "283"
+    },
+    {
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service/li.slice",
+      "memory.current": "41688342528",
+      "memory.high": "max",
+      "memory.max": "max",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 0",
+      "pids.current": "283"
+    },
+    {
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice/user@1000.service",
+      "memory.current": "56205008896",
+      "memory.high": "max",
+      "memory.max": "max",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 9",
+      "pids.current": "1941"
+    },
+    {
+      "path": "/sys/fs/cgroup/user.slice/user-1000.slice",
+      "memory.current": "56225964032",
+      "memory.high": "max",
+      "memory.max": "max",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 9",
+      "pids.current": "1948"
+    },
+    {
+      "path": "/sys/fs/cgroup/user.slice",
+      "memory.current": "56789217280",
+      "memory.high": "max",
+      "memory.max": "max",
+      "memory.events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\nsock_throttled 9",
+      "pids.current": "1948"
+    }
+  ],
+  "host_available": "MemAvailable:   52376088 kB",
+  "policy": "Read-only observation of candidate processes; owner processes and gates unchanged"
+}

@@ -1,0 +1,39 @@
+{
+  "format": "lightcraft-catalog",
+  "version": 1,
+  "seq": 2,
+  "catalog": {
+    "photos": {
+      "1": {
+        "id": 1,
+        "source": {
+          "type": "file",
+          "path": "/p/1.jpg"
+        },
+        "file_name": "p.jpg",
+        "format": "JPEG",
+        "width": 4,
+        "height": 3,
+        "imported": "2026-01-01",
+        "develop": {}
+      },
+      "2": {
+        "id": 2,
+        "source": {
+          "type": "file",
+          "path": "/p/2.jpg"
+        },
+        "file_name": "p.jpg",
+        "format": "JPEG",
+        "width": 4,
+        "height": 3,
+        "imported": "2026-01-01",
+        "develop": {}
+      }
+    },
+    "albums": {},
+    "next_photo": 3,
+    "next_album": 1,
+    "next_stack": 1
+  }
+}

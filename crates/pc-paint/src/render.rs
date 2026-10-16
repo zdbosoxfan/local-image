@@ -1,0 +1,1299 @@
+//! Dab rasterisation and stroke compositing.
+//!
+//! A stroke paints into a sparse, tiled *stroke buffer* (coverage plus, with Color Dynamics, a
+//! premultiplied colour), exactly like a private stroke layer: dabs build up with flow up to their
+//! opacity ceiling, stroke-level masks (Dual Brush, Texture) apply when the buffer is composited,
+//! and the whole buffer composites onto the pre-stroke pixels at the stroke opacity. Because the
+//! buffer is sparse and compositing always starts from the pre-stroke pixels, strokes can be fed in
+//! chunks and re-composited incrementally for interactive painting (see [`StrokeRenderer`]).
+
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+use photocraft_color::{BlendMode, PixelFormat};
+use photocraft_geom::Rect;
+use photocraft_raster::{Surface, from_rgba_into, to_rgba};
+
+use crate::brush::{BrushSettings, MaskMode, Pattern, TipShape};
+use crate::dynamics::DabGenerator;
+use crate::retouch::{Footprint, alpha_index, over_native};
+use crate::rng::hash2;
+use crate::tile::{Mips, PatternImage};
+use crate::{Dab, StrokePoint, dab_coverage};
+
+/// Host-supplied CPU executor. Paint itself remains dependency-free; the engine routes large
+/// disposable previews through its already configured global compute pool. A task owns disjoint
+/// rows or tiles; dab order and every per-pixel arithmetic operation remain unchanged.
+pub trait StrokeExecutor: std::fmt::Debug + Send + Sync {
+    fn rows(&self, out: &mut [f32], depth: Option<&mut [f32]>, width: usize, row: &RasterRow<'_>);
+    fn coverage(&self, tasks: &mut [CoverageTask<'_>]);
+    fn composite(&self, plan: &LiveCompositePlan, pre: &Surface, target: &mut Surface, selection: Option<&Surface>, lock: bool) -> Rect;
+}
+pub type RasterRow<'a> = dyn Fn(usize, &mut [f32], Option<&mut [f32]>) + Sync + 'a;
+pub(crate) fn raster_rows(executor: Option<&dyn StrokeExecutor>, out: &mut [f32], depth: Option<&mut [f32]>, width: usize, row: &RasterRow<'_>) {
+    if width == 0 {
+        return;
+    }
+    if let Some(executor) = executor {
+        executor.rows(out, depth, width, row);
+        return;
+    }
+    match depth {
+        Some(depth) => {
+            for (y, (o, d)) in out.chunks_mut(width).zip(depth.chunks_mut(width)).enumerate() {
+                row(y, o, Some(d));
+            }
+        }
+        None => {
+            for (y, o) in out.chunks_mut(width).enumerate() {
+                row(y, o, None);
+            }
+        }
+    }
+}
+
+/// Edge of a stroke-buffer tile.
+pub const COV_TILE: i32 = 64;
+const NOISE_SALT: u64 = 0x006E_6F69_7365;
+
+#[inline]
+/// Where an aliased (Pencil) dab of `diameter` pixels centred near (`x`, `y`) lands on the pixel
+/// grid: the centre of the pixel holding the point for odd diameters, the nearest pixel corner
+/// for even ones. Its footprint is then a whole-pixel block around that point, the same square
+/// the Pencil cursor shows ([`grid_square`]).
+pub fn grid_center(x: f64, y: f64, diameter: f32) -> (f32, f32) {
+    let n = if diameter.is_finite() { diameter.round().max(1.0) as i64 } else { 1 };
+    let snap = |v: f64| if n % 2 == 1 { v.floor() + 0.5 } else { v.round() };
+    (snap(x) as f32, snap(y) as f32)
+}
+
+/// The whole-pixel square `[x0, y0, x1, y1]` an aliased dab of `diameter` pixels at (`x`, `y`)
+/// can touch (see [`grid_center`]): the Pencil's cursor.
+pub fn grid_square(x: f64, y: f64, diameter: f32) -> [f64; 4] {
+    let n = if diameter.is_finite() { f64::from(diameter.round().clamp(1.0, 100_000.0)) } else { 1.0 };
+    let (cx, cy) = grid_center(x, y, n as f32);
+    let h = n / 2.0;
+    [f64::from(cx) - h, f64::from(cy) - h, f64::from(cx) + h, f64::from(cy) + h]
+}
+
+fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
+    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Wet Edges: how much paint stays at a pixel whose nearest dab reaches it at `rn` (0 at a dab's
+/// centre, 1 at its rim). The interior keeps half the paint, the rim all of it.
+#[inline]
+fn wet_factor(rn: f32) -> f32 {
+    0.5 + 0.5 * smoothstep(0.5, 1.0, rn)
+}
+
+/// Combine brush coverage `v` with a mask value `t` (texture/dual tip) at `depth`.
+/// Every mode maps `v = 0` to 0 (a mask never adds paint where the brush has none).
+pub fn mask_combine(mode: MaskMode, v: f32, t: f32, d: f32) -> f32 {
+    if v <= 0.0 {
+        return 0.0;
+    }
+    let lerp = |a: f32, b: f32| a + (b - a) * d;
+    let r = match mode {
+        MaskMode::Multiply => v * (1.0 - d + d * t),
+        MaskMode::Subtract => (v - d * (1.0 - t)).max(0.0),
+        MaskMode::Darken => v.min(1.0 - d + d * t),
+        MaskMode::Overlay => {
+            let o = if v < 0.5 { 2.0 * v * t } else { 1.0 - 2.0 * (1.0 - v) * (1.0 - t) };
+            lerp(v, o)
+        }
+        MaskMode::ColorDodge => lerp(v, (v / (1.0 - t).max(1e-3)).min(1.0)),
+        MaskMode::ColorBurn => lerp(v, 1.0 - ((1.0 - v) / t.max(1e-3)).min(1.0)),
+        MaskMode::LinearBurn => lerp(v, (v + t - 1.0).max(0.0)),
+        MaskMode::HardMix => lerp(v, if v + t > 1.0 { 1.0 } else { 0.0 }),
+        MaskMode::LinearHeight => v * ((t - (1.0 - d * v)) * 4.0 + 0.5).clamp(0.0, 1.0),
+        MaskMode::Height => {
+            if t >= 1.0 - d * v {
+                v
+            } else {
+                0.0
+            }
+        }
+    };
+    r.clamp(0.0, 1.0)
+}
+
+/// A stroke-ready brush: the settings plus prepared tip mips and texture.
+#[derive(Clone, Debug)]
+pub struct BrushContext {
+    pub brush: Arc<BrushSettings>,
+    tip: Option<Arc<Mips>>,
+    dual_tip: Option<Arc<Mips>>,
+    texture: Option<Arc<PatternImage>>,
+    cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    executor: Option<Arc<dyn StrokeExecutor>>,
+}
+
+fn prepare_pattern(b: &BrushSettings) -> Option<Arc<PatternImage>> {
+    let t = &b.texture;
+    if !t.enabled {
+        return None;
+    }
+    let mut img = match &t.pattern {
+        Pattern::Procedural { style, size, seed } => crate::procedural::pattern(*style, *size, *seed),
+        Pattern::Tile(g) if g.is_valid() => PatternImage { width: g.width as usize, height: g.height as usize, data: g.to_f32() },
+        Pattern::Tile(_) => return None,
+    };
+    let (br, ct) = (t.brightness.clamp(-1.0, 1.0), t.contrast.clamp(-1.0, 1.0));
+    for v in &mut img.data {
+        let mut x = (*v - 0.5) * (1.0 + ct) + 0.5 + br;
+        x = x.clamp(0.0, 1.0);
+        *v = if t.invert { 1.0 - x } else { x };
+    }
+    Some(Arc::new(img))
+}
+
+/// The pixel rectangle `reach` (plus 1 px of anti-aliasing slack) around a dab's centre. The casts
+/// saturate and the arithmetic saturates, so a far or non-finite centre or reach from a direct
+/// caller gives a (possibly empty) rectangle instead of an `i32` overflow (upstream 7fec6e94, #977).
+pub(crate) fn rect_around(d: &Dab, reach: f32) -> Rect {
+    let rr = (reach.ceil() as i32).saturating_add(1);
+    let (cx, cy) = (d.center.x.floor() as i32, d.center.y.floor() as i32);
+    Rect::new(cx.saturating_sub(rr), cy.saturating_sub(rr), cx.saturating_add(rr).saturating_add(1), cy.saturating_add(rr).saturating_add(1))
+}
+
+impl BrushContext {
+    fn cancelled(&self) -> bool {
+        self.cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+    }
+
+    pub fn new(brush: &BrushSettings) -> Self {
+        let brush = brush.bounded_for_render();
+        let mips = |t: &TipShape| match t {
+            TipShape::Sampled(g) if g.is_valid() => Some(Arc::new(Mips::new(g))),
+            _ => None,
+        };
+        Self {
+            tip: mips(&brush.tip),
+            dual_tip: if brush.dual_brush.enabled { mips(&brush.dual_brush.tip) } else { None },
+            texture: prepare_pattern(&brush),
+            brush: Arc::new(brush),
+            cancel: None,
+            executor: None,
+        }
+    }
+
+    /// Texture value at a document pixel (bilinear, tiled).
+    #[inline]
+    pub fn texture_at(&self, x: i32, y: i32) -> f32 {
+        let Some(p) = &self.texture else { return 1.0 };
+        let s = self.brush.texture.scale.max(0.01);
+        if s == 1.0 {
+            // Pixel centres land exactly on texels at 100 %.
+            return p.data[y.rem_euclid(p.height as i32) as usize * p.width + x.rem_euclid(p.width as i32) as usize];
+        }
+        let (fx, fy) = ((x as f32 + 0.5) / s - 0.5, (y as f32 + 0.5) / s - 0.5);
+        let (x0, y0) = (fx.floor(), fy.floor());
+        let (tx, ty) = (fx - x0, fy - y0);
+        let a = p.sample_wrap(x0, y0) + (p.sample_wrap(x0 + 1.0, y0) - p.sample_wrap(x0, y0)) * tx;
+        let b = p.sample_wrap(x0, y0 + 1.0) + (p.sample_wrap(x0 + 1.0, y0 + 1.0) - p.sample_wrap(x0, y0 + 1.0)) * tx;
+        a + (b - a) * ty
+    }
+
+    /// Bounding rectangle of a dab (rotated sampled tips need the corner reach).
+    pub fn dab_rect(&self, d: &Dab, dual: bool) -> Rect {
+        let sampled = if dual { self.dual_tip.is_some() } else { self.tip.is_some() };
+        let reach = if sampled { d.radius * std::f32::consts::SQRT_2 } else { d.radius };
+        if !d.center.x.is_finite() || !d.center.y.is_finite() || !d.radius.is_finite() || d.radius < 0.0 || d.radius > 5000.0 {
+            return Rect::EMPTY;
+        }
+        rect_around(d, reach)
+    }
+
+    /// Rasterise a dab over `rect` into `out` (tip shape × noise × per-tip texture × wet edges × flow).
+    /// Wet Edges shapes this one dab; a stroke applies it to its accumulated coverage instead.
+    pub fn rasterize(&self, d: &Dab, dual: bool, rect: Rect, out: &mut Vec<f32>) {
+        self.rasterize_into(d, dual, rect, out, None);
+    }
+
+    /// [`rasterize`](Self::rasterize); with `depth`, Wet Edges is left out of `out` and each
+    /// painted pixel's depth inside the dab (`1 − rn`) goes to `depth`, for the stroke to apply it.
+    fn rasterize_into(&self, d: &Dab, dual: bool, rect: Rect, out: &mut Vec<f32>, mut depth: Option<&mut Vec<f32>>) {
+        let (w, h) = (rect.width() as usize, rect.height() as usize);
+        out.clear();
+        out.resize(w * h, 0.0);
+        if let Some(dp) = depth.as_deref_mut() {
+            dp.clear();
+            dp.resize(w * h, 0.0);
+        }
+        let b = &self.brush;
+        let (hardness, mips) = if dual { (b.dual_brush.hardness, self.dual_tip.as_deref()) } else { (b.hardness, self.tip.as_deref()) };
+        let aliased = b.aliased && !dual;
+        let wet = b.wet_edges && !dual && depth.is_none();
+        let noise = b.noise && !dual;
+        let tex_tip = !dual && b.texture.enabled && b.texture.each_tip && self.texture.is_some();
+        let (cx, cy) = if aliased { grid_center(d.center.x, d.center.y, 2.0 * d.radius) } else { (d.center.x as f32, d.center.y as f32) };
+        let (sn, cs) = d.angle.sin_cos();
+        let (fx, fy) = (if d.flip_x { -1.0 } else { 1.0 }, if d.flip_y { -1.0 } else { 1.0 });
+        // Brush Projection: stretch the sampling coordinates along the tilt direction, which
+        // foreshortens the tip there by `proj_scale`.
+        let proj = (!dual && d.proj_scale < 0.999).then(|| {
+            let (ps, pc) = d.proj_angle.sin_cos();
+            (pc, ps, 1.0 / d.proj_scale.max(0.05) - 1.0)
+        });
+        let r = d.radius;
+        let ro = d.roundness.max(0.5 / r).min(1.0);
+        let rm = (r * ro).max(0.5);
+        let reach2 = (rm + 0.5) * (rm + 0.5);
+        // Sampled-tip mapping.
+        let (level, inv_scale, tw, th) = match mips {
+            Some(m) => {
+                let (w0, h0, _) = &m.levels[0];
+                let big = *w0.max(h0) as f32;
+                (m.level_for(2.0 * r * ro.max(0.25)), big / (2.0 * r), *w0 as f32, *h0 as f32)
+            }
+            None => (0, 1.0, 1.0, 1.0),
+        };
+        let row = |yy: usize, out: &mut [f32], mut depth: Option<&mut [f32]>| {
+            if self.cancelled() {
+                return;
+            }
+            let y = rect.y0 + yy as i32;
+            let dy = y as f32 + 0.5 - cy;
+            for xx in 0..w {
+                let x = rect.x0 + xx as i32;
+                let dx = x as f32 + 0.5 - cx;
+                // To y-up, project, rotate by -angle, flip.
+                let (mut ux, mut uy) = (dx, -dy);
+                if let Some((ax, ay, k)) = proj {
+                    let t = (ux * ax + uy * ay) * k;
+                    ux += t * ax;
+                    uy += t * ay;
+                }
+                let u = (ux * cs + uy * sn) * fx;
+                let v = (-ux * sn + uy * cs) * fy;
+                let (mut val, rn) = match mips {
+                    None => {
+                        let d2 = (u * ro).powi(2) + v * v;
+                        if d2 >= reach2 {
+                            continue;
+                        }
+                        let dd = d2.sqrt();
+                        let val = if aliased { if dd <= rm { 1.0 } else { 0.0 } } else { dab_coverage(dd, rm, hardness) };
+                        (val, dd / rm)
+                    }
+                    Some(m) => {
+                        let (px, py) = (u * inv_scale + tw / 2.0, -(v / ro) * inv_scale + th / 2.0);
+                        if px < -1.0 || py < -1.0 || px > tw + 1.0 || py > th + 1.0 {
+                            continue;
+                        }
+                        let s = m.sample_clamped(level, px / tw, py / th);
+                        let val = if aliased { if s >= 0.5 { 1.0 } else { 0.0 } } else { s };
+                        (val, 1.0 - s)
+                    }
+                };
+                if val <= 0.0 {
+                    continue;
+                }
+                if noise && val < 1.0 {
+                    let n = hash2(x, y, NOISE_SALT);
+                    let hard = if n < val { 1.0 } else { 0.0 };
+                    val += (hard - val) * 0.7;
+                }
+                if tex_tip {
+                    val = mask_combine(b.texture.mode, val, self.texture_at(x, y), d.depth);
+                }
+                if wet {
+                    val *= wet_factor(rn);
+                }
+                if let Some(slot) = depth.as_deref_mut().and_then(|dp| dp.get_mut(xx)) {
+                    *slot = (1.0 - rn).clamp(0.0, 1.0);
+                }
+                out[xx] = val * d.alpha;
+            }
+        };
+        raster_rows(self.executor.as_deref(), out, depth.map(Vec::as_mut_slice), w, &row);
+    }
+
+    /// One dab's dense footprint (for the sequential retouch tools).
+    pub fn footprint(&self, d: &Dab, index: usize) -> Footprint {
+        let rect = self.dab_rect(d, false);
+        let mut cov = Vec::new();
+        self.rasterize(d, false, rect, &mut cov);
+        Footprint { dab: *d, index, rect, cov }
+    }
+
+    /// Stroke-level masks applied to accumulated coverage `c` at a pixel.
+    #[inline]
+    pub fn stroke_mask(&self, c: f32, dual: Option<f32>, x: i32, y: i32) -> f32 {
+        self.stroke_mask_wet(c, None, dual, x, y)
+    }
+
+    /// [`stroke_mask`](Self::stroke_mask) with Wet Edges from the stroke's depth at the pixel
+    /// (the deepest any dab reaches it, see [`CoverageMap::depth`]).
+    #[inline]
+    fn stroke_mask_wet(&self, c: f32, depth: Option<f32>, dual: Option<f32>, x: i32, y: i32) -> f32 {
+        let b = &self.brush;
+        let mut m = match depth {
+            Some(dp) => c * wet_factor(1.0 - dp),
+            None => c,
+        };
+        if let Some(dv) = dual {
+            m = mask_combine(b.dual_brush.mode, m, dv, 1.0);
+        }
+        if self.texture.is_some() && !b.texture.each_tip {
+            m = mask_combine(b.texture.mode, m, self.texture_at(x, y), b.texture.depth.clamp(0.0, 1.0));
+        }
+        m
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sparse stroke buffer
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+struct CovTile {
+    cov: Arc<Vec<f32>>,
+    /// Wet Edges: the deepest any dab reaches each pixel (`1 − rn` of the nearest dab), empty
+    /// without Wet Edges. The stroke's interior is deep, its rim shallow, whatever the dabs' overlap.
+    depth: Arc<Vec<f32>>,
+    /// Premultiplied native colour channels (`nc` per pixel), empty without per-dab colour.
+    col: Arc<Vec<f32>>,
+}
+
+/// One disjoint coverage tile, with borrowed immutable dab samples. The host may only run it;
+/// private fields keep the coverage arithmetic and accumulation order inside the paint engine.
+pub struct CoverageTask<'a> {
+    key: (i32, i32),
+    tile: CovTile,
+    rect: Rect,
+    tr: Rect,
+    vals: &'a [f32],
+    ceil: f32,
+    nc: usize,
+    color: Option<&'a [f32]>,
+    depth: Option<&'a [f32]>,
+    cancel: Option<&'a std::sync::atomic::AtomicBool>,
+}
+impl CoverageTask<'_> {
+    pub fn run(&mut self) {
+        if self.cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+            return;
+        }
+        let Self { key: (tx, ty), tile, rect, tr, vals, ceil, nc, color, depth, .. } = self;
+        let (tx, ty, rect, tr, ceil, nc) = (*tx, *ty, *rect, *tr, *ceil, *nc);
+        let w = rect.width() as usize;
+        let (color, depth) = (*color, *depth);
+        let want_col = color.is_some() && nc > 0;
+        // Snapshot tiles share storage until this dab actually touches them.
+        let cov = Arc::make_mut(&mut tile.cov);
+        let depths = Arc::make_mut(&mut tile.depth);
+        let cols = Arc::make_mut(&mut tile.col);
+        for y in tr.y0..tr.y1 {
+            let row = (y - rect.y0) as usize * w;
+            let trow = ((y - ty * COV_TILE) * COV_TILE) as usize;
+            for x in tr.x0..tr.x1 {
+                let v = vals[row + (x - rect.x0) as usize];
+                if v <= 0.0 {
+                    continue;
+                }
+                let ti = trow + (x - tx * COV_TILE) as usize;
+                if let (Some(dv), Some(slot)) = (depth.and_then(|dp| dp.get(row + (x - rect.x0) as usize)), depths.get_mut(ti)) {
+                    *slot = slot.max(*dv);
+                }
+                let c = cov[ti];
+                let nv = if ceil > c { c + v * (ceil - c) } else { c };
+                if nv <= c {
+                    continue;
+                }
+                if let (true, Some(col)) = (want_col, color) {
+                    let k = if c < 1.0 { (nv - c) / (1.0 - c) } else { 0.0 };
+                    let p = &mut cols[ti * nc..(ti + 1) * nc];
+                    for i in 0..nc {
+                        p[i] = col[i] * k + p[i] * (1.0 - k);
+                    }
+                }
+                cov[ti] = nv;
+            }
+        }
+    }
+}
+
+/// A sparse tiled coverage (+ optional colour) buffer.
+#[derive(Clone, Debug, Default)]
+pub struct CoverageMap {
+    tiles: HashMap<(i32, i32), CovTile>,
+    nc: usize,
+    bounds: Rect,
+    dirty: HashSet<(i32, i32)>,
+    cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    executor: Option<Arc<dyn StrokeExecutor>>,
+}
+
+impl CoverageMap {
+    pub fn new(color_channels: usize) -> Self {
+        Self { nc: color_channels, ..Default::default() }
+    }
+    pub fn bounds(&self) -> Rect {
+        self.bounds
+    }
+    #[inline]
+    pub fn get(&self, x: i32, y: i32) -> f32 {
+        let (tx, ty) = (x.div_euclid(COV_TILE), y.div_euclid(COV_TILE));
+        self.tiles.get(&(tx, ty)).map_or(0.0, |t| t.cov[((y - ty * COV_TILE) * COV_TILE + (x - tx * COV_TILE)) as usize])
+    }
+
+    /// Wet Edges depth at a pixel (see [`CovTile::depth`]); `None` when the stroke has none.
+    #[inline]
+    pub fn depth(&self, x: i32, y: i32) -> Option<f32> {
+        let (tx, ty) = (x.div_euclid(COV_TILE), y.div_euclid(COV_TILE));
+        self.tiles.get(&(tx, ty)).and_then(|t| t.depth.get(((y - ty * COV_TILE) * COV_TILE + (x - tx * COV_TILE)) as usize).copied())
+    }
+
+    /// Accumulate dab values over `rect`: flow builds up towards the dab's opacity ceiling
+    /// (`c ← c + v·(ceil − c)`). `color` = native colour for per-dab colour. `depth` (Wet Edges, one
+    /// value per pixel of `rect`) keeps the deepest any dab reaches each pixel.
+    pub fn accumulate(&mut self, rect: Rect, vals: &[f32], ceil: f32, color: Option<&[f32]>, depth: Option<&[f32]>) {
+        #[cfg(debug_assertions)]
+        let _span = crate::profiling::span(crate::profiling::Stage::Coverage);
+        if rect.is_empty() {
+            return;
+        }
+        self.bounds = self.bounds.union(&rect);
+        let w = rect.width() as usize;
+        let nc = self.nc;
+        let (t0x, t0y) = (rect.x0.div_euclid(COV_TILE), rect.y0.div_euclid(COV_TILE));
+        let (t1x, t1y) = ((rect.x1 - 1).div_euclid(COV_TILE), (rect.y1 - 1).div_euclid(COV_TILE));
+        let want_col = color.is_some() && nc > 0;
+        let mut tasks = Vec::new();
+        'admission: for ty in t0y..=t1y {
+            for tx in t0x..=t1x {
+                if self.cancel.as_ref().is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+                    break 'admission;
+                }
+                let tr = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&rect);
+                if tr.is_empty() {
+                    continue;
+                }
+                // Skip tiles this dab doesn't touch.
+                let any = (tr.y0..tr.y1).any(|y| {
+                    let row = (y - rect.y0) as usize * w;
+                    vals[row + (tr.x0 - rect.x0) as usize..row + (tr.x1 - rect.x0) as usize].iter().any(|&v| v > 0.0)
+                });
+                if !any {
+                    continue;
+                }
+                let mut tile = self.tiles.remove(&(tx, ty)).unwrap_or_else(|| CovTile {
+                    cov: Arc::new(vec![0.0; (COV_TILE * COV_TILE) as usize]),
+                    depth: Arc::new(Vec::new()),
+                    col: Arc::new(if want_col { vec![0.0; (COV_TILE * COV_TILE) as usize * nc] } else { Vec::new() }),
+                });
+                if want_col && tile.col.is_empty() {
+                    tile.col = Arc::new(vec![0.0; (COV_TILE * COV_TILE) as usize * nc]);
+                }
+                if depth.is_some() && tile.depth.is_empty() {
+                    tile.depth = Arc::new(vec![0.0; (COV_TILE * COV_TILE) as usize]);
+                }
+                self.dirty.insert((tx, ty));
+                tasks.push(CoverageTask { key: (tx, ty), tile, rect, tr, vals, ceil, nc, color, depth, cancel: self.cancel.as_deref() });
+            }
+        }
+        if let Some(executor) = &self.executor {
+            executor.coverage(&mut tasks);
+        } else {
+            tasks.iter_mut().for_each(CoverageTask::run);
+        }
+        for task in tasks {
+            self.tiles.insert(task.key, task.tile);
+        }
+    }
+
+    fn take_dirty(&mut self) -> Vec<(i32, i32)> {
+        let mut v: Vec<_> = self.dirty.drain().collect();
+        v.sort_unstable();
+        v
+    }
+
+    /// Union two passes of the same brush stroke without applying opacity twice where they
+    /// overlap. The stronger coverage wins, including its per-dab colour when present.
+    fn union_max(&mut self, other: &Self) {
+        self.bounds = self.bounds.union(&other.bounds);
+        for (&key, source) in &other.tiles {
+            let Some(target) = self.tiles.get_mut(&key) else {
+                self.tiles.insert(key, source.clone());
+                self.dirty.insert(key);
+                continue;
+            };
+            if target.depth.is_empty() {
+                target.depth.clone_from(&source.depth);
+            } else {
+                for (dst, src) in Arc::make_mut(&mut target.depth).iter_mut().zip(source.depth.iter()) {
+                    *dst = dst.max(*src);
+                }
+            }
+            for (index, (dst, src)) in Arc::make_mut(&mut target.cov).iter_mut().zip(source.cov.iter()).enumerate() {
+                if *src > *dst {
+                    *dst = *src;
+                    let start = index.saturating_mul(self.nc);
+                    let end = start.saturating_add(self.nc);
+                    if let (Some(dst_color), Some(src_color)) = (Arc::make_mut(&mut target.col).get_mut(start..end), source.col.get(start..end)) {
+                        dst_color.copy_from_slice(src_color);
+                    }
+                }
+            }
+            self.dirty.insert(key);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Stroke renderer
+// ---------------------------------------------------------------------------
+
+/// Incremental stroke rendering: feed points, composite dirty tiles from the pre-stroke pixels.
+#[derive(Clone, Debug)]
+pub struct StrokeRenderer {
+    pub ctx: BrushContext,
+    generator: DabGenerator,
+    cov: CoverageMap,
+    dual: Option<CoverageMap>,
+    fmt: Option<PixelFormat>,
+    per_dab_color: bool,
+    dabs_done: usize,
+    scratch: Vec<f32>,
+    /// Wet Edges depth of the dab being accumulated (see [`CovTile::depth`]).
+    depth_scratch: Vec<f32>,
+    dab_buf: Vec<Dab>,
+    dual_buf: Vec<Dab>,
+    all_dabs: Option<Vec<Dab>>,
+    /// local-image: continuous coverage (soft round brushes, see [`crate::continuous`]).
+    cont: Option<Continuous>,
+    table: Table,
+}
+
+/// Continuous-coverage state: the user's spacing (the density), the tip hardness, the last dab
+/// (where the next segment starts) and whether the stroke's end cap is in.
+#[derive(Clone, Copy, Debug)]
+struct Continuous {
+    spacing: f32,
+    hardness: f32,
+    prev: Option<Dab>,
+    capped: bool,
+}
+
+/// The line-integral table of the last constant segment (rebuilt when the dab changes).
+type Table = Option<crate::continuous::LineTable>;
+
+impl StrokeRenderer {
+    pub fn set_executor(&mut self, executor: Arc<dyn StrokeExecutor>) {
+        self.ctx.executor = Some(executor.clone());
+        self.cov.executor = Some(executor.clone());
+        if let Some(d) = &mut self.dual {
+            d.executor = Some(executor);
+        }
+    }
+
+    /// Cancel disposable live-worker state at row/tile boundaries. Normal renderers have no flag;
+    /// an interrupted renderer must be discarded, never committed or reused.
+    pub fn set_cancel_flag(&mut self, flag: Arc<std::sync::atomic::AtomicBool>) {
+        self.ctx.cancel = Some(flag.clone());
+        self.cov.cancel = Some(flag.clone());
+        if let Some(d) = &mut self.dual {
+            d.cancel = Some(flag);
+        }
+    }
+
+    /// Composite the union of this stroke and a mirrored pass as one stroke. This keeps
+    /// overlapping dabs on a symmetry axis under one opacity ceiling at every bit depth.
+    pub fn composite_union(&self, other: &Self, pre: &Surface, target: &mut Surface, selection: Option<&Surface>, lock_transparency: bool) -> Rect {
+        let mut merged = self.clone();
+        merged.cov.union_max(&other.cov);
+        if let (Some(to), Some(from)) = (&mut merged.dual, &other.dual) {
+            to.union_max(from);
+        }
+        merged.composite(pre, target, selection, lock_transparency, true)
+    }
+    /// `fmt` = target pixel format (needed for per-dab colour); `zoom` for smoothing.
+    pub fn new(brush: &BrushSettings, fmt: Option<PixelFormat>, zoom: f32) -> Self {
+        let per_dab_color = brush.color_dynamics.enabled && !brush.erase && fmt.is_some();
+        let nc = if per_dab_color { fmt.map_or(0, |f| f.mode.color_channels()) } else { 0 };
+        // Soft round brushes integrate their coverage along segments between dabs placed at a
+        // fixed internal spacing; the user's spacing sets the density.
+        let cont = brush.continuous_coverage().then_some(Continuous { spacing: brush.spacing, hardness: brush.hardness, prev: None, capped: false });
+        let generator = match cont {
+            Some(_) => DabGenerator::new(&BrushSettings { spacing: crate::continuous::SEGMENT_SPACING, ..brush.clone() }, zoom),
+            None => DabGenerator::new(brush, zoom),
+        };
+        Self {
+            ctx: BrushContext::new(brush),
+            generator,
+            cov: CoverageMap::new(nc),
+            dual: brush.dual_brush.enabled.then(|| CoverageMap::new(0)),
+            fmt,
+            per_dab_color,
+            dabs_done: 0,
+            scratch: Vec::new(),
+            depth_scratch: Vec::new(),
+            dab_buf: Vec::new(),
+            dual_buf: Vec::new(),
+            all_dabs: None,
+            cont,
+            table: None,
+        }
+    }
+
+    /// [`new`](Self::new), always stamping dabs (no continuous coverage): for comparisons.
+    pub fn new_stamped(brush: &BrushSettings, fmt: Option<PixelFormat>, zoom: f32) -> Self {
+        let mut r = Self::new(brush, fmt, zoom);
+        if r.cont.take().is_some() {
+            r.generator = DabGenerator::new(brush, zoom);
+        }
+        r
+    }
+
+    /// Does this stroke render with continuous coverage?
+    pub fn is_continuous(&self) -> bool {
+        self.cont.is_some()
+    }
+
+    /// Keep a copy of every primary dab (for tests and sequential tools).
+    pub fn record_dabs(mut self) -> Self {
+        self.all_dabs = Some(Vec::new());
+        self
+    }
+    pub fn dabs(&self) -> &[Dab] {
+        self.all_dabs.as_deref().unwrap_or(&[])
+    }
+    pub fn dab_count(&self) -> usize {
+        self.dabs_done
+    }
+    /// Union of the dab rectangles so far.
+    pub fn bounds(&self) -> Rect {
+        self.cov.bounds
+    }
+
+    fn raster_pending(&mut self) {
+        #[cfg(debug_assertions)]
+        let timing = crate::profiling::start();
+        let mut dabs = std::mem::take(&mut self.dab_buf);
+        let mut duals = std::mem::take(&mut self.dual_buf);
+        let wet = self.ctx.brush.wet_edges;
+        let mut native = [0.0f32; 8];
+        if let Some(c) = self.cont.as_mut() {
+            for d in &dabs {
+                if self.ctx.cancelled() {
+                    return;
+                }
+                let (rect, ceil) = match c.prev {
+                    // The stroke's first dab: its start cap (half a dab).
+                    None => (
+                        crate::continuous::end_cap_interruptible(d, c.hardness, &mut self.scratch, self.ctx.cancel.as_deref(), self.ctx.executor.as_deref()),
+                        d.opacity,
+                    ),
+                    Some(p) => (
+                        crate::continuous::segment_interruptible(
+                            &p,
+                            d,
+                            c.hardness,
+                            c.spacing,
+                            &mut self.table,
+                            &mut self.scratch,
+                            self.ctx.cancel.as_deref(),
+                            self.ctx.executor.as_deref(),
+                        ),
+                        0.5 * (p.opacity + d.opacity),
+                    ),
+                };
+                self.cov.accumulate(rect, &self.scratch, ceil, None, None);
+                self.cov.bounds = self.cov.bounds.union(&self.ctx.dab_rect(d, false));
+                c.prev = Some(*d);
+                c.capped = false;
+            }
+        }
+        for d in dabs.iter().filter(|_| self.cont.is_none()) {
+            if self.ctx.cancelled() {
+                return;
+            }
+            let rect = self.ctx.dab_rect(d, false);
+            self.ctx.rasterize_into(d, false, rect, &mut self.scratch, wet.then_some(&mut self.depth_scratch));
+            let col = match (self.per_dab_color, self.fmt) {
+                (true, Some(f)) => {
+                    from_rgba_into(&f, d.color, &mut native);
+                    Some(&native[..f.mode.color_channels()])
+                }
+                _ => None,
+            };
+            self.cov.accumulate(rect, &self.scratch, d.opacity, col, wet.then_some(&self.depth_scratch[..]));
+            // Bounds track the full dab rectangle (even fully transparent parts), like the damage.
+            self.cov.bounds = self.cov.bounds.union(&rect);
+        }
+        if let Some(dm) = self.dual.as_mut() {
+            for d in &duals {
+                if self.ctx.cancelled() {
+                    return;
+                }
+                let rect = self.ctx.dab_rect(d, true);
+                self.ctx.rasterize(d, true, rect, &mut self.scratch);
+                dm.accumulate(rect, &self.scratch, 1.0, None, None);
+            }
+        }
+        #[cfg(debug_assertions)]
+        crate::profiling::finish(timing, dabs.len(), duals.len());
+        self.dabs_done += dabs.len();
+        if let Some(all) = self.all_dabs.as_mut() {
+            all.extend_from_slice(&dabs);
+        }
+        dabs.clear();
+        duals.clear();
+        self.dab_buf = dabs;
+        self.dual_buf = duals;
+    }
+
+    /// Feed input points (any chunking gives the same result).
+    pub fn push(&mut self, pts: &[StrokePoint]) {
+        self.generator.push(pts, &mut self.dab_buf, &mut self.dual_buf);
+        self.raster_pending();
+    }
+
+    /// End of stroke (smoothing catch-up, a lone first point).
+    pub fn finish(&mut self) {
+        self.generator.finish(&mut self.dab_buf, &mut self.dual_buf);
+        self.raster_pending();
+        self.end_cap();
+    }
+
+    /// Continuous coverage: the half dab at the stroke's last dab.
+    fn end_cap(&mut self) {
+        if let Some(c) = self.cont.as_mut()
+            && !c.capped
+            && let Some(p) = c.prev
+        {
+            let rect = crate::continuous::end_cap_interruptible(&p, c.hardness, &mut self.scratch, self.ctx.cancel.as_deref(), self.ctx.executor.as_deref());
+            self.cov.accumulate(rect, &self.scratch, p.opacity, None, None);
+            c.capped = true;
+        }
+    }
+
+    /// What finishing the stroke now would add (the smoothing catch-up tail to the last point, or
+    /// a lone first dab), for live previews: a renderer holding copies of the coverage tiles the
+    /// tail touches with the tail rendered in, so its `composite` draws exactly those tiles as
+    /// [`finish`](Self::finish) would leave them. `None` when finishing adds nothing.
+    pub fn tail_preview(&self) -> Option<StrokeRenderer> {
+        #[cfg(debug_assertions)]
+        let _span = crate::profiling::span(crate::profiling::Stage::Tail);
+        let mut generator = self.generator.clone();
+        let (mut dabs, mut duals) = (Vec::new(), Vec::new());
+        generator.finish(&mut dabs, &mut duals);
+        let cap_pending = self.cont.is_some_and(|c| c.prev.is_some() && !c.capped);
+        if dabs.is_empty() && duals.is_empty() && !cap_pending {
+            return None;
+        }
+        let mut keys = HashSet::new();
+        let prev = self.cont.and_then(|c| c.prev).map(|d| crate::continuous::dab_reach(&d));
+        let reach = dabs.iter().map(|d| if self.cont.is_some() { crate::continuous::dab_reach(d) } else { self.ctx.dab_rect(d, false) });
+        for r in reach.chain(prev).chain(duals.iter().map(|d| self.ctx.dab_rect(d, true))) {
+            if r.is_empty() {
+                continue;
+            }
+            for ty in r.y0.div_euclid(COV_TILE)..=(r.y1 - 1).div_euclid(COV_TILE) {
+                for tx in r.x0.div_euclid(COV_TILE)..=(r.x1 - 1).div_euclid(COV_TILE) {
+                    keys.insert((tx, ty));
+                }
+            }
+        }
+        let subset = |m: &CoverageMap| CoverageMap {
+            tiles: keys.iter().filter_map(|k| m.tiles.get(k).map(|t| (*k, t.clone()))).collect(),
+            nc: m.nc,
+            bounds: m.bounds,
+            dirty: HashSet::new(),
+            cancel: m.cancel.clone(),
+            executor: m.executor.clone(),
+        };
+        let mut t = StrokeRenderer {
+            ctx: self.ctx.clone(),
+            generator,
+            cov: subset(&self.cov),
+            dual: self.dual.as_ref().map(subset),
+            fmt: self.fmt,
+            per_dab_color: self.per_dab_color,
+            dabs_done: self.dabs_done,
+            scratch: Vec::new(),
+            depth_scratch: Vec::new(),
+            dab_buf: dabs,
+            dual_buf: duals,
+            all_dabs: None,
+            cont: self.cont,
+            table: self.table.clone(),
+        };
+        t.raster_pending();
+        t.end_cap();
+        // Tiles whose coverage the tail doesn't change still composite the same: redraw them all.
+        t.cov.dirty.extend(t.cov.tiles.keys().copied());
+        Some(t)
+    }
+
+    /// Mark the coverage tiles over `r` for the next `composite` (e.g. to redraw over a preview).
+    pub fn mark_dirty(&mut self, r: Rect) {
+        if r.is_empty() {
+            return;
+        }
+        for ty in r.y0.div_euclid(COV_TILE)..=(r.y1 - 1).div_euclid(COV_TILE) {
+            for tx in r.x0.div_euclid(COV_TILE)..=(r.x1 - 1).div_euclid(COV_TILE) {
+                if self.cov.tiles.contains_key(&(tx, ty)) {
+                    self.cov.dirty.insert((tx, ty));
+                }
+            }
+        }
+    }
+
+    /// Final stroke coverage at a pixel (stroke-level masks applied, before opacity/selection).
+    pub fn coverage_at(&self, x: i32, y: i32) -> f32 {
+        let c = self.cov.get(x, y);
+        if c <= 0.0 {
+            return 0.0;
+        }
+        self.ctx.stroke_mask_wet(c, self.cov.depth(x, y), self.dual.as_ref().map(|d| d.get(x, y)), x, y)
+    }
+
+    /// Dense final coverage over the stroke bounds.
+    pub fn dense_coverage(&self) -> (Rect, Vec<f32>) {
+        let b = self.bounds();
+        let w = b.width() as usize;
+        let mut out = vec![0.0f32; w * b.height() as usize];
+        for (&(tx, ty), t) in &self.cov.tiles {
+            let tr = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&b);
+            for y in tr.y0..tr.y1 {
+                for x in tr.x0..tr.x1 {
+                    let ti = ((y - ty * COV_TILE) * COV_TILE + (x - tx * COV_TILE)) as usize;
+                    let c = t.cov[ti];
+                    if c > 0.0 {
+                        out[(y - b.y0) as usize * w + (x - b.x0) as usize] =
+                            self.ctx.stroke_mask_wet(c, t.depth.get(ti).copied(), self.dual.as_ref().map(|d| d.get(x, y)), x, y);
+                    }
+                }
+            }
+        }
+        (b, out)
+    }
+
+    /// Composite the stroke buffer onto `target`, reading original pixels from `pre` (the
+    /// pre-stroke surface; pass a clone of the target taken before the first `push`). With
+    /// `all = false` only tiles touched since the last composite are processed (interactive use).
+    /// Returns the damaged rectangle.
+    pub fn composite(&mut self, pre: &Surface, target: &mut Surface, selection: Option<&Surface>, lock_transparency: bool, all: bool) -> Rect {
+        let keys: Vec<(i32, i32)> = if all {
+            self.cov.dirty.clear();
+            let mut k: Vec<_> = self.cov.tiles.keys().copied().collect();
+            k.sort_unstable();
+            k
+        } else {
+            self.cov.take_dirty()
+        };
+        if let Some(d) = self.dual.as_mut() {
+            d.dirty.clear();
+        }
+        let dmg =
+            composite_tiles(&self.ctx, &self.cov, self.dual.as_ref(), self.per_dab_color, &keys, self.bounds(), pre, target, selection, lock_transparency);
+        if all { self.bounds() } else { dmg }
+    }
+
+    /// Composite the finished live stroke once, replacing previous tail tiles directly from
+    /// `pre`. The old path first restored the whole tail rectangle, then blended the base and
+    /// tail in two separate passes. Tile overrides select the finished coverage before blending.
+    pub fn composite_live(
+        &mut self,
+        pre: &Surface,
+        target: &mut Surface,
+        selection: Option<&Surface>,
+        lock_transparency: bool,
+        old_tail: Rect,
+    ) -> (Rect, Rect, Rect) {
+        let tail = self.tail_preview();
+        let bounds = tail.as_ref().map_or(self.bounds(), Self::bounds);
+        let mut keys = std::mem::take(&mut self.cov.dirty);
+        if let Some(d) = &mut self.dual {
+            keys.extend(d.dirty.drain());
+        }
+        if !old_tail.is_empty() {
+            keys.extend(tile_keys(old_tail));
+        }
+        let mut tail_bounds = Rect::EMPTY;
+        if let Some(t) = &tail {
+            for &k in t.cov.tiles.keys() {
+                keys.insert(k);
+                let (tx, ty) = k;
+                tail_bounds = tail_bounds.union(&Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&bounds));
+            }
+        }
+        let mut sorted: Vec<_> = keys.into_iter().collect();
+        sorted.sort_unstable();
+        let pick = |base: &CoverageMap, overlay: Option<&CoverageMap>| CoverageMap {
+            tiles: sorted.iter().filter_map(|k| overlay.and_then(|m| m.tiles.get(k)).or_else(|| base.tiles.get(k)).map(|t| (*k, t.clone()))).collect(),
+            nc: base.nc,
+            bounds,
+            dirty: HashSet::new(),
+            cancel: base.cancel.clone(),
+            executor: base.executor.clone(),
+        };
+        let cov = pick(&self.cov, tail.as_ref().map(|t| &t.cov));
+        let dual = self.dual.as_ref().map(|d| pick(d, tail.as_ref().and_then(|t| t.dual.as_ref())));
+        let damage = composite_live_tiles(&self.ctx, cov, dual, self.per_dab_color, sorted, bounds.union(&old_tail), pre, target, selection, lock_transparency);
+        (damage, tail_bounds, bounds)
+    }
+
+    /// A live preview of [`composite_union`](Self::composite_union) of this stroke and `other`
+    /// as [`finish`](Self::finish) would leave them, kept up to date incrementally: only the
+    /// tiles either stroke changed since the last call, the tiles the finishing tails touch and
+    /// those of the previous call's tail area `old_tail` are recomposited directly from `pre`, each exactly as the one-shot union composites it. Returns the changed
+    /// rectangle, the tail area to pass next time, and the finished union's bounds (what
+    /// `composite_union` on the finished strokes returns).
+    pub fn composite_union_live(
+        &mut self,
+        other: &mut Self,
+        pre: &Surface,
+        target: &mut Surface,
+        selection: Option<&Surface>,
+        lock_transparency: bool,
+        old_tail: Rect,
+    ) -> (Rect, Rect, Rect) {
+        let mut keys: HashSet<(i32, i32)> = HashSet::new();
+        if !old_tail.is_empty() {
+            // Missing old-tail coverage tiles restore directly from `pre` in composite_tiles.
+            keys.extend(tile_keys(old_tail));
+        }
+        for r in [&mut *self, &mut *other] {
+            keys.extend(r.cov.dirty.drain());
+            if let Some(d) = r.dual.as_mut() {
+                keys.extend(d.dirty.drain());
+            }
+        }
+        let (ta, tb) = (self.tail_preview(), other.tail_preview());
+        let mut tail_keys: HashSet<(i32, i32)> = HashSet::new();
+        for t in [&ta, &tb].into_iter().flatten() {
+            tail_keys.extend(t.cov.tiles.keys().copied());
+            if let Some(d) = &t.dual {
+                tail_keys.extend(d.tiles.keys().copied());
+            }
+        }
+        keys.extend(tail_keys.iter().copied());
+        // Each stroke as finishing it would leave it: its tail's copy of a tile when the tail
+        // touches it, else the tile as it is.
+        let fa = ta.as_ref().unwrap_or(&*self);
+        let fb = tb.as_ref().unwrap_or(&*other);
+        let bounds = fa.cov.bounds.union(&fb.cov.bounds);
+        let mut sorted: Vec<(i32, i32)> = keys.into_iter().collect();
+        sorted.sort_unstable();
+        let pick = |t: &Option<StrokeRenderer>, r: &StrokeRenderer, k: &(i32, i32), dual: bool| -> Option<CovTile> {
+            fn map(x: &StrokeRenderer, dual: bool) -> Option<&CoverageMap> {
+                if dual { x.dual.as_ref() } else { Some(&x.cov) }
+            }
+            match t.as_ref().and_then(|t| map(t, dual)) {
+                Some(m) if m.tiles.contains_key(k) => m.tiles.get(k).cloned(),
+                _ => map(r, dual).and_then(|m| m.tiles.get(k).cloned()),
+            }
+        };
+        let merge = |dual: bool| -> CoverageMap {
+            let mut out = CoverageMap { nc: self.cov.nc, bounds, ..Default::default() };
+            let mut other_part = CoverageMap { nc: self.cov.nc, ..Default::default() };
+            for k in &sorted {
+                if let Some(t) = pick(&ta, &*self, k, dual) {
+                    out.tiles.insert(*k, t);
+                }
+                if let Some(t) = pick(&tb, &*other, k, dual) {
+                    other_part.tiles.insert(*k, t);
+                }
+            }
+            out.union_max(&other_part);
+            out.bounds = bounds;
+            out
+        };
+        let cov = merge(false);
+        let dual = self.dual.as_ref().map(|_| merge(true));
+        let damage = composite_live_tiles(&self.ctx, cov, dual, self.per_dab_color, sorted, bounds.union(&old_tail), pre, target, selection, lock_transparency);
+        let tail = tail_keys
+            .iter()
+            .map(|&(tx, ty)| Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&bounds))
+            .fold(Rect::EMPTY, |a, r| a.union(&r));
+        (damage.union(&old_tail), tail, bounds)
+    }
+}
+
+/// Immutable finished coverage for one live update. Storage-tile jobs retain the target pixels
+/// outside the dirty area; merging jobs replaces whole storage tiles without per-pixel gathers.
+pub struct LiveCompositePlan {
+    ctx: BrushContext,
+    cov: CoverageMap,
+    dual: Option<CoverageMap>,
+    per_dab_color: bool,
+    keys: Vec<(i32, i32)>,
+    bounds: Rect,
+}
+pub struct CompositeTile {
+    coord: photocraft_geom::TileCoord,
+    target: Surface,
+    keys: Vec<(i32, i32)>,
+}
+impl CompositeTile {
+    pub fn into_tile(mut self) -> (photocraft_geom::TileCoord, Arc<photocraft_raster::Tile>) {
+        let mut tiles = self.target.take_tiles(self.coord.rect());
+        tiles.remove(0)
+    }
+}
+impl LiveCompositePlan {
+    pub fn jobs(&self, target: &Surface) -> Vec<CompositeTile> {
+        let mut groups: std::collections::BTreeMap<photocraft_geom::TileCoord, Vec<(i32, i32)>> = std::collections::BTreeMap::new();
+        for &(tx, ty) in &self.keys {
+            groups.entry(photocraft_geom::TileCoord::containing(tx * COV_TILE, ty * COV_TILE)).or_default().push((tx, ty));
+        }
+        groups
+            .into_iter()
+            .map(|(coord, keys)| {
+                let mut part = Surface::with_default(target.format(), &target.default_pixel());
+                if let Some(tile) = target.tile(coord) {
+                    part.put_tiles([(coord, tile.clone())]);
+                }
+                CompositeTile { coord, target: part, keys }
+            })
+            .collect()
+    }
+    pub fn run(&self, job: &mut CompositeTile, pre: &Surface, selection: Option<&Surface>, lock: bool) -> Rect {
+        composite_tiles(&self.ctx, &self.cov, self.dual.as_ref(), self.per_dab_color, &job.keys, self.bounds, pre, &mut job.target, selection, lock)
+    }
+    pub fn damage(&self) -> Rect {
+        self.keys.iter().fold(Rect::EMPTY, |r, &(tx, ty)| {
+            r.union(&Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&self.bounds))
+        })
+    }
+}
+
+fn composite_live_tiles(
+    ctx: &BrushContext,
+    cov: CoverageMap,
+    dual: Option<CoverageMap>,
+    per_dab_color: bool,
+    keys: Vec<(i32, i32)>,
+    bounds: Rect,
+    pre: &Surface,
+    target: &mut Surface,
+    selection: Option<&Surface>,
+    lock: bool,
+) -> Rect {
+    if let Some(executor) = &ctx.executor {
+        #[cfg(debug_assertions)]
+        let _span = crate::profiling::span(crate::profiling::Stage::Composite);
+        let plan = LiveCompositePlan { ctx: ctx.clone(), cov, dual, per_dab_color, keys, bounds };
+        executor.composite(&plan, pre, target, selection, lock)
+    } else {
+        composite_tiles(ctx, &cov, dual.as_ref(), per_dab_color, &keys, bounds, pre, target, selection, lock)
+    }
+}
+
+/// The stroke-buffer tiles over `r`.
+fn tile_keys(r: Rect) -> impl Iterator<Item = (i32, i32)> {
+    let (ty0, ty1) = (r.y0.div_euclid(COV_TILE), (r.y1 - 1).div_euclid(COV_TILE));
+    let (tx0, tx1) = (r.x0.div_euclid(COV_TILE), (r.x1 - 1).div_euclid(COV_TILE));
+    (ty0..=ty1).flat_map(move |ty| (tx0..=tx1).map(move |tx| (tx, ty)))
+}
+
+/// Composite the stroke buffer `cov` (stroke-level masks from `ctx` and `dual`) over its tiles
+/// `keys`, clipped to `bounds`, onto `target` from the pre-stroke pixels `pre`. Returns the
+/// rectangle written.
+#[allow(clippy::too_many_arguments)]
+fn composite_tiles(
+    ctx: &BrushContext,
+    cov: &CoverageMap,
+    dual: Option<&CoverageMap>,
+    per_dab_color: bool,
+    keys: &[(i32, i32)],
+    bounds: Rect,
+    pre: &Surface,
+    target: &mut Surface,
+    selection: Option<&Surface>,
+    lock_transparency: bool,
+) -> Rect {
+    {
+        #[cfg(debug_assertions)]
+        let _span = crate::profiling::span(crate::profiling::Stage::Composite);
+        let fmt = target.format();
+        let n = fmt.channels();
+        let a_idx = alpha_index(&fmt);
+        let nc = fmt.mode.color_channels();
+        let b = &ctx.brush;
+        let opacity = b.opacity.clamp(0.0, 1.0);
+        let mut src = [0.0f32; 8];
+        from_rgba_into(&fmt, b.color, &mut src);
+        if let Some(a) = a_idx {
+            src[a] = b.color[3];
+        }
+        let mut dmg = Rect::EMPTY;
+        let mut region = Vec::new();
+        for &(tx, ty) in keys {
+            if ctx.cancelled() {
+                break;
+            }
+            let tile = cov.tiles.get(&(tx, ty));
+            let tr = Rect::new(tx * COV_TILE, ty * COV_TILE, (tx + 1) * COV_TILE, (ty + 1) * COV_TILE).intersect(&bounds);
+            if tr.is_empty() {
+                continue;
+            }
+            let dual_tile = dual.and_then(|d| d.tiles.get(&(tx, ty)));
+            pre.read_region_into(tr, &mut region);
+            let Some(tile) = tile else {
+                // An old preview tail can disappear entirely (pressure/smoothing). Its sparse
+                // coverage tile is absent now; write the original bytes back in the same pass.
+                target.write_region(tr, &region);
+                dmg = dmg.union(&tr);
+                continue;
+            };
+            let sel = selection.map(|s| (s.channels(), s.read_region(tr)));
+            let w = tr.width() as usize;
+            for y in tr.y0..tr.y1 {
+                for x in tr.x0..tr.x1 {
+                    let ti = ((y - ty * COV_TILE) * COV_TILE + (x - tx * COV_TILE)) as usize;
+                    let c = tile.cov[ti];
+                    if c <= 0.0 {
+                        continue;
+                    }
+                    let i = (y - tr.y0) as usize * w + (x - tr.x0) as usize;
+                    let m = ctx.stroke_mask_wet(c, tile.depth.get(ti).copied(), dual.map(|_| dual_tile.map_or(0.0, |d| d.cov[ti])), x, y);
+                    let s = sel.as_ref().map_or(1.0, |(sc, v)| v[i * sc]);
+                    let mut k = (m * opacity * s).min(1.0);
+                    if k <= 0.0 {
+                        continue;
+                    }
+                    if b.mode == BlendMode::Dissolve {
+                        k = if hash2(x, y, b.seed) < k { 1.0 } else { 0.0 };
+                        if k == 0.0 {
+                            continue;
+                        }
+                    }
+                    let px = &mut region[i * n..(i + 1) * n];
+                    if b.erase {
+                        if let (Some(a), false) = (a_idx, lock_transparency) {
+                            px[a] *= 1.0 - k;
+                        }
+                        continue;
+                    }
+                    if lock_transparency && a_idx.is_some_and(|a| px[a] <= 0.0) {
+                        continue;
+                    }
+                    if per_dab_color && !tile.col.is_empty() {
+                        let p = &tile.col[ti * nc..(ti + 1) * nc];
+                        for ch in 0..nc {
+                            src[ch] = p[ch] / c;
+                        }
+                    }
+                    // local-image: Behind: the paint goes under the layer's pixels.
+                    if b.paint_mode == crate::brush::PaintMode::Behind {
+                        if let (Some(a), false) = (a_idx, lock_transparency) {
+                            let (da, sa) = (px[a], src[a] * k);
+                            let oa = da + sa * (1.0 - da);
+                            if oa > 0.0 {
+                                for ch in 0..a {
+                                    px[ch] = (px[ch] * da + src[ch] * sa * (1.0 - da)) / oa;
+                                }
+                            }
+                            px[a] = oa;
+                        }
+                        continue;
+                    }
+                    if matches!(b.mode, BlendMode::Normal | BlendMode::Dissolve) {
+                        over_native(&fmt, px, &src[..n], k, lock_transparency);
+                    } else {
+                        let d = to_rgba(&fmt, px);
+                        let sr = to_rgba(&fmt, &src[..n]);
+                        let mut o = photocraft_color::blend::composite(b.mode, d, sr, k);
+                        if lock_transparency {
+                            o[3] = d[3];
+                        }
+                        let mut enc = [0.0f32; 8];
+                        from_rgba_into(&fmt, o, &mut enc);
+                        px.copy_from_slice(&enc[..n]);
+                    }
+                }
+            }
+            target.write_region(tr, &region);
+            dmg = dmg.union(&tr);
+        }
+        dmg
+    }
+}
+
+/// Render a whole stroke onto `target` (one-shot). Returns the damaged rectangle.
+pub fn render_stroke(
+    target: &mut Surface,
+    brush: &BrushSettings,
+    points: &[StrokePoint],
+    selection: Option<&Surface>,
+    lock_transparency: bool,
+    zoom: f32,
+) -> Rect {
+    if points.is_empty() {
+        return Rect::EMPTY;
+    }
+    let pre = target.clone();
+    let mut r = StrokeRenderer::new(brush, Some(target.format()), zoom);
+    r.push(points);
+    r.finish();
+    r.composite(&pre, target, selection, lock_transparency, true)
+}
+
+#[cfg(test)]
+mod live_tile_tests {
+    use super::*;
+
+    #[test]
+    fn bigbrush_single_live_pass_equals_previous_restore_and_two_passes() {
+        let mut brushes = Vec::new();
+        let soft = BrushSettings { size: 90.0, hardness: 0.0, pressure_size: false, ..Default::default() };
+        brushes.push(soft.clone());
+        brushes.push(BrushSettings { hardness: 1.0, ..soft.clone() });
+        brushes.push(BrushSettings { pressure_size: true, ..soft.clone() });
+        brushes.push(BrushSettings { wet_edges: true, ..soft.clone() });
+        brushes.push(BrushSettings { erase: true, ..soft.clone() });
+        let mut textured = soft.clone();
+        textured.texture.enabled = true;
+        textured.texture.each_tip = true;
+        textured.texture.pattern = Pattern::Tile(crate::GrayTile::from_fn(4, 4, |x, y| ((x + 2 * y) % 4) as f32 / 3.0));
+        textured.dual_brush.enabled = true;
+        textured.dual_brush.size = 54.0;
+        textured.dual_brush.tip = TipShape::Sampled(crate::procedural::bristle_tip(16, 7));
+        brushes.push(textured);
+        for fmt in [PixelFormat::RGBA8, PixelFormat::RGBA16, PixelFormat::RGBA32F] {
+            for (case, brush) in brushes.iter().enumerate() {
+                let area = Rect::new(-100, -100, 300, 300);
+                let mut pre = Surface::new(fmt);
+                pre.write_region(area, &vec![0.35; area.width() as usize * area.height() as usize * 4]);
+                let mut previous = pre.clone();
+                let mut changed = pre.clone();
+                let mut old = StrokeRenderer::new(brush, Some(fmt), 0.4);
+                let mut new = StrokeRenderer::new(brush, Some(fmt), 0.4);
+                let mut old_tail = Rect::EMPTY;
+                let mut new_tail = Rect::EMPTY;
+                for (x, y, pressure) in [(12.0, 18.0, 1.0), (68.0, 79.0, 0.7), (105.0, 35.0, 0.15), (75.0, -25.0, 0.9), (-20.0, 42.0, 0.3)] {
+                    let point = StrokePoint::new(x, y, pressure);
+                    old.push(&[point]);
+                    new.push(&[point]);
+                    // The pre-change LiveStroke algorithm is kept here as a pixel oracle.
+                    if !old_tail.is_empty() {
+                        previous.write_region(old_tail, &pre.read_region(old_tail));
+                        old.mark_dirty(old_tail);
+                    }
+                    old.composite(&pre, &mut previous, None, false, false);
+                    old_tail = if let Some(mut tail) = old.tail_preview() { tail.composite(&pre, &mut previous, None, false, false) } else { Rect::EMPTY };
+                    let (_, tail, _) = new.composite_live(&pre, &mut changed, None, false, new_tail);
+                    new_tail = tail;
+                    assert_eq!(changed.read_region(area), previous.read_region(area), "{fmt:?}, brush {case}, at {x},{y}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bigbrush_cancel_flag_stops_disposable_pixel_work() {
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let brush = BrushSettings { size: 2500.0, hardness: 0.0, pressure_size: false, ..Default::default() };
+        let mut r = StrokeRenderer::new(&brush, Some(PixelFormat::RGBA8), 0.15);
+        r.set_cancel_flag(flag);
+        r.push(&[StrokePoint::new(100.0, 100.0, 1.0), StrokePoint::new(500.0, 100.0, 1.0)]);
+        r.finish();
+        assert!(r.cov.tiles.is_empty());
+    }
+}

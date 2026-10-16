@@ -1,0 +1,13 @@
+{
+  "initial_union": {
+    "exit": 101,
+    "passed": 9723,
+    "failed": 2,
+    "ignored": 145,
+    "elapsed_seconds": 1440.088195908,
+    "source_sha256": "c95ad63844ceb65ee86db163cb3fc1452bb8e6735d0993d5b06572d13f9adaee"
+  },
+  "gradient": "Port missing compositor half of saved V484: sort source midpoint with colour stop, default omitted midpoint to 0.5. GPU plans consume this same Ramp. Existing shape/fill equivalence assertion/tolerance and all cases unchanged.",
+  "titlebar": "Failure leftover is library/thumbs/...jpg. PreviewCache.put_deferred_at holds an Arc on an independent lc-preview-write thread; renderer JobPool/Journal drops join their own workers, but do not retire this deferred cache. Existing PreviewCache.retire waits in-flight generation read locks and blocks late writes. Retire only the titlebar fixture cache after host drop, before exact original remove_dir_all assertion. No sleeps or ignored cleanup errors.",
+  "validation": "Focused failing behaviors then affected closure/static gates; no unchanged whole-workspace feature cycle."
+}

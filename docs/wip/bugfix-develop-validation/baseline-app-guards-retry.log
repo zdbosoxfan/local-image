@@ -1,0 +1,33 @@
+    Blocking waiting for file lock on build directory
+warning: lightcraft-engine@2.0.0-alpha.1: no craft-fonts embedded: Chinese and Japanese text will render as empty boxes. Clone https://github.com/storytold/craft-fonts next to this repo and rebuild with CRAFT_FONTS_DIR=../craft-fonts
+   Compiling lightcraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-engine)
+   Compiling photocraft-io v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-io)
+   Compiling lightcraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/lc-ui-egui)
+   Compiling photocraft-engine v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-engine)
+   Compiling photocraft-ui-egui v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-ui-egui)
+   Compiling photocraft-automation v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/crates/pc-automation)
+   Compiling local-image v2.0.0-alpha.1 (/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-develop/apps/local-image)
+    Finished `test` profile [optimized + debuginfo] target(s) in 1m 26s
+     Running unittests src/main.rs (target/debug/deps/local_image-5a8e72f02ae5087e)
+
+running 3 tests
+
+thread 'doc_layers::bugfix_develop_tests::bugfix_develop_layer_reader_survives_decoder_panic' (2562209) panicked at apps/local-image/src/doc_layers.rs:167:45:
+damaged layered file
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'services::bugfix_develop_tests::bugfix_develop_clipboard_reader_survives_decoder_panic' (2562211) panicked at apps/local-image/src/services.rs:527:51:
+damaged clipboard file
+test library_host::tests::bugfix_develop_startup_defaults_to_library_and_restores_develop ... ok
+test services::bugfix_develop_tests::bugfix_develop_clipboard_reader_survives_decoder_panic ... FAILED
+test doc_layers::bugfix_develop_tests::bugfix_develop_layer_reader_survives_decoder_panic ... FAILED
+
+failures:
+
+failures:
+    doc_layers::bugfix_develop_tests::bugfix_develop_layer_reader_survives_decoder_panic
+    services::bugfix_develop_tests::bugfix_develop_clipboard_reader_survives_decoder_panic
+
+test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 94 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p local-image --bin local-image`

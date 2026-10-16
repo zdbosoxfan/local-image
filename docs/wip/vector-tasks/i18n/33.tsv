@@ -1,0 +1,7 @@
+context	English	note
+anchor33	Add Anchor Point	Tool label; ID addAnchor; shortcut +
+anchor33	Delete Anchor Point	Tool label; ID deleteAnchor; shortcut -
+anchor33	Anchor Point	Convert tool; ID anchorPoint; shortcut Shift+C
+anchor33	Curvature	Tool/history label; ID curvature; shortcut Shift+Backtick
+anchor33	Rubber band	Curvature preview checkbox; existing shared translation
+anchor33	Convert to curves	Reuse 03's live-shape conversion prompt

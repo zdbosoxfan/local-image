@@ -1,0 +1,20 @@
+[package]
+name = "li-i18n"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The one translation engine for Library, Develop and Compositing: language registry, catalogs, plurals, system language and compile-checked format strings"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+log.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# Safe native UI-language APIs (Windows/macOS); no subprocess or web dependency.
+sys-locale = "=0.3.2"
+
+[dev-dependencies]
+serde_json.workspace = true

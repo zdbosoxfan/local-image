@@ -1,0 +1,68 @@
+[
+  {
+    "test": "all_nested_tag_keys_are_unique_in_each_json_object",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "LiveGroup newtypes Repeat and Envelope merge their payload's kind tag; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "live_repeat_all_modes",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "LiveGroup::Repeat flattens RepeatSpec with the same kind discriminator; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "live_envelope_all_modes",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "LiveGroup::Envelope flattens EnvelopeSpec with the same kind discriminator; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "gradient_mesh_native_save_reopen_keeps_control_points_handles_colors_and_opacity",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "AppearanceItem has no mesh variant, so write_native rejects gradient mesh paint; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "every_path_effect_native_save_reopen_keeps_order_targets_and_enabled_state",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "engine bootstrap has no native VectorData path-effect storage access; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "graphic_styles_and_applied_links_native_save_reopen",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "engine bootstrap has no document graphic-style and StyleLink persistence hooks; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "swatches_groups_spot_tints_and_paint_links_native_save_reopen",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "engine bootstrap has no document SwatchBook and global colour link storage access; marked before the run from source evidence",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "psd_text_keeps_editable_runs_paragraphs_transform_and_styles",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "PSD import synthesizes postscript_name for text runs that stored None; failed in the single run",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "psd_shape_keeps_path_fill_stroke_live_shape_and_vector_mask",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "PSD export/import drops a shape layer's separate vector mask; failed in the single run",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "psd_smart_embedded_source_transform_filters_mask_and_cache",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "PSD smart import drops an explicitly stored all-white smart-filter mask; failed in the single run",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  },
+  {
+    "test": "psd_develop_settings_photo_link_and_embedded_source",
+    "saved_status": "ignored-known-defect",
+    "saved_reason": "PSD Develop import drops an explicitly stored all-white smart-filter mask; failed in the single run",
+    "stage1_disposition": "pending recovery prerequisites; not ported or freshly executed; no ignore removed"
+  }
+]

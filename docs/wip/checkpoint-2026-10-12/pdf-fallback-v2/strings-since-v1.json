@@ -1,0 +1,9 @@
+[
+  "Confirm embedded placement before importing this PDF",
+  "Finish or cancel the current PDF placement first",
+  "PDF image admission is disabled for this session",
+  "PDF image import is disabled for this session: cleanup of {unit} was not confirmed",
+  "PDF placement cannot keep a live link to the source file.",
+  "Place embedded artwork instead (no live link)",
+  "This PDF was selected for placement in its captured document"
+]

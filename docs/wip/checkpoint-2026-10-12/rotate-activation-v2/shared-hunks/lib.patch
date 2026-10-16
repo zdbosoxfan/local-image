@@ -1,0 +1,12 @@
+diff --git a/crates/pc-ui-egui/src/lib.rs b/crates/pc-ui-egui/src/lib.rs
+index 58da2324..ea3ad0ce 100644
+--- a/crates/pc-ui-egui/src/lib.rs
++++ b/crates/pc-ui-egui/src/lib.rs
+@@ -1404,6 +1404,7 @@ impl eframe::App for PhotocraftApp {
+         // shortcuts see Esc).
+         let restoration_modal = restoration_ui::is_open(self);
+         restoration_ui::handle_keys(self, ctx);
++        canvas::rotate_view::handle_keys(self, ctx);
+         if restoration_modal {
+             // Poll jobs without letting their global Escape handler steal modal input.
+             jobs_ui::tick_background(self, ctx);

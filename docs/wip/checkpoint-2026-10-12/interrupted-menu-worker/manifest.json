@@ -1,0 +1,41 @@
+{
+  "status": "Interrupted at user request; not reviewed, compiled or tested",
+  "base_note": "Incremental against current integrated Rotate+remembered-dialog seed; preserve shared hunks",
+  "files": [
+    {
+      "path": "crates/pc-ui-egui/src/menu_catalog.rs",
+      "base_sha256": "f97f50a7c6323acb5845652ca59e5528e4f0c81a1242090a3b9d408c324df744",
+      "sha256": "f4a54b24a38cb4fc108cf3074f17f7e807c81c6ca075698b39f5d013021b0ef8"
+    },
+    {
+      "path": "crates/pc-ui-egui/src/menus.rs",
+      "base_sha256": "9a6083181f37a0e0c490da46be40e93bfc400423015df78f8ee10db22d211e86",
+      "sha256": "a25e3d71ba350f4e772e9ea9adcc0857318c27fe0ab3e51e3a883d235167f153"
+    },
+    {
+      "path": "crates/pc-ui-egui/src/menus/conventions_tests.rs",
+      "base_sha256": null,
+      "sha256": "ab462a6c4005e206a199eb7fc31da24e2e5a7b91cb3a8839ffdb3515e0d55bcc"
+    },
+    {
+      "path": "crates/pc-ui-egui/src/native_menu.rs",
+      "base_sha256": "1bff7180791c2b5b2f9f0a3e12fda125761ad7963c3d0b0cb1a0b0a1e21dac6a",
+      "sha256": "a78c181af10eb26074b81be2f3ebf51d9d0e2bc8051637f1a901d791245955df"
+    },
+    {
+      "path": "crates/pc-ui-egui/src/panels.rs",
+      "base_sha256": "7ea3d1d76d5b9941f015bce5eaddc134f76657c164a8985d439de4e20781b5fe",
+      "sha256": "c8266cfba4d0f5614c0dfd407f9e20dba9594638fa4985072737f872425a155e"
+    },
+    {
+      "path": "crates/pc-ui-egui/src/prefs_ui.rs",
+      "base_sha256": "28000295cf20c60d9d3c1ff940d753741384d3abb4530002354e7bf54c28c24a",
+      "sha256": "b36e2f3deaa8bbc8d5f30559be8162ee4f68c10735cb63191366af7aba6e9b27"
+    },
+    {
+      "path": "crates/pc-ui-egui/src/vector_integration.rs",
+      "base_sha256": "839899576b58e56709e0109e1e731961f0d818f416cfeb0077fd5feb3015feb7",
+      "sha256": "de7ce4c88c13f761e207340171ea79d3e1478d6b9e80ba64ff5ed6aa32dc1bd0"
+    }
+  ]
+}

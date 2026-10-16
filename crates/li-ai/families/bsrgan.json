@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "version": 1,
+  "id": "bsrgan",
+  "kind": "upscaler",
+  "label": "Rescue \u00b7 BSRGAN",
+  "group": "Upscalers",
+  "description": "Rescue \u00b7 BSRGAN local restoration on the GPU through ComfyUI core nodes.",
+  "license": "Apache-2.0",
+  "license_url": "https://github.com/cszn/BSRGAN",
+  "pipeline": {
+    "loader": "checkpoint",
+    "vae": "file",
+    "encode": "clip_text",
+    "latent": "none",
+    "sampler": "upscale_model"
+  },
+  "capabilities": {
+    "create": false,
+    "edit": false,
+    "references": 1,
+    "upscale": true
+  },
+  "models": [
+    {
+      "key": "bsrgan-2x",
+      "label": "Rescue \u00b7 BSRGAN 2\u00d7",
+      "short": "Rescue \u00b7 BSRGAN 2\u00d7",
+      "best_for": "Noise, JPEG artefacts and mild blur",
+      "tool": true,
+      "presets": [
+        {
+          "variant": "default",
+          "label": "2\u00d7 GPU",
+          "files": [
+            {
+              "role": "upscaler",
+              "folder": "upscale_models",
+              "name": "BSRGANx2.pth",
+              "bytes": 66894171,
+              "sha256": "614f68bcafcf123a1ea51cc75ae5741640a8b1d49dd75757ad3ad531f772c736",
+              "url": "https://github.com/cszn/KAIR/releases/download/v1.0/BSRGANx2.pth"
+            }
+          ],
+          "required_nodes": [
+            "UpscaleModelLoader",
+            "ImageUpscaleWithModel",
+            "LoadImage",
+            "SaveImage"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "bsrgan-4x",
+      "label": "Rescue \u00b7 BSRGAN 4\u00d7",
+      "short": "Rescue \u00b7 BSRGAN 4\u00d7",
+      "best_for": "Noise, JPEG artefacts and mild blur",
+      "tool": true,
+      "presets": [
+        {
+          "variant": "default",
+          "label": "4\u00d7 GPU",
+          "files": [
+            {
+              "role": "upscaler",
+              "folder": "upscale_models",
+              "name": "BSRGAN.pth",
+              "bytes": 67046751,
+              "sha256": "5d505a0766160921e0388d76e1ddf08cb114303990f9080432bf2b1c988b1c54",
+              "url": "https://github.com/cszn/KAIR/releases/download/v1.0/BSRGAN.pth"
+            }
+          ],
+          "required_nodes": [
+            "UpscaleModelLoader",
+            "ImageUpscaleWithModel",
+            "LoadImage",
+            "SaveImage"
+          ]
+        }
+      ]
+    }
+  ]
+}

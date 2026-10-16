@@ -1,0 +1,42 @@
+COMMAND: '/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-save/target/debug/deps/lightcraft_engine-25f0a96ea3a2dfe6' --exact cmd::convert::tests::reload_fills_only_missing_camera_fields cmd::library::gps_tests::coordinates_people_type
+
+running 2 tests
+test cmd::library::gps_tests::coordinates_people_type ... ok
+test cmd::convert::tests::reload_fills_only_missing_camera_fields ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 460 filtered out; finished in 0.01s
+
+TEST BINARY EXIT: 0
+COMMAND: '/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-save/target/debug/deps/lightcraft_ui_egui-ac1661cc191becfc' --exact cache_tests::absolute_rules_ignore_the_clock cache_tests::smart_album_counts_are_cached_until_something_changes drop_tests::dropped_presets_are_told_apart_from_photos
+
+running 3 tests
+test drop_tests::dropped_presets_are_told_apart_from_photos ... ok
+test cache_tests::absolute_rules_ignore_the_clock ... ok
+test cache_tests::smart_album_counts_are_cached_until_something_changes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 265 filtered out; finished in 0.04s
+
+TEST BINARY EXIT: 0
+COMMAND: '/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-save/target/debug/deps/photocraft_engine-acbe108066f7e57b' --exact vector_integration::integration_tests::integration_projected_live_groups_reserve_global_ids_and_are_stable vector_integration::integration_tests::integration_shared_insertion_draw_modes_preview_publication_and_undo vector_integration::integration_tests::integration_shared_insertion_isolation_uses_parent_and_rejects_stale_selection
+
+running 3 tests
+test vector_integration::integration_tests::integration_shared_insertion_isolation_uses_parent_and_rejects_stale_selection ... ok
+test vector_integration::integration_tests::integration_shared_insertion_draw_modes_preview_publication_and_undo ... ok
+test vector_integration::integration_tests::integration_projected_live_groups_reserve_global_ids_and_are_stable ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 1319 filtered out; finished in 0.03s
+
+TEST BINARY EXIT: 0
+COMMAND: '/home/zdavidson/Documents/Local Image - Testing/.claude/worktrees/codex-bugfix-save/target/debug/deps/photocraft_ui_egui-35a1043cb05e145b' --exact clipboard_tests::external_clipboard_enables_and_centres_paste clipboard_tests::idle_frames_never_read_the_os_clipboard clipboard_tests::os_clipboard_bridge clipboard_tests::os_clipboard_image_becomes_a_new_document clipboard_tests::pasting_an_empty_or_non_image_os_clipboard_is_a_quiet_no_op
+
+running 5 tests
+test clipboard_tests::pasting_an_empty_or_non_image_os_clipboard_is_a_quiet_no_op ... ok
+test clipboard_tests::os_clipboard_bridge ... ok
+test clipboard_tests::external_clipboard_enables_and_centres_paste ... ok
+test clipboard_tests::os_clipboard_image_becomes_a_new_document ... ok
+test clipboard_tests::idle_frames_never_read_the_os_clipboard ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1333 filtered out; finished in 0.32s
+
+TEST BINARY EXIT: 0
+ADDITIONAL EXISTING TESTS: 13

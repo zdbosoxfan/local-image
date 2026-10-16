@@ -1,0 +1,506 @@
+[
+  {
+    "source": "dsfix-engine",
+    "id": "V059",
+    "source_verdict": "REAL",
+    "source_change": "Use maximum right/bottom edge across every input when deriving default spacing.",
+    "source_test": "`dsfix_v059_spacing_uses_farthest_edge_on_both_axes`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V102",
+    "source_verdict": "REAL",
+    "source_change": "Cache exact Expand availability per document snapshot, capture/revision/selection, and options; publication still prepares afresh. One thread-local entry holds a weak source reference and the reason, never prepared raster caches.",
+    "source_test": "`dsfix_v102_expand_availability_reuses_preparation_and_invalidates`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V027",
+    "source_verdict": "NOT REAL in this branch",
+    "source_change": "Existing `validate_rect` already calls `finite` on every value and both far edges, enforcing \u00b11,000,000 before rounding/casting. No production change; retained a focused regression proving the existing guard.",
+    "source_test": "`dsfix_v027_array_artboard_coordinates_already_bounded`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V044",
+    "source_verdict": "REAL",
+    "source_change": "Reject an explicitly supplied non-string boolean operation; only absence defaults to union.",
+    "source_test": "`dsfix_v044_boolean_op_rejects_present_nonstrings`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V029",
+    "source_verdict": "REAL",
+    "source_change": "Serialize default persona and saved set/tool fields so generic preference get/set can address them.",
+    "source_test": "`dsfix_v029_default_persona_preferences_are_addressable`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V030",
+    "source_verdict": "REAL",
+    "source_change": "Reset the active persona's saved set.",
+    "source_test": "`dsfix_v030_v031_toolbar_edit_and_reset_follow_vector_persona`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V031",
+    "source_verdict": "REAL",
+    "source_change": "Copy/edit the current persona's custom set and use that persona's canonical tool registry.",
+    "source_test": "Same V030/V031 regression checks custom persona, ordering, hiding, and Pixel set preservation.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V026",
+    "source_verdict": "REAL",
+    "source_change": "Treat Symbol content as a whole-object transform for linked raster masks.",
+    "source_test": "`dsfix_v026_symbol_linked_mask_moves_whole_with_selection`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V111",
+    "source_verdict": "REAL",
+    "source_change": "Reject clip release when vector mask density/feather cannot be represented by the released path.",
+    "source_test": "`dsfix_v111_release_rejects_density_and_feather_without_mutating_source`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V060",
+    "source_verdict": "REAL",
+    "source_change": "Assert knot counts in every PSD round-trip subpath before comparing zipped knots.",
+    "source_test": "Strengthened/renamed `dsfix_v060_clip35_svg_pdf_psd_exports_keep_native_vector_masks_and_format_roundtrip`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V122",
+    "source_verdict": "REAL",
+    "source_change": "Copy fill rule/inversion onto every scissors piece.",
+    "source_test": "`dsfix_v122_v123_split_and_erase_preserve_fill_semantics`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V123",
+    "source_verdict": "REAL",
+    "source_change": "Copy fill rule/inversion onto every single-contour eraser output.",
+    "source_test": "Same V122/V123 regression verifies both eraser pieces.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V093",
+    "source_verdict": "REAL",
+    "source_change": "Cache other committed envelope projections by source snapshot, revision, and edited group set; drag spec changes reproject only edited groups. Cache is bounded to one background per thread.",
+    "source_test": "`dsfix_v093_envelope_background_reused_across_drag_and_invalidated`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V089",
+    "source_verdict": "REAL",
+    "source_change": "Assert CPU/GPU pixel buffer lengths before zip.",
+    "source_test": "Compiled only; GPU execution prohibited.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V137",
+    "source_verdict": "REAL",
+    "source_change": "Index source knots once by anchor bits, normalizing signed zero; retain deterministic coincident/reversed endpoint priority.",
+    "source_test": "`dsfix_v137_indexed_provenance_keeps_coincident_and_signed_zero_rules`, including 16,384 unique knots.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V132",
+    "source_verdict": "REAL \u2014 coordinator change required",
+    "source_change": "Existing UI explicitly deserializes `bytes` into `Vec<u8>`; changing the command alone breaks export. Exact coordinated patch below.",
+    "source_test": "Caller and command inspected; no incompatible partial protocol change.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V187",
+    "source_verdict": "REAL",
+    "source_change": "Check the knot budget before beginning a new subpath; continuing an existing endpoint remains allowed.",
+    "source_test": "`dsfix_v187_begin_new_subpath_checks_knot_budget_but_allows_endpoint`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V188",
+    "source_verdict": "REAL",
+    "source_change": "Increment generation when release removes a zero-length line endpoint.",
+    "source_test": "`dsfix_v188_zero_length_line_release_changes_generation`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V149",
+    "source_verdict": "REAL",
+    "source_change": "Reject equal Sculpt endpoints during capture validation for open and closed contours.",
+    "source_test": "`dsfix_v149_sculpt_equal_endpoints_fail_at_capture_for_open_and_closed_paths`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V170",
+    "source_verdict": "REAL",
+    "source_change": "Check raw FX byte length before appearance validation or JSON serialization.",
+    "source_test": "`dsfix_v170_raw_effects_budget_precedes_serialization` checks error ordering and the accepted budget boundary.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V172",
+    "source_verdict": "REAL",
+    "source_change": "Placement checks the insertion anchor's effective locks without recursing into untouched descendants.",
+    "source_test": "`dsfix_v172_symbol_placement_ignores_locked_sibling_descendants`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V178",
+    "source_verdict": "REAL",
+    "source_change": "Construct Group metadata explicitly instead of cloning children to overwrite them. This shared source is compiled by `photocraft-doc`.",
+    "source_test": "Workspace all-target check and strict clippy include `photocraft-doc`.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V199",
+    "source_verdict": "REAL",
+    "source_change": "Eliminate both full-document clones; compose projected layers in a minimal render document retaining required settings, profiles, light, patterns and channel resources.",
+    "source_test": "`dsfix_v199_minimal_symbol_render_matches_full_document_compositor`",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V165",
+    "source_verdict": "REAL",
+    "source_change": "Ignore the RTX 5090/Vulkan hardware test by default with an explicit reason.",
+    "source_test": "Compiled only; no GPU run.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V204",
+    "source_verdict": "REAL",
+    "source_change": "Cache curve control-hull bounds and reject queries outside tolerance-inflated bounds before nearest-point calls.",
+    "source_test": "`dsfix_v204_curve_nearest_skips_distant_bounds_but_keeps_tolerance_edge` counts adapter calls across 100 curves.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-engine",
+    "id": "V158",
+    "source_verdict": "UNSURE \u2014 prohibited/unregistered GPU gate",
+    "source_change": "No speculative pointer edit. The named test requires the RTX app harness and is not registered in this branch's UI crate. Its required run conflicts with the explicit no-GPU rule.",
+    "source_test": "Coordinator must register/run `pdf_import_full_app_rtx_pointer_preview_release_select_edit_undo_cancel` once on the RTX machine.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V049",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Use a fixed five-channel stack buffer in the pixel loop.",
+    "source_test": "dsfix_stack_channel_decode_preserves_rgba_grey_and_cmyk_pixels \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V217",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Compute shared content/appearance/warped-text bounds plus effect margin; intersect with the export scope and embed/place only that rectangle.",
+    "source_test": "dsfix_raster_layer_embeds_only_its_content_bounds; dsfix_raster_text_bounds_include_warped_ink \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V251",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Index XML IDs/labels once, preserving first-ID lookup behavior; reuse the index for layers and warnings.",
+    "source_test": "dsfix_names_use_labels_and_stroked_paths_are_charged_once \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V497",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Pass remaining sample capacity into each edge and recursive sampler; consume it before allocating the next edge. Apply the same bound to contour safety sampling.",
+    "source_test": "dsfix_edge_sampling_consumes_shared_budget_before_allocation \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V002",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Write 13u16 only; verify the document marker remains intact and assert the version-specific error.",
+    "source_test": "tests::preview::rejects_assets_versions_offsets_lengths_and_bombs \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V021",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Charge TextRun storage and owned characters; cap runs at 4096 and coalesce excess ranges into the last run with a warning, preserving all characters.",
+    "source_test": "dsfix_character_attribute_run_budget_preserves_all_characters \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V052",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Truncate duplicate-name prefixes at Unicode scalar boundaries to leave space for the suffix within 1024 UTF-16 units.",
+    "source_test": "dsfix_duplicate_maximum_utf16_name_stays_valid \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V224",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Compute each advanced-layer cache once in emit and pass it to content_blocks and record pixels; also reuse that cache for symbol pixels.",
+    "source_test": "dsfix_shape_cache_block_and_record_share_masked_pixels \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V222",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Raise bounded recovery to 8192 chords; infallible boolean/boolean_n preserve the first finite input on sweep failure instead of deleting it. Invalid input still yields empty.",
+    "source_test": "dsfix_fallback_accepts_more_than_1024_chords_and_keeps_a_finite_cap \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V205",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Accept and use the caller-provided fill rule; update all existing call sites.",
+    "source_test": "dsfix_marquee_in_evenodd_hole_misses \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V210",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Use the clamped slope to scale the quarter-arc handle factor, retaining the original factor at slope zero.",
+    "source_test": "dsfix_arc_slope_changes_handles_but_preserves_endpoints \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V239",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Measure spurious inset contours against closed source subpaths only.",
+    "source_test": "dsfix_inset_ignores_open_internal_line \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V274",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "On planar failure, build the filled regions with try_regions instead of immediately returning an empty arrangement. Both failures still return empty through this infallible wrapper; callers needing errors retain try_shape_builder.",
+    "source_test": "Code inspection; workspace compilation. No new sweep-failure fixture.",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V216",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Use the selected artboard rectangle regardless of its children.",
+    "source_test": "dsfix_selected_empty_artboard_exports_its_background \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V233",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Normalize dashes/offset in f64 and reject nonfinite f32 results. Preserve the zero-width hairline policy.",
+    "source_test": "dsfix_denormal_width_cannot_produce_infinite_dash_values \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V275",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Keep bounded per-filter decoding charges, but skip the duplicate final decoded-stream charge. Unfiltered streams are still charged.",
+    "source_test": "dsfix_flate_decoded_bytes_are_charged_once_and_bombs_stay_bounded \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V276",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Validate dictionary dimensions without precharging DCT images; charge the larger dictionary/JPEG pixel extent exactly once.",
+    "source_test": "dsfix_jpeg_pixel_allocation_charged_once_with_header_validation \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V262",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Move the warped-decoration error ahead of the outlines branch. Direct helper calls fail before emitting curves; public export already raster-falls back.",
+    "source_test": "dsfix_warped_decorations_fail_before_curve_output \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V252",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Decode local stroke geometry directly, charging base commands once while retaining the separate expanded-stroke budget.",
+    "source_test": "dsfix_names_use_labels_and_stroked_paths_are_charged_once \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V285",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Track the last non-soft-hyphen glyph while iterating, including spaces/forced breaks, and reuse it for discretionary hyphen metrics.",
+    "source_test": "dsfix_consecutive_soft_hyphens_reuse_the_previous_glyph_width \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V279",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Measure each glyph/decoration once using its actual display transform, warp and faux styling; reject items outside each tile before drawing.",
+    "source_test": "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V280",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Composite in glyph layout order, followed by decorations; union coverage only across consecutive visible same-color items.",
+    "source_test": "dsfix_overlapping_glyphs_composite_in_layout_order_and_cull_distant_items \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V296",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Build the continuous scalar field and resampled working buffer lazily for non-Pixel fitting or topology recovery.",
+    "source_test": "dsfix_pixel_palette_trace_does_not_read_the_unused_continuous_field \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V426",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Use rotation zero when the normalized source contour is empty; retain existing bounded collapse/resampling behavior.",
+    "source_test": "dsfix_empty_closed_contour_correspondence_does_not_panic \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V420",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Precompute bounded per-segment arc-length tables once; at uses lookup/interpolation and analytic cubic tangents with endpoint fallback, without path allocation. Straight segments remain exact.",
+    "source_test": "dsfix_spine_inverse_length_matches_curved_metric_and_tangent (analytic length, quarter positions, tangents and endpoints) \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V451",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Include u=1 for the last segment of open art tracks, inside the existing vertex budget.",
+    "source_test": "dsfix_bent_open_art_includes_its_last_corner \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V473",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Check failed coordinate mapping after fitting even when fit_to_cubic returns None; distinguish coordinate failure from exhausted work/depth/node budgets.",
+    "source_test": "dsfix_coordinate_failure_is_distinct_from_work_budget \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V478",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Use inclusive coordinate-range overlap for subpath and brush bounds, including degenerate boxes.",
+    "source_test": "dsfix_degenerate_subpath_bounds_are_culled_by_distance \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V448",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Resolve endpoint-to-curve hits to an endpoint index when coincident and mark both endpoints used.",
+    "source_test": "dsfix_curve_bridge_marks_coincident_endpoint_used \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V456",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Reject faces whose bounds miss the pointer-segment box before computing intersections; retain zero-width/height gesture boxes.",
+    "source_test": "dsfix_gesture_crosses_faces_even_with_horizontal_zero_height_bounds \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V468",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Build edge boundary tokens from only the requested source and reject missing source keys.",
+    "source_test": "dsfix_coincident_edges_retain_the_requested_source \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V493",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Return no pins for count zero before seeding the center.",
+    "source_test": "dsfix_zero_auto_pins_respects_requested_count \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V486",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Find the first and last open flattened subpaths for arrowheads.",
+    "source_test": "dsfix_arrowheads_find_open_subpath_between_closed_subpaths \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V500",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Hide the radius handle on ellipse callouts.",
+    "source_test": "dsfix_ellipse_callout_has_no_inert_radius_handle \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V502",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Use move_anchors_unchecked inside the already checked bend transaction.",
+    "source_test": "dsfix_straight_segment_bend_keeps_translation_and_atomic_errors \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V484",
+    "source_verdict": "REAL \u2014 fixed",
+    "source_change": "Sort midpoint values together with their owning color stops, defaulting omitted midpoint entries to 0.5.",
+    "source_test": "dsfix_unsorted_gradient_midpoints_follow_their_stops \u2014 passed",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  },
+  {
+    "source": "dsfix-libs",
+    "id": "V490",
+    "source_verdict": "FALSE \u2014 named test passes",
+    "source_change": "No tolerance or implementation change.",
+    "source_test": "tests::analytic_curve_bounds_and_sparse_shape_cache: passed once (1 test).",
+    "stage1_disposition": "pending files dependency clarification; no dsfix port or fresh test yet"
+  }
+]

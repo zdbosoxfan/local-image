@@ -1,0 +1,17 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="24"
+  height="24"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <!-- Local Image original, GPL-3.0-or-later: Liquify Thaw: a snowflake melting into a drop. Drawn on Lucide's 24 px grid, 2 px round stroke. -->
+  <path d="M9 2.5 9 15.5" />
+  <path d="M3.37 5.75 14.63 12.25" />
+  <path d="M14.63 5.75 3.37 12.25" />
+  <path d="M17 12.5c2 2.5 3.5 4.12 3.5 6a3.5 3.5 0 0 1-7 0c0-1.88 1.5-3.5 3.5-6z" />
+</svg>
