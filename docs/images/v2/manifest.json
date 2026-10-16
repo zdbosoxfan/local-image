@@ -1,0 +1,40 @@
+{
+  "description": "Actual user-supplied Local Image 2 interface captures, published unchanged.",
+  "captured_on": "2026-10-16",
+  "timezone": "America/New_York",
+  "platform": "Apple Silicon macOS",
+  "app_version": "2.0.0-alpha.1",
+  "app_commit": "e345ce988641fe7cba47c07b7f67120c181e7f17",
+  "image_processing": "None. Original PNG bytes copied and SHA-256 verified. Generate was already cropped when supplied.",
+  "artwork_provenance": "See SOURCES.md. Existing generated example artwork and a public CC0 RAW were staged in an isolated demo catalog.",
+  "validation_scope": "Interface captures do not demonstrate a live ComfyUI connection or newly completed generation.",
+  "images": [
+    {
+      "file": "compositing.png",
+      "original_filename": "Screenshot 2026-10-16 at 1.43.54 AM.png",
+      "sha256": "feeedf8342c39766350358ef6410180ec7df32a5879269ffcb1c45110ecabb7b",
+      "bytes": 1479961,
+      "width": 2890,
+      "height": 1808,
+      "caption": "Compositing window with Storm Lighthouse as a single Develop smart layer."
+    },
+    {
+      "file": "library.png",
+      "original_filename": "Screenshot 2026-10-16 at 1.44.07 AM.png",
+      "sha256": "85735f749c111a9e977bbd46a5bfb4238d3af5e395b00a767c8c8ff01f2a3e83",
+      "bytes": 2755116,
+      "width": 2882,
+      "height": 1806,
+      "caption": "Library grid containing nine demo images."
+    },
+    {
+      "file": "generate.png",
+      "original_filename": "Screenshot 2026-10-16 at 1.45.14 AM.png",
+      "sha256": "81b0e6647f239defa9d042fafc5ee9a7bfa86df1c435fce9dde172cca0f063e9",
+      "bytes": 88025,
+      "width": 654,
+      "height": 838,
+      "caption": "User-supplied crop of the native Generate controls."
+    }
+  ]
+}

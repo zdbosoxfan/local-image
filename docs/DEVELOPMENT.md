@@ -1,7 +1,7 @@
 # Build, test and package Local Image 2
 
-Local Image 2 is one Rust workspace (edition 2024, Rust 1.98.1 toolchain). The 0.7 Python/WebView build
-lives on `main` until V2 replaces it.
+Local Image 2 is one Rust workspace (edition 2024, Rust 1.98.1 toolchain) on `main`.
+The earlier 0.7 Python/WebView implementation remains available in Git history.
 
 ## Prerequisites
 
@@ -36,8 +36,11 @@ cargo run --release -p local-image-cli -- --help   # headless: convert, info, ru
 cargo build --release -p local-image --features heif   # with HEIC/HEIF support
 ```
 
-AI features need a running [ComfyUI](https://github.com/comfyanonymous/ComfyUI); set it up in
-**Edit › Preferences › Local AI…**. Without one, everything else works.
+Generative workflows can use a local or remote [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+server, configured in **Edit › Preferences › Local AI…**, or an optional cloud provider with
+your own credentials. Native selection, tagging and other on-device tools use separately
+downloaded models; native RAW and RGB AI denoise require a supported GPU. Core editing
+does not require an AI server. See [MACOS.md](MACOS.md) for backend requirements.
 
 ## Layout
 
