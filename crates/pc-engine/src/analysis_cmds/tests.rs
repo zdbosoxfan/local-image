@@ -247,6 +247,21 @@ fn log_delete_and_csv_export() {
 }
 
 #[test]
+fn csv_field_guards_formula_injection_but_not_numbers_or_names() {
+    assert_eq!(csv_field(&json!("=SUM(A1)")), "'=SUM(A1)");
+    assert_eq!(csv_field(&json!("+cmd")), "'+cmd");
+    assert_eq!(csv_field(&json!("-cmd")), "'-cmd");
+    assert_eq!(csv_field(&json!("@x")), "'@x");
+    assert_eq!(csv_field(&json!("\tx")), "'\tx");
+    assert_eq!(csv_field(&json!("\rx")), "\"'\rx\"");
+    assert_eq!(csv_field(&json!("=1,2")), "\"'=1,2\"");
+    assert_eq!(csv_field(&json!(-3.5)), "-3.5");
+    assert_eq!(csv_field(&json!("-3.5")), "-3.5");
+    assert_eq!(csv_field(&json!("O'Brien")), "O'Brien");
+    assert_eq!(csv_field(&json!("مرحبا שלום 😀 é")), "مرحبا שלום 😀 é");
+}
+
+#[test]
 fn place_scale_marker_builds_one_group_in_one_step() {
     let mut s = session(400, 300, 8);
     s.execute("image.analysis.setMeasurementScale", json!({"pixelLength": 50, "logicalLength": 1, "units": "cm"})).unwrap();

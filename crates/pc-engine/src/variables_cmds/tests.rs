@@ -190,3 +190,31 @@ fn pixel_replacement_changes_the_layer() {
         assert!(b > r, "replacement is blue-ish: {rgba:?}");
     }
 }
+
+#[test]
+fn parse_csv_keeps_utf8_quotes_and_embedded_newlines() {
+    let rec = parse_csv("é,😀,\"a\nb\",\"say \"\"hi\"\"\"", ',');
+    assert_eq!(rec, vec![vec!["é", "😀", "a\nb", "say \"hi\""]]);
+    let rtl = parse_csv("مرحبا,שלום,日本語\n", ',');
+    assert_eq!(rtl, vec![vec!["مرحبا", "שלום", "日本語"]]);
+}
+
+#[test]
+fn parse_csv_strips_bom_and_accepts_crlf() {
+    let rec = parse_csv("\u{feff}DataSet,headline\r\nrow,\"x\r\ny\"\r\n\r\nlast,z", ',');
+    assert_eq!(rec, vec![vec!["DataSet", "headline"], vec!["row", "x\r\ny"], vec!["last", "z"]]);
+    assert_eq!(parse_csv("a;b\n", ';'), vec![vec!["a", "b"]]);
+    assert_eq!(parse_csv("a,\n", ','), vec![vec!["a", ""]]);
+}
+
+#[test]
+fn csv_import_preserves_non_ascii_and_quoted_newlines() {
+    let (mut s, _p, _badge, title) = session();
+    s.execute("image.variables.define", json!({"defs": [{"name": "headline", "layer": title.0, "type": "textReplacement"}]})).unwrap();
+    let dir = tmp("csv-utf8");
+    let csv = format!("{dir}/sets.csv");
+    std::fs::write(&csv, "\u{feff}DataSet,headline\r\ncafé 😀,\"two\nlines\"\r\n").unwrap();
+    s.execute("file.import.variableDataSets", json!({"path": csv})).unwrap();
+    s.execute("image.applyDataSet", json!({"name": "café 😀"})).unwrap();
+    assert_eq!(text_of(&s, title), "two\nlines");
+}
