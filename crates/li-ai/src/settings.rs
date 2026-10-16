@@ -45,6 +45,10 @@ pub struct AiSettings {
     /// Start ComfyUI with Local Image when an installation is configured.
     #[serde(rename = "auto_start_comfy")]
     pub auto_start: bool,
+    /// Ask before each paid cloud generation run.
+    pub cloud_confirm_each_run: bool,
+    /// Most cloud images to generate per session; 0 is unlimited.
+    pub cloud_session_cap_images: u32,
     #[serde(flatten)]
     rest: Map<String, Value>,
 }
@@ -61,6 +65,8 @@ impl Default for AiSettings {
             hardware_guide_dismissed: false,
             lora_show_adult_content: false,
             auto_start: true,
+            cloud_confirm_each_run: true,
+            cloud_session_cap_images: 0,
             rest: Map::new(),
         }
     }
@@ -140,6 +146,9 @@ impl AiSettings {
         let hardware_guide_dismissed = take_bool("hardware_guide_dismissed", false);
         let lora_show_adult_content = take_bool("lora_show_adult_content", false);
         let auto_start = m.remove("auto_start_comfy").and_then(|value| value.as_bool()).unwrap_or(d.auto_start);
+        let cloud_confirm_each_run = m.remove("cloud_confirm_each_run").and_then(|value| value.as_bool()).unwrap_or(d.cloud_confirm_each_run);
+        let cloud_session_cap_images =
+            m.remove("cloud_session_cap_images").and_then(|value| value.as_u64()).map_or(0, |n| u32::try_from(n).unwrap_or(u32::MAX));
         Self {
             comfy_host,
             comfy_port,
@@ -150,6 +159,8 @@ impl AiSettings {
             hardware_guide_dismissed,
             lora_show_adult_content,
             auto_start,
+            cloud_confirm_each_run,
+            cloud_session_cap_images,
             rest: m,
         }
     }
@@ -186,6 +197,8 @@ impl AiSettings {
         m.insert("hardware_guide_dismissed".into(), self.hardware_guide_dismissed.into());
         m.insert("lora_show_adult_content".into(), self.lora_show_adult_content.into());
         m.insert("auto_start_comfy".into(), self.auto_start.into());
+        m.insert("cloud_confirm_each_run".into(), self.cloud_confirm_each_run.into());
+        m.insert("cloud_session_cap_images".into(), self.cloud_session_cap_images.into());
         li_fs::atomic_write(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())?;
         refresh_model_dir_cache(path, self);
         Ok(())
@@ -338,6 +351,22 @@ fn checked_port<'de, D: serde::Deserializer<'de>>(deserializer: D) -> std::resul
         return Err(serde::de::Error::custom("not a usable ComfyUI port"));
     }
     Ok(port)
+}
+
+#[test]
+fn cloud_spend_settings_default_to_confirming_without_a_cap_and_round_trip() {
+    let defaults = AiSettings::from_value(serde_json::json!({}));
+    assert!(defaults.cloud_confirm_each_run);
+    assert_eq!(defaults.cloud_session_cap_images, 0);
+    let set = AiSettings::from_value(serde_json::json!({"cloud_confirm_each_run":false,"cloud_session_cap_images":12}));
+    assert!(!set.cloud_confirm_each_run);
+    assert_eq!(set.cloud_session_cap_images, 12);
+    let normalized = serde_json::to_value(&set).unwrap();
+    assert_eq!(normalized["cloud_confirm_each_run"], false);
+    assert_eq!(serde_json::from_value::<AiSettings>(normalized).unwrap(), set);
+    let junk = AiSettings::from_value(serde_json::json!({"cloud_confirm_each_run":"no","cloud_session_cap_images":-3}));
+    assert!(junk.cloud_confirm_each_run);
+    assert_eq!(junk.cloud_session_cap_images, 0);
 }
 
 #[test]

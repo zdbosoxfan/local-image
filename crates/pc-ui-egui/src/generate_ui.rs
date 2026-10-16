@@ -250,6 +250,12 @@ struct Runtime {
     /// Upscale lists every image model, not just the official upscalers.
     upscale_any: bool,
     learned_refine: HashMap<&'static str, (ModelId, String, li_ai::refine::Defaults)>,
+    /// Cloud images started this session, counted against `ai.cloud_session_cap_images`.
+    cloud_images: u32,
+    /// "Don't ask again this session" was ticked on the cloud confirmation.
+    cloud_skip_confirm: bool,
+    /// A cloud run waiting for the user's go-ahead.
+    cloud_pending: Option<CloudRun>,
 }
 
 struct Reference {
@@ -2058,8 +2064,30 @@ pub fn generate_from_home(app: &mut PhotocraftApp, ctx: &egui::Context) {
     start(app, ctx);
 }
 
+/// A validated cloud generation, ready to start (or waiting for the user to confirm its cost).
+struct CloudRun {
+    c: &'static li_ai::cloud::CloudModel,
+    mode: Mode,
+    seed: Option<u64>,
+    base: li_ai::cloud::CloudRequest,
+    target: Option<u64>,
+    images: u32,
+    dont_ask: bool,
+}
+
+/// The message to show when `images` more would pass the session cap (0 = no cap).
+fn cloud_cap_message(cap: u32, used: u32, images: u32) -> Option<String> {
+    (cap > 0 && used.saturating_add(images) > cap).then(|| {
+        li_i18n::fmt(
+            tl!("Cloud limit reached: {used} of {cap} images used this session, and this run needs {images}. Raise or clear the limit in Local AI › Cloud."),
+            &[("used", &used.to_string()), ("cap", &cap.to_string()), ("images", &images.to_string())],
+        )
+    })
+}
+
 /// A cloud generation: one job per image, each with its own seed. Edits and fills land on the
-/// open document as a layer (a fill holds only the regenerated area).
+/// open document as a layer (a fill holds only the regenerated area). Paid runs ask first unless
+/// the user turned that off, and never pass the session cap.
 fn start_cloud(
     app: &mut PhotocraftApp,
     s: &GenerateState,
@@ -2086,7 +2114,7 @@ fn start_cloud(
     let base = CloudRequest {
         model: c,
         mode,
-        prompt: prompt.clone(),
+        prompt,
         negative: s.negative.clone(),
         width: s.width,
         height: s.height,
@@ -2102,16 +2130,32 @@ fn start_cloud(
         app.ui.status_error = true;
         return;
     }
-    let count = if mode == CloudMode::Create { s.count.clamp(1, 4) } else { 1 };
-    for i in 0..count {
+    let images = if mode == CloudMode::Create { s.count.clamp(1, 4) } else { 1 };
+    let run = CloudRun { c, mode: s.mode, seed: s.seed, base, target, images, dont_ask: false };
+    let settings = li_ai::settings::AiSettings::load();
+    if let Some(message) = cloud_cap_message(settings.cloud_session_cap_images, rt(|r| r.cloud_images), images) {
+        app.ui.status = message;
+        app.ui.status_error = true;
+        return;
+    }
+    if settings.cloud_confirm_each_run && !rt(|r| r.cloud_skip_confirm) {
+        rt(|r| r.cloud_pending = Some(run));
+        return;
+    }
+    run_cloud(app, run);
+}
+
+fn run_cloud(app: &mut PhotocraftApp, run: CloudRun) {
+    let CloudRun { c, mode, seed, base, target, images, .. } = run;
+    for i in 0..images {
         let mut r = base.clone();
-        r.seed = s.seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
-        let label = format!("{} with {}", s.mode.label(), c.label);
-        let shown = li_i18n::fmt(tl!("{mode} with {model}"), &[("mode", s.mode.shown()), ("model", c.label)]);
+        r.seed = seed.map(|v| v.wrapping_add(i as u64)).unwrap_or_else(li_ai::ops::new_seed);
+        let label = format!("{} with {}", mode.label(), c.label);
+        let shown = li_i18n::fmt(tl!("{mode} with {model}"), &[("mode", mode.shown()), ("model", c.label)]);
         let name = format!("{}-{}", c.model.replace(['.', ' '], ""), r.seed);
         let meta = json!({
             "model": format!("cloud:{}", c.key), "provider": c.provider.label(), "prompt": r.prompt, "negative_prompt": r.negative,
-            "width": r.width, "height": r.height, "seed": r.seed, "mode": format!("{:?}", s.mode).to_lowercase(), "reference_count": r.refs.len(),
+            "width": r.width, "height": r.height, "seed": r.seed, "mode": format!("{mode:?}").to_lowercase(), "reference_count": r.refs.len(),
         });
         let fill_mask = r.mask.clone();
         let ok = launch(app, &label, &shown, name, meta, target, false, move |ctl| {
@@ -2132,6 +2176,67 @@ fn start_cloud(
         if !ok {
             break;
         }
+        rt(|r| r.cloud_images = r.cloud_images.saturating_add(1));
+    }
+}
+
+/// The cost confirmation for a paid cloud run, drawn every frame while one is waiting.
+pub fn cloud_confirm_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    let Some((provider, model, images, mut dont_ask)) = rt(|r| r.cloud_pending.as_ref().map(|p| (p.c.provider, p.c.label, p.images, p.dont_ask))) else {
+        return;
+    };
+    let cap = li_ai::settings::AiSettings::load().cloud_session_cap_images;
+    let used = rt(|r| r.cloud_images);
+    let t = Tokens::get(ctx);
+    let mut answer = None;
+    use widgets::{ButtonRole, DialogButton};
+    let modal = egui::Modal::new(egui::Id::new("cloud-run-confirm")).show(ctx, |ui| {
+        ui.set_max_width(440.0);
+        ui.heading(li_i18n::fmt(tl!("Generate with {provider}?"), &[("provider", provider.label())]));
+        ui.add_space(4.0);
+        ui.label(li_i18n::fmt(tl!("Provider: {provider}"), &[("provider", provider.label())]));
+        ui.label(li_i18n::fmt(tl!("Model: {model}"), &[("model", model)]));
+        ui.label(li_i18n::fmt(tl!("Images: {count}"), &[("count", &images.to_string())]));
+        ui.add_space(4.0);
+        ui.label(li_i18n::fmt(
+            tl!("Your prompt and any selected or reference pixels are uploaded to {provider} and billed to your own API key."),
+            &[("provider", provider.label())],
+        ));
+        if cap > 0 {
+            ui.label(
+                RichText::new(li_i18n::fmt(tl!("{used} of {cap} cloud images used this session."), &[("used", &used.to_string()), ("cap", &cap.to_string())]))
+                    .color(t.text_faint)
+                    .size(11.0),
+            );
+        }
+        ui.add_space(4.0);
+        widgets::checkbox(ui, &mut dont_ask, tl!("Don't ask again this session"));
+        ui.add_space(6.0);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            answer = widgets::dialog_buttons(
+                ui,
+                &[DialogButton::new(ButtonRole::Default, tl!("Generate"), 96.0), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)],
+            );
+        });
+    });
+    rt(|r| {
+        if let Some(p) = r.cloud_pending.as_mut() {
+            p.dont_ask = dont_ask;
+        }
+    });
+    let answer = answer.or_else(|| modal.should_close().then_some(ButtonRole::Cancel));
+    match answer {
+        Some(ButtonRole::Default) => {
+            if let Some(run) = rt(|r| {
+                r.cloud_skip_confirm |= dont_ask;
+                r.cloud_pending.take()
+            }) {
+                run_cloud(app, run);
+            }
+            ctx.request_repaint();
+        }
+        Some(_) => rt(|r| r.cloud_pending = None),
+        None => {}
     }
 }
 
@@ -3142,6 +3247,59 @@ mod bg_batch_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cloud_cap_blocks_only_runs_that_would_pass_it() {
+        assert_eq!(cloud_cap_message(0, 500, 4), None, "0 is unlimited");
+        assert_eq!(cloud_cap_message(10, 6, 4), None);
+        assert!(cloud_cap_message(10, u32::MAX, 4).is_some());
+        let blocked = cloud_cap_message(10, 8, 4).unwrap();
+        assert!(blocked.contains("8 of 10") && blocked.contains("needs 4") && blocked.contains("Local AI › Cloud"), "{blocked}");
+    }
+
+    #[test]
+    fn cloud_run_waits_for_confirmation_and_cancel_starts_nothing() {
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let c = li_ai::cloud::model("openai:gpt-image-1").unwrap();
+        let base = li_ai::cloud::CloudRequest {
+            model: c,
+            mode: li_ai::cloud::CloudMode::Create,
+            prompt: "a red boat".into(),
+            negative: String::new(),
+            width: 1024,
+            height: 1024,
+            seed: 0,
+            count: 1,
+            source: None,
+            mask: None,
+            refs: vec![],
+            strength: 0.6,
+        };
+        rt(|r| r.cloud_pending = Some(CloudRun { c, mode: Mode::Create, seed: None, base, target: None, images: 3, dont_ask: false }));
+        let mut first = true;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(700.0, 500.0)).build_ui_state(
+            move |ui, app: &mut PhotocraftApp| {
+                if first {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Pro);
+                    first = false;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                cloud_confirm_window(app, ui.ctx());
+            },
+            PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default()),
+        );
+        h.run_steps(4);
+        h.get_by_label("Generate with OpenAI?");
+        h.get_by_label("Images: 3");
+        h.get_by_label("Don't ask again this session");
+        h.get_by_label("Cancel").click();
+        h.run_steps(3);
+        assert!(rt(|r| r.cloud_pending.is_none()));
+        assert!(!rt(|r| r.cloud_skip_confirm));
+        assert!(h.state().session.jobs().is_empty());
+    }
 
     #[test]
     fn gallery_click_selects_while_thumbnail_decodes_off_thread() {

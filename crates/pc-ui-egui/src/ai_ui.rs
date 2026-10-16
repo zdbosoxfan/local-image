@@ -1304,6 +1304,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
     crate::generate_ui::draft_refine::window(app, ctx);
     crate::generate_ui::batch_window(app, ctx);
+    crate::generate_ui::cloud_confirm_window(app, ctx);
     crate::model_browser::window(app, ctx);
     remove_confirm(app, ctx);
 }
