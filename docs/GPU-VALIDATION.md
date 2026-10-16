@@ -64,7 +64,7 @@ final-acceptance commands above. The haze body also runs in the mandatory named 
 Vulkan conformance step. No numerical threshold, sample, hardware assertion or production
 fallback policy was removed or weakened. CI run 38279959831 at e0f57cc0 had rejected llvmpipe
 before executing the haze comparisons; it did not establish a numerical failure. The
-historical RTX 5090 pass in `docs/wip/v2-recovery-validation/final-union.log` remains evidence
+historical RTX 5090 pass recorded for that source remains evidence
 for that recorded source only; changed candidates must execute the gates again.
 
 ## Historical hardware results
@@ -285,8 +285,7 @@ sandbox, so device numerical comparisons and timings still need the RTX 5090.
 `bench_capture_sharpening_24mp` measures a fresh capture render, a cached exposure
 edit and a radius change that preserves the upload, plus CPU ms at 6000x4000.
 `bench_toolset_24mp` retains its capture row and now reports it as GPU. Exact RTX
-commands and sandbox test counts are in
-[`CODEX-REPORT-gpu-capture.md`](wip/CODEX-REPORT-gpu-capture.md).
+commands and sandbox test counts were recorded in a wip report that now lives only in git history.
 
 ## Native lens-database geometry (2026-10-09; RTX validation pending)
 
@@ -333,8 +332,7 @@ warp with an existing source upload, at 0/100/200%. It synchronizes device work
 and reports the minimum of three timed repeats after warm-up. The ignored
 `toolset::bench_toolset_24mp` retains the full lens render row (now GPU) and adds
 a zero-strength row. No GPU adapter is available in this sandbox; device parity
-and before/after timings remain for the RTX 5090. Exact commands and sandbox
-test counts are in [`CODEX-REPORT-gpu-lensdb.md`](wip/CODEX-REPORT-gpu-lensdb.md).
+and before/after timings remain for the RTX 5090.
 
 ### Lens database on the GPU — RTX 5090 validation (2026-10-09)
 
@@ -398,8 +396,7 @@ All final-image comparisons retain mean <0.5 LSB and max ≤3 LSB. Naga validate
 module without hardware; test-only CPU Vulkan additionally exercises the new numerics.
 Production rejects software adapters. No RTX latency or hardware-equivalence claim is
 made here; the coordinator must rerun `bench_toolset_24mp` and the device integration
-suites on the RTX 5090 (typical-edit target ≤~200 ms). Exact commands and results are in
-[`CODEX-REPORT-gpu-toneeq.md`](wip/CODEX-REPORT-gpu-toneeq.md).
+suites on the RTX 5090 (typical-edit target ≤~200 ms).
 
 ### 5090 follow-up: tone guidance precision and dehaze selection
 

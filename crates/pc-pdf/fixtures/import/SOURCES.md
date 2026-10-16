@@ -40,8 +40,7 @@ registration worktree, not an invented test exporter. Initial development snapsh
 
 Toolchain: Rust/cargo 1.98.1, hayro-syntax 0.7.2, hayro-interpret 0.7.0,
 kurbo 0.13.1, image/flate2/proptest at workspace-lock versions. No new dependency
-or online build. Integration registration and exact commands are in
-`docs/wip/vector-tasks/integration/22.md`; gate outcomes are in the package report.
+or online build.
 
 Missing external/proprietary PDF suites are recorded as missing, never passed.
 

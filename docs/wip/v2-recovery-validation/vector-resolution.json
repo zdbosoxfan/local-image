@@ -1,7 +1,0 @@
-{
-  "i18n": "Explicitly retain files errors and add reviewed vector labels.",
-  "gap": "Retain equivalent position predicate; preserve vector self-subpath/zero-distance corrections; retain dsfix and reversed/broken-rectangle vector regressions.",
-  "text": "Keep newer projected lines and vector paint_runs; adapt saved dsfix overlap/distant-bounds scenario to those APIs, retain exact solid-pixel assertions.",
-  "shared_fixture": "Useful dirty vector model family/loader, diagnostics and three-frame settling already reconciled at files boundary; crash child isolation and files stronger typed loader check remain.",
-  "V158": "Register saved existing full-app PDF GPU fixture in combined GPU target with existing process-wide guard; fresh hardware run pending."
-}

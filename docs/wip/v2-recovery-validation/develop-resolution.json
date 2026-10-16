@@ -1,8 +1,0 @@
-{
-  "doc_layers": "Retain app crash guard around saved detailed decoder catch and its injected-panic test; bounded reads preserved.",
-  "clipboard": "Retain worker-based copied-file production path, bounded test-only file helper and saved decoder guard; use guard in live image callback so it is not dead test-only production code.",
-  "media": "Use saved detailed failure result with all identity/source/level fields, preserving files failure publication and queue survival.",
-  "i18n": "Explicitly preserve separate files and Develop pending ledgers, without generic union resolution.",
-  "views": "Keep vector HashSet retain and DocId overlays, add Develop canvas-cache cleanup and regression; omit duplicate slice-based wrapper because existing stronger retain_documents covers all runtime views/preview state.",
-  "rework": "Recover existing feature code; no repeat feature implementation or shared Git-lock cleanup."
-}

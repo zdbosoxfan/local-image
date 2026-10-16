@@ -7,8 +7,7 @@ with a 300x200 canvas hit rectangle. Real egui pointer button/motion, keyboard a
 click events drive the production pen adapter. Full-app source uses 1100x800 points,
 128x128 white document and physical scales 1/2; it requires package 00 registration.
 
-Sources/behavior and upstream adaptation rows: engine `pen/SOURCES.md` and
-`docs/wip/vector-tasks/integration/04.md`. Engine strict GPU parity checks complete
+Sources/behavior and upstream adaptation rows: engine `pen/SOURCES.md`. Engine strict GPU parity checks complete
 premultiplied document pixels. Isolated GPU test proves visible event-driven preview,
 cancellation and commit. Full-app GPU source separately checks the actual application
 canvas and must not be reported as passed until it is registered and executed.

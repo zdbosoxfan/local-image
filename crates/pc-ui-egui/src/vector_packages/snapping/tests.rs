@@ -17,7 +17,7 @@ struct Host {
     zoom: f64,
 }
 fn text(key: &str) -> String {
-    let t = include_str!("../../../../../docs/wip/vector-tasks/i18n/07.tsv");
+    let t = include_str!("fixtures/i18n-07.tsv");
     t.lines().find_map(|line| line.split_once('\t').filter(|(k, _)| *k == key).map(|(_, v)| v.to_owned())).unwrap_or_else(|| key.to_owned())
 }
 fn harness(gesture: Gesture, ppp: f32, zoom: f64) -> Harness<'static, Host> {

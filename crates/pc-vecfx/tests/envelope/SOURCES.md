@@ -37,8 +37,7 @@ a flat line and normalized grids have explicit coordinates in the tests.
 
 The native ZIP roundtrip currently fails because the pre-existing shared
 `LiveGroup`/`EnvelopeSpec` wire schema uses `kind` twice. The test remains active
-and this gate is not counted as passed. The schema-owner fix is supplied in
-`docs/wip/vector-tasks/integration/20.md`.
+and this gate is not counted as passed.
 
 GPU tests require RTX 5090, Vulkan, discrete adapter, Rgba32Float and the app's
 float canvas support. They remain ignored integration gates under the owner's

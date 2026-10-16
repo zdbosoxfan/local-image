@@ -84,12 +84,6 @@ explicit error when its resource is missing. No network in tests.
 Generated reference PDFs/PNGs/text and CPU PNGs are scratch artifacts under
 `target/refvec/pdf21` relative to the test process's directory (the disposable
 registered crate by default). They are not inputs or committed golden assets.
-`bootstrap.py` prepares the exact shared registration on copies under
-`target/pdf-export-workspace`; it adds no registry packages and never patches
-real shared files. It applies package 15's activation fragment first because
-its implementation was already merged without the shared model activation.
-It also explicitly refuses the currently missing symbol provider in 09's
-scaled-view match; that probe fix is not symbol rendering acceptance.
 
 RTX test: offscreen real PhotocraftApp, Vulkan/discrete/RTX 5090/Rgba32Float
 assertions; actual pointer press/drag/release and canvas texture/frame readback,

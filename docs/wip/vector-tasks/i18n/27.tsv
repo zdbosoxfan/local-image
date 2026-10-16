@@ -1,5 +1,0 @@
-key	en
-vector.trace.layering	Layering
-vector.trace.layering.stacked	Stacked
-vector.trace.layering.cutout	Cutout / Abutting
-vector.trace.cutout.boundary_budget	Tracing complexity exceeds the boundary budget
