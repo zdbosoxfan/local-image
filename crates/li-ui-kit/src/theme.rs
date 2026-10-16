@@ -437,10 +437,6 @@ pub const TOOLTIP_DELAY: f32 = 0.35;
 /// Opacity and Fill rows); docks zero egui's item spacing, so rows add this themselves.
 pub const ROW_GAP: f32 = 4.0;
 
-pub fn canvas_bg(t: &Tokens) -> Color32 {
-    t.canvas
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

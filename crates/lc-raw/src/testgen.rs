@@ -414,7 +414,7 @@ pub struct DngSpec {
     pub forward_matrix2: Option<[f64; 9]>,
     pub as_shot_neutral: Option<[f64; 3]>,
     pub baseline_exposure: Option<f64>,
-    /// Raw OpcodeList2 bytes (see [`gain_map_opcode_list`]).
+    /// Raw OpcodeList2 bytes.
     pub opcode_list2: Option<Vec<u8>>,
     pub orientation: u16,
     pub make: String,
@@ -632,29 +632,6 @@ impl DngSpec {
     }
 }
 
-/// An OpcodeList2 with one GainMap over active-area rectangle `area` (top,
-/// left, bottom, right), every `pitch` rows and columns, from a 2×2 grid of
-/// gains spanning the image (relative coordinates 0..1).
-pub fn gain_map_opcode_list(area: [u32; 4], pitch: u32, gains: [[f32; 2]; 2]) -> Vec<u8> {
-    let mut p = Vec::new();
-    for v in [area[0], area[1], area[2], area[3], 0, 1, pitch, pitch, 2, 2] {
-        p.extend_from_slice(&v.to_be_bytes());
-    }
-    for v in [1.0f64, 1.0, 0.0, 0.0] {
-        p.extend_from_slice(&v.to_be_bytes());
-    }
-    p.extend_from_slice(&1u32.to_be_bytes());
-    for g in gains.iter().flatten() {
-        p.extend_from_slice(&g.to_bits().to_be_bytes());
-    }
-    let mut b = 1u32.to_be_bytes().to_vec();
-    for v in [9u32, 0x0103_0000, 1, p.len() as u32] {
-        b.extend_from_slice(&v.to_be_bytes());
-    }
-    b.extend_from_slice(&p);
-    b
-}
-
 // ---------------------------------------------------------------- CR2
 
 /// A synthetic CR2: one lossless JPEG with `components` components, cut into
@@ -779,81 +756,6 @@ pub fn tiff_ep(make: &str, width: usize, height: usize, data: &[u16], cfa: [u8; 
         (279, Val::Long(vec![12])),
         (330, Val::Ifds(vec![raw_ifd])),
     ]);
-    t.chain = vec![ifd0];
-    t.build()
-}
-
-// ---------------------------------------------------------------- Sony cRAW
-
-/// Encodes 16 same-colour 11-bit codes as one cRAW block (see the decoder in
-/// `sony.rs`): maximum, minimum, their positions, then 7-bit deltas at the
-/// smallest power-of-two step that covers the range (rounded down).
-pub fn craw_block(codes: &[u16; 16]) -> [u8; 16] {
-    let max = *codes.iter().max().unwrap();
-    let min = *codes.iter().min().unwrap();
-    let imax = codes.iter().position(|&c| c == max).unwrap();
-    let mut imin = codes.iter().position(|&c| c == min).unwrap();
-    if imin == imax {
-        imin = (imax + 1) % 16;
-    }
-    let mut sh = 0;
-    while (128u16 << sh) <= max - min {
-        sh += 1;
-    }
-    let mut v: u128 = u128::from(max) | u128::from(min) << 11 | (imax as u128) << 22 | (imin as u128) << 26;
-    let mut at = 30;
-    for (i, &c) in codes.iter().enumerate() {
-        if i != imax && i != imin {
-            v |= u128::from(((c - min) >> sh).min(127)) << at;
-            at += 7;
-        }
-    }
-    v.to_le_bytes()
-}
-
-/// Encodes a mosaic of 11-bit codes (`width` a multiple of 32) as cRAW rows.
-pub fn craw_encode(codes: &[u16], width: usize, height: usize) -> Vec<u8> {
-    assert_eq!(width % 32, 0);
-    let mut out = Vec::with_capacity(width * height);
-    for row in codes.chunks_exact(width).take(height) {
-        for g in row.as_chunks::<32>().0 {
-            for parity in 0..2 {
-                let seq: [u16; 16] = std::array::from_fn(|i| g[2 * i + parity].min(2047));
-                out.extend_from_slice(&craw_block(&seq));
-            }
-        }
-    }
-    out
-}
-
-/// A synthetic Sony compressed ARW: IFD0 with Make, the cRAW image in a
-/// SubIFD with SonyRawFileType 2, the tone curve (0x7010), black (0x7310),
-/// white (50717) and WB_RGGBLevels (0x7313).
-pub fn sony_craw(width: usize, height: usize, codes: &[u16], curve: [u16; 4]) -> Vec<u8> {
-    let bytes = craw_encode(codes, width, height);
-    let mut t = TiffBuilder::default();
-    let n = bytes.len();
-    let strip = t.blob(bytes);
-    let raw_ifd = t.ifd(vec![
-        (254, Val::Long(vec![0])),
-        (256, Val::Long(vec![width as u32])),
-        (257, Val::Long(vec![height as u32])),
-        (258, Val::Short(vec![12])),
-        (259, Val::Short(vec![32767])),
-        (262, Val::Short(vec![32803])),
-        (273, Val::Blobs(vec![strip])),
-        (277, Val::Short(vec![1])),
-        (278, Val::Long(vec![height as u32])),
-        (279, Val::Long(vec![n as u32])),
-        (33421, Val::Short(vec![2, 2])),
-        (33422, Val::Byte(vec![0, 1, 1, 2])),
-        (0x7000, Val::Short(vec![2])),
-        (0x7010, Val::Short(curve.to_vec())),
-        (0x7310, Val::Short(vec![512; 4])),
-        (0x7313, Val::Short(vec![2048, 1024, 1024, 1536])),
-        (50717, Val::Short(vec![16383])),
-    ]);
-    let ifd0 = t.ifd(vec![(271, Val::Ascii("SONY".into())), (272, Val::Ascii("ILCE-Synthetic".into())), (330, Val::Ifds(vec![raw_ifd]))]);
     t.chain = vec![ifd0];
     t.build()
 }

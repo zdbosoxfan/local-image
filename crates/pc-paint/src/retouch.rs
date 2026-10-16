@@ -114,11 +114,6 @@ pub fn footprint(d: &Dab, index: usize, hardness: f32) -> Footprint {
     Footprint { dab: *d, index, rect, cov }
 }
 
-/// Union of the dabs' rectangles.
-pub fn stroke_bounds(ds: &[Dab]) -> Rect {
-    ds.iter().fold(Rect::EMPTY, |r, d| r.union(&dab_rect(d)))
-}
-
 /// Accumulated coverage of a whole stroke: dabs build up (`c ← c + d·(ceil − c)`, "flow"), capped at
 /// each dab's opacity ceiling; stroke-level masks (dual brush, texture) applied. Returns the stroke
 /// bounds and `width × height` coverage values. Uses the full brush engine (tips and dynamics).

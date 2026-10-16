@@ -98,12 +98,6 @@ impl Curve {
     pub fn sample(&self, n: usize) -> Vec<f32> {
         (0..n).map(|i| self.eval64(i as f64 / (n - 1) as f64) as f32).collect()
     }
-
-    /// `true` when the curve never decreases over `[0, 1]`.
-    pub fn is_monotonic(&self) -> bool {
-        let s = self.sample(1024);
-        s.windows(2).all(|w| w[1] >= w[0] - 1e-6) || s.windows(2).all(|w| w[1] <= w[0] + 1e-6)
-    }
 }
 
 #[inline]

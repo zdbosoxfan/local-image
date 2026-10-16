@@ -1,7 +1,7 @@
 use super::*;
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};
-use photocraft_doc::{Color, ColorMode, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size, Subpath};
+use photocraft_doc::{Color, ColorMode, Fill, Layer, LayerContent, Path, SampleType, ShapeLayer, Size, Subpath};
 pub(super) struct Host {
     pub session: Session,
     pub state: State,

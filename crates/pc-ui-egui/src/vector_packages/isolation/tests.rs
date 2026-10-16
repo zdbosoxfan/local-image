@@ -3,6 +3,7 @@ use super::*;
 use egui::{Event, Modifiers, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};
 use photocraft_doc::{Color, ColorMode, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};
+use photocraft_engine::vector_packages::isolation::Target;
 use photocraft_geom::Point;
 struct Host {
     session: Session,

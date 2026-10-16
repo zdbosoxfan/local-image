@@ -126,17 +126,6 @@ pub fn compute_backends() -> Option<Backends> {
     resolve(env_choice(), default_compute_backends(std::env::consts::OS), wgpu::Instance::enabled_backend_features())
 }
 
-/// The backends for the desktop window's renderer (eframe/egui-wgpu). The window always needs
-/// one: `off` keeps the platform default.
-pub fn window_backends() -> Backends {
-    let default = default_window_backends(std::env::consts::OS);
-    let choice = match env_choice() {
-        BackendChoice::Off => BackendChoice::Auto,
-        c => c,
-    };
-    resolve(choice, default, wgpu::Instance::enabled_backend_features()).unwrap_or(default)
-}
-
 /// `LOCAL_IMAGE_GPU_BACKEND=off`.
 pub fn env_off() -> bool {
     env_choice() == BackendChoice::Off

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Affine, Point, Real};
+use crate::{Point, Real};
 
 /// Row-major 3×3 matrix mapping homogeneous points: p' = H·p.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -16,11 +16,6 @@ impl Default for Homography {
 
 impl Homography {
     pub const IDENTITY: Homography = Homography([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
-
-    pub fn from_affine(a: &Affine) -> Homography {
-        let [a0, b, c, d, e, f] = a.0;
-        Homography([a0, c, e, b, d, f, 0.0, 0.0, 1.0])
-    }
 
     pub fn apply(&self, p: Point) -> Point {
         let (x, y) = self.apply_real(p.x, p.y);

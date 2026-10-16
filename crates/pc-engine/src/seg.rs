@@ -282,18 +282,6 @@ pub fn probability_with(model: &SubjectModel, doc: &Document, layer: Option<Laye
     map
 }
 
-/// local-image: the subject probability Quick Selection uses as a weak prior (see
-/// `photocraft_algo::segment::quick`), when a model is installed. The model runs once per pixel
-/// state: later strokes on the same pixels reuse it.
-pub fn quick_prior(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<Arc<(Rect, Vec<f32>)>> {
-    probability_with(&SubjectModel::current()?, doc, layer, all_layers, &NEVER)
-}
-
-/// The installed sky model, if any.
-pub fn sky_installed() -> Option<li_seg::InUse> {
-    li_seg::Group::Sky.in_use(&models_dir())
-}
-
 /// The sky model a command uses; like [`SubjectModel`] it is resolved on the caller's thread (so a
 /// test's [`mock_sky_model_on_thread`] reaches the job's worker) and moved into the job.
 #[derive(Clone)]
@@ -320,19 +308,9 @@ pub fn mock_sky_model_on_thread(model: Option<Arc<MockModel>>) {
     SKY_MOCK.with(|m| *m.borrow_mut() = model);
 }
 
-/// Sky probability over the canvas from the sky model, its edges snapped to the image with a
-/// colour-guided filter (the model sees a 256–512 px copy). `None` without a sky model.
-pub fn sky_probability(doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<(Rect, Vec<f32>)> {
-    sky_probability_with_cancel(doc, layer, all_layers, &NEVER)
-}
-
-/// [`sky_probability`] that stops the model at its next stage once `cancel` (a job's flag) is set
-/// (then `None`).
-pub fn sky_probability_with_cancel(doc: &Document, layer: Option<LayerId>, all_layers: bool, cancel: &AtomicBool) -> Option<(Rect, Vec<f32>)> {
-    sky_probability_with(&SkyModel::current()?, doc, layer, all_layers, cancel)
-}
-
-/// [`sky_probability_with_cancel`] with `model` (resolved earlier, on the thread that started the job).
+/// Sky probability over the canvas from `model` (resolved earlier, on the thread that started the
+/// job), its edges snapped to the image with a colour-guided filter (the model sees a 256–512 px
+/// copy). Stops the model at its next stage once `cancel` (a job's flag) is set (then `None`).
 pub fn sky_probability_with(model: &SkyModel, doc: &Document, layer: Option<LayerId>, all_layers: bool, cancel: &AtomicBool) -> Option<(Rect, Vec<f32>)> {
     let (area, rgba) = rgba8(doc, layer, all_layers);
     let (w, h) = (area.width() as usize, area.height() as usize);
