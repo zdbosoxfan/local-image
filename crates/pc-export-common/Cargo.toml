@@ -1,0 +1,20 @@
+[package]
+name = "photocraft-export-common"
+description = "Format-independent scope, preflight, clipping and gradient logic shared by the SVG and PDF exporters"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+photocraft-doc.workspace = true
+photocraft-geom.workspace = true
+photocraft-vector.workspace = true
+photocraft-pathops.workspace = true
+photocraft-text.workspace = true
+photocraft-compose.workspace = true
+kurbo.workspace = true
+serde_json.workspace = true

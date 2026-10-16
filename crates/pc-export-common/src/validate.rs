@@ -1,5 +1,15 @@
 //! Bounded numeric/tree preflight precedes cloning, normalization, shaping and raster work.
 use super::*;
+use photocraft_doc::vector_design::appearance::AppearanceItem;
+use photocraft_doc::{Fill, ShapeStroke};
+
+/// The PDF writer additionally checks effect reference points, appearance stacks,
+/// custom artboard backgrounds and text run counts.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Preflight {
+    Svg,
+    Pdf,
+}
 const MAX: f64 = 1_000_000.0;
 fn bounded(n: f64) -> Result<()> {
     if n.is_finite() && n.abs() <= MAX { Ok(()) } else { Err(invalid("numeric input must be finite and bounded")) }
@@ -17,7 +27,7 @@ fn path(p: &Path, segments: &mut usize) -> Result<()> {
     for s in &p.subpaths {
         *segments = segments.saturating_add(s.knots.len());
         if *segments > 1_000_000 {
-            return Err(ExportError::Budget("segments"));
+            return Err(Error::Budget("segments"));
         }
         for k in &s.knots {
             for p in [k.anchor, k.in_ctrl, k.out_ctrl] {
@@ -33,7 +43,7 @@ fn fill(f: &Fill) -> Result<()> {
         Fill::Solid(c) => color(c)?,
         Fill::Gradient { stops, angle, scale, opacity_stops, midpoints, offset, .. } => {
             if stops.len() > 4096 || opacity_stops.len() > 4096 || midpoints.len() > 4096 {
-                return Err(ExportError::Budget("gradient stops"));
+                return Err(Error::Budget("gradient stops"));
             }
             for n in [*angle, *scale, offset.0, offset.1] {
                 bounded(f64::from(n))?;
@@ -81,8 +91,8 @@ fn stroke(s: &ShapeStroke) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
-    if opts.max_pixels == 0 || opts.max_pixels > 100_000_000 || opts.max_bytes == 0 || opts.max_bytes > 512 << 20 {
+pub fn document(doc: &Document, max_pixels: u64, max_bytes: usize, preflight: Preflight) -> Result<()> {
+    if max_pixels == 0 || max_pixels > 100_000_000 || max_bytes == 0 || max_bytes > 512 << 20 {
         return Err(invalid("invalid export options"));
     }
     if doc.size.is_empty()
@@ -93,21 +103,22 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
     {
         return Err(invalid("invalid document dimensions or DPI"));
     }
-    fn walk(layers: &[Layer], depth: usize, segments: &mut usize, objects: &mut usize, ids: &mut BTreeSet<u64>) -> Result<()> {
+    let pdf = preflight == Preflight::Pdf;
+    fn walk(layers: &[Layer], depth: usize, segments: &mut usize, objects: &mut usize, ids: &mut BTreeSet<u64>, pdf: bool) -> Result<()> {
         if depth > photocraft_doc::MAX_GROUP_DEPTH {
-            return Err(ExportError::Budget("depth"));
+            return Err(Error::Budget("depth"));
         }
         for l in layers {
             *objects += 1;
             if *objects > 100_000 {
-                return Err(ExportError::Budget("objects"));
+                return Err(Error::Budget("objects"));
             }
             if !ids.insert(l.id.0) {
                 return Err(invalid("duplicate layer IDs"));
             }
             unit(l.opacity)?;
             unit(l.fill_opacity)?;
-            if let Some((x, y)) = l.effects.reference {
+            if pdf && let Some((x, y)) = l.effects.reference {
                 bounded(x)?;
                 bounded(y)?;
             }
@@ -144,7 +155,7 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
             let vector = serde_json::to_value(&l.vector).map_err(|e| invalid(e.to_string()))?;
             numbers(&vector, false)?;
             if l.name.len() > 1 << 20 {
-                return Err(ExportError::Budget("layer name"));
+                return Err(Error::Budget("layer name"));
             }
             if let Some(p) = &l.vector.clip {
                 path(p, segments)?;
@@ -158,9 +169,11 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
                 }
             }
             if let Some(a) = &l.vector.appearance {
-                photocraft_vector::appearance::validate(a).map_err(invalid)?;
+                if pdf {
+                    photocraft_vector::appearance::validate(a).map_err(invalid)?;
+                }
                 if a.items.len() > 4096 {
-                    return Err(ExportError::Budget("appearance items"));
+                    return Err(Error::Budget("appearance items"));
                 }
                 for i in &a.items {
                     match i {
@@ -178,7 +191,8 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
             }
             match &l.content {
                 LayerContent::Group(g) => {
-                    if let Some(a) = &g.artboard
+                    if pdf
+                        && let Some(a) = &g.artboard
                         && let photocraft_doc::ArtboardBackground::Custom(c) = a.background
                     {
                         color(&c)?;
@@ -188,7 +202,7 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
                     {
                         return Err(invalid("invalid artboard dimensions"));
                     }
-                    walk(&g.children, depth + 1, segments, objects, ids)?;
+                    walk(&g.children, depth + 1, segments, objects, ids, pdf)?;
                 }
                 LayerContent::Shape(s) => {
                     path(&s.path, segments)?;
@@ -201,15 +215,15 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
                 }
                 LayerContent::Fill(f) => fill(f)?,
                 LayerContent::Text(t) => {
-                    if t.runs.len() > 1024 || t.paragraphs.len() > 1024 {
-                        return Err(ExportError::Budget("text runs"));
+                    if pdf && (t.runs.len() > 1024 || t.paragraphs.len() > 1024) {
+                        return Err(Error::Budget("text runs"));
                     }
                     if t.text.len() > 1 << 20 {
-                        return Err(ExportError::Budget("text bytes"));
+                        return Err(Error::Budget("text bytes"));
                     }
                     // Admit shaping work before any scope/bounds/fallback pass can lay out text.
                     if t.text.chars().take(100_001).count() > 100_000 {
-                        return Err(ExportError::Budget("text characters"));
+                        return Err(Error::Budget("text characters"));
                     }
                     for n in t.transform.m {
                         bounded(n)?;
@@ -257,5 +271,5 @@ pub(super) fn document(doc: &Document, opts: &ExportOptions) -> Result<()> {
         }
         Ok(())
     }
-    walk(&doc.layers, 0, &mut 0, &mut 0, &mut BTreeSet::new())
+    walk(&doc.layers, 0, &mut 0, &mut 0, &mut BTreeSet::new(), pdf)
 }

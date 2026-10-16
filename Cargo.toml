@@ -92,6 +92,7 @@ photocraft-color = { path = "crates/pc-color" }
 photocraft-compose = { path = "crates/pc-compose" }
 photocraft-doc = { path = "crates/pc-doc" }
 photocraft-engine = { path = "crates/pc-engine" }
+photocraft-export-common = { path = "crates/pc-export-common" }
 photocraft-format = { path = "crates/pc-format" }
 photocraft-geom = { path = "crates/pc-geom" }
 photocraft-gpu = { path = "crates/pc-gpu" }

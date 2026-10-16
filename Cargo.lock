@@ -5870,6 +5870,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-export-common"
+version = "2.0.0-alpha.1"
+dependencies = [
+ "kurbo 0.13.1",
+ "photocraft-compose",
+ "photocraft-doc",
+ "photocraft-geom",
+ "photocraft-pathops",
+ "photocraft-text",
+ "photocraft-vector",
+ "serde_json",
+]
+
+[[package]]
 name = "photocraft-format"
 version = "2.0.0-alpha.1"
 dependencies = [
@@ -6011,6 +6025,7 @@ dependencies = [
  "photocraft-cms",
  "photocraft-compose",
  "photocraft-doc",
+ "photocraft-export-common",
  "photocraft-format",
  "photocraft-geom",
  "photocraft-pathops",
@@ -6072,6 +6087,7 @@ dependencies = [
  "photocraft-cms",
  "photocraft-compose",
  "photocraft-doc",
+ "photocraft-export-common",
  "photocraft-geom",
  "photocraft-pathops",
  "photocraft-testkit",
