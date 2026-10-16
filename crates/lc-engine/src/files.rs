@@ -568,7 +568,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                     format!("{n} {:.1}", d.as_secs_f64() * 1e3)
                 })
                 .collect();
-            eprintln!("[profile] raw source {}×{} (max {max_edge}, ms after decode): {}", img.width, img.height, parts.join(", "));
+            log::debug!("[profile] raw source {}×{} (max {max_edge}, ms after decode): {}", img.width, img.height, parts.join(", "));
         }
         let (temp, tint) = xy_to_temp_tint(xy);
         let relative = crate::camera_preview::file_local_look(raw.format) && t.matrix_is_fallback;

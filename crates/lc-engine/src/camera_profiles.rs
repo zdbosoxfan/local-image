@@ -109,7 +109,7 @@ fn parse(json: &[u8], origin: &str) -> Result<CameraProfile, String> {
 /// The built-in profile for `model`, if any.
 fn bundled(model: &str) -> Option<CameraProfile> {
     let (_, json) = BUNDLED.iter().find(|(m, _)| *m == model)?;
-    parse(json.as_bytes(), &format!("built-in profile {model}")).inspect_err(|e| eprintln!("lightcraft: ignoring camera profile {e}")).ok()
+    parse(json.as_bytes(), &format!("built-in profile {model}")).inspect_err(|e| log::warn!("ignoring camera profile {e}")).ok()
 }
 
 /// Write `profile` to `dir` (created if needed) as `<model>.json`; returns the path.
@@ -141,11 +141,11 @@ pub fn get(model: &str) -> Option<Arc<CameraProfile>> {
         Some(path) if path.is_file() => match load(&path) {
             Ok(p) if p.model.trim() == model => Some(Arc::new(p)),
             Ok(p) => {
-                eprintln!("lightcraft: ignoring camera profile {}: it is for {:?}, not {model:?}", path.display(), p.model);
+                log::warn!("ignoring camera profile {}: it is for {:?}, not {model:?}", path.display(), p.model);
                 None
             }
             Err(e) => {
-                eprintln!("lightcraft: ignoring camera profile {e}");
+                log::warn!("ignoring camera profile {e}");
                 None
             }
         },

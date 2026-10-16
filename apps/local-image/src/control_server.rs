@@ -19,11 +19,11 @@ pub fn start(port: u16, token: String, ctx: egui::Context) -> Receiver<ControlRe
     let listener = match TcpListener::bind(("127.0.0.1", port)) {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("local-image: control server failed to bind 127.0.0.1:{port}: {e}");
+            log::error!("control server failed to bind 127.0.0.1:{port}: {e}");
             return rx;
         }
     };
-    eprintln!("local-image: control server listening on 127.0.0.1:{port}");
+    log::info!("control server listening on 127.0.0.1:{port}");
     std::thread::spawn(move || {
         let limiter = ConnectionLimiter::new(MAX_CONNECTIONS);
         let token = Arc::new(token);

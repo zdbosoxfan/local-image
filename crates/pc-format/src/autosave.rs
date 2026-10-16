@@ -198,7 +198,7 @@ fn worker(
         let dir = bundle.parent().unwrap_or_else(|| Path::new("."));
         let key = bundle.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
         if let Err(e) = remove_entry(dir, key) {
-            eprintln!("autosave cleanup: {e}");
+            log::warn!("autosave cleanup: {e}");
         }
     }
 }
@@ -330,7 +330,7 @@ impl Discard {
 fn discard_entry_async(dir: PathBuf, key: String) -> Result<Discard> {
     let handle = std::thread::Builder::new().name("autosave-cleanup".into()).spawn(move || {
         if let Err(e) = remove_entry(&dir, &key) {
-            eprintln!("autosave cleanup: {e}");
+            log::warn!("autosave cleanup: {e}");
         }
     })?;
     Ok(Discard { handle: Some(handle) })

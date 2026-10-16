@@ -1832,12 +1832,12 @@ impl eframe::App for Host {
         if let Some(lib) = self.library.as_mut()
             && let Err(e) = lib.session.close_library()
         {
-            eprintln!("local-image: saving the library failed: {e}");
+            log::error!("saving the library failed: {e}");
         }
         self.capture_library_preferences(&egui::Context::default(), true);
         self.editor.on_exit();
         if !lightcraft_gpu::quiesce(std::time::Duration::from_secs(3)) {
-            eprintln!("local-image: GPU work still running at exit");
+            log::warn!("GPU work still running at exit");
         }
     }
 }

@@ -624,7 +624,7 @@ pub fn open_dir_async(root: std::path::PathBuf) -> std::sync::mpsc::Receiver<Ope
     });
     if let Err(e) = spawned {
         // No thread: the caller simply never gets a store (presets stay session-only).
-        eprintln!("brush presets: {e}");
+        log::warn!("brush presets: {e}");
     }
     rx
 }

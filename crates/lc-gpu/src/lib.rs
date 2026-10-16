@@ -633,9 +633,6 @@ pub fn render_hs_candidate(
                     ctx::FailKind::Limit | ctx::FailKind::Blank => format!("{what}: {}", f.reason),
                 };
                 log::warn!("gpu: rendering on the CPU instead: {reason}");
-                if render::profiling() {
-                    eprintln!("  gpu fallback to the CPU: {reason}");
-                }
                 record_fallback(reason);
                 None
             }

@@ -472,23 +472,6 @@ fn upright_auto_leaves_natural_scenes_nearly_alone() {
     }
 }
 
-/// Diagnostics: `SCENE="Lake" cargo test -p lightcraft-pipeline debug_upright_scene -- --ignored --nocapture`.
-#[test]
-#[ignore]
-fn debug_upright_scene() {
-    let scene =
-        lightcraft_scenes::demo_library().into_iter().find(|s| s.name.starts_with(std::env::var("SCENE").as_deref().unwrap_or("Lake"))).unwrap();
-    let src = scene.render_fit(768);
-    let a = crate::upright::analyze_source(&src, &SourceInfo::default(), &DevelopSettings::default());
-    eprintln!("vert {} horiz {} vvp {:?} hvp {:?}", a.vertical.len(), a.horizontal.len(), a.vertical_vp, a.horizontal_vp);
-    for s in a.vertical.iter().take(20) {
-        eprintln!("  v {:.3},{:.3} -> {:.3},{:.3} len {:.3}", s.a.x, s.a.y, s.b.x, s.b.y, s.len());
-    }
-    for m in [Upright::Level, Upright::Vertical, Upright::Full, Upright::Auto] {
-        eprintln!("{m:?}: {:?}", crate::upright::solve(m, &a).0);
-    }
-}
-
 /// Sign convention for Auto straighten: a horizon descending 6° to the right needs crop angle −6°,
 /// which `level_degrees` must report (the crop panel uses it as the crop angle directly).
 #[test]

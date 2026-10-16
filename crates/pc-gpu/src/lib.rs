@@ -1914,7 +1914,7 @@ impl Compositor {
         }
 
         if let Some(t) = t_trace.filter(|_| !damage.is_empty()) {
-            eprintln!("effect maps of `{}`: shape + distance fields over {damage:?} in {:.2} ms (CPU)", layer.name, t.elapsed().as_secs_f64() * 1000.0);
+            log::debug!("effect maps of `{}`: shape + distance fields over {damage:?} in {:.2} ms (CPU)", layer.name, t.elapsed().as_secs_f64() * 1000.0);
         }
         if e.progs.len() > progs.len() {
             self.texture_groups.clear();
