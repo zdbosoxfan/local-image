@@ -1,7 +1,6 @@
 //! Strict offscreen projection parity. Full-app hook gate is supplied with the UI package.
 use super::*;
 #[test]
-#[ignore = "integration milestone: requires real RTX 5090 Vulkan"]
 fn envelope_gpu_warped_path_text_preview_release_parity() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("envelope");

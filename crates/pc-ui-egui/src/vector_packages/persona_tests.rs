@@ -291,9 +291,7 @@ pub(super) fn two_shapes(app: &mut PhotocraftApp) {
     st.selected_layers = vec![first, st.active_layer.unwrap()];
 }
 
-/// Required integration gate: run explicitly after 00 registers the actual V1 commands.
 #[test]
-#[ignore = "requires V1 path.boolean registration by package 00"]
 fn persona_geometry_actual_add_and_undo_restore_both_shapes() {
     let mut h = harness();
     two_shapes(h.state_mut());

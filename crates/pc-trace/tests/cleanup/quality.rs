@@ -68,7 +68,7 @@ fn cleanup_logo_same_input_quality_and_every_toggle() -> TestResult {
 
 /// Missing references are an error. This gate never turns an absent corpus into a pass.
 #[test]
-#[ignore = "complete release acceptance requires coordinator competitor SVGs and licensed corpus"]
+#[ignore = "requires the 15 external competitor SVGs and 5 licensed scans of the release corpus"]
 fn cleanup_full_competitor_gate() -> TestResult {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let corpus = common::external_cases_for(Preset::Logo)?;

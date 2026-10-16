@@ -91,7 +91,6 @@ fn parity(h: &mut H) {
     }
 }
 #[test]
-#[ignore = "owner speed rules: integrate 00 canvas hooks then run RTX acceptance"]
 fn repeat19_full_app_gpu_live_preview_cancel_release_expand_undo_source_edit_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

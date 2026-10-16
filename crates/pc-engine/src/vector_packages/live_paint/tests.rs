@@ -164,7 +164,6 @@ fn live_paint42_visible_boundary_fill_merges_same_color_regions() {
     assert!((actual - area).abs() < 1e-5);
 }
 #[test]
-#[ignore = "00 LiveGroup data dependency and integrated native projection gate; speed rules"]
 fn live_paint42_native_group_edit_merge_expand_release_save_load() {
     let (mut s, ids) = fixture();
     let before = s.active().unwrap().doc.clone();

@@ -132,7 +132,7 @@ fn selection_full_app_gpu_live_lasso_cancel_release_wand_add_rtx5090() {
     assert_eq!(h.state().session.active().unwrap().doc, doc);
 }
 #[test]
-#[ignore = "release real-app 500-object pointer-frame benchmark; run after 00 routing"]
+#[ignore = "release-build 500-object pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn selection_full_app_release_500_pointer_frames_under_16ms_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     if cfg!(debug_assertions) {

@@ -3,7 +3,7 @@
 //! golden is a hard failure when this explicit corpus gate is invoked.
 use super::*;
 #[test]
-#[ignore = "requires coordinator Inkscape textPath-to-outlines golden; see SOURCES.md"]
+#[ignore = "requires LOCAL_IMAGE_PATH_TEXT_GOLDENS with the Inkscape textPath-to-outlines golden; see SOURCES.md"]
 fn path_text_resvg_ofl_textpath_golden_iou() {
     let directory = std::env::var("LOCAL_IMAGE_PATH_TEXT_GOLDENS").expect("licensed textPath golden directory required");
     let bytes = std::fs::read(std::path::Path::new(&directory).join("abc-circle-outlines.svg")).expect("coordinator-generated golden required");

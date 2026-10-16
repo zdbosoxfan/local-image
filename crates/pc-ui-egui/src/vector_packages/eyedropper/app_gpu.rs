@@ -6,7 +6,6 @@ use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::{Harness, kittest::Queryable};
 use photocraft_engine::vector_packages::styles;
 #[test]
-#[ignore = "requires 00 persona/input/display/native hooks; owner forbids GPU acceptance runs in package jobs"]
 fn styles38_gpu_full_app_i_alt_shift_preview_release_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let fixture = super::tests::host();

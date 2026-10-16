@@ -104,7 +104,6 @@ fn parity(h: &mut Harness<'_, PhotocraftApp>) {
 }
 
 #[test]
-#[ignore = "integration milestone: full app on real RTX 5090 Vulkan"]
 fn envelope_gpu_app_mesh_drag_warp_text_cancel_release_cpu_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();

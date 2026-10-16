@@ -1,7 +1,6 @@
-//! Registered owned real-GPU gate; speed rules defer execution to integration.
+//! Real-GPU blend parity gate.
 use super::*;
 #[test]
-#[ignore = "RTX integration gate; package speed rules forbid GPU execution"]
 fn blend18_live_blend_groups_rtx_5090_vulkan_clipped_effect_layers() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("blend18");

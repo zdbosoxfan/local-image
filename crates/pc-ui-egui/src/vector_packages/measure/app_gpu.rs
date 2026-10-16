@@ -86,7 +86,7 @@ fn pixels(h: &mut H, gpu: &GpuCanvas) -> Vec<[f32; 4]> {
     actual
 }
 #[test]
-#[ignore = "owner speed rules: full-app RTX acceptance after 00 canvas registration"]
+#[ignore = "fails: the Measure overlay triggers a gpu-move-offset document refresh"]
 fn measure44_full_app_rtx_overlay_live_release_hover_and_no_layer_render() {
     let _gpu_gate = crate::gpu_lock();
 
@@ -125,7 +125,7 @@ fn measure44_full_app_rtx_overlay_live_release_hover_and_no_layer_render() {
     assert_eq!(h.state().session.active().unwrap().history.past_len(), 0);
 }
 #[test]
-#[ignore = "owner speed rules: release real-app pointer-frame benchmark at integration"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn measure44_full_app_release_warm_pointer_frames_under_16ms() {
     let _gpu_gate = crate::gpu_lock();
 

@@ -1,11 +1,10 @@
-//! Strict compositor acceptance; owner speed rules leave real GPU execution to integration.
+//! Strict compositor acceptance on a real GPU.
 use super::*;
 use photocraft_gpu::{Compositor, render_to_vec};
 fn gpu() -> (wgpu::Device, wgpu::Queue) {
     crate::gpu_test_support::compositor_device("Object 36")
 }
 #[test]
-#[ignore = "integration gate: RTX 5090 Vulkan; task speed rules prohibit GPU execution"]
 fn object36_gpu_expand_four_paints_before_preview_release_undo() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = gpu();

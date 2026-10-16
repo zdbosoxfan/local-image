@@ -122,7 +122,6 @@ fn open(h: &mut H, label: &str) {
     h.run();
 }
 #[test]
-#[ignore = "integration gate: install 00 production hooks; speed rules prohibit real GPU execution"]
 fn object36_full_app_gpu_simplify_slider_live_cancel_release_one_undo() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -156,7 +155,6 @@ fn object36_full_app_gpu_simplify_slider_live_cancel_release_one_undo() {
     parity(&mut h, &before);
 }
 #[test]
-#[ignore = "integration gate: install 00 production hooks; speed rules prohibit real GPU execution"]
 fn object36_full_app_gpu_expand_appearance_pixel_parity_menu_undo() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

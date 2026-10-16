@@ -99,7 +99,7 @@ fn reference_nodes_count_closed_anchors_once() -> TestResult {
     Ok(())
 }
 #[test]
-#[ignore = "full release corpus and fitter decision; coordinator commits competitor SVGs first"]
+#[ignore = "release-build benchmark over the full corpus and competitor SVGs; run with --release --ignored"]
 fn full_quality_benchmark() -> TestResult {
     if cfg!(debug_assertions) {
         return Err("run with --release".into());
@@ -176,7 +176,7 @@ fn full_quality_benchmark() -> TestResult {
     Ok(())
 }
 #[test]
-#[ignore = "release timing gate runs on coordinator machine"]
+#[ignore = "release-build timing benchmark; run with --release --ignored"]
 fn release_performance_gates() -> TestResult {
     if cfg!(debug_assertions) {
         return Err("run with --release".into());

@@ -96,7 +96,7 @@ fn calculator() -> Vec<u8> {
 /// Required coordinator desktop gate. CI has no user manager or namespace entitlement.
 /// This opt-in test never retries without containment and must pass before shipping fallback.
 #[test]
-#[ignore = "requires the production Linux systemd/bwrap/Poppler runtime; coordinator must run explicitly"]
+#[ignore = "requires the production Linux systemd/bwrap/Poppler runtime; run explicitly"]
 fn pdf_raster_linux_runtime_geometry_calculator_cancel_and_output_limit() {
     let bytes = Arc::<[u8]>::from(calculator());
     let request = |operation| Request { bytes: bytes.clone(), limits: ImportLimits::default(), operation };

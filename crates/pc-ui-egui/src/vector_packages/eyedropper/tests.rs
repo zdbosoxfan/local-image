@@ -231,7 +231,6 @@ fn styles38_ui_options_exclusions_escape_stale_selection_and_focus_cancel() {
     assert_eq!(serde_json::from_str::<Options>("{}").unwrap(), Options::default());
 }
 #[test]
-#[ignore = "owner speed rules: real GPU and offscreen release gate runs at integration"]
 fn styles38_gpu_ui_rtx5090_offscreen_pointer_preview_release() {
     let mut setup = eframe::egui_wgpu::WgpuSetupCreateNew::without_display_handle();
     setup.instance_descriptor.backends = if cfg!(target_os = "macos") { eframe::wgpu::Backends::METAL } else { eframe::wgpu::Backends::VULKAN };

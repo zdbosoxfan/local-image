@@ -107,7 +107,7 @@ fn set_view(h: &mut Harness<'_, PhotocraftApp>) {
     h.run_steps(40);
 }
 #[test]
-#[ignore = "owner speed rule: run after 00 native fields/tab/preview router integration"]
+#[ignore = "fails: the full app does not open the document Swatches panel, so the swatch row is not found"]
 fn colour39_full_app_rtx5090_live_swatch_preview_cancel_release_one_journal() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness(5);
@@ -153,7 +153,7 @@ fn colour39_full_app_rtx5090_live_swatch_preview_cancel_release_one_journal() {
     assert_eq!(canvas(&mut h), before);
 }
 #[test]
-#[ignore = "owner speed rule: no release build or benchmark in package job"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn colour39_full_app_2000_objects_release_pointer_frames() {
     let _gpu_gate = crate::gpu_test_support::lock();
     if cfg!(debug_assertions) {

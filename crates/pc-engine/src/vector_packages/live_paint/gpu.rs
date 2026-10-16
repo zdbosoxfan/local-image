@@ -1,8 +1,7 @@
-//! Real-GPU projection parity gate; not executed under package speed rules.
+//! Real-GPU projection parity gate.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 #[test]
-#[ignore = "RTX 5090/Vulkan integrated live paint GPU gate; owner speed rules"]
 fn live_paint42_rtx_5090_vulkan_float_preview_release_expand_parity() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("live_paint42");

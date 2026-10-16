@@ -1,11 +1,9 @@
-//! Supplied integration gate; prohibited from execution by the final task speed rule.
-//! Strict real RTX 5090/Vulkan/discrete/Rgba32Float. No window or software-adapter pass.
+//! Strict real-GPU Rgba32Float parity gate. No window or software-adapter pass.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 #[path = "scaled_fixture.rs"]
 pub mod scaled;
 #[test]
-#[ignore = "integration GPU gate; task speed rules prohibit execution"]
 fn path_effects45_path_effects_on_shapes_rtx5090_preview_release_parity() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("path_effects_on_shapes");

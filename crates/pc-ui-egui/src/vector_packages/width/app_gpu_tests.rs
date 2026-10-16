@@ -86,7 +86,6 @@ fn event(h: &mut H, p: Pos2, pressed: Option<bool>) {
     h.step();
 }
 #[test]
-#[ignore = "requires package 00/01 Width router integration and real RTX 5090; speed rules prohibit execution"]
 fn width_gpu_full_app_live_preview_release_cancel_and_undo_parity() {
     let _lock = super::gpu_lock();
     let mut h = harness();
