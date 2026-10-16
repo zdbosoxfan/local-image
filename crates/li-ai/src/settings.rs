@@ -166,7 +166,7 @@ impl AiSettings {
                 Err(error) => return Err(error.into()),
             };
             root.as_object_mut().context("Preferences must be an object; the original was not replaced")?.insert("ai".into(), value);
-            li_fs::atomic_write(&path, serde_json::to_string_pretty(&root)?.as_bytes())?;
+            li_fs::atomic_write_private(&path, serde_json::to_string_pretty(&root)?.as_bytes())?;
         }
         publish(self);
         refresh_model_dir_cache(&config_path(), self);
@@ -186,7 +186,7 @@ impl AiSettings {
         m.insert("hardware_guide_dismissed".into(), self.hardware_guide_dismissed.into());
         m.insert("lora_show_adult_content".into(), self.lora_show_adult_content.into());
         m.insert("auto_start_comfy".into(), self.auto_start.into());
-        li_fs::atomic_write(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())?;
+        li_fs::atomic_write_private(path, serde_json::to_string_pretty(&Value::Object(m))?.as_bytes())?;
         refresh_model_dir_cache(path, self);
         Ok(())
     }
@@ -245,6 +245,20 @@ mod tests {
         let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
         assert_eq!(v["future_key"], serde_json::json!([1, 2]));
         assert_eq!(AiSettings::load_from(&p).comfy_port, 8190);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_settings_makes_the_file_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("li-settings-mode-{}", uuid::Uuid::new_v4()));
+        let p = dir.join("preferences.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&p, "{}").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+        AiSettings::default().save_to(&p).unwrap();
+        assert_eq!(std::fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
         std::fs::remove_dir_all(dir).ok();
     }
 }

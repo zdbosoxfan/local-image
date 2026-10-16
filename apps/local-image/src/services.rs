@@ -293,7 +293,7 @@ fn save_editor_prefs_inner(path: &Path, text: &str) -> Result<(), String> {
     if current != original {
         return Err("Preferences changed while preparing the save; retrying will merge the new version. The original was not changed".into());
     }
-    write_atomic(path, text.as_bytes())?;
+    li_fs::atomic_write_private(path, text.as_bytes()).map_err(|e| e.to_string())?;
     if let Ok(root) = serde_json::from_str::<serde_json::Value>(text)
         && let Some(ai) = root.get("ai")
     {
