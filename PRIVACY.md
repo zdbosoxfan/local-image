@@ -13,7 +13,7 @@ If the behaviour changes, this page changes with it.
 - Face grouping and scene classification (Smart Sort) run on your computer. Their model files
   are downloaded once, when you ask for them.
 - The update check is off by default. Checking for updates is always your choice.
-- API keys and access tokens are stored in plain text in the preferences file on your computer.
+- API keys and access tokens are stored in plain text in the preferences file on your computer. On macOS and Linux the file is saved readable by your user account only.
 
 ## Network connections
 
@@ -154,7 +154,7 @@ or an explicitly allowed test host.
 
 | Data | Location | Notes |
 |---|---|---|
-| Preferences, including AI settings, API keys and tokens | `preferences.json` in the app's configuration folder: `~/Library/Application Support/Local Image/` on macOS, `$XDG_CONFIG_HOME/local-image/` (default `~/.config/local-image/`) on Linux, `%APPDATA%\Local Image\` on Windows. The folder can be changed with `LOCAL_IMAGE_CONFIG_DIR`, or is the app's own folder in portable mode. | Plain text. The app does not set restrictive permissions on this file. Protect it as you would any file that holds passwords. |
+| Preferences, including AI settings, API keys and tokens | `preferences.json` in the app's configuration folder: `~/Library/Application Support/Local Image/` on macOS, `$XDG_CONFIG_HOME/local-image/` (default `~/.config/local-image/`) on Linux, `%APPDATA%\Local Image\` on Windows. The folder can be changed with `LOCAL_IMAGE_CONFIG_DIR`, or is the app's own folder in portable mode. | Plain text. On macOS and Linux the app saves it with owner-only permissions (0600); on Windows it keeps the folder's default access rules. Protect it as you would any file that holds passwords. |
 | Library catalog | `catalog.snap` and `catalog.log` in the library folder | Metadata, albums, edits and history. The photos stay where they are. |
 | Face data | `AI/` folder inside the library folder | Stored on this computer only. |
 | Model files | The model folder set in Local AI settings, or the default model folder | Installed only after the size and SHA-256 check. |
