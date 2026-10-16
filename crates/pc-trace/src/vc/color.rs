@@ -45,10 +45,6 @@ pub struct ColorSum {
     pub counter: u64,
 }
 impl ColorSum {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
     pub fn add(&mut self, color: &Color) {
         self.r += color.r as u64;
         self.g += color.g as u64;
@@ -57,30 +53,12 @@ impl ColorSum {
         self.counter += 1;
     }
 
-    /// Caution: might underflow
-    pub fn sub(&mut self, color: &Color) {
-        self.r -= color.r as u64;
-        self.g -= color.g as u64;
-        self.b -= color.b as u64;
-        self.a -= color.a as u64;
-        self.counter -= 1;
-    }
-
     pub fn merge(&mut self, other: &ColorSum) {
         self.r += other.r;
         self.g += other.g;
         self.b += other.b;
         self.a += other.a;
         self.counter += other.counter;
-    }
-
-    /// Caution: might underflow
-    pub fn unmerge(&mut self, other: &ColorSum) {
-        self.r -= other.r;
-        self.g -= other.g;
-        self.b -= other.b;
-        self.a -= other.a;
-        self.counter -= other.counter;
     }
 
     pub fn average(&self) -> Color {

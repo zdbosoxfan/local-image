@@ -255,7 +255,6 @@ where
         Clusters {
             width: self.width,
             height: self.height,
-            pixels: self.pixels,
             clusters: self.clusters,
             cluster_indices: self.cluster_indices,
             clusters_output: self.clusters_output,
@@ -266,18 +265,9 @@ where
         ClustersView {
             width: self.width,
             height: self.height,
-            pixels: &self.pixels,
             clusters: &self.clusters,
             cluster_indices: &self.cluster_indices,
             clusters_output: &self.clusters_output,
-        }
-    }
-
-    pub fn progress(&self) -> u32 {
-        match self.stage {
-            1 => 50 * self.iteration / self.cluster_indices.len() as u32,
-            2 => 50 + 50 * self.iteration / self.cluster_areas.len() as u32,
-            _ => 100,
         }
     }
 
