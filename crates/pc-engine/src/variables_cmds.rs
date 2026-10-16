@@ -267,18 +267,17 @@ fn resolve_set(s: &Session, p: &Value, cmd: &str) -> Result<(DataSet, usize)> {
 /// variable, else text. The first column may be a data-set name (header empty or `DataSet`).
 fn import_data_sets(s: &mut Session, p: &Value) -> Result<Value> {
     let path = p.get("path").and_then(Value::as_str).ok_or_else(|| bad("file.import.variableDataSets", "need `path`"))?;
-    let delim = p.get("delimiter").and_then(Value::as_str).and_then(|d| d.bytes().next()).unwrap_or(b',');
+    let delim = p.get("delimiter").and_then(Value::as_str).and_then(|d| d.chars().next()).unwrap_or(',');
     let text = std::fs::read_to_string(path).map_err(|e| EngineError::Other(format!("read `{path}`: {e}")))?;
     let vars = s.active().ok_or(EngineError::NoDocument)?.doc.variables.clone();
-    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
-    let header: Vec<String> = lines.next().map(|h| split_csv(h, delim)).unwrap_or_default();
+    let mut records = parse_csv(&text, delim).into_iter();
+    let header: Vec<String> = records.next().unwrap_or_default();
     if header.is_empty() {
         return Err(bad("file.import.variableDataSets", "empty CSV"));
     }
     let named = header[0].trim().is_empty() || header[0].eq_ignore_ascii_case("dataset");
     let mut sets = Vec::new();
-    for (row, line) in lines.enumerate() {
-        let cells = split_csv(line, delim);
+    for (row, cells) in records.enumerate() {
         let name = if named {
             cells.first().cloned().filter(|c| !c.trim().is_empty()).unwrap_or_else(|| format!("Data Set {}", row + 1))
         } else {
@@ -303,37 +302,52 @@ fn import_data_sets(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"imported": n}))
 }
 
-/// Minimal CSV field splitter with double-quote support.
-fn split_csv(line: &str, delim: u8) -> Vec<String> {
-    let mut out = Vec::new();
+/// RFC 4180 record parser: quoted fields may hold the delimiter, doubled quotes and line breaks; a
+/// leading BOM is dropped and CRLF/LF/CR all end a record. Blank records are skipped.
+fn parse_csv(text: &str, delim: char) -> Vec<Vec<String>> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let mut records = Vec::new();
+    let mut row: Vec<String> = Vec::new();
     let mut cur = String::new();
     let mut in_q = false;
-    let bytes = line.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i];
+    let mut chars = text.chars().peekable();
+    let mut end_record = |row: &mut Vec<String>, cur: &mut String| {
+        row.push(std::mem::take(cur));
+        let blank = row.len() == 1 && row[0].trim().is_empty();
+        let done = std::mem::take(row);
+        if !blank {
+            records.push(done);
+        }
+    };
+    while let Some(c) = chars.next() {
         if in_q {
-            if c == b'"' {
-                if i + 1 < bytes.len() && bytes[i + 1] == b'"' {
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
                     cur.push('"');
-                    i += 1;
+                    chars.next();
                 } else {
                     in_q = false;
                 }
             } else {
-                cur.push(c as char);
+                cur.push(c);
             }
-        } else if c == b'"' {
+        } else if c == '"' {
             in_q = true;
         } else if c == delim {
-            out.push(std::mem::take(&mut cur));
+            row.push(std::mem::take(&mut cur));
+        } else if c == '\n' || c == '\r' {
+            if c == '\r' && chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            end_record(&mut row, &mut cur);
         } else {
-            cur.push(c as char);
+            cur.push(c);
         }
-        i += 1;
     }
-    out.push(cur);
-    out
+    if !cur.is_empty() || !row.is_empty() {
+        end_record(&mut row, &mut cur);
+    }
+    records
 }
 
 /// Apply each data set in turn and export the flattened document, restoring the original after.

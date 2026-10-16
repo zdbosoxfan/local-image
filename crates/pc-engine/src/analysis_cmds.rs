@@ -981,6 +981,8 @@ fn csv_field(v: &Value) -> String {
         Value::Null => String::new(),
         other => other.to_string(),
     };
+    // Spreadsheet formula guard: a leading `=`, `+`, `-`, `@`, tab or CR gets a `'` prefix, except a plain number.
+    let s = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) && s.parse::<f64>().is_err() { format!("'{s}") } else { s };
     if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s }
 }
 
