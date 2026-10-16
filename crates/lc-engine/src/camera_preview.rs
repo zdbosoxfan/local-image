@@ -48,7 +48,7 @@ pub(crate) fn fit_preview(
     };
     let look = fit_pairs_with(&sensor, &reference, colour)?;
     if lightcraft_pipeline::profiling() {
-        eprintln!(
+        log::debug!(
             "[profile] {:?} camera look: {:?}, {:?}, hue/sat table {}, camera profile {}",
             raw.format,
             look.matrix.0,
@@ -295,7 +295,7 @@ fn fit_pairs_with(sensor: &Rgb32f, reference: &Rgb32f, colour: Option<(Mat3, Opt
         })
         .sum();
     if lightcraft_pipeline::profiling() {
-        eprintln!(
+        log::debug!(
             "[profile] camera look holdout RMS {:.5} -> {:.5} ({samples} channels)",
             (before / samples as f64).sqrt(),
             (after / samples as f64).sqrt()
@@ -482,7 +482,7 @@ fn fit_chroma(pairs: &[([f64; 3], [f64; 3])], look: &CameraLook) -> Option<Camer
     };
     let (before, after) = (error(&tone), error(&with));
     if lightcraft_pipeline::profiling() {
-        eprintln!("[profile] ARW chroma curve {curve:?}: held-out error {before:.4} -> {after:.4}");
+        log::debug!("[profile] ARW chroma curve {curve:?}: held-out error {before:.4} -> {after:.4}");
     }
     (after.is_finite() && after < before).then_some(fitted)
 }

@@ -709,7 +709,7 @@ pub fn render(
     let lap = |what: &str, t: &mut Option<std::time::Instant>, cx: &mut Cx<'_>| match t {
         Some(t) => {
             cx.sync();
-            eprintln!("  gpu {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+            log::debug!("  gpu {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
             *t = std::time::Instant::now();
         }
         None => cx.flush(),

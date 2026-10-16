@@ -23,6 +23,7 @@ lightcraft-raster = { workspace = true }
 lightcraft-develop = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 lightcraft-scenes = { workspace = true }

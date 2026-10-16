@@ -102,7 +102,7 @@ impl Drop for Pool {
 
 fn log_failure(error: &std::io::Error) {
     // No fallback thread per request: a partial pool still makes bounded progress.
-    eprintln!("local-image: could not start an editor open coordinator: {error}");
+    log::warn!("could not start an editor open coordinator: {error}");
 }
 
 static POOL: OnceLock<Result<Pool, String>> = OnceLock::new();

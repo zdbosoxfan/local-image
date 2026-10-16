@@ -58,6 +58,7 @@ photocraft-plugins = { workspace = true }
 blake3 = { version = "1.8", default-features = false, features = ["pure"] }
 photocraft-codecs = { workspace = true }
 flate2 = { workspace = true }
+log = { workspace = true }
 
 [dev-dependencies]
 # Cross-surface LUT domain interpretation must match Develop.

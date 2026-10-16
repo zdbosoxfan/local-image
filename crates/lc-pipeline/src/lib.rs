@@ -716,7 +716,7 @@ fn render_impl(
     // `Instant::now()` panics on wasm32-unknown-unknown: only read the clock when profiling.
     let lap = |what: &str, t: &mut Option<std::time::Instant>| {
         if let Some(t) = t {
-            eprintln!("  {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+            log::debug!("  {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
             *t = std::time::Instant::now();
         }
     };
@@ -1024,7 +1024,7 @@ pub(crate) fn timed<R>(what: &str, f: impl FnOnce() -> R) -> R {
     }
     let t = std::time::Instant::now();
     let r = f();
-    eprintln!("    {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
+    log::debug!("    {what}: {:.1} ms", t.elapsed().as_secs_f64() * 1e3);
     r
 }
 
