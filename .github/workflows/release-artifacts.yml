@@ -19,15 +19,18 @@ jobs:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: storytold/craft-fonts
           ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
           path: .cache/craft-fonts
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@1.98.1
-      - uses: Swatinem/rust-cache@v2
+      # With a SHA ref the action cannot infer the toolchain from the ref name: pass it.
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
+        with:
+          toolchain: 1.98.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Linux build prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -39,6 +42,11 @@ jobs:
         run: |
           cargo +1.98.1 xtask assets
           cargo +1.98.1 xtask deps-pure
+      # Installers are never built from a tree whose portable lane has not passed.
+      - name: Fast portable test lane
+        env:
+          RUST_TEST_THREADS: 2
+        run: cargo +1.98.1 xtask test-fast
       - name: Build Linux payload and AppImage
         if: runner.os == 'Linux'
         env:
@@ -55,6 +63,9 @@ jobs:
       - name: Build Apple Silicon app and disk image
         if: runner.os == 'macOS'
         env:
+          # On a tag, missing signing/notarization secrets fail the job (see release.sh); other
+          # refs keep the ad-hoc development fallback.
+          RELEASE_REQUIRE_SIGNING: ${{ startsWith(github.ref, 'refs/tags/') && '1' || '' }}
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
           MACOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_KEYCHAIN_PASSWORD }}
@@ -64,7 +75,7 @@ jobs:
           MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
           MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
         run: packaging/macos/release.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: local-image-${{ runner.os }}-${{ runner.arch }}
           path: dist/release/*

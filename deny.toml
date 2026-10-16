@@ -1,0 +1,91 @@
+# cargo-deny policy for Local Image 2 (GPL-3.0-or-later). Run: `cargo deny check`.
+# CI runs this in .github/workflows/ci.yml; Dependabot keeps the lockfile moving.
+
+[graph]
+# The shipped platforms. Dependencies that only exist for other targets are not audited.
+targets = [
+    "aarch64-apple-darwin",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+]
+all-features = false
+
+[advisories]
+# RustSec advisory database (fetched by cargo-deny).
+version = 2
+yanked = "deny"
+# Baseline exceptions, each narrowly scoped. They record known findings so CI starts green and then
+# catches NEW advisories; none is a claim that the finding is harmless. Remove an entry as soon as
+# the dependency can move (cargo-deny warns about an ignore that no longer matches anything).
+ignore = [
+    # --- quick-xml 0.38.4 (lightcraft-meta XMP parser, lightcraft-raw). Fixed in >=0.41.0, a 0.x
+    # minor jump that needs the workspace pin raised and the reader API re-checked. Untrusted XMP
+    # is reachable, so this is availability only (CPU / memory DoS on the parsing thread).
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml <0.41 quadratic attribute check; DoS only; upgrade to >=0.41 pending" },
+    { id = "RUSTSEC-2026-0195", reason = "quick-xml <0.41 unbounded NsReader namespace allocation; DoS only; upgrade to >=0.41 pending" },
+    # --- rustls 0.23.45 via rustls-rustcrypto 0.0.2-alpha (li-ai/ureq: model and ComfyUI downloads).
+    # All four are fixed in rustls >=0.23.46 (`cargo update -p rustls` if rustls-rustcrypto allows).
+    { id = "RUSTSEC-2026-0346", reason = "rustls <0.23.46 Debug of session values; no custom ClientSessionStore is used; bump pending" },
+    { id = "RUSTSEC-2026-0347", reason = "rustls <0.23.46 ECH-rejection buffering; ECH is not enabled; bump pending" },
+    { id = "RUSTSEC-2026-0348", reason = "rustls <0.23.46 brotli certificate decompression; the non-default brotli feature is not enabled; bump pending" },
+    { id = "RUSTSEC-2026-0349", reason = "rustls <0.23.46 ServerHello key-exchange downgrade; bump pending" },
+    # --- rustls-webpki 0.102.8 (old webpki pinned by rustls-rustcrypto 0.0.2-alpha). Fixed in
+    # >=0.103.10, which that alpha crate does not allow; needs a different rustls crypto provider.
+    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 CRL distribution point matching; CRL checking is not used; move off rustls-rustcrypto" },
+    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 URI name constraints; move off rustls-rustcrypto" },
+    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 wildcard name constraints; move off rustls-rustcrypto" },
+    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 CRL parsing panic; CRL checking is not used; move off rustls-rustcrypto" },
+    # --- rsa 0.9.10 via rustls-rustcrypto (Marvin timing attack on private-key operations). No
+    # upstream fix exists; li-ai is a TLS client and holds no RSA private key.
+    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack; no upstream fix; only reachable through rustls-rustcrypto client-side verification" },
+    # --- Unmaintained crates (informational; no known vulnerability).
+    { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro (pulp -> exr); no runtime code" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25.1 unmaintained, via ab_glyph; replace with a maintained font parser" },
+    # --- Yanked releases still in Cargo.lock. Not vulnerabilities; refresh with `cargo update -p`.
+    { crate = "yoke-derive@0.8.3", reason = "yanked; transitive of hayro-interpret via yoke; refresh the lock entry" },
+    { crate = "zip@7.2.0", reason = "yanked; used only by the xtask packaging tool, never shipped" },
+]
+
+[licenses]
+version = 2
+# Everything below is GPL-3.0-or-later compatible (permissive, or weak copyleft that may be
+# combined with GPL-3.0). Add a license here only after checking that it is.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "LGPL-3.0-or-later",
+    "GPL-3.0-or-later",
+    "BSL-1.0",             # clipboard-win, error-code (Boost: permissive)
+    "IJG",                 # jpeg-encoder, alongside MIT OR Apache-2.0 (permissive, GPL-compatible)
+    "CDLA-Permissive-2.0", # webpki-roots (Mozilla CA root data)
+]
+confidence-threshold = 0.9
+exceptions = [
+    # rawler (dnglab) is LGPL-2.1-only. LGPL-2.1 section 3 lets us elect the ordinary GNU GPL for
+    # it, which licenses/rawler-NOTICE.md records; the crate is linked unmodified.
+    { crate = "rawler", allow = ["LGPL-2.1"] },
+    # egui's bundled default fonts: font data embedded unmodified; OFL-1.1 and the Ubuntu Font
+    # Licence permit bundling in GPL software.
+    { crate = "epaint_default_fonts", allow = ["OFL-1.1", "Ubuntu-font-1.0"] },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "allow"
+highlight = "all"
+deny = []
+skip = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
