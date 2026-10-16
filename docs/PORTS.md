@@ -132,8 +132,8 @@ See [RawTherapee notice](../licenses/rawtherapee-NOTICE.md).
 The upstream numerical fixtures and complete extraction/regeneration recipes are in
 [raw fixtures](../crates/lc-raw/tests/fixtures/README.md) and
 [pipeline fixtures](../crates/lc-pipeline/tests/fixtures/README.md).
-[The raw quality report](wip/CODEX-REPORT.md) records tolerances, measured discrepancies,
-intentional host differences, synthetic quality metrics, timings and remaining reference limitations.
+Tolerances, measured discrepancies, intentional host differences, synthetic quality metrics,
+timings and remaining reference limitations were recorded in a wip report that now lives only in git history.
 
 Detail XMP import (`lc-engine/src/crs.rs`): Sharpness → Amount (0–150),
 SharpenRadius → Radius (0.5–3 original pixels), SharpenDetail → Detail,
@@ -162,8 +162,7 @@ All darktable references below are pinned to `733bd69f32cac7ff5e41025115942772ad
 | `primary.rs` | vkdt `llap/reduce.comp`, `assemble.comp`, sampled Laplacian construction | vkdt `afc34256fb22bcaf6dcf6503d19d5f9a6f477af5`, BSD-2-Clause. Ten gamma samples; log-EV remap, Hermite tone bands, clamp-edge rectangular pyramid to 1 px, fixed 2 MP proxy, guided gain upsampling and sensor clipping protection are LI extensions. |
 
 See [vkdt notice](../licenses/vkdt-NOTICE.md), [darktable notice](../licenses/darktable-NOTICE.md),
-[reference fixtures](../crates/lc-pipeline/tests/fixtures/sliders/README.md), and
-[slider report](wip/CODEX-REPORT-sliders.md). Skin Tone is our own UCS low-frequency
+[reference fixtures](../crates/lc-pipeline/tests/fixtures/sliders/README.md). Skin Tone is our own UCS low-frequency
 uniformity design. Texture/Structure use 4–16 and 2–4 original sensor-pixel bands;
 subpixel bands use a signed guided filter instead of EIGF's mandatory minimum radius.
 Primary tone/colour/detail/skin/CAT layers have native WGSL twins in `lc-gpu/src/wgsl/primary.wgsl`, `primary_colour.wgsl` and `ucs.wgsl`. CPU algorithms and fixture tolerances are unchanged. LI Tone caches four linear response fields before its bounded gain clamp; this changes f32 association only, checked against the unchanged equivalence bounds. The Deriche sweeps use tiled transposes, preserving endpoint and recurrence order.
@@ -363,7 +362,7 @@ reference-search work/cancel checks. No panic-based cancellation.
 
 Fixes ported by hand from PhotoCraft (after `e5e3e397`) and LightCraft (after `b8df5f4`) in the
 up-raw, up-formats, up-engine, up-library and up-linux batches and their fu-core follow-ups
-(per-item notes in `docs/wip/UPSTREAM-PORT-up-*.md` and `docs/wip/FIXUP-fu-core.md`). Each row is
+(per-item notes were kept in wip reports that now live only in git history). Each row is
 one upstream file of one fix commit and the file of ours that carries it; most rows are partial
 ports of that commit (our code had diverged), not claims that the files match. LightCraft's
 `crates/fetch` is Apache-2.0 only; the rest of both projects is MIT OR Apache-2.0 (notices in
@@ -663,7 +662,7 @@ Markesteijn three-pass uses upstream YPbPr homogeneity voting and eight directio
 DCB uses three correction iterations with standard final chroma interpolation. LMMSE uses three
 median passes, without EECI refinement (upstream mode 2). These are safe Rust ports, with no
 C/C++ linkage, new dependencies, or modified rawler source. rawler 0.8.0 is a second reference
-in the offline quality example only. See `docs/wip/CODEX-REPORT-demosaic.md` for measured choices.
+in the offline quality example only.
 Update procedure: change the pin in `scripts/demosaic_refvec.py`, download whole upstream source
 files into `target/refvec/demosaic/upstream`, inspect algorithm changes, rerun the scalar harness
 and measured noisy re-mosaic curves, then update ports, licence notices and reviewed fixtures.

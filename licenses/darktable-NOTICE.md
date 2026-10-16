@@ -106,8 +106,8 @@ in the module documentation.
   ported. All seven recovery modes are available in the raw API. WB is temporarily applied and
   undone; host GUI diagnostic masks/chroma caches are omitted. Bayer preview reductions keep
   the four CFA phases and clipped maxima before the CFA hook. X-Trans runs the full CFA hook.
-  Segmentation preview/full discrepancies and reference tolerances are recorded in
-  [CODEX-REPORT](../docs/wip/CODEX-REPORT.md).
+  Segmentation preview/full discrepancies and reference tolerances were recorded in
+  a wip report that now lives only in git history.
 * **`opposed.c` → inpaint-opposed highlights** (`HighlightMode::Opposed`). This is the linear
   (demosaiced) variant, by Hanno Schwalm with @garagecoder and @Iain (G'MIC). Differences: it runs
   on camera RGB before white balance; the clipped test reads each channel; the superpixel grid

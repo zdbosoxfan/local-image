@@ -24,7 +24,7 @@ text/fontdb graph; feeding it raw textPath would produce empty pixels and is
 explicitly rejected. Binary/image corpus data is never fabricated.
 
 Full-app registration is an exact, disposable-tree validation of the shared
-hooks provided to 00 in `docs/wip/vector-tasks/integration/12.md`. Production
+hooks provided to 00. Production
 shared files are not edited by this package. Release pointer-frame measurements
 must be taken with the ignored real-app benchmark, never inferred from these
 isolated tests or CPU/GPU image parity.

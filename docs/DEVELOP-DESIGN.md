@@ -256,7 +256,7 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
     634 / 1860 ms. Segmentation takes 1067 ms for 24 MP CFA alone. These are single
     synthetic release runs, not camera benchmarks. Preview-versus-full segmentation
     PSNR is 62.81 / 47.71 / 41.84 / 38.31 dB at bin factors 2 / 4 / 6 / 8;
-    previews are approximations. See [CODEX-REPORT](wip/CODEX-REPORT.md) for all metrics.
+    previews are approximations.
   * Raw decoding and CFA reconstruction run on CPU before both CPU and GPU rendering;
     these options do not change the shader boundary. Existing default render goldens pass.
     The upstream reference suite also found and corrected an X-Trans capture-radius

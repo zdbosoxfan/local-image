@@ -22,7 +22,7 @@ RCD: Luis Sanz Rodríguez; tiling by Ingo Weyrich. Dual demosaicing and capture 
 Ingo Weyrich. `rtengine/dual_demosaic_RT.cc` at the same revision was read to compare its
 full-VNG4 low branch with darktable's VNG-linear + two median passes. RawTherapee's actual
 VNG4 kernel is absent from the provided offline reference files, so an independent RT VNG4
-numerical comparison remains pending; see [CODEX-REPORT](../docs/wip/CODEX-REPORT.md).
+numerical comparison remains pending.
 
 No RawTherapee C/C++ is compiled or shipped as a dependency. Upstream functions run only in
 ignored `target/refvec` harnesses to produce deterministic numerical fixtures. Complete

@@ -1,8 +1,0 @@
-Our file	Upstream project	Upstream path	Upstream commit	Licence	Date
-crates/pc-vecfx/src/liquify/kernel.rs	VectorCraft	crates/tools/src/distort/liquify.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10
-crates/pc-vecfx/src/liquify/mod.rs	VectorCraft	crates/tools/src/distort/liquify.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10
-crates/pc-vecfx/src/puppet/arap.rs	VectorCraft	crates/tools/src/distort/arap.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10
-crates/pc-vecfx/src/puppet/mod.rs	VectorCraft	crates/tools/src/distort/puppet.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10
-crates/pc-engine/src/vector_packages/distort_tools.rs	VectorCraft	crates/engine/src/cmd/distortcmds.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10
-crates/pc-ui-egui/src/vector_packages/distort_tools.rs	VectorCraft	crates/tools/src/distort/liquify.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10
-crates/pc-ui-egui/src/vector_packages/distort_tools.rs	VectorCraft	crates/tools/src/distort/puppet.rs	d522c1d7be4035bd4f4a84cd6ebfca44f5155092	MIT OR Apache-2.0	2026-10-10

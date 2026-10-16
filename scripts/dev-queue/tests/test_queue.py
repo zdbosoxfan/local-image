@@ -226,12 +226,12 @@ class DashboardTests(unittest.TestCase):
             self.assertEqual(dashboard.tasks({},recovery)[1],[])
     def test_coordinator_distinguishes_recorded_result_from_live_validation(self):
         with tempfile.TemporaryDirectory() as d,patch.object(dashboard,'RECOVERY',d):
-            root=Path(d);worktree=root/'candidate';evidence=worktree/'docs/wip/v2-recovery-validation';evidence.mkdir(parents=True)
+            root=Path(d);worktree=root/'candidate';evidence=root/'validation';evidence.mkdir(parents=True)
             (root/'active-worker.json').write_text(json.dumps({'kind':'coordinator','worktree':str(worktree),'branch':'codex/v2-recovery'}))
             (root/'direct-validation.json').write_text(json.dumps({'label':'check','record':'/not/read/from/here'}))
             (evidence/'check.json').write_text(json.dumps({'status':'running'}))
             self.assertIn('not active',dashboard.coordinator({})['validation']['state'])
-            ps={1:('python3 docs/wip/v2-recovery-validation/run.py check test --offline',str(worktree))}
+            ps={1:('python3 validation/run.py check test --offline',str(worktree))}
             self.assertEqual(dashboard.coordinator(ps)['validation']['state'],'running')
             (evidence/'check.json').write_text(json.dumps({'status':'finished','exit':0}))
             self.assertEqual(dashboard.coordinator({})['validation']['state'],'passed')

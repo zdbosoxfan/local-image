@@ -3,7 +3,7 @@
 How the Local Image 2 window is organised and who it is for. The tokens, widgets, icons and rules that
 build it are in [DESIGN-SYSTEM.md](DESIGN-SYSTEM.md); read that before changing any UI. (This page used to
 review the retired "Local Remove" web editor; that proposal and its layout no longer exist. Historical
-text is in git before this rewrite. [DESKTOP-REFERENCES.md](DESKTOP-REFERENCES.md) is also from that era.)
+text is in git before this rewrite.)
 
 ## Who it is for
 

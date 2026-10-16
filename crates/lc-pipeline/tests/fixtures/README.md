@@ -146,8 +146,7 @@ regeneration script are tracked. Source-function scope is in the script and noti
   Air/depth tolerance 2e-6, transmission/output 3e-5, box mean 2e-7.
 
 These check numerical kernels, independently of Local Image's six-slider/noise
-estimator host mapping. The measured differences and quality checks are in
-`docs/wip/CODEX-REPORT-detail.md`; GPU execution needs the coordinator's adapter.
+estimator host mapping. GPU execution needs the coordinator's adapter.
 
 `detail-haze-sorted.csv` retains the pinned upstream ambient, morphology, RGB
 guidance, inversion and box kernels, but replaces the hand-written selection

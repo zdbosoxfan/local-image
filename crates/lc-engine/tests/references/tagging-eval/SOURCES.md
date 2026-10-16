@@ -62,6 +62,5 @@ process peak RSS from `/usr/bin/time -v`, including decoding and model loading.
 
 CLIP is the only shipped tagging model; the current evaluator runs only CLIP.
 The rejected candidate's archived measurements cannot be rerun with product code.
-The historical results and selection decision are in `docs/wip/CODEX-REPORT-tagging-eval.md`;
 `results-*.json` retain measurements, category counts and predictions. CPU timings
 are exploratory on a shared developer machine, not isolated release benchmarks.

@@ -64,8 +64,8 @@ Never let an ordinary feature job upgrade the lock or resolve a new default feat
 | Paragraph composer | DesignCraft `crates/compose` at `66c7ce7e…`, optional V6c port onto pc-text | MIT OR Apache-2.0. Composer only, not its document tree or renderer. |
 
 Selected-feature audit resolved offline under `target/refvec/vector-pdf-audit`, seeded
-with the pinned VC lock. See [the reproducible audit](../wip/vector-tasks/pdf-dependency-audit.md)
-and [crate/version/license/features/checksum allowlist](../wip/vector-tasks/pdf-dependencies.tsv).
+with the pinned VC lock. The audit and the crate/version/license/features/checksum allowlist
+are in git history.
 It contains 82 registry packages, **19 additional crate/version pairs** relative to this
 branch's lock; only imagesize is added by enabling raster-images beyond the 18-package
 vector/text/interpreter graph. Every additional package is Rust with no custom build script;
@@ -328,7 +328,7 @@ PSD corpus gates run when corpus files are actually available; missing corpus is
 
 ## 8. Independent implementation packages and merge contract
 
-See [the package index](../wip/vector-tasks/README.md). Engine/data/API packages can start
+Engine/data/API packages can start
 on these foundations immediately. Geometry consumers integrate on V1's actual exports;
 UI wiring and manifest registration are one serial coordinator lane. Rendering consumers
 use detached projection fixtures until their renderer dependency is integrated. Each task

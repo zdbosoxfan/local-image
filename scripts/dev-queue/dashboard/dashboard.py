@@ -142,8 +142,8 @@ def coordinator(ps):
     label = handle.get('label', '') if isinstance(handle, dict) else ''
     validation = {'label': label, 'state': 'unavailable'}
     if isinstance(label, str) and re.fullmatch(r'[a-z0-9-]+', label) and worktree:
-        # Read only the expected candidate evidence path, not an arbitrary record filename.
-        record = json_file(os.path.join(worktree, 'docs/wip/v2-recovery-validation', label + '.json'), {})
+        # Read only the expected evidence path under the state dir, not an arbitrary record filename.
+        record = json_file(os.path.join(RECOVERY, 'validation', label + '.json'), {})
         if record.get('status') == 'finished':
             validation['state'] = 'passed' if record.get('exit') == 0 else 'failed'
         elif record.get('status') == 'running':
@@ -218,7 +218,7 @@ def deepseek(ps):
 
 def backlog():
     if not REPO: return []
-    s = read(REPO + "/docs/wip/BUGFIX-BACKLOG.md")
+    s = read(REPO + "/docs/BACKLOG.md")
     m = s.split("## Known issues", 1)
     items = re.findall(r"^- (.+?)(?=\n- |\n\n|\Z)", m[1] if len(m) > 1 else "", re.S | re.M)
     return [re.sub(r"\s+", " ", i)[:240] for i in items]
