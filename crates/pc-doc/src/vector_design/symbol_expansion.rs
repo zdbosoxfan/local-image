@@ -1,7 +1,7 @@
 //! Shared, data-only symbol projection using ordinary Layer objects, not a second document tree.
 //! Transforms accompany the projected layer IDs; rendering/export applies each exactly once.
 use super::symbol_validation::{self as validation, Result};
-use photocraft_doc::{Affine, Document, Group, Layer, LayerContent, LayerId, SymbolDef};
+use crate::{Affine, Document, Group, Layer, LayerContent, LayerId, SymbolDef};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
@@ -36,7 +36,7 @@ fn project(
                         children: project(&def.layers, symbols, a, true, transforms)?,
                         expanded: true,
                         artboard: None,
-                        isolation: photocraft_doc::GroupIsolation::Auto,
+                        isolation: crate::GroupIsolation::Auto,
                     })
                 }
                 LayerContent::Group(g) => LayerContent::Group(Group {
@@ -59,7 +59,7 @@ pub fn expand(doc: &Document, layers: &[Layer]) -> Result<Expansion> {
     project_validated(&doc.symbols, layers)
 }
 /// File adapters use the exchange DTO directly, without an engine/UI dependency.
-pub fn expand_scene(scene: &photocraft_doc::vector_design::exchange::ImportedScene) -> Result<Expansion> {
+pub fn expand_scene(scene: &crate::vector_design::exchange::ImportedScene) -> Result<Expansion> {
     expand_layers(&scene.symbols, &scene.layers)
 }
 pub fn expand_layers(symbols: &[SymbolDef], layers: &[Layer]) -> Result<Expansion> {
@@ -83,7 +83,7 @@ pub struct MasterGenerations {
     keys: BTreeMap<u64, u64>,
 }
 impl MasterGenerations {
-    pub fn generation(&self, id: photocraft_doc::SymbolId) -> Option<u64> {
+    pub fn generation(&self, id: crate::SymbolId) -> Option<u64> {
         self.keys.get(&id.0).copied()
     }
     pub fn sync(&mut self, doc: &Document) -> Result<()> {

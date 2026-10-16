@@ -1,6 +1,6 @@
 //! Original GPL-3.0-or-later symbol validation, following Affinity Symbols and SVG 1.1 §5.5–5.6.
 //! Data-only provider: package 00 registers this same source in pc-doc for native/file adapters.
-use photocraft_doc::{Affine, Color, Document, Fill, Layer, LayerContent, MAX_GROUP_DEPTH, Path, SymbolDef, SymbolId};
+use crate::{Affine, Color, Document, Fill, Layer, LayerContent, MAX_GROUP_DEPTH, Path, SymbolDef, SymbolId};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
