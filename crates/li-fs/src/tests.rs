@@ -724,3 +724,18 @@ fn j11_volumes_fallback_empty_binary_readonly_and_private_modes_match_staging() 
         RealFs.remove(&target).unwrap();
     }
 }
+
+#[cfg(unix)]
+#[test]
+fn private_write_creates_and_tightens_to_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Dir::new();
+    let target = dir.target();
+    let mode = |p: &Path| fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    atomic_write_private(&target, b"first").unwrap();
+    assert_eq!((fs::read(&target).unwrap(), mode(&target)), (b"first".to_vec(), 0o600));
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o644)).unwrap();
+    atomic_write_private(&target, b"second").unwrap();
+    assert_eq!((fs::read(&target).unwrap(), mode(&target)), (b"second".to_vec(), 0o600));
+    dir.clean();
+}
