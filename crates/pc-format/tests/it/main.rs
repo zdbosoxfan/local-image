@@ -6,3 +6,4 @@ mod corruption;
 mod roundtrip;
 
 mod vector_foundations;
+mod zstd_security;

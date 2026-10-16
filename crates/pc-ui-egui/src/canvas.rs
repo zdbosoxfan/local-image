@@ -970,7 +970,12 @@ fn legacy_display_doc(app: &mut PhotocraftApp, idx: usize) -> (std::sync::Arc<Do
         return (pv.doc.clone(), (1 << 40) + pv.session);
     }
     // Layer Style dialog: show its effects live (Cancel just drops the preview).
-    let style = app.ui.dialogs.iter().find(|d| d.kind == crate::state::DialogKind::LayerStyle);
+    let style = app
+        .ui
+        .dialogs
+        .iter()
+        .find(|d| d.kind == crate::state::DialogKind::LayerStyle)
+        .filter(|dialog| crate::dialogs::validate_document_target(app, &dialog.fields).is_ok());
     // The Preview checkbox off shows the document as it was when the dialog opened;
     // edits still land in the dialog state and OK applies them whatever it says.
     let preview_on = style.and_then(|d| d.fields.get("preview")).and_then(serde_json::Value::as_bool).unwrap_or(true);
@@ -1025,25 +1030,24 @@ const NAVIGATOR_SETTLE_MS: f64 = 200.0;
 /// The Navigator panel's image of document `idx`. With the CPU canvas that is the canvas texture
 /// itself; with the GPU canvas a thumbnail cached per revision, so an edit to a huge document
 /// doesn't also pay a full-resolution CPU composite for the navigator.
+pub(crate) type NavigatorTexture = (std::sync::Weak<Document>, u64, egui::TextureHandle);
+
 pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize) -> Option<egui::TextureId> {
     if app.gpu.is_none() {
         return ensure_texture(app, ctx, idx, app.session.color.main_display).map(|(t, _)| t);
     }
     // Keyed by the document snapshot, not its revision: selecting a layer changes no pixels.
     let (snapshot, id) = app.session.documents().get(idx).map(|st| (std::sync::Arc::downgrade(&st.doc), st.doc.id))?;
-    let navigator_key = egui::Id::new(("navigator", id.0));
     if app.drag.is_some()
-        && let Some((_, p, t)) = ctx.data(|d| d.get_temp::<(std::sync::Weak<Document>, u64, egui::TextureHandle)>(navigator_key))
-        && p != u64::MAX
+        && let Some((_, p, t)) = app.navigator_textures.get(&id)
+        && *p != u64::MAX
     {
         return Some(t.id());
     }
     let (doc, preview_key) = if app.live_stroke.is_some() { (app.session.documents().get(idx)?.doc.clone(), 0) } else { display_doc(app, ctx, idx) };
     let (display, display_key) = canvas_display(app, &doc, None);
     let preview_key = preview_key ^ display_key;
-    let key = egui::Id::new(("navigator", id.0));
-    type Cached = (std::sync::Weak<Document>, u64, egui::TextureHandle);
-    let cached: Option<Cached> = ctx.data(|d| d.get_temp(key));
+    let cached = app.navigator_textures.get(&id).cloned();
     if let Some((r, p, t)) = &cached
         && r.ptr_eq(&snapshot)
         && *p == preview_key
@@ -1068,7 +1072,7 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     #[cfg(not(target_arch = "wasm32"))]
     if cached.is_none() && doc.size.area() > NAVIGATOR_SYNC_PIXELS {
         let tex = ctx.load_texture(format!("navigator-{}", id.0), egui::ColorImage::new([1, 1], vec![egui::Color32::TRANSPARENT]), TextureOptions::LINEAR);
-        ctx.data_mut(|d| d.insert_temp(key, (std::sync::Weak::<Document>::new(), u64::MAX, tex.clone())));
+        app.navigator_textures.insert(id, (std::sync::Weak::<Document>::new(), u64::MAX, tex.clone()));
         return Some(navigator_in_background(app, ctx, id, (snapshot, preview_key), doc, display, tex));
     }
     // A large document's thumbnail is a full CPU composite (100+ ms at 24 MP with effects): it
@@ -1091,7 +1095,7 @@ pub fn navigator_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
         None => ctx.load_texture(format!("navigator-{}", id.0), image, TextureOptions::LINEAR),
     };
     app.perf.span("navigator", crate::gpu_canvas::now_ms() - t0);
-    ctx.data_mut(|d| d.insert_temp(key, (snapshot, preview_key, tex.clone())));
+    app.navigator_textures.insert(id, (snapshot, preview_key, tex.clone()));
     Some(tex.id())
 }
 
@@ -1102,7 +1106,7 @@ const NAVIGATOR_SYNC_PIXELS: u64 = 4 << 20;
 /// A Navigator image rendering on a worker thread: what it shows (document snapshot, preview
 /// key), its result once done, and when it started (ms).
 #[cfg(not(target_arch = "wasm32"))]
-type NavigatorJob = (std::sync::Weak<Document>, u64, std::sync::Arc<std::sync::Mutex<Option<egui::ColorImage>>>, f64);
+pub(crate) type NavigatorJob = (std::sync::Weak<Document>, u64, std::sync::Arc<std::sync::Mutex<Option<egui::ColorImage>>>, f64);
 
 /// [`navigator_texture`] for a large document: show `tex` (the last image) while the current
 /// one renders on a worker thread (one at a time per document), then swap it in.
@@ -1116,8 +1120,7 @@ fn navigator_in_background(
     display: Option<std::sync::Arc<photocraft_engine::display_color::CanvasDisplay>>,
     mut tex: egui::TextureHandle,
 ) -> egui::TextureId {
-    let (key, job_key) = (egui::Id::new(("navigator", id.0)), egui::Id::new(("navigator-job", id.0)));
-    let job: Option<NavigatorJob> = ctx.data(|d| d.get_temp(job_key));
+    let job = app.navigator_jobs.get(&id).cloned();
     if let Some((snapshot, preview_key, slot, t0)) = job {
         let done = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
         let Some(image) = done else {
@@ -1127,13 +1130,11 @@ fn navigator_in_background(
         };
         app.perf.span("navigator", crate::gpu_canvas::now_ms() - t0);
         let current = snapshot.ptr_eq(&want.0) && preview_key == want.1;
-        ctx.data_mut(|d| {
-            d.remove::<NavigatorJob>(job_key);
-            if current {
-                tex.set(image, TextureOptions::LINEAR);
-                d.insert_temp(key, (snapshot, preview_key, tex.clone()));
-            }
-        });
+        app.navigator_jobs.remove(&id);
+        if current {
+            tex.set(image, TextureOptions::LINEAR);
+            app.navigator_textures.insert(id, (snapshot, preview_key, tex.clone()));
+        }
         if current {
             return tex.id();
         }
@@ -1145,7 +1146,7 @@ fn navigator_in_background(
         *out.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(image);
     });
     if spawned.is_ok() {
-        ctx.data_mut(|d| d.insert_temp(job_key, (want.0, want.1, slot, crate::gpu_canvas::now_ms())));
+        app.navigator_jobs.insert(id, (want.0, want.1, slot, crate::gpu_canvas::now_ms()));
         ctx.request_repaint_after(std::time::Duration::from_millis(16));
     }
     tex.id()
@@ -1396,6 +1397,7 @@ fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u6
         return None;
     }
     let d = app.ui.dialogs.iter().find(|d| d.fields.contains_key("__filter"))?;
+    crate::dialogs::validate_document_target(app, &d.fields).ok()?;
     if d.fields.get("__preview").and_then(serde_json::Value::as_bool) != Some(true) {
         return None;
     }
@@ -1503,6 +1505,9 @@ fn texture_buffer<'a>(
 pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
     let open: Vec<_> = app.session.documents().iter().map(|st| st.doc.id).collect();
     app.canvases.retain(|(id, _), _| open.contains(id));
+    app.navigator_textures.retain(|id, _| open.contains(id));
+    #[cfg(not(target_arch = "wasm32"))]
+    app.navigator_jobs.retain(|id, _| open.contains(id));
     // Remove a closed adjustment owner's proxy before collecting its live GPU keys.
     crate::adjust_preview::retain_documents(app);
     crate::vector_integration::retain_documents(app);
@@ -1515,6 +1520,21 @@ pub(crate) fn retain_gpu_documents(app: &mut PhotocraftApp) {
             live.extend(f.keys());
         }
         gpu.retain(&live);
+        // View IDs include the viewport and document slot. A closed secondary
+        // window must release its scaled projection while the document stays open.
+        let mut views = Vec::new();
+        let mut keep = |viewport, document| {
+            for kind in ["pc-canvas", "pc-canvas-proxy", "pc-canvas-move"] {
+                views.push(egui::Id::new((kind, viewport, document)).value());
+            }
+        };
+        for document in 0..app.session.documents().len() {
+            keep(egui::ViewportId::ROOT, document);
+        }
+        for window in app.ui.windows.iter().filter(|w| w.open && w.document < app.session.documents().len()) {
+            keep(egui::ViewportId::from_hash_of(("docwin", window.id)), window.document);
+        }
+        gpu.retain_views(&views);
     }
     // Upload markers must not outlive the resources they describe: native reopen can reuse
     // both the document ID and revision before the next frame while a preview dialog stays open.
@@ -3883,6 +3903,36 @@ fn hex(c: [f32; 4]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn closing_documents_releases_navigator_textures_and_pending_results() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let ctx = egui::Context::default();
+        let textures = ctx.tex_manager();
+        let baseline = textures.read().num_allocated();
+        for _ in 0..8 {
+            app.run("file.new", json!({"width": 2, "height": 2})).unwrap();
+            let doc = app.session.active().unwrap().doc.clone();
+            let tex = ctx.load_texture("navigator-test", egui::ColorImage::new([32, 32], vec![Color32::WHITE; 32 * 32]), TextureOptions::LINEAR);
+            app.navigator_textures.insert(doc.id, (std::sync::Arc::downgrade(&doc), 0, tex));
+            #[cfg(not(target_arch = "wasm32"))]
+            let pending = {
+                let slot = std::sync::Arc::new(std::sync::Mutex::new(Some(egui::ColorImage::new([32, 32], vec![Color32::WHITE; 32 * 32]))));
+                let weak = std::sync::Arc::downgrade(&slot);
+                app.navigator_jobs.insert(doc.id, (std::sync::Arc::downgrade(&doc), 0, slot, 0.0));
+                weak
+            };
+            app.run("file.close", json!({"discardDocuments": [doc.id.0]})).unwrap();
+            app.sync_views();
+            assert!(app.navigator_textures.is_empty());
+            #[cfg(not(target_arch = "wasm32"))]
+            assert!(pending.upgrade().is_none(), "late result ownership must end with the closed tab");
+            assert_eq!(textures.read().num_allocated(), baseline);
+        }
+        // Consume queued headless upload/free deltas without creating a GPU renderer.
+        let mut output = ctx.run_ui(Default::default(), |_| {});
+        output.textures_delta.clear();
+    }
+
     #[test]
     fn windows_draws_its_own_crosshair() {
         let _gpu_gate = crate::gpu_test_support::lock();

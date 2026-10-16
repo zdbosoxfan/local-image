@@ -6,10 +6,14 @@
 //! Other layouts use its authoritative outlines and report the loss of text semantics.
 use super::*;
 use photocraft_text::layout::TextLayout;
-use photocraft_text::render::PathEl;
+use photocraft_text::render::{OutlineVisitError, OutlineVisitLimits, PaintedOutlineEvent, PathEl};
 use std::ops::Range;
 impl Writer<'_, '_, '_> {
     pub(super) fn text(&mut self, s: &mut Surface<'_>, t: &photocraft_doc::TextLayer) -> Result<()> {
+        if t.text.chars().take(100_001).count() > 100_000 {
+            return Err(ExportError::Budget("text characters"));
+        }
+        check_cancel(self.cx)?;
         let layout = self.cx.text.layout(t, self.doc.resolution_dpi);
         if layout.glyphs.len() > 100_000 {
             return Err(ExportError::Budget("text glyphs"));
@@ -60,69 +64,73 @@ impl Writer<'_, '_, '_> {
         result
     }
     fn outlines(&mut self, s: &mut Surface<'_>, t: &photocraft_doc::TextLayer, layout: &TextLayout, warp: Option<&photocraft_text::warp::Warp>) -> Result<()> {
-        let key = |c: photocraft_doc::Color| (c.mode as u8, c.c.map(f32::to_bits), c.alpha.to_bits());
-        let mut colors = Vec::new();
-        let mut slots = std::collections::HashMap::new();
-        for st in &layout.styles {
-            if let std::collections::hash_map::Entry::Vacant(entry) = slots.entry(key(st.color)) {
-                entry.insert(colors.len());
-                colors.push(st.color);
+        let mut color = None;
+        let mut builder = PathBuilder::new();
+        let flush = |builder: &mut PathBuilder, color: photocraft_doc::Color, surface: &mut Surface<'_>| {
+            if let Some(path) = std::mem::replace(builder, PathBuilder::new()).finish() {
+                surface.set_stroke(None);
+                surface.set_fill(Some(krilla::paint::Fill { paint: paint::color(&color).into(), opacity: norm(color.alpha), rule: Default::default() }));
+                surface.draw_path(&path);
             }
-        }
-        let mut groups = vec![Vec::new(); colors.len()];
-        for glyph in &layout.glyphs {
-            groups[slots[&key(layout.styles[glyph.style as usize].color)]].push(*glyph);
-        }
-        let mut part = layout.clone();
-        let mut segments = 0usize;
-        for (color, glyphs) in colors.into_iter().zip(groups) {
-            check_cancel(self.cx)?;
-            part.glyphs = glyphs;
-            let mut b = PathBuilder::new();
-            for glyph in photocraft_text::render::outlines(&part, &t.transform, warp) {
-                check_cancel(self.cx)?;
-                for el in glyph {
-                    segments += 1;
-                    if segments > 1_000_000 {
-                        return Err(ExportError::Budget("text outline segments"));
+        };
+        let limits = OutlineVisitLimits {
+            max_glyphs: 100_000,
+            max_segments: 1_000_000.min(self.opts.max_bytes / std::mem::size_of::<PathEl>()),
+            max_scratch_bytes: self.opts.max_bytes.min(16 << 20),
+        };
+        photocraft_text::render::visit_painted_outlines(layout, &t.transform, warp, limits, self.cx.cancelled, |event| {
+            match event {
+                PaintedOutlineEvent::Paint(next) => {
+                    if color != Some(next) {
+                        if let Some(previous) = color {
+                            flush(&mut builder, previous, s);
+                        }
+                        color = Some(next);
                     }
+                }
+                PaintedOutlineEvent::Element(element) => {
                     let point = |p: [f64; 2]| -> Result<[f32; 2]> {
                         if p.iter().any(|n| !n.is_finite() || n.abs() > 1_000_000.0) {
                             return Err(invalid("text outline exceeds bounds"));
                         }
                         Ok([p[0] as f32, p[1] as f32])
                     };
-                    match el {
+                    match element {
                         PathEl::MoveTo(p) => {
                             let p = point(p)?;
-                            b.move_to(p[0], p[1]);
+                            builder.move_to(p[0], p[1]);
                         }
                         PathEl::LineTo(p) => {
                             let p = point(p)?;
-                            b.line_to(p[0], p[1]);
+                            builder.line_to(p[0], p[1]);
                         }
                         PathEl::QuadTo(c, p) => {
                             let c = point(c)?;
                             let p = point(p)?;
-                            b.quad_to(c[0], c[1], p[0], p[1]);
+                            builder.quad_to(c[0], c[1], p[0], p[1]);
                         }
                         PathEl::CurveTo(a, z, p) => {
                             let a = point(a)?;
                             let z = point(z)?;
                             let p = point(p)?;
-                            b.cubic_to(a[0], a[1], z[0], z[1], p[0], p[1]);
+                            builder.cubic_to(a[0], a[1], z[0], z[1], p[0], p[1]);
                         }
-                        PathEl::Close => b.close(),
+                        PathEl::Close => builder.close(),
                     }
                 }
             }
-            if let Some(p) = b.finish() {
-                s.set_stroke(None);
-                s.set_fill(Some(krilla::paint::Fill { paint: paint::color(&color).into(), opacity: norm(color.alpha), rule: Default::default() }));
-                s.draw_path(&p);
-            }
+            Ok(())
+        })
+        .map_err(|error| match error {
+            OutlineVisitError::Cancelled => ExportError::Cancelled,
+            OutlineVisitError::Budget(kind) => ExportError::Budget(kind),
+            OutlineVisitError::Visitor(error) => error,
+            OutlineVisitError::InvalidOutline => invalid("invalid text outline"),
+        })?;
+        if let Some(color) = color {
+            flush(&mut builder, color, s);
         }
-        self.decorations(s, layout, t.transform)
+        Ok(())
     }
     fn decorations(&mut self, s: &mut Surface<'_>, layout: &TextLayout, transform: photocraft_geom::Affine) -> Result<()> {
         for d in &layout.decorations {

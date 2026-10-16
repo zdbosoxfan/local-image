@@ -11,7 +11,7 @@
 //!    source stays as it was.
 //! 2. Only after the catalog records pointing at the destinations were committed and saved
 //!    does [`finish`] remove each source — after checking once more that its destination is
-//!    still there with the same size. A source that can't be removed (a read-only card, a
+//!    still there with the original identity and bytes. A source that can't be removed (a read-only card, a
 //!    locked file) stays and is reported; the photo is then imported from the copy.
 //!
 //! A `IMG_1.xmp` sidecar is shared by `IMG_1.CR3` and `IMG_1.JPG`: it is copied along with each,
@@ -23,6 +23,14 @@
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+mod recovery;
+#[cfg(test)]
+mod tests;
+
+/// Recover interrupted captures only for an explicitly requested Move source folder.
+pub(crate) fn recover_pending(parent: &Path) {
+    recovery::recover_pending(parent);
+}
 
 /// A photo put in place by [`place`]; its source is untouched.
 #[derive(Clone, Debug)]
@@ -30,6 +38,7 @@ pub(crate) struct Placed {
     pub src: PathBuf,
     pub dst: PathBuf,
     pub sidecars: Vec<PlacedSidecar>,
+    source: SourceSnapshot,
 }
 
 #[derive(Clone, Debug)]
@@ -40,6 +49,67 @@ pub(crate) struct PlacedSidecar {
     pub created: bool,
     /// Named after the photo's stem (`IMG_1.xmp`), so possibly shared with a sibling photo.
     pub stem: bool,
+    source: SourceSnapshot,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct FileIdentity {
+    handle: std::sync::Arc<same_file::Handle>,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    created: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl FileIdentity {
+    fn read(path: &Path) -> io::Result<Self> {
+        let m = fs::symlink_metadata(path)?;
+        if !m.is_file() || m.file_type().is_symlink() {
+            return Err(io::Error::other("the source is no longer a regular file"));
+        }
+        Self::from_file(li_fs::read::open_regular(path, li_fs::read::MAX_FILE_BYTES)?)
+    }
+    fn from_file(file: File) -> io::Result<Self> {
+        let m = file.metadata()?;
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            handle: std::sync::Arc::new(same_file::Handle::from_file(file)?),
+            len: m.len(),
+            modified: m.modified().ok(),
+            created: m.created().ok(),
+            #[cfg(unix)]
+            device: m.dev(),
+            #[cfg(unix)]
+            inode: m.ino(),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+struct OwnedFile {
+    identity: FileIdentity,
+    content: lightcraft_preview::ContentId,
+}
+
+#[derive(Clone, Debug)]
+struct SourceSnapshot {
+    identity: FileIdentity,
+    content: lightcraft_preview::ContentId,
+    destination: FileIdentity,
+}
+
+fn verified_snapshot(src: &Path, dst: &Path, owned: &OwnedFile) -> io::Result<SourceSnapshot> {
+    let identity = FileIdentity::read(src)?;
+    let content = hash_file(src)?;
+    let destination = FileIdentity::read(dst)?;
+    if FileIdentity::read(src)? != identity || destination.handle != owned.identity.handle || content != owned.content || hash_file(dst)? != content {
+        return Err(io::Error::other("the source changed while it was being placed; the original is kept"));
+    }
+    Ok(SourceSnapshot { identity, content, destination })
 }
 
 /// Test-only fault injection (per thread), to exercise the failure paths.
@@ -56,6 +126,9 @@ pub(crate) enum Fault {
     Corrupt,
     /// Removing the source fails (as on a read-only card).
     FailRemove,
+    /// Destination file or directory durability cannot be established.
+    FailDestinationFileSync,
+    FailDestinationDirSync,
 }
 
 #[cfg(test)]
@@ -126,6 +199,9 @@ pub(crate) fn sidecars_of(src: &Path) -> Vec<(PathBuf, bool)> {
 /// Put `src` into `dir` as `name` (-1, -2… when taken) with its sidecars, leaving the source
 /// untouched. On failure nothing is left at the destination.
 pub(crate) fn place(src: &Path, dir: &Path, name: &str) -> Result<Placed, String> {
+    if let Some(parent) = src.parent() {
+        recover_pending(parent);
+    }
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s.to_string(), format!(".{e}")),
@@ -135,31 +211,49 @@ pub(crate) fn place(src: &Path, dir: &Path, name: &str) -> Result<Placed, String
     for i in 0..100_000u32 {
         let d = if i == 0 { dir.join(name) } else { dir.join(format!("{stem}-{i}{ext}")) };
         match link_or_copy(src, &d) {
-            Ok(()) => {
-                dst = Some(d);
+            Ok(owned) => {
+                dst = Some((d, owned));
                 break;
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(format!("move {}: {e} (the original is kept)", src.display())),
         }
     }
-    let Some(dst) = dst else { return Err(format!("move {}: no free name in {}", src.display(), dir.display())) };
-    let mut placed = Placed { src: src.to_path_buf(), dst, sidecars: Vec::new() };
+    let Some((dst, owned)) = dst else { return Err(format!("move {}: no free name in {}", src.display(), dir.display())) };
+    let source = match verified_snapshot(src, &dst, &owned) {
+        Ok(source) => source,
+        Err(e) => {
+            cleanup_owned(&dst, &owned);
+            return Err(e.to_string());
+        }
+    };
+    let mut placed = Placed { src: src.to_path_buf(), dst, sidecars: Vec::new(), source };
     for (sc, stem_named) in sidecars_of(src) {
         let sc_ext = sc.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_else(|| "xmp".into());
         let sc_dst =
             if stem_named { placed.dst.with_extension(&sc_ext) } else { PathBuf::from(format!("{}.{sc_ext}", placed.dst.to_string_lossy())) };
         let r = if sc_dst.exists() {
             match same_bytes(&sc, &sc_dst) {
-                Ok(true) => Ok(false),
+                Ok(true) => FileIdentity::read(&sc_dst)
+                    .and_then(|identity| Ok((false, OwnedFile { identity, content: hash_file(&sc_dst)? })))
+                    .map_err(|e| e.to_string()),
                 Ok(false) => Err(format!("a different sidecar is already at {} (the original is kept)", sc_dst.display())),
                 Err(e) => Err(format!("{}: {e} (the original is kept)", sc_dst.display())),
             }
         } else {
-            link_or_copy(&sc, &sc_dst).map(|()| true).map_err(|e| format!("move {}: {e} (the original is kept)", sc.display()))
+            link_or_copy(&sc, &sc_dst).map(|owned| (true, owned)).map_err(|e| format!("move {}: {e} (the original is kept)", sc.display()))
         };
         match r {
-            Ok(created) => placed.sidecars.push(PlacedSidecar { src: sc, dst: sc_dst, created, stem: stem_named }),
+            Ok((created, owned)) => match verified_snapshot(&sc, &sc_dst, &owned) {
+                Ok(source) => placed.sidecars.push(PlacedSidecar { src: sc, dst: sc_dst, created, stem: stem_named, source }),
+                Err(e) => {
+                    if created {
+                        cleanup_owned(&sc_dst, &owned);
+                    }
+                    rollback(&placed);
+                    return Err(e.to_string());
+                }
+            },
             Err(e) => {
                 rollback(&placed);
                 return Err(e);
@@ -199,44 +293,116 @@ pub(crate) fn copy_new(src: &Path, dir: &Path, name: &str, expect: Option<lightc
 /// Undo a [`place`]: remove what it created at the destination (the sources were never touched).
 pub(crate) fn rollback(p: &Placed) {
     for sc in p.sidecars.iter().filter(|s| s.created) {
-        let _ = fs::remove_file(&sc.dst);
+        cleanup_owned(&sc.dst, &OwnedFile { identity: sc.source.destination.clone(), content: sc.source.content });
     }
-    let _ = fs::remove_file(&p.dst);
+    cleanup_owned(&p.dst, &OwnedFile { identity: p.source.destination.clone(), content: p.source.content });
 }
 
 /// Remove a placed photo's source (its catalog record is committed and saved): only when the
-/// destination is still there with the same size. Then its sidecars, unless another photo still
+/// destination still holds the exact placed bytes. Then its sidecars, unless another photo still
 /// uses a shared one. `Err` = the source was kept (why); `Ok` lists sidecars kept (path, why).
 pub(crate) fn finish(p: &Placed) -> Result<Vec<(String, String)>, String> {
-    let same = match (fs::metadata(&p.src), fs::metadata(&p.dst)) {
-        (Ok(s), Ok(d)) => s.is_file() && d.is_file() && s.len() == d.len(),
-        _ => false,
-    };
-    if !same {
-        return Err(format!("{} is missing or changed: the original is kept", p.dst.display()));
-    }
     if injected(Fault::FailRemove) {
         return Err("could not remove the original (injected): it stays where it was".into());
     }
-    fs::remove_file(&p.src).map_err(|e| format!("could not remove the original ({e}): it stays where it was"))?;
+    remove_verified(&p.src, &p.dst, &p.source)?;
     let mut kept = Vec::new();
     for sc in &p.sidecars {
         let path = sc.src.to_string_lossy().to_string();
-        if !same_bytes(&sc.src, &sc.dst).unwrap_or(false) {
-            kept.push((path, format!("{} is missing or changed: the sidecar is kept", sc.dst.display())));
-            continue;
-        }
         if sc.stem
             && let Some(other) = sibling_photo(&sc.src)
         {
             kept.push((path, format!("also the sidecar of {other}: kept beside it")));
             continue;
         }
-        if let Err(e) = fs::remove_file(&sc.src) {
+        if let Err(e) = remove_verified(&sc.src, &sc.dst, &sc.source) {
             kept.push((path, format!("could not remove the sidecar ({e})")));
         }
     }
     Ok(kept)
+}
+
+/// Rename the current path occupant into an exclusively created holding directory
+/// before validating/deleting it. A replacement racing this rename is retained and
+/// restored; we never unlink a newly replaced source after checking an older inode.
+fn remove_verified(src: &Path, dst: &Path, expected: &SourceSnapshot) -> Result<(), String> {
+    remove_verified_with(src, dst, expected, || {})
+}
+
+fn remove_verified_with(src: &Path, dst: &Path, expected: &SourceSnapshot, before_capture: impl FnOnce()) -> Result<(), String> {
+    let unchanged = || -> io::Result<bool> {
+        Ok(FileIdentity::read(src)? == expected.identity && FileIdentity::read(dst)? == expected.destination && hash_file(dst)? == expected.content)
+    };
+    if !unchanged().unwrap_or(false) {
+        return Err("the source or destination changed: the original is kept".into());
+    }
+    before_capture();
+    let captured = recovery::Capture::take(src, Some(dst), Some(expected.content.to_string())).map_err(|e| e.to_string())?;
+    let verified = (|| -> io::Result<bool> {
+        Ok(FileIdentity::read(&captured.path)? == expected.identity
+            && hash_file(&captured.path)? == expected.content
+            && FileIdentity::read(dst)? == expected.destination
+            && hash_file(dst)? == expected.content
+            && FileIdentity::read(&captured.path)? == expected.identity)
+    })()
+    .unwrap_or(false);
+    if verified && let Err(error) = sync_destination(dst, &expected.destination, expected.content) {
+        captured.restore(src)?;
+        return Err(format!("could not make the destination durable ({error}); the original was restored"));
+    }
+    if verified
+        && captured.validate().is_ok()
+        && FileIdentity::read(&captured.path).as_ref().ok() == Some(&expected.identity)
+        && hash_file(&captured.path).ok() == Some(expected.content)
+        && fs::remove_file(&captured.path).is_ok()
+    {
+        captured.clean();
+        return Ok(());
+    }
+    captured.restore(src)?;
+    Err("the source or destination changed during removal: the original was restored".into())
+}
+
+/// The destination's bytes and directory entry must be durable before the last
+/// source name disappears. Holding the file handle flushes the actual placed
+/// inode, and checking its path again refuses a competing replacement.
+fn sync_destination(path: &Path, expected: &FileIdentity, content: lightcraft_preview::ContentId) -> io::Result<()> {
+    if injected(Fault::FailDestinationFileSync) {
+        return Err(io::Error::other("destination file sync failed (injected)"));
+    }
+    expected.handle.as_file().sync_all()?;
+    if injected(Fault::FailDestinationDirSync) {
+        return Err(io::Error::other("destination directory sync failed (injected)"));
+    }
+    li_fs::sync_dir_checked(path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")))?;
+    if FileIdentity::read(path)? != *expected || hash_file(path)? != content {
+        return Err(io::Error::other("the destination changed while synchronizing it"));
+    }
+    Ok(())
+}
+
+/// A failed placement/commit only removes the exact file this operation created.
+/// Capturing before the final ownership check protects a replacement racing cleanup.
+fn cleanup_owned(path: &Path, expected: &OwnedFile) {
+    if FileIdentity::read(path).as_ref().ok() != Some(&expected.identity) || hash_file(path).ok() != Some(expected.content) {
+        return;
+    }
+    let captured = match recovery::Capture::take(path, None, None) {
+        Ok(capture) => capture,
+        Err(error) => {
+            log::warn!("Move rollback: {error}");
+            return;
+        }
+    };
+    if FileIdentity::read(&captured.path).as_ref().ok() == Some(&expected.identity)
+        && hash_file(&captured.path).ok() == Some(expected.content)
+        && captured.validate().is_ok()
+        && fs::remove_file(&captured.path).is_ok()
+    {
+        captured.clean();
+    } else if let Err(error) = captured.restore(path) {
+        log::warn!("Move rollback: {error}");
+    }
 }
 
 /// A photo (by extension) still beside a stem-named sidecar, sharing its stem.
@@ -251,67 +417,82 @@ pub(crate) fn sibling_photo(sidecar: &Path) -> Option<String> {
 
 /// `dst` = `src` without touching `src`: a hard link, else a verified copy. Never overwrites
 /// (`AlreadyExists` when `dst` is taken).
-fn link_or_copy(src: &Path, dst: &Path) -> io::Result<()> {
+fn link_or_copy(src: &Path, dst: &Path) -> io::Result<OwnedFile> {
     let force_copy = injected(Fault::NoLink) || injected(Fault::FailWrite) || injected(Fault::Corrupt);
     if !force_copy && !is_symlink(src) {
+        let identity = FileIdentity::read(src)?;
+        let content = hash_file(src)?;
+        if FileIdentity::read(src)? != identity {
+            return Err(io::Error::other("the source changed before placement"));
+        }
         match fs::hard_link(src, dst) {
-            Ok(()) => {
-                let (a, b) = (fs::metadata(src)?, fs::metadata(dst)?);
-                if a.len() == b.len() {
-                    return Ok(());
-                }
-                let _ = fs::remove_file(dst);
-                return Err(io::Error::other("the link doesn't match the original"));
-            }
+            Ok(()) => return Ok(OwnedFile { identity, content }),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(e),
             // another volume, or no hard links there (FAT/exFAT cards, some shares): copy
             Err(_) => {}
         }
     }
     // Move keeps the byte-for-byte comparison: the source is deleted on the strength of it
-    copy_verified(src, dst, None)
+    copy_verified_owned(src, dst, None)
 }
 
 /// Copy into a new file, sync it to disk and verify it: against `expect` (the probe's hash of the
 /// source) when given, else byte for byte against the source. On any failure the partial copy is
 /// removed.
 pub(crate) fn copy_verified(src: &Path, dst: &Path, expect: Option<lightcraft_preview::ContentId>) -> io::Result<()> {
-    li_fs::write_new_with(
+    copy_verified_owned(src, dst, expect).map(|_| ())
+}
+fn copy_verified_owned(src: &Path, dst: &Path, expect: Option<lightcraft_preview::ContentId>) -> io::Result<OwnedFile> {
+    let mut verified_content = None;
+    let published = li_fs::write_new_with_receipt(
         dst,
         &mut |out| {
-            let mut inp = File::open(src)?;
+            let mut inp = li_fs::read::open_regular(src, li_fs::read::MAX_FILE_BYTES)?;
             if injected(Fault::FailWrite) {
                 out.write_all(b"partial")?;
                 return Err(io::Error::other("write failed (injected)"));
             }
-            io::copy(&mut inp, out)?;
+            let count = io::copy(&mut (&mut inp).take(li_fs::read::MAX_FILE_BYTES + 1), out)?;
+            if count > li_fs::read::MAX_FILE_BYTES {
+                return Err(io::Error::other("source grew beyond the file memory limit"));
+            }
             if injected(Fault::Corrupt) {
                 out.write_all(b"!")?;
             }
             Ok(())
         },
-        &mut |tmp| match expect {
-            Some(h) if hash_file(tmp)? != h => {
-                Err(io::Error::other("the copy differs from the original as it was read for the import (a bad copy, or the file changed meanwhile)"))
+        &mut |tmp| {
+            let content = hash_file(tmp)?;
+            verified_content = Some(content);
+            match expect {
+                Some(h) if content != h => Err(io::Error::other(
+                    "the copy differs from the original as it was read for the import (a bad copy, or the file changed meanwhile)",
+                )),
+                Some(_) => Ok(()),
+                None if !same_bytes(src, tmp)? => Err(io::Error::other("the copy differs from the original")),
+                None => Ok(()),
             }
-            Some(_) => Ok(()),
-            None if !same_bytes(src, tmp)? => Err(io::Error::other("the copy differs from the original")),
-            None => Ok(()),
         },
     )?;
+    let content = verified_content.ok_or_else(|| io::Error::other("verified copy has no content receipt"))?;
     if let Ok(m) = fs::metadata(src).and_then(|m| m.modified()) {
-        let _ = File::options().write(true).open(dst).and_then(|f| f.set_modified(m));
+        let _ = published.set_modified(m);
     }
-    Ok(())
+    Ok(OwnedFile { identity: FileIdentity::from_file(published)?, content })
 }
 
 /// The content identity of a file (BLAKE3), read in chunks.
 fn hash_file(path: &Path) -> io::Result<lightcraft_preview::ContentId> {
-    let mut f = File::open(path)?;
+    let mut f = li_fs::read::open_regular(path, li_fs::read::MAX_FILE_BYTES)?;
     let mut h = lightcraft_preview::ContentHasher::new();
     let mut buf = vec![0u8; 1 << 20];
+    let mut read = 0u64;
     loop {
         let n = fill(&mut f, &mut buf)?;
+        read = read.saturating_add(n as u64);
+        if read > li_fs::read::MAX_FILE_BYTES {
+            return Err(io::Error::other("file grew beyond the verification limit"));
+        }
         if n == 0 {
             return Ok(h.finish());
         }
@@ -324,10 +505,15 @@ pub(crate) fn same_bytes(a: &Path, b: &Path) -> io::Result<bool> {
     if fs::metadata(a)?.len() != fs::metadata(b)?.len() {
         return Ok(false);
     }
-    let (mut fa, mut fb) = (File::open(a)?, File::open(b)?);
+    let (mut fa, mut fb) = (li_fs::read::open_regular(a, li_fs::read::MAX_FILE_BYTES)?, li_fs::read::open_regular(b, li_fs::read::MAX_FILE_BYTES)?);
     let (mut ba, mut bb) = (vec![0u8; 1 << 20], vec![0u8; 1 << 20]);
+    let mut read = 0u64;
     loop {
         let (na, nb) = (fill(&mut fa, &mut ba)?, fill(&mut fb, &mut bb)?);
+        read = read.saturating_add(na.max(nb) as u64);
+        if read > li_fs::read::MAX_FILE_BYTES {
+            return Err(io::Error::other("file grew beyond the verification limit"));
+        }
         if na != nb || ba.get(..na) != bb.get(..nb) {
             return Ok(false);
         }

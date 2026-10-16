@@ -27,8 +27,7 @@ pub enum Cat {
     Xyz,
 }
 
-const BRADFORD: [[f64; 3]; 3] = [[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]];
-const CAT16: [[f64; 3]; 3] = [[0.401288, 0.650173, -0.051461], [-0.250268, 1.204414, 0.045854], [-0.002079, 0.048952, 0.953127]];
+use li_color::cms_math::{BRADFORD, CAT16, valid_adaptation_white};
 
 impl Cat {
     fn lms(self) -> Mat3 {
@@ -143,6 +142,28 @@ impl ColorCal {
     /// Adapt from `illuminant` to D65 with `cat`; `gamut` 0..12 (darktable's slider: 0 = off,
     /// 1 = default), `clip` negative RGB.
     pub fn new(cat: Cat, illuminant: Xy, gamut: f64, clip: bool) -> ColorCal {
+        Self::try_new(cat, illuminant, gamut, clip).unwrap_or_else(|| {
+            // Legacy infallible callers receive an identity transform for malformed
+            // external whites. Production settings use try_new and reject them.
+            ColorCal {
+                matrix: Mat3::IDENTITY.to_f32(),
+                cat: Cat::Xyz,
+                full: None,
+                to_xyz: REC2020.to_xyz().to_f32(),
+                from_xyz: REC2020.from_xyz().to_f32(),
+                lms: Mat3::IDENTITY.to_f32(),
+                lms_inv: Mat3::IDENTITY.to_f32(),
+                compression: 0.0,
+                clip: false,
+            }
+        })
+    }
+
+    /// Reject invalid illuminants before ratios/fractional powers can create NaNs.
+    pub fn try_new(cat: Cat, illuminant: Xy, gamut: f64, clip: bool) -> Option<ColorCal> {
+        if !valid_adaptation_white([illuminant.x, illuminant.y], &cat.lms().0) || !gamut.is_finite() {
+            return None;
+        }
         let to_xyz = REC2020.to_xyz();
         let from_xyz = REC2020.from_xyz();
         let lms = cat.lms();
@@ -161,7 +182,7 @@ impl ColorCal {
             let p = (src[2] / dst[2]).powf(0.0834) as f32;
             (src.map(|v| v as f32), p, dst.map(|v| v as f32))
         });
-        ColorCal {
+        Some(ColorCal {
             matrix: matrix.to_f32(),
             cat,
             full,
@@ -171,7 +192,7 @@ impl ColorCal {
             lms_inv: lms_inv.to_f32(),
             compression: if gamut > 0.0 { (1.0 / gamut) as f32 } else { 0.0 },
             clip,
-        }
+        })
     }
 
     /// Whether the whole calibration is one matrix (it can then be folded into white balance).
@@ -265,7 +286,7 @@ pub fn of(info: &crate::SourceInfo, s: &lightcraft_develop::DevelopSettings) -> 
         Illuminant::F2 => Standard::F2.xy(),
         Illuminant::F7 => Standard::F7.xy(),
         Illuminant::F11 => Standard::F11.xy(),
-        Illuminant::Custom => Xy::new(c.x.clamp(0.05, 0.75), c.y.clamp(0.05, 0.75)),
+        Illuminant::Custom => Xy::new(c.x, c.y),
     };
     let cat = match c.adaptation {
         Adaptation::Cat16 => Cat::Cat16,
@@ -273,7 +294,7 @@ pub fn of(info: &crate::SourceInfo, s: &lightcraft_develop::DevelopSettings) -> 
         Adaptation::FullBradford => Cat::FullBradford,
         Adaptation::Xyz => Cat::Xyz,
     };
-    Some(ColorCal::new(cat, xy, c.gamut.clamp(0.0, 12.0), c.clip))
+    ColorCal::try_new(cat, xy, c.gamut.clamp(0.0, 12.0), c.clip)
 }
 
 /// Whether the colour calibration of `s` needs per-pixel work (non-linear Bradford, gamut
@@ -384,5 +405,31 @@ mod refvec_tests {
             }
         }
         crate::test_vectors::compare("colorcal/lms.f32", &actual, 5e-7);
+    }
+}
+
+#[cfg(test)]
+mod domain_regression {
+    use super::*;
+    #[test]
+    fn custom_white_domain_never_constructs_nonfinite_adaptation() {
+        for cat in [Cat::Cat16, Cat::LinearBradford, Cat::FullBradford, Cat::Xyz] {
+            for x in [0.2, 0.3127, 0.55, f64::NAN] {
+                for y in [0.2, 0.329, 0.5, f64::INFINITY] {
+                    if let Some(cal) = ColorCal::try_new(cat, Xy::new(x, y), 0., false) {
+                        for rgb in [[0.18; 3], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.], [-0.1, 2., 0.3]] {
+                            assert!(cal.apply(rgb).iter().all(|v| v.is_finite()), "{cat:?} {x} {y} {rgb:?}");
+                        }
+                    }
+                }
+            }
+        }
+        let mut s = lightcraft_develop::DevelopSettings::default();
+        s.color_cal.enabled = true;
+        s.color_cal.illuminant = lightcraft_develop::Illuminant::Custom;
+        s.color_cal.adaptation = lightcraft_develop::Adaptation::FullBradford;
+        s.color_cal.x = 0.55;
+        s.color_cal.y = 0.5;
+        assert!(of(&crate::SourceInfo::default(), &s).is_none(), "direct deserializers cannot inject an invalid transform");
     }
 }

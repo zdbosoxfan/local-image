@@ -53,8 +53,17 @@ pub struct SubjectModel(ModelKind);
 
 #[derive(Clone)]
 enum ModelKind {
-    Installed(li_seg::InUse),
+    Installed(Box<li_seg::ModelSnapshot>),
     Mock(Arc<MockModel>),
+}
+
+impl ModelKind {
+    fn is_current(&self) -> bool {
+        match self {
+            Self::Installed(snapshot) => snapshot.is_current(),
+            Self::Mock(_) => true,
+        }
+    }
 }
 
 impl PartialEq for SubjectModel {
@@ -73,15 +82,15 @@ impl SubjectModel {
         if let Some(m) = MOCK.with(|m| m.borrow().clone()) {
             return Some(Self(ModelKind::Mock(m)));
         }
-        installed().map(|u| Self(ModelKind::Installed(u)))
+        li_seg::snapshot(li_seg::Group::Subject, &models_dir()).map(|snapshot| Self(ModelKind::Installed(Box::new(snapshot))))
     }
 
     /// Foreground probability (0–1) at the image's size, or `None` (no clear subject, or the model
     /// failed). `Err(Cancelled)` when `cancel` was set: the model stops at its next stage.
     fn predict(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, lightcraft_sysmem::jobs::Cancelled> {
         match &self.0 {
-            ModelKind::Installed(_) => {
-                let Some(seg) = li_seg::shared(&models_dir()) else { return Ok(None) };
+            ModelKind::Installed(snapshot) => {
+                let Some(seg) = snapshot.segmenter() else { return Ok(None) };
                 match seg.predict_with_cancel(rgba, w, h, cancel) {
                     Ok(map) => Ok(map),
                     Err(e) if li_seg::is_cancelled(&e) => Err(lightcraft_sysmem::jobs::Cancelled),
@@ -231,12 +240,19 @@ static PROBABILITY: ProbCache = Mutex::new(None);
 /// The cached map for these pixels: `Some(map)` on a hit (the map itself may be `None`: the model
 /// found no clear subject), `None` when the model would have to run.
 pub fn cached_probability(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool) -> Option<SubjectMap> {
+    if !model.0.is_current() {
+        return None;
+    }
     let key = ProbKey::new(model, doc, layer, all_layers);
     lookup(&key)
 }
 
 fn lookup(key: &ProbKey) -> Option<SubjectMap> {
-    let cache = PROBABILITY.lock().unwrap_or_else(PoisonError::into_inner);
+    lookup_in(&PROBABILITY, key)
+}
+
+fn lookup_in(cache: &ProbCache, key: &ProbKey) -> Option<SubjectMap> {
+    let cache = cache.lock().unwrap_or_else(PoisonError::into_inner);
     cache.as_ref().filter(|(k, _)| k == key).map(|(_, v)| v.clone())
 }
 
@@ -244,6 +260,9 @@ fn lookup(key: &ProbKey) -> Option<SubjectMap> {
 /// same pixels reuse it. Runs the model on the calling thread (a job's worker); `cancel` (the job's
 /// flag) stops the model at its next stage, and then nothing is cached and the result is `None`.
 pub fn probability_with(model: &SubjectModel, doc: &Document, layer: Option<LayerId>, all_layers: bool, cancel: &AtomicBool) -> SubjectMap {
+    if !model.0.is_current() {
+        return None;
+    }
     let key = ProbKey::new(model, doc, layer, all_layers);
     if let Some(hit) = lookup(&key) {
         return hit;
@@ -254,6 +273,9 @@ pub fn probability_with(model: &SubjectModel, doc: &Document, layer: Option<Laye
     let (area, rgba) = rgba8(doc, layer, all_layers);
     let (w, h) = (area.width() as usize, area.height() as usize);
     let Ok(prob) = model.predict(&rgba, w, h, cancel) else { return None };
+    if !model.0.is_current() {
+        return None;
+    }
     let map = prob.map(|prob| Arc::new((area, prob)));
     // The lock is not held while the model runs.
     *PROBABILITY.lock().unwrap_or_else(PoisonError::into_inner) = Some((key, map.clone()));
@@ -275,15 +297,15 @@ pub fn sky_installed() -> Option<li_seg::InUse> {
 /// The sky model a command uses; like [`SubjectModel`] it is resolved on the caller's thread (so a
 /// test's [`mock_sky_model_on_thread`] reaches the job's worker) and moved into the job.
 #[derive(Clone)]
-pub struct SkyModel(Option<Arc<MockModel>>);
+pub struct SkyModel(ModelKind);
 
 impl SkyModel {
     /// The model the commands would use now (a test's mock on this thread first), if any.
     pub fn current() -> Option<Self> {
         if let Some(m) = SKY_MOCK.with(|m| m.borrow().clone()) {
-            return Some(Self(Some(m)));
+            return Some(Self(ModelKind::Mock(m)));
         }
-        sky_installed().map(|_| Self(None))
+        li_seg::snapshot(li_seg::Group::Sky, &models_dir()).map(|snapshot| Self(ModelKind::Installed(Box::new(snapshot))))
     }
 }
 
@@ -315,9 +337,12 @@ pub fn sky_probability_with(model: &SkyModel, doc: &Document, layer: Option<Laye
     let (area, rgba) = rgba8(doc, layer, all_layers);
     let (w, h) = (area.width() as usize, area.height() as usize);
     let prob = match &model.0 {
-        Some(mock) => mock.predict(&rgba, w, h, cancel).ok()??,
-        None => li_seg::shared_sky(&models_dir())?.predict_sky_with_cancel(&rgba, w, h, cancel).ok()?,
+        ModelKind::Mock(mock) => mock.predict(&rgba, w, h, cancel).ok()??,
+        ModelKind::Installed(snapshot) => snapshot.segmenter()?.predict_sky_with_cancel(&rgba, w, h, cancel).ok()?,
     };
+    if !model.0.is_current() {
+        return None;
+    }
     let guide = photocraft_algo::segment::RgbImage {
         w,
         h,
@@ -341,6 +366,37 @@ pub fn shape(prob: &mut [f32], threshold: f32, softness: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn review_probability_cache_uses_captured_artifact_identity() {
+        let doc = Document::with_background(
+            "identity",
+            photocraft_doc::Size::new(4, 4),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::WHITE,
+        );
+        let root = std::env::temp_dir().join(format!("review-probability-{}-{}", std::process::id(), doc.id.0));
+        let mut models = Vec::new();
+        for name in ["first", "second"] {
+            let dir = root.join(name);
+            let custom = dir.join("segmentation/custom");
+            std::fs::create_dir_all(&custom).unwrap();
+            std::fs::write(custom.join("subject-same.onnx"), b"not an ONNX plan").unwrap();
+            std::fs::write(custom.join("custom.txt"), "subject\tsubject-same.onnx\tSame\t32\tisnet\t1\t0\n").unwrap();
+            models.push(SubjectModel(ModelKind::Installed(Box::new(li_seg::snapshot(li_seg::Group::Subject, &dir).unwrap()))));
+        }
+        // Use an isolated cache to avoid racing the process-wide cache in parallel tests.
+        // No-subject entries matter too: a different artifact must not inherit a negative hit.
+        let first = ProbKey::new(&models[0], &doc, None, true);
+        let second = ProbKey::new(&models[1], &doc, None, true);
+        let cache = Mutex::new(Some((first, None)));
+        assert!(matches!(lookup_in(&cache, &ProbKey::new(&models[0], &doc, None, true)), Some(None)));
+        assert!(lookup_in(&cache, &second).is_none());
+        std::fs::write(root.join("first/segmentation/custom/subject-same.onnx"), b"changed").unwrap();
+        assert!(cached_probability(&models[0], &doc, None, true).is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn region_is_the_tight_box_of_the_coverage() {

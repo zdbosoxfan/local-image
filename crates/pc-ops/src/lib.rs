@@ -5,8 +5,8 @@
 //! stores whole-document snapshots per transaction, which is simple, obviously correct, and the
 //! same approach Photoshop's History panel exposes to users (one state per step).
 //!
-//! Memory is bounded by `max_states` plus an approximate byte budget. Only tiles *not shared*
-//! with the current document count against it.
+//! Memory is bounded by `max_states` plus an approximate byte budget. Shared tiles and embedded source/metadata allocations are counted once across current,
+//! undo and redo states; replacing a source cannot bypass the budget.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -38,7 +38,7 @@ pub struct History {
     undo: VecDeque<HistoryState>,
     redo: Vec<HistoryState>,
     pub max_states: usize,
-    /// Pixel memory budget in bytes for the current document plus the tiles only history holds
+    /// Backing-memory budget in bytes for the current document plus allocations only history holds
     /// (0 = unlimited). [`History::trim`] drops the oldest states beyond it.
     pub max_bytes: usize,
     /// Label of the step that produced the current document.
@@ -166,37 +166,40 @@ impl History {
         self.redo.clear();
     }
 
-    /// Approximate unique pixel bytes held by history (tiles not shared with `current`).
+    /// Approximate unique backing bytes held by history (not shared with `current`).
     pub fn unique_bytes(&self, current: &Document) -> usize {
         let mut seen = HashSet::new();
-        tile_bytes(current, &mut seen);
-        self.undo.iter().chain(self.redo.iter()).map(|s| tile_bytes(&s.doc, &mut seen)).sum()
+        backing_bytes(current, &mut seen);
+        self.undo.iter().chain(self.redo.iter()).map(|s| backing_bytes(&s.doc, &mut seen)).sum()
     }
 
-    /// Pixel bytes of `current` plus the tiles only history holds (what [`History::trim`]
+    /// Backing bytes of `current` plus allocations only history holds (what [`History::trim`]
     /// bounds by [`History::max_bytes`]).
     pub fn pixel_bytes(&self, current: &Document) -> usize {
         let mut seen = HashSet::new();
-        let own = tile_bytes(current, &mut seen);
-        self.undo.iter().chain(self.redo.iter()).fold(own, |n, s| n.saturating_add(tile_bytes(&s.doc, &mut seen)))
+        let own = backing_bytes(current, &mut seen);
+        self.undo.iter().chain(self.redo.iter()).fold(own, |n, s| n.saturating_add(backing_bytes(&s.doc, &mut seen)))
     }
 
-    /// Keep pixel memory within [`History::max_bytes`]: the current document's tiles plus the
-    /// tiles only history holds (newest states first). The oldest undo states that don't fit are
+    /// Apply [`History::max_states`] immediately, then keep backing memory within
+    /// [`History::max_bytes`]: the current document's allocations plus
+    /// those only history holds (newest states first). The oldest undo states that don't fit are
     /// dropped; the most recent one is always kept so the last step can be undone. Returns how
     /// many states were dropped.
     pub fn trim(&mut self, current: &Document) -> usize {
+        let count_drop = self.undo.len().saturating_sub(self.max_states.max(1));
+        self.undo.drain(..count_drop);
         if self.max_bytes == 0 || self.undo.len() <= 1 {
-            return 0;
+            return count_drop;
         }
         let mut seen = HashSet::new();
-        let mut total = tile_bytes(current, &mut seen);
+        let mut total = backing_bytes(current, &mut seen);
         for s in self.redo.iter().rev() {
-            total = total.saturating_add(tile_bytes(&s.doc, &mut seen));
+            total = total.saturating_add(backing_bytes(&s.doc, &mut seen));
         }
         let mut keep = 0;
         for s in self.undo.iter().rev() {
-            total = total.saturating_add(tile_bytes(&s.doc, &mut seen));
+            total = total.saturating_add(backing_bytes(&s.doc, &mut seen));
             if total > self.max_bytes && keep >= 1 {
                 break;
             }
@@ -204,31 +207,93 @@ impl History {
         }
         let drop = self.undo.len() - keep;
         self.undo.drain(..drop);
-        drop
+        count_drop + drop
     }
 }
 
-/// Bytes of the pixel tiles of `doc` (layers, symbol masters, masks, alpha channels)
-/// not already in `seen`. Masters are not composited, but history owns their tiles too.
-fn tile_bytes(doc: &Document, seen: &mut HashSet<usize>) -> usize {
-    let mut add = |s: &photocraft_doc::Surface| s.tiles().filter(|(_, t)| seen.insert(Arc::as_ptr(t) as usize)).map(|(_, t)| t.bytes().len()).sum::<usize>();
-    let mut n = 0;
+/// Large backing allocations retained by a document. Arc identity deduplicates pixels,
+/// embedded originals and preserved metadata across both layers and history snapshots.
+fn backing_bytes(doc: &Document, seen: &mut HashSet<usize>) -> usize {
+    use photocraft_doc::{Adjustment, LayerContent, SmartSource};
+    let mut n = 0usize;
     let mut layers: Vec<_> = doc.layers.iter().chain(doc.symbols.iter().flat_map(|s| &s.layers)).collect();
-    while let Some(l) = layers.pop() {
-        if let Some(children) = l.children() {
+    while let Some(layer) = layers.pop() {
+        if let Some(children) = layer.children() {
             layers.extend(children);
         }
-        if let Some(s) = l.surface() {
-            n += add(s);
+        if let Some(surface) = layer.surface() {
+            n = n.saturating_add(surface_bytes(surface, seen));
         }
-        if let Some(m) = &l.mask {
-            n += add(&m.surface);
+        if let Some(mask) = &layer.mask {
+            n = n.saturating_add(surface_bytes(&mask.surface, seen));
+        }
+        if let Some(fill) = &layer.fill_cache {
+            n = n.saturating_add(surface_bytes(&fill.surface, seen));
+        }
+        if let Some(video) = &layer.video {
+            for frame in &video.frames {
+                n = n.saturating_add(surface_bytes(frame, seen));
+            }
+        }
+        if let Some(raw) = &layer.effects.psd_raw {
+            n = n.saturating_add(arc_bytes(raw, seen));
+        }
+        for (_, raw) in &layer.psd_blocks {
+            n = n.saturating_add(arc_bytes(raw, seen));
+        }
+        let raw = match &layer.content {
+            LayerContent::Smart(smart) => {
+                if let SmartSource::Embedded { bytes, .. } = &smart.source {
+                    n = n.saturating_add(arc_bytes(bytes, seen));
+                }
+                if let Some(mask) = &smart.filter_mask {
+                    n = n.saturating_add(surface_bytes(&mask.surface, seen));
+                }
+                smart.psd_raw.as_ref()
+            }
+            LayerContent::Text(text) => text.psd_raw.as_ref(),
+            LayerContent::Shape(shape) => shape.psd_raw.as_ref(),
+            LayerContent::Adjustment(Adjustment::ColorLookup { lut: Some(lut), .. }) => {
+                n = n.saturating_add(arc_bytes(lut, seen));
+                None
+            }
+            _ => None,
+        };
+        if let Some(raw) = raw {
+            n = n.saturating_add(arc_bytes(raw, seen));
         }
     }
-    for c in doc.channels.iter().chain(&doc.quick_mask) {
-        n += add(&c.surface);
+    for channel in doc.channels.iter().chain(&doc.quick_mask) {
+        n = n.saturating_add(surface_bytes(&channel.surface, seen));
+    }
+    if let Some(selection) = &doc.selection {
+        n = n.saturating_add(surface_bytes(selection, seen));
+    }
+    for pattern in &doc.patterns {
+        n = n.saturating_add(surface_bytes(&pattern.surface, seen));
+    }
+    for raw in doc.icc_profile.iter().chain(doc.metadata.exif.iter()) {
+        n = n.saturating_add(arc_bytes(raw, seen));
+    }
+    for (_, _, raw) in &doc.metadata.psd_resources {
+        n = n.saturating_add(arc_bytes(raw, seen));
+    }
+    for (_, _, raw) in &doc.metadata.psd_global_blocks {
+        n = n.saturating_add(arc_bytes(raw, seen));
+    }
+    for path in &doc.paths {
+        if let Some(raw) = &path.psd_raw {
+            n = n.saturating_add(arc_bytes(raw, seen));
+        }
     }
     n
+}
+
+fn surface_bytes(surface: &photocraft_doc::Surface, seen: &mut HashSet<usize>) -> usize {
+    surface.tiles().filter(|(_, tile)| seen.insert(Arc::as_ptr(tile) as usize)).fold(0usize, |n, (_, tile)| n.saturating_add(tile.bytes().len()))
+}
+fn arc_bytes<T>(data: &Arc<Vec<T>>, seen: &mut HashSet<usize>) -> usize {
+    if seen.insert(Arc::as_ptr(data) as usize) { data.capacity().saturating_mul(std::mem::size_of::<T>()) } else { 0 }
 }
 
 #[cfg(test)]
@@ -358,6 +423,50 @@ mod tests {
     }
 
     #[test]
+    fn lowering_history_state_limit_trims_existing_undo_and_preserves_current_and_redo() {
+        let tile = 256 * 256 * 4;
+        for (budget, kept, removed) in [(0, 3, 2), (4 * tile, 2, 3)] {
+            let mut history = History::new(50);
+            let mut current = Arc::new(base());
+            for n in 0..6 {
+                edit(&mut history, &mut current, &format!("paint {n}"), |doc| {
+                    doc.name = format!("paint {n}");
+                    doc.layers[0].surface_mut().unwrap().write_pixel(1, 1, &[n as f32 / 8.0, 0.0, 0.0, 1.0]);
+                });
+            }
+            current = history.undo(current).unwrap().0;
+            let before = current.clone();
+            let redo = history.redo_labels().map(str::to_owned).collect::<Vec<_>>();
+            history.max_states = 3;
+            history.max_bytes = budget;
+            assert_eq!(history.trim(&current), removed, "reports count and byte removals together");
+            assert_eq!(history.past_len(), kept);
+            assert!(Arc::ptr_eq(&before, &current), "changing the limit is not a document edit");
+            assert_eq!(history.redo_labels().map(str::to_owned).collect::<Vec<_>>(), redo);
+            assert_eq!(history.trim(&current), 0, "applying an unchanged limit is idempotent");
+            current = history.undo(current).unwrap().0;
+            assert_eq!(current.name, "paint 3", "the most recent undo stays available");
+            current = history.redo(current).unwrap().0;
+            assert!(Arc::ptr_eq(&before, &current));
+            current = history.redo(current).unwrap().0;
+            assert_eq!(current.name, "paint 5", "the preexisting redo is preserved");
+        }
+    }
+
+    #[test]
+    fn lowering_history_state_limit_to_zero_keeps_one_undo() {
+        let mut history = History::new(50);
+        let mut current = Arc::new(base());
+        for n in 0..3 {
+            edit(&mut history, &mut current, &format!("rename {n}"), |doc| doc.name = n.to_string());
+        }
+        history.max_states = 0;
+        assert_eq!(history.trim(&current), 2);
+        assert_eq!(history.past_len(), 1);
+        assert_eq!(history.undo(current).unwrap().0.name, "1");
+    }
+
+    #[test]
     fn byte_budget_drops_oldest_states_but_keeps_one() {
         let mut h = History::new(50);
         let mut cur = Arc::new(base());
@@ -399,5 +508,59 @@ mod tests {
             d.layer_mut(id).unwrap().surface_mut().unwrap().write_pixel(1, 1, &[0.0, 0.0, 0.0, 1.0]);
         });
         assert_eq!(h.unique_bytes(&cur), 256 * 256 * 4);
+    }
+
+    #[test]
+    fn history_budget_counts_replaced_embedded_sources_and_shared_psd_payloads_once() {
+        use photocraft_doc::{Affine, LayerContent, SmartObject, SmartSource};
+        const BYTES: usize = 1 << 20;
+        let mut h = History::new(50);
+        let mut cur = Arc::new(Document::new("sources", Size::new(1, 1), ColorMode::Rgb, SampleType::U8));
+        let mut old = Vec::new();
+        for n in 0..8 {
+            let bytes = Arc::new(vec![n as u8; BYTES]);
+            old.push(Arc::downgrade(&bytes));
+            edit(&mut h, &mut cur, "Replace Contents", |doc| {
+                // The same payload is preserved in both the smart source and PSD metadata.
+                doc.metadata.psd_global_blocks = vec![(*b"8BIM", *b"lnk2", bytes.clone())];
+                doc.layers = vec![Layer::new(
+                    "source",
+                    LayerContent::Smart(SmartObject::new(SmartSource::Embedded { file_name: "source.psd".into(), bytes }, Affine::IDENTITY, None)),
+                )];
+            });
+        }
+        assert_eq!(h.pixel_bytes(&cur), 8 * BYTES, "shared metadata and smart source count once");
+        h.max_bytes = 3 * BYTES;
+        h.trim(&cur);
+        assert_eq!(h.past_len(), 2, "current plus two previous originals fit");
+        assert_eq!(h.pixel_bytes(&cur), 3 * BYTES);
+        assert_eq!(old.iter().filter(|bytes| bytes.strong_count() > 0).count(), 3);
+        let shared = h.unique_bytes(&cur);
+        edit(&mut h, &mut cur, "Rename", |doc| doc.name = "renamed".into());
+        assert_eq!(h.unique_bytes(&cur), shared, "an unchanged source is not charged per history entry");
+        h.clear();
+        assert_eq!(old.iter().filter(|bytes| bytes.strong_count() > 0).count(), 1);
+    }
+
+    #[test]
+    fn history_counts_replaced_pattern_tiles_across_undo_redo_without_double_counting() {
+        let mut h = History::new(50);
+        let mut cur = Arc::new(Document::new("patterns", Size::new(1, 1), ColorMode::Rgb, SampleType::U8));
+        for n in 0..4 {
+            edit(&mut h, &mut cur, "Replace pattern", |doc| {
+                let mut surface = photocraft_doc::Surface::new(photocraft_doc::PixelFormat::RGBA8);
+                surface.write_pixel(0, 0, &[n as f32 / 4.0, 1.0, 0.0, 1.0]);
+                doc.patterns = vec![photocraft_doc::Pattern::new("pattern", surface, 1, 1)];
+            });
+        }
+        let tile = 256 * 256 * 4;
+        assert_eq!(h.pixel_bytes(&cur), 4 * tile);
+        edit(&mut h, &mut cur, "Rename", |doc| doc.name = "renamed".into());
+        assert_eq!(h.pixel_bytes(&cur), 4 * tile, "unchanged pattern tiles remain shared");
+        cur = h.undo(cur).unwrap().0;
+        assert_eq!(h.pixel_bytes(&cur), 4 * tile, "redo participates in the same ownership walk");
+        h.max_bytes = 2 * tile;
+        h.trim(&cur);
+        assert_eq!(h.pixel_bytes(&cur), 2 * tile);
     }
 }

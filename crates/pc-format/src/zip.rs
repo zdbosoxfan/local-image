@@ -37,6 +37,7 @@ pub struct ZipWriter {
     out: Vec<u8>,
     central: Vec<u8>,
     count: u16,
+    max_bytes: usize,
 }
 
 impl Default for ZipWriter {
@@ -47,7 +48,12 @@ impl Default for ZipWriter {
 
 impl ZipWriter {
     pub fn new() -> Self {
-        ZipWriter { out: Vec::new(), central: Vec::new(), count: 0 }
+        Self::with_limit(u32::MAX as usize)
+    }
+
+    /// Bound the completed archive, including its directory, before appending an entry.
+    pub fn with_limit(max_bytes: usize) -> Self {
+        ZipWriter { out: Vec::new(), central: Vec::new(), count: 0, max_bytes }
     }
 
     pub fn add(&mut self, name: &str, data: &[u8]) -> Result<(), FormatError> {
@@ -56,8 +62,19 @@ impl ZipWriter {
         }
         let size = u32::try_from(data.len()).map_err(|_| FormatError::Unsupported("zip entry over 4 GiB".into()))?;
         let offset = u32::try_from(self.out.len()).map_err(|_| FormatError::Unsupported("zip over 4 GiB".into()))?;
-        let crc = crc32(data);
         let name_b = name.as_bytes();
+        let name_len = u16::try_from(name_b.len()).map_err(|_| FormatError::Unsupported("zip entry name exceeds 65535 bytes".into()))?;
+        let total = self
+            .out
+            .len()
+            .checked_add(self.central.len())
+            .and_then(|n| n.checked_add(data.len()))
+            .and_then(|n| n.checked_add(name_b.len().saturating_mul(2)))
+            .and_then(|n| n.checked_add(30 + 46 + 22));
+        if total.is_none_or(|n| n > self.max_bytes) {
+            return Err(FormatError::LimitExceeded("saved archive would exceed the app's reopen limit; the destination was not changed".into()));
+        }
+        let crc = crc32(data);
         // Local file header.
         let o = &mut self.out;
         o.extend_from_slice(&LOCAL_SIG.to_le_bytes());
@@ -69,7 +86,7 @@ impl ZipWriter {
         o.extend_from_slice(&crc.to_le_bytes());
         o.extend_from_slice(&size.to_le_bytes());
         o.extend_from_slice(&size.to_le_bytes());
-        o.extend_from_slice(&(name_b.len() as u16).to_le_bytes());
+        o.extend_from_slice(&name_len.to_le_bytes());
         o.extend_from_slice(&0u16.to_le_bytes());
         o.extend_from_slice(name_b);
         o.extend_from_slice(data);
@@ -85,7 +102,7 @@ impl ZipWriter {
         c.extend_from_slice(&crc.to_le_bytes());
         c.extend_from_slice(&size.to_le_bytes());
         c.extend_from_slice(&size.to_le_bytes());
-        c.extend_from_slice(&(name_b.len() as u16).to_le_bytes());
+        c.extend_from_slice(&name_len.to_le_bytes());
         c.extend_from_slice(&[0; 8]); // extra len, comment len, disk, internal attrs
         c.extend_from_slice(&0u32.to_le_bytes()); // external attrs
         c.extend_from_slice(&offset.to_le_bytes());
@@ -95,8 +112,12 @@ impl ZipWriter {
     }
 
     pub fn finish(mut self) -> Result<Vec<u8>, FormatError> {
+        let total = self.out.len().checked_add(self.central.len()).and_then(|n| n.checked_add(22));
+        if total.is_none_or(|n| n > self.max_bytes) {
+            return Err(FormatError::LimitExceeded("saved archive would exceed the app's reopen limit; the destination was not changed".into()));
+        }
         let cd_offset = u32::try_from(self.out.len()).map_err(|_| FormatError::Unsupported("zip over 4 GiB".into()))?;
-        let cd_size = self.central.len() as u32;
+        let cd_size = u32::try_from(self.central.len()).map_err(|_| FormatError::Unsupported("zip central directory over 4 GiB".into()))?;
         self.out.extend_from_slice(&self.central);
         self.out.extend_from_slice(&EOCD_SIG.to_le_bytes());
         self.out.extend_from_slice(&[0; 4]); // disk numbers
@@ -247,6 +268,37 @@ impl<'a> ZipReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn archive_budget_includes_headers_and_rejects_before_appending() {
+        let mut writer = ZipWriter::with_limit(101); // one-byte name + one-byte data + 98 header bytes
+        assert!(matches!(writer.add("é", b"x"), Err(FormatError::LimitExceeded(_))), "names count UTF-8 bytes in both headers");
+        writer.add("a", b"x").unwrap();
+        assert!(writer.add("b", b"y").is_err());
+        let bytes = writer.finish().unwrap();
+        assert_eq!(bytes.len(), 101);
+        let reader = ZipReader::new(&bytes).unwrap();
+        assert_eq!(reader.entries.len(), 1);
+        assert_eq!(reader.read_by_name("a", 1).unwrap(), b"x");
+    }
+
+    #[test]
+    fn archive_budget_bounds_empty_archive_and_multiple_entries() {
+        assert!(matches!(ZipWriter::with_limit(21).finish(), Err(FormatError::LimitExceeded(_))));
+        assert_eq!(ZipWriter::with_limit(22).finish().unwrap().len(), 22);
+        // 22 EOCD bytes + 2 * (30 local + 46 central + 2 name + 1 data).
+        let mut writer = ZipWriter::with_limit(180);
+        writer.add("a", b"x").unwrap();
+        writer.add("b", b"y").unwrap();
+        let bytes = writer.finish().unwrap();
+        assert_eq!(bytes.len(), 180);
+        let reader = ZipReader::new(&bytes).unwrap();
+        assert_eq!(reader.read_by_name("b", 1).unwrap(), b"y");
+        let mut short = ZipWriter::with_limit(179);
+        short.add("a", b"x").unwrap();
+        assert!(matches!(short.add("b", b"y"), Err(FormatError::LimitExceeded(_))));
+        assert_eq!(short.finish().unwrap().len(), 101);
+    }
 
     #[test]
     fn crc_known_value() {

@@ -591,7 +591,7 @@ fn model_function_row(
             });
             ui.label(
                 RichText::new(if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-                    tl!("Your selected restoration model. Requires a GPU/NPU.")
+                    tl!("Your selected restoration model. Requires a GPU.")
                 } else {
                     tl!("Your own model, run on the CPU instead of the official one.")
                 })
@@ -638,7 +638,7 @@ fn model_function_row(
         ui.label(
             RichText::new(li_i18n::fmt(
                 if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-                    tl!("{name} · {size} download · GPU/NPU required · {licence}")
+                    tl!("{name} · {size} download · GPU required · {licence}")
                 } else {
                     tl!("{name} · {size} download · runs on the CPU · {licence}")
                 },
@@ -1834,7 +1834,7 @@ mod tests {
             settle(&mut h, &dir, group);
             assert!(li_seg::custom(&dir, group).is_some());
             h.get_by_label("Custom: restore.onnx");
-            h.get_by_label("Your selected restoration model. Requires a GPU/NPU.");
+            h.get_by_label("Your selected restoration model. Requires a GPU.");
             assert!(h.query_by_label_contains("CPU fallback").is_none());
             h.get_by_label("Use default").click();
             h.run_steps(3);

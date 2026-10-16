@@ -1433,3 +1433,81 @@ fn tone_equalizer_layer_curve_across_finish_bands_matches() {
     s.masks.push(m);
     check("native finish row bands", &src, &SourceInfo::default(), &s, &RenderRequest::fit(w, h));
 }
+
+#[test]
+fn capture_sensor_protection_matches_and_invalidates_cached_source() {
+    let _gpu = crate::support::lock();
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
+    let mut s = DevelopSettings::default();
+    capture(&mut s, 1., 20., 20.);
+    let req = RenderRequest::fit(64, 64);
+    let cache = StageCache::default();
+    let mut info = raw();
+    let unprotected = gpu_render(&src, &info, &s, &req, Some(&cache));
+    info.clip_confidence = Some(Arc::new(lightcraft_pipeline::ClipConfidence {
+        width: 32,
+        height: 32,
+        data: (0..1024).map(|i| if i % 32 >= 16 { 1. / 3. } else { 0. }).collect(),
+    }));
+    let expected = check("sensor-clipped capture", &src, &info, &s, &req);
+    let warm = gpu_render(&src, &info, &s, &req, Some(&cache));
+    assert_eq!(warm, expected, "source cache observes changed clipping metadata");
+    assert_ne!(warm, unprotected, "sensor protection changes saturated boundaries");
+    info.clip_confidence = None;
+    assert_eq!(gpu_render(&src, &info, &s, &req, Some(&cache)), unprotected);
+}
+
+#[test]
+fn cropped_refine_mask_keeps_source_scale_on_gpu() {
+    let _gpu = crate::support::lock();
+    if !gpu() {
+        return;
+    }
+    let src = Arc::new(Rgb32f::filled(256, 256, [0.18; 3]));
+    let mut s = DevelopSettings::default();
+    s.masks.push(Mask {
+        refine: 100.,
+        adjust: LocalAdjustments { exposure: 1., ..Default::default() },
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::Linear { start: Point::new(0.499999, 0.5), end: Point::new(0.500001, 0.5) },
+        }],
+        ..Default::default()
+    });
+    // Keep the normal preview CPU/GPU parity check at each viewport size.
+    check("refine full frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(256, 256));
+    let full_settings = s.clone();
+    s.crop.geometry.rect = Rect::new(0.25, 0.25, 0.75, 0.75);
+    check("refine cropped frame", &src, &SourceInfo::default(), &s, &RenderRequest::fit(128, 128));
+
+    // Compare the actual developed light, before preview quantization. dither8 is
+    // intentionally anchored to output coordinates: the same source pixel at
+    // (130,128) versus (66,64) can differ by two TPDF codes even on the CPU.
+    let linear = |settings: &DevelopSettings, edge| {
+        let req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::F32Linear, ..RenderRequest::fit(edge, edge) };
+        let cpu = render(&src, &SourceInfo::default(), settings, &req).deep.unwrap();
+        let gpu = lightcraft_gpu::render(&src, &SourceInfo::default(), settings, &req, None).unwrap().deep.unwrap();
+        let (lightcraft_pipeline::DeepSamples::F32(cpu), lightcraft_pipeline::DeepSamples::F32(gpu)) = (cpu.samples, gpu.samples) else {
+            panic!("requested float output");
+        };
+        for (a, b) in cpu.iter().zip(&gpu) {
+            assert!((a - b).abs() < 2e-6, "float mask render differs between CPU and GPU");
+        }
+        (cpu, gpu)
+    };
+    let (full_cpu, full_gpu) = linear(&full_settings, 256);
+    let (crop_cpu, crop_gpu) = linear(&s, 128);
+    for x in 96..160 {
+        for channel in 0..3 {
+            let a = (128 * 256 + x) * 3 + channel;
+            let b = (64 * 128 + x - 64) * 3 + channel;
+            assert_eq!(full_cpu[a], crop_cpu[b], "CPU reference changed at source x={x}");
+            assert!((full_gpu[a] - crop_gpu[b]).abs() < 2e-6, "refine changed at source x={x}: {} != {}", full_gpu[a], crop_gpu[b]);
+        }
+    }
+}

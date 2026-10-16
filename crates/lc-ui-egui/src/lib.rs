@@ -993,7 +993,11 @@ impl LightcraftApp {
 
     /// Lay out the whole window.
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        li_ui_kit::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
+        // The host reconciles the application's shared Interface preference before painting.
+        // Standalone Library retains its own setting; an embedded view must not overwrite it.
+        if !self.hosted_menus {
+            li_ui_kit::color_icons::set_enabled(ui.ctx(), self.ui.settings.color_tool_icons);
+        }
         li_i18n::set_current(self.ui.language);
         let ctx = ui.ctx().clone();
         if !self.fonts_ready {

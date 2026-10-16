@@ -795,6 +795,7 @@ impl GpuCanvas {
         }
         // LUTs and identity-transform signatures can outlive document textures. Prune both,
         // or a preserved-ID reopen can skip rebuilding a missing LUT.
+        let scaled_count = res.scaled_frames.len();
         res.scaled_sources.retain(|k, _| live.contains(k));
         res.scaled_frames.retain(|_, f| live.contains(&f.source));
         res.luts.retain(|k, _| live.contains(&k.0));
@@ -808,6 +809,27 @@ impl GpuCanvas {
                 }
                 res.views.remove(&key);
             }
+        }
+        if res.scaled_frames.len() != scaled_count {
+            rebalance_view_budgets(res);
+        }
+    }
+
+    /// Drop resources owned by closed canvas views even when their source document
+    /// remains open. Move-plane views live as long as their parent canvas view.
+    pub(crate) fn retain_views(&self, live: &[u64]) {
+        let mut renderer = self.rs.renderer.write();
+        let Some(res) = renderer.callback_resources.get_mut::<Resources>() else { return };
+        let mut live: std::collections::HashSet<u64> = live.iter().copied().collect();
+        res.move_frames.retain(|key, _| live.contains(key));
+        for frame in res.move_frames.values() {
+            live.extend(frame.view_keys.iter().copied());
+        }
+        res.views.retain(|key, _| live.contains(key));
+        let scaled_count = res.scaled_frames.len();
+        res.scaled_frames.retain(|key, _| live.contains(key));
+        if res.scaled_frames.len() != scaled_count {
+            rebalance_view_budgets(res);
         }
     }
 
@@ -1419,6 +1441,20 @@ struct Resources {
     identity_lut: wgpu::BindGroup,
     /// Transparency checkerboard and gamut warning colours (Preferences › Transparency & Gamut).
     style: CanvasStyle,
+}
+
+/// Closed views must stop taking a share of the live compositors' cache budget.
+fn rebalance_view_budgets(res: &mut Resources) {
+    let Some(budget) = res.compositor_budget else { return };
+    let share = budget / (res.scaled_frames.len() as u64 + 1);
+    if let Some(compositor) = &mut res.compositor {
+        compositor.set_memory_budget(share);
+    }
+    for frame in res.scaled_frames.values_mut() {
+        if let Some(compositor) = &mut frame.compositor {
+            compositor.set_memory_budget(share);
+        }
+    }
 }
 
 fn clear_move_resources(res: &mut Resources) {

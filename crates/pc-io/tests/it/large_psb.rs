@@ -1,14 +1,12 @@
-//! Large PSB files (#375): planes past 2 GiB decode, and a channel that can't be decoded leaves
-//! its layer empty instead of painting it opaque black.
+//! PSD/PSB required-pixel admission: malformed channels fail before a document can be saved.
 
 use photocraft_io::psd_to_document;
 use photocraft_psd::testgen;
 use photocraft_psd::{ColorMode, Compression, LayerSpec, PixelData, PsdBuilder, Version};
 
-/// A layer whose red channel is damaged: the warning says "treated as empty", and the layer must
-/// be empty, not opaque black (the transparency channel is still fine).
+/// A damaged required channel must not produce a writable partial document.
 #[test]
-fn undecodable_channel_leaves_the_layer_empty() {
+fn undecodable_channel_refuses_the_document() {
     for version in [Version::Psd, Version::Psb] {
         let mut b = PsdBuilder::new(4, 4).version(version).compression(Compression::Rle);
         b.push_layer(LayerSpec::new("Damaged", 0, 0, 4, 4, PixelData::Rgba8(vec![200; 64])));
@@ -16,10 +14,9 @@ fn undecodable_channel_leaves_the_layer_empty() {
         let red = file.layers_mut()[0].channels.iter_mut().find(|c| c.id == 0).unwrap();
         red.data.truncate(1);
 
-        let (doc, warnings) = psd_to_document(&file);
-        assert!(warnings.iter().any(|w| w.contains("Damaged") && w.contains("could not be decoded")), "{warnings:?}");
-        let s = doc.layers[0].surface().unwrap();
-        assert_eq!(s.pixel(1, 1)[3], 0.0, "{version:?}: the damaged layer must be transparent");
+        let error = psd_to_document(&file).unwrap_err().to_string();
+        assert!(error.contains("Damaged") && error.contains("could not be decoded"), "{error}");
+        assert!(photocraft_io::import("damaged.psd", &file.to_bytes().unwrap()).is_err());
     }
 }
 
@@ -33,7 +30,7 @@ fn flattened_psb_with_a_merged_image_over_2_gib_opens() {
     let file = testgen::merged_only(Version::Psb, ColorMode::Rgb, 8, Compression::Rle, SIDE, SIDE);
     assert!(!file.image_data.data.is_empty(), "the generator could not encode the merged image");
 
-    let (doc, warnings) = psd_to_document(&file);
+    let (doc, warnings) = psd_to_document(&file).unwrap();
     assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(doc.layers.len(), 1);
     let s = doc.layers[0].surface().unwrap();

@@ -469,6 +469,61 @@ pub fn visit_outlines<E>(
     Ok(())
 }
 
+/// One painted primitive boundary or its next outline command. Boundaries retain glyph and
+/// decoration order; callers may union adjacent equal paints, never nonadjacent equal colours.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PaintedOutlineEvent {
+    Paint(Color),
+    Element(PathEl),
+}
+
+/// Stream glyphs and decorations in the same order as [`paint_runs`], sharing one cumulative
+/// segment budget. Unlike [`painted_outlines`], no full-layout outline collection is allocated.
+/// Nonlinear warped decorations require the existing raster fallback.
+pub fn visit_painted_outlines<E>(
+    layout: &TextLayout,
+    transform: &Affine,
+    warp: Option<&Warp>,
+    limits: OutlineVisitLimits,
+    cancelled: &dyn Fn() -> bool,
+    mut visit: impl FnMut(PaintedOutlineEvent) -> Result<(), E>,
+) -> Result<(), OutlineVisitError<E>> {
+    if warp.is_some() && !layout.decorations.is_empty() {
+        return Err(OutlineVisitError::InvalidOutline);
+    }
+    let mut segments = 0;
+    visit_outlines(layout, transform, warp, limits, cancelled, |event| {
+        visit(match event {
+            OutlineEvent::Glyph { color, .. } => PaintedOutlineEvent::Paint(color),
+            OutlineEvent::Element(element) => {
+                segments += 1;
+                PaintedOutlineEvent::Element(element)
+            }
+        })
+    })?;
+    for decoration in &layout.decorations {
+        if cancelled() {
+            return Err(OutlineVisitError::Cancelled);
+        }
+        let color = layout.styles.get(decoration.style as usize).ok_or(OutlineVisitError::InvalidOutline)?.color;
+        visit(PaintedOutlineEvent::Paint(color)).map_err(OutlineVisitError::Visitor)?;
+        let points = [(decoration.x0, decoration.y0), (decoration.x1, decoration.y0), (decoration.x1, decoration.y1), (decoration.x0, decoration.y1)]
+            .map(|(x, y)| transform.apply(photocraft_geom::Point::new(f64::from(x), f64::from(y))))
+            .map(|p| [p.x, p.y]);
+        for element in [PathEl::MoveTo(points[0]), PathEl::LineTo(points[1]), PathEl::LineTo(points[2]), PathEl::LineTo(points[3]), PathEl::Close] {
+            if cancelled() {
+                return Err(OutlineVisitError::Cancelled);
+            }
+            if segments >= limits.max_segments {
+                return Err(OutlineVisitError::Budget("text outline segments"));
+            }
+            segments += 1;
+            visit(PaintedOutlineEvent::Element(element)).map_err(OutlineVisitError::Visitor)?;
+        }
+    }
+    Ok(())
+}
+
 /// Glyph outlines of `layout` in document space (through `transform`, bent by `warp`), one
 /// element list per glyph, for Type › Create Work Path and Convert to Shape. Faux bold is not
 /// applied (Photoshop also converts the regular outline); faux italic and scaling are. Under a
@@ -670,5 +725,62 @@ mod outline_visit_tests {
         assert!(matches!(result, Err(OutlineVisitError::Budget("text outline scratch"))));
         assert_eq!(started, 1);
         assert_eq!(elements, 0);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::panic)]
+mod paint_stream_regression {
+    use super::*;
+    use photocraft_doc::{
+        TextLayer,
+        text::{CharStyle, TextRun},
+    };
+
+    #[test]
+    fn painted_stream_orders_decorations_and_enforces_one_segment_budget() {
+        let text = TextLayer {
+            text: "HHH".into(),
+            runs: [Color::rgb(1., 0., 0.), Color::rgb(0., 0., 1.), Color::rgb(1., 0., 0.)]
+                .into_iter()
+                .map(|color| TextRun { len: 1, style: CharStyle { color, size_pt: 24., underline: true, ..Default::default() } })
+                .collect(),
+            ..Default::default()
+        };
+        let layout = crate::TextEngine::new().layout(&text, 72.);
+        let limits = OutlineVisitLimits { max_glyphs: 100, max_segments: 100_000, max_scratch_bytes: 16 << 20 };
+        let mut paints = Vec::new();
+        let mut segments = 0;
+        visit_painted_outlines(&layout, &Affine::IDENTITY, None, limits, &|| false, |event| {
+            match event {
+                PaintedOutlineEvent::Paint(color) if paints.last() != Some(&color) => paints.push(color),
+                PaintedOutlineEvent::Element(_) => segments += 1,
+                _ => {}
+            }
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        assert_eq!(paints, paint_runs(&layout).iter().map(|(color, _, _)| *color).collect::<Vec<_>>());
+        assert!(segments > layout.glyphs.len());
+        let mut emitted = 0;
+        let error = visit_painted_outlines(&layout, &Affine::IDENTITY, None, OutlineVisitLimits { max_segments: segments - 1, ..limits }, &|| false, |event| {
+            if matches!(event, PaintedOutlineEvent::Element(_)) {
+                emitted += 1;
+            }
+            Ok::<_, ()>(())
+        })
+        .unwrap_err();
+        assert!(matches!(error, OutlineVisitError::Budget("text outline segments")));
+        assert_eq!(emitted, segments - 1);
+        let emitted = std::cell::Cell::new(0);
+        let error = visit_painted_outlines(&layout, &Affine::IDENTITY, None, limits, &|| emitted.get() >= 2, |event| {
+            if matches!(event, PaintedOutlineEvent::Element(_)) {
+                emitted.set(emitted.get() + 1);
+            }
+            Ok::<_, ()>(())
+        })
+        .unwrap_err();
+        assert!(matches!(error, OutlineVisitError::Cancelled));
+        assert_eq!(emitted.get(), 2);
     }
 }

@@ -840,10 +840,10 @@ pub fn mask_from_item(item: &FilterEffectsItem, sample: SampleType, stack: &Filt
     if item.mask.is_none() {
         return Ok(None);
     }
-    let (rect, plane) = item.decoded_mask().ok_or("the smart filter mask could not be decoded")?;
     if item.depth != u32::from(crate::pixels::psd_depth(sample)) {
         return Err(format!("the smart filter mask is {}-bit in a {:?} document", item.depth, sample));
     }
+    let (rect, plane) = item.decoded_mask().ok_or("the smart filter mask could not be decoded")?;
     let (w, h) = rect.size().map_err(|e| e.to_string())?;
     let fmt = PixelFormat::new(ColorMode::Grayscale, sample, false);
     let mut surface = Surface::with_default(fmt, &[1.0]);

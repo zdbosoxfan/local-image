@@ -29,7 +29,7 @@ fn file(depth: u16) -> PsdFile {
 fn roundtrip(d: &photocraft_doc::Document) -> (PsdFile, photocraft_doc::Document) {
     let out = export(d, "x.psd", &ExportOptions::default()).unwrap();
     let back = PsdFile::from_bytes(&out.bytes).unwrap();
-    let (doc, _) = psd_to_document(&back);
+    let (doc, _) = psd_to_document(&back).unwrap();
     (back, doc)
 }
 
@@ -48,7 +48,7 @@ fn resources_and_global_blocks_survive_a_save() {
     f.resources.push(ImageResource::new(1024, vec![0, 0]));
     let fmsk = vec![0, 0, 0, 0, 0, 50];
     f.global_blocks.push(TaggedBlock::new(*b"FMsk", fmsk.clone()));
-    let (mut d, _) = psd_to_document(&f);
+    let (mut d, _) = psd_to_document(&f).unwrap();
     d.guides.horizontal.push(2.0);
     d.guides.vertical.push(3.0);
     d.global_light.angle = 60.0;

@@ -2,10 +2,8 @@ use super::super::path_text::{self, on_path};
 use super::*;
 use photocraft_doc::{ShapeLayer, TextLayer};
 use photocraft_text::{layout::TextLayout, render};
-// Package 12 exposes painted outlines; its private native contour adapter is adapted
-// into this owned module until 00 can expose that adapter. The shaper stays shared.
-#[path = "contours.rs"]
-mod contours;
+// Ordinary conversion, path text and transforms share the same painted contour adapter.
+use super::super::path_text::curves as contours;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ConversionChoice {
@@ -43,15 +41,15 @@ pub fn conversion_targets(doc: &Document, ids: &[LayerId]) -> Vec<LayerId> {
     }
     out
 }
-fn ordinary(t: &TextLayer, shaped: TextLayout) -> Result<Vec<on_path::PaintedOutline>> {
+pub(crate) fn ordinary(t: &TextLayer, shaped: TextLayout) -> Result<Vec<on_path::PaintedOutline>> {
     let warp = render::layout_warp(&shaped, t.warp.as_ref());
     if let Some(warp) = warp {
-        if !shaped.decorations.is_empty() || shaped.styles.iter().any(|s| s.color != t.color || s.faux_bold) || shaped.faces.iter().any(|f| f.embolden) {
+        if !shaped.decorations.is_empty() || shaped.styles.iter().any(|s| s.faux_bold) || shaped.faces.iter().any(|f| f.embolden) {
             return Err(error("styled warped text needs a painted warp outline provider"));
         }
-        return Ok(render::outlines(&shaped, &t.transform, Some(&warp))
+        return Ok(render::painted_outlines(&shaped, &t.transform, Some(&warp))
             .into_iter()
-            .map(|elements| on_path::PaintedOutline { color: t.color, elements })
+            .map(|(color, elements)| on_path::PaintedOutline { color, elements })
             .collect());
     }
     // Identity placement reuses 12's per-style glyph, faux-bold and decoration projector.

@@ -14,7 +14,8 @@ li-color.workspace = true
 crc32fast.workspace = true
 flate2.workspace = true
 image.workspace = true
-ruzstd = "=0.9.0"
+# RUSTSEC-2026-0344: window/output limits outside the decoder cannot bound a block.
+ruzstd = "=0.9.1"
 photocraft-doc.workspace = true
 photocraft-geom.workspace = true
 photocraft-color.workspace = true

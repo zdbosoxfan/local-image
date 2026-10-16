@@ -28,10 +28,20 @@ pub struct GpuStages {
     stack_renders: Mutex<(usize, usize)>,
 }
 
+type CapturedSource = (CaptureParams, Option<Arc<lightcraft_pipeline::ClipConfidence>>, Arc<Buf>);
+
 struct Source {
     src: Arc<Rgb32f>,
     uploaded: Arc<Buf>,
-    capture: Option<(CaptureParams, Arc<Buf>)>,
+    capture: Option<CapturedSource>,
+}
+
+fn same_clip(a: &Option<Arc<lightcraft_pipeline::ClipConfidence>>, b: &Option<Arc<lightcraft_pipeline::ClipConfidence>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 const CAPACITY: usize = 2;
@@ -40,6 +50,7 @@ const CAPACITY: usize = 2;
 struct Entry {
     src: Arc<Rgb32f>,
     capture: Option<CaptureParams>,
+    clip: Option<Arc<lightcraft_pipeline::ClipConfidence>>,
     geo: u64,
     sampled: Arc<Buf>,
     lin: Option<(u64, Arc<Buf>)>,
@@ -81,8 +92,13 @@ impl GpuStages {
             self.clear();
         }
     }
-    fn get(&self, src: &Arc<Rgb32f>, geo: u64, capture: Option<CaptureParams>) -> Option<Entry> {
-        self.lock().iter().find(|e| e.geo == geo && e.capture == capture && Arc::ptr_eq(&e.src, src)).cloned()
+    fn get(&self, src: &Arc<Rgb32f>, geo: u64, capture: Option<CaptureParams>, info: &SourceInfo) -> Option<Entry> {
+        self.lock()
+            .iter()
+            .find(|e| {
+                e.geo == geo && e.capture == capture && (capture.is_none() || same_clip(&e.clip, &info.clip_confidence)) && Arc::ptr_eq(&e.src, src)
+            })
+            .cloned()
     }
 
     fn put(&self, e: Entry) {
@@ -94,23 +110,24 @@ impl GpuStages {
         }
     }
 
-    fn source(&self, cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>) -> Arc<Buf> {
+    fn source(&self, cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, info: &SourceInfo) -> Arc<Buf> {
         let mut g = self.source.lock().unwrap_or_else(|e| e.into_inner());
         if !g.as_ref().is_some_and(|s| Arc::ptr_eq(&s.src, src)) {
             *g = None; // free the previous photo's buffers first
         }
         let source = g.get_or_insert_with(|| Source { src: src.clone(), uploaded: Arc::new(cx.gpu.upload(rgb_words(src))), capture: None });
         let Some(p) = capture else { return source.uploaded.clone() };
-        if let Some((key, buf)) = &source.capture
+        if let Some((key, clip, buf)) = &source.capture
             && *key == p
+            && same_clip(clip, &info.clip_confidence)
         {
             return buf.clone();
         }
         source.capture = None;
-        let buf = Arc::new(crate::capture::sharpen(cx, &source.uploaded, src, &p));
+        let buf = Arc::new(crate::capture::sharpen_with_confidence(cx, &source.uploaded, src, &p, info.clip_confidence.as_deref()));
         // Publish only after submission: another render thread may reuse this result immediately.
         cx.flush();
-        source.capture = Some((p, buf.clone()));
+        source.capture = Some((p, info.clip_confidence.clone(), buf.clone()));
         buf
     }
 
@@ -190,7 +207,7 @@ impl GpuStages {
         }
         if let Some(s) = &*self.source.lock().unwrap_or_else(|e| e.into_inner()) {
             add(&s.uploaded);
-            s.capture.iter().for_each(|(_, b)| add(b));
+            s.capture.iter().for_each(|(_, _, b)| add(b));
         }
         total
     }
@@ -718,7 +735,7 @@ pub fn render(
     if needs_analysis {
         crate::record_cpu_stage("source analysis");
     }
-    let analysis_buf = (capture.is_some() && needs_analysis).then(|| source_buffer(&mut cx, src, capture, stages));
+    let analysis_buf = (capture.is_some() && needs_analysis).then(|| source_buffer(&mut cx, src, capture, stages, info));
     let mut analysis_src = analysis_buf.as_ref().map(|buf| cx.read_rgb(buf, src.width, src.height));
     if crate::ctx::failed() {
         return None;
@@ -742,7 +759,7 @@ pub fn render(
         fail(FailKind::Limit, format!("{w}×{h} needs {mib} MiB buffers, over the device's {} MiB storage-buffer limit", gpu.limit() >> 20));
         return None;
     };
-    let cached = stages.and_then(|c| c.get(src, plan.geo, capture));
+    let cached = stages.and_then(|c| c.get(src, plan.geo, capture, info));
     let mut host = Host::default();
     let mut uploaded_source = analysis_buf;
     lap("plan", &mut t, &mut cx);
@@ -751,7 +768,7 @@ pub fn render(
     let sampled = match &cached {
         Some(e) => e.sampled.clone(),
         None if gpu.fits(src.data.len() * 3) && plan.frame.gpu_samplable() => {
-            let src_buf = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages)).clone();
+            let src_buf = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages, info)).clone();
             lap("capture/upload", &mut t, &mut cx);
             sample(&mut cx, src, src_buf, &plan)
         }
@@ -759,7 +776,7 @@ pub fn render(
             crate::record_cpu_stage("geometry");
             // A source over the device limit is prefiltered/resampled on the CPU.
             if capture.is_some() && analysis_src.is_none() {
-                let buf = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages));
+                let buf = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages, info));
                 analysis_src = Some(cx.read_rgb(buf, src.width, src.height));
             }
             let img = plan.frame.sample(analysis_src.as_ref().unwrap_or(src), w, h);
@@ -790,12 +807,12 @@ pub fn render(
                     let b = native_primary.proxy(pk, || {
                         let sampled = if gpu.fits(src.data.len() * 3) && pp.frame.gpu_samplable() {
                             // The proxy must see the same device capture result as the full image.
-                            let source = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages)).clone();
+                            let source = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages, info)).clone();
                             sample(&mut cx, src, source, &pp)
                         } else {
                             crate::record_cpu_stage("geometry");
                             if capture.is_some() && analysis_src.is_none() {
-                                let source = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages));
+                                let source = uploaded_source.get_or_insert_with(|| source_buffer(&mut cx, src, capture, stages, info));
                                 analysis_src = Some(cx.read_rgb(source, src.width, src.height));
                             }
                             Arc::new(gpu.upload(rgb_words(&pp.frame.sample(analysis_src.as_ref().unwrap_or(src), pp.w, pp.h))))
@@ -872,6 +889,7 @@ pub fn render(
             c.put(Entry {
                 src: src.clone(),
                 capture,
+                clip: info.clip_confidence.clone(),
                 geo: plan.geo,
                 sampled,
                 lin: Some((plan.lin_key, lin)),
@@ -888,6 +906,7 @@ pub fn render(
         c.put(Entry {
             src: src.clone(),
             capture,
+            clip: info.clip_confidence.clone(),
             geo: plan.geo,
             sampled,
             lin: Some((plan.lin_key, lin.clone())),
@@ -1076,13 +1095,13 @@ pub fn render(
     Some(Rendered { image, histogram, deep })
 }
 
-fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, stages: Option<&GpuStages>) -> Arc<Buf> {
+fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, stages: Option<&GpuStages>, info: &SourceInfo) -> Arc<Buf> {
     match stages {
-        Some(c) => c.source(cx, src, capture),
+        Some(c) => c.source(cx, src, capture, info),
         None => {
             let uploaded = cx.gpu.upload(rgb_words(src));
             Arc::new(match capture {
-                Some(p) => crate::capture::sharpen(cx, &uploaded, src, &p),
+                Some(p) => crate::capture::sharpen_with_confidence(cx, &uploaded, src, &p, info.clip_confidence.as_deref()),
                 None => uploaded,
             })
         }
@@ -1661,7 +1680,7 @@ fn masks_impl(
         if m.refine > 0. {
             let k = (m.refine as f32 / 100.).clamp(0., 1.);
             let input = cx.slice(&alpha, offset as usize, n);
-            let sigma = (0.04 * w.max(h) as f32 * k).max(1.);
+            let sigma = lightcraft_pipeline::masks::refine_sigma(frame, w, k);
             let (m0, m1) = (cx.gpu.buffer(n * 2), cx.gpu.buffer(n * 2));
             map(cx, "xguided_pre", n, &[0], [Some(&prep.log_l), Some(&input), None], &m0);
             map(cx, "xguided_pre", n, &[1], [Some(&prep.log_l), Some(&input), None], &m1);
@@ -1928,18 +1947,18 @@ mod tests {
         let stages = GpuStages::default();
         let src = Arc::new(lightcraft_scenes::demo_library()[3].render(73, 49));
         let p = CaptureParams { sigma: 0.8, ..Default::default() };
-        let original = stages.source(&mut cx, &src, None);
-        let sharp = stages.source(&mut cx, &src, Some(p));
+        let original = stages.source(&mut cx, &src, None, &SourceInfo::default());
+        let sharp = stages.source(&mut cx, &src, Some(p), &SourceInfo::default());
         assert!(!Arc::ptr_eq(&original, &sharp));
-        assert!(Arc::ptr_eq(&sharp, &stages.source(&mut cx, &src, Some(p))));
-        assert!(Arc::ptr_eq(&original, &stages.source(&mut cx, &src, None)));
-        assert!(Arc::ptr_eq(&sharp, &stages.source(&mut cx, &src, Some(p))), "off/on reuses the same capture result");
+        assert!(Arc::ptr_eq(&sharp, &stages.source(&mut cx, &src, Some(p), &SourceInfo::default())));
+        assert!(Arc::ptr_eq(&original, &stages.source(&mut cx, &src, None, &SourceInfo::default())));
+        assert!(Arc::ptr_eq(&sharp, &stages.source(&mut cx, &src, Some(p), &SourceInfo::default())), "off/on reuses the same capture result");
         assert_eq!(stages.bytes(), 73 * 49 * 3 * 4 * 2, "upload and sharpened source counted once");
-        let changed = stages.source(&mut cx, &src, Some(CaptureParams { threshold: 0.8, ..p }));
+        let changed = stages.source(&mut cx, &src, Some(CaptureParams { threshold: 0.8, ..p }), &SourceInfo::default());
         assert!(!Arc::ptr_eq(&sharp, &changed), "parameter change reruns capture");
-        assert!(Arc::ptr_eq(&original, &stages.source(&mut cx, &src, None)), "capture change preserves the original upload");
+        assert!(Arc::ptr_eq(&original, &stages.source(&mut cx, &src, None, &SourceInfo::default())), "capture change preserves the original upload");
         let new_src = Arc::new((*src).clone());
-        let new_upload = stages.source(&mut cx, &new_src, None);
+        let new_upload = stages.source(&mut cx, &new_src, None, &SourceInfo::default());
         assert!(!Arc::ptr_eq(&original, &new_upload), "decoder source identity invalidates upload");
         assert_eq!(stages.bytes(), 73 * 49 * 3 * 4);
         stages.clear();

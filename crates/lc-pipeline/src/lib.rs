@@ -371,9 +371,11 @@ pub struct StageCache {
     stack_renders: Mutex<(usize, usize)>,
     /// Another renderer's per-view state (the GPU renderer keeps its device-resident stages here).
     ext: Mutex<Option<Arc<dyn Any + Send + Sync>>>,
-    /// The capture-sharpened source of the last render: (source, parameters key, result).
-    pre: Mutex<Option<(Arc<Rgb32f>, u64, Arc<Rgb32f>)>>,
+    /// The last source, parameters key, result, and retained clipping metadata.
+    pre: Mutex<Option<CapturedSource>>,
 }
+
+type CapturedSource = (Arc<Rgb32f>, u64, Arc<Rgb32f>, Option<Arc<ClipConfidence>>);
 
 impl Default for StageCache {
     fn default() -> Self {
@@ -453,7 +455,7 @@ impl StageCache {
                 add(Arc::as_ptr(l) as usize, size(l));
             }
         }
-        if let Some((_, _, out)) = self.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if let Some((_, _, out, _)) = self.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
             total += size(out);
         }
         total
@@ -633,23 +635,23 @@ const CAPTURE_DEFAULT_RADIUS: f32 = 0.5;
 /// The capture-sharpened source (`None`: nothing to sharpen; render `src`), reused from `cache`
 /// while the source and the parameters are unchanged. Both renderers call it first.
 pub fn presource(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, cache: Option<&StageCache>) -> Option<Arc<Rgb32f>> {
-    capture_params(info, s).map(|p| presource_with(src, &p, cache))
+    capture_params(info, s).map(|p| presource_with(src, info, &p, cache))
 }
 
-fn presource_with(src: &Arc<Rgb32f>, p: &capture::CaptureParams, cache: Option<&StageCache>) -> Arc<Rgb32f> {
-    let key = hash_of(format!("{p:?}"));
+fn presource_with(src: &Arc<Rgb32f>, info: &SourceInfo, p: &capture::CaptureParams, cache: Option<&StageCache>) -> Arc<Rgb32f> {
+    let key = hash_of((format!("{p:?}"), info.clip_confidence.as_ref().map(|c| Arc::as_ptr(c) as usize)));
     if let Some(c) = cache
-        && let Some((s0, k, out)) = c.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        && let Some((s0, k, out, _)) = c.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
         && Arc::ptr_eq(s0, src)
         && *k == key
     {
         return out.clone();
     }
     let mut img = (**src).clone();
-    timed("capture sharpening", || capture::sharpen(&mut img, p));
+    timed("capture sharpening", || capture::sharpen_with_confidence(&mut img, p, info.clip_confidence.as_deref()));
     let out = Arc::new(img);
     if let Some(c) = cache {
-        *c.pre.lock().unwrap_or_else(|e| e.into_inner()) = Some((src.clone(), key, out.clone()));
+        *c.pre.lock().unwrap_or_else(|e| e.into_inner()) = Some((src.clone(), key, out.clone(), info.clip_confidence.clone()));
     }
     out
 }
@@ -721,10 +723,10 @@ fn render_impl(
     let mut t = profiling().then(std::time::Instant::now);
     // capture sharpening works on the source itself (sensor-scale blur), before everything else
     let pre: Option<Arc<Rgb32f>> = capture_params(info, s).map(|p| match &src {
-        Src::Shared(a) => presource_with(a, &p, cache),
+        Src::Shared(a) => presource_with(a, info, &p, cache),
         Src::Borrowed(r) => {
             let mut img = (*r).clone();
-            capture::sharpen(&mut img, &p);
+            capture::sharpen_with_confidence(&mut img, &p, info.clip_confidence.as_deref());
             Arc::new(img)
         }
     });

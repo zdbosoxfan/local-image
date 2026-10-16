@@ -136,6 +136,8 @@
     "Press Enter or Escape to finish the path.",
     "Top left", "Top right", "Bottom right", "Bottom left",
     "document was closed",
+    "The document was closed; reopen the dialog",
+    "The document or layer changed; reopen the dialog",
     "Saved a copy to {path}",
     "Export failed: {error}",
     "Some preferences used defaults: {error}",

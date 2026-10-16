@@ -621,3 +621,73 @@ fn svg_cropped_fallback_preserves_rotated_warped_text() {
 mod blends;
 
 mod clipping;
+
+#[test]
+fn svg_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal() {
+    use photocraft_doc::text::{CharStyle, TextRun};
+    for alpha in [1.0, 0.5] {
+        let mut doc = Document::new("paint order", Size::new(256, 128), ColorMode::Rgb, SampleType::U8);
+        let mut text = photocraft_doc::TextLayer { text: "HHH".into(), transform: photocraft_doc::Affine::translate(100., 90.), ..Default::default() };
+        text.runs = (0..3)
+            .map(|i| {
+                let mut color = if i == 1 { Color::rgb(0., 0., 1.) } else { Color::rgb(1., 0., 0.) };
+                color.alpha = alpha;
+                TextRun { len: 1, style: CharStyle { size_pt: 64., tracking: -650., color, ..Default::default() } }
+            })
+            .collect();
+        let mut engine = photocraft_text::TextEngine::new();
+        let layout = engine.layout(&text, doc.resolution_dpi);
+        // Prove the landmark lies inside every individual paint, not just the final
+        // opaque composite. A top opaque glyph can conceal a lower glyph's AA edge.
+        let (x, y) = (125, 65);
+        for run in 0..3 {
+            let mut single = layout.clone();
+            single.glyphs.retain(|glyph| glyph.style as usize == run);
+            single.decorations.clear();
+            for style in &mut single.styles {
+                style.color.alpha = 1.0;
+            }
+            let coverage = photocraft_text::render::rasterize(&single, &text.transform, photocraft_doc::PixelFormat::RGBA32F, text.antialias).surface;
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    assert!((coverage.sample_channel(x + dx, y + dy, 3) - 1.0).abs() < 1e-5, "run {run} landmark must be a full-coverage interior");
+                }
+            }
+        }
+        engine.render_layer(&mut text, doc.resolution_dpi, doc.pixel_format());
+        doc.layers.push(Layer::new("Type", LayerContent::Text(text)));
+        let options = ExportOptions { text_as_curves: true, ..Default::default() };
+        let source = String::from_utf8(export::export(&doc, &ExportScope::Document, &options).unwrap().bytes).unwrap();
+        let colors = xml(&source)
+            .descendants()
+            .filter(|node| node.has_tag_name("path"))
+            .filter_map(|node| node.attribute("fill").map(str::to_owned))
+            .collect::<Vec<_>>();
+        assert_eq!(colors, ["#ff0000", "#0000ff", "#ff0000"]);
+        let rendered = render(&source);
+        let expected = photocraft_compose::flatten(&doc).get(x, y);
+        // Red, then blue, then red at full coverage: straight source-over gives
+        // alpha 1-(1-a)^3 and premultiplied RGB [a+a(1-a)^2, 0, a(1-a)].
+        let analytical = [alpha + alpha * (1.0 - alpha).powi(2), 0.0, alpha * (1.0 - alpha), 1.0 - (1.0 - alpha).powi(3)];
+        for channel in 0..4 {
+            let native = if channel == 3 { expected[3] } else { expected[channel] * expected[3] };
+            assert!((native - analytical[channel]).abs() < 0.005, "native cache must match source-over away from AA edges");
+        }
+        let pixel = rendered[y as usize * 256 + x as usize];
+        for channel in 0..4 {
+            let value = analytical[channel];
+            assert!((f32::from(pixel[channel]) / 255. - value).abs() < 0.02, "alpha={alpha}: {pixel:?} versus {expected:?}");
+        }
+        let limited = ExportOptions { max_bytes: 256, ..options.clone() };
+        assert!(matches!(export::export(&doc, &ExportScope::Document, &limited), Err(ExportError::Budget(_))));
+        let checks = std::cell::Cell::new(0);
+        let cancel = || {
+            checks.set(checks.get() + 1);
+            checks.get() > 30
+        };
+        let mut text = photocraft_text::TextEngine::new();
+        let mut context = export::ExportContext { cancelled: &cancel, projection: None, text: &mut text };
+        assert!(matches!(export::export_with(&doc, &ExportScope::Document, &options, &mut context), Err(ExportError::Cancelled)));
+        assert!(checks.get() < 100, "cancellation should stop the current traversal promptly");
+    }
+}

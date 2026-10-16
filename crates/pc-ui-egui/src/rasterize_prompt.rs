@@ -120,7 +120,7 @@ pub fn open(app: &mut PhotocraftApp, kind: Kind, layer: photocraft_doc::LayerId,
     f.insert("at".into(), json!(at));
     // A missing document leaves the capture absent and confirmation fails closed.
     let _ = crate::toolsets_ui::persona::capture_rasterize_prompt(app, &mut f);
-    app.ui.open_dialog(DialogKind::Command, f)
+    crate::dialogs::open_document_dialog(app, DialogKind::Command, f)
 }
 
 /// Is this dialog the prompt?

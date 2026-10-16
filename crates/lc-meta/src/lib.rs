@@ -101,6 +101,13 @@ pub struct Metadata {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dji: Option<DjiMetadata>,
     // lens
+    /// The pixels already contain the source's DNG lens corrections (e.g. a merge).
+    /// Persisted in lc:lensCorrectionsBaked so an automatic profile is not applied twice.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub lens_corrections_baked: bool,
+    /// Per-channel geometric DNG correction already baked into the pixels.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chromatic_aberration_baked: bool,
     pub lens_make: Option<String>,
     pub lens_model: Option<String>,
     pub lens_serial_number: Option<String>,
@@ -197,6 +204,8 @@ impl Metadata {
 
     /// Fill every empty field of `self` from `other`.
     pub fn fill_missing(&mut self, other: &Metadata) {
+        self.lens_corrections_baked |= other.lens_corrections_baked;
+        self.chromatic_aberration_baked |= other.chromatic_aberration_baked;
         if self.artist.is_none() {
             self.artist = other.artist.clone();
             self.creators = other.creators.clone();

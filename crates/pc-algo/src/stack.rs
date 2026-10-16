@@ -99,7 +99,9 @@ pub fn combine(layers: &[Vec<[f32; 4]>], s: Stat) -> Vec<[f32; 4]> {
             return;
         }
         for c in 0..3 {
-            o[c] = stat(&mut samples[c], s).clamp(0.0, 1.0);
+            // Statistics remain in the source's numeric domain. Integer surface
+            // storage clamps later; float smart objects retain HDR and signed data.
+            o[c] = stat(&mut samples[c], s);
         }
         o[3] = alpha;
     };
@@ -165,7 +167,7 @@ mod tests {
         assert_eq!(at(Stat::Minimum), 0.1);
         assert_eq!(at(Stat::Maximum), 0.9);
         assert!((at(Stat::Range) - 0.8).abs() < 1e-6);
-        assert_eq!(at(Stat::Summation), 1.0); // clamped
+        assert!((at(Stat::Summation) - 1.6).abs() < 1e-6); // storage owns clipping
         let var = at(Stat::Variance);
         assert!((at(Stat::StandardDeviation) - var.sqrt()).abs() < 1e-6);
         assert!(at(Stat::Skewness) > 0.5, "right-skewed");

@@ -131,7 +131,7 @@ impl Ai {
             bail!("AI enlargement requires a GPU/NPU; CPU inference is disabled.");
         }
         native_scale(input.dimensions(), (width, height))?;
-        selection::validate(method, choice)?;
+        selection::supported(method, choice)?;
         if !crate::resources::accelerator(&self.client.system_stats()?) {
             bail!("AI enlargement requires ComfyUI with a GPU/NPU; the server reports CPU-only.");
         }

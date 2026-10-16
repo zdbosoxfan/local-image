@@ -355,6 +355,9 @@ pub fn expand_within(paths: &[String], skip: Option<&Path>, limits: crate::walk:
     let mut truncated = false;
     for p in paths {
         let p = Path::new(p);
+        if p.components().any(|part| part.as_os_str().to_string_lossy().starts_with("Local Image Move Recovery - ")) {
+            continue;
+        }
         if skip.is_some_and(|s| p == s) {
             continue;
         }
@@ -525,15 +528,28 @@ pub fn scan(s: &mut Session, paths: &[String]) -> Vec<ImportCandidate> {
 
 /// [`scan`] without the session, so it can run on a worker thread. Stops early (returning what it
 /// has) when `progress.cancel` is set.
-pub fn scan_with(mut input: ScanInput, paths: &[String], progress: &ScanProgress) -> ScanOutput {
-    use std::sync::atomic::Ordering::Relaxed;
+pub fn scan_with(input: ScanInput, paths: &[String], progress: &ScanProgress) -> ScanOutput {
     let files = expand(paths, input.skip.as_deref());
+    scan_listed(input, files, progress, false)
+}
+
+/// Scan an already capability-enumerated file list. No ambient expansion or metadata reads;
+/// one worker invokes the supplied probe serially and observes cancellation between files.
+pub fn scan_scoped_with(input: ScanInput, files: &[String], progress: &ScanProgress) -> ScanOutput {
+    scan_listed(input, files.to_vec(), progress, true)
+}
+
+fn scan_listed(mut input: ScanInput, files: Vec<String>, progress: &ScanProgress, scoped: bool) -> ScanOutput {
+    use std::sync::atomic::Ordering::Relaxed;
     let todo: Vec<String> = files.iter().filter(|f| !input.by_path.contains_key(Path::new(f))).cloned().collect();
     progress.total.store(todo.len(), Relaxed);
     // Reuse only files with the same size and timestamp as the preceding probe.
     let cached: Vec<Option<ProbeInfo>> = todo
         .iter()
         .map(|f| {
+            if scoped {
+                return None;
+            }
             let info = input.cache.remove(f)?;
             (cfg!(target_arch = "wasm32")
                 || std::fs::metadata(f)
@@ -543,7 +559,25 @@ pub fn scan_with(mut input: ScanInput, paths: &[String], progress: &ScanProgress
         .collect();
     let missing: Vec<String> = todo.iter().zip(&cached).filter(|(_, c)| c.is_none()).map(|(f, _)| f.clone()).collect();
     progress.done.store(todo.len() - missing.len(), Relaxed);
-    let mut fresh = probe_all(input.probe.as_ref(), &missing, progress).into_iter();
+    let fresh = if scoped {
+        missing
+            .iter()
+            .map(|path| {
+                if progress.cancel.load(Relaxed) {
+                    return Err("scan cancelled".into());
+                }
+                let result = match &input.probe {
+                    Some(probe) => crate::memory::in_background(|| probe(path)),
+                    None => Err("no capability-backed photo probe".into()),
+                };
+                progress.done.fetch_add(1, Relaxed);
+                result
+            })
+            .collect()
+    } else {
+        probe_all(input.probe.as_ref(), &missing, progress)
+    };
+    let mut fresh = fresh.into_iter();
     let probed: Vec<Result<ProbeInfo, String>> =
         cached.into_iter().map(|c| c.map(Ok).unwrap_or_else(|| fresh.next().unwrap_or_else(|| Err("not probed".into())))).collect();
     crate::memory::release();
@@ -790,6 +824,12 @@ impl ImportJob {
     /// Expand `paths` (folders recursively, the library's own folder skipped) into the files an
     /// import would handle; counted in [`ImportJob::total`].
     pub fn expand(&self, paths: &[String]) -> Vec<String> {
+        if self.mode == ImportMode::Move {
+            for path in paths {
+                let path = Path::new(path);
+                crate::import_move::recover_pending(if path.is_dir() { path } else { path.parent().unwrap_or(Path::new(".")) });
+            }
+        }
         let files = expand(paths, self.lib_dir.as_deref());
         self.total.fetch_add(files.len(), std::sync::atomic::Ordering::Relaxed);
         files
@@ -866,7 +906,7 @@ impl ImportJob {
         } else {
             self.copy_workers.unwrap_or_else(|| lightcraft_sysmem::heavy_jobs().max_jobs()).min(todo.len())
         };
-        let copies = Copies::new(workers, self.file_bytes.clone(), self.done.clone());
+        let copies = Copies::new(workers, self.file_bytes.clone(), self.done.clone(), cancel, lightcraft_sysmem::heavy_jobs());
         let mut entries: Vec<Entry> = Vec::new();
         // content hash → the copy (task) of an earlier file in this batch that had it, until known
         let mut pending_hash: HashMap<String, usize> = HashMap::new();
@@ -1012,39 +1052,10 @@ impl ImportJob {
                 entries.push(Entry::Done(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed }))));
             }
         });
-        // In file order. A copy skipped by a cancel ends the batch there, as the one-at-a-time
-        // import stopped before that file: what came after it is left out (a Move placed after
-        // it is taken back; copies are a prefix, so none of them was made).
-        let outcomes = copies.into_outcomes();
-        let mut entries = entries.into_iter();
-        for entry in entries.by_ref() {
-            match entry {
-                Entry::Done(item) => out.items.push(item),
-                Entry::Copy(pending) => {
-                    let PendingCopy { task, path, mut info, sidecar } = *pending;
-                    match outcomes.get(task).cloned().unwrap_or(CopyOutcome::Skipped) {
-                        CopyOutcome::Copied { stored, dng } => {
-                            if let Some(h) = &info.content_hash {
-                                self.by_hash.insert(h.clone(), None);
-                            }
-                            if dng {
-                                info.format = "DNG".into();
-                            }
-                            out.items.push(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed: None })));
-                        }
-                        CopyOutcome::Failed(e) => out.items.push(PreparedItem::Failed(path, e)),
-                        CopyOutcome::Skipped => break,
-                    }
-                }
-            }
-        }
-        for entry in entries {
-            if let Entry::Done(PreparedItem::Ready(r)) = entry
-                && let Some(pl) = &r.placed
-            {
-                crate::import_move::rollback(pl);
-            }
-        }
+        // Cancellation can leave holes: an earlier task may still be waiting for memory or
+        // a colliding name while a later independent copy has already finished. Publish every
+        // completed operation in file order, skipping only operations that never started.
+        append_completed_entries(entries, &copies.into_outcomes(), &mut self.by_hash, &mut out.items);
         out
     }
 }
@@ -1053,6 +1064,38 @@ impl ImportJob {
 enum Entry {
     Done(PreparedItem),
     Copy(Box<PendingCopy>),
+}
+
+/// Reconcile completed file effects without assuming cancellation left a prefix. This also
+/// retains already prepared Move entries after a skipped symlink-copy task; their normal
+/// commit/rollback ownership remains with Prepared and commit_prepared.
+fn append_completed_entries(
+    entries: Vec<Entry>,
+    outcomes: &[CopyOutcome],
+    by_hash: &mut HashMap<String, Option<PhotoId>>,
+    items: &mut Vec<PreparedItem>,
+) {
+    for entry in entries {
+        match entry {
+            Entry::Done(item) => items.push(item),
+            Entry::Copy(pending) => {
+                let PendingCopy { task, path, mut info, sidecar } = *pending;
+                match outcomes.get(task).cloned().unwrap_or(CopyOutcome::Skipped) {
+                    CopyOutcome::Copied { stored, dng } => {
+                        if let Some(hash) = &info.content_hash {
+                            by_hash.insert(hash.clone(), None);
+                        }
+                        if dng {
+                            info.format = "DNG".into();
+                        }
+                        items.push(PreparedItem::Ready(Box::new(ReadyFile { path, stored, info, sidecar, placed: None })));
+                    }
+                    CopyOutcome::Failed(error) => items.push(PreparedItem::Failed(path, error)),
+                    CopyOutcome::Skipped => {}
+                }
+            }
+        }
+    }
 }
 
 /// A file whose copy is queued ([`Copies`]) and what it becomes once copied.
@@ -1120,6 +1163,144 @@ fn copy_cost(file_size: u64, dng: bool) -> u64 {
     (16 << 20) + if dng { file_size.saturating_mul(6) } else { 0 }
 }
 
+#[cfg(test)]
+#[test]
+fn cancelled_import_releases_permit_wait_without_starting_copy() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        mpsc,
+    };
+    use std::time::Duration;
+    for workers in [1, 2] {
+        let permits = lightcraft_sysmem::HeavyJobs::new(1, 1024, || lightcraft_sysmem::MemoryNow { available: 4 << 30, rss: None });
+        let held = permits.try_admit(1).unwrap();
+        let cancel = AtomicBool::new(false);
+        let copies = Copies::new(workers, None, Arc::new(AtomicUsize::new(0)), &cancel, &permits);
+        let (finished, result) = mpsc::channel();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                copies.run(&cancel, |copies| {
+                    copies.submit(CopyTask {
+                        root: PathBuf::new(),
+                        src: "must-not-read".into(),
+                        folders: vec![],
+                        name: None,
+                        hash: None,
+                        dng: false,
+                        cost: 1,
+                    });
+                });
+                finished.send(()).unwrap();
+            });
+            assert!(result.recv_timeout(Duration::from_millis(30)).is_err(), "the unrelated permit remains held");
+            cancel.store(true, Ordering::Relaxed);
+            result.recv_timeout(Duration::from_secs(2)).expect("cancel must finish without the unrelated job releasing its permit");
+        });
+        assert_eq!(copies.into_outcomes(), vec![CopyOutcome::Skipped]);
+        drop(held);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn cancellation_keeps_later_completed_copies_and_prepared_moves_after_a_skipped_waiter() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    use std::time::{Duration, Instant};
+
+    let root = std::env::temp_dir().join(format!("li-import-cancel-hole-{}", uuid::Uuid::new_v4()));
+    let source = root.join("source");
+    let library = root.join("library");
+    let destination = library.join("Originals");
+    std::fs::create_dir_all(&source).unwrap();
+    let image = lightcraft_raster::Rgba8::filled(2, 2, [120, 30, 80, 255]);
+    let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
+    for name in ["waiting.png", "copied.png", "moved.png"] {
+        std::fs::write(source.join(name), &bytes).unwrap();
+    }
+    let mut session = Session::new().with_fs();
+    session.open_library(&library, false).unwrap();
+    let info = ProbeInfo { format: "PNG".into(), width: 2, height: 2, file_size: bytes.len() as u64, ..Default::default() };
+
+    // One unrelated reservation leaves one byte of room. The earlier expensive copy must
+    // wait, while the later cheap copy can finish; this order is independent of scheduling.
+    let permits = lightcraft_sysmem::HeavyJobs::new(2, 2, || lightcraft_sysmem::MemoryNow { available: (1 << 30) + 2, rss: None });
+    let held = permits.try_admit(1).unwrap();
+    let cancel = AtomicBool::new(false);
+    let copies = Copies::new(2, None, Arc::new(AtomicUsize::new(0)), &cancel, &permits);
+    let mut completed_move = None;
+    copies.run(&cancel, |copies| {
+        for (name, cost) in [("waiting.png", 2), ("copied.png", 1)] {
+            copies.submit(CopyTask {
+                root: destination.clone(),
+                src: source.join(name).to_string_lossy().into_owned(),
+                folders: vec![],
+                name: None,
+                hash: None,
+                dng: false,
+                cost,
+            });
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Copies::lock(&copies.outcomes).get(1).is_none_or(Option::is_none) && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        // A Move prepared before cancellation also remains a completed file effect after the
+        // skipped copy, as can happen when Move falls back to copying a symlink first.
+        completed_move = Some(crate::import_move::place(&source.join("moved.png"), &destination, "moved.png"));
+        cancel.store(true, Ordering::Relaxed);
+    });
+    let outcomes = copies.into_outcomes();
+    assert_eq!(outcomes[0], CopyOutcome::Skipped);
+    assert!(matches!(outcomes[1], CopyOutcome::Copied { .. }), "later copy must complete before cancellation: {outcomes:?}");
+    let placed = completed_move.unwrap().unwrap();
+    let entries = vec![
+        Entry::Copy(Box::new(PendingCopy {
+            task: 0,
+            path: source.join("waiting.png").to_string_lossy().into_owned(),
+            info: info.clone(),
+            sidecar: None,
+        })),
+        Entry::Copy(Box::new(PendingCopy {
+            task: 1,
+            path: source.join("copied.png").to_string_lossy().into_owned(),
+            info: info.clone(),
+            sidecar: None,
+        })),
+        Entry::Done(PreparedItem::Ready(Box::new(ReadyFile {
+            path: placed.src.to_string_lossy().into_owned(),
+            stored: placed.dst.to_string_lossy().into_owned(),
+            info,
+            sidecar: None,
+            placed: Some(placed),
+        }))),
+    ];
+    let mut prepared = Prepared { scanned: 3, items: Vec::new() };
+    append_completed_entries(entries, &outcomes, &mut HashMap::new(), &mut prepared.items);
+    assert_eq!(prepared.len(), 2);
+    let report = commit_prepared(&mut session, &ImportOptions { mode: ImportMode::Move, ..Default::default() }, "2026-10-16", prepared).unwrap();
+    assert_eq!(report.imported.len(), 2);
+    assert!(source.join("waiting.png").exists());
+    assert!(!destination.join("waiting.png").exists());
+    assert!(source.join("copied.png").exists(), "Copy keeps its source");
+    assert!(!source.join("moved.png").exists(), "the committed Move finishes normally");
+    for name in ["copied.png", "moved.png"] {
+        let path = destination.join(name);
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        assert!(
+            session.catalog.photos().any(|photo| matches!(&photo.source, Source::File { path: stored } if Path::new(stored) == path)),
+            "completed destination must be catalogued"
+        );
+    }
+    drop(held);
+    session.close_library().unwrap();
+    drop(session);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum CopyOutcome {
     Copied {
@@ -1139,10 +1320,12 @@ impl CopyOutcome {
 
 /// The copies of one import batch: submitted in file order, run by up to `workers` threads (one:
 /// right away on the submitting thread), each admitted with a heavy-job permit, files that could
-/// take each other's names one after the other ([`CopyTask::name_key`]). Copies are only skipped
-/// when a cancel comes before they are taken up, and they are taken up in order, so the copies
-/// made are always the first ones.
-struct Copies {
+/// take each other's names one after the other ([`CopyTask::name_key`]). A cancel skips queued
+/// work and interruptible admission waits. Independent later copies may already have finished;
+/// append_completed_entries retains them even when an earlier task was skipped.
+struct Copies<'a> {
+    cancel: &'a std::sync::atomic::AtomicBool,
+    permits: &'a lightcraft_sysmem::HeavyJobs,
     workers: usize,
     file_bytes: Option<crate::merge::ByteReader>,
     done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -1152,9 +1335,17 @@ struct Copies {
     last_by_key: std::sync::Mutex<HashMap<String, usize>>,
 }
 
-impl Copies {
-    fn new(workers: usize, file_bytes: Option<crate::merge::ByteReader>, done: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> Copies {
+impl<'a> Copies<'a> {
+    fn new(
+        workers: usize,
+        file_bytes: Option<crate::merge::ByteReader>,
+        done: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        cancel: &'a std::sync::atomic::AtomicBool,
+        permits: &'a lightcraft_sysmem::HeavyJobs,
+    ) -> Copies<'a> {
         Copies {
+            cancel,
+            permits,
             workers: workers.max(1),
             file_bytes,
             done,
@@ -1213,16 +1404,23 @@ impl Copies {
                 if let Err(e) = tx.send((n, after, task)) {
                     // no worker left (can't happen while `run` is active): copy it here
                     let (_, _, task) = e.0;
-                    self.set(n, task.run(self.file_bytes.as_ref()));
+                    self.set(n, self.copy(task));
                 }
             }
             None => {
-                let permit = lightcraft_sysmem::heavy_jobs().admit(task.cost, &|| false);
-                self.set(n, task.run(self.file_bytes.as_ref()));
-                drop(permit);
+                self.set(n, self.copy(task));
             }
         }
         n
+    }
+
+    fn copy(&self, task: CopyTask) -> CopyOutcome {
+        let cancelled = || self.cancel.load(std::sync::atomic::Ordering::Relaxed);
+        let Some(_permit) = self.permits.admit(task.cost, &cancelled) else { return CopyOutcome::Skipped };
+        if cancelled() {
+            return CopyOutcome::Skipped;
+        }
+        task.run(self.file_bytes.as_ref())
     }
 
     /// Run `plan` (which submits copies) with the worker threads going; returns once every copy
@@ -1254,9 +1452,7 @@ impl Copies {
                         if let Some(a) = after {
                             let _ = self.outcome(a);
                         }
-                        let permit = lightcraft_sysmem::heavy_jobs().admit(task.cost, &|| false);
-                        self.set(task_n, task.run(self.file_bytes.as_ref()));
-                        drop(permit);
+                        self.set(task_n, self.copy(task));
                     }
                 });
                 match spawned {

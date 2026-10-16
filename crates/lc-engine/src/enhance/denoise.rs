@@ -91,7 +91,7 @@ fn infer_selected(
     progress: &(dyn Fn(usize, usize) -> bool + Sync),
 ) -> Result<Vec<[f32; 3]>, String> {
     if !gpu {
-        return Err("AI Denoise requires a GPU/NPU; CPU inference is disabled.".into());
+        return Err("AI Denoise requires a GPU; CPU inference is disabled.".into());
     }
     let (path, kind, tile) = if let Some(c) = custom {
         (c.path(dir), if c.class == 1 { Variant::Linear } else { Variant::Rgb }, c.size)

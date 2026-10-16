@@ -536,6 +536,9 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
     let automation_write = automation.clone().map(|workspace| {
         Box::new(move |path: &str, bytes: &[u8]| workspace.write(path, bytes).map_err(|error| error.to_string())) as photocraft_ui_egui::AutomationWriteFn
     });
+    let automation_browse = automation
+        .clone()
+        .map(|workspace| Box::new(move |path: &str| crate::automation_library::stage(&workspace, path)) as photocraft_ui_egui::AutomationBrowseFn);
     let step: fn(&str, &serde_json::Value) -> photocraft_engine::Result<()> = photocraft_automation::workspace::authorize_desktop_engine_step;
     let automation_authorize = automation.is_some().then_some(step);
     let automation_command = automation.map(|_| {
@@ -602,6 +605,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Ok(photocraft_ui_egui::PreparedWrite { commit: Box::new(move || staged.commit().map_err(|error| error.to_string())) })
         })),
         automation_read,
+        automation_browse,
         automation_write,
         automation_command,
         automation_authorize,
@@ -1357,6 +1361,7 @@ pub(crate) fn prepare_document_save(
     let output = crate::crash_guard::guard("Save", || {
         photocraft_engine::vector_integration::export_document_background(&snapshot, name, &options, &encode).map_err(|e| e.to_string())
     })?;
+    photocraft_format::read::admit_output_size(output.bytes.len() as u64).map_err(|e| e.to_string())?;
     interrupt.check().map_err(|e| e.to_string())?;
     let progress = |fraction| interrupt.progress(0.8 + fraction * 0.19);
     let writing = lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress);

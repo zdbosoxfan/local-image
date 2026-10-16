@@ -48,6 +48,7 @@ pub enum Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+pub use photocraft_codecs::DESKTOP_PHOTO_PIXELS;
 
 /// Decode options.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

@@ -482,6 +482,8 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
         model: first("tiff:Model"),
         serial_number: first("exifEX:BodySerialNumber").or_else(|| first("aux:SerialNumber")),
         software: first("xmp:CreatorTool"),
+        lens_corrections_baked: first("lc:lensCorrectionsBaked").is_some_and(|v| v == "true"),
+        chromatic_aberration_baked: first("lc:chromaticAberrationBaked").is_some_and(|v| v == "true"),
         lens_make: first("exifEX:LensMake"),
         lens_model: first("exifEX:LensModel").or_else(|| first("aux:Lens")),
         lens_serial_number: first("exifEX:LensSerialNumber").or_else(|| first("aux:LensSerialNumber")),
@@ -597,6 +599,8 @@ pub fn write_xmp_lc(meta: &Metadata, lc: &[(&str, &str)]) -> String {
     push("tiff:ImageWidth", meta.width.map(|v| v.to_string()));
     push("tiff:ImageLength", meta.height.map(|v| v.to_string()));
     push("xmp:CreatorTool", meta.software.clone());
+    push("lc:lensCorrectionsBaked", meta.lens_corrections_baked.then(|| "true".into()));
+    push("lc:chromaticAberrationBaked", meta.chromatic_aberration_baked.then(|| "true".into()));
     push("xmp:Rating", meta.rating.map(|v| v.to_string()));
     push("xmp:Label", meta.label.clone());
     push("exif:DateTimeOriginal", meta.capture_time.map(|d| d.to_iso()));
@@ -754,6 +758,8 @@ mod tests {
             // write_xmp doesn't emit regions yet (read-only interchange; see docs/xmp-interop.md), so the
             // roundtrip fixture must leave this empty or `roundtrip_all_fields` can't round-trip it.
             regions: Vec::new(),
+            lens_corrections_baked: true,
+            chromatic_aberration_baked: true,
             sony: None,
             dji: None,
             make: Some("Maker & Sons".into()),

@@ -34,7 +34,7 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
             f.insert("__variables".into(), state);
             f.insert("__page".into(), json!(page));
             f.insert("__label".into(), json!("Variables"));
-            Some(Ok(json!({"dialog": app.ui.open_dialog(DialogKind::Command, f)})))
+            Some(Ok(json!({"dialog": crate::dialogs::open_document_dialog(app, DialogKind::Command, f)})))
         }
         "image.applyDataSet" if !has_params => {
             // No data set named: open the dialog on the Data Sets page to pick one.
@@ -43,7 +43,7 @@ pub fn menu(app: &mut PhotocraftApp, id: &str, params: &Value) -> Option<Result<
             f.insert("__variables".into(), state);
             f.insert("__page".into(), json!("dataSets"));
             f.insert("__label".into(), json!("Variables"));
-            Some(Ok(json!({"dialog": app.ui.open_dialog(DialogKind::Command, f)})))
+            Some(Ok(json!({"dialog": crate::dialogs::open_document_dialog(app, DialogKind::Command, f)})))
         }
         _ => None,
     }

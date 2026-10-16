@@ -1519,7 +1519,7 @@ mod tests {
         let encoded = exported.to_bytes().unwrap();
         let parsed = PsdFile::from_bytes(&encoded).unwrap();
         assert_phfl(&parsed);
-        let (restored, _) = crate::psd_import::psd_to_document(&parsed);
+        let (restored, _) = crate::psd_import::psd_to_document(&parsed).unwrap();
         assert!(restored.layers.iter().any(|l| l.content == LayerContent::Adjustment(adjustment.clone())));
     }
 

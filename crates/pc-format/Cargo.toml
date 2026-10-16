@@ -23,7 +23,8 @@ serde_json = { workspace = true, features = ["unbounded_depth"] }
 thiserror = { workspace = true }
 flate2 = { workspace = true }
 blake3 = { version = "1.8", default-features = false, features = ["pure"] }
-ruzstd = "0.9"
+# RUSTSEC-2026-0344: enforce the decoder's per-block output bound before allocation.
+ruzstd = "0.9.1"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true

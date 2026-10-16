@@ -39,7 +39,18 @@ pub fn xy_to_xyz(xy: [f64; 2]) -> [f64; 3] {
 }
 
 /// Bradford cone response matrix (Lam 1985).
-const BRADFORD: Mat3 = [[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]];
+pub const BRADFORD: Mat3 = [[0.8951, 0.2664, -0.1614], [-0.7502, 1.7135, 0.0367], [0.0389, -0.0685, 1.0296]];
+
+/// CIECAM16 cone response matrix.
+pub const CAT16: Mat3 = [[0.401288, 0.650173, -0.051461], [-0.250268, 1.204414, 0.045854], [-0.002079, 0.048952, 0.953127]];
+
+/// A physical chromaticity with finite, strictly positive adaptation responses.
+/// Joint validation matters: independent x/y slider ranges can admit x + y > 1,
+/// while a physical XYZ white can still lie outside a cone model's domain.
+pub fn valid_adaptation_white(xy: [f64; 2], cones: &Mat3) -> bool {
+    let [x, y] = xy;
+    x.is_finite() && y.is_finite() && x > 0.0 && y > 0.0 && x + y < 1.0 && apply(cones, xy_to_xyz(xy)).iter().all(|v| v.is_finite() && *v > 1e-6)
+}
 
 /// Bradford chromatic adaptation matrix from white `src` to white `dst` (both XYZ).
 /// ICC uses right-associated matrix products to retain the stored-profile reference bits.

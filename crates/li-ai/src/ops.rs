@@ -12,6 +12,10 @@ use crate::family::{Encode, Family, InpaintMethod, RefMethod, Role};
 use crate::imaging::{self, Rect};
 use crate::workflows::{self, LoraUse};
 
+#[cfg(test)]
+#[path = "ops_review_tests.rs"]
+mod review_tests;
+
 /// A random 48-bit seed (what 0.7 used, so seeds stay interchangeable).
 pub fn new_seed() -> u64 {
     rand::random::<u64>() & ((1 << 48) - 1)
@@ -336,7 +340,7 @@ impl Ai {
         match engine {
             RemoveEngine::Lama { .. } => unreachable!(),
             RemoveEngine::Auto { .. } | RemoveEngine::Klein => self.remove_klein(image, &mask, seed, &info, ctl),
-            RemoveEngine::Qwen { variant } => self.remove_qwen(image, &mask, variant, seed, &info, ctl),
+            RemoveEngine::Qwen { variant } => self.remove_qwen(image, &mask, variant, seed, &info, ctl, patch),
         }
     }
 
@@ -378,14 +382,18 @@ impl Ai {
         Ok(current)
     }
 
-    fn remove_qwen(&self, image: &RgbFrame, mask: &GrayImage, variant: &str, seed: u64, info: &ObjectInfo, ctl: &JobControl) -> Result<RgbFrame> {
+    #[allow(clippy::too_many_arguments)]
+    fn remove_qwen(&self, image: &RgbFrame, mask: &GrayImage, variant: &str, seed: u64, info: &ObjectInfo, ctl: &JobControl, patch: bool) -> Result<RgbFrame> {
         let instruction = "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the unwanted object or area to remove and black marks the area to keep. Remove the selected object completely and reconstruct a natural empty continuation of the surrounding background in its place. Match the surrounding texture, perspective, lighting and color. Do not insert any new objects, people, text or symbols. Do not draw the mask in the result. Keep the original composition and all other areas unchanged. ";
         let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl, None)?;
         let edited = RgbFrame::from_rgb8(&image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8());
         // Match the surrounding colour while preserving generated gradients, as Klein does.
         let blended = imaging::poisson_blend_frame(image, &edited, mask);
+        if patch {
+            return Ok(blended);
+        }
         Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
             let m = mask.get_pixel(x as u32, y as u32)[0] as f32 / 255.0;
             let (a, b) = (image.get(x, y), blended.get(x, y));
@@ -419,7 +427,7 @@ impl Ai {
         );
         let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
         Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
             let p = edited.get_pixel(x as u32, y as u32);
@@ -442,6 +450,7 @@ impl Ai {
         loras: &[LoraUse],
         info: &ObjectInfo,
         ctl: &JobControl,
+        sampler: Option<&(String, String)>,
     ) -> Result<RgbaImage> {
         let a = self.resolve(ModelId::Qwen, variant, info)?;
         let loras = Self::validate_lora_names(info, loras, "LoraLoaderModelOnly")?;
@@ -453,7 +462,7 @@ impl Ai {
                 imaging::encode_png(&li_raster::resize_rgba8(r, w, h, li_raster::Filter::Lanczos3))
             })
             .collect::<Result<Vec<_>>>()?;
-        let built = workflows::qwen(
+        let mut built = workflows::qwen(
             &a.files,
             &workflows::QwenParams {
                 prompt,
@@ -469,6 +478,7 @@ impl Ai {
                 loras: &loras,
             },
         );
+        set_qwen_sampler(&mut built, sampler);
         let images: Vec<(String, Vec<u8>)> = built.image_nodes.iter().cloned().zip(pngs).collect();
         let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
         Ok(if out.dimensions() != (ow, oh) { li_raster::resize_rgba8(&out, ow, oh, li_raster::Filter::Lanczos3) } else { out })
@@ -488,7 +498,7 @@ impl Ai {
             "Remove the background from <image1> and preserve the subject exactly. Return an RGBA PNG with a transparent background and a real alpha channel. Keep the original subject position, scale, details and colors. {}",
             hint.trim()
         );
-        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl)?;
+        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
         imaging::finish_cutout(&out)
     }
 
@@ -505,7 +515,12 @@ impl Ai {
         req.height = height;
         req.seed = seed;
         req.steps = 25;
-        self.generate(&req, ctl)
+        req.validate()?;
+        ctl.check()?;
+        ctl.set_stage(Stage::Preparing);
+        let info = self.inventory()?;
+        let availability = self.resolve(req.model, &req.variant, &info)?;
+        self.qwen21_generate(&req, &availability, &[], &info, ctl, true)
     }
 
     /// Generates with any model: Create, Edit, Refine, Inpaint or Upscale-refine, then the
@@ -563,8 +578,16 @@ impl Ai {
         };
         let family = &req.model.info().resolved;
         let (sampler, scheduler) = req.sampler.clone().unwrap_or_else(|| (family.pipeline.sampler_name.clone(), family.pipeline.scheduler.clone()));
+        // Report the actual latent strength, including full-noise text/reference creation.
+        let denoise = match req.mode {
+            GenerateMode::Create if family.pipeline.reference == RefMethod::InitImage && !req.references.is_empty() => req.denoise,
+            GenerateMode::Create => 1.0,
+            GenerateMode::Edit if family.capabilities.edit => 1.0,
+            _ => req.denoise,
+        };
         let mut parameters = serde_json::json!({"steps":req.steps,"guidance":req.guidance,"denoise":req.denoise,
             "sampler":sampler,"scheduler":scheduler,"width":req.width,"height":req.height,"output_width":image.width(),"output_height":image.height(),"refine":req.refine});
+        parameters["denoise"] = serde_json::json!(denoise);
         if let Some(recipe) = recipe {
             parameters["recipe"] = serde_json::json!(recipe.label());
         }
@@ -614,7 +637,7 @@ impl Ai {
         let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
         let (source, refs) = req.source_and_refs();
         if f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
-            return self.qwen21_generate(req, &a, &loras, info, ctl);
+            return self.qwen21_generate(req, &a, &loras, info, ctl, false);
         }
         let sampler = req.sampler.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
         let base = Params {
@@ -631,6 +654,7 @@ impl Ai {
             batch: 1,
             sampler,
             variety: req.variety,
+            init_denoise: req.denoise,
         };
         match req.mode {
             GenerateMode::Create => {
@@ -858,12 +882,21 @@ impl Ai {
     }
 
     /// Qwen Image 2.1 create / edit, as in 0.7 (transparent output, reference canvas rules).
-    fn qwen21_generate(&self, req: &GenerateRequest, a: &Availability, loras: &[LoraUse], info: &ObjectInfo, ctl: &JobControl) -> Result<RgbaImage> {
+    fn qwen21_generate(
+        &self,
+        req: &GenerateRequest,
+        a: &Availability,
+        loras: &[LoraUse],
+        info: &ObjectInfo,
+        ctl: &JobControl,
+        background: bool,
+    ) -> Result<RgbaImage> {
         let (source, refs) = req.source_and_refs();
         if req.mode == GenerateMode::Edit {
             let mut all = vec![source.context("Open an image to edit.")?.clone()];
             all.extend(refs.iter().cloned());
-            let out = self.qwen_edit(&all, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, 1.0, loras, info, ctl)?;
+            let out =
+                self.qwen_edit(&all, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, 1.0, loras, info, ctl, req.sampler.as_ref())?;
             return Ok(imaging::over_white(&out));
         }
         let grid = if refs.is_empty() { 16 } else { 32 };
@@ -886,7 +919,7 @@ impl Ai {
                 }
             })
             .collect::<Result<Vec<_>>>()?;
-        let built = workflows::qwen(
+        let mut built = workflows::qwen(
             &a.files,
             &workflows::QwenParams {
                 prompt: &prompt,
@@ -902,8 +935,12 @@ impl Ai {
                 loras,
             },
         );
+        set_qwen_sampler(&mut built, req.sampler.as_ref());
         let images: Vec<_> = built.image_nodes.iter().cloned().zip(pngs).collect();
         let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
+        if background {
+            return imaging::finish_background(&out);
+        }
         if req.transparent {
             let alpha = imaging::finish_cutout(&out)?;
             let mut out = out;
@@ -1022,6 +1059,13 @@ fn resize_to(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
 
 /// The family's prompt conventions: Pony's score tags and Illustrious' quality tags are added
 /// when the prompt doesn't already start with them; its default negative fills an empty one.
+fn set_qwen_sampler(built: &mut workflows::Built, sampler: Option<&(String, String)>) {
+    if let Some((sampler, scheduler)) = sampler {
+        built.graph["6"]["inputs"]["sampler_name"] = serde_json::json!(sampler);
+        built.graph["6"]["inputs"]["scheduler"] = serde_json::json!(scheduler);
+    }
+}
+
 pub fn prompt_rules(f: &Family, prompt: &str, negative: &str) -> (String, String) {
     let prefix = f.prompt.prefix.trim();
     let first = prefix.split(',').next().unwrap_or("").trim();
@@ -1106,7 +1150,7 @@ fn final_review_qwen_remove_blends_the_boundary_and_preserves_unmasked_pixels() 
     let info = ai.inventory().unwrap();
     let src = RgbImage::from_pixel(64, 48, image::Rgb([105, 166, 205]));
     let mask = GrayImage::from_fn(64, 48, |x, y| Luma([if (16..48).contains(&x) && (12..36).contains(&y) { 255 } else { 0 }]));
-    let out = ai.remove_qwen(&RgbFrame::from_rgb8(&src), &mask, "int8", 42, &info, &JobControl::new()).unwrap().to_rgb8();
+    let out = ai.remove_qwen(&RgbFrame::from_rgb8(&src), &mask, "int8", 42, &info, &JobControl::new(), false).unwrap().to_rgb8();
     let boundary_jump = out.get_pixel(16, 20).0.into_iter().zip(src.get_pixel(15, 20).0).map(|(a, b)| a.abs_diff(b)).max().unwrap();
     assert!(boundary_jump < 12, "Qwen repair must meet the surrounding colour: jump {boundary_jump}");
     for (x, y, p) in out.enumerate_pixels() {

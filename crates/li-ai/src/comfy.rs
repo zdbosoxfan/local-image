@@ -7,8 +7,8 @@
 //! [`ComfyClient::interrupt_ours`]).
 
 use std::net::TcpStream;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -19,6 +19,10 @@ use sha2::{Digest, Sha256};
 /// Upload subfolder inside ComfyUI's input directory.
 pub const UPLOAD_SUBFOLDER: &str = "local-image";
 const DEADLINE: Duration = Duration::from_secs(20 * 60);
+
+#[cfg(test)]
+#[path = "comfy_review_tests.rs"]
+mod review_tests;
 
 /// What a running job is doing, for the progress bar and status line: the shared
 /// [`lightcraft_sysmem::JobStatus`] with this crate's [`Stage`] (`stage`, `step`, `message`;
@@ -191,6 +195,9 @@ fn agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
         .http_status_as_error(false)
+        // ComfyUI API calls stay on this endpoint. In particular a connect error must not
+        // be a later redirect failure after the original POST was already accepted.
+        .max_redirects(0)
         // Direct LAN/Tailscale or loopback tunnel: do not inherit an unrelated system proxy.
         .proxy(None)
         .build()
@@ -275,14 +282,25 @@ impl ComfyClient {
     }
 
     pub fn queue_prompt(&self, graph: &Value, client_id: &str) -> Result<String> {
-        let mut r = self
-            .agent
-            .post(&self.url("/prompt"))
-            .send_json(json!({ "prompt": graph, "client_id": client_id }))
-            .context("Queueing the workflow in ComfyUI failed")?;
+        self.queue_prompt_with_id(graph, client_id, None)
+    }
+
+    fn queue_prompt_with_id(&self, graph: &Value, client_id: &str, proposed_id: Option<&str>) -> Result<String> {
+        let mut body = json!({"prompt": graph, "client_id": client_id});
+        if let Some(id) = proposed_id {
+            body["prompt_id"] = json!(id);
+        }
+        let mut r = match self.agent.post(&self.url("/prompt")).send_json(body) {
+            Ok(response) => response,
+            Err(error) if submission_not_sent(&error) => return Err(anyhow!(SubmissionNotSent(format!("Cannot submit ComfyUI workflow: {error}")))),
+            Err(error) => return Err(anyhow!(error).context("Queueing the workflow in ComfyUI failed")),
+        };
         let status = r.status();
         let v: Value = r.body_mut().read_json().unwrap_or(Value::Null);
         if !status.is_success() {
+            if matches!(status.as_u16(), 400 | 401 | 403 | 404 | 405 | 422 | 429) {
+                return Err(anyhow!(PromptRejected(format!("ComfyUI rejected the workflow: {}", describe_prompt_error(&v)))));
+            }
             bail!("ComfyUI rejected the workflow: {}", describe_prompt_error(&v));
         }
         v.get("prompt_id").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| anyhow!("ComfyUI did not return a prompt id"))
@@ -333,16 +351,25 @@ impl ComfyClient {
         if busy {
             bail!("ComfyUI is busy; models stay loaded until its queue is empty.");
         }
-        self.quick.post(&self.url("/free")).send_json(json!({ "unload_models": true, "free_memory": true }))?;
+        let response = self.quick.post(&self.url("/free")).send_json(json!({ "unload_models": true, "free_memory": true }))?;
+        if !response.status().is_success() {
+            bail!("ComfyUI could not unload models ({})", response.status());
+        }
         Ok(())
     }
 
     /// Stops this process's running prompts using atomic job-specific cancellation, and
     /// signals their local job controls. Ordinary cancellation uses [`Self::cancel`].
     pub fn interrupt_ours(&self) -> Result<bool> {
-        let prompts = OURS.lock().map(|v| v.iter().filter(|(host, _, _)| host == &self.host).cloned().collect::<Vec<_>>()).unwrap_or_default();
-        let ids = prompts.iter().map(|(_, id, _)| id.clone()).collect::<Vec<_>>();
-        for (_, _, control) in prompts {
+        let prompts = OURS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter(|p| p.host == self.host)
+            .map(|p| (p.id.clone(), p.control.clone()))
+            .collect::<Vec<_>>();
+        let ids = prompts.iter().filter_map(|(id, _)| id.clone()).collect::<Vec<_>>();
+        for (_, control) in prompts {
             control.cancel();
         }
         self.interrupt_if_running(&ids)
@@ -393,11 +420,25 @@ impl ComfyClient {
 
     fn run_with_admission(
         &self,
+        graph: Value,
+        images: &[(String, Vec<u8>)],
+        ctl: &JobControl,
+        idle_only: bool,
+        check: Option<&dyn Fn() -> Result<()>>,
+    ) -> Result<Vec<u8>> {
+        self.run_bounded(graph, images, ctl, idle_only, check, DEADLINE, Duration::from_secs(30))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_bounded(
+        &self,
         mut graph: Value,
         images: &[(String, Vec<u8>)],
         ctl: &JobControl,
         idle_only: bool,
         check: Option<&dyn Fn() -> Result<()>>,
+        deadline: Duration,
+        unhealthy_limit: Duration,
     ) -> Result<Vec<u8>> {
         ctl.check()?;
         ctl.set_stage(Stage::Uploading);
@@ -420,9 +461,23 @@ impl ComfyClient {
                 return Err(anyhow!(Busy));
             }
         }
-        let _vram = lightcraft_sysmem::gpu::AiJob::new(crate::resources::local(&self.host));
-        let prompt_id = self.queue_prompt(&graph, &client_id)?;
-        let _ours = OurPrompt::new(&self.host, &prompt_id, ctl);
+        ctl.check()?;
+        let permit = PromptPermit::reserve()?;
+        let vram = lightcraft_sysmem::gpu::AiJob::new(crate::resources::local(&self.host));
+        // Reserve ownership BEFORE POST: an accepted prompt can outlive a lost/malformed reply.
+        // Current ComfyUI accepts proposed UUIDs; older versions are reconciled by client_id.
+        let mut ours = OurPrompt::new(&self.host, &client_id, ctl, permit, vram);
+        let prompt_id = match self.queue_prompt_with_id(&graph, &client_id, Some(&client_id)) {
+            Ok(id) => id,
+            Err(error) => {
+                ours.terminal = error.is::<PromptRejected>() || error.is::<SubmissionNotSent>();
+                if ours.terminal {
+                    return Err(error);
+                }
+                return Err(error.context("ComfyUI submission failed; uncertain submissions remain owned for reconciliation"));
+            }
+        };
+        ours.identify(&prompt_id);
         if let Some(s) = &socket {
             s.set_prompt(&prompt_id, &graph);
         }
@@ -434,7 +489,7 @@ impl ComfyClient {
         let mut last_poll_error = String::new();
         loop {
             let elapsed = started.elapsed();
-            if elapsed > DEADLINE {
+            if elapsed > deadline {
                 let _ = self.cancel(&prompt_id);
                 bail!("ComfyUI did not finish within 20 minutes");
             }
@@ -454,6 +509,7 @@ impl ComfyClient {
                 Ok(Some(entry)) => {
                     unhealthy_since = None;
                     if let Some(err) = history_error(&entry) {
+                        ours.terminal = true;
                         if ctl.is_cancelled() {
                             ctl.set_stage(Stage::Cancelled);
                             return Err(anyhow!(Cancelled));
@@ -461,6 +517,7 @@ impl ComfyClient {
                         bail!("{err}");
                     }
                     if let Some((file, sub, kind)) = first_output_image(&entry) {
+                        ours.terminal = true;
                         if ctl.is_cancelled() {
                             ctl.set_stage(Stage::Cancelled);
                             return Err(anyhow!(Cancelled));
@@ -475,6 +532,7 @@ impl ComfyClient {
                         return Ok(bytes);
                     }
                     if entry.get("status").and_then(|s| s.get("completed")).and_then(Value::as_bool) == Some(true) {
+                        ours.terminal = true;
                         if ctl.is_cancelled() {
                             ctl.set_stage(Stage::Cancelled);
                             return Err(anyhow!(Cancelled));
@@ -485,32 +543,24 @@ impl ComfyClient {
                 Ok(None) => {
                     if last_queue_check.elapsed() >= Duration::from_secs(1) || cancel_sent {
                         last_queue_check = Instant::now();
-                        match self.queue_state() {
-                            Ok(q) => {
-                                let listed = ["queue_running", "queue_pending"]
-                                    .iter()
-                                    .any(|k| q.get(*k).and_then(Value::as_array).is_some_and(|a| a.iter().any(|i| item_has(i, &prompt_id))));
-                                if listed {
-                                    unhealthy_since = None;
-                                } else {
-                                    match self.history(&prompt_id) {
-                                        Ok(None) => {
-                                            if ctl.is_cancelled() {
-                                                ctl.set_stage(Stage::Cancelled);
-                                                return Err(anyhow!(Cancelled));
-                                            }
-                                            last_poll_error =
-                                                "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.".into();
-                                            unhealthy_since.get_or_insert_with(Instant::now);
-                                        }
-                                        Ok(Some(_)) => unhealthy_since = None,
-                                        Err(e) => {
-                                            last_poll_error = format!("Cannot confirm ComfyUI job completion: {e:#}");
-                                            unhealthy_since.get_or_insert_with(Instant::now);
-                                        }
+                        match self.queue_state().and_then(|queue| queue_contains(&queue, &prompt_id)) {
+                            Ok(true) => unhealthy_since = None,
+                            Ok(false) => match self.history(&prompt_id) {
+                                Ok(None) => {
+                                    if ctl.is_cancelled() {
+                                        ours.terminal = true;
+                                        ctl.set_stage(Stage::Cancelled);
+                                        return Err(anyhow!(Cancelled));
                                     }
+                                    last_poll_error = "The job is no longer in ComfyUI's queue or history. The server may have restarted; try again.".into();
+                                    unhealthy_since.get_or_insert_with(Instant::now);
                                 }
-                            }
+                                Ok(Some(_)) => unhealthy_since = None,
+                                Err(e) => {
+                                    last_poll_error = format!("Cannot confirm ComfyUI job completion: {e:#}");
+                                    unhealthy_since.get_or_insert_with(Instant::now);
+                                }
+                            },
                             Err(e) => {
                                 last_poll_error = format!("Cannot read the ComfyUI queue: {e:#}");
                                 unhealthy_since.get_or_insert_with(Instant::now);
@@ -523,7 +573,7 @@ impl ComfyClient {
                     unhealthy_since.get_or_insert_with(Instant::now);
                 }
             }
-            if unhealthy_since.is_some_and(|t| t.elapsed() >= Duration::from_secs(30)) {
+            if unhealthy_since.is_some_and(|t| t.elapsed() >= unhealthy_limit) {
                 ctl.set_stage(Stage::Failed);
                 bail!("{last_poll_error}");
             }
@@ -540,31 +590,250 @@ impl ComfyClient {
 }
 
 /// Prompts this process queued and still waits for, as `(host, prompt id)`.
-static OURS: Mutex<Vec<(String, String, JobControl)>> = Mutex::new(Vec::new());
+struct OwnedPrompt {
+    host: String,
+    client_id: String,
+    id: Option<String>,
+    control: JobControl,
+    unresolved: bool,
+    _permit: PromptPermit,
+    local: bool,
+    vram: Option<lightcraft_sysmem::gpu::AiJob>,
+    idle_observations: u8,
+}
+static OURS: Mutex<Vec<OwnedPrompt>> = Mutex::new(Vec::new());
+static CLEANUP_WAKE: Condvar = Condvar::new();
+static CLEANUP_STARTED: AtomicBool = AtomicBool::new(false);
+static OWNED_COUNT: AtomicUsize = AtomicUsize::new(0);
+const MAX_OWNED: usize = 64;
+
+struct PromptPermit;
+impl PromptPermit {
+    fn reserve() -> Result<Self> {
+        OWNED_COUNT
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_OWNED).then_some(n + 1))
+            .map_err(|_| anyhow!("Too many unresolved ComfyUI jobs. Reconnect to finish cancellation before starting another."))?;
+        Ok(Self)
+    }
+}
+impl Drop for PromptPermit {
+    fn drop(&mut self) {
+        OWNED_COUNT.fetch_sub(1, Ordering::AcqRel);
+    }
+}
 
 /// The prompts this process is waiting for on `host`.
 pub fn our_prompts(host: &str) -> Vec<String> {
-    OURS.lock().map(|v| v.iter().filter(|(h, _, _)| h == host).map(|(_, id, _)| id.clone()).collect()).unwrap_or_default()
+    OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|p| p.host == host).filter_map(|p| p.id.clone()).collect()
 }
 
 /// Lists a prompt in [`OURS`] while [`ComfyClient::run`] waits for it.
-struct OurPrompt(String, String);
+struct OurPrompt {
+    host: String,
+    client_id: String,
+    terminal: bool,
+}
 
 impl OurPrompt {
-    fn new(host: &str, id: &str, ctl: &JobControl) -> Self {
-        if let Ok(mut v) = OURS.lock() {
-            v.push((host.to_owned(), id.to_owned(), ctl.clone()));
+    fn new(host: &str, client_id: &str, ctl: &JobControl, permit: PromptPermit, vram: lightcraft_sysmem::gpu::AiJob) -> Self {
+        OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(OwnedPrompt {
+            host: host.into(),
+            client_id: client_id.into(),
+            id: None,
+            control: ctl.clone(),
+            unresolved: false,
+            _permit: permit,
+            local: crate::resources::local(host),
+            vram: Some(vram),
+            idle_observations: 0,
+        });
+        Self { host: host.into(), client_id: client_id.into(), terminal: false }
+    }
+
+    fn identify(&self, id: &str) {
+        if let Some(prompt) =
+            OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter_mut().find(|p| p.host == self.host && p.client_id == self.client_id)
+        {
+            prompt.id = Some(id.into());
         }
-        Self(host.to_owned(), id.to_owned())
     }
 }
 
 impl Drop for OurPrompt {
     fn drop(&mut self) {
-        if let Ok(mut v) = OURS.lock() {
-            v.retain(|(h, id, _)| !(*h == self.0 && *id == self.1));
+        let mut owned = OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.terminal {
+            owned.retain(|p| !(p.host == self.host && p.client_id == self.client_id));
+        } else {
+            if let Some(prompt) = owned.iter_mut().find(|p| p.host == self.host && p.client_id == self.client_id) {
+                prompt.unresolved = true;
+                prompt.control.cancel();
+            }
+            drop(owned);
+            start_cleanup();
         }
     }
+}
+
+/// One sleeping worker reconciles failed/timed-out prompts. Ownership and the local GPU
+/// reservation survive until the backend confirms a terminal state; no result is published.
+fn start_cleanup() {
+    if CLEANUP_STARTED.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_ok()
+        && let Err(error) = std::thread::Builder::new().name("comfy-cleanup".into()).spawn(cleanup_loop)
+    {
+        CLEANUP_STARTED.store(false, Ordering::Release);
+        log::warn!("Could not start ComfyUI cancellation cleanup: {error}");
+    }
+    CLEANUP_WAKE.notify_one();
+}
+
+fn cleanup_loop() {
+    lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
+    loop {
+        let owned = OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let owned = CLEANUP_WAKE.wait_while(owned, |p| !p.iter().any(|p| p.unresolved)).unwrap_or_else(std::sync::PoisonError::into_inner);
+        let pending: Vec<_> = owned.iter().filter(|p| p.unresolved).map(|p| (p.host.clone(), p.client_id.clone(), p.id.clone())).collect();
+        drop(owned);
+        for (host, client_id, id) in pending {
+            let client = ComfyClient::new(&host);
+            let observation = if id.is_none() { find_submission(&client, &client_id).ok() } else { None };
+            if id.is_none() {
+                let mut owned = OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(prompt) = owned.iter_mut().find(|p| p.host == host && p.client_id == client_id) {
+                    update_submission_pressure(prompt, observation.as_ref());
+                }
+            }
+            let id = id.or_else(|| observation.and_then(|observation| observation.id));
+            if let Some(id) = id {
+                {
+                    let mut owned = OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    if let Some(prompt) = owned.iter_mut().find(|p| p.host == host && p.client_id == client_id) {
+                        prompt.id = Some(id.clone());
+                    }
+                }
+                if reconcile_prompt(&client, &id).unwrap_or(false) {
+                    OURS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|p| !(p.unresolved && p.host == host && p.client_id == client_id));
+                }
+            }
+        }
+        std::thread::sleep(if cfg!(test) { Duration::from_millis(100) } else { Duration::from_secs(5) });
+    }
+}
+
+#[derive(Debug)]
+struct PromptRejected(String);
+impl std::fmt::Display for PromptRejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for PromptRejected {}
+
+#[derive(Debug)]
+struct SubmissionNotSent(String);
+impl std::fmt::Display for SubmissionNotSent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+impl std::error::Error for SubmissionNotSent {}
+
+fn submission_not_sent(error: &ureq::Error) -> bool {
+    matches!(
+        error,
+        ureq::Error::BadUri(_)
+            | ureq::Error::HostNotFound
+            | ureq::Error::ConnectionFailed
+            | ureq::Error::Timeout(ureq::Timeout::Connect | ureq::Timeout::Resolve)
+    ) || matches!(error, ureq::Error::Io(error) if error.kind() == std::io::ErrorKind::ConnectionRefused)
+}
+
+struct SubmissionObservation {
+    id: Option<String>,
+    busy: bool,
+}
+
+fn update_submission_pressure(prompt: &mut OwnedPrompt, observation: Option<&SubmissionObservation>) {
+    match observation {
+        Some(observation) if observation.busy || observation.id.is_some() => {
+            prompt.idle_observations = 0;
+            if prompt.vram.is_none() {
+                prompt.vram = Some(lightcraft_sysmem::gpu::AiJob::new(prompt.local));
+            }
+        }
+        Some(_) => {
+            prompt.idle_observations = prompt.idle_observations.saturating_add(1);
+            if prompt.idle_observations >= 3 {
+                // The queue proves no GPU prompt is active now. Keep identity/permit tracking
+                // for delayed validation; restore pressure if any later work appears.
+                prompt.vram = None;
+            }
+        }
+        None => {
+            prompt.idle_observations = 0;
+            if prompt.vram.is_none() {
+                prompt.vram = Some(lightcraft_sysmem::gpu::AiJob::new(prompt.local));
+            }
+        }
+    }
+}
+
+/// Queue and history retain (number, prompt_id, graph, extra_data, ...) in official ComfyUI.
+/// Match the unique per-submission client_id, including servers that ignore proposed IDs.
+fn find_submission(client: &ComfyClient, client_id: &str) -> Result<SubmissionObservation> {
+    let matches = |item: &Value| (item[3]["client_id"].as_str() == Some(client_id)).then(|| item[1].as_str().map(str::to_owned)).flatten();
+    let queue = client.queue_state()?;
+    let mut busy = false;
+    let mut found = None;
+    for key in ["queue_running", "queue_pending"] {
+        let items = queue[key].as_array().with_context(|| format!("Invalid ComfyUI queue: missing {key}"))?;
+        busy |= !items.is_empty();
+        found = found.or_else(|| items.iter().find_map(matches));
+    }
+    if found.is_some() {
+        return Ok(SubmissionObservation { id: found, busy });
+    }
+    if let Ok(Some(entry)) = client.history(client_id)
+        && let Some(id) = matches(&entry["prompt"])
+    {
+        return Ok(SubmissionObservation { id: Some(id), busy });
+    }
+    // A matching completed prompt may no longer be in the queue. Never equate no match with
+    // rejection: validation may still be running, or history may have been pruned.
+    let id = client
+        .get_json(&client.quick, "/history?max_items=64")
+        .ok()
+        .and_then(|history| history.as_object().and_then(|entries| entries.values().find_map(|entry| matches(&entry["prompt"]))));
+    Ok(SubmissionObservation { id, busy })
+}
+
+fn reconcile_prompt(client: &ComfyClient, id: &str) -> Result<bool> {
+    let terminal = |entry: &Value| history_error(entry).is_some() || first_output_image(entry).is_some() || entry["status"]["completed"] == true;
+    if let Ok(Some(entry)) = client.history(id)
+        && terminal(&entry)
+    {
+        return Ok(true);
+    }
+    let listed = queue_contains(&client.queue_state()?, id)?;
+    if listed {
+        client.cancel(id)?;
+        return Ok(false); // Cancellation acknowledgement is not terminal-state proof.
+    }
+    // A valid fresh queue proves it is neither running nor pending, even if the history
+    // endpoint itself remains broken. An explicitly unfinished entry is inconsistent: retry.
+    Ok(match client.history(id) {
+        Ok(Some(entry)) => terminal(&entry),
+        Ok(None) | Err(_) => true,
+    })
+}
+
+fn queue_contains(queue: &Value, id: &str) -> Result<bool> {
+    let mut listed = false;
+    for key in ["queue_running", "queue_pending"] {
+        let items = queue[key].as_array().with_context(|| format!("Invalid ComfyUI queue: missing {key}"))?;
+        listed |= items.iter().any(|item| item_has(item, id));
+    }
+    Ok(listed)
 }
 
 fn enc(s: &str) -> String {

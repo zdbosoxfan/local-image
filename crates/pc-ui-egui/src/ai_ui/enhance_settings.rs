@@ -9,7 +9,6 @@ use li_ai::enhance::{
 struct RowState {
     open: bool,
     custom: bool,
-    busy: bool,
     error: String,
     unet: String,
     vae: String,
@@ -72,8 +71,7 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                 if let Some(spec) = li_seg::spec(id) {
                     ui.label(
                         RichText::new(format!(
-                            "{} CPU · {} GPU · {}",
-                            li_ai::download::human_bytes(spec.bytes),
+                            "{} GPU · {}",
                             catalog::preset(ModelId::intern(id), "default")
                                 .map_or_else(|| "?".into(), |p| li_ai::download::human_bytes(p.files.iter().map(|f| f.bytes).sum())),
                             spec.licence
@@ -84,16 +82,9 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
                     download_controls(ui, dls, dir, spec);
                 }
             }
-            Choice::Custom { bytes, scale, .. } => {
-                ui.label(
-                    RichText::new(format!(
-                        "{} · {scale}× · {}",
-                        li_ai::download::human_bytes(*bytes),
-                        tl!("Your own model, run on the CPU instead of the official one.")
-                    ))
-                    .color(t.text_faint)
-                    .size(11.0),
-                );
+            Choice::Custom { .. } => {
+                ui.label(RichText::new(tl!("AI enlargement requires a GPU/NPU.")).color(t.warning));
+                ui.label(tl!("Choose a GPU enlargement model in Settings › Local AI."));
             }
             Choice::Seed { .. } => {
                 let Some(preset) = catalog::preset(ModelId::SeedVr2, "fp16") else { return };
@@ -128,44 +119,10 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
             } else if ui.selectable_label(choice == default, "SeedVR2 7B FP16").clicked() {
                 s.error = selection::save(dir, method, None).err().map(|e| format!("{e:#}")).unwrap_or_default();
             }
-            if widgets::secondary_button(ui, tl!("Custom model…"), 0.0).clicked() {
+            if method == Method::Generative && widgets::secondary_button(ui, tl!("Custom model…"), 0.0).clicked() {
                 s.custom = !s.custom;
             }
-            if s.custom && method != Method::Generative {
-                ui.label(tl!("Choose a fixed-tile ONNX RGB model with 2× or 4× output. It is tested before use."));
-                if s.busy {
-                    ui.spinner();
-                    ui.label(tl!("Testing the model…"));
-                } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked()
-                    && let Some(source) = pick_onnx()
-                {
-                    s.busy = true;
-                    let (dir, key) = (dir.to_owned(), key.clone());
-                    update(&key, |s| {
-                        s.busy = true;
-                        s.error.clear();
-                    });
-                    let worker_key = key.clone();
-                    let worker = std::thread::Builder::new().name("upscale-custom".into()).spawn(move || {
-                        lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
-                        let result = selection::import_custom(&dir, method, &source);
-                        update(&worker_key, |s| {
-                            s.busy = false;
-                            s.error = result.err().map(|e| format!("{e:#}")).unwrap_or_default();
-                        });
-                        refresh();
-                        if let Some(ctx) = shared().ctx.lock().ok().and_then(|c| c.clone()) {
-                            ctx.request_repaint();
-                        }
-                    });
-                    if let Err(error) = worker {
-                        update(&key, |s| {
-                            s.busy = false;
-                            s.error = error.to_string();
-                        });
-                    }
-                }
-            } else if s.custom {
+            if s.custom && method == Method::Generative {
                 ui.label(tl!("Enter installed SeedVR2-compatible model and VAE filenames."));
                 ui.text_edit_singleline(&mut s.unet).on_hover_text("UNET");
                 ui.text_edit_singleline(&mut s.vae).on_hover_text("VAE");
@@ -195,32 +152,19 @@ pub(super) fn row(ui: &mut egui::Ui, t: &Tokens, dls: &BTreeMap<String, Download
 }
 
 pub(super) fn download_controls(ui: &mut egui::Ui, dls: &BTreeMap<String, Download>, dir: &std::path::Path, spec: &'static li_seg::ModelSpec) {
-    let cpu = format!("seg:{}", spec.id);
+    let _ = dir;
     let gpu = format!("{}:default", spec.id);
-    for (key, label) in [(&cpu, "CPU"), (&gpu, "GPU")] {
-        if let Some(d) = dls.get(key).filter(|d| !d.finished) {
-            ui.label(label);
-            ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
-            if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
-                d.ctl.cancel();
-            }
-        } else if key == &cpu {
-            ui.horizontal(|ui| {
-                if li_seg::installed_bytes(dir, spec).is_some() {
-                    ui.label(tl!("Installed"));
-                    if remove_button(ui) {
-                        ask_remove(spec.label.into(), RemoveTarget::Seg(spec));
-                    }
-                } else if widgets::secondary_button(ui, tl!("Download CPU model"), 0.0).clicked() {
-                    start_seg_download(spec);
-                }
-            });
-        } else if status().ready(ModelId::intern(spec.id), "default").is_err() && widgets::secondary_button(ui, tl!("Download GPU model"), 0.0).clicked() {
-            start_download(key);
+    if let Some(d) = dls.get(&gpu).filter(|d| !d.finished) {
+        ui.label("GPU");
+        ui.add(egui::ProgressBar::new(d.done as f32 / d.total.max(1) as f32));
+        if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+            d.ctl.cancel();
         }
-        if let Some(error) = dls.get(key).and_then(|d| d.error.as_ref()) {
-            ui.label(RichText::new(error).color(Tokens::get(ui.ctx()).danger));
-        }
+    } else if status().ready(ModelId::intern(spec.id), "default").is_err() && widgets::secondary_button(ui, tl!("Download GPU model"), 0.0).clicked() {
+        start_download(&gpu);
+    }
+    if let Some(error) = dls.get(&gpu).and_then(|d| d.error.as_ref()) {
+        ui.label(RichText::new(error).color(Tokens::get(ui.ctx()).danger));
     }
 }
 
@@ -276,9 +220,9 @@ mod tests {
             h.get_by_label(title(method));
             h.get_by_label("Change…").click();
             h.run_steps(2);
-            h.get_by_label("Custom model…").click();
-            h.run_steps(2);
             if method != Method::Generative {
+                assert!(h.query_by_label("Custom model…").is_none());
+                assert!(h.query_by_label("Download CPU model").is_none());
                 let (id, label) = if method == Method::Faithful { ("bsrgan-2x", "BSRGAN 2×") } else { ("realplksr-2x", "RealPLKSR 2×") };
                 h.get_by_label(label).click();
                 h.run_steps(2);
@@ -287,6 +231,8 @@ mod tests {
                 h.run_steps(2);
                 assert_eq!(selection::load(&dir, method), selection::default_choice(method));
             } else {
+                h.get_by_label("Custom model…").click();
+                h.run_steps(2);
                 h.get_by_label("Use custom models");
             }
             std::fs::remove_dir_all(dir).unwrap();

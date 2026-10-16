@@ -3,6 +3,11 @@
 use crate::error::CodecError;
 use crate::image::{ChannelLayout, SampleType};
 
+/// Full desktop photo editing policy, shared by both workspace decoder facades.
+/// Generic previews retain the smaller default; every allocation remains bounded.
+pub const DESKTOP_PHOTO_PIXELS: u64 = 128 << 20;
+pub const DESKTOP_PHOTO_BYTES: u64 = 2 << 30;
+
 /// Decompression-bomb guards. All checks happen on header values *before*
 /// the pixel buffer is allocated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +31,9 @@ impl Default for Limits {
 }
 
 impl Limits {
+    pub fn desktop_photo() -> Self {
+        Self { max_pixels: DESKTOP_PHOTO_PIXELS, max_alloc: DESKTOP_PHOTO_BYTES, ..Self::default() }
+    }
     /// Effectively unlimited (still bounded by `usize` overflow checks).
     pub fn none() -> Self {
         Limits { max_width: u32::MAX, max_height: u32::MAX, max_pixels: u64::MAX, max_alloc: u64::MAX }

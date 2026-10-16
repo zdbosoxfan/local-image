@@ -192,7 +192,7 @@ fn corpus_shape_coverage_matches_photoshop() {
         let name = p.strip_prefix(&root).unwrap_or(p).display().to_string();
         let bytes = std::fs::read(p).unwrap_or_default();
         let Ok(file) = PsdFile::from_bytes(&bytes) else { continue };
-        let (d, _) = psd_to_document(&file);
+        let (d, _) = psd_to_document(&file).unwrap();
         for (_, _, l) in d.walk() {
             let LayerContent::Shape(sh) = &l.content else { continue };
             let Some(cache) = &sh.cache else { continue };
@@ -243,7 +243,7 @@ fn corpus_vector_blocks_survive_roundtrip() {
     for p in &files {
         let bytes = std::fs::read(p).unwrap_or_default();
         let Ok(file) = PsdFile::from_bytes(&bytes) else { continue };
-        let (d, _) = psd_to_document(&file);
+        let (d, _) = psd_to_document(&file).unwrap();
         let Ok(out) = export(&d, "x.psd", &ExportOptions::default()) else { continue };
         let back = PsdFile::from_bytes(&out.bytes).unwrap();
         let blocks = |f: &PsdFile| -> Vec<NamedBlock> {

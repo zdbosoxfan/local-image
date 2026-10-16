@@ -120,7 +120,7 @@ impl Group {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
             Group::RawDenoise => {
-                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU/NPU."
+                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU."
             }
             Group::Remove => "Repairs brushed areas with LaMa on this computer. No AI server needed; photos stay on this device.",
             Group::RgbDenoise => "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
@@ -459,7 +459,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
         },
         group: Some(Group::RawDenoise),
-        about: "Raw denoising and Bayer demosaic requires a GPU/NPU. Linear Rec.2020 variant for other sensors.",
+        about: "Raw denoising and Bayer demosaic require a GPU. Linear Rec.2020 variant for other sensors.",
     },
     ModelSpec {
         id: "denoise-nind",
@@ -479,7 +479,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "5d615c5026a3c579455b9082f72b91e109adb54f4125b5b5cde45983bd6776b2",
         },
         group: Some(Group::RgbDenoise),
-        about: "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU/NPU.",
+        about: "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU.",
     },
 ];
 
@@ -532,7 +532,7 @@ enum Post {
 }
 
 /// How to run a model: official or custom.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Config {
     id: String,
     size: usize,
@@ -1198,23 +1198,83 @@ pub fn clear_custom(models_dir: &Path, group: Group, dispose: &dyn Fn(&Path) -> 
 
 // ------------------------------------------------------------------------- which model runs
 
-struct Active {
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ArtifactIdentity {
+    path: PathBuf,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    #[cfg(unix)]
+    change: (u64, u64, i64, i64),
+}
+
+impl ArtifactIdentity {
+    fn read(path: &Path) -> std::io::Result<Self> {
+        let path = std::fs::canonicalize(path)?;
+        let meta = std::fs::metadata(&path)?;
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            path,
+            len: meta.len(),
+            modified: meta.modified().ok(),
+            #[cfg(unix)]
+            change: (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec()),
+        })
+    }
+}
+
+/// The exact artifact and settings captured when an operation starts. Changing the global
+/// model folder cannot redirect an in-flight request or reuse another artifact's probability map.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelSnapshot {
     /// Cache key: changes when the model or its settings do.
     key: String,
     path: PathBuf,
     cfg: Config,
     in_use: InUse,
+    artifact: ArtifactIdentity,
 }
 
-fn active(group: Group, models_dir: &Path) -> Option<Active> {
+impl ModelSnapshot {
+    fn new(key: String, path: PathBuf, cfg: Config, in_use: InUse) -> Option<Self> {
+        let artifact = ArtifactIdentity::read(&path).ok()?;
+        Some(Self { key, path: artifact.path.clone(), cfg, in_use, artifact })
+    }
+
+    pub fn in_use(&self) -> &InUse {
+        &self.in_use
+    }
+
+    pub fn is_current(&self) -> bool {
+        ArtifactIdentity::read(&self.path).is_ok_and(|identity| identity == self.artifact)
+    }
+
+    pub fn segmenter(&self) -> Option<Segmenter> {
+        let slot = match self.cfg.task {
+            Task::Subject if self.cfg.id == "inspyrenet" => &BETTER,
+            Task::Subject => &SUBJECT,
+            Task::Sky { .. } => &SKY,
+            Task::Depth => &DEPTH,
+            _ => return None,
+        };
+        cached(self.clone(), slot)
+    }
+}
+
+pub fn snapshot(group: Group, models_dir: &Path) -> Option<ModelSnapshot> {
+    active(group, models_dir)
+}
+
+fn active(group: Group, models_dir: &Path) -> Option<ModelSnapshot> {
     if let Some(c) = custom(models_dir, group) {
         let len = std::fs::metadata(c.path(models_dir)).map(|m| m.len()).unwrap_or(0);
         let key = format!("custom:{}:{}:{}:{}:{}:{len}", c.file, c.size, c.norm.key(), c.classes, c.class);
-        return Some(Active { key, path: c.path(models_dir), cfg: c.config(), in_use: InUse::Custom(c) });
+        return ModelSnapshot::new(key, c.path(models_dir), c.config(), InUse::Custom(c));
     }
     let spec = if group == Group::Subject && subject_quality(models_dir) { spec("inspyrenet").unwrap() } else { group.official() };
     let path = model_path(models_dir, spec);
-    installed_bytes(models_dir, spec).map(|_| Active { key: spec.id.to_owned(), path, cfg: Config::of_spec(spec), in_use: InUse::Official(spec) })
+    installed_bytes(models_dir, spec)?;
+    ModelSnapshot::new(spec.id.to_owned(), path, Config::of_spec(spec), InUse::Official(spec))
 }
 
 /// Whether a model is ready for `group` (a custom one, or the installed official one).
@@ -1379,7 +1439,7 @@ fn forget(spec: &ModelSpec) {
     }
     for slot in [&SUBJECT, &BETTER, &SKY, &DEPTH] {
         let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if g.as_ref().is_some_and(|(key, _)| key == spec.id) {
+        if g.as_ref().is_some_and(|(key, _)| key.model == spec.id) {
             *g = None;
         }
     }
@@ -1436,13 +1496,18 @@ pub fn shared_tier(models_dir: &Path, better: bool) -> Option<Segmenter> {
         return None;
     }
     cached(
-        Active { key: spec.id.into(), path: model_path(models_dir, spec), cfg: Config::of_spec(spec), in_use: InUse::Official(spec) },
+        ModelSnapshot::new(spec.id.into(), model_path(models_dir, spec), Config::of_spec(spec), InUse::Official(spec))?,
         if better { &BETTER } else { &SUBJECT },
     )
 }
 static BETTER: Slot = std::sync::Mutex::new(None);
 
-type Slot = std::sync::Mutex<Option<(String, Segmenter)>>;
+#[derive(Clone, PartialEq, Eq)]
+struct CacheKey {
+    model: String,
+    artifact: ArtifactIdentity,
+}
+type Slot = std::sync::Mutex<Option<(CacheKey, Segmenter)>>;
 static SUBJECT: Slot = std::sync::Mutex::new(None);
 static SKY: Slot = std::sync::Mutex::new(None);
 static DEPTH: Slot = std::sync::Mutex::new(None);
@@ -1456,15 +1521,22 @@ fn slot(group: Group) -> Option<&'static Slot> {
     }
 }
 
-fn cached(a: Active, slot: &Slot) -> Option<Segmenter> {
+fn cached(a: ModelSnapshot, slot: &Slot) -> Option<Segmenter> {
+    if !a.is_current() {
+        return None;
+    }
+    let identity = CacheKey { model: a.key.clone(), artifact: a.artifact.clone() };
     let mut g = slot.lock().ok()?;
     if let Some((key, s)) = g.as_ref()
-        && *key == a.key
+        && *key == identity
     {
         return Some(s.clone());
     }
-    let s = Segmenter::load_cfg(a.cfg, &a.path).ok()?;
-    *g = Some((a.key, s.clone()));
+    let s = Segmenter::load_cfg(a.cfg.clone(), &a.path).ok()?;
+    if !a.is_current() {
+        return None;
+    }
+    *g = Some((identity, s.clone()));
     Some(s)
 }
 

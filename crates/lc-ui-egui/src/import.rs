@@ -393,6 +393,62 @@ pub struct ScanTask {
     browse: bool,
     /// What is being scanned (the review's source).
     sources: Vec<String>,
+    scoped: bool,
+    scoped_ready: Option<ScopedBrowseReady>,
+}
+
+struct ScopedBrowseReady {
+    photos: std::collections::VecDeque<(String, lightcraft_engine::media::ProbeInfo)>,
+    existing: std::collections::HashSet<String>,
+}
+
+/// A capability-backed scan submitted to the host's bounded worker. The UI owns only its
+/// result receiver and cancellation flag; actual source reads never run during admission.
+pub struct ScopedScanJob {
+    pub input: ScanInput,
+    pub files: Vec<String>,
+    pub progress: std::sync::Arc<ScanProgress>,
+    pub reply: std::sync::mpsc::Sender<Result<ScanOutput, String>>,
+}
+
+pub fn can_browse(app: &LightcraftApp) -> Result<(), String> {
+    if app.scan.as_ref().is_some_and(|task| !task.browse) || app.import.as_ref().is_some_and(|task| !task.browse) {
+        return Err("an import is running".into());
+    }
+    Ok(())
+}
+
+/// Admit an explicit capability-enumerated folder without filesystem work. Results use the
+/// ordinary scan generation/cancellation guard and join Local in bounded metadata-only batches.
+pub fn browse_scoped(
+    app: &mut LightcraftApp,
+    folder: String,
+    files: Vec<String>,
+    submit: impl FnOnce(ScopedScanJob) -> Result<(), String>,
+) -> Result<(), String> {
+    can_browse(app)?;
+    let (input, _) = ScanInput::new(&mut app.session, &files);
+    let progress = std::sync::Arc::new(ScanProgress::default());
+    let (reply, rx) = std::sync::mpsc::channel();
+    submit(ScopedScanJob { input, files, progress: progress.clone(), reply })?;
+    if let Some(previous) = app.scan.take() {
+        previous.progress.cancel.store(true, Ordering::Relaxed);
+    }
+    app.import = None;
+    app.session.browse = Some(lightcraft_engine::Browse { path: folder, subfolders: false });
+    app.session.source = lightcraft_engine::LibrarySource::Folder;
+    app.scan = Some(ScanTask {
+        library_generation: app.session.library_generation,
+        progress,
+        rx,
+        copy: false,
+        browse: true,
+        sources: Vec::new(),
+        scoped: true,
+        scoped_ready: None,
+    });
+    app.renderer.forget_imports();
+    Ok(())
 }
 
 impl Drop for ScanTask {
@@ -418,7 +474,16 @@ pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String
     std::thread::spawn(job);
     #[cfg(target_arch = "wasm32")]
     job();
-    app.scan = Some(ScanTask { library_generation: app.session.library_generation, progress, rx, copy: false, browse: false, sources });
+    app.scan = Some(ScanTask {
+        library_generation: app.session.library_generation,
+        progress,
+        rx,
+        copy: false,
+        browse: false,
+        sources,
+        scoped: false,
+        scoped_ready: None,
+    });
     Ok(json!({"scanning": true}))
 }
 
@@ -431,9 +496,7 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     if !dir.is_dir() {
         return Err(format!("{path}: not a folder"));
     }
-    if app.scan.as_ref().is_some_and(|t| !t.browse) || app.import.as_ref().is_some_and(|t| !t.browse) {
-        return Err("an import is running".into());
-    }
+    can_browse(app)?;
     let dir_s = dir.to_string_lossy().trim_end_matches(['/', '\\']).to_string();
     let subfolders = subfolders.unwrap_or_else(|| app.session.browse.as_ref().is_some_and(|b| b.subfolders));
     let running = app.scan.as_ref().is_some_and(|t| t.browse) || app.import.as_ref().is_some_and(|t| t.browse);
@@ -479,7 +542,16 @@ pub fn browse(app: &mut LightcraftApp, path: &str, subfolders: Option<bool>) -> 
     std::thread::spawn(job);
     #[cfg(target_arch = "wasm32")]
     job();
-    app.scan = Some(ScanTask { library_generation: app.session.library_generation, progress, rx, copy: false, browse: true, sources: Vec::new() });
+    app.scan = Some(ScanTask {
+        library_generation: app.session.library_generation,
+        progress,
+        rx,
+        copy: false,
+        browse: true,
+        sources: Vec::new(),
+        scoped: false,
+        scoped_ready: None,
+    });
     app.renderer.forget_imports();
     Ok(json!({"path": dir_s, "subfolders": subfolders, "scanning": true}))
 }
@@ -492,7 +564,15 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
         app.scan = None;
         return;
     }
+    if task.scoped && task.progress.cancel.load(Ordering::Relaxed) {
+        app.scan = None;
+        return;
+    }
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    if task.scoped_ready.is_some() {
+        publish_scoped_batch(app, ctx);
+        return;
+    }
     let out = match task.rx.try_recv() {
         Ok(Ok(o)) => o,
         Ok(Err(error)) => {
@@ -507,6 +587,29 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
             return;
         }
     };
+    if app.scan.as_ref().is_some_and(|task| task.scoped) {
+        let mut probes = out.probes;
+        let photos = out
+            .candidates
+            .into_iter()
+            .filter(|candidate| candidate.error.is_none() && candidate.duplicate.as_deref() != Some("path"))
+            .filter_map(|candidate| probes.remove(&candidate.path).map(|probe| (candidate.path, probe)))
+            .collect();
+        let existing = app
+            .session
+            .catalog
+            .photos()
+            .filter_map(|photo| match &photo.source {
+                lightcraft_catalog::Source::File { path } => Some(path.clone()),
+                lightcraft_catalog::Source::Demo { .. } => None,
+            })
+            .collect();
+        if let Some(task) = &mut app.scan {
+            task.scoped_ready = Some(ScopedBrowseReady { photos, existing });
+        }
+        publish_scoped_batch(app, ctx);
+        return;
+    }
     let Some(task) = app.scan.take() else { return };
     if task.progress.cancel.load(Ordering::Relaxed) {
         return;
@@ -541,6 +644,47 @@ pub fn poll_scan(app: &mut LightcraftApp, ctx: &egui::Context) {
         .collect();
     d.set_trashed(trashed);
     app.ui.dialog = Some(crate::state::Dialog::Import { opts: Box::new(d) });
+}
+
+fn publish_scoped_batch(app: &mut LightcraftApp, ctx: &egui::Context) {
+    let Some(task) = &mut app.scan else { return };
+    let Some(ready) = &mut task.scoped_ready else { return };
+    let mut batch = Vec::new();
+    for _ in 0..BATCH {
+        let Some((path, info)) = ready.photos.pop_front() else { break };
+        if ready.existing.insert(path.clone()) {
+            batch.push((path, info));
+        }
+    }
+    let finished = ready.photos.is_empty();
+    for (path, info) in batch {
+        use lightcraft_catalog::{Op, Photo, Source};
+        let name = std::path::Path::new(&path).file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
+        let id = app.session.catalog.alloc_photo_id();
+        let mut photo = Photo::new(id, Source::File { path }, &name, &info.format, info.width.max(1), info.height.max(1), "");
+        photo.kind = info.kind;
+        photo.file_size = info.file_size;
+        photo.captured = info.captured;
+        photo.meta = info.meta;
+        photo.as_shot_wb = info.as_shot_wb;
+        photo.measured_wb = info.measured_wb;
+        photo.content_hash = info.content_hash;
+        photo.embedded_lens = info.embedded_lens;
+        photo.preview_only = info.preview_only;
+        photo.local = true;
+        lightcraft_engine::import::apply_import_defaults(&app.session, &mut photo);
+        photo.set_local_baseline();
+        if let Err(error) = app.session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }) {
+            app.scan = None;
+            app.toast_error(ctx, format!("Browse failed: {error}"));
+            return;
+        }
+    }
+    if finished {
+        app.scan = None;
+    } else {
+        ctx.request_repaint();
+    }
 }
 
 /// The progress window while a folder is being scanned.
@@ -1585,6 +1729,8 @@ mod bugfix_develop_tests {
             copy: false,
             browse: false,
             sources: vec!["new source".into()],
+            scoped: false,
+            scoped_ready: None,
         });
         poll_scan(&mut app, &egui::Context::default());
         let Some(crate::state::Dialog::Import { opts: state }) = &app.ui.dialog else { panic!("review missing") };
@@ -1685,6 +1831,8 @@ mod library_origin_tests {
             copy: false,
             browse: false,
             sources: vec!["old".into()],
+            scoped: false,
+            scoped_ready: None,
         });
         tx.send(Ok(ScanOutput { candidates: vec![ImportCandidate { path: "old.png".into(), ..Default::default() }], probes: Default::default() }))
             .unwrap();

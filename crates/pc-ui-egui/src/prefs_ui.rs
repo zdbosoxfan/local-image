@@ -27,8 +27,9 @@ pub trait HostPreferencesPages {
     fn pages(&self) -> &'static [(&'static str, &'static str)];
     fn values(&self) -> Value;
     fn body(&mut self, ui: &mut egui::Ui, section: &str, draft: &mut Value);
-    fn validate(&self, draft: &Value) -> Result<(), String>;
-    fn apply(&mut self, draft: &Value) -> Result<(), String>;
+    /// Validate and reserve the host draft without changing live settings. Publication must be
+    /// infallible: the shell calls it only after every fallible part of the transaction succeeds.
+    fn prepare(&self, draft: &Value) -> Result<Box<dyn FnOnce() + '_>, String>;
 }
 
 /// Shell runtime state for preferences, autosave and snapping (not serialised).
@@ -249,7 +250,7 @@ fn sync_display_scale(app: &PhotocraftApp, ctx: &egui::Context) {
 /// Interface › Show Tooltips and Tools › Show Tooltips (either one off hides them): egui never
 /// shows a tooltip whose delay is infinite. Re-checked every frame because a theme change
 /// rebuilds the style; that's one style read, and a write only when it differs.
-fn sync_tooltips(app: &PhotocraftApp, ctx: &egui::Context) {
+pub fn sync_shared_tooltips(app: &PhotocraftApp, ctx: &egui::Context) {
     let p = app.session.prefs();
     let delay = if p.interface.show_tooltips && p.tools.show_tooltips { crate::theme::TOOLTIP_DELAY } else { f32::INFINITY };
     if ctx.global_style().interaction.tooltip_delay != delay {
@@ -257,12 +258,10 @@ fn sync_tooltips(app: &PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-/// Per-frame upkeep: theme sync, persistence, autosave and the history log.
-pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    sync_ai_preferences(app);
-    if !app.prefs_rt.loaded {
-        load(app);
-    }
+/// Reconcile application-wide Interface preferences in every module. The caller applies its
+/// own palette when the returned theme changes; hosted Library/Develop keep their visual profile.
+pub fn sync_shared_interface(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
+    let before = app.ui.theme;
     sync_display_scale(app, ctx);
     li_ui_kit::color_icons::set_enabled(ctx, app.session.prefs().interface.tool_icons != "monochrome");
     // Interface theme: a preference change applies to the UI; a theme picked from the Window
@@ -271,7 +270,8 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.prefs_rt.theme_pref != Some(pref) {
         app.prefs_rt.theme_pref = Some(pref);
         if app.ui.theme != theme_kind(pref) {
-            app.set_theme(ctx, theme_kind(pref));
+            app.ui.theme = theme_kind(pref);
+            app.checker = None;
         }
     } else if theme_pref(app.ui.theme) != pref {
         let t = theme_pref(app.ui.theme);
@@ -279,8 +279,21 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
         app.prefs_rt.theme_pref = Some(t);
     }
     crate::theme::set_ui_font_size(ctx, app.session.prefs().interface.ui_font_size);
+    crate::theme::sync_language(ctx, &app.session.prefs().interface.language);
+    before != app.ui.theme
+}
+
+/// Per-frame upkeep: theme sync, persistence, autosave and the history log.
+pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    sync_ai_preferences(app);
+    if !app.prefs_rt.loaded {
+        load(app);
+    }
+    if sync_shared_interface(app, ctx) {
+        app.restyle(ctx);
+    }
     presets_store(app);
-    sync_tooltips(app, ctx);
+    sync_shared_tooltips(app, ctx);
     app.sync_recent();
     if let Some(wait) = persist(app, ctx.input(|i| i.time)) {
         ctx.request_repaint_after(std::time::Duration::try_from_secs_f64(wait).unwrap_or_default());
@@ -859,12 +872,21 @@ pub fn apply(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         return Err("Apply is only available for Preferences".into());
     }
     let fields = d.fields.clone();
-    let result = confirm(app, &fields)?;
+    let result = match confirm(app, &fields) {
+        Ok(result) => result,
+        Err(error) => {
+            if let Some(dialog) = app.ui.dialog_mut(id) {
+                dialog.fields.insert("__error".into(), json!(error));
+            }
+            return Err(error);
+        }
+    };
     let values = Value::Object(preference_values(app.session.prefs()));
     if let Some(d) = app.ui.dialog_mut(id) {
         // Use the validated values as the next draft, including any normalisation by prefs.set.
         d.fields.insert("values".into(), values);
         d.fields.insert("hostValues".into(), app.host_preferences.as_ref().map_or_else(|| app.host_preferences_values.clone(), |host| host.values()));
+        d.fields.remove("__error");
     }
     Ok(result)
 }
@@ -1117,6 +1139,10 @@ fn prefs_nav_row(ui: &mut egui::Ui, title: &str, selected: bool, empty: bool) ->
 /// Preferences: section list on the left, the section's settings on the right.
 fn prefs_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     let t = Tokens::get(ui.ctx());
+    if let Some(error) = f.get("__error").and_then(Value::as_str) {
+        ui.add(egui::Label::new(RichText::new(error).color(t.warning)).wrap());
+        ui.add_space(6.0);
+    }
     let mut section = f.get("section").and_then(Value::as_str).unwrap_or("general").to_string();
     let mut values = f.get("values").cloned().unwrap_or(Value::Null);
     // The dialog follows the language being edited, so a change shows before OK.
@@ -1946,15 +1972,39 @@ fn mismatch_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
     match f.get("__prefsui").and_then(Value::as_str).unwrap_or("") {
         "prefs" => {
-            let values = f.get("values").cloned().unwrap_or(Value::Null);
-            if let (Some(host), Some(draft)) = (&app.host_preferences, f.get("hostValues")) {
-                host.validate(draft)?;
+            let mut values = f.get("values").cloned().unwrap_or(Value::Null);
+            if let Some(ai) = crate::ai_ui::settings_ui::pending_settings() {
+                let values = values.as_object_mut().ok_or("Preferences values must be an object")?;
+                values.insert("ai".into(), serde_json::to_value(ai).map_err(|error| error.to_string())?);
             }
-            let result = app.run("prefs.set", json!({"path": "", "value": values}))?;
-            if let (Some(host), Some(draft)) = (&mut app.host_preferences, f.get("hostValues")) {
-                host.apply(draft)?;
+            let params = json!({"path": "", "value": values});
+            if app.automation_input
+                && let Some(authorize) = app.services.automation_command.as_ref()
+            {
+                authorize("prefs.set", &params)?;
             }
-            crate::ai_ui::settings_ui::apply()?;
+            // Prepare under the same engine authorization boundary as app.run, then restore
+            // its temporary gate. No live history limits/resources change during validation.
+            let previous_gate = app.session.authorize;
+            if app.automation_input && previous_gate.is_none() {
+                app.session.authorize = app.services.automation_authorize;
+            }
+            let prepared = app.session.prepare_preferences_update(&params);
+            app.session.authorize = previous_gate;
+            let prepared = prepared.map_err(|error| error.to_string())?;
+            let host = app.host_preferences.take();
+            let result = (|| {
+                let publish_host = host.as_ref().zip(f.get("hostValues")).map(|(host, draft)| host.prepare(draft)).transpose()?;
+                // A failed checked AI write leaves core/host values and their resources intact.
+                crate::ai_ui::settings_ui::apply()?;
+                let result = app.session.publish_prepared_preferences(prepared);
+                if let Some(publish) = publish_host {
+                    publish();
+                }
+                Ok::<_, String>(result)
+            })();
+            app.host_preferences = host;
+            let result = result?;
             if !app.ui.dialogs.iter().any(|dialog| is_preferences(&dialog.fields)) {
                 crate::ai_ui::settings_ui::reset();
             }
@@ -2685,6 +2735,113 @@ mod tests {
     }
 
     #[test]
+    fn failed_ai_save_keeps_core_host_history_and_preferences_drafts_atomic() {
+        use egui_kittest::{Harness, kittest::Queryable};
+        use std::cell::Cell;
+        use std::rc::Rc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        struct HostDraft(Rc<Cell<bool>>);
+        impl HostPreferencesPages for HostDraft {
+            fn pages(&self) -> &'static [(&'static str, &'static str)] {
+                &[("library.test", "Test")]
+            }
+            fn values(&self) -> Value {
+                json!({"enabled": self.0.get()})
+            }
+            fn body(&mut self, _: &mut egui::Ui, _: &str, _: &mut Value) {}
+            fn prepare(&self, draft: &Value) -> Result<Box<dyn FnOnce() + '_>, String> {
+                let enabled = draft["enabled"].as_bool().ok_or("Invalid host draft")?;
+                let state = self.0.clone();
+                Ok(Box::new(move || state.set(enabled)))
+            }
+        }
+        fn edit(h: &mut Harness<'_, PhotocraftApp>, id: u64) {
+            h.run_steps(4);
+            h.get_by_role_and_label(egui::accesskit::Role::PasswordInput, "OpenAI:").focus();
+            h.run_steps(1);
+            h.get_by_role_and_label(egui::accesskit::Role::PasswordInput, "OpenAI:").type_text("synthetic-key-never-sent");
+            h.run_steps(2);
+            let fields = &mut h.state_mut().ui.dialog_mut(id).unwrap().fields;
+            fields.get_mut("values").unwrap()["interface"]["theme"] = json!("studioLight");
+            fields.get_mut("values").unwrap()["performance"]["historyStates"] = json!(1);
+            fields.insert("hostValues".into(), json!({"enabled":true}));
+            h.run_steps(2);
+        }
+        for button in ["Apply", "OK"] {
+            let failure = Arc::new(AtomicBool::new(true));
+            let saved = Arc::new(Mutex::new(json!({"auto_start_comfy":false})));
+            let load = saved.clone();
+            let write = saved.clone();
+            let fail = failure.clone();
+            li_ai::settings::with_store_backend(
+                li_ai::settings::StoreBackend {
+                    load: Arc::new(move || Ok(Some(load.lock().unwrap().clone()))),
+                    save: Arc::new(move |value| {
+                        if fail.load(Ordering::SeqCst) {
+                            return Err("injected AI preferences write failure".into());
+                        }
+                        *write.lock().unwrap() = value;
+                        Ok(())
+                    }),
+                },
+                || {
+                    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+                    app.run("prefs.set", json!({"values":{"interface.language":"en"}})).unwrap();
+                    app.run("file.new", json!({"width":4,"height":4})).unwrap();
+                    for color in ["#ff0000", "#00ff00", "#0000ff", "#ff00ff"] {
+                        app.run("edit.fill", json!({"color":color})).unwrap();
+                    }
+                    let host = Rc::new(Cell::new(false));
+                    app.host_preferences = Some(Box::new(HostDraft(host.clone())));
+                    let before = app.session.prefs_value();
+                    let history = app.session.active().unwrap().history.past_len();
+                    assert!(history > 1);
+                    let pixels = app.session.active().unwrap().doc.clone();
+                    let mut h = Harness::builder().with_size(vec2(1200., 900.)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+                    PhotocraftApp::setup_context(&h.ctx, Default::default());
+                    let id = open_preferences(h.state_mut(), "ai.providers");
+                    edit(&mut h, id);
+                    h.get_by_label(button).click();
+                    h.run_steps(3);
+                    assert_eq!(h.state().session.prefs_value(), before, "{button} failure must not publish core values");
+                    assert_eq!(h.state().session.active().unwrap().history.past_len(), history, "validation cannot trim undo history");
+                    assert_eq!(*h.state().session.active().unwrap().doc, *pixels);
+                    assert!(!host.get(), "host values remain unchanged");
+                    assert!(h.state().ui.dialogs.iter().any(|dialog| dialog.id == id), "failed OK retains its draft too");
+                    assert_eq!(
+                        h.state().ui.dialogs.iter().find(|dialog| dialog.id == id).unwrap().fields.get("__error").and_then(Value::as_str),
+                        Some("injected AI preferences write failure"),
+                        "{button} must reach the checked writer after validating a new provider key"
+                    );
+                    assert!(h.query_by_label_contains("injected AI preferences write failure").is_some());
+                    h.get_by_label("Cancel").click();
+                    h.run_steps(2);
+                    assert_eq!(h.state().session.prefs_value(), before);
+                    assert!(!host.get());
+                    // Retry from a fresh draft with a functioning writer commits all portions.
+                    let id = open_preferences(h.state_mut(), "ai.providers");
+                    edit(&mut h, id);
+                    failure.store(false, Ordering::SeqCst);
+                    h.get_by_label(button).click();
+                    h.run_steps(3);
+                    assert_eq!(h.state().session.prefs().interface.theme, prefs::Theme::StudioLight);
+                    assert_eq!(h.state().session.prefs().performance.history_states, 1);
+                    assert!(h.state().session.active().unwrap().history.past_len() <= 1);
+                    assert!(host.get());
+                    assert_eq!(h.state().session.prefs().ai.extra_string("openai_api_key").as_deref(), Some("synthetic-key-never-sent"));
+                    assert_eq!(
+                        h.state().session.prefs().ai.extra_string("openai_api_key"),
+                        saved.lock().unwrap().get("openai_api_key").and_then(Value::as_str).map(str::to_string)
+                    );
+                    if button == "Apply" {
+                        crate::dialogs::cancel(h.state_mut(), id);
+                    }
+                },
+            );
+        }
+    }
+
+    #[test]
     fn preferences_apply_button_saves_without_closing_and_cancel_keeps_applied_values() {
         use egui_kittest::{
             Harness,
@@ -2766,9 +2923,11 @@ mod tests {
             let id = open_preferences(&mut app, "performance");
             app.ui.dialog_mut(id).unwrap().fields.get_mut("values").unwrap()["performance"]["historyStates"] = invalid;
             let draft = app.ui.dialog_mut(id).unwrap().fields.clone();
-            assert!(apply(&mut app, id).is_err());
+            let error = apply(&mut app, id).unwrap_err();
             assert_eq!(app.session.prefs().to_json(), before);
-            assert_eq!(app.ui.dialog_mut(id).unwrap().fields, draft);
+            let mut retained = app.ui.dialog_mut(id).unwrap().fields.clone();
+            assert_eq!(retained.remove("__error"), Some(json!(error)), "a failed Apply adds its error without changing the draft");
+            assert_eq!(retained, draft, "every editable value and existing dialog field remains intact");
             app.ui.close_dialog(id);
         }
         let id = open_preferences(&mut app, "interface");

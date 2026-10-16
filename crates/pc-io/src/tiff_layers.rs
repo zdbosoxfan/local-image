@@ -105,7 +105,7 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
     let file = isd.into_psd(header, resources, image_data);
     // The same nesting limit as opening a PSD (upstream #2940).
     crate::psd_import::check_group_depth(&file)?;
-    let (mut doc, w) = psd_to_document(&file);
+    let (mut doc, w) = psd_to_document(&file)?;
     warnings.extend(w);
     doc.name = name.to_string();
     if doc.icc_profile.is_none() {

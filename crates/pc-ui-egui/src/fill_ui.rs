@@ -82,7 +82,7 @@ pub fn fields(app: &PhotocraftApp) -> Map<String, Value> {
 /// Open the Fill dialog; returns its id.
 pub fn open(app: &mut PhotocraftApp) -> u64 {
     let f = fields(app);
-    app.ui.open_dialog(crate::state::DialogKind::Command, f)
+    crate::dialogs::open_document_dialog(app, crate::state::DialogKind::Command, f)
 }
 
 /// The `edit.fill` params of the dialog's fields: only the options of the chosen contents.

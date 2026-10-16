@@ -105,6 +105,57 @@ mod tests {
 
 #[cfg(test)]
 #[test]
+fn hosted_library_paints_the_shared_icon_style_and_standalone_keeps_its_setting() {
+    for hosted in [false, true] {
+        for shared_colour in [false, true] {
+            let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+            app.hosted_menus = hosted;
+            app.fonts_ready = true;
+            app.ui.settings.color_tool_icons = !shared_colour;
+            let mut view = crate::headless::HeadlessView::new();
+            let probe = Rect::from_min_size(pos2(120., 300.), vec2(30., 30.));
+            let expected = if hosted { shared_colour } else { !shared_colour };
+            for pass in 0..3 {
+                let raw = crate::headless::HeadlessView::raw_input(vec2(800., 600.), 1., pass as f64 / 60., vec![]);
+                view.run(raw, |ui| {
+                    li_ui_kit::color_icons::set_enabled(ui.ctx(), shared_colour);
+                    app.ui(ui);
+                    assert_eq!(li_ui_kit::color_icons::enabled(ui.ctx()), expected, "the style must be correct before painting a tool");
+                    ui.painter().rect_filled(probe, 0., Color32::from_gray(16));
+                    paint_tool(ui, probe, "crop", Icon::Crop, crate::theme::Tokens::get(ui.ctx()).icon, true);
+                });
+            }
+            let image = view.paint(&Default::default());
+            let chromatic = (probe.top() as usize..probe.bottom() as usize).any(|y| {
+                (probe.left() as usize..probe.right() as usize).any(|x| {
+                    let pixel = image.pixels[y * image.size[0] + x];
+                    pixel.r().abs_diff(pixel.g()).max(pixel.g().abs_diff(pixel.b())).max(pixel.r().abs_diff(pixel.b())) > 10
+                })
+            });
+            assert_eq!(chromatic, expected, "hosted={hosted}, shared_colour={shared_colour}: verify painted pixels, not only context state");
+        }
+        let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+        app.hosted_menus = hosted;
+        let mut view = crate::headless::HeadlessView::new();
+        let mut tab = "interface".to_string();
+        let mut controls = Vec::new();
+        for pass in 0..3 {
+            let raw = crate::headless::HeadlessView::raw_input(vec2(800., 900.), 1., pass as f64 / 60., vec![]);
+            view.run(raw, |ui| {
+                crate::panels::settings::body(&mut app, ui, &mut tab);
+                controls = crate::widgets::take_registry(ui.ctx());
+            });
+        }
+        assert_eq!(
+            controls.iter().any(|(id, _)| id.starts_with("button:settingsToolIcons-")),
+            !hosted,
+            "hosted Preferences must not expose a second conflicting tool-icon setting"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
 fn ds_finding_colored_tool_icon_is_square_in_a_wide_click_target() {
     let mut view = crate::headless::HeadlessView::new();
     let wide = Rect::from_min_size(pos2(20., 20.), vec2(100., 30.));

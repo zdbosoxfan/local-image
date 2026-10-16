@@ -157,3 +157,80 @@ fn ai_preferences_function_download_cancel_targets_the_bundle_job() {
     assert!(observed.is_cancelled());
     std::fs::remove_dir_all(cleanup).unwrap();
 }
+
+#[test]
+fn review_actual_tools_page_uses_gpu_downloads_and_recovers_unsupported_upscalers() {
+    let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = super::super::tests::temp_dir("review-actual-enhancement-tools");
+    let old_downloads = shared().downloads.lock().unwrap().clone();
+    TEST_TOOLS_ROOT.with(|root| *root.borrow_mut() = Some(dir.clone()));
+    {
+        let gpu = JobControl::new();
+        let cpu = JobControl::new();
+        *shared().downloads.lock().unwrap() = BTreeMap::from([
+            ("realplksr-2x:default".into(), Download { total: 100, done: 50, ctl: gpu.clone(), ..Default::default() }),
+            ("seg:realplksr-2x".into(), Download { total: 100, done: 50, ctl: cpu.clone(), ..Default::default() }),
+        ]);
+        let mut h = harness("ai.tools", vec2(1100.0, 850.0), 1.0, crate::theme::ThemeKind::Studio);
+        h.get_by_label("Photo Upscaling").scroll_to_me();
+        h.run_steps(3);
+        h.get_by_label("ComfyUI");
+        h.get_by_label("AI enlargement requires a GPU/NPU.");
+        assert_eq!(h.query_all_by_label("This computer · GPU required").count(), 2);
+        assert!(h.query_by_label_contains("CPU fallback").is_none());
+        h.get_by_label("Cancel Photo Upscaling download").click();
+        h.run_steps(2);
+        assert!(gpu.is_cancelled(), "summary owns the ComfyUI preset download");
+        assert!(!cpu.is_cancelled(), "summary cannot target the unusable CPU bundle");
+        assert!(h.query_by_label("Download CPU model").is_none());
+        assert!(h.query_by_label("Custom model selected").is_none());
+        shared().downloads.lock().unwrap().clear();
+        dialogs_mut(|dialogs| {
+            let settings = dialogs.settings.as_mut().unwrap();
+            settings.setup_mode = "discover".into();
+            settings.comfy_host = "127.0.0.1".into();
+        });
+        h.run_steps(3);
+        h.get_by_label("Download Photo Upscaling");
+        h.get_by_label("Download Photo Restoration");
+        // A stale CPU-only choice is visibly unavailable and has an immediate recovery action.
+        std::fs::write(
+            dir.join("enhance-functions.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "faithful":{"kind":"custom","name":"Old CPU model","file":"old.onnx","bytes":1,"sha256":"0".repeat(64),"tile":32,"scale":2}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        h.run_steps(3);
+        h.get_by_label("Choose a GPU enlargement model in Settings › Local AI.");
+        assert!(h.query_by_label("Download Photo Upscaling").is_none());
+        h.get_by_label("Use default Photo Upscaling").click();
+        h.run_steps(3);
+        assert_eq!(
+            li_ai::enhance::selection::load(&dir, li_ai::enhance::Method::Faithful),
+            li_ai::enhance::selection::default_choice(li_ai::enhance::Method::Faithful)
+        );
+        h.get_by_label("Download Photo Upscaling");
+        reset();
+        TEST_STATUS.with(|status| *status.borrow_mut() = None);
+    }
+    *shared().downloads.lock().unwrap() = old_downloads;
+    TEST_TOOLS_ROOT.with(|root| *root.borrow_mut() = None);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn review_ai_page_summaries_describe_the_selected_backend() {
+    let _lock = AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    for (section, summary) in [
+        ("ai.models", "Generative models run in ComfyUI, locally or on your server."),
+        ("ai.providers", "Optional online models use your own API keys and provider accounts."),
+    ] {
+        let h = harness(section, vec2(1100.0, 850.0), 1.0, crate::theme::ThemeKind::Studio);
+        h.get_by_label(summary);
+        assert!(h.query_by_label("On-device tools work without a ComfyUI server.").is_none());
+        reset();
+        TEST_STATUS.with(|status| *status.borrow_mut() = None);
+    }
+}

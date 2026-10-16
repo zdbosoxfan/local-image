@@ -31,10 +31,18 @@ fn draft() -> AiSettings {
 pub(crate) fn changed() -> bool {
     dialogs_mut(|d| d.settings.as_ref().zip(d.applied_settings.as_ref()).is_some_and(|(draft, applied)| draft != applied))
 }
+pub(crate) fn pending_settings() -> Option<AiSettings> {
+    changed().then(draft)
+}
 pub(crate) fn apply() -> Result<(), String> {
     if changed() {
         let settings = draft();
-        save_all(&settings)?;
+        if let Err(error) = save_all(&settings) {
+            // The unified Preferences shell presents this transaction error on every page.
+            // Connection actions still use save_all's local message independently.
+            dialogs_mut(|dialogs| dialogs.message.clear());
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -69,12 +77,13 @@ pub(crate) fn page(app: &mut PhotocraftApp, ui: &mut egui::Ui, section: &str) ->
     let mut settings = draft();
     ui.label(RichText::new(tl!(*title)).font(crate::theme::semibold(14.0)).color(t.text));
     ui.add_space(6.0);
-    let summary = if st.connected {
-        li_i18n::fmt(tl!("Connected to ComfyUI at {host}"), &[("host", &st.host)])
-    } else if section == CONNECTION {
-        li_i18n::fmt(tl!("ComfyUI is not running at {host}"), &[("host", &st.host)])
-    } else {
-        tl!("On-device tools work without a ComfyUI server.").into()
+    let summary = match section {
+        CONNECTION if st.connected => li_i18n::fmt(tl!("Connected to ComfyUI at {host}"), &[("host", &st.host)]),
+        CONNECTION => li_i18n::fmt(tl!("ComfyUI is not running at {host}"), &[("host", &st.host)]),
+        "ai.tools" => tl!("Download the tools you need. Models and technical options are under Manage.").into(),
+        "ai.models" => tl!("Generative models run in ComfyUI, locally or on your server.").into(),
+        "ai.providers" => tl!("Optional online models use your own API keys and provider accounts.").into(),
+        _ => String::new(),
     };
     ui.label(RichText::new(summary).color(t.text_dim));
     ui.add_space(6.0);
@@ -87,7 +96,7 @@ pub(crate) fn page(app: &mut PhotocraftApp, ui: &mut egui::Ui, section: &str) ->
                 }
                 connection::draw(ui, &mut settings, &st, &t);
             }
-            "ai.tools" => tools(app, ui, &t),
+            "ai.tools" => tools(app, ui, &t, &settings, &st),
             "ai.models" => models(app, ui, &mut settings, &st, &t),
             "ai.providers" => providers::draw(ui, &mut settings, &t),
             _ => {}
@@ -118,10 +127,21 @@ fn function(group: li_seg::Group) -> (&'static str, &'static str) {
     }
 }
 
-fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
-    let dir = photocraft_engine::seg::models_dir();
+#[cfg(test)]
+thread_local! { static TEST_TOOLS_ROOT: std::cell::RefCell<Option<std::path::PathBuf>> = const {std::cell::RefCell::new(None)}; }
+
+fn tools_model_dir() -> std::path::PathBuf {
+    #[cfg(test)]
+    if let Some(root) = TEST_TOOLS_ROOT.with(|root| root.borrow().clone()) {
+        return root;
+    }
+    photocraft_engine::seg::models_dir()
+}
+
+fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens, settings: &AiSettings, st: &EngineStatus) {
+    let dir = tools_model_dir();
     let dls = downloads();
-    ui.label(RichText::new(tl!("Download the tools you need. Models and technical options are under Manage.")).color(t.text_dim));
+    ui.label(RichText::new(tl!("On-device tools work without a ComfyUI server.")).color(t.text_dim));
     ui.add_space(8.0);
     for group in li_seg::Group::ALL {
         let (title, about) = function(group);
@@ -131,10 +151,9 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
             catalog::on_device_default(group)
         };
         let custom = li_seg::custom(&dir, group).is_some();
-        let backend = if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
-            tl!("This computer · GPU with CPU fallback")
-        } else {
-            tl!("This computer · CPU")
+        let backend = match group {
+            li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise => tl!("This computer · GPU required"),
+            _ => tl!("This computer · CPU"),
         };
         tool_row(ui, t, &dls, &dir, title, about, backend, spec, custom);
         let response = egui::CollapsingHeader::new(tl!("Manage…")).id_salt(("ai-tool-manage", group.key())).show(ui, |ui| {
@@ -152,18 +171,17 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
             .widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::CollapsingHeader, true, format!("{} {}", tl!("Manage"), tl!(title))));
         ui.separator();
     }
+    ui.add_space(8.0);
+    ui.label(RichText::new("ComfyUI").font(crate::theme::semibold(14.0)).color(t.text));
+    ui.label(RichText::new(tl!("AI enlargement requires a GPU/NPU.")).color(t.text_dim));
+    ui.add_space(8.0);
     for method in [li_ai::enhance::Method::Faithful, li_ai::enhance::Method::Rescue] {
         let (title, about) = if method == li_ai::enhance::Method::Faithful {
             ("Photo Upscaling", "Enlarge photos while preserving their appearance.")
         } else {
             ("Photo Restoration", "Restore noisy or compressed photos while enlarging.")
         };
-        if let Some(spec) = enhance_settings::selected_spec(&dir, method) {
-            tool_row(ui, t, &dls, &dir, title, about, tl!("This computer · CPU"), spec, false);
-        } else {
-            ui.label(RichText::new(tl!(title)).font(crate::theme::semibold(12.5)));
-            ui.label(tl!("Custom model selected"));
-        }
+        enhance_tool_row(ui, t, &dls, &dir, method, title, about, settings, st);
         egui::CollapsingHeader::new(li_i18n::fmt(tl!("Manage {function}"), &[("function", tl!(title))]))
             .id_salt(("ai-enhance-manage", method.key()))
             .show(ui, |ui| enhance_settings::row(ui, t, &dls, &dir, method));
@@ -176,6 +194,82 @@ fn tools(app: &mut PhotocraftApp, ui: &mut egui::Ui, t: &Tokens) {
         let bytes = paths.iter().filter_map(|path| std::fs::metadata(path).ok()).map(|m| m.len()).sum();
         ui.label(li_i18n::fmt(tl!("Managed model storage: {size}"), &[("size", &li_ai::download::human_bytes(bytes))]));
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn enhance_tool_row(
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    dls: &BTreeMap<String, Download>,
+    dir: &std::path::Path,
+    method: li_ai::enhance::Method,
+    title: &str,
+    about: &str,
+    settings: &AiSettings,
+    st: &EngineStatus,
+) {
+    let spec = enhance_settings::selected_spec(dir, method);
+    let key = spec.map(|spec| format!("{}:default", spec.id));
+    let download = key.as_ref().and_then(|key| dls.get(key));
+    ui.horizontal_top(|ui| {
+        let width = (ui.available_width() - 150.0).max(140.0);
+        ui.vertical(|ui| {
+            ui.set_width(width);
+            ui.label(RichText::new(tl!(title)).font(crate::theme::semibold(12.5)).color(t.text));
+            ui.label(RichText::new(tl!(about)).color(t.text_dim));
+            if spec.is_none() {
+                ui.label(RichText::new(tl!("Choose a GPU enlargement model in Settings › Local AI.")).color(t.warning));
+            }
+        });
+        ui.with_layout(egui::Layout::top_down(egui::Align::RIGHT), |ui| {
+            let action = if let Some(download) = download.filter(|download| !download.finished) {
+                ui.add(egui::ProgressBar::new(download.done as f32 / download.total.max(1) as f32).desired_width(120.0).show_percentage());
+                let response = widgets::secondary_button(ui, tl!("Cancel"), 0.0);
+                if response.clicked() {
+                    download.ctl.cancel();
+                }
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, li_i18n::fmt(tl!("Cancel {function} download"), &[("function", tl!(title))]))
+                });
+                None
+            } else if let Some(spec) = spec {
+                if st.gpu.is_some() && st.ready(ModelId::intern(spec.id), "default").is_ok() {
+                    ui.label(RichText::new(tl!("Ready")).color(t.text_dim));
+                    None
+                } else if settings.is_remote() {
+                    ui.label(RichText::new(tl!("Install on server")).color(t.text_dim));
+                    None
+                } else if catalog::preset(ModelId::intern(spec.id), "default").is_some_and(|preset| li_ai::download::missing_files(dir, preset).is_empty()) {
+                    ui.label(RichText::new(if st.connected { tl!("Files present — restart ComfyUI") } else { tl!("Files present") }).color(t.text_dim));
+                    None
+                } else {
+                    Some(tl!("Download"))
+                }
+            } else {
+                Some(tl!("Use default"))
+            };
+            if let Some(action) = action {
+                let response = widgets::secondary_button(ui, action, 0.0);
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        true,
+                        li_i18n::fmt(tl!("{action} {function}"), &[("action", action), ("function", tl!(title))]),
+                    )
+                });
+                if response.clicked() {
+                    if let Some(key) = &key {
+                        start_download(key);
+                    } else if let Err(error) = li_ai::enhance::selection::save(dir, method, None) {
+                        dialogs_mut(|dialogs| dialogs.message = format!("{error:#}"));
+                    }
+                }
+            }
+        });
+    });
+    if let Some(error) = download.and_then(|download| download.error.as_ref()) {
+        ui.label(RichText::new(error).color(t.danger));
+    }
 }
 
 fn tool_row(

@@ -7,15 +7,45 @@ use lightcraft_catalog::{MediaKind, PhotoId};
 use lightcraft_engine::smart_sort::{self, Tagger};
 use lightcraft_sysmem::JobCtl;
 use serde_json::{Value, json};
-use std::sync::{
-    Arc,
-    mpsc::{Receiver, channel},
-};
+use std::sync::{Arc, mpsc::Receiver};
 
+type Row = (PhotoId, String, Result<(Vec<f32>, f32), String>);
+type SaveBatch = lightcraft_engine::smart_sort::store::SaveBatch;
+#[cfg(not(target_arch = "wasm32"))]
+type EventSender = std::sync::mpsc::SyncSender<Event>;
+#[cfg(target_arch = "wasm32")]
+type EventSender = std::sync::mpsc::Sender<Event>;
 enum Event {
     Model(Arc<dyn Tagger>),
-    Row(PhotoId, String, Result<(Vec<f32>, f32), String>),
+    Rows(Vec<Row>, Option<std::sync::mpsc::SyncSender<Option<SaveBatch>>>),
+    Saved(SaveBatch, std::io::Result<()>),
     Done(Result<(), String>),
+}
+
+fn flush(sender: &EventSender, batch: SaveBatch) -> Result<(), String> {
+    let result = batch.write();
+    let failure = result.as_ref().err().map(|error| format!("Smart Sort cache save: {error}"));
+    sender.send(Event::Saved(batch, result)).map_err(|_| "Analysis closed".to_string())?;
+    failure.map_or(Ok(()), Err)
+}
+
+/// Only the OS coordinator waits for UI admission/persistence. Rayon workers finish their
+/// bounded batch first; no channel wait or filesystem write occupies a compute-pool worker.
+fn deliver(sender: &EventSender, rows: Vec<Row>) -> Result<(), String> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let (saved, request) = std::sync::mpsc::sync_channel(1);
+        sender.send(Event::Rows(rows, Some(saved))).map_err(|_| "Analysis closed".to_string())?;
+        if let Some(batch) = request.recv().map_err(|_| "Analysis closed".to_string())? {
+            flush(sender, batch)?;
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    sender.send(Event::Rows(rows, None)).map_err(|_| "Analysis closed".to_string())?;
+    Ok(())
 }
 pub struct SmartSortTask {
     /// Cancel and progress: `step` = photos done / total, message = the photo id in progress.
@@ -69,28 +99,56 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId]) -> Result<(), String> {
     let dir = app.session.quick_seg_dir.clone();
     let job = JobCtl::new();
     job.set_step(0, u32::try_from(total).unwrap_or(u32::MAX));
-    let (tx, rx) = channel();
+    #[cfg(not(target_arch = "wasm32"))]
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    #[cfg(target_arch = "wasm32")]
+    let (tx, rx) = std::sync::mpsc::channel();
+    let pending_save = app.session.smart.store.pending_save();
     let worker = job.clone();
     let prepare_error = li_i18n::library::t("Could not prepare photo").to_string();
     let work = move || {
-        let tagger = injected.map(Ok).unwrap_or_else(|| {
-            let mut smart = smart_sort::SmartSort::default();
-            smart.tagger(dir.as_deref())
-        });
-        let result = tagger.and_then(|tagger| {
-            let _ = tx.send(Event::Model(tagger.clone()));
-            for id in missing {
-                let _ = tx.send(Event::Row(id, String::new(), Err(prepare_error.clone())));
-                worker.add_step(1);
+        let run = || -> Result<(), String> {
+            if let Some(batch) = pending_save {
+                flush(&tx, batch)?;
             }
-            smart_sort::run_inputs(inputs, tagger, worker.cancel_flag(), &|id, key, value| {
-                worker.add_step(1);
-                worker.set_message(id.0.to_string());
-                let _ = tx.send(Event::Row(id, key, value));
-            })
-        });
+            let tagger = injected.map(Ok).unwrap_or_else(|| {
+                let mut smart = smart_sort::SmartSort::default();
+                smart.tagger(dir.as_deref())
+            })?;
+            tx.send(Event::Model(tagger.clone())).map_err(|_| "Analysis closed".to_string())?;
+            for batch in missing.chunks(32) {
+                let rows = batch
+                    .iter()
+                    .map(|id| {
+                        worker.add_step(1);
+                        (*id, String::new(), Err(prepare_error.clone()))
+                    })
+                    .collect();
+                deliver(&tx, rows)?;
+            }
+            let mut inputs = inputs.into_iter();
+            loop {
+                if worker.is_cancelled() {
+                    break;
+                }
+                let batch: Vec<_> = inputs.by_ref().take(32).collect();
+                if batch.is_empty() {
+                    break;
+                }
+                let rows = std::sync::Mutex::new(Vec::new());
+                smart_sort::run_inputs(batch, tagger.clone(), worker.cancel_flag(), &|id, key, value| {
+                    worker.add_step(1);
+                    worker.set_message(id.0.to_string());
+                    rows.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((id, key, value));
+                })?;
+                deliver(&tx, rows.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner))?;
+            }
+            Ok(())
+        };
+        let result = run();
         let _ = tx.send(Event::Done(result));
     };
+
     let faces = app.session.smart.prefs.faces_enabled;
     // Finish tagging setup before starting faces, so setup errors leave no worker running.
     if faces {
@@ -122,19 +180,35 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             Ok(Event::Model(tagger)) => {
                 app.session.smart.tagger = Some(tagger);
             }
-            Ok(Event::Row(id, key, value)) => {
-                let value = value.and_then(|(v, sharp)| {
-                    app.session.smart.store.set_sharpness(key.clone(), sharp);
-                    app.session.smart.store.insert(&task.model, key, v)
-                });
-                if let Some(Dialog::SmartSort { state }) = &mut app.ui.dialog {
-                    match value {
-                        Ok(()) => state.analysed += 1,
-                        Err(e) => state.failed.push((id, e)),
+            Ok(Event::Rows(rows, save)) => {
+                for (id, key, value) in rows {
+                    let value = value.and_then(|(v, sharp)| {
+                        app.session.smart.store.set_sharpness(key.clone(), sharp);
+                        app.session.smart.store.insert(&task.model, key, v)
+                    });
+                    if let Some(Dialog::SmartSort { state }) = &mut app.ui.dialog {
+                        match value {
+                            Ok(()) => state.analysed += 1,
+                            Err(e) => state.failed.push((id, e)),
+                        }
                     }
                 }
+                if let Some(save) = save {
+                    // One request slot, and the coordinator is already waiting for this reply.
+                    // No filesystem operation or join runs on the UI thread.
+                    let _ = save.send(app.session.smart.store.pending_save());
+                }
+                #[cfg(target_arch = "wasm32")]
+                if let Err(error) = app.session.smart.store.save() {
+                    app.toast_error(ctx, error.to_string());
+                }
                 changed = true;
+                break;
             }
+            Ok(Event::Saved(batch, result)) => match result {
+                Ok(()) => app.session.smart.store.acknowledge_save(&batch),
+                Err(error) => app.session.smart.store.save_failed(&batch, &error),
+            },
             Ok(Event::Done(result)) => {
                 if let Err(e) = result {
                     succeeded = false;
@@ -156,9 +230,6 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
     if changed || finished {
         ctx.request_repaint();
-        if let Err(e) = app.session.smart.store.save() {
-            app.toast_error(ctx, e.to_string());
-        }
     }
     if finished {
         if let Some(Dialog::SmartSort { state }) = &mut app.ui.dialog {
@@ -180,5 +251,40 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
 impl Drop for SmartSortTask {
     fn drop(&mut self) {
         self.job.cancel();
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod persistence_tests {
+    use super::*;
+    #[test]
+    fn ui_poll_only_hands_off_pending_bytes_and_write_keeps_original_library_path() {
+        let root = std::env::temp_dir().join(format!(
+            "smart-ui-save-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let first = root.join("first");
+        let second = root.join("second");
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
+        app.session.smart.store = smart_sort::Store::new(Some(&first));
+        app.session.smart.store.ensure("test", 2).unwrap();
+        let (sender, rx) = std::sync::mpsc::sync_channel(1);
+        app.smart_sort = Some(SmartSortTask { job: JobCtl::new(), total: 1, skipped: 0, videos: 0, model: "test".into(), rx });
+        let (reply, pending) = std::sync::mpsc::sync_channel(1);
+        sender.send(Event::Rows(vec![(PhotoId(1), "key".into(), Ok((vec![1.0, 0.0], 4.0)))], Some(reply))).unwrap();
+        poll(&mut app, &egui::Context::default());
+        let batch = pending.try_recv().unwrap().unwrap();
+        assert!(!first.exists(), "poll must perform no filesystem writes");
+        assert!(app.session.smart.store.pending_save().is_some(), "not clean before worker acknowledgement");
+        app.smart_sort = None;
+        app.session.smart.store = smart_sort::Store::new(Some(&second));
+        std::thread::spawn(move || batch.write()).join().unwrap().unwrap();
+        assert!(!second.exists(), "late completion cannot write into the replacement library");
+        let mut loaded = smart_sort::Store::new(Some(&first));
+        loaded.ensure("test", 2).unwrap();
+        assert_eq!(loaded.get("test", "key"), Some(&[1.0, 0.0][..]));
+        assert_eq!(loaded.sharpness("key"), Some(4.0));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

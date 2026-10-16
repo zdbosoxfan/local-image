@@ -180,6 +180,8 @@ struct Resident {
     kind: TexKind,
     format: PixelFormat,
     tiles: HashMap<TileCoord, Arc<Tile>>,
+    /// Missing tiles were materialized with this exact sparse-surface default.
+    default: Vec<u8>,
     default_nonzero: bool,
     doc: DocId,
     last_used: u64,
@@ -1518,7 +1520,10 @@ impl Compositor {
         let format = surface.format();
         let kind = TexKind::for_surface(key.1, format, self.precise_inputs);
         let cmyk = if format.mode == photocraft_color::ColorMode::Cmyk { self.cmyk } else { 0 };
-        let stale = self.residents.get(&key).is_none_or(|r| r.region != region || r.kind != kind || r.format != format || r.cmyk != cmyk);
+        let stale = self
+            .residents
+            .get(&key)
+            .is_none_or(|r| r.region != region || r.kind != kind || r.format != format || r.cmyk != cmyk || r.default.as_slice() != surface.default_bytes());
         if stale {
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("pc_compose_layer"),
@@ -1532,7 +1537,20 @@ impl Compositor {
             });
             let view = texture.create_view(&Default::default());
             let default_nonzero = surface.default_pixel().iter().any(|v| *v != 0.0);
-            let mut r = Resident { texture, view, region, kind, format, tiles: HashMap::new(), default_nonzero, doc, last_used: 0, stamp: 0, cmyk };
+            let mut r = Resident {
+                texture,
+                view,
+                region,
+                kind,
+                format,
+                tiles: HashMap::new(),
+                default: surface.default_bytes().to_vec(),
+                default_nonzero,
+                doc,
+                last_used: 0,
+                stamp: 0,
+                cmyk,
+            };
             // A new page is assembled straight into a mapped staging buffer and copied in one go
             // (missing tiles read as the default pixel; the buffer starts zeroed).
             let bpp = kind.bytes_per_pixel();

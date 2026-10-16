@@ -327,7 +327,11 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
         let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
         fields.insert("__docs".into(), json!(names));
     }
-    let id = app.ui.open_dialog(crate::state::DialogKind::Command, fields);
+    let id = if command == "edit.colorSettings" {
+        app.ui.open_dialog(crate::state::DialogKind::Command, fields)
+    } else {
+        crate::dialogs::open_document_dialog(app, crate::state::DialogKind::Command, fields)
+    };
     Some(id)
 }
 
@@ -363,7 +367,7 @@ pub fn open_with_spec(app: &mut PhotocraftApp, command: &str, label: &str, spec:
         fields.insert(p.key, v);
     }
     restore(app, &mut fields);
-    app.ui.open_dialog(crate::state::DialogKind::Command, fields)
+    crate::dialogs::open_document_dialog(app, crate::state::DialogKind::Command, fields)
 }
 
 pub(crate) fn label(key: &str) -> String {

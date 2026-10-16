@@ -160,7 +160,9 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     let esc = |ctx: &egui::Context| ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape));
     if app.distort.gallery.is_some() {
         if enter(ctx) {
-            let _ = crate::gallery_ui::commit(app);
+            if let Err(error) = crate::gallery_ui::commit(app) {
+                crate::notices::error(app, error);
+            }
         } else if esc(ctx) {
             app.distort.gallery = None;
         }
@@ -168,7 +170,9 @@ pub fn keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     }
     if app.distort.liquify.is_some() {
         if enter(ctx) {
-            crate::liquify_ui::commit(app);
+            if let Err(error) = crate::liquify_ui::commit(app) {
+                crate::notices::error(app, error);
+            }
         } else if esc(ctx) {
             crate::liquify_ui::cancel(app);
         } else {

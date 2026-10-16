@@ -524,6 +524,75 @@ fn prepare_scaled_test(h: &H, callback: &CanvasCallback) -> (f64, u64, u64) {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance: run explicitly on Metal or RTX 5090 Vulkan"]
+fn closed_secondary_views_release_scaled_resources_and_restore_budget() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let _lock = GPU.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut h = harness(1.0);
+    add(&mut h, fixture(), 2.0);
+    h.render().unwrap();
+    let gpu = h.state().gpu.as_ref().unwrap().clone();
+    let budget = 96 << 20;
+    gpu.set_memory_budget(budget);
+    let state = || {
+        let renderer = gpu.rs.renderer.read();
+        let res = renderer.callback_resources.get::<Resources>().unwrap();
+        let bytes = res
+            .scaled_frames
+            .values()
+            .flat_map(|frame| &frame.textures.tiles)
+            .map(|tile| {
+                let size = tile.texture.size();
+                (0..tile.texture.mip_level_count())
+                    .map(|level| u64::from((size.width >> level).max(1)) * u64::from((size.height >> level).max(1)) * texel_bytes(tile.texture.format()))
+                    .sum::<u64>()
+            })
+            .sum::<u64>();
+        (res.scaled_frames.len(), res.views.len(), bytes, res.compositor.as_ref().unwrap().memory_budget())
+    };
+    let baseline = state();
+    assert!(baseline.0 > 0 && baseline.2 > 0, "the live main view must own a scaled projection");
+    assert_eq!(baseline.3, budget / (baseline.0 as u64 + 1));
+    let source = h.state().session.active().unwrap().doc.clone();
+    let ctx = h.ctx.clone();
+    for _ in 0..10 {
+        let opened = crate::menus::invoke(h.state_mut(), &ctx, "window.arrange.newWindowForDocument", serde_json::json!({})).unwrap();
+        let window = opened["window"].as_u64().unwrap();
+        let document = h.state().session.active_index().unwrap();
+        let viewport = egui::ViewportId::from_hash_of(("docwin", window));
+        let mut callback = scaled_test_callback(&h, 2.0);
+        callback.params.view_key = egui::Id::new(("pc-canvas", viewport, document)).value();
+        // Prepare the real secondary callback directly: the harness has no native
+        // secondary OS window, but this creates its actual GPU view/projection owners.
+        let mut encoder = gpu.rs.device.create_command_encoder(&Default::default());
+        {
+            let mut renderer = gpu.rs.renderer.write();
+            let commands = callback.prepare(
+                &gpu.rs.device,
+                &gpu.rs.queue,
+                &ScreenDescriptor { size_in_pixels: [1000, 700], pixels_per_point: 1.0 },
+                &mut encoder,
+                &mut renderer.callback_resources,
+            );
+            assert!(commands.is_empty());
+        }
+        crate::canvas::retain_gpu_documents(h.state_mut());
+        let open = state();
+        assert_eq!(open.0, baseline.0 + 1);
+        assert_eq!(open.1, baseline.1 + 1);
+        assert!(open.2 > baseline.2);
+        assert_eq!(open.3, budget / (open.0 as u64 + 1));
+        h.state_mut().ui.windows.iter_mut().find(|w| w.id == window).unwrap().open = false;
+        crate::canvas::retain_gpu_documents(h.state_mut());
+        assert_eq!(state(), baseline, "closed view retained resources or a cache-budget share");
+        h.state_mut().ui.windows.retain(|w| w.open);
+        assert_eq!(h.state().session.documents().len(), 1, "the source document stays open");
+        assert_eq!(h.state().session.active().unwrap().doc, source);
+        assert!(gpu.health().is_ok());
+    }
+}
+
+#[test]
 #[ignore = "required physical GPU acceptance: run explicitly on RTX 5090 Vulkan with --ignored --exact --nocapture"]
 fn scaled_compositor_reuses_pipelines_across_viewport_aprons() {
     let _gpu_gate = crate::gpu_test_support::lock();

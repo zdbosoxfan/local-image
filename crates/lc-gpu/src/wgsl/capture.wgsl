@@ -1,7 +1,7 @@
 // Capture sharpening: twin of lc-pipeline/src/capture.rs. darktable capture.c at
 // 733bd69f32cac7ff5e41025115942772add1f088; GPL-3.0-or-later.
 // Copyright (C) 2025-2026 darktable developers; algorithm by Ingo Weyrich (RawTherapee).
-// P: width, height, sigma, threshold, corner boost, centre, clip enabled, clip.
+// P: width, height, sigma, threshold, corner boost, centre, clip enabled, clip, sensor mask enabled.
 // RL uses the true, disc-truncated Gaussian table, NOT separable/box approximations.
 
 fn capture_rgb(i: u32) -> vec3<f32> {
@@ -48,7 +48,7 @@ fn capture_mask(@builtin(global_invocation_id) g: vec3<u32>) {
             let y=i32(g.y)+dy; let x=i32(g.x)+dx;
             if(y<=1 || x<=1 || y+2>=i32(h) || x+2>=i32(w)) {continue;}
             let j=u32(y)*w+u32(x);
-            let clipped=pu(6u)!=0u && any(capture_rgb(j)>=vec3<f32>(pf(7u)));
+            let clipped=(pu(6u)!=0u && any(capture_rgb(j)>=vec3<f32>(pf(7u)))) || (pu(8u)!=0u && b[j]>0.0);
             if(clipped || a[j]<0.001) {allowed=false;}
         }
     }
@@ -83,6 +83,7 @@ fn capture_blend(@builtin(global_invocation_id) g: vec3<u32>) {
     let i=g.y*w+g.x;
     let wt=1.0/(1.0+exp(5.0-10.0*(a[i]-b[i])));
     dst[i]=clamp(wt*a[i]+(1.0-wt)*b[i],0.0,1.0);
+    if(pu(8u)!=0u && img[i]>0.0) {dst[i]=0.0;}
 }
 
 // A 16x16 workgroup loads one 24x24 tile including the largest (4px) halo.

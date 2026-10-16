@@ -42,6 +42,8 @@ fn ds_finding_real_app_navigator_job_finishes_during_drag() {
         app.run("file.new", json!({"width":5000,"height":1000})).unwrap();
         app.sync_views();
         app.ui.extras.rulers = false;
+        // Keep the view cold until the explicit request during the held pointer below.
+        app.ui.panels.navigator = false;
         app
     });
     h.run_steps(4);
@@ -50,7 +52,7 @@ fn ds_finding_real_app_navigator_job_finishes_during_drag() {
     let doc = h.state().session.active().unwrap().doc.clone();
     let id = doc.id;
     let ctx = h.ctx.clone();
-    let key = egui::Id::new(("navigator", id.0));
+    let textures = ctx.tex_manager();
     h.state_mut().ui.tool = photocraft_ui_egui::state::Tool::RectMarquee;
     let at = h.state().last_canvas_rect.center();
     h.hover_at(at);
@@ -60,30 +62,24 @@ fn ds_finding_real_app_navigator_job_finishes_during_drag() {
     h.event(Event::PointerMoved(at + vec2(40.0, 20.0)));
     h.run_steps(1);
     assert!(h.ctx.input(|i| i.pointer.primary_down()));
-    type Cached = (std::sync::Weak<Document>, u64, egui::TextureHandle);
-    type NavigatorJob = (std::sync::Weak<Document>, u64, Arc<std::sync::Mutex<Option<egui::ColorImage>>>, f64);
-    ctx.data_mut(|d| {
-        d.remove::<Cached>(key);
-        d.remove::<NavigatorJob>(egui::Id::new(("navigator-job", id.0)));
-    });
-    photocraft_ui_egui::canvas::navigator_texture(h.state_mut(), &ctx, 0).unwrap();
-    assert_eq!(ctx.data(|d| d.get_temp::<Cached>(key)).unwrap().1, u64::MAX, "regression starts with the initial placeholder while the pointer is held");
+    let texture = photocraft_ui_egui::canvas::navigator_texture(h.state_mut(), &ctx, 0).unwrap();
+    assert_eq!(textures.read().meta(texture).unwrap().size, [1, 1], "regression starts with the initial placeholder while the pointer is held");
     let start = Instant::now();
     let mut frames = Vec::new();
     while start.elapsed() < Duration::from_secs(10) {
         let t = Instant::now();
-        photocraft_ui_egui::canvas::navigator_texture(h.state_mut(), &ctx, 0).unwrap();
+        assert_eq!(photocraft_ui_egui::canvas::navigator_texture(h.state_mut(), &ctx, 0), Some(texture));
         h.run_steps(1);
         h.render().unwrap();
         frames.push(t.elapsed().as_secs_f64() * 1000.0);
-        if ctx.data(|d| d.get_temp::<Cached>(key)).is_some_and(|(r, p, t)| r.ptr_eq(&Arc::downgrade(&doc)) && p != u64::MAX && t.size()[0] > 1) {
+        assert!(h.ctx.input(|i| i.pointer.primary_down()), "completion must happen before the drag releases");
+        assert!(Arc::ptr_eq(&doc, &h.state().session.active().unwrap().doc), "the request still targets the same document snapshot");
+        if textures.read().meta(texture).is_some_and(|meta| meta.size[0] > 1) {
             break;
         }
         std::thread::sleep(Duration::from_millis(2));
     }
-    let (_, p, tex) = ctx.data(|d| d.get_temp::<Cached>(key)).unwrap();
-    assert_ne!(p, u64::MAX, "drag must keep polling the initial placeholder");
-    assert!(tex.size()[0] > 1);
+    assert!(textures.read().meta(texture).unwrap().size[0] > 1, "drag must keep polling until the async thumbnail replaces the initial placeholder");
     frames.sort_by(f64::total_cmp);
     eprintln!(
         "DS actual app 5MP navigator during drag: {} frames, median {:.2} ms, max {:.2} ms",
@@ -93,4 +89,8 @@ fn ds_finding_real_app_navigator_job_finishes_during_drag() {
     );
     h.event(Event::PointerButton { pos: pos2(at.x + 40.0, at.y + 20.0), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
+    h.state_mut().run("file.close", json!({"discardDocuments":[id.0]})).unwrap();
+    h.run_steps(2);
+    h.render().unwrap();
+    assert!(textures.read().meta(texture).is_none(), "closing the document releases its Navigator texture");
 }

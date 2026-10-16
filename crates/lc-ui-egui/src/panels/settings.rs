@@ -686,9 +686,11 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             &mut app.ui.settings.tool_tips,
         );
     });
-    row(ui, t, "Tool icons", |ui| {
-        choices(ui, "settingsToolIcons", &[(false, "Monochrome (default)"), (true, "Colour")], &mut app.ui.settings.color_tool_icons);
-    });
+    if !app.hosted_menus {
+        row(ui, t, "Tool icons", |ui| {
+            choices(ui, "settingsToolIcons", &[(false, "Monochrome (default)"), (true, "Colour")], &mut app.ui.settings.color_tool_icons);
+        });
+    }
     heading(ui, t, li_i18n::library::t("Filmstrip"));
     check(ui, "settings.filmNames", &mut app.ui.settings.film_names, "Show file names");
     check(ui, "settings.filmBadges", &mut app.ui.settings.film_badges, "Show ratings, flags and edit badges");

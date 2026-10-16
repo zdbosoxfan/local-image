@@ -399,7 +399,7 @@ fn independent_pdf_groups_export_with_their_whole_document_backdrop() {
     let expected = photocraft_compose::flatten(&doc);
     let (psd, warnings) = document_to_psd_with(&doc, &PsdExportOptions { merged_matte: false, ..Default::default() });
     assert!(warnings.iter().any(|w| w.contains("complete document") && w.contains("flattened")));
-    let (loaded, _) = psd_to_document(&psd);
+    let (loaded, _) = psd_to_document(&psd).unwrap();
     assert_eq!(loaded.layers.len(), 1);
     let actual = photocraft_compose::flatten(&loaded);
     for (a, b) in actual.px.iter().zip(&expected.px) {
@@ -444,7 +444,7 @@ fn normal_nonisolated_groups_retain_editable_psd_and_tiff_layers() {
     let expected = photocraft_compose::flatten(&doc);
     let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions { merged_matte: false, ..Default::default() });
     assert!(!warnings.iter().any(|w| w.contains("Independent PDF group isolation")));
-    let (psd, _) = psd_to_document(&file);
+    let (psd, _) = psd_to_document(&file).unwrap();
     assert!(psd.walk().iter().any(|(_, _, l)| matches!(l.content, LayerContent::Group(_))));
     let tiff = tiff(&doc, true);
     assert!(tags(&tiff.bytes).1.is_some());

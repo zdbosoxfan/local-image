@@ -154,11 +154,18 @@ fn ds2_overwrite_psd_retains_merged_alpha_and_refuses_damaged_channels() {
         assert_eq!(photocraft_psd::PsdFile::from_bytes(&saved.bytes).unwrap().merged_has_alpha(), layout.has_alpha());
         let mut damaged = psd;
         let channel = &mut damaged.layer_info.as_mut().unwrap().layers[0].channels[0];
+        let channel_id = channel.id;
         channel.compression = Some(photocraft_psd::Compression::Raw);
         channel.data.clear();
         let bytes = damaged.to_bytes().unwrap();
-        assert!(!photocraft_io::import("damaged", &bytes).unwrap().warnings.is_empty());
-        assert!(photocraft_io::export_over_original(&document, &bytes, 85).unwrap_err().to_string().contains("damaged originals"));
+        // Required pixels now fail at admission, before a partial document can
+        // reach Save. Overwrite must independently reject the damaged original.
+        let error = photocraft_io::import("damaged", &bytes).unwrap_err().to_string();
+        assert!(error.contains(&format!("channel {channel_id} could not be decoded")), "{error}");
+        assert!(error.contains("no document was opened"), "{error}");
+        let overwrite_error = photocraft_io::export_over_original(&document, &bytes, 85).unwrap_err().to_string();
+        assert!(overwrite_error.contains(&format!("channel {channel_id} could not be decoded")), "{overwrite_error}");
+        assert!(overwrite_error.contains("no document was opened"), "{overwrite_error}");
     }
 }
 

@@ -17,7 +17,16 @@ use std::path::Path;
 pub const READ_CHUNK: usize = 64 << 20;
 
 /// Input bytes retained by one import.
-pub const MAX_FILE_BYTES: u64 = 512 << 20;
+pub const MAX_FILE_BYTES: u64 = li_fs::read::MAX_FILE_BYTES;
+
+/// A successful whole-file save must remain readable on the next open or save.
+pub fn admit_output_size(bytes: u64) -> io::Result<()> {
+    if bytes > MAX_FILE_BYTES {
+        Err(io::Error::new(io::ErrorKind::InvalidInput, "The saved file would exceed the app's reopen limit; the destination was not changed"))
+    } else {
+        Ok(())
+    }
+}
 
 /// Reject network/device paths and non-regular files before opening.
 pub fn validate_path(path: &Path) -> io::Result<()> {
@@ -44,20 +53,7 @@ pub fn read_file(path: &Path) -> io::Result<Vec<u8>> {
 /// [`read_file`] with a chosen read size (tests use small ones to exercise the loop).
 pub fn read_file_with(path: &Path, chunk: usize) -> io::Result<Vec<u8>> {
     validate_path(path)?;
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    let mut f = options.open(path)?;
-    let meta = f.metadata()?;
-    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Input must be a regular file within the file memory limit"));
-    }
-    let len = meta.len();
-    read_all_with(&mut f, len, chunk)
+    li_fs::read::file_with_chunk(path, MAX_FILE_BYTES, chunk)
 }
 
 /// Read `reader` to its end in reads of at most [`READ_CHUNK`] bytes, for an already open file
@@ -171,6 +167,11 @@ mod tests {
 #[cfg(test)]
 mod bounded_read_regressions {
     use super::*;
+    #[test]
+    fn saved_file_admission_matches_the_reader_boundary() {
+        assert!(admit_output_size(MAX_FILE_BYTES).is_ok());
+        assert!(admit_output_size(MAX_FILE_BYTES + 1).is_err());
+    }
     #[test]
     fn devices_and_network_paths_are_rejected_before_open() {
         for path in ["/dev/zero", "/proc/self/mem", "//server/share", "\\\\server\\share"] {

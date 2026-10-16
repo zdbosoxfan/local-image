@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 mod conversion;
+pub(crate) use conversion::ordinary as ordinary_text_outlines;
 pub(crate) mod metadata;
 pub use conversion::{ConversionChoice, EnvelopeRequest, EnvelopeRouter, conversion_targets};
 

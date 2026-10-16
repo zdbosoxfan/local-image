@@ -209,10 +209,20 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 None => ok(json!({ "module": current })),
                 Some(m) => match crate::Module::ALL.into_iter().find(|x| format!("{x:?}").eq_ignore_ascii_case(m)) {
                     Some(target) if app.host_modes => {
-                        // `"browse": dir` shows that folder in the Library (Review in Library).
-                        if let Some(dir) = s("browse") {
-                            app.browse_in_library = Some(dir.to_string());
-                        }
+                        // Complete authorization/staging before changing any module state.
+                        let browse = match p.get("browse").filter(|value| !value.is_null()) {
+                            None => None,
+                            Some(Value::String(path)) => match app.services.automation_browse.as_mut() {
+                                Some(stage) => match stage(path) {
+                                    Ok(staged) => Some(staged),
+                                    Err(error) => return err(error),
+                                },
+                                None => return err("automation read authority is not configured for Library browsing"),
+                            },
+                            Some(_) => return err("`browse` must be a relative folder path"),
+                        };
+                        app.automation_browse = browse;
+                        app.browse_in_library = None;
                         app.switch_module = Some(target);
                         ctx.request_repaint();
                         ok(json!({ "module": m.to_ascii_lowercase(), "from": current }))
@@ -859,6 +869,39 @@ mod tests {
         assert!(r["error"].as_str().is_some(), "{r}");
         assert_eq!(app.session.tools.brush.size, 42.5);
         assert_eq!(app.session.journal.len(), journal_len);
+    }
+
+    #[test]
+    fn module_browse_stages_authority_before_changing_view_state() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.host_modes = true;
+        app.browse_in_library = Some("human-pending-folder".into());
+        let current = app.current_module;
+        let ctx = egui::Context::default();
+        let rejected = call(&mut app, &ctx, "app.module", json!({"module":"library","browse":"/outside"}));
+        assert_eq!(rejected["ok"], false);
+        assert_eq!(app.current_module, current);
+        assert!(app.switch_module.is_none());
+        assert!(app.automation_browse.is_none());
+        assert_eq!(app.browse_in_library.as_deref(), Some("human-pending-folder"));
+        app.services.automation_browse = Some(Box::new(|path| {
+            if path != "photos" {
+                return Err("outside the configured read capability".into());
+            }
+            Ok(crate::AutomationBrowse {
+                root: "/grant".into(),
+                root_aliases: vec!["/grant".into()],
+                folder: "/grant/photos".into(),
+                files: Vec::new(),
+                read: std::sync::Arc::new(|_| Err("fixture contains no files".into())),
+            })
+        }));
+        assert_eq!(call(&mut app, &ctx, "app.module", json!({"module":"library","browse":"../private"}))["ok"], false);
+        assert!(app.switch_module.is_none());
+        assert_eq!(call(&mut app, &ctx, "app.module", json!({"module":"library","browse":"photos"}))["ok"], true);
+        assert_eq!(app.switch_module, Some(crate::Module::Library));
+        assert_eq!(app.automation_browse.as_ref().unwrap().folder, "/grant/photos");
+        assert!(app.browse_in_library.is_none());
     }
 
     #[test]

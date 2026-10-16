@@ -13,6 +13,7 @@
 //! [`AtomicFs`] retains the editor's injectable filesystem seam and supports capability adapters.
 
 use lightcraft_sysmem::jobs::Interrupt;
+pub mod read;
 use std::cell::Cell;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -33,6 +34,7 @@ thread_local! {
     static FAIL_AFTER: Cell<Option<u64>> = const { Cell::new(None) };
     static SYNCS: Cell<u64> = const { Cell::new(0) };
     static FAIL_PUBLISHED_CLEANUP: Cell<bool> = const { Cell::new(false) };
+    static FORCE_COPY_PUBLICATION: Cell<bool> = const { Cell::new(false) };
 }
 #[doc(hidden)]
 pub fn syncs_on_this_thread() -> u64 {
@@ -65,6 +67,20 @@ pub struct PublicationFaultGuard(bool);
 impl Drop for PublicationFaultGuard {
     fn drop(&mut self) {
         FAIL_PUBLISHED_CLEANUP.with(|flag| flag.set(self.0));
+    }
+}
+
+/// Exercise copy-only volumes at the publication boundary, without changing direct
+/// rename/link operations used to capture files for recovery.
+#[doc(hidden)]
+pub fn force_copy_publication() -> CopyPublicationGuard {
+    CopyPublicationGuard(FORCE_COPY_PUBLICATION.with(|flag| flag.replace(true)))
+}
+#[doc(hidden)]
+pub struct CopyPublicationGuard(bool);
+impl Drop for CopyPublicationGuard {
+    fn drop(&mut self) {
+        FORCE_COPY_PUBLICATION.with(|flag| flag.set(self.0));
     }
 }
 
@@ -108,6 +124,12 @@ pub trait AtomicFs {
     /// Implementations own cleanup of their newly created destination on any failure.
     fn copy_new_verified(&self, _from: &Path, _to: &Path, _interrupt: &Interrupt<'_>) -> io::Result<()> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "exclusive verified copy is unavailable"))
+    }
+    /// As [`Self::copy_new_verified`], returning the original exclusive-create handle.
+    /// Reopening the published path is not sufficient: it may already name another file.
+    /// Legacy adapters need not support receipts for ordinary new-file publication.
+    fn copy_new_verified_handle(&self, _from: &Path, _to: &Path, _interrupt: &Interrupt<'_>) -> io::Result<File> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "exclusive verified copy receipts are unavailable"))
     }
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
     fn remove(&self, path: &Path) -> io::Result<()>;
@@ -183,7 +205,10 @@ impl AtomicFs for RealFs {
         }
     }
     fn copy_new_verified(&self, from: &Path, to: &Path, interrupt: &Interrupt<'_>) -> io::Result<()> {
-        copy_new_verified(from, to, interrupt)
+        self.copy_new_verified_handle(from, to, interrupt).map(drop)
+    }
+    fn copy_new_verified_handle(&self, from: &Path, to: &Path, interrupt: &Interrupt<'_>) -> io::Result<File> {
+        copy_new_verified_handle(from, to, interrupt)
     }
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
         fs::rename(from, to)
@@ -401,6 +426,9 @@ fn write_stream_to(tmp: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Wri
     write_owned_stream(file, tmp, policy, fill)
 }
 fn write_owned_stream(file: File, tmp: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>) -> io::Result<u64> {
+    write_owned_stream_held(file, tmp, policy, fill).map(|(length, _)| length)
+}
+fn write_owned_stream_held(file: File, tmp: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>) -> io::Result<(u64, File)> {
     let mut cleanup = Temp { fs: &RealFs, path: Some(tmp.to_path_buf()) };
     let mut writer = Limited { inner: io::BufWriter::with_capacity(1 << 20, file), written: 0, limit: FAIL_AFTER.with(Cell::get) };
     fill(&mut writer)?;
@@ -410,18 +438,20 @@ fn write_owned_stream(file: File, tmp: &Path, policy: Policy, fill: &mut dyn FnM
     if policy == Policy::Durable {
         sync_file(&file)?;
     }
-    drop(file); // close before any unlink, including Windows
     cleanup.path = None;
-    Ok(length)
+    Ok((length, file))
 }
 fn stream_temp(path: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>) -> io::Result<(PathBuf, u64)> {
+    stream_temp_held(path, policy, fill, false).map(|(path, length, _)| (path, length))
+}
+fn stream_temp_held(path: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>, readable: bool) -> io::Result<(PathBuf, u64, File)> {
     validate_target(path)?;
     for _ in 0..1000 {
         let tmp = parent_of(path).join(temp_name(&path.file_name().unwrap_or_default().to_string_lossy()));
         // Only exclusive creation collisions are retried. Errors from the fill callback
         // (including AlreadyExists) abort without replaying an encoder or downloader.
-        match OpenOptions::new().write(true).create_new(true).open(&tmp) {
-            Ok(file) => return write_owned_stream(file, &tmp, policy, fill).map(|length| (tmp, length)),
+        match OpenOptions::new().read(readable).write(true).create_new(true).open(&tmp) {
+            Ok(file) => return write_owned_stream_held(file, &tmp, policy, fill).map(|(length, file)| (tmp, length, file)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e),
         }
@@ -474,6 +504,18 @@ pub fn write_new(path: &Path, data: &[u8]) -> io::Result<()> {
 pub fn write_new_with(path: &Path, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>, verify: &mut dyn FnMut(&Path) -> io::Result<()>) -> io::Result<()> {
     write_new_with_interrupted(path, fill, verify, &Interrupt::NONE)
 }
+/// Publish a verified new file and retain the file actually created by this write.
+/// The read/write handle is held across rename/link publication, or is the original
+/// exclusive-create handle when publication requires copying. It is never obtained by
+/// reopening the destination, which may already have been replaced by another writer.
+/// The handle's cursor position is unspecified; seek before reading its contents.
+pub fn write_new_with_receipt(
+    path: &Path,
+    fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
+    verify: &mut dyn FnMut(&Path) -> io::Result<()>,
+) -> io::Result<File> {
+    write_new_with_inner(path, fill, verify, &Interrupt::NONE, true)?.ok_or_else(|| io::Error::other("publication did not retain its file handle"))
+}
 /// Verified new-file write with cancellation during fallback publication as well as before commit.
 pub fn write_new_with_interrupted(
     path: &Path,
@@ -481,17 +523,33 @@ pub fn write_new_with_interrupted(
     verify: &mut dyn FnMut(&Path) -> io::Result<()>,
     interrupt: &Interrupt<'_>,
 ) -> io::Result<()> {
+    write_new_with_inner(path, fill, verify, interrupt, false).map(|_| ())
+}
+fn write_new_with_inner(
+    path: &Path,
+    fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>,
+    verify: &mut dyn FnMut(&Path) -> io::Result<()>,
+    interrupt: &Interrupt<'_>,
+    receipt: bool,
+) -> io::Result<Option<File>> {
     check_interrupt(interrupt)?;
-    let (tmp, _) = stream_temp(path, Policy::Durable, fill)?;
+    let (tmp, _, staged) = stream_temp_held(path, Policy::Durable, fill, receipt)?;
     let mut cleanup = Temp { fs: &RealFs, path: Some(tmp.clone()) };
+    // Legacy callers close before verification, preserving their existing sharing behavior.
+    let held = if receipt {
+        Some(staged)
+    } else {
+        drop(staged);
+        None
+    };
     check_interrupt(interrupt)?;
     verify(&tmp)?;
     check_interrupt(interrupt)?;
-    let publication = publish_new_with(&RealFs, &tmp, path, interrupt)?;
+    let (publication, held) = publish_new_inner(&RealFs, &tmp, path, interrupt, held)?;
     cleanup.path = None;
     finish_new_publication(&tmp, path, publication)?;
     sync_dir(parent_of(path));
-    Ok(())
+    Ok(held)
 }
 pub fn write_new_unique(candidates: &mut dyn Iterator<Item = PathBuf>, data: &[u8]) -> io::Result<PathBuf> {
     let mut candidates = candidates.peekable();
@@ -591,24 +649,34 @@ fn unsupported_rename(error: &io::Error) -> bool {
     false
 }
 fn publish_new_with(fs: &dyn AtomicFs, tmp: &Path, path: &Path, interrupt: &Interrupt<'_>) -> io::Result<Publication> {
+    publish_new_inner(fs, tmp, path, interrupt, None).map(|(publication, _)| publication)
+}
+fn publish_new_inner(fs: &dyn AtomicFs, tmp: &Path, path: &Path, interrupt: &Interrupt<'_>, receipt: Option<File>) -> io::Result<(Publication, Option<File>)> {
     check_interrupt(interrupt)?;
-    match retry_rename(RenameRetry::platform(), || fs.rename_new(tmp, path)) {
-        Ok(()) => return Ok(Publication::Renamed),
-        Err(error) if unsupported_rename(&error) => {}
-        Err(error) => return Err(error),
+    if !FORCE_COPY_PUBLICATION.with(Cell::get) {
+        match retry_rename(RenameRetry::platform(), || fs.rename_new(tmp, path)) {
+            Ok(()) => return Ok((Publication::Renamed, receipt)),
+            Err(error) if unsupported_rename(&error) => {}
+            Err(error) => return Err(error),
+        }
+        check_interrupt(interrupt)?;
+        match retry_rename(RenameRetry::platform(), || fs.link_new(tmp, path)) {
+            Ok(()) => return Ok((Publication::Linked, receipt)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Err(error),
+            // Unsupported links (including filesystem-specific EPERM/Windows errors) may
+            // safely fall back to create_new. Other genuine failures are then returned by
+            // source opening/exclusive creation; there is never a replacing rename.
+            Err(_) => {}
+        }
     }
     check_interrupt(interrupt)?;
-    match retry_rename(RenameRetry::platform(), || fs.link_new(tmp, path)) {
-        Ok(()) => return Ok(Publication::Linked),
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => return Err(error),
-        // Unsupported links (including filesystem-specific EPERM/Windows errors) may
-        // safely fall back to create_new. Other genuine failures are then returned by
-        // source opening/exclusive creation; there is never a replacing rename.
-        Err(_) => {}
-    }
-    check_interrupt(interrupt)?;
-    fs.copy_new_verified(tmp, path, interrupt)?;
-    Ok(Publication::Copied)
+    let copied = if receipt.is_some() {
+        Some(fs.copy_new_verified_handle(tmp, path, interrupt)?)
+    } else {
+        fs.copy_new_verified(tmp, path, interrupt)?;
+        None
+    };
+    Ok((Publication::Copied, copied))
 }
 fn finish_new_publication(tmp: &Path, path: &Path, publication: Publication) -> io::Result<()> {
     if publication == Publication::Linked {
@@ -641,7 +709,7 @@ impl Drop for ExclusiveCopy {
 }
 // FAT/exFAT-compatible last resort. Opening the final name exclusively is the ownership
 // boundary: a collision never creates a cleanup guard and never removes anyone else's file.
-fn copy_new_verified(from: &Path, to: &Path, interrupt: &Interrupt<'_>) -> io::Result<()> {
+fn copy_new_verified_handle(from: &Path, to: &Path, interrupt: &Interrupt<'_>) -> io::Result<File> {
     use std::io::{Read, Seek, SeekFrom};
     check_interrupt(interrupt)?;
     let mut input = File::open(from)?;
@@ -701,7 +769,7 @@ fn copy_new_verified(from: &Path, to: &Path, interrupt: &Interrupt<'_>) -> io::R
     interrupt.progress(1.0);
     check_interrupt(interrupt)?;
     owned.complete = true;
-    Ok(())
+    owned.file.take().ok_or_else(|| io::Error::other("exclusive copy did not retain its file handle"))
 }
 /// Does the file at `path` hold exactly `data`?
 fn same_content(path: &Path, data: &[u8]) -> io::Result<bool> {
