@@ -120,7 +120,7 @@ impl Group {
                 "Recognises what a photo shows (speakers, audience, details…) so Smart Sort can put it in the right folder. Runs on the CPU; photos never leave this computer."
             }
             Group::RawDenoise => {
-                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU/NPU."
+                "Removes noise from raw photos locally, using RawNIND UtNet2. Includes Bayer demosaic and linear Rec.2020 models. Requires a GPU."
             }
             Group::Remove => "Repairs brushed areas with LaMa on this computer. No AI server needed; photos stay on this device.",
             Group::RgbDenoise => "Removes noise from JPEG, TIFF and edited RGB images locally with NIND UNet.",
@@ -459,7 +459,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181",
         },
         group: Some(Group::RawDenoise),
-        about: "Raw denoising and Bayer demosaic requires a GPU/NPU. Linear Rec.2020 variant for other sensors.",
+        about: "Raw denoising and Bayer demosaic require a GPU. Linear Rec.2020 variant for other sensors.",
     },
     ModelSpec {
         id: "denoise-nind",
@@ -479,7 +479,7 @@ pub const MODELS: &[ModelSpec] = &[
             inner_sha256: "5d615c5026a3c579455b9082f72b91e109adb54f4125b5b5cde45983bd6776b2",
         },
         group: Some(Group::RgbDenoise),
-        about: "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU/NPU.",
+        about: "Local denoising for JPEG, TIFF and edited RGB images. Requires a GPU.",
     },
 ];
 

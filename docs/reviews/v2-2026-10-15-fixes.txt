@@ -157,6 +157,9 @@ Fix: Align enhancement setup and saved choices with the supported GPU/NPU execut
 Regression: enhance::selection::tests::review_custom_cpu_import_never_changes_production_choice_or_files
 Regression: ai_ui::enhance_settings::tests::enhance_settings_clicks_candidates_custom_and_default_per_function
 Regression: enhance::selection::tests::enhance_function_choices_default_custom_validation_and_shared_execution
+Regression:
+ai_ui::settings_ui::tests::review_actual_tools_page_uses_gpu_downloads_and_recovers_unsupported_upscalers
+Regression: ai_ui::settings_ui::tests::review_ai_page_summaries_describe_the_selected_backend
 
 ALG-01 [P2] RAW merge discards lens corrections instead of baking or preserving them
 Fix: Ordered list3 corrections are baked before crop/output; panorama inputs retain full corrections before
