@@ -76,10 +76,7 @@ mod tests {
     }
 }
 
-// Package 15 owned provider source; relocate to pc-doc after the serial merge if desired.
-#[path = "../../pc-engine/src/vector_packages/symbols/expansion.rs"]
 pub mod symbol_expansion;
-#[path = "../../pc-engine/src/vector_packages/symbols/validation.rs"]
 pub mod symbol_validation;
 
 pub mod styles;

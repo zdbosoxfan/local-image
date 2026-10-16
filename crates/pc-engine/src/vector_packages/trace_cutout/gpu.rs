@@ -2,13 +2,7 @@
 use pc_trace::cutout::trace;
 use pc_trace::{Image, Params};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-pub use photocraft_compose::{Buffer, cmyk_space, effects, fill_frame, gradient_fill, masks, pattern, render, render_tiled};
-// Compile package 09's supplied provider exactly as its own GPU gate does,
-// until package 00 registers the shared module. This is dependency evidence,
-// not full-app integration acceptance.
-#[allow(dead_code, clippy::unwrap_used)]
-#[path = "../../../../pc-compose/src/scaled_view.rs"]
-mod cpu;
+use photocraft_compose::scaled_view as cpu;
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};
 #[test]
 fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {

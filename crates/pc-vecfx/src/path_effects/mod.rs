@@ -12,9 +12,7 @@ use photocraft_doc::{
 mod distort;
 mod mapping;
 pub mod render;
-// Reuse package 06's exact evaluator source until its pc-vector public registration lands.
-#[path = "../../../pc-vector/src/live_corners.rs"]
-pub mod corners;
+pub use photocraft_vector::live_corners as corners;
 
 pub const MAX_NODES: usize = 65_536;
 pub const MAX_EFFECTS: usize = 64;
