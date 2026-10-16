@@ -1,5 +1,7 @@
 #!/bin/bash
 # Secrets are consumed only by this manually dispatched release job.
+# The workflow sets RELEASE_REQUIRE_SIGNING on refs/tags/*: missing signing or notarization
+# secrets are then fatal instead of falling back to an ad-hoc development build.
 set -euo pipefail
 [[ $(uname -m) == arm64 ]]
 keychain="$RUNNER_TEMP/local-image-signing.keychain-db"
@@ -19,8 +21,17 @@ if [[ -n ${MACOS_CERTIFICATE:-} && -n ${MACOS_CERTIFICATE_PASSWORD:-} && -n ${MA
   security list-keychains -d user -s "$keychain" "$HOME/Library/Keychains/login.keychain-db"
   signed=true
 else
+  if [[ -n ${RELEASE_REQUIRE_SIGNING:-} ]]; then
+    echo 'Developer ID signing secrets are absent or incomplete on a tag ref: refusing to build an ad-hoc release.' >&2
+    exit 1
+  fi
   echo 'Developer ID secrets absent or incomplete: producing an ad-hoc test app; signing/notarization skipped.'
   unset MACOS_SIGN_IDENTITY MACOS_INSTALLER_SIGN_IDENTITY
+fi
+if [[ -n ${RELEASE_REQUIRE_SIGNING:-} && ( -z ${MACOS_NOTARY_APPLE_ID:-} || -z ${MACOS_NOTARY_TEAM_ID:-} || -z ${MACOS_NOTARY_PASSWORD:-} ) ]]; then
+  # Fail before the long build rather than after it.
+  echo 'Notarization credentials are absent or incomplete on a tag ref: refusing to build an un-notarized release.' >&2
+  exit 1
 fi
 cargo +1.98.1 xtask package macos
 app="${CARGO_TARGET_DIR:-target}/macos-package/Local Image.app"
@@ -33,6 +44,10 @@ if [[ $signed == true && -n ${MACOS_NOTARY_APPLE_ID:-} && -n ${MACOS_NOTARY_TEAM
   xcrun stapler validate "$app"
   spctl --assess --type execute --verbose=2 "$app"
 else
+  if [[ -n ${RELEASE_REQUIRE_SIGNING:-} ]]; then
+    echo 'Notarization credentials are absent or incomplete on a tag ref: refusing to build an un-notarized release.' >&2
+    exit 1
+  fi
   echo 'Notarization credentials absent or signing skipped: notarization skipped.'
 fi
 stage="${CARGO_TARGET_DIR:-target}/macos-dmg"

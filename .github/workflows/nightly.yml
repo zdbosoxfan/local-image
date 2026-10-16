@@ -25,15 +25,17 @@ jobs:
           - [self-hosted, macOS, ARM64, local-image-nightly, metal]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           repository: storytold/craft-fonts
           ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
           path: .cache/craft-fonts
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@1.98.1
+      # With a SHA ref the action cannot infer the toolchain from the ref name: pass it.
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # 1.98.1
         with:
+          toolchain: 1.98.1
           components: clippy
       - name: Fetch locked inputs
         run: cargo +1.98.1 fetch --locked
@@ -59,3 +61,49 @@ jobs:
           -- --ignored --exact --nocapture --test-threads=1
       - name: Asset audit after test outputs
         run: cargo +1.98.1 xtask assets
+  fuzz:
+    # Every cargo-fuzz target of every fuzz crate, 60 s each. Fuzzing needs nightly (sanitizers).
+    # Same trusted, owner-opt-in runners as above; no pull_request trigger can reach this job.
+    name: fuzz ${{ matrix.crate }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [pc-codecs, pc-psd, pc-format, lc-raw, lc-meta, pc-svg]
+    runs-on: [self-hosted, Linux, X64, local-image-nightly]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      # With a SHA ref the action cannot infer the toolchain from the ref name: pass it.
+      - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
+        with:
+          toolchain: nightly
+      - name: Install cargo-fuzz
+        run: |
+          # Self-hosted runners keep ~/.cargo between runs: only build when the pin is missing.
+          cargo fuzz --version 2>/dev/null | grep -q '0\.13\.2' || cargo +nightly install --locked --force cargo-fuzz --version 0.13.2
+      - name: Fuzz every target for 60 seconds
+        working-directory: crates/${{ matrix.crate }}
+        env:
+          # The runner keeps corpora between nights so coverage accumulates.
+          FUZZ_CORPUS_ROOT: ${{ runner.tool_cache }}/local-image-fuzz-corpus/${{ matrix.crate }}
+        run: |
+          status=0
+          for target in $(cargo +nightly fuzz list); do
+            mkdir -p "$FUZZ_CORPUS_ROOT/$target"
+            echo "::group::fuzz $target"
+            if ! cargo +nightly fuzz run "$target" "$FUZZ_CORPUS_ROOT/$target" -- -max_total_time=60 -timeout=10; then
+              echo "::error::fuzz target $target in ${{ matrix.crate }} failed"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-crashes-${{ matrix.crate }}
+          path: crates/${{ matrix.crate }}/fuzz/artifacts/
+          if-no-files-found: warn

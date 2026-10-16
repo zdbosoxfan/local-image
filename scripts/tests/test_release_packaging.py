@@ -41,7 +41,7 @@ class MacReleaseTests(unittest.TestCase):
             p = tools / name
             p.write_text(MOCK)
             p.chmod(0o755)
-        env = {k: v for k, v in os.environ.items() if not k.startswith("MACOS_") and k not in ["CARGO_TARGET_DIR", "DIST"]}
+        env = {k: v for k, v in os.environ.items() if not k.startswith("MACOS_") and k not in ["CARGO_TARGET_DIR", "DIST", "RELEASE_REQUIRE_SIGNING"]}
         env.update(PATH=f"{tools}:{env['PATH']}", RUNNER_TEMP=str(root), CALL_LOG=str(root / "calls.jsonl"))
         env.update(secrets or {})
         result = subprocess.run(["bash", str(SCRIPT)], cwd=root, env=env, capture_output=True, text=True)
@@ -75,6 +75,28 @@ class MacReleaseTests(unittest.TestCase):
         self.assertFalse((root / "local-image-signing.p12").exists())
         self.assertFalse((root / "local-image-signing.keychain-db").exists())
         self.assertTrue(any(c[0] == "security" and c[1][0] == "delete-keychain" for c in calls))
+
+    def test_tag_release_without_signing_secrets_fails_before_building(self):
+        for secrets in [{}, {"MACOS_SIGN_IDENTITY": "fake-identity"}]:
+            root, result, calls = self.run_release({**secrets, "RELEASE_REQUIRE_SIGNING": "1"})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("refusing to build an ad-hoc release", result.stderr)
+            self.assertFalse(any(c[0] in ["cargo", "hdiutil", "codesign", "xcrun"] for c in calls))
+            self.assertFalse((root / "dist").exists())
+
+    def test_tag_release_without_notarization_secrets_fails_before_building(self):
+        secrets = {k: v for k, v in self.secrets().items() if not k.startswith("MACOS_NOTARY_")}
+        root, result, calls = self.run_release({**secrets, "RELEASE_REQUIRE_SIGNING": "1"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("refusing to build an un-notarized release", result.stderr)
+        self.assertFalse(any(c[0] in ["cargo", "hdiutil", "xcrun"] for c in calls))
+        self.assertFalse((root / "local-image-signing.p12").exists())
+        self.assertFalse((root / "local-image-signing.keychain-db").exists())
+
+    def test_tag_release_with_complete_secrets_still_signs_and_notarizes(self):
+        root, result, calls = self.run_release({**self.secrets(), "RELEASE_REQUIRE_SIGNING": "1"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(sum(c[0] == "xcrun" and c[1][:2] == ["notarytool", "submit"] for c in calls), 3)
 
     def test_configured_notarization_failure_is_fatal_and_cleans_keys(self):
         secrets = self.secrets()

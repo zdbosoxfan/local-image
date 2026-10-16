@@ -1,0 +1,48 @@
+[package]
+name = "lightcraft-meta-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[package.metadata]
+cargo-fuzz = true
+
+# Standalone workspace so the main workspace's `crates/*` glob and lints do
+# not apply (cargo-fuzz needs nightly + sanitizer flags).
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+lightcraft-meta = { path = ".." }
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "exif"
+path = "fuzz_targets/exif.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xmp"
+path = "fuzz_targets/xmp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iptc"
+path = "fuzz_targets/iptc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "extract"
+path = "fuzz_targets/extract.rs"
+test = false
+doc = false
+bench = false

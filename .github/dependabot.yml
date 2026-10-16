@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Rust dependencies: one grouped weekly PR for minor/patch bumps. Major bumps arrive as
+  # separate PRs so each can be reviewed alone. `=`-pinned crates in Cargo.toml are only moved
+  # deliberately: Dependabot will open a PR for them, which is the cue to review the pin.
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo-minor-patch:
+        update-types: [minor, patch]
+  # Workflow actions are pinned to full commit SHAs with the tag in a trailing comment;
+  # Dependabot updates both.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
