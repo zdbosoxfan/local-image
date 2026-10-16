@@ -186,6 +186,8 @@ struct PrefsFile {
     /// Days after which untouched Local records of unbrowsed folders are forgotten (missing =
     /// the default, 0 = never).
     forget_local_days: Option<u32>,
+    /// Days after which photos in Recently Deleted are removed from the library (0 = never).
+    purge_deleted_days: u32,
     backup: crate::library_safety::BackupPreferences,
 }
 
@@ -393,6 +395,7 @@ impl Session {
         crate::dcp_profiles::configure(&self.import_defaults.camera_profiles_folder);
         self.cache_mb = prefs.cache_mb;
         self.forget_local_days = prefs.forget_local_days.unwrap_or(lightcraft_catalog::DEFAULT_FORGET_DAYS);
+        self.purge_deleted_days = prefs.purge_deleted_days;
         self.smart_previews_dir = prefs.smart_previews_dir.filter(|_| on_disk).map(PathBuf::from);
         if let Some(d) = &self.smart_previews_dir {
             self.media.smart_dir = Some(d.clone());
@@ -449,6 +452,17 @@ impl Session {
             }
             if let Some(lib) = self.library.as_mut() {
                 lib.forgot_local = Some(plan);
+            }
+        }
+        // remove photos in Recently Deleted past the retention period (one undo step)
+        if self.purge_deleted_days > 0 {
+            match self.purge_deleted(None) {
+                Ok(ids) if !ids.is_empty() => self.compact_soon(),
+                Ok(_) => {}
+                Err(e) => log::error!("library: purging Recently Deleted: {e}"),
+            }
+            if let Err(e) = self.persist() {
+                log::error!("library: {e}");
             }
         }
         Ok(())
@@ -607,6 +621,7 @@ impl Session {
             cache_mb: self.cache_mb,
             smart_previews_dir: self.smart_previews_dir.as_ref().map(|d| d.to_string_lossy().to_string()),
             forget_local_days: Some(self.forget_local_days),
+            purge_deleted_days: self.purge_deleted_days,
         })
         .unwrap_or_default();
         let Some(lib) = self.library.as_mut() else { return Ok(()) };

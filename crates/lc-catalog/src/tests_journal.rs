@@ -64,7 +64,11 @@ fn op_for(c: &mut Catalog, kind: u8, a: u8, b: u8) -> Op {
         }
         6 => Op::SetAlbumPhotos { id: aid, photos: photos.iter().copied().filter(|p| (p.0 + b as u64).is_multiple_of(3)).collect() },
         7 => Op::RenameAlbum { id: aid, name: format!("Renamed {b} ✓") },
-        8 => Op::SetDeleted { id: pid, deleted: b.is_multiple_of(2) },
+        8 => Op::SetDeleted {
+            id: pid,
+            deleted: b.is_multiple_of(2),
+            deleted_at: b.is_multiple_of(3).then(|| format!("2026-01-{:02}T10:00:00", 1 + b % 28)),
+        },
         10 => {
             let id = c.alloc_album_id();
             Op::AddAlbum { album: Album { smart: Some(Box::new(rules(b))), ..Album::new(id, format!("Smart {b}")) } }

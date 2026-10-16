@@ -581,14 +581,24 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         // ---- delete / restore
         cmd!("photo.delete", "Delete Photo", ["Photo"], Some("Delete"), "{ids?} — moves to Recently Deleted", has_selection, |s, p| {
-            let v = for_targets(s, p, "Delete", |id| Some(Op::SetDeleted { id, deleted: true }))?;
+            // a photo already in Recently Deleted keeps the time it went there
+            let now = (s.clock)();
+            let since: std::collections::HashMap<PhotoId, String> = s
+                .targets(p)
+                .into_iter()
+                .filter_map(|id| s.catalog.photo(id).filter(|ph| ph.deleted).and_then(|ph| ph.deleted_at.clone()).map(|at| (id, at)))
+                .collect();
+            let v = for_targets(s, p, "Delete", |id| {
+                Some(Op::SetDeleted { id, deleted: true, deleted_at: Some(since.get(&id).unwrap_or(&now).clone()) })
+            })?;
             let vis = s.visible_cloned();
             s.selection = vis.first().map(|f| Selection::single(*f)).unwrap_or_default();
             Ok(v)
         }),
         cmd!("photo.restore", "Restore", ["Photo"], None, "{ids?}", has_selection, |s, p| for_targets(s, p, "Restore", |id| Some(Op::SetDeleted {
             id,
-            deleted: false
+            deleted: false,
+            deleted_at: None
         }))),
         cmd!("photo.deletePermanently", "Remove from Library…", ["Photo"], None, "{ids?}", has_selection, |s, p| {
             let t = s.targets(p);

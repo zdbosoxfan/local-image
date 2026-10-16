@@ -1514,7 +1514,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                     // (browsing a folder in Local only looks: it never restores)
                     Some(id) if opts.on_deleted == OnDeleted::Restore && !opts.local => {
                         if !report.restored.contains(&id.0) {
-                            ops.push(Op::SetDeleted { id, deleted: false });
+                            ops.push(Op::SetDeleted { id, deleted: false, deleted_at: None });
                             // matched by content from another path, and the file the record points
                             // at is gone (moved, renamed): the photo follows the file
                             if reason == "content" && trashed_file_is_gone(&s.catalog, id) {

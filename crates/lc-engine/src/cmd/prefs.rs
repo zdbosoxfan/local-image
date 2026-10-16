@@ -15,6 +15,7 @@ fn current(s: &Session) -> Value {
         "import": s.import_defaults,
         "cacheMb": if s.cache_mb == 0 { s.cache_bytes() >> 20 } else { u64::from(s.cache_mb) },
         "forgetLocalDays": s.forget_local_days,
+        "purgeDeletedDays": s.purge_deleted_days,
         "persistent": s.library.is_some(),
     })
 }
@@ -98,6 +99,10 @@ fn prefs(s: &mut Session, p: &Value) -> Result<Value> {
         .get("forgetLocalDays")
         .map(|v| v.as_u64().ok_or_else(|| bad(ID, "forgetLocalDays must be a whole number of days (0 = never)")))
         .transpose()?;
+    let purge = p
+        .get("purgeDeletedDays")
+        .map(|v| v.as_u64().ok_or_else(|| bad(ID, "purgeDeletedDays must be a whole number of days (0 = never)")))
+        .transpose()?;
     let mb = p.get("cacheMb").map(|v| v.as_u64().ok_or_else(|| bad(ID, "cacheMb must be a number of megabytes"))).transpose()?;
     if d.camera_profiles_folder != s.import_defaults.camera_profiles_folder || p.get("reloadProfiles").and_then(Value::as_bool) == Some(true) {
         crate::dcp_profiles::configure(&d.camera_profiles_folder);
@@ -106,6 +111,10 @@ fn prefs(s: &mut Session, p: &Value) -> Result<Value> {
     s.import_defaults = d;
     if let Some(days) = days {
         s.forget_local_days = days.min(36_500) as u32;
+        changed = true;
+    }
+    if let Some(days) = purge {
+        s.purge_deleted_days = days.min(36_500) as u32;
         changed = true;
     }
     if let Some(mb) = mb {
@@ -122,7 +131,7 @@ pub fn specs() -> Vec<CommandSpec> {
         "Library Preferences",
         [],
         None,
-        "{import?: {rawPreset?: presetId|\"default\", otherPreset?: presetId|\"default\", perCamera?: bool, cameras?: [{camera: \"Make Model\", preset: presetId|null}], copyright?: text, creator?: text (given to imported photos without one), look?: adobe|sigmoid|camera (look of new photos), cameraProfilesFolder?: path (read user DCP profiles)}, camera?: {camera, preset?, remove?: bool}, cacheMb?: n (0 = default), forgetLocalDays?: n (forget untouched Local photos of folders not browsed for n days; 0 = never)} — develop defaults applied on import (raws / other images / per camera) and the thumbnail cache size, saved with the library → {xmp, import, cacheMb, forgetLocalDays, persistent}",
+        "{import?: {rawPreset?: presetId|\"default\", otherPreset?: presetId|\"default\", perCamera?: bool, cameras?: [{camera: \"Make Model\", preset: presetId|null}], copyright?: text, creator?: text (given to imported photos without one), look?: adobe|sigmoid|camera (look of new photos), cameraProfilesFolder?: path (read user DCP profiles)}, camera?: {camera, preset?, remove?: bool}, cacheMb?: n (0 = default), forgetLocalDays?: n (forget untouched Local photos of folders not browsed for n days; 0 = never), purgeDeletedDays?: n (when the library opens, remove photos in Recently Deleted for n days from the library — the files stay on disk; one undo step; 0 = never)} — develop defaults applied on import (raws / other images / per camera) and the thumbnail cache size, saved with the library → {xmp, import, cacheMb, forgetLocalDays, purgeDeletedDays, persistent}",
         always,
         prefs
     )]
@@ -135,7 +144,7 @@ mod ds_tests {
     fn ds_finding_invalid_preferences_have_no_partial_effects() {
         let mut s = Session::default();
         let before = current(&s);
-        for extra in [json!({"forgetLocalDays":-1}), json!({"cacheMb":"bad"})] {
+        for extra in [json!({"forgetLocalDays":-1}), json!({"purgeDeletedDays":"soon"}), json!({"cacheMb":"bad"})] {
             let mut p = extra;
             p["import"] = json!({"copyright":"changed","cameraProfilesFolder":"invalid-folder"});
             assert!(prefs(&mut s, &p).is_err());

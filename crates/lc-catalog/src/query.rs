@@ -112,8 +112,19 @@ fn shuffle_rank(seed: u64, id: PhotoId) -> u64 {
     mix64(mix64(seed) ^ id.0)
 }
 
-fn token_matches(p: &Photo, tok: &str) -> bool {
-    let t = tok.to_lowercase();
+/// `hay.to_lowercase().contains(needle)` for a `needle` that is already lower-cased, without
+/// allocating when `hay` is ASCII (lower-casing anything else can change its length or yield
+/// ASCII, so that takes the full Unicode route).
+fn contains_lower(hay: &str, needle: &str) -> bool {
+    if !hay.is_ascii() {
+        return hay.to_lowercase().contains(needle);
+    }
+    let (h, n) = (hay.as_bytes(), needle.as_bytes());
+    n.is_empty() || (n.len() <= h.len() && h.windows(n.len()).any(|w| w.iter().zip(n).all(|(a, b)| a.to_ascii_lowercase() == *b)))
+}
+
+/// Whether `p` matches one search token, already lower-cased (see [`Filter::matches`]).
+fn token_matches(p: &Photo, t: &str) -> bool {
     if let Some((field, val)) = t.split_once(':') {
         let num = |s: &str| -> Option<(char, f64)> {
             let (op, rest) = match s.chars().next()? {
@@ -135,20 +146,20 @@ fn token_matches(p: &Photo, tok: &str) -> bool {
             "iso" => p.meta.iso.is_some_and(|i| cmp(i as f64, val)),
             "f" | "aperture" => p.meta.aperture.is_some_and(|a| cmp(a as f64, val)),
             "focal" => p.meta.focal_mm.is_some_and(|a| cmp(a as f64, val)),
-            "camera" => p.meta.camera.to_lowercase().contains(val),
-            "lens" => p.meta.lens.to_lowercase().contains(val),
+            "camera" => contains_lower(&p.meta.camera, val),
+            "lens" => contains_lower(&p.meta.lens, val),
             "keyword" | "kw" => p.meta.keywords.iter().any(|k| crate::keywords::is_under(k, val)),
             "person" | "who" => has_person(p, val),
             "type" | "kind" => format!("{:?}", p.kind).eq_ignore_ascii_case(val),
             "edited" => (val == "true" || val == "yes") == p.is_edited(),
             "date" => p.date().starts_with(val),
             "copy" | "virtual" => (val == "true" || val == "yes") == p.copy_of.is_some(),
-            "name" | "file" => p.file_name.to_lowercase().contains(val),
+            "name" | "file" => contains_lower(&p.file_name, val),
             _ => false,
         };
     }
     let hay = [&p.file_name, &p.meta.title, &p.meta.caption, &p.meta.camera, &p.meta.lens, &p.meta.location, &p.format];
-    hay.iter().any(|h| h.to_lowercase().contains(&t)) || p.meta.keywords.iter().any(|k| k.to_lowercase().contains(&t))
+    hay.iter().any(|h| contains_lower(h, t)) || p.meta.keywords.iter().any(|k| contains_lower(k, t))
 }
 
 /// Whether `p` has a named face region called `name` (case-insensitive).
@@ -217,6 +228,16 @@ impl Filter {
     }
 
     pub fn matches(&self, p: &Photo, cat: &Catalog) -> bool {
+        self.matches_tokens(p, cat, &self.text_tokens())
+    }
+
+    /// The free-text search tokens, lower-cased (once per query rather than once per photo).
+    pub(crate) fn text_tokens(&self) -> Vec<String> {
+        self.text.split_whitespace().map(str::to_lowercase).collect()
+    }
+
+    /// [`Self::matches`] with the search tokens from [`Self::text_tokens`].
+    pub(crate) fn matches_tokens(&self, p: &Photo, cat: &Catalog, tokens: &[String]) -> bool {
         if p.deleted != self.deleted {
             return false;
         }
@@ -280,7 +301,7 @@ impl Filter {
             return false;
         }
         if let Some(l) = &self.lens
-            && !p.meta.lens.to_lowercase().contains(&l.to_lowercase())
+            && !contains_lower(&p.meta.lens, &l.to_lowercase())
         {
             return false;
         }
@@ -323,20 +344,32 @@ impl Filter {
         {
             return false;
         }
-        self.text.split_whitespace().all(|tok| token_matches(p, tok))
+        tokens.iter().all(|t| token_matches(p, t))
     }
 }
 
 impl Catalog {
     /// Photos matching `filter`, in `sort` order (ties broken by id for stability).
     pub fn query(&self, filter: &Filter, sort: &Sort) -> Vec<PhotoId> {
-        let mut v: Vec<&Photo> = self.photos().map(|p| p.as_ref()).filter(|p| filter.matches(p, self)).collect();
-        v.sort_by(|a, b| {
+        let tokens = filter.text_tokens();
+        let mut v: Vec<&Photo> = self.photos().map(|p| p.as_ref()).filter(|p| filter.matches_tokens(p, self, &tokens)).collect();
+        if sort.key == SortKey::FileName {
+            // lower-case each name once, not once per comparison
+            let mut keyed: Vec<(String, PhotoId)> = v.into_iter().map(|p| (p.file_name.to_lowercase(), p.id)).collect();
+            keyed.sort_unstable_by(|a, b| {
+                let o = a.cmp(b);
+                if sort.ascending { o } else { o.reverse() }
+            });
+            return keyed.into_iter().map(|(_, id)| id).collect();
+        }
+        // ids are unique, so every comparison below is a total order: unstable sorting is exact
+        v.sort_unstable_by(|a, b| {
             let o = match sort.key {
                 SortKey::CaptureDate => a.date().cmp(b.date()),
                 SortKey::ImportDate => a.imported.cmp(&b.imported),
                 SortKey::EditDate => a.edited.cmp(&b.edited),
-                SortKey::FileName => a.file_name.to_lowercase().cmp(&b.file_name.to_lowercase()),
+                // sorted above
+                SortKey::FileName => std::cmp::Ordering::Equal,
                 SortKey::Rating => a.rating.cmp(&b.rating),
                 SortKey::FileSize => a.file_size.cmp(&b.file_size),
                 SortKey::Random => shuffle_rank(sort.seed, a.id).cmp(&shuffle_rank(sort.seed, b.id)),
@@ -397,7 +430,8 @@ impl Catalog {
     pub fn people_in(&self, filter: &Filter) -> Vec<Person> {
         let filter = Filter { person: None, person_ids: Vec::new(), people_everyone: false, ..filter.clone() };
         let mut m: std::collections::HashMap<String, (Person, f64)> = Default::default();
-        for p in self.photos().filter(|p| filter.matches(p, self)) {
+        let tokens = filter.text_tokens();
+        for p in self.photos().filter(|p| filter.matches_tokens(p, self, &tokens)) {
             let mut seen: Vec<String> = Vec::new();
             for r in p.meta.regions.iter().filter(|r| r.kind == lightcraft_meta::RegionKind::Face) {
                 let Some(name) = r.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else { continue };
@@ -511,5 +545,55 @@ pub fn merged_kind(file_name: &str) -> Option<&'static str> {
         Some("panorama")
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    /// The allocation-free search matches exactly what lower-casing the whole field did,
+    /// including where Unicode lower-casing changes length or yields ASCII.
+    #[test]
+    fn contains_lower_matches_full_lowercasing() {
+        let hay = ["IMG_0042.JPG", "Canon EOS R5", "", "İstanbul", "ΟΔΟΣ ΣΟΦΙΑΣ", "\u{212A}elvin", "Straße", "Ǆemal", "日本 Tokyo", "a"];
+        let needles =
+            ["", "img", "_0042.j", "eos r5", "i̇stanbul", "istanbul", "οδος", "οδοσ", "kelvin", "strasse", "straße", "ǆemal", "日本", "tokyo", "ab"];
+        for h in hay {
+            for n in needles {
+                let n = n.to_lowercase();
+                assert_eq!(contains_lower(h, &n), h.to_lowercase().contains(&n), "{h:?} / {n:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn search_tokens_are_case_insensitive() {
+        let mut c = Catalog::new();
+        let id = c.alloc_photo_id();
+        let mut p = Photo::new(id, crate::Source::Demo { scene: 0 }, "IMG_0042.JPG", "JPEG", 4, 3, "2026-01-01");
+        p.meta.camera = "Canon EOS R5".into();
+        p.meta.keywords = vec!["Travel|Italy".into()];
+        c.apply(crate::Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        for (text, hit) in
+            [("img_0042", true), ("ITALY canon", true), ("camera:EOS", true), ("name:0042.jpg", true), ("kw:TRAVEL", true), ("nikon", false)]
+        {
+            let f = Filter { text: text.into(), ..Default::default() };
+            assert_eq!(c.query(&f, &Sort::default()) == vec![id], hit, "{text}");
+            assert_eq!(f.matches(c.photo(id).unwrap(), &c), hit, "{text}");
+        }
+    }
+
+    #[test]
+    fn file_name_sort_ignores_case_and_breaks_ties_by_id() {
+        let mut c = Catalog::new();
+        for name in ["b.jpg", "A.jpg", "a.JPG", "C.jpg"] {
+            let id = c.alloc_photo_id();
+            c.apply(crate::Op::AddPhoto { photo: Box::new(Photo::new(id, crate::Source::Demo { scene: 0 }, name, "JPEG", 4, 3, "2026-01-01")) })
+                .unwrap();
+        }
+        let sorted = |ascending| c.query(&Filter::default(), &Sort { key: SortKey::FileName, ascending, ..Default::default() });
+        assert_eq!(sorted(true), vec![PhotoId(2), PhotoId(3), PhotoId(1), PhotoId(4)]);
+        assert_eq!(sorted(false), vec![PhotoId(4), PhotoId(1), PhotoId(3), PhotoId(2)]);
     }
 }
