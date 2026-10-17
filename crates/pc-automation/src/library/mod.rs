@@ -27,9 +27,9 @@ mod tests;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
+use li_raster::Rgba8;
 use lightcraft_engine::Session;
 use lightcraft_engine::catalog::PhotoId;
-use lightcraft_raster::Rgba8;
 use serde_json::{Value, json};
 
 use crate::AuthorizedWorkspace;

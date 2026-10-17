@@ -3,7 +3,7 @@
 //! Three correction iterations; standard (unenhanced) final chroma interpolation.
 //! Mirror padding and safe Rayon output bands replace border/OpenMP adapters.
 use super::Mosaic;
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 const PAD: usize = 10;
 const TILE: usize = 192;
@@ -160,8 +160,8 @@ fn run(m: &Mosaic, x0: usize, y0: usize) -> Vec<[f32; 3]> {
     }
     out
 }
-pub(crate) fn dcb(m: &Mosaic) -> Rgb32f {
-    let mut out = Rgb32f::new(m.w, m.h);
+pub(crate) fn dcb(m: &Mosaic) -> RgbFrame {
+    let mut out = RgbFrame::new(m.w, m.h);
     out.data.par_chunks_mut(m.w * TILE).enumerate().for_each(|(band, rows)| {
         for x0 in (0..m.w).step_by(TILE) {
             let w = (m.w - x0).min(TILE);

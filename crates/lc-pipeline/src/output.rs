@@ -247,8 +247,8 @@ pub struct DeepImage {
 
 impl DeepImage {
     /// The same image reduced to 8 bits, display-encoded with the space's curve.
-    pub fn to_rgba8(&self) -> lightcraft_raster::Rgba8 {
-        let mut out = lightcraft_raster::Rgba8::new(self.width, self.height);
+    pub fn to_rgba8(&self) -> li_raster::Rgba8 {
+        let mut out = li_raster::Rgba8::new(self.width, self.height);
         let trc = self.space.trc();
         match &self.samples {
             DeepSamples::U16(v) => {
@@ -419,7 +419,7 @@ mod tests {
         let invalid = Proof { display_warning: true, ..proof };
         assert!(invalid.try_params(OutputSpace::Srgb).is_err(), "round-trip monitor warning cannot silently substitute a profile");
         let req = crate::RenderRequest { proof: Some(invalid), ..crate::RenderRequest::fit(2, 2) };
-        let src = lightcraft_raster::Rgb32f::filled(2, 2, [0.18; 3]);
+        let src = li_raster::RgbFrame::filled(2, 2, [0.18; 3]);
         assert!(crate::render_checked(&src, &Default::default(), &Default::default(), &req).is_err());
         assert!(
             crate::render_cached_checked(

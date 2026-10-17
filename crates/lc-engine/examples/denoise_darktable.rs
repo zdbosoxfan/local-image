@@ -1,6 +1,6 @@
 //! Compare the real official darktable restore output at the sensor stage, before colour/tone.
+use li_raster::RgbFrame;
 use lightcraft_engine::enhance::denoise::{camera_rgb_to_working, pack_bayer, prepare_raw, unpack_camera};
-use lightcraft_raster::Rgb32f;
 use std::path::Path;
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
@@ -112,7 +112,7 @@ fn main() -> Result<(), String> {
     }
     Ok(())
 }
-fn save(path: &Path, img: &Rgb32f) -> Result<(), String> {
+fn save(path: &Path, img: &RgbFrame) -> Result<(), String> {
     let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
     let samples: Vec<u8> =
         img.data.iter().flat_map(|p| m.apply_f32(*p).map(|v| (li_color::transfer::linear_to_srgb(v).clamp(0., 1.) * 255. + 0.5) as u8)).collect();

@@ -3,7 +3,7 @@
 //! embedded where the format allows.
 
 use crate::{Error, Result};
-use lightcraft_raster::Rgba8;
+use li_raster::Rgba8;
 use serde::{Deserialize, Serialize};
 
 /// Interleaved sample data. Integer samples are display-encoded (0..=MAX); float samples are

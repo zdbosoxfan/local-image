@@ -4030,6 +4030,9 @@ name = "li-raster"
 version = "2.0.0-alpha.1"
 dependencies = [
  "image",
+ "li-color",
+ "libc",
+ "lightcraft-geom",
  "rayon",
  "serde",
 ]
@@ -4174,7 +4177,6 @@ dependencies = [
  "li-color",
  "li-raster",
  "lightcraft-geom",
- "lightcraft-raster",
  "lightcraft-tiff",
  "photocraft-cms",
  "photocraft-codecs",
@@ -4221,7 +4223,6 @@ dependencies = [
  "lightcraft-meta",
  "lightcraft-pipeline",
  "lightcraft-preview",
- "lightcraft-raster",
  "lightcraft-raw",
  "lightcraft-scenes",
  "lightcraft-segment",
@@ -4262,7 +4263,6 @@ dependencies = [
  "lightcraft-develop",
  "lightcraft-geom",
  "lightcraft-pipeline",
- "lightcraft-raster",
  "lightcraft-scenes",
  "lightcraft-sysmem",
  "log",
@@ -4279,7 +4279,6 @@ dependencies = [
  "lightcraft-codecs",
  "lightcraft-geom",
  "lightcraft-meta",
- "lightcraft-raster",
  "lightcraft-raw",
  "lightcraft-scenes",
  "rayon",
@@ -4309,7 +4308,6 @@ dependencies = [
  "li-raster",
  "lightcraft-develop",
  "lightcraft-geom",
- "lightcraft-raster",
  "lightcraft-scenes",
  "lightcraft-sysmem",
  "log",
@@ -4329,24 +4327,11 @@ dependencies = [
  "blake3",
  "jpeg-encoder",
  "li-fs",
- "lightcraft-raster",
+ "li-raster",
  "log",
  "siphasher",
  "zune-core",
  "zune-jpeg",
-]
-
-[[package]]
-name = "lightcraft-raster"
-version = "2.0.0-alpha.1"
-dependencies = [
- "li-color",
- "li-raster",
- "libc",
- "lightcraft-geom",
- "proptest",
- "rayon",
- "serde",
 ]
 
 [[package]]
@@ -4359,7 +4344,6 @@ dependencies = [
  "li-raster",
  "lightcraft-geom",
  "lightcraft-meta",
- "lightcraft-raster",
  "lightcraft-tiff",
  "miniz_oxide 0.8.9",
  "proptest",
@@ -4380,7 +4364,6 @@ dependencies = [
  "image",
  "li-color",
  "li-raster",
- "lightcraft-raster",
  "rayon",
  "serde",
 ]
@@ -4442,7 +4425,6 @@ dependencies = [
  "lightcraft-meta",
  "lightcraft-pipeline",
  "lightcraft-preview",
- "lightcraft-raster",
  "lightcraft-sysmem",
  "log",
  "photocraft-engine",
@@ -4511,12 +4493,12 @@ dependencies = [
  "li-gpu",
  "li-i18n",
  "li-keys",
+ "li-raster",
  "li-seg",
  "lightcraft-catalog",
  "lightcraft-codecs",
  "lightcraft-engine",
  "lightcraft-gpu",
- "lightcraft-raster",
  "lightcraft-sysmem",
  "lightcraft-ui-egui",
  "log",
@@ -5728,9 +5710,9 @@ dependencies = [
  "cap-std",
  "getrandom 0.3.4",
  "li-fs",
+ "li-raster",
  "lightcraft-codecs",
  "lightcraft-engine",
- "lightcraft-raster",
  "photocraft-codecs",
  "photocraft-compose",
  "photocraft-doc",
@@ -5954,6 +5936,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "blake3",
  "li-color",
+ "li-raster",
  "li-testkit",
  "lightcraft-codecs",
  "lightcraft-develop",
@@ -5962,7 +5945,6 @@ dependencies = [
  "lightcraft-gpu",
  "lightcraft-meta",
  "lightcraft-pipeline",
- "lightcraft-raster",
  "lightcraft-raw",
  "lightcraft-sysmem",
  "lightcraft-tiff",

@@ -1,8 +1,8 @@
 //! Pixel tests of the local (mask) Noise, Moiré and Defringe sliders.
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::{DevelopSettings, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape};
 use lightcraft_geom::Point;
-use lightcraft_raster::{Rgb32f, Rgba8};
 
 use crate::{RenderRequest, SourceInfo, render};
 
@@ -26,7 +26,7 @@ fn left_mask(adjust: LocalAdjustments) -> DevelopSettings {
     s
 }
 
-fn shot(src: &Rgb32f, s: &DevelopSettings) -> Rgba8 {
+fn shot(src: &RgbFrame, s: &DevelopSettings) -> Rgba8 {
     render(src, &SourceInfo::default(), s, &RenderRequest::fit(W, H)).image
 }
 
@@ -47,7 +47,7 @@ fn chroma(p: [u8; 4]) -> f32 {
 
 #[test]
 fn local_noise_smooths_luminance_noise_inside_the_mask() {
-    let src = Rgb32f::from_fn(W, H, |x, y| [0.18 * (1.0 + 0.12 * noise(x, y, 1)); 3]);
+    let src = RgbFrame::from_fn(W, H, |x, y| [0.18 * (1.0 + 0.12 * noise(x, y, 1)); 3]);
     let plain = shot(&src, &DevelopSettings::default());
     let base = spread(&plain, 10, 90, luma);
     let on = shot(&src, &left_mask(LocalAdjustments { noise: 100.0, ..Default::default() }));
@@ -64,7 +64,7 @@ fn local_noise_smooths_luminance_noise_inside_the_mask() {
 
 #[test]
 fn local_moire_removes_colour_speckle_inside_the_mask() {
-    let src = Rgb32f::from_fn(W, H, |x, y| {
+    let src = RgbFrame::from_fn(W, H, |x, y| {
         let n = 0.25 * noise(x, y, 2);
         [0.18 * (1.0 + n), 0.18, 0.18 * (1.0 - n)]
     });
@@ -85,7 +85,7 @@ fn local_moire_removes_colour_speckle_inside_the_mask() {
 fn local_defringe_desaturates_purple_edges_only() {
     // dark | bright edge at x = 40 (inside the mask) and x = 200 (outside), each with a purple
     // fringe column; a flat purple patch (no edge) at x 60..80
-    let src = Rgb32f::from_fn(W, H, |x, _| {
+    let src = RgbFrame::from_fn(W, H, |x, _| {
         let fringe = x == 39 || x == 40 || x == 199 || x == 200;
         if fringe {
             [0.25, 0.04, 0.3]

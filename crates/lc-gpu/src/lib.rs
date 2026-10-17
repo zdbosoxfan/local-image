@@ -21,9 +21,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use li_raster::RgbFrame;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{RenderRequest, Rendered, SourceInfo, StageCache};
-use lightcraft_raster::Rgb32f;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod capture;
@@ -537,13 +537,13 @@ pub fn stage_bytes(stages: &StageCache) -> usize {
 
 /// Render `src` with `s` on the GPU, reusing the device-resident stages kept with `stages` (the
 /// view's CPU stage cache). `None`: render on the CPU instead.
-pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Rendered> {
+pub fn render(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Rendered> {
     render_hs_candidate(src, info, s, req, stages, lightcraft_pipeline::primary::DEFAULT_HS_METHOD)
 }
 
 /// Internal owner-review/testing entry point; the choice is not persisted or exposed in UI.
 pub fn render_hs_candidate(
-    src: &Arc<Rgb32f>,
+    src: &Arc<RgbFrame>,
     info: &SourceInfo,
     s: &DevelopSettings,
     req: &RenderRequest,

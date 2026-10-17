@@ -17,9 +17,9 @@
 use std::sync::Mutex;
 
 use li_color::perceptual::{oklab_from_2020, oklab_to_2020};
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedRadial, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::{Affine, Homography, Interval, Orientation, Point, Real};
-use lightcraft_raster::{Plane, Rgb32f};
 
 use crate::for_rows;
 
@@ -574,7 +574,7 @@ impl LensReal for Interval {
 /// (`[α_R, α_B]`, dimensionless; red edges sit at `r·(1 + α_R)`). Strong, radially oriented green edges are
 /// located in each plane with sub-pixel 1-D matching of normalized edge profiles; a weighted, outlier-trimmed
 /// least-squares fit of displacement = α·r gives the scale. Results are cached per image.
-pub fn estimate_lateral_ca(img: &Rgb32f) -> [f64; 2] {
+pub fn estimate_lateral_ca(img: &RgbFrame) -> [f64; 2] {
     static CACHE: Mutex<Vec<(u64, [f64; 2])>> = Mutex::new(Vec::new());
     let key = fingerprint(img);
     if let Ok(c) = CACHE.lock()
@@ -593,7 +593,7 @@ pub fn estimate_lateral_ca(img: &Rgb32f) -> [f64; 2] {
 }
 
 /// Cheap content fingerprint of an image (dimensions + 512 sampled pixels), for analysis caches.
-pub(crate) fn fingerprint(img: &Rgb32f) -> u64 {
+pub(crate) fn fingerprint(img: &RgbFrame) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325 ^ ((img.width as u64) << 32 | img.height as u64);
     let n = img.data.len();
     for i in 0..512usize {
@@ -606,12 +606,12 @@ pub(crate) fn fingerprint(img: &Rgb32f) -> u64 {
     h
 }
 
-fn estimate_lateral_ca_uncached(img: &Rgb32f) -> [f64; 2] {
+fn estimate_lateral_ca_uncached(img: &RgbFrame) -> [f64; 2] {
     let (w, h) = (img.width, img.height);
     if w < 32 || h < 32 {
         return [0.0; 2];
     }
-    let plane = |c: usize| -> Plane { img.map(|p| p[c]) };
+    let plane = |c: usize| -> GrayFrame { img.map(|p| p[c]) };
     let planes = [plane(0), plane(1), plane(2)];
     let g = &planes[1];
     let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
@@ -656,7 +656,7 @@ fn estimate_lateral_ca_uncached(img: &Rgb32f) -> [f64; 2] {
     const HALF: i32 = 4; // profile half length (px)
     const SUB: i32 = 20; // samples per px
     const MAXD: i32 = 3; // max displacement (px)
-    let sample = |p: &Plane, x: f64, y: f64| -> f32 {
+    let sample = |p: &GrayFrame, x: f64, y: f64| -> f32 {
         let fx = x.clamp(0.0, (w - 1) as f64);
         let fy = y.clamp(0.0, (h - 1) as f64);
         let (x0, y0) = (fx.floor() as usize, fy.floor() as usize);
@@ -762,7 +762,7 @@ pub const DEFRINGE_REF_LONG: f64 = 4000.0;
 /// Defringe: desaturate purple / green colour fringes that sit next to high-contrast edges. `scale` is output
 /// pixels per reference pixel (output long edge / [`DEFRINGE_REF_LONG`]) so the fringe width is the same
 /// fraction of the image at any size.
-pub fn defringe(img: &mut Rgb32f, s: &DevelopSettings, scale: f64) {
+pub fn defringe(img: &mut RgbFrame, s: &DevelopSettings, scale: f64) {
     let o = &s.optics;
     if !s.section_enabled("optics") || (o.defringe_purple_amount <= 0.0 && o.defringe_green_amount <= 0.0) {
         return;
@@ -773,7 +773,7 @@ pub fn defringe(img: &mut Rgb32f, s: &DevelopSettings, scale: f64) {
     let radius = ((1.0 + max_amt * 0.3) * scale).round().max(1.0) as usize;
     // perceptual lightness and its local range (dilated contrast)
     let lab: Vec<[f32; 3]> = img.data.iter().map(|p| oklab_from_2020([p[0].max(0.0), p[1].max(0.0), p[2].max(0.0)])).collect();
-    let l = Plane { width: w, height: h, data: lab.iter().map(|p| p[0]).collect() };
+    let l = GrayFrame { width: w, height: h, data: lab.iter().map(|p| p[0]).collect() };
     let (lo, hi) = (min_filter(&l, radius, false), min_filter(&l, radius, true));
     let range = |lo: f64, hi: f64, span: (f32, f32)| {
         let a = span.0 + (span.1 - span.0) * (lo / 100.0) as f32;
@@ -809,10 +809,10 @@ pub fn defringe(img: &mut Rgb32f, s: &DevelopSettings, scale: f64) {
 }
 
 /// Separable square min (or max) filter of radius `r`.
-fn min_filter(p: &Plane, r: usize, max: bool) -> Plane {
+fn min_filter(p: &GrayFrame, r: usize, max: bool) -> GrayFrame {
     let (w, h) = (p.width, p.height);
     let pick = |a: f32, b: f32| if max { a.max(b) } else { a.min(b) };
-    let mut tmp = Plane::new(w, h);
+    let mut tmp = GrayFrame::new(w, h);
     for_rows(&mut tmp.data, w, |y, row| {
         let src = &p.data[y * w..(y + 1) * w];
         for (x, v) in row.iter_mut().enumerate() {
@@ -820,7 +820,7 @@ fn min_filter(p: &Plane, r: usize, max: bool) -> Plane {
             *v = src[a..=b].iter().copied().fold(src[x], pick);
         }
     });
-    let mut out = Plane::new(w, h);
+    let mut out = GrayFrame::new(w, h);
     for_rows(&mut out.data, w, |y, row| {
         let (a, b) = (y.saturating_sub(r), (y + r).min(h - 1));
         for (x, v) in row.iter_mut().enumerate() {
@@ -914,7 +914,7 @@ mod tests {
             let f = 0.25 + x * 0.0008 + y * 0.0005;
             [f as f32, (f * 0.9) as f32, (f * 0.8) as f32]
         };
-        let source = Rgb32f::from_fn(w, h, |x, y| {
+        let source = RgbFrame::from_fn(w, h, |x, y| {
             let mut raw = [0.0; 3];
             for ch in 0..3 {
                 raw[ch] = camera(c.x + (x as f64 + 0.5 - c.x) / scales[ch], c.y + (y as f64 + 0.5 - c.y) / scales[ch])[ch];
@@ -967,7 +967,7 @@ mod tests {
         let frame = crate::geometry::Frame::with_lens(64, 48, &s, false, Some(&lens)).for_metadata();
         assert!(!frame.warp.as_ref().unwrap().has_gain());
         assert!(!frame.warp.as_ref().unwrap().per_channel());
-        let samples = frame.sample(&Rgb32f::filled(64, 48, [0.5; 3]), 64, 48);
+        let samples = frame.sample(&RgbFrame::filled(64, 48, [0.5; 3]), 64, 48);
         assert!(samples.data.iter().all(|p| *p == [0.5; 3]));
     }
 
@@ -1222,7 +1222,7 @@ mod tests {
     }
 
     /// A grid of dark lines on white with lateral CA: red magnified by `ar`, blue by `ab` (about the centre).
-    fn ca_grid(w: usize, h: usize, ar: f64, ab: f64) -> Rgb32f {
+    fn ca_grid(w: usize, h: usize, ar: f64, ab: f64) -> RgbFrame {
         let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
         let val = |x: f64, y: f64| -> f32 {
             // smooth-edged discs on a grid (edges in every direction)
@@ -1231,7 +1231,7 @@ mod tests {
             let d = fx.hypot(fy) * cell - cell * 0.28;
             (0.05 + 0.85 * (d / 1.2).clamp(-0.5, 0.5) + 0.425) as f32
         };
-        Rgb32f::from_fn(w, h, |x, y| {
+        RgbFrame::from_fn(w, h, |x, y| {
             let (x, y) = (x as f64 + 0.5, y as f64 + 0.5);
             let at = |a: f64| val(cx + (x - cx) / (1.0 + a), cy + (y - cy) / (1.0 + a));
             [at(ar), at(0.0), at(ab)]
@@ -1300,11 +1300,11 @@ mod tests {
         s.optics.defringe_purple_amount = 10.0;
         // white | black edge with a purple column next to it, and a purple patch far from edges
         let purple = [0.25f32, 0.05, 0.45];
-        let mut img = Rgb32f::from_fn(40, 20, |x, _| if x < 20 { [0.9; 3] } else { [0.02; 3] });
+        let mut img = RgbFrame::from_fn(40, 20, |x, _| if x < 20 { [0.9; 3] } else { [0.02; 3] });
         for y in 0..20 {
             img.set(20, y, purple);
         }
-        let flat = Rgb32f::filled(40, 20, purple);
+        let flat = RgbFrame::filled(40, 20, purple);
         let mut flat2 = flat.clone();
         defringe(&mut img, &s, 1.0);
         defringe(&mut flat2, &s, 1.0);

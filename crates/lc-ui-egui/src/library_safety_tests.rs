@@ -11,7 +11,7 @@ fn click(h: &mut Headless, id: &str) {
 }
 fn diagnostic_shot(h: &Headless, name: &str) {
     let image = h.paint();
-    let out = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+    let out = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/library-safety");
     std::fs::create_dir_all(&target).unwrap();
@@ -29,7 +29,7 @@ fn safety_import_real_clicks_preview_and_second_copy_roundtrip() {
     let second = root.join("second");
     std::fs::create_dir(&second).unwrap();
     let photo = root.join("source.png");
-    let img = lightcraft_raster::Rgba8::from_fn(48, 32, |x, y| [x as u8, y as u8, 70, 255]);
+    let img = li_raster::Rgba8::from_fn(48, 32, |x, y| [x as u8, y as u8, 70, 255]);
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &Default::default()).unwrap();
     std::fs::write(&photo, &bytes).unwrap();
     let mut s = Session::new().with_fs();
@@ -200,7 +200,7 @@ fn safety_visual_screenshots() {
                         });
                     }
                     let image = view.paint(&Default::default());
-                    let out = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                    let out = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
                     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
                     let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/library-safety");
                     std::fs::create_dir_all(&target).unwrap();
@@ -218,7 +218,7 @@ fn safety_visual_screenshots() {
 fn safety_proof_sheet_gpu_quality_and_interactive_timing() {
     let root = temp("gpu");
     let photo = root.join("reference.png");
-    let img = lightcraft_raster::Rgba8::from_fn(1024, 768, |x, y| {
+    let img = li_raster::Rgba8::from_fn(1024, 768, |x, y| {
         let c = if (x / 8 + y / 8) % 2 == 0 { 20 } else { 230 };
         [(x * 255 / 1023) as u8, (y * 255 / 767) as u8, c, 255]
     });
@@ -299,7 +299,7 @@ fn safety_proof_cancel_real_click_keeps_output_unpublished() {
     use std::sync::{Arc, Condvar, Mutex};
     let root = temp("cancel");
     let source = root.join("source.png");
-    let img = lightcraft_raster::Rgba8::from_fn(48, 32, |x, y| [x as u8, y as u8, 110, 255]);
+    let img = li_raster::Rgba8::from_fn(48, 32, |x, y| [x as u8, y as u8, 110, 255]);
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &Default::default()).unwrap();
     std::fs::write(&source, bytes).unwrap();
     let mut s = Session::new().with_fs();

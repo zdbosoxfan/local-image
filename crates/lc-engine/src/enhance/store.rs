@@ -15,8 +15,8 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
+use li_raster::RgbFrame;
 use lightcraft_preview::Hasher128;
-use lightcraft_raster::Rgb32f;
 
 /// What a stored result is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -167,15 +167,15 @@ pub fn put(kind: Kind, key: &str, r: &Raster, to: Option<&Path>) -> Result<(), S
 }
 
 /// Store an RGB image under `key` (see [`put`]).
-pub fn put_rgb(kind: Kind, key: &str, img: &Rgb32f, to: Option<&Path>) -> Result<(), String> {
+pub fn put_rgb(kind: Kind, key: &str, img: &RgbFrame, to: Option<&Path>) -> Result<(), String> {
     put_samples(kind, key, img.width, img.height, 3, img.data.as_flattened(), to)
 }
 
 /// The RGB image stored under `key` (an RGBA one loses its alpha).
-pub fn get_rgb(kind: Kind, key: &str) -> Option<Rgb32f> {
+pub fn get_rgb(kind: Kind, key: &str) -> Option<RgbFrame> {
     let r = get(kind, key)?;
     let data = r.data.chunks_exact(r.channels).map(|p| [p[0], p[1], p[2]]).collect();
-    Some(Rgb32f { width: r.width, height: r.height, data })
+    Some(RgbFrame { width: r.width, height: r.height, data })
 }
 
 fn put_samples(kind: Kind, key: &str, width: usize, height: usize, channels: usize, data: &[f32], to: Option<&Path>) -> Result<(), String> {

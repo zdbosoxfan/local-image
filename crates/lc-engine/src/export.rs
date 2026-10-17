@@ -4,12 +4,12 @@
 //! published primaries and curves, optional output sharpening and a JPEG file-size limit. Pure (bytes in, bytes out) so the desktop
 //! app, CLI, MCP and the web build share it; writing the file is the caller's job.
 
+use li_raster::Rgba8;
 use li_raster::resample::ResampleChoice;
 pub use lightcraft_codecs::TiffCompression;
 use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, NamedSpace, Samples, encode, icc};
 use lightcraft_meta::{DateTime, Gps, Metadata};
 pub use lightcraft_pipeline::{DeepImage, DeepSamples, OutputDepth, OutputSpace};
-use lightcraft_raster::Rgba8;
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]

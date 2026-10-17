@@ -10,8 +10,8 @@
 //! Native black/white calibration, DNG opcodes 1/2, and normalized camera colour
 //! use `lightcraft_raw`; no tone mapping or white balance is baked into the result.
 
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_geom::{Homography, Point};
-use lightcraft_raster::{Plane, Rgb32f};
 use lightcraft_raw::{Normalized, NormalizedSamples, RawImage, Rect};
 use rayon::prelude::*;
 
@@ -41,7 +41,7 @@ fn camera_color(raw: &RawImage) -> FrameColor {
 /// the small trailing partial bin is excluded only from registration, not fusion.
 fn proxy(raw: &RawImage, samples: &NormalizedSamples<'_>, factor: usize, gain: [f32; 3]) -> Frame {
     let (w, h) = (samples.width / factor, samples.height / factor);
-    let mut image = Rgb32f::new(w, h);
+    let mut image = RgbFrame::new(w, h);
     image.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
         for (x, pixel) in row.iter_mut().enumerate() {
             let (mut sums, mut counts) = ([0.0f64; 3], [0usize; 3]);
@@ -292,7 +292,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     // out loses mandatory DJI corrections and changes mixed/per-plane lists.
     lightcraft_raw::opcodes::apply_list3(&ref_raw.opcodes.list3, &mut result.radiance);
     result.ghost = if let Some((maps, ghost_factor)) = &ghosts {
-        let mut ghost = Plane::new(w, h);
+        let mut ghost = GrayFrame::new(w, h);
         let scale = (factor * ghost_factor) as f32;
         ghost.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
             for (x, pixel) in row.iter_mut().enumerate() {
@@ -304,7 +304,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
         });
         ghost
     } else {
-        Plane::new(0, 0)
+        GrayFrame::new(0, 0)
     };
     // The deghost overlay follows the same geometric sequence as the radiance.
     // It is scalar metadata: use the green plane and never apply shading/gain.
@@ -332,7 +332,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     if crop != Rect::new(0, 0, w, h) {
         result.radiance = result.radiance.into_crop(crop.x, crop.y, crop.width, crop.height);
         if result.ghost.width > 0 {
-            result.ghost = Plane {
+            result.ghost = GrayFrame {
                 width: crop.width,
                 height: crop.height,
                 data: (crop.y..crop.y + crop.height)

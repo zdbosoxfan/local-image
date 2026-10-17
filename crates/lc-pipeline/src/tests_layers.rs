@@ -1,8 +1,8 @@
 //! Develop layers (`Mask::tools`, `Mask::opacity`): pixel tests, and the golden hashes that pin
 //! renders of settings written before layers existed (re-recorded for the unified Detail path).
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::{Rgb32f, Rgba8};
 use serde_json::{Value, json};
 
 use crate::{RenderRequest, SourceInfo, render};
@@ -21,8 +21,8 @@ fn noise(x: usize, y: usize, k: u32) -> f32 {
 
 /// A synthetic scene-linear photo: a luminance ramp left to right, hue bands top to bottom,
 /// a few saturated patches, fine noise and a hard edge.
-fn scene() -> Rgb32f {
-    Rgb32f::from_fn(W, H, |x, y| {
+fn scene() -> RgbFrame {
+    RgbFrame::from_fn(W, H, |x, y| {
         let l = 0.004 * 1.03f32.powi(x as i32);
         let band = (y * 6 / H) as f32;
         let tint = [[1.0, 0.45, 0.3], [0.9, 0.8, 0.25], [0.35, 0.9, 0.35], [0.3, 0.7, 1.0], [0.75, 0.4, 0.95], [0.8, 0.8, 0.8]][band as usize % 6];
@@ -345,7 +345,7 @@ fn owner_colour_then_gradient_stack_uses_the_finished_colour_image() {
 
 #[test]
 fn layer_order_changes_the_expected_curve_exposure_result() {
-    let src = std::sync::Arc::new(Rgb32f::from_fn(16, 16, |_, _| [0.08, 0.06, 0.04]));
+    let src = std::sync::Arc::new(RgbFrame::from_fn(16, 16, |_, _| [0.08, 0.06, 0.04]));
     let info = SourceInfo::default();
     let req = RenderRequest::fit(16, 16);
     let mut s = full_layer(json!({"curve":{"master":[{"x":0.0,"y":0.12},{"x":1.0,"y":1.0}]}}));
@@ -399,7 +399,7 @@ fn stack_prefix_cache_invalidates_only_the_edited_layer_and_above() {
 
 #[test]
 fn stacked_over_white_exposure_can_be_recovered_before_output() {
-    let src = std::sync::Arc::new(Rgb32f::from_fn(24, 16, |_, _| [0.4, 0.3, 0.2]));
+    let src = std::sync::Arc::new(RgbFrame::from_fn(24, 16, |_, _| [0.4, 0.3, 0.2]));
     let info = SourceInfo::default();
     let req = RenderRequest::fit(24, 16);
     let cache = crate::StageCache::default();
@@ -434,7 +434,7 @@ fn cached_renders_with_layers_match_uncached() {
 #[test]
 fn filled_layer_exposure_matches_global_and_empty_is_inert() {
     use lightcraft_develop::{LayerTools, Light, Mask, MaskComponent, MaskShape};
-    let src = Rgb32f::from_fn(32, 16, |_, _| [0.08, 0.04, 0.02]);
+    let src = RgbFrame::from_fn(32, 16, |_, _| [0.08, 0.04, 0.02]);
     let info = SourceInfo::default();
     let req = RenderRequest::fit(32, 16);
     let mut global = DevelopSettings::default();
@@ -482,7 +482,7 @@ fn filled_alpha_is_scalar_until_a_spatial_component_is_added() {
     });
     m.refine = 0.0;
     assert_eq!(crate::masks::scalar_alpha(&m), None);
-    let src = Rgb32f::from_fn(32, 16, |_, _| [0.1; 3]);
+    let src = RgbFrame::from_fn(32, 16, |_, _| [0.1; 3]);
     let frame = crate::geometry::Frame::new(32, 16, &DevelopSettings::default(), true);
     let alpha = crate::masks::evaluate(&[m], &frame, 32, 16, &src, &src.map(crate::local::log_lum), 0.0);
     assert!(alpha[0].alpha.plane().is_some());
@@ -514,7 +514,7 @@ fn stacked_spatial_overlay_is_identical_with_warm_prefixes() {
 fn layer_whites_and_blacks_respond_in_the_developed_display_range() {
     use std::sync::Arc;
     for (input, name, tool) in [(0.65, "whites", json!({"light":{"whites":80.0}})), (0.005, "blacks", json!({"light":{"blacks":-80.0}}))] {
-        let src = Arc::new(Rgb32f::from_fn(16, 16, |_, _| [input; 3]));
+        let src = Arc::new(RgbFrame::from_fn(16, 16, |_, _| [input; 3]));
         let info = SourceInfo::default();
         let req = RenderRequest::fit(16, 16);
         let cache = crate::StageCache::default();
@@ -535,7 +535,7 @@ fn layer_whites_and_blacks_respond_in_the_developed_display_range() {
 fn dsfix_scene_finish_retains_background_range_overlay_after_stack() {
     use lightcraft_develop::{Mask, MaskComponent, MaskShape};
     use std::sync::Arc;
-    let src = Rgb32f::from_fn(32, 16, |x, _| [0.01 + x as f32 / 64.0; 3]);
+    let src = RgbFrame::from_fn(32, 16, |x, _| [0.01 + x as f32 / 64.0; 3]);
     let info = SourceInfo::default();
     let mut settings = full_layer(json!({"light":{"exposure":3.0}}));
     settings.masks.push(Mask {

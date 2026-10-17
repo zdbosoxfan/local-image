@@ -11,7 +11,7 @@
 //! guidance and geometric blending; exposure/contrast compensation precede filtering.
 //! The correction table is interpolated for continuous slider response.
 
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 
 /// Number of zone sliders (−8 … 0 EV).
 pub const ZONES: usize = 9;
@@ -124,12 +124,12 @@ pub fn log_norm(c: [f32; 3]) -> f32 {
 
 /// The (pre-exposure) mask of `img`: [`log_norm`] smoothed by the fast guided filter with
 /// Gaussian windows of `sigma` px and edge epsilon `eps` (EV²).
-pub fn mask_plane(img: &Rgb32f, sigma: f32, eps: f32) -> Plane {
+pub fn mask_plane(img: &RgbFrame, sigma: f32, eps: f32) -> GrayFrame {
     mask_plane_adjusted(img, sigma, eps, 0.0, 0.0)
 }
 
 /// Upstream linear luminance_mask contrast/exposure, followed by faithful EIGF.
-pub fn mask_plane_adjusted(img: &Rgb32f, sigma: f32, eps: f32, exposure: f32, contrast: f32) -> Plane {
+pub fn mask_plane_adjusted(img: &RgbFrame, sigma: f32, eps: f32, exposure: f32, contrast: f32) -> GrayFrame {
     let gain = exposure.exp2();
     let slope = contrast.exp2();
     let lum = img.map(|c| {
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn the_mask_keeps_edges_and_smooths_texture() {
         // left half dark and textured, right half bright: the mask follows the edge
-        let img = Rgb32f::from_fn(120, 40, |x, y| {
+        let img = RgbFrame::from_fn(120, 40, |x, y| {
             let v = if x < 60 { 0.01 * (1.0 + 0.5 * (((x + y) % 2) as f32 - 0.5)) } else { 0.5 };
             [v, v, v]
         });

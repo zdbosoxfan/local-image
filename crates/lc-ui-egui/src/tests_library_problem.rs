@@ -22,7 +22,7 @@ fn unopenable_library_asks_instead_of_running_a_demo() {
     let _ = std::fs::remove_dir_all(&dir);
     let lib = dir.join("lib");
     std::fs::create_dir_all(&lib).unwrap();
-    let img = lightcraft_raster::Rgba8 { width: 8, height: 8, data: vec![[90, 3, 9, 255]; 64] };
+    let img = li_raster::Rgba8 { width: 8, height: 8, data: vec![[90, 3, 9, 255]; 64] };
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     let photo = dir.join("a.png");
     std::fs::write(&photo, png).unwrap();
@@ -31,7 +31,7 @@ fn unopenable_library_asks_instead_of_running_a_demo() {
     let held = lightcraft_catalog::LibraryLock::acquire(&lib, "another LightCraft").unwrap();
     let mut session = lightcraft_engine::Session::new().with_fs();
     let err = session.open_library(&lib, true).unwrap_err().to_string();
-    let png = |img: &lightcraft_raster::Rgba8| {
+    let png = |img: &li_raster::Rgba8| {
         lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(img), &lightcraft_codecs::EncodeMeta::default()).unwrap_or_default()
     };
     let mut app = LightcraftApp::new(

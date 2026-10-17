@@ -29,7 +29,7 @@ fn screenshot(h: &Headless, name: &str) {
     let scale = h.pixels_per_point;
     let x0 = (panel.left() * scale).max(0.0) as usize;
     let x1 = (panel.right() * scale).ceil().min(image.size[0] as f32) as usize;
-    let out = lightcraft_raster::Rgba8::from_fn(x1 - x0, image.size[1], |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
+    let out = li_raster::Rgba8::from_fn(x1 - x0, image.size[1], |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/lenscorr");
     std::fs::create_dir_all(&dir).unwrap();
@@ -85,7 +85,7 @@ fn lenscorr_master_and_database_switches_click_and_preserve_precedence() {
     h.app.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(photo) }).unwrap();
     h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| {
         Ok((
-            lightcraft_raster::Rgb32f::from_fn(32, 24, |_, _| [0.2, 0.3, 0.4]),
+            li_raster::RgbFrame::from_fn(32, 24, |_, _| [0.2, 0.3, 0.4]),
             lightcraft_pipeline::SourceInfo { raw: true, lens: header_lens, ..Default::default() },
         ))
     }));
@@ -120,7 +120,7 @@ fn lenscorr_master_and_database_switches_click_and_preserve_precedence() {
     h.app.session.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(unprobed) }).unwrap();
     h.app.session.media.file_loader = Some(std::sync::Arc::new(move |_, _| {
         Ok((
-            lightcraft_raster::Rgb32f::from_fn(32, 24, |_, _| [0.2, 0.3, 0.4]),
+            li_raster::RgbFrame::from_fn(32, 24, |_, _| [0.2, 0.3, 0.4]),
             lightcraft_pipeline::SourceInfo { raw: true, lens: Some(decoded_lens), ..Default::default() },
         ))
     }));

@@ -4,12 +4,12 @@ use crate::{
     headless::Headless,
     state::{Dialog, ViewMode},
 };
+use li_raster::Rgba8;
 use lightcraft_catalog::{Op, Photo, PhotoId, Source};
 use lightcraft_engine::{
     Session,
     smart_sort::{FaceTagger, mock::MockTagger, people::MockFaces},
 };
-use lightcraft_raster::Rgba8;
 use serde_json::{Value, json};
 use std::{sync::Arc, time::Duration};
 const T: Duration = Duration::from_secs(30);

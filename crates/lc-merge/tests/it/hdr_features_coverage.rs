@@ -1,3 +1,4 @@
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_merge::{
     MergeError,
     features::{Features, detect, match_features},
@@ -5,10 +6,9 @@ use lightcraft_merge::{
     hdr::{Deghost, HdrOptions, merge_hdr},
     no_progress,
 };
-use lightcraft_raster::{Plane, Rgb32f};
 
 fn make_frame(w: usize, h: usize, value: [f32; 3], clip: f32, exposure: Option<f64>) -> Frame {
-    let mut image = Rgb32f::new(w, h);
+    let mut image = RgbFrame::new(w, h);
     for p in image.data.iter_mut() {
         *p = value;
     }
@@ -218,7 +218,7 @@ fn merge_handles_infinite_input_without_panicking() {
 
 #[test]
 fn detect_finds_features_in_synthetic_texture() {
-    let img = Plane::from_fn(200, 150, |x, y| {
+    let img = GrayFrame::from_fn(200, 150, |x, y| {
         let u = x as f32 + 0.5;
         let v = y as f32 + 0.5;
         let a = ((u * 0.071).sin() * (v * 0.053).cos()
@@ -234,14 +234,14 @@ fn detect_finds_features_in_synthetic_texture() {
 
 #[test]
 fn detect_small_image_is_empty() {
-    let img = Plane::from_fn(8, 8, |_, _| 0.5);
+    let img = GrayFrame::from_fn(8, 8, |_, _| 0.5);
     let f = detect(&img, 100);
     assert!(f.is_empty());
 }
 
 #[test]
 fn match_features_identical_images_produce_matches() {
-    let img = Plane::from_fn(160, 120, |x, y| {
+    let img = GrayFrame::from_fn(160, 120, |x, y| {
         let u = x as f32 * 0.07;
         let v = y as f32 * 0.05;
         ((u.sin() * v.cos() + (u + v).sin() * 0.7) * 0.25 + 0.5).clamp(0.0, 1.0)
@@ -263,7 +263,7 @@ fn match_features_empty_inputs_return_empty() {
 #[test]
 fn match_features_shifted_texture_matches_shift() {
     let pattern = |w: usize, h: usize, dx: f32, dy: f32| {
-        Plane::from_fn(w, h, |x, y| {
+        GrayFrame::from_fn(w, h, |x, y| {
             let u = x as f32 + 0.5 - dx;
             let v = y as f32 + 0.5 - dy;
             let a = ((u * 0.071).sin() * (v * 0.053).cos()

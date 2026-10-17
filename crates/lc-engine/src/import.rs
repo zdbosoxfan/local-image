@@ -1216,7 +1216,7 @@ fn cancellation_keeps_later_completed_copies_and_prepared_moves_after_a_skipped_
     let library = root.join("library");
     let destination = library.join("Originals");
     std::fs::create_dir_all(&source).unwrap();
-    let image = lightcraft_raster::Rgba8::filled(2, 2, [120, 30, 80, 255]);
+    let image = li_raster::Rgba8::filled(2, 2, [120, 30, 80, 255]);
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
     for name in ["waiting.png", "copied.png", "moved.png"] {
         std::fs::write(source.join(name), &bytes).unwrap();
@@ -1774,7 +1774,7 @@ mod j24_identity_tests {
     fn png(seed: u8) -> Vec<u8> {
         let (w, h) = (40usize, 24usize);
         let data: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % w * 6) as u8, (i / w * 9) as u8, seed, 255]).collect();
-        let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
+        let img = li_raster::Rgba8 { width: w, height: h, data };
         lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap()
     }
 

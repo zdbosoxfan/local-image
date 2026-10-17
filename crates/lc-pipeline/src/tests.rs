@@ -1,13 +1,13 @@
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, controls};
-use lightcraft_raster::Rgb32f;
 
 use crate::{RenderRequest, SourceInfo, render};
 
-fn mean_luma(img: &lightcraft_raster::Rgba8) -> f32 {
+fn mean_luma(img: &li_raster::Rgba8) -> f32 {
     img.data.iter().map(|p| 0.2126 * p[0] as f32 + 0.7152 * p[1] as f32 + 0.0722 * p[2] as f32).sum::<f32>() / img.len() as f32
 }
 
-fn scene() -> Rgb32f {
+fn scene() -> RgbFrame {
     lightcraft_scenes::demo_library()[0].render(240, 160)
 }
 
@@ -22,7 +22,7 @@ fn default_render_is_sane() {
 
 #[test]
 fn grey_ramp_stays_neutral() {
-    let src = Rgb32f::from_fn(64, 8, |x, _| [0.002 * 1.12f32.powi(x as i32); 3]);
+    let src = RgbFrame::from_fn(64, 8, |x, _| [0.002 * 1.12f32.powi(x as i32); 3]);
     let r = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(64, 8));
     for p in &r.image.data {
         assert!((p[0] as i32 - p[1] as i32).abs() <= 1 && (p[1] as i32 - p[2] as i32).abs() <= 1, "{p:?}");
@@ -85,7 +85,7 @@ fn resolution_independence_of_local_contrast() {
     let small = render(&src, &SourceInfo::default(), &s, &RenderRequest::fit(120, 120)).image;
     let big = render(&src, &SourceInfo::default(), &s, &RenderRequest::fit(480, 480)).image;
     let bl = big.to_linear();
-    let down = lightcraft_raster::resample::resize(&bl, small.width, small.height, li_raster::resample::Filter::Box).to_srgb8();
+    let down = bl.resize(small.width, small.height, li_raster::resample::Filter::Box).to_srgb8();
     let err: f32 = small.data.iter().zip(&down.data).map(|(a, b)| (a[1] as f32 - b[1] as f32).abs()).sum::<f32>() / small.len() as f32;
     assert!(err < 9.0, "mean abs error {err}");
 }
@@ -102,7 +102,7 @@ fn crop_and_straighten_output_size() {
 fn mask_brightens_only_inside() {
     use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape};
     use lightcraft_geom::Point;
-    let src = Rgb32f::filled(100, 100, [0.1, 0.1, 0.1]);
+    let src = RgbFrame::filled(100, 100, [0.1, 0.1, 0.1]);
     let mut s = DevelopSettings::default();
     s.masks.push(Mask {
         components: vec![MaskComponent {
@@ -121,7 +121,7 @@ fn mask_brightens_only_inside() {
 #[test]
 fn unedited_rendered_source_is_passthrough() {
     // An sRGB ramp decoded to linear Rec.2020 must render back to (almost) the same 8-bit values.
-    let src8 = lightcraft_raster::Rgba8::from_fn(256, 4, |x, y| [x as u8, (x as u8).wrapping_add(y as u8 * 40), 255 - x as u8, 255]);
+    let src8 = li_raster::Rgba8::from_fn(256, 4, |x, y| [x as u8, (x as u8).wrapping_add(y as u8 * 40), 255 - x as u8, 255]);
     let m = li_color::SRGB.to_space(&li_color::REC2020);
     let src = src8.to_linear().map(|c| m.apply_f32(c));
     let r = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(256, 4)).image;
@@ -148,7 +148,7 @@ fn typical_edits() -> DevelopSettings {
     s
 }
 
-fn max_diff(a: &lightcraft_raster::Rgba8, b: &lightcraft_raster::Rgba8) -> i32 {
+fn max_diff(a: &li_raster::Rgba8, b: &li_raster::Rgba8) -> i32 {
     assert_eq!((a.width, a.height), (b.width, b.height));
     a.data.iter().zip(&b.data).map(|(p, q)| (0..3).map(|c| (p[c] as i32 - q[c] as i32).abs()).max().unwrap_or(0)).max().unwrap_or(0)
 }
@@ -199,7 +199,7 @@ fn stage_cache_matches_uncached_render_through_a_slider_session() {
     cache.clear();
     assert_eq!(cache.bytes(), 0);
     // a different source buffer never hits another source's entries
-    let other = Arc::new(Rgb32f::filled(src.width, src.height, [0.3, 0.3, 0.3]));
+    let other = Arc::new(RgbFrame::filled(src.width, src.height, [0.3, 0.3, 0.3]));
     assert_eq!(render_cached(&other, &info, &s, &full, &cache).image, render(&other, &info, &s, &full).image);
 }
 
@@ -229,7 +229,7 @@ fn calibration_shifts_colours_but_keeps_greys() {
     let info = SourceInfo { raw: true, ..Default::default() };
     let req = RenderRequest::fit(64, 8);
     // a grey ramp is untouched by the primaries
-    let grey = Rgb32f::from_fn(64, 8, |x, _| [0.002 * 1.12f32.powi(x as i32); 3]);
+    let grey = RgbFrame::from_fn(64, 8, |x, _| [0.002 * 1.12f32.powi(x as i32); 3]);
     let mut s = DevelopSettings::default();
     s.calibration.red_hue = 80.0;
     s.calibration.green_sat = -60.0;
@@ -237,12 +237,12 @@ fn calibration_shifts_colours_but_keeps_greys() {
     let b = render(&grey, &info, &s, &req).image;
     assert!(max_diff(&a, &b) <= 1);
     // a red patch rotates towards yellow (green rises relative to blue)
-    let red = Rgb32f::filled(16, 16, [0.3, 0.04, 0.03]);
+    let red = RgbFrame::filled(16, 16, [0.3, 0.04, 0.03]);
     let r0 = render(&red, &info, &DevelopSettings::default(), &RenderRequest::fit(16, 16)).image.data[0];
     let r1 = render(&red, &info, &s, &RenderRequest::fit(16, 16)).image.data[0];
     assert!(r1[1] as i32 - r1[2] as i32 > r0[1] as i32 - r0[2] as i32 + 5, "{r0:?} -> {r1:?}");
     // shadows tint: magenta (+) lowers green in a dark grey
-    let dark = Rgb32f::filled(16, 16, [0.01, 0.01, 0.01]);
+    let dark = RgbFrame::filled(16, 16, [0.01, 0.01, 0.01]);
     s = DevelopSettings::default();
     s.calibration.shadows_tint = 100.0;
     let d = render(&dark, &info, &s, &RenderRequest::fit(16, 16)).image.data[0];
@@ -256,7 +256,7 @@ fn calibration_shifts_colours_but_keeps_greys() {
 #[test]
 fn refine_saturation_tames_a_contrast_curve() {
     let info = SourceInfo { raw: true, ..Default::default() };
-    let src = Rgb32f::filled(16, 16, [0.12, 0.05, 0.03]);
+    let src = RgbFrame::filled(16, 16, [0.12, 0.05, 0.03]);
     let req = RenderRequest::fit(16, 16);
     let sat = |p: [u8; 4]| p[0] as i32 - p[2] as i32;
     let mut s = DevelopSettings::default();
@@ -288,8 +288,8 @@ fn soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit() {
     s.color.vibrance = 100.0;
     let info = SourceInfo { raw: true, ..Default::default() };
     let req = |space, proof| RenderRequest { space, proof, ..RenderRequest::fit(120, 120) };
-    let red = |img: &lightcraft_raster::Rgba8| img.data.iter().filter(|p| p[..3] == [255, 0, 0]).count();
-    let blue = |img: &lightcraft_raster::Rgba8| img.data.iter().filter(|p| p[2] == 255 && p[0] == 0 && p[1] < 80).count();
+    let red = |img: &li_raster::Rgba8| img.data.iter().filter(|p| p[..3] == [255, 0, 0]).count();
+    let blue = |img: &li_raster::Rgba8| img.data.iter().filter(|p| p[2] == 255 && p[0] == 0 && p[1] < 80).count();
 
     // CMS device clipping replaces the previous luminance-desaturation mapping.
     let plain = render(&src, &info, &s, &req(OutputSpace::Srgb, None)).image;
@@ -305,7 +305,7 @@ fn soft_proof_maps_into_the_proof_gamut_and_flags_what_does_not_fit() {
     let n = red(&warned);
     assert!(n > 0 && n < warned.len(), "{n}");
     // …and nothing is flagged on an unsaturated edit of a neutral ramp
-    let grey = Rgb32f::from_fn(64, 8, |x, _| [0.002 * 1.12f32.powi(x as i32); 3]);
+    let grey = RgbFrame::from_fn(64, 8, |x, _| [0.002 * 1.12f32.powi(x as i32); 3]);
     let g = render(
         &grey,
         &info,
@@ -381,7 +381,7 @@ fn negative_conversion_renders() {
     let neg = render(&scan, &info, &DevelopSettings::default(), &req).image;
     let on = DevelopSettings { negative: n, ..Default::default() };
     let converted = render(&scan, &info, &on, &req).image;
-    let diff = |a: &lightcraft_raster::Rgba8, b: &lightcraft_raster::Rgba8| {
+    let diff = |a: &li_raster::Rgba8, b: &li_raster::Rgba8| {
         a.data.iter().zip(&b.data).map(|(p, q)| (0..3).map(|c| (p[c] as i32 - q[c] as i32).abs()).max().unwrap_or(0)).max().unwrap_or(0)
     };
     assert!(diff(&converted, &base) <= 3, "the conversion recovers the positive: {}", diff(&converted, &base));
@@ -412,7 +412,7 @@ fn negative_conversion_renders() {
 #[test]
 fn j22_proof_render_all_depths_matches_finished_float_edit() {
     use crate::{DeepSamples, OutputDepth, OutputSpace, Proof, ProofProfile};
-    let src = Rgb32f::from_fn(24, 12, |x, y| [0.05 + x as f32 * 0.01, 0.1 + y as f32 * 0.01, 0.1 + (x + y) as f32 * 0.003]);
+    let src = RgbFrame::from_fn(24, 12, |x, y| [0.05 + x as f32 * 0.01, 0.1 + y as f32 * 0.01, 0.1 + (x + y) as f32 * 0.003]);
     let info = SourceInfo::default();
     let mut settings = DevelopSettings::default();
     settings.grain.amount = 25.0;

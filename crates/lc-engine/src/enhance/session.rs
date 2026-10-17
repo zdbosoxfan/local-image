@@ -3,10 +3,10 @@
 
 use std::sync::Arc;
 
+use li_raster::RgbFrame;
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::{AiPatch, DevelopSettings, Spot, SpotMode};
 use lightcraft_preview::Hash128;
-use lightcraft_raster::Rgb32f;
 use serde::Serialize;
 
 use super::store::{self, Kind};
@@ -172,7 +172,7 @@ pub fn patch_state(s: &Session, id: PhotoId, spot: &Spot) -> PatchState {
 
 /// A render uses settings without AI patches made from other photos.
 /// Unchanged inputs come back as they are (same buffers).
-pub fn for_render(src: &Arc<Rgb32f>, s: &Arc<DevelopSettings>, source: Option<Hash128>) -> (Arc<Rgb32f>, Arc<DevelopSettings>) {
+pub fn for_render(src: &Arc<RgbFrame>, s: &Arc<DevelopSettings>, source: Option<Hash128>) -> (Arc<RgbFrame>, Arc<DevelopSettings>) {
     let hex = source.map(|h| h.to_string());
     let foreign = |p: &AiPatch| hex.as_deref() != Some(p.source.as_str());
     let settings = if s.spots.iter().any(|sp| sp.patch.as_ref().is_some_and(foreign)) {

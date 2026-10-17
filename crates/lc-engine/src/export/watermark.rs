@@ -201,12 +201,12 @@ fn logo_coverage(width: usize, height: usize, wm: &Watermark, mut blend_px: impl
     }
     let lw = ((wm.image_width.clamp(0.01, 1.0) * width as f32).round() as usize).clamp(1, width);
     let lh = ((lw as f32 * logo.height as f32 / logo.width as f32).round() as usize).clamp(1, height);
-    let pre: lightcraft_raster::Image<[f32; 4]> = lightcraft_raster::Image::from_fn(logo.width, logo.height, |x, y| {
+    let pre: li_raster::Frame<[f32; 4]> = li_raster::Frame::from_fn(logo.width, logo.height, |x, y| {
         let p = logo.get(x, y);
         let a = p[3] as f32 / 255.0;
         [p[0] as f32 * a, p[1] as f32 * a, p[2] as f32 * a, a]
     });
-    let scaled = lightcraft_raster::resample::resize(&pre, lw, lh, li_raster::resample::Filter::Mitchell);
+    let scaled = pre.resize(lw, lh, li_raster::resample::Filter::Mitchell);
     let inset = wm.inset.clamp(0.0, 0.4) * width.min(height) as f32;
     let (w, h, lwf, lhf) = (width as f32, height as f32, lw as f32, lh as f32);
     use Anchor::*;

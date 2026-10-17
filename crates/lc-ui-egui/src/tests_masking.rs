@@ -796,7 +796,7 @@ fn dsfix_gpu_stack_preserves_background_range_overlay() {
         "hardware GPU required: {adapter}"
     );
     eprintln!("dsfix Background overlay adapter: {adapter}");
-    let source = Arc::new(lightcraft_raster::Rgb32f::from_fn(64, 32, |x, _| [0.01 + x as f32 / 128.0; 3]));
+    let source = Arc::new(li_raster::RgbFrame::from_fn(64, 32, |x, _| [0.01 + x as f32 / 128.0; 3]));
     let component = |shape| MaskComponent { shape, name: None, op: Default::default(), invert: false };
     let settings = lightcraft_develop::DevelopSettings {
         masks: vec![

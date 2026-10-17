@@ -89,7 +89,7 @@ fn save(h: &Headless, name: &str, r: Rect) {
     let x1 = (r.right() * scale).ceil().min(image.size[0] as f32) as usize;
     let y1 = (r.bottom() * scale).ceil().min(image.size[1] as f32) as usize;
     assert!(x1 > x0 && y1 > y0);
-    let out = lightcraft_raster::Rgba8::from_fn(x1 - x0, y1 - y0, |x, y| image.pixels[(y + y0) * image.size[0] + x + x0].to_array());
+    let out = li_raster::Rgba8::from_fn(x1 - x0, y1 - y0, |x, y| image.pixels[(y + y0) * image.size[0] + x + x0].to_array());
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
     let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/develop-c-ux");
     std::fs::create_dir_all(&dir).unwrap();

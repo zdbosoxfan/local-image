@@ -6,13 +6,13 @@
 
 use std::sync::Arc;
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::{
     Adaptation, AiPatch, ColorCal, DevelopSettings, Illuminant, LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, SegMask, Spot, SpotMode,
 };
 use lightcraft_geom::{Orientation, Point, Rect};
 use lightcraft_pipeline::lensdb::{Distortion, LensCorrection, Tca};
 use lightcraft_pipeline::{Overlay, RenderRequest, SourceInfo, StageCache, render};
-use lightcraft_raster::{Rgb32f, Rgba8};
 
 const MEAN_LSB: f64 = 0.5;
 const MAX_LSB: u8 = 3;
@@ -33,7 +33,7 @@ fn gpu() -> bool {
     ok
 }
 
-fn scene(i: usize, w: usize, h: usize) -> Arc<Rgb32f> {
+fn scene(i: usize, w: usize, h: usize) -> Arc<RgbFrame> {
     Arc::new(lightcraft_scenes::demo_library()[i].render(w, h))
 }
 
@@ -55,11 +55,11 @@ fn diff(a: &Rgba8, b: &Rgba8) -> (f64, u8) {
     (sum as f64 / (a.data.len() * 3) as f64, max)
 }
 
-fn gpu_render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Rgba8 {
+fn gpu_render(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Rgba8 {
     lightcraft_gpu::render(src, info, s, req, stages).unwrap_or_else(|| panic!("gpu render ({:?})", lightcraft_gpu::last_fallback())).image
 }
 
-fn check(name: &str, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rgba8 {
+fn check(name: &str, src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rgba8 {
     if info.lens_db.is_some() {
         assert!(lightcraft_pipeline::plan(src, info, s, req).frame.gpu_samplable(), "{name}: exercise the native lens warp");
     }
@@ -241,7 +241,7 @@ fn lens_profiles_at_borders_all_orientations_match() {
     require_gpu();
     // High contrast edges reach all four borders, with distinct colour planes.
     // Odd, non-square dimensions expose half-pixel/axis-swap mistakes.
-    let src = Arc::new(Rgb32f::from_fn(769, 513, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(769, 513, |x, y| {
         let edge = |v: usize| if v.is_multiple_of(2) { 0.015 } else { 0.75 };
         [edge(x / 5 + y / 7), edge(x / 9), edge(y / 6)]
     }));
@@ -522,8 +522,8 @@ fn capture_sharpening_changes_re_upload_the_source() {
 }
 
 /// Soft edges, fine colour texture, black/negative pixels and HDR near every border.
-fn capture_chart(w: usize, h: usize) -> Arc<Rgb32f> {
-    Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+fn capture_chart(w: usize, h: usize) -> Arc<RgbFrame> {
+    Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let fx = x as f32;
         let fy = y as f32;
         let edge = 0.5 + 0.5 * ((fx - 0.43 * w as f32) * 0.9 + fy * 0.04).tanh();
@@ -669,7 +669,7 @@ fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
 fn capture_sharpening_before_source_analysis_matches() {
     let _gpu = crate::support::lock();
     require_gpu();
-    let src = Arc::new(Rgb32f::from_fn(193, 129, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(193, 129, |x, y| {
         let dx = x as f32 - 105.0;
         let dy = y as f32 - 61.0;
         let pupil = (-0.5 * (dx * dx + dy * dy) / 36.0).exp();
@@ -1163,8 +1163,8 @@ fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
     }
 }
 
-fn detail_scene() -> Arc<Rgb32f> {
-    Arc::new(Rgb32f::from_fn(257, 193, |x, y| {
+fn detail_scene() -> Arc<RgbFrame> {
+    Arc::new(RgbFrame::from_fn(257, 193, |x, y| {
         let base = if x < 128 { [0.035, 0.015, 0.009] } else { [0.24, 0.36, 0.18] };
         std::array::from_fn(|k| {
             let v = (x as u32).wrapping_mul(7919) ^ (y as u32).wrapping_mul(104729) ^ (k as u32).wrapping_mul(941083);
@@ -1277,7 +1277,7 @@ fn tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match() {
     let _gpu = crate::support::lock();
     require_gpu();
     for (w, h) in [(1, 1), (3, 7), (129, 91), (641, 427)] {
-        let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+        let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
             let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
             [v, v * 0.7, v * 0.4]
         }));
@@ -1362,7 +1362,7 @@ fn tone_equalizer_layer_curve_across_finish_bands_matches() {
     require_gpu();
     // Just over BAND_PIXELS: the finish dispatch needs a second row band.
     let (w, h) = (2053, 2049);
-    let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let v = 0.001 + x as f32 / w as f32 * 0.3 + y as f32 / h as f32 * 0.02;
         [v, v * 0.7, v * 0.4]
     }));
@@ -1379,7 +1379,7 @@ fn tone_equalizer_layer_curve_across_finish_bands_matches() {
 fn capture_sensor_protection_matches_and_invalidates_cached_source() {
     let _gpu = crate::support::lock();
     require_gpu();
-    let src = Arc::new(Rgb32f::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
+    let src = Arc::new(RgbFrame::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
     let mut s = DevelopSettings::default();
     capture(&mut s, 1., 20., 20.);
     let req = RenderRequest::fit(64, 64);
@@ -1403,7 +1403,7 @@ fn capture_sensor_protection_matches_and_invalidates_cached_source() {
 fn cropped_refine_mask_keeps_source_scale_on_gpu() {
     let _gpu = crate::support::lock();
     require_gpu();
-    let src = Arc::new(Rgb32f::filled(256, 256, [0.18; 3]));
+    let src = Arc::new(RgbFrame::filled(256, 256, [0.18; 3]));
     let mut s = DevelopSettings::default();
     s.masks.push(Mask {
         refine: 100.,

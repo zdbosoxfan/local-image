@@ -3,7 +3,7 @@
 //! intermediate planes; the scalar tests always run without an adapter.
 
 use super::*;
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 
 fn max_delta(a: &[f32], b: &[f32]) -> f32 {
     assert_eq!(a.len(), b.len());
@@ -16,8 +16,8 @@ fn max_delta(a: &[f32], b: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
-fn chart(w: usize, h: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, y| {
+fn chart(w: usize, h: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, y| {
         let v = 0.06 + 0.6 * (0.5 + 0.5 * (x as f32 * 0.47 + y as f32 * 0.11).sin());
         if (x, y) == (4, 3) {
             [0.0; 3]
@@ -48,10 +48,10 @@ fn indices_f32(w: usize, h: usize, p: &CaptureParams, hypot: bool) -> Vec<u32> {
 
 /// WGSL's gather mask and variance addition order, with the shared box blur's
 /// whole-row/32-row restart locations and Develop's pinned box-blur policy.
-fn mask_f32(img: &Rgb32f, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
+fn mask_f32(img: &RgbFrame, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
     let (w, h) = (img.width, img.height);
     let lum: Vec<_> = img.data.iter().map(|c| li_color::luminance_2020(*c).max(0.0)).collect();
-    let modified = Plane::from_fn(w, h, |x, y| {
+    let modified = GrayFrame::from_fn(w, h, |x, y| {
         if x <= 1 || y <= 1 || x + 2 >= w || y + 2 >= h {
             return 0.0;
         }
@@ -92,7 +92,7 @@ fn mask_f32(img: &Rgb32f, p: &CaptureParams) -> (Vec<f32>, Vec<f32>) {
         let weight = 1.0 / (1.0 + (offset - 200.0 * t).exp());
         (1.01011 * (weight - 0.01)).clamp(0.0, 1.0)
     });
-    let blurred = lightcraft_raster::blur::gaussian_with_policy(&modified, 2.0, li_raster::blur::GaussianPolicy::Boxes);
+    let blurred = modified.gaussian_with_policy(2.0, li_raster::blur::GaussianPolicy::Boxes);
     let blend = modified
         .data
         .iter()
@@ -131,7 +131,7 @@ fn step_f32(est: &[f32], lum: &[f32], blend: &[f32], indices: &[u32], w: usize, 
     (ratio, next)
 }
 
-fn apply_f32(src: &Rgb32f, lum: &[f32], blend: &[f32], est: &[f32]) -> Rgb32f {
+fn apply_f32(src: &RgbFrame, lum: &[f32], blend: &[f32], est: &[f32]) -> RgbFrame {
     let mut out = src.clone();
     for (i, px) in out.data.iter_mut().enumerate() {
         if blend[i] > 0.0 {

@@ -2780,7 +2780,7 @@ fn lrc_ux_screenshots() {
                     h.step(vec![]);
                 }
                 let image = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
-                let rgba = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                let rgba = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
                 let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
                 std::fs::write(output.join(format!("{phase}-{}-{name}-{}.png", mode.digit(), width as u32)), bytes).unwrap();
             }
@@ -2790,7 +2790,7 @@ fn lrc_ux_screenshots() {
                 h.step(vec![]);
             }
             let image = h.view.paint(&h.host.library.as_ref().unwrap().renderer.cpu_textures());
-            let rgba = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+            let rgba = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
             let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
             std::fs::write(output.join(format!("{phase}-preferences-{name}-{}.png", width as u32)), bytes).unwrap();
             drop(h);

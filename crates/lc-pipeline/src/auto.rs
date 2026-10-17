@@ -2,8 +2,8 @@
 
 use li_color::cct::xy_to_temp_tint;
 use li_color::{REC2020, Xy, bradford, luminance_2020};
+use li_raster::RgbFrame;
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::Rgb32f;
 use serde::Serialize;
 
 use crate::SourceInfo;
@@ -28,8 +28,8 @@ fn percentile(sorted: &[f32], q: f32) -> f32 {
 }
 
 /// Compute auto tone values for `src` under the current white balance (ignores current tone values).
-pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTone {
-    let mut img = lightcraft_raster::resample::fit(src, 512, 512, li_raster::resample::Filter::Box);
+pub fn auto_tone(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> AutoTone {
+    let mut img = src.fit(512, 512, li_raster::resample::Filter::Box);
     let mut base = DevelopSettings { wb: s.wb, negative: s.negative, disabled_sections: s.disabled_sections.clone(), ..DevelopSettings::default() };
     base.light.exposure = 0.0;
     crate::local::scene_linear_pre(&mut img, info, &base);
@@ -61,9 +61,9 @@ pub fn auto_tone(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> AutoTo
 /// balance and tone: each hue band's colourful pixels are pushed away from the image's mean
 /// lightness — bands brighter than average get brighter, darker ones darker — so areas that
 /// differ only in colour stay apart in grey. Bands with almost no colourful pixels stay at 0.
-pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64; 8] {
+pub fn auto_bw_mix(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> [f64; 8] {
     use li_color::perceptual::{lab_to_lch, oklab_from_2020};
-    let mut img = lightcraft_raster::resample::fit(src, 512, 512, li_raster::resample::Filter::Box);
+    let mut img = src.fit(512, 512, li_raster::resample::Filter::Box);
     let base = DevelopSettings {
         wb: s.wb,
         light: s.light,
@@ -104,8 +104,8 @@ pub fn auto_bw_mix(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> [f64
 }
 
 /// Grey-world white balance weighted towards mid-tone, low-chroma pixels. Returns (temp, tint).
-pub fn auto_wb(src: &Rgb32f, info: &SourceInfo) -> (f64, f64) {
-    let img = lightcraft_raster::resample::fit(src, 256, 256, li_raster::resample::Filter::Box);
+pub fn auto_wb(src: &RgbFrame, info: &SourceInfo) -> (f64, f64) {
+    let img = src.fit(256, 256, li_raster::resample::Filter::Box);
     let (mut acc, mut wsum) = ([0.0f64; 3], 0.0f64);
     for c in &img.data {
         let y = luminance_2020(*c);
@@ -138,17 +138,17 @@ mod tests {
 
     #[test]
     fn dark_image_gets_positive_exposure() {
-        let img = Rgb32f::from_fn(64, 64, |x, _| [0.01 + x as f32 * 0.0003; 3]);
+        let img = RgbFrame::from_fn(64, 64, |x, _| [0.01 + x as f32 * 0.0003; 3]);
         let a = auto_tone(&img, &SourceInfo::default(), &DevelopSettings::default());
         assert!(a.exposure > 1.5, "{a:?}");
-        let bright = Rgb32f::from_fn(64, 64, |x, _| [0.8 + x as f32 * 0.01; 3]);
+        let bright = RgbFrame::from_fn(64, 64, |x, _| [0.8 + x as f32 * 0.01; 3]);
         let b = auto_tone(&bright, &SourceInfo::default(), &DevelopSettings::default());
         assert!(b.exposure < -1.0, "{b:?}");
     }
 
     #[test]
     fn neutral_image_keeps_as_shot_wb() {
-        let img = Rgb32f::from_fn(32, 32, |x, y| [0.05 + (x + y) as f32 * 0.004; 3]);
+        let img = RgbFrame::from_fn(32, 32, |x, y| [0.05 + (x + y) as f32 * 0.004; 3]);
         let (t, tint) = auto_wb(&img, &SourceInfo::default());
         assert!((t - 6500.0).abs() < 150.0, "{t}");
         assert!(tint.abs() < 6.0, "{tint}");
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn blue_cast_is_corrected_by_higher_temp() {
         // A bluish cast should be neutralised by telling the pipeline the light was bluer (higher K).
-        let img = Rgb32f::from_fn(32, 32, |_, _| [0.16, 0.18, 0.24]);
+        let img = RgbFrame::from_fn(32, 32, |_, _| [0.16, 0.18, 0.24]);
         let (t, _) = auto_wb(&img, &SourceInfo::default());
         assert!(t > 7000.0, "{t}");
         let mut s = DevelopSettings::default();
@@ -182,12 +182,12 @@ mod bw_tests {
     #[test]
     fn auto_bw_mix_pushes_light_and_dark_hues_apart() {
         // left: a light yellow, right: a dark blue (scene-linear Rec. 2020)
-        let src = Rgb32f::from_fn(64, 32, |x, _| if x < 32 { [0.55, 0.5, 0.05] } else { [0.01, 0.02, 0.12] });
+        let src = RgbFrame::from_fn(64, 32, |x, _| if x < 32 { [0.55, 0.5, 0.05] } else { [0.01, 0.02, 0.12] });
         let m = auto_bw_mix(&src, &SourceInfo::default(), &DevelopSettings::default());
         let (yellow, blue) = (m[2], m[5]);
         assert!(yellow > 0.0 && blue < 0.0, "{m:?}");
         // an image without colour leaves the mix alone
-        let grey = Rgb32f::from_fn(16, 16, |x, _| [x as f32 / 16.0; 3]);
+        let grey = RgbFrame::from_fn(16, 16, |x, _| [x as f32 / 16.0; 3]);
         assert_eq!(auto_bw_mix(&grey, &SourceInfo::default(), &DevelopSettings::default()), [0.0; 8]);
     }
 }

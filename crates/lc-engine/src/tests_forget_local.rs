@@ -16,7 +16,7 @@ fn temp_dir(tag: &str) -> PathBuf {
 }
 
 fn png(p: &Path, seed: u8) {
-    let img = lightcraft_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
+    let img = li_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
     let b =
         crate::export::encode_image(&img, &crate::export::ExportOptions { format: crate::export::ExportFormat::Png, ..Default::default() }).unwrap();
     std::fs::create_dir_all(p.parent().unwrap()).unwrap();

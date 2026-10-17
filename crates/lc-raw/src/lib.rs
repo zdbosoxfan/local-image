@@ -4,7 +4,7 @@
 //!   needed to render it: CFA, black/white levels, active area, default crop, orientation, DNG colour tags,
 //!   opcode lists, [`Metadata`]); [`embedded_preview`] returns the largest embedded JPEG.
 //! - [`RawImage::normalized`] subtracts black, scales white to 1.0 and crops to the active area (applying DNG
-//!   `OpcodeList1`/`OpcodeList2`); [`demosaic`] turns CFA data into camera-RGB [`Rgb32f`];
+//!   `OpcodeList1`/`OpcodeList2`); [`demosaic`] turns CFA data into camera-RGB [`RgbFrame`];
 //!   [`RawImage::develop`] does all of it plus `OpcodeList3` and the default crop; [`RawImage::develop_binned`]
 //!   produces the same at 1/k of the size straight from the mosaic (previews, thumbnails).
 //! - [`color`] implements the DNG colour model (dual-illuminant interpolation, forward matrices, white balance)
@@ -58,9 +58,9 @@ pub use demosaic::{DemosaicOptions, Method, demosaic, demosaic_with};
 pub use dngwrite::{DngCompression, DngWriteOptions, write_dng};
 pub use embedded_lens::VendorLens;
 pub use li_color::Mat3;
+pub use li_raster::RgbFrame;
 pub use lightcraft_geom::Orientation;
 pub use lightcraft_meta::Metadata;
-pub use lightcraft_raster::Rgb32f;
 pub use opcodes::{Opcode, OpcodeLists};
 pub use preview::embedded_preview;
 
@@ -751,18 +751,18 @@ impl RawImage {
 
     /// Full "raw → camera RGB" path: normalise, demosaic with `method`, apply `OpcodeList3`, then the default crop.
     /// The result is camera RGB (not white balanced), white level = 1.0, not oriented.
-    pub fn develop(&self, method: Method) -> Result<Rgb32f> {
+    pub fn develop(&self, method: Method) -> Result<RgbFrame> {
         self.develop_with(method, &DemosaicOptions::default())
     }
 
     /// [`Self::develop`] with the demosaic methods' parameters.
-    pub fn develop_with(&self, method: Method, opts: &DemosaicOptions) -> Result<Rgb32f> {
+    pub fn develop_with(&self, method: Method, opts: &DemosaicOptions) -> Result<RgbFrame> {
         self.develop_with_cfa(method, opts, |_| {})
     }
 
     /// Develop with a CFA-stage operation after normalization/opcodes 1/2 and before demosaic.
     /// The callback sees the active area; opcodes 3 and the default crop are applied afterwards.
-    pub fn develop_with_cfa(&self, method: Method, opts: &DemosaicOptions, hook: impl FnOnce(&mut Normalized)) -> Result<Rgb32f> {
+    pub fn develop_with_cfa(&self, method: Method, opts: &DemosaicOptions, hook: impl FnOnce(&mut Normalized)) -> Result<RgbFrame> {
         let mut n = self.normalized()?;
         hook(&mut n);
         let mut rgb = demosaic_with(&n, method, opts);

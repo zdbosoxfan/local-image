@@ -2,7 +2,7 @@
 //! reconstruction, no capture sharpening, no lens database) has colour/tone golden hashes;
 //! raw options preserve explicit methods; Automatic is checked against measured noise selection.
 
-use lightcraft_raster::Rgb32f;
+use li_raster::RgbFrame;
 
 /// A 640 × 480 Bayer DNG with texture, colour and a clipped highlight.
 pub(crate) fn textured_dng() -> Vec<u8> {
@@ -52,7 +52,7 @@ pub(crate) fn textured_dng() -> Vec<u8> {
     write_dng(&raw, &Default::default()).unwrap()
 }
 
-pub(crate) fn hash_img(img: &Rgb32f) -> u64 {
+pub(crate) fn hash_img(img: &RgbFrame) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for p in &img.data {
         for v in p {

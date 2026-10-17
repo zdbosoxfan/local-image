@@ -4,9 +4,8 @@
 //! B uses darktable's faithful EIGF at multiple scales. Both apply ratio-preserving gains.
 use crate::{Plan, SourceInfo, eigf, llf, ucs};
 use li_raster::resample::Filter;
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_develop::{ClarityMode, DevelopSettings, SkinTone};
-use lightcraft_raster::resample::resize;
-use lightcraft_raster::{Plane, Rgb32f};
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -81,8 +80,8 @@ pub fn tone_gain(l: f32, hl: f32, sh: f32, wh: f32, bl: f32) -> f32 {
     1.6 * hl * smooth(0., 4., l) + 1.8 * sh * (1. - smooth(-6., 0., l)) + 0.8 * wh * smooth(3., 7., l) + 0.8 * bl * (1. - smooth(-10., -4., l))
 }
 
-fn plane_from_fn(w: usize, h: usize, f: impl Fn(usize, usize) -> f32 + Sync + Send) -> Plane {
-    let mut out = Plane::new(w, h);
+fn plane_from_fn(w: usize, h: usize, f: impl Fn(usize, usize) -> f32 + Sync + Send) -> GrayFrame {
+    let mut out = GrayFrame::new(w, h);
     crate::for_rows(&mut out.data, w, |y, row| {
         for (x, v) in row.iter_mut().enumerate() {
             *v = f(x, y);
@@ -93,7 +92,7 @@ fn plane_from_fn(w: usize, h: usize, f: impl Fn(usize, usize) -> f32 + Sync + Se
 
 // vkdt reduce.comp's exact 1,4,6,4,1 stencil path. Unlike darktable's padded pyramid,
 // clamp-to-edge lets rectangular/tiny levels safely reach 1px, with bounded memory.
-fn reduce(p: &Plane) -> Plane {
+fn reduce(p: &GrayFrame) -> GrayFrame {
     const W: [f32; 5] = [1. / 16., 4. / 16., 6. / 16., 4. / 16., 1. / 16.];
     plane_from_fn(p.width.div_ceil(2), p.height.div_ceil(2), |x, y| {
         let mut s = 0.;
@@ -107,7 +106,7 @@ fn reduce(p: &Plane) -> Plane {
         s
     })
 }
-fn expand(p: &Plane, w: usize, h: usize) -> Plane {
+fn expand(p: &GrayFrame, w: usize, h: usize) -> GrayFrame {
     // vkdt assemble.comp's 5-tap polyphase stencil path.
     plane_from_fn(w, h, |x, y| {
         let even = [(-1, 0.125), (0, 0.75), (1, 0.125)];
@@ -128,7 +127,7 @@ fn expand(p: &Plane, w: usize, h: usize) -> Plane {
         s
     })
 }
-fn pyramid(p: Plane) -> Vec<Plane> {
+fn pyramid(p: GrayFrame) -> Vec<GrayFrame> {
     let mut v = vec![p];
     while v.last().is_some_and(|p| p.width > 1 || p.height > 1) {
         let p = &v[v.len() - 1];
@@ -138,16 +137,16 @@ fn pyramid(p: Plane) -> Vec<Plane> {
 }
 /// Log-EV extension of vkdt llap: interpolated remapped Laplacians, remapped residual.
 /// Detail's slope is one near gamma; large-scale beta is the derivative of the slider curve.
-pub fn li_tone(l: &Plane, hl: f32, sh: f32, wh: f32, bl: f32) -> Plane {
+pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame {
     if hl == 0. && sh == 0. && wh == 0. && bl == 0. {
-        return Plane::new(l.width, l.height);
+        return GrayFrame::new(l.width, l.height);
     }
     let lo = l.data.iter().copied().fold(f32::INFINITY, f32::min).min(-6.);
     let hi = l.data.iter().copied().fold(f32::NEG_INFINITY, f32::max).max(4.);
     let range = (hi - lo).max(1.);
     let ng = 10;
     let orig = pyramid(l.clone());
-    let mut acc: Vec<_> = orig.iter().map(|p| Plane::new(p.width, p.height)).collect();
+    let mut acc: Vec<_> = orig.iter().map(|p| GrayFrame::new(p.width, p.height)).collect();
     let step = range / (ng - 1) as f32;
     let sigma = step.max(1.0);
     for k in 0..ng {
@@ -185,12 +184,12 @@ pub fn li_tone(l: &Plane, hl: f32, sh: f32, wh: f32, bl: f32) -> Plane {
     out.zip_map(l, |a, b| (a - b).clamp(-3., 3.))
 }
 
-pub fn eigf_tone(l: &Plane, hl: f32, sh: f32, wh: f32, bl: f32) -> Plane {
+pub fn eigf_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame {
     if hl == 0. && sh == 0. && wh == 0. && bl == 0. {
-        return Plane::new(l.width, l.height);
+        return GrayFrame::new(l.width, l.height);
     }
     let lum = l.map(|v| (v * std::f32::consts::LN_2).exp() * 0.18);
-    let mut out = Plane::new(l.width, l.height);
+    let mut out = GrayFrame::new(l.width, l.height);
     for (fraction, weight) in [(0.005, 0.25), (0.015, 0.5), (0.045, 0.25)] {
         let mut p = eigf::Params::new((l.width.max(l.height) as f32 * fraction).max(1.), 0.08);
         p.iterations = 3;
@@ -204,26 +203,26 @@ pub fn eigf_tone(l: &Plane, hl: f32, sh: f32, wh: f32, bl: f32) -> Plane {
 }
 
 /// Cross fast guided upsampling of a gain field, guide = full-resolution log EV.
-pub fn upsample_gain(proxy_l: &Plane, gain: &Plane, full_l: &Plane) -> Plane {
+pub fn upsample_gain(proxy_l: &GrayFrame, gain: &GrayFrame, full_l: &GrayFrame) -> GrayFrame {
     let sigma = (proxy_l.width.max(proxy_l.height) as f32 * 0.002).max(1.);
-    let mean = |p: &Plane| crate::blur::gaussian(p, sigma);
+    let mean = |p: &GrayFrame| crate::blur::gaussian(p, sigma);
     let ml = mean(proxy_l);
     let mg = mean(gain);
     let var = mean(&proxy_l.map(|v| v * v));
     let cov = mean(&proxy_l.zip_map(gain, |a, b| a * b));
-    let mut a = Plane::new(proxy_l.width, proxy_l.height);
+    let mut a = GrayFrame::new(proxy_l.width, proxy_l.height);
     let mut b = a.clone();
     for i in 0..a.len() {
         a.data[i] = (cov.data[i] - ml.data[i] * mg.data[i]) / ((var.data[i] - ml.data[i] * ml.data[i]).max(0.) + 0.05);
         b.data[i] = mg.data[i] - a.data[i] * ml.data[i];
     }
-    let up = |p: &Plane| resize(&mean(p), full_l.width, full_l.height, Filter::Bilinear);
+    let up = |p: &GrayFrame| mean(p).resize(full_l.width, full_l.height, Filter::Bilinear);
     let (a, b) = (up(&a), up(&b));
-    Plane::from_fn(full_l.width, full_l.height, |x, y| a.get(x, y) * full_l.get(x, y) + b.get(x, y))
+    GrayFrame::from_fn(full_l.width, full_l.height, |x, y| a.get(x, y) * full_l.get(x, y) + b.get(x, y))
 }
 
 /// A fixed-size proxy of the same geometric frame, independent of requested export/preview.
-pub fn proxy_for(src: &Rgb32f, info: &SourceInfo, plan: &Plan<'_>) -> Rgb32f {
+pub fn proxy_for(src: &RgbFrame, info: &SourceInfo, plan: &Plan<'_>) -> RgbFrame {
     let p = proxy_plan(src, plan);
     let mut img = p.frame.sample(src, p.w, p.h);
     crate::lin_cpu(&mut img, info, &p);
@@ -232,7 +231,7 @@ pub fn proxy_for(src: &Rgb32f, info: &SourceInfo, plan: &Plan<'_>) -> Rgb32f {
 }
 
 /// The CPU and GPU proxy resolve precisely the same frame, WB, retouching and NR parameters.
-pub fn proxy_plan<'a>(src: &Rgb32f, plan: &Plan<'a>) -> Plan<'a> {
+pub fn proxy_plan<'a>(src: &RgbFrame, plan: &Plan<'a>) -> Plan<'a> {
     let (nw, nh) = plan.frame.native_size();
     let scale = ((PROXY_PIXELS as f64 / (nw * nh).max(1.)).sqrt()).min(1.);
     let (w, h) = plan.frame.fit((nw * scale).round().max(1.) as usize, (nh * scale).round().max(1.) as usize);
@@ -334,18 +333,18 @@ fn clear(d: &mut DevelopSettings) {
 }
 
 /// Fraction clipped, transformed with the same geometry. No scene-RGB clipping heuristic.
-fn clips(info: &SourceInfo, plan: &Plan<'_>) -> Option<Plane> {
+fn clips(info: &SourceInfo, plan: &Plan<'_>) -> Option<GrayFrame> {
     let c = info.clip_confidence.as_ref()?;
     if c.width == 0 || c.height == 0 || c.data.len() != c.width.checked_mul(c.height)? {
         return None;
     }
-    let rgb = Rgb32f { width: c.width, height: c.height, data: c.data.iter().map(|v| [*v; 3]).collect() };
+    let rgb = RgbFrame { width: c.width, height: c.height, data: c.data.iter().map(|v| [*v; 3]).collect() };
     let frame = plan.frame.for_metadata();
     Some(frame.sample(&rgb, plan.w, plan.h).map(|c| c[0].clamp(0., 1.)))
 }
 
 /// Apply global and layer tools at their stage, using the shared mask alpha/opacity.
-pub fn process(img: &Rgb32f, proxy: &Rgb32f, info: &SourceInfo, plan: &Plan<'_>, method: HsMethod) -> Rgb32f {
+pub fn process(img: &RgbFrame, proxy: &RgbFrame, info: &SourceInfo, plan: &Plan<'_>, method: HsMethod) -> RgbFrame {
     let s = &*plan.settings;
     let mut out = img.clone();
     let gain = (s.light.exposure as f32).exp2();
@@ -422,7 +421,15 @@ pub fn process(img: &Rgb32f, proxy: &Rgb32f, info: &SourceInfo, plan: &Plan<'_>,
     out
 }
 
-fn apply_tone_detail(img: &mut Rgb32f, proxy: &Rgb32f, s: &DevelopSettings, clip: Option<&Plane>, method: HsMethod, ppl: f64, band_scale: f32) {
+fn apply_tone_detail(
+    img: &mut RgbFrame,
+    proxy: &RgbFrame,
+    s: &DevelopSettings,
+    clip: Option<&GrayFrame>,
+    method: HsMethod,
+    ppl: f64,
+    band_scale: f32,
+) {
     let stages = Stages::of(s);
     if !stages.tone && !stages.clarity && !stages.texture && !stages.structure {
         return;
@@ -452,7 +459,7 @@ fn apply_tone_detail(img: &mut Rgb32f, proxy: &Rgb32f, s: &DevelopSettings, clip
     let cl = s.effects.clarity as f32 / 100.;
     let tx = s.effects.texture as f32 / 100.;
     let st = s.effects.structure as f32 / 100.;
-    let mut field = Plane::new(img.width, img.height);
+    let mut field = GrayFrame::new(img.width, img.height);
     if cl != 0. {
         // darktable's local Laplacian detail remap, only medium-scale bands. Log mapped into 0..1.
         let lo = -12.;
@@ -515,7 +522,7 @@ fn apply_tone_detail(img: &mut Rgb32f, proxy: &Rgb32f, s: &DevelopSettings, clip
         }
     }
 }
-fn apply_colour(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
+fn apply_colour(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
     let stages = Stages::of(s);
     if stages.equalizer {
         crate::colorequal::apply(img, s, ppl);
@@ -549,7 +556,7 @@ pub fn skin_weight(c: [f32; 3], s: &SkinTone) -> f32 {
 }
 
 /// Skin uniformity edits only low-frequency chroma; original pore/texture residual survives.
-pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
+pub fn skin(img: &mut RgbFrame, s: &SkinTone, ppl: f64) {
     let Some(reference) = s.reference else {
         return;
     };
@@ -559,7 +566,7 @@ pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
     let lw = ucs::y_to_l_star(1.);
     let refc = [reference[0] as f32, reference[1] as f32, (reference[2] as f32).to_radians()];
     let jch: Vec<_> = img.data.iter().map(|c| ucs::xyy_to_jch(ucs::xyz_to_xyy(ucs::mul(&ucs::mats().rgb_to_xyz, *c)), lw)).collect();
-    let planes: [Plane; 3] = std::array::from_fn(|k| Plane {
+    let planes: [GrayFrame; 3] = std::array::from_fn(|k| GrayFrame {
         width: img.width,
         height: img.height,
         data: jch
@@ -576,7 +583,7 @@ pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
             .collect(),
     });
     let guide = img.map(|c| norm(c).max(1e-6));
-    let low: [Plane; 3] = std::array::from_fn(|k| cross_eigf(&guide, &planes[k], (ppl as f32 * 0.0075).max(1.), 0.05));
+    let low: [GrayFrame; 3] = std::array::from_fn(|k| cross_eigf(&guide, &planes[k], (ppl as f32 * 0.0075).max(1.), 0.05));
     for i in 0..img.len() {
         let c = jch[i];
         let w = skin_weight(c, s);
@@ -594,13 +601,13 @@ pub fn skin(img: &mut Rgb32f, s: &SkinTone, ppl: f64) {
     }
 }
 /// EIGF covariance blend extended to signed colour planes (no floor on the guided output).
-pub fn cross_eigf(guide: &Plane, p: &Plane, sigma: f32, eps: f32) -> Plane {
-    let mean = |p: &Plane| Plane { width: p.width, height: p.height, data: eigf::mean(&p.data, p.width, p.height, 1, sigma) };
+pub fn cross_eigf(guide: &GrayFrame, p: &GrayFrame, sigma: f32, eps: f32) -> GrayFrame {
+    let mean = |p: &GrayFrame| GrayFrame { width: p.width, height: p.height, data: eigf::mean(&p.data, p.width, p.height, 1, sigma) };
     let mg = mean(guide);
     let mp = mean(p);
     let gg = mean(&guide.map(|v| v * v));
     let gp = mean(&guide.zip_map(p, |a, b| a * b));
-    Plane::from_fn(p.width, p.height, |x, y| {
+    GrayFrame::from_fn(p.width, p.height, |x, y| {
         let g = guide.get(x, y);
         let m = mg.get(x, y);
         let ng = (m * g).max(1e-6);
@@ -639,4 +646,4 @@ pub fn key_for(plan: &Plan<'_>, info: &SourceInfo, method: HsMethod) -> u64 {
         info.clip_confidence.as_ref().map(|c| Arc::as_ptr(c) as usize),
     ))
 }
-pub type Cached = Option<(u64, Arc<Rgb32f>)>;
+pub type Cached = Option<(u64, Arc<RgbFrame>)>;

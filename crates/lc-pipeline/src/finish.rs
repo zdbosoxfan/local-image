@@ -3,9 +3,9 @@
 use li_color::luminance_2020;
 use li_color::spline::{Lut1, MonotoneCurve};
 use li_color::transfer::linear_to_srgb;
+use li_raster::Rgba8;
 use lightcraft_develop::{DevelopSettings, LocalAdjustments, ToneCurve, VignetteStyle};
 use lightcraft_geom::Point;
-use lightcraft_raster::Rgba8;
 
 use crate::colorops::ColorOps;
 use crate::geometry::Frame;
@@ -390,12 +390,12 @@ pub(crate) fn working(
     info: &SourceInfo,
     layer: bool,
     coverage: Option<&crate::masks::Alpha>,
-) -> lightcraft_raster::Rgb32f {
+) -> li_raster::RgbFrame {
     let mut fp = FinishParams::new(s, &plan.frame, info, plan.w, plan.h, plan.px_per_long, OutputSpace::Srgb)
         .with_planes(p.sharp.as_ref().map(|x| x.2), p.haze.as_ref().map(|x| (x.air, x.distance)));
     fp.mode = if layer { FinishMode::Layer } else { FinishMode::Working };
     fp.layer_contrast = s.light.contrast as f32;
-    lightcraft_raster::Rgb32f { width: plan.w, height: plan.h, data: finish_with_mask(p, &fp, true, coverage, |c, _, _| c) }
+    li_raster::RgbFrame { width: plan.w, height: plan.h, data: finish_with_mask(p, &fp, true, coverage, |c, _, _| c) }
 }
 
 pub(crate) fn finish(p: &Prepared, s: &DevelopSettings, frame: &Frame, info: &SourceInfo, space: OutputSpace, proof: Option<crate::Proof>) -> Rgba8 {

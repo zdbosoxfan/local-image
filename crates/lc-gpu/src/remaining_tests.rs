@@ -5,10 +5,18 @@ use lightcraft_develop::{Mask, MaskComponent, MaskShape};
 use lightcraft_geom::Point;
 use lightcraft_pipeline::primary::HsMethod;
 
-fn compare(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages) -> Rgba8 {
+fn compare(g: &Gpu, src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages) -> Rgba8 {
     compare_or_dump(g, src, info, s, req, stages, false)
 }
-fn compare_or_dump(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages, dump: bool) -> Rgba8 {
+fn compare_or_dump(
+    g: &Gpu,
+    src: &Arc<RgbFrame>,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    stages: &GpuStages,
+    dump: bool,
+) -> Rgba8 {
     crate::CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     let errors = crate::ctx::ErrorScopes::push(g);
     let image = render(g, src, info, s, req, Some(stages), None, HsMethod::LiTone).unwrap().image;
@@ -62,8 +70,8 @@ fn compare_or_dump(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSet
     }
     image
 }
-fn input(w: usize, h: usize) -> Arc<Rgb32f> {
-    Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+fn input(w: usize, h: usize) -> Arc<RgbFrame> {
+    Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let v = 0.003 + x as f32 / w as f32 * 0.3 + if x > w / 2 { 1.2 } else { 0.0 };
         [v * (1.0 + 0.04 * (y as f32).sin()), v * 0.7, v * 0.3 + 0.002 * (x as f32 * 1.7).cos()]
     }))
@@ -113,7 +121,7 @@ fn native_develop_gaussian_policy_matches_cpu_reference() {
             let mut expected = vec![0.0; input.len()];
             // Each component is a scalar field, including four-channel guidance moments.
             for c in 0..nc {
-                let field = Plane::from_fn(w, h, |x, y| input[(y * w + x) * nc + c]);
+                let field = GrayFrame::from_fn(w, h, |x, y| input[(y * w + x) * nc + c]);
                 let cpu = lightcraft_pipeline::blur::gaussian(&field, sigma);
                 for (i, v) in cpu.data.iter().enumerate() {
                     expected[i * nc + c] = *v;
@@ -188,7 +196,7 @@ fn toneeq_5090_fixture(dump: bool) {
     eprintln!("toneeq fixture adapter: {:?}", g.info);
     let _scope = crate::ctx::RenderScope::new(g);
     let (w, h) = (641, 427);
-    let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
         [v, v * 0.7, v * 0.4]
     }));
@@ -325,7 +333,7 @@ fn native_nr_statistics_match_robust_model_and_reconstruction() {
     let _scope = crate::ctx::RenderScope::new(g);
     let mut cx = Cx::new(g);
     for (w, h) in [(1, 1), (7, 5), (67, 49), (265, 259)] {
-        let src = Rgb32f::from_fn(w, h, |x, y| {
+        let src = RgbFrame::from_fn(w, h, |x, y| {
             let v = 0.01 + x as f32 / w as f32 * 0.7;
             let hash = (x as u32).wrapping_mul(1664525) ^ (y as u32).wrapping_mul(1013904223);
             let noise = (hash % 101) as f32 / 101.0 - 0.5;

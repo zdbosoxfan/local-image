@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! layer RGBA (document colour space, 8/16/32-bit)
-//!   ──document profile → linear Rec.2020──► Rgb32f (alpha set aside)
+//!   ──document profile → linear Rec.2020──► RgbFrame (alpha set aside)
 //!   ──shared GPU Develop (automatic CPU fallback)──► linear Rec.2020
 //!   ──linear Rec.2020 → document profile──► layer RGB, alpha copied back unchanged
 //! ```
@@ -212,7 +212,7 @@ fn render_working_scaled(rgb: Vec<[f32; 3]>, w: usize, h: usize, s: &DevelopSett
     if w.checked_mul(h) != Some(rgb.len()) || w == 0 || h == 0 {
         return Err("develop: bad image size".into());
     }
-    let src = Arc::new(lightcraft_raster::Rgb32f { width: w, height: h, data: rgb });
+    let src = Arc::new(li_raster::RgbFrame { width: w, height: h, data: rgb });
     let req = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
     let info = SourceInfo { sensor_scale: pixel_scale.recip(), ..Default::default() };
     let out = lightcraft_engine::media::develop(&src, &info, s, &req, None, true);
@@ -630,7 +630,7 @@ pub fn red_eye_surface(surf: &Surface, bounds: Rect, eye: &EyeFix, profile: &Pro
         rgb.par_chunks_mut(8192).for_each(|c| conv.to_working(c));
     }
     // Transparent pixels are no pupil.
-    let seen = lightcraft_raster::Rgb32f {
+    let seen = li_raster::RgbFrame {
         width: w,
         height: h,
         data: rgb.iter().zip(&px).map(|(c, p)| if p[3] < 0.5 { [0.0; 3] } else { c.map(|v| v.max(0.0)) }).collect(),
@@ -1135,7 +1135,7 @@ mod tests {
         // The same 8-bit sRGB pixels as a PNG in the Library and as a layer here: same working
         // pixels, same develop, same result.
         let (w, h) = (48usize, 32usize);
-        let mut img = lightcraft_raster::Rgba8::new(w, h);
+        let mut img = li_raster::Rgba8::new(w, h);
         for (i, p) in img.data.iter_mut().enumerate() {
             let (x, y) = (i % w, i / w);
             *p = [(x * 5) as u8, (y * 7) as u8, ((x + y) * 3) as u8, 255];
@@ -1206,7 +1206,7 @@ mod j04_tests {
         let profile = linear_rec2020();
         let mut preview = px.clone();
         develop_rgba_scaled(&mut preview, w, h, &settings, profile, 0.25).unwrap();
-        let source = lightcraft_raster::Rgb32f { width: w, height: h, data: px.iter().map(|p| [p[0], p[1], p[2]]).collect() };
+        let source = li_raster::RgbFrame { width: w, height: h, data: px.iter().map(|p| [p[0], p[1], p[2]]).collect() };
         let request = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
         let reference = lightcraft_pipeline::render(&source, &SourceInfo { sensor_scale: 4.0, ..Default::default() }, &settings, &request);
         let DeepSamples::F32(reference) = reference.deep.unwrap().samples else { panic!() };

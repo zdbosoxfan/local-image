@@ -1,15 +1,15 @@
+use li_raster::GrayFrame;
 use lightcraft_pipeline::upright::{Segment, analyze, detect_segments, solve_guided, vanishing_point};
-use lightcraft_raster::Plane;
 
-fn plane_from(data: Vec<f32>, width: usize, height: usize) -> Plane {
-    Plane { width, height, data }
+fn plane_from(data: Vec<f32>, width: usize, height: usize) -> GrayFrame {
+    GrayFrame { width, height, data }
 }
 
-fn uniform_plane(width: usize, height: usize, value: f32) -> Plane {
+fn uniform_plane(width: usize, height: usize, value: f32) -> GrayFrame {
     plane_from(vec![value; width * height], width, height)
 }
 
-fn vertical_line_plane(width: usize, height: usize, x: usize, thickness: usize, brightness: f32, background: f32) -> Plane {
+fn vertical_line_plane(width: usize, height: usize, x: usize, thickness: usize, brightness: f32, background: f32) -> GrayFrame {
     let mut data = vec![background; width * height];
     for y in 0..height {
         for dx in 0..thickness {
@@ -22,7 +22,7 @@ fn vertical_line_plane(width: usize, height: usize, x: usize, thickness: usize, 
     plane_from(data, width, height)
 }
 
-fn vertical_lines_plane(width: usize, height: usize, xs: &[usize], thickness: usize, brightness: f32, background: f32) -> Plane {
+fn vertical_lines_plane(width: usize, height: usize, xs: &[usize], thickness: usize, brightness: f32, background: f32) -> GrayFrame {
     let mut data = vec![background; width * height];
     for y in 0..height {
         for &x in xs {
@@ -37,7 +37,7 @@ fn vertical_lines_plane(width: usize, height: usize, xs: &[usize], thickness: us
     plane_from(data, width, height)
 }
 
-fn horizontal_line_plane(width: usize, height: usize, y: usize, thickness: usize, brightness: f32, background: f32) -> Plane {
+fn horizontal_line_plane(width: usize, height: usize, y: usize, thickness: usize, brightness: f32, background: f32) -> GrayFrame {
     let mut data = vec![background; width * height];
     for dy in 0..thickness {
         let yy = y + dy;
@@ -50,7 +50,7 @@ fn horizontal_line_plane(width: usize, height: usize, y: usize, thickness: usize
     plane_from(data, width, height)
 }
 
-fn grid_plane(width: usize, height: usize) -> Plane {
+fn grid_plane(width: usize, height: usize) -> GrayFrame {
     let mut data = vec![1.0f32; width * height];
     let xs = [28usize, 64, 100];
     let ys = [28usize, 64, 100];

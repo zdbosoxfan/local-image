@@ -1,12 +1,12 @@
 //! Filter the raw audit's camera-space crop using measured and image-estimated models.
+use li_raster::RgbFrame;
 use lightcraft_pipeline::detail::nr::{NoiseCalibration, NrParams, denoise, denoise_profiled};
-use lightcraft_raster::Rgb32f;
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     let bytes = std::fs::read(&args[0]).unwrap();
     let u32_at = |i| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap());
     let (w, h) = (u32_at(0) as usize, u32_at(4) as usize);
-    let mut img = Rgb32f::new(w, h);
+    let mut img = RgbFrame::new(w, h);
     for (v, b) in img.data.iter_mut().flatten().zip(bytes[8..].as_chunks::<4>().0) {
         *v = f32::from_le_bytes(*b);
     }

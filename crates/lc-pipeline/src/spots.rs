@@ -5,9 +5,9 @@
 //! spots) use the same patch/Poisson backend through a bounded region adapter.
 //! Clone keeps its original feathered copy renderer and automatic-source APIs.
 
+use li_raster::{RgbFrame, par_rows};
 use lightcraft_develop::{Spot, SpotMode};
 use lightcraft_geom::Point;
-use lightcraft_raster::{Rgb32f, par_rows};
 
 use crate::geometry::Frame;
 
@@ -18,7 +18,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// Samples of `img` on an annulus (24 angles x inner/mid/outer radius).
-fn ring_stats(img: &Rgb32f, c: (f32, f32), r0: f32, r1: f32) -> Option<Vec<[f32; 3]>> {
+fn ring_stats(img: &RgbFrame, c: (f32, f32), r0: f32, r1: f32) -> Option<Vec<[f32; 3]>> {
     let mut out = Vec::with_capacity(72);
     let n = 24;
     for i in 0..n {
@@ -35,7 +35,7 @@ fn ring_stats(img: &Rgb32f, c: (f32, f32), r0: f32, r1: f32) -> Option<Vec<[f32;
 }
 
 /// Mismatch of the source's surroundings against the target's ring samples `a`.
-fn score(img: &Rgb32f, a: &[[f32; 3]], source: (f32, f32), r: f32) -> f32 {
+fn score(img: &RgbFrame, a: &[[f32; 3]], source: (f32, f32), r: f32) -> f32 {
     let Some(b) = ring_stats(img, source, r * 1.05, r * 1.6) else { return f32::MAX };
     // also compare the inside of the source against the target's surroundings (texture continuity)
     let inside = ring_stats(img, source, r * 0.2, r * 0.9);
@@ -56,7 +56,7 @@ fn score(img: &Rgb32f, a: &[[f32; 3]], source: (f32, f32), r: f32) -> f32 {
 
 /// Candidate source offsets (output pixels) for a spot of radius `r` at `target`, best first
 /// (candidates reaching outside the image are left out).
-pub fn ranked_sources(img: &Rgb32f, target: (f32, f32), r: f32) -> Vec<(f32, f32)> {
+pub fn ranked_sources(img: &RgbFrame, target: (f32, f32), r: f32) -> Vec<(f32, f32)> {
     // the target's ring is the same for every candidate: sample it once
     let Some(a) = ring_stats(img, target, r * 1.05, r * 1.6) else { return Vec::new() };
     let mut cand: Vec<(f32, (f32, f32))> = Vec::with_capacity(48);
@@ -76,7 +76,7 @@ pub fn ranked_sources(img: &Rgb32f, target: (f32, f32), r: f32) -> Vec<(f32, f32
 }
 
 /// Pick a source offset (in output pixels) for a remove/heal spot.
-pub fn auto_source(img: &Rgb32f, target: (f32, f32), r: f32) -> (f32, f32) {
+pub fn auto_source(img: &RgbFrame, target: (f32, f32), r: f32) -> (f32, f32) {
     ranked_sources(img, target, r).first().copied().unwrap_or((r * 2.5, 0.0))
 }
 
@@ -88,7 +88,7 @@ pub fn auto_source(img: &Rgb32f, target: (f32, f32), r: f32) -> (f32, f32) {
 /// ([`crate::patches::apply_spots`]), so a source is never taken from what one of them removed.
 /// (This only picks the offset a new spot stores; renders are unaffected.)
 pub fn pick_source(
-    src: &Rgb32f,
+    src: &RgbFrame,
     info: &crate::SourceInfo,
     s: &lightcraft_develop::DevelopSettings,
     spot: &Spot,
@@ -128,12 +128,12 @@ pub struct Stages {
 }
 
 /// Apply all spots to `img` (output resolution). `ppl` = output pixels per long-edge unit.
-pub fn apply(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64) {
+pub fn apply(img: &mut RgbFrame, spots: &[Spot], frame: &Frame, ppl: f64) {
     apply_timed(img, spots, frame, ppl, None);
 }
 
 /// [`apply`], adding each stage's time to `stages`.
-pub fn apply_timed(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64, mut stages: Option<&mut Stages>) {
+pub fn apply_timed(img: &mut RgbFrame, spots: &[Spot], frame: &Frame, ppl: f64, mut stages: Option<&mut Stages>) {
     use std::time::Instant;
     if spots.is_empty() {
         return;
@@ -359,7 +359,7 @@ fn inflate(b: PxBox, m: usize, w: usize, h: usize) -> PxBox {
 
 /// Source-based spots keep their coordinates, source pin, feather and opacity. The work is
 /// restricted to the stroke plus three diameters of context, just like the background worker.
-fn apply_source_heal(img: &mut Rgb32f, spot: &Spot, pts: &[(f32, f32)], r: f32, to_out: lightcraft_geom::Affine, stages: Option<&mut Stages>) {
+fn apply_source_heal(img: &mut RgbFrame, spot: &Spot, pts: &[(f32, f32)], r: f32, to_out: lightcraft_geom::Affine, stages: Option<&mut Stages>) {
     use std::time::Instant;
     let start = Instant::now();
     let margin = (r * 6.0).ceil().clamp(48.0, 600.0);
@@ -457,7 +457,7 @@ mod reference {
     }
 
     /// Mean colour of `img` in a disc/annulus.
-    fn ring_stats(img: &Rgb32f, c: (f32, f32), r0: f32, r1: f32) -> Option<Vec<[f32; 3]>> {
+    fn ring_stats(img: &RgbFrame, c: (f32, f32), r0: f32, r1: f32) -> Option<Vec<[f32; 3]>> {
         let mut out = Vec::new();
         let n = 24;
         for i in 0..n {
@@ -473,7 +473,7 @@ mod reference {
         Some(out)
     }
 
-    fn score(img: &Rgb32f, target: (f32, f32), source: (f32, f32), r: f32) -> f32 {
+    fn score(img: &RgbFrame, target: (f32, f32), source: (f32, f32), r: f32) -> f32 {
         let (Some(a), Some(b)) = (ring_stats(img, target, r * 1.05, r * 1.6), ring_stats(img, source, r * 1.05, r * 1.6)) else { return f32::MAX };
         // also compare the inside of the source against the target's surroundings (texture continuity)
         let inside = ring_stats(img, source, r * 0.2, r * 0.9);
@@ -494,7 +494,7 @@ mod reference {
 
     /// Candidate source offsets (output pixels) for a spot of radius `r` at `target`, best first
     /// (candidates reaching outside the image are left out).
-    pub(super) fn ranked_sources(img: &Rgb32f, target: (f32, f32), r: f32) -> Vec<(f32, f32)> {
+    pub(super) fn ranked_sources(img: &RgbFrame, target: (f32, f32), r: f32) -> Vec<(f32, f32)> {
         let mut c: Vec<(f32, (f32, f32))> = Vec::new();
         for ring in [2.4f32, 3.2, 4.2] {
             for i in 0..16 {
@@ -510,11 +510,11 @@ mod reference {
         c.into_iter().map(|(_, d)| d).collect()
     }
 
-    pub(super) fn auto_source(img: &Rgb32f, target: (f32, f32), r: f32) -> (f32, f32) {
+    pub(super) fn auto_source(img: &RgbFrame, target: (f32, f32), r: f32) -> (f32, f32) {
         ranked_sources(img, target, r).first().copied().unwrap_or((r * 2.5, 0.0))
     }
 
-    pub(super) fn apply(img: &mut Rgb32f, spots: &[Spot], frame: &Frame, ppl: f64) {
+    pub(super) fn apply(img: &mut RgbFrame, spots: &[Spot], frame: &Frame, ppl: f64) {
         if spots.is_empty() {
             return;
         }
@@ -576,15 +576,15 @@ mod reference {
                 // Tone correction from the spot's *surroundings* only: normalized convolution of
                 // (target − source) over pixels outside the stroke (a membrane-like interpolation).
                 let outside: Vec<f32> = alpha.iter().map(|a| if *a < 0.02 { 1.0 } else { 0.0 }).collect();
-                let diff = Rgb32f {
+                let diff = RgbFrame {
                     width: bw,
                     height: bh,
                     data: tgt.iter().zip(&src).zip(&outside).map(|((t, s), m)| [(t[0] - s[0]) * m, (t[1] - s[1]) * m, (t[2] - s[2]) * m]).collect(),
                 };
-                let wts = lightcraft_raster::Plane { width: bw, height: bh, data: outside };
+                let wts = li_raster::GrayFrame { width: bw, height: bh, data: outside };
                 let sigma = (r * 0.6).max(1.0);
-                let (bd, bm) = (lightcraft_raster::blur::gaussian(&diff, sigma), lightcraft_raster::blur::gaussian(&wts, sigma));
-                Some(Rgb32f {
+                let (bd, bm) = (diff.gaussian(sigma), wts.gaussian(sigma));
+                Some(RgbFrame {
                     width: bw,
                     height: bh,
                     data: bd
@@ -628,7 +628,7 @@ mod tests {
     #[test]
     fn remove_erases_a_dot() {
         // flat grey with a gentle gradient and a black dot in the middle
-        let mut img = Rgb32f::from_fn(120, 80, |x, _| [0.2 + x as f32 * 0.001; 3]);
+        let mut img = RgbFrame::from_fn(120, 80, |x, _| [0.2 + x as f32 * 0.001; 3]);
         for y in 36..44 {
             for x in 56..64 {
                 img.set(x, y, [0.0; 3]);
@@ -643,7 +643,7 @@ mod tests {
 
     #[test]
     fn clone_copies_source() {
-        let mut img = Rgb32f::from_fn(100, 100, |x, _| if x < 50 { [0.1; 3] } else { [0.9; 3] });
+        let mut img = RgbFrame::from_fn(100, 100, |x, _| if x < 50 { [0.1; 3] } else { [0.9; 3] });
         let frame = Frame::new(100, 100, &DevelopSettings::default(), true);
         let spot = Spot {
             mode: SpotMode::Clone,
@@ -659,8 +659,8 @@ mod tests {
     }
 
     /// Deterministic textured test image: gradients, a hash noise grain and a few dark blemishes.
-    fn synthetic(w: usize, h: usize) -> Rgb32f {
-        Rgb32f::from_fn(w, h, |x, y| {
+    fn synthetic(w: usize, h: usize) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |x, y| {
             let n = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA6B);
             let n = (n ^ (n >> 15)).wrapping_mul(0x2C1B_3C6D);
             let grain = ((n >> 8) & 0xFFFF) as f32 / 65535.0 - 0.5;
@@ -669,7 +669,7 @@ mod tests {
         })
     }
 
-    fn hash(img: &Rgb32f) -> u64 {
+    fn hash(img: &RgbFrame) -> u64 {
         img.data.iter().flatten().fold(0xcbf2_9ce4_8422_2325u64, |h, v| (h ^ v.to_bits() as u64).wrapping_mul(0x100_0000_01b3))
     }
 
@@ -718,7 +718,7 @@ mod tests {
     #[test]
     fn j13_poisson_source_quality_beats_frequency_separation() {
         let (w, h) = (96, 80);
-        let truth = Rgb32f::from_fn(w, h, |x, y| {
+        let truth = RgbFrame::from_fn(w, h, |x, y| {
             let tone = 0.1 + 0.003 * x as f32 + 0.002 * y as f32;
             let texture = 0.015 * ((x as f32 * std::f32::consts::TAU / 16.0).sin());
             [tone + texture, tone * 0.8 + texture, tone * 0.6 + texture]
@@ -747,7 +747,7 @@ mod tests {
         apply(&mut new, std::slice::from_ref(&sp), &frame, frame.px_per_long(w));
         let new_ms = start.elapsed().as_secs_f64() * 1000.0;
         eprintln!("J13 single small source-heal CPU sample: previous {old_ms:.3} ms, shared Poisson {new_ms:.3} ms");
-        let rmse = |img: &Rgb32f| {
+        let rmse = |img: &RgbFrame| {
             let error: f32 = (32..48)
                 .flat_map(|y| (40..56).map(move |x| (x, y)))
                 .map(|(x, y)| (0..3).map(|c| (img.get(x, y)[c] - truth.get(x, y)[c]).powi(2)).sum::<f32>())

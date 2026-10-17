@@ -575,7 +575,7 @@ fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
     let working = source.to_working().apply(linear).map(|v| v as f32).to_vec();
     let image = Rgba8::new(1, 1);
     let render = lightcraft_pipeline::Rendered {
-        histogram: lightcraft_raster::Histogram::of_srgb8(&image),
+        histogram: li_raster::Histogram::of_srgb8(&image),
         image,
         deep: Some(DeepImage { width: 1, height: 1, space: OutputSpace::Rec2020, samples: DeepSamples::F32(working) }),
     };
@@ -699,7 +699,7 @@ fn resize_modes() {
 fn p3_green(space: OutputSpace) -> Rgba8 {
     use li_color::{DISPLAY_P3, REC2020};
     let c = DISPLAY_P3.to_space(&REC2020).apply_f32([0.04, 0.45, 0.04]);
-    let src = lightcraft_raster::Rgb32f::filled(16, 16, c);
+    let src = li_raster::RgbFrame::filled(16, 16, c);
     let req = lightcraft_pipeline::RenderRequest { space, ..lightcraft_pipeline::RenderRequest::fit(16, 16) };
     lightcraft_pipeline::render(&src, &Default::default(), &Default::default(), &req).image
 }
@@ -728,7 +728,7 @@ fn p3_colour_survives_a_p3_export_and_is_clipped_in_srgb() {
 #[test]
 fn every_space_embeds_its_own_profile_and_round_trips() {
     let grey = {
-        let src = lightcraft_raster::Rgb32f::filled(16, 16, [0.18; 3]);
+        let src = li_raster::RgbFrame::filled(16, 16, [0.18; 3]);
         let base = lightcraft_pipeline::RenderRequest::fit(16, 16);
         move |space| {
             lightcraft_pipeline::render(&src, &Default::default(), &Default::default(), &lightcraft_pipeline::RenderRequest { space, ..base.clone() })
@@ -773,7 +773,7 @@ fn srgb_watermark_colour_is_converted() {
 
 /// A shallow horizontal grey ramp (few 8-bit levels), rendered at `depth`.
 fn ramp(depth: OutputDepth, space: OutputSpace) -> lightcraft_pipeline::Rendered {
-    let src = lightcraft_raster::Rgb32f::from_fn(1024, 4, |x, _| [0.10 + 0.03 * x as f32 / 1023.0; 3]);
+    let src = li_raster::RgbFrame::from_fn(1024, 4, |x, _| [0.10 + 0.03 * x as f32 / 1023.0; 3]);
     let req = lightcraft_pipeline::RenderRequest { depth, space, ..lightcraft_pipeline::RenderRequest::fit(1024, 4) };
     lightcraft_pipeline::render(&src, &Default::default(), &Default::default(), &req)
 }

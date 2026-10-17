@@ -7,11 +7,11 @@ mod support;
 
 use std::sync::Arc;
 
+use li_raster::Rgba8;
 use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape};
 use lightcraft_geom::Point;
 use lightcraft_gpu::Fault;
 use lightcraft_pipeline::{RenderRequest, SourceInfo, render};
-use lightcraft_raster::Rgba8;
 
 fn mean_abs_diff(a: &Rgba8, b: &Rgba8) -> f64 {
     let sum: u64 = a.data.iter().zip(&b.data).map(|(p, q)| (0..3).map(|c| p[c].abs_diff(q[c]) as u64).sum::<u64>()).sum();
@@ -118,7 +118,7 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
     assert!(lightcraft_gpu::render(&src, &info, &s, &deep_req, None).unwrap().deep.is_some());
 
     // a black photo is still rendered (on the CPU, to be sure)
-    let black = Arc::new(lightcraft_raster::Rgb32f::from_fn(256, 256, |_, _| [0.0; 3]));
+    let black = Arc::new(li_raster::RgbFrame::from_fn(256, 256, |_, _| [0.0; 3]));
     let s0 = DevelopSettings::default();
     assert!(lightcraft_gpu::render(&black, &info, &s0, &RenderRequest::fit(256, 256), None).is_none());
     assert!(lightcraft_gpu::last_fallback().unwrap_or_default().contains("black"));

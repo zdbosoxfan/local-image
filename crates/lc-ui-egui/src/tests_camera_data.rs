@@ -24,7 +24,7 @@ fn camdata_camera_wb_dropdown_click_and_undo() {
             .unwrap();
         session.media.file_loader = Some(Arc::new(|_, _| {
             Ok((
-                lightcraft_raster::Rgb32f::new(32, 32),
+                li_raster::RgbFrame::new(32, 32),
                 SourceInfo {
                     raw: true,
                     camera_wb_presets: vec![CameraWbPreset { name: "Underwater".into(), temp: 4600.0, tint: 18.0 }],

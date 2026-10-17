@@ -19,7 +19,7 @@ pub mod camera;
 pub mod finish;
 pub mod project;
 
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -53,9 +53,9 @@ impl Default for PanoOptions {
 #[derive(Clone, Debug)]
 pub struct PanoResult {
     /// Scene-linear pixels (same units as the frames, after exposure compensation).
-    pub image: Rgb32f,
+    pub image: RgbFrame,
     /// Coverage (1 = image data, 0 = empty canvas).
-    pub alpha: Plane,
+    pub alpha: GrayFrame,
     /// Auto-crop rectangle (normalised x, y, w, h), when requested.
     pub crop: Option<[f64; 4]>,
     /// The projection used (never `Auto`).
@@ -340,8 +340,8 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         check(progress, 0.7 + 0.2 * (i + 1) as f32 / n as f32, "Blending")?;
     }
     let out = blender.finish();
-    let mut image = Rgb32f::new(cw, ch);
-    let mut alpha = Plane::new(cw, ch);
+    let mut image = RgbFrame::new(cw, ch);
+    let mut alpha = GrayFrame::new(cw, ch);
     for y in 0..ch {
         for x in 0..cw {
             let k = y * pw + x;

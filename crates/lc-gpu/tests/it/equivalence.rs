@@ -6,10 +6,10 @@
 
 use std::sync::Arc;
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::{BrushStroke, DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, Spot, Treatment, VignetteStyle, WbMode, Wheel};
 use lightcraft_geom::{Orientation, Point, Rect};
 use lightcraft_pipeline::{Quality, RenderRequest, SourceInfo, StageCache, render};
-use lightcraft_raster::{Rgb32f, Rgba8};
 
 const MEAN_LSB: f64 = 0.5;
 const MAX_LSB: u8 = 3;
@@ -49,7 +49,7 @@ fn camera_tone_and_relative_wb() {
     check("camera chroma curve edited", &src, &info, &s, &RenderRequest::fit(320, 240));
 }
 
-fn scene(i: usize, w: usize, h: usize) -> Arc<Rgb32f> {
+fn scene(i: usize, w: usize, h: usize) -> Arc<RgbFrame> {
     Arc::new(lightcraft_scenes::demo_library()[i].render(w, h))
 }
 
@@ -69,7 +69,7 @@ fn diff(a: &Rgba8, b: &Rgba8) -> (f64, u8, f64) {
     (sum as f64 / n, max, over as f64 / n)
 }
 
-fn check(name: &str, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> (f64, u8) {
+fn check(name: &str, src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> (f64, u8) {
     let cpu = render(src, info, s, req).image;
     let gpu = lightcraft_gpu::render(src, info, s, req, None).expect("gpu render");
     let (mean, max, over) = diff(&cpu, &gpu.image);
@@ -439,7 +439,7 @@ fn masked_dehaze_unit_transmission_is_identity() {
         [0.3, 0.2, 0.1],
         [1.2, 0.9, 0.7],
     ];
-    let src = Arc::new(Rgb32f::from_fn(80, 48, |x, y| colours[(x + y) % colours.len()]));
+    let src = Arc::new(RgbFrame::from_fn(80, 48, |x, y| colours[(x + y) % colours.len()]));
     let info = SourceInfo { raw: true, ..Default::default() };
     let req = RenderRequest::fit(80, 48);
     require_gpu();
@@ -640,7 +640,7 @@ fn red_eye_matches() {
     let _gpu = crate::support::lock();
     require_gpu();
     // A face-like patch with a red pupil (left) and a glowing pet pupil (right).
-    let src = Arc::new(Rgb32f::from_fn(800, 400, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(800, 400, |x, y| {
         let d = |cx: f32, cy: f32| ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
         if d(250.0, 200.0) < 20.0 {
             [0.55, 0.05, 0.04]
@@ -715,7 +715,7 @@ fn colour_tone_looks_bases_hue_and_rolloff() {
     let _gpu = crate::support::lock();
     require_gpu();
     use lightcraft_develop::{Look, ToneBase};
-    let src = Arc::new(Rgb32f::from_fn(192, 96, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(192, 96, |x, y| {
         let gain = 2f32.powf(-10.0 + 16.0 * x as f32 / 191.0);
         let c = match y / 16 {
             0 => [1.0, 1.0, 1.0],
@@ -759,7 +759,7 @@ fn working_curves_gamut_and_dither() {
     require_gpu();
     use lightcraft_develop::CurveMode;
     use lightcraft_pipeline::OutputSpace;
-    let src = Arc::new(Rgb32f::from_fn(256, 64, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(256, 64, |x, y| {
         let v = x as f32 / 255.0;
         match y / 16 {
             0 => [v; 3],
@@ -799,7 +799,7 @@ fn working_curves_gamut_and_dither() {
 fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
     let _gpu = crate::support::lock();
     require_gpu();
-    let src = Arc::new(Rgb32f::from_fn(193, 127, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(193, 127, |x, y| {
         let l = if x < 90 { 0.018 } else { 3. };
         [l * (1. + 0.08 * (y as f32 * 0.13).sin()), l * 0.65, l * 0.38]
     }));
@@ -869,7 +869,7 @@ fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
 fn eigf_tone_equalizer_matches_including_mask_preview() {
     let _gpu = crate::support::lock();
     require_gpu();
-    let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(129, 91, |x, y| {
         let v = 0.002 * 1.045f32.powi(x as i32) * (1. + 0.05 * (y as f32 * 0.4).sin());
         [v, v * 0.7, v * 0.5]
     }));
@@ -892,7 +892,7 @@ fn eigf_tone_equalizer_matches_including_mask_preview() {
 fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
     let _gpu = crate::support::lock();
     require_gpu();
-    let src = Arc::new(Rgb32f::from_fn(127, 93, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(127, 93, |x, y| {
         let v = if x < 63 { 0.025 } else { 3. };
         [v * (1. + 0.03 * (y as f32).sin()), v * 0.7, v * 0.4]
     }));

@@ -153,10 +153,10 @@ fn finish(current: &mut Vec<usize>, probes: &[BracketProbe], options: &BracketOp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightcraft_raster::Rgb32f;
+    use li_raster::RgbFrame;
 
     fn probe(ev: f64, seconds: f64, scene: bool) -> BracketProbe {
-        let image = Rgb32f::from_fn(32, 24, |x, y| {
+        let image = RgbFrame::from_fn(32, 24, |x, y| {
             let v = if scene { (x * x + y * 3 + 1) as f32 } else { (y * y + x * 3 + 1) as f32 } / 2048.0;
             [v * 2f32.powf(ev as f32); 3]
         });

@@ -6,9 +6,9 @@
 
 use std::sync::Arc;
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_catalog::PhotoId;
 use lightcraft_pipeline::{RenderRequest, SourceInfo, StageCache};
-use lightcraft_raster::{Rgb32f, Rgba8};
 use serde_json::json;
 
 use crate::Session;
@@ -98,7 +98,7 @@ struct Views {
     view: Rgba8,
     gpu: Rgba8,
     cpu: Rgba8,
-    source: Arc<Rgb32f>,
+    source: Arc<RgbFrame>,
 }
 
 fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) -> Views {
@@ -311,7 +311,7 @@ fn native_tone_equalizer_layers_and_depth_use_engine_gpu_stages() {
     let _gpu = gpu_state();
     require_gpu();
     use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, SegMask, ToneCurve};
-    let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(129, 91, |x, y| {
         let v = 0.004 + x as f32 * 0.006;
         [v, v * 0.6 + 0.02, v * 0.3 + y as f32 * 0.0002]
     }));
@@ -345,7 +345,7 @@ fn native_tone_equalizer_layers_and_depth_use_engine_gpu_stages() {
     }
 }
 
-fn measure_deep(src: Arc<Rgb32f>, info: &SourceInfo, s: &lightcraft_develop::DevelopSettings, req: RenderRequest) -> (u16, f64) {
+fn measure_deep(src: Arc<RgbFrame>, info: &SourceInfo, s: &lightcraft_develop::DevelopSettings, req: RenderRequest) -> (u16, f64) {
     let cpu = lightcraft_pipeline::render(&src, info, s, &req).deep.unwrap();
     let direct = crate::media::develop(&src, info, s, &req, None, true).deep.unwrap();
     assert!(
@@ -367,7 +367,7 @@ fn measure_deep(src: Arc<Rgb32f>, info: &SourceInfo, s: &lightcraft_develop::Dev
     (max, mean)
 }
 
-fn assert_deep_close(src: Arc<Rgb32f>, info: &SourceInfo, s: &lightcraft_develop::DevelopSettings, req: RenderRequest) {
+fn assert_deep_close(src: Arc<RgbFrame>, info: &SourceInfo, s: &lightcraft_develop::DevelopSettings, req: RenderRequest) {
     let (max, mean) = measure_deep(src, info, s, req);
     assert!(max <= 3 && mean < 0.5, "mean {mean:.4}, max {max} U16 LSB");
 }

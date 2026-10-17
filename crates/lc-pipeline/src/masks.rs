@@ -3,9 +3,9 @@
 //! Shapes are defined in normalized oriented-image coordinates; sizes are in "long-edge units".
 //! Components combine with Add (max), Subtract (a·(1−c)) and Intersect (a·c).
 
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_develop::{BrushStroke, LocalAdjustments, Mask, MaskOp, MaskShape, SegMask};
 use lightcraft_geom::Point;
-use lightcraft_raster::{Plane, Rgb32f};
 
 use crate::for_rows;
 use crate::geometry::Frame;
@@ -22,7 +22,7 @@ pub struct Evaluated {
 #[derive(Clone)]
 pub enum Alpha {
     Scalar(f32),
-    Spatial(Plane),
+    Spatial(GrayFrame),
 }
 impl Alpha {
     #[inline]
@@ -38,7 +38,7 @@ impl Alpha {
             Self::Spatial(p) => p.get(x, y),
         }
     }
-    pub fn plane(&self) -> Option<&Plane> {
+    pub fn plane(&self) -> Option<&GrayFrame> {
         match self {
             Self::Spatial(p) => Some(p),
             Self::Scalar(_) => None,
@@ -63,7 +63,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// The visible masks with components, evaluated in order.
-pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32) -> Vec<Evaluated> {
+pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &RgbFrame, log_l: &GrayFrame, ev: f32) -> Vec<Evaluated> {
     masks
         .iter()
         .filter(|m| m.visible && !m.components.is_empty())
@@ -82,8 +82,8 @@ pub fn evaluate_with_tone(
     frame: &Frame,
     w: usize,
     h: usize,
-    img: &Rgb32f,
-    log_l: &Plane,
+    img: &RgbFrame,
+    log_l: &GrayFrame,
     ev: f32,
     tone: &crate::ToneMap,
 ) -> Vec<Evaluated> {
@@ -102,15 +102,24 @@ pub fn evaluate_with_tone(
 
 /// The alpha plane of mask `m` (whether visible or not): its components combined, inverted and
 /// scaled by its amount and opacity ([`mask_scale`]).
-pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32) -> Plane {
+pub fn evaluate_one(m: &Mask, frame: &Frame, w: usize, h: usize, img: &RgbFrame, log_l: &GrayFrame, ev: f32) -> GrayFrame {
     evaluate_one_tone(m, frame, w, h, img, log_l, ev, None)
 }
 #[allow(clippy::too_many_arguments)]
-pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32, tone: Option<&crate::ToneMap>) -> Plane {
+pub fn evaluate_one_tone(
+    m: &Mask,
+    frame: &Frame,
+    w: usize,
+    h: usize,
+    img: &RgbFrame,
+    log_l: &GrayFrame,
+    ev: f32,
+    tone: Option<&crate::ToneMap>,
+) -> GrayFrame {
     if let Some(a) = scalar_alpha(m) {
-        return Plane::from_fn(w, h, |_, _| a);
+        return GrayFrame::from_fn(w, h, |_, _| a);
     }
-    let mut alpha = Plane::new(w, h);
+    let mut alpha = GrayFrame::new(w, h);
     let mut first = true;
     for comp in &m.components {
         let mut c = shape_alpha_tone(&comp.shape, frame, w, h, img, log_l, ev, tone);
@@ -137,7 +146,11 @@ pub fn evaluate_one_tone(m: &Mask, frame: &Frame, w: usize, h: usize, img: &Rgb3
         let k = (m.refine / 100.0).clamp(0.0, 1.0) as f32;
         let sigma = refine_sigma(frame, w, k);
         let refined = if uses_subject_matting(m) {
-            Plane { width: w, height: h, data: li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, &img.data), &alpha.data, sigma) }
+            GrayFrame {
+                width: w,
+                height: h,
+                data: li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, &img.data), &alpha.data, sigma),
+            }
         } else {
             guided_cross(log_l, &alpha, sigma, 0.02)
         };
@@ -183,7 +196,7 @@ pub fn mask_scale(m: &Mask) -> f32 {
 }
 
 /// Per-pixel positions in long-edge units for output pixel centres.
-fn for_each_pos(frame: &Frame, w: usize, h: usize, out: &mut Plane, f: impl Fn(Point, usize) -> f32 + Sync + Send) {
+fn for_each_pos(frame: &Frame, w: usize, h: usize, out: &mut GrayFrame, f: impl Fn(Point, usize) -> f32 + Sync + Send) {
     let m = frame.out_to_norm(w, h);
     let (ow, oh, l) = (frame.ow, frame.oh, frame.ow.max(frame.oh));
     for_rows(&mut out.data, w, |y, row| {
@@ -194,7 +207,7 @@ fn for_each_pos(frame: &Frame, w: usize, h: usize, out: &mut Plane, f: impl Fn(P
     });
 }
 
-pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, ev: f32) -> Plane {
+pub fn shape_alpha(shape: &MaskShape, frame: &Frame, w: usize, h: usize, img: &RgbFrame, log_l: &GrayFrame, ev: f32) -> GrayFrame {
     shape_alpha_tone(shape, frame, w, h, img, log_l, ev, None)
 }
 #[allow(clippy::too_many_arguments)]
@@ -203,12 +216,12 @@ pub fn shape_alpha_tone(
     frame: &Frame,
     w: usize,
     h: usize,
-    img: &Rgb32f,
-    log_l: &Plane,
+    img: &RgbFrame,
+    log_l: &GrayFrame,
     ev: f32,
     tone: Option<&crate::ToneMap>,
-) -> Plane {
-    let mut out = Plane::new(w, h);
+) -> GrayFrame {
+    let mut out = GrayFrame::new(w, h);
     let to_long = |p: Point| frame.norm_to_long(p);
     // `img`/`log_l` are before exposure: range masks select on the exposed values.
     let gain = ev.exp2();
@@ -363,7 +376,7 @@ impl SegGrid {
 /// their rectangles (the highest of them where they overlap), the whole-photo `seg`
 /// elsewhere; the logit (times `gain`: > 1 is a harder edge) through a sigmoid. Damaged
 /// data selects nothing.
-fn sample_seg(seg: Option<&SegMask>, detail: &[SegMask], gain: f32, frame: &Frame, w: usize, h: usize, out: &mut Plane) {
+fn sample_seg(seg: Option<&SegMask>, detail: &[SegMask], gain: f32, frame: &Frame, w: usize, h: usize, out: &mut GrayFrame) {
     let coarse = seg.and_then(SegGrid::new);
     // (capped: a hostile document can hold many)
     let patches: Vec<SegGrid> = detail.iter().take(lightcraft_develop::segmask::MAX_DETAIL).filter_map(SegGrid::new).collect();
@@ -385,7 +398,7 @@ fn frame_px(frame: &Frame, w: usize) -> f32 {
     frame.px_per_long(w) as f32
 }
 
-fn smooth_plane(p: &mut Plane, sigma: f32) {
+fn smooth_plane(p: &mut GrayFrame, sigma: f32) {
     *p = crate::blur::gaussian(p, sigma.max(0.5));
 }
 
@@ -474,20 +487,24 @@ pub fn auto_refine(r: f64) -> (f32, f32) {
 
 /// Guided filter of `p` steered by `guide` (He et al.), clamped to 0..1: `p`'s edges snap to the
 /// guide's.
-pub fn guided_cross(guide: &Plane, p: &Plane, sigma: f32, eps: f32) -> Plane {
-    Plane { width: p.width, height: p.height, data: li_matte::matting::guided_filter_gaussian(&guide.data, &p.data, p.width, p.height, sigma, eps) }
+pub fn guided_cross(guide: &GrayFrame, p: &GrayFrame, sigma: f32, eps: f32) -> GrayFrame {
+    GrayFrame {
+        width: p.width,
+        height: p.height,
+        data: li_matte::matting::guided_filter_gaussian(&guide.data, &p.data, p.width, p.height, sigma, eps),
+    }
 }
 
 /// Stamp brush strokes into `out` (max-combine; erase strokes subtract). Auto Mask strokes weight
 /// each dab by [`auto_similarity`] to the pixel under its centre and are refined with
 /// [`guided_cross`] on log luminance.
-fn rasterize_brush(strokes: &[BrushStroke], frame: &Frame, w: usize, h: usize, img: &Rgb32f, log_l: &Plane, out: &mut Plane) {
+fn rasterize_brush(strokes: &[BrushStroke], frame: &Frame, w: usize, h: usize, img: &RgbFrame, log_l: &GrayFrame, out: &mut GrayFrame) {
     if w == 0 || h == 0 {
         return;
     }
     for s in strokes {
         let BrushDabs { dabs, r, hard, flow, density: dens, erase, auto } = brush_dabs(s, frame, w, h);
-        let mut stroke_alpha = Plane::new(w, h);
+        let mut stroke_alpha = GrayFrame::new(w, h);
         for d in &dabs {
             let refc = auto.then(|| {
                 let j = dab_pixel(*d, w, h);
@@ -537,14 +554,14 @@ mod tests {
     fn j14_ai_color_edge_quality_and_pipeline_timing() {
         for (w, h) in [(96, 64), (384, 256)] {
             let scale = w as f32 / 96.0;
-            let truth = Plane::from_fn(w, h, |x, y| {
+            let truth = GrayFrame::from_fn(w, h, |x, y| {
                 let d = ((x as f32 - 48.0 * scale).powi(2) + (y as f32 - 32.0 * scale).powi(2)).sqrt();
                 ((23.0 * scale - d) / (6.0 * scale)).clamp(0.0, 1.0)
             });
             // Equal Rec.2020 luminance, different color: grayscale cannot recover this edge.
             let fg = [0.9, 0.2, 0.1];
             let bg = [0.1, 0.2 + 0.8 * 0.2627 / 0.6780, 0.1];
-            let img = Rgb32f::from_fn(w, h, |x, y| {
+            let img = RgbFrame::from_fn(w, h, |x, y| {
                 let a = truth.get(x, y);
                 [0, 1, 2].map(|c| a * fg[c] + (1.0 - a) * bg[c])
             });
@@ -575,7 +592,7 @@ mod tests {
             let t = std::time::Instant::now();
             let after = evaluate_one(&mask, &frame, w, h, &img, &log_l, 0.0);
             let new_ms = t.elapsed().as_secs_f64() * 1000.0;
-            let err = |p: &Plane| p.data.iter().zip(&truth.data).map(|(a, b)| (a - b).abs()).sum::<f32>() / (w * h) as f32;
+            let err = |p: &GrayFrame| p.data.iter().zip(&truth.data).map(|(a, b)| (a - b).abs()).sum::<f32>() / (w * h) as f32;
             let (before, after_err) = (err(&old), err(&after));
             println!(
                 "J14 app mask path {w}x{h}: old MAE={before:.8}, shared CF MAE={after_err:.8}; old evaluate+guided={old_ms:.3} ms, new evaluate_one={new_ms:.3} ms"
@@ -594,8 +611,8 @@ mod tests {
         settings.crop.geometry.rect = lightcraft_geom::Rect::from_center(Point::new(0.75, 0.5), 0.5, 1.0);
         let (w, h) = (80, 40);
         let frame = Frame::new(w, h, &settings, true);
-        let img = Rgb32f::new(w, h);
-        let log_l = Plane::new(w, h);
+        let img = RgbFrame::new(w, h);
+        let log_l = GrayFrame::new(w, h);
         let coarse = SegMask::from_logits(8, &[-12.0; 64]);
         let patch = SegMask::from_logits_in(8, &[12.0; 64], [0.5, 0.0, 0.75, 1.0]);
         let shape = MaskShape::Prompt { text: "test".into(), seg: Some(coarse), detail: vec![patch], edge: 100.0 };
@@ -632,19 +649,19 @@ mod tests {
     #[test]
     fn j14_develop_guided_golden() {
         let (w, h) = (39, 23);
-        let mask = Plane::from_fn(w, h, |x, _| if x < 19 { 1.0 } else { 0.0 });
+        let mask = GrayFrame::from_fn(w, h, |x, _| if x < 19 { 1.0 } else { 0.0 });
         // Freeze guide words so native log2 implementations cannot change the input.
         // The output was checked bit-for-bit against pre-li-matte Develop on Apple Silicon.
         let bytes = include_bytes!("../tests/fixtures/j14-guided-log-guide.f32le");
         assert_eq!(bytes.len(), w * h * 4);
-        let guide = Plane { width: w, height: h, data: bytes.as_chunks::<4>().0.iter().map(|v| f32::from_le_bytes(*v)).collect() };
+        let guide = GrayFrame { width: w, height: h, data: bytes.as_chunks::<4>().0.iter().map(|v| f32::from_le_bytes(*v)).collect() };
         let q = guided_cross(&guide, &mask, 2.7, 0.02);
         let hash = q.data.iter().fold(0xcbf29ce484222325u64, |h, v| (h ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3));
         assert_eq!(hash, 9236099489760829479);
         // Keep the original Linux-native input and pre-migration snapshot as well.
         #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
         {
-            let guide = Plane::from_fn(w, h, |x, y| (0.03 + (x * 7 + y * 11) as f32 / 400.0).log2());
+            let guide = GrayFrame::from_fn(w, h, |x, y| (0.03 + (x * 7 + y * 11) as f32 / 400.0).log2());
             let q = guided_cross(&guide, &mask, 2.7, 0.02);
             let hash = q.data.iter().fold(0xcbf29ce484222325u64, |h, v| (h ^ u64::from(v.to_bits())).wrapping_mul(0x100000001b3));
             assert_eq!(hash, 7702663797854729420);
@@ -654,8 +671,8 @@ mod tests {
     #[test]
     fn linear_gradient_ramps() {
         let f = frame(100, 50);
-        let img = Rgb32f::new(100, 50);
-        let l = Plane::new(100, 50);
+        let img = RgbFrame::new(100, 50);
+        let l = GrayFrame::new(100, 50);
         let a = shape_alpha(&MaskShape::Linear { start: Point::new(0.0, 0.0), end: Point::new(1.0, 0.0) }, &f, 100, 50, &img, &l, 0.0);
         assert!(a.get(1, 25) > 0.99 && a.get(98, 25) < 0.01);
         assert!((a.get(50, 25) - 0.5).abs() < 0.05);
@@ -672,7 +689,7 @@ mod tests {
             MaskShape::Prompt { text: "left".into(), seg: Some(seg.clone()), detail: vec![], edge: 0.0 },
         ] {
             for (w, h) in [(40, 20), (400, 200)] {
-                let a = shape_alpha(&shape, &frame(w, h), w, h, &Rgb32f::new(w, h), &Plane::new(w, h), 0.0);
+                let a = shape_alpha(&shape, &frame(w, h), w, h, &RgbFrame::new(w, h), &GrayFrame::new(w, h), 0.0);
                 assert!(a.get(1, h / 2) > 0.99 && a.get(w - 2, h / 2) < 0.01, "{w}×{h}");
                 if w >= 400 {
                     let soft = (0..w).filter(|x| (0.05..0.95).contains(&a.get(*x, h / 2))).count();
@@ -685,7 +702,7 @@ mod tests {
         d.crop.geometry.rect = lightcraft_geom::Rect::from_center(Point::new(0.75, 0.5), 0.5, 1.0);
         let f = Frame::new(40, 20, &d, true);
         let shape = MaskShape::Prompt { text: "left".into(), seg: Some(seg), detail: vec![], edge: 0.0 };
-        let a = shape_alpha(&shape, &f, 20, 20, &Rgb32f::new(20, 20), &Plane::new(20, 20), 0.0);
+        let a = shape_alpha(&shape, &f, 20, 20, &RgbFrame::new(20, 20), &GrayFrame::new(20, 20), 0.0);
         assert!(a.data.iter().all(|v| *v < 0.05));
     }
 
@@ -698,7 +715,7 @@ mod tests {
         let patch = SegMask::from_logits_in(side, &l, [0.5, 0.0, 1.0, 1.0]);
         let shape = MaskShape::Object { hint: vec![Point::new(0.6, 0.5)], exclude: vec![], seg: Some(coarse), detail: vec![patch], edge: 0.0 };
         let (w, h) = (200, 100);
-        let a = shape_alpha(&shape, &frame(w, h), w, h, &Rgb32f::new(w, h), &Plane::new(w, h), 0.0);
+        let a = shape_alpha(&shape, &frame(w, h), w, h, &RgbFrame::new(w, h), &GrayFrame::new(w, h), 0.0);
         assert!(a.get(20, 50) < 0.01, "outside the patch: the coarse mask");
         assert!(a.get(120, 50) > 0.99, "inside the patch, its selected half");
         assert!(a.get(190, 50) < 0.01, "inside the patch, its unselected half");
@@ -714,7 +731,7 @@ mod tests {
         let shape = MaskShape::Object { hint: vec![Point::new(0.2, 0.5)], exclude: vec![], seg: None, detail: vec![patch; 20_000], edge: 0.0 };
         let (w, h) = (64, 32);
         let t = std::time::Instant::now();
-        let a = shape_alpha(&shape, &frame(w, h), w, h, &Rgb32f::new(w, h), &Plane::new(w, h), 0.0);
+        let a = shape_alpha(&shape, &frame(w, h), w, h, &RgbFrame::new(w, h), &GrayFrame::new(w, h), 0.0);
         assert!(a.get(5, 16) > 0.99 && a.get(60, 16) < 0.01);
         assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
     }
@@ -727,7 +744,7 @@ mod tests {
         let (w, h) = (400, 40);
         let soft_px = |edge: f64| {
             let shape = MaskShape::Prompt { text: "x".into(), seg: Some(seg.clone()), detail: vec![], edge };
-            let a = shape_alpha(&shape, &frame(w, h), w, h, &Rgb32f::new(w, h), &Plane::new(w, h), 0.0);
+            let a = shape_alpha(&shape, &frame(w, h), w, h, &RgbFrame::new(w, h), &GrayFrame::new(w, h), 0.0);
             assert!(a.get(2, h / 2) > 0.9 && a.get(w - 3, h / 2) < 0.1, "still the same selection at {edge}");
             (0..w).filter(|x| (0.1..0.9).contains(&a.get(*x, h / 2))).count()
         };
@@ -738,7 +755,7 @@ mod tests {
     #[test]
     fn ai_shapes_without_a_segmentation_select_nothing() {
         let f = frame(30, 30);
-        let (img, l) = (Rgb32f::new(30, 30), Plane::new(30, 30));
+        let (img, l) = (RgbFrame::new(30, 30), GrayFrame::new(30, 30));
         for shape in [
             MaskShape::Object { hint: vec![], exclude: vec![], seg: None, detail: vec![], edge: 0.0 },
             MaskShape::Prompt { text: "sky".into(), seg: None, detail: vec![], edge: 0.0 },
@@ -751,8 +768,8 @@ mod tests {
     #[test]
     fn radial_inside_and_invert() {
         let f = frame(100, 100);
-        let img = Rgb32f::new(100, 100);
-        let l = Plane::new(100, 100);
+        let img = RgbFrame::new(100, 100);
+        let l = GrayFrame::new(100, 100);
         let shape = MaskShape::Radial { center: Point::new(0.5, 0.5), rx: 0.2, ry: 0.2, angle: 0.0, feather: 20.0, invert: false };
         let a = shape_alpha(&shape, &f, 100, 100, &img, &l, 0.0);
         assert!(a.get(50, 50) > 0.99 && a.get(5, 5) < 0.01);
@@ -764,8 +781,8 @@ mod tests {
     #[test]
     fn brush_and_subtract() {
         let f = frame(200, 100);
-        let img = Rgb32f::new(200, 100);
-        let l = Plane::new(200, 100);
+        let img = RgbFrame::new(200, 100);
+        let l = GrayFrame::new(200, 100);
         let stroke = BrushStroke { points: vec![Point::new(0.1, 0.5), Point::new(0.9, 0.5)], size: 0.05, ..Default::default() };
         let erase = BrushStroke { points: vec![Point::new(0.5, 0.5)], size: 0.05, erase: true, feather: 0.0, ..Default::default() };
         let m = Mask {
@@ -784,7 +801,7 @@ mod tests {
         // dark left half, bright right half; a stroke along the boundary, centred on the dark side
         let (w, h) = (200, 100);
         let f = frame(w, h);
-        let img = Rgb32f::from_fn(w, h, |x, _| if x < 100 { [0.03; 3] } else { [0.6, 0.5, 0.4] });
+        let img = RgbFrame::from_fn(w, h, |x, _| if x < 100 { [0.03; 3] } else { [0.6, 0.5, 0.4] });
         let l = img.map(crate::local::log_lum);
         let stroke = |auto_mask| BrushStroke {
             points: vec![Point::new(0.47, 0.2), Point::new(0.47, 0.8)],
@@ -803,7 +820,7 @@ mod tests {
         assert!(auto.get(90, 50) > 0.9, "painted side {}", auto.get(90, 50));
         assert!(auto.get(99, 50) > 0.8, "up to the edge {}", auto.get(99, 50));
         // on a flat area Auto Mask paints like the plain brush
-        let flat = Rgb32f::from_fn(w, h, |_, _| [0.2; 3]);
+        let flat = RgbFrame::from_fn(w, h, |_, _| [0.2; 3]);
         let fl = flat.map(crate::local::log_lum);
         let a = shape_alpha(&comp(true), &f, w, h, &flat, &fl, 0.0);
         let b = shape_alpha(&comp(false), &f, w, h, &flat, &fl, 0.0);
@@ -815,8 +832,8 @@ mod tests {
     fn refine_edges_follows_the_photo() {
         let (w, h) = (120usize, 80usize);
         // left half dark, right half bright
-        let img = Rgb32f::from_fn(w, h, |x, _| if x < 60 { [0.05; 3] } else { [0.6; 3] });
-        let log_l = Plane::from_fn(w, h, |x, _| if x < 60 { (0.05f32).log2() } else { (0.6f32).log2() });
+        let img = RgbFrame::from_fn(w, h, |x, _| if x < 60 { [0.05; 3] } else { [0.6; 3] });
+        let log_l = GrayFrame::from_fn(w, h, |x, _| if x < 60 { (0.05f32).log2() } else { (0.6f32).log2() });
         let f = Frame::new(w, h, &Default::default(), true);
         let soft = Mask {
             components: vec![MaskComponent {
@@ -859,8 +876,8 @@ mod crop_refine_regression {
         let mut s = DevelopSettings::default();
         s.crop.geometry.rect = Rect::new(0.25, 0.25, 0.75, 0.75);
         let crop = Frame::new(256, 256, &s, true);
-        let a = evaluate_one(&mask, &full, 256, 256, &Rgb32f::filled(256, 256, [0.18; 3]), &Plane::new(256, 256), 0.);
-        let b = evaluate_one(&mask, &crop, 128, 128, &Rgb32f::filled(128, 128, [0.18; 3]), &Plane::new(128, 128), 0.);
+        let a = evaluate_one(&mask, &full, 256, 256, &RgbFrame::filled(256, 256, [0.18; 3]), &GrayFrame::new(256, 256), 0.);
+        let b = evaluate_one(&mask, &crop, 128, 128, &RgbFrame::filled(128, 128, [0.18; 3]), &GrayFrame::new(128, 128), 0.);
         assert_eq!(full.px_per_long(256), crop.px_per_long(128));
         for x in 96..160 {
             assert!((a.get(x, 128) - b.get(x - 64, 64)).abs() < 2e-5, "coverage moved at source x={x}");

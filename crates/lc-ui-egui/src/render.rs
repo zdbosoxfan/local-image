@@ -16,12 +16,12 @@
 
 use std::collections::HashMap;
 
+use li_raster::Histogram;
 use lightcraft_catalog::PhotoId;
 use lightcraft_engine::Session;
 use lightcraft_engine::media::{QuickJob, QuickSource, RenderJob, RenderResult};
 use lightcraft_engine::pipeline::StageCache;
 use lightcraft_preview::JobPool;
-use lightcraft_raster::Histogram;
 use std::sync::Arc;
 
 /// Bound interactive work independently of zoom, monitor resolution and the settled preview
@@ -848,7 +848,7 @@ mod thumbnail_tests {
     }
     fn fixture_with(mut s: Session, photo: Photo) -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
         s.media.file_loader = Some(Arc::new(|_, _| {
-            let mut image = lightcraft_raster::Rgb32f::new(8, 8);
+            let mut image = li_raster::RgbFrame::new(8, 8);
             image.data.fill([0.3, 0.2, 0.1]);
             Ok((image, Default::default()))
         }));
@@ -1010,7 +1010,7 @@ mod thumbnail_tests {
         let g = gate.clone();
         s.media.preview_loader = Some(Arc::new(move |_: &str, _| {
             drop(g.lock().unwrap_or_else(std::sync::PoisonError::into_inner));
-            Some(lightcraft_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
+            Some(li_raster::Rgba8 { width: 4, height: 4, data: vec![[200, 100, 50, 255]; 16] })
         }));
         let mut raw = (*photo()).clone();
         raw.kind = lightcraft_catalog::MediaKind::Raw;
@@ -1155,7 +1155,7 @@ mod thumbnail_tests {
         app.session = lightcraft_engine::Session::new();
         app.session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
         app.session.media.file_loader = Some(Arc::new(|_, _| {
-            let mut image = lightcraft_raster::Rgb32f::new(8, 8);
+            let mut image = li_raster::RgbFrame::new(8, 8);
             image.data.fill([0.1, 0.2, 0.9]);
             Ok((image, Default::default()))
         }));
@@ -1246,7 +1246,7 @@ mod thumbnail_tests {
         // An old job can have the SAME render key and stale decoded pixels.
         let mut old = job.clone();
         old.source = lightcraft_engine::media::SourceRef::Loaded(Box::new(lightcraft_engine::media::DecodedSource::new(
-            Arc::new(lightcraft_raster::Rgb32f::new(8, 8)),
+            Arc::new(li_raster::RgbFrame::new(8, 8)),
             None,
         )));
         app.renderer.textures.clear();

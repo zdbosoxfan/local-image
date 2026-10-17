@@ -1,9 +1,9 @@
 //! Encode → decode round trips on generated fixtures.
 
 use li_color::{DISPLAY_P3, REC2020, transfer::srgb_to_linear};
+use li_raster::Rgba8;
 use lightcraft_codecs::icc::{self, write_named};
 use lightcraft_codecs::*;
-use lightcraft_raster::Rgba8;
 use lightcraft_tiff::exif::minimal_exif;
 
 fn gradient(w: usize, h: usize) -> Rgba8 {

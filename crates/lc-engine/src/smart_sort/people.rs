@@ -4,9 +4,9 @@
 
 use super::faces_store::{DIM, FacesStore, StoredFace};
 use crate::{EngineError, Result, Session};
+use li_raster::Rgba8;
 use li_seg::faces::{FaceImage, FaceModels, FaceNode, NodeKey, RgbPixels};
 use lightcraft_catalog::{Catalog, Op, PhotoId};
-use lightcraft_raster::Rgba8;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};

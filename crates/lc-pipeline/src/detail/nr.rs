@@ -16,8 +16,8 @@
 
 use crate::for_rows;
 use li_color::luminance_2020;
+use li_raster::RgbFrame;
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::Rgb32f;
 
 pub const NR_MAX_LEVELS: usize = 7;
 pub const VARF: f32 = 0.5229125; // sqrt(70)/16, upstream's wavelet noise propagation
@@ -84,7 +84,7 @@ fn quantile(v: &mut [f32], p: f32) -> f32 {
 /// A robust image model. The 2x2 diagonal high-pass cancels ramps; its squared tap norm is 1.
 /// Pooling the three channels handles chroma-only noise too. The lower tile quartile rejects
 /// texture; a slope is meaningful in working RGB, without camera-specific WB/profile metadata.
-pub fn estimate_noise(img: &Rgb32f) -> NoiseModel {
+pub fn estimate_noise(img: &RgbFrame) -> NoiseModel {
     let mut slopes = Vec::new();
     let (w, h) = (img.width, img.height);
     for ty in 0..4 {
@@ -193,11 +193,11 @@ pub fn fast_mexp2f(x: f32) -> f32 {
     f32::from_bits(if k >= 0x800000u32 as f32 { k as u32 } else { 0 })
 }
 
-pub fn eaw_decompose(img: &Rgb32f, level: usize) -> (Rgb32f, Rgb32f, [f32; 3]) {
+pub fn eaw_decompose(img: &RgbFrame, level: usize) -> (RgbFrame, RgbFrame, [f32; 3]) {
     let (w, h) = (img.width, img.height);
     let step = 1isize << level;
     let inv_sigma2 = 1.0 / VARF.powi(2 * level as i32);
-    let mut coarse = Rgb32f::new(w, h);
+    let mut coarse = RgbFrame::new(w, h);
     const F: [f32; 5] = [1.0 / 16.0, 4.0 / 16.0, 6.0 / 16.0, 4.0 / 16.0, 1.0 / 16.0];
     for_rows(&mut coarse.data, w, |y, row| {
         for (x, o) in row.iter_mut().enumerate() {
@@ -293,7 +293,7 @@ pub struct ProfiledVst {
     matrix: [[f32; 3]; 3],
 }
 impl ProfiledVst {
-    pub fn new(img: &Rgb32f, p: &NrParams, calibration: &NoiseCalibration) -> Option<Self> {
+    pub fn new(img: &RgbFrame, p: &NrParams, calibration: &NoiseCalibration) -> Option<Self> {
         use li_color::Mat3;
         let matrix = Mat3(calibration.camera_to_working.map(|r| r.map(f64::from)));
         let inverse = matrix.inverse()?.to_f32();
@@ -327,7 +327,7 @@ impl ProfiledVst {
         mul(self.matrix, camera)
     }
 }
-pub fn denoise_profiled(img: &mut Rgb32f, p: &NrParams, calibration: &NoiseCalibration) {
+pub fn denoise_profiled(img: &mut RgbFrame, p: &NrParams, calibration: &NoiseCalibration) {
     let Some(vst) = ProfiledVst::new(img, p, calibration) else {
         denoise(img, p);
         return;
@@ -335,16 +335,21 @@ pub fn denoise_profiled(img: &mut Rgb32f, p: &NrParams, calibration: &NoiseCalib
     denoise_transform(img, p, |v| vst.forward(v), |v| vst.backward(v));
 }
 
-pub fn denoise(img: &mut Rgb32f, p: &NrParams) {
+pub fn denoise(img: &mut RgbFrame, p: &NrParams) {
     let vst = Vst::new(estimate_noise(img), p);
     denoise_transform(img, p, |v| vst.forward(v), |v| vst.backward(v));
 }
-fn denoise_transform(img: &mut Rgb32f, p: &NrParams, forward: impl Fn([f32; 3]) -> [f32; 3] + Sync + Send, backward: impl Fn([f32; 3]) -> [f32; 3]) {
+fn denoise_transform(
+    img: &mut RgbFrame,
+    p: &NrParams,
+    forward: impl Fn([f32; 3]) -> [f32; 3] + Sync + Send,
+    backward: impl Fn([f32; 3]) -> [f32; 3],
+) {
     if img.data.is_empty() {
         return;
     }
     let mut coarse = img.map(forward);
-    let mut acc = Rgb32f::new(img.width, img.height);
+    let mut acc = RgbFrame::new(img.width, img.height);
     let levels = max_scale(img.width, img.height, p.scale);
     for level in 0..levels {
         let (next, det, sum) = eaw_decompose(&coarse, level);
@@ -372,7 +377,7 @@ mod camera_tests {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             (seed as f64 + 1.0) / (u32::MAX as f64 + 2.0)
         };
-        let truth = Rgb32f::from_fn(96, 96, |x, y| {
+        let truth = RgbFrame::from_fn(96, 96, |x, y| {
             let v = 0.04 + 0.25 * x as f32 / 96.0 + 0.02 * y as f32 / 96.0;
             [v, v * 0.8, v * 0.6]
         });
@@ -385,7 +390,7 @@ mod camera_tests {
                 pixel[c] += z as f32 * (profile.a[c] * pixel[c]).sqrt();
             }
         }
-        let mse = |a: &Rgb32f| {
+        let mse = |a: &RgbFrame| {
             a.data.iter().zip(&truth.data).flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).powi(2) as f64)).sum::<f64>()
                 / (a.data.len() * 3) as f64
         };
@@ -417,7 +422,7 @@ mod camera_tests {
     fn camdata_source_defaults_and_profile_cache_key() {
         let info: crate::SourceInfo = serde_json::from_str("{}").unwrap();
         assert!(info.camera_noise.is_none() && info.camera_wb_presets.is_empty());
-        let src = std::sync::Arc::new(Rgb32f::new(24, 24));
+        let src = std::sync::Arc::new(RgbFrame::new(24, 24));
         let settings = lightcraft_develop::DevelopSettings::default();
         let request = crate::RenderRequest::fit(24, 24);
         let a = crate::plan(&src, &info, &settings, &request).lin_key;

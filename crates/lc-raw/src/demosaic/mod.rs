@@ -1,4 +1,4 @@
-//! Demosaicing: CFA mosaic → camera RGB ([`Rgb32f`]), values as normalised (white = 1.0).
+//! Demosaicing: CFA mosaic → camera RGB ([`RgbFrame`]), values as normalised (white = 1.0).
 //!
 //! Methods (all from published descriptions, see the README):
 //! - [`Method::Bilinear`] — average of same-colour neighbours (drafts / thumbnails); works for any pattern.
@@ -31,7 +31,7 @@ mod rcd;
 mod vng;
 mod xtrans;
 
-use crate::{Cfa, Normalized, Rgb32f};
+use crate::{Cfa, Normalized, RgbFrame};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -114,20 +114,20 @@ impl Mosaic<'_> {
 }
 
 /// Demosaic normalised raw data. `cpp == 3` data is returned as is; monochrome data is replicated to grey.
-pub fn demosaic(n: &Normalized, method: Method) -> Rgb32f {
+pub fn demosaic(n: &Normalized, method: Method) -> RgbFrame {
     demosaic_with(n, method, &DemosaicOptions::default())
 }
 
 /// [`demosaic`] with the methods' parameters.
-pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> Rgb32f {
+pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> RgbFrame {
     let (w, h) = (n.width, n.height);
     if w == 0 || h == 0 {
-        return Rgb32f::new(w, h);
+        return RgbFrame::new(w, h);
     }
     match (&n.cfa, n.cpp) {
-        (_, 3) => Rgb32f { width: w, height: h, data: n.data.as_chunks::<3>().0.iter().map(|c| [c[0], c[1], c[2]]).collect() },
-        (_, cpp) if cpp != 1 => Rgb32f { width: w, height: h, data: n.data.chunks_exact(cpp).map(|c| [c[0], c[1], c[2]]).collect() },
-        (None, _) => Rgb32f { width: w, height: h, data: n.data.iter().map(|&v| [v; 3]).collect() },
+        (_, 3) => RgbFrame { width: w, height: h, data: n.data.as_chunks::<3>().0.iter().map(|c| [c[0], c[1], c[2]]).collect() },
+        (_, cpp) if cpp != 1 => RgbFrame { width: w, height: h, data: n.data.chunks_exact(cpp).map(|c| [c[0], c[1], c[2]]).collect() },
+        (None, _) => RgbFrame { width: w, height: h, data: n.data.iter().map(|&v| [v; 3]).collect() },
         (Some(cfa), _) => {
             let m = Mosaic { w, h, data: &n.data, cfa };
             if !cfa.is_bayer() {
@@ -212,13 +212,13 @@ pub fn automatic_method(n: &Normalized) -> Method {
 }
 
 /// Build a mosaic from an RGB image by sampling each pixel's CFA colour (for tests and synthetic data).
-pub fn mosaic_from_rgb(img: &Rgb32f, cfa: &Cfa) -> Normalized {
+pub fn mosaic_from_rgb(img: &RgbFrame, cfa: &Cfa) -> Normalized {
     let data = (0..img.height).flat_map(|y| (0..img.width).map(move |x| (x, y))).map(|(x, y)| img.get(x, y)[cfa.color_at(x, y) as usize]).collect();
     Normalized { width: img.width, height: img.height, cpp: 1, data, cfa: Some(cfa.clone()) }
 }
 
 /// Peak signal-to-noise ratio (dB, peak 1.0) between two images over an interior region (`border` pixels excluded).
-pub fn psnr(a: &Rgb32f, b: &Rgb32f, border: usize) -> f64 {
+pub fn psnr(a: &RgbFrame, b: &RgbFrame, border: usize) -> f64 {
     let mut se = 0.0f64;
     let mut n = 0usize;
     for y in border..a.height.saturating_sub(border) {
@@ -240,8 +240,8 @@ pub fn psnr(a: &Rgb32f, b: &Rgb32f, border: usize) -> f64 {
 mod tests {
     use super::*;
 
-    fn smooth_scene(w: usize, h: usize) -> Rgb32f {
-        Rgb32f::from_fn(w, h, |x, y| {
+    fn smooth_scene(w: usize, h: usize) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |x, y| {
             let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
             [0.2 + 0.6 * fx * fy, 0.3 + 0.4 * (fx * 3.0).sin().abs() * 0.5 + 0.2 * fy, 0.1 + 0.5 * (1.0 - fx) * (0.5 + 0.5 * (fy * 5.0).cos())]
         })
@@ -249,8 +249,8 @@ mod tests {
 
     /// A photo-like scene: sharp luminance structure (disc, stripes, diagonal edge, fine texture) modulating a
     /// smoothly varying colour — edges are mostly luminance edges, as in natural images.
-    fn edgy_scene(w: usize, h: usize) -> Rgb32f {
-        Rgb32f::from_fn(w, h, |x, y| {
+    fn edgy_scene(w: usize, h: usize) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |x, y| {
             let (fx, fy) = (x as f32, y as f32);
             let d = ((fx - w as f32 * 0.35).powi(2) + (fy - h as f32 * 0.4).powi(2)).sqrt();
             let lum = if d < w as f32 * 0.18 {
@@ -281,13 +281,13 @@ mod tests {
         Method::DualAmazeVng,
     ];
 
-    fn run(img: &Rgb32f, cfa: &Cfa, m: Method) -> Rgb32f {
+    fn run(img: &RgbFrame, cfa: &Cfa, m: Method) -> RgbFrame {
         demosaic(&mosaic_from_rgb(img, cfa), m)
     }
 
     #[test]
     fn constant_colour_is_exact_for_all_methods_and_phases() {
-        let img = Rgb32f::filled(17, 13, [0.3, 0.55, 0.8]);
+        let img = RgbFrame::filled(17, 13, [0.3, 0.55, 0.8]);
         for pat in ["RGGB", "BGGR", "GRBG", "GBRG"] {
             let cfa = Cfa::bayer(pat).unwrap();
             for m in ALL {
@@ -299,7 +299,7 @@ mod tests {
                 }
             }
         }
-        let out = run(&Rgb32f::filled(19, 14, [0.3, 0.55, 0.8]), &Cfa::xtrans(), Method::Ahd);
+        let out = run(&RgbFrame::filled(19, 14, [0.3, 0.55, 0.8]), &Cfa::xtrans(), Method::Ahd);
         assert!(out.data.iter().all(|p| (p[0] - 0.3).abs() < 1e-5 && (p[1] - 0.55).abs() < 1e-5 && (p[2] - 0.8).abs() < 1e-5));
     }
 
@@ -327,7 +327,7 @@ mod tests {
         let smooth = smooth_scene(96, 80);
         let edgy = edgy_scene(96, 80);
         let cfa = Cfa::bayer("RGGB").unwrap();
-        let p = |img: &Rgb32f, m| psnr(img, &run(img, &cfa, m), 4);
+        let p = |img: &RgbFrame, m| psnr(img, &run(img, &cfa, m), 4);
         let (sb, sp, sa) = (p(&smooth, Method::Bilinear), p(&smooth, Method::Ppg), p(&smooth, Method::Ahd));
         assert!(sb > 38.0 && sp > 38.0 && sa > 38.0, "smooth: bilinear {sb:.1} ppg {sp:.1} ahd {sa:.1}");
         let (eb, ep, ea) = (p(&edgy, Method::Bilinear), p(&edgy, Method::Ppg), p(&edgy, Method::Ahd));
@@ -356,7 +356,7 @@ mod tests {
         let rcd = demosaic(&n, Method::Rcd);
         assert_eq!(demosaic_with(&n, Method::DualRcd, &DemosaicOptions { dual_threshold: 0.0 }).data, rcd.data);
         // flat noise takes the smooth method, edges keep RCD
-        let flat = Rgb32f::from_fn(64, 64, |x, y| {
+        let flat = RgbFrame::from_fn(64, 64, |x, y| {
             let k = ((x * 7 + y * 13) % 5) as f32 * 0.0004;
             if x < 32 { [0.30 + k, 0.31 + k, 0.29 + k] } else { [0.8, 0.8, 0.8] }
         });
@@ -385,7 +385,7 @@ mod tests {
     fn tiny_and_degenerate_inputs() {
         let cfa = Cfa::bayer("RGGB").unwrap();
         for (w, h) in [(1, 1), (2, 2), (3, 5), (5, 3), (1, 7)] {
-            let img = Rgb32f::filled(w, h, [0.5; 3]);
+            let img = RgbFrame::filled(w, h, [0.5; 3]);
             for m in ALL {
                 let out = run(&img, &cfa, m);
                 assert_eq!((out.width, out.height), (w, h));

@@ -3,9 +3,8 @@
 //! (falling back to similarity, then translation, then identity when the scene gives too little).
 
 use li_raster::resample::Filter;
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_geom::{Homography, Point};
-use lightcraft_raster::resample::fit;
-use lightcraft_raster::{Plane, Rgb32f};
 use rayon::prelude::*;
 
 use crate::features::{self, Features};
@@ -16,8 +15,8 @@ pub const WORK_EDGE: usize = 1200;
 
 /// A grey, perceptually encoded work image: `(luminance · gain)^(1/2.2)`, clamped to 0..1, and
 /// the scale from full-resolution pixels to work pixels.
-pub fn work_image(img: &Rgb32f, gain: f32, max_edge: usize) -> (Plane, f64) {
-    let small = if img.width.max(img.height) > max_edge { fit(img, max_edge, max_edge, Filter::Box) } else { img.clone() };
+pub fn work_image(img: &RgbFrame, gain: f32, max_edge: usize) -> (GrayFrame, f64) {
+    let small = if img.width.max(img.height) > max_edge { img.fit(max_edge, max_edge, Filter::Box) } else { img.clone() };
     let scale = small.width as f64 / img.width as f64;
     let p = small.map(|c| {
         let y = (0.25 * c[0] + 0.6 * c[1] + 0.15 * c[2]) * gain;
@@ -28,7 +27,7 @@ pub fn work_image(img: &Rgb32f, gain: f32, max_edge: usize) -> (Plane, f64) {
 
 /// Median luminance of the (unsaturated, non-black) pixels: a brightness estimate for frames
 /// without EXIF.
-pub fn median_luma(img: &Rgb32f, clip: f32) -> f32 {
+pub fn median_luma(img: &RgbFrame, clip: f32) -> f32 {
     let step = (img.data.len() / 100_000).max(1);
     let mut v: Vec<f32> =
         img.data.iter().step_by(step).filter(|p| p[0].max(p[1]).max(p[2]) < clip * 0.98).map(|c| 0.25 * c[0] + 0.6 * c[1] + 0.15 * c[2]).collect();
@@ -109,7 +108,7 @@ pub fn align_pair(ref_feat: &Features, feat: &Features, scale: f64, full_w: usiz
 /// an initial homography retains its perspective terms. Exposure-normalized perceptual
 /// proxies are required. Every accepted step lowers the robust photometric residual.
 /// This removes sparse-corner fitting bias without resampling full sensor images.
-pub fn refine_registration(reference: &Plane, moving: &Plane, initial: &Homography) -> Homography {
+pub fn refine_registration(reference: &GrayFrame, moving: &GrayFrame, initial: &Homography) -> Homography {
     if reference.width < 8
         || reference.height < 8
         || reference.width != moving.width
@@ -225,12 +224,12 @@ pub fn refine_registration(reference: &Plane, moving: &Plane, initial: &Homograp
 
 /// Resample `img` into the reference geometry: `out(p) = img(h(p))`. Returns the warped image and
 /// a validity mask (false where `h(p)` falls outside `img`).
-pub fn warp(img: &Rgb32f, h: &Homography) -> (Rgb32f, Vec<bool>) {
+pub fn warp(img: &RgbFrame, h: &Homography) -> (RgbFrame, Vec<bool>) {
     let (w, ht) = (img.width, img.height);
     if *h == Homography::IDENTITY {
         return (img.clone(), vec![true; w * ht]);
     }
-    let mut out = Rgb32f::new(w, ht);
+    let mut out = RgbFrame::new(w, ht);
     let mut valid = vec![false; w * ht];
     out.data.par_chunks_mut(w).zip(valid.par_chunks_mut(w)).enumerate().for_each(|(y, (row, vrow))| {
         for x in 0..w {

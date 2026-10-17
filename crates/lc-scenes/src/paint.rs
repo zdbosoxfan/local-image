@@ -2,7 +2,7 @@
 //! Colours are authored as linear sRGB and converted to linear Rec.2020 at the end.
 
 use li_color::{REC2020, SRGB};
-use lightcraft_raster::Rgb32f;
+use li_raster::RgbFrame;
 use rayon::prelude::*;
 
 use crate::Kind;
@@ -196,12 +196,12 @@ fn water(p: &P, x: f32, v: f32, wl: f32, calm: f32, above: &dyn Fn(f32, f32) -> 
     c
 }
 
-pub fn render(kind: Kind, seed: u32, w: usize, h: usize) -> Rgb32f {
+pub fn render(kind: Kind, seed: u32, w: usize, h: usize) -> RgbFrame {
     let aspect = w as f32 / h as f32;
     let p = P { seed, aspect };
     let ss = if w * h <= 300_000 { 2 } else { 1 };
     let to2020 = SRGB.to_space(&REC2020).to_f32();
-    let mut img = Rgb32f::new(w, h);
+    let mut img = RgbFrame::new(w, h);
     img.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
         for (xi, px) in row.iter_mut().enumerate() {
             let mut acc = [0.0f32; 3];
@@ -225,7 +225,7 @@ pub fn render(kind: Kind, seed: u32, w: usize, h: usize) -> Rgb32f {
 }
 
 /// Linear sRGB variant (for tests/tools that don't want Rec.2020).
-pub fn render_srgb_linear(kind: Kind, seed: u32, w: usize, h: usize) -> Rgb32f {
+pub fn render_srgb_linear(kind: Kind, seed: u32, w: usize, h: usize) -> RgbFrame {
     let to709 = REC2020.to_space(&SRGB);
     render(kind, seed, w, h).map(|c| to709.apply_f32(c).map(|v| v.max(0.0)))
 }

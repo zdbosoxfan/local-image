@@ -75,7 +75,6 @@ lightcraft-merge = { path = "crates/lc-merge" }
 lightcraft-meta = { path = "crates/lc-meta" }
 lightcraft-pipeline = { path = "crates/lc-pipeline" }
 lightcraft-preview = { path = "crates/lc-preview" }
-lightcraft-raster = { path = "crates/lc-raster" }
 lightcraft-raw = { path = "crates/lc-raw" }
 lightcraft-scenes = { path = "crates/lc-scenes" }
 lightcraft-segment = { path = "crates/lc-segment" }

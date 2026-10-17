@@ -78,7 +78,7 @@ fn new_methods_thread_determinism_and_degenerate_edges() {
 }
 #[test]
 fn xtrans_constant_colour_and_sample_preservation_all_phases() {
-    let img = Rgb32f::filled(67, 71, [0.3, 0.55, 0.8]);
+    let img = RgbFrame::filled(67, 71, [0.3, 0.55, 0.8]);
     for dy in 0..6 {
         for dx in 0..6 {
             let cfa = Cfa::xtrans().shifted(dx, dy);
@@ -101,7 +101,7 @@ fn xtrans_constant_colour_and_sample_preservation_all_phases() {
 
 #[test]
 fn automatic_noise_selection_and_overrides() {
-    let truth = Rgb32f::from_fn(384, 384, |x, y| [0.3 + 0.0002 * x as f32, 0.4 + 0.0001 * y as f32, 0.2]);
+    let truth = RgbFrame::from_fn(384, 384, |x, y| [0.3 + 0.0002 * x as f32, 0.4 + 0.0001 * y as f32, 0.2]);
     for pat in ["RGGB", "BGGR", "GRBG", "GBRG"] {
         let mut n = mosaic_from_rgb(&truth, &Cfa::bayer(pat).unwrap());
         assert_eq!(automatic_method(&n), Method::Rcd);

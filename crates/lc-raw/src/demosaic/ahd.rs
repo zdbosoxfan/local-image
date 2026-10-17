@@ -11,13 +11,13 @@
 //! Work is done in overlapping tiles (bounded memory, rayon-parallel).
 
 use super::Mosaic;
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 
 const TILE: usize = 128;
 const MARGIN: usize = 6;
 
-pub(crate) fn ahd(m: &Mosaic) -> Rgb32f {
+pub(crate) fn ahd(m: &Mosaic) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     let tiles: Vec<(usize, usize)> = (0..h.div_ceil(TILE)).flat_map(|ty| (0..w.div_ceil(TILE)).map(move |tx| (tx * TILE, ty * TILE))).collect();
     let results: Vec<(usize, usize, usize, usize, Vec<[f32; 3]>)> = tiles
@@ -27,7 +27,7 @@ pub(crate) fn ahd(m: &Mosaic) -> Rgb32f {
             (x0, y0, tw, th, tile(m, x0, y0, tw, th))
         })
         .collect();
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     for (x0, y0, tw, th, px) in results {
         for y in 0..th {
             out.data[(y0 + y) * w + x0..(y0 + y) * w + x0 + tw].copy_from_slice(&px[y * tw..(y + 1) * tw]);

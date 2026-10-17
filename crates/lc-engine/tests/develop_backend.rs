@@ -4,9 +4,9 @@ mod gpu_support;
 
 use std::sync::{Arc, Mutex};
 
+use li_raster::RgbFrame;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{Proof, RenderRequest, SourceInfo, StageCache};
-use lightcraft_raster::Rgb32f;
 
 struct Capture(Mutex<Vec<String>>);
 static LOG: Capture = Capture(Mutex::new(Vec::new()));
@@ -28,7 +28,7 @@ fn develop_backend_logs_actual_adapter_and_cpu_reasons() {
     let _gpu = gpu_support::lock();
     log::set_logger(&LOG).unwrap();
     log::set_max_level(log::LevelFilter::Info);
-    let src = Arc::new(Rgb32f::from_fn(64, 48, |x, y| [0.1 + x as f32 / 128.0, 0.2 + y as f32 / 128.0, 0.3]));
+    let src = Arc::new(RgbFrame::from_fn(64, 48, |x, y| [0.1 + x as f32 / 128.0, 0.2 + y as f32 / 128.0, 0.3]));
     let (info, settings, stages) = (SourceInfo::default(), DevelopSettings::default(), StageCache::default());
     let req = RenderRequest::fit(64, 48);
     assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());

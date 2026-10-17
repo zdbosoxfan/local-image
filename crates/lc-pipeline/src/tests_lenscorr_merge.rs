@@ -6,9 +6,9 @@ use crate::{
     lcp::{LcpCorrection, LcpModel},
     lensdb::{Distortion, LensCorrection, Tca},
 };
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, SonyLensData};
 use lightcraft_geom::{Orientation, Point};
-use lightcraft_raster::Rgb32f;
 
 fn profile() -> LcpCorrection {
     let base = LcpModel { focal: [1.0; 2], center: [0.5; 2], radial: [0.0; 3], tangential: [0.0; 2], scale: 1.0 };
@@ -21,7 +21,7 @@ fn profile() -> LcpCorrection {
 }
 #[test]
 fn lenscorr_merge_selects_embedded_then_lensfun_then_lcp_without_stacking() {
-    let src = Rgb32f::filled(120, 80, [0.2; 3]);
+    let src = RgbFrame::filled(120, 80, [0.2; 3]);
     let db = LensCorrection {
         diag_norm: 2.0,
         distortion: Distortion::Poly3 { k1: -0.1 },
@@ -76,7 +76,7 @@ fn lenscorr_merge_selects_embedded_then_lensfun_then_lcp_without_stacking() {
 }
 #[test]
 fn lenscorr_merge_sony_handoff_and_baked_dng_do_not_receive_fallbacks() {
-    let src = Rgb32f::filled(120, 80, [0.2; 3]);
+    let src = RgbFrame::filled(120, 80, [0.2; 3]);
     let sony =
         SonyLensData { distortion: vec![0, -100, -200], ca_red: vec![0, 500, 1000], ca_blue: vec![0, -500, -1000], vignetting: vec![0, 1000, 2000] };
     let mut s = DevelopSettings::default();

@@ -2,16 +2,16 @@
 //! (longitude/latitude map) and photographed by pinhole cameras with known rotations and focal
 //! length. The stitch must recover the geometry and reproduce the environment without seams.
 
+use li_raster::RgbFrame;
 use lightcraft_merge::frame::Frame;
 use lightcraft_merge::linalg::{self, M3};
 use lightcraft_merge::no_progress;
 use lightcraft_merge::pano::{PanoOptions, Projection, stitch};
-use lightcraft_raster::Rgb32f;
 
 const THETA: f64 = 200.0; // degrees of longitude covered by the environment map
 const PHI: f64 = 70.0;
 
-fn env() -> Rgb32f {
+fn env() -> RgbFrame {
     let scene = lightcraft_scenes::demo_library().into_iter().find(|s| s.kind == lightcraft_scenes::Kind::Canyon).unwrap();
     let img = scene.render(2400, 840);
     let mut l: Vec<f32> = img.data.iter().map(|p| p[1]).collect();
@@ -20,7 +20,7 @@ fn env() -> Rgb32f {
     img.map(|p| p.map(|v| (v * s).min(0.98)))
 }
 
-fn sample_env(e: &Rgb32f, d: [f64; 3]) -> Option<[f32; 3]> {
+fn sample_env(e: &RgbFrame, d: [f64; 3]) -> Option<[f32; 3]> {
     let n = linalg::norm(d);
     let t = d[0].atan2(d[2]).to_degrees();
     let p = (d[1] / n).asin().to_degrees();
@@ -40,9 +40,9 @@ fn rot(yaw: f64, pitch: f64, roll: f64) -> M3 {
     linalg::transpose3(&linalg::mul3(&linalg::mul3(&ry, &rx), &rz))
 }
 
-fn shoot(e: &Rgb32f, r: &M3, f: f64, w: usize, h: usize, gain: f32) -> Frame {
+fn shoot(e: &RgbFrame, r: &M3, f: f64, w: usize, h: usize, gain: f32) -> Frame {
     let rt = linalg::transpose3(r);
-    let img = Rgb32f::from_fn(w, h, |x, y| {
+    let img = RgbFrame::from_fn(w, h, |x, y| {
         let d = [(x as f64 + 0.5 - w as f64 / 2.0) / f, (y as f64 + 0.5 - h as f64 / 2.0) / f, 1.0];
         sample_env(e, linalg::apply3(&rt, d)).map(|p| p.map(|v| v * gain)).unwrap_or([0.0; 3])
     });
@@ -61,7 +61,7 @@ struct Shot {
     gain: f32,
 }
 
-fn run(shots: &[Shot], f: f64, opts: &PanoOptions) -> (lightcraft_merge::pano::PanoResult, Vec<M3>, Rgb32f) {
+fn run(shots: &[Shot], f: f64, opts: &PanoOptions) -> (lightcraft_merge::pano::PanoResult, Vec<M3>, RgbFrame) {
     let e = env();
     let rs: Vec<M3> = shots.iter().map(|s| rot(s.yaw, s.pitch, s.roll)).collect();
     let frames: Vec<Frame> = shots.iter().zip(&rs).map(|(s, r)| shoot(&e, r, f, 800, 600, s.gain)).collect();
@@ -84,7 +84,7 @@ fn run(shots: &[Shot], f: f64, opts: &PanoOptions) -> (lightcraft_merge::pano::P
 
 /// Check the recovered geometry and compare the panorama with the environment rendered through the
 /// recovered projection; returns (median, p99) of the log error over covered pixels.
-fn check(res: &lightcraft_merge::pano::PanoResult, rs: &[M3], e: &Rgb32f, f: f64) -> (f32, f32, f32) {
+fn check(res: &lightcraft_merge::pano::PanoResult, rs: &[M3], e: &RgbFrame, f: f64) -> (f32, f32, f32) {
     let cams: Vec<_> = res.cameras.iter().map(|c| c.expect("all frames used")).collect();
     for c in &cams {
         assert!((c.f - f).abs() / f < 0.01, "focal {} vs {f}", c.f);
@@ -112,8 +112,8 @@ fn check(res: &lightcraft_merge::pano::PanoResult, rs: &[M3], e: &Rgb32f, f: f64
     let scale = res.focal;
     let (bx, by) = res.origin;
     // the environment rendered through the recovered geometry (alpha 0 where it has no data)
-    let mut truth = Rgb32f::new(w, h);
-    let mut talpha = lightcraft_raster::Plane::new(w, h);
+    let mut truth = RgbFrame::new(w, h);
+    let mut talpha = li_raster::GrayFrame::new(w, h);
     for y in 0..h {
         for x in 0..w {
             let d = res.projection.inverse(x as f64 + 0.5 + bx, y as f64 + 0.5 + by, scale);
@@ -131,7 +131,7 @@ fn check(res: &lightcraft_merge::pano::PanoResult, rs: &[M3], e: &Rgb32f, f: f64
     lr.sort_by(|a, b| a.total_cmp(b));
     let offset = lr[lr.len() / 2];
     let mut errs = Vec::new();
-    let mut emap = Rgb32f::new(w, h);
+    let mut emap = RgbFrame::new(w, h);
     for k in 0..w * h {
         if talpha.data[k] == 0.0 {
             continue;
@@ -156,7 +156,7 @@ fn check(res: &lightcraft_merge::pano::PanoResult, rs: &[M3], e: &Rgb32f, f: f64
     (errs[errs.len() / 2], errs[errs.len() * 99 / 100], seam)
 }
 
-fn ppm(path: &str, img: &Rgb32f) {
+fn ppm(path: &str, img: &RgbFrame) {
     let mut b = format!("P6 {} {} 255\n", img.width, img.height).into_bytes();
     for p in &img.data {
         for c in 0..3 {
@@ -167,7 +167,7 @@ fn ppm(path: &str, img: &Rgb32f) {
 }
 
 /// Per column: mean change of log luminance to the next column (where both are covered).
-fn column_steps(img: &Rgb32f, alpha: &lightcraft_raster::Plane) -> Vec<Option<f32>> {
+fn column_steps(img: &RgbFrame, alpha: &li_raster::GrayFrame) -> Vec<Option<f32>> {
     let (w, h) = (img.width, img.height);
     (0..w - 1)
         .map(|x| {

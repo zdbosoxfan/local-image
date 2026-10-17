@@ -687,7 +687,7 @@ mod tests_pixelshift {
                 }
                 assert!(opts.show_overlay && opts.stack);
                 let image = view.paint(&std::collections::HashMap::new());
-                let rgba = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                let rgba = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
                 let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
                 let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system");
                 std::fs::create_dir_all(&dir).unwrap();
@@ -783,7 +783,7 @@ mod tests_batch {
                     assert!(opts.auto_brackets && opts.show_overlay);
                     assert!(task.cancel.load(Ordering::Relaxed));
                     let image = view.paint(&std::collections::HashMap::new());
-                    let rgba = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                    let rgba = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
                     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
                     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system");
                     std::fs::create_dir_all(&dir).unwrap();

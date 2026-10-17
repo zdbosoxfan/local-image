@@ -11,7 +11,7 @@ fn rows(name: &str) -> Vec<Vec<f32>> {
 }
 #[test]
 fn extracted_c_eigf_both_paths_and_blends() {
-    let input = Plane::from_fn(37, 29, |x, y| {
+    let input = GrayFrame::from_fn(37, 29, |x, y| {
         0.002 + 0.013 * x as f32 + 0.0007 * y as f32 + if x > 18 { 0.7 } else { 0.0 } + 0.002 * (x as f32 * 0.7 + y as f32 * 0.3).sin()
     });
     let fixtures = rows("eigf.csv");
@@ -27,7 +27,7 @@ fn extracted_c_eigf_both_paths_and_blends() {
 }
 #[test]
 fn extracted_c_local_laplacian_full_pyramids() {
-    let input = Plane::from_fn(50, 37, |x, y| 0.3 + 0.2 * ((x as f32 * 0.3).sin() * (y as f32 * 0.2).cos()) + if x > 25 { 0.3 } else { 0. });
+    let input = GrayFrame::from_fn(50, 37, |x, y| 0.3 + 0.2 * ((x as f32 * 0.3).sin() * (y as f32 * 0.2).cos()) + if x > 25 { 0.3 } else { 0. });
     let fixtures = rows("llf.csv");
     for mode in 0..3 {
         let out =
@@ -76,7 +76,7 @@ fn extracted_c_colour_equalizer_uv_covariance_filters() {
 }
 #[test]
 fn candidate_step_order_detail_hue_and_clip_protection() {
-    let src = Rgb32f::from_fn(100, 60, |x, y| {
+    let src = RgbFrame::from_fn(100, 60, |x, y| {
         let v = if x < 50 { 0.025 } else { 3. };
         let t = 1. + 0.01 * (y as f32 * 0.8).sin();
         [v * t; 3]
@@ -95,7 +95,7 @@ fn candidate_step_order_detail_hue_and_clip_protection() {
             assert!((det0 - det1).abs() < 0.005, "detail {method:?} {value}: {det0} {det1}");
         }
     }
-    let src = Rgb32f::filled(24, 16, [8.; 3]);
+    let src = RgbFrame::filled(24, 16, [8.; 3]);
     let mut s = DevelopSettings::default();
     s.light.highlights = -100.;
     let info = SourceInfo {
@@ -111,7 +111,7 @@ fn candidate_step_order_detail_hue_and_clip_protection() {
     let mut s = DevelopSettings::default();
     s.light.highlights = -100.;
     s.light.shadows = 100.;
-    let src = Rgb32f::filled(32, 24, [1.5, 0.8, 0.3]);
+    let src = RgbFrame::filled(32, 24, [1.5, 0.8, 0.3]);
     let info = SourceInfo::default();
     let plan = crate::plan(&src, &info, &s, &RenderRequest::fit(32, 24));
     let out = primary::process(&src, &src, &info, &plan, primary::DEFAULT_HS_METHOD);
@@ -119,7 +119,7 @@ fn candidate_step_order_detail_hue_and_clip_protection() {
 }
 #[test]
 fn modes_structure_skin_layers_and_cache_changes() {
-    let src = Arc::new(Rgb32f::from_fn(80, 60, |x, y| [0.3 + 0.02 * (x as f32 * 0.6).sin(), 0.15 + 0.007 * (y as f32 * 0.7).cos(), 0.08]));
+    let src = Arc::new(RgbFrame::from_fn(80, 60, |x, y| [0.3 + 0.02 * (x as f32 * 0.6).sin(), 0.15 + 0.007 * (y as f32 * 0.7).cos(), 0.08]));
     let info = SourceInfo::default();
     let req = RenderRequest::fit(80, 60);
     let cache = StageCache::default();
@@ -253,7 +253,7 @@ fn clipping_metadata_compresses_losslessly_and_defaults_for_old_sources() {
 fn skin_uniformity_retains_pore_chroma_and_protects_lips() {
     let lw = ucs::y_to_l_star(1.);
     let jch_rgb = |j| ucs::hsb_to_rgb(ucs::jch_to_hsb(j), lw);
-    let src = Rgb32f::from_fn(160, 80, |x, _| jch_rgb([0.5, 0.04 + 0.003 * (x as f32 * 0.03).sin() + 0.0007 * (x as f32 * 1.8).sin(), 0.8]));
+    let src = RgbFrame::from_fn(160, 80, |x, _| jch_rgb([0.5, 0.04 + 0.003 * (x as f32 * 0.03).sin() + 0.0007 * (x as f32 * 1.8).sin(), 0.8]));
     let mut out = src.clone();
     let mut skin = lightcraft_develop::SkinTone {
         reference: Some([0.5, 0.04, 0.8f64.to_degrees()]),
@@ -265,9 +265,9 @@ fn skin_uniformity_retains_pore_chroma_and_protects_lips() {
         ..Default::default()
     };
     primary::skin(&mut out, &skin, 6000.);
-    let chroma = |img: &Rgb32f, x| ucs::xyy_to_jch(ucs::xyz_to_xyy(ucs::mul(&ucs::mats().rgb_to_xyz, img.get(x, 40))), lw)[1];
+    let chroma = |img: &RgbFrame, x| ucs::xyy_to_jch(ucs::xyz_to_xyy(ucs::mul(&ucs::mats().rgb_to_xyz, img.get(x, 40))), lw)[1];
     // Second differences isolate fine pores from the low-frequency chroma unevenness.
-    let energy = |img: &Rgb32f| {
+    let energy = |img: &RgbFrame| {
         (10..150)
             .map(|x| {
                 let v = chroma(img, x - 1) - 2. * chroma(img, x) + chroma(img, x + 1);
@@ -277,7 +277,7 @@ fn skin_uniformity_retains_pore_chroma_and_protects_lips() {
     };
     let ratio = energy(&out) / energy(&src);
     assert!((0.85..1.15).contains(&ratio), "pore chroma ratio {ratio}");
-    let lip = Rgb32f::filled(20, 12, jch_rgb([0.5, 0.04, 0.2]));
+    let lip = RgbFrame::filled(20, 12, jch_rgb([0.5, 0.04, 0.2]));
     skin.protect_lips = true;
     let mut protected = lip.clone();
     primary::skin(&mut protected, &skin, 6000.);
@@ -325,7 +325,7 @@ fn every_neutral_primary_control_skips_its_stage() {
         assert_eq!(primary::Stages::of(&s), primary::Stages::default());
         assert!(!primary::active(&s));
     }
-    let src = Rgb32f::from_fn(19, 13, |x, y| [0.002 + (x as f32 / 18.).exp2(), 0.02 + y as f32 / 40., 0.1]);
+    let src = RgbFrame::from_fn(19, 13, |x, y| [0.002 + (x as f32 / 18.).exp2(), 0.02 + y as f32 / 40., 0.1]);
     let info = SourceInfo::default();
     let req = RenderRequest::fit(19, 13);
     assert_eq!(render(&src, &info, &s, &req).image, render(&src, &info, &DevelopSettings::default(), &req).image);

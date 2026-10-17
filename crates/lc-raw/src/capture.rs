@@ -197,17 +197,17 @@ pub fn capture_radius(n: &Normalized) -> f32 {
 mod tests {
     use super::*;
     use crate::demosaic::mosaic_from_rgb;
-    use lightcraft_raster::Rgb32f;
+    use li_raster::RgbFrame;
 
     /// A scene of random-ish soft discs blurred by a Gaussian of `sigma` px (analytic edges).
-    fn blurred_scene(w: usize, h: usize, sigma: f32) -> Rgb32f {
+    fn blurred_scene(w: usize, h: usize, sigma: f32) -> RgbFrame {
         // erf approximation (Abramowitz–Stegun 7.1.26)
         let erf = |x: f32| {
             let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
             let y = 1.0 - (((((1.061_405_4 * t - 1.453_152_1) * t) + 1.421_413_7) * t - 0.284_496_74) * t + 0.254_829_6) * t * (-x * x).exp();
             if x >= 0.0 { y } else { -y }
         };
-        Rgb32f::from_fn(w, h, |x, y| {
+        RgbFrame::from_fn(w, h, |x, y| {
             // vertical stripes 23 px wide: step edges (at the nearest multiple of 23 px, rising
             // and falling in turn) blurred by σ along x
             let fx = x as f32 + 0.5 + 0.0 * y as f32;
@@ -238,9 +238,9 @@ mod tests {
     #[test]
     fn small_or_flat_data_falls_back() {
         let cfa = Cfa::bayer("RGGB").unwrap();
-        assert_eq!(capture_radius(&mosaic_from_rgb(&Rgb32f::filled(300, 200, [0.3; 3]), &cfa)), DEFAULT_RADIUS);
+        assert_eq!(capture_radius(&mosaic_from_rgb(&RgbFrame::filled(300, 200, [0.3; 3]), &cfa)), DEFAULT_RADIUS);
         // flat: no transition at all → the widest radius
-        let flat = capture_radius(&mosaic_from_rgb(&Rgb32f::filled(1100, 1000, [0.3; 3]), &cfa));
+        let flat = capture_radius(&mosaic_from_rgb(&RgbFrame::filled(1100, 1000, [0.3; 3]), &cfa));
         assert_eq!(flat, 1.5);
     }
 }

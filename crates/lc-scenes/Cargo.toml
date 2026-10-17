@@ -10,10 +10,9 @@ workspace = true
 
 [dependencies]
 li-color = { workspace = true }
-lightcraft-raster = { workspace = true }
+li-raster = { path = "../li-raster" }
 serde = { workspace = true }
 rayon = { workspace = true }
 
 [dev-dependencies]
-li-raster = { path = "../li-raster" }
 image = { workspace = true }

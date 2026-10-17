@@ -11,20 +11,20 @@
 //! Red/blue samples inconsistent with the first shot's local same-colour range also fall back.
 //! This conservative method trades resolution for safety in ambiguous chromatic fine detail.
 
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
-use lightcraft_raster::{Plane, Rgb32f};
 use lightcraft_raw::{RawImage, Rect};
 
 use crate::{FrameColor, MergeError, Progress, Result, check};
 
 pub struct PixelShiftResult {
-    pub image: Rgb32f,
+    pub image: RgbFrame,
     pub color: FrameColor,
     pub orientation: Orientation,
     pub metadata: Metadata,
     pub baseline_exposure: f64,
-    pub motion: Plane,
+    pub motion: GrayFrame,
     pub shots: usize,
 }
 
@@ -162,7 +162,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         let image = raw.develop(lightcraft_raw::Method::Ahd).map_err(|e| MergeError::Decode(e.to_string()))?;
         check(progress, 1.0, "Pixel Shift ready")?;
         return Ok(PixelShiftResult {
-            motion: Plane::new(image.width, image.height),
+            motion: GrayFrame::new(image.width, image.height),
             image,
             color: merged_camera_color(raw),
             orientation: raw.orientation,
@@ -224,8 +224,8 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     // Validate the sample storage before allocating any full-resolution output buffers.
     let samples = raws.iter().map(|r| r.normalized_samples().map_err(|e| MergeError::Decode(e.to_string()))).collect::<Result<Vec<_>>>()?;
     let noise = MotionNoise::new(first, &samples[0]);
-    let mut image = Rgb32f::new(w, h);
-    let mut motion = Plane::new(w, h);
+    let mut image = RgbFrame::new(w, h);
+    let mut motion = GrayFrame::new(w, h);
     for y in 0..h {
         check(progress, 0.1 + 0.65 * y as f32 / h as f32, "Reconstructing measured colour samples")?;
         for x in 0..w {
@@ -291,7 +291,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             .retain(|o| !matches!(o, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
         source.crop = Rect::new(0, 0, source.active_area.width, source.active_area.height);
         let fallback = source.develop(lightcraft_raw::Method::Auto).map_err(|e| MergeError::Decode(e.to_string()))?;
-        let mut expanded = Plane::new(w, h);
+        let mut expanded = GrayFrame::new(w, h);
         let radius = 2 * factor;
         // Separable sliding-window dilation costs O(pixels), independent of camera
         // resolution and mask radius. Retain the original first pass until it completes.
@@ -564,7 +564,7 @@ mod tests {
 
     #[test]
     fn pixelshift_float_dng_preserves_negative_and_fractional_sensor_samples() {
-        let image = Rgb32f::from_fn(12, 10, |x, y| [-0.001953125 - x as f32 * 0.00000003, 0.1234567 + y as f32 * 0.000001, 0.6]);
+        let image = RgbFrame::from_fn(12, 10, |x, y| [-0.001953125 - x as f32 * 0.00000003, 0.1234567 + y as f32 * 0.000001, 0.6]);
         let color = FrameColor::Camera(Box::default());
         let bytes = crate::write_linear_dng(&image, &color, Orientation::Normal, &Metadata::default(), 0.0, crate::DngSamples::Float).unwrap();
         let decoded = lightcraft_raw::decode(&bytes).unwrap();

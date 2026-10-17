@@ -10,7 +10,7 @@
 mod noise;
 mod paint;
 
-use lightcraft_raster::Rgb32f;
+use li_raster::RgbFrame;
 use serde::Serialize;
 
 pub use paint::render_srgb_linear;
@@ -64,12 +64,12 @@ impl Scene {
     }
 
     /// Render at `w × h` (any size; the aspect should match `aspect()`).
-    pub fn render(&self, w: usize, h: usize) -> Rgb32f {
+    pub fn render(&self, w: usize, h: usize) -> RgbFrame {
         paint::render(self.kind, self.seed, w, h)
     }
 
     /// Render fitting within `max_edge` on the long side.
-    pub fn render_fit(&self, max_edge: usize) -> Rgb32f {
+    pub fn render_fit(&self, max_edge: usize) -> RgbFrame {
         let a = self.aspect();
         let (w, h) = if a >= 1.0 { (max_edge, (max_edge as f32 / a).round() as usize) } else { ((max_edge as f32 * a).round() as usize, max_edge) };
         self.render(w.max(1), h.max(1))
@@ -208,7 +208,7 @@ mod tests {
         let s = &demo_library()[1];
         let small = s.render(60, 40);
         let big = s.render(240, 160);
-        let down = lightcraft_raster::resample::resize(&big, 60, 40, li_raster::resample::Filter::Box);
+        let down = big.resize(60, 40, li_raster::resample::Filter::Box);
         let err: f32 = small.data.iter().zip(&down.data).map(|(a, b)| (a[1] - b[1]).abs()).sum::<f32>() / small.len() as f32;
         assert!(err < 0.08, "{err}");
     }

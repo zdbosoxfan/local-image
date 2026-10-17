@@ -11,15 +11,14 @@
 //! once is equivalent to filtering 1-strength*dark for every slider value.
 
 use crate::for_rows;
-use lightcraft_raster::blur::min_filter;
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 
 pub const HAZE_EPS: f32 = 0.025;
 
 #[derive(Clone)]
 pub struct Haze {
-    pub positive: Plane,
-    pub negative: Plane,
+    pub positive: GrayFrame,
+    pub negative: GrayFrame,
     pub air: [f32; 3],
     pub distance: f32,
 }
@@ -33,8 +32,8 @@ pub fn windows(scale: f32) -> (usize, usize) {
     let s = scale.clamp(0.0, 1.0);
     (2 + (4.0 * s).ceil() as usize, 3 + (6.0 * s).ceil() as usize)
 }
-fn max_filter(p: &Plane, r: usize) -> Plane {
-    min_filter(&p.map(|v| -v), r).map(|v| -v)
+fn max_filter(p: &GrayFrame, r: usize) -> GrayFrame {
+    p.map(|v| -v).min_filter(r).map(|v| -v)
 }
 // Rust's selection partitions around the selected element, including repeated minima.
 // The upstream-derived hand partition could swap its pivot into the unsorted interior.
@@ -47,8 +46,8 @@ fn quantile(mut v: Vec<f32>, p: f32) -> f32 {
 }
 
 /// Modern upstream 95% dark-channel / 95% brightness selection, ambient colour and depth.
-pub fn ambient_light(img: &Rgb32f, r: usize) -> ([f32; 3], f32) {
-    let dark = min_filter(&img.map(|c| c[0].min(c[1]).min(c[2])), r);
+pub fn ambient_light(img: &RgbFrame, r: usize) -> ([f32; 3], f32) {
+    let dark = img.map(|c| c[0].min(c[1]).min(c[2])).min_filter(r);
     let crit = quantile(dark.data.clone(), 0.95);
     let mid = img.len() / 2;
     let bright: Vec<f32> = (0..mid)
@@ -166,7 +165,7 @@ pub fn guided_solve(mean: [f32; 4], var: [f32; 9], eps: f32) -> [f32; 4] {
     [ar, ag, ab, inp - ar * r - ag * g - ab * b]
 }
 
-pub fn guided_rgb(guide: &Rgb32f, p: &Plane, r: usize, eps: f32) -> Plane {
+pub fn guided_rgb(guide: &RgbFrame, p: &GrayFrame, r: usize, eps: f32) -> GrayFrame {
     let (w, h) = (guide.width, guide.height);
     let n = w * h;
     let mut mean = vec![0.0; n * 4];
@@ -191,21 +190,21 @@ pub fn guided_rgb(guide: &Rgb32f, p: &Plane, r: usize, eps: f32) -> Plane {
     drop(mean);
     drop(var);
     let ab = box_mean(&ab, w, h, 4, r);
-    Plane::from_fn(w, h, |x, y| {
+    GrayFrame::from_fn(w, h, |x, y| {
         let i = y * w + x;
         let c = guide.data[i];
         ab[i * 4] * c[0] + ab[i * 4 + 1] * c[1] + ab[i * 4 + 2] * c[2] + ab[i * 4 + 3]
     })
 }
 
-pub fn haze_plane(img: &Rgb32f, scale: f32) -> Haze {
+pub fn haze_plane(img: &RgbFrame, scale: f32) -> Haze {
     let (w1, w2) = windows(scale);
     let (air, distance) = ambient_light(img, w1);
     // Only guard zero airlight. Black/empty scenes otherwise yield infinities upstream.
     let inv = air.map(|v| 1.0 / v.max(1e-6));
     let dark = img.map(|c| (c[0] * inv[0]).min(c[1] * inv[1]).min(c[2] * inv[2]));
-    let positive = max_filter(&min_filter(&dark, w1), w1);
-    let negative = min_filter(&max_filter(&dark, w1), w1);
+    let positive = max_filter(&dark.min_filter(w1), w1);
+    let negative = max_filter(&dark, w1).min_filter(w1);
     let positive = guided_rgb(img, &positive, w2, HAZE_EPS);
     let negative = guided_rgb(img, &negative, w2, HAZE_EPS);
     Haze { positive, negative, air, distance }

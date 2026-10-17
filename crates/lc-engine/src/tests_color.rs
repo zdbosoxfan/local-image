@@ -13,7 +13,7 @@ fn active_dev(s: &Session) -> lightcraft_develop::DevelopSettings {
 }
 
 /// Spread of the channels (a saturation proxy) at normalized `(x, y)`.
-fn chroma_at(img: &lightcraft_raster::Rgba8, x: f64, y: f64) -> i32 {
+fn chroma_at(img: &li_raster::Rgba8, x: f64, y: f64) -> i32 {
     let p = img.data[(img.height as f64 * y) as usize * img.width + (img.width as f64 * x) as usize];
     p[0].max(p[1]).max(p[2]) as i32 - p[0].min(p[1]).min(p[2]) as i32
 }

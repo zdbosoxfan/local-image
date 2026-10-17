@@ -12,7 +12,6 @@ workspace = true
 li-raster = { path = "../li-raster" }
 lightcraft-geom = { workspace = true }
 li-color = { workspace = true }
-lightcraft-raster = { workspace = true }
 lightcraft-raw = { workspace = true }
 lightcraft-codecs = { workspace = true }
 lightcraft-meta = { workspace = true }

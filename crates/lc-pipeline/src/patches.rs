@@ -17,9 +17,9 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 
+use li_raster::RgbFrame;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Point;
-use lightcraft_raster::Rgb32f;
 
 use crate::SourceInfo;
 use crate::geometry::Frame;
@@ -177,7 +177,7 @@ pub struct Placement<'a> {
 
 /// Composite `placements` into `img` (a render's resampled image, before white balance) framed
 /// by `frame`. Patches that can't be found are skipped (the photo renders without them).
-pub fn apply(img: &mut Rgb32f, placements: &[Placement<'_>], frame: &Frame) {
+pub fn apply(img: &mut RgbFrame, placements: &[Placement<'_>], frame: &Frame) {
     for pl in placements {
         if pl.opacity <= 0.0 {
             continue;
@@ -188,7 +188,7 @@ pub fn apply(img: &mut Rgb32f, placements: &[Placement<'_>], frame: &Frame) {
 }
 
 /// Composite the patches of the AI spots among `spots` (other spots are `spots::apply`'s).
-pub fn apply_spots(img: &mut Rgb32f, spots: &[lightcraft_develop::Spot], frame: &Frame) {
+pub fn apply_spots(img: &mut RgbFrame, spots: &[lightcraft_develop::Spot], frame: &Frame) {
     for spot in spots.iter().filter(|s| s.is_ai() && s.opacity > 0.) {
         let Some(placement) = spot.patch.as_ref() else { continue };
         let Some(patch) = lookup_oriented(&placement.key, placement.orientation) else { continue };
@@ -197,7 +197,7 @@ pub fn apply_spots(img: &mut Rgb32f, spots: &[lightcraft_develop::Spot], frame: 
 }
 
 /// Composite one patch raster (see [`apply`]).
-pub fn composite(img: &mut Rgb32f, patch: &PatchPixels, rect: [f64; 4], opacity: f32, frame: &Frame) {
+pub fn composite(img: &mut RgbFrame, patch: &PatchPixels, rect: [f64; 4], opacity: f32, frame: &Frame) {
     let (w, h) = (img.width, img.height);
     let [x0, y0, x1, y1] = rect;
     if patch.width == 0 || patch.height == 0 || x1 <= x0 || y1 <= y0 || w == 0 || h == 0 {
@@ -243,7 +243,7 @@ pub fn composite(img: &mut Rgb32f, patch: &PatchPixels, rect: [f64; 4], opacity:
 /// The transformed image the patches are made on: `src` resampled through the uncropped frame
 /// (orientation, lens corrections, perspective) at its native size — what a render shows, before
 /// cropping and white balance. Returns the frame too (its `norm_to_out` places strokes on it).
-pub fn transformed(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> (Frame, Rgb32f) {
+pub fn transformed(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> (Frame, RgbFrame) {
     let frame = crate::frame_for(src, info, s, false);
     let (nw, nh) = frame.native_size();
     let (w, h) = ((nw.round() as usize).max(1), (nh.round() as usize).max(1));
@@ -323,8 +323,8 @@ mod tests {
         PatchPixels { width: w, height: h, data: vec![v; w * h] }
     }
 
-    fn flat(w: usize, h: usize) -> Rgb32f {
-        Rgb32f::from_fn(w, h, |_, _| [0.2, 0.2, 0.2])
+    fn flat(w: usize, h: usize) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |_, _| [0.2, 0.2, 0.2])
     }
 
     #[test]
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn ai_spots_render_their_patch_and_nothing_else() {
         use lightcraft_develop::{AiPatch, Spot, SpotMode};
-        let src = Rgb32f::from_fn(120, 80, |x, y| [0.1 + x as f32 * 0.002, 0.2, 0.1 + y as f32 * 0.002]);
+        let src = RgbFrame::from_fn(120, 80, |x, y| [0.1 + x as f32 * 0.002, 0.2, 0.1 + y as f32 * 0.002]);
         let info = SourceInfo::default();
         let req = crate::RenderRequest::fit(120, 80);
         let plain = crate::render(&src, &info, &DevelopSettings::default(), &req).image;
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn the_transformed_image_is_the_uncropped_render_frame() {
-        let src = Rgb32f::from_fn(60, 40, |x, y| [x as f32 / 60.0, y as f32 / 40.0, 0.5]);
+        let src = RgbFrame::from_fn(60, 40, |x, y| [x as f32 / 60.0, y as f32 / 40.0, 0.5]);
         let mut s = DevelopSettings::default();
         s.crop.geometry.rect = lightcraft_geom::Rect::new(0.2, 0.2, 0.8, 0.8);
         let (frame, img) = transformed(&src, &SourceInfo::default(), &s);

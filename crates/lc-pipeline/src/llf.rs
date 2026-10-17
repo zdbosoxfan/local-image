@@ -21,7 +21,7 @@
 //! CPU reference; native Clarity kernels are in lc-gpu/wgsl/primary.wgsl. Unused SIMD
 //! overread lanes are clamped.
 
-use lightcraft_raster::Plane;
+use li_raster::GrayFrame;
 
 use crate::for_rows;
 
@@ -260,7 +260,7 @@ pub fn num_levels(wd: usize, ht: usize) -> usize {
 
 /// darktable's `local_laplacian_internal` (regular mode) on a one-channel plane in 0..1 with its
 /// own `curve_scalar` and 6 γ samples: the faithful port.
-pub fn local_laplacian(input: &Plane, sigma: f32, shadows: f32, highlights: f32, clarity: f32) -> Plane {
+pub fn local_laplacian(input: &GrayFrame, sigma: f32, shadows: f32, highlights: f32, clarity: f32) -> GrayFrame {
     local_laplacian_with(
         input,
         &Params { remap: Remap::Darktable { sigma, shadows, highlights, clarity }, num_gamma: 6, level_weights: None, remap_residual: false },
@@ -268,7 +268,7 @@ pub fn local_laplacian(input: &Plane, sigma: f32, shadows: f32, highlights: f32,
 }
 
 /// [`local_laplacian`] with the extensions of [`Params`].
-pub fn local_laplacian_with(input: &Plane, p: &Params) -> Plane {
+pub fn local_laplacian_with(input: &GrayFrame, p: &Params) -> GrayFrame {
     let (wd, ht) = (input.width, input.height);
     if wd < 4 || ht < 4 {
         return input.clone();
@@ -368,7 +368,7 @@ pub fn local_laplacian_with(input: &Plane, p: &Params) -> Plane {
         }
         out = fine;
     }
-    Plane::from_fn(wd, ht, |i, j| out[(j + max_supp) * w + max_supp + i])
+    GrayFrame::from_fn(wd, ht, |i, j| out[(j + max_supp) * w + max_supp + i])
 }
 
 /// darktable's `pad_by_replication`: the `pad` top rows copy row `pad`, the bottom ones row
@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn identity_curve_keeps_the_image() {
-        let v = Plane::from_fn(50, 37, |x, y| 0.3 + 0.2 * ((x as f32 * 0.3).sin() * (y as f32 * 0.2).cos()) + if x > 25 { 0.3 } else { 0.0 });
+        let v = GrayFrame::from_fn(50, 37, |x, y| 0.3 + 0.2 * ((x as f32 * 0.3).sin() * (y as f32 * 0.2).cos()) + if x > 25 { 0.3 } else { 0.0 });
         let o = local_laplacian(&v, 0.2, 1.0, 1.0, 0.0);
         let err = v.data.iter().zip(&o.data).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
         assert!(err < 2e-4, "{err}");
@@ -401,7 +401,7 @@ mod tests {
 
     #[test]
     fn a_constant_tone_shift_moves_everything() {
-        let v = Plane::from_fn(40, 30, |x, y| 0.4 + 0.1 * ((x + y) % 3) as f32 + if x > 20 { 0.3 } else { 0.0 });
+        let v = GrayFrame::from_fn(40, 30, |x, y| 0.4 + 0.1 * ((x + y) % 3) as f32 + if x > 20 { 0.3 } else { 0.0 });
         let lut = vec![0.5f32; CURVE_N];
         let p = Params { remap: Remap::Tone { sigma: 0.05, lut, lo: -8.0, range: 16.0 }, num_gamma: 24, level_weights: None, remap_residual: true };
         let o = local_laplacian_with(&v, &p);

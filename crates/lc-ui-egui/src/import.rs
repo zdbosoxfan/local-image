@@ -1574,7 +1574,7 @@ mod bugfix_save_tests {
         let paths: Vec<_> = (0..2)
             .map(|i| {
                 let path = dir.join(format!("new{i}.png"));
-                let image = lightcraft_raster::Rgba8::from_fn(8, 6, |_, _| [i * 60, 128, 10, 255]);
+                let image = li_raster::Rgba8::from_fn(8, 6, |_, _| [i * 60, 128, 10, 255]);
                 let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
                 std::fs::write(&path, bytes).unwrap();
                 path.to_string_lossy().into_owned()
@@ -1624,7 +1624,7 @@ mod bugfix_save_tests {
         let dir = std::env::temp_dir().join(format!("bugfix-save-auto-import-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("new.png");
-        let image = lightcraft_raster::Rgba8::from_fn(8, 6, |_, _| [60, 128, 10, 255]);
+        let image = li_raster::Rgba8::from_fn(8, 6, |_, _| [60, 128, 10, 255]);
         let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
         std::fs::write(&path, bytes).unwrap();
         let mut app = LightcraftApp::new(Session::with_demo().with_fs(), Default::default());
@@ -1766,7 +1766,7 @@ mod library_origin_tests {
             let _ = std::fs::remove_dir_all(&root);
             std::fs::create_dir_all(&root).unwrap();
             let source = root.join("source.png");
-            let pixels = lightcraft_raster::Rgba8::from_fn(8, 6, |_, _| [31, 93, 151, 255]);
+            let pixels = li_raster::Rgba8::from_fn(8, 6, |_, _| [31, 93, 151, 255]);
             let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&pixels), &Default::default()).unwrap();
             std::fs::write(&source, &bytes).unwrap();
             let destination = root.join("copies");
