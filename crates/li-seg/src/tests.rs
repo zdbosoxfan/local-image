@@ -716,7 +716,7 @@ fn bg_subject_group_uses_chosen_tier_for_all_callers() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// ------------------------------------------------------------ threading: shared pool and cancel
+// threading: shared pool and cancel
 
 /// An ONNX `TensorProto` (float) initializer.
 fn initializer(name: &str, dims: &[u64], data: &[f32]) -> Vec<u8> {
@@ -780,7 +780,7 @@ fn test_photo(w: usize, h: usize) -> Vec<u8> {
     (0..w * h).flat_map(|i| [(i * 7 % 251) as u8, (i * 13 % 241) as u8, (i * 29 % 239) as u8, 255]).collect()
 }
 
-/// Threading rule 11: tract on the shared pool gives the same bits on 1 thread and on N threads
+/// Tract on the shared pool gives the same bits on 1 thread and on N threads
 /// (its kernels split over output panels, never over the reduction).
 #[test]
 fn tract_output_is_identical_on_one_and_many_threads() {

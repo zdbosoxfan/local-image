@@ -140,7 +140,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
     }
     let pl = &f.pipeline;
     let mut g = G::default();
-    // ---- Loaders.
+    // Loaders.
     let (mut model, mut clip, mut vae);
     let ckpt = matches!(pl.loader, Loader::Checkpoint);
     if ckpt {
@@ -192,7 +192,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         let v = g.add("VAELoader", json!({ "vae_name": file(files, Role::Vae) }));
         vae = link(&v, 0);
     }
-    // ---- LoRAs.
+    // LoRAs.
     for l in p.loras.iter().take(f.lora.max.max(1) as usize) {
         if f.lora.loader == "LoraLoader" {
             let n =
@@ -219,13 +219,13 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         let n = g.add("DifferentialDiffusion", json!({ "model": model }));
         model = link(&n, 0);
     }
-    // ---- Source image and mask.
+    // Source image and mask.
     let source = matches!(p.task, Task::Refine { .. } | Task::Inpaint { .. } | Task::Edit).then(|| g.load(Slot::Source));
     let mask = masked.then(|| {
         let m = g.load(Slot::Mask);
         g.add("ImageToMask", json!({ "image": link(&m, 0), "channel": "red" }))
     });
-    // ---- Conditioning.
+    // Conditioning.
     let refs: Vec<String> = (0..p.references).map(|i| g.load(Slot::Reference(i))).collect();
     let (mut pos, mut neg);
     let mut encoded_latent = None;
@@ -276,7 +276,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         }
     }
     // Perturb only early conditioning, then restore the original prompt. The tested maximum
-    // blend is 35%, with a 20% schedule switchover (see CODEX-REPORT-zimage-variety.md). Off,
+    // blend is 35%, with a 20% schedule switchover. Off,
     // Base Z-Image and every untested task/family keep their original graphs.
     if f.id == "z-image" && file(files, Role::Unet).to_ascii_lowercase().contains("turbo") && p.task == Task::Create && p.variety.is_finite() && p.variety > 0.0
     {
@@ -354,7 +354,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
             model = link(&a, 0);
         }
     }
-    // ---- Latent.
+    // Latent.
     let denoise = match p.task {
         Task::Refine { denoise } | Task::Inpaint { denoise } => denoise.clamp(0.01, 1.0),
         Task::Create if pl.reference == RefMethod::InitImage && !refs.is_empty() => p.init_denoise.clamp(0.0, 1.0),
@@ -421,7 +421,7 @@ pub fn build(f: &Family, files: &Files, p: &Params) -> Built {
         let r = g.add("RepeatLatentBatch", json!({ "samples": latent, "amount": p.batch }));
         latent = link(&r, 0);
     }
-    // ---- Sampler.
+    // Sampler.
     let (sampler, scheduler) = p.sampler.map(|(a, b)| (a.to_owned(), b.to_owned())).unwrap_or((pl.sampler_name.clone(), pl.scheduler.clone()));
     let samples = match pl.sampler {
         SamplerStyle::Flux2Custom => {

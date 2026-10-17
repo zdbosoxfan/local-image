@@ -178,7 +178,7 @@ pub fn paint(primitives: &[ClippedPrimitive], textures: &dyn TextureSource, size
         for (i, b) in bands.into_iter().enumerate() {
             groups[i % threads].push(b);
         }
-        // One rayon task per group on the shared compute pool (threading rule 2), not OS threads.
+        // One rayon task per group on the shared compute pool, not OS threads.
         #[cfg(not(target_arch = "wasm32"))]
         {
             use rayon::prelude::*;

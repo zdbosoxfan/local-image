@@ -573,7 +573,7 @@ mod tests {
 mod j28_tests {
     use super::*;
 
-    /// The pre-J28 8-bit blend, verbatim: the golden reference for the adapter.
+    /// The earlier 8-bit blend, verbatim: the golden reference for the adapter.
     fn pre_j28_poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage) -> RgbImage {
         let (w, h) = original.dimensions();
         let inside = |x: u32, y: u32| mask.get_pixel(x, y)[0] > 0;

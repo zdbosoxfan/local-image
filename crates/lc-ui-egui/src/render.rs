@@ -183,7 +183,7 @@ const IDLE_TRIM: std::time::Duration = std::time::Duration::from_secs(3);
 
 impl Default for Renderer {
     fn default() -> Self {
-        // from the compute profile (threading rule 1 / review §3): one worker per compute thread,
+        // from the compute profile: one worker per compute thread,
         // 2..=6; these visible-grid and loupe renders never take a batch permit
         let threads =
             if cfg!(target_arch = "wasm32") { 0 } else { JobPool::<Slot, RenderResult>::threads_for(lightcraft_sysmem::profile().threads).min(6) };

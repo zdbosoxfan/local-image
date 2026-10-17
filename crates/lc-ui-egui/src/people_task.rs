@@ -136,7 +136,7 @@ pub fn start(app: &mut LightcraftApp, ids: &[PhotoId], headshots: Option<String>
     std::thread::Builder::new()
         .name("smart-sort-faces".into())
         .spawn(move || {
-            // Indexing: background priority (threading rule 7).
+            // Indexing: background priority.
             lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
             work()
         })

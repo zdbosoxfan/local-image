@@ -53,7 +53,6 @@ pub fn mats() -> &'static Mats {
     })
 }
 
-// ------------------------------------------------------------------------------------------
 // Filmlight Yrg
 
 /// The r, g coordinates of D65 white in Yrg.
@@ -116,7 +115,6 @@ pub fn ych_to_grading(y: f32, c: f32, h: f32) -> [f32; 3] {
     mul(&LMS_TO_GRADING, lms)
 }
 
-// ------------------------------------------------------------------------------------------
 // darktable UCS 22
 
 pub const L_STAR_RANGE: f32 = 2.098_883_8;

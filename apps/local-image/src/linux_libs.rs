@@ -4,8 +4,8 @@
 //! entries: winit and wgpu `dlopen` them when the window opens, and some of those crates panic
 //! when a library is missing (`xkbcommon-dl`: "libxkbcommon-x11.so could not be loaded"). So,
 //! before eframe starts, we look for the libraries the current session type needs and, if one is
-//! missing, print the package to install and exit non-zero instead of crashing (AGENTS.md, Never
-//! crash).
+//! missing, print the package to install and exit non-zero instead of crashing
+//! (never crash).
 //!
 //! No `dlopen` here (that needs `unsafe`): we read the dynamic linker's cache (`ldconfig -p`) and
 //! look in `LD_LIBRARY_PATH` and the usual library directories. Only the cache is conclusive: if

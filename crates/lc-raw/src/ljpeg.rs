@@ -540,7 +540,7 @@ pub fn decode(d: &[u8], max_samples: usize) -> Result<Frame, RawError> {
     Ok(Frame { width: w, height: ht, components: nc, precision: h.precision, predictor: pred, point_transform: h.pt, data: out })
 }
 
-// ------------------------------------------------------------------------------------------------ encoder
+// encoder
 
 /// Build Huffman code lengths from frequencies (T.81 Annex K.2, Figures K.1–K.3), limited to 16 bits.
 fn code_lengths(freq_in: &[u32; 17]) -> ([u8; 16], Vec<u8>) {

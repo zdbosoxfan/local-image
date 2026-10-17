@@ -1,6 +1,6 @@
 //! The port against the reference implementation (Hugging Face `transformers`, fp32).
 //!
-//! Needs the checkpoint and a reference file made by `tools/sam3_reference.py`:
+//! Needs the checkpoint and a reference file made from the Hugging Face model:
 //! `LIGHTCRAFT_SAM3_DIR=<model dir> LIGHTCRAFT_SAM3_REF=<ref.safetensors> cargo test -p lightcraft-segment --release -- --nocapture`.
 //! Skipped (passes) when either is missing.
 

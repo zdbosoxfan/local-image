@@ -4,9 +4,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-// ---------------------------------------------------------------------------
 // helpers
-// ---------------------------------------------------------------------------
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 
@@ -46,9 +44,7 @@ fn until(mut f: impl FnMut() -> bool) -> bool {
     false
 }
 
-// ---------------------------------------------------------------------------
 // Device and devices_in
-// ---------------------------------------------------------------------------
 
 #[test]
 fn device_serializes_to_json() {
@@ -143,9 +139,7 @@ fn devices_in_skips_symlink_children() {
     assert!(found.is_empty(), "symlink volume should be skipped: {found:?}");
 }
 
-// ---------------------------------------------------------------------------
 // DeviceWatch
-// ---------------------------------------------------------------------------
 
 #[test]
 fn device_watch_cold_get_is_immediate_and_background_scan_lands() {
@@ -310,9 +304,7 @@ fn device_watch_callback_can_call_get_without_deadlock() {
     assert_eq!(seen.load(Ordering::SeqCst), 2);
 }
 
-// ---------------------------------------------------------------------------
 // global devices API
-// ---------------------------------------------------------------------------
 
 #[test]
 fn global_devices_are_available_and_return_a_list() {

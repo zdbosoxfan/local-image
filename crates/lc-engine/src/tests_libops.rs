@@ -467,7 +467,7 @@ fn tracklog_auto_tag() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ---- random sort: Given the library, When the user picks Random, Then the grid is a stable shuffle
+// random sort: Given the library, When the user picks Random, Then the grid is a stable shuffle
 
 #[test]
 fn random_sort_is_stable_until_reshuffled() {

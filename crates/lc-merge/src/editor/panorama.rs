@@ -743,7 +743,7 @@ fn align_layout(feats: &[ImageFeatures], matches: &[PairMatch], opts: &AlignOpti
     Some(Alignment { layout, reference, placements, focal, k1, pairs: edges.iter().map(|e| (e.0, e.1, e.2)).collect(), rms })
 }
 
-// ---------- photometric ----------
+// photometric
 
 /// One image warped into the panorama: an axis-aligned region with colour channels and coverage.
 #[derive(Clone, Debug)]
@@ -892,7 +892,7 @@ pub fn photometric(imgs: &[RoiImage], geometry: Option<Geometry>, gain: bool, vi
     out
 }
 
-// ---------- seams ----------
+// seams
 
 /// Seam labels on a `w × h` grid (`-1` = no image): images are added in `order`; each new image
 /// takes the part of its overlap with the composite that lies on its side of the cheapest path
@@ -1008,7 +1008,7 @@ pub fn seam_labels(w: usize, h: usize, luma: &[Vec<f32>], cover: &[Vec<bool>], o
     label
 }
 
-// ---------- multi-band blending ----------
+// multi-band blending
 
 /// Number of pyramid levels used by [`multiband`] for a seam mask of this size.
 pub fn blend_levels(w: usize, h: usize) -> usize {

@@ -265,7 +265,7 @@ impl CloudRequest {
     }
 }
 
-// ------------------------------------------------------------------------------ transport
+// transport
 
 const HOSTS: &[&str] = &["api.openai.com", "generativelanguage.googleapis.com", "api.bfl.ai", "api.stability.ai"];
 
@@ -493,7 +493,7 @@ fn png_gray(img: &GrayImage) -> Result<Vec<u8>> {
     crate::imaging::encode_png(img)
 }
 
-// ------------------------------------------------------------------------------ sizes
+// sizes
 
 /// The nearest of `ratios` (`"W:H"`) to `w × h`.
 fn nearest_ratio(w: u32, h: u32, ratios: &[&'static str]) -> &'static str {
@@ -565,7 +565,7 @@ fn prompt_for(req: &CloudRequest, green: bool) -> String {
     }
 }
 
-// ------------------------------------------------------------------------------ providers
+// providers
 
 fn openai(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaImage>> {
     let base = Provider::OpenAi.base();

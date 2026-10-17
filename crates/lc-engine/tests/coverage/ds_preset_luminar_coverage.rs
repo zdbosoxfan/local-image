@@ -1,7 +1,7 @@
 use lightcraft_engine::preset_luminar::{Plist, parse_plist, read_lmp, read_mplumpack};
 use serde_json::json;
 
-// ----------------------------------------------------------------------------- helpers
+// helpers
 
 /// Build an XML plist snippet for one effect parameter.
 fn param(name: &str, v: f64) -> String {
@@ -112,7 +112,7 @@ fn create_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     out
 }
 
-// ----------------------------------------------------------------------------- tests
+// tests
 
 #[test]
 fn plist_parses_basic_types() {

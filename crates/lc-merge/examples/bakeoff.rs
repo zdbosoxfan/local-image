@@ -1,8 +1,7 @@
-//! J10: fixed-CC0 feature/match quality and a small HDR quality sample, for the J19 decision.
+//! Fixed-CC0 feature/match quality and a small HDR quality sample.
 //! Run (offline, dev profile; timing is diagnostic, not an interactive speed claim):
 //! cargo +1.98.1 run --offline -p lightcraft-merge --example bakeoff --
-//!   target/j10/data/lebombo_1k.hdr target/j10/data/kiara_1_dawn_1k.hdr
-//! See CODEX-REPORT-j10-merge-bakeoff.md for download URLs, SHA-256 and protocol limitations.
+//!   <a.hdr> [<b.hdr> ...]
 #![forbid(unsafe_code)]
 
 #[path = "bakeoff/common.rs"]

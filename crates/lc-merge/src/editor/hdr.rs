@@ -59,7 +59,7 @@ pub fn estimate_exposures(imgs: &[&[[f32; 4]]]) -> Vec<f64> {
     ex
 }
 
-// ---------- alignment ----------
+// alignment
 
 fn shrink(w: usize, h: usize, g: &[f32]) -> (usize, usize, Vec<f32>) {
     let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
@@ -130,7 +130,7 @@ pub fn mtb_offset(w: usize, h: usize, reference: &[f32], img: &[f32], levels: us
     best.map_or((0, 0), |(.., ox, oy)| (ox, oy))
 }
 
-// ---------- response curve ----------
+// response curve
 
 /// Sample pixel indices for response recovery: a spatial grid filtered to pixels whose
 /// neighbourhood is flat in the middle exposure (robust to small misalignment), stratified by

@@ -135,7 +135,7 @@ fn add_row(acc: &mut [f64], rows: &Rows, yy: usize, c0: usize, k: f64) {
     }
 }
 
-// ---- Smooth: box average, edges replicated -------------------------------------------------
+// Smooth: box average, edges replicated
 
 /// Running-sum box average of one line (radius `r`, edges replicated) into `dst`.
 fn box_line(src: &[f32], dst: &mut [f32], r: usize) {
@@ -221,7 +221,7 @@ fn box_strip(rows: &Rows, c0: usize, sw: usize, r: usize) -> Vec<f32> {
     out
 }
 
-// ---- Feather: truncated Gaussian, zero outside -----------------------------------------------
+// Feather: truncated Gaussian, zero outside
 
 /// Sliding cosine-series form of a symmetric kernel over `-r..=r`.
 struct CosKernel {

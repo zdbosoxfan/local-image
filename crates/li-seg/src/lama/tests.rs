@@ -88,7 +88,7 @@ fn lama_patch_keeps_soft_coverage_for_existing_compositor() {
     assert_eq!(patch.get_pixel(0, 2), rgb.get_pixel(0, 2));
 }
 
-/// The pre-J28 8-bit pipeline, verbatim apart from taking the fake model as a closure: the
+/// The earlier 8-bit pipeline, verbatim apart from taking the fake model as a closure: the
 /// golden reference for the 8-bit adapters and the "before" of the precision measurements.
 mod pre_j28 {
     use super::*;
@@ -158,7 +158,7 @@ fn float_model() -> Lama {
     }
 }
 fn u8_model(rgb: &RgbImage, mask: &GrayImage) -> RgbImage {
-    // The pre-J28 model wrapper: the same float output, rounded to 8 bits.
+    // The earlier 8-bit model wrapper: the same float output, rounded to 8 bits.
     RgbImage::from_fn(SIDE, SIDE, |x, y| {
         if mask.get_pixel(x, y)[0] > 0 {
             Rgb(smooth_model(x as usize, y as usize).map(|v| (v * 255.0).round().clamp(0.0, 255.0) as u8))
@@ -184,14 +184,14 @@ fn j28_lama_u8_adapters_match_the_pre_j28_path() {
         let old = pre_j28::run(&rgb, &mask, blend, &u8_model);
         let new = if blend { float_model().run(&rgb, &mask, none, &|_, _| {}) } else { float_model().run_patch(&rgb, &mask, none, &|_, _| {}) }.unwrap();
         let diff = old.as_raw().iter().zip(new.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
-        // Soft coverage now blends before the single rounding (previously: round, blend, round).
+        // Soft coverage blends before the single rounding (not round, blend, round).
         assert!(diff <= 1, "blend={blend}: max 8-bit difference {diff}");
         if !blend {
             assert_eq!(old, new, "patch pixels are byte-identical without resampling");
         }
     }
-    // Large hole: the crop is resampled to the model and back. The kernels are now the shared
-    // float Lanczos (li-raster) instead of image-rs on 8-bit samples.
+    // Large hole: the crop is resampled to the model and back. The kernels are the shared
+    // float Lanczos (li-raster), not image-rs on 8-bit samples.
     let rgb = RgbImage::from_fn(1400, 1000, |x, y| Rgb([(x / 6 % 256) as u8, (y / 4 % 256) as u8, 128]));
     let mask = soft_mask(1400, 1000, 700.0, 500.0, 300.0);
     let old = pre_j28::run(&rgb, &mask, false, &u8_model);

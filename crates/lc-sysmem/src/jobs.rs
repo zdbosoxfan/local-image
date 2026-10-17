@@ -1,5 +1,4 @@
-//! One cancel + progress primitive for every long operation in the app (duplicate-systems audit
-//! D14, job J9).
+//! One cancel + progress primitive for every long operation in the app.
 //!
 //! Two views of the same thing:
 //!

@@ -912,7 +912,7 @@ fn section(
     divider(ui);
 }
 
-// ------------------------------------------------------------------------------ histogram
+// histogram
 
 fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     let t = Tokens::get(ui.ctx());
@@ -955,7 +955,7 @@ fn histogram(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     }
 }
 
-// ------------------------------------------------------------------------------ soft proofing
+// soft proofing
 
 /// The Soft Proofing strip under the histogram: proof profile, gamut warnings, Create Proof Copy.
 fn soft_proofing(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
@@ -1143,7 +1143,7 @@ fn skin_tone_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSett
     });
 }
 
-// ------------------------------------------------------------------------------ tone curve
+// tone curve
 
 /// Reset tone curve channel `ch` (`parametric`, `master`, `red`, `green`, `blue` or `all`) of
 /// `target`.
@@ -1569,7 +1569,7 @@ fn tat_button(app: &mut LightcraftApp, ui: &mut egui::Ui, tool: &str, _tip: &str
     }
 }
 
-// ------------------------------------------------------------------------------ colour mixer
+// colour mixer
 
 fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());
@@ -1637,7 +1637,7 @@ fn mixer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target
     }
 }
 
-// ------------------------------------------------------------------------------ point color
+// point color
 
 /// Display colour of an OkLCh sample (lightness, chroma, hue in degrees).
 fn oklch_color(l: f64, c: f64, h_deg: f64) -> Color32 {
@@ -1722,7 +1722,7 @@ fn point_color(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, 
     });
 }
 
-// ------------------------------------------------------------------------------ colour grading
+// colour grading
 
 fn grading(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings, target: Target) {
     let t = Tokens::get(ui.ctx());

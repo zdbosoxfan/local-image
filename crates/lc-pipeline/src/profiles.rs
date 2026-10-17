@@ -52,7 +52,7 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
     let mut e = s.clone();
     let add = |v: &mut f64, d: f64| *v = (*v + d * k).clamp(-100.0, 100.0);
     match id {
-        // ---- Basic
+        // Basic
         "lc.neutral" => {
             add(&mut e.light.contrast, -18.0);
             add(&mut e.color.saturation, -10.0);
@@ -85,7 +85,7 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
             e.treatment = Treatment::Bw;
             add(&mut e.light.contrast, 8.0);
         }
-        // ---- Film
+        // Film
         "lc.film.warm-print" => {
             add(&mut e.light.contrast, 6.0);
             add(&mut e.color.saturation, -4.0);
@@ -117,7 +117,7 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
             fade(&mut e.curve.blue, 0.06, 1.0, k);
             fade(&mut e.curve.red, 0.0, 0.97, k);
         }
-        // ---- Cinematic
+        // Cinematic
         "lc.cine.teal-amber" => {
             add(&mut e.light.contrast, 10.0);
             add(&mut e.mixer.orange.sat, 6.0);
@@ -150,7 +150,7 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
             wheel(&mut e.grading.shadows, 265.0, 22.0, 0.0, k);
             wheel(&mut e.grading.highlights, 330.0, 14.0, 0.0, k);
         }
-        // ---- Muted
+        // Muted
         "lc.muted.matte-soft" => {
             add(&mut e.light.contrast, -12.0);
             add(&mut e.color.saturation, -14.0);
@@ -180,7 +180,7 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
             add(&mut e.mixer.aqua.sat, -15.0);
             fade(&mut e.curve.master, 0.04, 1.0, k);
         }
-        // ---- Film Simulation: parametric film looks (no LUTs): each stock's colour response as
+        // Film Simulation: parametric film looks (no LUTs): each stock's colour response as
         // a primaries matrix (calibration hue/saturation), its characteristic curve as contrast,
         // toe/shoulder and channel fades, its dye balance as grading wheels.
         "lc.filmsim.vivid-slide" => {
@@ -261,7 +261,7 @@ pub fn effective(s: &DevelopSettings) -> Cow<'_, DevelopSettings> {
             add(&mut e.bw_mix.green, -6.0);
             fade(&mut e.curve.master, 0.02, 1.0, k);
         }
-        // ---- B&W
+        // B&W
         "lc.bw.mono-rich" => {
             e.treatment = Treatment::Bw;
             add(&mut e.light.contrast, 18.0);

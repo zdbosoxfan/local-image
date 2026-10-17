@@ -276,7 +276,7 @@ impl Catalog {
         Catalog { next_photo: 1, next_album: 1, next_stack: 1, ..Default::default() }
     }
 
-    // ---- ids
+    // ids
 
     pub fn alloc_photo_id(&mut self) -> PhotoId {
         let id = PhotoId(self.next_photo.max(1));
@@ -294,7 +294,7 @@ impl Catalog {
         id
     }
 
-    // ---- reads
+    // reads
 
     pub fn photo(&self, id: PhotoId) -> Option<&Arc<Photo>> {
         self.photos.get(&id)
@@ -411,7 +411,7 @@ impl Catalog {
         self.label_names.iter().find(|(_, n)| n.trim().eq_ignore_ascii_case(name)).map(|(l, _)| *l).or_else(|| ColorLabel::parse(name))
     }
 
-    // ---- writes
+    // writes
 
     fn photo_mut(&mut self, id: PhotoId) -> Result<&mut Photo> {
         self.photos.get_mut(&id).map(Arc::make_mut).ok_or(CatalogError::NoPhoto(id))
@@ -726,7 +726,7 @@ impl Catalog {
             .collect()
     }
 
-    // ---- persistence
+    // persistence
 
     /// Full snapshot as JSON.
     pub fn to_snapshot(&self) -> String {

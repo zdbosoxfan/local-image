@@ -62,7 +62,7 @@ pub struct Flash {
 
 /// A named region of interest on a photo (MWG Region Guidelines, `mwg-rs:Regions`): most often a face,
 /// drawn by Lightroom, digiKam, Picasa or similar tools, or named locally by Smart Sort.
-/// Interchange is read-only: LightCraft does not write MWG regions to XMP (see `docs/xmp-interop.md`).
+/// Interchange is read-only: LightCraft does not write MWG regions to XMP.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Region {
     /// Normalized to the image's full, oriented frame (`Metadata::width`/`height`), y-down, 0..1 on

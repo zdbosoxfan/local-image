@@ -795,7 +795,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(())
             })
         }),
-        // ---- Remove tool (spots)
+        // Remove tool (spots)
         cmd!(
             "spot.findDust",
             "Find Dust Spots",
@@ -982,7 +982,7 @@ pub fn specs() -> Vec<CommandSpec> {
             };
             ok()
         }),
-        // ---- Red eye / pet eye
+        // Red eye / pet eye
         cmd!(
             "redeye.add",
             "Add Red Eye Correction",

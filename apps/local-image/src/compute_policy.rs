@@ -1,4 +1,4 @@
-//! Start-up compute policy (`docs/wip/REVIEW-threading-policy-fable.md` rules 1, 2 and 7): detect
+//! Start-up compute policy: detect
 //! the machine once, build rayon's one global compute pool from it before anything else uses rayon,
 //! and run tract on that pool. Preferences › Performance › Processing holds optional overrides
 //! (thread count, background priority, memory share); they apply at the next launch because the

@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    // TEST-CHANGED F001: a regular Unix file is unavailable until its executable bits are set.
+    // A regular Unix file is unavailable until its executable bits are set.
     fn file_dialog_probe_finds_programs_and_portal_backends() {
         let dir = std::env::temp_dir().join(format!("local-image-probe-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

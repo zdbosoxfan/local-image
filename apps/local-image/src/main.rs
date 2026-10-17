@@ -195,7 +195,7 @@ fn main() -> eframe::Result {
         lightcraft_sysmem::app_dirs::config_dir(),
         log_path
     );
-    // One compute pool sized from the hardware, built before anything uses rayon (threading rules 1-2).
+    // One compute pool sized from the hardware, built before anything uses rayon.
     compute_policy::init(services::prefs_file().as_deref());
 
     // A malformed control port must not silently drop the control server (issue #701): name the

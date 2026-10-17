@@ -5,7 +5,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)]
 
-// ---------------------------------------------------------------- lossless JPEG
+// lossless JPEG
 
 /// Huffman code lengths assigned to categories in decreasing frequency
 /// order. Kraft sum < 1 and no code is all ones.
@@ -177,7 +177,7 @@ pub fn lj92_encode(
     out
 }
 
-// ---------------------------------------------------------------- TIFF writer
+// TIFF writer
 
 /// A TIFF entry value.
 #[derive(Debug, Clone)]
@@ -369,7 +369,7 @@ fn urat(v: f64) -> (u32, u32) {
     ((v * 10000.0).round() as u32, 10000)
 }
 
-// ---------------------------------------------------------------- DNG
+// DNG
 
 /// How the DNG stores its raw data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -632,7 +632,7 @@ impl DngSpec {
     }
 }
 
-// ---------------------------------------------------------------- CR2
+// CR2
 
 /// A synthetic CR2: one lossless JPEG with `components` components, cut into
 /// vertical slices, plus a Canon maker note with SensorInfo and ColorData.
@@ -720,7 +720,7 @@ impl Cr2Spec {
     }
 }
 
-// ---------------------------------------------------------------- TIFF/EP
+// TIFF/EP
 
 /// A synthetic uncompressed TIFF/EP raw (NEF / ARW-like): IFD0 with Make, the
 /// CFA image in a SubIFD with 16-bit samples.
@@ -760,7 +760,7 @@ pub fn tiff_ep(make: &str, width: usize, height: usize, data: &[u16], cfa: [u8; 
     t.build()
 }
 
-// ---------------------------------------------------------------- Panasonic RW2
+// Panasonic RW2
 
 /// Page size and split point of the RW2 stream (see `rw2.rs`).
 const RW2_PAGE: usize = 0x4000;
@@ -826,7 +826,7 @@ pub fn rw2(width: usize, height: usize, data: &[u16], bits: u32) -> Vec<u8> {
     b
 }
 
-// ---------------------------------------------------------------- Olympus ORF
+// Olympus ORF
 
 /// A little-endian IFD whose value offsets are relative to `base` (the IFD
 /// itself sits at `base_offset` from that base). Entries: (tag, type, count,
@@ -921,7 +921,7 @@ pub fn orf(width: usize, height: usize, data: &[u16]) -> Vec<u8> {
     b
 }
 
-// ---------------------------------------------------------------- scenes
+// scenes
 
 /// A smooth, colourful synthetic scene as linear RGB in 0..1.
 pub fn scene(width: usize, height: usize) -> Vec<[f32; 3]> {

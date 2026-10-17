@@ -128,7 +128,6 @@ fn old_settings_load_and_match_detail_goldens() {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
 // Layer tools
 
 use lightcraft_develop::{LayerTools, Mask, MaskComponent, MaskOp, MaskShape};
@@ -264,7 +263,7 @@ fn layers_without_tools_render_like_no_layer() {
     assert_eq!(shot(&s, &SourceInfo::default()).data, shot(&DevelopSettings::default(), &SourceInfo::default()).data);
 }
 
-/// TEST-CHANGED: layer tools now act on the completed Background; RAW global exposure
+/// Layer tools act on the completed Background; RAW global exposure
 /// happens before its tone map and therefore is deliberately a different operation.
 #[test]
 fn filled_layer_brightens_the_finished_raw_background_by_a_stop() {
@@ -292,7 +291,7 @@ fn filled_layer_brightens_the_finished_raw_background_by_a_stop() {
     assert!(diff(&shot(&s, &info), &shot(&global, &info), 0, W).0 > 1.0);
 }
 
-/// TEST-CHANGED: Background exposure plus a layer is no longer summed before the tone map.
+/// Background exposure plus a layer is not summed before the tone map.
 #[test]
 fn layers_stack_on_the_photo_and_on_each_other() {
     let info = SourceInfo { raw: true, ..Default::default() };

@@ -1,6 +1,6 @@
 //! Deterministic refine discovery and preservation checks, on worker threads only.
 //! ComfyUI's CheckpointLoaderSimple detects checkpoint architectures; split weights require
-//! a family or an official template. See docs/wip/CODEX-REPORT-model-autodetect.md for sources.
+//! a family or an official template.
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};

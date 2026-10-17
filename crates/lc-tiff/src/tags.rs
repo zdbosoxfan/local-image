@@ -1,6 +1,6 @@
 //! Tag numbers (TIFF 6.0, TIFF/EP, Exif 2.32, GPS, DNG 1.7). Public specification constants.
 
-// --- TIFF baseline / extensions
+// TIFF baseline / extensions
 pub const NEW_SUBFILE_TYPE: u16 = 254;
 pub const SUBFILE_TYPE: u16 = 255;
 pub const IMAGE_WIDTH: u16 = 256;
@@ -49,7 +49,7 @@ pub const ICC_PROFILE: u16 = 34675;
 pub const GPS_IFD: u16 = 34853;
 pub const INTEROP_IFD: u16 = 40965;
 
-// --- Exif private IFD
+// Exif private IFD
 pub const EXPOSURE_TIME: u16 = 33434;
 pub const F_NUMBER: u16 = 33437;
 pub const EXPOSURE_PROGRAM: u16 = 34850;
@@ -89,7 +89,7 @@ pub const LENS_MAKE: u16 = 42035;
 pub const LENS_MODEL: u16 = 42036;
 pub const LENS_SERIAL_NUMBER: u16 = 42037;
 
-// --- GPS IFD
+// GPS IFD
 pub const GPS_VERSION_ID: u16 = 0;
 pub const GPS_LATITUDE_REF: u16 = 1;
 pub const GPS_LATITUDE: u16 = 2;
@@ -102,7 +102,7 @@ pub const GPS_IMG_DIRECTION_REF: u16 = 16;
 pub const GPS_IMG_DIRECTION: u16 = 17;
 pub const GPS_DATE_STAMP: u16 = 29;
 
-// --- DNG
+// DNG
 pub const DNG_VERSION: u16 = 50706;
 pub const DNG_BACKWARD_VERSION: u16 = 50707;
 pub const UNIQUE_CAMERA_MODEL: u16 = 50708;
@@ -180,7 +180,7 @@ pub const ILLUMINANT_DATA_1: u16 = 52533;
 pub const ILLUMINANT_DATA_2: u16 = 52534;
 pub const ILLUMINANT_DATA_3: u16 = 52535;
 
-// --- Compression codes (TIFF 6.0, DNG, and widely used registrations)
+// Compression codes (TIFF 6.0, DNG, and widely used registrations)
 pub mod compression {
     pub const NONE: u16 = 1;
     pub const LZW: u16 = 5;
@@ -198,7 +198,7 @@ pub mod compression {
     pub const SONY_ARW: u16 = 32767;
 }
 
-// --- PhotometricInterpretation
+// PhotometricInterpretation
 pub mod photometric {
     pub const WHITE_IS_ZERO: u16 = 0;
     pub const BLACK_IS_ZERO: u16 = 1;

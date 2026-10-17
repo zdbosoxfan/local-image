@@ -348,7 +348,6 @@ pub(crate) fn rgb_words(img: &Rgb32f) -> &[f32] {
     bytemuck::cast_slice(&img.data)
 }
 
-// ---------------------------------------------------------------------------------------------
 // Filters (twins of `lightcraft_raster::blur` / `resample` and `lightcraft_pipeline::local`)
 
 /// Pixels each blur thread slides its running sum over (at least; longer for large radii, so the
@@ -468,7 +467,6 @@ fn guided_fast(cx: &mut Cx<'_>, p: &Buf, w: usize, h: usize, sigma: f32, eps: f3
     q
 }
 
-// ---------------------------------------------------------------------------------------------
 // Geometry (`Frame::sample`)
 
 /// Integer pixel map `(x, y) → (m0·x + m1·y + m2, m3·x + m4·y + m5)` from an oriented image back
@@ -674,7 +672,6 @@ fn sample(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, src_buf: Arc<Buf>, plan: &Plan<'_>
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // The render
 
 /// CPU copies made along the way (for stages that still run on the CPU).

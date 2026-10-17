@@ -1,5 +1,5 @@
 #![recursion_limit = "256"]
-//! Frozen pre-J17 values/styles/Latin shaping, captured from target/j17-baseline reference modules.
+//! Frozen earlier values/styles/Latin shaping, captured from reference modules.
 use egui::{Color32, FontData, FontDefinitions, FontFamily};
 use li_ui_kit::{fonts, library, theme};
 fn hash(bytes: &[u8]) -> u64 {
@@ -135,7 +135,7 @@ fn j17_all_theme_and_font_goldens_match_previous_backends() {
 }
 
 fn previous_raster(bytes: &[u8], pixels: u32, interface: bool, colour: Color32, disabled: bool) -> egui::ColorImage {
-    // Frozen algorithms from the pre-J17 interface/tool/colour implementations.
+    // Frozen algorithms from the earlier interface/tool/colour implementations.
     let hex = format!("#{:02x}{:02x}{:02x}", colour.r(), colour.g(), colour.b());
     let svg = String::from_utf8_lossy(bytes).replace("currentColor", &hex);
     let svg = if interface { svg.replace("stroke-width=\"2\"", "stroke-width=\"1.75\"") } else { svg };

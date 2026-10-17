@@ -183,7 +183,7 @@ fn ext_upper(name: &str) -> String {
 /// Probe a file's bytes: kind, dimensions (oriented), metadata. Raws are described from their
 /// headers ([`lightcraft_raw::probe_info`]): no pixel data is decompressed.
 pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
-    // content identity: BLAKE3 (J24)
+    // content identity: BLAKE3
     describe_bytes(name, bytes, Some(lightcraft_preview::ContentId::of(bytes).to_string()))
 }
 

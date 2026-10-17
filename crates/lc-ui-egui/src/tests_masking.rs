@@ -736,7 +736,7 @@ fn a_selected_mask_shows_its_layer_tools() {
     h.settle(Duration::from_secs(5));
     assert!(has(&mut h, "section:layer-light"));
     assert!(!has(&mut h, "section:layer-effects"));
-    // Layer reset is now in the layer row's menu.
+    // Layer reset is in the layer row's menu.
     let r = h.request("ui.clickWidget", json!({"id":"button:layerMenu:1"}), T);
     assert_eq!(r["ok"], true, "{r}");
     h.step();

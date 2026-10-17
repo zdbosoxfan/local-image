@@ -420,7 +420,7 @@ fn empty_regions_are_not_serialized_and_default_when_missing() {
     assert_eq!(back, with);
 }
 
-// ---- random sort: Given a seed, the order is a stable, reproducible shuffle of the matching photos
+// random sort: Given a seed, the order is a stable, reproducible shuffle of the matching photos
 
 fn many(c: &mut Catalog, n: usize) -> Vec<PhotoId> {
     (0..n).map(|i| photo(c, &format!("p{i:03}.jpg"), &format!("2026-04-{:02}T10:00:00", i % 28 + 1))).collect()

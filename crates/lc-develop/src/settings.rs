@@ -977,7 +977,6 @@ pub struct Crop {
     pub flip_v: bool,
 }
 
-// ---------------------------------------------------------------------------------------------
 // Masks and local adjustments
 
 /// The sliders available inside a mask (Lightroom's local adjustments).
@@ -1465,7 +1464,6 @@ pub fn layer_key_of_control(id: &str) -> Option<&'static str> {
     })
 }
 
-// ---------------------------------------------------------------------------------------------
 // Heal / remove / red eye
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -1,4 +1,4 @@
-//! Background-removal timing on the production `Segmenter::predict` path (threading rule 12):
+//! Background-removal timing on the production `Segmenter::predict` path:
 //! `cargo run --offline -p li-seg --example bg_timing -- <dir with rmbg-1.4.onnx and
 //! inspyrenet-swinb-plus-ultra.onnx> <photo> [warm runs]`.
 //!

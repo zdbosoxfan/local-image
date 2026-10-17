@@ -109,7 +109,7 @@ impl Downloader {
         *lock(&self.last) = Text::default();
         let guard = Running(s.clone());
         let spawned = std::thread::Builder::new().name("sam3-download".into()).spawn(move || {
-            // A model download: background work (threading rule 7).
+            // A model download: background work.
             lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
             let s = guard.0.clone();
             let mut last_file = String::new();

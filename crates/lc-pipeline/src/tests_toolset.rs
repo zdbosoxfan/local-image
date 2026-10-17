@@ -116,8 +116,8 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("b&w profile/raw", 0xc3d16db57db48b3d, 0xb6159ee7a2d437b0),
     ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
     ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),
-    // TEST-CHANGED: only layer render hashes change for sequential developed-image tools.
-    // Historical no-layer renders and every settings hash above/below are unchanged.
+    // Layer renders apply sequential developed-image tools, so their hashes differ from the
+    // no-layer renders; every settings hash above/below is independent of that.
     ("layers/rendered", 0x2b8db6150bc87e19, 0x72a3db4f1a1900ec),
     ("layers/raw", 0x0fa75a20cc053614, 0x72a3db4f1a1900ec),
 ];
@@ -148,7 +148,6 @@ fn old_settings_load_and_match_detail_goldens() {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
 // The new tools, switched on
 
 fn shot(s: &DevelopSettings, info: &SourceInfo) -> Rgba8 {

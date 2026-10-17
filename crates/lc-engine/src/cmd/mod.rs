@@ -43,7 +43,7 @@ pub type Run = li_commands::Run<Session, EngineError>;
 pub type Enabled = li_commands::Enabled<Session>;
 pub type CommandSpec = li_commands::CommandSpec<Session, EngineError>;
 
-// ---------- enablement predicates
+// enablement predicates
 
 pub fn always(_: &Session) -> std::result::Result<(), String> {
     Ok(())
@@ -119,7 +119,7 @@ pub fn find_command(id: &str) -> Option<&'static CommandSpec> {
     command_specs().iter().find(|c| c.id == id)
 }
 
-// ---------- param helpers
+// param helpers
 
 pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }

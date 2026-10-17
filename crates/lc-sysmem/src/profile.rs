@@ -1,6 +1,6 @@
 //! The compute profile: what this machine has (logical and physical cores, performance and
 //! efficiency cores, RAM), detected once at start-up and then frozen, and the one compute budget
-//! `C` everything parallel derives from (`docs/wip/REVIEW-threading-policy-fable.md` §2).
+//! `C` everything parallel derives from.
 //!
 //! Only floors, ceilings and fractions: nothing here is tuned to a particular machine. When a
 //! detection fails the documented fallback is used and named in the profile's `fallbacks` (and the
@@ -160,7 +160,7 @@ pub fn resolve_threads(hw: &Hardware, setting: Option<usize>, env: &dyn Fn(&str)
     (auto_threads(hw.logical, hw.physical), ThreadSource::Auto)
 }
 
-// ------------------------------------------------------------------ detection (pure parts)
+// detection (pure parts)
 
 /// Physical, performance and efficiency core counts read from the platform (`None` = unknown).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -332,7 +332,7 @@ pub fn hardware_from(logical: Option<usize>, topo: Topology, ram_total: Option<u
     Hardware { logical, physical, perf_cores: topo.perf, eff_cores: topo.eff, ram_total, fallbacks }
 }
 
-// ------------------------------------------------------------------ detection (this machine)
+// detection (this machine)
 
 fn logical_now() -> Option<usize> {
     std::thread::available_parallelism().ok().map(usize::from)
@@ -402,7 +402,7 @@ pub fn ram_available() -> u64 {
     }
 }
 
-// ------------------------------------------------------------------ the frozen profile
+// the frozen profile
 
 /// The frozen profile. [`init`] replaces a provisional one that [`profile`] made before it ran
 /// (each is leaked once: at most two small allocations per process).

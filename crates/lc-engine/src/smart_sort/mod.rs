@@ -224,7 +224,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &std::sync::atomic::Ato
         }
         todo.push(*id);
     }
-    // Indexing work: the shared low-priority background pool (threading rules 2 and 7), not a
+    // Indexing work: the shared low-priority background pool, not a
     // private pool of its own.
     for batch in todo.chunks(32) {
         if !lightcraft_sysmem::power::wait_background(&|| cancel.load(Ordering::Relaxed)) {

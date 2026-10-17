@@ -1,7 +1,7 @@
 //! The mirror adapter over `li-ai::download` against a local HTTP server (std `TcpListener`;
 //! never the internet): mirror fallback, redirects, chunked bodies, hash mismatches, size caps,
-//! unpinned files, damaged files, cancel. (J8: resume, Range/416 and stall
-//! tests went with the hand-written client; see docs/wip/CLAUDE-REPORT-j08-sam-defeature.md.)
+//! unpinned files, damaged files, cancel. (Resume, Range/416 and stall
+//! handling is not covered here: the adapter delegates to the shared downloader.)
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};

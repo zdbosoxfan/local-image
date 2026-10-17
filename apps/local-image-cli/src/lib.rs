@@ -510,7 +510,7 @@ fn mcp_server(a: &Args) -> Result<PhotocraftMcp, String> {
     })
 }
 
-// ---------------------------------------------------------------- Library (`library <action>`)
+// Library (`library <action>`)
 
 const LIBRARY_DEVELOP_FLAGS: &[&str] = &["--library", "--id", "--set", "--settings", "--preset", "--amount"];
 const LIBRARY_EXPORT_FLAGS: &[&str] =
@@ -723,7 +723,7 @@ mod tests {
         std::fs::write(path, photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap()).unwrap();
     }
 
-    /// J5: the Library is reachable from the CLI — import into a library folder, develop, export
+    /// The Library is reachable from the CLI — import into a library folder, develop, export
     /// and snapshot, by file and by id.
     #[test]
     fn j05_library_subcommands_import_develop_export_snapshot() {

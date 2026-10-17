@@ -275,7 +275,7 @@ fn next_seed(prev: u64, now: &str) -> u64 {
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
-        // ---- view source / filter / sort
+        // view source / filter / sort
         cmd!(
             "library.source",
             "Show Source",
@@ -385,7 +385,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(serde_json::to_value(s.catalog.date_runs(&vis, s.sort.key, by)).unwrap_or_default())
             }
         ),
-        // ---- selection
+        // selection
         cmd!("library.select", "Select Photos", [], None, "{ids: [id], active?: id, mode?: replace|add|toggle|range}", always, |s, p| {
             let ids = ids_param(p).unwrap_or_default();
             let mode = str_param(p, "mode").unwrap_or("replace");
@@ -474,7 +474,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("library.next", "Next Photo", [], Some("Right"), "{}", always, |s, _| step(s, 1)),
         cmd!("library.previous", "Previous Photo", [], Some("Left"), "{}", always, |s, _| step(s, -1)),
-        // ---- rating / flags / labels
+        // rating / flags / labels
         cmd!("photo.rate", "Set Rating", ["Photo", "Set Rating"], None, "{rating: 0..5, ids?, advance?: bool}", has_selection, |s, p| {
             let r = super::f64_req(p, "rating", "photo.rate")? as i64;
             if !(0..=5).contains(&r) {
@@ -514,12 +514,12 @@ pub fn specs() -> Vec<CommandSpec> {
                 for_targets(s, p, "Set Color Label", |id| Some(Op::SetLabel { id, label: l }))
             }
         ),
-        // ---- orientation
+        // orientation
         cmd!("photo.rotateLeft", "Rotate Left", ["Photo"], Some("Cmd+["), "{ids?}", has_selection, |s, p| rotate(s, p, false)),
         cmd!("photo.rotateRight", "Rotate Right", ["Photo"], Some("Cmd+]"), "{ids?}", has_selection, |s, p| rotate(s, p, true)),
         cmd!("photo.flipHorizontal", "Flip Horizontal", ["Photo"], None, "{ids?}", has_selection, |s, p| flip(s, p, true)),
         cmd!("photo.flipVertical", "Flip Vertical", ["Photo"], None, "{ids?}", has_selection, |s, p| flip(s, p, false)),
-        // ---- face / pet regions
+        // face / pet regions
         cmd!(
             "photo.removeRegion",
             "Remove Face Box",
@@ -579,7 +579,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"rect": {"x0": x0, "y0": y0, "x1": x1, "y1": y1}}))
             }
         ),
-        // ---- delete / restore
+        // delete / restore
         cmd!("photo.delete", "Delete Photo", ["Photo"], Some("Delete"), "{ids?} — moves to Recently Deleted", has_selection, |s, p| {
             // a photo already in Recently Deleted keeps the time it went there
             let now = (s.clock)();
@@ -608,7 +608,7 @@ pub fn specs() -> Vec<CommandSpec> {
             s.selection = Selection::default();
             Ok(json!({"deleted": t.len()}))
         }),
-        // ---- metadata
+        // metadata
         cmd!(
             "photo.setMeta",
             "Edit Info",
@@ -697,7 +697,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"changed": n}))
             }
         ),
-        // ---- albums
+        // albums
         cmd!("album.create", "New Album", ["File"], None, "{name, parent?: folderId, folder?: bool, addSelected?: bool}", always, |s, p| {
             let name = str_param(p, "name").unwrap_or("Untitled Album").trim().to_string();
             if name.is_empty() {
@@ -981,7 +981,7 @@ pub fn specs() -> Vec<CommandSpec> {
             s.commit("Set Album Cover", Op::SetAlbumCover { id, cover: photo })?;
             ok()
         }),
-        // ---- import
+        // import
         cmd!(
             query "library.importPreview",
             "Review Import",
@@ -1028,7 +1028,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(report)
             }
         ),
-        // ---- persistence
+        // persistence
         cmd!(query "library.info", "Library Info", [], None, "{}", always, |s, _| {
             let photos = s.catalog.len();
             let albums = s.catalog.albums().count();

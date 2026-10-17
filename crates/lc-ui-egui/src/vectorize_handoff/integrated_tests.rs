@@ -1,4 +1,4 @@
-//! Package 00 registers this after inserting the production grid/menu hook.
+//! Headless grid tests through the production context-menu hook.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::headless::Headless;

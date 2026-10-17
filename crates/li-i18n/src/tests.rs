@@ -1,5 +1,5 @@
 //! Engine tests: the language registry, catalog parsing and lookups of both catalogs, plural
-//! rules, locale tags, the compile-checked format strings, and the J29 parity goldens. Coverage
+//! rules, locale tags, the compile-checked format strings, and the parity goldens. Coverage
 //! tests that need a shell's own sources or windows live in that shell's crate.
 
 use crate::catalog::{Catalog, parse_entries, placeholders};
@@ -279,7 +279,7 @@ fn mixer_brush_ui_strings_have_translations_in_every_registered_language() {
     }
 }
 
-// ---- Library & Develop catalog (moved from lightcraft-ui-egui's i18n module) ----
+// Library & Develop catalog
 
 /// The plain (source, translation) pairs of a Library catalog.
 fn library_entries(language: Lang) -> Vec<(&'static str, &'static str)> {
@@ -434,7 +434,7 @@ fn builtin_labels_translate_only_stock_names() {
     });
 }
 
-// ---- J29 parity: one engine, every string as before ----
+// parity: one engine, every string as before
 
 /// FNV-1a over a catalog's (source, translation) pairs in source order.
 fn digest<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> (usize, u64) {
@@ -449,7 +449,7 @@ fn digest<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> (usize, u6
     (pairs.len(), hash)
 }
 
-/// J29 golden: the Library catalogs and format strings, converted from
+/// Golden: the Library catalogs and format strings, converted from
 /// `lc-ui-egui/locales/*.json` to TSV, hold exactly the JSON's messages (count and FNV-1a of the
 /// sorted pairs, computed from the JSON files before they were deleted). Regenerate (or delete
 /// this test) when the next translation pass edits `catalogs/library`.
@@ -498,7 +498,7 @@ fn j29_library_catalogs_match_the_json_they_replaced() {
     assert_eq!(checked, GOLDEN.len(), "every converted catalog is checked");
 }
 
-/// J29: the two catalogs stay separate, so a string both halves show keeps each half's wording
+/// The two catalogs stay separate, so a string both halves show keeps each half's wording
 /// (Japanese "Exposure" reads 露出 in Develop and 露光量 in Compositing, as before the merge), and
 /// a string only one half translates is not borrowed by the other (no new translations).
 #[test]
@@ -520,7 +520,7 @@ fn j29_each_half_keeps_its_own_catalog() {
     }
 }
 
-/// J29: the one language registry keeps both old lookups' answers for every code and the tags
+/// The one language registry keeps both old lookups' answers for every code and the tags
 /// each engine resolved, and the settings file still stores the code.
 #[test]
 fn j29_one_registry_resolves_both_engines_codes() {
