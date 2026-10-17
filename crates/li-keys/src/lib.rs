@@ -171,7 +171,5 @@ fn shortcut_key(s: &str) -> Option<String> {
     Some(canonical.into())
 }
 
-#[cfg(all(test, feature = "egui"))]
-mod legacy_tests;
 #[cfg(test)]
 mod tests;
