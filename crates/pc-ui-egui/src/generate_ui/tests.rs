@@ -806,6 +806,7 @@ fn generated_edit_returns_to_the_document_the_user_is_viewing() {
 #[cfg(test)]
 mod bg_batch_tests {
     use super::*;
+    use photocraft_engine::batch_io::batch_destination;
 
     fn directory() -> PathBuf {
         let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/bgremove-tests").join(li_ai::ops::new_seed().to_string());

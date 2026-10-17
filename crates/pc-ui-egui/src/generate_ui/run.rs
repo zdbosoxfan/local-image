@@ -538,7 +538,7 @@ pub fn on_generated(app: &mut PhotocraftApp, e: &JobEvent) {
                     place_into(app, doc, &entry);
                 } else if open {
                     let path = library().image_path(&entry.id);
-                    if let Ok(bytes) = std::fs::read(&path)
+                    if let Ok(bytes) = photocraft_engine::batch_io::read_file(&path)
                         && let Err(err) = app.open_bytes(&format!("{}.png", entry.name), &bytes)
                     {
                         app.ui.status = err;

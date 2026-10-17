@@ -144,7 +144,7 @@ pub(super) fn tile_grid(app: &mut PhotocraftApp, ui: &mut egui::Ui, items: &[Opt
 pub(super) fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Entry, act: &str) {
     let lib = library();
     match act {
-        "open" => match std::fs::read(lib.image_path(&e.id)) {
+        "open" => match photocraft_engine::batch_io::read_file(&lib.image_path(&e.id)) {
             Ok(bytes) => {
                 if let Err(err) = app.open_bytes(&e.name, &bytes) {
                     app.ui.status = err;
@@ -152,7 +152,7 @@ pub(super) fn entry_action(app: &mut PhotocraftApp, ctx: &egui::Context, e: &Ent
                 }
             }
             Err(err) => {
-                app.ui.status = li_i18n::fmt(tl!("Could not open {name}: {error}"), &[("name", &e.name), ("error", &err.to_string())]);
+                app.ui.status = li_i18n::fmt(tl!("Could not open {name}: {error}"), &[("name", &e.name), ("error", &err)]);
                 app.ui.status_error = true;
             }
         },

@@ -1008,7 +1008,7 @@ pub fn import_workflow(app: &mut PhotocraftApp) {
 
 /// Imports a workflow file; returns its name.
 pub fn import_workflow_path(path: &std::path::Path) -> Result<String, String> {
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = photocraft_engine::batch_io::read_file(path)?;
     let json: Value = serde_json::from_slice(&bytes).map_err(|_| tl!("That file is not a ComfyUI workflow (JSON).").to_owned())?;
     let name = path.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Workflow".into());
     let info = li_ai::service().client.object_info().ok();

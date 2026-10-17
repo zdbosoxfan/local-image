@@ -17,63 +17,7 @@ pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     }
 }
 
-pub fn folder_images(dir: &std::path::Path) -> Vec<PathBuf> {
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.flatten()
-                .map(|e| e.path())
-                .filter(|p| {
-                    p.is_file()
-                        && p.extension()
-                            .and_then(|e| e.to_str())
-                            .is_some_and(|e| e.eq_ignore_ascii_case("pcraft") || photocraft_codecs::is_readable_extension(e, true))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    files.sort_by(|a, b| natural_cmp(&a.to_string_lossy(), &b.to_string_lossy()));
-    files
-}
-
-/// Natural sort: "img2" before "img10".
-pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
-    let (mut ai, mut bi) = (a.chars().peekable(), b.chars().peekable());
-    loop {
-        match (ai.peek().copied(), bi.peek().copied()) {
-            (None, None) => return std::cmp::Ordering::Equal,
-            (None, _) => return std::cmp::Ordering::Less,
-            (_, None) => return std::cmp::Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let mut na = String::new();
-                while let Some(c) = ai.peek().copied().filter(char::is_ascii_digit) {
-                    na.push(c);
-                    ai.next();
-                }
-                let mut nb = String::new();
-                while let Some(c) = bi.peek().copied().filter(char::is_ascii_digit) {
-                    nb.push(c);
-                    bi.next();
-                }
-                let o = na
-                    .trim_start_matches('0')
-                    .len()
-                    .cmp(&nb.trim_start_matches('0').len())
-                    .then_with(|| na.trim_start_matches('0').cmp(nb.trim_start_matches('0')));
-                if o != std::cmp::Ordering::Equal {
-                    return o;
-                }
-            }
-            (Some(x), Some(y)) => {
-                let o = x.to_lowercase().cmp(y.to_lowercase());
-                if o != std::cmp::Ordering::Equal {
-                    return o;
-                }
-                ai.next();
-                bi.next();
-            }
-        }
-    }
-}
+pub use photocraft_engine::batch_io::{folder_images, natural_cmp};
 
 pub fn open_folder_path(app: &mut PhotocraftApp, dir: &std::path::Path) -> Result<Value, String> {
     let files = folder_images(dir);
@@ -83,7 +27,7 @@ pub fn open_folder_path(app: &mut PhotocraftApp, dir: &std::path::Path) -> Resul
     // Open the first image now; the rest wait in the filmstrip (opened on click).
     crate::filmstrip_ui::set_folder(dir, files.clone());
     let first = files[0].clone();
-    let bytes = std::fs::read(&first).map_err(|e| e.to_string())?;
+    let bytes = photocraft_engine::batch_io::read_file(&first)?;
     let _ = app.open_file(&first.display().to_string(), &bytes)?;
     app.ui.status = li_i18n::fmt(tl!("{n} images in {folder}"), &[("n", &files.len().to_string()), ("folder", &dir.display().to_string())]);
     app.ui.status_error = false;
@@ -279,19 +223,6 @@ pub(super) fn batch_name(template: &str, input: &std::path::Path, counter: usize
     Ok(format!("{name}.{format}"))
 }
 
-pub(super) fn batch_destination(dir: &std::path::Path, name: &str, conflict: &str) -> Option<PathBuf> {
-    let dest = dir.join(name);
-    if !dest.exists() || conflict == "overwrite" {
-        return Some(dest);
-    }
-    if conflict == "skip" {
-        return None;
-    }
-    let stem = dest.file_stem()?.to_string_lossy();
-    let ext = dest.extension()?.to_string_lossy();
-    (2..).map(|n| dir.join(format!("{stem}-{n}.{ext}"))).find(|p| !p.exists())
-}
-
 pub(super) fn batch_export(
     input: &std::path::Path,
     dest: &std::path::Path,
@@ -299,12 +230,8 @@ pub(super) fn batch_export(
     options: &crate::ai_ui::AiOptions,
     ctl: &lightcraft_sysmem::JobCtl,
 ) -> anyhow::Result<()> {
-    use std::io::Read;
     ctl.check()?;
-    let limit = photocraft_format::read::MAX_FILE_BYTES;
-    let mut bytes = Vec::new();
-    std::fs::File::open(input)?.take(limit + 1).read_to_end(&mut bytes)?;
-    anyhow::ensure!(bytes.len() as u64 <= limit, "Image exceeds the file memory limit");
+    let bytes = photocraft_engine::batch_io::read_input(input)?;
     let mut doc = photocraft_io::import(&input.to_string_lossy(), &bytes)?.document;
     // Export a cutout of the visible photograph, retaining its document colour profile.
     let img = photocraft_engine::ai_cmds::flatten_rgba(&doc)?;
@@ -353,24 +280,15 @@ pub(super) fn start_batch_with(
                 }
             };
             set(tl!("Working…").into());
-            let res =
-                (|| -> anyhow::Result<Option<PathBuf>> {
-                    let dir = output.clone().unwrap_or_else(|| path.parent().unwrap_or_else(|| std::path::Path::new(".")).join("cutouts"));
-                    let name = batch_name(&template, path, i + 1, &format).map_err(anyhow::Error::msg)?;
-                    std::fs::create_dir_all(&dir)?;
-                    let Some(dest) = batch_destination(&dir, &name, &conflict) else {
-                        return Ok(None);
-                    };
-                    // A template can target a different photo later in the same list.
-                    let canonical_dest = dest.exists().then(|| std::fs::canonicalize(&dest)).transpose()?;
-                    anyhow::ensure!(
-                        !files.iter().any(|source| source == &dest
-                            || canonical_dest.as_ref().is_some_and(|target| std::fs::canonicalize(source).ok().as_ref() == Some(target))),
-                        "Output would overwrite an input photo"
-                    );
-                    process(path, &dest, &format, &options, &ctl)?;
-                    Ok(Some(dest))
-                })();
+            let res = (|| -> anyhow::Result<Option<PathBuf>> {
+                let dir = output.clone().unwrap_or_else(|| path.parent().unwrap_or_else(|| std::path::Path::new(".")).join("cutouts"));
+                let name = batch_name(&template, path, i + 1, &format).map_err(anyhow::Error::msg)?;
+                let Some(dest) = photocraft_engine::batch_io::prepare_output(&dir, &name, &conflict, &files)? else {
+                    return Ok(None);
+                };
+                process(path, &dest, &format, &options, &ctl)?;
+                Ok(Some(dest))
+            })();
             let cancelled = ctl.is_cancelled();
             match res {
                 Ok(Some(dest)) => set(format!("Saved {}", dest.file_name().map(|n| n.to_string_lossy()).unwrap_or_default())),
