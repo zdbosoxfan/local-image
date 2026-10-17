@@ -19,7 +19,7 @@ pub const MAX_ITEMS: usize = 128;
 pub const MAX_STOPS: usize = 4096;
 pub const MAX_COORDINATE: f64 = 1_000_000.0;
 
-/// Width/brush packages supply filled document-space outlines. No dependency back to pathops.
+/// Width/brush providers supply filled document-space outlines. No dependency back to pathops.
 /// A projected outline includes stroke alignment, dashes and arrows, applied once by its provider.
 pub trait StrokeProjection {
     fn outline(&self, path: &Path, stroke: &StrokeItem) -> Result<Path, String>;

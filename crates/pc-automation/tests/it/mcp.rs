@@ -401,9 +401,7 @@ async fn filesystem_policy_rejects_absolute_and_escaping_paths_before_effects() 
     cleanup(&base);
 }
 
-// ---------------------------------------------------------------------------
 // Bridge mode against a fake control server
-// ---------------------------------------------------------------------------
 
 async fn fake_app() -> (String, tokio::task::JoinHandle<Vec<Value>>) {
     fake_app_with_screenshot(None).await

@@ -241,7 +241,7 @@ fn object36_expand_live_corners_brush_and_path_text_use_owner_projections() {
     let r = request(&s, &[id]);
     let p = prepare(&s, &r).unwrap();
     assert!(photocraft_compose::flatten(&before).px.iter().any(|p| p[3] > 0.9));
-    // Owner 12's text and vector rasterizers use different edge coverage. Its public
+    // Text and vector rasterizers use different edge coverage. The public
     // conversion contract checks filled-glyph coverage IoU >0.97, not exact AA samples.
     let a = photocraft_compose::flatten(&before);
     let b = photocraft_compose::flatten(&p.document);

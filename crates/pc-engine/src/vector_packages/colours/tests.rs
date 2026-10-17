@@ -3,7 +3,7 @@ use super::*;
 use photocraft_doc::vector_design::appearance::{Appearance, FillItem};
 use photocraft_doc::{Affine, Color, ColorMode, Path, SampleType, ShapeLayer, ShapeStroke, Size, Subpath, SymbolDef, SymbolInstance};
 use std::sync::Arc;
-// Test-only storage models 00's read/write contract inside the undoable document. XMP is
+// Test-only storage models the Access read/write contract inside the undoable document. XMP is
 // deliberately NOT a production adapter or a claim of native palette integration.
 pub(crate) fn test_access() -> Access {
     Access {

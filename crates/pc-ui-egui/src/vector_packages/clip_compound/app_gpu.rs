@@ -1,4 +1,4 @@
-//! Production-router acceptance, registered by 00 after integration/35.md is applied.
+//! Production-router acceptance.
 //! This gate deliberately requires the real app state/preview routes. An isolated widget
 //! or temporarily replacing the app's authoritative document does not satisfy it.
 use egui::{Event, Modifiers, PointerButton, Pos2};

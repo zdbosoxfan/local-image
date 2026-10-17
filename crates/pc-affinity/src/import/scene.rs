@@ -142,7 +142,7 @@ impl<'a, 'b> State<'a, 'b> {
         shape.cache = Some(surface);
         let stack = (appearance != photocraft_vector::appearance::legacy_appearance(&shape)).then_some(appearance);
         let mut layer = Layer::new(name, LayerContent::Shape(shape));
-        // Ordinary paints retain the established path-edit route; explicit paint order uses 08.
+        // Ordinary paints retain the established path-edit route; explicit paint order uses the appearance stack.
         layer.vector.appearance = stack;
         self.supported += 1;
         Ok(layer)

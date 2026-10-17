@@ -1,4 +1,4 @@
-//! Production full-app hook implementation for 00's serial registration lane. Tests use
+//! Production full-app hook implementation. Tests use
 //! these exact functions, with normal canvas pointer capture and GpuCanvas rendering.
 use super::layout::{PointerMap, State, Tool as LayoutTool};
 use crate::{
@@ -155,7 +155,7 @@ pub fn ruler_units(app: &PhotocraftApp) -> (photocraft_engine::prefs::Unit, f64)
         _ => legacy,
     }
 }
-/// Package 00 places this button in the existing context/properties UI; it opens the
+/// The app places this button in the existing context/properties UI; it opens the
 /// same panel used by keyboard fields and dedicated tool selection.
 pub fn context(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     if crate::widgets::secondary_button(ui, li_i18n::t("Transform and Layout"), 0.0).clicked() {

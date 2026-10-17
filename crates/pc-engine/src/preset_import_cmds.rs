@@ -241,7 +241,7 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-// ------------------------------------------------------------------ gradients (.grd)
+// Gradients (.grd)
 
 fn hsb_to_rgb([h, s, v]: [f32; 3]) -> [f32; 3] {
     li_color::perceptual::hsv_to_rgb(h, s, v)

@@ -1,4 +1,4 @@
-//! Package 02 live-shape input/preview/context hooks; registered by packages 00/01.
+//! Live-shape input/preview/context hooks.
 //! Modifier/capture behavior adapted from VectorCraft crates/tools/src/shape.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. Copyright (c) 2026 ArtCraft Team
 //! and the VectorCraft contributors. MIT OR Apache-2.0; see licenses/vectorcraft-NOTICE.
@@ -111,7 +111,7 @@ impl State {
         self.gesture = Some(Gesture { capture, targets: vec![id], above: None, start: Point::new(0., 0.), original, handle: Some(handle) });
         Ok(())
     }
-    /// Snap provider 07 supplies a point satisfying the current Shift constraint. Sample modifiers each frame.
+    /// The snap provider supplies a point satisfying the current Shift constraint. Sample modifiers each frame.
     pub fn update(&mut self, s: &Session, p: Point, mods: egui::Modifiers, snap: impl Fn(Point, Point, bool) -> Point) -> Result<()> {
         self.update_checked(s, p, mods, |p, start, shift| Ok(snap(p, start, shift)))
     }
@@ -546,7 +546,7 @@ pub enum Event {
     Up(Point),
     Cancel,
 }
-/// Full-app captured-pointer router. 00 maps canvas::ToolEvent to these events before legacy shape routing.
+/// Full-app captured-pointer router. Maps canvas::ToolEvent to these events before legacy shape routing.
 /// `handle_tolerance` is in document pixels (normally 7 / zoom).
 pub fn pointer(
     s: &mut Session,
@@ -600,7 +600,7 @@ pub fn pointer_checked(
     }
     result.map(|()| true)
 }
-/// Existing persona/tool registry 01 selects these defaults; no new registry is created here.
+/// The existing persona/tool registry selects these defaults; no new registry is created here.
 pub fn parameters_for(id: &str) -> Option<ShapeParameters> {
     use ShapeParameters::*;
     let id = if id.eq_ignore_ascii_case("EllipseShape") { "ellipse" } else { id };

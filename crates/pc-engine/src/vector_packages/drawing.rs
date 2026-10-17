@@ -1,6 +1,5 @@
-//! Package 02: detached live geometry and atomic, journaled shape commands.
-//! Generator inclusion is the package-owned bootstrap until 00 adds pc-vector::design_shapes.
-//! Replace the path module with `pub use photocraft_vector::design_shapes as geometry` at integration.
+//! Detached live geometry and atomic, journaled shape commands.
+//! Generators come from pc-vector's `design_shapes`.
 pub use photocraft_vector::design_shapes as geometry;
 
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};

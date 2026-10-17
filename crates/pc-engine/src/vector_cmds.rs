@@ -782,9 +782,7 @@ fn shape_rasterize(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "layer": id.0 }))
 }
 
-// ---------------------------------------------------------------------------
 // Document paths
-// ---------------------------------------------------------------------------
 
 fn is_work(name: Option<&str>) -> bool {
     name.is_none_or(|n| n.is_empty() || n.eq_ignore_ascii_case("work") || n == "Work Path")
@@ -1285,9 +1283,7 @@ fn path_stroke(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "damage": [dmg.x0, dmg.y0, dmg.width(), dmg.height()] }))
 }
 
-// ---------------------------------------------------------------------------
 // Vector masks
-// ---------------------------------------------------------------------------
 
 fn vector_mask_info(s: &Session, id: LayerId) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -1478,9 +1474,7 @@ fn selection_to_shape(s: &mut Session, p: &Value) -> Result<Value> {
     shape_create(s, &q)
 }
 
-// ---------------------------------------------------------------------------
 // Specs
-// ---------------------------------------------------------------------------
 
 pub(crate) const PATH_FORM: &str = r##"path: {"subpaths":[{"closed":bool=true,"op":"combine|subtract|intersect|exclude","knots":[[x,y] | {"anchor":[x,y],"in":[x,y],"out":[x,y],"smooth":bool}]}],"fillRule":"nonzero|evenodd","inverted":bool}"##;
 

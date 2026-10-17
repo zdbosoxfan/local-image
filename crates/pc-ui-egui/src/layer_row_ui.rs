@@ -223,7 +223,7 @@ pub fn recorded(ctx: &egui::Context) -> Vec<RowRects> {
     ctx.data(|d| d.get_temp::<Vec<RowRects>>(rects_id())).unwrap_or_default()
 }
 
-// ------------------------------------------------------------------ in-place rename (#314)
+// In-place rename (#314)
 
 /// The Layers panel's in-place rename. One at a time, like Photoshop: Enter, Tab or a click
 /// anywhere else commits it, Esc cancels it, and starting another rename commits this one.

@@ -308,7 +308,7 @@ mod tests;
 mod app_gpu;
 
 /// App bridge follows the existing anchor-tools transient egui-memory contract. The
-/// coordinator wires these four hooks; no persisted UiState field or alternative canvas.
+/// The app wires these four hooks; no persisted UiState field or alternative canvas.
 #[derive(Clone, Default)]
 pub struct AppBridge {
     pub tool: Option<Tool>,

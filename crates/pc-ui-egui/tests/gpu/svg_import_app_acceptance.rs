@@ -1,5 +1,5 @@
-//! Package 13 full-app gate. Register in the existing UI GPU aggregate after 00 wiring.
-//! This requires PhotocraftApp::svg_import plus the canvas preview/input hooks in 13.md.
+//! SVG import full-app gate, in the UI GPU aggregate.
+//! This requires PhotocraftApp::svg_import plus the canvas preview/input hooks.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::{Harness, kittest::Queryable};

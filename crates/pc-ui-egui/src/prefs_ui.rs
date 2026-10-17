@@ -115,7 +115,7 @@ fn theme_pref(k: ThemeKind) -> Theme {
     }
 }
 
-// ------------------------------------------------------------------ lifecycle
+// Lifecycle
 
 fn load_prefs_text(services: &mut crate::Services) -> Result<Option<String>, crate::PrefsLoadError> {
     if let Some(load) = services.load_prefs_checked.as_mut() { load() } else { Ok(services.load_prefs.as_mut().and_then(|load| load())) }
@@ -658,7 +658,7 @@ fn history_log(app: &mut PhotocraftApp) {
     }
 }
 
-// ------------------------------------------------------------------ shortcuts
+// Shortcuts
 
 pub use crate::shortcuts::{default_shortcut, effective_shortcut};
 
@@ -731,7 +731,7 @@ pub fn shortcut_items(app: &PhotocraftApp) -> Vec<(String, String, Vec<String>, 
     out
 }
 
-// ------------------------------------------------------------------ menu routing
+// Menu routing
 
 /// Shell front ends for Edit-menu commands invoked without parameters (dialogs, pickers).
 /// `None` when `id` isn't handled here.
@@ -1040,7 +1040,7 @@ pub(crate) fn open_mismatch_for(app: &mut PhotocraftApp, report: &Value, target:
     )
 }
 
-// ------------------------------------------------------------------ bodies
+// Bodies
 
 /// Render one of our dialogs' bodies.
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
@@ -1288,8 +1288,7 @@ fn gpu_status_rows(ui: &mut egui::Ui, info: Option<&Value>, failure: Option<&str
     });
 }
 
-/// local-image: new Processing labels, shown in English until the next translation pass (owner:
-/// translations last); listed for the i18n owner in docs/wip/BUILD-threads-a.md.
+/// local-image: new Processing labels, shown in English until the next translation pass.
 const PROCESSING: &str = "Processing";
 const PROCESSING_THREADS: &str = "Processing threads";
 const BACKGROUND_PRIORITY: &str = "Background work priority";
@@ -1966,7 +1965,7 @@ fn mismatch_body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
     f.insert("action".into(), json!(action));
 }
 
-// ------------------------------------------------------------------ confirm
+// Confirm
 
 /// OK on one of our dialogs.
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
@@ -2193,7 +2192,7 @@ mod tests {
                     let mut labels = vec![humanize(k)];
                     labels.extend(prefs::choices(&format!("{sec}.{k}")).into_iter().flatten().map(|c| choice_label(c)));
                     if sec == "general" && k == "checkForUpdatesAtStartup" {
-                        // CODEX-TASK.md explicitly defers this new string to the pending list.
+                        // This new string is deferred to the pending translation list.
                         // Keep every existing caption and all choice labels under the strict gate.
                         let caption = humanize(k);
                         let pending: &[&str] = include!("i18n_pending_vector.rs");

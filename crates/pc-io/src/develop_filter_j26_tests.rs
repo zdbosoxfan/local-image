@@ -1,5 +1,4 @@
-//! J26: the editor's lens profile and red eye through the Develop bridge — parity with Develop
-//! and the quality measurements recorded in docs/wip/CLAUDE-REPORT-j26-lens-bridge.md.
+//! The editor's lens profile and red eye through the Develop bridge: parity with Develop.
 
 use super::*;
 use photocraft_cms::Builtin;
@@ -139,7 +138,7 @@ fn j26_lens_correction_matches_develops_render() {
     let (mean, worst) = diff(&rgb(&editor, frame), &develop, w as usize, h as usize);
     eprintln!("J26 lens: editor vs Develop render: mean {:.3} max {:.3} levels/255; editor {editor_ms:.1} ms", mean * 255.0, worst * 255.0);
     assert!(mean < 0.75 / 255.0 && worst < 3.0 / 255.0, "editor vs Develop: mean {mean} max {worst}");
-    // Before J26, "auto" on this EXIF meant the editor's generic 24 mm-equivalent profile.
+    // The old behaviour: "auto" on this EXIF used the editor's generic 24 mm-equivalent profile, for comparison.
     let generic = photocraft_algo::lens::LensCorrection { profile: Some(photocraft_algo::lens::generic_profile(24.0)), ..Default::default() };
     let old = photocraft_algo::lens::correct(&src, frame, &generic);
     let (old_mean, old_worst) = diff(&rgb(&old, frame), &develop, w as usize, h as usize);
@@ -163,7 +162,7 @@ fn j26_lens_correction_matches_develops_render() {
     assert!(corners.iter().all(|a| *a > 0.999), "{corners:?} at {scale}");
 }
 
-// ---------------------------------------------------------------------------- red eye
+// Red eye
 
 #[derive(Clone, Copy)]
 struct Scene {

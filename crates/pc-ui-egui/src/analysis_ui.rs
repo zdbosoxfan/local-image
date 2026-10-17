@@ -199,7 +199,7 @@ fn export_log(app: &mut PhotocraftApp, rows: Option<Vec<u64>>) -> Result<Value, 
     Ok(json!({"path": path, "rows": csv["rows"]}))
 }
 
-// ------------------------------------------------------------------ tools
+// Tools
 
 fn tolerance(app: &PhotocraftApp) -> f64 {
     7.0 / f64::from(app.current_zoom().max(0.01))
@@ -403,7 +403,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     }
 }
 
-// ------------------------------------------------------------------ options bars
+// Options bars
 
 fn readout(ui: &mut egui::Ui, label: &str, value: Option<f64>) {
     let t = Tokens::get(ui.ctx());
@@ -501,7 +501,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     }
 }
 
-// ------------------------------------------------------------------ panels and dialogs
+// Panels and dialogs
 
 fn float_frame(t: &Tokens) -> egui::Frame {
     egui::Frame::NONE

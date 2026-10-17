@@ -107,7 +107,7 @@ pub fn prepare(session: &Session, capture: &Capture, output: &Output, origin: [i
     }
     Ok(Prepared { capture: capture.clone(), children, stats: output.stats.clone() })
 }
-/// Package 28 calls this inside its journaled apply command. Preview drops Prepared.
+/// Called inside the journaled apply command. Preview drops Prepared.
 pub fn commit(session: &mut Session, prepared: Prepared, group_name: &str, cancel: impl Fn() -> bool) -> Result<LayerId> {
     prepared.capture.check(session)?;
     if cancel() {

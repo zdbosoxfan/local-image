@@ -189,7 +189,7 @@ fn measure44_scale_assignment_metadata_transaction_and_query_contract() {
     assert!(edit.commit(&mut s, |_, _, _| Err(error("provider failure"))).is_err());
     assert_eq!(s.active().unwrap().doc, before);
     assert_eq!(s.active().unwrap().revision, rev);
-    // Simulate 00's metadata setter using an existing data field, then check atomic history.
+    // Simulate the metadata setter using an existing data field, then check atomic history.
     edit.commit(&mut s, |d, _, scale| {
         d.name = format!("scale {}", scale.factor);
         Ok(())

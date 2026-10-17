@@ -743,7 +743,7 @@ mod tests {
         assert_eq!((b1.x0 - b0.x0, b1.y0 - b0.y0), (20, 10));
     }
 
-    // ---- Layer masks and targets (#205) ----
+    // Layer masks and targets (#205)
 
     /// `session()` plus a reveal-all mask with `hide` painted black (linked unless `linked` is false).
     fn masked(hide: &[Rect], linked: bool) -> Session {

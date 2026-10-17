@@ -823,7 +823,7 @@ impl DockLayout {
     }
 }
 
-// ----------------------------------------------------------------------- app-level state
+// App-level state
 
 /// Pro (Photoshop) themes order the Color group's tabs differently.
 pub fn is_pro(app: &PhotocraftApp) -> bool {
@@ -1064,7 +1064,7 @@ pub fn docked(app: &PhotocraftApp, pro: bool) -> Vec<(Group, Vec<Tab>)> {
         .collect()
 }
 
-// ----------------------------------------------------------------------------- drawing
+// Drawing
 
 /// Per-group interactions collected while drawing, applied afterwards.
 enum Action {
@@ -1327,7 +1327,7 @@ fn resize(layout: &mut DockLayout, heights: &[(Group, f32)], i: usize, dy: f32) 
     }
 }
 
-// --------------------------------------------------------------------------- persistence
+// Persistence
 
 /// What `prefs.panelLayout` holds: the live layout, open panels and floating panels.
 pub(crate) fn snapshot(app: &PhotocraftApp) -> Value {

@@ -1,4 +1,4 @@
-//! Full-app gates for the app router. These exercise production dispatch, never package
+//! Full-app gates for the app router. These exercise production dispatch, never module
 //! input helpers.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;

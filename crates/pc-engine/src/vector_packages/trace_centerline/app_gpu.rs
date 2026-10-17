@@ -1,4 +1,4 @@
-//! Registration owned by 00 after package 28's actual trace dialog is integrated.
+//! Requires the actual trace dialog.
 //! This is a real full-app acceptance test, deliberately requiring the actual
 //! menu/dialog labels and renderer; no miniature substitute widget or skipped GPU.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
@@ -57,7 +57,7 @@ fn centerline_full_app_rtx_dialog_mode_live_preview_trace_and_undo() {
     let gpu = observer.lock().unwrap().clone().unwrap();
     let before = h.state().session.active().unwrap().doc.clone();
     let revision = h.state().session.active().unwrap().revision;
-    // Package 28 retains the specified shared Layer > Vectorize entry point.
+    // The trace dialog is reached through the shared Layer > Vectorize entry point.
     h.get_by_label("Layer").click();
     h.run_steps(2);
     h.get_by_label("Vectorize…").click();
@@ -73,7 +73,7 @@ fn centerline_full_app_rtx_dialog_mode_live_preview_trace_and_undo() {
     assert!(Arc::ptr_eq(&before, &h.state().session.active().unwrap().doc));
     assert_eq!(h.state().session.active().unwrap().revision, revision);
     assert!(h.state().session.journal.is_empty());
-    // Package 28 supplies this query hook to expose the same detached document
+    // The trace dialog supplies this query hook to expose the same detached document
     // that its actual preview callback displays. No Session mutation is allowed.
     let preview = photocraft_ui_egui::trace_dialog::preview_document(h.state()).expect("live trace preview");
     fn parity(h: &mut Harness<'static, PhotocraftApp>, gpu: &GpuCanvas, doc: &Document) {

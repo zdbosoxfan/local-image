@@ -11,8 +11,7 @@ use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId, ShapeLayer};
 use serde_json::{Value, json};
 use std::sync::{Arc, OnceLock};
 
-// Package 00 owns pc-vector's registry. Compile the package-owned pure source here until that
-// registration lands; this has no pc-vector -> pc-pathops dependency or duplicate evaluator.
+// Re-exported from pc-vector: no pc-vector -> pc-pathops dependency or duplicate evaluator.
 pub use photocraft_vector::live_corners as geometry;
 
 const MAX_CACHE_PIXELS: u64 = 64 * 1024 * 1024;

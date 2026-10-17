@@ -1,5 +1,5 @@
 //! Offscreen FULL APP regression for Move's guide bridge. The new node/spacing/manager
-//! router still needs package 00 registration; this test explicitly covers the existing
+//! router is registered separately; this test explicitly covers the existing
 //! live preview/release path against the new shared query's geometry.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;

@@ -170,7 +170,7 @@ fn write_tool_icon_contact_sheet() {
         println!("{} tools, dark/light: {}", TOOL_ICONS.len(), path.display());
     }
     // target/icons-ux: every tool icon (Compositing, Develop, Liquify and Vector) at 16/20/40 px against
-    // the previous artwork when it was exported to target/icons-ux/before (see docs/wip/BUILD-icons.md).
+    // the previous artwork exported to target/icons-ux/before.
     let old = root.join("target/icons-ux/before/assets/icons");
     let all: Vec<(&str, &[u8])> = TOOL_ICONS
         .iter()

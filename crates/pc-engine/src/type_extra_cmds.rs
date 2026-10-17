@@ -18,7 +18,7 @@ use crate::{EngineError, Result, Session};
 /// Photoshop's Paste Lorem Ipsum filler.
 pub const LOREM_IPSUM: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
 
-// ---------- predicates ----------
+// Predicates
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
@@ -60,7 +60,7 @@ fn has_defaults(s: &Session) -> std::result::Result<(), String> {
     s.type_defaults.as_ref().map(|_| ()).ok_or_else(|| "no default type styles have been saved".into())
 }
 
-// ---------- helpers ----------
+// Helpers
 
 /// Edits a type layer as one history step and re-renders it.
 fn with_text<R>(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut TextLayer, &Document) -> Result<R>) -> Result<R> {
@@ -104,7 +104,7 @@ fn byte_index(text: &str, ci: usize) -> usize {
     text.char_indices().nth(ci).map_or(text.len(), |(b, _)| b)
 }
 
-// ---------- anti-aliasing / orientation ----------
+// Anti-aliasing / orientation
 
 pub fn aa_name(a: AntiAlias) -> &'static str {
     match a {
@@ -134,7 +134,7 @@ fn set_orientation(s: &mut Session, p: &Value, o: Orientation) -> Result<Value> 
     Ok(json!({"orientation": if o == Orientation::Vertical { "vertical" } else { "horizontal" }}))
 }
 
-// ---------- point ⇄ paragraph ----------
+// Point ⇄ paragraph
 
 fn to_paragraph(s: &mut Session, p: &Value) -> Result<Value> {
     let r = with_text(s, p, "Convert to Paragraph Text", |t, doc| {
@@ -209,7 +209,7 @@ fn to_point(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"inserted": r}))
 }
 
-// ---------- outlines → paths ----------
+// Outlines → paths
 
 /// The type layer's contours as a document-space path. Each glyph is one nonzero-winding
 /// component; its counters must not subtract the artwork of earlier overlapping glyphs.
@@ -289,7 +289,7 @@ fn convert_to_shape(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"layer": id.0, "subpaths": n}))
 }
 
-// ---------- warp ----------
+// Warp
 
 fn warp_text(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "type.warpText";
@@ -312,7 +312,7 @@ fn warp_text(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(out)
 }
 
-// ---------- OpenType toggles ----------
+// OpenType toggles
 
 /// Is the OpenType toggle `tag` on for a character style? (`liga`/`dlig` have dedicated fields.)
 pub fn feature_on(st: &photocraft_doc::text::CharStyle, tag: &str) -> bool {
@@ -350,7 +350,7 @@ fn toggle_opentype(s: &mut Session, p: &Value, tag: &'static str) -> Result<Valu
     Ok(json!({"feature": tag, "on": on}))
 }
 
-// ---------- lorem ipsum / update / fonts / defaults ----------
+// Lorem ipsum / update / fonts / defaults
 
 fn paste_lorem(s: &mut Session, p: &Value) -> Result<Value> {
     if has_text(s).is_ok() && p.get("new").and_then(Value::as_bool) != Some(true) {
@@ -476,7 +476,7 @@ fn load_defaults(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"font": c.font_family, "size": c.size_pt}))
 }
 
-// ---------- registry ----------
+// Registry
 
 pub fn specs() -> Vec<CommandSpec> {
     macro_rules! spec {

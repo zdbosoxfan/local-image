@@ -397,7 +397,7 @@ fn encode_pcs(pcs: Pcs, kind: LutKind) -> Stage {
     }
 }
 
-// ---------------------------------------------------------------- reader
+// Reader
 
 struct Reader<'a> {
     b: &'a [u8],

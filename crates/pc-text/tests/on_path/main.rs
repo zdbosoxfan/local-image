@@ -1,5 +1,5 @@
-//! Owned package-12 tests compile the single source before package 00 registers
-//! its public module. Independent analytic curves avoid sharing the V1 sampler.
+//! Compiles the `on_path` source directly rather than through the public module.
+//! Independent analytic curves avoid sharing the V1 sampler.
 pub use photocraft_text::{TextEngine, layout, raster, render};
 #[path = "../../src/on_path.rs"]
 #[allow(dead_code)]

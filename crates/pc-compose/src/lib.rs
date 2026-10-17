@@ -1626,7 +1626,6 @@ fn split_parts(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<(Buffer, Buffer, O
     Some((surface_to_buffer(&fs, rect), surface_to_buffer(&ss, rect), mask_vals(layer, rect, cx)))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Layer-effect map cache
 
 /// Order-independent identity of a layer's pixels, masks, effects and (for groups) children.

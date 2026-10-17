@@ -26,7 +26,7 @@ fn exhausted_id() -> EngineError {
     EngineError::Other("slice id space exhausted".into())
 }
 
-// ---------- predicates ----------
+// Predicates
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
@@ -59,7 +59,7 @@ fn has_layer_for_slice(s: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
 
-// ---------- geometry ----------
+// Geometry
 
 /// Bounds of a layer's pixels plus its layer effects (groups: the union of their children).
 pub fn layer_bounds(l: &Layer) -> Rect {
@@ -122,7 +122,7 @@ pub(crate) fn refresh(s: &mut Session) {
     }
 }
 
-// ---------- params ----------
+// Params
 
 pub(crate) fn rect_param(p: &Value) -> Option<Rect> {
     let f = |v: &Value| v.as_f64().filter(|x| x.is_finite()).map(|x| x.round() as i32);
@@ -256,7 +256,7 @@ pub fn resolved_json(doc: &Document, r: &ResolvedSlice) -> Value {
     })
 }
 
-// ---------- commands ----------
+// Commands
 
 fn new_slice(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "slice.new";

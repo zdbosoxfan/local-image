@@ -1,6 +1,5 @@
-//! Register in tests/gpu/main.rs after applying integration/44.md's REAL canvas hook.
+//! Registered in tests/gpu/main.rs; needs the REAL canvas hook.
 //! These tests intentionally fail if activation never reaches production route().
-//! Owner speed override forbids executing these GPU/release gates in package jobs.
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;
 use photocraft_doc::{Color, ColorMode, Document, Layer, LayerContent, SampleType, ShapeLayer, Size};

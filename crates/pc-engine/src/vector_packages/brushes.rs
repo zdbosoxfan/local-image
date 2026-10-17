@@ -1,6 +1,5 @@
 //! Vector Brush command and gesture boundary. Geometry is adapted from pinned VectorCraft;
-//! the bridge below compiles the owned source until package 00 adds the crate dependency.
-//! See docs/wip/vector-tasks/integration/17.md. No shared registries are replaced.
+//! it lives in photocraft_vecfx::brush and is re-exported below.
 use crate::vector_packages::pencil::fitting::{self, FitOptions, Sample};
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use geometry::{Brush, Resource};
@@ -220,7 +219,7 @@ fn cache_bounds(doc: &Document, layers: &[Layer]) -> Result<Rect> {
     }
     Ok(bounds)
 }
-/// Actual package 08 hook; pc-vector never depends back on pathops/vecfx.
+/// Stroke projection hook; pc-vector never depends back on pathops/vecfx.
 pub struct BrushProjection;
 impl photocraft_vector::appearance::StrokeProjection for BrushProjection {
     fn outline(&self, path: &photocraft_doc::Path, stroke: &StrokeItem) -> std::result::Result<photocraft_doc::Path, String> {

@@ -1,5 +1,5 @@
 //! Full PhotocraftApp offscreen canvas: pointer preview/release then public export/import.
-//! Package 00 registers this in pc-ui-egui/tests/gpu/main.rs after 13; it is not an
+//! Registered in pc-ui-egui/tests/gpu/main.rs; it is not an
 //! isolated-widget proxy. No software adapters or successful skips are accepted.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crate::export_app_gpu::{dragged_shape_app, parity, present};

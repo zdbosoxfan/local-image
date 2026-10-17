@@ -186,7 +186,7 @@ fn b(f: &Map<String, Value>, k: &str, d: bool) -> bool {
     f.get(k).and_then(Value::as_bool).unwrap_or(d)
 }
 
-// ---------- Save for Web ----------
+// Save for Web
 
 const WEB_FORMATS: [(&str, &str); 5] = [("gif", "GIF"), ("png8", "PNG-8"), ("png24", "PNG-24"), ("jpeg", "JPEG"), ("wbmp", "WBMP")];
 
@@ -526,7 +526,7 @@ fn web_confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     Ok(r)
 }
 
-// ---------- Print ----------
+// Print
 
 pub fn open_print(app: &mut PhotocraftApp) -> u64 {
     let mut f = Map::new();

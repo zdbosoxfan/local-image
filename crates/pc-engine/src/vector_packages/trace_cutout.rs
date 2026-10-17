@@ -1,5 +1,5 @@
-//! Package 27 cutout evaluation and atomic publication adapter.
-//! Package 28 owns the existing public vectorize commands and dialog routing.
+//! Cutout evaluation and atomic publication adapter.
+//! The existing public vectorize commands and dialog routing live in the trace dialog.
 //! Preview stays detached; prepared caches are published by one Session::edit.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use pc_trace::{Image, Params, Trace};
@@ -40,7 +40,7 @@ impl Capture {
     pub fn target(&self) -> LayerId {
         self.target
     }
-    /// Read only source snapshot for package 28's pixel/selection extraction.
+    /// Read only source snapshot for the trace dialog's pixel/selection extraction.
     pub fn snapshot(&self) -> &Document {
         &self.document
     }
@@ -112,7 +112,7 @@ pub struct Prepared {
     group: Layer,
 }
 impl Prepared {
-    /// Package 28 calls this from its journaled vectorize command completion.
+    /// Called from the journaled vectorize command completion.
     pub fn commit(self, session: &mut Session) -> Result<LayerId> {
         self.capture.current(session)?;
         let target = self.capture.target;

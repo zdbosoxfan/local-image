@@ -1,6 +1,5 @@
-//! Compiled registration slots for independent vector packages. Each package owns its
-//! module; the coordinator owns this aggregate. Empty slots deliberately advertise no
-//! command. See docs/wip/vector-tasks/README.md for ownership and integration.
+//! Aggregate of the vector feature modules' commands. Each module owns its specs; a module with
+//! nothing to register advertises no command.
 use crate::commands::CommandSpec;
 pub mod affinity;
 pub mod anchor_tools;
@@ -87,24 +86,21 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
     out
 }
 
-// Package 36 registration; UI menu/router fragments are in integration/36.md.
 pub mod expand;
 pub mod path_commands;
-// Package 37: commands join the aggregate through the 00 handoff.
+
 pub mod isolation;
 pub mod styles;
 pub mod transform_tools;
 
-// Package 41 command aggregate fragment: integration/41.md.
 pub mod distort_tools;
 pub mod live_paint;
-// Package 44: command aggregate wiring is supplied in integration/44.md.
+
 pub mod measure;
 pub mod path_effects;
 
-// Package 43 compiled slot. Aggregate command routing is handed to 00.
 pub mod mesh;
-// Package 46: 00 appends toolbar::specs() to the aggregate in the serial handoff.
+
 pub mod toolbar;
 
 pub mod selection;

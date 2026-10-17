@@ -119,7 +119,7 @@ fn run(app: &mut PhotocraftApp, id: &str, p: Value) -> Option<Value> {
     }
 }
 
-// ------------------------------------------------------------------ textures
+// Textures
 
 fn cached_texture(ctx: &egui::Context, key: impl std::hash::Hash + std::fmt::Debug, make: impl FnOnce() -> ColorImage) -> TextureHandle {
     let id = egui::Id::new(("preset-tex", key));
@@ -205,7 +205,7 @@ fn shape_texture(ctx: &egui::Context, sh: &photocraft_engine::presets::shapes::S
     })
 }
 
-// ------------------------------------------------------------------ the browser
+// The browser
 
 struct ItemView {
     key: String,
@@ -479,7 +479,7 @@ fn doc_point(app: &PhotocraftApp, pos: Pos2) -> Option<[f64; 2]> {
     Some(xf.to_doc(pos))
 }
 
-// ------------------------------------------------------------------ Gradients
+// Gradients
 
 pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let (fg, bg) = (app.session.tools.foreground, app.session.tools.background);
@@ -519,7 +519,7 @@ pub fn gradients_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-// ------------------------------------------------------------------ Patterns
+// Patterns
 
 pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     photocraft_engine::presets::patterns::sync(&mut app.session);
@@ -568,7 +568,7 @@ pub fn patterns_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-// ------------------------------------------------------------------ floating panels
+// Floating panels
 
 fn float_window(
     app: &mut PhotocraftApp,
@@ -629,7 +629,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-// ------------------------------------------------------------------ Styles
+// Styles
 
 pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let src = app.session.presets.styles.clone();
@@ -677,7 +677,7 @@ pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-// ------------------------------------------------------------------ Shapes
+// Shapes
 
 pub fn shapes_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let src = photocraft_engine::presets::shapes::all_groups(&app.session);
@@ -800,7 +800,7 @@ pub fn finish_custom_shape(app: &mut PhotocraftApp, rect: [f64; 4], keep: bool, 
     }
 }
 
-// ------------------------------------------------------------------ Tool Presets
+// Tool Presets
 
 fn tool_id(t: Tool) -> String {
     let s = format!("{t:?}");
@@ -917,7 +917,7 @@ pub fn tool_presets_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-// ------------------------------------------------------------------ Clone Source
+// Clone Source
 
 pub fn clone_source_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());

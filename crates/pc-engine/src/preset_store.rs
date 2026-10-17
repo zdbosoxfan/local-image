@@ -207,7 +207,7 @@ impl PresetBackend for DirBackend {
     }
 }
 
-// ------------------------------------------------------------------ tips
+// Tips
 
 /// Content hash of a tip (32 hex digits); the tip file's name.
 fn tip_hash(t: &GrayTile) -> String {
@@ -286,7 +286,7 @@ pub fn decode_tip(bytes: &[u8]) -> Result<GrayTile, String> {
     Ok(GrayTile { width: w, height: h, data })
 }
 
-// ------------------------------------------------------------------ group files
+// Group files
 
 /// References from a stored preset to its tip files.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

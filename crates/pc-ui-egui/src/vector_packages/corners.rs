@@ -2,7 +2,7 @@
 //! crates/tools/src/corners.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! MIT OR Apache-2.0; see licenses/vectorcraft-LICENSE-{MIT,APACHE}.
-//! Shared tool/router registration belongs to 01/00; the exact call sites are in integration/06.
+//! Shared tool/router registration lives outside this module.
 
 use egui::{Color32, Modifiers, Pos2, Stroke};
 use photocraft_doc::vector_design::drawing::{Corner, CornerKind, KnotCorner};
@@ -55,7 +55,7 @@ pub struct State {
     pub layer: Option<LayerId>,
     /// Set by the persona/tool router; defaults off and is not persisted.
     pub active: bool,
-    /// BASE indices from 03. Empty selection plus `all` targets every eligible corner.
+    /// BASE indices from Direct Select. Empty selection plus `all` targets every eligible corner.
     pub selected: Vec<CornerKey>,
     pub kind: CornerKind,
     pub radius: f64,
@@ -140,8 +140,8 @@ impl State {
         }
         Some((self.preview.clone()?, self.preview_key))
     }
-    /// Revision-keyed projection for the actual app's CPU/GPU canvas and Navigator. 00 calls
-    /// this from canvas::display_doc before its ordinary committed-document fallback.
+    /// Revision-keyed projection for the actual app's CPU/GPU canvas and Navigator. Called
+    /// from canvas::display_doc before its ordinary committed-document fallback.
     pub fn display_for_document(&mut self, session: &Session, index: usize) -> Result<Option<(Arc<Document>, u64)>, String> {
         let Some(st) = session.documents().get(index) else { return Ok(None) };
         if session.active().is_some_and(|active| active.doc.id == st.doc.id)

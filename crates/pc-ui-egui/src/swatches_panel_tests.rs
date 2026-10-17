@@ -13,7 +13,7 @@ fn click(h: &mut Harness<'_, PhotocraftApp>, label: &str) {
     h.get_by_label(label).click();
     h.run();
 }
-/// A command in the panel ☰ menu (was a stacked button before the UX polish).
+/// A command in the panel ☰ menu.
 fn menu(h: &mut Harness<'_, PhotocraftApp>, label: &str) {
     click(h, "Swatches panel menu");
     click(h, label);

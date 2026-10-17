@@ -1,5 +1,5 @@
 //! Vector paint proxy and compact flyout host. Original Local Image, GPL-3.0-or-later.
-//! Uses 08's detached appearance transaction and 35's draw-mode widget. Pixel never calls it.
+//! Uses the detached appearance transaction and the draw-mode widget. Pixel never calls it.
 #[cfg(test)]
 use egui::Modifiers;
 use egui::{Color32, Key, Sense, Ui};
@@ -61,7 +61,7 @@ impl State {
         self.targets = ids.to_vec();
         Ok(())
     }
-    /// Detached and cancellable. Render validation/budgets are delegated to package 08.
+    /// Detached and cancellable. Render validation/budgets are delegated to the appearance renderer.
     pub fn update(&mut self, s: &Session, action: &Action) -> Result<()> {
         let mut gesture = self.gesture.clone().ok_or_else(|| error("Paint gesture has not begun"))?;
         if !gesture.is_fresh(s) {
@@ -268,7 +268,7 @@ fn button(ui: &mut Ui, label: &str, glyph: &str, width: f32, state: &mut State, 
     }
     Ok(())
 }
-/// Place immediately below tools. Host owns the 35 State so drawing gestures share its mode.
+/// Place immediately below tools. Host owns the draw-mode State so drawing gestures share its mode.
 pub fn widget(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId], draw: &mut crate::clip_compound::State) -> Result<()> {
     state.synchronize(s, ids, true);
     if ui.input(|i| !i.focused || i.key_pressed(Key::Escape)) {
@@ -414,7 +414,7 @@ pub struct FlyoutState {
     held: Option<(usize, f64)>,
     open: Option<usize>,
 }
-/// Small reusable host for 01's toolbar. Package registration is evaluated each frame.
+/// Small reusable host for the toolbar. Registration is evaluated each frame.
 pub fn flyouts(ui: &mut Ui, state: &mut FlyoutState, registered: &[&str], set: Option<&photocraft_engine::toolsets::ToolSet>) -> Option<String> {
     if ui.input(|i| !i.focused || i.key_pressed(Key::Escape)) {
         state.held = None;

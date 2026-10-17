@@ -116,7 +116,7 @@ fn snapping_cached_targets_never_follow_preview_or_revision() {
 }
 // A quadratic parabola y=x²/100 represented as a cubic. At x=50, the normal is
 // (-1,1); its analytically known closest point is (50,25). This callback checks
-// adapter plumbing; V1's solver remains a separately named integration gate.
+// adapter plumbing; V1's solver is covered separately.
 fn parabola_nearest(_: &Path, p: Point) -> Result<Option<Nearest>> {
     assert!((p.x - 49.0).abs() < 1e-8 && (p.y - 26.0).abs() < 1e-8);
     Ok(Some((0, 0, 0.5, Point::new(50.0, 25.0), 2.0_f64.sqrt())))

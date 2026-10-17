@@ -17,7 +17,7 @@ pub type Result<T> = std::result::Result<T, String>;
 #[serde(default)]
 pub struct Tip {
     pub size: f64,
-    /// Degrees counter-clockwise on the y-down document, as in package 17.
+    /// Degrees counter-clockwise on the y-down document.
     pub angle: f64,
     pub roundness: f64,
     /// 0 = fixed; 1 = full pressure modulation of diameter.

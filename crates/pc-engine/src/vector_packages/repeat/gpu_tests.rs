@@ -1,5 +1,5 @@
 //! Strict GPU gate for the same repeat source projection used by the app hooks. The full
-//! pointer/preview/release app gate is supplied in the UI integration handoff, separately.
+//! pointer/preview/release app gate lives in the UI crate.
 use super::*;
 #[test]
 fn repeat19_gpu_projection_source_edit_and_expand_parity_rtx5090() {

@@ -64,7 +64,7 @@ fn desc<'a>(d: &'a Descriptor, key: &str) -> Option<&'a Descriptor> {
     }
 }
 
-// ---------------------------------------------------------------- artboards
+// Artboards
 
 /// Decodes an `artb`/`artd`/`abdd` block.
 pub fn parse_artboard(data: &[u8]) -> Option<Artboard> {
@@ -127,7 +127,7 @@ pub(crate) fn artboard_block(guides: &Guides, l: &Layer, raw: &mut Vec<([u8; 4],
     }
 }
 
-// ---------------------------------------------------------------- layer comps
+// Layer comps
 
 /// One `layerSettings` entry of a `cmls` descriptor.
 #[derive(Debug, Clone, PartialEq)]

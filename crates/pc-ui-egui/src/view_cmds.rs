@@ -681,7 +681,7 @@ pub fn cells(layout: &str, rect: egui::Rect, n: usize) -> Option<Vec<egui::Rect>
     })
 }
 
-// ---------- dialogs and pickers in front of engine commands ----------
+// Dialogs and pickers in front of engine commands
 
 /// A generic form dialog that runs `command` with its fields on OK (rendered by [`form_body`]).
 fn form(app: &mut PhotocraftApp, command: &str, label: &str, fields: Value, choices: Value) -> u64 {

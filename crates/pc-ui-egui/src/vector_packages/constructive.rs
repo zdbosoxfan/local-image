@@ -1,7 +1,7 @@
 //! Constructive tool capture/hover/preview. Adapted from VectorCraft tools/{builder,cut,draw2}.rs
 //! and draw2/{gesture,anchor}.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors. MIT OR Apache-2.0.
-//! See licenses/vectorcraft-NOTICE and integration/10.md for the shared app/router hooks.
+//! See licenses/vectorcraft-NOTICE.
 
 use egui::{Color32, Modifiers, Pos2, Stroke};
 use photocraft_doc::{Document, LayerId, Path};

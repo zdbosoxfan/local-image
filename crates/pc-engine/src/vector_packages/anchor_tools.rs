@@ -246,7 +246,7 @@ fn check_new_cache(s: &Session, c: &CurvatureCommit, above: Option<LayerId>) -> 
 }
 
 static RENDERER: OnceLock<node::RenderCache> = OnceLock::new();
-/// 00 installs the same combined 06/08/11/17 projection used for node edits.
+/// Installs the same combined projection used for node edits.
 pub fn install_renderer(render: node::RenderCache) -> std::result::Result<(), node::RenderCache> {
     RENDERER.set(render)
 }
@@ -342,7 +342,7 @@ fn run_curvature(s: &mut Session, value: &Value) -> Result<Value> {
     let c: CurvatureCommit = serde_json::from_value(value.clone()).map_err(|e| error(e.to_string()))?;
     if let Destination::NewShape { above } = c.destination {
         // Reuse Pen's public command implementation without nesting Session::execute (which
-        // would journal twice once 00 registers this command).
+        // would journal twice).
         let request = check_new_cache(s, &c, above)?;
         let spec = pen::specs().into_iter().next().ok_or_else(|| error("missing Pen command"))?;
         return (spec.run)(s, &serde_json::to_value(request).map_err(|e| error(e.to_string()))?);
@@ -376,8 +376,8 @@ fn curvature_selection(c: &CurvatureCommit) -> Vec<node::Target> {
         .collect();
     if c.targets.is_empty() { vec![remapped] } else { c.targets.iter().map(|t| if t == target { remapped.clone() } else { t.clone() }).collect() }
 }
-/// New paths reuse the already registered Pen commit. Existing paths use this package's
-/// journaled command (00's exact registration fragment); no manual journal writes.
+/// New paths reuse the already registered Pen commit. Existing paths use this module's
+/// journaled command; no manual journal writes.
 pub fn commit_curvature(s: &mut Session, c: CurvatureCommit) -> Result<Vec<node::Target>> {
     pen::check_fresh(s, c.document, c.revision)?;
     match c.destination {

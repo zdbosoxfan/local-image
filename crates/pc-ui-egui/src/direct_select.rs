@@ -618,7 +618,7 @@ pub fn cancel(app: &mut PhotocraftApp) {
     ds.last_click = None;
 }
 
-/// Package 00 calls before shortcut dispatch, and each frame even when the pointer is still.
+/// Called before shortcut dispatch, and each frame even when the pointer is still.
 pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     app.ui.direct_selection.pixels_per_point = ctx.pixels_per_point();
     let document = app.session.active().map(|s| s.doc.id.0);
@@ -656,7 +656,7 @@ pub fn frame(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     false
 }
 
-/// Raw pointer capture for package 00's canvas router. A press begins immediately, moves and
+/// Raw pointer capture for the canvas router. A press begins immediately, moves and
 /// release keep working outside the widget. Return true to suppress legacy tool_event dispatch.
 pub fn canvas_input(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, xf: &crate::canvas::ViewXform, rect: egui::Rect) -> bool {
     if app.session.active_index() != Some(idx) {
@@ -756,7 +756,7 @@ pub fn selection_bounds(app: &PhotocraftApp) -> Option<[f64; 4]> {
     bounds
 }
 
-/// Package 00 inserts this before other canvas display_doc providers. The returned document
+/// Inserted before other canvas display_doc providers. The returned document
 /// has bounds-limited caches for changed shapes and never enters history or the journal.
 pub fn display_doc(app: &PhotocraftApp, idx: usize) -> Option<(Arc<Document>, u64)> {
     if app.session.active_index() != Some(idx) {
@@ -769,7 +769,7 @@ pub fn display_doc(app: &PhotocraftApp, idx: usize) -> Option<(Arc<Document>, u6
     app.ui.direct_selection.preview_doc.clone()
 }
 
-/// Context controls and the explicit live conversion prompt, owned entirely by package 03.
+/// Context controls and the explicit live conversion prompt.
 pub fn context_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         for (label, operation) in [

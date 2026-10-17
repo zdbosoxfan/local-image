@@ -298,5 +298,5 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() ->
     Ok(Trace { width: image.width, height: image.height, strokes: Vec::new(), layers, nodes })
 }
 
-// Package 27: shared-boundary cutout evaluator.
+// Shared-boundary cutout evaluator.
 pub mod cutout;

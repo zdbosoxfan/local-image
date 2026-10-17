@@ -35,7 +35,7 @@ fn unsup(reason: impl Into<String>) -> CodecError {
     CodecError::unsupported(F, reason)
 }
 
-// --- checked little-endian reads -------------------------------------------------------------
+// Checked little-endian reads
 // Every length and offset comes from the file, so every read is bounds-checked and a short
 // read is a malformed file, never a panic.
 
@@ -64,7 +64,7 @@ fn seek_to(cur: &mut Cursor<&[u8]>, pos: u64) -> Result<(), CodecError> {
     Ok(())
 }
 
-// --- decompression ----------------------------------------------------------------------------
+// Decompression
 
 /// Undo the ZIP predictor: each byte was stored as its difference to the previous byte plus
 /// 128 (so a zero difference is 0x80), modulo 256. Applies to the sample-count table and the
@@ -171,7 +171,7 @@ fn decompress(compression: Compression, packed: &[u8], expected: usize, what: &s
     }
 }
 
-// --- the deep chunk stream ---------------------------------------------------------------------
+// The deep chunk stream
 
 /// One parsed chunk: where its pixels go and its cumulative sample counts, plus where to
 /// find the compressed sample data in the second pass.

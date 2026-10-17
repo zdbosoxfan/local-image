@@ -1,5 +1,5 @@
-//! Full app, real native 08/12/15 caches, public PSD save/reopen, pointer preview/release.
-//! Package 00 registers this in pc-ui-egui/tests/gpu/main.rs. Never opens desktop windows.
+//! Full app, real native caches, public PSD save/reopen, pointer preview/release.
+//! Registered in pc-ui-egui/tests/gpu/main.rs. Never opens desktop windows.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};
@@ -141,7 +141,7 @@ fn parity(gpu: &GpuCanvas, doc: &Document) {
     assert!(max <= 1. / 255.);
 }
 
-/// 00 calls this from the 11/17–20 acceptance fixtures once their native renderers land.
+/// Called from the acceptance fixtures once their native renderers exist.
 /// The provider must be the common native/display projection, never a format-only evaluator.
 /// Fixtures have a background then a movable advanced object, with a visible ordinary effect
 /// to force the app's composited preview texture (rather than independent Move planes).

@@ -1,6 +1,6 @@
-//! Real offscreen full-app renderer gate with a package-owned display/input host.
+//! Real offscreen full-app renderer gate with its own display/input host.
 //! This exercises the app canvas with detached projection. Production router wiring is
-//! separately owned by 00; this test does not claim the menu/router is integrated.
+//! separate from this gate; this test does not claim the menu/router is integrated.
 use super::*;
 use crate::{PhotocraftApp, state::Tool};
 use eframe::{egui_wgpu, wgpu};

@@ -1,4 +1,4 @@
-//! Package 29: correlate a Library open with exactly one package 28 dialog launch.
+//! Correlate a Library open with exactly one trace dialog launch.
 //! File reading/decoding, tabs, progress, cancellation and errors use the existing shell.
 use photocraft_doc::{DocId, LayerContent, LayerId};
 use photocraft_engine::{
@@ -8,7 +8,7 @@ use photocraft_engine::{
 
 use crate::PhotocraftApp;
 
-/// Validated after loading, before package 28 captures its detached preview target.
+/// Validated after loading, before the trace dialog captures its detached preview target.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Launch {
     pub photo: u64,

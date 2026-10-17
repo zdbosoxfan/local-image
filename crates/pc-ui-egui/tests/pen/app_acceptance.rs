@@ -1,6 +1,6 @@
-//! Package 04 full-app gate for package 00 registration (see integration/04.md).
-//! Requires UiState::vector_pen and the canvas/context/preview hooks specified there.
-//! Never replace this with the isolated Host or mark missing integration as a GPU pass.
+//! Pen full-app gate.
+//! Requires UiState::vector_pen and the canvas/context/preview hooks.
+//! Never replace this with the isolated Host or mark missing wiring as a GPU pass.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::Harness;

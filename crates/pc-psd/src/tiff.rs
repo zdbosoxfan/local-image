@@ -563,7 +563,7 @@ pub mod transcode {
             self.rest()
         }
 
-        // ---- image resources (34377) ----
+        // Image resources (34377)
 
         fn resources(&mut self) -> Result<()> {
             while self.remaining() >= 12 && is_sig(self.r.peek_rest(), self.from.is_little()) {
@@ -632,7 +632,7 @@ pub mod transcode {
             Ok(())
         }
 
-        // ---- tagged blocks ----
+        // Tagged blocks
 
         /// Tagged blocks to the end; bytes that do not form a block are copied.
         fn blocks(&mut self) -> Result<()> {
@@ -1014,7 +1014,7 @@ pub mod transcode {
             Ok(())
         }
 
-        // ---- layer info ----
+        // Layer info
 
         fn layer_info(&mut self) -> Result<()> {
             let count = self.i16()?;
@@ -1143,7 +1143,7 @@ pub mod transcode {
             Ok((height(top, bottom), real_h))
         }
 
-        // ---- descriptors ----
+        // Descriptors
 
         fn versioned_descriptor(&mut self) -> Result<()> {
             self.u32()?;
@@ -1275,7 +1275,7 @@ pub mod transcode {
             Ok(())
         }
 
-        // ---- other block layouts ----
+        // Other block layouts
 
         /// `shmd`: u32 count, then per item signature, key, copy flag, 3 bytes, u32 length, data.
         /// An unknown item makes the whole block opaque, preserving all items together.

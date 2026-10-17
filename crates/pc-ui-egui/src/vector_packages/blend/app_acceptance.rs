@@ -1,4 +1,4 @@
-//! Full-app RTX acceptance source for 00, registered only AFTER its canvas/menu hooks.
+//! Full-app RTX acceptance; needs the canvas/menu hooks.
 //! No test-only projection injection: real PhotocraftApp events, GpuCanvas and UI controls.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};

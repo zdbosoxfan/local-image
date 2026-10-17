@@ -122,7 +122,7 @@ pub fn filter_stack(fx: &Descriptor) -> FilterStack {
     }
 }
 
-// ---------- the filters we model ----------
+// The filters we model
 
 /// Photoshop filter → PhotoCraft command, keyed by the `Fltr` class (and `filterID`).
 struct Known {
@@ -330,7 +330,7 @@ pub fn filter_from_item(item: &Descriptor) -> SmartFilter {
     SmartFilter { command, params, blend, opacity, visible }
 }
 
-// ---------- Camera Raw Filter ↔ filter.develop ----------
+// Camera Raw Filter ↔ filter.develop
 
 /// Our private record beside a Camera Raw descriptor (see `camera_raw::PRIVATE_KEY`).
 fn private_record(item: &Descriptor) -> Option<J> {
@@ -425,7 +425,7 @@ fn develop_export(f: &SmartFilter) -> Result<Descriptor, String> {
     Ok(d)
 }
 
-// ---------- local-image: Develop layers ----------
+// Local-image: Develop layers
 //
 // A Develop layer (a smart object with a `develop` link) is written to PSD as the smart object it
 // is, with its develop as a Camera Raw Filter at the bottom of its smart-filter stack (what
@@ -477,7 +477,7 @@ pub(crate) fn resolve_develop_layers(doc: &mut photocraft_doc::Document) {
     }
 }
 
-// ---------- writing ----------
+// Writing
 
 fn unit(u: &[u8; 4], v: f64) -> Value {
     Value::UnitFloat { unit: *u, value: v }
@@ -831,7 +831,7 @@ pub fn stored_size(d: &Descriptor) -> Option<(f64, f64)> {
     Some((num(sz.get("Wdth"))?, num(sz.get("Hght"))?)).filter(|(w, h)| *w > 0.0 && *h > 0.0)
 }
 
-// ---------- the filter mask (`FEid`) ----------
+// The filter mask (`FEid`)
 
 /// The filter mask stored in an `FEid` item, in document coordinates and white beyond its bounds
 /// (`filterMaskExtendWithWhite`), as a grayscale mask of `sample` depth. `Ok(None)` when the

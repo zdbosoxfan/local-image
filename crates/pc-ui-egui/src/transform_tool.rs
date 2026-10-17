@@ -2257,7 +2257,7 @@ mod tests {
         assert_eq!(app.ui.transform.as_ref().unwrap().warp.as_ref().unwrap().style, WarpStyle::Custom);
     }
 
-    // ---- Layer masks (#205) ----
+    // Layer masks (#205)
 
     /// `app_with_square` (red over 8..24) plus a reveal-all mask hiding x < 16.
     fn masked_app(linked: bool) -> PhotocraftApp {

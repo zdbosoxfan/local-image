@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 use crate::commands::{CommandSpec, int_i32};
 use crate::{DocState, EngineError, Result, Session};
 
-// ---------- selection state ----------
+// Selection state
 
 fn doc_state(s: &Session) -> std::result::Result<&DocState, String> {
     s.active().ok_or_else(|| "no document open".into())
@@ -154,7 +154,7 @@ fn select_linked(s: &mut Session) -> Result<Value> {
     Ok(json!({"selected": n}))
 }
 
-// ---------- enabled predicates ----------
+// Enabled predicates
 
 fn has_layer(s: &Session) -> std::result::Result<(), String> {
     if selected(s).is_empty() { Err("no layer selected".into()) } else { Ok(()) }
@@ -194,7 +194,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-// ---------- moving layers ----------
+// Moving layers
 
 fn link_groups(doc: &Document, ids: &[LayerId]) -> Vec<u64> {
     let mut g: Vec<u64> = ids.iter().filter_map(|id| doc.layer(*id)?.link_group).collect();
@@ -597,7 +597,7 @@ fn distribute(s: &mut Session, kind: &str) -> Result<Value> {
     Ok(json!({"moved": moved}))
 }
 
-// ---------- structural commands ----------
+// Structural commands
 
 /// A [`Layer::link_group`] id no layer uses yet: one above the highest stored id, or, when a loaded
 /// file already holds `u64::MAX` (#961), the smallest free id from 1. Never wraps, so a new link
@@ -850,7 +850,7 @@ pub fn multi(s: &Session, p: &Value) -> bool {
     p.get("layer").is_none() && selected(s).len() > 1
 }
 
-// ---------- registry ----------
+// Registry
 
 pub fn specs() -> Vec<CommandSpec> {
     macro_rules! spec {
@@ -1410,7 +1410,7 @@ mod tests {
     }
 
     #[test]
-    // TEST-CHANGED F098: the Alt-drag preview also handles stored u64::MAX link groups.
+    // The Alt-drag preview also handles stored u64::MAX link groups.
     fn move_copy_linked_layers_is_atomic_and_has_one_journal_and_undo_step() {
         let mut s = session(8);
         let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));

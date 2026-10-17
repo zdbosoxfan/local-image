@@ -1,5 +1,5 @@
-//! Full PhotocraftApp RTX 5090 gates. Require 00's command, route, display-doc and context hooks.
-//! Deliberately fail if integration is absent; never accept software or skipped adapters.
+//! Full PhotocraftApp RTX 5090 gates. Require the command, route, display-doc and context hooks.
+//! Deliberately fail if those hooks are absent; never accept software or skipped adapters.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{PhotocraftApp, canvas::ViewXform};

@@ -27,9 +27,7 @@ fn assert_color_eq(actual: &serde_json::Value, expected: [f64; 3]) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Command registry / specs
-// ---------------------------------------------------------------------------
 
 #[test]
 fn specs_contain_all_note_commands() {
@@ -49,9 +47,7 @@ fn specs_contain_all_note_commands() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // notes.add
-// ---------------------------------------------------------------------------
 
 #[test]
 fn add_note_returns_index_and_note_json() {
@@ -135,9 +131,7 @@ fn add_note_rejects_non_finite_coordinates() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // notes.set
-// ---------------------------------------------------------------------------
 
 #[test]
 fn set_note_updates_all_fields() {
@@ -222,9 +216,7 @@ fn set_note_partial_position_updates_only_given_coordinate() {
     assert_eq!(d.notes[0].popup, [120.0, 220.0, 360.0, 360.0]);
 }
 
-// ---------------------------------------------------------------------------
 // notes.delete / notes.list
-// ---------------------------------------------------------------------------
 
 #[test]
 fn delete_note_by_index() {
@@ -290,9 +282,7 @@ fn list_notes_ordering() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // History (undo/redo)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn undo_redo_single_note() {
@@ -305,9 +295,7 @@ fn undo_redo_single_note() {
     assert_eq!(s.active().unwrap().doc.notes.len(), 1);
 }
 
-// ---------------------------------------------------------------------------
 // Enabled predicates
-// ---------------------------------------------------------------------------
 
 #[test]
 fn enabled_predicates_reflect_document_and_notes() {
@@ -333,9 +321,7 @@ fn enabled_predicates_reflect_document_and_notes() {
     assert!(s.is_enabled("notes.delete"));
 }
 
-// ---------------------------------------------------------------------------
 // import_notes_from (public helper) error path
-// ---------------------------------------------------------------------------
 
 #[test]
 fn import_notes_from_invalid_bytes_errors() {
@@ -345,9 +331,7 @@ fn import_notes_from_invalid_bytes_errors() {
     assert!(result.is_err(), "expected error for invalid import bytes");
 }
 
-// ---------------------------------------------------------------------------
 // file.import.notes error path (nonexistent file)
-// ---------------------------------------------------------------------------
 
 #[test]
 fn import_notes_nonexistent_path_errors() {

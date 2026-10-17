@@ -93,7 +93,7 @@ impl Default for AiOptions {
     }
 }
 
-// ------------------------------------------------------------------------------ engine status
+// Engine status
 
 /// What we know about the AI engine (ComfyUI), refreshed by a background poller.
 #[derive(Clone, Debug, Default)]
@@ -765,7 +765,7 @@ fn remove_button(ui: &mut egui::Ui) -> bool {
     r.clicked()
 }
 
-// ------------------------------------------------------------------------------ removing models
+// Removing models
 
 /// What a confirmed removal takes out.
 #[derive(Clone, Debug)]
@@ -968,7 +968,7 @@ pub fn downloads() -> BTreeMap<String, Download> {
     shared().downloads.lock().map(|d| d.clone()).unwrap_or_default()
 }
 
-// ------------------------------------------------------------------------------ tools
+// Tools
 
 /// Finish a stroke with an AI tool. Returns false for other tools.
 pub fn finish_stroke(app: &mut PhotocraftApp, tool: Tool, points: &[[f64; 3]], mods: egui::Modifiers) -> bool {
@@ -1140,7 +1140,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     }
 }
 
-// ------------------------------------------------------------------------------ status pill
+// Status pill
 
 /// The AI engine status in the status bar (right-to-left layout); click opens Local AI.
 pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
@@ -1254,7 +1254,7 @@ fn short_gpu(name: &str) -> String {
     name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Laptop GPU", "Laptop")
 }
 
-// ------------------------------------------------------------------------------ dialogs
+// Dialogs
 
 #[derive(Default)]
 struct Dialogs {
@@ -1541,7 +1541,7 @@ fn model_row(ui: &mut egui::Ui, t: &Tokens, info: &catalog::ModelInfo, p: &catal
     ui.add_space(4.0);
 }
 
-// ------------------------------------------------------------------------------ menus
+// Menus
 
 const IDS: &[&str] = &[
     "ai.restore",

@@ -15,9 +15,7 @@ use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 use serde::{Deserialize, Serialize};
 
-// ---------------------------------------------------------------------------
 // Primitives and compositing
-// ---------------------------------------------------------------------------
 
 /// Geometry of a primitive (document pixel coordinates).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -265,9 +263,7 @@ pub fn composite(surface: &mut Surface, prims: &[Prim], clip: Rect, selection: O
     used
 }
 
-// ---------------------------------------------------------------------------
 // Randomness
-// ---------------------------------------------------------------------------
 
 /// Small deterministic PRNG (SplitMix64).
 #[derive(Clone, Debug)]
@@ -316,9 +312,7 @@ fn fbm1(x: f32, seed: u64) -> f32 {
     (noise1(x, seed) + 0.5 * noise1(x * 2.13 + 7.1, seed ^ 0xA5A5)) / 1.5
 }
 
-// ---------------------------------------------------------------------------
 // Polylines
-// ---------------------------------------------------------------------------
 
 /// A polyline parameterized by arc length.
 struct Spine {
@@ -361,9 +355,7 @@ impl Spine {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Flame
-// ---------------------------------------------------------------------------
 
 /// Flame placement (Photoshop's six flame types).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -668,9 +660,7 @@ pub fn default_flame_path(canvas: Rect) -> Vec<(f32, f32)> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
 // Tree
-// ---------------------------------------------------------------------------
 
 /// Leaf form of a tree type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1118,9 +1108,7 @@ pub fn tree(spec: &TreeSpec, canvas: Rect) -> Vec<Prim> {
     out
 }
 
-// ---------------------------------------------------------------------------
 // Picture Frame
-// ---------------------------------------------------------------------------
 
 /// Picture frame designs (index = `frame` − 1).
 pub const FRAME_STYLES: [&str; 16] = [

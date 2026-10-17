@@ -211,8 +211,8 @@ mod tests {
             let first = combined_mask(&layer, canvas).unwrap();
             assert!((first.sample_channel(32, 32, 0) - 1.0).abs() < 1e-6);
             drop(first);
-            // No document/undo snapshot shares the input. Previously this write could reuse the
-            // original tile address and return the old cached white mask.
+            // No document/undo snapshot shares the input, so the write must not reuse the
+            // original tile address (that would return the old cached white mask).
             layer.mask.as_mut().unwrap().surface.fill_rect(canvas, &[0.0]);
             let edited = combined_mask(&layer, canvas).unwrap();
             assert_eq!(edited.sample_channel(32, 32, 0), 0.0, "{sample:?}");

@@ -1,4 +1,4 @@
-//! Package 41 ARAP independent edge/rigid-motion oracles. Synthetic GPL-3.0-or-later paths.
+//! Independent ARAP edge/rigid-motion oracles. Synthetic GPL-3.0-or-later paths.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use photocraft_doc::{FillRule, PathOp};

@@ -1,4 +1,4 @@
-//! Package 47: production shared Pen/shape routes on a large vector document.
+//! Production shared Pen/shape routes on a large vector document.
 //! Original synthetic scene; timing includes the app frame and RTX GPU readback.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};

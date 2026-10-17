@@ -1,4 +1,4 @@
-//! Offscreen real-app acceptance; no desktop windows. The owner defers execution to 00.
+//! Offscreen real-app acceptance; no desktop windows.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use eframe::{egui_wgpu, wgpu};

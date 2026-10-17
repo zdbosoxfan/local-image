@@ -351,7 +351,7 @@ pub fn builtin() -> Vec<Group<GradientPreset>> {
     ]
 }
 
-// ------------------------------------------------------------------ commands
+// Commands
 
 /// RGBA stops `(location, colour)` ready to paint.
 pub type Stops = Vec<(f32, [f32; 4])>;

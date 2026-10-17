@@ -197,7 +197,7 @@ fn photocraft_layout_impl(items: &[MenuItem], lang: Lang, language: &str, tops: 
     layout
 }
 
-// ----------------------------------------------------------------------------- the app's side
+// The app's side
 
 /// The native menu bar, while Local Image uses one (the in-window menus are hidden then).
 pub struct NativeMenu {

@@ -51,7 +51,7 @@ fn project(
         })
         .collect()
 }
-/// Export adapters (13/14/21) and scaled display (09) consume this public projection.
+/// Export adapters and scaled display consume this public projection.
 /// The outer instance's blend/masks/effects stay on its isolated ordinary group.
 pub fn expand(doc: &Document, layers: &[Layer]) -> Result<Expansion> {
     validation::document(doc)?;
@@ -73,7 +73,7 @@ fn project_validated(symbols: &[SymbolDef], layers: &[Layer]) -> Result<Expansio
     Ok(Expansion { layers, transforms })
 }
 
-/// Transient per-master generations for package 09's scaled projection cache. Equality uses
+/// Transient per-master generations for the scaled projection cache. Equality uses
 /// ordinary master data/COW pixels, and generation changes propagate through nested references.
 /// Native documents need no new persisted field; session revisions remain the publication key.
 #[derive(Clone, Debug, Default)]

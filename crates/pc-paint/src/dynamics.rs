@@ -37,9 +37,7 @@ fn lerp_pt(a: &StrokePoint, b: &StrokePoint, f: f64) -> StrokePoint {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Smoothing
-// ---------------------------------------------------------------------------
 
 /// Incremental stroke smoothing: exponential (with optional time-based catch-up) or pulled string.
 #[derive(Clone, Debug)]
@@ -116,9 +114,7 @@ impl Smoother {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Spline path (local-image)
-// ---------------------------------------------------------------------------
 
 /// local-image: pointer samples joined by a centripetal Catmull–Rom spline instead of straight
 /// lines, so fast curved strokes stay round (as Compositor and Krita do). Each segment
@@ -225,9 +221,7 @@ pub fn smooth_points(cfg: &Smoothing, zoom: f32, pts: &[StrokePoint]) -> Vec<Str
     out
 }
 
-// ---------------------------------------------------------------------------
 // Path walking
-// ---------------------------------------------------------------------------
 
 /// One spacing (or airbrush time) step along the path.
 #[derive(Clone, Copy, Debug)]
@@ -368,9 +362,7 @@ impl PathWalker {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Dynamics
-// ---------------------------------------------------------------------------
 
 /// Scalar control value in 0..1.
 pub fn control_value(c: Control, fade_steps: u32, s: &StepInput) -> f32 {

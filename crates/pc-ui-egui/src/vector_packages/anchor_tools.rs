@@ -2,7 +2,7 @@
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! Notices: licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
-//! Router/tool/icon wiring belongs to 00/01/46; see docs/wip/vector-tasks/integration/33.md.
+//! Router, tool and icon wiring live outside this module.
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, Rect};
 use photocraft_doc::{Document, Fill, LayerContent, ShapeStroke};
@@ -53,14 +53,14 @@ impl Default for Options {
         Self { tool: Tool::AddAnchor, rubber_band: true, snapping: snap::Settings::default() }
     }
 }
-/// Only handles displayed by 03 may be hit. Target indices refer to the captured candidate list.
+/// Only handles displayed by Direct Select may be hit. Target indices refer to the captured candidate list.
 #[derive(Clone, Copy, Debug)]
 pub struct ShownHandle {
     pub target: usize,
     pub knot: [usize; 2],
     pub handle: Handle,
 }
-/// Copy into 03's conversion modal before opening it. Confirmation replays this immutable
+/// Copy into the live-conversion modal before opening it. Confirmation replays this immutable
 /// press after checking both document and revision; current selection is never substituted.
 #[derive(Clone)]
 pub struct PendingConversion {
@@ -120,7 +120,7 @@ pub struct State {
     pub guides: Vec<snap::Guide>,
     #[serde(skip)]
     snap_cache: Option<snap::Cache>,
-    /// 00 routes this to 03's conversion modal. No target is converted before confirmation.
+    /// Routed to the live-conversion modal. No target is converted before confirmation.
     #[serde(skip)]
     pub needs_conversion: bool,
     #[serde(skip)]
@@ -258,7 +258,7 @@ impl State {
         }
         result
     }
-    /// Called only after 03's modal confirms conversion. Restore its saved pending record
+    /// Called only after the live-conversion modal confirms conversion. Restore its saved pending record
     /// first if modal frame deactivation has cancelled this state.
     pub fn confirm_conversion(&mut self, s: &Session) -> Result<()> {
         let pending = self.pending_conversion.take().ok_or_else(|| error("missing conversion press"))?;
@@ -659,7 +659,7 @@ fn exclusions(d: &engine::Destination) -> snap::Exclusions {
     }
 }
 
-/// Uses 03's selection model plus selected shape layers, front first. Vector-mask routing
+/// Uses Direct Select's selection model plus selected shape layers, front first. Vector-mask routing
 /// passes an explicit PathRef::Layer; saved paths can be supplied directly to input.
 pub fn selected_targets(s: &Session, selection: &crate::direct_select::DirectSelection, vector_mask: bool) -> Vec<node::Target> {
     use crate::direct_select::PathRef;
@@ -709,8 +709,8 @@ pub fn context(ui: &mut egui::Ui, state: &mut State) {
         state.cancel();
     }
 }
-/// Raw egui events preserve captured release outside the canvas. 00 may instead call
-/// down/motion/up after its ViewXform. Document/tool/persona/focus changes cancel the capture.
+/// Raw egui events preserve captured release outside the canvas. Callers may instead call
+/// down/motion/up after their ViewXform. Document/tool/persona/focus changes cancel the capture.
 pub fn input(
     state: &mut State,
     s: &mut Session,
@@ -777,7 +777,7 @@ pub fn input(
     }
     Ok(())
 }
-/// 46 uses this mapping only in the Vector persona, after keyboard-focus routing.
+/// This mapping is used only in the Vector persona, after keyboard-focus routing.
 pub fn shortcut(key: Key, mods: Modifiers, wants_keyboard: bool) -> Option<Tool> {
     if wants_keyboard || mods.command || mods.ctrl || mods.alt {
         return None;
@@ -852,7 +852,7 @@ pub fn keys(app: &mut crate::PhotocraftApp, ctx: &egui::Context) -> bool {
     true
 }
 
-/// Transient app bridge. 00 hooks route/display_doc/frame without expanding persisted UI state.
+/// Transient app bridge: hooks route/display_doc/frame without expanding persisted UI state.
 #[derive(Clone, Default)]
 pub struct AppBridge {
     pub tool: Option<Tool>,
@@ -895,7 +895,7 @@ pub fn frame(app: &crate::PhotocraftApp, ctx: &egui::Context) {
     b.state.synchronize(&app.session, enabled);
     ctx.data_mut(|d| d.insert_temp(bridge_key(), b));
 }
-/// Put before ordinary canvas tool input and draw, passing 03's displayed handles. A true
+/// Put before ordinary canvas tool input and draw, passing Direct Select's displayed handles. A true
 /// result consumes the tool route. An error becomes app status; it never publishes a preview.
 pub fn route(app: &mut crate::PhotocraftApp, ui: &mut egui::Ui, idx: usize, xf: &crate::canvas::ViewXform, rect: Rect, shown: &[ShownHandle]) -> bool {
     if app.session.active_index() != Some(idx) {

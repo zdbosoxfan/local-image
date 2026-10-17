@@ -123,7 +123,6 @@ pub fn editor(ui: &mut egui::Ui, kind: &str, v: &mut Value, cx: &EditorCx) -> Ed
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // JSON helpers
 
 fn num(v: &Value, key: &str, default: f32) -> f32 {
@@ -198,7 +197,6 @@ fn gradient_slider(ui: &mut egui::Ui, text: &str, x: &mut f32, range: std::ops::
     Edit::of(&r)
 }
 
-// ---------------------------------------------------------------------------------------------
 // Brightness/Contrast
 
 fn brightness_contrast(ui: &mut egui::Ui, v: &mut Value) -> Edit {
@@ -216,7 +214,6 @@ fn brightness_contrast(ui: &mut egui::Ui, v: &mut Value) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Channels of Levels / Curves
 
 /// A channel of a tone editor: the params key (None = the top-level / composite keys for Levels;
@@ -300,7 +297,6 @@ fn gradient_bar(p: &egui::Painter, r: Rect, from: Color32, to: Color32, vertical
     p.add(mesh);
 }
 
-// ---------------------------------------------------------------------------------------------
 // Curves
 
 const CURVE_HANDLE_SIZE: f32 = 7.0;
@@ -448,7 +444,6 @@ fn curves(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Levels
 
 type Lv = [f32; 5]; // in_black, gamma, in_white, out_black, out_white (0–255, gamma as is)
@@ -654,7 +649,6 @@ fn levels(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Threshold
 
 fn threshold(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
@@ -675,7 +669,6 @@ fn threshold(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     sliders(ui, v, &[("level", tl!("Threshold Level"), 1.0, 255.0, 128.0, "")])
 }
 
-// ---------------------------------------------------------------------------------------------
 // Hue/Saturation
 
 const RANGE_LABELS: [&str; 6] = ["Reds", "Yellows", "Greens", "Cyans", "Blues", "Magentas"];
@@ -857,7 +850,6 @@ fn hue_saturation(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Color Balance
 
 fn color_balance(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
@@ -897,7 +889,6 @@ fn color_balance(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Black & White
 
 fn black_white(ui: &mut egui::Ui, v: &mut Value) -> Edit {
@@ -935,7 +926,6 @@ fn black_white(ui: &mut egui::Ui, v: &mut Value) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Photo Filter
 
 fn photo_filter(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
@@ -981,7 +971,6 @@ fn photo_filter(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Channel Mixer
 
 fn channel_mixer(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
@@ -1033,7 +1022,6 @@ fn channel_mixer(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Gradient Map
 
 type Stop = (f32, [f32; 3]);
@@ -1170,7 +1158,6 @@ fn gradient_map(ui: &mut egui::Ui, v: &mut Value, cx: &EditorCx) -> Edit {
     e
 }
 
-// ---------------------------------------------------------------------------------------------
 // Hosts
 
 /// Whether a document of this mode edits Levels/Curves through a single Gray channel.

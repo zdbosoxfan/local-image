@@ -42,7 +42,7 @@ fn mode_is(s: &Session, modes: &[ColorMode], what: &str) -> Enabled {
     if modes.contains(&d.doc.mode) { Ok(()) } else { Err(format!("{what} (the document is {:?})", d.doc.mode)) }
 }
 
-// ---------- Image Rotation › Arbitrary ----------
+// Image Rotation › Arbitrary
 
 /// Canvas size after rotating `size` by `deg` (the canvas grows to fit, as in Photoshop).
 pub fn rotated_size(size: Size, deg: f64) -> Size {
@@ -128,7 +128,7 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
     Ok((new, a))
 }
 
-// ---------- flatten helpers ----------
+// Flatten helpers
 
 /// The flattened image as straight RGBA (over white when `opaque`).
 fn composite(doc: &Document, opaque: bool) -> Vec<[f32; 4]> {
@@ -162,7 +162,7 @@ fn single_layer(doc: &mut Document, active: &mut Option<LayerId>, mode: ColorMod
     doc.duotone = None;
 }
 
-// ---------- Indexed Color / Color Table ----------
+// Indexed Color / Color Table
 
 fn parse_forced(s: &str) -> Option<Forced> {
     Some(match s {
@@ -325,7 +325,7 @@ fn color_table(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(out)
 }
 
-// ---------- Bitmap ----------
+// Bitmap
 
 fn bitmap(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "image.mode.bitmap";
@@ -353,7 +353,7 @@ fn bitmap(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
-// ---------- Duotone ----------
+// Duotone
 
 /// Default inks per type: black first, then warm brown, gold and slate blue (generic names;
 /// Photoshop ships Pantone presets, which we don't reproduce).

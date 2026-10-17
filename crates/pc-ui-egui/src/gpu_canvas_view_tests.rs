@@ -1,4 +1,4 @@
-//! Owned package 09 gates: offscreen app, strict hardware identity, real pointer input.
+//! Gates: offscreen app, strict hardware identity, real pointer input.
 use super::*;
 use crate::PhotocraftApp;
 use egui_kittest::Harness;

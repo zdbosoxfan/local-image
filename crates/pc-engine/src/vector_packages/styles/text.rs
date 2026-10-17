@@ -1,4 +1,4 @@
-//! pc-text's native layout/outline adapter, following type_extra_cmds and package 12's
+//! pc-text's native layout/outline adapter, following type_extra_cmds and the on-path text
 //! quadratic elevation. Original Local Image code; no second text shaper.
 use super::*;
 use photocraft_doc::{Knot, Path, PathOp, ShapeLayer, Subpath, TextLayer};

@@ -281,7 +281,7 @@ fn hostile_input_never_panics() {
     assert!(!empty.ui.magnetic.active());
 }
 
-// ---------------------------------------------------------------------------- real canvas
+// Real canvas
 
 fn harness() -> Harness<'static, PhotocraftApp> {
     let mut app = app();

@@ -1,4 +1,4 @@
-//! Captured SVG export dialog. 00 supplies app routing, translated English-source
+//! Captured SVG export dialog. The host supplies app routing, translated English-source
 //! catalogue lookup and the file-save service. All export actions use one engine command.
 use egui::Ui;
 use photocraft_doc::LayerId;

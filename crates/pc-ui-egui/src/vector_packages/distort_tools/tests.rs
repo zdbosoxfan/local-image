@@ -1,5 +1,5 @@
 //! Real egui clicks/drags/keys through the owned UI and engine specs. The small host dispatches
-//! package specs directly; full-app tests separately require 00's Session registry/canvas wiring.
+//! module specs directly; full-app tests separately require the Session registry/canvas wiring.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use egui::{Modifiers, vec2};

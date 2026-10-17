@@ -240,7 +240,7 @@ fn area_text(a: Area, u: DesignUnits, text: &impl Fn(&str) -> String) -> String 
     s
 }
 /// The caller's ordinary English-source catalogue function localizes every label.
-/// Return a prepared request; 00 persists it via ScaleEdit::commit and its setter.
+/// Return a prepared request; the caller persists it via ScaleEdit::commit and its setter.
 #[allow(clippy::too_many_arguments)]
 pub fn options(
     ui: &mut Ui,
@@ -330,7 +330,7 @@ pub fn paint(painter: &egui::Painter, state: &State, mapping: Mapping, unit: Des
         );
     }
 }
-/// Production adapter awaiting 00's canvas callsite; context storage avoids new app fields.
+/// Production adapter for the canvas callsite; context storage avoids new app fields.
 #[derive(Clone)]
 pub struct Bridge {
     pub state: State,

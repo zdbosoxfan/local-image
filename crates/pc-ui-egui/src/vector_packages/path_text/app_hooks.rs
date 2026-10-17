@@ -1,6 +1,6 @@
-//! Exact full-app hooks for package 00's serial router registration. Original code.
-//! Compiled in the disposable registration tree and by 00 after merging; not an
-//! alternative app or event consumer. All actual edits use the package engine command.
+//! Exact full-app hooks for the router registration. Original code.
+//! They are not an
+//! alternative app or event consumer. All actual edits use the engine command.
 use crate::{
     PhotocraftApp,
     canvas::{ToolEvent, ViewXform},

@@ -180,7 +180,7 @@ impl Session {
     }
 }
 
-// ------------------------------------------------------------------ shared helpers
+// Shared helpers
 
 pub(crate) fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }

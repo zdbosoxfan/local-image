@@ -84,7 +84,7 @@ fn has_content_options(s: &Session) -> Enabled {
     }
 }
 
-// ---------- RGBA helpers ----------
+// RGBA helpers
 
 /// Straight RGBA of `surf` over `r` (row-major).
 fn read_rgba(surf: &Surface, r: Rect) -> Vec<[f32; 4]> {
@@ -122,7 +122,7 @@ fn edit_rgba(s: &mut Session, label: &str, grow: i32, f: impl FnOnce(&mut Vec<[f
     })
 }
 
-// ---------- layer masks ----------
+// Layer masks
 
 /// Layer › Layer Mask › Apply: multiply the pixels' alpha by the mask, then delete the mask.
 fn apply_mask(s: &mut Session, p: &Value) -> Result<Value> {
@@ -223,7 +223,7 @@ fn mask_all_objects(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"bounds": [bbox.x0, bbox.y0, bbox.width(), bbox.height()]}))
 }
 
-// ---------- matting ----------
+// Matting
 
 /// Layer › Matting › Defringe: edge pixels (within `width` of transparency) take the colour of
 /// the nearest pixels further inside, grown outward one pixel at a time. Alpha is unchanged.
@@ -309,7 +309,7 @@ fn color_decontaminate(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
-// ---------- smart object stack modes ----------
+// Smart object stack modes
 
 fn stack_mode(s: &mut Session, p: &Value, mode: Option<StackMode>) -> Result<Value> {
     let id = layer_param(s, p)?;
@@ -385,7 +385,7 @@ fn native(_: &Session) -> Enabled {
     if cfg!(target_arch = "wasm32") { Err("not available in the browser".into()) } else { Ok(()) }
 }
 
-// ---------- layer style ----------
+// Layer style
 
 fn blending_options(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.layerStyle.blendingOptions";
@@ -645,7 +645,7 @@ fn content_options(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(json!({"layer": l.id.0, "editor": editor}))
 }
 
-// ---------- export just the active layer ----------
+// Export just the active layer
 
 /// The layer rendered alone (visible, its blend mode ignored) and trimmed to its pixels, as a
 /// one-layer document — what Export As does for a layer.

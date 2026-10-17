@@ -1,5 +1,5 @@
 //! Panel pointer/type acceptance using an explicit synthetic persistence provider. XMP here
-//! is ONLY the test bridge: native Graphic Styles field round-trip still belongs to 00.
+//! is ONLY the test bridge: native Graphic Styles field round-trip is covered elsewhere.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use egui::vec2;

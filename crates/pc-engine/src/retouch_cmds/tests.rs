@@ -313,9 +313,7 @@ fn retouch_commands_are_registered_and_need_a_pixel_layer() {
     assert!(s.execute("paint.spotHealing", json!({"points": [[1, 1]], "type": "bogus"})).is_err());
 }
 
-// ---------------------------------------------------------------------------------------------
 // Paint target (#207): mask, alpha channel, Quick Mask
-// ---------------------------------------------------------------------------------------------
 
 const RETOUCH_IDS: [&str; 10] = [
     "paint.cloneStamp",
@@ -471,9 +469,7 @@ fn retouch_targets_fail_gracefully() {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Sample All Layers (#207)
-// ---------------------------------------------------------------------------------------------
 
 /// A Background with `bottom` and an empty layer above it (active).
 fn two_layers(bottom: impl Fn(i32, i32) -> [f32; 4]) -> Session {
@@ -696,9 +692,7 @@ fn patch_preview_matches_the_command_and_its_coarse_solve_is_close() {
     assert!(patch_preview(&s, &json!({"offset": [500, 0]}), 64, 1).is_err());
 }
 
-// ---------------------------------------------------------------------------------------------
 // Content-Aware Move
-// ---------------------------------------------------------------------------------------------
 
 /// `texture` with a solid blue object over `x0..x0+12`, `y0..y0+12`.
 fn with_object(x0: i32, y0: i32) -> impl Fn(i32, i32) -> [f32; 4] {

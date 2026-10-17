@@ -475,7 +475,6 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
     MapProgram { key: h.finish() | 1, maps, stages: b.stages, fields: b.fields }
 }
 
-// ---------------------------------------------------------------------------------------------
 // CPU inputs: shape and distance fields
 
 /// Row-major crop of the region-sized `shape` to `r` (inside `region`).
@@ -563,7 +562,6 @@ pub(crate) fn paste(shape: &mut [f32], region: Rect, r: Rect, v: &[f32]) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Shape identity and damage
 
 pub(crate) type Tiles = HashMap<TileCoord, Arc<Tile>>;

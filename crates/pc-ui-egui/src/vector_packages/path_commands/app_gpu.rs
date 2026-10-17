@@ -1,4 +1,4 @@
-//! Full production-app gate. Requires 00's menu/frame/display hooks from integration/36.md;
+//! Full production-app gate. Requires the menu/frame/display hooks;
 //! missing hooks fail, and the adapter gate has no software fallback. Never opens a window.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;

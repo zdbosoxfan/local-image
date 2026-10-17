@@ -1,6 +1,6 @@
-//! Integration acceptance source for 00's aggregate UI/GPU tests.
-//! Requires the registered app routing and UiState::vector_drawing specified in integration/02.md.
-//! This is deliberately not substituted with an isolated widget pass before that wiring exists.
+//! Full-app acceptance for the aggregate UI/GPU tests.
+//! Requires the registered app routing and UiState::vector_drawing.
+//! This is deliberately not substituted with an isolated widget pass.
 use egui::{Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use photocraft_doc::vector_design::drawing::{DesignShape, ShapeParameters};

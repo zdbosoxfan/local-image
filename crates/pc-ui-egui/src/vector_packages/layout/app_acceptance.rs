@@ -1,5 +1,5 @@
-//! Full PhotocraftApp input/render acceptance. Register this source only after the
-//! production hooks in integration/16.md land. No widget-host injection is used here.
+//! Full PhotocraftApp input/render acceptance against the production hooks.
+//! No widget-host injection is used here.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::{Harness, kittest::Queryable};

@@ -1,6 +1,6 @@
 //! Live Paint and Vector Flood Fill input fragments. GPL-3.0-or-later Local Image.
 //! Interaction follows Adobe Live Paint Bucket and Affinity Vector Flood Fill help.
-//! App/menu/toolbar routing is owned by 00/01/46; see integration/42.md.
+//! App/menu/toolbar routing lives outside this module.
 use egui::{Color32, Key, Modifiers, Pos2, Stroke};
 use photocraft_doc::{Document, Fill, LayerId};
 use photocraft_engine::{
@@ -368,7 +368,7 @@ impl State {
         }
     }
 }
-/// Runtime context storage for the 00 app hook, never native document/settings storage.
+/// Runtime context storage for the app hook, never native document/settings storage.
 pub fn state(ctx: &egui::Context) -> State {
     ctx.data_mut(|d| d.get_temp(egui::Id::new("livePaint42")).unwrap_or_default())
 }

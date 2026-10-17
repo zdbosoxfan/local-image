@@ -201,9 +201,7 @@ fn metadata(f: &File<'_>, dir: &Ifd, icc: &mut Option<Vec<u8>>) -> Metadata {
     meta
 }
 
-// ---------------------------------------------------------------------------
 // Banded pixel decoding
-// ---------------------------------------------------------------------------
 
 /// The file seen with a few byte ranges replaced: the header's first-IFD offset (so the `tiff`
 /// decoder opens the chosen directory as its IFD0) and, for WhiteIsZero and palette images,
@@ -886,9 +884,7 @@ fn finish_band(lay: &Layout, band: &mut [u8]) {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Encoding
-// ---------------------------------------------------------------------------
 
 /// Bytes written with TIFF type UNDEFINED (7), as required for ICC.
 struct Undefined<'a>(&'a [u8]);

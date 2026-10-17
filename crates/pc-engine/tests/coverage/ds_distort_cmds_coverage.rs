@@ -1,9 +1,7 @@
 use photocraft_engine::distort_cmds;
 use serde_json::json;
 
-// ---------------------------------------------------------------------------
 // command registry
-// ---------------------------------------------------------------------------
 
 #[test]
 fn specs_has_five_commands() {
@@ -22,9 +20,7 @@ fn specs_ids_match_constants() {
     assert!(ids.contains(&distort_cmds::PERSPECTIVE_SMART));
 }
 
-// ---------------------------------------------------------------------------
 // puppet_params
-// ---------------------------------------------------------------------------
 
 #[test]
 fn puppet_params_empty_pins_ok() {
@@ -84,9 +80,7 @@ fn puppet_params_expansion_boundary_negative_ok() {
     assert!(distort_cmds::puppet_params("test", &p).is_ok());
 }
 
-// ---------------------------------------------------------------------------
 // perspective_params
-// ---------------------------------------------------------------------------
 
 #[test]
 fn perspective_params_missing_planes_err() {

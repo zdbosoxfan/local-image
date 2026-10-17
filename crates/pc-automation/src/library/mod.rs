@@ -6,7 +6,7 @@
 //! photos without a window. [`tools`] holds the Library's MCP tools, which
 //! [`crate::PhotocraftMcp`] serves as `library_*` next to the editor's tools.
 //!
-//! One filesystem policy for both halves of the app (moved here from `lightcraft-mcp`, J5/D29):
+//! One filesystem policy for both halves of the app:
 //!
 //! * **Denied** (an MCP server started without automation roots): no file is read or written.
 //! * **Workspace** (`--automation-read-root` / `--automation-write-root`): request paths are

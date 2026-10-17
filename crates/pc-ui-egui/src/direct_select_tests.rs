@@ -180,8 +180,8 @@ fn shape_layer_paths_are_edited_too() {
     assert!(b[0] + b[2] >= 100 && b[1] + b[3] >= 90, "the shape re-rendered: {b:?}");
 }
 
-// Package-owned interaction host: uses real egui pointer/key events and the app canvas,
-// with the exact router hooks supplied to 00. This does not stand in for full-app wiring.
+// Interaction host: uses real egui pointer/key events and the app canvas,
+// with the router hooks wired directly. This does not stand in for full-app wiring.
 type H = egui_kittest::Harness<'static, PhotocraftApp>;
 fn node_harness() -> H {
     node_harness_at_scale(1.0)

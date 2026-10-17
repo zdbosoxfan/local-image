@@ -1,5 +1,5 @@
-//! Package 25's detached stroke-output bridge for package 28's trace job/dialog.
-//! The existing layer.vectorize command family remains owned by 28; no duplicate commands.
+//! Detached centerline stroke-output bridge for the trace job/dialog.
+//! The existing layer.vectorize command family is reused; no duplicate commands.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use pc_trace::centerline::CenterlineTrace;
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, StrokeItem};
@@ -80,7 +80,7 @@ impl Prepared {
     }
 }
 
-/// Admission precedes all cache work. Width projection is supplied by package 11;
+/// Admission precedes all cache work. Width projection is supplied by the caller;
 /// NoProjection returns a real error for varying widths, never a uniform fallback.
 pub fn prepare(session: &Session, c: &Capture, trace: &CenterlineTrace, projection: &dyn StrokeProjection, cancel: impl Fn() -> bool) -> Result<Prepared> {
     check(session, c)?;

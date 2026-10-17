@@ -1,5 +1,5 @@
-//! Package-owned, non-journaled snapping query commands. Queries never publish previews.
-//! The query module is reachable here before package 00 adds the root vector_snap re-export.
+//! Non-journaled snapping query commands. Queries never publish previews.
+//! The query module compiles the shared `vector_snap.rs` source.
 
 #[path = "../vector_snap.rs"]
 pub mod query;

@@ -319,7 +319,7 @@ fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
         assert!(h.state().gpu_active());
         #[cfg(not(target_os = "macos"))]
         assert!(h.state().perf.gpu_info.adapter.contains("RTX 5090"));
-        // This gate intentionally fails on a widget-only branch: 00 must wire the real shell.
+        // This gate intentionally fails on a widget-only branch: the real shell must be wired.
         h.get_by_label("Vector persona").click();
         h.run_steps(3);
         h.get_by_label("Active fill");

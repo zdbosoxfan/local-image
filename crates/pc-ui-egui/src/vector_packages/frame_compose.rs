@@ -1,5 +1,5 @@
 //! Frame text gestures, detached projection and one atomic edit.
-//! Package 00 provides Metadata backed by its additive native document field and routes
+//! The host provides Metadata backed by its additive native document field and routes
 //! preview through the app compositor. NativeOnly deliberately refuses unpersisted options.
 use egui::{Color32, Context, Key, PointerButton, Pos2, Rect, Sense, Stroke};
 use photocraft_doc::{
@@ -198,7 +198,7 @@ impl State {
     }
 }
 
-/// Context controls using the existing i18n entrypoint. Catalogue rows are supplied to 00.
+/// Context controls using the existing i18n entrypoint.
 pub fn panel(ui: &mut egui::Ui, state: &mut State, s: &mut Session, metadata: &impl Metadata) -> Result<()> {
     state.synchronize(s, true);
     let selected = s.active().and_then(|st| {

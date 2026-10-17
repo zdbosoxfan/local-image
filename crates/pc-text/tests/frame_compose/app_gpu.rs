@@ -1,4 +1,4 @@
-//! Package 00 registers this in pc-ui-egui/tests/gpu/main.rs after integration/30.md.
+//! Registered in pc-ui-egui/tests/gpu/main.rs.
 //! This source intentionally depends on the real app State/Metadata/canvas hooks.
 //! It is not a standalone widget test or a successful skipped-adapter gate.
 use egui::{Event, Modifiers, PointerButton};

@@ -491,7 +491,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     }
 }
 
-// ---------------------------------------------------------------- options bar
+// Options bar
 
 /// A ramp of RGBA stops over a checkerboard in `r`.
 fn paint_ramp(p: &egui::Painter, r: Rect, sample: impl Fn(f32) -> [f32; 4]) {
@@ -598,7 +598,7 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
     let _ = app.run(cmds::SET, p);
 }
 
-// ---------------------------------------------------------------- Properties panel
+// Properties panel
 
 /// Width of the Properties label column ("Style", "Angle", "Scale").
 const PROP_LABEL_W: f32 = 38.0;

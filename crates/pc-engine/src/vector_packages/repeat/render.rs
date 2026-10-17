@@ -1,5 +1,5 @@
 //! Ordinary layer preparation through the established bounds-limited symbol projection
-//! renderer. Advanced paint/geometry must install its shared provider in the integration lane.
+//! renderer. Advanced paint/geometry must install its shared provider.
 use super::*;
 use photocraft_doc::{Affine, Fill, vector_design::symbol_expansion};
 use photocraft_vecfx::repeat::Expansion;
@@ -30,7 +30,7 @@ fn budget(layers: &[Layer], ex: &Expansion, doc: &Document, total: &mut u64) -> 
         }
         let area = if let LayerContent::Shape(s) = &l.content {
             // Legacy gradient/pattern frames cannot express an arbitrary reflected/rotated
-            // paint affine. Refuse pending 08 instead of returning incorrectly painted art.
+            // paint affine. Refuse rather than return incorrectly painted art.
             if a != Affine::IDENTITY && s.fill.iter().chain(s.stroke.iter().map(|s| &s.paint)).any(|p| !matches!(p, Fill::Solid(_))) {
                 return Err(bad("repeat transformed paint requires the shared appearance provider (08)"));
             }

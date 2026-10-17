@@ -2,7 +2,7 @@
 //! Adapted from VectorCraft crates/pathops/src/fit.rs and tools/src/draw2.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
-//! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE} and integration/05.md.
+//! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
 //!
 //! The native sampled-point fitter works without a pc-pathops dependency (which would
 //! create a cycle). `fit_with` accepts V1's fit_path adapter for the integrated engine.

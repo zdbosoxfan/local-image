@@ -755,7 +755,7 @@ mod tests {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default())
         });
-        // TEST-CHANGED: monochrome is intentional; explicitly enable the test's colour phase.
+        // Monochrome is intentional; explicitly enable the test's colour phase.
         assert_eq!(h.state().session.prefs().interface.tool_icons, "monochrome");
         h.state_mut().run("prefs.set", json!({"values": {"interface.toolIcons": "colour"}})).unwrap();
         h.run_steps(3);
