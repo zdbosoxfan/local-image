@@ -60,6 +60,6 @@ in [Adobe's external editing help](https://helpx.adobe.com/lightroom-classic/des
 
 Prefer export to a separate delivery folder. **Save Over Original** is an explicit overwrite
 workflow; read its destination and confirmation carefully. Save the editable `.pcraft` document
-before exporting a flattened image. For backups and troubleshooting see [BACKUP.md](BACKUP.md)
-and [RELEASE.md](RELEASE.md). **Help → Check for Updates…** opens a release page only; startup
+before exporting a flattened image. For catalog backups see [LIBRARY-SAFETY.md](LIBRARY-SAFETY.md)
+and for release behaviour [RELEASE.md](RELEASE.md). **Help → Check for Updates…** opens a release page only; startup
 checking is an optional General preference and defaults off.
