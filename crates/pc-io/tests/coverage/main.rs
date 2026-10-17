@@ -1,9 +1,9 @@
-//! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
+//! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
-mod ds_abr_map_coverage;
-mod ds_annotations_map_coverage;
-mod ds_comps_map_coverage;
-mod ds_develop_filter_coverage;
-mod ds_effects_map_coverage;
-mod ds_smart_map_coverage;
-mod ds_vector_map_coverage;
+mod abr_map_coverage;
+mod annotations_map_coverage;
+mod comps_map_coverage;
+mod develop_filter_coverage;
+mod effects_map_coverage;
+mod smart_map_coverage;
+mod vector_map_coverage;
