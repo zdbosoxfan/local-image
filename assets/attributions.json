@@ -6895,7 +6895,7 @@
         },
         {
           "name": "PhotoCraft",
-          "used_for": "Effect maps on the GPU (photocraft_compose::effects::build_maps).",
+          "used_for": "Effect maps on the GPU (photocraft_compose::effects::build_maps_prepared).",
           "upstream": "crates/gpu/src/fx.rs",
           "commit": "fd21e734111ef0af3f26b77e3e59d3d651c50f91",
           "ours": "crates/pc-gpu/src/fx.rs",

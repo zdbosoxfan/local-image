@@ -402,53 +402,6 @@ pub mod gpu;
 #[path = "path_effects/tests.rs"]
 mod tests;
 
-/// 09 callback for ordinary PaintPaths returned by project_document. Evaluate effects in
-/// document space first; scaling afterwards keeps Roughen seed/detail and offsets view-invariant.
-pub fn scaled_paint(doc: &Document, layer: &Layer, scale: f64, clip: photocraft_geom::Rect) -> Result<Surface> {
-    if !scale.is_finite() || !(1.0..=64.).contains(&scale) {
-        return Err(bad("invalid path-effect display scale"));
-    }
-    let LayerContent::Shape(source) = &layer.content else {
-        return Err(bad("scaled path-effect paint requires ordinary shape geometry"));
-    };
-    let mut shape = source.clone();
-    shape.path = shape.path.transform(&photocraft_geom::Affine::scale(scale));
-    shape.cache = None;
-    let mut appearance = layer.vector.appearance.clone().unwrap_or_else(|| photocraft_vector::appearance::legacy_appearance(source));
-    for item in &mut appearance.items {
-        let paint = match item {
-            photocraft_doc::vector_design::appearance::AppearanceItem::Mesh(mesh) => {
-                mesh.paint = (&photocraft_vector::mesh_paint::Mesh::from(&mesh.paint).transform(photocraft_geom::Affine::scale(scale)).map_err(bad)?).into();
-                continue;
-            }
-            photocraft_doc::vector_design::appearance::AppearanceItem::Fill(f) => &mut f.paint,
-            photocraft_doc::vector_design::appearance::AppearanceItem::Stroke(st) => {
-                st.base.width *= scale as f32;
-                if let Some(p) = &mut st.profile {
-                    for point in &mut p.points {
-                        point.left *= scale;
-                        point.right *= scale;
-                    }
-                }
-                &mut st.base.paint
-            }
-        };
-        if let photocraft_doc::Fill::Pattern { scale: s, phase, .. } = paint {
-            *s *= scale as f32;
-            phase.0 *= scale as f32;
-            phase.1 *= scale as f32;
-        }
-    }
-    let width = (f64::from(doc.size.width) * scale).ceil();
-    let height = (f64::from(doc.size.height) * scale).ceil();
-    if width > f64::from(i32::MAX / 4) || height > f64::from(i32::MAX / 4) {
-        return Err(bad("scaled path-effect canvas exceeds the coordinate budget"));
-    }
-    let canvas = photocraft_geom::Rect::new(0, 0, width as i32, height as i32);
-    photocraft_vector::appearance::CompiledAppearance::with_projection(&shape, Some(&appearance), &doc.patterns, canvas, &super::expand::Projection)
-        .and_then(|p| p.render(doc.pixel_format(), clip))
-        .map_err(bad)
-}
 #[cfg(test)]
 #[path = "path_effects/native.rs"]
 mod native;

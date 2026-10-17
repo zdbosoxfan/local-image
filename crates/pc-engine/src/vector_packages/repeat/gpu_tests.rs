@@ -2,7 +2,6 @@
 //! pointer/preview/release app gate is supplied in the UI integration handoff, separately.
 use super::*;
 #[test]
-#[ignore = "owner speed rules: integration RTX 5090 Vulkan gate"]
 fn repeat19_gpu_projection_source_edit_and_expand_parity_rtx5090() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device_adapter_limits("repeat19");

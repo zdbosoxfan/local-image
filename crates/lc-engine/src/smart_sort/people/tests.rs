@@ -755,7 +755,7 @@ fn mock_headshots_seed_exactly_one_face_name_list_and_gallery_matches() {
 }
 
 #[test]
-#[ignore = "coordinator: set LI_SEG_TEST_MODELS to verified YuNet/SFace directory"]
+#[ignore = "requires LI_SEG_TEST_MODELS pointing to verified YuNet/SFace models"]
 fn real_weight_people_end_to_end() {
     let model_dir = PathBuf::from(std::env::var("LI_SEG_TEST_MODELS").expect("LI_SEG_TEST_MODELS"));
     let model = RealFaces(FaceModels::load(&model_dir).unwrap());

@@ -1,6 +1,5 @@
-//! Integration gates, deliberately ignored under the owner's 2026-10-10 speed rules.
-//! Production app only: no helper calls that bypass missing 00 routes, software skips or
-//! library-only timing. Adapter/float checks are mandatory when the coordinator runs them.
+//! Full-app gates. Production app only: no helper calls that bypass app routes, software
+//! skips or library-only timing. Adapter/float checks are mandatory.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{PhotocraftApp, canvas::ViewXform, state::Tool};
@@ -102,7 +101,6 @@ fn canvas_pixels(h: &mut H) -> image::RgbaImage {
     image
 }
 #[test]
-#[ignore = "owner speed rules; requires 00 view/overlay routes and real RTX 5090"]
 fn view37_full_app_gpu_outline_deterministic_pixels_and_pixel_preview_cpu_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -169,7 +167,6 @@ fn view37_full_app_gpu_outline_deterministic_pixels_and_pixel_preview_cpu_parity
     assert!(h.state().session.journal.is_empty());
 }
 #[test]
-#[ignore = "owner speed rules; requires 00 isolation/drawing routes and real RTX 5090"]
 fn view37_full_app_gpu_isolate_live_rectangle_cancel_release_escape_and_persona_switch() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -220,7 +217,7 @@ fn view37_full_app_gpu_isolate_live_rectangle_cancel_release_escape_and_persona_
     assert_eq!(h.state().session.active().unwrap().doc, before);
 }
 #[test]
-#[ignore = "owner speed rules prohibit release builds/benchmarks; 00 integration then RTX release gate"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 // A runtime assertion lets debug builds compile the ignored acceptance gate.
 #[allow(clippy::assertions_on_constants)]
 fn view37_full_app_gpu_5000_paths_warm_pointer_frames_under_16ms_release() {

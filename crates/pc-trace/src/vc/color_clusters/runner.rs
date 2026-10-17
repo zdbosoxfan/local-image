@@ -55,10 +55,6 @@ impl Runner {
         Self { config, image }
     }
 
-    pub fn init(&mut self, image: ColorImage) {
-        self.image = image;
-    }
-
     #[allow(clippy::type_complexity)] // the four `impl Fn` params cannot be aliased in return position
     pub fn builder(
         self,

@@ -3,7 +3,7 @@
 use crate::canvas::ViewXform;
 use egui::{Color32, Key, Stroke};
 use photocraft_doc::{
-    DocId, Document, LayerId, Path,
+    DocId, Document, LayerId,
     vector_design::live::{EnvelopeSpec, LiveGroup},
 };
 use photocraft_engine::{
@@ -61,13 +61,6 @@ impl State {
     pub fn display_document(&self, s: &Session) -> Option<(Arc<Document>, u64)> {
         if self.pending.as_ref()?.is_current(s) { Some((self.preview.clone()?, self.preview_key)) } else { None }
     }
-    /// Canvas/Navigator display hook. Source revisions invalidate all envelope dependencies,
-    /// including ordinary path/type source edits, native load and undo/redo.
-    /// Called when font/paint provider generation changes without a document edit.
-    pub fn invalidate_projection(&mut self) {
-        self.cancel();
-        self.committed = None;
-    }
     pub fn display_for_document(&mut self, s: &Session, index: usize) -> Result<Option<(Arc<Document>, u64)>, String> {
         let Some(st) = s.documents().get(index) else { return Ok(None) };
         if s.active().is_some_and(|a| a.doc.id == st.doc.id)
@@ -114,11 +107,6 @@ impl State {
         self.cancel();
         self.committed = None;
         Ok(())
-    }
-    /// Top object is a detached outline supplied by the selection/menu router. The source
-    /// layer remains editable; this API never deletes it as an implicit side effect.
-    pub fn set_top_object(&mut self, s: &Session, path: Path) -> Result<(), String> {
-        self.update(s, EnvelopeSpec::TopObject { path })
     }
     pub fn context_bar(&mut self, ui: &mut egui::Ui, s: &mut Session) {
         self.lifecycle(

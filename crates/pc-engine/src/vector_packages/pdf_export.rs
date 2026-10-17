@@ -7,7 +7,6 @@ use photocraft_doc::{Document, LayerId};
 use photocraft_pdf::export::{ExportContext, ExportOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::sync::OnceLock;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
@@ -33,12 +32,6 @@ pub struct Request {
     pub scope: Scope,
     #[serde(default)]
     pub options: ExportOptions,
-}
-/// Registered by 00 once enhanced projection providers integrate; same detached API as display.
-pub type Provider = fn(&Document, &ExportScope, &ExportOptions, &mut ExportContext<'_>) -> photocraft_pdf::export::Result<ExportedVector>;
-static PROVIDER: OnceLock<Provider> = OnceLock::new();
-pub fn install_provider(provider: Provider) -> std::result::Result<(), Provider> {
-    PROVIDER.set(provider)
 }
 fn error(message: impl Into<String>) -> EngineError {
     EngineError::Other(message.into())
@@ -67,9 +60,8 @@ pub fn export_document(doc: &Document, r: &Request, cancelled: &dyn Fn() -> bool
     let mut text = vector_export_job::font_snapshot(cancelled)?;
     let (projected, warnings) = crate::vector_integration::project_for_export_with(doc, &mut text, cancelled)?;
     let mut cx = ExportContext { cancelled, projection: None, text: &mut text };
-    let run = PROVIDER.get().copied().unwrap_or(photocraft_pdf::export::export_with);
-    let mut output =
-        run(&projected, &r.scope.exchange(), &r.options, &mut cx).map_err(|e| if cancelled() { EngineError::Cancelled } else { error(e.to_string()) })?;
+    let mut output = photocraft_pdf::export::export_with(&projected, &r.scope.exchange(), &r.options, &mut cx)
+        .map_err(|e| if cancelled() { EngineError::Cancelled } else { error(e.to_string()) })?;
     if cancelled() {
         return Err(EngineError::Cancelled);
     }

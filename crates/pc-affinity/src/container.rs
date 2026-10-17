@@ -281,10 +281,6 @@ impl<'a> Archive<'a> {
         self.entries.get(name)
     }
 
-    pub fn entry_names(&self) -> impl Iterator<Item = &str> {
-        self.entries.keys().map(String::as_str)
-    }
-
     /// Bytes extracted so far, counted against [`Limits::max_total`].
     pub fn extracted(&self) -> usize {
         self.extracted

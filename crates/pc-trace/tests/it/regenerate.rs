@@ -30,7 +30,7 @@ fn pbm(path: &Path, c: &Case, p: &Params) -> TestResult {
     Ok(())
 }
 #[test]
-#[ignore = "coordinator only: requires vtracer 1.0.0-alpha.4, potrace 1.16 and Inkscape on PATH"]
+#[ignore = "requires vtracer 1.0.0-alpha.4, potrace 1.16 and Inkscape on PATH"]
 fn regenerate_competitor_references() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let scratch = root.join("../../target/refvec/trace");

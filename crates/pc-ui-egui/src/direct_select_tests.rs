@@ -426,9 +426,7 @@ fn full_app_node_gpu_harness() -> (H, u64) {
 }
 
 /// This gate deliberately runs the complete eframe app, using no test-host router injection.
-/// 00 removes this dependency ignore after installing the documented hooks in the live app.
 #[test]
-#[ignore = "requires package 00 frame/canvas_input/display_doc hooks in the live app"]
 fn node_full_app_gpu_drag_preview_release_escape_pixels_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let (mut h, id) = full_app_node_gpu_harness();
@@ -576,7 +574,7 @@ fn node_kittest_live_conversion_prompt_cancel_and_accept() {
 }
 
 #[test]
-#[ignore = "release real-app benchmark; requires package 00 live node routing"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 // This ignored gate must compile in debug test builds, but reject a debug measurement
 // at runtime. A const assertion would prevent the rest of the debug suite from building.
 #[allow(clippy::assertions_on_constants)]

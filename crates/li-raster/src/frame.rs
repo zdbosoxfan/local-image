@@ -275,9 +275,6 @@ mod image_io {
         pub fn to_rgb8(&self) -> RgbImage {
             RgbImage::from_raw(self.width as u32, self.height as u32, self.data.iter().flat_map(|p| p.map(quantize_u8)).collect()).unwrap_or_default()
         }
-        pub fn to_rgb16(&self) -> ImageBuffer<Rgb<u16>, Vec<u16>> {
-            ImageBuffer::from_raw(self.width as u32, self.height as u32, self.data.iter().flat_map(|p| p.map(quantize_u16)).collect()).unwrap_or_default()
-        }
     }
 
     impl Frame<[f32; 4]> {

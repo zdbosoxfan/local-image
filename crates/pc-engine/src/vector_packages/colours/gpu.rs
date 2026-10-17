@@ -3,7 +3,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
 #[test]
-#[ignore = "owner speed rule: GPU acceptance runs at integration"]
 fn colour39_rtx5090_global_edit_preview_release_and_cancel_parity() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("colour39");

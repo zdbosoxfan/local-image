@@ -238,12 +238,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
 /// master (Photoshop applies the channel curve first, then the composite). Four rows: the three
 /// `per_channel` channels then black (identity unless the space is CMYK). In Lab there is no
 /// composite record, so the master is ignored.
-pub fn tone_luts(adj: &Adjustment) -> [Vec<f32>; 4] {
-    tone_luts_q(adj, None)
-}
-
-/// [`tone_luts`] for samples with `quantum` steps per unit (Levels works on whole levels; see
-/// [`levels_q`]).
+/// Samples have `quantum` steps per unit (Levels works on whole levels; see [`levels_q`]).
 pub fn tone_luts_q(adj: &Adjustment, quantum: Option<f32>) -> [Vec<f32>; 4] {
     let x = |k: usize| k as f32 / (LUT_SIZE - 1) as f32;
     match adj {

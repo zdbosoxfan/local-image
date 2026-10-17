@@ -79,7 +79,6 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
 }
 
 #[test]
-#[ignore = "explicit real RTX 5090 full-app gate"]
 fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();
@@ -149,7 +148,6 @@ fn persona_gpu_switch_pen_preview_cancel_and_release_leave_canvas_unchanged() {
 }
 
 #[test]
-#[ignore = "requires real RTX 5090 and V1 registration by package 00"]
 fn persona_gpu_geometry_click_preserves_canvas_and_undo_restores_targets() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();

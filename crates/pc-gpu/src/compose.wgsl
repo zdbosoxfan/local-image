@@ -985,7 +985,7 @@ fn fs_lerp(in: VOut) -> @location(0) vec4<f32> {
     return vec4((a.rgb * wa + b.rgb * wb) / alpha, alpha);
 }
 
-// ---- layer effects (compose::effects::composite_with_effects) -------------------------------
+// ---- layer effects (compose::effects::composite_with_effects_prepared) ----------------------
 
 const INSIDE_EPS: f32 = 0.5 / 255.0;
 
@@ -1205,7 +1205,7 @@ fn fs_fxmerge(in: VOut) -> @location(0) vec4<f32> {
     return o;
 }
 
-// ---- effect maps (compose::effects::build_maps) ----------------------------------------------
+// ---- effect maps (compose::effects::build_maps_prepared) -------------------------------------
 //
 // Targets cover the effect region (`chunk` = region origin and size); reads outside it return 0,
 // like `Map::get`. Each kernel mirrors one step of the CPU map builders. The shape and its

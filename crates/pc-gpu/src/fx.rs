@@ -1,4 +1,4 @@
-//! Effect maps on the GPU (`photocraft_compose::effects::build_maps`).
+//! Effect maps on the GPU (`photocraft_compose::effects::build_maps_prepared`).
 //!
 //! Every enabled effect of a layer becomes a small *map program*: a chain of single-channel
 //! fragment passes over the layer's effect region (shift, dilate, separable Gaussian blur, glow
@@ -294,13 +294,13 @@ fn offset(angle: f32, distance: f32) -> (f32, f32) {
     ((-a.cos() * distance).round(), (a.sin() * distance).round())
 }
 
-/// The map program of one enabled effect (`build_maps`), without pattern sources.
+/// The map program of one enabled effect (`build_maps_prepared`), without pattern sources.
 #[cfg(test)]
 pub(crate) fn program(e: &Effect, light: &GlobalLight, vector_shape: bool) -> MapProgram {
     program_with(e, light, vector_shape, &[], (0.0, 0.0))
 }
 
-/// The map program of one enabled effect (`build_maps`); bevel textures tile `patterns` from
+/// The map program of one enabled effect (`build_maps_prepared`); bevel textures tile `patterns` from
 /// `anchor` (`effects::TextureCtx`).
 pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, patterns: &[Pattern], anchor: (f64, f64)) -> MapProgram {
     let mut b = B { stages: Vec::new(), fields: Vec::new() };
@@ -435,7 +435,7 @@ pub(crate) fn program_with(e: &Effect, light: &GlobalLight, vector_shape: bool, 
             out
         }
         Effect::Stroke(st) => {
-            // composite_with_effects' stroke bands (maps 0 outside, 1 inside)
+            // composite_with_effects_prepared' stroke bands (maps 0 outside, 1 inside)
             let (in_w, out_w) = stroke_widths(st);
             if out_w > 0.0 {
                 let d = b.field(if vector_shape { FieldKind::StrokeOutsideVector } else { FieldKind::StrokeOutside }, out_w);

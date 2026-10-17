@@ -67,34 +67,9 @@ impl Anchor {
         self.h_in += d;
         self.h_out += d;
     }
-    /// Place the end of the outgoing (`out`) or incoming handle at `pos`. `independent` makes the
-    /// anchor a corner first; a smooth anchor keeps its other handle in line, at its length.
-    pub fn set_handle(&mut self, out: bool, pos: Point, independent: bool) {
-        if independent {
-            self.kind = AnchorKind::Corner;
-        }
-        let p = self.p;
-        let smooth = self.kind == AnchorKind::Smooth;
-        let (moved, other) = if out { (&mut self.h_out, &mut self.h_in) } else { (&mut self.h_in, &mut self.h_out) };
-        *moved = pos;
-        if smooth {
-            let len = (*other - p).hypot();
-            let dir = p - pos;
-            let l = dir.hypot();
-            if l > 1e-9 {
-                *other = p + dir * (len / l);
-            }
-        }
-    }
     /// Swap handles (used when reversing path direction).
     pub fn reversed(&self) -> Self {
         Self { p: self.p, h_in: self.h_out, h_out: self.h_in, kind: self.kind }
-    }
-    /// Remove both handles (convert to a sharp corner).
-    pub fn retract(&mut self) {
-        self.h_in = self.p;
-        self.h_out = self.p;
-        self.kind = AnchorKind::Corner;
     }
 }
 

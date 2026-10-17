@@ -241,7 +241,7 @@ fn kernel_failures_are_errors_instead_of_empty_geometry() {
     assert_eq!(ops::kernel::try_offset_path(&good, -100.0, ops::Join::Miter, 4.0).unwrap(), ops::geom::PathData::default());
 }
 #[test]
-#[ignore = "release performance budget: coordinator machine, two 1000-segment paths"]
+#[ignore = "release-build performance budget on two 1000-segment paths; run with --release --ignored"]
 fn boolean_two_thousand_segments_benchmark() {
     let poly = |x: f64| {
         Path::new(vec![Subpath::polygon(

@@ -70,7 +70,6 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
     assert!(max <= 1, "premultiplied max difference {max}/255");
 }
 #[test]
-#[ignore = "owner speed rule: real RTX full-app gate runs at integration"]
 fn trace28_gpu_live_modal_zoom_drag_cancel_apply_undo_canvas_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();

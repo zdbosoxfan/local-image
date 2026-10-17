@@ -297,13 +297,6 @@ pub fn of(info: &crate::SourceInfo, s: &lightcraft_develop::DevelopSettings) -> 
     ColorCal::try_new(cat, xy, c.gamut.clamp(0.0, 12.0), c.clip)
 }
 
-/// Whether the colour calibration of `s` needs per-pixel work (non-linear Bradford, gamut
-/// compression, clipping). The historical name is retained; the GPU now mirrors this work.
-pub fn needs_cpu(s: &lightcraft_develop::DevelopSettings) -> bool {
-    let c = &s.color_cal;
-    c.enabled && s.section_enabled("colorCal") && (c.gamut > 0.0 || c.clip || c.adaptation == lightcraft_develop::Adaptation::FullBradford)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

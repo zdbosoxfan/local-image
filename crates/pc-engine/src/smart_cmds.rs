@@ -271,9 +271,6 @@ fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
 
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the
 /// group's layers) combined per pixel with `mode`. Cached like [`source_image_in_profile`], keyed by mode.
-pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode) -> Result<SourceImage> {
-    stack_image_in_profile(file_name, bytes, fmt, mode, &crate::color_cmds::working_profile(fmt.mode))
-}
 pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode, target: &Profile) -> Result<SourceImage> {
     use photocraft_algo::stack::Stat;
     let mut key = cache_key(bytes, fmt, target);
@@ -383,13 +380,8 @@ fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
     out
 }
 
-/// Runs the smart filter stack on the placed (unfiltered) content.
-pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Surface {
-    apply_smart_filters_in(placed, sm, canvas, None)
-}
-
-/// [`apply_smart_filters`] in a document whose RGB profile is `profile` (the Camera Raw Filter
-/// converts through it; `None` = sRGB).
+/// Runs the smart filter stack on the placed (unfiltered) content in a document whose RGB profile
+/// is `profile` (the Camera Raw Filter converts through it; `None` = sRGB).
 pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Surface {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
         return placed.clone();

@@ -279,7 +279,6 @@ fn toolbar46_contact_sheet_original_artwork() {
 }
 
 #[test]
-#[ignore = "00 production toolbar/menu wiring and real RTX 5090 GPU milestone; owner speed rules"]
 fn toolbar46_gpu_full_app_proxy_keys_icon_upload_and_pixel_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};
@@ -501,7 +500,6 @@ fn label(sheet: &mut image::RgbaImage, x: u32, y: u32, text: &str, scale: u32) {
 }
 
 #[test]
-#[ignore = "RTX 5090 icon upload milestone; owner speed rules prohibit GPU runs"]
 fn toolbar46_gpu_upload_every_vector_icon_and_switch_styles() {
     let _gpu_gate = crate::gpu_test_support::lock();
     use eframe::{egui_wgpu, wgpu};

@@ -97,11 +97,6 @@ impl ImageInfo {
         self.bits_per_sample[0]
     }
 
-    /// Whether this IFD is a reduced-resolution image (NewSubfileType bit 0).
-    pub fn is_reduced(&self) -> bool {
-        self.new_subfile_type & 1 != 0
-    }
-
     /// Number of chunks across and down per plane.
     pub fn grid(&self) -> (u32, u32) {
         match self.layout {

@@ -66,14 +66,6 @@ pub fn linear_to_rec709(v: f32) -> f32 {
     if v < 0.018 { 4.5 * v } else { 1.099 * v.powf(0.45) - 0.099 }
 }
 
-pub fn gamma_to_linear(v: f32, g: f32) -> f32 {
-    v.max(0.0).powf(g)
-}
-
-pub fn linear_to_gamma(v: f32, g: f32) -> f32 {
-    v.max(0.0).powf(1.0 / g)
-}
-
 const PQ_M1: f64 = 2610.0 / 16384.0;
 const PQ_M2: f64 = 2523.0 / 4096.0 * 128.0;
 const PQ_C1: f64 = 3424.0 / 4096.0;

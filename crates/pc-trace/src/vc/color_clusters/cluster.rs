@@ -4,7 +4,7 @@
 // Copyright (c) 2026 TSANG, Hao Fung, visioncortex contributors.
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // See licenses/visioncortex-LICENSE-MIT and -APACHE.
-use crate::vc::{BinaryImage, BoundingRect, Color, ColorImage, ColorSum, Shape};
+use crate::vc::{BinaryImage, BoundingRect, Color, ColorSum, Shape};
 use std::collections::HashSet;
 
 use super::builder::ZERO;
@@ -77,31 +77,6 @@ impl Cluster {
         }
 
         image
-    }
-
-    pub fn render_to_binary_image(&self, parent: &ClustersView, image: &mut BinaryImage) {
-        for &i in self.iter() {
-            let x = i % parent.width;
-            let y = i / parent.width;
-            image.set_pixel(x as usize, y as usize, true);
-        }
-    }
-
-    pub fn render_to_color_image(&self, parent: &ClustersView, image: &mut ColorImage) {
-        let color = self.residue_color();
-        self.render_to_color_image_with_color(parent, image, &color);
-    }
-
-    pub fn render_to_color_image_with_color(&self, parent: &ClustersView, image: &mut ColorImage, color: &Color) {
-        for &i in self.iter() {
-            let x = i % parent.width;
-            let y = i / parent.width;
-            image.set_pixel(x as usize, y as usize, color);
-        }
-    }
-
-    pub fn to_shape(&self, parent: &ClustersView) -> Shape {
-        self.to_image(parent).into()
     }
 }
 

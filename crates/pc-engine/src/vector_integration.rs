@@ -403,12 +403,6 @@ pub fn refresh_text(doc: &Document, text: &mut photocraft_doc::TextLayer, vector
     Ok(())
 }
 
-/// Export consumes the same evaluated geometry as display, before taking the text lock.
-pub fn project_for_export(source: &Document) -> Result<(Document, Vec<photocraft_doc::vector_design::exchange::VectorWarning>)> {
-    let mut text = photocraft_text::shared().lock().map_err(|_| error("text engine unavailable"))?.fork();
-    project_for_export_with(source, &mut text, &|| false)
-}
-
 /// Detached worker projection with a private font/layout snapshot and cooperative checks.
 pub fn project_for_export_with(
     source: &Document,

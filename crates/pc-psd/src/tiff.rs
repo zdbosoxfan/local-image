@@ -276,13 +276,6 @@ pub mod transcode {
         Ok(t.finish())
     }
 
-    /// Converts a layer-info body (the data of a `Layr` / `Lr16` / `Lr32` block) between orders.
-    pub fn transcode_layer_info(data: &[u8], version: Version, from: ByteOrder, to: ByteOrder) -> Result<(Vec<u8>, Vec<String>)> {
-        let mut t = Tx::new(data, version, from, to);
-        t.layer_info()?;
-        Ok(t.finish())
-    }
-
     /// Converts image-resource blocks (a 34377 tag) between orders.
     pub fn transcode_resources(data: &[u8], from: ByteOrder, to: ByteOrder) -> Result<(Vec<u8>, Vec<String>)> {
         let mut t = Tx::new(data, Version::Psd, from, to);

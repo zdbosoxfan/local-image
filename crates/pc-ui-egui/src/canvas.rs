@@ -2915,28 +2915,6 @@ fn marching_ants_segments(painter: &egui::Painter, xf: &ViewXform, segs: &[crate
     }
 }
 
-#[allow(dead_code)]
-fn marching_ants(painter: &egui::Painter, r: Rect, time: f64) {
-    let dash = 4.0;
-    let offset = ((time * 8.0) % (dash as f64 * 2.0)) as f32;
-    painter.rect_stroke(r, 0.0, Stroke::new(1.0, Color32::WHITE), egui::StrokeKind::Middle);
-    let pts = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
-    for w in pts.windows(2) {
-        let (a, b) = (w[0], w[1]);
-        let len = a.distance(b);
-        let dir = (b - a) / len.max(1e-3);
-        let mut t = -offset;
-        while t < len {
-            let s = t.max(0.0);
-            let e = (t + dash).min(len);
-            if e > s {
-                painter.line_segment([a + dir * s, a + dir * e], Stroke::new(1.0, Color32::BLACK));
-            }
-            t += dash * 2.0;
-        }
-    }
-}
-
 /// Photoshop crop overlay: dimmed outside, bright frame, rule-of-thirds grid, corner and edge handles.
 fn crop_overlay(painter: &egui::Painter, xf: &ViewXform, r: Rect, kind: &str) {
     let camera = xf.camera();

@@ -47,11 +47,8 @@ fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
     Ok(())
 }
 
-/// Exact shared paths can still show seams under per-layer source-over AA.
-/// Keep this required integration gate explicit until 00/09 supply mosaic
-/// coverage composition. It must be run and its failure reported separately.
+/// Exact shared paths show no seams under per-layer source-over AA.
 #[test]
-#[ignore = "requires shared-coverage mosaic rendering from 00/09; run to expose the current compositor deficit"]
 fn cutout_composited_mosaic_has_no_antialias_seam() -> TestResult {
     let _gpu_gate = li_testkit::gpu::lock();
     let labels: Vec<_> = (0..32).flat_map(|y| (0..32).map(move |x| u32::from((x - 16i32).pow(2) + (y - 16i32).pow(2) < 100))).collect();

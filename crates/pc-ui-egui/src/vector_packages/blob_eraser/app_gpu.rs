@@ -1,7 +1,5 @@
-//! Register in tests/gpu/main.rs AFTER applying integration/40.md's production hooks.
-//! Requires PhotocraftApp::blob_eraser and Tool::{BlobBrush,VectorEraser}; no widget
-//! replacement or authoritative-document swap substitutes for the real app router.
-//! Tests are deliberately not executed under the owner's speed override.
+//! Full-app gates through PhotocraftApp::blob_eraser and Tool::{BlobBrush,VectorEraser}; no
+//! widget replacement or authoritative-document swap substitutes for the real app router.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use photocraft_doc::{Color, ColorMode, Document, SampleType, Size};
@@ -83,7 +81,6 @@ fn pixels(h: &mut H, gpu: &GpuCanvas, doc: &Document) -> Vec<[f32; 4]> {
     actual
 }
 #[test]
-#[ignore = "owner speed rules: coordinator full-app RTX GPU acceptance after router integration"]
 fn blob40_full_app_rtx_live_preview_release_erase_rectangle_cancel_and_undo() {
     let _gpu_gate = crate::gpu_lock();
 
@@ -131,7 +128,7 @@ fn blob40_full_app_rtx_live_preview_release_erase_rectangle_cancel_and_undo() {
     assert_eq!(h.state().session.active().unwrap().doc, before);
 }
 #[test]
-#[ignore = "owner speed rules: coordinator release real-app pointer-frame measurement"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn blob40_full_app_release_pointer_frame_measurement() {
     let _gpu_gate = crate::gpu_lock();
 

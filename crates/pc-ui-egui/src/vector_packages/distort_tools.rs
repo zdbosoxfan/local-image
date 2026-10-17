@@ -597,9 +597,6 @@ pub fn conversion_prompt_with(ui: &mut egui::Ui, state: &mut State, s: &mut Sess
     }
     Ok(())
 }
-pub fn conversion_prompt(ui: &mut egui::Ui, state: &mut State, s: &mut Session) -> Result<()> {
-    conversion_prompt_with(ui, state, s, execute)
-}
 pub fn paint_overlay(state: &State, painter: &egui::Painter, to_screen: impl Fn([f64; 2]) -> Pos2) {
     let blue = egui::Color32::from_rgb(50, 170, 255);
     if state.options.tool == Tool::PuppetWarp {

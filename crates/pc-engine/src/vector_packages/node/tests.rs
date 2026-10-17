@@ -213,7 +213,6 @@ fn node_topology_failure_is_an_error_without_edit() {
 }
 
 #[test]
-#[ignore = "requires package 00 installation of actual V1 join/split/nearest adapters"]
 fn node_v1_break_join_close_corner_replay_coverage_and_native_undo() {
     let (mut s, mut t) = setup();
     assert!(GEOMETRY.get().is_some(), "required V1 provider must be installed");
@@ -245,7 +244,6 @@ fn node_v1_break_join_close_corner_replay_coverage_and_native_undo() {
 }
 
 #[test]
-#[ignore = "requires package 00 installation of actual V1 join/split/nearest adapters"]
 fn node_v1_join_consumes_shape_layers_remaps_corners_and_native_undo() {
     let (mut s, t) = setup();
     assert!(GEOMETRY.get().is_some(), "required V1 provider must be installed");

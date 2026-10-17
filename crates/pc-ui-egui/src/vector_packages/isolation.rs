@@ -5,7 +5,7 @@ use egui::{Context, Key, PointerButton, Response, Ui};
 use photocraft_doc::{DocId, Document, LayerId};
 use photocraft_engine::{
     EngineError, Result, Session,
-    vector_packages::isolation::{self as engine, Capture, Target},
+    vector_packages::isolation::{self as engine, Capture},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -245,15 +245,6 @@ pub fn prepare(
 /// coordinates, or package 35's compound provider); never silently insert at the document root.
 pub fn insertion_target(ctx: &Context, doc: &Document) -> Result<engine::InsertionTarget> {
     bridge(ctx).isolation.scope.insertion_target(doc)
-}
-/// 32 currently exposes group-only Scope.isolation. This adapter supplies the native group
-/// case; compound/symbol queries must use engine::Scope/select_all until 00 extends 32.
-pub fn group_scope(ctx: &Context) -> Result<Option<LayerId>> {
-    match bridge(ctx).isolation.scope.current() {
-        Some(Target::Group { layer }) => Ok(Some(layer)),
-        None => Ok(None),
-        _ => Err(EngineError::Other("package 32 must use the compound/symbol isolation scope query".into())),
-    }
 }
 #[cfg(test)]
 #[path = "isolation/tests.rs"]

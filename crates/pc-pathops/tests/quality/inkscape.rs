@@ -49,7 +49,7 @@ fn geometry31_original_corpus_has_sixty_licensed_inputs_and_distinct_cases() -> 
 }
 
 #[test]
-#[ignore = "coordinator acceptance: requires all 345 real Inkscape 1.4.4 SVGs and sidecars"]
+#[ignore = "requires all 345 real Inkscape 1.4.4 SVGs and sidecars"]
 fn geometry31_inkscape_goldens_and_shrinking_ratchet() -> TestResult {
     let mut outcomes = Vec::new();
     for case in cases()? {

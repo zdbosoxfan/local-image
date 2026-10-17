@@ -128,7 +128,7 @@ fn appearance_app_gpu_fill_transparency_panel_preview_release_undo_cancel() {
     assert!(h.state_mut().session.undo());
 }
 #[test]
-#[ignore = "coordinator: run release real-app pointer-frame measurement after router registration"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn appearance_app_pointer_frame_release_measurement_rtx5090() {
     let _gpu_gate = crate::gpu_lock();
     if cfg!(debug_assertions) {

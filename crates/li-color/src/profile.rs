@@ -270,11 +270,6 @@ impl ProfileLook {
         h
     }
 
-    /// The hue/saturation map for calibration-1 weight `g` (legacy dual profiles).
-    pub fn hue_sat_for(&self, g: f64) -> Option<HsvTable> {
-        self.hue_sat_for_weights([g, 1.0 - g, 0.0])
-    }
-
     /// Entry-wise interpolation with the same three weights used by the colour matrices.
     pub fn hue_sat_for_weights(&self, weights: [f64; 3]) -> Option<HsvTable> {
         if let [Some(a), Some(b), Some(c)] = [self.hue_sat_map[0].as_ref(), self.hue_sat_map[1].as_ref(), self.hue_sat_map_3.as_ref()] {
