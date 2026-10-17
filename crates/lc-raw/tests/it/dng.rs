@@ -161,7 +161,7 @@ fn normalized_and_develop() {
     }
 }
 
-// ---------------------------------------------------------------- hand-built variants
+// hand-built variants
 
 fn base_ifd(w: usize, h: usize, bits: u16, cpp: usize, cfa: bool) -> IfdBuilder {
     let mut ifd = IfdBuilder::new();

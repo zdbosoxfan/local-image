@@ -1,7 +1,7 @@
 //! CPU ↔ GPU equivalence: the same settings rendered by the CPU pipeline (the reference) and by
 //! `lightcraft_gpu::render`, compared in 8-bit sRGB.
 //!
-//! Bounds (documented in `docs/gpu-pipeline.md`): mean |Δ| < 0.5 LSB and max |Δ| ≤ 3 LSB per
+//! Bounds: mean |Δ| < 0.5 LSB and max |Δ| ≤ 3 LSB per
 //! channel for every case. Skips (passes with a note) when no GPU adapter exists, e.g. on CI.
 
 use std::sync::Arc;
@@ -480,7 +480,7 @@ fn masked_dehaze_unit_transmission_is_identity() {
             let cpu = render(&src, &info, &s, &req).image;
             if opacity < 100.0 {
                 // Runs without an adapter too: regression for the discontinuous
-                // clip formerly triggered by arbitrarily small positive alpha.
+                // clip triggered by arbitrarily small positive alpha.
                 assert_eq!(cpu, zero, "{look:?}, opacity {opacity}");
             } else {
                 assert_ne!(cpu, zero, "actual masked dehaze must still apply");
@@ -544,7 +544,7 @@ fn embedded_lens_perspective_edges_match() {
     let src = scene(2, 900, 600);
     let raw = SourceInfo { raw: true, ..Default::default() };
     // The unrotated case includes a position only 0.000035 px outside the edge.
-    // f32 classification previously sampled the photo instead of blank canvas.
+    // f32 classification must sample blank canvas, not the photo.
     // Embedded DNG lens corrections (per-plane warp + vignette) with manual CA.
     let lens = EmbeddedLens {
         warp: Some(EmbeddedWarp {

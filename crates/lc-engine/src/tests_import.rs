@@ -1140,7 +1140,7 @@ fn walk(dir: &Path) -> Vec<std::path::PathBuf> {
     out
 }
 
-/// Threading rule 11: an import copying several files at once catalogues exactly what the
+/// An import copying several files at once catalogues exactly what the
 /// one-at-a-time import did — same names for colliding files, same duplicates (within the batch
 /// and with Recently Deleted, which is restored), same order.
 #[test]

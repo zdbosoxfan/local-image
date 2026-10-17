@@ -1,4 +1,4 @@
-//! J10's shared measurement protocol. Both examples compile this same module: no decoder,
+//! The shared measurement protocol. Both examples compile this same module: no decoder,
 //! geometry, input synthesis or scoring differences can favour one backend. No new dependencies.
 //! Inputs: bounded modern-RLE Radiance RGBE HDR files, -Y/+X only. Originals stay in target/.
 //! RGBE reference: Radiance src/common/color.c and src/common/colrops.c.

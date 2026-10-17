@@ -1,4 +1,4 @@
-//! Frozen pre-J18 editor histogram painter, test-only parity oracle.
+//! Frozen earlier editor histogram painter, test-only parity oracle.
 //! Camera Raw-style continuous RGB ribbons. Raw bins remain exact; display filtering is local.
 use crate::theme::Tokens;
 use egui::{Mesh, Rect, pos2};

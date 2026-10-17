@@ -162,7 +162,7 @@ fn choices<V: PartialEq + Copy>(ui: &mut egui::Ui, id: &str, options: &[(V, &str
     false
 }
 
-// ------------------------------------------------------------------------------------- General
+// General
 
 fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if !app.hosted_menus {
@@ -257,7 +257,7 @@ fn general_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     );
 }
 
-// -------------------------------------------------------------------------------------- Import
+// Import
 
 /// A preset picker: `None` = `none_label`. Returns the new choice when it changed.
 fn preset_combo(app: &LightcraftApp, ui: &mut egui::Ui, id: &str, current: Option<&str>, none_label: &str) -> Option<Option<String>> {
@@ -513,7 +513,7 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     }
 }
 
-// --------------------------------------------------------------------------------- Performance
+// Performance
 
 fn performance_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     use lightcraft_engine::gpu;
@@ -669,7 +669,7 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     );
 }
 
-// ---------------------------------------------------------------------------------- Interface
+// Interface
 
 fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     heading(ui, t, li_i18n::library::t("Tools"));
@@ -712,7 +712,7 @@ fn interface_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
     });
 }
 
-// ------------------------------------------------------------------------------- Open Library…
+// Open Library…
 
 /// `app.openLibrary {path?}`: close the current library and open (or create) the one at `path`,
 /// or a folder chosen in a dialog. Remembered as the library to open at launch.

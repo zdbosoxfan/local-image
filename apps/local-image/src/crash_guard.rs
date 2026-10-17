@@ -1,4 +1,4 @@
-//! Last-resort crash guard (AGENTS.md, Never crash).
+//! Last-resort crash guard (never crash).
 //!
 //! Code must return errors, never panic. This is the safety net for a panic that escapes anyway:
 //! the hook logs it, and [`guard`] turns a panic during file import/export into an error the UI

@@ -1852,7 +1852,7 @@ fn library_title(lib: &LightcraftApp, module: Module) -> String {
     format!("Library · {n} photo{}", if n == 1 { "" } else { "s" })
 }
 
-// ------------------------------------------------------------------------------ settings
+// settings
 
 fn config_dir() -> Option<PathBuf> {
     // Host startup tests must not read/write the owner's settings or clear their filter cache.
@@ -2625,7 +2625,7 @@ mod tests {
         assert_eq!(editor.session.active_index(), Some(0));
     }
 
-    // ------------------------------------------------------------- Library ↔ Compositing round trip
+    // Library ↔ Compositing round trip
 
     use photocraft_ui_egui::develop_layer::{self, LibrarySave};
     use serde_json::json;
@@ -3119,7 +3119,7 @@ mod tests {
         host.editor.services.native_menu = Some(NativeMenu::new(Box::new(Queue(events.clone()))));
         let mut h = RoundTripUi::new(host);
         h.step(vec![]);
-        h.step(vec![]); // The editor's startup logic no longer runs in this workspace.
+        h.step(vec![]); // The editor's startup logic does not run in this workspace.
         events.lock().unwrap().push(Event::Key(Chord::parse("Cmd+Q").unwrap()));
         let mut raw = egui::RawInput::default();
         eframe::App::raw_input_hook(&mut h.host, &h.view.ctx, &mut raw);
@@ -3867,7 +3867,7 @@ mod tests {
     fn roundtrip_gpu_grid_loupe_and_save_shortcut_show_the_edited_pixels() {
         use eframe::{egui_wgpu, wgpu};
         // Some installed Vulkan drivers crash during enumeration inside a device-less sandbox.
-        // Skip before loading those drivers; on the coordinator's GPU host enumerate normally.
+        // Skip before loading those drivers; on a host with a GPU enumerate normally.
         #[cfg(target_os = "linux")]
         if !std::path::Path::new("/dev/dri").is_dir() && !std::path::Path::new("/dev/nvidiactl").exists() {
             eprintln!("skipped: no GPU adapter for Compositing → Library round trip");

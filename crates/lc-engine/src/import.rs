@@ -899,7 +899,7 @@ impl ImportJob {
         crate::memory::release();
         // Copies (copy, sync, verify; optional DNG conversion) run on a bounded group of threads
         // while this loop goes on in file order; everything that decides names, folders, sequence
-        // numbers and duplicates stays here, in order (threading rules 6, 10, 11).
+        // numbers and duplicates stays here, in order.
         // never more copy threads than files (a single file is copied right here)
         let workers = if cfg!(target_arch = "wasm32") {
             1
@@ -1754,7 +1754,7 @@ mod shared_decode_registry_tests {
     }
 }
 
-/// J24: one content identity (BLAKE3) for duplicates, Reload and Find Missing.
+/// One content identity (BLAKE3) for duplicates, Reload and Find Missing.
 #[cfg(test)]
 mod j24_identity_tests {
     use lightcraft_catalog::PhotoId;

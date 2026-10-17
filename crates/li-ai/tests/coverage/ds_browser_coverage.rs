@@ -7,9 +7,7 @@ use li_ai::comfy::ObjectInfo;
 use li_ai::family::registry;
 use serde_json::{Value, json};
 
-// -----------------------------------------------------------------------------
 // Test helpers
-// -----------------------------------------------------------------------------
 
 /// A minimal `Net` implementation for tests, serving canned responses.
 struct FakeNet {
@@ -41,9 +39,7 @@ fn cleanup(dir: &PathBuf) {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// -----------------------------------------------------------------------------
 // Source
-// -----------------------------------------------------------------------------
 
 #[test]
 fn source_labels_are_stable() {
@@ -54,9 +50,7 @@ fn source_labels_are_stable() {
     assert_eq!(Source::Installed.label(), "Installed");
 }
 
-// -----------------------------------------------------------------------------
 // CatalogFile
-// -----------------------------------------------------------------------------
 
 #[test]
 fn catalog_file_hf_path_edge_cases() {
@@ -93,9 +87,7 @@ fn catalog_file_size_prefers_exact() {
     assert_eq!(f3.size(), None);
 }
 
-// -----------------------------------------------------------------------------
 // Item
-// -----------------------------------------------------------------------------
 
 #[test]
 fn item_total_bytes_and_vram_gb_edge_cases() {
@@ -136,9 +128,7 @@ fn item_basic_controls_logic() {
     assert!(!default_item.basic_controls());
 }
 
-// -----------------------------------------------------------------------------
 // family_for_label
-// -----------------------------------------------------------------------------
 
 #[test]
 fn family_for_label_variants_and_unknown() {
@@ -164,9 +154,7 @@ fn family_for_label_variants_and_unknown() {
     assert_eq!(family_for_label(reg, "totally-unknown"), None);
 }
 
-// -----------------------------------------------------------------------------
 // model_folder
-// -----------------------------------------------------------------------------
 
 #[test]
 fn model_folder_handles_gguf_and_loader() {
@@ -184,9 +172,7 @@ fn model_folder_handles_gguf_and_loader() {
     assert_eq!(model_folder(reg, Some("sdxl"), "model.safetensors"), "checkpoints");
 }
 
-// -----------------------------------------------------------------------------
 // parse_hf_list
-// -----------------------------------------------------------------------------
 
 #[test]
 fn parse_hf_list_only_weights_and_skips_wrong_kind() {
@@ -248,9 +234,7 @@ fn parse_hf_list_handles_empty_and_malformed() {
     assert!(items[0].files.is_empty());
 }
 
-// -----------------------------------------------------------------------------
 // parse_hf_tree
-// -----------------------------------------------------------------------------
 
 #[test]
 fn parse_hf_tree_only_lfs_entries() {
@@ -269,9 +253,7 @@ fn parse_hf_tree_only_lfs_entries() {
     assert!(!parsed.contains_key("README.md"));
 }
 
-// -----------------------------------------------------------------------------
 // parse_civitai
-// -----------------------------------------------------------------------------
 
 #[test]
 fn parse_civitai_filters_nsfw_pickles_and_commercial() {
@@ -359,9 +341,7 @@ fn parse_civitai_filters_nsfw_pickles_and_commercial() {
     assert_eq!(p.kind, Some(Kind::Lora));
 }
 
-// -----------------------------------------------------------------------------
 // parse_manager
-// -----------------------------------------------------------------------------
 
 #[test]
 fn parse_manager_parses_sizes_and_rejects_non_weights() {
@@ -438,9 +418,7 @@ fn parse_manager_parses_sizes_and_rejects_non_weights() {
     assert_eq!(hf_placeholder.files[0].approx_bytes, Some(4_200_000_000));
 }
 
-// -----------------------------------------------------------------------------
 // parse_template_index
-// -----------------------------------------------------------------------------
 
 #[test]
 fn parse_template_index_filters_out_api_and_video() {
@@ -502,9 +480,7 @@ fn parse_template_index_filters_out_api_and_video() {
     assert_eq!(parsed[0].size, 31782757990);
 }
 
-// -----------------------------------------------------------------------------
 // template_files
-// -----------------------------------------------------------------------------
 
 #[test]
 fn template_files_deduplicates_and_requires_sha256() {
@@ -582,9 +558,7 @@ fn template_files_deduplicates_and_requires_sha256() {
     assert_eq!(vae.sha256.as_deref(), None); // first occurrence had md5 hash_type => no sha256
 }
 
-// -----------------------------------------------------------------------------
 // template_item
-// -----------------------------------------------------------------------------
 
 #[test]
 fn template_item_spreads_approx_bytes_and_preview_url() {
@@ -620,9 +594,7 @@ fn template_item_spreads_approx_bytes_and_preview_url() {
     assert_eq!(item2.files[0].approx_bytes, None);
 }
 
-// -----------------------------------------------------------------------------
 // urlencode
-// -----------------------------------------------------------------------------
 
 #[test]
 fn urlencode_encodes_special_chars_and_spaces() {
@@ -633,9 +605,7 @@ fn urlencode_encodes_special_chars_and_spaces() {
     assert_eq!(urlencode(""), "");
 }
 
-// -----------------------------------------------------------------------------
 // urls
-// -----------------------------------------------------------------------------
 
 #[test]
 fn urls_respect_sources_and_views() {
@@ -671,9 +641,7 @@ fn urls_respect_sources_and_views() {
     assert!(!u3.iter().any(|(s, _)| *s == Source::Community));
 }
 
-// -----------------------------------------------------------------------------
 // items
-// -----------------------------------------------------------------------------
 
 #[test]
 fn items_filters_by_search_family_and_gpu() {
@@ -751,9 +719,7 @@ fn items_filters_by_search_family_and_gpu() {
     assert!(res.is_empty());
 }
 
-// -----------------------------------------------------------------------------
 // Cache
-// -----------------------------------------------------------------------------
 
 #[test]
 fn cache_roundtrip_and_fetch() {
@@ -792,9 +758,7 @@ fn cache_roundtrip_and_fetch() {
     cleanup(&dir);
 }
 
-// -----------------------------------------------------------------------------
 // fetch_template
-// -----------------------------------------------------------------------------
 
 #[test]
 fn fetch_template_rejects_bad_names() {
@@ -811,9 +775,7 @@ fn fetch_template_rejects_bad_names() {
     cleanup(&dir);
 }
 
-// -----------------------------------------------------------------------------
 // plan
-// -----------------------------------------------------------------------------
 
 #[test]
 fn plan_refuses_unverified_and_bad_host() {
@@ -923,6 +885,4 @@ fn plan_skips_installed_and_uses_hf_tree() {
     assert_eq!(p.files[0].sha256, sha);
 }
 
-// -----------------------------------------------------------------------------
 // End of tests
-// -----------------------------------------------------------------------------

@@ -9,7 +9,7 @@ pub mod catalog;
 
 /// Secondary key bindings for commands that already exist: `(shortcut, command id, params JSON)`.
 /// They complement the primary shortcut declared on the command (Lightroom-desktop keys that our
-/// primary keymap assigns elsewhere, see docs/parity.md → Shortcuts). Shown in Help → Keyboard Shortcuts.
+/// primary keymap assigns elsewhere). Shown in Help → Keyboard Shortcuts.
 pub const ALIASES: &[(&str, &str, &str)] = &[
     ("B", "album.toggleTarget", "{}"),
     ("Cmd+D", "library.selectNone", "{}"),

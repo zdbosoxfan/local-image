@@ -324,7 +324,7 @@ pub fn match_variant_gain(out: &mut [[f32; 3]], input: &[f32], kind: Variant, wi
     }
 }
 
-// ------------------------------------------------------------------------------ install
+// install
 
 /// Read entry `name` from a zip archive (stored or deflated), at most `limit` bytes.
 pub fn zip_entry(zip: &[u8], name: &str, limit: usize) -> Result<Vec<u8>> {

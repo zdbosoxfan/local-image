@@ -88,7 +88,6 @@ fn changed(a: &Rgba8, b: &Rgba8) -> f64 {
     a.data.iter().zip(&b.data).filter(|(p, q)| p != q).count() as f64 / a.data.len() as f64
 }
 
-// ------------------------------------------------------------------------------------------------
 // Lens profiles (lens database): native geometry warp, including per-channel sampling and gain
 
 fn barrel() -> LensCorrection {
@@ -330,7 +329,6 @@ fn embedded_profiles_precede_database_and_zero_strength_matches_disabled() {
     check("database vignette nonpositive polynomial", &src, &info, &s, &req);
 }
 
-// ------------------------------------------------------------------------------------------------
 // Native tone equalizer and its neutral/non-neutral mask overlay.
 
 #[test]
@@ -370,7 +368,6 @@ fn tone_equalizer_matches_and_draws_a_mask() {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
 // Colour calibration: folded linear matrices and native per-pixel nonlinear adaptation.
 
 fn cal(adaptation: Adaptation, illuminant: Illuminant, gamut: f64, clip: bool) -> DevelopSettings {
@@ -461,7 +458,6 @@ fn color_calibration_changes_reach_cached_renders() {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
 // Capture sharpening: sharpen the uploaded source before geometry; keep it resident
 
 fn capture(s: &mut DevelopSettings, radius: f64, threshold: f64, iterations: f64) {
@@ -759,7 +755,6 @@ fn bench_capture_sharpening_24mp() {
     eprintln!("24 MP capture r0.8 / 8 it / boost30, fresh CPU: {:.1} ms", ms(t));
 }
 
-// ------------------------------------------------------------------------------------------------
 // Depth masks: stored logits sampled and feathered on the GPU.
 
 fn depth_map(side: usize) -> SegMask {
@@ -834,7 +829,6 @@ fn depth_masks_match() {
     check("depth mask overlay", &src, &info, &s, &req);
 }
 
-// ------------------------------------------------------------------------------------------------
 // Film looks: profile deltas on the existing mechanism
 
 const FILM_LOOKS: [&str; 8] = [
@@ -882,7 +876,6 @@ fn film_looks_match_the_cpu_export() {
     }
 }
 
-// ------------------------------------------------------------------------------------------------
 // AI Remove patches: composited on device before white balance and finish.
 
 fn ai_spot(key: &str, rect: [f64; 4], opacity: f64) -> Spot {
@@ -955,7 +948,6 @@ fn ai_remove_patches_are_in_the_gpu_render() {
     forget("lc-gpu-test-patch");
 }
 
-// ------------------------------------------------------------------------------------------------
 // Timings at 24 MP (`cargo test --release -p lightcraft-gpu --test toolset -- --ignored --nocapture`)
 
 #[test]

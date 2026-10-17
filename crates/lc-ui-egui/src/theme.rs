@@ -1,5 +1,5 @@
 //! Design tokens (colours, sizes, fonts). Values measured from black-box observation of the
-//! reference app's dark theme (see plan/lightroom/10-observed-ui.md); everything is our own code.
+//! reference app's dark theme; everything is our own code.
 
 use std::sync::Arc;
 

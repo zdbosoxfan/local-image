@@ -306,7 +306,7 @@ fn j17_icon_cache_obeys_byte_budget_for_large_dpi_glyphs() {
 #[cfg(test)]
 #[test]
 fn j17_small_icon_frame_sample_removes_duplicate_rasters_and_uploads() {
-    // Small CPU egui frame sample of the actual pre-J17 image/painter paths versus the
+    // Small CPU egui frame sample of the earlier image/painter paths versus the
     // shared paths. Timings are observations, not a hardware-specific acceptance threshold.
     fn sample(shared: bool) -> (usize, Vec<u128>) {
         let ctx = Context::default();

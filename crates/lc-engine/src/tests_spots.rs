@@ -11,8 +11,8 @@ fn spots(s: &Session) -> Vec<lightcraft_develop::Spot> {
 #[test]
 fn spots_select_move_edit_refresh_and_delete() {
     let mut s = Session::with_demo();
-    // TEST-CHANGED J13: source-pin editing applies to Clone; automatic Heal/Remove now
-    // make immutable local patches, covered by the j13 tests below.
+    // Source-pin editing applies to Clone; automatic Heal/Remove make immutable local
+    // patches, covered by the patch tests below.
     let r = s.execute("spot.add", &json!({"mode": "clone", "points": [[0.4, 0.5]], "size": 0.02})).unwrap();
     assert_eq!(r["index"], 0);
     assert_eq!(s.active_spot, Some(0));
@@ -21,7 +21,6 @@ fn spots_select_move_edit_refresh_and_delete() {
     s.execute("spot.add", &json!({"mode": "clone", "points": [[0.7, 0.3]], "source": [0.1, 0.0]})).unwrap();
     assert_eq!(s.active_spot, Some(1));
     assert_eq!(s.execute("library.state", &json!({})).unwrap()["activeSpot"], 1);
-    // select
     s.execute("spot.select", &json!({"index": 0})).unwrap();
     assert_eq!(s.active_spot, Some(0));
     assert!(s.execute("spot.select", &json!({"index": 9})).is_err());

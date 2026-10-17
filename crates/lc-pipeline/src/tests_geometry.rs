@@ -180,7 +180,7 @@ fn optics_preview_matches_export() {
     assert!(err < 4.0, "mean abs error {err}");
 }
 
-// ------------------------------------------------------------------------------------------ M4.3 transforms
+// transforms
 
 /// Source whose content is a straight grid after the forward transform `h` (centred coordinates of a `w × h`
 /// image): each source pixel shows the grid at its transformed position.
@@ -277,7 +277,7 @@ fn transforms_preview_matches_export() {
     assert!(err < 4.0, "mean abs error {err}");
 }
 
-// ------------------------------------------------------------------------------------------ M4.4 Upright
+// Upright
 
 use crate::upright::{Segment, detect_segments, solve_guided};
 use lightcraft_develop::Upright;

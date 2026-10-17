@@ -72,7 +72,7 @@ fn hashes_are_stable_and_distinct() {
     assert_eq!(Hasher128::new().update(b"hel").update(b"lo").finish(), a);
 }
 
-/// J24 golden: the content identity is standard BLAKE3 (the editor's linked-source hash,
+/// Golden: the content identity is standard BLAKE3 (the editor's linked-source hash,
 /// published test vectors), and streaming and parsing agree with the one-shot form. The SipHash
 /// cache key of the same bytes is unchanged (cache file names are derived from it).
 #[test]

@@ -32,7 +32,7 @@ const NAMESPACES: &[(&str, &str)] = &[
     ("Iptc4xmpCore", "http://iptc.org/std/Iptc4xmpCore/1.0/xmlns/"),
     ("lc", LC_NS),
     ("drone-dji", crate::DJI_NS),
-    // Read-only: develop settings written by other raw developers (interchange; see docs/xmp-interop.md).
+    // Read-only: develop settings written by other raw developers (interchange).
     ("crs", CRS_NS),
     // Read-only: face/pet/focus regions written by Lightroom, digiKam, Picasa and others (MWG Region
     // Guidelines v2.0). Canonicalising these three lets a packet use any prefix for them.
@@ -426,7 +426,7 @@ fn parse_one_region(item: &XmpValue, px_dims: Option<(f64, f64)>) -> Option<Regi
     // frame and writes the orientation as the region's `mwg-rs:Rotation` (π for 3, −π/2 for 6, +π/2 for
     // 8; 0 for 1) while `AppliedToDimensions` names the upright size. Turn it into the upright frame.
     // MWG has no way to say "mirrored", so orientations 2/4/5/7 can't be told apart from their unmirrored
-    // twins here; boxes on mirrored photos are taken as written (see LR-LIB-PEOPLE in docs/parity.md).
+    // twins here; boxes on mirrored photos are taken as written.
     let rotation = item.field("mwg-rs:Rotation").and_then(XmpValue::text).and_then(parse_number).filter(|r| r.is_finite());
     let (quarter, half) = (std::f64::consts::FRAC_PI_2, std::f64::consts::PI);
     let (cx, cy, w, h) = match rotation {
@@ -755,7 +755,7 @@ mod tests {
 
     fn full() -> Metadata {
         Metadata {
-            // write_xmp doesn't emit regions yet (read-only interchange; see docs/xmp-interop.md), so the
+            // write_xmp doesn't emit regions yet (read-only interchange), so the
             // roundtrip fixture must leave this empty or `roundtrip_all_fields` can't round-trip it.
             regions: Vec::new(),
             lens_corrections_baked: true,

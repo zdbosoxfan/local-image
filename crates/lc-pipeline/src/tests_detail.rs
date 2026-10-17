@@ -46,7 +46,6 @@ fn optics(w: usize, h: usize, sigma: f32, f: impl Fn(f32, f32) -> f32 + Sync) ->
     lightcraft_raster::blur::gaussian_fine(&img, sigma)
 }
 
-// ---------------------------------------------------------------------------------------------
 // Slanted edge: ESF → LSF → MTF (ISO 12233-style, 4× oversampled projection)
 
 const EDGE_W: usize = 160;
@@ -279,7 +278,6 @@ fn sharpening_preview_matches_the_downscaled_full_size_render() {
     assert!((effect_prev - effect_full).abs() < (effect_unscaled - effect_full).abs());
 }
 
-// ---------------------------------------------------------------------------------------------
 // Noise reduction
 
 /// Flat patches (left) and a fine texture (right, period 6 px, ±0.25 EV), with noise everywhere.
@@ -403,7 +401,6 @@ fn colour_nr_does_not_bleed_across_a_colour_edge() {
     assert!((lum(&l26) - lum(&none)).abs() < 1.5, "{} vs {}", lum(&l26), lum(&none));
 }
 
-// ---------------------------------------------------------------------------------------------
 // Dehaze
 
 /// A dark tower on a bright hazy sky over a hazy ground getting hazier with distance: J·t + A(1−t).

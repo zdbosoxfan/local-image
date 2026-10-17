@@ -676,8 +676,8 @@ impl RenderJob {
 }
 
 /// Render `src`: on the GPU when `gpu` is set and a GPU is available (`lightcraft_gpu`), else on
-/// the CPU, reusing `stages` either way. Both produce the same image within 1–3 LSB (see
-/// `docs/gpu-pipeline.md`); `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
+/// the CPU, reusing `stages` either way. Both produce the same image within 1–3 LSB;
+/// `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
 pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
     if gpu {
         let cpu_reason = if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
@@ -811,7 +811,7 @@ pub fn content_key(p: &Photo) -> String {
     }
 }
 
-// ---- content identity (J24) ----
+// content identity
 //
 // `Photo::content_hash` holds the file's BLAKE3 identity ([`lightcraft_preview::ContentId::of`],
 // 64 hex), possibly with a `:suffix` (`:dup7`, a Duplicate's own identity), or a host's own string.

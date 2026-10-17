@@ -14,11 +14,11 @@ use std::sync::{Arc, Mutex};
 
 use lightcraft_catalog::PhotoId;
 use lightcraft_geom::Point;
-/// Every AI job reports and is cancelled through the app's one job handle (audit D14).
+/// Every AI job reports and is cancelled through the app's one job handle.
 use lightcraft_sysmem::JobCtl;
 use serde::Serialize;
 
-// ------------------------------------------------------------------------------ host
+// host
 
 /// An AI Remove engine the host offers.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -73,7 +73,7 @@ pub trait AiHost: Send + Sync {
     fn remove(&self, req: &RemoveRequest, ctl: &JobCtl) -> Result<RemoveResult, String>;
 }
 
-// ------------------------------------------------------------------------------ jobs
+// jobs
 
 /// The error of a cancelled job, as Develop's string errors carry it: the text of the shared
 /// [`lightcraft_sysmem::Cancelled`] (`job.check()?` in a `Result<_, String>` worker yields it).
@@ -237,7 +237,7 @@ impl Enhance {
         #[cfg(not(target_arch = "wasm32"))]
         if !wait {
             let name = format!("ai-job-{}", job.id);
-            // An AI job with a progress bar (threading rule 7); `wait` runs inline on the caller.
+            // An AI job with a progress bar; `wait` runs inline on the caller.
             let run = move || {
                 lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
                 run()

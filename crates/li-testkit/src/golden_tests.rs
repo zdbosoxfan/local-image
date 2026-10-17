@@ -1,6 +1,6 @@
 //! Golden pin for the moved rasteriser: a fixed scene exercising fractional edges, vertex-colour
 //! gradients, translucent overlap, linear/nearest texture sampling, clip rects and HiDPI scale must
-//! hash to the value `lc-ui-egui`'s `softpaint` produced before the move (J7 parity gate).
+//! hash to the value `lc-ui-egui`'s `softpaint` produced before the move.
 #![allow(clippy::unwrap_used)]
 use std::sync::Arc;
 

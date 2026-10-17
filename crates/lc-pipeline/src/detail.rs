@@ -27,7 +27,6 @@ pub fn out_per_orig(px_per_long: f64, src_long: usize, sensor_scale: f32) -> f32
     (px_per_long as f32 / src_long.max(1) as f32) / sensor_scale.max(1e-3)
 }
 
-// ---------------------------------------------------------------------------------------------
 // Sharpening
 
 /// Under this blur radius (output px) sharpening has nothing left to act on (a preview much

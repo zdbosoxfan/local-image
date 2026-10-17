@@ -93,7 +93,7 @@ fn calculator() -> Vec<u8> {
         ],
     )
 }
-/// Required coordinator desktop gate. CI has no user manager or namespace entitlement.
+/// Required on a desktop host: CI has no user manager or namespace entitlement.
 /// This opt-in test never retries without containment and must pass before shipping fallback.
 #[test]
 #[ignore = "requires the production Linux systemd/bwrap/Poppler runtime; run explicitly"]

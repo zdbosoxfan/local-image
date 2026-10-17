@@ -677,8 +677,8 @@ mod tests {
         Spot { mode, points: vec![Point::new(cx, cy)], size: r / w as f64, feather: 40.0, source_offset: src, ..Default::default() }
     }
 
-    /// TEST-CHANGED J13: Clone retains the old bit-exact gate, including automatic/manual
-    /// sources, brushed strokes and image edges. Heal/Remove now have patch parity and a
+    /// Clone keeps a bit-exact gate against the reference, including automatic/manual
+    /// sources, brushed strokes and image edges. Heal/Remove have patch parity and a
     /// measured quality gate below instead of requiring frequency-separation pixels.
     #[test]
     fn j13_clone_matches_reference_bit_exactly() {

@@ -9,7 +9,7 @@ use crate::icons::{Icon, paint};
 use crate::theme::Tokens;
 use li_ui_kit::widget_style::text_button_size;
 
-// ------------------------------------------------------------------ automation registry
+// automation registry
 
 pub use li_ui_kit::widgets::{Registry, color_swatch, register, take_registry};
 
@@ -36,7 +36,7 @@ pub fn panel_note(ui: &mut Ui, text: &str) -> Response {
     ui.add(egui::Label::new(egui::RichText::new(text).small().color(t.text_dim)).wrap())
 }
 
-// ------------------------------------------------------------------ preview-only raws
+// preview-only raws
 
 /// The decoder's reason why a raw is shown from its embedded preview, shortened for the UI
 /// ("Nikon Huffman-compressed NEF (no clean-room …)" → "Nikon Huffman-compressed NEF").
@@ -78,7 +78,7 @@ pub fn preview_only_notice(ui: &mut Ui, key: &str, reason: &str) {
     register(ui.ctx(), format!("notice:previewOnly:{key}"), r.rect);
 }
 
-// ------------------------------------------------------------------ colour helpers
+// colour helpers
 
 pub fn hex(s: &str) -> Color32 {
     let v = u32::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0x808080);
@@ -412,7 +412,7 @@ fn icon_button_inner(
     if !tooltip.is_empty() { response.on_hover_text(tooltip) } else { response }
 }
 
-// ------------------------------------------------------------------ disclosure rows
+// disclosure rows
 
 /// A compact disclosure row inside a panel: a chevron and a semibold title that open and close
 /// what follows (the Develop layer list, a layer's whole-image tools). [`section_header`] is the
@@ -451,7 +451,7 @@ pub const DISCLOSURE_H: f32 = 24.0;
 /// Where a [`disclosure`] row's title starts; rows it opens indent their content by this much.
 pub const DISCLOSURE_INDENT: f32 = 18.0;
 
-// ------------------------------------------------------------------ colour samples
+// colour samples
 
 /// Corner radius of a [`color_swatch`] tile (one less than the 4 pt buttons, which it sits beside).
 pub const SWATCH_RADIUS: f32 = li_ui_kit::widget_style::SWATCH_RADIUS;
@@ -489,7 +489,7 @@ pub fn range_strip(ui: &mut Ui, id: &str, label: &str, sample: impl Fn(f32) -> C
 pub const RANGE_STRIP_H: f32 = 14.0;
 const RANGE_STRIP_STEPS: usize = 64;
 
-// ------------------------------------------------------------------ badges over the photo
+// badges over the photo
 
 /// A badge over photo pixels: the canvas's active-layer pill, a picker's cursor badge, a preset's
 /// name while its preview shows. `overlay_fg` text and/or icon on an `overlay_bg` scrim, which

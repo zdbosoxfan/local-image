@@ -296,11 +296,11 @@ pub fn state_key(bar: &MenuBar) -> u64 {
     hash.finish()
 }
 
-// ----------------------------------------------------------------------------- shortcuts
+// shortcuts
 
 use li_keys::Chord;
 
-// ----------------------------------------------------------------------------- macOS layout
+// macOS layout
 
 /// A system key equivalent Local Image already uses for something else.
 #[derive(Clone, Debug, PartialEq)]

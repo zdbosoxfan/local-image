@@ -949,7 +949,7 @@ pub fn prompt(app: &mut LightcraftApp, title: &str, hint: &str, value: &str, com
         Some(Dialog::TextPrompt { title: title.into(), hint: hint.into(), value: value.into(), command: command.into(), params, key: key.into() });
 }
 
-// ------------------------------------------------------------------------------------------ dialog widgets
+// dialog widgets
 
 /// Two columns of settings-group checkboxes (Copy Settings, Create Preset) plus All / None.
 fn group_checklist(ui: &mut egui::Ui, tag: &str, groups: &mut Vec<String>) {

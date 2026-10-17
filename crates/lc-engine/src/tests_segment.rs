@@ -116,7 +116,7 @@ fn a_failing_download_ends_with_an_error_and_never_blocks() {
         }
         s.segmenter.download_status()
     };
-    // TEST-CHANGED (J8): the shared downloader (li-ai) never fetches the unpinned tokenizer files…
+    // The shared downloader (li-ai) never fetches the unpinned tokenizer files…
     let st = wait(&mut s);
     assert!(!st.finished);
     let e = st.error.unwrap();

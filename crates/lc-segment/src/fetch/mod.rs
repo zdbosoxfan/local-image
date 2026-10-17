@@ -4,7 +4,7 @@
 //! without a pinned hash (the two tokenizer files, below) are never downloaded: the user puts them
 //! in the model folder.
 //!
-//! The weights are never part of LightCraft (SAM License, see docs/ai-masks.md); where they are
+//! The weights are never part of LightCraft (SAM License); where they are
 //! downloaded from is configured by [`DEFAULT_MIRRORS`] and the user's own list.
 
 mod mirror;
@@ -37,7 +37,7 @@ pub const SAM3_WEIGHTS_SIZE: u64 = 3_439_938_512;
 /// Where LightCraft downloads the model from, in order: each is a base URL, and file `f` is at
 /// `<base>/<f>`. **Empty for now**: LightCraft has no download location of its own yet, so the
 /// in-app download needs the user's list (`LIGHTCRAFT_SAM3_MIRRORS` or the mirrors file, see
-/// [`mirrors`] and docs/ai-masks.md) until this is filled in.
+/// [`mirrors`]) until this is filled in.
 ///
 /// Hugging Face's `facebook/sam3` can't be a default: it is gated (each user must accept the
 /// SAM License there and download with their own token).

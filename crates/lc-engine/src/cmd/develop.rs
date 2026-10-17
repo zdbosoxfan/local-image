@@ -432,7 +432,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(())
             })
         }),
-        // ---- crop & rotate
+        // crop & rotate
         cmd!("crop.set", "Set Crop", [], None, "{rect?: [x0,y0,x1,y1] normalized in the straightened frame, angle?: degrees}", has_active, |s, p| {
             let id = active(s, "crop.set")?;
             let (w, h) = crop_dims(s, id);
@@ -561,7 +561,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(())
             })
         }),
-        // ---- geometry: Upright
+        // geometry: Upright
         cmd!(
             "geometry.upright",
             "Upright",
@@ -621,7 +621,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 })
             }
         ),
-        // ---- copy / paste / sync
+        // copy / paste / sync
         cmd!(
             "develop.copy",
             "Copy Edit Settings",
@@ -811,7 +811,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 Ok(json!({"on": s.auto_sync}))
             }
         ),
-        // ---- presets
+        // presets
         cmd!("preset.apply", "Apply Preset", [], None, "{id: presetId, amount?: 0..200 (percent), ids?}", has_selection, |s, p| {
             let pid = str_param(p, "id").ok_or_else(|| bad("preset.apply", "missing id"))?;
             let mut preset = s.presets.iter().find(|x| x.id == pid).cloned().ok_or_else(|| bad("preset.apply", format!("unknown preset `{pid}`")))?;
@@ -893,7 +893,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 ok()
             }
         ),
-        // ---- versions & history
+        // versions & history
         cmd!("version.create", "Create Version", ["Photo"], Some("Cmd+N"), "{name?}", has_active, |s, p| {
             let id = active(s, "version.create")?;
             let ph = s.catalog.photo(id).cloned().ok_or_else(|| bad("version.create", "no photo"))?;
@@ -943,7 +943,7 @@ pub fn specs() -> Vec<CommandSpec> {
             s.set_develop(id, (*st.settings).clone(), &format!("History: {}", st.label))?;
             ok()
         }),
-        // ---- interactions (slider drags, brush strokes)
+        // interactions (slider drags, brush strokes)
         cmd!("develop.beginInteraction", "Begin Interaction", [], None, "{label}", has_active, |s, p| {
             let label = s.layer_label(str_param(p, "label").unwrap_or("Edit"), p.get("mask").and_then(Value::as_u64).map(|v| v as u32));
             s.begin_interaction(&label)?;

@@ -25,7 +25,7 @@ pub(crate) const PROFILE_PROXY: usize = 192;
 
 /// Raw formats whose decoder supplies vendor white-balance multipliers but no camera colour matrix:
 /// their starting look is fitted to the file's own JPEG, and white balance is relative to the
-/// as-shot look (`docs/camera-preview-colour.md`). The catalog's `Photo::relative_wb` matches the
+/// as-shot look. The catalog's `Photo::relative_wb` matches the
 /// same formats by file extension.
 pub(crate) fn file_local_look(format: RawFormat) -> bool {
     matches!(format, RawFormat::Arw | RawFormat::Nef | RawFormat::Nrw | RawFormat::Rw2)

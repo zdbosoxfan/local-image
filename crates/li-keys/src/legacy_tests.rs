@@ -1,4 +1,4 @@
-// Frozen J20 pre-merge references, retained ONLY for golden/parity tests.
+// Frozen copies of the earlier per-app key handling, retained ONLY for golden/parity tests.
 #![allow(dead_code)]
 pub mod engine {
     #[allow(unused_imports)]

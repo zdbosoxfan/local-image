@@ -184,7 +184,7 @@ impl Item {
     }
 }
 
-// ------------------------------------------------------------------------------ families
+// families
 
 /// The family a Civitai `baseModel`, a Hugging Face tag or a Manager `base` names.
 pub fn family_for_label(reg: &Registry, label: &str) -> Option<String> {
@@ -241,7 +241,7 @@ fn is_weights(name: &str) -> bool {
     n.ends_with(".safetensors") || n.ends_with(".gguf")
 }
 
-// ------------------------------------------------------------------------------ parsers
+// parsers
 
 /// `GET {hf}/api/models?…` (a JSON array).
 /// Hugging Face pipeline tags of models the editor can't use (their LoRAs are hidden from the browser).
@@ -628,7 +628,7 @@ pub fn template_item(reg: &Registry, e: &TemplateEntry, files: Vec<CatalogFile>,
     }
 }
 
-// ------------------------------------------------------------------------------ queries
+// queries
 
 /// What the browser shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -772,7 +772,7 @@ pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]
     out
 }
 
-// ------------------------------------------------------------------------------ network & cache
+// network & cache
 
 /// HTTP access for the browser (tests and the mock substitute their own).
 pub trait Net {
@@ -976,7 +976,7 @@ impl Cache {
     }
 }
 
-// ------------------------------------------------------------------------------ install plans
+// install plans
 
 /// A verified file to download.
 #[derive(Clone, Debug, PartialEq)]

@@ -6,7 +6,7 @@ use lightcraft_raw::{
     probe,
 };
 
-// ---------------------------------------------------------------- helpers
+// helpers
 
 fn raw_u16(w: usize, h: usize, cfa: Option<Cfa>, cpp: usize, data: Vec<u16>) -> RawImage {
     RawImage {
@@ -58,7 +58,7 @@ fn area_full(w: u32, h: u32) -> Area {
     Area { top: 0, left: 0, bottom: h, right: w, plane: 0, planes: 1, row_pitch: 1, col_pitch: 1 }
 }
 
-// ---------------------------------------------------------------- ljpeg
+// ljpeg
 
 #[test]
 fn ljpeg_roundtrip_all_predictors_components_precisions() {
@@ -144,7 +144,7 @@ fn ljpeg_diff_value_categories() {
     assert_eq!(ljpeg::diff_value(&mut ljpeg::BitReader::new(&[0x80]), 1), 1);
 }
 
-// ---------------------------------------------------------------- opcodes
+// opcodes
 
 #[test]
 fn opcodes_write_parse_roundtrip_all_variants() {
@@ -267,7 +267,7 @@ fn opcodes_warp_barrel_moves_outward() {
     assert!(bx >= 25, "{bx}");
 }
 
-// ---------------------------------------------------------------- dngwrite
+// dngwrite
 
 #[test]
 fn dngwrite_u16_uncompressed_roundtrip() {

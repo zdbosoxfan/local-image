@@ -116,7 +116,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
     ]
 }
-// ---------------------------------------------------------------- point-curve presets
+// point-curve presets
 
 /// File extension of exported curve presets (JSON).
 pub const CURVE_PRESET_EXT: &str = "lccurve";

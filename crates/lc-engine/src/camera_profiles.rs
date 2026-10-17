@@ -22,7 +22,7 @@ const VERSION: u32 = 1;
 /// Largest profile file read (a 5 × 72 × 5 table is ~60 KB of JSON).
 const MAX_FILE: u64 = 4 << 20;
 
-/// Profiles built into LightCraft (`assets/camera-profiles/`, see `assets/ATTRIBUTION.md`):
+/// Profiles built into LightCraft (`assets/camera-profiles/`, see `assets/ATTRIBUTION-lightcraft.md`):
 /// `(model, JSON)`.
 pub const BUNDLED: &[(&str, &str)] = &[("ILCE-7M4", include_str!("../../../assets/camera-profiles/ILCE-7M4.json"))];
 

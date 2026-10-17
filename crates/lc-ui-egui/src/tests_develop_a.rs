@@ -76,7 +76,7 @@ fn develop_a_filled_background_and_global_only_links() {
     let photo = h.app.session.active().unwrap();
     let layer_pixels = h.app.session.render_now(photo, 160, 160).unwrap().image;
     click(&mut h, "section:layer-effects");
-    // TEST-CHANGED (UX polish): the three-line notice is one dimmed line per tool now.
+    // The notice is one dimmed line per tool.
     assert!(text(&h).contains("whole image only"));
     click(&mut h, "layerBackground:vignette");
     assert_eq!(h.app.session.active_mask, None);
@@ -86,7 +86,7 @@ fn develop_a_filled_background_and_global_only_links() {
     drag(&mut h, "slider:light.exposure", slider.width() * 0.1);
     assert_eq!(d(&h).light.exposure, 1.0);
     let global_pixels = h.app.session.render_now(photo, 160, 160).unwrap().image;
-    // TEST-CHANGED: a RAW Background exposure precedes its camera tone map; a layer
+    // A RAW Background exposure precedes its camera tone map; a layer
     // exposure multiplies the completed image. Rendered sources remain equivalent here.
     let same = layer_pixels.data.as_flattened().iter().zip(global_pixels.data.as_flattened()).all(|(a, b)| a.abs_diff(*b) <= 1);
     if h.app.session.source_info(photo).raw {

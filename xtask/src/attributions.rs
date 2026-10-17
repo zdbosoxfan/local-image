@@ -80,7 +80,7 @@ pub struct Attributions {
     pub sections: Vec<Section>,
 }
 
-// ------------------------------------------------------------------------------ helpers
+// helpers
 
 /// Markdown cell → plain text: links become their text, backticks and emphasis go.
 fn plain(md: &str) -> String {
@@ -199,7 +199,7 @@ fn notices_mentioning(root: &Path, needle: &str) -> Vec<String> {
     files_in(root, "licenses").into_iter().filter(|f| f.ends_with(".md") && std::fs::read_to_string(root.join(f)).is_ok_and(|t| t.contains(needle))).collect()
 }
 
-// ------------------------------------------------------------------------------ PORTS.md
+// PORTS.md
 
 /// One row of docs/PORTS.md, as the attributions need it.
 #[derive(Clone, Debug, PartialEq)]
@@ -325,7 +325,7 @@ fn port_entries(root: &Path) -> Result<Vec<Entry>> {
         .collect())
 }
 
-// ------------------------------------------------------------------------------ AI models
+// AI models
 
 /// `name: "value"` on a line of Rust source.
 fn string_field<'a>(line: &'a str, name: &str) -> Option<&'a str> {
@@ -466,7 +466,7 @@ fn family_entries(root: &Path) -> Result<Vec<Entry>> {
     Ok(out)
 }
 
-// ------------------------------------------------------------------------------ Rust crates
+// Rust crates
 
 #[derive(Clone, Debug)]
 struct LockPackage {
@@ -788,7 +788,7 @@ fn crate_entries(root: &Path, previous: Option<&Attributions>) -> Result<(Vec<En
     Ok((entries, unknown))
 }
 
-// ------------------------------------------------------------------------------ generate
+// generate
 
 /// Everything but the crates' metadata: the curated file with the generated entries merged in.
 /// `crates` is the crate section's entries.

@@ -428,7 +428,7 @@ impl Session {
         command_specs().iter().map(|c| c.info(self)).collect()
     }
 
-    // ---------------------------------------------------------------- ops, undo
+    // ops, undo
 
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
@@ -662,7 +662,7 @@ impl Session {
         std::mem::take(&mut self.pending_log)
     }
 
-    // ---------------------------------------------------------------- develop edits
+    // develop edits
 
     /// The photo being edited (the active photo).
     pub fn active(&self) -> Option<PhotoId> {
@@ -766,7 +766,7 @@ impl Session {
         Ok(())
     }
 
-    // ---------------------------------------------------------------- library view
+    // library view
 
     /// Photos shown in the grid/filmstrip for the current source, filter and sort.
     pub fn visible(&mut self) -> &[PhotoId] {

@@ -164,7 +164,7 @@ fn copy_distribution_attributions(stage: &Path) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ Linux
+// Linux
 
 fn package_linux(skip_build: bool) -> Result<()> {
     let v = version()?;
@@ -215,7 +215,7 @@ fn package_linux(skip_build: bool) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ Windows
+// Windows
 
 /// `(PE machine, subsystem)` of an executable.
 fn pe_header(path: &Path) -> Result<(u16, u16)> {
@@ -340,7 +340,7 @@ fn package_windows(arch: &str, skip_build: bool) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ check-icons
+// check-icons
 
 /// ICE50: advertised shortcut icon ids must exist and carry the target file's extension
 /// (Windows Installer caches the icon under that id; a wrong extension shows a generic icon).
@@ -398,7 +398,7 @@ fn check_icons(wxs: &Path) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ sign
+// sign
 
 fn warn(msg: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_some() {
@@ -517,7 +517,7 @@ fn find_file(dir: &Path, name: &str, under: &str) -> Option<PathBuf> {
     None
 }
 
-// ------------------------------------------------------------------------------ main
+// main
 
 const USAGE: &str = "usage: cargo xtask <task>
   test-fast
@@ -560,7 +560,7 @@ fn main() -> Result<()> {
     }
 }
 
-// ------------------------------------------------------------------ deps-pure
+// deps-pure
 
 /// Crates that compile C/C++/assembly (or drive a C toolchain). The app is all Rust.
 const IMPURE: &[&str] = &["ring", "openssl-sys", "openssl-src", "aws-lc-sys", "aws-lc-rs", "cmake", "bindgen", "cc"];
@@ -649,7 +649,7 @@ mod deps_pure_tests {
     }
 }
 
-// ------------------------------------------------------------------ upstream-check
+// upstream-check
 
 /// A row of docs/PORTS.md: one ported algorithm.
 #[derive(Debug, PartialEq)]
