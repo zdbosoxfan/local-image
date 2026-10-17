@@ -4,6 +4,9 @@
 //! Samples are normalized (`0..=1` for encoded colour); quantization to 8 bits happens only at
 //! wires that need it (PNG for ComfyUI, 8-bit previews), through [`quantize_u8`].
 
+use lightcraft_geom::Orientation;
+
+use crate::blur::GaussianPolicy;
 use crate::par_rows;
 use crate::resample::{Filter, Pixel, half_pixels, resize_pixels};
 
@@ -45,12 +48,15 @@ pub struct Frame<T> {
     pub data: Vec<T>,
 }
 
-/// Encoded RGB, normalized (alpha already composited).
+/// Float RGB (alpha already composited): normalized encoded colour at AI/preview wires, linear
+/// scene-referred colour in Develop.
 pub type RgbFrame = Frame<[f32; 3]>;
 /// Straight (unpremultiplied) RGBA, normalized.
 pub type RgbaFrame = Frame<[f32; 4]>;
-/// One normalized channel (masks, mattes, luminance).
+/// One float channel (masks, mattes, luminance).
 pub type GrayFrame = Frame<f32>;
+/// 8-bit display-encoded RGBA (previews, thumbnails, histograms).
+pub type Rgba8 = Frame<[u8; 4]>;
 
 /// Round a normalized sample to 8 bits (NaN → 0). The only quantizer for frame wires.
 #[inline]
@@ -173,6 +179,52 @@ impl<T: Copy + Default> Frame<T> {
         }
         Self { width: w, height: h, data }
     }
+    /// [`Self::crop`] in place: rows move to the front of the same buffer (no second frame).
+    pub fn into_crop(mut self, x0: usize, y0: usize, w: usize, h: usize) -> Self {
+        let x0 = x0.min(self.width);
+        let y0 = y0.min(self.height);
+        let w = w.min(self.width - x0);
+        let h = h.min(self.height - y0);
+        for (i, y) in (y0..y0 + h).enumerate() {
+            let src = y * self.width + x0;
+            self.data.copy_within(src..src + w, i * w);
+        }
+        self.data.truncate(w * h);
+        Self { width: w, height: h, data: self.data }
+    }
+    /// Rotate 90° clockwise.
+    pub fn rotate_cw(&self) -> Self {
+        let (w, h) = (self.width, self.height);
+        Self::from_fn(h, w, |x, y| self.get(y, h - 1 - x))
+    }
+    pub fn rotate_180(&self) -> Self {
+        let mut d = self.data.clone();
+        d.reverse();
+        Self { width: self.width, height: self.height, data: d }
+    }
+    pub fn flip_h(&self) -> Self {
+        let mut out = self.clone();
+        for y in 0..self.height {
+            out.row_mut(y).reverse();
+        }
+        out
+    }
+    /// [`Self::oriented`] without a copy when `o` is the identity.
+    pub fn into_oriented(self, o: Orientation) -> Self {
+        if o == Orientation::Normal { self } else { self.oriented(o) }
+    }
+    /// Apply an EXIF orientation (stored → displayed).
+    pub fn oriented(&self, o: Orientation) -> Self {
+        let (flip, turns) = o.to_parts();
+        let mut img = if flip { self.flip_h() } else { self.clone() };
+        match turns {
+            1 => img = img.rotate_cw(),
+            2 => img = img.rotate_180(),
+            3 => img = img.rotate_180().rotate_cw(),
+            _ => {}
+        }
+        img
+    }
     /// Copy `src` into this frame with its top-left at `(x0, y0)`; parts outside are skipped.
     pub fn paste(&mut self, src: &Frame<T>, x0: usize, y0: usize) {
         let w = src.width.min(self.width.saturating_sub(x0));
@@ -189,13 +241,30 @@ impl<T: Pixel> Frame<T> {
         let (width, height) = (width.max(1), height.max(1));
         Self { width, height, data: resize_pixels(&self.data, self.width, self.height, width, height, filter) }
     }
+    /// Fit within `max_w × max_h` preserving aspect (never upscales).
+    pub fn fit(&self, max_w: usize, max_h: usize, filter: Filter) -> Self {
+        let s = (max_w as f64 / self.width as f64).min(max_h as f64 / self.height as f64).min(1.0);
+        let w = ((self.width as f64 * s).round() as usize).max(1);
+        let h = ((self.height as f64 * s).round() as usize).max(1);
+        self.resize(w, h, filter)
+    }
     /// 2× box reduction.
     pub fn half(&self) -> Self {
         Self { width: self.width.div_ceil(2).max(1), height: self.height.div_ceil(2).max(1), data: half_pixels(&self.data, self.width, self.height) }
     }
-    /// The shared default Gaussian.
+    /// The shared default Gaussian: exact at sigma <= 4, three running-sum boxes above it.
+    /// Small sigmas produce a real blur (#706).
     pub fn gaussian(&self, sigma: f32) -> Self {
         Self { width: self.width, height: self.height, data: crate::blur::gaussian(&self.data, self.width, self.height, sigma) }
+    }
+    /// Gaussian with a pinned numerical policy (the default [`Self::gaussian`] retains the
+    /// sampled small-radius and premultiplied-alpha contracts).
+    pub fn gaussian_with_policy(&self, sigma: f32, policy: GaussianPolicy) -> Self {
+        Self { width: self.width, height: self.height, data: crate::blur::gaussian_with_policy(&self.data, self.width, self.height, sigma, policy) }
+    }
+    /// Variance-corrected fine Gaussian, retaining the Develop GPU twin's tap order.
+    pub fn gaussian_fine(&self, sigma: f32) -> Self {
+        Self { width: self.width, height: self.height, data: crate::blur::gaussian_fine(&self.data, self.width, self.height, sigma) }
     }
 }
 
@@ -203,11 +272,48 @@ impl Frame<f32> {
     pub fn clamp01(&mut self) {
         self.map_in_place(|v| v.clamp(0.0, 1.0));
     }
+    /// Square minimum with replicated borders.
+    pub fn min_filter(&self, r: usize) -> Self {
+        Self { width: self.width, height: self.height, data: crate::blur::extrema_filter(&self.data, self.width, self.height, r, false) }
+    }
+    /// Square maximum with replicated borders.
+    pub fn max_filter(&self, r: usize) -> Self {
+        Self { width: self.width, height: self.height, data: crate::blur::extrema_filter(&self.data, self.width, self.height, r, true) }
+    }
 }
 
 impl Frame<[f32; 3]> {
     pub fn clamp01(&mut self) {
         self.map_in_place(|p| p.map(|v| v.clamp(0.0, 1.0)));
+    }
+    /// Bilinear sample at continuous pixel coordinates (pixel centres at +0.5).
+    #[inline]
+    pub fn sample_bilinear(&self, x: f32, y: f32) -> [f32; 3] {
+        let fx = x - 0.5;
+        let fy = y - 0.5;
+        let x0 = fx.floor();
+        let y0 = fy.floor();
+        let tx = fx - x0;
+        let ty = fy - y0;
+        let (x0, y0) = (x0 as isize, y0 as isize);
+        let a = self.get_clamped(x0, y0);
+        let b = self.get_clamped(x0 + 1, y0);
+        let c = self.get_clamped(x0, y0 + 1);
+        let d = self.get_clamped(x0 + 1, y0 + 1);
+        std::array::from_fn(|i| {
+            let top = a[i] + (b[i] - a[i]) * tx;
+            let bot = c[i] + (d[i] - c[i]) * tx;
+            top + (bot - top) * ty
+        })
+    }
+    /// Rec.2020 luminance of linear colour.
+    pub fn luminance(&self) -> Frame<f32> {
+        self.map(li_color::luminance_2020)
+    }
+    /// Encode to 8-bit sRGB from linear sRGB values (no gamut conversion).
+    pub fn to_srgb8(&self) -> Rgba8 {
+        use li_color::transfer::encode_srgb8;
+        self.map(|p| [encode_srgb8(p[0]), encode_srgb8(p[1]), encode_srgb8(p[2]), 255])
     }
     /// Opaque RGBA.
     pub fn to_rgba(&self) -> Frame<[f32; 4]> {
@@ -240,6 +346,24 @@ impl Frame<[f32; 4]> {
     }
     pub fn alpha(&self) -> Frame<f32> {
         self.map(|p| p[3])
+    }
+}
+
+impl Rgba8 {
+    /// Raw bytes (RGBA, row-major).
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.data.iter().flat_map(|p| *p).collect()
+    }
+    pub fn from_bytes(width: usize, height: usize, bytes: &[u8]) -> Option<Self> {
+        if bytes.len() != width * height * 4 {
+            return None;
+        }
+        Some(Self { width, height, data: bytes.as_chunks::<4>().0.iter().map(|c| [c[0], c[1], c[2], c[3]]).collect() })
+    }
+    /// Linear Rec.709/sRGB primaries float frame from 8-bit sRGB.
+    pub fn to_linear(&self) -> Frame<[f32; 3]> {
+        use li_color::transfer::decode_srgb8;
+        self.map(|p| [decode_srgb8(p[0]), decode_srgb8(p[1]), decode_srgb8(p[2])])
     }
 }
 
@@ -350,5 +474,195 @@ mod tests {
         assert_eq!(c.get(3, 3), f.get(4, 3));
         let half = Frame::filled(1, 1, [0.2f32, 0.4, 0.6, 0.5]).over([1.0; 3]);
         assert!(half.get(0, 0).iter().zip([0.6, 0.7, 0.8]).all(|(a, b)| (a - b).abs() < 1e-6));
+    }
+
+    // Formerly `lightcraft-raster`'s `Image` tests (that type folded into `Frame`).
+    use lightcraft_geom::Orientation;
+
+    #[test]
+    fn crop_and_rotate() {
+        let img = Frame::<u32>::from_fn(4, 3, |x, y| (y * 10 + x) as u32);
+        let c = img.crop(1, 1, 2, 2);
+        assert_eq!(c.data, vec![11, 12, 21, 22]);
+        // the in-place variants equal the copying ones
+        for (x, y, w, h) in [(1, 1, 2, 2), (0, 0, 4, 3), (2, 0, 9, 9), (0, 2, 4, 1), (3, 2, 1, 1)] {
+            assert_eq!(img.clone().into_crop(x, y, w, h), img.crop(x, y, w, h));
+        }
+        for v in 1..=8 {
+            let o = Orientation::from_exif(v);
+            assert_eq!(img.clone().into_oriented(o), img.oriented(o));
+        }
+        let mut m = img.clone();
+        m.map_in_place(|p| p * 2 + 1);
+        assert_eq!(m, img.map(|p| p * 2 + 1));
+        let r = img.rotate_cw();
+        assert_eq!((r.width, r.height), (3, 4));
+        // top-left of rotated = bottom-left of original
+        assert_eq!(r.get(0, 0), 20);
+        assert_eq!(r.get(2, 0), 0);
+        assert_eq!(img.rotate_cw().rotate_cw().rotate_cw().rotate_cw(), img);
+        assert_eq!(img.rotate_cw().rotate_cw(), img.rotate_180());
+    }
+
+    #[test]
+    fn orientation_matches_geom_mapping() {
+        let img = Frame::<u32>::from_fn(5, 3, |x, y| (y * 10 + x) as u32);
+        for v in 1..=8 {
+            let o = Orientation::from_exif(v);
+            let out = img.oriented(o);
+            for (sx, sy) in [(0usize, 0usize), (4, 0), (2, 1), (0, 2)] {
+                let (dx, dy) = o.map(sx as f64 + 0.5, sy as f64 + 0.5, 5.0, 3.0);
+                assert_eq!(out.get(dx as usize, dy as usize), img.get(sx, sy), "orientation {v}");
+            }
+        }
+    }
+
+    #[test]
+    fn bilinear_at_centres_is_exact() {
+        let img = RgbFrame::from_fn(3, 3, |x, y| [x as f32, y as f32, 1.0]);
+        assert_eq!(img.sample_bilinear(1.5, 2.5), [1.0, 2.0, 1.0]);
+        let m = img.sample_bilinear(1.0, 1.5);
+        assert!((m[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn srgb8_roundtrip() {
+        let img = Rgba8::from_fn(16, 16, |x, y| [(x * 16) as u8, (y * 16) as u8, 7, 255]);
+        assert_eq!(img.to_linear().to_srgb8(), img);
+        assert_eq!(Rgba8::from_bytes(16, 16, &img.as_bytes()), Some(img));
+    }
+
+    #[test]
+    fn fine_gaussian_keeps_variance_and_mass_at_small_sigma() {
+        for sigma in [0.3f32, 0.5, 0.8, 1.2, 1.9] {
+            let mut imp = Frame::<f32>::new(41, 1);
+            imp.set(20, 0, 1.0);
+            let b = imp.gaussian_fine(sigma);
+            let sum: f32 = b.data.iter().sum();
+            let var: f32 = b.data.iter().enumerate().map(|(i, v)| v * (i as f32 - 20.0).powi(2)).sum();
+            assert!((sum - 1.0).abs() < 1e-5, "{sigma}: {sum}");
+            assert!((var.sqrt() - sigma).abs() / sigma < 0.05, "{sigma}: {}", var.sqrt());
+        }
+        // Both shared policies now blur at 0.5 px (#706).
+        let mut imp = Frame::<f32>::new(9, 9);
+        imp.set(4, 4, 1.0);
+        assert!(imp.gaussian(0.5).get(4, 4) < 1.0);
+        assert!(imp.gaussian_fine(0.5).get(4, 4) < 0.6);
+    }
+
+    #[test]
+    fn min_filter_takes_the_window_minimum() {
+        let img = Frame::<f32>::from_fn(20, 10, |x, y| ((x * 3 + y * 7) % 11) as f32);
+        let m = img.min_filter(2);
+        for y in 0..10usize {
+            for x in 0..20usize {
+                let mut want = f32::INFINITY;
+                for yy in y.saturating_sub(2)..=(y + 2).min(9) {
+                    for xx in x.saturating_sub(2)..=(x + 2).min(19) {
+                        want = want.min(img.get(xx, yy));
+                    }
+                }
+                assert_eq!(m.get(x, y), want);
+            }
+        }
+        let image = Frame::from_fn(3, 2, |x, y| (x + 3 * y) as f32);
+        assert_eq!(image.min_filter(usize::MAX), Frame::filled(3, 2, 0.));
+    }
+
+    #[test]
+    fn gaussian_preserves_constant_mass_and_variance() {
+        let img = Frame::<f32>::filled(50, 30, 0.7);
+        let b = img.gaussian(4.0);
+        assert!(b.data.iter().all(|v| (v - 0.7).abs() < 1e-5));
+        let mut imp = Frame::<f32>::new(101, 101);
+        imp.set(50, 50, 1.0);
+        let b = imp.gaussian(5.0);
+        let sum: f32 = b.data.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-3, "{sum}");
+        // peak moved to the centre and symmetric
+        assert!((b.get(45, 50) - b.get(55, 50)).abs() < 1e-6);
+        assert!((b.get(50, 45) - b.get(50, 55)).abs() < 1e-6);
+        let mut imp = Frame::<f32>::new(201, 1);
+        imp.set(100, 0, 1.0);
+        let sigma = 8.0;
+        let b = imp.gaussian(sigma);
+        let var: f32 = b.data.iter().enumerate().map(|(i, v)| v * ((i as f32 - 100.0).powi(2))).sum();
+        assert!((var.sqrt() - sigma).abs() / sigma < 0.1, "{}", var.sqrt());
+    }
+
+    #[test]
+    fn j01_d2_gaussian_small_sigma_and_alpha() {
+        let img = Frame::from_fn(3, 1, |x, _| if x == 0 { [1.0, 0.0, 0.0, 1.0] } else { [0.0, 0.0, 1.0, 0.0] });
+        let actual = img.gaussian(0.5);
+        assert!(actual.get(0, 0)[3] < 1.0);
+        assert!(actual.get(1, 0)[3] > 0.0);
+        assert_eq!(actual.get(1, 0)[0], 1.0);
+        assert_eq!(actual.get(1, 0)[2], 0.0);
+        assert_eq!(actual.data, crate::blur::gaussian(&img.data, 3, 1, 0.5));
+    }
+
+    #[test]
+    fn resize_keeps_constants_and_mean() {
+        let img = Frame::<f32>::filled(37, 21, 0.42);
+        for f in [Filter::Box, Filter::Bilinear, Filter::Mitchell, Filter::Lanczos3] {
+            for (w, h) in [(10, 7), (80, 40), (37, 21), (1, 1)] {
+                let r = img.resize(w, h, f);
+                assert!(r.data.iter().all(|v| (v - 0.42).abs() < 1e-5), "{f:?} {w}x{h}");
+            }
+        }
+        let img = Frame::<f32>::from_fn(64, 64, |x, y| ((x * 7 + y * 3) % 11) as f32 / 10.0);
+        let mean = img.data.iter().sum::<f32>() / img.len() as f32;
+        let r = img.resize(16, 16, Filter::Lanczos3);
+        let m2 = r.data.iter().sum::<f32>() / r.len() as f32;
+        assert!((mean - m2).abs() < 0.01);
+        let hh = img.half();
+        assert_eq!((hh.width, hh.height), (32, 32));
+        let m3 = hh.data.iter().sum::<f32>() / hh.len() as f32;
+        assert!((mean - m3).abs() < 1e-5);
+    }
+
+    #[test]
+    fn fit_keeps_aspect() {
+        let img = Frame::<f32>::new(4000, 3000);
+        let r = img.fit(400, 400, Filter::Box);
+        assert_eq!((r.width, r.height), (400, 300));
+        let small = Frame::<f32>::new(10, 5).fit(400, 400, Filter::Box);
+        assert_eq!((small.width, small.height), (10, 5));
+    }
+
+    #[test]
+    fn j01_resample_adapter_byte_goldens() {
+        for (f, expected) in [Filter::Box, Filter::Bilinear, Filter::Mitchell, Filter::Lanczos3].into_iter().zip([
+            16937065032499866148,
+            13728202162992833757,
+            1960567902461757162,
+            495902503799777730,
+        ]) {
+            let s = Frame::<[f32; 3]>::from_fn(9, 7, |x, y| {
+                [((x + y * 9) * 17 % 255) as f32 / 255.0, ((x + y * 9) * 31 % 255) as f32 / 255.0, ((x + y * 9) * 7 % 255) as f32 / 255.0]
+            });
+            let o = s.resize(7, 10, f);
+            let data: Vec<_> = o.data.into_iter().flatten().collect();
+            let hash = data.iter().flat_map(|v| v.to_bits().to_le_bytes()).fold(14695981039346656037u64, |h, b| (h ^ u64::from(b)).wrapping_mul(1099511628211));
+            assert_eq!(hash, expected, "{f:?}");
+        }
+    }
+
+    #[test]
+    fn j01_final_dense_alpha_half_nearest_and_empty() {
+        let img = Frame::from_fn(3, 1, |x, _| if x == 0 { [1.0, 0.2, 0.0, 1.0] } else { [0.0, 0.0, 1.0, 0.0] });
+        for got in [img.resize(7, 1, Filter::Bilinear), img.half()] {
+            for p in got.data {
+                if p[3] > 1e-7 {
+                    assert!((p[0] - 1.0).abs() < 1e-6 && (p[1] - 0.2).abs() < 1e-6 && p[2] == 0.0);
+                }
+            }
+        }
+        let ramp = Frame::<f32>::from_fn(9, 3, |x, y| (x + y * 9) as f32);
+        let got = ramp.resize(3, 1, Filter::Nearest);
+        assert_eq!(crate::resample::weights(9, 3, Filter::Nearest), vec![(1, vec![1.0]), (4, vec![1.0]), (7, vec![1.0])]);
+        assert_eq!(got.data, vec![10.0, 13.0, 16.0]);
+        assert_eq!(Frame::<f32>::new(0, 3).half(), Frame::<f32>::new(1, 2));
+        assert_eq!(Frame::<f32>::new(0, 3).resize(2, 1, Filter::Lanczos3), Frame::<f32>::new(2, 1));
     }
 }

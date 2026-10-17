@@ -1,7 +1,7 @@
 //! Micro-benchmark for the blur/map primitives (min of N runs, wall-clock and process CPU time, so
 //! it stays meaningful on a loaded machine):
-//! `RAYON_NUM_THREADS=1 cargo run --release -p lightcraft-raster --example blur_bench`.
-use lightcraft_raster::{Plane, Rgb32f, blur::gaussian};
+//! `RAYON_NUM_THREADS=1 cargo run --release -p li-raster --example blur_bench`.
+use li_raster::{GrayFrame, RgbFrame};
 use std::time::Instant;
 
 /// Process CPU time in ms (all threads). The only `unsafe` is this libc clock read, in a dev-only example.
@@ -33,10 +33,10 @@ fn best(n: usize, mut f: impl FnMut()) -> String {
 
 fn main() {
     let (w, h) = (3000, 2400);
-    let p = Plane::from_fn(w, h, |x, y| ((x * 7 + y * 13) % 255) as f32 / 255.0);
-    let c = Rgb32f::from_fn(w, h, |x, y| [x as f32 / w as f32, y as f32 / h as f32, 0.5]);
+    let p = GrayFrame::from_fn(w, h, |x, y| ((x * 7 + y * 13) % 255) as f32 / 255.0);
+    let c = RgbFrame::from_fn(w, h, |x, y| [x as f32 / w as f32, y as f32 / h as f32, 0.5]);
     for sigma in [1.0f32, 4.0, 24.0] {
-        println!("plane gaussian σ={sigma}: {}", best(9, || drop(gaussian(&p, sigma))));
+        println!("plane gaussian σ={sigma}: {}", best(9, || drop(p.gaussian(sigma))));
     }
-    println!("rgb gaussian σ=4: {}", best(9, || drop(gaussian(&c, 4.0))));
+    println!("rgb gaussian σ=4: {}", best(9, || drop(c.gaussian(4.0))));
 }

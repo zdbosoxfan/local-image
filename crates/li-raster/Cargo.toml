@@ -12,8 +12,13 @@ workspace = true
 [dependencies]
 serde = { workspace = true }
 image = { workspace = true }
+li-color = { workspace = true }
+lightcraft-geom = { workspace = true }
 rayon = { workspace = true, optional = true }
 
 [features]
 default = ["parallel"]
 parallel = ["dep:rayon"]
+
+[dev-dependencies]
+libc = { workspace = true }
