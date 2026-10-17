@@ -217,10 +217,7 @@ fn wgsl_f32_rl_matches_independent_upstream_estimates() {
 
 #[test]
 fn gpu_capture_intermediate_planes_match_cpu() {
-    let Some(gpu_device) = crate::test_device() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
     let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
@@ -263,10 +260,7 @@ fn gpu_capture_intermediate_planes_match_cpu() {
 #[cfg(target_os = "macos")]
 #[test]
 fn metal_high_iteration_capture_preserves_mask_participation() {
-    let Some(gpu_device) = crate::test_device() else {
-        assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required");
-        return;
-    };
+    let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
     let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let (w, h) = (900, 600);

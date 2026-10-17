@@ -1,6 +1,6 @@
 //! The canvas is colour-managed (#46): a Display P3 document shows its colours converted to
 //! the (sRGB) monitor on the GPU canvas (display LUT) and on the CPU canvas (the canvas after the
-//! GPU one is dropped); sRGB documents are shown unchanged. Skips when no GPU adapter with
+//! GPU one is dropped); sRGB documents are shown unchanged. Fails when no GPU adapter with
 //! 32-bit float render targets exists (like `crates/gpu/tests/parity.rs`).
 
 use std::sync::Arc;
@@ -11,33 +11,22 @@ use serde_json::json;
 
 /// Renders the UI with one 512² document of `rgb` tagged with `profile`; returns the median
 /// colour of a patch at the centre of the canvas, for the GPU and the CPU canvas.
-fn render(profile: &str, rgb: [f32; 3], reopen: bool) -> Option<([u8; 3], [u8; 3])> {
+fn render(profile: &str, rgb: [f32; 3], reopen: bool) -> ([u8; 3], [u8; 3]) {
     let float_targets = Arc::new(AtomicBool::new(false));
     let ft = float_targets.clone();
     let observer = Arc::new(std::sync::Mutex::new(None));
     let observer_out = observer.clone();
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+    let mut harness =
         egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 700.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(move |cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            if let Some(rs) = cc.wgpu_render_state.as_ref() {
-                ft.store(photocraft_gpu::Compositor::preferred_acc_format(&rs.adapter) == eframe::wgpu::TextureFormat::Rgba32Float, Ordering::SeqCst);
-                *observer_out.lock().expect("GPU observer lock") = Some(photocraft_ui_egui::gpu_canvas::GpuCanvas::new(rs));
-                app.set_wgpu(rs.clone());
-            }
+            let rs = cc.wgpu_render_state.as_ref().expect("real GPU required: no wgpu render state");
+            ft.store(photocraft_gpu::Compositor::preferred_acc_format(&rs.adapter) == eframe::wgpu::TextureFormat::Rgba32Float, Ordering::SeqCst);
+            *observer_out.lock().expect("GPU observer lock") = Some(photocraft_ui_egui::gpu_canvas::GpuCanvas::new(rs));
+            app.set_wgpu(rs.clone());
             app
-        })
-    }));
-    let Ok(mut harness) = built else {
-        eprintln!("skipping: no GPU adapter");
-        return None;
-    };
-    if !float_targets.load(Ordering::SeqCst) {
-        eprintln!("skipping: adapter can't render Rgba32Float");
-        return None;
-    }
-    // Outside the catch_unwind: a failing setup command fails the test instead of reading as
-    // "no GPU adapter" (#760).
+        });
+    assert!(float_targets.load(Ordering::SeqCst), "real GPU required: adapter can't render Rgba32Float");
     let hex = format!("#{:02x}{:02x}{:02x}", (rgb[0] * 255.0).round() as u8, (rgb[1] * 255.0).round() as u8, (rgb[2] * 255.0).round() as u8);
     let app = harness.state_mut();
     app.run("file.new", json!({"width": 512, "height": 512, "mode": "rgb", "depth": 8})).expect("new");
@@ -103,7 +92,7 @@ fn render(profile: &str, rgb: [f32; 3], reopen: bool) -> Option<([u8; 3], [u8; 3
     harness.state_mut().ui.gpu_fallback_notice = None;
     let cpu = sample(&mut harness);
     eprintln!("gpu {gpu:?} cpu {cpu:?}");
-    Some((gpu, cpu))
+    (gpu, cpu)
 }
 
 fn close(a: [u8; 3], b: [f32; 3], tol: f32) -> bool {
@@ -114,7 +103,7 @@ fn close(a: [u8; 3], b: [f32; 3], tol: f32) -> bool {
 fn display_p3_is_converted_on_gpu_and_cpu_canvases() {
     let _gpu = crate::gpu_lock();
     // P3 (0.8, 0.5, 0.3) → sRGB (216.7, 122.9, 64.3) (see engine display_color_tests); raw would be (204, 128, 77).
-    let Some((gpu, cpu)) = render("display-p3", [0.8, 0.5, 0.3], true) else { return };
+    let (gpu, cpu) = render("display-p3", [0.8, 0.5, 0.3], true);
     assert!(close(cpu, [216.7, 122.9, 64.3], 2.0), "CPU canvas {cpu:?}");
     assert!(close(gpu, [216.7, 122.9, 64.3], 3.0), "GPU canvas {gpu:?}");
 }
@@ -122,7 +111,7 @@ fn display_p3_is_converted_on_gpu_and_cpu_canvases() {
 #[test]
 fn srgb_documents_are_unchanged() {
     let _gpu = crate::gpu_lock();
-    let Some((gpu, cpu)) = render("srgb", [0.8, 0.5, 0.3], false) else { return };
+    let (gpu, cpu) = render("srgb", [0.8, 0.5, 0.3], false);
     assert!(close(cpu, [204.0, 128.0, 77.0], 1.0), "CPU canvas {cpu:?}");
     assert!(close(gpu, [204.0, 128.0, 77.0], 1.0), "GPU canvas {gpu:?}");
 }

@@ -1,7 +1,8 @@
 //! 16/32-bit documents get an `Rgba16Float` canvas texture (#46): smooth gradients keep more than
 //! 256 levels, 32-bit values above 1.0 survive for View › 32-bit Preview Options, and 8-bit
-//! documents keep their `Rgba8Unorm` texture byte for byte. Skips when there is no GPU adapter or
-//! it can't render to `Rgba16Float`.
+//! documents keep their `Rgba8Unorm` texture byte for byte. Fails when there is no GPU adapter or
+//! it can't render to `Rgba16Float`; skips only when `PHOTOCRAFT_CANVAS_F16=0` turns the float
+//! canvas off.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -21,18 +22,24 @@ use serde_json::json;
 /// see #194), so every test here holds this lock for its whole run, devices included.
 use crate::gpu_lock;
 
-/// A headless GPU canvas on a device created like the app's, if the adapter has a float canvas.
+/// True (after saying so) when `PHOTOCRAFT_CANVAS_F16=0` turns the float canvas off on purpose:
+/// the only case these tests skip. A missing GPU or an adapter without `Rgba16Float` fails them.
+fn f16_disabled() -> bool {
+    let off = std::env::var("PHOTOCRAFT_CANVAS_F16").as_deref() == Ok("0");
+    if off {
+        eprintln!("skipping: PHOTOCRAFT_CANVAS_F16=0 turns the float canvas off");
+    }
+    off
+}
+
+/// A headless GPU canvas on a device created like the app's, unless the float canvas is turned
+/// off. Panics without a GPU or when the adapter has no float canvas.
 fn canvas() -> Option<(GpuCanvas, RenderState)> {
-    let rs =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default()))).ok();
-    let Some(rs) = rs else {
-        eprintln!("skipping: no GPU adapter");
-        return None;
-    };
-    if !gpu_canvas::supports_f16_canvas(&rs.adapter) || std::env::var("PHOTOCRAFT_CANVAS_F16").as_deref() == Ok("0") {
-        eprintln!("skipping: adapter can't render/filter Rgba16Float");
+    if f16_disabled() {
         return None;
     }
+    let rs = egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default());
+    assert!(gpu_canvas::supports_f16_canvas(&rs.adapter), "real GPU required: adapter can't render/filter Rgba16Float: {:?}", rs.adapter.get_info());
     Some((GpuCanvas::new(&rs), rs))
 }
 
@@ -177,33 +184,25 @@ impl Screen {
 }
 
 /// Renders the app with `doc` open after `setup` commands (saving the PNG as `name` in the temp
-/// dir), or None when the GPU can't be used.
+/// dir), or None when `PHOTOCRAFT_CANVAS_F16=0` turns the float canvas off. Panics without a GPU.
 fn screen(doc: Document, setup: &[(&str, serde_json::Value)], name: &str) -> Option<Screen> {
+    if f16_disabled() {
+        return None;
+    }
     let ok = Arc::new(AtomicBool::new(false));
     let ok2 = ok.clone();
     let setup: Vec<(String, serde_json::Value)> = setup.iter().map(|(a, b)| (a.to_string(), b.clone())).collect();
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+    let mut harness =
         egui_kittest::Harness::builder().with_size(egui::vec2(1000.0, 700.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(move |cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            if let Some(rs) = cc.wgpu_render_state.as_ref() {
-                ok2.store(gpu_canvas::supports_f16_canvas(&rs.adapter) && std::env::var("PHOTOCRAFT_CANVAS_F16").as_deref() != Ok("0"), Ordering::SeqCst);
-                app.set_wgpu(rs.clone());
-            }
+            let rs = cc.wgpu_render_state.as_ref().expect("real GPU required: no wgpu render state");
+            ok2.store(gpu_canvas::supports_f16_canvas(&rs.adapter), Ordering::SeqCst);
+            app.set_wgpu(rs.clone());
             app.session.open_document(doc, None);
             app
-        })
-    }));
-    let Ok(mut harness) = built else {
-        eprintln!("skipping: no GPU adapter");
-        return None;
-    };
-    if !ok.load(Ordering::SeqCst) {
-        eprintln!("skipping: adapter can't render/filter Rgba16Float");
-        return None;
-    }
-    // Outside the catch_unwind: a failing setup command fails the test instead of reading as
-    // "no GPU adapter" (#760).
+        });
+    assert!(ok.load(Ordering::SeqCst), "real GPU required: adapter can't render/filter Rgba16Float");
     for (id, p) in setup {
         harness.state_mut().run(&id, p).unwrap_or_else(|e| panic!("setup command {id}: {e}"));
     }

@@ -5573,6 +5573,7 @@ dependencies = [
  "image",
  "kurbo 0.13.1",
  "li-color",
+ "li-testkit",
  "photocraft-color",
  "photocraft-compose",
  "photocraft-doc",
@@ -5924,6 +5925,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "half",
  "li-gpu",
+ "li-testkit",
  "log",
  "photocraft-cms",
  "photocraft-color",

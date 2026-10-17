@@ -335,11 +335,7 @@ fn hardware_gpu_renders_compositing_and_develop_colour_icons_at_both_scales() {
     for scale in [1.0, 2.0] {
         let rs = create_render_state(crate::gpu_canvas::wgpu_setup(), Default::default());
         let info = rs.adapter.get_info();
-        if info.device_type == wgpu::DeviceType::Cpu {
-            assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "hardware GPU required, got {}", info.name);
-            eprintln!("skipped: hardware GPU unavailable ({})", info.name);
-            return;
-        }
+        assert_ne!(info.device_type, wgpu::DeviceType::Cpu, "real GPU required: software adapter {}", info.name);
         eprintln!("colour icons: {} ({:?}), scale {scale}", info.name, info.backend);
         let renderer = WgpuTestRenderer::from_render_state(rs.clone());
         let mut h = Harness::builder().with_size(vec2(800.0, 700.0)).with_pixels_per_point(scale).renderer(renderer).build_ui_state(

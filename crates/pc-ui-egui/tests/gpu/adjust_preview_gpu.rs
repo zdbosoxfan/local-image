@@ -1,7 +1,7 @@
 //! GPU parity of the Image › Adjustments dialog preview (`adjust_preview`): the document with
 //! the temporary clipped adjustment layer must composite on the wgpu compositor like on the CPU
-//! reference, and like the destructive command's result, for every kind with a dialog. Skips
-//! without an adapter that renders 32-bit float targets (like `crates/gpu/tests/parity.rs`).
+//! reference, and like the destructive command's result, for every kind with a dialog. Fails
+//! without a hardware adapter that renders 32-bit float targets (`li_testkit::gpu`).
 
 use eframe::wgpu;
 use photocraft_color::{BlendMode, Color, ColorMode, PixelFormat, SampleType};
@@ -11,32 +11,13 @@ use photocraft_gpu::{Compositor, render_to_vec};
 use photocraft_ui_egui::adjust_preview::{PREVIEW_LAYER, preview_document};
 use serde_json::{Value, json};
 
-fn block_on<F: std::future::Future>(f: F) -> F::Output {
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    let mut f = std::pin::pin!(f);
-    loop {
-        if let std::task::Poll::Ready(v) = f.as_mut().poll(&mut cx) {
-            return v;
-        }
-        std::thread::yield_now();
-    }
-}
-
-fn gpu() -> Option<(wgpu::Device, wgpu::Queue, Compositor)> {
-    let adapter = match block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("skipping adjustment preview GPU parity: no adapter ({e})");
-            return None;
-        }
-    };
-    if Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
-        eprintln!("skipping adjustment preview GPU parity: adapter can't render Rgba32Float");
-        return None;
-    }
-    let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-    let comp = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).ok()?;
-    Some((device, queue, comp))
+/// The strict hardware device (`li_testkit::gpu`) and an `Rgba32Float` compositor on it. Panics
+/// without a hardware GPU: a gate failure, never a skip.
+fn gpu() -> (wgpu::Device, wgpu::Queue, Compositor) {
+    let g = li_testkit::gpu::hardware_device("adjustment preview GPU parity");
+    assert_eq!(Compositor::preferred_acc_format(&g.adapter), wgpu::TextureFormat::Rgba32Float, "Rgba32Float accumulation required: {:?}", g.info);
+    let comp = Compositor::try_new_with_format(&g.device, wgpu::TextureFormat::Rgba32Float).expect("Rgba32Float compositor");
+    (g.device, g.queue, comp)
 }
 
 fn rnd(seed: u32, i: u32) -> f32 {
@@ -127,7 +108,7 @@ fn max_diff(a: &[[f32; 4]], b: &[[f32; 4]], skip: usize) -> f32 {
 #[test]
 fn preview_layer_composites_on_the_gpu_like_the_command() {
     let _gpu = crate::gpu_lock();
-    let Some((device, queue, mut comp)) = gpu() else { return };
+    let (device, queue, mut comp) = gpu();
     // GPU vs CPU of the same document (as the compositor parity tests), and GPU preview vs the
     // command's CPU result (adds the command's rounding to the layer depth).
     let (tol_gpu, tol_cmd) = (2.0 / 255.0, 2.5 / 255.0);
@@ -173,7 +154,7 @@ fn preview_layer_composites_on_the_gpu_like_the_command() {
 fn proxy_preview_composites_on_the_gpu() {
     let _gpu = crate::gpu_lock();
     use photocraft_ui_egui::adjust_preview::{base_document, proxy_base, proxy_with_settings};
-    let Some((device, queue, mut comp)) = gpu() else { return };
+    let (device, queue, mut comp) = gpu();
     for selection in [false, true] {
         let (doc, target) = document(ColorMode::Rgb, SampleType::U8, selection);
         let proxy = proxy_base(&base_document(&doc, target).unwrap(), 2);

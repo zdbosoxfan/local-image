@@ -1,6 +1,6 @@
 //! The compositor on a lost device (#243): renders return `Unsupported` (so callers use the CPU
-//! compositor) instead of panicking with "Buffer 'pc_compose_uniforms' is invalid". Skips when no
-//! GPU adapter exists.
+//! compositor) instead of panicking with "Buffer 'pc_compose_uniforms' is invalid". Fails without a
+//! hardware GPU (`li_testkit::gpu`).
 
 use li_gpu::health::{DeviceHealth, Fault};
 use photocraft_color::{Color, ColorMode, SampleType};
@@ -9,20 +9,11 @@ use photocraft_geom::{Rect, Size};
 use photocraft_gpu::{Compositor, render_to_vec};
 use photocraft_raster::Surface;
 
-/// Concurrent wgpu instances in one process segfault on some drivers (see `parity.rs`).
-use crate::GPU_LOCK;
-
-fn device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
-    let instance = wgpu::Instance::default();
-    let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
-        Ok(a) => a,
-        Err(e) => {
-            eprintln!("skipping device-loss tests: no adapter ({e})");
-            return None;
-        }
-    };
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-    Some((adapter, device, queue))
+/// A hardware adapter and device; callers hold `li_testkit::gpu::lock()` (concurrent wgpu
+/// instances in one process segfault on some drivers).
+fn device() -> (wgpu::Adapter, wgpu::Device, wgpu::Queue) {
+    let g = li_testkit::gpu::hardware_device("photocraft-gpu device loss");
+    (g.adapter, g.device, g.queue)
 }
 
 fn doc() -> Document {
@@ -35,9 +26,9 @@ fn doc() -> Document {
 
 #[test]
 fn injected_fault_skips_the_gpu() {
-    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some((adapter, device, queue)) = device() else { return };
-    let Ok(mut comp) = Compositor::try_new_with_format(&device, Compositor::preferred_acc_format(&adapter)) else { return };
+    let _lock = li_testkit::gpu::lock();
+    let (adapter, device, queue) = device();
+    let mut comp = Compositor::try_new_with_format(&device, Compositor::preferred_acc_format(&adapter)).expect("compositor pipelines");
     let health = DeviceHealth::watch(&device);
     comp.set_health(health.clone());
     let d = doc();
@@ -50,9 +41,9 @@ fn injected_fault_skips_the_gpu() {
 
 #[test]
 fn destroyed_device_returns_an_error_not_a_panic() {
-    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some((adapter, device, queue)) = device() else { return };
-    let Ok(mut comp) = Compositor::try_new_with_format(&device, Compositor::preferred_acc_format(&adapter)) else { return };
+    let _lock = li_testkit::gpu::lock();
+    let (adapter, device, queue) = device();
+    let mut comp = Compositor::try_new_with_format(&device, Compositor::preferred_acc_format(&adapter)).expect("compositor pipelines");
     let health = DeviceHealth::watch(&device);
     comp.set_health(health.clone());
     let d = doc();
@@ -71,8 +62,8 @@ fn destroyed_device_returns_an_error_not_a_panic() {
 
 #[test]
 fn health_wait_on_a_destroyed_device_is_safe() {
-    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Some((_adapter, device, _queue)) = device() else { return };
+    let _lock = li_testkit::gpu::lock();
+    let (_adapter, device, _queue) = device();
     let health = DeviceHealth::watch(&device);
     assert!(health.wait(&device, None));
     device.destroy();

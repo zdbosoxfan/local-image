@@ -1,20 +1,19 @@
-//! RTX 5090 parity gate; software adapters are logged separately.
+//! GPU parity gate on the strict hardware prelude (`li_testkit::gpu`): fails, never skips, without
+//! a hardware Vulkan (Metal on macOS) adapter with `Rgba32Float` targets.
 use pc_trace::{Image, Params, trace};
 use photocraft_color::{Color, ColorMode, SampleType};
 use photocraft_doc::{Document, Fill, Layer, LayerContent, ShapeLayer, Size};
 #[test]
 fn traced_shape_group_matches_cpu() -> Result<(), Box<dyn std::error::Error>> {
-    let instance = wgpu::Instance::default();
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("skipped: no GPU adapter");
-        return Ok(());
-    };
-    eprintln!("GPU parity adapter: {:?}", adapter.get_info());
-    if photocraft_gpu::Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
-        eprintln!("skipped: GPU adapter lacks Rgba32Float parity targets");
-        return Ok(());
-    }
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))?;
+    let _gpu = li_testkit::gpu::lock();
+    let g = li_testkit::gpu::hardware_device("trace GPU parity");
+    assert_eq!(
+        photocraft_gpu::Compositor::preferred_acc_format(&g.adapter),
+        wgpu::TextureFormat::Rgba32Float,
+        "Rgba32Float parity targets required: {:?}",
+        g.info
+    );
+    let (device, queue) = (g.device, g.queue);
     let mut compositor = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float)?;
     let mut pixels = vec![255; 48 * 48 * 4];
     for y in 6..42 {

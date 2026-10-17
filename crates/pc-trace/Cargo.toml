@@ -28,3 +28,4 @@ photocraft-compose.workspace = true
 photocraft-color.workspace = true
 wgpu.workspace = true
 pollster.workspace = true
+li-testkit = { workspace = true, features = ["gpu"] }

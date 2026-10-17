@@ -2,7 +2,7 @@
 //! error, work that silently did not run — must come back as `None` (the caller renders on the
 //! CPU) with the reason recorded, never as an image of zeros. One test, sequential: the fatal
 //! faults pause GPU use until automatic recovery.
-//! Skips (passes with a note) when no GPU adapter exists.
+//! Fails when no GPU adapter exists.
 mod support;
 
 use std::sync::Arc;
@@ -38,10 +38,7 @@ fn masked(s: &mut DevelopSettings, k: usize) {
 #[test]
 fn failed_gpu_renders_fall_back_with_a_reason() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     assert_eq!(lightcraft_gpu::unavailable_reason(), None);
     let (w, h) = (1200, 800);
     let src = Arc::new(lightcraft_scenes::demo_library()[0].render(w, h));
@@ -132,10 +129,7 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
 #[test]
 fn develop_layer_tools_render_natively() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
     let info = SourceInfo::default();
     let mut s = DevelopSettings::default();
@@ -154,10 +148,7 @@ fn develop_layer_tools_render_natively() {
 #[test]
 fn absurd_render_sizes_are_refused() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
     let info = SourceInfo { raw: true, ..Default::default() };
     for (w, h) in [(usize::MAX, usize::MAX), (1 << 33, 1 << 33)] {

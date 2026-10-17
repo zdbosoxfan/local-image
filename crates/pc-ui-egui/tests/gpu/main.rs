@@ -22,10 +22,10 @@ mod move_canvas;
 mod shared_tools_perf;
 mod vector_integration;
 
-static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
+/// The shared GPU test lock (`li_testkit::gpu::lock`), so tests here that take the strict
+/// hardware device and those that build eframe render states never overlap.
 fn gpu_lock() -> std::sync::MutexGuard<'static, ()> {
-    GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    li_testkit::gpu::lock()
 }
 
 #[path = "../../src/vector_packages/anchor_tools/app_gpu.rs"]

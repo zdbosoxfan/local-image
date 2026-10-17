@@ -1,7 +1,7 @@
 //! The GPU canvas on a realistic photo-editing document: a full-canvas photo, layers in several
 //! blend modes (one masked), adjustment layers (one masked, one clipped), a type layer with a drop
 //! shadow, a shape and a pass-through group. The wgpu compositor (not the CPU fallback) must draw
-//! it, matching the CPU compositor. Skips when there is no GPU adapter.
+//! it, matching the CPU compositor. Fails when there is no GPU adapter.
 //!
 //! `bench_gpu_canvas_24mp` (ignored) times the canvas paths that cause stutter on a 6000×4000
 //! version, on a device created the way the app creates it:
@@ -23,14 +23,9 @@ use serde_json::{Value, json};
 /// Concurrent wgpu devices in one process crash on some drivers (see `canvas_16f.rs`).
 use crate::gpu_lock;
 
-fn render_state() -> Option<RenderState> {
-    let rs =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default()))).ok();
-    if let Some(rs) = &rs {
-        eprintln!("test adapter: {:?}", rs.adapter.get_info());
-    } else {
-        eprintln!("skipping: no GPU adapter");
-    }
+fn render_state() -> RenderState {
+    let rs = egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default());
+    eprintln!("test adapter: {:?}", rs.adapter.get_info());
     rs
 }
 
@@ -167,7 +162,7 @@ fn layer_count(doc: &Document) -> usize {
 #[test]
 fn realistic_document_composites_on_the_gpu() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::new(&rs);
     let (s, _, _) = realistic(900, 600);
     let doc = s.active().expect("doc").doc.clone();
@@ -199,7 +194,7 @@ fn ms(t: Instant) -> f64 {
 #[ignore = "benchmark: run with --release -- --ignored --nocapture"]
 fn bench_gpu_canvas_24mp() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let info = rs.adapter.get_info();
     eprintln!("adapter: {} ({:?}, {:?}, driver {} {})", info.name, info.backend, info.device_type, info.driver, info.driver_info);
     let g = GpuCanvas::new(&rs);
@@ -477,7 +472,7 @@ fn bench_cpu_symmetry() {
 #[test]
 fn full_refresh_over_residency_budget_keeps_gpu_compositing() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::with_tile(&rs, Some(256));
     g.set_memory_budget(1 << 20);
     let (s, _, _) = realistic(900, 600);
@@ -519,7 +514,7 @@ fn former_fallback_document(mut doc: Document) -> Document {
 #[test]
 fn former_fallbacks_use_tiled_gpu_canvas_and_damage() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::new(&rs);
     let (s, paint, _) = realistic(2300, 240);
     let mut doc = former_fallback_document((*s.active().unwrap().doc).clone());
@@ -541,7 +536,7 @@ fn native_cmyk_adjustment_uses_embedded_profile_on_gpu_canvas() {
     use photocraft_doc::adjust::{CurvePoint, ToneSpace};
     use photocraft_doc::{Adjustment, LayerContent};
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::new(&rs);
     let mut doc = Document::new("embedded CMYK", Size::new(40, 30), ColorMode::Cmyk, SampleType::U16);
     let profile = photocraft_cms::synth::cmyk_profile(&photocraft_cms::synth::CmykParams {

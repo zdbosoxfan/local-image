@@ -191,10 +191,7 @@ fn save_over_webp_and_float_tiff_preserve_depth_and_profile() {
 #[test]
 fn save_over_source_profile_gpu_matches_cpu() {
     let _gpu = crate::tests_gpu::gpu_state();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     struct RestoreGpu(bool);
     impl Drop for RestoreGpu {
         fn drop(&mut self) {
