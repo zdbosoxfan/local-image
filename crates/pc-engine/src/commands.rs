@@ -107,7 +107,7 @@ pub fn find(id: &str) -> Option<&'static CommandSpec> {
     command_specs().iter().find(|c| c.id == id)
 }
 
-// ---------- param helpers ----------
+// Param helpers
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
@@ -232,7 +232,7 @@ fn doc_mode(s: &Session) -> ColorMode {
     s.active().map_or(ColorMode::Rgb, |d| d.doc.mode)
 }
 
-// ---------- the table ----------
+// The table
 
 #[allow(clippy::too_many_lines)]
 fn build() -> Vec<CommandSpec> {

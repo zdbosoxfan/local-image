@@ -71,8 +71,8 @@ pub struct Group<'a> {
     pub slot: usize,
     pub tools: Vec<&'a str>,
 }
-/// Only executable registrations supplied by 01 are eligible. Unknown new IDs get their own
-/// tail slot so a future package cannot disappear from All Tools. Duplicates are suppressed.
+/// Only executable registrations supplied by the persona registry are eligible. Unknown new IDs get their own
+/// tail slot so a future feature cannot disappear from All Tools. Duplicates are suppressed.
 pub fn groups<'a>(registered: &[&'a str], selected: Option<&ToolSet>) -> Vec<Group<'a>> {
     let mut seen = std::collections::BTreeSet::new();
     let eligible = |id: &&str| selected.is_none_or(|s| s.tools.iter().any(|t| t == *id));
@@ -330,7 +330,7 @@ pub fn command_bindings(persona: Persona, pixel: &[(String, String)]) -> Vec<(St
 #[path = "vector_toolbar_layout/tests.rs"]
 mod tests;
 
-/// Compiled 46 toolbar slot. Paint edits reuse 08's journaled shape.appearance.set; this
+/// Toolbar slot. Paint edits reuse the journaled shape.appearance.set; this
 /// read-only command exposes keymap data to the shell/automation without another prefs store.
 pub fn specs() -> Vec<crate::commands::CommandSpec> {
     vec![crate::commands::CommandSpec {

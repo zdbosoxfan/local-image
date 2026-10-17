@@ -1,5 +1,5 @@
 //! Data-only Live Paint schema, GPL-3.0-or-later. Include this exact source in pc-doc
-//! through package 00; it has no evaluator, renderer, engine or UI dependencies.
+//! unchanged; it has no evaluator, renderer, engine or UI dependencies.
 use photocraft_doc::{Fill, ShapeStroke};
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -53,7 +53,7 @@ pub struct EdgePaint {
     pub signature: Signature,
     pub stroke: Option<ShapeStroke>,
 }
-/// Serde schema requested from 00. Ordinary group children remain the editable sources.
+/// Serde schema for the additive live-paint group variant. Ordinary group children remain the editable sources.
 /// Paint records whose signatures disappear are retained, allowing Undo/topology restoration.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

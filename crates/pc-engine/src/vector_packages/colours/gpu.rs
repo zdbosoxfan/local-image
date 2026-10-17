@@ -1,5 +1,4 @@
-//! Offscreen RTX gate supplied for the integration milestone, never run by this speed-limited
-//! package job. Engine/cache parity is separate from 00's required full-app pointer-frame gate.
+//! Offscreen RTX gate for engine/cache parity; the full-app pointer-frame gate is separate.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use super::*;
 #[test]

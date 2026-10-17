@@ -1,5 +1,5 @@
 //! Full eframe app gate for the advanced style sampler through the native Style Picker
-//! flyout. The shared Eyedropper keeps package 47's color-sampling behavior in both personas.
+//! flyout. The shared Eyedropper keeps the same color-sampling behavior in both personas.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crate::PhotocraftApp;
 use egui::{Event, Modifiers, PointerButton};

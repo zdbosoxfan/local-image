@@ -439,7 +439,7 @@ pub fn deform(mesh: &Mesh, pins: &[Pin]) -> Vec<Point> {
     let located: Vec<(usize, [f64; 3], Point)> =
         pins.iter().flat_map(|p| p.constraints(mesh.cell)).filter_map(|(rest, target)| mesh.locate(rest).map(|(t, w)| (t, w, target))).collect();
     let vb = mesh.vertex_band();
-    // ---- step 1: similarity-invariant error, 2n unknowns interleaved (x0, y0, x1, y1, ...).
+    // Step 1: similarity-invariant error, 2n unknowns interleaved (x0, y0, x1, y1, ...).
     let mut g = BandMatrix::new(2 * n, 2 * vb + 1);
     for tri in &mesh.tris {
         for k in 0..3 {
@@ -493,7 +493,7 @@ pub fn deform(mesh: &Mesh, pins: &[Pin]) -> Vec<Point> {
     g.solve(&mut rhs);
     let step1: Vec<Point> = (0..n).map(|i| Point::new(rhs[2 * i], rhs[2 * i + 1])).collect();
 
-    // ---- step 2: fit rigid triangles, then match edge vectors (x and y separable).
+    // Step 2: fit rigid triangles, then match edge vectors (x and y separable).
     let mut l = BandMatrix::new(n, vb);
     for tri in &mesh.tris {
         for k in 0..3 {

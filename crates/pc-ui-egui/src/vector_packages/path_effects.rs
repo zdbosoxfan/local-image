@@ -1,5 +1,5 @@
 //! Effect menu, editable Preview dialog and Appearance section (original Local Image UI).
-//! Captured document/revision/targets stay fixed through preview and release. 00 routes
+//! Captured document/revision/targets stay fixed through preview and release. The app routes
 //! detached preview into the canvas; commands publish only on OK or a panel edit.
 use egui::{Context, Ui};
 pub use engine::{EffectKind, EffectTarget, OffsetJoin, PathEffect, Points, ShapeKind};

@@ -138,7 +138,7 @@ fn placed_generate_results_offer_variations_with_their_saved_settings() {
     assert!(h.state().session.active().unwrap().doc.layer(layer).unwrap().visible);
 }
 
-// ------------------------------------------------------------------------------- in the app
+// In the app
 
 fn harness(width: u32, height: u32) -> Harness<'static, PhotocraftApp> {
     with(|s| *s = State::default());

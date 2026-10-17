@@ -26,7 +26,6 @@ use crate::{DocState, EngineError, Result, Session};
 #[cfg(test)]
 mod tests;
 
-// ---------------------------------------------------------------------------------------------
 // View state
 
 /// What pixel commands edit (Channels panel click / ⌘2…⌘9).
@@ -138,7 +137,6 @@ fn touch(st: &mut DocState) {
     st.last_damage = None;
 }
 
-// ---------------------------------------------------------------------------------------------
 // Channel names and formats
 
 /// Colour channel names of a document mode (the rows under the composite).
@@ -180,7 +178,6 @@ fn next_alpha_name(doc: &Document, base: &str) -> String {
     (1..=doc.channels.len() + 1).map(|n| format!("{base} {n}")).find(|n| !doc.channels.iter().any(|c| &c.name == n)).unwrap_or_else(|| base.to_string())
 }
 
-// ---------------------------------------------------------------------------------------------
 // Planes: one grayscale value per canvas pixel
 
 fn read_plane(s: &Surface, r: Rect) -> Vec<f32> {
@@ -209,7 +206,6 @@ fn luminosity(rgba: [f32; 4]) -> f32 {
     li_color::convert::rgb_to_gray([rgba[0], rgba[1], rgba[2]])
 }
 
-// ---------------------------------------------------------------------------------------------
 // Channel references
 
 /// A channel named in params: `"composite"`, a colour name (`"red"`, `"cyan"`, `"lightness"`…),
@@ -282,7 +278,6 @@ fn alpha_index(doc: &Document, p: &Value, key: &str, cmd: &str) -> Result<usize>
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Sources (Load Selection, Apply Image, Calculations)
 
 /// Native pixel values of a layer or of the merged image over the canvas.
@@ -410,7 +405,6 @@ fn source(s: &Session, p: &Value, cmd: &str, gray: bool) -> Result<Vec<Vec<f32>>
     Ok(planes)
 }
 
-// ---------------------------------------------------------------------------------------------
 // Blending (Apply Image / Calculations)
 
 /// Apply Image / Calculations blending: the separable layer modes plus Add and Subtract with
@@ -475,7 +469,6 @@ fn mask_plane(s: &Session, p: &Value, cmd: &str) -> Result<Option<Vec<f32>>> {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Targets for pixel commands
 
 /// Where a pixel command writes, from its `"target"` param.
@@ -647,7 +640,6 @@ pub(crate) fn edits_channel(s: &Session) -> bool {
     })
 }
 
-// ---------------------------------------------------------------------------------------------
 // Enabled predicates
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
@@ -674,7 +666,6 @@ fn can_merge(s: &Session) -> std::result::Result<(), String> {
     if mergeable(s).len() >= 2 { Ok(()) } else { Err("Merge Channels needs at least two open grayscale documents of the same size".into()) }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Save / Load Selection
 
 fn operation<'a>(p: &'a Value, key: &str) -> &'a str {
@@ -765,7 +756,6 @@ fn load_selection(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "selected": selected }))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Quick Mask
 
 /// Quick Mask channel for the current selection: white where selected; no selection = an empty
@@ -822,7 +812,6 @@ fn quick_mask(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "quickMask": want }))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Channel management
 
 fn indicates_param(v: Option<&Value>) -> Option<ColorIndicates> {
@@ -1364,7 +1353,6 @@ fn merge(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "document": i }))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Apply Image / Calculations
 
 fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
@@ -1468,7 +1456,6 @@ fn calculations(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // State as JSON
 
 /// The Channels panel rows and view state of a document (also part of `inspect`).
@@ -1500,7 +1487,6 @@ fn list(s: &Session) -> Value {
     s.active().map(channels_json).unwrap_or(Value::Null)
 }
 
-// ---------------------------------------------------------------------------------------------
 // Registry
 
 macro_rules! spec {

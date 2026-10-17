@@ -79,7 +79,7 @@ fn id_param(cmd: &str, p: &Value) -> Result<Option<u32>> {
     crate::commands::u32_id_param(cmd, p, "id")
 }
 
-// ---------- attribute parameters ----------
+// Attribute parameters
 
 /// A character style with every field changed from the default, to see which fields a set of
 /// Character-panel keys touches.
@@ -185,7 +185,7 @@ fn parse_attrs(cmd: &str, v: &Value) -> Result<(StyleAttrs, StyleAttrs)> {
     Ok((c, pa))
 }
 
-// ---------- restyling ----------
+// Restyling
 
 /// What to do to the targeted text while re-resolving against new styles.
 #[derive(Clone, Copy, Default)]
@@ -391,7 +391,7 @@ fn current(s: &Session, p: &Value) -> Option<Value> {
     Some(json!({ "character": one(&chars), "characterOverride": c_over, "paragraph": one(&paras), "paragraphOverride": p_over }))
 }
 
-// ---------- commands ----------
+// Commands
 
 fn styles(s: &Session) -> Result<TextStyles> {
     Ok(s.active().ok_or(EngineError::NoDocument)?.doc.text_styles.clone())

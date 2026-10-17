@@ -3,7 +3,7 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
 //! Unlike upstream's flat quads, sampling uses exact bicubic Coons geometry and
-//! premultiplied linear-light colour. Envelope 20's private Catmull-Rom evaluator
+//! premultiplied linear-light colour. The envelope tool's private Catmull-Rom evaluator
 //! is a different surface and is not copied here. Coordinates are document pixels.
 use crate::{DEFAULT_TOLERANCE, Rasterizer, fill_rasterizer};
 use li_color::convert::{linear_to_srgb, srgb_to_linear};

@@ -688,7 +688,7 @@ mod tests {
     /// parse time. Garbage zlib data proves it: decompressing it would fail, skipping it passes,
     /// and decoding the layout still reports the size limit.
     #[test]
-    // TEST-CHANGED F146: check the import budget as well as the larger encoder budget.
+    // Checks the import budget as well as the larger encoder budget.
     fn zip_over_budget_is_not_decompressed_at_parse() {
         let l = layout(4, 300_000, 300_000, 8, Version::Psb);
         assert!(l.total_bytes().unwrap() > MAX_DECODED_BYTES);

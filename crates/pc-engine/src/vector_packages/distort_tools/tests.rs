@@ -1,4 +1,4 @@
-//! Package 41 transaction oracles, using owned CommandSpecs until 00 registers the slot.
+//! Transaction oracles, using the module's own CommandSpecs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use photocraft_doc::{Color, ColorMode, Fill, SampleType, ShapeLayer, Size, Subpath};

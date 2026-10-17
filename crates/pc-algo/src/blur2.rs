@@ -13,7 +13,7 @@ use crate::image::Image;
 use crate::noise::hash01;
 use crate::{BlurQuality, BlurShape, Ctx, DepthSource, Distribution, SmartBlurMode};
 
-// ---------- span kernels ----------
+// Span kernels
 
 /// A binary kernel as horizontal runs `(dy, dx0, dx1)` (inclusive).
 pub(crate) struct Spans {
@@ -180,7 +180,7 @@ fn conv_spans(src: &Image, out: Rect, ctx: &Ctx, spans: &Spans) -> Vec<f32> {
     res
 }
 
-// ---------- smart blur ----------
+// Smart blur
 
 /// Smart Blur: averages only neighbours within `threshold` levels of the
 /// centre pixel (so edges stay crisp); Edge Only / Overlay Edge draw the
@@ -258,7 +258,7 @@ pub(crate) fn smart_blur(src: &Image, out: Rect, ctx: &Ctx, radius: f32, thresho
     res
 }
 
-// ---------- lens blur ----------
+// Lens blur
 
 pub(crate) struct LensSpec<'a> {
     pub radius: f32,

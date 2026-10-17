@@ -47,7 +47,7 @@ pub(crate) fn ordinary(t: &TextLayer, shaped: TextLayout) -> Result<Vec<on_path:
             .map(|(color, elements)| on_path::PaintedOutline { color, elements })
             .collect());
     }
-    // Identity placement reuses 12's per-style glyph, faux-bold and decoration projector.
+    // Identity placement reuses the path-text per-style glyph, faux-bold and decoration projector.
     // Every glyph sees the same identity transform; decoration clusters retain their spans.
     let clusters = shaped
         .clusters

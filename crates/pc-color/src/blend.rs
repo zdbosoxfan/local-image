@@ -261,7 +261,7 @@ fn soft_light_ps(cb: f32, cs: f32) -> f32 {
     if cs <= 0.5 { 2.0 * cb * cs + cb * cb * (1.0 - 2.0 * cs) } else { 2.0 * cb * (1.0 - cs) + cb.max(0.0).sqrt() * (2.0 * cs - 1.0) }
 }
 
-// ---- non-separable helpers (W3C Compositing Level 1) ----
+// Non-separable helpers (W3C Compositing Level 1)
 
 #[inline]
 pub fn lum(c: [f32; 3]) -> f32 {

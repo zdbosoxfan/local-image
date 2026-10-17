@@ -401,7 +401,7 @@ pub(crate) fn para_style(base: Option<&E>, d: &E, k: f32) -> ParagraphStyle {
     }
 }
 
-// ---------- writing ----------
+// Writing
 
 fn real(v: f32) -> E {
     E::Real(f64::from(v))

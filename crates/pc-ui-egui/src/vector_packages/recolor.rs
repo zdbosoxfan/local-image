@@ -1,4 +1,4 @@
-//! Recolor Artwork dialog hook. Original GPL-3.0-or-later egui UI; 00 supplies the menu
+//! Recolor Artwork dialog hook. Original GPL-3.0-or-later egui UI; the host supplies the menu
 //! and canvas preview router. Rows use egui typed drag/drop, all commits return a captured
 //! Plan for one journaled command. Closing, Escape or stale captures discard detached previews.
 use photocraft_doc::{Color, LayerId};

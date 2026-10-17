@@ -206,7 +206,7 @@ impl PointSize {
     }
 }
 
-// ------------------------------------------------------------------ sections
+// Sections
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -1077,7 +1077,7 @@ pub fn parse_hex(s: &str) -> Option<[u8; 3]> {
     Some([b(0)?, b(2)?, b(4)?])
 }
 
-// ------------------------------------------------------------------ JSON paths
+// JSON paths
 
 /// Map keys that are command ids (which contain dots): `shortcuts.<id>`, `menus.colors.<id>`.
 fn keyed(path: &str) -> Option<(&str, &str)> {
@@ -1332,7 +1332,7 @@ impl Preferences {
     }
 }
 
-// ------------------------------------------------------------------ shortcuts
+// Shortcuts
 
 /// Fixed Global chords also protect spring-loaded tools resolved by the engine.
 pub fn global_shortcut_conflict(chord: &str) -> bool {
@@ -1410,7 +1410,7 @@ fn bindable() -> impl Iterator<Item = (&'static str, Option<&'static str>)> {
     ids.into_iter()
 }
 
-// ------------------------------------------------------------------ store
+// Store
 
 /// The session's preferences plus a revision counter that moves on every change (frontends
 /// persist when it moves).
@@ -1612,7 +1612,7 @@ impl Session {
     }
 }
 
-// ------------------------------------------------------------------ commands
+// Commands
 
 /// Opaque, fully checked preferences state. Only its preparing Session should publish it.
 pub struct PreparedPreferencesUpdate {

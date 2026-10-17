@@ -108,7 +108,7 @@ pub fn map_file_with(f: &AbrFile, group: &str, ctl: &lightcraft_sysmem::jobs::In
     Ok(out)
 }
 
-// ------------------------------------------------------------------ descriptor helpers
+// Descriptor helpers
 
 fn get<'a>(d: &'a Descriptor, k: &str) -> Option<&'a Value> {
     d.get(k)

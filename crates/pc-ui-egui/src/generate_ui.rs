@@ -1046,7 +1046,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
         let has_sel = app.session.active().is_some_and(|d| d.doc.selection.is_some());
         let st = crate::ai_ui::status();
         let s = &mut app.ui.ai.generate;
-        // ---- Mode.
+        // Mode.
         let labels: Vec<&str> = Mode::ALL.iter().map(|m| m.shown()).collect();
         let tips: Vec<&str> = Mode::ALL.iter().map(|m| m.tip()).collect();
         let disabled: Vec<Option<&str>> = Mode::ALL
@@ -1087,7 +1087,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             }
             return;
         }
-        // ---- Preset.
+        // Preset.
         let all_presets = presets();
         ui.horizontal(|ui| {
             label(ui, tl!("Preset"));
@@ -1144,7 +1144,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 s.refine_guidance = Some(refinement.guidance);
             }
         }
-        // ---- Model.
+        // Model.
         // Upscale offers the official upscalers; a diffusion model chosen earlier (saved
         // settings) keeps the full list.
         let picked = model_picker(ui, "gen-model", (&s.model, &s.variant), s.mode, &st, true);
@@ -1206,7 +1206,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             });
             model_variety_note(ui, m);
         }
-        // ---- Prompt.
+        // Prompt.
         let wants_prompt = !upscaler && custom.as_ref().is_none_or(|w| w.has(&li_ai::custom::FieldKind::Prompt));
         let mut enter = false;
         if wants_prompt {
@@ -1235,7 +1235,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
         if wants_negative {
             ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text(tl!("Avoid… (negative prompt)")).desired_width(f32::INFINITY));
         }
-        // ---- Size (Create): shared aspect presets and linked model-grid dimensions.
+        // Size (Create): shared aspect presets and linked model-grid dimensions.
         let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
         if (s.mode == Mode::Create && custom.is_none()) || custom_size {
             size_controls(ui, s);
@@ -1260,7 +1260,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             });
             ui.label(tl!("Refinement uses the current pixels of the open image."));
         }
-        // ---- Strength.
+        // Strength.
         let strength_shown = match (&custom, cloud) {
             (Some(w), _) => w.has(&li_ai::custom::FieldKind::Denoise),
             (None, Some(c)) => c.key == "stability:sd3.5-large" && s.mode == Mode::Edit,
@@ -1286,7 +1286,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 }
             });
         }
-        // ---- References.
+        // References.
         let ref_slots = match (&custom, cloud) {
             (Some(w), _) => w.images(),
             (None, Some(c)) => c.max_refs as usize,
@@ -1305,7 +1305,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             references_ui(app, ui, ref_slots, info.init_image && custom.is_none() && cloud.is_none());
         }
         let s = &mut app.ui.ai.generate;
-        // ---- LoRAs.
+        // LoRAs.
         if custom.is_none() && cloud.is_none() && (info.lora || s.mode == Mode::Refine) {
             if s.mode == Mode::Refine {
                 refine_loras_ui(ui, &mut s.loras, info.id, &s.variant, &t);
@@ -1313,7 +1313,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 loras_ui(ui, &mut s.loras, &info.resolved, &t);
             }
         }
-        // ---- Draft → Refine.
+        // Draft → Refine.
         if s.mode == Mode::Create && custom.is_none() && cloud.is_none() {
             ui.horizontal(|ui| {
                 widgets::checkbox(ui, &mut s.refine, tl!("Refine with")).on_hover_text(tl!(
@@ -1380,7 +1380,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
                 });
             }
         }
-        // ---- Advanced.
+        // Advanced.
         let resp = egui::CollapsingHeader::new(RichText::new(tl!("Advanced")).color(t.text_dim)).default_open(s.advanced).show(ui, |ui| {
             let (steps_range, cfg_range) = (info.steps, info.guidance);
             // The only limits are the ones the connected ComfyUI reports for its sampler; the model's numbers are
@@ -2645,7 +2645,7 @@ pub fn library_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
-// ------------------------------------------------------------------------------ Open Folder
+// Open Folder
 
 /// File › Open Folder…: opens a folder's images (natural order). The filmstrip shows them.
 pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
@@ -2734,7 +2734,7 @@ pub fn open_folder_path(app: &mut PhotocraftApp, dir: &std::path::Path) -> Resul
     Ok(json!({ "count": files.len() }))
 }
 
-// ------------------------------------------------------------------------------ batch
+// Batch
 
 /// File › Automate › Remove Backgrounds (AI).
 #[derive(Default)]
@@ -3080,7 +3080,7 @@ mod bg_batch_tests {
     }
 
     #[test]
-    // TEST-CHANGED F172: add Windows-invalid characters, device names and trailing dots/spaces.
+    // Adds Windows-invalid characters, device names and trailing dots/spaces.
     fn bg_batch_template_preview_and_conflicts() {
         let dir = directory();
         let name = batch_name("prefix-{name}-{counter}-suffix", std::path::Path::new("cat.photo.jpg"), 12, "psd").unwrap();

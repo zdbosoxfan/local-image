@@ -163,7 +163,7 @@ pub fn build(spec: Spec) -> (Document, Handles) {
     let ink = [0.12, 0.13, 0.16];
     let accent = [0.85, 0.32, 0.18];
 
-    // ---- header -------------------------------------------------------------------------------
+    // Header
     let logo = smart(&mut s, "Logo", Rect::new(px(120.0), px(60.0), px(420.0), px(220.0)), 1);
     let nav: Vec<LayerId> = ["Home", "Products", "Pricing", "Journal", "About", "Contact"]
         .iter()
@@ -172,7 +172,7 @@ pub fn build(spec: Spec) -> (Document, Handles) {
         .collect();
     let rule = shape(&mut s, "rect", [0, px(260.0), w, px(4.0).max(1)], [0.85, 0.85, 0.85], None, "Rule");
 
-    // ---- hero ---------------------------------------------------------------------------------
+    // Hero
     let hero_img = photo_layer("Hero photo", fmt, Rect::new(0, px(270.0), w, px(1500.0)), 7);
     let hero_img_id = {
         let st = s.active_mut().expect("doc");
@@ -201,7 +201,7 @@ pub fn build(spec: Spec) -> (Document, Handles) {
     let cta_txt = text(&mut s, px(300.0), px(1285.0), "Shop the collection", fonts[0], pt(36.0), [1.0, 1.0, 1.0], json!({"weight": 700}));
     let hue = id_of(&exec(&mut s, "layer.newAdjustmentLayer.hueSaturation", json!({"saturation": -15})));
 
-    // ---- cards --------------------------------------------------------------------------------
+    // Cards
     let cols = 4usize;
     let (cw, ch) = (px(860.0), px(1150.0));
     let mut cards: Vec<Vec<LayerId>> = Vec::new();
@@ -225,7 +225,7 @@ pub fn build(spec: Spec) -> (Document, Handles) {
         cards.push(vec![bg, img, title, body, price, badge]);
     }
 
-    // ---- gallery ------------------------------------------------------------------------------
+    // Gallery
     let mut tiles = Vec::new();
     for i in 0..spec.tiles {
         let (tx, ty) = (px(160.0) + (i % 8) as i32 * px(470.0), px(2350.0) + (i / 8) as i32 * px(200.0));
@@ -234,7 +234,7 @@ pub fn build(spec: Spec) -> (Document, Handles) {
     let gallery_title = text(&mut s, px(160.0), px(2300.0), "From the workshop", fonts[3], pt(64.0), ink, json!({}));
     let curves = id_of(&exec(&mut s, "layer.newAdjustmentLayer.curves", json!({"points": [[0, 0], [100, 120], [255, 255]]})));
 
-    // ---- footer -------------------------------------------------------------------------------
+    // Footer
     let foot_bg = shape(&mut s, "rect", [0, px(2800.0), w, px(200.0)], [0.12, 0.13, 0.16], None, "Footer bg");
     let mut foot = Vec::new();
     for i in 0..2 {
@@ -253,7 +253,7 @@ pub fn build(spec: Spec) -> (Document, Handles) {
         (0..5).map(|i| shape(&mut s, "ellipse", [w - px(600.0) + i * px(100.0), px(2870.0), px(60.0), px(60.0)], [0.9, 0.9, 0.9], None, "Icon")).collect();
     let levels = id_of(&exec(&mut s, "layer.newAdjustmentLayer.levels", json!({"inBlack": 4, "inWhite": 250, "gamma": 1.05})));
 
-    // ---- assemble the tree (children bottom-first) --------------------------------------------
+    // Assemble the tree (children bottom-first)
     let mut doc = (*s.active().expect("doc").doc).clone();
     let mut t = |id: LayerId| take(&mut doc, id);
     let mut header_kids = vec![t(rule), t(logo)];

@@ -1,4 +1,4 @@
-//! Exact UI routing hooks for 00; no shared app/state fields or menu edits here.
+//! Exact UI routing hooks; no shared app/state fields or menu edits here.
 use super::*;
 use crate::PhotocraftApp;
 #[derive(Clone, Default)]

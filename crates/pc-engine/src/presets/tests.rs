@@ -18,7 +18,7 @@ fn layer_px(s: &Session, x: i32, y: i32) -> Vec<f32> {
     d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().pixel(x, y)
 }
 
-// ------------------------------------------------------------------ styles
+// Styles
 
 #[test]
 fn style_preset_new_from_an_explicit_effect_list() {
@@ -46,7 +46,7 @@ fn style_preset_new_from_an_explicit_effect_list() {
     assert!(s.execute("style.presets.new", json!({"effects": ["stroke"]})).is_err());
 }
 
-// ------------------------------------------------------------------ gradients
+// Gradients
 
 #[test]
 fn gradient_builtins_and_listing() {
@@ -210,7 +210,7 @@ fn presets_persist_through_preferences_json() {
     assert_eq!(names(&mut u, "gradient.presets.list", "presets").len(), Session::new().presets.gradients.iter().map(|g| g.items.len()).sum::<usize>());
 }
 
-// ------------------------------------------------------------------ patterns
+// Patterns
 
 #[test]
 fn pattern_groups_select_apply_and_sync() {
@@ -247,7 +247,7 @@ fn pattern_groups_select_apply_and_sync() {
     assert!(crate::pattern_cmds::resolve(&s, "Weave").is_none());
 }
 
-// ------------------------------------------------------------------ styles
+// Styles
 
 #[test]
 fn styles_apply_to_selected_layers_and_new_from_layer() {
@@ -300,7 +300,7 @@ fn styles_with_pattern_overlay_copy_the_pattern() {
     assert!(s.active().unwrap().doc.patterns.iter().any(|p| p.name == "Bricks"));
 }
 
-// ------------------------------------------------------------------ shapes
+// Shapes
 
 #[test]
 fn shape_path_language_parses() {
@@ -370,7 +370,7 @@ fn custom_shapes_join_the_shapes_panel() {
     assert!(b.2.max(b.3) > 99.9);
 }
 
-// ------------------------------------------------------------------ tool presets
+// Tool presets
 
 #[test]
 fn tool_presets_save_filter_select() {
@@ -400,7 +400,7 @@ fn tool_presets_save_filter_select() {
     assert!(s.execute("tool.presets.new", json!({"name": "x"})).is_err());
 }
 
-// ------------------------------------------------------------------ clone source
+// Clone source
 
 fn clone_doc(depth: u32) -> Session {
     let mut s = session(depth);

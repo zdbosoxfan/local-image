@@ -1,4 +1,4 @@
-//! Exact production hook implementations for 00. No fields added to shared app/UI state.
+//! Exact production hook implementations. No fields added to shared app/UI state.
 use super::*;
 use crate::{PhotocraftApp, direct_select::PathRef};
 #[derive(Clone, Default)]
@@ -36,7 +36,7 @@ fn selection(app: &PhotocraftApp) -> (Vec<LayerId>, Vec<Anchors>) {
     }
     if !anchors.is_empty() {
         // Node selection is independent of the layer-panel selection; include every curve
-        // with selected anchors, including 03's additional selections.
+        // with selected anchors, including Direct Select's additional selections.
         ids = anchors.iter().map(|a| a.layer).collect();
     }
     (ids, anchors)

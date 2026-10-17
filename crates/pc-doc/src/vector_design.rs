@@ -20,7 +20,7 @@ use structure::Constraints;
 use text::PathText;
 
 /// Additive editable metadata, with geometry expressed in document pixels (text in text space).
-/// Empty on every old document. Feature packages must update the legacy rendered cache when
+/// Empty on every old document. Features must update the legacy rendered cache when
 /// activating a field; merely storing metadata does not implement its rendering.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct VectorData {

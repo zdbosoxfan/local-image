@@ -1,4 +1,4 @@
-//! Register after package 28 merges; see integration/29.md. No substitute dialog.
+//! Uses the real trace dialog; no substitute dialog.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::trace_dialog;

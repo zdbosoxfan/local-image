@@ -3,7 +3,7 @@ use photocraft_engine::doc::{LayerContent, TextLayer};
 use photocraft_engine::{EngineError, Session, type_extra_cmds};
 use serde_json::json;
 
-// ---------- helpers ----------
+// Helpers
 
 fn new_doc(s: &mut Session) {
     let r = s.execute("file.new", json!({"width": 800, "height": 600}));
@@ -25,7 +25,7 @@ fn active_text(s: &Session) -> Option<&TextLayer> {
     }
 }
 
-// ---------- public constants & free functions ----------
+// Public constants & free functions
 
 #[test]
 fn lorem_ipsum_constant_is_nonempty_and_starts_with_lorem() {
@@ -62,7 +62,7 @@ fn feature_on_reads_liga_dlig_and_general_features_from_real_layer() {
     assert!(!type_extra_cmds::feature_on(&style, "unknown"));
 }
 
-// ---------- registry / specs ----------
+// Registry / specs
 
 #[test]
 fn specs_are_unique_all_type_commands_and_well_formed() {
@@ -82,7 +82,7 @@ fn specs_are_unique_all_type_commands_and_well_formed() {
     }
 }
 
-// ---------- anti-alias / orientation ----------
+// Anti-alias / orientation
 
 #[test]
 fn anti_alias_commands_roundtrip_all_variants() {
@@ -123,7 +123,7 @@ fn orientation_commands_roundtrip_vertical_then_horizontal() {
     assert_eq!(active_text(&s).unwrap().orientation, Orientation::Horizontal);
 }
 
-// ---------- OpenType toggles ----------
+// OpenType toggles
 
 #[test]
 fn opentype_toggles_roundtrip_for_liga_and_custom_feature() {
@@ -150,7 +150,7 @@ fn opentype_toggles_roundtrip_for_liga_and_custom_feature() {
     assert!(found, "swash feature should be enabled on selected range");
 }
 
-// ---------- point / paragraph conversion ----------
+// Point / paragraph conversion
 
 #[test]
 fn convert_to_point_text_and_back_preserves_shape() {
@@ -169,7 +169,7 @@ fn convert_to_point_text_and_back_preserves_shape() {
     assert!(matches!(active_text(&s).unwrap().shape, TextShape::Box { .. }));
 }
 
-// ---------- outlines / shape / work path ----------
+// Outlines / shape / work path
 
 #[test]
 fn convert_to_shape_replaces_text_layer_with_shape() {
@@ -202,7 +202,7 @@ fn create_work_path_sets_document_work_path() {
     assert!(subpaths > 0, "text should produce at least one subpath");
 }
 
-// ---------- warp ----------
+// Warp
 
 #[test]
 fn warp_text_valid_style_updates_text_layer() {
@@ -229,7 +229,7 @@ fn warp_text_invalid_style_returns_bad_params() {
     assert!(matches!(err, EngineError::BadParams { .. }));
 }
 
-// ---------- lorem ipsum / update / fonts / defaults ----------
+// Lorem ipsum / update / fonts / defaults
 
 #[test]
 fn paste_lorem_ipsum_inserts_into_active_text_layer() {
@@ -314,7 +314,7 @@ fn replace_all_missing_fonts_reports_zero_when_none_missing() {
     assert_eq!(v["replaced"], 0);
 }
 
-// ---------- error paths ----------
+// Error paths
 
 #[test]
 fn error_paths_without_document_do_not_panic() {

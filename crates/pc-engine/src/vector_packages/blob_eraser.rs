@@ -2,7 +2,7 @@
 //! crates/engine/src/cmd/draw2.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors. MIT OR Apache-2.0.
 //! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
-//! Sampling/fidelity use 05; pressure profiles and appearance projection use 17's public APIs.
+//! Sampling/fidelity use the Pencil fitter; pressure profiles and appearance projection use the brush APIs.
 use super::pencil::fitting::{self, FitOptions, Sample};
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use photocraft_doc::{BlendMode, Color, Document, Fill, Layer, LayerContent, LayerId, Path};
@@ -232,7 +232,7 @@ impl Prepared {
         s.execute(self.request.capture.mode.command(), serde_json::to_value(&self.request).map_err(error)?)
     }
 }
-/// Fit with package 05's corner-preserving smoothing and V1, then interpolate 17's
+/// Fit with the corner-preserving smoothing and V1, then interpolate the
 /// pressure profile by normalized length, retaining its pressure breakpoints.
 fn samples(request: &Request) -> Result<Vec<sweep::Sample>> {
     if request.samples.is_empty() || request.samples.len() > sweep::MAX_SAMPLES {
@@ -256,7 +256,7 @@ fn samples(request: &Request) -> Result<Vec<sweep::Sample>> {
             let mut path = ops::fit_path(p, t).map_err(|e| e.to_string())?;
             // V1's kurbo refit can introduce roundoff at an endpoint (e.g. a
             // vertical run starting at y=0). Restore the exact endpoints that
-            // 05 requires, while rejecting any material endpoint displacement.
+            // Pencil requires, while rejecting any material endpoint displacement.
             if let Some(sp) = path.subpaths.first_mut() {
                 for (i, point) in [(0, p[0]), (sp.knots.len().saturating_sub(1), p[p.len() - 1])] {
                     if let Some(k) = sp.knots.get_mut(i) {
@@ -405,7 +405,7 @@ pub fn prepare(s: &Session, request: &Request) -> Result<Prepared> {
         sweep::outline(&samples, request.capture.options.tip)
     }
     .map_err(error)?;
-    // 17's arc-length profile keeps the last pressure at each position. Earlier
+    // The brush arc-length profile keeps the last pressure at each position. Earlier
     // stationary dabs remain part of a swept area, even if the pointer then moves
     // away at zero pressure; preserve those without inventing a taper on that move.
     if !request.rectangle {

@@ -1,5 +1,5 @@
 //! Envelope controls and mesh handle capture. Original Local Image UI.
-//! 00 owns menu/persona/canvas routing; see integration/20.md for exact hooks.
+//! Menu/persona/canvas routing lives outside this module.
 use crate::canvas::ViewXform;
 use egui::{Color32, Key, Stroke};
 use photocraft_doc::{

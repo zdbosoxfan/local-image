@@ -371,7 +371,7 @@ pub fn parse(data: &[u8]) -> Result<AbrFile> {
     Ok(out)
 }
 
-// ------------------------------------------------------------------ writing
+// Writing
 
 fn put_u16(o: &mut Vec<u8>, v: u16) {
     o.extend_from_slice(&v.to_be_bytes());

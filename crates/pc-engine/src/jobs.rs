@@ -5,7 +5,7 @@
 //! edit). The work closure gets the app's one job handle, [`lightcraft_sysmem::JobCtl`]
 //! (`report(fraction, message)` — progress never goes backwards —, `check()?`, `stage` for an
 //! algorithm's [`Interrupt`](lightcraft_sysmem::jobs::Interrupt), `cancel_flag` for `&AtomicBool`
-//! APIs; duplicate-systems audit D14), and runs against
+//! APIs), and runs against
 //! a snapshot: documents are copy-on-write, so cloning one is O(layers). Its result is applied on
 //! the UI thread as one undo step, through the same path as [`Session::execute`], so the journal,
 //! history, damage and post-command hooks all behave as for a synchronous command.

@@ -1,4 +1,4 @@
-//! External references are coordinator-generated, never replaced with Local Image output.
+//! External references are generated offline with Inkscape, never replaced with Local Image output.
 use photocraft_doc::{FillRule, Path};
 use photocraft_geom::{Affine, Rect};
 use photocraft_pathops as ops;

@@ -464,7 +464,7 @@ fn gamma_off_uniform_text_base_stays_native() {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("gamma-off.log");
         let log = std::fs::File::create(&path).unwrap();
-        // Inherit the coordinator's private profile/fonts unchanged; mutate
+        // Inherit the parent's private profile/fonts unchanged; mutate
         // only this exact-test subprocess's gamma setting.
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args(["--exact", "clipping::cases::gamma_off_uniform_text_base_stays_native", "--test-threads=1", "--nocapture"])

@@ -238,7 +238,7 @@ pub fn resample(src: &Region, dst: Rect, map: &Mapping, alpha: Option<usize>) ->
     out
 }
 
-// ------------------------------------------------------------------ commands
+// Commands
 
 fn index(s: &Session, p: &Value, cmd: &str) -> Result<usize> {
     match p.get("index").and_then(Value::as_u64) {

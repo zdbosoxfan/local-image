@@ -1,6 +1,4 @@
-//! Package 09 display integration. These source-path bridges compile the owned modules
-//! without competing edits to package 00's crate registries. 00 may replace bridges with
-//! public crate modules; the app already exercises the same source files here.
+//! Display integration: re-exports of the scaled-view projection modules.
 pub use photocraft_compose::scaled_view as cpu;
 pub use photocraft_compose::{Buffer, cmyk_space, effects, fill_frame, gradient_fill, masks, pattern, render_tiled};
 pub use photocraft_gpu::scaled_view as gpu;

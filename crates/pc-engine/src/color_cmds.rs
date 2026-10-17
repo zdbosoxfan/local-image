@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
-// ------------------------------------------------------------------ state
+// State
 
 /// View › Proof Setup settings.
 #[derive(Clone, Debug, PartialEq)]
@@ -457,7 +457,7 @@ fn cms_err(e: photocraft_cms::CmsError) -> EngineError {
     EngineError::Other(format!("colour management: {e}"))
 }
 
-// ------------------------------------------------------------------ profiles
+// Profiles
 
 /// ICC colour space of a document mode.
 pub fn mode_space(mode: ColorMode) -> ColorSpace {
@@ -589,7 +589,7 @@ fn profile_json(p: &Profile) -> Value {
     })
 }
 
-// ------------------------------------------------------------------ conversion
+// Conversion
 
 /// Converts one surface's colour channels with `t` into `to` (alpha copied). Surfaces whose
 /// model is not `from` fall back to the generic per-pixel conversion.
@@ -780,7 +780,7 @@ pub fn convert_mode(s: &mut Session, mode: ColorMode, p: &Value) -> Result<Value
     Ok(json!({ "profile": dst.description, "intent": intent.id(), "bpc": bpc }))
 }
 
-// ------------------------------------------------------------------ gamut
+// Gamut
 
 /// Out-of-gamut mask of the document composite against `setup`'s profile: one byte per
 /// canvas pixel (255 = out of gamut, transparent pixels never are), plus the count.
@@ -803,7 +803,7 @@ pub fn gamut_mask(doc: &Document, setup: &ProofSetup, threshold: f32) -> Result<
     Ok((mask, count))
 }
 
-// ------------------------------------------------------------------ commands
+// Commands
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())

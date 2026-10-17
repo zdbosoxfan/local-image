@@ -58,9 +58,7 @@ const LIBRARY_NEEDS_HEADLESS: &str = "the `library_*` tools run on a headless Li
     does not expose its Library yet. Run `local-image-cli mcp` without --bridge (with --automation-read-root / \
     --automation-write-root for files)";
 
-// ---------------------------------------------------------------------------
 // Parameters
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct DocIndex {
@@ -212,9 +210,7 @@ pub struct ControlParams {
     pub params: Option<Value>,
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 fn ok_json(v: &Value) -> CallToolResult {
     let text = match json_bytes(v).and_then(|bytes| String::from_utf8(bytes).map_err(|error| AutomationError::Other(error.to_string()))) {
@@ -466,9 +462,7 @@ fn downscale_png(png: &[u8], max_side: u32) -> Result<Option<Vec<u8>>, Automatio
     Ok(Some(bytes))
 }
 
-// ---------------------------------------------------------------------------
 // Tools
-// ---------------------------------------------------------------------------
 
 #[tool_router]
 impl PhotocraftMcp {
@@ -707,7 +701,7 @@ impl PhotocraftMcp {
         Ok(ok_json(&json!({"completed": results.len() - failed, "failed": failed, "results": results})))
     }
 
-    // ----- live-GUI tools (bridge mode) -----
+    // Live-GUI tools (bridge mode)
 
     #[tool(
         description = "Bridge mode: full UI state of the live app (tool, panels, views, dialogs, windows). For the menu tree, call `control_call` with method `ui.menu.list`.",
@@ -899,7 +893,7 @@ mod tests {
         assert_eq!(docs, 0, "the step after the budget ran out did not run");
     }
 
-    /// J5: the Library's tools are served by this one server, over the real protocol, under the
+    /// The Library's tools are served by this one server, over the real protocol, under the
     /// workspace policy; a bridge says where they are instead of failing obscurely.
     #[tokio::test(flavor = "multi_thread")]
     async fn j05_library_tools_over_mcp() {

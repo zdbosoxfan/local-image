@@ -136,7 +136,7 @@ impl WatershedHierarchy {
             return Ok(Self { width: w, height: h, mst: Vec::new(), pers: Vec::new(), order: Vec::new() });
         }
 
-        // --- 4-adjacency edges, counting-sorted by weight -------------------
+        // 4-adjacency edges, counting-sorted by weight
         // Edge id encodes (pixel, direction): 2*p = right, 2*p+1 = down.
         // The per-bucket fill preserves edge-id order, so the sort is stable
         // and the whole construction is deterministic.
@@ -180,7 +180,7 @@ impl WatershedHierarchy {
             }
         }
 
-        // --- Kruskal → binary partition tree by altitude --------------------
+        // Kruskal → binary partition tree by altitude
         // Leaves 0..n are pixels; each accepted MST edge creates internal node
         // n+k whose two children are the merged components' current roots.
         // The grid is connected, so exactly n-1 internal nodes are created and
@@ -213,7 +213,7 @@ impl WatershedHierarchy {
         }
         debug_assert_eq!(next as usize, n_nodes);
 
-        // --- Volume attribute, leaves → root --------------------------------
+        // Volume attribute, leaves → root
         // area = pixels in the subtree; volume = ∫ area over altitude, i.e.
         // each node contributes area × (parent altitude − own altitude).
         // Ascending index order visits all children before their parent.
@@ -231,7 +231,7 @@ impl WatershedHierarchy {
             volume[pa] += volume[i];
         }
 
-        // --- Persistence per MST edge ----------------------------------------
+        // Persistence per MST edge
         // Plateau fix first (Playing with Kruskal): equal-weight edge chains
         // create internal nodes at the same altitude as their parent; their
         // volume is not a real basin measure, so replace it with the max over
@@ -265,7 +265,7 @@ impl WatershedHierarchy {
         let n = w * h;
         let m = self.mst.len();
 
-        // --- Region formation: merge every MST edge with persistence ≤ λ ----
+        // Region formation: merge every MST edge with persistence ≤ λ
         // Merging leaves exactly 1 + #{edges above λ} regions, so choosing λ
         // as the k-th largest persistence targets k regions directly (ties
         // merge a little more). The persistence distribution is extremely
@@ -292,7 +292,7 @@ impl WatershedHierarchy {
             }
         }
 
-        // --- Compact to region ids and region stats --------------------------
+        // Compact to region ids and region stats
         // One find per pixel; everything after this works on the (small)
         // region graph so re-cuts stay cheap.
         let mut pre_of_root = vec![u32::MAX; n];
@@ -317,7 +317,7 @@ impl WatershedHierarchy {
             sum[a][2] += c.b as u64;
         }
 
-        // --- Boundary snap, then boundary adjacency ---------------------------
+        // Boundary snap, then boundary adjacency
         snap_boundaries(img, w, h, &mut pre, &mut area, &mut sum);
         let mut pairs: Vec<(u32, u32)> = Vec::new();
         for i in 0..n {
@@ -330,11 +330,11 @@ impl WatershedHierarchy {
             }
         }
 
-        // --- Small-basin absorption on the region graph ----------------------
+        // Small-basin absorption on the region graph
         let mut uf_r = Uf::new(kp);
         absorb_small(min_area, &pairs, &mut uf_r, &mut area, &mut sum);
 
-        // --- Final leaf ids in raster order of first appearance --------------
+        // Final leaf ids in raster order of first appearance
         let mut leaf_of = vec![u32::MAX; kp];
         let mut leaf_root: Vec<u32> = Vec::new(); // leaf id -> absorb root
         let mut ids = vec![0u32; n];
@@ -358,7 +358,7 @@ impl WatershedHierarchy {
             return seg;
         }
 
-        // --- Merge tree above the cut ----------------------------------------
+        // Merge tree above the cut
         // Re-run all merges (ascending persistence) over the final regions:
         // each one that still joins two components is a kept split. Nodes 0..k
         // are the final regions; internal nodes are created in ascending
@@ -418,7 +418,7 @@ impl WatershedHierarchy {
             fill[id as usize] += 1;
         }
 
-        // --- Emit: root, ancestors (budgeted), then the final regions --------
+        // Emit: root, ancestors (budgeted), then the final regions
         let root = n_tree - 1;
         seg.layers.push(Layer { paint: Paint::Solid(mean(&tree_sum[root], tree_area[root])), mask: full_canvas(w, h) });
         let mut budget = ANCESTOR_AREA_BUDGET * n;

@@ -1,5 +1,5 @@
-//! Display/export and serde bridge to the additive data variant owned by 00.
-//! The bridge fails explicitly until `LiveGroup::LivePaint` is installed. It never
+//! Display/export and serde bridge to the additive live-paint data variant.
+//! The bridge fails explicitly rather than guessing. It never
 //! stores paint in names, caches, a global map or an unrelated live-group variant.
 use super::{Graph, LivePaintSpec, Result, error};
 use photocraft_doc::vector_design::exchange::ImportedScene;

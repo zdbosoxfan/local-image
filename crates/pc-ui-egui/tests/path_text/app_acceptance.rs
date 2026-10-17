@@ -1,5 +1,4 @@
-//! Full PhotocraftApp offscreen GPU acceptance. Requires package 00 routing hooks.
-//! Registration recipe and actual execution evidence live in integration/12.md.
+//! Full PhotocraftApp offscreen GPU acceptance. Requires the app routing hooks.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Key, Modifiers, PointerButton};
 use egui_kittest::Harness;

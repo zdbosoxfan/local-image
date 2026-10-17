@@ -1,8 +1,8 @@
 //! Document palette and link data informed by VectorCraft `color/src/swatch.rs` and
 //! `doc/src/swatches.rs`, d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
-//! Stable IDs make renaming independent of references. The serial integration lane supplies
-//! Document storage and paint-field adapters; this module never stores palette data in XMP.
+//! Stable IDs make renaming independent of references. Document storage and paint-field
+//! adapters live outside this module; it never stores palette data in XMP.
 use super::exchange::{ExportedVector, ImportLimits, VectorWarning};
 use crate::{Color, ColorMode, Fill, LayerId, SymbolId};
 use serde::{Deserialize, Serialize};
@@ -70,7 +70,7 @@ pub struct PaintLink {
     pub reference: SwatchRef,
 }
 /// Portable snapshot of Document.swatches and optional references on solid paints/stops.
-/// 00's adapter gathers/scatters links without requiring a new exhaustive legacy Fill variant.
+/// An adapter gathers/scatters links without requiring a new exhaustive legacy Fill variant.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct SwatchBook {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

@@ -122,7 +122,7 @@ pub struct State {
     pub generation: u64,
     pub error: Option<String>,
     pub selected_nodes: Vec<Node>,
-    /// Take this captured request and route it to package 20; no destructive edit has occurred.
+    /// Take this captured request and route it to the envelope tool; no destructive edit has occurred.
     pub envelope_request: Option<EnvelopeRequest>,
     pub guides: Vec<snap::Guide>,
     drag: Option<Drag>,

@@ -572,7 +572,7 @@ fn dock_strips_fit_and_the_chevron_menu_switches_tabs() {
     assert_eq!(*h.state(), 3, "Patterns chosen from the chevron menu");
 }
 
-// ------------------------------------------------------------- tear-off and docking back
+// Tear-off and docking back
 
 /// The dock, the canvas and the floating panels, as the app draws them.
 fn float_harness(app: PhotocraftApp, size: egui::Vec2, theme: ThemeKind) -> Harness<'static, PhotocraftApp> {
@@ -978,7 +978,7 @@ fn vectorws_panel_drag_dock_restart_restore_and_hidden_placement() {
 }
 
 #[test]
-// TEST-CHANGED F223: restore and reselect through Window > Workspace > Vector.
+// Restores and reselects through Window > Workspace > Vector.
 fn vectorws_workspace_and_personas_restore_custom_layouts_after_restart() {
     use photocraft_engine::toolsets::Persona;
     let (mut app, _, _) = app_with_layers();

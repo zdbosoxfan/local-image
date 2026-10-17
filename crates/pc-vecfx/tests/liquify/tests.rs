@@ -1,4 +1,4 @@
-//! Package 41 independent geometry oracles; synthetic GPL-3.0-or-later inputs.
+//! Independent liquify geometry oracles; synthetic GPL-3.0-or-later inputs.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use kurbo::{CubicBez, ParamCurve};

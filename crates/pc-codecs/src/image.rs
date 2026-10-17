@@ -507,9 +507,7 @@ impl Image {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Sample conversion helpers
-// ---------------------------------------------------------------------------
 
 #[inline]
 pub(crate) fn read_normalized(data: &[u8], sample: SampleType, i: usize) -> f32 {

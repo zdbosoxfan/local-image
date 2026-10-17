@@ -1,4 +1,4 @@
-// Translations paused by docs/wip/CODEX-TASK.md; vector package 00–47 English keys.
+// Translations are paused; English keys for the vector features.
 &[
     // Release hygiene: translations deferred by the owner.
     "Check for Updates…",
@@ -1300,7 +1300,7 @@
     "Colour hue",
     "Colour saturation",
     "Colour brightness",
-    // Preferences > Performance > Processing (docs/wip/BUILD-threads-a.md); English until translations resume.
+    // Preferences > Performance > Processing; English until translations resume.
     "Processing",
     "Processing threads",
     "Background work priority",
@@ -1312,7 +1312,7 @@
     "Selecting sky…",
     "Selecting…",
     // AI Remove mask workflow, Liquify footer, Frame Composition empty state and shape names
-    // (docs/wip/BUILD-airemove-ux.md); English until translations resume.
+    // are English until translations resume.
     "Finish or cancel the current removal mask first.",
     "Return to the original image and layer to continue removal, or Cancel.",
     "Strokes: {count}",

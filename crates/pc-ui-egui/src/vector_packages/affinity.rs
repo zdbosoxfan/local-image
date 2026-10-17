@@ -1,4 +1,4 @@
-//! Package 24 dialog/canvas adapter. State is transient; routing is owned by package 00.
+//! Affinity import dialog/canvas adapter. State is transient.
 use egui::{Context, Event, Key, PointerButton, Pos2, Rect, Ui};
 use photocraft_doc::{
     Document, LayerId,

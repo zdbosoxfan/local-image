@@ -10,7 +10,7 @@ use photocraft_io::develop_filter::{
 use photocraft_raster::{Surface, from_rgba_into};
 use serde_json::json;
 
-// ----------------------------------------------------------------------------- helpers
+// Helpers
 
 fn pattern(fmt: PixelFormat, w: i32, h: i32) -> Surface {
     let mut s = Surface::new(fmt);
@@ -42,7 +42,7 @@ fn default_camera_raw() -> CameraRaw {
     CameraRaw::default()
 }
 
-// ----------------------------------------------------------------------------- tests
+// Tests
 
 #[test]
 fn parse_settings_defaults_and_meta_ignore() {

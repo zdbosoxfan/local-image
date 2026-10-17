@@ -1,6 +1,5 @@
-//! Library automation tests: `lightcraft-mcp`'s `tests.rs`, `headless.rs` and `e2e.rs` re-targeted
-//! at [`LibraryHeadless`] and the `library_*` tools (J5), plus the workspace policy they now share
-//! with the editor's automation.
+//! Library automation tests: [`LibraryHeadless`], the `library_*` tools, and the workspace policy
+//! they share with the editor's automation.
 
 use std::path::{Path, PathBuf};
 
@@ -48,7 +47,7 @@ fn mean_of(reply: &LibraryReply) -> (f64, u32, u32) {
     (sum as f64 / (3 * rgba.data.len()) as f64, d.width, d.height)
 }
 
-// ---------------------------------------------------------------- re-targeted lightcraft-mcp tests
+// Re-targeted lightcraft-mcp tests
 
 #[test]
 fn j05_tool_definitions_are_valid_mcp_tools() {
@@ -268,7 +267,7 @@ fn j05_folder_expansion_uses_shared_registry() -> TestResult {
     Ok(())
 }
 
-// ---------------------------------------------------------------- the shared automation policy
+// The shared automation policy
 
 /// A workspace with `shots/` (two photos and a note) and an `out/` folder.
 fn workspace(tag: &str) -> (PathBuf, LibraryHeadless) {

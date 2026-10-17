@@ -80,7 +80,7 @@ fn put_ustr(out: &mut Vec<u8>, s: &str) {
     UnicodeString::new(s).write(out);
 }
 
-// ---------- descriptor helpers (versions 7/8 and the v6 tail) ----------
+// Descriptor helpers (versions 7/8 and the v6 tail)
 
 fn d_int(d: &Descriptor, key: &str) -> Option<i64> {
     match d.get(key)? {

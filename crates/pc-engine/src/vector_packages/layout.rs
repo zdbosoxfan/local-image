@@ -1,5 +1,5 @@
 //! Original V8 layout commands and detached geometry preparation. Existing Move/Align
-//! commands remain authoritative for their legacy behavior. This package adds precision
+//! commands remain authoritative for their legacy behavior. This module adds precision
 //! layout with whole-target validation and captured document/revision guards.
 use super::constraints::arithmetic::{self as math, Box2, error};
 use crate::{EngineError, Result, Session, commands::CommandSpec};
@@ -554,7 +554,7 @@ pub fn preset_units(category: &str) -> DesignUnits {
         _ => DesignUnits::Pixels,
     }
 }
-/// Additive file.new hook for 00: geometry parameters remain pixels, while this field
+/// Additive file.new hook: geometry parameters remain pixels, while this field
 /// records design ruler units. Old automation/settings with no category default to px.
 pub fn new_document_units(p: &Value) -> Result<DesignUnits> {
     p.get("designUnits")

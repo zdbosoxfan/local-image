@@ -33,7 +33,7 @@ pub struct State {
     preview: Option<Prepared>,
     #[serde(skip)]
     generation: u64,
-    /// Stabilized pressure from the last committed stroke, for package 11 to consume.
+    /// Stabilized pressure from the last committed stroke, for width projection to consume.
     #[serde(skip)]
     pub last_pressure: Vec<Sample>,
 }
@@ -317,9 +317,8 @@ pub fn context_bar(ui: &mut egui::Ui, state: &mut State) {
         state.cancel();
     }
 }
-// pencil/gpu_tests.rs is the package-05 scratch-registration harness, whose
-// temporary app fields are not production APIs. Package 00 migrates that GPU
-// acceptance host to the shared runtime in integration/47.md.
+// pencil/gpu_tests.rs is a scratch-registration harness, whose
+// temporary app fields are not production APIs.
 #[cfg(test)]
 #[path = "pencil/tests.rs"]
 mod tests;

@@ -2247,16 +2247,16 @@ mod clipboard_tests {
 
 #[path = "vector_packages/frame_compose.rs"]
 pub mod frame_compose;
-// Package 17 module registration; persona/canvas routing stays in the 00 handoff.
+
 #[path = "vector_packages/brushes.rs"]
 pub mod vector_brush;
 
 #[path = "vector_packages/envelope.rs"]
 pub mod envelope;
-// Package 36; Object/menu/canvas routing is delivered to 00 in integration/36.md.
+
 #[path = "vector_packages/path_commands.rs"]
 pub mod object_path;
-// Package 37 compiled hooks; shared menu/canvas wiring stays in the 00 lane.
+
 #[path = "vector_packages/isolation.rs"]
 pub mod isolation;
 #[path = "vector_packages/live_paint.rs"]
@@ -2268,20 +2268,18 @@ pub mod view_modes;
 pub mod graphic_styles;
 #[path = "vector_packages/eyedropper.rs"]
 pub mod vector_eyedropper;
-// Package 34 registration; persona/menu/canvas routing stays in the integration handoff.
+
 #[path = "vector_packages/distort_tools.rs"]
 pub mod distort_tools;
 #[path = "vector_packages/transform_tools.rs"]
 pub mod vector_transform_tools;
 
-// Package 44 canvas/menu wiring is supplied in integration/44.md.
 #[path = "vector_packages/measure.rs"]
 pub mod measure;
 
 #[path = "vector_packages/path_effects.rs"]
 pub mod path_effects;
 
-// Package 43 registration; production router/menu state belongs to 00/01.
 #[path = "vector_packages/mesh.rs"]
 pub mod mesh;
 

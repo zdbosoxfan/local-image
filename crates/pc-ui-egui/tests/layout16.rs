@@ -1,4 +1,4 @@
-//! Package-owned real egui input tests. No desktop window or test-only edit path.
+//! Real egui input tests. No desktop window or test-only edit path.
 use photocraft_ui_egui::{dock, widgets};
 #[path = "../src/vector_packages/layout.rs"]
 #[deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

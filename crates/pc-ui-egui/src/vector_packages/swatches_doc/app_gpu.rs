@@ -1,4 +1,4 @@
-//! Supplied full-app integration gate. It intentionally fails until 00 installs native Access,
+//! Full-app gate. It intentionally fails without native Access,
 //! the Document Palette tab, swatch command specs and detached canvas routing. No test XMP
 //! provider, second compositor or synthetic preview window stands in for the actual app.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]

@@ -3,8 +3,7 @@
 //! engine/src/cmd/draw2.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors. MIT OR Apache-2.0.
 //! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
-//! The package bridge compiles the same owned helper until 00 registers its pc-vector
-//! module. Final re-export and V1 fitter hook: docs/wip/vector-tasks/integration/05.md.
+//! The fitter is re-exported from pc-vector's `pencil_fit`.
 
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use fitting::{FitOptions, Sample, Stabilization};

@@ -1,5 +1,5 @@
 //! Vector Brush input, presets and context controls. Uses the established pencil/tablet
-//! ToolEvent contract; package 00 owns full app routing (integration/17.md).
+//! ToolEvent contract; full app routing lives outside this module.
 use crate::canvas::{ToolEvent, ViewXform};
 use photocraft_doc::Document;
 use photocraft_engine::vector_packages::brushes::{self as engine, Capture, Options, Prepared};

@@ -1290,7 +1290,6 @@ fn texel_to_f32(format: wgpu::TextureFormat, b: &[u8]) -> [f32; 4] {
     o
 }
 
-// ---------------------------------------------------------------------------------------------
 // GPU resources
 
 /// Floor of the compositor's memory budget: enough for a viewport's pages of a dozen layers.
@@ -1915,7 +1914,6 @@ impl DocTextures {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Per-frame callback
 
 struct CanvasCallback {

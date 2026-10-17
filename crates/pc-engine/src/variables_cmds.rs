@@ -23,7 +23,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-// --------------------------------------------------------------------------- parse helpers
+// Parse helpers
 
 fn parse_kind(v: &Value) -> Option<VarKind> {
     match v.get("type").and_then(Value::as_str)? {
@@ -108,7 +108,7 @@ fn set_vars(s: &mut Session, f: impl FnOnce(&mut Variables)) -> Result<()> {
     Ok(())
 }
 
-// --------------------------------------------------------------------------- commands
+// Commands
 
 fn define(s: &mut Session, p: &Value) -> Result<Value> {
     let defs_in = p.get("defs").and_then(Value::as_array).ok_or_else(|| bad("image.variables.define", "need `defs`"))?;

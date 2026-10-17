@@ -209,7 +209,7 @@ impl State {
     }
 }
 /// Prepared objects are in insertion-target coordinates, not necessarily document space.
-/// Drawing providers prepare bounded caches before this call. Compound objects need 35's
+/// Drawing providers prepare bounded caches before this call. Compound objects need a
 /// source-preserving insertion provider rather than flattening a new object's appearance.
 pub type CompoundInsert = fn(&mut Session, Capture, LayerId, Layer) -> Result<LayerId>;
 static COMPOUND_INSERT: OnceLock<CompoundInsert> = OnceLock::new();
@@ -314,7 +314,7 @@ pub fn insert_prepared(session: &mut Session, state: &State, capture: Capture, a
     }
     Ok(id)
 }
-/// 00 installs authoritative per-session storage; absence fails instead of exposing fake
+/// The host installs authoritative per-session storage; absence fails instead of exposing fake
 /// successful commands. All isolation commands are non-journaled view actions.
 pub struct Hooks {
     /// Clear every per-document scope on document/persona transitions.
@@ -390,7 +390,7 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 mod tests;
 
-// View/session command data lives here until 00 registers the view_modes command slot.
+// View/session command data.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum ViewMode {
@@ -527,7 +527,7 @@ fn view_command(session: &mut Session, value: &Value) -> Result<Value> {
     (hooks.write)(session, state);
     Ok(response)
 }
-/// 00's new vector_packages::view_modes slot re-exports this as specs().
+/// Re-exported as `specs()` by `vector_packages::view_modes`.
 pub fn view_specs() -> Vec<CommandSpec> {
     vec![CommandSpec {
         id: "vector.view",

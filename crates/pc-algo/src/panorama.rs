@@ -375,7 +375,7 @@ mod j19_legacy_goldens {
     use super::*;
     #[test]
     fn j19_layer_gain_seam_multiband_matches_legacy_numeric_goldens() {
-        // Goldens harvested from unchanged pre-J19 code, retained only under ignored target/.
+        // Goldens harvested from the earlier, independently written implementation.
         let (w, h) = (16, 12);
         let px: Vec<f32> = (0..w * h).map(|i| 0.15 + (i % w) as f32 * 0.02 + (i / w) as f32 * 0.003).collect();
         let imgs = [

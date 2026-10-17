@@ -14,9 +14,7 @@ fn solid(rgb: [u8; 3]) -> Image {
 
 const COLOURS: [[u8; 3]; 3] = [[200, 30, 10], [10, 200, 30], [30, 10, 200]];
 
-// ---------------------------------------------------------------------------
 // #518: truncated JPEG
-// ---------------------------------------------------------------------------
 
 fn jpeg(layout: ChannelLayout, progressive: bool) -> Vec<u8> {
     let img = synth(64, 48, layout, SampleType::U8, 3, 0.3);
@@ -105,9 +103,7 @@ fn restart_markers_and_fill_bytes_are_scan_data() {
     assert_eq!(decode(&b).unwrap().warnings, []);
 }
 
-// ---------------------------------------------------------------------------
 // #523: only the first frame or page is decoded
-// ---------------------------------------------------------------------------
 
 fn more_frames(n: u32) -> Vec<DecodeWarning> {
     vec![DecodeWarning::MoreFrames { total: Some(n) }]

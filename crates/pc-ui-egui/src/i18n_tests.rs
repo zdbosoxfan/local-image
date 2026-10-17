@@ -15,8 +15,8 @@ fn editor_catalog_ids_are_live_commands() {
     }
 }
 
-// docs/wip/CODEX-TASK.md explicitly defers translations for AI Remove and
-// Draft/Refinement. These English additions intentionally use runtime fallback.
+// Translations for AI Remove and
+// Draft/Refinement are deferred. These English additions intentionally use runtime fallback.
 // Remove entries as their translations land; all other labels remain required.
 // Overwrite Original: English until the owner resumes translations.
 const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
@@ -39,7 +39,7 @@ const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
     "The Library shows a preview of your layers. Save a copy or overwrite the original to keep this edit.",
 ];
 
-// J26: the editor's Red Eye tool gained Lightroom's Pet Eye (translations deferred).
+// Pet Eye strings of the editor's Red Eye tool (translations deferred).
 const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop", "Pet Eye", "Add Catchlight", "Click a pet's glowing pupil"];
 
 const PENDING_AI_TRANSLATIONS: &[&str] = &[
@@ -329,8 +329,8 @@ fn every_tl_literal_is_translated() {
         "Start ComfyUI and install generative models on the server. On-device tools still run on this computer.",
         "Other installed models",
     ];
-    // docs/wip/CODEX-TASK.md explicitly defers translation of the new background
-    // controls. Keep this exception scoped to their keys; remove it when translated.
+    // Translation of the new background
+    // controls is deferred. Keep this exception scoped to their keys; remove it when translated.
     const PENDING_BACKGROUND_TRANSLATIONS: &[&str] = &[
         "Background blur amount",
         "Background colour",

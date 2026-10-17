@@ -3,7 +3,7 @@ use super::maxflow::Graph;
 use super::*;
 use photocraft_geom::Rect;
 
-// ---------- max-flow ----------
+// Max-flow
 
 #[test]
 fn maxflow_tiny_graph() {
@@ -139,7 +139,7 @@ fn grid_cut_separates_two_halves() {
     }
 }
 
-// ---------- GMM ----------
+// GMM
 
 #[test]
 fn gmm_recovers_synthetic_clusters() {
@@ -166,7 +166,7 @@ fn gmm_recovers_synthetic_clusters() {
     assert_eq!(r.comps.len(), 3);
 }
 
-// ---------- SLIC ----------
+// SLIC
 
 #[test]
 fn slic_counts_compactness_and_edges() {
@@ -200,7 +200,7 @@ fn slic_counts_compactness_and_edges() {
     }
 }
 
-// ---------- GrabCut / object selection ----------
+// GrabCut / object selection
 
 /// A textured disc on a noisy background: (image, ground-truth mask).
 pub(crate) fn disc_scene(w: usize, h: usize, cx: f32, cy: f32, r: f32, seed: u64) -> (RgbImage, Vec<bool>) {
@@ -292,7 +292,7 @@ fn object_select_downsampled_with_band_refinement() {
     assert!(far_wrong < 300, "{far_wrong} pixels wrong away from the edge");
 }
 
-// ---------- Quick selection ----------
+// Quick selection
 
 /// Left: textured warm region; right: cool region; strong vertical edge at x = 60.
 fn two_regions(w: usize, h: usize) -> RgbImage {
@@ -365,7 +365,7 @@ fn quick_select_downsampled_window() {
     assert!(v > 0.93, "IoU {v}");
 }
 
-// ---------- Select subject ----------
+// Select subject
 
 #[test]
 fn select_subject_finds_centred_object() {
@@ -393,7 +393,7 @@ fn saliency_highlights_the_object() {
     assert!(fi / fn_ > 0.6 && bi / bn < 0.25, "fg {} bg {}", fi / fn_, bi / bn);
 }
 
-// ---------- Focus area ----------
+// Focus area
 
 #[test]
 fn focus_area_selects_sharp_half() {
@@ -420,7 +420,7 @@ fn focus_area_selects_sharp_half() {
     assert!((r as f32) < 0.1 * 80.0 * h as f32, "blurred half {r}");
 }
 
-// ---------- helpers ----------
+// Helpers
 
 #[test]
 fn sampler_downsampling_matches_image_downsample() {
@@ -475,7 +475,7 @@ fn geodesic_barrier_blocks_oblique_crossings() {
     }
 }
 
-// ---------- specular highlights ----------
+// Specular highlights
 
 /// A shaded glossy red ball with a clipped white specular highlight on a noisy blue-grey
 /// background: (image, ball mask, highlight core mask).

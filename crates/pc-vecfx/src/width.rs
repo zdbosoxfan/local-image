@@ -204,7 +204,7 @@ fn validate_path(path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Package 08 projection interface; no dependency from pc-vector back to V1.
+/// Stroke projection interface; no dependency from pc-vector back to V1.
 pub struct Projection;
 impl photocraft_vector::appearance::StrokeProjection for Projection {
     fn outline(&self, path: &Path, stroke: &StrokeItem) -> Result<Path> {

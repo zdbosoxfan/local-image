@@ -1,6 +1,6 @@
-//! Compiled full-app integration hooks. 00 routes these through the normal context bar,
-//! canvas event/capture/overlay and display_doc wrapper. State is passed explicitly so the
-//! owned implementation does not require simultaneous edits to UiState or canvas/router.
+//! Full-app hooks, routed through the normal context bar,
+//! canvas event/capture/overlay and display_doc wrapper. State is passed explicitly so this
+//! module does not need fields in UiState or the canvas/router.
 use super::{State, engine, overlay, panel};
 use crate::{
     PhotocraftApp,
@@ -86,7 +86,7 @@ pub fn window(state: &mut State, app: &mut PhotocraftApp, ctx: &egui::Context) -
     }
     result
 }
-/// Shared bounds-limited evaluator for 08/09 and exports; register no second blend renderer.
+/// Shared bounds-limited evaluator for the appearance renderer, scaled display and exports; register no second blend renderer.
 pub fn project(source: &Document) -> Result<Document> {
     engine::evaluator::project_document(source).map_err(|e| photocraft_engine::EngineError::Other(e.to_string()))
 }

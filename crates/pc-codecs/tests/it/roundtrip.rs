@@ -141,9 +141,7 @@ mod hdr {
     cases!(Format::Hdr);
 }
 
-// ---------------------------------------------------------------------------
 // Targeted round-trips beyond the matrix
-// ---------------------------------------------------------------------------
 
 /// Float formats must keep HDR values (> 1, and negative where allowed).
 #[test]

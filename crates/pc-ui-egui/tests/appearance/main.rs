@@ -1,4 +1,4 @@
-//! Package 08 widget interaction and resvg oracle host. Full-app gate is app_acceptance.rs.
+//! Widget interaction and resvg oracle host. Full-app gate is app_acceptance.rs.
 use photocraft_ui_egui::widgets;
 macro_rules! tl {
     ($s:expr) => {

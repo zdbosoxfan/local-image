@@ -1,4 +1,4 @@
-//! Real RTX original vs public-import roundtrip gate, registered only after package 13.
+//! Real RTX original vs public-import roundtrip gate.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use photocraft_doc::vector_design::exchange::ImportOptions;

@@ -27,7 +27,7 @@ fn check_native(doc: &Document, label: &str, mask_images: bool) {
     } else if mask_images {
         assert_raster_oracle_svg(doc, &source, label);
     } else {
-        // TEST-CHANGED: image-free vector geometry uses the established 8x
+        // Image-free vector geometry uses the established 8x
         // geometry oracle, not 1x cross-renderer glyph/AA alpha agreement.
         // Color and interior alpha still come from independent Inkscape output.
         let iou = oracle::coverage_iou(doc, &source);

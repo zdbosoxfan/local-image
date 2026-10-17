@@ -160,7 +160,7 @@ pub struct Resource {
 }
 impl Resource {
     /// Self-contained versioned resource in the existing opaque BrushRef slot. Native
-    /// persistence already round-trips this slot. 00 may intern these in a future table;
+    /// persistence already round-trips this slot. These could be interned in a future table;
     /// external names are never silently replaced by a preset.
     pub fn reference(&self) -> Result<BrushRef> {
         self.brush.validate()?;
@@ -270,7 +270,7 @@ pub fn validate_profile(profile: &WidthProfile) -> Result<()> {
     }
     Ok(())
 }
-/// Width distances are absolute pixels, matching package 11's shared model.
+/// Width distances are absolute pixels, matching the shared width model.
 pub fn pressure_profile(samples: &[(Point, f64)], width: f64) -> Result<WidthProfile> {
     if !bounded(width, 0.1, 1000.) || !(2..=MAX_INPUT).contains(&samples.len()) {
         return Err(Error::Invalid);
@@ -368,7 +368,7 @@ pub(crate) fn normalize(path: Path) -> Result<Path> {
     photocraft_pathops::finish_compound(&path, None).map_err(|_| Error::Geometry)
 }
 
-/// One normalized brush stroke coverage for package 08's StrokeProjection interface.
+/// One normalized brush stroke coverage for the StrokeProjection interface.
 /// Pieces are united before opacity/blend is applied, matching ordinary expansion.
 pub fn outline(path: &Path, stroke: &StrokeItem) -> Result<Path> {
     let pieces = project(path, stroke)?;

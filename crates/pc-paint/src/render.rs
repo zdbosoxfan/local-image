@@ -344,9 +344,7 @@ impl BrushContext {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Sparse stroke buffer
-// ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
 struct CovTile {
@@ -543,9 +541,7 @@ impl CoverageMap {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Stroke renderer
-// ---------------------------------------------------------------------------
 
 /// Incremental stroke rendering: feed points, composite dirty tiles from the pre-stroke pixels.
 #[derive(Clone, Debug)]

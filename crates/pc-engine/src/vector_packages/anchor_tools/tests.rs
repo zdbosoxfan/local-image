@@ -222,8 +222,8 @@ fn anchor33_curvature_new_preview_commit_and_existing_corner_remap() {
     c.points[2].corner = true;
     let preview = preview_curvature(&s, &c).unwrap();
     assert_eq!(preview.layer(id).unwrap().vector.corners[0].knot, 2);
-    // Exercise the actual package CommandSpec transaction; 00 still owns global dispatch
-    // registration. This proves history atomicity, not integrated journal registration.
+    // Exercise the module's CommandSpec transaction directly. This proves history atomicity,
+    // not global journal registration.
     let history = s.active().unwrap().history.past_len();
     let result = (specs()[0].run)(&mut s, &serde_json::to_value(&c).unwrap()).unwrap();
     assert_eq!(result["targets"][0]["anchors"], json!([[0, 2]]));

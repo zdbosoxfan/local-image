@@ -41,7 +41,7 @@ pub struct FileMenuState {
     pub firing: bool,
 }
 
-// ---------- scripts ----------
+// Scripts
 
 /// Parses an action script: JSON (array of steps, `{"steps"|"action": …}`, a droplet) or one
 /// `command.id {json}` per line.
@@ -132,7 +132,7 @@ fn browse(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"steps": steps.len(), "ok": ok, "results": results}))
 }
 
-// ---------- Script Events Manager ----------
+// Script Events Manager
 
 /// Events a script can be bound to (Photoshop's Script Events Manager list).
 pub const EVENTS: [(&str, &str); 8] = [
@@ -281,7 +281,7 @@ pub fn document_saved(s: &mut Session, index: usize) -> Option<Value> {
     crate::web_cmds::on_saved(s, index)
 }
 
-// ---------- Create Droplet ----------
+// Create Droplet
 
 fn create_droplet(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.automate.createDroplet";
@@ -364,7 +364,7 @@ fn run_droplet(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"droplet": path, "output": output, "files": r["files"], "errors": r["errors"]}))
 }
 
-// ---------- Statistics ----------
+// Statistics
 
 fn statistics(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.statistics";
@@ -402,7 +402,7 @@ fn statistics(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"document": s.active_index(), "layer": id.0, "images": n, "mode": sm.id()}))
 }
 
-// ---------- Contact Sheet II ----------
+// Contact Sheet II
 
 fn units_px(v: f64, unit: &str, res: f64) -> f64 {
     match unit {

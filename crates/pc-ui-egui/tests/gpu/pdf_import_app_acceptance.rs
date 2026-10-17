@@ -1,4 +1,4 @@
-//! Registered in photocraft-ui-egui by 00. Actual app canvas, pointer preview/release,
+//! Actual app canvas, pointer preview/release,
 //! GPU texture readback and Undo; RTX 5090 Vulkan/Rgba32Float are mandatory.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use egui::{Event, Modifiers, PointerButton, Pos2};

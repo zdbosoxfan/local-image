@@ -1,4 +1,4 @@
-//! Package 00 calls this with its actual native-field provider after adding the manifest mirror.
+//! Called with the actual native-field provider and manifest mirror.
 //! No surrogate storage, external fixtures, or skipped adapter can pass this assertion.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;

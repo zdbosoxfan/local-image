@@ -2,8 +2,8 @@
 //! Lens Correction, Adaptive Wide Angle, HDR merge + tone mapping, Crop and
 //! Straighten detection, and a 4-image panorama registration + blend (2 MP sources).
 //! `cargo run --release -p photocraft-algo --example bench_photo [case-substring]`
-//! J10 small CC0 sample: `cargo +1.98.1 run --offline -p photocraft-algo --example bench_photo --
-//! bakeoff target/j10/data/lebombo_1k.hdr target/j10/data/kiara_1_dawn_1k.hdr`
+//! Bake-off mode on two small CC0 HDR samples: `cargo +1.98.1 run --offline -p photocraft-algo --example bench_photo --
+//! bakeoff first.hdr second.hdr`
 //! Both stacks compile the same bounded input synthesis and scoring protocol.
 #[path = "../../lc-merge/examples/bakeoff/common.rs"]
 mod common;

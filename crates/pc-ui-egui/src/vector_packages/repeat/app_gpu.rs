@@ -1,4 +1,4 @@
-//! Full production-app preview/release gate. Requires 00's exact router/display handoff;
+//! Full production-app preview/release gate. Requires the exact router/display handoff;
 //! absent hooks fail. Offscreen eframe/egui_kittest only, no desktop window or software skip.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;

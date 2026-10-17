@@ -132,7 +132,6 @@ pub fn draw_shape_preview(app: &PhotocraftApp, painter: &egui::Painter, xf: &Vie
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Pen
 
 /// Compatibility entrypoints delegate to the full shared Pen handler. The new router
@@ -186,7 +185,7 @@ pub fn pen_up(app: &mut PhotocraftApp) {
     }
 }
 
-/// Finish through the same atomic command as package 04, including old serialized drafts.
+/// Finish through the same atomic command as the Pen tool, including old serialized drafts.
 pub fn pen_commit(app: &mut PhotocraftApp, closed: bool) {
     let Some(mut pen) = app.ui.pen.take() else { return };
     let result = if pen.shared.gesture.is_some() {
@@ -257,7 +256,6 @@ pub fn path_to_selection(app: &mut PhotocraftApp, params: Value) -> Result<Value
     app.run("path.toSelection", Value::Object(p))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Path Selection
 
 /// What Path Selection edits.
@@ -320,7 +318,6 @@ pub fn path_selection_finish(app: &mut PhotocraftApp, start: [f64; 2], end: [f64
     };
 }
 
-// ---------------------------------------------------------------------------------------------
 // Drawing
 
 fn bezier(p0: [f64; 2], c0: [f64; 2], c1: [f64; 2], p1: [f64; 2], t: f64) -> [f64; 2] {
@@ -418,7 +415,6 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Options bars
 
 /// Options bar for vector tools; false for other tools. As in Photoshop, while a shape layer is
@@ -531,7 +527,6 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
     true
 }
 
-// ---------------------------------------------------------------------------------------------
 // Shape layer editing: the options bar, the Properties panel and the Contextual Task Bar share
 // these controls, so each edits the selected layer the same way (`shape.edit`).
 
@@ -805,7 +800,6 @@ pub fn shape_layer_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     true
 }
 
-// ---------------------------------------------------------------------------------------------
 // Properties (shape layers)
 
 fn color_of(f: &photocraft_doc::Fill) -> Option<Color32> {
@@ -942,7 +936,6 @@ pub fn shape_properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, id: photocra
     apply_shape_edit(app, id, edit);
 }
 
-// ---------------------------------------------------------------------------------------------
 // Paths panel
 
 fn thumb(ui: &egui::Ui, r: Rect, path: &Path, doc: &Document) {

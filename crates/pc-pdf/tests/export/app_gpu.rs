@@ -1,5 +1,5 @@
-//! Full PhotocraftApp offscreen canvas: pointer preview/release then public export; public import gate after 22.
-//! Package 00 registers this in pc-ui-egui/tests/gpu/main.rs after 22; it is not an
+//! Full PhotocraftApp offscreen canvas: pointer preview/release then public export; the public import gate needs the `pdf-import-integrated` feature.
+//! Registered in pc-ui-egui/tests/gpu/main.rs; it is not an
 //! isolated-widget proxy. No software adapters or successful skips are accepted.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use crate::export_app_gpu::{dragged_shape_app, parity, present};

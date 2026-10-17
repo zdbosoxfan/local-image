@@ -1,4 +1,4 @@
-//! Package 28: captured trace requests and fully prepared, atomic output.
+//! Captured trace requests and fully prepared, atomic output.
 //! T1 tracing stays in pc-trace. No preview changes document/history/journal state.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use lightcraft_sysmem::JobCtl;

@@ -8,8 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
-// Exact provider source, without competing edits to 00's engine manifest.
-// 00 may replace this bridge with `pub use photocraft_vecfx::blend as evaluator`.
 pub use photocraft_pathops::{from_geometry as evaluator_from_geometry, to_geometry as evaluator_geometry};
 pub use photocraft_vecfx::blend as evaluator;
 pub fn evaluator_nearest(path: &photocraft_doc::Path, point: photocraft_geom::Point) -> Result<Option<(usize, usize, f64, photocraft_geom::Point, f64)>> {

@@ -45,7 +45,7 @@ fn flag(p: &Value, k: &str, d: bool) -> bool {
     p.get(k).and_then(Value::as_bool).unwrap_or(d)
 }
 
-// ---------- params ----------
+// Params
 
 /// Lens Correction settings from params; `exif` resolves `"profile":"auto"`.
 pub fn lens_params(cmd: &str, p: &Value, frame: Rect, info: Option<&exif::CameraInfo>) -> Result<LensCorrection> {
@@ -204,7 +204,7 @@ pub fn raw_params(cmd: &str, p: &Value) -> Result<CameraRaw> {
     Ok(cr)
 }
 
-// ---------- pixels ----------
+// Pixels
 
 /// The shared Develop engine, with the same RGB profile used by preview and commit.
 pub fn camera_raw_surface_in(surf: &Surface, area: Rect, p: &CameraRaw, profile: &photocraft_cms::Profile) -> Result<Surface> {
@@ -269,7 +269,7 @@ pub fn apply_to_surface_in(id: &str, params: &Value, surf: &Surface, canvas: Rec
     }
 }
 
-// ---------- commands ----------
+// Commands
 
 pub(crate) fn target(s: &Session, p: &Value) -> Result<LayerId> {
     match p.get("layer").and_then(Value::as_u64) {

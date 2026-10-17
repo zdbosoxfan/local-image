@@ -1,5 +1,4 @@
-//! Package 28 modal. All pixels/paths are detached; workers use the existing T1 job API.
-//! The package 00 menu/router/preferences hooks are in integration/28.md.
+//! Trace modal. All pixels/paths are detached; workers use the existing T1 job API.
 use egui::{Color32, Context, Pos2, Rect, Sense, Stroke, TextureHandle, Ui, Vec2};
 use photocraft_engine::{
     Session,
@@ -552,7 +551,7 @@ pub fn preview(ui: &mut Ui, state: &mut State) {
     }
 }
 /// Call after the shell's poll_jobs and after other compositing panels. Cancel also on
-/// module/persona/focus changes via the integration hook; no desktop window is opened.
+/// module/persona/focus changes via the host hook; no desktop window is opened.
 pub fn show(ctx: &Context, state: &mut State, session: &mut Session, prefs: &mut Preferences, swatches: &[[u8; 3]]) {
     if !state.open {
         return;

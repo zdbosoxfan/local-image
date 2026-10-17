@@ -2,7 +2,7 @@
 //! Make/Merge/Expand/Release and face/edge paint follow VectorCraft buildcmds.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092, MIT OR Apache-2.0.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
-//! Shared LiveGroup data and display/export dispatch are integrated by package 00.
+//! Shared LiveGroup data and display/export dispatch live outside this module.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 pub use evaluator::{Gap, Graph, LivePaintSpec, Signature};
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem};

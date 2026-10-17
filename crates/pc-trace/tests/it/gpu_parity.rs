@@ -1,4 +1,4 @@
-//! Coordinator verifies RTX 5090 parity; software adapters are logged separately.
+//! RTX 5090 parity gate; software adapters are logged separately.
 use pc_trace::{Image, Params, trace};
 use photocraft_color::{Color, ColorMode, SampleType};
 use photocraft_doc::{Document, Fill, Layer, LayerContent, ShapeLayer, Size};

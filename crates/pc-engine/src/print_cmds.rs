@@ -28,7 +28,7 @@ fn other(e: impl std::fmt::Display) -> EngineError {
     EngineError::Other(e.to_string())
 }
 
-// ---------- PDF ----------
+// PDF
 
 /// Paper sizes in points (portrait).
 pub const PAPERS: [(&str, f64, f64); 8] = [
@@ -202,7 +202,7 @@ pub fn print_pdf(page: &PrintPage) -> Vec<u8> {
     out
 }
 
-// ---------- Print ----------
+// Print
 
 /// The flattened, colour-handled document as 8-bit samples in its print colour space.
 fn print_image(doc: &Document, p: &Value, cmd: &str) -> Result<(PrintImage, Value)> {
@@ -398,7 +398,7 @@ fn print_one_copy(s: &mut Session, p: &Value) -> Result<Value> {
     do_print(s, &q, "file.printOneCopy")
 }
 
-// ---------- Package ----------
+// Package
 
 fn package(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.package";
@@ -456,7 +456,7 @@ fn package(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"folder": folder, "document": out, "links": copied.iter().map(|(_, t)| t).collect::<Vec<_>>(), "missing": missing, "warnings": warnings}))
 }
 
-// ---------- Paths to Illustrator ----------
+// Paths to Illustrator
 
 /// The document's paths as an Illustrator 3 PostScript file. `which`: "all", "work" or a path
 /// name. Coordinates are points (pixels at the document resolution), y up.

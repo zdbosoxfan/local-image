@@ -104,7 +104,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
             // Modern (CS3+) Brightness/Contrast, reverse-engineered from Photoshop ground truth
-            // (a 0..255 ramp pushed through the real app; see log/devlog.md). Unlike the legacy
+            // (a 0..255 ramp pushed through the real app). Unlike the legacy
             // linear scale, both are smooth curves that pin pure black and white:
             //   • Brightness: a line of slope s = 1.375^(b/50) from the origin that rolls off to
             //     (1,1) via a `v^P` white-anchor term (P grows as |b| grows).

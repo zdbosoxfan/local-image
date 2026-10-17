@@ -53,7 +53,7 @@ pub fn snapshot_shapes(doc: &Document, ids: &[LayerId]) -> Result<Vec<ShapeEdit>
         .collect()
 }
 
-/// Publish prepared edits atomically. The renderer is package-owned; it must build a cache
+/// Publish prepared edits atomically. The renderer is feature-owned; it must build a cache
 /// before this call. None is rejected rather than committing invisible editable geometry.
 /// Tool code must also compare its captured document revision before publishing stale previews.
 pub fn apply_shape_edits(s: &mut Session, label: &str, edits: Vec<ShapeEdit>) -> Result<()> {

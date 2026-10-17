@@ -352,7 +352,7 @@ fn library_identity_save_scripts_cannot_retarget_generated_assets() {
     }
 }
 
-// ---------- Upstream 61b6276c: export path safety and HTML/URL hardening ----------
+// Upstream 61b6276c: export path safety and HTML/URL hardening
 
 #[test]
 fn reserved_document_and_slice_names_export_with_portable_names() {

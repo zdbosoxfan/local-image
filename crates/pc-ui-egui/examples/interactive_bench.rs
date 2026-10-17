@@ -182,7 +182,7 @@ fn main() {
     };
     println!("document {w}×{h} ({:.1} MP), 8-bit RGB, {} reps, {}", (w * h) as f64 / 1e6, reps, if b.gpu.is_some() { "GPU canvas" } else { "CPU canvas" });
 
-    // ---- open / save / export ----------------------------------------------------------------
+    // Open / save / export
     let img = photo(w, h);
     let mut jpeg = Vec::new();
     b.time("encode JPEG (codecs, q 90)", |_| {
@@ -210,7 +210,7 @@ fn main() {
         ms(t)
     });
 
-    // ---- painting --------------------------------------------------------------------------
+    // Painting
     let mut k = 0;
     b.time("brush dab 60 px (command + refresh)", |b| {
         k += 1;
@@ -234,7 +234,7 @@ fn main() {
         ms(t) + b.refresh(&s, false)
     });
 
-    // ---- filters / adjustments / layers ------------------------------------------------------
+    // Filters / adjustments / layers
     select(&mut s, 0);
     for radius in [4.0, 40.0, 250.0] {
         b.time(&format!("Gaussian Blur r {radius} (photo layer) + refresh"), |b| {
@@ -389,7 +389,7 @@ fn main() {
         ms(t) + b.refresh(&s, false)
     });
 
-    // ---- save / export ---------------------------------------------------------------------
+    // Save / export
     let mut psd = Vec::new();
     b.time("save .pcraft (bytes, full)", |_| {
         let d = doc(&s);
@@ -429,7 +429,7 @@ fn main() {
         ms(t)
     });
 
-    // ---- live gradient ------------------------------------------------------------------------
+    // Live gradient
     // A Gradient tool drag in live mode: each pointer move previews a shallow copy of the document
     // with the edited fill (gradient_ui::display_doc, through gradient_fill_cmds::apply_set) and
     // recomposites the whole canvas, since the fill covers it. Release commits one command.

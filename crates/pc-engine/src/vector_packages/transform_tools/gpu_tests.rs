@@ -1,4 +1,4 @@
-//! Integration milestone gate. Intentionally excluded by the transform34_ CPU filter.
+//! GPU gate, intentionally excluded by the transform34_ CPU filter.
 //! No software adapter or missing float format can produce a successful skip.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;

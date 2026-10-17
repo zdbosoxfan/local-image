@@ -1,4 +1,4 @@
-//! 09 supplies its actual scaled-document provider at integration. No duplicate renderer,
+//! Supplies the actual scaled-document provider. No duplicate renderer,
 //! source module registration, private-module access or identity fallback is used here.
 use super::super::{EngineError, Result};
 use photocraft_doc::Document;

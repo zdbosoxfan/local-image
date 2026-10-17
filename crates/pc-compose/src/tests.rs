@@ -392,7 +392,7 @@ fn buffer_over_background() {
     assert_eq!(b.to_rgba8().pixels, vec![0, 0, 0, 128]);
 }
 
-// ---------- layer effects ----------
+// Layer effects
 
 use photocraft_doc::{Effect, FxCommon, FxPaint, Glow, GlowSource, GlowTechnique, Gradient, GradientStyle, Satin, Shadow, StrokeFx, StrokePosition};
 
@@ -785,7 +785,7 @@ fn effect_maps_are_cached_and_invalidated_by_pixel_changes() {
     assert!(close4(px(&masked, 20, 32), [1.0; 4]));
 }
 
-// ---------- PSD-fidelity effect semantics (fitted on Photoshop composites) ----------
+// PSD-fidelity effect semantics (fitted on Photoshop composites)
 
 #[test]
 fn stroke_corners_follow_the_5x5_chamfer_metric() {
@@ -1091,7 +1091,7 @@ fn adjustment_results_are_rounded_to_the_document_depth() {
 
 // Ground truth captured from Adobe Photoshop 2026 (27.10.0): a 0..255 ramp pushed through modern
 // (non-legacy) Brightness/Contrast via `executeAction("BrgC", ... useLegacy=false)`. These pin our
-// reverse-engineered curves (see crates/compose/src/adjust.rs modern_* and log/devlog.md).
+// reverse-engineered curves (see the modern_* functions in adjust.rs).
 #[test]
 fn modern_contrast_matches_photoshop() {
     // (contrast, [out at x = 0,16,32,64,96,128,160,192,224,255])

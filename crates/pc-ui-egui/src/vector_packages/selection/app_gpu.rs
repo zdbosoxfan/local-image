@@ -1,5 +1,4 @@
-//! Real-app gates. These require 00's engine registration and route() hook. Running them
-//! in a disposable registration copy proves the supplied hooks, not production wiring.
+//! Real-app gates. These require the engine registration and route() hook.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{PhotocraftApp, state::Tool as AppTool};
@@ -258,7 +257,7 @@ fn selection_full_app_gpu_group_circle_then_node_lasso_delete_03_rtx5090() {
     assert_eq!(h.state().session.active().unwrap().doc, doc);
     assert_eq!(h.state().session.active().unwrap().revision, revision);
     assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
-    // The exact 03 frame hook owns Delete. Use a four-node diamond and real
+    // The Direct Select frame hook owns Delete. Use a four-node diamond and real
     // app keyboard input after lasso publication, without a test-only delete handler.
     h.state_mut()
         .session

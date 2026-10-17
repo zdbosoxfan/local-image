@@ -2,7 +2,7 @@
 //! adapted from VectorCraft tools/xform/wand.rs and tools/select.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
-//! The caller supplies the existing session and 03 DirectSelection; previews are detached.
+//! The caller supplies the existing session and DirectSelection; previews are detached.
 
 use crate::direct_select::{DirectSelection, NodeSelection, PathRef};
 use egui::{Color32, Event, Modifiers, PointerButton, Pos2, Rect, Stroke, Ui};
@@ -76,7 +76,7 @@ pub struct State {
     pub selection: Option<Preview>,
     pub error: Option<String>,
     group: Option<(DocId, u64, LayerId, LayerId)>,
-    /// Per-document view memory. The coordinator should use engine Hooks to share this
+    /// Per-document view memory. Engine Hooks should share this
     /// with non-canvas menu/MCP selection changes, rather than a second selection store.
     pub previous: HashMap<DocId, Vec<LayerId>>,
 }
@@ -383,7 +383,7 @@ pub fn execute(session: &mut Session, state: &mut State, scope: Scope, query: Qu
     Ok(())
 }
 /// Select-menu fragment. True means an object command succeeded; the caller clears
-/// 03's transient nodes with clear_nodes(). Translate with the existing catalog lookup.
+/// Direct Select's transient nodes with clear_nodes(). Translate with the existing catalog lookup.
 pub fn menu(ui: &mut Ui, session: &mut Session, state: &mut State, mut scope: Scope, text: impl Fn(&str) -> String) -> bool {
     let mut chosen = None;
     ui.checkbox(&mut state.settings.select_hidden, text("Select Hidden Objects"));
@@ -483,8 +483,8 @@ pub fn wand_options(ui: &mut Ui, settings: &mut Settings, text: impl Fn(&str) ->
 #[path = "selection/tests.rs"]
 mod tests;
 
-/// Canvas-router bridge owned here; 00 calls route() after the GPU image is painted and
-/// before legacy pointer dispatch. Toolbar/keymap integration calls activate() for the
+/// Canvas-router bridge owned here; the app calls route() after the GPU image is painted and
+/// before legacy pointer dispatch. Toolbar/keymap code calls activate() for the
 /// three new IDs. Transients live in egui memory, separate from persisted Settings.
 #[derive(Clone, Default)]
 pub struct Bridge {

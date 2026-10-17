@@ -8,7 +8,7 @@ use super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 use photocraft_engine::Session;
 
-/// The shared deterministic CPU renderer (`li-testkit`, J7): the same pixels on any machine, no
+/// The shared deterministic CPU renderer (`li-testkit`): the same pixels on any machine, no
 /// GPU or window. These screens draw only meshes (no wgpu paint callbacks).
 pub(crate) fn renderer() -> li_testkit::SoftpaintRenderer {
     li_testkit::SoftpaintRenderer::new()

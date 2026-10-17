@@ -629,7 +629,7 @@ pub fn evaluate(path: &Path, metadata: &[KnotCorner]) -> Result<Projection, Corn
     Ok(Projection { path: projected, sources, corners })
 }
 
-/// Package-03 bridge: after insert/delete/reorder, a complete old-base -> new-base index map
+/// Direct Select bridge: after insert/delete/reorder, a complete old-base -> new-base index map
 /// remaps corner metadata in the SAME node-edit transaction. Deleted knots map to None. New
 /// knots acquire no corner automatically. The caller evaluates against the new path before commit.
 pub fn remap_metadata(corners: &[KnotCorner], old_to_new: &[Vec<Option<CornerKey>>]) -> Result<Vec<KnotCorner>, CornerError> {

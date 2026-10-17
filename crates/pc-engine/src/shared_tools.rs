@@ -1,6 +1,6 @@
 //! Canonical tool families. Persona selects defaults and shortcuts, never an implementation.
 //! Raster Pencil/Gradient keep their historic identities; Vector Pencil/Fill are available
-//! in either persona and use the same vector handlers (architecture §5, package 46).
+//! in either persona and use the same vector handlers (architecture §5).
 use crate::toolsets::{ALL_TOOLS, Persona, VECTOR_TOOLS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

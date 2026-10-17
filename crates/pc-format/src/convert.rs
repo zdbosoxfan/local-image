@@ -96,9 +96,7 @@ pub(crate) fn tile_len(format: &PixelFormat) -> usize {
     (TILE_SIZE * TILE_SIZE) as usize * format.bytes_per_pixel()
 }
 
-// ---------------------------------------------------------------------------
 // Save
-// ---------------------------------------------------------------------------
 
 fn surface_m(s: &Surface, sink: &mut dyn Sink) -> SurfaceM {
     let f = s.format();
@@ -302,9 +300,7 @@ fn comp_m(c: &LayerComp, sink: &mut dyn Sink) -> LayerCompM {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Load
-// ---------------------------------------------------------------------------
 
 pub(crate) struct Loader<'a> {
     pub fetch: &'a mut dyn Fetch,

@@ -162,7 +162,7 @@ fn anchor33_gpu_full_app_curvature_preview_finish_one_journal_and_undo() {
     assert!(h.state_mut().session.undo());
     parity(&baseline, &pixels(&mut h));
     // Existing-path edits use the registered Curvature command, including a fresh
-    // Delete immediately after release. This also gates 00's command registration.
+    // Delete immediately after release. This also gates the command registration.
     event(&mut h, [120., 90.], Some(true));
     event(&mut h, [140., 120.], None);
     assert_eq!(h.state().session.active().unwrap().doc, before);

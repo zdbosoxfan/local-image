@@ -70,7 +70,7 @@ const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
     let blur = |d: f32| f(p, "blur", d).clamp(0.0, 500.0);
     Some(match id {
-        // ---- Pixelate ----
+        // Pixelate
         "filter.pixelate.colorHalftone" => FilterParams::ColorHalftone {
             max_radius: f(p, "maxRadius", 8.0).clamp(4.0, 127.0),
             angles: [f(p, "channel1", 108.0), f(p, "channel2", 162.0), f(p, "channel3", 90.0), f(p, "channel4", 45.0)],
@@ -96,7 +96,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
         "filter.pixelate.pointillize" => {
             FilterParams::Pointillize { cell_size: f(p, "cellSize", 5.0).clamp(3.0, 300.0), seed: seed(p), background: colour(p, "background", WHITE) }
         }
-        // ---- Stylize ----
+        // Stylize
         "filter.stylize.diffuse" => FilterParams::Diffuse {
             mode: match s(p, "mode", "normal") {
                 "darkenOnly" => DiffuseMode::DarkenOnly,
@@ -147,7 +147,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
             from_right: s(p, "direction", "fromRight") != "fromLeft",
             seed: seed(p),
         },
-        // ---- Distort ----
+        // Distort
         "filter.distort.displace" => FilterParams::Displace {
             horizontal: f(p, "horizontal", 10.0).clamp(-999.0, 999.0),
             vertical: f(p, "vertical", 10.0).clamp(-999.0, 999.0),
@@ -171,7 +171,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
                 _ => ZigZagStyle::PondRipples,
             },
         },
-        // ---- Render ----
+        // Render
         "filter.render.fibers" => FilterParams::Fibers {
             variance: f(p, "variance", 16.0).clamp(1.0, 64.0),
             strength: f(p, "strength", 4.0).clamp(1.0, 64.0),
@@ -238,7 +238,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
             height: f(p, "height", 50.0).clamp(0.0, 100.0),
             white_is_high: b(p, "whiteIsHigh", true),
         },
-        // ---- Noise ----
+        // Noise
         "filter.noise.reduceNoise" => FilterParams::ReduceNoise {
             strength: f(p, "strength", 6.0).clamp(0.0, 10.0),
             preserve_details: f(p, "preserveDetails", 60.0).clamp(0.0, 100.0),
@@ -246,7 +246,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
             sharpen_details: f(p, "sharpenDetails", 25.0).clamp(0.0, 100.0),
             remove_jpeg_artifact: b(p, "removeJpegArtifact", false),
         },
-        // ---- Blur ----
+        // Blur
         "filter.blur.smartBlur" => FilterParams::SmartBlur {
             radius: f(p, "radius", 3.0).clamp(0.1, 100.0),
             threshold: f(p, "threshold", 25.0).clamp(0.1, 100.0),
@@ -302,7 +302,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
                 _ => BlurShape::Circle,
             },
         },
-        // ---- Blur Gallery ----
+        // Blur Gallery
         "filter.blurGallery.tiltShift" => FilterParams::TiltShift {
             blur: blur(15.0),
             center_x: f(p, "centerX", 0.5),
@@ -359,7 +359,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
                     }]
                 }),
         },
-        // ---- Other ----
+        // Other
         "filter.other.custom" => FilterParams::Custom {
             kernel: p
                 .get("kernel")
@@ -377,7 +377,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
             };
             FilterParams::HsbHsl { input: m("inputMode", "rgb"), output: m("rowOrder", "hsb") }
         }
-        // ---- Video ----
+        // Video
         "filter.video.deInterlace" => FilterParams::DeInterlace {
             eliminate_even: s(p, "eliminate", "oddFields") == "evenFields",
             interpolate: s(p, "createBy", "interpolation") != "duplication",

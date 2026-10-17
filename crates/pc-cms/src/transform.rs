@@ -524,7 +524,7 @@ fn apply_matrix(m: &Option<(usize, usize, Vec<f32>, Vec<f32>)>, v: &[f32; 16], o
     }
 }
 
-// ------------------------------------------------------------ parallel helpers
+// Parallel helpers
 
 const PAR_MIN_PIXELS: usize = 16 * 1024;
 const PAR_CHUNK_PIXELS: usize = 8 * 1024;
@@ -560,7 +560,7 @@ fn par_inplace(buf: &mut [f32], _stride: usize, f: impl Fn(&mut [f32]) + Sync) {
     f(buf)
 }
 
-// ------------------------------------------------------------ linking
+// Linking
 
 /// Stages from `src` device values to `dst` device values.
 pub(crate) fn link_stages(src: &Profile, dst: &Profile, intent: Intent, bpc: bool) -> Result<Vec<Stage>, CmsError> {
@@ -680,7 +680,7 @@ pub fn black_point(p: &Profile, intent: Intent, _input: bool) -> Result<f64, Cms
     }
 }
 
-// ------------------------------------------------------------ cache
+// Cache
 
 type Key = (u64, u64, TransformOptions);
 

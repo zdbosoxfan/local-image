@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use photocraft_engine::Session;
 use photocraft_engine::file_cmds::{self, OutputClaims};
 
-// ---------------------------------------------------------------------------
 // extension
-// ---------------------------------------------------------------------------
 
 #[test]
 fn extension_returns_lowercase_after_last_dot() {
@@ -18,9 +16,7 @@ fn extension_returns_lowercase_after_last_dot() {
     assert_eq!(file_cmds::extension(""), None);
 }
 
-// ---------------------------------------------------------------------------
 // saves_in_place / is_template
-// ---------------------------------------------------------------------------
 
 #[test]
 fn saves_in_place_only_layered_files() {
@@ -43,9 +39,7 @@ fn is_template_detects_psdt_extension() {
     assert!(!file_cmds::is_template(""));
 }
 
-// ---------------------------------------------------------------------------
 // untitled_name / template_name
-// ---------------------------------------------------------------------------
 
 #[test]
 fn untitled_name_skips_taken_names() {
@@ -70,9 +64,7 @@ fn template_name_returns_untitled_for_template() {
     assert_eq!(file_cmds::template_name(&s, "template.psdt"), Some("Untitled-1".to_string()));
 }
 
-// ---------------------------------------------------------------------------
 // OutputClaims
-// ---------------------------------------------------------------------------
 
 #[test]
 fn output_claims_starts_empty() {
@@ -95,9 +87,7 @@ fn output_claims_detects_case_insensitive_collision() {
     assert!(claims.check("OTHER.png").is_err());
 }
 
-// ---------------------------------------------------------------------------
 // XMP read / write
-// ---------------------------------------------------------------------------
 
 #[test]
 fn read_file_info_none_returns_defaults() {
@@ -204,9 +194,7 @@ fn write_file_info_escapes_special_characters() {
     assert_eq!(back.get("title").and_then(|x| x.as_str()), Some("A & B < C > D \" quote"));
 }
 
-// ---------------------------------------------------------------------------
 // command specs
-// ---------------------------------------------------------------------------
 
 #[test]
 fn specs_has_unique_nonempty_ids() {

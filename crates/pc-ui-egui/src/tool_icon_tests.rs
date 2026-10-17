@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::{PhotocraftApp, color_icons, icons, state::Tool};
 use li_ui_kit::color_icon_data;
 
-// The shared CPU egui painter (`li-testkit`, J7) for these windowless pixel checks.
+// The shared CPU egui painter (`li-testkit`) for these windowless pixel checks.
 use li_testkit::softpaint as cpu;
 
 #[test]

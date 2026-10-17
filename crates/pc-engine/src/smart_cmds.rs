@@ -56,7 +56,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-// ---------- source encoding / decoding ----------
+// Source encoding / decoding
 
 /// Encodes a document as embedded smart-object contents: an in-memory `.pcraft` bundle.
 pub fn encode_source(doc: &Document) -> Result<Vec<u8>> {
@@ -322,7 +322,7 @@ pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, m
     Ok(img)
 }
 
-// ---------- rendering ----------
+// Rendering
 
 /// `top` blended over `base` with `mode` at `opacity` (a smart filter's blending options).
 fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) -> Surface {
@@ -570,7 +570,7 @@ fn detach_psd(l: &mut Layer) {
     l.psd_blocks.retain(|(k, _)| !PLACED_KEYS.contains(&k));
 }
 
-// ---------- conversion ----------
+// Conversion
 
 #[path = "smart_cmds/resources.rs"]
 mod resources;
@@ -723,7 +723,7 @@ fn convert(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
-// ---------- contents ----------
+// Contents
 
 fn via_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
@@ -871,7 +871,7 @@ fn update_all(s: &mut Session) -> Result<Value> {
     Ok(json!({"updated": updated}))
 }
 
-// ---------- smart filter editing ----------
+// Smart filter editing
 
 fn edit_filters(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut SmartObject) -> Result<()>) -> Result<Value> {
     let id = layer_param(s, p)?;
@@ -960,7 +960,7 @@ fn move_filter(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
-// ---------- enablement ----------
+// Enablement
 
 /// Whether smart-filter command `spec` can run with `p`: its precondition is checked on an
 /// explicit `"layer"` of the active document (the layer it then edits) rather than on the

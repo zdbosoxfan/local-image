@@ -1,6 +1,6 @@
-//! Full-app acceptance for 00 after appearance router/preview/panel hooks are registered.
-//! Requires UiState::vector_appearance and Tool::{VectorFill,Transparency}; deliberately
-//! unregistered until the coordinator supplies those real hooks. Widget GPU tests are separate.
+//! Full-app acceptance for the appearance router/preview/panel hooks.
+//! Requires UiState::vector_appearance and Tool::{VectorFill,Transparency}; it
+//! needs those real hooks and no substitute. Widget GPU tests are separate.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::{Harness, kittest::Queryable};

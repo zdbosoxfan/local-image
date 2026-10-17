@@ -1,4 +1,4 @@
-//! Dependency gate: enabled only once package 13's public importer is registered by 00.
+//! Dependency gate: needs the public SVG importer.
 //! This never supplies a substitute importer.
 use super::*;
 use photocraft_doc::vector_design::exchange::ImportOptions;

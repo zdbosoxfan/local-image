@@ -1,4 +1,4 @@
-//! Coordinator-only CLI harness. No external tracer runs in normal tests.
+//! Maintainer-only CLI harness for regenerating external-tracer references. No external tracer runs in normal tests.
 use crate::common;
 use common::*;
 use pc_trace::{Params, Preset};

@@ -9,7 +9,6 @@ use photocraft_codecs::f16;
 use photocraft_codecs::{Limits, decode, decode_deep_exr};
 use std::io::Write as _;
 
-// ---------------------------------------------------------------------------------------------
 // A minimal deep-EXR writer, mirroring what the reference files show on disk:
 // version 2 | deep bit (and the tile bit for tiles), one header with the mandatory
 // attributes in alphabetical order, a chunk offset table, then deep chunks of
@@ -282,7 +281,6 @@ fn rgba_flat(bytes: &[u8]) -> Vec<f32> {
     s
 }
 
-// ---------------------------------------------------------------------------------------------
 // Oracles
 
 /// One sample per pixel: the flat image is the stored colour un-premultiplied.
@@ -512,7 +510,6 @@ fn decode_deep_structure() {
     assert_eq!(deep.channel("Z").expect("Z").samples[5], 15.0);
 }
 
-// ---------------------------------------------------------------------------------------------
 // Hostile input: every damaged file errors, nothing panics.
 
 fn truncate_sweep(bytes: &[u8]) {
@@ -601,7 +598,6 @@ fn inconsistent_count_table_errors() {
     assert!(matches!(decode_deep_exr(&bytes, &Limits::none()), Err(CodecError::Malformed { .. })));
 }
 
-// ---------------------------------------------------------------------------------------------
 // Real reference files (corpus/exr, copied in by hand from the OpenEXR repository's test
 // images; not pinned by xtask). Skipped with a message when the folder is absent.
 
