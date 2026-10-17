@@ -31,7 +31,7 @@ Use **Browse models…** in Image Gen to compare the supported presets before do
 
 Downloads use fixed publisher revisions, expected byte counts and SHA-256 checksums. Existing matching files are verified and reused. Existing mismatched files are preserved and reported; they are never replaced automatically. The size shown as missing accounts for reusable files. These are storage estimates, not GPU-memory requirements. The downloader does not restart ComfyUI; refresh model availability after completion.
 
-Klein 9B's official BF16 and FP8 repositories currently require publisher access approval. The app keeps the FP8 preset in its catalog but cannot download it anonymously. Follow the publisher's access process and place the exact approved files in the selected model folders; retrying setup verifies matching existing files. The app does not collect publisher credentials or bypass repository access controls. The other visible model presets are public downloads. The validation PC completed approved installation of the pinned 9B preset and real text/reference generation; [the validation report](LOCAL-IMAGE-VALIDATION.md) records those results.
+Klein 9B's official BF16 and FP8 repositories currently require publisher access approval. The app keeps the FP8 preset in its catalog but cannot download it anonymously. Follow the publisher's access process and place the exact approved files in the selected model folders; retrying setup verifies matching existing files. The app does not collect publisher credentials or bypass repository access controls. The other visible model presets are public downloads. The validation PC completed approved installation of the pinned 9B preset and real text/reference generation.
 
 Developer CLI using the same verified downloader:
 
@@ -87,4 +87,4 @@ Optional 4K enlargement uses **SeedVR2 7B FP16 base**, a separate upscaler rathe
 
 Optional adapters are selected through the live [LoRA library](LORA-LIBRARY.md). They do not download or enable automatically, and acceleration adapters can require explicit sampling changes.
 
-Related guides: [Image Gen controls](IMAGE-GENERATION.md), [Cutout workspace](CUTOUT-WORKSPACE.md), [stock library](STOCK-LIBRARY.md), [Qwen validation](QWEN-VALIDATION.md), [workspace design references](WORKSPACE-REFERENCES.md).
+Related guides: [Image Gen controls](IMAGE-GENERATION.md), [Cutout workspace](CUTOUT-WORKSPACE.md), [stock library](STOCK-LIBRARY.md), [workspace design references](WORKSPACE-REFERENCES.md).

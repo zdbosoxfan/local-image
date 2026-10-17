@@ -40,4 +40,4 @@ The design still missed a constraint: it rendered a cream sheet on a gray surrou
 
 The 24 GB hardware recommendation follows the publisher; the actual app run establishes success on the tested 32 GB card. Neither is a peak-memory measurement. Evidence: [ERNIE result and prompt](../qa-artifacts/v05/poster-quality/ernie-image/results.json), [poster preview](../qa-artifacts/v05/poster-quality/ernie-image/poster.png), [independent visual review](../qa-artifacts/v05/poster-quality/ernie-image/visual-review.json), and [Qwen comparison](../qa-artifacts/v05/poster-quality/qwen/visual-review.json).
 
-Related: [Image Gen](IMAGE-GENERATION.md), [model setup](GEN-MODELS.md), [release validation](LOCAL-IMAGE-VALIDATION.md).
+Related: [Image Gen](IMAGE-GENERATION.md), [model setup](GEN-MODELS.md).

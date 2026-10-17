@@ -48,4 +48,4 @@ All routes use the normal local-origin guard. Mutations also require the current
 
 Generation and upscale responses include `library_warning`, normally an empty string. A warning concerns the additional cache copy; the returned editor document remains usable. A stale upscale revision is rejected before a GPU job, and library deletion validates the complete requested selection before deleting its first entry.
 
-Related: [Image Gen](IMAGE-GENERATION.md), [SeedVR2 workflow and validation](SEEDVR2.md), [validation report](LOCAL-IMAGE-VALIDATION.md).
+Related: [Image Gen](IMAGE-GENERATION.md), [SeedVR2 workflow and validation](SEEDVR2.md).

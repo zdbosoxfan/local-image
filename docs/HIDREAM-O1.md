@@ -18,7 +18,7 @@ The exact checkpoint is linked by ComfyUI's model guide. Its integrated componen
 
 The evaluation download verified the pinned size and SHA-256 and installed no custom nodes. App download requests for this family are now rejected. The published Full model and the Comfy-Org repack use the MIT license. [Publisher license](https://github.com/HiDream-ai/HiDream-O1-Image/blob/main/LICENSE)
 
-The app completed real text generation and a one-reference edit on a **32 GB RTX 5090** at **2048 x 2048, 50 steps and guidance 5**. The jobs took **44.17 seconds** and **100.84 seconds**, respectively; PNG export and editable-project round trips passed. Driver GPU-usage samples during the runs were **21,879, 22,455 and 22,705 MiB**. These observations are not a measured peak or a minimum VRAM requirement. [Measured results and visual limitations](LOCAL-IMAGE-VALIDATION.md#real-image-gen-inference)
+The app completed real text generation and a one-reference edit on a **32 GB RTX 5090** at **2048 x 2048, 50 steps and guidance 5**. The jobs took **44.17 seconds** and **100.84 seconds**, respectively; PNG export and editable-project round trips passed. Driver GPU-usage samples during the runs were **21,879, 22,455 and 22,705 MiB**. These observations are not a measured peak or a minimum VRAM requirement.
 
 Checkpoint size is not a VRAM requirement: activations, image dimensions, references, other loaded components and offloading affect memory. The publisher documentation reviewed here does not establish a minimum consumer-GPU memory requirement for this FP8 ComfyUI preset. The successful local run validates this machine and these settings; app hardware figures remain planning estimates for other configurations.
 
