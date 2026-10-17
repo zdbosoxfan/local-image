@@ -19,11 +19,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Weak};
 
+use li_raster::{Histogram, RgbFrame, Rgba8};
 use lightcraft_catalog::{MediaKind, Photo, PhotoId, Source};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{Quality, RenderRequest, Rendered, SourceInfo, StageCache};
 use lightcraft_preview::{Hash128, Hasher128, Lru, PreviewCache};
-use lightcraft_raster::{Histogram, Rgb32f, Rgba8};
 use serde::{Deserialize, Serialize};
 
 const SETTINGS_HASH_ENTRIES: usize = 1024;
@@ -105,11 +105,11 @@ impl SourceLevel {
 }
 
 /// Decodes a file into a linear Rec.2020 image no larger than `max_edge` (set by the app).
-pub type FileLoader = Arc<dyn Fn(&str, usize) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
+pub type FileLoader = Arc<dyn Fn(&str, usize) -> Result<(RgbFrame, SourceInfo), String> + Send + Sync>;
 
 /// [`FileLoader`] decoding raw files with non-default options (a photo's Raw Processing settings,
 /// [`crate::files::RawOptions`]).
-pub type FileLoaderWith = Arc<dyn Fn(&str, usize, &crate::files::RawOptions) -> Result<(Rgb32f, SourceInfo), String> + Send + Sync>;
+pub type FileLoaderWith = Arc<dyn Fn(&str, usize, &crate::files::RawOptions) -> Result<(RgbFrame, SourceInfo), String> + Send + Sync>;
 
 /// A raw file's embedded (camera-rendered) preview as display sRGB, oriented, no larger than
 /// `max_edge` (set by the app). `None`: no usable preview.
@@ -118,7 +118,7 @@ pub type PreviewLoader = Arc<dyn Fn(&str, usize) -> Option<Rgba8> + Send + Sync>
 /// Pixels and the source interpretation learned while decoding; they must be cached together.
 #[derive(Clone)]
 pub struct DecodedSource {
-    pub image: Arc<Rgb32f>,
+    pub image: Arc<RgbFrame>,
     pub info: Option<SourceInfo>,
     /// A smart preview's stored camera tone curve: the one decoder fact its pixels need that the
     /// catalog's header facts lack (used when `info` is `None`).
@@ -128,7 +128,7 @@ pub struct DecodedSource {
 }
 
 impl DecodedSource {
-    pub fn new(image: Arc<Rgb32f>, info: Option<SourceInfo>) -> Self {
+    pub fn new(image: Arc<RgbFrame>, info: Option<SourceInfo>) -> Self {
         DecodedSource { image, info, camera_tone: None, raw_key: 0 }
     }
 
@@ -176,7 +176,7 @@ pub enum SourceRef {
 }
 
 impl SourceRef {
-    pub fn load(&self) -> Result<Arc<Rgb32f>, String> {
+    pub fn load(&self) -> Result<Arc<RgbFrame>, String> {
         self.load_source().map(|s| s.image)
     }
 
@@ -272,7 +272,7 @@ fn rendered_budget(share: usize) -> usize {
     RENDERED_MEM_BYTES.min(share / 4)
 }
 
-fn source_bytes(img: &Rgb32f) -> usize {
+fn source_bytes(img: &RgbFrame) -> usize {
     img.data.len() * 12 + 64 + std::mem::size_of::<SourceInfo>()
 }
 
@@ -349,7 +349,7 @@ impl MediaCache {
         }
     }
 
-    pub fn get(&mut self, id: PhotoId, level: SourceLevel) -> Option<Arc<Rgb32f>> {
+    pub fn get(&mut self, id: PhotoId, level: SourceLevel) -> Option<Arc<RgbFrame>> {
         self.get_source(id, level).map(|s| s.image)
     }
 
@@ -389,7 +389,7 @@ impl MediaCache {
         }
     }
 
-    pub fn insert(&mut self, id: PhotoId, level: SourceLevel, img: Arc<Rgb32f>) {
+    pub fn insert(&mut self, id: PhotoId, level: SourceLevel, img: Arc<RgbFrame>) {
         self.insert_source(id, level, DecodedSource::new(img, None));
     }
 
@@ -678,7 +678,7 @@ impl RenderJob {
 /// Render `src`: on the GPU when `gpu` is set and a GPU is available (`lightcraft_gpu`), else on
 /// the CPU, reusing `stages` either way. Both produce the same image within 1–3 LSB;
 /// `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
-pub fn develop(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
+pub fn develop(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
     if gpu {
         let cpu_reason = if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
             "the selected LUT profile requires CPU processing".to_string()
@@ -1147,7 +1147,7 @@ impl crate::Session {
     }
 
     /// The source proxy for pixel-statistics commands (auto tone/WB), loading synchronously.
-    pub fn source_now(&mut self, id: PhotoId, level: SourceLevel) -> Result<Arc<Rgb32f>, String> {
+    pub fn source_now(&mut self, id: PhotoId, level: SourceLevel) -> Result<Arc<RgbFrame>, String> {
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
         let r = self.media.source_ref(&p, level).load_source()?;
         let image = r.image.clone();
@@ -1266,7 +1266,7 @@ mod thumbnail_hash_tests {
     #[test]
     fn source_from_before_content_reload_is_not_accepted() {
         let mut s = session();
-        s.media.file_loader = Some(Arc::new(|_, _| Ok((Rgb32f::new(8, 8), SourceInfo::default()))));
+        s.media.file_loader = Some(Arc::new(|_, _| Ok((RgbFrame::new(8, 8), SourceInfo::default()))));
         let old = s.thumb_job(PhotoId(1), 256).unwrap().run();
         assert!(old.loaded.is_some());
         s.catalog
@@ -1301,7 +1301,7 @@ mod tests {
             [x, x * 0.8]
         }))
         .unwrap();
-        let source = DecodedSource { camera_tone: Some(camera), ..DecodedSource::new(Arc::new(Rgb32f::new(1, 1)), None) };
+        let source = DecodedSource { camera_tone: Some(camera), ..DecodedSource::new(Arc::new(RgbFrame::new(1, 1)), None) };
         let info = source.info_or(SourceInfo { look_curve: Some(look), ..Default::default() });
         assert_eq!(info.camera_tone, Some(camera));
         assert_eq!(info.look_curve, Some(look));
@@ -1323,7 +1323,7 @@ mod tests {
             path: "synthetic.arw".into(),
             max_edge: 64,
             loader: Some(Arc::new(move |_, _| {
-                let mut image = Rgb32f::new(64, 64);
+                let mut image = RgbFrame::new(64, 64);
                 image.data.fill([0.1; 3]);
                 Ok((image, loaded_info.clone()))
             })),
@@ -1346,7 +1346,7 @@ mod tests {
 
     #[test]
     fn budget_evicts_least_recently_used_across_caches() {
-        let img = |w: usize| Arc::new(Rgb32f::new(w, w));
+        let img = |w: usize| Arc::new(RgbFrame::new(w, w));
         let mut m = MediaCache::default();
         let mb = 1 << 20;
         m.set_budget(30 * mb);
@@ -1359,7 +1359,7 @@ mod tests {
         assert!(m.get(PhotoId(1), SourceLevel::Preview).is_some() && m.get(PhotoId(3), SourceLevel::Preview).is_some());
         // a thumbnail source and a rendered preview compete in the same budget
         m.insert(PhotoId(4), SourceLevel::Thumb, img(500));
-        m.rendered.put(Hash128(7), Arc::new(lightcraft_raster::Rgba8::new(1000, 1000)));
+        m.rendered.put(Hash128(7), Arc::new(li_raster::Rgba8::new(1000, 1000)));
         assert!(m.held() <= 30 * mb, "{}", m.held());
         // the newest preview (the one on screen) is never evicted, even alone over budget
         m.set_budget(mb);
@@ -1425,8 +1425,8 @@ mod tests {
         let mut session = crate::Session::with_demo();
         let id = session.active().unwrap();
         // Model the independently rounded source levels without decoding a large file.
-        session.media.insert(id, SourceLevel::Preview, Arc::new(Rgb32f::new(2560, 3)));
-        session.media.insert(id, SourceLevel::Full, Arc::new(Rgb32f::new(4096, 4)));
+        session.media.insert(id, SourceLevel::Preview, Arc::new(RgbFrame::new(2560, 3)));
+        session.media.insert(id, SourceLevel::Full, Arc::new(RgbFrame::new(4096, 4)));
         for rotated_crop in [false, true] {
             let mut settings = DevelopSettings::default();
             let target = if rotated_crop {

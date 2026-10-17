@@ -40,7 +40,7 @@ photocraft-ui-egui = { workspace = true }
 lightcraft-ui-egui = { workspace = true }
 lightcraft-engine = { workspace = true }
 lightcraft-catalog = { workspace = true }
-lightcraft-raster = { workspace = true }
+li-raster = { path = "../../crates/li-raster" }
 lightcraft-codecs = { workspace = true }
 lightcraft-gpu = { workspace = true }
 # Develop's AI Remove / AI Denoise services (develop_ai.rs).

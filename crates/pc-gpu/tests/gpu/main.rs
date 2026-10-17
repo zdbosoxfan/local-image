@@ -1,7 +1,6 @@
-//! All GPU integration tests in one binary. Concurrent wgpu instances in one process segfault on
-//! some drivers, so every test that opens a device holds this one process-wide lock.
+//! All GPU integration tests in one binary. They require a hardware GPU (`li_testkit::gpu`), and
+//! every test that opens a device holds `li_testkit::gpu::lock()`: concurrent wgpu instances in
+//! one process segfault on some drivers.
 mod device_loss;
 mod parity;
 mod vector_mask;
-
-pub(crate) static GPU_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

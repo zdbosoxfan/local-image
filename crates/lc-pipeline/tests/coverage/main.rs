@@ -1,11 +1,11 @@
-//! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
+//! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
-mod ds_finish_coverage;
-mod ds_llf_coverage;
-mod ds_optics_coverage;
-mod ds_primary_coverage;
-mod ds_profiles_coverage;
-mod ds_spots_coverage;
-mod ds_ucs_coverage;
-mod ds_upright_coverage;
-mod ds_visualize_coverage;
+mod finish_coverage;
+mod llf_coverage;
+mod optics_coverage;
+mod primary_coverage;
+mod profiles_coverage;
+mod spots_coverage;
+mod ucs_coverage;
+mod upright_coverage;
+mod visualize_coverage;

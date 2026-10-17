@@ -14,22 +14,10 @@
 #![cfg(feature = "corpus")]
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use photocraft_doc::{Document, Layer};
 use photocraft_io::*;
-
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("psd") || e.eq_ignore_ascii_case("psb")) {
-            out.push(p);
-        }
-    }
-}
 
 fn structure(layers: &[Layer], out: &mut Vec<String>, depth: usize) {
     for l in layers {
@@ -67,7 +55,7 @@ fn corpus_round_trips_through_layered_tiff() {
     assert!(root.join("psd").is_dir(), "corpus missing: run `cargo xtask corpus --all`");
     let mut files = Vec::new();
     for sub in ["psd", "psd-tools", "photoshop"] {
-        collect(&root.join(sub), &mut files);
+        crate::common::collect_psd_files(&root.join(sub), &mut files);
     }
     files.sort();
     assert!(!files.is_empty());

@@ -1,5 +1,5 @@
 // Box passes (clamped edges) over an image of NC interleaved channels; three of each approximate a
-// Gaussian (`lightcraft_raster::blur::gaussian`). Each thread slides a running sum over CH pixels.
+// Gaussian (`li_raster::Frame::gaussian`). Each thread slides a running sum over CH pixels.
 // P: w, h, nc, r, ch. Bindings: src, dst.
 
 // Pixel i: all one to four interleaved channels in one contiguous read.

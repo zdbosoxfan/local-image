@@ -80,16 +80,37 @@ fn j20_conflicts_cover_event_overlap_and_platform_modifiers() {
 #[cfg(feature = "egui")]
 mod egui_tests {
     use super::*;
-    use crate::{input, legacy_tests as old};
+    use crate::input;
     use egui::{Key, KeyboardShortcut, Modifiers};
 
     fn mods(bits: u8) -> Modifiers {
         Modifiers { command: bits & 1 != 0, ctrl: bits & 2 != 0, alt: bits & 4 != 0, shift: bits & 8 != 0, mac_cmd: false }
     }
+
+    /// egui key names that the canonical spelling writes as the character itself. Snapshot of the
+    /// frozen pre-merge (J20) engine normalizer, which every other key name passed through unchanged.
+    const SYMBOL_NAMES: &[(&str, &str)] = &[
+        ("Colon", ":"),
+        ("Comma", ","),
+        ("Minus", "-"),
+        ("Period", "."),
+        ("Plus", "+"),
+        ("Equals", "="),
+        ("Semicolon", ";"),
+        ("OpenBracket", "["),
+        ("CloseBracket", "]"),
+        ("Backslash", "\\"),
+        ("Slash", "/"),
+        ("Pipe", "|"),
+        ("Questionmark", "?"),
+        ("Exclamationmark", "!"),
+        ("Quote", "'"),
+    ];
+
     #[test]
-    fn j20_parser_golden_against_all_three_copies_and_engine() {
-        let mut compared = [0; 4];
+    fn j20_parser_golden_for_every_key_and_modifier_set() {
         for key in Key::ALL {
+            let canonical_key = SYMBOL_NAMES.iter().find(|(name, _)| *name == key.name()).map_or(key.name(), |(_, symbol)| symbol);
             for bits in 0..16 {
                 let sc = KeyboardShortcut::new(mods(bits), *key);
                 let mut chord = String::new();
@@ -99,23 +120,15 @@ mod egui_tests {
                         chord.push('+');
                     }
                 }
+                let prefix = chord.clone();
                 chord.push_str(key.name());
-                assert_eq!(normalize_shortcut(&chord), old::engine::normalize(&chord), "{chord}");
-                compared[0] += 1;
+                assert_eq!(normalize_shortcut(&chord), Some(format!("{prefix}{canonical_key}")), "{chord}");
                 assert_eq!(input::parse(&chord), Some(sc), "{chord}");
-                assert_eq!(input::parse(&chord), old::editor::parse(&chord));
-                compared[1] += 1;
-                if let Some((m, k)) = old::library::parse(&chord) {
-                    assert_eq!(input::identity(m, k), input::identity(sc.modifiers, sc.logical_key));
-                    compared[2] += 1;
-                }
-                let native = old::native::Chord::parse(&chord).unwrap();
-                let shared = Chord::parse(&chord).unwrap();
-                // Native formerly kept arbitrary spellings; portable canonical inputs must match.
-                if native.key_event(true).is_some() {
-                    assert_eq!(shared.key_event_on(true, Platform::Mac), native.key_event(true));
-                    compared[3] += 1;
-                }
+                // The event a native menu item delivers for the chord on macOS (physical ⌘ = command).
+                let m = sc.modifiers;
+                let mac_modifiers = Modifiers { alt: m.alt, ctrl: m.ctrl, shift: m.shift, mac_cmd: m.command, command: m.command };
+                let event = egui::Event::Key { key: *key, physical_key: Some(*key), pressed: true, repeat: false, modifiers: mac_modifiers };
+                assert_eq!(Chord::parse(&chord).unwrap().key_event_on(true, Platform::Mac), Some(event), "{chord}");
             }
         }
         for (alias, expected) in [
@@ -138,42 +151,70 @@ mod egui_tests {
         assert_eq!(normalize_shortcut("Cmd+`").as_deref(), Some("Cmd+Backtick"));
         assert!(Chord::parse("F24").unwrap().native_ok());
         assert!(!Chord::parse("F25").unwrap().native_ok());
-        eprintln!("J20 parser parity counts engine/editor/library/native: {compared:?}; keys={}", Key::ALL.len());
     }
+
+    /// Matches between different keys, or the same key with a different Shift state, when the
+    /// other modifiers agree: `(binding, key press)`. Snapshot of the frozen pre-merge (J20)
+    /// Editor matcher's layout aliases (Photoshop-style), which the shared matcher keeps.
+    const LAYOUT_ALIASES: &[(&str, &str)] = &[
+        ("Backspace", "Delete"),
+        ("Shift+Backspace", "Shift+Delete"),
+        ("Delete", "Backspace"),
+        ("Shift+Delete", "Shift+Backspace"),
+        ("Colon", "Shift+Colon"),
+        ("Plus", "Shift+Plus"),
+        ("Equals", "Plus"),
+        ("Equals", "Shift+Plus"),
+        ("Shift+Equals", "Shift+Plus"),
+        ("Shift+Semicolon", "Shift+Colon"),
+        ("Shift+OpenBracket", "Shift+OpenCurlyBracket"),
+        ("Shift+CloseBracket", "Shift+CloseCurlyBracket"),
+        ("OpenCurlyBracket", "Shift+OpenCurlyBracket"),
+        ("CloseCurlyBracket", "Shift+CloseCurlyBracket"),
+        ("Shift+Backslash", "Shift+Pipe"),
+        ("Shift+Slash", "Shift+Questionmark"),
+        ("Pipe", "Shift+Pipe"),
+        ("Questionmark", "Shift+Questionmark"),
+        ("Exclamationmark", "Shift+Exclamationmark"),
+        ("Shift+1", "Shift+Exclamationmark"),
+    ];
 
     #[test]
     fn j20_matching_golden_and_exact_mac_control() {
-        let mut old_positive = 0;
-        let mut new_positive = 0;
         for key in Key::ALL {
             for bits in 0..16 {
                 let sc = KeyboardShortcut::new(mods(bits), *key);
                 for actual_key in Key::ALL {
                     for actual_bits in 0..16 {
                         let actual = mods(actual_bits);
-                        let legacy_library = old::library::key_matches(sc.modifiers, *key, actual, *actual_key);
-                        let legacy_editor = old::editor::key_matches(&sc, *actual_key, actual);
-                        let shared = input::key_matches(&sc, *actual_key, actual);
-                        if legacy_library || legacy_editor {
-                            old_positive += 1;
+                        // An identical chord identity (Delete = Backspace, Ctrl folded into Cmd off
+                        // the Mac) always matches.
+                        if input::identity(sc.modifiers, *key) == input::identity(actual, *actual_key) {
+                            assert!(input::key_matches(&sc, *actual_key, actual), "lost exact match {sc:?} {actual_key:?} {actual:?}");
                         }
-                        if shared {
-                            new_positive += 1;
-                        }
-                        // Library's exact matches always survive; Editor's shifted layout matches
-                        // survive after rejecting extra Ctrl/Command on Mac and folding them off Mac.
-                        assert!(!legacy_library || shared, "lost Library {sc:?} {actual_key:?} {actual:?}");
-                        let same_mods = input::identity(sc.modifiers, *key).0 == input::identity(actual, *key).0;
-                        if same_mods {
-                            assert_eq!(
-                                old::editor::key_matches(
-                                    &KeyboardShortcut::new(input::identity(sc.modifiers, *key).0, *key),
-                                    *actual_key,
-                                    input::identity(actual, *key).0
-                                ),
-                                shared,
-                                "{sc:?} {actual_key:?} {actual:?}"
-                            );
+                    }
+                }
+            }
+        }
+        let spell = |shift: bool, key: Key| format!("{}{}", if shift { "Shift+" } else { "" }, key.name());
+        for platform in [Platform::Mac, Platform::Ctrl] {
+            // Cmd/Ctrl/Alt held identically on both sides; Shift and the key vary.
+            for other in 0..8 {
+                for key in Key::ALL {
+                    for pattern_shift in [false, true] {
+                        let sc = KeyboardShortcut::new(Modifiers { shift: pattern_shift, ..mods(other) }, *key);
+                        for actual_key in Key::ALL {
+                            for actual_shift in [false, true] {
+                                let actual = Modifiers { shift: actual_shift, ..mods(other) };
+                                let (binding, press) = (spell(pattern_shift, *key), spell(actual_shift, *actual_key));
+                                let expected =
+                                    (key == actual_key && pattern_shift == actual_shift) || LAYOUT_ALIASES.contains(&(binding.as_str(), press.as_str()));
+                                assert_eq!(
+                                    input::key_matches_on(&sc, *actual_key, actual, platform),
+                                    expected,
+                                    "{platform:?} {sc:?} {actual_key:?} {actual:?}"
+                                );
+                            }
                         }
                     }
                 }
@@ -187,7 +228,6 @@ mod egui_tests {
             assert!(!input::key_matches_on(&sc, Key::H, Modifiers::COMMAND, Platform::Mac));
             assert!(input::key_matches_on(&sc, Key::H, ctrl_cmd, platform));
         }
-        eprintln!("J20 event matrix: old union positives={old_positive}, shared positives={new_positive}");
     }
 
     #[test]

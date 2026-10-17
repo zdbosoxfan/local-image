@@ -5,13 +5,13 @@
 use std::sync::{Arc, Mutex};
 
 use li_raster::resample::Filter;
+use li_raster::{GrayFrame, Histogram, RgbFrame, Rgba8};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Orientation;
 use lightcraft_pipeline::capture::CaptureParams;
 use lightcraft_pipeline::finish::{FinishMode, FinishParams, MASK_TERMS, mask_terms};
 use lightcraft_pipeline::geometry::SampleMode;
 use lightcraft_pipeline::{Plan, RenderRequest, Rendered, SourceInfo, local};
-use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8};
 
 use crate::ctx::{Buf, FailKind, Gpu, fail, groups1, groups2};
 use crate::params::{Present, finish_block};
@@ -31,7 +31,7 @@ pub struct GpuStages {
 type CapturedSource = (CaptureParams, Option<Arc<lightcraft_pipeline::ClipConfidence>>, Arc<Buf>);
 
 struct Source {
-    src: Arc<Rgb32f>,
+    src: Arc<RgbFrame>,
     uploaded: Arc<Buf>,
     capture: Option<CapturedSource>,
 }
@@ -48,7 +48,7 @@ const CAPACITY: usize = 2;
 
 #[derive(Clone)]
 struct Entry {
-    src: Arc<Rgb32f>,
+    src: Arc<RgbFrame>,
     capture: Option<CaptureParams>,
     clip: Option<Arc<lightcraft_pipeline::ClipConfidence>>,
     geo: u64,
@@ -92,7 +92,7 @@ impl GpuStages {
             self.clear();
         }
     }
-    fn get(&self, src: &Arc<Rgb32f>, geo: u64, capture: Option<CaptureParams>, info: &SourceInfo) -> Option<Entry> {
+    fn get(&self, src: &Arc<RgbFrame>, geo: u64, capture: Option<CaptureParams>, info: &SourceInfo) -> Option<Entry> {
         self.lock()
             .iter()
             .find(|e| {
@@ -110,7 +110,7 @@ impl GpuStages {
         }
     }
 
-    fn source(&self, cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, info: &SourceInfo) -> Arc<Buf> {
+    fn source(&self, cx: &mut Cx<'_>, src: &Arc<RgbFrame>, capture: Option<CaptureParams>, info: &SourceInfo) -> Arc<Buf> {
         let mut g = self.source.lock().unwrap_or_else(|e| e.into_inner());
         if !g.as_ref().is_some_and(|s| Arc::ptr_eq(&s.src, src)) {
             *g = None; // free the previous photo's buffers first
@@ -335,20 +335,20 @@ impl<'a> Cx<'a> {
         enc.copy_buffer_to_buffer(src.raw(), 0, dst.raw(), (offset * 4) as u64, (src.len * 4) as u64);
     }
 
-    pub fn read_rgb(&mut self, b: &Buf, w: usize, h: usize) -> Rgb32f {
-        Rgb32f { width: w, height: h, data: self.read(b, w * h * 3) }
+    pub fn read_rgb(&mut self, b: &Buf, w: usize, h: usize) -> RgbFrame {
+        RgbFrame { width: w, height: h, data: self.read(b, w * h * 3) }
     }
 
-    pub fn read_plane(&mut self, b: &Buf, w: usize, h: usize) -> Plane {
-        Plane { width: w, height: h, data: self.read(b, w * h) }
+    pub fn read_plane(&mut self, b: &Buf, w: usize, h: usize) -> GrayFrame {
+        GrayFrame { width: w, height: h, data: self.read(b, w * h) }
     }
 }
 
-pub(crate) fn rgb_words(img: &Rgb32f) -> &[f32] {
+pub(crate) fn rgb_words(img: &RgbFrame) -> &[f32] {
     bytemuck::cast_slice(&img.data)
 }
 
-// Filters (twins of `lightcraft_raster::blur` / `resample` and `lightcraft_pipeline::local`)
+// Filters (twins of `li_raster::blur` / `resample` and `lightcraft_pipeline::local`)
 
 /// Pixels each blur thread slides its running sum over (at least; longer for large radii, so the
 /// priming sum stays a small share of the work).
@@ -397,7 +397,7 @@ fn gaussian_box_passes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize
     if last == 0 { a } else { b }
 }
 
-/// Resample taps of `lightcraft_raster::resample::resize`, packed for the `resize_*` kernels.
+/// Resample taps of `li_raster::resample::resize`, packed for the `resize_*` kernels.
 fn taps(src: usize, dst: usize, filter: Filter) -> Vec<u32> {
     let w = li_raster::resample::weights(src, dst, filter);
     let mut t = Vec::with_capacity(dst * 3);
@@ -411,7 +411,7 @@ fn taps(src: usize, dst: usize, filter: Filter) -> Vec<u32> {
     t
 }
 
-/// `lightcraft_raster::resample::resize` of an `nc`-channel image.
+/// `li_raster::resample::resize` of an `nc`-channel image.
 pub(crate) fn resize(cx: &mut Cx<'_>, src: &Buf, (sw, sh): (usize, usize), (dw, dh): (usize, usize), nc: usize, filter: Filter) -> Buf {
     let (dw, dh) = (dw.max(1), dh.max(1));
     if (sw, sh) == (dw, dh) {
@@ -609,7 +609,7 @@ fn coverage_mask(wp: &lightcraft_pipeline::optics::Warp, o2t: &lightcraft_geom::
     if words == 0 {
         return coverage;
     }
-    lightcraft_raster::par_rows(&mut coverage, words * COVER_ROWS, |band, rows| {
+    li_raster::par_rows(&mut coverage, words * COVER_ROWS, |band, rows| {
         let y0 = band * COVER_ROWS;
         let y1 = y0 + rows.len() / words;
         for word in 0..words {
@@ -631,7 +631,7 @@ fn coverage_mask(wp: &lightcraft_pipeline::optics::Warp, o2t: &lightcraft_geom::
 
 /// Resample the source into the output frame (`Frame::sample`). May return the source buffer
 /// itself when the frame is the identity.
-fn sample(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, src_buf: Arc<Buf>, plan: &Plan<'_>) -> Arc<Buf> {
+fn sample(cx: &mut Cx<'_>, src: &Arc<RgbFrame>, src_buf: Arc<Buf>, plan: &Plan<'_>) -> Arc<Buf> {
     let (w, h) = (plan.w, plan.h);
     let fr = &plan.frame;
     let sp = fr.sample_plan(src.width, src.height, w, h);
@@ -677,9 +677,9 @@ fn sample(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, src_buf: Arc<Buf>, plan: &Plan<'_>
 /// CPU copies made along the way (for stages that still run on the CPU).
 #[derive(Default)]
 struct Host {
-    sampled: Option<Rgb32f>,
-    lin: Option<Arc<Rgb32f>>,
-    log_l: Option<Arc<Plane>>,
+    sampled: Option<RgbFrame>,
+    lin: Option<Arc<RgbFrame>>,
+    log_l: Option<Arc<GrayFrame>>,
 }
 
 pub(crate) fn profiling() -> bool {
@@ -692,7 +692,7 @@ pub(crate) fn profiling() -> bool {
 #[allow(clippy::too_many_arguments)]
 pub fn render(
     gpu: &Gpu,
-    src: &Arc<Rgb32f>,
+    src: &Arc<RgbFrame>,
     info: &SourceInfo,
     s: &DevelopSettings,
     req: &RenderRequest,
@@ -832,7 +832,7 @@ pub fn render(
                     })
                     .map(|c| {
                         native_primary.clip(plan.geo, Arc::as_ptr(c) as usize, || {
-                            let metadata = Arc::new(Rgb32f { width: c.width, height: c.height, data: c.data.iter().map(|v| [*v; 3]).collect() });
+                            let metadata = Arc::new(RgbFrame { width: c.width, height: c.height, data: c.data.iter().map(|v| [*v; 3]).collect() });
                             let source = Arc::new(gpu.upload(rgb_words(&metadata)));
                             let mut clip_plan = plan.clone();
                             clip_plan.frame = plan.frame.for_metadata();
@@ -1092,7 +1092,7 @@ pub fn render(
     Some(Rendered { image, histogram, deep })
 }
 
-fn source_buffer(cx: &mut Cx<'_>, src: &Arc<Rgb32f>, capture: Option<CaptureParams>, stages: Option<&GpuStages>, info: &SourceInfo) -> Arc<Buf> {
+fn source_buffer(cx: &mut Cx<'_>, src: &Arc<RgbFrame>, capture: Option<CaptureParams>, stages: Option<&GpuStages>, info: &SourceInfo) -> Arc<Buf> {
     match stages {
         Some(c) => c.source(cx, src, capture, info),
         None => {
@@ -1933,10 +1933,7 @@ mod tests {
 
     #[test]
     fn capture_source_cache_reuses_upload_and_invalidates_parameters() {
-        let Some(gpu_device) = crate::test_device() else {
-            eprintln!("skipped: no GPU adapter");
-            return;
-        };
+        let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
         let gpu = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(gpu);
         let errors = crate::ctx::ErrorScopes::push(gpu);
@@ -2068,7 +2065,7 @@ mod tests {
     #[test]
     fn orient_map_matches_image_oriented() {
         use Orientation::*;
-        let img = Rgb32f::from_fn(5, 3, |x, y| [x as f32, y as f32, 0.0]);
+        let img = RgbFrame::from_fn(5, 3, |x, y| [x as f32, y as f32, 0.0]);
         for o in [Normal, Rotate90, Rotate180, Rotate270, FlipH, Transverse, FlipV, Transpose] {
             let r = img.oriented(o);
             let m = orient_map(o, 5, 3);

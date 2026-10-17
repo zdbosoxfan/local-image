@@ -2,13 +2,13 @@
 //! Reads the named Sony raws in place; writes only JPEG crops and a self-contained HTML
 //! under ignored target/compare-highlights. Optional LC_COMPARE_SYNTHETIC_ONLY skips real raws.
 use li_raster::resample::Filter;
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_codecs::encode::{ChromaSubsampling, EncodeImage, EncodeMeta, encode_jpeg};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{
     RenderRequest, SourceInfo, metrics,
     primary::{self, HsMethod},
 };
-use lightcraft_raster::{Rgb32f, Rgba8, resample::resize};
 use std::{error::Error, fmt::Write as _, path::Path};
 fn base64(bytes: &[u8]) -> String {
     let table = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -22,12 +22,12 @@ fn base64(bytes: &[u8]) -> String {
     }
     out
 }
-fn linear(img: &Rgba8) -> Rgb32f {
+fn linear(img: &Rgba8) -> RgbFrame {
     let mat = li_color::SRGB.to_space(&li_color::REC2020);
     img.map(|p| mat.apply_f32([p[0], p[1], p[2]].map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.))))
 }
-fn synthetic(kind: usize, w: usize, h: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, y| {
+fn synthetic(kind: usize, w: usize, h: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, y| {
         // Middle strip: ideal step for halo measurement, free of colour/texture.
         if kind == 0 && ((x as f32 - w as f32 * 0.86).powi(2) + (y as f32 - h as f32 * 0.14).powi(2)).sqrt() < h as f32 * 0.055 {
             return [8.; 3];
@@ -49,7 +49,7 @@ fn synthetic(kind: usize, w: usize, h: usize) -> Rgb32f {
         }
     })
 }
-fn metrics_scene(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, edge: usize, method: HsMethod) -> Rgb32f {
+fn metrics_scene(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, edge: usize, method: HsMethod) -> RgbFrame {
     let plan = lightcraft_pipeline::plan(src, info, s, &RenderRequest::fit(edge, edge));
     let mut lin = plan.frame.sample(src, plan.w, plan.h);
     lightcraft_pipeline::lin_cpu(&mut lin, info, &plan);
@@ -63,7 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut html = String::from(
         "<!doctype html><html lang=en><meta charset=utf-8><title>Local Image — primary tone A/B</title><style>body{font:15px system-ui;background:#17191c;color:#eee;margin:32px}h1{font-size:24px}details{border-top:1px solid #555;padding:12px}summary{cursor:pointer;font-size:18px}table{border-collapse:collapse;font-variant-numeric:tabular-nums}td,th{padding:8px;border:1px solid #555}figure{display:inline-block;width:46%;margin:8px}img{width:100%}small{color:#bbb}.pass{color:#8ed69c}.fail{color:#ffb286}</style><h1>Local Image Highlights / Shadows — A/B review</h1><p>A: LI Tone, vkdt local Laplacian on log EV, 10 remap samples. B: multi-scale faithful darktable EIGF. Both use a fixed 2 MP proxy and guided gain upsampling; full sensor clipping confidence protects white speculars. Default remains A until the owner chooses.</p><p>Metrics are measured before tone mapping for halos, order and hue; display CIELab D65 ΔE2000 for colour/skin and preview/export. Δh isolates chromaticity by normalizing luminance. LOE is reversed-pair fraction on 256 deterministic samples. Halo widths/energy apply to the synthetic neutral middle strip; real portraits have no ideal step, so their halo columns are unavailable.</p>",
     );
-    let mut scenes: Vec<(String, Rgb32f, SourceInfo, bool)> = (0..3)
+    let mut scenes: Vec<(String, RgbFrame, SourceInfo, bool)> = (0..3)
         .map(|i| {
             (
                 format!("Synthetic {}", ["HDR window / interior", "sharp edge / detail", "saturated highlights / skin patches"][i]),
@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     let preview =
                         lightcraft_pipeline::render_hs_candidate(src, info, &s, &RenderRequest::fit(preview_edge, preview_edge), method).image;
                     let a = linear(&export);
-                    let down = resize(&a, preview.width, preview.height, Filter::Mitchell);
+                    let down = a.resize(preview.width, preview.height, Filter::Mitchell);
                     let b = linear(&preview);
                     let mut delta: Vec<_> =
                         down.data.iter().zip(&b.data).map(|(a, b)| metrics::delta_e(metrics::lab(*a), metrics::lab(*b))).collect();
@@ -154,7 +154,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 .map(|patch| {
                                     let x = (patch * 2 + 1) * a.width / 12;
                                     let y = a.height / 6;
-                                    let mean = |im: &Rgb32f| {
+                                    let mean = |im: &RgbFrame| {
                                         let mut v = [0f32; 3];
                                         for yy in y.saturating_sub(8)..y + 8 {
                                             for xx in x.saturating_sub(8)..x + 8 {

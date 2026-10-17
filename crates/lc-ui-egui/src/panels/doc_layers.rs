@@ -93,7 +93,7 @@ pub struct DocLayer {
     /// A Develop layer's Library photo (`None`: it keeps its settings without following one).
     pub follows: Option<u64>,
     /// A small thumbnail (sRGB).
-    pub thumb: Option<lightcraft_raster::Rgba8>,
+    pub thumb: Option<li_raster::Rgba8>,
 }
 
 /// Could the file at `path` be a layered document?
@@ -183,7 +183,7 @@ fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, doc: &DocLayers
 }
 
 /// A cached texture for layer `i`'s thumbnail of the document version `key`.
-fn thumb_texture(ctx: &egui::Context, key: &str, i: usize, img: &lightcraft_raster::Rgba8) -> TextureHandle {
+fn thumb_texture(ctx: &egui::Context, key: &str, i: usize, img: &li_raster::Rgba8) -> TextureHandle {
     let tid = egui::Id::new(("doc-layer-thumb", key, i));
     if let Some(t) = ctx.data(|d| d.get_temp::<TextureHandle>(tid)) {
         return t;

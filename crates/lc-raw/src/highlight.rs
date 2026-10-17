@@ -15,12 +15,12 @@ mod segmentation;
 pub use opposed::opposed;
 pub use segbased::{Recovery, SegmentationOptions, segmentation};
 
-use lightcraft_raster::Rgb32f;
+use li_raster::RgbFrame;
 use rayon::prelude::*;
 
 /// Clip every channel of `wb ⊙ img` at `min_c(wb_c) · clip` — i.e. at the lowest channel's clip level after WB —
 /// then divide the multipliers back out. `clip` is the sensor clip in normalised units (≈ 1.0).
-pub fn clip_neutral(img: &mut Rgb32f, wb: [f32; 3], clip: f32) {
+pub fn clip_neutral(img: &mut RgbFrame, wb: [f32; 3], clip: f32) {
     let limit = wb.iter().cloned().fold(f32::MAX, f32::min) * clip;
     for p in &mut img.data {
         for c in 0..3 {
@@ -123,7 +123,7 @@ fn chroma_of(p: &[f32; 3], wb: [f32; 3], clip: f32) -> Option<[f32; 3]> {
 /// never valid at full resolution, so its chromaticity is always the bilinear sample of the
 /// half-resolution level: we start the pyramid there, straight from the image, and never build
 /// the full-resolution field (same result, a quarter of the memory and far less work).
-pub fn reconstruct(img: &mut Rgb32f, wb: [f32; 3], clip: f32) -> usize {
+pub fn reconstruct(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
     let (w, h) = (img.width, img.height);
     let is_clipped = |p: &[f32; 3]| p[0] >= clip || p[1] >= clip || p[2] >= clip;
     let count = img.data.par_iter().filter(|p| is_clipped(p)).count();
@@ -247,7 +247,7 @@ mod tests {
     /// Reconstruct partially clipped channels. `clip` is the sensor clip level in normalised units (use slightly
     /// below 1.0, e.g. 0.99), `wb` the white-balance multipliers that will be applied afterwards.
     /// Returns the number of pixels that had at least one clipped channel.
-    fn reconstruct_ref(img: &mut Rgb32f, wb: [f32; 3], clip: f32) -> usize {
+    fn reconstruct_ref(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
         let (w, h) = (img.width, img.height);
         let n = w * h;
         let is_clipped = |p: &[f32; 3]| p[0] >= clip || p[1] >= clip || p[2] >= clip;
@@ -307,12 +307,12 @@ mod tests {
     #[test]
     #[ignore]
     fn bench_reconstruct() {
-        let img = Rgb32f::from_fn(6000, 4000, |x, y| {
+        let img = RgbFrame::from_fn(6000, 4000, |x, y| {
             let v = 0.4 + 0.8 * ((x as f32 * 0.003).sin() * (y as f32 * 0.002).cos()).abs();
             [v.min(1.0), (v * 0.7).min(1.0), (v * 0.5).min(1.0)]
         });
         let wb = [2.0, 1.0, 1.5];
-        let time = |f: &dyn Fn(&mut Rgb32f) -> usize| {
+        let time = |f: &dyn Fn(&mut RgbFrame) -> usize| {
             (0..3)
                 .map(|_| {
                     let mut i = img.clone();
@@ -341,7 +341,7 @@ mod tests {
             for density in [0.02f32, 0.3, 0.97] {
                 // smooth colour with clipped blobs, some dark pixels, some fully clipped ones
                 let noise: Vec<f32> = (0..w * h).map(|_| rnd()).collect();
-                let img = Rgb32f::from_fn(w, h, |x, y| {
+                let img = RgbFrame::from_fn(w, h, |x, y| {
                     let t = ((x as f32 * 0.21).sin() + (y as f32 * 0.17).cos()) * 0.5;
                     let base = [0.5 + 0.4 * t, 0.45 - 0.2 * t, 0.3 + 0.1 * t];
                     let r = noise[y * w + x];
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn clip_neutral_makes_clipped_white_neutral() {
         let wb = [2.0, 1.0, 1.5];
-        let mut img = Rgb32f::filled(2, 1, [1.0, 1.0, 1.0]);
+        let mut img = RgbFrame::filled(2, 1, [1.0, 1.0, 1.0]);
         img.data[1] = [0.2, 0.3, 0.4];
         clip_neutral(&mut img, wb, 1.0);
         let p = img.data[0];
@@ -378,7 +378,7 @@ mod tests {
     #[test]
     fn reconstruct_restores_clipped_channel() {
         // a warm gradient whose red channel clips in the bright half
-        let truth = Rgb32f::from_fn(64, 16, |x, _| {
+        let truth = RgbFrame::from_fn(64, 16, |x, _| {
             let v = 0.3 + 1.2 * x as f32 / 63.0;
             [v * 1.0, v * 0.6, v * 0.35]
         });
@@ -394,13 +394,13 @@ mod tests {
 
     #[test]
     fn fully_clipped_and_no_clipping() {
-        let mut img = Rgb32f::filled(4, 4, [1.0; 3]);
+        let mut img = RgbFrame::filled(4, 4, [1.0; 3]);
         assert_eq!(reconstruct(&mut img, [2.0, 1.0, 1.5], 0.99), 16);
         let p = img.data[0];
         assert!((p[0] * 2.0 - p[1]).abs() < 1e-5 && (p[2] * 1.5 - p[1]).abs() < 1e-5);
-        let mut img = Rgb32f::filled(4, 4, [0.5; 3]);
+        let mut img = RgbFrame::filled(4, 4, [0.5; 3]);
         assert_eq!(reconstruct(&mut img, [2.0, 1.0, 1.5], 0.99), 0);
-        let mut empty = Rgb32f::new(0, 0);
+        let mut empty = RgbFrame::new(0, 0);
         assert_eq!(reconstruct(&mut empty, [1.0; 3], 0.99), 0);
     }
 }

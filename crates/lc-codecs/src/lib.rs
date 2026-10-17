@@ -2,7 +2,7 @@
 //!
 //! - [`sniff`] detects the container format (and flags camera raws for `lightcraft-raw`).
 //! - [`decode`] adapts the shared JPEG, PNG, TIFF, WebP, HEIC, JPEG XL, PSD composite and other raster decoders to
-//!   **linear-light** [`Rgb32f`] in the source's own primaries, described by [`SourceSpace`]; ICC
+//!   **linear-light** [`RgbFrame`] in the source's own primaries, described by [`SourceSpace`]; ICC
 //!   profiles (matrix/TRC exactly, LUT/CMYK via the shared `photocraft-cms` CMS), 16-bit and float precision are
 //!   preserved. Metadata stays opaque; orientation is reported for the caller, except HEIF/JXL
 //!   container transforms, which their decoders apply and normalize to prevent a second turn.
@@ -29,7 +29,7 @@ pub use sniff::{Format, sniff};
 pub use sniff::{PHOTO_EXTENSIONS, RAW_EXTENSIONS, is_readable_extension, raw_from_extension, readable_extensions, writable_extensions};
 pub use space::{NamedSpace, SourceSpace, SpaceOrigin, Trc};
 
-use lightcraft_raster::{Plane, Rgb32f, Rgba8};
+use li_raster::{GrayFrame, RgbFrame, Rgba8};
 use serde::{Deserialize, Serialize};
 
 /// Codec errors.
@@ -77,9 +77,9 @@ impl DecodeOptions {
 pub struct Decoded {
     pub format: Format,
     /// Linear light, in the primaries described by [`Decoded::space`].
-    pub image: Rgb32f,
+    pub image: RgbFrame,
     /// Straight (unassociated) alpha 0..1, when the source has transparency.
-    pub alpha: Option<Plane>,
+    pub alpha: Option<GrayFrame>,
     pub space: SourceSpace,
     /// Bits per sample in the file (8, 16, 32, …).
     pub bit_depth: u8,
@@ -107,7 +107,7 @@ pub struct Decoded {
 
 impl Decoded {
     /// Pixels converted to linear Rec.2020 D65.
-    pub fn to_working(&self) -> Rgb32f {
+    pub fn to_working(&self) -> RgbFrame {
         to_working(self)
     }
 
@@ -119,7 +119,7 @@ impl Decoded {
         let enc = li_color::transfer::encode_srgb8;
         let mut out = Rgba8::new(self.image.width, self.image.height);
         let alpha = self.alpha.as_ref();
-        lightcraft_raster::par_rows(&mut out.data, self.image.width, |y, row| {
+        li_raster::par_rows(&mut out.data, self.image.width, |y, row| {
             let src = self.image.row(y);
             let a = alpha.map(|a| a.row(y));
             for (x, (o, p)) in row.iter_mut().zip(src).enumerate() {
@@ -167,7 +167,7 @@ pub fn decode_unguarded(bytes: &[u8], format: Format, opts: &DecodeOptions) -> R
 }
 
 /// Convert a decode result to linear Rec.2020 D65 (Bradford-adapted), the develop working space.
-pub fn to_working(d: &Decoded) -> Rgb32f {
+pub fn to_working(d: &Decoded) -> RgbFrame {
     if d.space.is_working() {
         return d.image.clone();
     }

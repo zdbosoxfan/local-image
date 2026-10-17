@@ -24,8 +24,8 @@ fn library_with(tag: &str, file: &str, bytes: &[u8]) -> (Session, PhotoId, PathB
     (s, id, dir, src)
 }
 
-fn gradient(w: usize, h: usize) -> lightcraft_raster::Rgba8 {
-    lightcraft_raster::Rgba8::from_fn(w, h, |x, y| [(40 + x * 3) as u8, (30 + y * 4) as u8, 90, 255])
+fn gradient(w: usize, h: usize) -> li_raster::Rgba8 {
+    li_raster::Rgba8::from_fn(w, h, |x, y| [(40 + x * 3) as u8, (30 + y * 4) as u8, 90, 255])
 }
 
 fn mean(bytes: &[u8]) -> f32 {
@@ -191,10 +191,7 @@ fn save_over_webp_and_float_tiff_preserve_depth_and_profile() {
 #[test]
 fn save_over_source_profile_gpu_matches_cpu() {
     let _gpu = crate::tests_gpu::gpu_state();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     struct RestoreGpu(bool);
     impl Drop for RestoreGpu {
         fn drop(&mut self) {
@@ -386,7 +383,7 @@ fn ds_finding_add_export_imports_only_new_ids_and_reports_stack_failure() {
     assert_eq!(skipped["imported"], json!([]));
     assert!(s.catalog.stack_of(id).is_none());
     let dst = dir.join("new.png");
-    let image = lightcraft_raster::Rgba8::from_fn(16, 16, |_, _| [220, 30, 70, 255]);
+    let image = li_raster::Rgba8::from_fn(16, 16, |_, _| [220, 30, 70, 255]);
     let bytes = lightcraft_codecs::encode_png(&EncodeImage::rgba8(&image), &EncodeMeta::default()).unwrap();
     std::fs::write(&dst, bytes).unwrap();
     let mut catalog = serde_json::to_value(&s.catalog).unwrap();

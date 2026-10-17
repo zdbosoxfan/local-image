@@ -180,7 +180,7 @@ fn copies_and_other_photos_never_get_ai_results() {
 }
 
 /// A session whose active photo is `img` (from a file loader that makes it up), with no AI host.
-fn synthetic(img: lightcraft_raster::Rgb32f) -> (Session, lightcraft_catalog::PhotoId) {
+fn synthetic(img: li_raster::RgbFrame) -> (Session, lightcraft_catalog::PhotoId) {
     use lightcraft_catalog::{Op, Photo, Source};
     let mut s = Session::with_demo();
     s.enhance.host = None;
@@ -205,7 +205,7 @@ fn texture(x: usize, y: usize) -> f32 {
 }
 
 /// Mean and standard deviation of the green channel in the disc of radius `r` around `c`.
-fn disc_stats(img: &lightcraft_raster::Rgb32f, c: (f32, f32), r: f32) -> (f32, f32) {
+fn disc_stats(img: &li_raster::RgbFrame, c: (f32, f32), r: f32) -> (f32, f32) {
     let v: Vec<f32> = (0..img.height)
         .flat_map(|y| (0..img.width).map(move |x| (x, y)))
         .filter(|(x, y)| (*x as f32 + 0.5 - c.0).hypot(*y as f32 + 0.5 - c.1) < r)
@@ -220,10 +220,10 @@ fn content_aware_heal_needs_no_ai_engine() {
     // a textured photo with a dark blemish (radius 8 px) at (200, 150)
     let (w, h) = (400, 300);
     let blemish = (200.0f32, 150.0f32);
-    let src = lightcraft_raster::Rgb32f::from_fn(w, h, |x, y| {
+    let src = li_raster::RgbFrame::from_fn(w, h, |x, y| {
         if (x as f32 + 0.5 - blemish.0).hypot(y as f32 + 0.5 - blemish.1) < 8.0 { [0.02; 3] } else { [texture(x, y); 3] }
     });
-    let (texture_mean, texture_sd) = disc_stats(&lightcraft_raster::Rgb32f::from_fn(w, h, |x, y| [texture(x, y); 3]), blemish, 8.0);
+    let (texture_mean, texture_sd) = disc_stats(&li_raster::RgbFrame::from_fn(w, h, |x, y| [texture(x, y); 3]), blemish, 8.0);
     let (dark, _) = disc_stats(&src, blemish, 8.0);
     assert!(dark < 0.05);
     let (mut s, id) = synthetic(src.clone());

@@ -19,6 +19,7 @@ pub mod align_cmds;
 pub mod analysis_cmds;
 pub mod artboard_cmds;
 pub mod automate_cmds;
+pub mod batch_io;
 pub mod brush_cmds;
 pub mod brush_key_cmds;
 pub mod brush_preset_cmds;

@@ -228,7 +228,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         for (i, name) in ["a.png", "b.png", "c.png"].iter().enumerate() {
             let data = vec![[40 * i as u8, 90, 160, 255]; 16 * 16];
-            let image = lightcraft_raster::Rgba8 { width: 16, height: 16, data };
+            let image = li_raster::Rgba8 { width: 16, height: 16, data };
             let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
             std::fs::write(dir.join(name), png).unwrap();
         }

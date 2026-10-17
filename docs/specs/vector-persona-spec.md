@@ -135,7 +135,6 @@ All paths are relative to the repository root.
 - **There is no path-operation UI, no tool sets** (only Photoshop-style *workspaces*: `workspace_ui.rs:101`
   `["Essentials","Photography","Painting","Pixel Art","Graphic and Web","Motion"]`), and **no persona**.
 - The module switcher is `enum Module { Library, Develop, Compositing }` (`crates/pc-ui-egui/src/lib.rs:22`, ⌘⌥1/2/3, title bar).
-  `docs/WORKSPACE-REFERENCES.md:7` already cites Affinity Personas.
 - egui_kittest is a dev-dependency (`crates/pc-ui-egui/Cargo.toml:54`). The test pattern is
   `src/path_selection_tests.rs` / `direct_select_tests.rs`: `Session::new()`, `file.new`,
   `Harness::builder().with_size(vec2(1280,800)).build_eframe(..)`, and `h.state_mut().ui.tool = …`.

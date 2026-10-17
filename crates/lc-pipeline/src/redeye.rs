@@ -12,9 +12,9 @@
 //! where it is red, so iris and catchlights stay) and darkens it; pet eye replaces the disc with a
 //! dark pupil and can add a catchlight.
 
+use li_raster::RgbFrame;
 use lightcraft_develop::RedEye;
 use lightcraft_geom::{Orientation, Point};
-use lightcraft_raster::Rgb32f;
 
 use crate::for_rows;
 use crate::geometry::Frame;
@@ -56,7 +56,7 @@ pub struct Pupil {
 }
 
 /// Normalized point of the user-oriented image → normalized point of the source (inverse of
-/// `Rgb32f::oriented`: undo the quarter turns, then the flip).
+/// `RgbFrame::oriented`: undo the quarter turns, then the flip).
 pub fn oriented_to_source(o: Orientation, p: Point) -> Point {
     let (flip, turns) = o.to_parts();
     let (mut u, mut v) = (p.x, p.y);
@@ -77,7 +77,7 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
 }
 
 /// The detection grid inside `eye`'s ellipse: (normalized point, colour) samples.
-fn grid_samples(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Vec<(Point, [f32; 3])> {
+fn grid_samples(src: &RgbFrame, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Vec<(Point, [f32; 3])> {
     let long = ow.max(oh);
     let (rx, ry) = (eye.rx.max(1e-4), eye.ry.max(1e-4));
     let mut samples = Vec::with_capacity(GRID * GRID);
@@ -127,7 +127,7 @@ fn pupil_weights(samples: &[(Point, [f32; 3])], pet: bool) -> Option<Vec<f32>> {
 
 /// Find the pupil inside `eye`'s ellipse on `src` (the EXIF-oriented source; `o` = the user
 /// orientation, `ow × oh` = the oriented image size in any unit).
-pub fn detect(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Pupil {
+pub fn detect(src: &RgbFrame, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> Pupil {
     let (rx, ry) = (eye.rx.max(1e-4), eye.ry.max(1e-4));
     let fallback = Pupil { center: eye.center, radius: 0.5 * rx.min(ry), found: false };
     let samples = grid_samples(src, o, ow, oh, eye);
@@ -151,7 +151,7 @@ pub fn detect(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye) -> P
 /// How clearly a found pupil `p` is one (0..1): the mean detection weight of the grid samples
 /// inside its disc. A red pupil (or a pet eye's glow) scores near 1; skin that only tints a
 /// large ellipse slightly red adds up to a "found" pupil in [`detect`] but scores near 0.
-pub fn confidence(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye, p: &Pupil) -> f32 {
+pub fn confidence(src: &RgbFrame, o: Orientation, ow: f64, oh: f64, eye: &RedEye, p: &Pupil) -> f32 {
     if !p.found {
         return 0.0;
     }
@@ -169,7 +169,7 @@ pub fn confidence(src: &Rgb32f, o: Orientation, ow: f64, oh: f64, eye: &RedEye, 
 }
 
 /// Resolve the eyes for a `w × h` render of `frame` (`ppl` = output pixels per long-edge unit).
-pub fn resolve(src: &Rgb32f, eyes: &[RedEye], orientation: Orientation, frame: &Frame, w: usize, h: usize, ppl: f64) -> Vec<EyeK> {
+pub fn resolve(src: &RgbFrame, eyes: &[RedEye], orientation: Orientation, frame: &Frame, w: usize, h: usize, ppl: f64) -> Vec<EyeK> {
     if eyes.is_empty() {
         return Vec::new();
     }
@@ -218,7 +218,7 @@ pub fn eye_pixel(c: [f32; 3], x: f32, y: f32, eyes: &[EyeK]) -> [f32; 3] {
 }
 
 /// Apply the eyes to `img` (output resolution), in place.
-pub fn apply(img: &mut Rgb32f, eyes: &[EyeK]) {
+pub fn apply(img: &mut RgbFrame, eyes: &[EyeK]) {
     if eyes.is_empty() {
         return;
     }
@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn orientation_inverse_matches_raster() {
-        let img = Rgb32f::from_fn(5, 3, |x, y| [x as f32, y as f32, 0.0]);
+        let img = RgbFrame::from_fn(5, 3, |x, y| [x as f32, y as f32, 0.0]);
         use Orientation::*;
         for o in [Normal, Rotate90, Rotate180, Rotate270, FlipH, Transverse, FlipV, Transpose] {
             let r = img.oriented(o);
@@ -252,8 +252,8 @@ mod tests {
     }
 
     /// A skin-coloured patch with a red pupil of radius `pr` at (cx, cy) (pixels).
-    fn eye_image(w: usize, h: usize, cx: f32, cy: f32, pr: f32, pupil: [f32; 3]) -> Rgb32f {
-        Rgb32f::from_fn(w, h, |x, y| {
+    fn eye_image(w: usize, h: usize, cx: f32, cy: f32, pr: f32, pupil: [f32; 3]) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |x, y| {
             let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
             if d < pr {
                 pupil
@@ -313,7 +313,7 @@ mod tests {
         let mut s = lightcraft_develop::DevelopSettings::default();
         s.red_eye.push(eye);
         let img = render(&src, &info, &s, &RenderRequest::fit(400, 400)).image;
-        let at = |img: &lightcraft_raster::Rgba8, x: f64, y: f64| img.data[(y * 200.0) as usize * 400 + (x * 400.0) as usize];
+        let at = |img: &li_raster::Rgba8, x: f64, y: f64| img.data[(y * 200.0) as usize * 400 + (x * 400.0) as usize];
         let c = at(&img, 0.525, 0.48);
         assert!(c[1] < 70 && c[0].abs_diff(c[1]) < 4, "dark neutral pupil: {c:?}");
         // catchlight up-left of the centre

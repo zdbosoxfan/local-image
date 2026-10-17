@@ -12,7 +12,7 @@
 //! sample at or above `clip` takes that block's maximum sample of the colour (instead of a mean that
 //! would fall just below the clip level and escape reconstruction).
 
-use crate::{Normalized, RawData, RawImage, Result, Rgb32f};
+use crate::{Normalized, RawData, RawImage, Result, RgbFrame};
 use rayon::prelude::*;
 
 impl RawImage {
@@ -30,7 +30,7 @@ impl RawImage {
     /// Like [`RawImage::develop`] at `1/k` of the size (camera RGB, white = 1.0, default crop applied,
     /// not oriented). `None` when the data cannot be binned ([`RawImage::can_bin`]) or carries an
     /// `OpcodeList3` (whose operations are defined at full resolution); callers then demosaic.
-    pub fn develop_binned(&self, k: usize, clip: f32) -> Result<Option<Rgb32f>> {
+    pub fn develop_binned(&self, k: usize, clip: f32) -> Result<Option<RgbFrame>> {
         self.validate()?;
         if !self.can_bin(k) || !self.opcodes.list3.is_empty() {
             return Ok(None);
@@ -62,7 +62,7 @@ impl RawImage {
             })
             .collect();
         let wlen = bw * k;
-        let mut out = Rgb32f::new(bw, bh);
+        let mut out = RgbFrame::new(bw, bh);
         out.data.par_chunks_mut(bw).enumerate().for_each(|(by, row)| {
             // the block row's k sample rows, normalised
             let mut rows = vec![0f32; k * wlen];
@@ -109,7 +109,7 @@ impl RawImage {
     /// four separate CFA phases at twice the RGB output size, preserving a clipped phase's
     /// maximum. `hook` receives the reduced mosaic and its sensor sampling interval.
     /// X-Trans uses a full-size CFA hook because arbitrary reduction cannot preserve its phase.
-    pub fn develop_binned_with(&self, k: usize, clip: f32, hook: impl FnOnce(&mut Normalized, usize)) -> Result<Option<Rgb32f>> {
+    pub fn develop_binned_with(&self, k: usize, clip: f32, hook: impl FnOnce(&mut Normalized, usize)) -> Result<Option<RgbFrame>> {
         self.validate()?;
         if !self.can_bin(k) || !self.opcodes.list3.is_empty() {
             return Ok(None);
@@ -168,8 +168,8 @@ fn block_layout(cfa: &crate::Cfa, i: usize, j: usize, k: usize) -> (Vec<u8>, [u3
 }
 
 /// Same clipping-aware channel reduction as the historical row-normalized binner.
-fn bin_normalized(n: &Normalized, cfa: &crate::Cfa, crop: crate::Rect, k: usize, clip: f32) -> Rgb32f {
-    Rgb32f::from_fn(crop.width / k, crop.height / k, |bx, by| {
+fn bin_normalized(n: &Normalized, cfa: &crate::Cfa, crop: crate::Rect, k: usize, clip: f32) -> RgbFrame {
+    RgbFrame::from_fn(crop.width / k, crop.height / k, |bx, by| {
         let (mut sum, mut max, mut count) = ([0.0; 3], [f32::MIN; 3], [0usize; 3]);
         for dy in 0..k {
             for dx in 0..k {
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn binning_matches_block_means_and_keeps_clipping() {
-        let img = Rgb32f::from_fn(24, 18, |x, y| [0.1 + x as f32 * 0.01, 0.2 + y as f32 * 0.01, 0.3]);
+        let img = RgbFrame::from_fn(24, 18, |x, y| [0.1 + x as f32 * 0.01, 0.2 + y as f32 * 0.01, 0.3]);
         let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer("GRBG").unwrap()), 512.0, 16383.0);
         assert!(raw.can_bin(2) && raw.can_bin(4) && !raw.can_bin(3));
         let b = raw.develop_binned(2, 0.99).unwrap().unwrap();
@@ -245,10 +245,10 @@ mod tests {
 
     #[test]
     fn binning_matches_demosaic_downscaled_on_smooth_images() {
-        let img = Rgb32f::from_fn(64, 48, |x, y| [0.2 + 0.3 * (x as f32 / 64.0), 0.4 - 0.2 * (y as f32 / 48.0), 0.25]);
+        let img = RgbFrame::from_fn(64, 48, |x, y| [0.2 + 0.3 * (x as f32 / 64.0), 0.4 - 0.2 * (y as f32 / 48.0), 0.25]);
         let raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), 0.0, 4095.0);
         let b = raw.develop_binned(2, 0.99).unwrap().unwrap();
-        let full = lightcraft_raster::resample::half(&raw.develop(Method::Ahd).unwrap());
+        let full = raw.develop(Method::Ahd).unwrap().half();
         for y in 2..b.height - 2 {
             for x in 2..b.width - 2 {
                 for c in 0..3 {
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn cfa_hook_preserves_phases_crop_black_and_clipping() {
-        let img = Rgb32f::from_fn(50, 42, |x, y| [0.12 + x as f32 * 0.003, 0.22 + y as f32 * 0.004, 0.35]);
+        let img = RgbFrame::from_fn(50, 42, |x, y| [0.12 + x as f32 * 0.003, 0.22 + y as f32 * 0.004, 0.35]);
         for pattern in ["RGGB", "BGGR", "GRBG", "GBRG"] {
             let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer(pattern).unwrap()), 512.0, 16383.0);
             raw.active_area = Rect::new(1, 1, 48, 40);
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn xtrans_hook_runs_before_crop_and_binning() {
-        let img = Rgb32f::from_fn(48, 42, |_, _| [0.2, 0.3, 0.4]);
+        let img = RgbFrame::from_fn(48, 42, |_, _| [0.2, 0.3, 0.4]);
         let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::xtrans()), 0.0, 4095.0);
         raw.crop = Rect::new(1, 2, 42, 36);
         let out = raw
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn cfa_hook_follows_mosaic_opcodes_and_defers_rgb_opcodes() {
-        let img = Rgb32f::from_fn(48, 40, |_, _| [0.1, 0.2, 0.3]);
+        let img = RgbFrame::from_fn(48, 40, |_, _| [0.1, 0.2, 0.3]);
         let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), 256.0, 4095.0);
         raw.opcodes.list2.push(Opcode::MapPolynomial {
             area: crate::opcodes::Area { bottom: 40, right: 48, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() },

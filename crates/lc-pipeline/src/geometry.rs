@@ -6,10 +6,9 @@
 //! lens correction and perspective, at the source's size. Everything is sampled in one resample.
 
 use li_raster::resample::Filter;
+use li_raster::{RgbFrame, par_rows};
 use lightcraft_develop::{DevelopSettings, EmbeddedLens};
 use lightcraft_geom::{Affine, CropGeometry, Homography, Orientation, Point, Rect};
-use lightcraft_raster::resample::resize;
-use lightcraft_raster::{Rgb32f, par_rows};
 
 use crate::optics::{Warp, reorient_lens};
 
@@ -268,16 +267,16 @@ impl Frame {
 
     /// Sample the source into a `w × h` output buffer: orientation, crop, rotation, flips — one
     /// bilinear resample from a pre-filtered (area-downscaled) copy, so minification never aliases.
-    pub fn sample(&self, src: &Rgb32f, w: usize, h: usize) -> Rgb32f {
+    pub fn sample(&self, src: &RgbFrame, w: usize, h: usize) -> RgbFrame {
         let oriented = if self.orient == Orientation::Normal { None } else { Some(src.oriented(self.orient)) };
         let o = oriented.as_ref().unwrap_or(src);
         let plan = self.sample_plan(src.width, src.height, w, h);
         let base = match plan.prefilter {
-            Some((nw, nh)) => std::borrow::Cow::Owned(resize(o, nw, nh, Filter::Mitchell)),
+            Some((nw, nh)) => std::borrow::Cow::Owned(o.resize(nw, nh, Filter::Mitchell)),
             None => std::borrow::Cow::Borrowed(o),
         };
         let affine = |xf: Affine| {
-            let mut out = Rgb32f::new(w, h);
+            let mut out = RgbFrame::new(w, h);
             par_rows(&mut out.data, w, |y, row| {
                 for (x, px) in row.iter_mut().enumerate() {
                     let p = xf.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
@@ -341,10 +340,10 @@ pub fn perspective(s: &DevelopSettings, ow: f64, oh: f64) -> Homography {
 
 /// One resample through the warp: `o2t` maps output px → transformed px, the warp maps those to source px
 /// (scaled by `sx, sy` into `base`).
-fn sample_warped(base: &Rgb32f, sx: f64, sy: f64, wp: &Warp, o2t: Affine, w: usize, h: usize) -> Rgb32f {
+fn sample_warped(base: &RgbFrame, sx: f64, sy: f64, wp: &Warp, o2t: Affine, w: usize, h: usize) -> RgbFrame {
     let per_channel = wp.per_channel();
     let gain = wp.has_gain();
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             let Some((c, g)) = wp.frame(&o2t, x, y) else {
@@ -481,7 +480,7 @@ mod tests {
     fn flip_mirrors() {
         let mut s = DevelopSettings::default();
         s.crop.flip_h = true;
-        let src = Rgb32f::from_fn(4, 1, |x, _| [x as f32, 0.0, 0.0]);
+        let src = RgbFrame::from_fn(4, 1, |x, _| [x as f32, 0.0, 0.0]);
         let f = Frame::new(4, 1, &s, true);
         let out = f.sample(&src, 4, 1);
         assert!((out.get(0, 0)[0] - 3.0).abs() < 1e-5);

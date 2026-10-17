@@ -306,7 +306,7 @@ fn save(h: &Headless, name: &str, _crop: Option<Rect>) {
     let x0 = ((1200.0 - h.app.ui.right_width - 200.0) * scale) as usize;
     let x1 = image.size[0];
     let y1 = (800.0 * scale) as usize;
-    let out = lightcraft_raster::Rgba8::from_fn(x1 - x0, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
+    let out = li_raster::Rgba8::from_fn(x1 - x0, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/develop-a-ux");
     std::fs::create_dir_all(&dir).unwrap();
@@ -449,7 +449,7 @@ fn ux_polish_layer_bar_screens() {
         let x0 = ((panel.left() * scale) as usize).min(image.size[0] - 1);
         let y1 = ((panel.bottom().min(1500.0) * scale) as usize).min(image.size[1]);
         let w = image.size[0] - x0;
-        let out = lightcraft_raster::Rgba8::from_fn(w, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
+        let out = li_raster::Rgba8::from_fn(w, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
         let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
         std::fs::write(dir.join(format!("{phase}-layers-{name}.png")), bytes).unwrap();
     };

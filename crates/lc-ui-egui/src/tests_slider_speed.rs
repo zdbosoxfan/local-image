@@ -178,8 +178,8 @@ fn develop_slider_drag_latency() {
 }
 
 fn procedural_session() -> lightcraft_engine::Session {
+    use li_raster::RgbFrame;
     use lightcraft_catalog::{Op, Photo, PhotoId, Source};
-    use lightcraft_raster::Rgb32f;
     use std::sync::Arc;
     let mut s = lightcraft_engine::Session::new();
     let id = PhotoId(1);
@@ -189,7 +189,7 @@ fn procedural_session() -> lightcraft_engine::Session {
     s.media.file_loader = Some(Arc::new(|_, edge| {
         let w = edge.min(6000);
         let h = w * 2 / 3;
-        let image = Rgb32f::from_fn(w, h, |x, y| {
+        let image = RgbFrame::from_fn(w, h, |x, y| {
             let (x, y) = (x as f32 / w as f32, y as f32 / h as f32);
             let v = 0.02 + 1.8 * x * x + 0.03 * (x * 300.0).sin() * (y * 160.0).cos();
             [v.max(0.002), (v * (0.65 + y * 0.3)).max(0.002), (v * 0.5 + y * 0.15).max(0.002)]
@@ -473,10 +473,6 @@ fn develop_slider_gpu_step_timings() {
         return;
     }
     lightcraft_engine::gpu::set_enabled(true);
-    if !lightcraft_engine::gpu::available() {
-        assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_engine::gpu::available(), "real GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
     slider_step_timings(true);
 }

@@ -593,8 +593,7 @@ fn color_range_sampling_selects_the_clicked_colour() {
         });
         job.run().rendered.unwrap().image
     };
-    let at =
-        |img: &lightcraft_raster::Rgba8, x: f64, y: f64| img.data[(y * img.height as f64) as usize * img.width + (x * img.width as f64) as usize][0];
+    let at = |img: &li_raster::Rgba8, x: f64, y: f64| img.data[(y * img.height as f64) as usize * img.width + (x * img.width as f64) as usize][0];
     let r = s.execute("mask.sampleColor", &json!({"x": 0.5, "y": 0.5})).unwrap();
     assert_eq!(r["samples"].as_array().unwrap().len(), 1);
     let img = mask(&mut s);
@@ -860,8 +859,7 @@ fn negative_film_base_pick_and_auto() {
     s.catalog.apply(lightcraft_catalog::Op::AddPhoto { photo: Box::new(p) }).unwrap();
     // a colour negative scan: the orange film base on the left 10 %, a denser image to the right
     let base = [0.8f32, 0.38, 0.17];
-    let scan =
-        lightcraft_raster::Rgb32f::from_fn(w, h, |x, y| if x < w / 10 { base } else { [0.3 - 0.002 * x as f32, 0.12 - 0.0005 * y as f32, 0.05] });
+    let scan = li_raster::RgbFrame::from_fn(w, h, |x, y| if x < w / 10 { base } else { [0.3 - 0.002 * x as f32, 0.12 - 0.0005 * y as f32, 0.05] });
     s.media.insert(id, crate::SourceLevel::Thumb, std::sync::Arc::new(scan));
     s.execute("library.select", &json!({"ids": [200], "active": 200})).unwrap();
     assert!(!active_dev(&s).negative.enabled, "off until asked for");

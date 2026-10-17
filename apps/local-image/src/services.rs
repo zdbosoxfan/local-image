@@ -713,7 +713,8 @@ mod tests {
     /// Every native dialog of the app goes through the case-insensitive helper.
     #[test]
     fn no_app_dialog_bypasses_the_nocase_filter_helper() {
-        for (file, src) in [("services.rs", include_str!("services.rs")), ("library_host.rs", include_str!("library_host.rs"))] {
+        for (file, src) in [("services.rs", include_str!("services.rs")), ("library_host/services_wiring.rs", include_str!("library_host/services_wiring.rs"))]
+        {
             assert!(!src.contains(concat!(".add_filter", "(")), "{file} calls rfd's add_filter; use add_filter_nocase");
             assert!(src.contains(".add_filter_nocase("), "{file}");
             assert!(!src.contains(concat!("rfd::FileDialog::", "new()")), "{file} opens an unparented dialog; use file_dialog()");

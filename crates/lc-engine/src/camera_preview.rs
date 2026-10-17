@@ -4,9 +4,9 @@
 //! lime shirt olive that the camera kept lime): a hue/saturation table fitted to the residuals
 //! (applied like a DNG `ProfileHueSatMap`) corrects that when it also improves the held-out pixels.
 use li_color::{D50, D65, Mat3, PROPHOTO, REC2020, bradford, luminance_2020};
+use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use lightcraft_pipeline::tone::{CameraTone, ToneMap};
-use lightcraft_raster::{Rgb32f, resample::fit};
 use lightcraft_raw::{RawFormat, RawImage, color::CameraTransform, profile::HsvTable};
 
 #[derive(Clone, Debug)]
@@ -68,7 +68,7 @@ fn proxies(
     transform: &CameraTransform,
     size: usize,
     lens: Option<&lightcraft_develop::EmbeddedLens>,
-) -> Option<(Rgb32f, Rgb32f)> {
+) -> Option<(RgbFrame, RgbFrame)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
     let edge = (2 * size).max(384) as u32;
     let decoded = lightcraft_codecs::decode(&jpeg, lightcraft_codecs::DecodeOptions { max_size: Some((edge, edge)), max_pixels: 64_000_000 }).ok()?;
@@ -95,8 +95,8 @@ fn proxies(
     let k = (crop.width.max(crop.height).div_ceil(edge as usize).max(2)).div_ceil(2) * 2;
     let sensor = sensor_proxy(raw, k, edge as usize)?.into_oriented(raw.orientation);
     let sensor = corrected_proxy(&sensor, lens);
-    let mut sensor = fit(&sensor, size, size, Filter::Box);
-    let reference = fit(&reference.into_oriented(raw.orientation), sensor.width, sensor.height, Filter::Box);
+    let mut sensor = sensor.fit(size, size, Filter::Box);
+    let reference = reference.into_oriented(raw.orientation).fit(sensor.width, sensor.height, Filter::Box);
     let gain = 2f32.powf(transform.baseline_exposure as f32);
     let tables = lightcraft_raw::profile::ProfileTables::new_weighted(
         &raw.color.profile,
@@ -131,7 +131,7 @@ pub(crate) fn fit_profile(pairs: &[([f64; 3], [f64; 3])]) -> Option<(Mat3, Optio
     Some((matrix, fit_hue_sat(pairs, &matrix)))
 }
 
-fn sensor_proxy(raw: &RawImage, k: usize, edge: usize) -> Option<Rgb32f> {
+fn sensor_proxy(raw: &RawImage, k: usize, edge: usize) -> Option<RgbFrame> {
     let unbaked = (raw.opcodes.list3.iter().any(crate::files::is_lens_opcode) && crate::files::embedded_lens(&raw.info()).is_some()).then(|| {
         let mut source = raw.clone();
         source.opcodes.list3.retain(|op| !crate::files::is_lens_opcode(op));
@@ -140,14 +140,14 @@ fn sensor_proxy(raw: &RawImage, k: usize, edge: usize) -> Option<Rgb32f> {
     let raw = unbaked.as_ref().unwrap_or(raw);
     Some(match raw.develop_binned(k, 0.99).ok()? {
         Some(sensor) => sensor,
-        None if raw.cpp == 3 && raw.cfa.is_none() => fit(&raw.develop(lightcraft_raw::Method::Bilinear).ok()?, edge, edge, Filter::Box),
+        None if raw.cpp == 3 && raw.cfa.is_none() => raw.develop(lightcraft_raw::Method::Bilinear).ok()?.fit(edge, edge, Filter::Box),
         None => return None,
     })
 }
 
 // This proxy is camera RGB: correcting it before the colour matrix prevents
 // lens shading/geometry from being fitted into the global colour/tone look.
-fn corrected_proxy(sensor: &Rgb32f, lens: Option<&lightcraft_develop::EmbeddedLens>) -> Rgb32f {
+fn corrected_proxy(sensor: &RgbFrame, lens: Option<&lightcraft_develop::EmbeddedLens>) -> RgbFrame {
     let Some(lens) = lens else { return sensor.clone() };
     let mut settings = lightcraft_develop::DevelopSettings::default();
     settings.optics.lens_profile = true;
@@ -176,14 +176,14 @@ fn displayed(scene: [f64; 3], tone: &ToneMap) -> [f64; 3] {
 }
 
 #[cfg(test)]
-fn fit_pairs(sensor: &Rgb32f, reference: &Rgb32f) -> Option<CameraLook> {
+fn fit_pairs(sensor: &RgbFrame, reference: &RgbFrame) -> Option<CameraLook> {
     fit_pairs_with(sensor, reference, None)
 }
 
 /// Training pairs (sensor → JPEG, unclipped midtones) and the wider set including highlights
 /// (for the chroma curve); `None` when too few valid pixels remain. A known colour matrix also permits a neutral-only fit.
 type Pairs = Vec<([f64; 3], [f64; 3])>;
-fn collect_pairs(sensor: &Rgb32f, reference: &Rgb32f) -> Option<(Pairs, Pairs)> {
+fn collect_pairs(sensor: &RgbFrame, reference: &RgbFrame) -> Option<(Pairs, Pairs)> {
     if (sensor.width, sensor.height) != (reference.width, reference.height) || sensor.data.len() != reference.data.len() {
         return None;
     }
@@ -244,7 +244,7 @@ fn fit_matrix(pairs: &[([f64; 3], [f64; 3])]) -> Option<Mat3> {
 /// The photo's look: its own matrix (with and without a hue/saturation table), or the given
 /// colour model (a camera profile's, in the sensor proxy's space), each completed with a tone
 /// and chroma curve fitted to this photo.
-fn fit_pairs_with(sensor: &Rgb32f, reference: &Rgb32f, colour: Option<(Mat3, Option<HsvTable>)>) -> Option<CameraLook> {
+fn fit_pairs_with(sensor: &RgbFrame, reference: &RgbFrame, colour: Option<(Mat3, Option<HsvTable>)>) -> Option<CameraLook> {
     let (pairs, bright) = collect_pairs(sensor, reference)?;
     let candidates = match colour {
         Some(given) => vec![given],
@@ -546,7 +546,7 @@ mod tests {
             ..Default::default()
         };
         let v = lens.vignette.unwrap();
-        let source = Rgb32f::from_fn(120, 80, |x, y| {
+        let source = RgbFrame::from_fn(120, 80, |x, y| {
             let gain =
                 lightcraft_pipeline::optics::embedded_vignette_gain(&v, lightcraft_geom::Point::new(x as f64 + 0.5, y as f64 + 0.5), 120.0, 80.0)
                     as f32;
@@ -589,7 +589,7 @@ mod tests {
     #[test]
     fn separates_nonlinear_tone_from_colour_and_keeps_sensor_headroom() {
         let known = Mat3([[1.8, -0.4, -0.1], [-0.2, 1.5, -0.1], [-0.05, -0.3, 1.7]]);
-        let mut sensor = Rgb32f::new(64, 64);
+        let mut sensor = RgbFrame::new(64, 64);
         let mut reference = sensor.clone();
         for (i, (src, dst)) in sensor.data.iter_mut().zip(&mut reference.data).enumerate() {
             let ev = 0.05 + (i % 31) as f32 * 0.017;
@@ -623,7 +623,7 @@ mod tests {
         // The camera JPEG departs from any global matrix + curve (local tone, vignetting): ±0.12
         // per-pixel deviations, ~0.07 RMS. The fit is still far closer than the fallback.
         let known = Mat3([[1.8, -0.4, -0.1], [-0.2, 1.5, -0.1], [-0.05, -0.3, 1.7]]);
-        let mut sensor = Rgb32f::new(64, 64);
+        let mut sensor = RgbFrame::new(64, 64);
         let mut reference = sensor.clone();
         let mut seed = 0x2545_f491_u32;
         for (i, (src, dst)) in sensor.data.iter_mut().zip(&mut reference.data).enumerate() {
@@ -649,7 +649,7 @@ mod tests {
     fn hue_table_follows_a_hue_dependent_camera_rendering() {
         let to = to_prophoto();
         let from = to.inverse().unwrap();
-        let mut sensor = Rgb32f::new(96, 64);
+        let mut sensor = RgbFrame::new(96, 64);
         let mut reference = sensor.clone();
         let mut lime = Vec::new();
         for (i, (src, dst)) in sensor.data.iter_mut().zip(&mut reference.data).enumerate() {
@@ -712,7 +712,7 @@ mod tests {
     fn chroma_curve_follows_highlight_bleaching() {
         let known = Mat3([[1.8, -0.4, -0.1], [-0.2, 1.5, -0.1], [-0.05, -0.3, 1.7]]);
         let camera_chroma = |o: f32| 1.3 - 1.1 * o;
-        let mut sensor = Rgb32f::new(96, 64);
+        let mut sensor = RgbFrame::new(96, 64);
         let mut reference = sensor.clone();
         for (i, (src, dst)) in sensor.data.iter_mut().zip(&mut reference.data).enumerate() {
             let ev = 0.02 + (i % 37) as f32 * 0.03;
@@ -752,7 +752,7 @@ mod tests {
     fn profile_colour_is_pooled_and_then_used_as_given() {
         let known = Mat3([[1.8, -0.4, -0.1], [-0.2, 1.5, -0.1], [-0.05, -0.3, 1.7]]);
         let photo = |seed: usize, strength: f32| {
-            let mut sensor = Rgb32f::new(64, 48);
+            let mut sensor = RgbFrame::new(64, 48);
             let mut reference = sensor.clone();
             for (i, (src, dst)) in sensor.data.iter_mut().zip(&mut reference.data).enumerate() {
                 let i = i + seed * 7;
@@ -852,7 +852,7 @@ mod tests {
 
     #[test]
     fn rejects_monochrome_invalid_and_unrelated_previews() {
-        let mut sensor = Rgb32f::new(32, 32);
+        let mut sensor = RgbFrame::new(32, 32);
         let mut reference = sensor.clone();
         for (i, p) in sensor.data.iter_mut().enumerate() {
             *p = [0.1 + (i % 13) as f32 * 0.02, 0.15, 0.1];

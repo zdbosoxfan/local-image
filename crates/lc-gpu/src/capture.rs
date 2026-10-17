@@ -78,14 +78,14 @@ struct Prepared {
 }
 
 #[cfg(test)]
-fn prepare(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &CaptureParams) -> Prepared {
+fn prepare(cx: &mut Cx<'_>, src: &Buf, host: &li_raster::RgbFrame, p: &CaptureParams) -> Prepared {
     prepare_with_confidence(cx, src, host, p, None)
 }
 
 fn prepare_with_confidence(
     cx: &mut Cx<'_>,
     src: &Buf,
-    host: &lightcraft_raster::Rgb32f,
+    host: &li_raster::RgbFrame,
     p: &CaptureParams,
     clip: Option<&lightcraft_pipeline::ClipConfidence>,
 ) -> Prepared {
@@ -150,14 +150,14 @@ fn iteration(cx: &mut Cx<'_>, est: &Buf, next: &Buf, ratio: &Buf, prep: &Prepare
 }
 
 #[cfg(test)]
-pub(crate) fn sharpen(cx: &mut Cx<'_>, src: &Buf, host: &lightcraft_raster::Rgb32f, p: &CaptureParams) -> Buf {
+pub(crate) fn sharpen(cx: &mut Cx<'_>, src: &Buf, host: &li_raster::RgbFrame, p: &CaptureParams) -> Buf {
     sharpen_with_confidence(cx, src, host, p, None)
 }
 
 pub(crate) fn sharpen_with_confidence(
     cx: &mut Cx<'_>,
     src: &Buf,
-    host: &lightcraft_raster::Rgb32f,
+    host: &li_raster::RgbFrame,
     p: &CaptureParams,
     clip: Option<&lightcraft_pipeline::ClipConfidence>,
 ) -> Buf {

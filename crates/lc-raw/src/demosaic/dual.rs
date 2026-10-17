@@ -6,8 +6,8 @@
 //! Masks use unbalanced camera RGB, equivalent to upstream undoing white balance.
 
 use super::Mosaic;
-use crate::Rgb32f;
-use lightcraft_raster::{Plane, par_rows};
+use crate::RgbFrame;
+use li_raster::{GrayFrame, par_rows};
 
 /// darktable's `_slider2contrast`: threshold slider (0..1) → contrast threshold of the mask.
 fn contrast_of(threshold: f32) -> f32 {
@@ -24,12 +24,12 @@ fn scharr(p: &[f32], w: usize, x: usize, y: usize) -> f32 {
 }
 
 /// Where `img` has detail: 1 on edges and texture, 0 in flat areas, blurred (σ = 2 px).
-pub(crate) fn detail_mask(img: &Rgb32f, threshold: f32) -> Plane {
+pub(crate) fn detail_mask(img: &RgbFrame, threshold: f32) -> GrayFrame {
     let (w, h) = (img.width, img.height);
     // a gamma (sqrt) evens out the noise variance across the tonal range
     let y: Vec<f32> = img.data.iter().map(|p| ((p[0].max(0.0) + p[1].max(0.0) + p[2].max(0.0)) / 3.0).sqrt()).collect();
     let ithreshold = 16.0 / contrast_of(threshold).max(1e-7);
-    let mut mask = Plane::new(w, h);
+    let mut mask = GrayFrame::new(w, h);
     par_rows(&mut mask.data, w, |row, out| {
         let iy = row.clamp(1, h - 2);
         for (col, o) in out.iter_mut().enumerate() {
@@ -38,12 +38,12 @@ pub(crate) fn detail_mask(img: &Rgb32f, threshold: f32) -> Plane {
             *o = (1.0 / (1.0 + (16.0 - ithreshold * g).exp())).clamp(0.0, 1.0);
         }
     });
-    lightcraft_raster::blur::gaussian(&mask, 2.0)
+    mask.gaussian(2.0)
 }
 
 /// Blend `high` (the detail demosaic) with a bilinear demosaic by [`detail_mask`].
 /// `threshold` 0..1 (0 = `high` everywhere).
-pub(crate) fn dual(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
+pub(crate) fn dual(m: &Mosaic, high: RgbFrame, threshold: f32) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     if w < 16 || h < 16 || threshold <= 0.0 {
         return high;
@@ -63,7 +63,7 @@ pub(crate) fn dual(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
 }
 
 /// darktable's VNG-linear + two colour-smoothing passes, using the upstream detail mask.
-pub(crate) fn dual_vng(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
+pub(crate) fn dual_vng(m: &Mosaic, high: RgbFrame, threshold: f32) -> RgbFrame {
     if m.w < 16 || m.h < 16 || threshold <= 0.0 {
         return high;
     }
@@ -82,7 +82,7 @@ pub(crate) fn dual_vng(m: &Mosaic, high: Rgb32f, threshold: f32) -> Rgb32f {
 
 /// Full upstream dual mask: Scharr, bit-approximate exponential and disc-truncated 9x9 blur.
 /// Data is unbalanced camera RGB, equivalent to darktable undoing WB for the mask.
-fn upstream_detail_mask(img: &Rgb32f, threshold: f32) -> Plane {
+fn upstream_detail_mask(img: &RgbFrame, threshold: f32) -> GrayFrame {
     let (w, h) = (img.width, img.height);
     let y: Vec<f32> = img.data.iter().map(|p| ((p[0].max(0.0) + p[1].max(0.0) + p[2].max(0.0)) / 3.0).sqrt()).collect();
     let ithreshold = 16.0 / contrast_of(threshold).max(1e-7);
@@ -93,7 +93,7 @@ fn upstream_detail_mask(img: &Rgb32f, threshold: f32) -> Plane {
             *v = (1.0 / (1.0 + crate::numerics::fast_exp(16.0 - ithreshold * g))).clamp(0.0, 1.0);
         }
     });
-    Plane { width: w, height: h, data: crate::numerics::gaussian9(&mask, w, h, 2.0, 0.0, 1.0) }
+    GrayFrame { width: w, height: h, data: crate::numerics::gaussian9(&mask, w, h, 2.0, 0.0, 1.0) }
 }
 
 #[cfg(test)]
@@ -113,7 +113,7 @@ mod refvec_tests {
                 let mask = upstream_detail_mask(&high, 0.2);
                 let mut low = super::super::vng::vng(&m, false);
                 super::super::vng::color_smoothing(&mut low, 2);
-                let full = Rgb32f::from_fn(n.width, n.height, |x, y| {
+                let full = RgbFrame::from_fn(n.width, n.height, |x, y| {
                     let i = y * n.width + x;
                     std::array::from_fn(|c| mask.data[i] * (high.data[i][c] - low.data[i][c]) + low.data[i][c])
                 });
@@ -130,7 +130,7 @@ mod refvec_tests {
 
     #[test]
     fn upstream_mask_and_legacy_difference() {
-        let img = Rgb32f::from_fn(64, 64, |x, y| {
+        let img = RgbFrame::from_fn(64, 64, |x, y| {
             std::array::from_fn(|c| {
                 0.2 + 0.003 * x as f32 + 0.001 * y as f32 + 0.015 * crate::test_vectors::noise((y * 64 + x) * 3 + c) + if x > 31 { 0.08 } else { 0.0 }
             })

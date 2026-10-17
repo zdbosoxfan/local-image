@@ -24,7 +24,7 @@ fn fresh_dir(tag: &str) -> PathBuf {
 }
 
 fn png(rgba: [u8; 4], side: usize) -> Vec<u8> {
-    let img = lightcraft_raster::Rgba8 { width: side, height: side, data: vec![rgba; side * side] };
+    let img = li_raster::Rgba8 { width: side, height: side, data: vec![rgba; side * side] };
     lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap()
 }
 

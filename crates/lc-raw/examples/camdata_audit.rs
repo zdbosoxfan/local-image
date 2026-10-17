@@ -113,7 +113,7 @@ fn main() {
             img.map_in_place(|p| m.map(|row| (0..3).map(|c| row[c] * p[c] * t.wb[c]).sum()));
             img
         };
-        let census = |img: &lightcraft_raw::Rgb32f, full_only: bool| {
+        let census = |img: &lightcraft_raw::RgbFrame, full_only: bool| {
             let (mut chroma, mut count, mut bad, mut hist) = (0.0f64, 0usize, 0usize, [0u64; 12]);
             for (p, &selected) in img.data.iter().zip(&mask) {
                 if selected != 0 && (!full_only || selected == 7) {

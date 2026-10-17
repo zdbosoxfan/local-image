@@ -1,9 +1,9 @@
 //! Real-model source-stage inference and wavelet comparison. All writes stay under target or a
 //! supplied test output folder. Run sequentially; model copies use the approved test cache.
+use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use li_seg::denoise::Variant;
 use lightcraft_engine::enhance::denoise::{infer, pack_bayer, prepare_raw};
-use lightcraft_raster::{Rgb32f, resample::resize};
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -91,7 +91,7 @@ fn main() -> Result<(), String> {
     })?;
     let secs = start.elapsed().as_secs_f64();
     println!("{backend} Bayer {}x{} {:.3}MP total {secs:.3}s", w * 2, h * 2, (w * h * 4) as f64 / 1e6);
-    let img = Rgb32f { width: w * 2, height: h * 2, data: pixels };
+    let img = RgbFrame { width: w * 2, height: h * 2, data: pixels };
     write_float(&out.join(format!("bayer-{backend}-{}mp.bin", (w * h * 4) / 1000000)), &img)?;
     if megapixels == 0 {
         let (linear, info) = lightcraft_engine::files::load_bytes(&bytes, usize::MAX)?;
@@ -109,8 +109,8 @@ fn main() -> Result<(), String> {
         let start = Instant::now();
         let den = infer(&dir, Variant::Linear, linear.data.as_flattened(), linear.width, linear.height, gpu, &|_, _| true)?;
         println!("{backend} linear {}x{} inference {:.3}s", linear.width, linear.height, start.elapsed().as_secs_f64());
-        write_float(&out.join(format!("linear-{backend}.bin")), &Rgb32f { width: linear.width, height: linear.height, data: den })?;
-        let small = resize(&linear, 1024, ((linear.height as f64 / linear.width as f64) * 1024.).round() as usize, Filter::Box);
+        write_float(&out.join(format!("linear-{backend}.bin")), &RgbFrame { width: linear.width, height: linear.height, data: den })?;
+        let small = linear.resize(1024, ((linear.height as f64 / linear.width as f64) * 1024.).round() as usize, Filter::Box);
         let start = Instant::now();
         let _ = infer(&dir, Variant::Linear, small.data.as_flattened(), small.width, small.height, gpu, &|_, _| true)?;
         println!("{backend} 1024px preview {:.3}s", start.elapsed().as_secs_f64());
@@ -120,7 +120,7 @@ fn main() -> Result<(), String> {
     }
     Ok(())
 }
-fn write_float(path: &Path, img: &Rgb32f) -> Result<(), String> {
+fn write_float(path: &Path, img: &RgbFrame) -> Result<(), String> {
     use std::io::Write;
     let mut f = std::io::BufWriter::new(std::fs::File::create(path).map_err(|e| e.to_string())?);
     f.write_all(&(img.width as u32).to_le_bytes()).and_then(|_| f.write_all(&(img.height as u32).to_le_bytes())).map_err(|e| e.to_string())?;

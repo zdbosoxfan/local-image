@@ -9,6 +9,20 @@ use photocraft_doc::*;
 use photocraft_geom::{Rect, Size};
 use photocraft_raster::Surface;
 
+/// Every `.psd`/`.psb` file under `dir`, recursively, appended to `out` (nothing when `dir` is
+/// missing; the corpus tests check their own counts).
+pub fn collect_psd_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            collect_psd_files(&p, out);
+        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("psd") || e.eq_ignore_ascii_case("psb")) {
+            out.push(p);
+        }
+    }
+}
+
 /// Quantize to the 1/255 grid so values survive 8-bit PSD fields.
 pub fn g(v: u8) -> f32 {
     f32::from(v) / 255.0

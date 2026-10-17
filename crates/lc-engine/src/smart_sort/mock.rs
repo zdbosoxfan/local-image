@@ -1,7 +1,7 @@
 //! Deterministic, file-free tagger used by engine and later headless UI tests.
 
 use super::{Tagger, store::normalized};
-use lightcraft_raster::Rgba8;
+use li_raster::Rgba8;
 
 #[derive(Default)]
 pub struct MockTagger;

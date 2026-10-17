@@ -16,10 +16,8 @@
 //! - **Matching:** brute-force nearest neighbour in L2 with Lowe's ratio test, kept only when
 //!   mutually consistent.
 
+use li_raster::GrayFrame;
 use li_raster::blur::GaussianPolicy;
-use lightcraft_raster::Plane;
-use lightcraft_raster::blur::gaussian_with_policy;
-use lightcraft_raster::resample::half;
 use rayon::prelude::*;
 
 pub const DESC_LEN: usize = 64;
@@ -27,8 +25,8 @@ pub const DESC_LEN: usize = 64;
 // Feature locations and descriptors were calibrated with the legacy three-box
 // Gaussian. Keep that policy after sharing the raster backend: its sampled
 // small-radius default changes panorama camera fits and seam quality.
-fn gaussian(image: &Plane, sigma: f32) -> Plane {
-    gaussian_with_policy(image, sigma, GaussianPolicy::Boxes)
+fn gaussian(image: &GrayFrame, sigma: f32) -> GrayFrame {
+    image.gaussian_with_policy(sigma, GaussianPolicy::Boxes)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -59,14 +57,14 @@ impl Features {
 }
 
 /// Detect up to `max` features in a grey image (values roughly perceptual, e.g. gamma-encoded 0..1).
-pub fn detect(img: &Plane, max: usize) -> Features {
+pub fn detect(img: &GrayFrame, max: usize) -> Features {
     let mut levels = vec![img.clone()];
     while levels.len() < 4 {
         let Some(l) = levels.last() else { break };
         if l.width.min(l.height) < 96 {
             break;
         }
-        levels.push(half(l));
+        levels.push(l.half());
     }
     let per_level: Vec<(Vec<Keypoint>, Vec<[f32; DESC_LEN]>)> = levels
         .par_iter()
@@ -102,15 +100,15 @@ pub fn detect(img: &Plane, max: usize) -> Features {
     f
 }
 
-fn gradients(p: &Plane) -> (Plane, Plane) {
+fn gradients(p: &GrayFrame) -> (GrayFrame, GrayFrame) {
     let (w, h) = (p.width, p.height);
-    let gx = Plane::from_fn(w, h, |x, y| (p.get_clamped(x as isize + 1, y as isize) - p.get_clamped(x as isize - 1, y as isize)) * 0.5);
-    let gy = Plane::from_fn(w, h, |x, y| (p.get_clamped(x as isize, y as isize + 1) - p.get_clamped(x as isize, y as isize - 1)) * 0.5);
+    let gx = GrayFrame::from_fn(w, h, |x, y| (p.get_clamped(x as isize + 1, y as isize) - p.get_clamped(x as isize - 1, y as isize)) * 0.5);
+    let gy = GrayFrame::from_fn(w, h, |x, y| (p.get_clamped(x as isize, y as isize + 1) - p.get_clamped(x as isize, y as isize - 1)) * 0.5);
     (gx, gy)
 }
 
 /// Harris corners of one level: (x, y in level pixel coordinates (centre +0.5), strength).
-fn harris(lvl: &Plane) -> Vec<(f32, f32, f32)> {
+fn harris(lvl: &GrayFrame) -> Vec<(f32, f32, f32)> {
     let (w, h) = (lvl.width, lvl.height);
     if w < 24 || h < 24 {
         return vec![];
@@ -120,7 +118,7 @@ fn harris(lvl: &Plane) -> Vec<(f32, f32, f32)> {
     let xx = gaussian(&gx.zip_map(&gx, |a, b| a * b), 1.5);
     let yy = gaussian(&gy.zip_map(&gy, |a, b| a * b), 1.5);
     let xy = gaussian(&gx.zip_map(&gy, |a, b| a * b), 1.5);
-    let mut r = Plane::new(w, h);
+    let mut r = GrayFrame::new(w, h);
     for i in 0..r.data.len() {
         let (a, b, c) = (xx.data[i], yy.data[i], xy.data[i]);
         let tr = a + b;
@@ -196,7 +194,7 @@ fn anms(pts: &[Keypoint], max: usize) -> Vec<usize> {
     idx
 }
 
-fn descriptor(img: &Plane, x: f32, y: f32, angle: f32) -> Option<[f32; DESC_LEN]> {
+fn descriptor(img: &GrayFrame, x: f32, y: f32, angle: f32) -> Option<[f32; DESC_LEN]> {
     let (s, c) = angle.sin_cos();
     let mut d = [0f32; DESC_LEN];
     let (w, h) = (img.width as f32, img.height as f32);
@@ -225,7 +223,7 @@ fn descriptor(img: &Plane, x: f32, y: f32, angle: f32) -> Option<[f32; DESC_LEN]
 }
 
 #[inline]
-pub fn bilinear(img: &Plane, x: f32, y: f32) -> f32 {
+pub fn bilinear(img: &GrayFrame, x: f32, y: f32) -> f32 {
     let fx = x - 0.5;
     let fy = y - 0.5;
     let x0 = fx.floor();
@@ -287,8 +285,8 @@ pub fn match_features(a: &Features, b: &Features, ratio: f32) -> Vec<(usize, usi
 mod tests {
     use super::*;
 
-    fn pattern(w: usize, h: usize, dx: f32, dy: f32) -> Plane {
-        Plane::from_fn(w, h, |x, y| {
+    fn pattern(w: usize, h: usize, dx: f32, dy: f32) -> GrayFrame {
+        GrayFrame::from_fn(w, h, |x, y| {
             let (u, v) = (x as f32 + 0.5 - dx, y as f32 + 0.5 - dy);
             let a = ((u * 0.071).sin() * (v * 0.053).cos()
                 + (u * 0.023 + v * 0.031).sin() * 0.7

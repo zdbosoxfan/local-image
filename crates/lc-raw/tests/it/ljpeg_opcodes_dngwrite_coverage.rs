@@ -1,5 +1,5 @@
 use lightcraft_raw::{
-    BlackLevel, Cfa, ColorData, Metadata, Orientation, RawData, RawError, RawFormat, RawImage, Rect, Rgb32f, decode as decode_raw,
+    BlackLevel, Cfa, ColorData, Metadata, Orientation, RawData, RawError, RawFormat, RawImage, Rect, RgbFrame, decode as decode_raw,
     dngwrite::{DngCompression, DngWriteOptions, write_dng},
     ljpeg::{self, Huffman},
     opcodes::{self, Area, Opcode},
@@ -231,7 +231,7 @@ fn opcodes_apply_bad_pixels_list() {
 
 #[test]
 fn opcodes_vignette_zero_and_warp_identity_constant() {
-    let mut img = Rgb32f::filled(9, 7, [0.5; 3]);
+    let mut img = RgbFrame::filled(9, 7, [0.5; 3]);
     let vignette = Opcode::FixVignetteRadial { k: [0.0; 5], center: [0.5, 0.5] };
     let warp = Opcode::WarpRectilinear { planes: vec![[1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; 3], center: [0.5, 0.5] };
     let list = vec![vignette, warp];
@@ -261,7 +261,7 @@ fn opcodes_truncated_blob_never_panics() {
 
 #[test]
 fn opcodes_warp_barrel_moves_outward() {
-    let img = Rgb32f::from_fn(31, 31, |x, y| if x == 24 && y == 15 { [1.0; 3] } else { [0.0; 3] });
+    let img = RgbFrame::from_fn(31, 31, |x, y| if x == 24 && y == 15 { [1.0; 3] } else { [0.0; 3] });
     let out = opcodes::warp_rectilinear(&img, &[[1.0, -0.6, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
     let (bx, _) = (0..31).map(|x| (x, out.get(x, 15)[0])).fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
     assert!(bx >= 25, "{bx}");

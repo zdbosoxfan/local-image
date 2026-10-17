@@ -21,9 +21,9 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+use li_raster::RgbFrame;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{RenderRequest, Rendered, SourceInfo, StageCache};
-use lightcraft_raster::Rgb32f;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod capture;
@@ -537,13 +537,13 @@ pub fn stage_bytes(stages: &StageCache) -> usize {
 
 /// Render `src` with `s` on the GPU, reusing the device-resident stages kept with `stages` (the
 /// view's CPU stage cache). `None`: render on the CPU instead.
-pub fn render(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Rendered> {
+pub fn render(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>) -> Option<Rendered> {
     render_hs_candidate(src, info, s, req, stages, lightcraft_pipeline::primary::DEFAULT_HS_METHOD)
 }
 
 /// Internal owner-review/testing entry point; the choice is not persisted or exposed in UI.
 pub fn render_hs_candidate(
-    src: &Arc<Rgb32f>,
+    src: &Arc<RgbFrame>,
     info: &SourceInfo,
     s: &DevelopSettings,
     req: &RenderRequest,
@@ -710,19 +710,17 @@ mod context_exit_tests {
     use super::*;
     use std::time::Duration;
 
-    fn hardware() -> Option<Arc<ctx::Gpu>> {
-        let gpu = device();
-        assert!(gpu.is_some() || std::env::var_os("LC_REQUIRE_GPU").is_none(), "GPU required: {:?}", unavailable_reason());
-        if let Some(gpu) = &gpu {
-            eprintln!("context teardown: {} ({:?})", gpu.info.name, gpu.info.backend);
-        }
+    #[allow(clippy::panic)]
+    fn hardware() -> Arc<ctx::Gpu> {
+        let gpu = device().unwrap_or_else(|| panic!("real GPU required: {:?}", unavailable_reason()));
+        eprintln!("context teardown: {} ({:?})", gpu.info.name, gpu.info.backend);
         gpu
     }
 
     #[test]
     fn shutdown_releases_cached_context_and_pooled_buffers() {
         let _test = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(gpu) = hardware() else { return };
+        let gpu = hardware();
         let weak = Arc::downgrade(&gpu);
         drop(gpu.buffer(16));
         assert!(ctx::memory().pooled > 0);
@@ -739,10 +737,10 @@ mod context_exit_tests {
     #[test]
     fn old_device_buffers_are_not_recycled_on_a_new_context() {
         let _test = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(old) = hardware() else { return };
+        let old = hardware();
         let old_buffer = old.buffer(16);
         assert!(shutdown(Duration::from_secs(120)));
-        let new = hardware().unwrap();
+        let new = hardware();
         assert!(!Arc::ptr_eq(&old, &new), "shutdown must allow a fresh context");
         drop(old_buffer);
         assert_eq!(ctx::memory().pooled, 0, "an old-device buffer entered the new-device pool");

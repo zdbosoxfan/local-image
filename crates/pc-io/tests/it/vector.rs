@@ -3,7 +3,7 @@
 //! of every plain shape layer with the pixels Photoshop stored for it.
 
 #[cfg(feature = "corpus")]
-use std::path::{Path as FsPath, PathBuf};
+use std::path::Path as FsPath;
 #[cfg(feature = "corpus")]
 use std::sync::Arc;
 
@@ -164,19 +164,6 @@ fn vector_mask_roundtrip_and_removal() {
     assert!(roundtrip(&g).layers[1].vector_mask.is_some());
 }
 
-#[cfg(feature = "corpus")]
-fn collect(dir: &FsPath, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("psd") || e.eq_ignore_ascii_case("psb")) {
-            out.push(p);
-        }
-    }
-}
-
 /// Every plain shape layer in the corpus (solid fill, no stroke, no effects, visible fill):
 /// our fill coverage vs the alpha of Photoshop's pixels. Reported; asserted loosely.
 #[cfg(feature = "corpus")]
@@ -185,7 +172,7 @@ fn corpus_shape_coverage_matches_photoshop() {
     let root = FsPath::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/psd");
     assert!(root.is_dir(), "{} is missing: run `cargo xtask corpus --all`", root.display());
     let mut files = Vec::new();
-    collect(&root, &mut files);
+    crate::common::collect_psd_files(&root, &mut files);
     files.sort();
     let (mut n, mut good) = (0, 0);
     for p in &files {
@@ -236,7 +223,7 @@ fn corpus_vector_blocks_survive_roundtrip() {
     let root = FsPath::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/psd");
     assert!(root.is_dir(), "{} is missing: run `cargo xtask corpus --all`", root.display());
     let mut files = Vec::new();
-    collect(&root, &mut files);
+    crate::common::collect_psd_files(&root, &mut files);
     files.sort();
     let keys: [&[u8; 4]; 6] = [b"vmsk", b"vsms", b"vogk", b"vstk", b"vscg", b"SoCo"];
     let mut checked = 0;

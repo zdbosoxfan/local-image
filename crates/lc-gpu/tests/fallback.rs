@@ -2,16 +2,16 @@
 //! error, work that silently did not run — must come back as `None` (the caller renders on the
 //! CPU) with the reason recorded, never as an image of zeros. One test, sequential: the fatal
 //! faults pause GPU use until automatic recovery.
-//! Skips (passes with a note) when no GPU adapter exists.
+//! Fails when no GPU adapter exists.
 mod support;
 
 use std::sync::Arc;
 
+use li_raster::Rgba8;
 use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape};
 use lightcraft_geom::Point;
 use lightcraft_gpu::Fault;
 use lightcraft_pipeline::{RenderRequest, SourceInfo, render};
-use lightcraft_raster::Rgba8;
 
 fn mean_abs_diff(a: &Rgba8, b: &Rgba8) -> f64 {
     let sum: u64 = a.data.iter().zip(&b.data).map(|(p, q)| (0..3).map(|c| p[c].abs_diff(q[c]) as u64).sum::<u64>()).sum();
@@ -38,10 +38,7 @@ fn masked(s: &mut DevelopSettings, k: usize) {
 #[test]
 fn failed_gpu_renders_fall_back_with_a_reason() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     assert_eq!(lightcraft_gpu::unavailable_reason(), None);
     let (w, h) = (1200, 800);
     let src = Arc::new(lightcraft_scenes::demo_library()[0].render(w, h));
@@ -121,7 +118,7 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
     assert!(lightcraft_gpu::render(&src, &info, &s, &deep_req, None).unwrap().deep.is_some());
 
     // a black photo is still rendered (on the CPU, to be sure)
-    let black = Arc::new(lightcraft_raster::Rgb32f::from_fn(256, 256, |_, _| [0.0; 3]));
+    let black = Arc::new(li_raster::RgbFrame::from_fn(256, 256, |_, _| [0.0; 3]));
     let s0 = DevelopSettings::default();
     assert!(lightcraft_gpu::render(&black, &info, &s0, &RenderRequest::fit(256, 256), None).is_none());
     assert!(lightcraft_gpu::last_fallback().unwrap_or_default().contains("black"));
@@ -132,10 +129,7 @@ fn failed_gpu_renders_fall_back_with_a_reason() {
 #[test]
 fn develop_layer_tools_render_natively() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
     let info = SourceInfo::default();
     let mut s = DevelopSettings::default();
@@ -154,10 +148,7 @@ fn develop_layer_tools_render_natively() {
 #[test]
 fn absurd_render_sizes_are_refused() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     let src = Arc::new(lightcraft_scenes::demo_library()[0].render(320, 240));
     let info = SourceInfo { raw: true, ..Default::default() };
     for (w, h) in [(usize::MAX, usize::MAX), (1 << 33, 1 << 33)] {

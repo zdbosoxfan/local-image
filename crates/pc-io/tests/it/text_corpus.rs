@@ -7,7 +7,7 @@
 //! geometry (ink bounds and alpha overlap) and is reported; the assertions are loose.
 
 #[cfg(feature = "corpus")]
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[cfg(feature = "corpus")]
 use photocraft_doc::Layer;
@@ -16,21 +16,6 @@ use photocraft_doc::LayerContent;
 use photocraft_geom::Rect;
 #[cfg(feature = "corpus")]
 use photocraft_raster::Surface;
-
-#[cfg(feature = "corpus")]
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("psd") || e.eq_ignore_ascii_case("psb")) {
-            out.push(p);
-        }
-    }
-}
 
 #[cfg(feature = "corpus")]
 fn walk<'a>(layers: &'a [Layer], out: &mut Vec<&'a Layer>) {
@@ -54,7 +39,7 @@ fn corpus_text_layers() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/psd");
     assert!(root.is_dir(), "{} is missing: run `cargo xtask corpus --all`", root.display());
     let mut files = Vec::new();
-    collect(&root, &mut files);
+    crate::common::collect_psd_files(&root, &mut files);
     files.sort();
     let mut engine = photocraft_text::TextEngine::with_system_fonts();
     let (mut n, mut good_geometry) = (0, 0);

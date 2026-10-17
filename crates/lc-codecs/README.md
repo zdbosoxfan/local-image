@@ -9,9 +9,9 @@ builds for `wasm32-unknown-unknown`.
 ```rust
 let fmt: Option<Format> = sniff(&bytes);                 // JPEG/PNG/TIFF/WebP/AVIF/HEIF/JXL/GIF/BMP/PSD/raw
 let d: Decoded = decode(&bytes, DecodeOptions::default())?;
-// d.image: Rgb32f, linear light in the source primaries (d.space: SourceSpace)
+// d.image: RgbFrame, linear light in the source primaries (d.space: SourceSpace)
 // d.alpha, d.bit_depth, d.float, d.orientation (EXIF value, NOT applied), d.exif/xmp/icc (raw blobs)
-let working: Rgb32f = to_working(&d);                    // linear Rec.2020 D65 (Bradford)
+let working: RgbFrame = to_working(&d);                    // linear Rec.2020 D65 (Bradford)
 let fast = decode(&bytes, DecodeOptions::fit(2048, 2048))?; // JPEG: DCT-domain 1/2..1/8 scaling
 let t: Thumbnail = decode_thumbnail(&bytes, 256)?;       // embedded EXIF/MPF preview or scaled decode
 
@@ -86,7 +86,7 @@ Run `cargo test --release -p lightcraft-codecs --test bench -- --ignored --nocap
 
 | Operation | Time |
 |---|---|
-| full decode → linear `Rgb32f` | ~92 ms (≈ 260 MP/s) |
+| full decode → linear `RgbFrame` | ~92 ms (≈ 260 MP/s) |
 | decode fit 2048 (DCT 1/2) | ~81 ms |
 | thumbnail 256, scaled decode (DCT 1/8) | ~54 ms (entropy decoding bound) |
 | thumbnail 256 from embedded EXIF/MPF preview | ~0.6 ms |

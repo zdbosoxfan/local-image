@@ -5,10 +5,18 @@ use lightcraft_develop::{Mask, MaskComponent, MaskShape};
 use lightcraft_geom::Point;
 use lightcraft_pipeline::primary::HsMethod;
 
-fn compare(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages) -> Rgba8 {
+fn compare(g: &Gpu, src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages) -> Rgba8 {
     compare_or_dump(g, src, info, s, req, stages, false)
 }
-fn compare_or_dump(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: &GpuStages, dump: bool) -> Rgba8 {
+fn compare_or_dump(
+    g: &Gpu,
+    src: &Arc<RgbFrame>,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    stages: &GpuStages,
+    dump: bool,
+) -> Rgba8 {
     crate::CPU_STAGES.with(|stages| stages.borrow_mut().clear());
     let errors = crate::ctx::ErrorScopes::push(g);
     let image = render(g, src, info, s, req, Some(stages), None, HsMethod::LiTone).unwrap().image;
@@ -62,8 +70,8 @@ fn compare_or_dump(g: &Gpu, src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSet
     }
     image
 }
-fn input(w: usize, h: usize) -> Arc<Rgb32f> {
-    Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+fn input(w: usize, h: usize) -> Arc<RgbFrame> {
+    Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let v = 0.003 + x as f32 / w as f32 * 0.3 + if x > w / 2 { 1.2 } else { 0.0 };
         [v * (1.0 + 0.04 * (y as f32).sin()), v * 0.7, v * 0.3 + 0.002 * (x as f32 * 1.7).cos()]
     }))
@@ -83,7 +91,7 @@ fn mask() -> Mask {
 
 #[test]
 fn native_develop_gaussian_policy_matches_cpu_reference() {
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     if std::env::var_os("LC_REQUIRE_PHYSICAL_GPU").is_some() {
         assert_ne!(g.info.device_type, wgpu::DeviceType::Cpu, "physical adapter required");
@@ -113,7 +121,7 @@ fn native_develop_gaussian_policy_matches_cpu_reference() {
             let mut expected = vec![0.0; input.len()];
             // Each component is a scalar field, including four-channel guidance moments.
             for c in 0..nc {
-                let field = Plane::from_fn(w, h, |x, y| input[(y * w + x) * nc + c]);
+                let field = GrayFrame::from_fn(w, h, |x, y| input[(y * w + x) * nc + c]);
                 let cpu = lightcraft_pipeline::blur::gaussian(&field, sigma);
                 for (i, v) in cpu.data.iter().enumerate() {
                     expected[i * nc + c] = *v;
@@ -131,7 +139,7 @@ fn native_develop_gaussian_policy_matches_cpu_reference() {
 
 #[test]
 fn native_toneeq_filter_extremes_and_cached_overlay_match() {
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let info = SourceInfo::default();
@@ -183,12 +191,12 @@ fn native_toneeq_5090_dump() {
 }
 
 fn toneeq_5090_fixture(dump: bool) {
-    let Some(gpu_device) = crate::test_device().or_else(device) else { return };
+    let gpu_device = crate::test_device().unwrap_or_else(device);
     let g = &*gpu_device;
     eprintln!("toneeq fixture adapter: {:?}", g.info);
     let _scope = crate::ctx::RenderScope::new(g);
     let (w, h) = (641, 427);
-    let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
         [v, v * 0.7, v * 0.4]
     }));
@@ -261,7 +269,7 @@ fn ds_finding_native_haze_selection_matches_sorted_quantile() {
 #[test]
 #[ignore = "required Linux CI Vulkan numerical conformance; software adapters allowed"]
 fn haze_selection_numerical_vulkan_matches_sorted_quantile() {
-    let gpu_device = device().expect("Vulkan numerical-test adapter required");
+    let gpu_device = device();
     let g = &*gpu_device;
     eprintln!("haze numerical conformance adapter (software allowed): {:?}", g.info);
     assert_eq!(g.info.backend, wgpu::Backend::Vulkan);
@@ -320,12 +328,12 @@ fn haze_selection_matches_sorted_quantile(g: &Gpu) {
 #[test]
 fn native_nr_statistics_match_robust_model_and_reconstruction() {
     use lightcraft_pipeline::detail::nr::*;
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let mut cx = Cx::new(g);
     for (w, h) in [(1, 1), (7, 5), (67, 49), (265, 259)] {
-        let src = Rgb32f::from_fn(w, h, |x, y| {
+        let src = RgbFrame::from_fn(w, h, |x, y| {
             let v = 0.01 + x as f32 / w as f32 * 0.7;
             let hash = (x as u32).wrapping_mul(1664525) ^ (y as u32).wrapping_mul(1013904223);
             let noise = (hash % 101) as f32 / 101.0 - 0.5;
@@ -357,7 +365,7 @@ fn native_nr_statistics_match_robust_model_and_reconstruction() {
 #[test]
 fn native_calibration_patch_minification_and_depth_match() {
     use lightcraft_develop::{AiPatch, SegMask, Spot, SpotMode};
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(47, 33);
@@ -411,7 +419,7 @@ fn native_calibration_patch_minification_and_depth_match() {
 #[test]
 fn native_layer_stage_order_opacity_nr_sharpen_curve_and_grain_match() {
     use lightcraft_develop::{ColorAdj, Detail, Effects, Grain, LayerTools, Light, ToneCurve, Vignette};
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(47, 33);
@@ -449,7 +457,7 @@ fn native_layer_stage_order_opacity_nr_sharpen_curve_and_grain_match() {
 
 #[test]
 fn native_haze_airlight_matches_reference_with_both_signs() {
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(43, 29);
@@ -476,7 +484,7 @@ fn native_haze_airlight_matches_reference_with_both_signs() {
 #[test]
 fn native_calibration_negative_hdr_and_zero_luminance_match() {
     use lightcraft_pipeline::colorcal::{Cat, ColorCal, Standard};
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let samples = [[0.0; 3], [-0.2, 0.1, 0.3], [3.0, -1.0, 0.2], [0.2, 0.8, 0.1], [1e-12; 3], [8.0, 2.0, -0.5]];
@@ -502,7 +510,7 @@ fn native_calibration_negative_hdr_and_zero_luminance_match() {
 
 #[test]
 fn ds_finding_hidden_overlay_uses_primary_image() {
-    let gpu_device = crate::test_device().or_else(device).expect("a real GPU is required");
+    let gpu_device = crate::test_device().unwrap_or_else(device);
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(97, 73);
@@ -526,7 +534,7 @@ fn ds_finding_hidden_overlay_uses_primary_image() {
 
 #[test]
 fn ds_finding_zero_skin_hue_range_is_finite_on_gpu() {
-    let gpu_device = crate::test_device().or_else(device).expect("a real GPU is required");
+    let gpu_device = crate::test_device().unwrap_or_else(device);
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(97, 73);
@@ -544,7 +552,7 @@ fn ds_finding_zero_skin_hue_range_is_finite_on_gpu() {
 #[test]
 fn develop_c_full_scalar_opacity_mixed_masks_and_skin_overlay_match() {
     use lightcraft_develop::{Effects, LayerTools, Light, MaskOp, SkinTone};
-    let gpu_device = device().expect("develop-c acceptance requires a hardware Vulkan adapter");
+    let gpu_device = device();
     let g = &*gpu_device;
     eprintln!("develop-c GPU: {} {:?}", g.info.name, g.info.device_type);
     let _scope = crate::ctx::RenderScope::new(g);
@@ -681,7 +689,7 @@ fn stacked_full_tool_sets_match_cpu_after_developed_inputs() {
     use lightcraft_develop::{
         ColorAdj, ColorGrading, Detail, Effects, Grain, LayerTools, Light, Mixer, PointColor, SkinTone, ToneCurve, Vignette, WhiteBalance,
     };
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(93, 61);
@@ -796,7 +804,7 @@ fn stacked_full_tool_sets_match_cpu_after_developed_inputs() {
 #[test]
 fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
     use lightcraft_develop::{LayerTools, Light};
-    let Some(gpu_device) = device() else { return };
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = input(93, 61);
@@ -828,7 +836,7 @@ fn stacked_hidden_and_imported_mask_overlays_match_warm_cpu() {
 
 #[test]
 fn camdata_profiled_nr_real_gpu_matches_cpu() {
-    let gpu_device = device().expect("camera-profile test requires a real GPU");
+    let gpu_device = device();
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let src = Arc::new(input(96, 64));

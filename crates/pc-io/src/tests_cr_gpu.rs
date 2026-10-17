@@ -28,7 +28,7 @@ fn cr_gpu_camera_raw_controls_parity_and_recovery() {
             [0.02 + 0.8 * x + noise, 0.04 + 0.7 * y + noise, 0.15 + 0.35 * x * y, (i % 7) as f32 / 6.0]
         })
         .collect();
-    let src = Arc::new(lightcraft_raster::Rgb32f { width: w, height: h, data: rgba.iter().map(|p| [p[0], p[1], p[2]]).collect() });
+    let src = Arc::new(li_raster::RgbFrame { width: w, height: h, data: rgba.iter().map(|p| [p[0], p[1], p[2]]).collect() });
     let req = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
     let cases = [
         ("exposure", serde_json::json!({"exposure":0.7})),

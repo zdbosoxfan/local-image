@@ -17,7 +17,7 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
 fn write_png(path: &Path, seed: u8) {
     let (w, h) = (48usize, 32usize);
     let data: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % w * 5) as u8, (i / w * 7) as u8, seed, 255]).collect();
-    let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
+    let img = li_raster::Rgba8 { width: w, height: h, data };
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, bytes).unwrap();
@@ -134,7 +134,7 @@ fn browsing_a_folder_lists_its_photos_without_adding_them() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("sub")).unwrap();
     let png = |p: &std::path::Path, seed: u8| {
-        let img = lightcraft_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
+        let img = li_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
         let b = crate::export::encode_image(&img, &crate::export::ExportOptions { format: crate::export::ExportFormat::Png, ..Default::default() })
             .unwrap();
         std::fs::write(p, b).unwrap();
@@ -273,7 +273,7 @@ fn missing_files_are_found_and_relinked() {
     std::fs::create_dir_all(dir.join("old")).unwrap();
     std::fs::create_dir_all(dir.join("moved/deeper")).unwrap();
     let png = |p: &std::path::Path, seed: u8| {
-        let img = lightcraft_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
+        let img = li_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
         let b = crate::export::encode_image(&img, &crate::export::ExportOptions { format: crate::export::ExportFormat::Png, ..Default::default() })
             .unwrap();
         std::fs::write(p, b).unwrap();
@@ -314,7 +314,7 @@ fn recently_added_covers_recent_imports_newest_first() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let png = |name: &str, seed: u8| {
-        let img = lightcraft_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
+        let img = li_raster::Rgba8::from_fn(16, 12, |x, y| [(x * 9) as u8, (y * 11) as u8, seed, 255]);
         let b = crate::export::encode_image(&img, &crate::export::ExportOptions { format: crate::export::ExportFormat::Png, ..Default::default() })
             .unwrap();
         std::fs::write(dir.join(name), b).unwrap();
@@ -559,7 +559,7 @@ fn cube_luts_become_profiles() {
     let base = s.render_now(photo, 48, 32).unwrap().image;
     s.execute("develop.profile", &json!({"id": id, "amount": 100})).unwrap();
     let warm = s.render_now(photo, 48, 32).unwrap().image;
-    let mean = |img: &lightcraft_raster::Rgba8, k: usize| img.data.iter().map(|p| p[k] as f64).sum::<f64>() / img.data.len() as f64;
+    let mean = |img: &li_raster::Rgba8, k: usize| img.data.iter().map(|p| p[k] as f64).sum::<f64>() / img.data.len() as f64;
     assert!(
         mean(&warm, 0) > mean(&base, 0) && mean(&warm, 2) < mean(&base, 2),
         "warmer: R {} → {}, B {} → {}",
@@ -685,7 +685,7 @@ fn folder_rename_and_move_undo_and_redo_on_disk() {
 fn assisted_culling_groups_bursts_and_scores_focus() {
     let dir = temp_dir("cull");
     let scene = lightcraft_scenes::demo_library()[0].render(480, 320);
-    let soften = |img: &lightcraft_raster::Rgb32f, r: usize| {
+    let soften = |img: &li_raster::RgbFrame, r: usize| {
         let (w, h) = (img.width, img.height);
         let mut out = img.clone();
         for y in 0..h {
@@ -703,7 +703,7 @@ fn assisted_culling_groups_bursts_and_scores_focus() {
         }
         out
     };
-    let save = |img: &lightcraft_raster::Rgb32f, name: &str| {
+    let save = |img: &li_raster::RgbFrame, name: &str| {
         let data: Vec<[u8; 4]> = img
             .data
             .iter()
@@ -713,7 +713,7 @@ fn assisted_culling_groups_bursts_and_scores_focus() {
             })
             .collect();
         let png = lightcraft_codecs::encode_png(
-            &lightcraft_codecs::EncodeImage::rgba8(&lightcraft_raster::Rgba8 { width: img.width, height: img.height, data }),
+            &lightcraft_codecs::EncodeImage::rgba8(&li_raster::Rgba8 { width: img.width, height: img.height, data }),
             &Default::default(),
         )
         .unwrap();
@@ -769,11 +769,9 @@ fn dust_spots_are_found_and_healed() {
             [b, b, (b as f32 * 1.15).min(255.0) as u8, 255]
         })
         .collect();
-    let png = lightcraft_codecs::encode_png(
-        &lightcraft_codecs::EncodeImage::rgba8(&lightcraft_raster::Rgba8 { width: w, height: h, data }),
-        &Default::default(),
-    )
-    .unwrap();
+    let png =
+        lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&li_raster::Rgba8 { width: w, height: h, data }), &Default::default())
+            .unwrap();
     std::fs::write(dir.join("sky.png"), png).unwrap();
     let mut s = Session::new().with_fs();
     s.execute("library.import", &json!({"paths": [dir.join("sky.png").to_string_lossy()]})).unwrap();
@@ -782,7 +780,7 @@ fn dust_spots_are_found_and_healed() {
     let r = s.execute("spot.findDust", &json!({})).unwrap();
     assert_eq!(r["added"], 2, "{r}");
     let after = s.render_now(id, 900, 600).unwrap().image;
-    let at = |img: &lightcraft_raster::Rgba8, x: usize, y: usize| img.data[y * 900 + x][0] as i32;
+    let at = |img: &li_raster::Rgba8, x: usize, y: usize| img.data[y * 900 + x][0] as i32;
     for (cx, cy) in spots {
         assert!(at(&after, cx as usize, cy as usize) > at(&before, cx as usize, cy as usize) + 6, "the spot at {cx},{cy} is lifted");
     }

@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn chroma_of_our_own_jpegs() {
-        let img = lightcraft_raster::Rgba8::from_fn(32, 16, |x, y| [(x * 7) as u8, (y * 9) as u8, 90, 255]);
+        let img = li_raster::Rgba8::from_fn(32, 16, |x, y| [(x * 7) as u8, (y * 9) as u8, 90, 255]);
         let e = lightcraft_codecs::EncodeImage::rgba8(&img);
         for sub in [ChromaSubsampling::S444, ChromaSubsampling::S422, ChromaSubsampling::S420] {
             let b = lightcraft_codecs::encode_jpeg(&e, 90, sub, &Default::default()).unwrap();

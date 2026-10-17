@@ -3,7 +3,7 @@
 //! is compared with the local texture so detail doesn't trigger it, and each candidate blob
 //! must be small and roughly round.
 
-use lightcraft_raster::{Plane, Rgba8, blur::gaussian};
+use li_raster::{GrayFrame, Rgba8};
 
 /// A found spot: centre (0..1 of the image's width / height) and radius (fraction of the long
 /// edge), with how much darker it is (0..1).
@@ -22,14 +22,14 @@ pub fn detect(img: &Rgba8, sensitivity: f32) -> Vec<DustSpot> {
         return Vec::new();
     }
     let long = w.max(h) as f32;
-    let l = Plane::from_fn(w, h, |x, y| {
+    let l = GrayFrame::from_fn(w, h, |x, y| {
         let p = img.data[y * w + x];
         (li_color::luminance_709([p[0] as f32, p[1] as f32, p[2] as f32])) / 255.0
     });
-    let around = gaussian(&l, (0.012 * long).max(2.0));
+    let around = l.gaussian((0.012 * long).max(2.0));
     // texture: local mean of the fine detail (what isn't explained by the surroundings)
-    let detail = Plane::from_fn(w, h, |x, y| (l.data[y * w + x] - around.data[y * w + x]).abs());
-    let texture = gaussian(&detail, (0.02 * long).max(3.0));
+    let detail = GrayFrame::from_fn(w, h, |x, y| (l.data[y * w + x] - around.data[y * w + x]).abs());
+    let texture = detail.gaussian((0.02 * long).max(3.0));
     let min_dark = 0.03 - 0.022 * (sensitivity / 100.0).clamp(0.0, 1.0);
     let dark: Vec<f32> = (0..w * h).map(|i| (around.data[i] - l.data[i]).max(0.0)).collect();
     let candidate = |i: usize| dark[i] > min_dark && dark[i] > 3.0 * texture.data[i] && l.data[i] > 0.08;

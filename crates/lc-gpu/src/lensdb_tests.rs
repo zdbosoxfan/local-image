@@ -215,10 +215,7 @@ fn lens_database_gpu_uses_f64_coverage_at_rounding_boundary() {
         cases.push((wp, p, covered));
     }
     assert_eq!(xs[0], xs[1]);
-    let Some(gpu_device) = crate::test_device() else {
-        eprintln!("skipped: no GPU adapter (host rounding-boundary checks passed)");
-        return;
-    };
+    let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
     let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
@@ -237,10 +234,7 @@ fn lens_database_gpu_uses_f64_coverage_at_rounding_boundary() {
 
 #[test]
 fn lens_database_renders_reuse_uploaded_source() {
-    let Some(gpu_device) = crate::test_device() else {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
+    let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
     let gpu = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);

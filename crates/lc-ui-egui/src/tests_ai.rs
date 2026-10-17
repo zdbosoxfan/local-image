@@ -210,7 +210,7 @@ fn heal_over_an_ai_removal_makes_a_new_heal_spot() {
         use lightcraft_catalog::{Op, Photo, Source};
         let s = &mut h.app.session;
         s.media.file_loader = Some(Arc::new(|_, _| {
-            let img = lightcraft_raster::Rgb32f::from_fn(360, 240, |x, y| [0.2 + 0.1 * (((x + y) / 4) % 2) as f32, 0.25, 0.3]);
+            let img = li_raster::RgbFrame::from_fn(360, 240, |x, y| [0.2 + 0.1 * (((x + y) / 4) % 2) as f32, 0.25, 0.3]);
             Ok((img, lightcraft_pipeline::SourceInfo::default()))
         }));
         let id = s.catalog.alloc_photo_id();
@@ -384,7 +384,7 @@ fn j13_heal_and_remove_ui_drag_use_one_local_patch_workflow() {
     use std::time::Instant;
     let mut session = lightcraft_engine::Session::new();
     session.media.file_loader = Some(Arc::new(|_, _| {
-        let img = lightcraft_raster::Rgb32f::from_fn(64, 48, |x, y| {
+        let img = li_raster::RgbFrame::from_fn(64, 48, |x, y| {
             if x.abs_diff(32) < 3 && y.abs_diff(24) < 3 { [0.01; 3] } else { [0.25 + ((x + y) % 4) as f32 * 0.03; 3] }
         });
         Ok((img, lightcraft_pipeline::SourceInfo::default()))

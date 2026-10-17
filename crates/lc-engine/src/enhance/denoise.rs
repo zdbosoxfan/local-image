@@ -3,13 +3,12 @@
 use super::store::{self, Kind};
 use super::{CANCELLED, Job, JobCtl, JobKind, Outcome};
 use crate::{Session, media::SourceLevel};
+use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use li_seg::denoise::Variant;
 use lightcraft_catalog::{PhotoId, Source};
 use lightcraft_develop::DenoiseModel;
 use lightcraft_preview::Hasher128;
-use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::resize;
 use std::sync::{Arc, Mutex, Weak};
 
 pub const PREVIEW_EDGE: usize = 2560;
@@ -228,7 +227,7 @@ impl Session {
                                     true,
                                     &progress,
                                 )?;
-                                (Some(img.clone()), Rgb32f { width: img.width, height: img.height, data })
+                                (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
                             }
                         } else {
                             let img = src.load()?;
@@ -242,7 +241,7 @@ impl Session {
                                 true,
                                 &progress,
                             )?;
-                            (Some(img.clone()), Rgb32f { width: img.width, height: img.height, data })
+                            (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
                         }
                     }
                     _ => {
@@ -257,14 +256,14 @@ impl Session {
                             true,
                             &progress,
                         )?;
-                        (Some(img.clone()), Rgb32f { width: img.width, height: img.height, data })
+                        (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
                     }
                 }
             } else {
                 let img = src.load()?;
                 let img = if preview {
                     let (w, h) = fit(img.width, img.height, INFERENCE_PREVIEW_EDGE);
-                    Arc::new(resize(&img, w, h, Filter::Box))
+                    Arc::new(img.resize(w, h, Filter::Box))
                 } else {
                     img
                 };
@@ -286,7 +285,7 @@ impl Session {
                 if variant == Variant::Rgb {
                     from_display(&mut data);
                 }
-                (Some(img.clone()), Rgb32f { width: img.width, height: img.height, data })
+                (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
             };
             if full.data.len() != full.width * full.height || !full.data.iter().flatten().all(|v| v.is_finite()) {
                 return Err("the denoiser returned invalid pixels".into());
@@ -326,7 +325,7 @@ impl Session {
             store::put_rgb(Kind::Denoise, &key, &full, to.as_deref())?;
             let (pw, ph) = fit(full.width, full.height, PREVIEW_EDGE);
             if (pw, ph) != (full.width, full.height) {
-                store::put_rgb(Kind::Denoise, &preview_key(&key), &resize(&full, pw, ph, Filter::Mitchell), to.as_deref())?;
+                store::put_rgb(Kind::Denoise, &preview_key(&key), &full.resize(pw, ph, Filter::Mitchell), to.as_deref())?;
             }
             forget_levels(&key);
             ctl.report(1., "Done");
@@ -366,8 +365,8 @@ pub fn pack_bayer(n: &lightcraft_raw::Normalized) -> Result<(Vec<f32>, usize, us
     }
     Ok((out, w, h, offset))
 }
-pub fn unpack_camera(data: Vec<[f32; 3]>, w: usize, h: usize, ow: usize, oh: usize, offset: [usize; 2]) -> Rgb32f {
-    let mut out = Rgb32f::new(ow, oh);
+pub fn unpack_camera(data: Vec<[f32; 3]>, w: usize, h: usize, ow: usize, oh: usize, offset: [usize; 2]) -> RgbFrame {
+    let mut out = RgbFrame::new(ow, oh);
     for y in 0..oh {
         for x in 0..ow {
             out.data[y * ow + x] = data[y.saturating_sub(offset[1]).min(h - 1) * w + x.saturating_sub(offset[0]).min(w - 1)];
@@ -387,7 +386,7 @@ pub fn prepare_raw(bytes: &[u8]) -> Result<lightcraft_raw::RawImage, String> {
     Ok(raw)
 }
 /// Apply the source camera transform to camera RGB, without changing crop or orientation.
-pub fn camera_rgb_to_working(raw: &lightcraft_raw::RawImage, bytes: &[u8], rgb: &mut Rgb32f) {
+pub fn camera_rgb_to_working(raw: &lightcraft_raw::RawImage, bytes: &[u8], rgb: &mut RgbFrame) {
     let t = lightcraft_raw::color::camera_transform(raw, lightcraft_raw::color::as_shot_white_xy(raw));
     let lens = crate::files::embedded_lens(&raw.info());
     let look = crate::camera_preview::fit_preview(raw, bytes, &t, lens.as_ref());
@@ -399,7 +398,7 @@ pub fn camera_rgb_to_working(raw: &lightcraft_raw::RawImage, bytes: &[u8], rgb: 
         hue.as_ref().map_or(rgb, |h| h.apply(rgb))
     });
 }
-fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: Rgb32f) -> Rgb32f {
+fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: RgbFrame) -> RgbFrame {
     lightcraft_raw::opcodes::apply_list3(&raw.opcodes.list3, &mut rgb);
     camera_rgb_to_working(raw, bytes, &mut rgb);
     let c = raw.crop.clipped(rgb.width, rgb.height);
@@ -408,7 +407,7 @@ fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: Rgb32f) 
     }
     rgb.into_oriented(raw.orientation)
 }
-fn to_display(img: &Rgb32f) -> Vec<[f32; 3]> {
+fn to_display(img: &RgbFrame) -> Vec<[f32; 3]> {
     let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
     img.data.iter().map(|p| m.apply_f32(*p).map(|v| li_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
 }
@@ -418,7 +417,7 @@ fn from_display(data: &mut [[f32; 3]]) {
         *p = m.apply_f32(p.map(li_color::transfer::srgb_to_linear));
     }
 }
-fn export_new(path: &std::path::Path, img: &Rgb32f, p: &lightcraft_catalog::Photo, ctl: &JobCtl) -> Result<(), String> {
+fn export_new(path: &std::path::Path, img: &RgbFrame, p: &lightcraft_catalog::Photo, ctl: &JobCtl) -> Result<(), String> {
     use lightcraft_codecs::encode::{EncodeImage, EncodeMeta, Samples, TiffCompression};
     let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
     ctl.report(0.93, "Saving");
@@ -494,16 +493,16 @@ pub fn result_exists(key: &str) -> bool {
 }
 
 struct Mixed {
-    src: Weak<Rgb32f>,
+    src: Weak<RgbFrame>,
     key: String,
     strength: u32,
-    out: Arc<Rgb32f>,
+    out: Arc<RgbFrame>,
 }
 
 /// Recently mixed sources (so a view's stage cache sees the same buffer while the amount holds).
 static MIXED: Mutex<Vec<Mixed>> = Mutex::new(Vec::new());
 /// Recently read stored results (store key → pixels).
-static LEVELS: Mutex<Vec<(String, Arc<Rgb32f>)>> = Mutex::new(Vec::new());
+static LEVELS: Mutex<Vec<(String, Arc<RgbFrame>)>> = Mutex::new(Vec::new());
 
 fn forget_levels(key: &str) {
     LEVELS.lock().unwrap_or_else(|e| e.into_inner()).retain(|(k, _)| !k.starts_with(key));
@@ -512,7 +511,7 @@ fn forget_levels(key: &str) {
 
 /// The stored result for `key` at a level fitting `long` px (the preview-size copy when it is
 /// enough), read once and kept for a while.
-fn level(key: &str, long: usize) -> Option<Arc<Rgb32f>> {
+fn level(key: &str, long: usize) -> Option<Arc<RgbFrame>> {
     let pk = preview_key(key);
     let candidates = if long <= PREVIEW_EDGE { vec![pk, key.to_owned()] } else { vec![key.to_owned()] };
     for k in candidates {
@@ -533,7 +532,7 @@ fn level(key: &str, long: usize) -> Option<Arc<Rgb32f>> {
 /// `src` (a decoded source of the photo, any level) with the Denoise result `key` mixed in by
 /// `amount` (0..100). `None` when there is nothing to mix (amount 0, or no stored result: render
 /// from `src` itself).
-pub fn denoised_source(src: &Arc<Rgb32f>, key: &str, amount: f64) -> Option<Arc<Rgb32f>> {
+pub fn denoised_source(src: &Arc<RgbFrame>, key: &str, amount: f64) -> Option<Arc<RgbFrame>> {
     let t = (amount / 100.0).clamp(0.0, 1.0) as f32;
     if t <= 0.0 || !result_exists(key) {
         return None;
@@ -547,7 +546,7 @@ pub fn denoised_source(src: &Arc<Rgb32f>, key: &str, amount: f64) -> Option<Arc<
         }
     }
     let den = level(key, src.width.max(src.height))?;
-    let den = if (den.width, den.height) == (src.width, src.height) { den } else { Arc::new(resize(&den, src.width, src.height, Filter::Mitchell)) };
+    let den = if (den.width, den.height) == (src.width, src.height) { den } else { Arc::new(den.resize(src.width, src.height, Filter::Mitchell)) };
     let mut out = (**src).clone();
     for (o, d) in out.data.iter_mut().zip(&den.data) {
         for c in 0..3 {
@@ -641,7 +640,7 @@ mod tests {
         let src = s.source_now(id, SourceLevel::Thumb).unwrap();
         let flat = denoised_source(&src, &done.key, 100.0).expect("mixed");
         assert_eq!((flat.width, flat.height), (src.width, src.height));
-        let spread = |img: &Rgb32f| {
+        let spread = |img: &RgbFrame| {
             let (lo, hi) = img.data.iter().fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p[1]), b.max(p[1])));
             hi - lo
         };
@@ -736,7 +735,7 @@ mod integration_tests {
         let d = s.develop_of(id).unwrap();
         assert!(d.enhance.ai.unwrap().preview);
         assert!(s.export_job(id, 0, 0, lightcraft_pipeline::OutputSpace::Srgb, lightcraft_pipeline::OutputDepth::U8).is_err());
-        let src = Arc::new(Rgb32f::new(32, 24));
+        let src = Arc::new(RgbFrame::new(32, 24));
         let (out, _) = super::super::session::for_render(&src, &d, Some(lightcraft_preview::Hash128(987)));
         assert!(Arc::ptr_eq(&out, &src));
         s.start_denoise(id, true).unwrap();
@@ -747,7 +746,7 @@ mod integration_tests {
     fn ai_denoise_exports_new_tiff_and_dng_with_neutral_working_wb() {
         let s = Session::with_demo();
         let p = s.catalog.photo(s.active().unwrap()).unwrap();
-        let img = Rgb32f { width: 8, height: 6, data: vec![[0.2; 3]; 48] };
+        let img = RgbFrame { width: 8, height: 6, data: vec![[0.2; 3]; 48] };
         let ctl = JobCtl::default();
         let dir = std::env::temp_dir().join(format!("li-denoise-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();

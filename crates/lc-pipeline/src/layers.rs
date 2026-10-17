@@ -17,8 +17,8 @@
 
 use std::sync::Arc;
 
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, LayerTools, Mask};
-use lightcraft_raster::Rgb32f;
 
 use crate::SourceInfo;
 use crate::colorops::ColorOps;
@@ -186,13 +186,13 @@ fn nr_layers(s: &DevelopSettings, info: &SourceInfo) -> Vec<(usize, u64, Develop
 /// each layer's noise reduction, reusing `cache` (key → image) and leaving only the images still
 /// in use in it. Each entry: (evaluated mask index, image).
 pub(crate) fn nr_images(
-    img: &Arc<Rgb32f>,
+    img: &Arc<RgbFrame>,
     s: &DevelopSettings,
     info: &SourceInfo,
     src_long: usize,
     px_per_long: f64,
-    cache: &mut Vec<(u64, Arc<Rgb32f>)>,
-) -> Vec<(usize, Arc<Rgb32f>)> {
+    cache: &mut Vec<(u64, Arc<RgbFrame>)>,
+) -> Vec<(usize, Arc<RgbFrame>)> {
     let layers = nr_layers(s, info);
     let mut keep = Vec::new();
     let mut out = Vec::new();
@@ -206,7 +206,7 @@ pub(crate) fn nr_images(
                 Arc::new(c)
             }
         };
-        if !keep.iter().any(|(k, _): &(u64, Arc<Rgb32f>)| *k == key) {
+        if !keep.iter().any(|(k, _): &(u64, Arc<RgbFrame>)| *k == key) {
             keep.push((key, im.clone()));
         }
         out.push((i, im));
@@ -292,15 +292,15 @@ pub const STACK_CACHE_BYTES: usize = 512 << 20;
 /// existing bounded rayon pool; no thread-per-layer pool or simultaneous layer renders.
 #[derive(Clone, Default)]
 pub(crate) struct Cache {
-    pub outputs: Vec<(u64, Option<Arc<Rgb32f>>)>,
+    pub outputs: Vec<(u64, Option<Arc<RgbFrame>>)>,
 }
 
 pub(crate) struct Stacked {
-    pub image: Arc<Rgb32f>,
+    pub image: Arc<RgbFrame>,
     pub background_renders: usize,
     pub layer_renders: usize,
     pub masks: Vec<crate::masks::Evaluated>,
-    pub diagnostic: Option<lightcraft_raster::Plane>,
+    pub diagnostic: Option<li_raster::GrayFrame>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -359,7 +359,7 @@ pub(crate) fn stack(
             input = out.clone();
         } else {
             layer_renders += 1;
-            let log = if crate::masks::scalar_alpha(m).is_none() { input.map(crate::local::log_lum) } else { lightcraft_raster::Plane::new(0, 0) };
+            let log = if crate::masks::scalar_alpha(m).is_none() { input.map(crate::local::log_lum) } else { li_raster::GrayFrame::new(0, 0) };
             let alpha = crate::masks::scalar_alpha(m).map(crate::masks::Alpha::Scalar).unwrap_or_else(|| {
                 crate::masks::Alpha::Spatial(crate::masks::evaluate_one_tone(
                     m,
@@ -413,14 +413,13 @@ pub(crate) fn stack(
                     // The proxy is this layer's developed input, never the original RAW.
                     let scale = ((crate::primary::PROXY_PIXELS as f64 / input.len().max(1) as f64).sqrt()).min(1.0);
                     let proxy = if crate::primary::needs_proxy(&d) {
-                        lightcraft_raster::resample::resize(
-                            &tool_input,
+                        tool_input.resize(
                             (plan.w as f64 * scale).round().max(1.0) as usize,
                             (plan.h as f64 * scale).round().max(1.0) as usize,
                             li_raster::resample::Filter::Bilinear,
                         )
                     } else {
-                        Rgb32f::new(0, 0)
+                        RgbFrame::new(0, 0)
                     };
                     tool_input = crate::primary::process(&tool_input, &proxy, &layer_info, &lp, method);
                     d = crate::primary::remaining(&d);

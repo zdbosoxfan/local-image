@@ -12,22 +12,10 @@
 
 use crate::common;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use photocraft_doc::{Document, LayerContent, SmartObject, SmartSource};
-
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("psd") || e.eq_ignore_ascii_case("psb")) {
-            out.push(p);
-        }
-    }
-}
 
 fn smarts(doc: &Document) -> Vec<(String, SmartObject)> {
     doc.walk()
@@ -147,7 +135,7 @@ fn smart_objects_round_trip_through_psd() {
     assert!(root.join("photoshop").is_dir(), "{} is missing: run `cargo xtask corpus --all`", root.display());
     let mut files = Vec::new();
     for d in ["psd", "psd-tools", "photoshop"] {
-        collect(&root.join(d), &mut files);
+        crate::common::collect_psd_files(&root.join(d), &mut files);
     }
     files.sort();
     let (mut checked, mut objects, mut with_filters, mut edited, mut embedded) = (0, 0, 0, 0, 0);

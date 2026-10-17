@@ -259,7 +259,7 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
 pub struct SeedImages {
     images: std::collections::BTreeMap<String, (u64, Option<egui::TextureHandle>)>,
     clock: u64,
-    pending: Vec<(String, Receiver<Result<lightcraft_raster::Rgba8, String>>)>,
+    pending: Vec<(String, Receiver<Result<li_raster::Rgba8, String>>)>,
 }
 impl SeedImages {
     const CAPACITY: usize = 256;
@@ -322,7 +322,7 @@ impl SeedImages {
                     let side = side.clamp(1., image.width.min(image.height) as f32);
                     let cx = ((x + w / 2.) * image.width as f32).clamp(side / 2., image.width as f32 - side / 2.);
                     let cy = ((y + h / 2.) * image.height as f32).clamp(side / 2., image.height as f32 - side / 2.);
-                    let mut crop = lightcraft_raster::Rgba8::new(128, 128);
+                    let mut crop = li_raster::Rgba8::new(128, 128);
                     for py in 0..128 {
                         for px in 0..128 {
                             let sx = (cx - side / 2. + (px as f32 + 0.5) * side / 128.).clamp(0., image.width as f32 - 1.) as usize;
@@ -362,13 +362,13 @@ mod ds2_tests {
     fn ds2_headshot_progress_counts_imported_and_skipped_images() {
         let dir = std::env::temp_dir().join(format!("ds2-headshot-progress-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut image = lightcraft_raster::Rgba8::filled(16, 16, [255, 0, 0, 255]);
+        let mut image = li_raster::Rgba8::filled(16, 16, [255, 0, 0, 255]);
         for y in 0..8 {
             for x in 0..8 {
                 image.set(x, y, [255; 4]);
             }
         }
-        for (name, image) in [("Jane", image), ("Skip", lightcraft_raster::Rgba8::filled(16, 16, [0, 0, 0, 255]))] {
+        for (name, image) in [("Jane", image), ("Skip", li_raster::Rgba8::filled(16, 16, [0, 0, 0, 255]))] {
             let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
             std::fs::write(dir.join(format!("{name}.png")), png).unwrap();
         }

@@ -18,7 +18,7 @@ pub(crate) fn temp_dir(tag: &str) -> PathBuf {
 fn write_png(path: &Path, seed: u8) {
     let (w, h) = (40usize, 24usize);
     let data: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % w * 6) as u8, (i / w * 9) as u8, seed, 255]).collect();
-    let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
+    let img = li_raster::Rgba8 { width: w, height: h, data };
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     std::fs::write(path, bytes).unwrap();
 }
@@ -412,7 +412,7 @@ fn demo_photos_have_no_sidecar() {
 fn all_metadata_lists_exif_and_xmp() {
     let dir = temp_dir("allmeta");
     let path = dir.join("tagged.jpg");
-    let img = lightcraft_raster::Rgba8 { width: 16, height: 8, data: vec![[90, 120, 200, 255]; 128] };
+    let img = li_raster::Rgba8 { width: 16, height: 8, data: vec![[90, 120, 200, 255]; 128] };
     let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata { make: Some("Maker".into()), iso: Some(800), ..Default::default() });
     let meta = lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() };
     let jpg = lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&img), 90, Default::default(), &meta).unwrap();
@@ -675,7 +675,7 @@ fn dng_export_compression_choices() {
 fn write_jpeg(path: &Path, capture: Option<&str>) {
     let (w, h) = (32usize, 24usize);
     let data: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % w * 7) as u8, (i / w * 9) as u8, 90, 255]).collect();
-    let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
+    let img = li_raster::Rgba8 { width: w, height: h, data };
     let exif = capture.map(|c| {
         lightcraft_meta::write_exif(&lightcraft_meta::Metadata { capture_time: lightcraft_meta::DateTime::parse_iso(c), ..Default::default() })
     });
@@ -906,7 +906,7 @@ fn files_sharing_a_stem_get_their_own_sidecars() {
     let src = temp_dir("stem");
     let lib = temp_dir("stem-lib");
     write_png(&src.join("IMG_1.png"), 1);
-    let img = lightcraft_raster::Rgba8::from_fn(40, 24, |x, y| [(x * 6) as u8, (y * 9) as u8, 7, 255]);
+    let img = li_raster::Rgba8::from_fn(40, 24, |x, y| [(x * 6) as u8, (y * 9) as u8, 7, 255]);
     let jpg =
         crate::export::encode_image(&img, &crate::export::ExportOptions { format: crate::export::ExportFormat::Jpeg, ..Default::default() }).unwrap();
     std::fs::write(src.join("IMG_1.jpg"), jpg).unwrap();
@@ -987,7 +987,7 @@ fn creator_list_survives_rating_save_catalog_reopen_and_new_sidecar_export() {
             let sidecar = dir.join("photo.xmp");
             let (packet, sequence) = creator_packet(items);
             if embedded {
-                let raster = lightcraft_raster::Rgba8 { width: 2, height: 2, data: vec![[100, 100, 100, 255]; 4] };
+                let raster = li_raster::Rgba8 { width: 2, height: 2, data: vec![[100, 100, 100, 255]; 4] };
                 let bytes = lightcraft_codecs::encode_png(
                     &lightcraft_codecs::EncodeImage::rgba8(&raster),
                     &lightcraft_codecs::EncodeMeta { xmp: Some(&packet), ..Default::default() },

@@ -25,9 +25,9 @@
 //! display-referred values in 0..1, so the finish stage uses the display tone map (identity at
 //! neutral settings) for converted negatives instead of the scene-referred camera curve.
 
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, FilmRgb, FilmStock, Negative};
 use lightcraft_geom::{Point, Rect};
-use lightcraft_raster::Rgb32f;
 use serde::Serialize;
 
 use crate::{RenderRequest, SourceInfo, for_rows};
@@ -122,13 +122,13 @@ pub fn converts(s: &DevelopSettings) -> bool {
 }
 
 /// Convert `img` (white-balanced, scene-linear) in place; nothing happens when [`params`] is `None`.
-pub fn apply(img: &mut Rgb32f, s: &DevelopSettings) {
+pub fn apply(img: &mut RgbFrame, s: &DevelopSettings) {
     if let Some(k) = params(s) {
         apply_params(img, &k);
     }
 }
 
-pub fn apply_params(img: &mut Rgb32f, k: &NegParams) {
+pub fn apply_params(img: &mut RgbFrame, k: &NegParams) {
     let w = img.width;
     for_rows(&mut img.data, w, |_, row| {
         for p in row.iter_mut() {
@@ -254,7 +254,7 @@ const SAMPLE_EDGE: usize = 768;
 
 /// The conversion's input (the scan resampled through the frame, white-balanced) at proxy size,
 /// and its output px → normalized oriented coordinates map.
-fn stage_input(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> (Rgb32f, lightcraft_geom::Affine) {
+fn stage_input(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> (RgbFrame, lightcraft_geom::Affine) {
     let req = RenderRequest { apply_crop, ..RenderRequest::fit(SAMPLE_EDGE, SAMPLE_EDGE) };
     let plan = crate::plan(src, info, s, &req);
     let mut img = plan.frame.sample(src, plan.w, plan.h);
@@ -265,7 +265,7 @@ fn stage_input(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop:
 /// Statistics of the conversion's input over `area` (normalized oriented-image coordinates, the
 /// uncropped image: the film rim is usually cropped away). Extremes are the true ones, as
 /// negadoctor's area pickers measure them. A tiny area measures the pixel at its centre.
-pub fn sample_area(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, area: Rect) -> Option<AreaStats> {
+pub fn sample_area(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, area: Rect) -> Option<AreaStats> {
     let (img, to_norm) = stage_input(src, info, s, false);
     let area = Rect::from_points(Point::new(area.x0, area.y0), Point::new(area.x1, area.y1));
     let mut px = Vec::new();
@@ -289,7 +289,7 @@ pub fn sample_area(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, area: R
 
 /// Statistics of the conversion's input over the photo as cropped (an inner 96 %: the film rim and
 /// scanner holder are usually cropped away), with 0.1 % tails ignored for the extremes.
-pub fn sample_image(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings) -> Option<AreaStats> {
+pub fn sample_image(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Option<AreaStats> {
     let (img, _) = stage_input(src, info, s, true);
     let (mx, my) = (img.width / 50, img.height / 50);
     let mut px = Vec::with_capacity(img.data.len());
@@ -354,7 +354,7 @@ mod tests {
             }
         }
         // through the stage on an image, with the settings switch
-        let mut img = Rgb32f::from_fn(scan.len(), 1, |x, _| scan[x]);
+        let mut img = RgbFrame::from_fn(scan.len(), 1, |x, _| scan[x]);
         let s = DevelopSettings { negative: n, ..Default::default() };
         apply(&mut img, &s);
         for (o, p) in img.data.iter().zip(&positive) {
@@ -398,7 +398,7 @@ mod tests {
         s.negative.film = FilmStock::Slide;
         s.negative.enabled = true;
         assert!(params(&s).is_none(), "slides are not inverted");
-        let src = Rgb32f::from_fn(8, 8, |x, y| [x as f32 * 0.1, y as f32 * 0.1, 0.3]);
+        let src = RgbFrame::from_fn(8, 8, |x, y| [x as f32 * 0.1, y as f32 * 0.1, 0.3]);
         let mut img = src.clone();
         apply(&mut img, &s);
         assert_eq!(img.data, src.data);
@@ -487,7 +487,7 @@ mod tests {
     fn sampling_a_rim_area_and_the_image() {
         // left 10 %: the orange film base; the rest: a darker negative image
         let base = [0.8f32, 0.4, 0.2];
-        let src = Rgb32f::from_fn(200, 100, |x, _| if x < 20 { base } else { [0.2, 0.08, 0.03] });
+        let src = RgbFrame::from_fn(200, 100, |x, _| if x < 20 { base } else { [0.2, 0.08, 0.03] });
         let s = DevelopSettings::default();
         let rim = sample_area(&src, &SourceInfo::default(), &s, Rect::new(0.01, 0.1, 0.08, 0.9)).unwrap();
         assert!(rim.n > 10);

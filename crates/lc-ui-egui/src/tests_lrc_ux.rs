@@ -127,7 +127,7 @@ fn lrc_standalone_preferences_screens() {
     }
     eprintln!("tabs: {:?}", h.app.widgets.iter().filter(|(id, _)| id.contains("settingsTab")).collect::<Vec<_>>());
     let image = h.paint();
-    let rgba = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+    let rgba = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
     let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/lrc-ux");
     std::fs::create_dir_all(&out).unwrap();

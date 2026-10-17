@@ -45,7 +45,7 @@ fn save(h: &Headless, name: &str, r: Rect) {
     let x1 = ((r.right() * scale).ceil() as usize).min(image.size[0]);
     let y1 = ((r.bottom() * scale).ceil() as usize).min(image.size[1]);
     assert!(x1 > x0 && y1 > y0, "{name}: {r:?}");
-    let out = lightcraft_raster::Rgba8::from_fn(x1 - x0, y1 - y0, |x, y| image.pixels[(y + y0) * image.size[0] + x + x0].to_array());
+    let out = li_raster::Rgba8::from_fn(x1 - x0, y1 - y0, |x, y| image.pixels[(y + y0) * image.size[0] + x + x0].to_array());
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
     let phase = std::env::var("DESIGN_SYSTEM_PHASE").unwrap_or_else(|_| "after".into());
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system");

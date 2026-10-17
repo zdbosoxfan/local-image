@@ -2,11 +2,10 @@
 //! standard images (linear light in the file's primaries), with their exposure from EXIF.
 
 use li_color::Mat3;
+use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
-use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::fit;
 use lightcraft_raw::ColorData;
 
 use crate::{MergeError, Result};
@@ -24,7 +23,7 @@ pub enum FrameColor {
 #[derive(Clone, Debug)]
 pub struct Frame {
     /// Scene-linear pixels; 1.0 = the sensor/file white level.
-    pub image: Rgb32f,
+    pub image: RgbFrame,
     /// Values at or above this (any channel) are saturated.
     pub clip: f32,
     /// Capture brightness from EXIF, in EV: log2(t · ISO / N²) (higher = brighter frame); `None`
@@ -42,7 +41,7 @@ pub struct Frame {
 impl Frame {
     /// A frame from linear pixels in the develop working space (linear Rec.2020), e.g. a rendered
     /// procedural scene. `exposure` as in [`Frame::exposure`].
-    pub fn from_linear_rec2020(image: Rgb32f, exposure: Option<f64>) -> Frame {
+    pub fn from_linear_rec2020(image: RgbFrame, exposure: Option<f64>) -> Frame {
         let to_xyz_d50 = li_color::bradford(li_color::D65, li_color::D50).mul(&li_color::REC2020.to_xyz());
         let clip = detect_clip(&image);
         Frame {
@@ -84,7 +83,7 @@ pub fn exif_exposure(m: &Metadata) -> Option<f64> {
 
 /// The saturation level of a frame: 1.0, or the (lower) level at which values pile up when the
 /// file's white level is optimistic. Returned slightly below the level.
-pub fn detect_clip(img: &Rgb32f) -> f32 {
+pub fn detect_clip(img: &RgbFrame) -> f32 {
     let maxv = img.data.iter().map(|p| p[0].max(p[1]).max(p[2])).fold(0.0f32, f32::max);
     if maxv.is_nan() || maxv <= 0.0 {
         return 1.0;
@@ -144,7 +143,7 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
         if let Some(m) = max_edge
             && image.width.max(image.height) > m
         {
-            image = fit(&image, m, m, Filter::Box);
+            image = image.fit(m, m, Filter::Box);
         }
         let mut f = Frame {
             image,
@@ -176,7 +175,7 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
     if let Some(m) = max_edge
         && image.width.max(image.height) > m
     {
-        image = fit(&image, m, m, Filter::Box);
+        image = image.fit(m, m, Filter::Box);
     }
     let clip = detect_clip(&image);
     let mut f = Frame {
@@ -210,7 +209,7 @@ mod tests {
 
     #[test]
     fn clip_detection() {
-        let mut img = Rgb32f::from_fn(100, 100, |x, _| [x as f32 / 100.0; 3]);
+        let mut img = RgbFrame::from_fn(100, 100, |x, _| [x as f32 / 100.0; 3]);
         assert_eq!(detect_clip(&img), 1.0);
         for p in img.data.iter_mut().take(500) {
             *p = [0.9, 0.9, 0.9];
@@ -267,7 +266,7 @@ mod correction_regressions {
             &crate::no_progress,
         )
         .unwrap();
-        let close = |a: &Rgb32f, b: &Rgb32f| {
+        let close = |a: &RgbFrame, b: &RgbFrame| {
             assert_eq!((a.width, a.height), (b.width, b.height));
             let error = a.data.iter().flatten().zip(b.data.iter().flatten()).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
             assert!(error < 2e-6, "ordered correction error {error}");

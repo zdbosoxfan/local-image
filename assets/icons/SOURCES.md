@@ -214,7 +214,7 @@ Sourced 144, drawn 24.
 `crates/lc-ui-egui/src/icons.rs` draws its interface icons from line SVGs: Lucide 0.468.0 files in
 `assets/icons/*.svg` (added 2026-10-13: `panel-left`, `arrow-left`, `arrow-right`, `filter`, `bell`,
 `share`, `circle-help`, `layout-grid`, `layout-dashboard`, `columns-2`,
-`square-split-horizontal`, `arrow-down-wide-narrow`, `flag`, `flag-off`, `film`, `book-image`, `images`,
+`square-split-horizontal`, `arrow-down-wide-narrow`, `flag`, `flag-off`, `film`, `images`,
 `trash-2`, `chart-spline`, `flip-horizontal-2`, `video`, `message-circle`, `scan-face`;
 unchanged, ISC), PhotoCraft's `star-filled.svg` (Lucide star with a solid fill) and the shared tool icons.
 Collections use Lucide `images.svg`. Smart Collection keeps the legacy asset path `smart-album.svg`: Lucide `images` stacked outline with a Local Image funnel (ISC + GPL-3.0-or-later).

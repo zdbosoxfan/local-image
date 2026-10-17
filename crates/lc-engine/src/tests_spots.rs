@@ -62,7 +62,7 @@ fn j13_session() -> Session {
 
     use lightcraft_catalog::{Op, Photo, Source};
     let mut s = Session::new();
-    let img = lightcraft_raster::Rgb32f::from_fn(64, 48, |x, y| {
+    let img = li_raster::RgbFrame::from_fn(64, 48, |x, y| {
         let dx = x as f32 + 0.5 - 32.0;
         let dy = y as f32 + 0.5 - 24.0;
         if dx.hypot(dy) < 3.0 { [0.02; 3] } else { [0.3 + ((x + y) % 4) as f32 * 0.025; 3] }

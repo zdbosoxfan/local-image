@@ -17,7 +17,7 @@ and metadata kept re-editable, and with a Camera Raw Filter that has the same to
 
 | Area | Today | Problem |
 |---|---|---|
-| Develop engine | LightCraft `lc-pipeline::render(Rgb32f linear Rec.2020, SourceInfo, &DevelopSettings)`: pure, cached by stage (`render_cached`), GPU path in `lc-gpu`, a non-raw entry (`lc-engine/src/files.rs` `to_working`) | Good. RGB only (no alpha); crop/geometry change the frame |
+| Develop engine | LightCraft `lc-pipeline::render(RgbFrame linear Rec.2020, SourceInfo, &DevelopSettings)`: pure, cached by stage (`render_cached`), GPU path in `lc-gpu`, a non-raw entry (`lc-engine/src/files.rs` `to_working`) | Good. RGB only (no alpha); crop/geometry change the frame |
 | Editor's Camera Raw Filter | A **second, simpler engine** (`pc-algo/src/camera_raw.rs`) on sRGB pixels: basic, curves, HSL, grading, detail, effects | No masks, optics, geometry, point colour, profiles; results differ from the Library |
 | Local adjustments | `DevelopSettings.masks`, each with `LocalAdjustments` (a **subset**: temp/tint, light, texture/clarity/dehaze, hue/sat, sharpness, noise, moiré, defringe, colour overlay) | No curve, HSL, grading, point colour per mask; not Capture One-style |
 | AI masks in the Library | Subject / Sky / Background are **classical heuristics**; Object and Describe use SAM 3 (3.4 GB optional) | The editor's Select Subject (li-seg U²-Net/IS-Net, Qwen) is better; three segmentation stacks |

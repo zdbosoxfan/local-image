@@ -1,7 +1,7 @@
-//! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
+//! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
-mod ds_journal_coverage;
-mod ds_local_coverage;
-mod ds_model_coverage;
-mod ds_rules_coverage;
+mod journal_coverage;
 mod keywords_dates_query_coverage;
+mod local_coverage;
+mod model_coverage;
+mod rules_coverage;

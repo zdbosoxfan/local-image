@@ -131,7 +131,7 @@ fn j26_lens_correction_matches_develops_render() {
         depth: lightcraft_pipeline::OutputDepth::F32Linear,
         ..lightcraft_pipeline::RenderRequest::fit(w as usize, h as usize)
     };
-    let raster = lightcraft_raster::Rgb32f { width: w as usize, height: h as usize, data: rgb(&src, frame) };
+    let raster = li_raster::RgbFrame { width: w as usize, height: h as usize, data: rgb(&src, frame) };
     let out = lightcraft_pipeline::render(&raster, &info, &s, &req).deep.unwrap();
     let lightcraft_pipeline::DeepSamples::F32(v) = out.samples else { panic!("float output") };
     let develop = v.as_chunks::<3>().0.to_vec();

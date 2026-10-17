@@ -5,13 +5,12 @@
 use std::sync::Arc;
 
 use li_color::cct::xy_to_temp_tint;
+use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use lightcraft_catalog::{MediaKind, Meta};
 use lightcraft_geom::Orientation;
 use lightcraft_pipeline::SourceInfo;
 use lightcraft_preview::Hasher128;
-use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::fit;
 
 use crate::media::{FileLoader, FileProbe, PreviewLoader, ProbeInfo};
 
@@ -285,12 +284,12 @@ const HIGHLIGHT_CLIP: f32 = 0.99;
 
 /// Read the unmodified sensor before any reconstruction. Each CFA tile records the
 /// fraction of RGB channels whose samples are clipped (green samples averaged).
-fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<lightcraft_raster::Plane> {
+fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<li_raster::GrayFrame> {
     let n = raw.normalized_samples().ok()?;
     let crop = raw.crop.clipped(n.width, n.height);
     let crop = if crop.width > 1 && crop.height > 1 { crop } else { lightcraft_raw::Rect { x: 0, y: 0, width: n.width, height: n.height } };
     let tile = n.cfa.as_ref().map_or(1, |c| c.width.max(c.height));
-    let p = lightcraft_raster::Plane::from_fn(crop.width.div_ceil(tile), crop.height.div_ceil(tile), |x, y| {
+    let p = li_raster::GrayFrame::from_fn(crop.width.div_ceil(tile), crop.height.div_ceil(tile), |x, y| {
         let mut counts = [0usize; 3];
         let mut clipped = [0usize; 3];
         for dy in 0..tile {
@@ -414,28 +413,28 @@ impl RawOptions {
 /// Runs on a rayon worker: its many short parallel loops then start on the worker's own queue
 /// instead of each one waking the pool from outside and waiting for it (which costs more than the
 /// loops themselves when the machine is busy).
-pub fn load_bytes(bytes: &[u8], max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
+pub fn load_bytes(bytes: &[u8], max_edge: usize) -> Result<(RgbFrame, SourceInfo), String> {
     load_bytes_with(bytes, max_edge, &RawOptions::default())
 }
 
 /// [`load_bytes`] decoding a raw file with `opts`.
-pub fn load_bytes_with(bytes: &[u8], max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+pub fn load_bytes_with(bytes: &[u8], max_edge: usize, opts: &RawOptions) -> Result<(RgbFrame, SourceInfo), String> {
     rayon::scope(|_| load_bytes_now(std::borrow::Cow::Borrowed(bytes), max_edge, opts))
 }
 
 /// [`load_bytes`] taking the file's bytes: a raw file's bytes are freed as soon as it is decoded
 /// (less memory held while it is developed).
-pub fn load_vec(bytes: Vec<u8>, max_edge: usize) -> Result<(Rgb32f, SourceInfo), String> {
+pub fn load_vec(bytes: Vec<u8>, max_edge: usize) -> Result<(RgbFrame, SourceInfo), String> {
     load_vec_with(bytes, max_edge, &RawOptions::default())
 }
 
 /// [`load_vec`] decoding a raw file with `opts`.
-pub fn load_vec_with(bytes: Vec<u8>, max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+pub fn load_vec_with(bytes: Vec<u8>, max_edge: usize, opts: &RawOptions) -> Result<(RgbFrame, SourceInfo), String> {
     let opts = *opts;
     rayon::scope(move |_| load_bytes_now(std::borrow::Cow::Owned(bytes), max_edge, &opts))
 }
 
-fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &RawOptions) -> Result<(Rgb32f, SourceInfo), String> {
+fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &RawOptions) -> Result<(RgbFrame, SourceInfo), String> {
     if lightcraft_raw::probe(&bytes).is_some() {
         let allowance = lightcraft_sysmem::heavy_jobs().headroom().min(usize::MAX as u64) as usize;
         let mut raw = match lightcraft_raw::decode_with_memory_budget(&bytes, allowance) {
@@ -549,11 +548,11 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             rgb.map(|v| v * gain)
         });
         stages.push(("colour", t0.elapsed()));
-        let img = fit(&img, max_edge, max_edge, Filter::Box);
+        let img = img.fit(max_edge, max_edge, Filter::Box);
         let sensor_scale = (sensor_long as f32 / img.width.max(img.height).max(1) as f32).max(1.0);
         stages.push(("fit", t0.elapsed()));
         let clip_confidence = clip_confidence.map(|p| {
-            let p = lightcraft_raster::resample::resize(&p, img.width, img.height, Filter::Bilinear).into_oriented(raw.orientation);
+            let p = p.resize(img.width, img.height, Filter::Bilinear).into_oriented(raw.orientation);
             Arc::new(lightcraft_pipeline::ClipConfidence { width: p.width, height: p.height, data: p.data })
         });
         let img = img.into_oriented(raw.orientation);
@@ -663,7 +662,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
     let d = lightcraft_codecs::decode(&bytes, still_image_decode_options(max_edge)).map_err(|e| e.to_string())?;
     drop(bytes);
     let img = d.to_working();
-    let img = if img.width.max(img.height) > max_edge { fit(&img, max_edge, max_edge, Filter::Mitchell) } else { img };
+    let img = if img.width.max(img.height) > max_edge { img.fit(max_edge, max_edge, Filter::Mitchell) } else { img };
     Ok((
         img.into_oriented(Orientation::from_exif(d.orientation)),
         SourceInfo { source_orientation: Orientation::from_exif(d.orientation), ..Default::default() },
@@ -701,21 +700,21 @@ fn embedded_preview_size(bytes: &[u8]) -> Option<(u32, u32)> {
 }
 
 /// The embedded preview of a raw file as a working-space image no larger than `max_edge`, oriented.
-pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(Rgb32f, SourceInfo)> {
+pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(RgbFrame, SourceInfo)> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
     let d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
     let img = d.to_working();
-    let img = if img.width.max(img.height) > max_edge { fit(&img, max_edge, max_edge, Filter::Mitchell) } else { img };
+    let img = if img.width.max(img.height) > max_edge { img.fit(max_edge, max_edge, Filter::Mitchell) } else { img };
     Some((img.oriented(preview_orientation(bytes, d.orientation)), SourceInfo::default()))
 }
 
 /// The embedded preview of a raw file for display (sRGB, oriented, no larger than `max_edge`): the
 /// loupe and grid show it until the raw itself has been developed ([`crate::media::QuickJob`]).
-pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<lightcraft_raster::Rgba8> {
+pub fn embedded_preview_srgb(bytes: &[u8], max_edge: usize) -> Option<li_raster::Rgba8> {
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
     let mut d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
     if d.image.width.max(d.image.height) > max_edge {
-        d.image = fit(&d.image, max_edge, max_edge, Filter::Box);
+        d.image = d.image.fit(max_edge, max_edge, Filter::Box);
         d.alpha = None;
     }
     let o = preview_orientation(bytes, d.orientation);
@@ -856,7 +855,7 @@ mod tests {
         use lightcraft_raw::profile::{HsvTable, ProfileLook, ToneCurve};
         let plain = crate::tests_xmp::synthetic_dng_with(None, Default::default());
         let mut raw = lightcraft_raw::decode(&plain).unwrap();
-        let sat = |img: &Rgb32f| {
+        let sat = |img: &RgbFrame| {
             img.data.iter().map(|p| (p[0].max(p[1]).max(p[2]) - p[0].min(p[1]).min(p[2])) / p[0].max(p[1]).max(p[2]).max(1e-6)).sum::<f32>()
                 / img.data.len() as f32
         };
@@ -876,7 +875,7 @@ mod tests {
         lightcraft_pipeline::local::white_balance(&mut after, &info, &Default::default());
         assert!(sat(&after) < 1e-3, "saturation {} → {}", sat(&before), sat(&after));
         // a saturation-only map keeps brightness roughly (HSV value is kept in ProPhoto RGB)
-        let mean = |img: &Rgb32f| img.data.iter().map(|p| p[0].max(p[1]).max(p[2])).sum::<f32>() / img.data.len() as f32;
+        let mean = |img: &RgbFrame| img.data.iter().map(|p| p[0].max(p[1]).max(p[2])).sum::<f32>() / img.data.len() as f32;
         assert!((0.8..1.1).contains(&(mean(&after) / mean(&before))), "{} vs {}", mean(&after), mean(&before));
         let tone = info.camera_tone.expect("the DNG tone curve becomes the camera tone");
         assert!((tone.apply(0.18) - 0.3).abs() < 0.01, "{}", tone.apply(0.18));
@@ -1195,7 +1194,7 @@ mod baked_merge_lens_regression {
 
     #[test]
     fn merged_dng_reopen_suppresses_automatic_lens_correction() {
-        let image = Rgb32f::filled(16, 12, [0.2; 3]);
+        let image = RgbFrame::filled(16, 12, [0.2; 3]);
         let color =
             lightcraft_merge::FrameColor::Linear { to_xyz_d50: li_color::bradford(li_color::D65, li_color::D50).mul(&li_color::REC2020.to_xyz()) };
         let metadata = lightcraft_meta::Metadata {

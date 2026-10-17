@@ -1,6 +1,6 @@
 //! Independent comparison metrics (CIELab D65, CIEDE2000, lightness order, halos).
 //! CIEDE2000 follows Sharma/Wu/Dalal (2005); formula tests use their published pairs.
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 use std::f64::consts::PI;
 pub fn lab(c: [f32; 3]) -> [f64; 3] {
     let xyz = li_color::REC2020.to_xyz().apply(c.map(f64::from));
@@ -72,7 +72,7 @@ pub fn p95(values: &mut [f64]) -> f64 {
     values[((values.len() - 1) as f64 * 0.95).ceil() as usize]
 }
 /// Lightness-order error: deterministic spatial sample (at most 256), all sample pairs.
-pub fn lightness_order(a: &Rgb32f, b: &Rgb32f) -> f64 {
+pub fn lightness_order(a: &RgbFrame, b: &RgbFrame) -> f64 {
     let shared = a.len().min(b.len());
     let n = shared.min(256);
     let mut wrong = 0usize;
@@ -99,7 +99,7 @@ pub struct Halo {
 }
 /// Error against ideal two plateaus on a neutral step: far-field changes are intentional.
 /// Width measures connected 10%-peak support around each side's peak; energy is |EV|·px.
-pub fn halo(before: &Plane, after: &Plane, y: usize, edge: usize) -> Halo {
+pub fn halo(before: &GrayFrame, after: &GrayFrame, y: usize, edge: usize) -> Halo {
     let w = before.width;
     if w == 0 || y >= before.height || before.width != after.width || before.height != after.height {
         return Halo::default();
@@ -142,22 +142,22 @@ pub fn halo(before: &Plane, after: &Plane, y: usize, edge: usize) -> Halo {
 }
 #[cfg(test)]
 mod tests {
-    use lightcraft_raster::Plane;
+    use li_raster::GrayFrame;
     #[test]
     fn ds_finding_lightness_order_shared_samples() {
-        let a = lightcraft_raster::Rgb32f::from_fn(8, 1, |x, _| [x as f32 / 8.0; 3]);
-        let b = lightcraft_raster::Rgb32f::from_fn(4, 1, |x, _| [x as f32 / 8.0; 3]);
+        let a = li_raster::RgbFrame::from_fn(8, 1, |x, _| [x as f32 / 8.0; 3]);
+        let b = li_raster::RgbFrame::from_fn(4, 1, |x, _| [x as f32 / 8.0; 3]);
         assert_eq!(super::lightness_order(&a, &b), 0.0);
-        assert_eq!(super::lightness_order(&a, &lightcraft_raster::Rgb32f::new(0, 0)), 0.0);
+        assert_eq!(super::lightness_order(&a, &li_raster::RgbFrame::new(0, 0)), 0.0);
     }
 
     #[test]
     fn review_halo_empty_and_outside_edges() {
-        let empty = Plane::new(0, 0);
+        let empty = GrayFrame::new(0, 0);
         assert_eq!(super::halo(&empty, &empty, 0, 0).energy, 0.0);
-        let p = Plane::from_fn(8, 1, |_, _| 0.2);
+        let p = GrayFrame::from_fn(8, 1, |_, _| 0.2);
         assert_eq!(super::halo(&p, &p, 1, 4).energy, 0.0);
-        assert_eq!(super::halo(&p, &Plane::new(4, 1), 0, 4).energy, 0.0);
+        assert_eq!(super::halo(&p, &GrayFrame::new(4, 1), 0, 4).energy, 0.0);
         for edge in [0, 8, usize::MAX] {
             assert_eq!(super::halo(&p, &p, 0, edge).energy, 0.0);
         }

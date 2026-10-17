@@ -8,8 +8,8 @@
 //!    gradient (both diagonals when equal).
 
 use super::Mosaic;
-use crate::Rgb32f;
-use lightcraft_raster::par_rows;
+use crate::RgbFrame;
+use li_raster::par_rows;
 
 /// Green plane with PPG estimates at non-green sites.
 pub(crate) fn green_plane(m: &Mosaic) -> Vec<f32> {
@@ -48,11 +48,11 @@ pub(crate) fn green_plane(m: &Mosaic) -> Vec<f32> {
     g
 }
 
-pub(crate) fn ppg(m: &Mosaic) -> Rgb32f {
+pub(crate) fn ppg(m: &Mosaic) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     let g = green_plane(m);
     let gg = |x: isize, y: isize| g[super::reflect(y, h) * w + super::reflect(x, w)];
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     par_rows(&mut out.data, w, |y, row| {
         let y = y as isize;
         for (x, px) in row.iter_mut().enumerate() {

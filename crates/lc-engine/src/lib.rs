@@ -60,7 +60,7 @@ pub use {lightcraft_catalog as catalog, lightcraft_develop as develop, lightcraf
 
 /// The existing neutral-patch WB calculation, shared by commands and the UI picker worker.
 pub fn sample_white_balance(
-    src: &lightcraft_raster::Rgb32f,
+    src: &li_raster::RgbFrame,
     info: &lightcraft_pipeline::SourceInfo,
     orientation: lightcraft_geom::Orientation,
     x: f64,
@@ -78,7 +78,7 @@ pub fn sample_white_balance(
             }
         }
     }
-    let patch = lightcraft_raster::Rgb32f::filled(4, 4, acc);
+    let patch = li_raster::RgbFrame::filled(4, 4, acc);
     lightcraft_pipeline::auto::auto_wb(&patch, info)
 }
 

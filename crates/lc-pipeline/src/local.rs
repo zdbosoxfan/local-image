@@ -7,14 +7,14 @@ use li_color::{REC2020, luminance_2020};
 use lightcraft_develop::DevelopSettings;
 use std::sync::Arc;
 
-use lightcraft_raster::{Plane, Rgb32f, par_join};
+use li_raster::{GrayFrame, RgbFrame, par_join};
 
 use crate::geometry::Frame;
 use crate::{Prepared, Quality, SourceInfo, for_rows, masks, timed};
 
 /// White balance (relative to the source's as-shot white), the film negative conversion and
 /// exposure, in place.
-pub fn scene_linear_pre(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings) {
+pub fn scene_linear_pre(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings) {
     let gain = 2f32.powf(s.light.exposure as f32);
     match crate::negative::params(s) {
         Some(k) => {
@@ -27,7 +27,7 @@ pub fn scene_linear_pre(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings
 }
 
 /// White balance only (exposure is applied by the per-pixel stage, see [`crate::Prepared`]).
-pub fn white_balance(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings) {
+pub fn white_balance(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings) {
     wb_gain(img, info, s, 1.0);
 }
 
@@ -81,7 +81,7 @@ pub fn wb_change(from: (f64, f64), to: (f64, f64)) -> Option<[[f32; 3]; 3]> {
     Some(m.mul(&li_color::Mat3::diag(1.0 / y, 1.0 / y, 1.0 / y)).to_f32())
 }
 
-fn wb_gain(img: &mut Rgb32f, info: &SourceInfo, s: &DevelopSettings, gain: f32) {
+fn wb_gain(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings, gain: f32) {
     let m = wb_matrix_for(info, s);
     // a non-linear colour calibration: its per-pixel part after the matrix
     let cc = crate::colorcal::of(info, s).filter(|c| !c.is_linear());
@@ -125,14 +125,14 @@ pub fn effective_wb(info: &SourceInfo, s: &DevelopSettings) -> (f64, f64) {
 }
 
 /// Self-guided filter (He et al.) on a single plane with Gaussian windows of `sigma` px.
-pub fn guided(p: &Plane, sigma: f32, eps: f32) -> Plane {
+pub fn guided(p: &GrayFrame, sigma: f32, eps: f32) -> GrayFrame {
     let (ma, mb) = guided_coeffs(p, sigma, eps);
     guided_apply(p, &ma, &mb)
 }
 
 /// Blurred guided-filter coefficients (mean a, mean b) of `p`; every pass row-parallel, and the
 /// two independent blurs of each step run side by side.
-fn guided_coeffs(p: &Plane, sigma: f32, eps: f32) -> (Plane, Plane) {
+fn guided_coeffs(p: &GrayFrame, sigma: f32, eps: f32) -> (GrayFrame, GrayFrame) {
     let (mean, corr) = par_join(|| gaussian(p, sigma), || gaussian(&p.map(|v| v * v), sigma));
     let a = corr.zip_map(&mean, |c, m| {
         let var = (c - m * m).max(0.0);
@@ -143,8 +143,8 @@ fn guided_coeffs(p: &Plane, sigma: f32, eps: f32) -> (Plane, Plane) {
 }
 
 /// `q = a·p + b` per pixel.
-fn guided_apply(p: &Plane, a: &Plane, b: &Plane) -> Plane {
-    let mut q = Plane::new(p.width, p.height);
+fn guided_apply(p: &GrayFrame, a: &GrayFrame, b: &GrayFrame) -> GrayFrame {
+    let mut q = GrayFrame::new(p.width, p.height);
     let w = p.width;
     for_rows(&mut q.data, w, |y, row| {
         for ((v, pv), (av, bv)) in row.iter_mut().zip(p.row(y)).zip(a.row(y).iter().zip(b.row(y))) {
@@ -157,17 +157,16 @@ fn guided_apply(p: &Plane, a: &Plane, b: &Plane) -> Plane {
 /// Fast guided filter (He & Sun 2015): coefficients computed on a `s×` subsampled plane and
 /// bilinearly upsampled; the output keeps full-resolution edges. Equivalent to [`guided`] for
 /// large windows at a fraction of the cost.
-pub fn guided_fast(p: &Plane, sigma: f32, eps: f32) -> Plane {
+pub fn guided_fast(p: &GrayFrame, sigma: f32, eps: f32) -> GrayFrame {
     use li_raster::resample::Filter;
-    use lightcraft_raster::resample::resize;
     let s = guided_fast_step(sigma);
     if s <= 1 {
         return guided(p, sigma, eps);
     }
     let (lw, lh) = (p.width.div_ceil(s).max(1), p.height.div_ceil(s).max(1));
-    let lo = resize(p, lw, lh, Filter::Box);
+    let lo = p.resize(lw, lh, Filter::Box);
     let (ma, mb) = guided_coeffs(&lo, sigma / s as f32, eps);
-    let up = |c: &Plane| resize(c, p.width, p.height, Filter::Bilinear);
+    let up = |c: &GrayFrame| c.resize(p.width, p.height, Filter::Bilinear);
     guided_apply(p, &up(&ma), &up(&mb))
 }
 
@@ -177,7 +176,7 @@ pub fn guided_fast_step(sigma: f32) -> usize {
 }
 
 /// Wavelet noise reduction at the output's original-pixel scale.
-pub fn denoise(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_long: f64, sensor_scale: f32) {
+pub fn denoise(img: &mut RgbFrame, s: &DevelopSettings, src_long: usize, px_per_long: f64, sensor_scale: f32) {
     let scale = crate::detail::out_per_orig(px_per_long, src_long, sensor_scale);
     if let Some(p) = crate::detail::nr_params(s, scale) {
         crate::timed("wavelet NR", || crate::detail::denoise(img, &p));
@@ -185,7 +184,7 @@ pub fn denoise(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_lo
 }
 
 /// Resolve the calibrated sensor model through the same WB matrix as the rendered pixels.
-pub fn denoise_source(img: &mut Rgb32f, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
+pub fn denoise_source(img: &mut RgbFrame, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
     let scale = crate::detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
     let Some(p) = crate::detail::nr_params(s, scale) else {
         return;
@@ -218,27 +217,27 @@ pub fn log_lum(c: [f32; 3]) -> f32 {
 #[derive(Clone, Default)]
 pub(crate) struct Planes {
     pub key: u64,
-    pub log_l: Option<Arc<Plane>>,
-    pub base: Option<(u32, Arc<Plane>)>,
-    pub clarity: Option<(u32, Arc<Plane>)>,
-    pub texture: Option<(u32, Arc<Plane>)>,
+    pub log_l: Option<Arc<GrayFrame>>,
+    pub base: Option<(u32, Arc<GrayFrame>)>,
+    pub clarity: Option<(u32, Arc<GrayFrame>)>,
+    pub texture: Option<(u32, Arc<GrayFrame>)>,
     ///  log luminance blurred once and twice by the sharpening radius.
-    pub sharp: Option<(u32, Arc<Plane>, Arc<Plane>)>,
+    pub sharp: Option<(u32, Arc<GrayFrame>, Arc<GrayFrame>)>,
     ///  the refined dark channel and its coloured airlight (see [`crate::detail`]).
     pub haze: Option<Arc<crate::detail::Haze>>,
     /// Blurred chromaticity (local Moiré / Noise).
-    pub chroma: Option<(u32, Arc<Rgb32f>)>,
+    pub chroma: Option<(u32, Arc<RgbFrame>)>,
     /// Develop layers' noise reduction: the image denoised again with a layer's settings, by
     /// their key (see [`crate::layers::nr_images`]).
-    pub layer_nr: Vec<(u64, Arc<Rgb32f>)>,
-    pub layer_sharp: Vec<(u32, Arc<Plane>, Arc<Plane>)>,
+    pub layer_nr: Vec<(u64, Arc<RgbFrame>)>,
+    pub layer_sharp: Vec<(u32, Arc<GrayFrame>, Arc<GrayFrame>)>,
     /// The tone equalizer's mask (pre-exposure zones, see [`crate::toneeq::mask_plane`]) by the
     /// key of its radius and epsilon.
-    pub tone_eq: Option<(u64, Arc<Plane>)>,
+    pub tone_eq: Option<(u64, Arc<GrayFrame>)>,
 }
 
 /// Reuse `slot` if it was computed at `sigma`, else compute and store it.
-fn plane_at(slot: &mut Option<(u32, Arc<Plane>)>, sigma: f32, f: impl FnOnce() -> Plane) -> Arc<Plane> {
+fn plane_at(slot: &mut Option<(u32, Arc<GrayFrame>)>, sigma: f32, f: impl FnOnce() -> GrayFrame) -> Arc<GrayFrame> {
     match slot {
         Some((k, p)) if *k == sigma.to_bits() => p.clone(),
         _ => {
@@ -310,7 +309,7 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, out_per_orig: f32, q:
 /// one alone scales poorly: the guided filters work on small subsampled grids).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare(
-    img: Arc<Rgb32f>,
+    img: Arc<RgbFrame>,
     s: &DevelopSettings,
     info: &SourceInfo,
     frame: &Frame,
@@ -427,7 +426,7 @@ mod tests {
 
     #[test]
     fn guided_preserves_step_edges_and_flattens_texture() {
-        let p = Plane::from_fn(80, 20, |x, y| if x < 40 { -2.0 } else { 2.0 } + if (x + y) % 2 == 0 { 0.05 } else { -0.05 });
+        let p = GrayFrame::from_fn(80, 20, |x, y| if x < 40 { -2.0 } else { 2.0 } + if (x + y) % 2 == 0 { 0.05 } else { -0.05 });
         let q = guided(&p, 4.0, 0.3);
         // edge kept
         assert!(q.get(35, 10) < -1.5 && q.get(45, 10) > 1.5);
@@ -439,13 +438,13 @@ mod tests {
     fn wb_as_shot_is_identity_and_warming_adds_red() {
         let s = DevelopSettings::default();
         let info = SourceInfo::default();
-        let mut img = Rgb32f::filled(4, 4, [0.3, 0.3, 0.3]);
+        let mut img = RgbFrame::filled(4, 4, [0.3, 0.3, 0.3]);
         scene_linear_pre(&mut img, &info, &s);
         assert!((img.get(0, 0)[0] - 0.3).abs() < 1e-6);
         let mut warm = s.clone();
         warm.wb.mode = lightcraft_develop::WbMode::Custom;
         warm.wb.temp = 9000.0;
-        let mut img2 = Rgb32f::filled(4, 4, [0.3, 0.3, 0.3]);
+        let mut img2 = RgbFrame::filled(4, 4, [0.3, 0.3, 0.3]);
         scene_linear_pre(&mut img2, &info, &warm);
         let c = img2.get(0, 0);
         assert!(c[0] > c[2], "{c:?}");
@@ -457,7 +456,7 @@ mod tests {
     fn exposure_doubles() {
         let mut s = DevelopSettings::default();
         s.light.exposure = 1.0;
-        let mut img = Rgb32f::filled(2, 2, [0.1, 0.2, 0.3]);
+        let mut img = RgbFrame::filled(2, 2, [0.1, 0.2, 0.3]);
         scene_linear_pre(&mut img, &SourceInfo::default(), &s);
         assert!((img.get(1, 1)[2] - 0.6).abs() < 1e-5);
     }
@@ -469,7 +468,7 @@ mod fast_tests {
 
     #[test]
     fn fast_guided_close_to_reference() {
-        let p = Plane::from_fn(160, 120, |x, y| ((x as f32 * 0.13).sin() + (y as f32 * 0.07).cos()) * 2.0 + if x > 80 { 1.5 } else { 0.0 });
+        let p = GrayFrame::from_fn(160, 120, |x, y| ((x as f32 * 0.13).sin() + (y as f32 * 0.07).cos()) * 2.0 + if x > 80 { 1.5 } else { 0.0 });
         let a = guided(&p, 12.0, 0.3);
         let b = guided_fast(&p, 12.0, 0.3);
         let err: f32 = a.data.iter().zip(&b.data).map(|(u, v)| (u - v).abs()).sum::<f32>() / a.len() as f32;
@@ -483,11 +482,11 @@ mod nr_tests {
 
     #[test]
     fn luminance_nr_reduces_noise_keeps_mean() {
-        let mut img = Rgb32f::from_fn(64, 64, |x, y| {
+        let mut img = RgbFrame::from_fn(64, 64, |x, y| {
             let n = (((x * 7919 + y * 104729) % 97) as f32 / 97.0 - 0.5) * 0.06;
             [0.2 + n; 3]
         });
-        let var = |im: &Rgb32f| {
+        let var = |im: &RgbFrame| {
             let m = im.data.iter().map(|p| p[1]).sum::<f32>() / im.len() as f32;
             (im.data.iter().map(|p| (p[1] - m).powi(2)).sum::<f32>() / im.len() as f32, m)
         };

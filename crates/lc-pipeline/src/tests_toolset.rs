@@ -4,9 +4,9 @@
 //! Render hashes were re-recorded on x86_64 Linux after the DeepSeek numerical corrections;
 //! historical documents still load and round-trip.
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::Point;
-use lightcraft_raster::{Rgb32f, Rgba8};
 use serde_json::{Value, json};
 
 use crate::{RenderRequest, SourceInfo, render};
@@ -23,8 +23,8 @@ fn noise(x: usize, y: usize, k: u32) -> f32 {
 }
 
 /// Scene-linear test photo: luminance ramp, hue bands, a checker edge, noise, clipped corner.
-fn scene() -> Rgb32f {
-    Rgb32f::from_fn(W, H, |x, y| {
+fn scene() -> RgbFrame {
+    RgbFrame::from_fn(W, H, |x, y| {
         let l = 0.003 * 1.035f32.powi(x as i32);
         let tint = [[1.0, 0.45, 0.3], [0.9, 0.8, 0.25], [0.35, 0.9, 0.35], [0.3, 0.7, 1.0], [0.75, 0.4, 0.95], [0.8, 0.8, 0.8]][y * 6 / H];
         let edge = if (x / 17 + y / 17) % 2 == 0 { 1.0 } else { 0.65 };

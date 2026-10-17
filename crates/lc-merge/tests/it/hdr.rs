@@ -2,10 +2,10 @@
 //! headroom) is "photographed" at several exposures with clipping, sensor noise, 14-bit
 //! quantisation and small handheld shifts; the merge must recover the radiance.
 
+use li_raster::RgbFrame;
 use lightcraft_merge::frame::Frame;
 use lightcraft_merge::hdr::{Deghost, HdrOptions, merge_hdr};
 use lightcraft_merge::no_progress;
-use lightcraft_raster::Rgb32f;
 
 const W: usize = 640;
 const H: usize = 420;
@@ -26,7 +26,7 @@ impl Rng {
 }
 
 /// Scene radiance (with margin), scaled so the median is ≈ 0.18 at exposure 1.
-fn truth() -> Rgb32f {
+fn truth() -> RgbFrame {
     let scene = lightcraft_scenes::demo_library().into_iter().find(|s| s.kind == lightcraft_scenes::Kind::OceanSunset).unwrap();
     let img = scene.render(W + 2 * M, H + 2 * M);
     let mut l: Vec<f32> = img.data.iter().map(|p| p[1]).collect();
@@ -36,17 +36,17 @@ fn truth() -> Rgb32f {
 }
 
 /// A disk of radiance `val` centred at (cx, cy), radius r (truth coordinates).
-fn with_object(t: &Rgb32f, cx: f32, cy: f32, r: f32, val: [f32; 3]) -> Rgb32f {
-    Rgb32f::from_fn(t.width, t.height, |x, y| {
+fn with_object(t: &RgbFrame, cx: f32, cy: f32, r: f32, val: [f32; 3]) -> RgbFrame {
+    RgbFrame::from_fn(t.width, t.height, |x, y| {
         let d = ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
         if d < r { val } else { t.get(x, y) }
     })
 }
 
 /// Photograph `t` at exposure `k`, content shifted by (dx, dy).
-fn shoot(t: &Rgb32f, k: f32, dx: f32, dy: f32, seed: u64) -> Frame {
+fn shoot(t: &RgbFrame, k: f32, dx: f32, dy: f32, seed: u64) -> Frame {
     let mut rng = Rng(seed * 0x9e37_79b9 + 7);
-    let mut img = Rgb32f::from_fn(W, H, |x, y| t.sample_bilinear(x as f32 + 0.5 + M as f32 - dx, y as f32 + 0.5 + M as f32 - dy).map(|v| v * k));
+    let mut img = RgbFrame::from_fn(W, H, |x, y| t.sample_bilinear(x as f32 + 0.5 + M as f32 - dx, y as f32 + 0.5 + M as f32 - dy).map(|v| v * k));
     // shot + read noise, clipping at the white level, 14-bit quantisation
     for p in img.data.iter_mut() {
         for c in 0..3 {
@@ -135,7 +135,7 @@ fn deghost_removes_a_moving_object() {
         (0..3).map(|i| shoot(&with_object(&t, pos[i].0, pos[i].1, 28.0, [0.01, 0.012, 0.02]), ks[i], 0.0, 0.0, 10 + i as u64)).collect()
     };
     let ref_truth = with_object(&t, pos[1].0, pos[1].1, 28.0, [0.01, 0.012, 0.02]);
-    let err_at = |img: &Rgb32f, cx: f32, cy: f32| -> f32 {
+    let err_at = |img: &RgbFrame, cx: f32, cy: f32| -> f32 {
         let mut v = Vec::new();
         for y in (cy - 20.0) as usize..(cy + 20.0) as usize {
             for x in (cx - 20.0) as usize..(cx + 20.0) as usize {

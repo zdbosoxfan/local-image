@@ -268,11 +268,11 @@ mod tests {
         let mut r = raw_with(None, 4095.0);
         let cfa = r.cfa.clone().unwrap_or_else(Cfa::xtrans);
         // a wall far brighter than any channel's clip point
-        let wall = Rgb32f::from_fn(64, 64, |_, _| [4.0, 4.0, 4.0]);
+        let wall = RgbFrame::from_fn(64, 64, |_, _| [4.0, 4.0, 4.0]);
         let n = demosaic::mosaic_from_rgb(&wall, &cfa);
         r.data = RawData::U16(n.data.iter().map(|&v| (528.0 + v * 3039.0).min(3567.0) as u16).collect());
         let render = |r: &RawImage| {
-            let mut img = r.develop(Method::Bilinear).unwrap_or_else(|_| Rgb32f::new(1, 1));
+            let mut img = r.develop(Method::Bilinear).unwrap_or_else(|_| RgbFrame::new(1, 1));
             highlight::reconstruct(&mut img, wb, 0.99);
             let p = img.get(32, 32);
             [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]]

@@ -1,6 +1,6 @@
 //! View › Flip Horizontal mirrors the document in the GPU canvas shader (it used to send the view
 //! through the CPU compositor and egui textures): the flipped canvas is the unflipped one
-//! mirrored about the view centre, and it is still drawn by the GPU path. Skips without a GPU.
+//! mirrored about the view centre, and it is still drawn by the GPU path. Fails without a GPU.
 
 use egui_kittest::kittest::Queryable;
 use photocraft_ui_egui::PhotocraftApp;
@@ -8,24 +8,17 @@ use serde_json::json;
 
 type Harness = egui_kittest::Harness<'static, PhotocraftApp>;
 
-fn harness() -> Option<Harness> {
-    let built = std::panic::catch_unwind(|| {
-        egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 600.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(|cc| {
-            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            if let Some(rs) = cc.wgpu_render_state.as_ref() {
-                app.set_wgpu(rs.clone());
-            }
-            app
-        })
-    });
-    match built {
-        Ok(h) if h.state().gpu_active() => Some(h),
-        _ => {
-            eprintln!("skipping: no GPU adapter");
-            None
+fn harness() -> Harness {
+    let h = egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 600.0)).with_pixels_per_point(1.0).with_max_steps(64).wgpu().build_eframe(|cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        if let Some(rs) = cc.wgpu_render_state.as_ref() {
+            app.set_wgpu(rs.clone());
         }
-    }
+        app
+    });
+    assert!(h.state().gpu_active(), "real GPU required: the GPU canvas is not active");
+    h
 }
 
 /// The canvas pixels (RGB) inside its rect, row by row, and the rect's width.
@@ -47,7 +40,7 @@ fn canvas(h: &mut Harness) -> (Vec<[u8; 3]>, usize) {
 #[test]
 fn flipped_view_is_mirrored_on_the_gpu() {
     let _gpu = crate::gpu_lock();
-    let Some(mut h) = harness() else { return };
+    let mut h = harness();
     {
         let app = h.state_mut();
         app.run("file.new", json!({"width": 400, "height": 300, "background": "white"})).expect("new");

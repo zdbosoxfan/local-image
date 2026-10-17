@@ -17,13 +17,12 @@
 use std::sync::Arc;
 
 use li_raster::resample::Filter;
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_geom::Point;
 use lightcraft_pipeline::patches::{AiView, PatchPixels, PatchSource};
 use lightcraft_preview::Hasher128;
-use lightcraft_raster::resample::resize;
-use lightcraft_raster::{Plane, Rgb32f};
 
 use super::store::{self, Kind};
 use super::{AiHost, AiStroke, Job, JobCtl, JobKind, Outcome, RemoveDone, RemoveRequest};
@@ -359,18 +358,18 @@ fn stroke_coverage(stroke: &AiStroke, frame: &lightcraft_pipeline::geometry::Fra
 fn mask_coverage(
     m: &lightcraft_develop::Mask,
     frame: &lightcraft_pipeline::geometry::Frame,
-    img: &Rgb32f,
+    img: &RgbFrame,
     info: &lightcraft_pipeline::SourceInfo,
     s: &DevelopSettings,
 ) -> Vec<f32> {
     let (ew, eh) = frame.fit(MASK_EDGE, MASK_EDGE);
-    let mut small = resize(img, ew, eh, Filter::Box);
+    let mut small = img.resize(ew, eh, Filter::Box);
     lightcraft_pipeline::local::white_balance(&mut small, info, s);
     let log_l = small.map(lightcraft_pipeline::local::log_lum);
     let alpha = lightcraft_pipeline::masks::evaluate_one(m, frame, ew, eh, &small, &log_l, s.light.exposure as f32);
     let peak = alpha.data.iter().fold(0.0f32, |a, v| a.max(*v)).max(1e-6);
-    let alpha = Plane { width: ew, height: eh, data: alpha.data.iter().map(|v| (v / peak).clamp(0.0, 1.0)).collect() };
-    let full = resize(&alpha, img.width, img.height, Filter::Bilinear);
+    let alpha = GrayFrame { width: ew, height: eh, data: alpha.data.iter().map(|v| (v / peak).clamp(0.0, 1.0)).collect() };
+    let full = alpha.resize(img.width, img.height, Filter::Bilinear);
     full.data
 }
 

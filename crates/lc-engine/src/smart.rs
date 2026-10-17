@@ -9,9 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use li_color::transfer::linear_to_srgb;
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_catalog::Photo;
 use lightcraft_pipeline::tone::CameraTone;
-use lightcraft_raster::{Rgb32f, Rgba8};
 
 const MAGIC: &[u8] = b"LCSP1\n";
 
@@ -38,7 +38,7 @@ fn ds_finding_header_limit_includes_jpeg_start() {
 
 /// Encode a source image (and the decoder's camera tone curve, if any) as a smart preview.
 #[cfg(test)]
-pub fn encode(img: &Rgb32f, tone: Option<&CameraTone>) -> Result<Vec<u8>, String> {
+pub fn encode(img: &RgbFrame, tone: Option<&CameraTone>) -> Result<Vec<u8>, String> {
     encode_with_info(img, tone, None)
 }
 
@@ -49,7 +49,7 @@ pub fn encode_source(src: &crate::media::DecodedSource) -> Result<Vec<u8>, Strin
     encode_with_info(&src.image, info.camera_tone.as_ref(), Some(&info))
 }
 
-fn encode_with_info(img: &Rgb32f, tone: Option<&CameraTone>, info: Option<&lightcraft_pipeline::SourceInfo>) -> Result<Vec<u8>, String> {
+fn encode_with_info(img: &RgbFrame, tone: Option<&CameraTone>, info: Option<&lightcraft_pipeline::SourceInfo>) -> Result<Vec<u8>, String> {
     // scale so all but the brightest 0.05 % fit into 0..1
     let mut lum: Vec<f32> = img.data.iter().map(|c| c[0].max(c[1]).max(c[2])).filter(|v| v.is_finite()).collect();
     let scale = if lum.is_empty() {
@@ -97,11 +97,11 @@ fn encode_with_info(img: &Rgb32f, tone: Option<&CameraTone>, info: Option<&light
 /// Decode a smart preview back into a source image and its stored camera tone curve (an invalid
 /// curve is ignored, like a missing one).
 #[cfg(test)]
-pub fn decode(bytes: &[u8]) -> Result<(Rgb32f, Option<CameraTone>), String> {
+pub fn decode(bytes: &[u8]) -> Result<(RgbFrame, Option<CameraTone>), String> {
     decode_with_info(bytes).map(|(img, tone, _)| (img, tone))
 }
 
-fn decode_with_info(bytes: &[u8]) -> Result<(Rgb32f, Option<CameraTone>, Option<lightcraft_pipeline::SourceInfo>), String> {
+fn decode_with_info(bytes: &[u8]) -> Result<(RgbFrame, Option<CameraTone>, Option<lightcraft_pipeline::SourceInfo>), String> {
     let rest = bytes.strip_prefix(MAGIC).ok_or("not a smart preview")?;
     let nl = rest.iter().position(|b| *b == b'\n').ok_or("bad smart preview")?;
     if nl as u64 >= HEADER_MAX {

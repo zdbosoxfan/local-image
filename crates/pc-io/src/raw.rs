@@ -53,7 +53,7 @@ fn camera_defaults(info: &lightcraft_pipeline::SourceInfo) -> lightcraft_develop
 /// (demosaic, profiles) was over half of that wait (1.3 s of 2.7 s for a 21 MP ARW on a Ryzen
 /// 9800X3D, measured with `bench_develop_open`). One entry, and only up to
 /// [`DECODE_CACHE_MAX_BYTES`], so it can't hold much memory.
-static LAST_DECODE: std::sync::Mutex<Option<(([u8; 32], u64), Arc<lightcraft_raster::Rgb32f>, lightcraft_pipeline::SourceInfo)>> = std::sync::Mutex::new(None);
+static LAST_DECODE: std::sync::Mutex<Option<(([u8; 32], u64), Arc<li_raster::RgbFrame>, lightcraft_pipeline::SourceInfo)>> = std::sync::Mutex::new(None);
 
 /// The largest decoded source (linear float RGB) [`LAST_DECODE`] keeps: about 64 MP.
 const DECODE_CACHE_MAX_BYTES: usize = 768 << 20;
@@ -63,10 +63,7 @@ thread_local! {
     static DECODES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn decoded_source(
-    bytes: &[u8],
-    opts: &lightcraft_engine::files::RawOptions,
-) -> Result<(Arc<lightcraft_raster::Rgb32f>, lightcraft_pipeline::SourceInfo), IoError> {
+fn decoded_source(bytes: &[u8], opts: &lightcraft_engine::files::RawOptions) -> Result<(Arc<li_raster::RgbFrame>, lightcraft_pipeline::SourceInfo), IoError> {
     let key = (*blake3::hash(bytes).as_bytes(), opts.key());
     if let Ok(mut last) = LAST_DECODE.lock() {
         if let Some((k, src, info)) = last.as_ref()
@@ -101,7 +98,7 @@ pub fn develop_with_settings(name: &str, bytes: &[u8], settings: &serde_json::Va
 fn render_source(
     name: &str,
     bytes: &[u8],
-    src: &Arc<lightcraft_raster::Rgb32f>,
+    src: &Arc<li_raster::RgbFrame>,
     info: &lightcraft_pipeline::SourceInfo,
     settings: &lightcraft_develop::DevelopSettings,
 ) -> Result<ImportResult, IoError> {

@@ -15,8 +15,8 @@ use std::borrow::Cow;
 use li_color::perceptual::{lab_to_lch, oklab_from_2020};
 use li_color::transfer::srgb_to_linear;
 use li_color::{REC2020, SRGB};
+use li_raster::{GrayFrame, Rgba8};
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::{Plane, Rgba8};
 
 use crate::colorops::PointK;
 use crate::{Plan, for_rows};
@@ -219,7 +219,7 @@ pub fn remaining_for_overlay(o: Overlay, s: &DevelopSettings) -> DevelopSettings
 }
 
 /// Skin coverage on exposed scene-linear values, matching the picker's UCS22 reference.
-pub fn skin_alpha(img: &lightcraft_raster::Rgb32f, skin: &lightcraft_develop::SkinTone, gain: f32) -> Plane {
+pub fn skin_alpha(img: &li_raster::RgbFrame, skin: &lightcraft_develop::SkinTone, gain: f32) -> GrayFrame {
     let lw = crate::ucs::y_to_l_star(1.0);
     img.map(|rgb| {
         let xyz = crate::ucs::mul(&crate::ucs::mats().rgb_to_xyz, rgb.map(|v| v * gain));
@@ -229,7 +229,7 @@ pub fn skin_alpha(img: &lightcraft_raster::Rgb32f, skin: &lightcraft_develop::Sk
 
 /// Draw overlay `o` over `img` (rendered with `plan`). `mask` is the evaluated alpha of the mask
 /// an [`Overlay::Mask`] shows, at the image's size (see [`Overlay::mask`]).
-pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>) {
+pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&GrayFrame>) {
     match o {
         Overlay::None => {}
         Overlay::PointColorRange(i) => {
@@ -267,7 +267,7 @@ pub fn apply(img: &mut Rgba8, o: Overlay, plan: &Plan<'_>, mask: Option<&Plane>)
 }
 
 /// Draw mask alpha `a` over `img` as `view`.
-pub fn mask_view(img: &mut Rgba8, a: &Plane, view: MaskView, color: [u8; 3], opacity: u8) {
+pub fn mask_view(img: &mut Rgba8, a: &GrayFrame, view: MaskView, color: [u8; 3], opacity: u8) {
     mask_view_with(img, view, color, opacity, |i| a.data[i]);
 }
 // Scalar Full overlays use the same drawing without materialising an alpha plane.
@@ -308,11 +308,11 @@ fn spots(img: &mut Rgba8, t: u8, ppl: f64) {
     if w == 0 || h == 0 {
         return;
     }
-    let l = lightcraft_raster::Plane::from_fn(w, h, |x, y| {
+    let l = li_raster::GrayFrame::from_fn(w, h, |x, y| {
         let p = img.data[y * w + x];
         (li_color::luminance_709([p[0] as f32, p[1] as f32, p[2] as f32])) / 255.0
     });
-    let b = lightcraft_raster::blur::gaussian(&l, (SPOT_SIGMA * ppl).max(0.8) as f32);
+    let b = l.gaussian((SPOT_SIGMA * ppl).max(0.8) as f32);
     let thr = spot_threshold(t);
     for (i, px) in img.data.iter_mut().enumerate() {
         let v = if (l.data[i] - b.data[i]).abs() > thr { 255 } else { 0 };
@@ -321,7 +321,7 @@ fn spots(img: &mut Rgba8, t: u8, ppl: f64) {
 }
 
 /// Keep selected pixels in colour, fade the rest to grey using the tool's feathered window.
-fn selected_range(img: &mut Rgba8, alpha: &Plane) {
+fn selected_range(img: &mut Rgba8, alpha: &GrayFrame) {
     if (img.width, img.height) != (alpha.width, alpha.height) {
         return;
     }
@@ -359,13 +359,13 @@ fn point_color_range(img: &mut Rgba8, k: &PointK) {
 mod tests {
     use super::*;
     use crate::{RenderRequest, SourceInfo, render};
+    use li_raster::RgbFrame;
     use lightcraft_develop::PointColor;
-    use lightcraft_raster::Rgb32f;
 
     #[test]
     fn spots_view_marks_specks_at_any_size() {
         // a smooth gradient with two small dark specks
-        let src = Rgb32f::from_fn(400, 300, |x, y| {
+        let src = RgbFrame::from_fn(400, 300, |x, y| {
             let d = |cx: f32, cy: f32| ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
             let base = 0.1 + 0.3 * x as f32 / 400.0;
             if d(100.0, 100.0) < 2.5 || d(300.0, 200.0) < 2.5 { [base * 0.5; 3] } else { [base; 3] }
@@ -390,7 +390,7 @@ mod tests {
     #[test]
     fn point_color_range_keeps_the_selected_colour_only() {
         // left half orange, right half blue
-        let src = Rgb32f::from_fn(32, 16, |x, _| if x < 16 { [0.4, 0.15, 0.04] } else { [0.03, 0.06, 0.35] });
+        let src = RgbFrame::from_fn(32, 16, |x, _| if x < 16 { [0.4, 0.15, 0.04] } else { [0.03, 0.06, 0.35] });
         let info = SourceInfo::default();
         let plain = render(&src, &info, &DevelopSettings::default(), &RenderRequest::fit(32, 16)).image;
         // sample the orange as it renders
@@ -416,7 +416,7 @@ mod tests {
     fn mask_overlay_shows_the_evaluated_alpha() {
         use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape};
         use lightcraft_geom::Point;
-        let src = Rgb32f::from_fn(80, 40, |x, _| if x < 40 { [0.18, 0.18, 0.18] } else { [0.05, 0.1, 0.3] });
+        let src = RgbFrame::from_fn(80, 40, |x, _| if x < 40 { [0.18, 0.18, 0.18] } else { [0.05, 0.1, 0.3] });
         let info = SourceInfo::default();
         let shape = MaskShape::Radial { center: Point::new(0.25, 0.5), rx: 0.15, ry: 0.15, angle: 0.0, feather: 10.0, invert: false };
         let mut s = DevelopSettings::default();
@@ -458,10 +458,10 @@ mod tests {
 #[test]
 fn develop_c_skin_range_uses_scene_reference_and_preserves_targeted_layer() {
     use crate::{RenderRequest, SourceInfo, render};
+    use li_raster::RgbFrame;
     use lightcraft_develop::{LayerTools, Mask, MaskComponent, MaskShape, SkinTone};
     use lightcraft_geom::Point;
-    use lightcraft_raster::Rgb32f;
-    let src = Rgb32f::from_fn(40, 20, |x, _| if x < 20 { [0.3, 0.12, 0.05] } else { [0.03, 0.07, 0.3] });
+    let src = RgbFrame::from_fn(40, 20, |x, _| if x < 20 { [0.3, 0.12, 0.05] } else { [0.03, 0.07, 0.3] });
     let info = SourceInfo::default();
     let req = RenderRequest::fit(40, 20);
     let reference = crate::skin_reference_sample(&src, &info, &DevelopSettings::default(), &req, Point::new(0.2, 0.5)).unwrap();

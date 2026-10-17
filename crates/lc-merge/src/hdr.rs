@@ -20,8 +20,7 @@
 //!    are dilated and feathered (Gaussian), upsampled, and remove the frame's weight. Their union
 //!    is the deghost overlay.
 
-use lightcraft_raster::blur::gaussian;
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -68,9 +67,9 @@ impl Default for HdrOptions {
 #[derive(Clone, Debug)]
 pub struct HdrResult {
     /// Scene-linear radiance; 1.0 = the reference frame's white level.
-    pub radiance: Rgb32f,
+    pub radiance: RgbFrame,
     /// Deghost overlay (0..1, the union of the masks) at the radiance's size; empty without deghosting.
-    pub ghost: Plane,
+    pub ghost: GrayFrame,
     /// Index (into the inputs) of the reference frame.
     pub reference: usize,
     /// Exposure of each input relative to the reference, in EV (as used for the merge).
@@ -181,7 +180,7 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
             alignments[i] = a;
         }
         check(progress, 0.35, "Resampling")?;
-        let warped: Vec<(usize, Rgb32f, Vec<bool>)> = (0..n)
+        let warped: Vec<(usize, RgbFrame, Vec<bool>)> = (0..n)
             .into_par_iter()
             .filter(|&i| i != reference && alignments[i].model != "identity")
             .map(|i| {
@@ -224,12 +223,13 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
 
     // 4./5. deghost maps (small scale)
     check(progress, 0.55, "Deghosting")?;
-    let ghost_small: Option<(Vec<Plane>, usize)> = opts.deghost.params().map(|(thr, r)| deghost_maps(&frames, &valid, &k, &order, reference, thr, r));
+    let ghost_small: Option<(Vec<GrayFrame>, usize)> =
+        opts.deghost.params().map(|(thr, r)| deghost_maps(&frames, &valid, &k, &order, reference, thr, r));
     check(progress, 0.7, "Merging")?;
 
     let darkest = order[0];
     let clips: Vec<f32> = frames.iter().map(|f| f.clip).collect();
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     let fr = &frames;
     let vd = &valid;
     let gs = ghost_small.as_ref();
@@ -278,7 +278,7 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
     let ghost = match &ghost_small {
         Some((maps, fac)) => {
             let fac = *fac as f32;
-            let mut g = Plane::new(w, h);
+            let mut g = GrayFrame::new(w, h);
             g.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
                 for (x, o) in row.iter_mut().enumerate() {
                     let (sx, sy) = ((x as f32 + 0.5) / fac, (y as f32 + 0.5) / fac);
@@ -287,7 +287,7 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
             });
             g
         }
-        None => Plane::new(0, 0),
+        None => GrayFrame::new(0, 0),
     };
     let rf = &frames[reference];
     Ok(HdrResult {
@@ -308,11 +308,10 @@ pub fn merge_hdr(mut frames: Vec<Frame>, opts: &HdrOptions, progress: &Progress)
 /// Photometric refinement must ignore sensor clipping, even when a saturated colour
 /// has a moderate luminance. Otherwise optimization can explain clipped brightness
 /// differences by introducing a false scale/rotation at bright window boundaries.
-fn refinement_image(frame: &Frame, gain: f32) -> (Plane, f64) {
+fn refinement_image(frame: &Frame, gain: f32) -> (GrayFrame, f64) {
     use li_raster::resample::Filter;
-    use lightcraft_raster::resample::fit;
     let small = if frame.width().max(frame.height()) > align::WORK_EDGE {
-        fit(&frame.image, align::WORK_EDGE, align::WORK_EDGE, Filter::Box)
+        frame.image.fit(align::WORK_EDGE, align::WORK_EDGE, Filter::Box)
     } else {
         frame.image.clone()
     };
@@ -323,7 +322,7 @@ fn refinement_image(frame: &Frame, gain: f32) -> (Plane, f64) {
 }
 
 /// Bilinear sample of a plane at continuous coordinates (pixel centres at +0.5).
-pub(crate) fn sample_plane(p: &Plane, x: f32, y: f32) -> f32 {
+pub(crate) fn sample_plane(p: &GrayFrame, x: f32, y: f32) -> f32 {
     if p.width == 0 || p.height == 0 {
         return 0.0;
     }
@@ -359,9 +358,9 @@ fn log_ratio(a: &Frame, va: Option<&[bool]>, b: &Frame, vb: Option<&[bool]>) -> 
 }
 
 /// Box-downsample by `fac` (with the fraction of valid source pixels).
-fn shrink(img: &Rgb32f, valid: Option<&[bool]>, fac: usize) -> (Rgb32f, Vec<f32>) {
+fn shrink(img: &RgbFrame, valid: Option<&[bool]>, fac: usize) -> (RgbFrame, Vec<f32>) {
     let (w, h) = (img.width.div_ceil(fac), img.height.div_ceil(fac));
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     let mut vf = vec![0f32; w * h];
     out.data.par_chunks_mut(w).zip(vf.par_chunks_mut(w)).enumerate().for_each(|(y, (row, vrow))| {
         for x in 0..w {
@@ -398,11 +397,11 @@ pub(crate) fn deghost_maps(
     reference: usize,
     thr: f32,
     r: usize,
-) -> (Vec<Plane>, usize) {
+) -> (Vec<GrayFrame>, usize) {
     let n = frames.len();
     let (w, h) = (frames[0].width(), frames[0].height());
     let fac = w.max(h).div_ceil(1024).max(1);
-    let small: Vec<(Rgb32f, Vec<f32>)> = (0..n).into_par_iter().map(|i| shrink(&frames[i].image, valid[i].as_deref(), fac)).collect();
+    let small: Vec<(RgbFrame, Vec<f32>)> = (0..n).into_par_iter().map(|i| shrink(&frames[i].image, valid[i].as_deref(), fac)).collect();
     let (sw, sh) = (small[0].0.width, small[0].0.height);
     let rpos = order.iter().position(|&i| i == reference).unwrap_or(0);
     let good = |i: usize, p: usize| -> bool {
@@ -437,15 +436,15 @@ pub(crate) fn deghost_maps(
             }
         })
         .collect();
-    let maps: Vec<Plane> = (0..n)
+    let maps: Vec<GrayFrame> = (0..n)
         .into_par_iter()
         .map(|i| {
             if i == reference {
-                return Plane::new(sw, sh);
+                return GrayFrame::new(sw, sh);
             }
             let f = &frames[i];
             let e = if f.raw { 0.01 } else { 0.03 } * f.clip;
-            let mut m = Plane::new(sw, sh);
+            let mut m = GrayFrame::new(sw, sh);
             for p in 0..sw * sh {
                 if small[i].1[p] < 0.5 {
                     continue;
@@ -461,7 +460,7 @@ pub(crate) fn deghost_maps(
             }
             // dilate (max filter, square r) then feather
             let dil = dilate(&m, r);
-            let mut g = gaussian(&dil, r as f32);
+            let mut g = dil.gaussian(r as f32);
             for v in g.data.iter_mut() {
                 *v = v.clamp(0.0, 1.0);
             }
@@ -471,16 +470,16 @@ pub(crate) fn deghost_maps(
     (maps, fac)
 }
 
-fn dilate(p: &Plane, r: usize) -> Plane {
+fn dilate(p: &GrayFrame, r: usize) -> GrayFrame {
     let (w, h) = (p.width, p.height);
-    let mut tmp = Plane::new(w, h);
+    let mut tmp = GrayFrame::new(w, h);
     for y in 0..h {
         for x in 0..w {
             let (a, b) = (x.saturating_sub(r), (x + r).min(w - 1));
             tmp.data[y * w + x] = p.data[y * w + a..=y * w + b].iter().copied().fold(0.0, f32::max);
         }
     }
-    let mut out = Plane::new(w, h);
+    let mut out = GrayFrame::new(w, h);
     for y in 0..h {
         let (a, b) = (y.saturating_sub(r), (y + r).min(h - 1));
         for x in 0..w {
@@ -496,9 +495,9 @@ mod j19_validation {
 
     #[test]
     fn j19_hdr_rejects_empty_and_nonfinite_inputs() {
-        let f = Frame::from_linear_rec2020(Rgb32f::new(0, 0), Some(0.0));
+        let f = Frame::from_linear_rec2020(RgbFrame::new(0, 0), Some(0.0));
         assert!(matches!(merge_hdr(vec![f.clone(), f], &HdrOptions::default(), &crate::no_progress), Err(MergeError::Mismatch(_))));
-        let good = Frame::from_linear_rec2020(Rgb32f::from_fn(8, 8, |_, _| [0.2; 3]), Some(0.0));
+        let good = Frame::from_linear_rec2020(RgbFrame::from_fn(8, 8, |_, _| [0.2; 3]), Some(0.0));
         for kind in 0..5 {
             let mut bad = good.clone();
             match kind {
