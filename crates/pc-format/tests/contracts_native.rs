@@ -276,6 +276,8 @@ fn every_layer_content_variant_has_a_structural_fixture() {
             LayerContent::Symbol(_) => "symbol",
         }
     }
+    // The golden document uses fixed layer ids 2-5; mint rich_doc's ids above them.
+    ensure_ids_above(5);
     let mut d = legacy::rich_doc(ColorMode::Rgb, SampleType::U8);
     let reference = golden_document();
     d.symbols = reference.symbols;
