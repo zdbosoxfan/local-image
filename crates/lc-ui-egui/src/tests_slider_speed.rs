@@ -473,10 +473,6 @@ fn develop_slider_gpu_step_timings() {
         return;
     }
     lightcraft_engine::gpu::set_enabled(true);
-    if !lightcraft_engine::gpu::available() {
-        assert!(std::env::var_os("LC_REQUIRE_GPU").is_none(), "hardware GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_engine::gpu::available(), "real GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
     slider_step_timings(true);
 }

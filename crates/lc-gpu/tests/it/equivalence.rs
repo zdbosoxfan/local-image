@@ -2,7 +2,7 @@
 //! `lightcraft_gpu::render`, compared in 8-bit sRGB.
 //!
 //! Bounds: mean |Δ| < 0.5 LSB and max |Δ| ≤ 3 LSB per
-//! channel for every case. Skips (passes with a note) when no GPU adapter exists, e.g. on CI.
+//! channel for every case. Fails when no GPU adapter exists.
 
 use std::sync::Arc;
 
@@ -14,20 +14,14 @@ use lightcraft_raster::{Rgb32f, Rgba8};
 const MEAN_LSB: f64 = 0.5;
 const MAX_LSB: u8 = 3;
 
-fn gpu() -> bool {
-    let ok = lightcraft_gpu::available();
-    if !ok {
-        eprintln!("skipped: no GPU adapter");
-    }
-    ok
+fn require_gpu() {
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
 }
 
 #[test]
 fn camera_tone_and_relative_wb() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(2, 320, 240);
     let curve = lightcraft_pipeline::tone::CameraTone::new(std::array::from_fn(|i| {
         let x = 0.004 * 1.18f32.powi(i as i32);
@@ -103,9 +97,7 @@ fn typical(s: &mut DevelopSettings) {
 #[test]
 fn banded_full_size_render_matches() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let (w, h) = (3000, 2000);
     let src = scene(3, w, h);
     let mut s = DevelopSettings::default();
@@ -419,9 +411,7 @@ fn cases() -> Vec<(&'static str, Edit)> {
 #[test]
 fn gpu_matches_cpu() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(0, 960, 640);
     let raw = SourceInfo { raw: true, ..Default::default() };
     let req = RenderRequest::fit(720, 720);
@@ -452,7 +442,7 @@ fn masked_dehaze_unit_transmission_is_identity() {
     let src = Arc::new(Rgb32f::from_fn(80, 48, |x, y| colours[(x + y) % colours.len()]));
     let info = SourceInfo { raw: true, ..Default::default() };
     let req = RenderRequest::fit(80, 48);
-    let adapter = gpu();
+    require_gpu();
     for look in Look::ALL {
         let mut s = DevelopSettings { look, ..Default::default() };
         s.masks = vec![
@@ -485,9 +475,7 @@ fn masked_dehaze_unit_transmission_is_identity() {
             } else {
                 assert_ne!(cpu, zero, "actual masked dehaze must still apply");
             }
-            if adapter {
-                check(&format!("tiny masked dehaze {look:?} {opacity}"), &src, &info, &s, &req);
-            }
+            check(&format!("tiny masked dehaze {look:?} {opacity}"), &src, &info, &s, &req);
         }
     }
 }
@@ -495,9 +483,7 @@ fn masked_dehaze_unit_transmission_is_identity() {
 #[test]
 fn rendered_sources_and_other_scenes() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // A display-referred source (JPEG-like: display tone map) and other scenes / sizes / draft.
     let jpeg = SourceInfo::default();
     for (i, (w, h)) in [(3usize, (800usize, 533usize)), (5, (640, 960)), (7, (1200, 800))] {
@@ -515,9 +501,7 @@ fn rendered_sources_and_other_scenes() {
 #[test]
 fn geometry_variants() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(2, 900, 600);
     let raw = SourceInfo { raw: true, ..Default::default() };
     use Orientation::*;
@@ -537,9 +521,7 @@ fn geometry_variants() {
 #[test]
 fn embedded_lens_perspective_edges_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
     let src = scene(2, 900, 600);
     let raw = SourceInfo { raw: true, ..Default::default() };
@@ -569,9 +551,7 @@ fn embedded_lens_perspective_edges_match() {
 #[test]
 fn cached_renders_match_uncached() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // Slider drags reuse device-resident stages: the result must equal a fresh render.
     let src = scene(1, 900, 600);
     let info = SourceInfo { raw: true, ..Default::default() };
@@ -592,9 +572,7 @@ fn cached_renders_match_uncached() {
 #[test]
 fn overlays_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // Diagnostic overlays run on the finished 8-bit image, after either renderer.
     let src = scene(0, 900, 600);
     let raw = SourceInfo { raw: true, ..Default::default() };
@@ -660,9 +638,7 @@ fn overlays_match() {
 #[test]
 fn red_eye_matches() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // A face-like patch with a red pupil (left) and a glowing pet pupil (right).
     let src = Arc::new(Rgb32f::from_fn(800, 400, |x, y| {
         let d = |cx: f32, cy: f32| ((x as f32 + 0.5 - cx).powi(2) + (y as f32 + 0.5 - cy).powi(2)).sqrt();
@@ -717,9 +693,7 @@ fn saturated(s: &mut DevelopSettings) {
 #[test]
 fn output_spaces_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // Export colour spaces: matrix to the target primaries, gamut mapping into the target gamut and
     // its encoding curve, on both renderers. Saturated edits push colours to the gamut edges.
     use lightcraft_pipeline::OutputSpace;
@@ -739,9 +713,7 @@ fn output_spaces_match() {
 #[test]
 fn colour_tone_looks_bases_hue_and_rolloff() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     use lightcraft_develop::{Look, ToneBase};
     let src = Arc::new(Rgb32f::from_fn(192, 96, |x, y| {
         let gain = 2f32.powf(-10.0 + 16.0 * x as f32 / 191.0);
@@ -784,9 +756,7 @@ fn colour_tone_looks_bases_hue_and_rolloff() {
 #[test]
 fn working_curves_gamut_and_dither() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     use lightcraft_develop::CurveMode;
     use lightcraft_pipeline::OutputSpace;
     let src = Arc::new(Rgb32f::from_fn(256, 64, |x, y| {
@@ -828,9 +798,7 @@ fn working_curves_gamut_and_dither() {
 #[test]
 fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = Arc::new(Rgb32f::from_fn(193, 127, |x, y| {
         let l = if x < 90 { 0.018 } else { 3. };
         [l * (1. + 0.08 * (y as f32 * 0.13).sin()), l * 0.65, l * 0.38]
@@ -900,9 +868,7 @@ fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
 #[test]
 fn eigf_tone_equalizer_matches_including_mask_preview() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
         let v = 0.002 * 1.045f32.powi(x as i32) * (1. + 0.05 * (y as f32 * 0.4).sin());
         [v, v * 0.7, v * 0.5]
@@ -925,9 +891,7 @@ fn eigf_tone_equalizer_matches_including_mask_preview() {
 #[test]
 fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = Arc::new(Rgb32f::from_fn(127, 93, |x, y| {
         let v = if x < 63 { 0.025 } else { 3. };
         [v * (1. + 0.03 * (y as f32).sin()), v * 0.7, v * 0.4]
@@ -961,9 +925,7 @@ fn both_hs_candidates_match_cpu_and_do_not_share_cached_gains() {
 #[test]
 fn deep_output_matches_cpu() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     eprintln!("adapter: {:?}", lightcraft_gpu::adapter_name());
     let src = scene(3, 320, 240);
     let info = SourceInfo { raw: true, ..Default::default() };

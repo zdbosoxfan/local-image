@@ -2,7 +2,7 @@
 //! the app falls back to the CPU canvas for the rest of the session with a notice, and the
 //! documents stay. Recoverable compute errors keep the window device alive to display CPU
 //! uploads while acceleration waits for retry. Both an injected loss and a real
-//! `Device::destroy()` are covered. Skips when there is no GPU adapter.
+//! `Device::destroy()` are covered. Fails when there is no GPU adapter.
 
 use eframe::egui_wgpu::RenderState;
 use li_gpu::health::Fault;
@@ -15,13 +15,8 @@ use serde_json::json;
 /// Concurrent wgpu devices in one process crash on some drivers (see `canvas_16f.rs`).
 use crate::gpu_lock;
 
-fn render_state() -> Option<RenderState> {
-    let rs =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default()))).ok();
-    if rs.is_none() {
-        eprintln!("skipping: no GPU adapter");
-    }
-    rs
+fn render_state() -> RenderState {
+    egui_kittest::wgpu::create_render_state(gpu_canvas::wgpu_setup(), Default::default())
 }
 
 fn doc() -> Document {
@@ -31,7 +26,7 @@ fn doc() -> Document {
 #[test]
 fn injected_loss_stops_gpu_work_without_panicking() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::new(&rs);
     let d = doc();
     let key = d.id.0;
@@ -55,7 +50,7 @@ fn injected_loss_stops_gpu_work_without_panicking() {
 #[test]
 fn destroyed_device_falls_back_without_panicking() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::new(&rs);
     let d = doc();
     let key = d.id.0;
@@ -78,7 +73,7 @@ fn destroyed_device_falls_back_without_panicking() {
 #[test]
 fn app_switches_to_the_cpu_canvas_and_keeps_the_documents() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), photocraft_ui_egui::Services::default());
     app.set_wgpu(rs);
     app.run("file.new", json!({"width": 320, "height": 240})).unwrap();
@@ -166,7 +161,7 @@ fn system_info_lists_the_graphics_state() {
 #[test]
 fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let g = GpuCanvas::new(&rs);
     let d = doc();
     let key = d.id.0;
@@ -196,7 +191,7 @@ fn single_validation_error_retries_on_cpu_and_recovers_gpu() {
 #[test]
 fn validation_errors_in_three_frames_pause_compute_and_keep_the_canvas() {
     let _gpu = gpu_lock();
-    let Some(rs) = render_state() else { return };
+    let rs = render_state();
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     app.set_wgpu(rs);
     app.run("file.new", json!({"width": 32, "height": 32})).unwrap();

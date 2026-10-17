@@ -6,6 +6,7 @@ use egui_kittest::Harness;
 use serde_json::json;
 
 use crate::PhotocraftApp;
+use crate::canvas_test_support::platform;
 
 fn harness() -> Harness<'static, PhotocraftApp> {
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
@@ -27,20 +28,6 @@ fn harness() -> Harness<'static, PhotocraftApp> {
     PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
     h.run_steps(4);
     h
-}
-
-/// ⌘ as the platform reports it (⌘ on the Mac, Ctrl elsewhere).
-fn platform(m: Modifiers) -> Modifiers {
-    let mut out = Modifiers { alt: m.alt, shift: m.shift, ctrl: m.ctrl, ..Default::default() };
-    if m.command {
-        out.command = true;
-        if cfg!(target_os = "macos") {
-            out.mac_cmd = true;
-        } else {
-            out.ctrl = true;
-        }
-    }
-    out
 }
 
 fn tap(h: &mut Harness<'static, PhotocraftApp>, k: Key, m: Modifiers) {

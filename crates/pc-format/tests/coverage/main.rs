@@ -1,4 +1,4 @@
-//! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
+//! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
-mod ds_autosave_coverage;
-mod ds_manifest_coverage;
+mod autosave_coverage;
+mod manifest_coverage;

@@ -1,83 +1,46 @@
-//! Pre-consolidation shape oracle plus genuine pointer/keyboard interactions.
-#[path = "golden/widgets_before.rs"]
-mod before;
+//! Widget shape goldens plus genuine pointer/keyboard interactions.
 use egui::{Color32, Rect, Sense, Vec2, vec2};
 use li_ui_kit::{
     fonts, library, theme,
     widgets::{self, Profile, SelectionStyle},
 };
 
-fn gallery(ui: &mut egui::Ui, old: bool, profile: Profile) {
+fn gallery(ui: &mut egui::Ui, profile: Profile) {
     match profile {
         Profile::Editor => {
-            if old {
-                before::editor::section_label_translated(ui, "BASIC");
-                before::editor::pill_tab_translated(ui, "Selected", true);
-                before::editor::pill_tab_translated(ui, "Other", false);
-                before::editor::primary_button(ui, "Apply", 70.0);
-                before::editor::secondary_button(ui, "Cancel", 70.0);
-                before::editor::checkbox(ui, &mut true, "Enabled");
-                before::editor::checkbox(ui, &mut false, "Disabled");
-                before::editor::hairline(ui);
-                before::editor::vline(ui, 20.0);
-            } else {
-                widgets::heading(ui, "BASIC", profile, false);
-                widgets::selection(ui, "Selected", true, SelectionStyle::Pill, None);
-                widgets::selection(ui, "Other", false, SelectionStyle::Pill, None);
-                widgets::primary_button(ui, "Apply", 70.0);
-                widgets::secondary_button(ui, "Cancel", 70.0);
-                widgets::checkbox(ui, &mut true, "Enabled", profile);
-                widgets::checkbox(ui, &mut false, "Disabled", profile);
-                widgets::separator(ui, profile, None);
-                widgets::separator(ui, profile, Some(20.0));
-            }
+            widgets::heading(ui, "BASIC", profile, false);
+            widgets::selection(ui, "Selected", true, SelectionStyle::Pill, None);
+            widgets::selection(ui, "Other", false, SelectionStyle::Pill, None);
+            widgets::primary_button(ui, "Apply", 70.0);
+            widgets::secondary_button(ui, "Cancel", 70.0);
+            widgets::checkbox(ui, &mut true, "Enabled", profile);
+            widgets::checkbox(ui, &mut false, "Disabled", profile);
+            widgets::separator(ui, profile, None);
+            widgets::separator(ui, profile, Some(20.0));
             for color in [Color32::RED, Color32::from_rgba_unmultiplied(180, 90, 40, 70)] {
-                let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
-                if old {
-                    before::editor::color_tile(ui, r, color);
-                } else {
-                    widgets::color_tile(ui, r, color, profile);
-                }
-            }
-        }
-        Profile::Library => {
-            if old {
-                before::library::text_button(ui, "test", "Auto", false);
-                before::library::text_button(ui, "test2", "B&W", true);
-                before::library::segmented(ui, "test", &[("One", "one"), ("Two", "two")], Some(0), 2);
-                before::library::divider(ui);
-                before::library::dropdown(
-                    ui,
-                    "test",
-                    "Long camera profile name elided at narrow width",
-                    egui::FontId::proportional(12.0),
-                    library::get(ui.ctx()).text,
-                );
-            } else {
-                widgets::selection(ui, "Auto", false, SelectionStyle::Text, None);
-                widgets::selection(ui, "B&W", true, SelectionStyle::Text, None);
-                let width = ((ui.available_width() - 4.0) / 2.0).max(24.0);
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 4.0;
-                    widgets::selection(ui, "One", true, SelectionStyle::Segment, Some(vec2(width, 24.0)));
-                    widgets::selection(ui, "Two", false, SelectionStyle::Segment, Some(vec2(width, 24.0)));
-                });
-                widgets::separator(ui, profile, None);
-                widgets::choice_button(
-                    ui,
-                    "Long camera profile name elided at narrow width",
-                    egui::FontId::proportional(12.0),
-                    library::get(ui.ctx()).text,
-                    paint_arrow,
-                );
-            }
-            let color = Color32::RED;
-            if old {
-                before::library::color_swatch(ui, "swatch", color, Vec2::splat(24.0), None, "Red");
-            } else {
                 let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
                 widgets::color_tile(ui, r, color, profile);
             }
+        }
+        Profile::Library => {
+            widgets::selection(ui, "Auto", false, SelectionStyle::Text, None);
+            widgets::selection(ui, "B&W", true, SelectionStyle::Text, None);
+            let width = ((ui.available_width() - 4.0) / 2.0).max(24.0);
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                widgets::selection(ui, "One", true, SelectionStyle::Segment, Some(vec2(width, 24.0)));
+                widgets::selection(ui, "Two", false, SelectionStyle::Segment, Some(vec2(width, 24.0)));
+            });
+            widgets::separator(ui, profile, None);
+            widgets::choice_button(
+                ui,
+                "Long camera profile name elided at narrow width",
+                egui::FontId::proportional(12.0),
+                library::get(ui.ctx()).text,
+                paint_arrow,
+            );
+            let (r, _) = ui.allocate_exact_size(Vec2::splat(24.0), Sense::hover());
+            widgets::color_tile(ui, r, Color32::RED, profile);
         }
     }
 }
@@ -101,7 +64,7 @@ fn paint_arrow(ui: &egui::Ui, rect: Rect, color: Color32) {
         );
     }
 }
-fn shapes(old: bool, profile: Profile, kind: theme::ThemeKind, width: f32) -> String {
+fn shapes(profile: Profile, kind: theme::ThemeKind, width: f32) -> String {
     let ctx = egui::Context::default();
     ctx.set_fonts(fonts::definitions(fonts::Profile::Editor));
     theme::apply(&ctx, kind);
@@ -110,21 +73,45 @@ fn shapes(old: bool, profile: Profile, kind: theme::ThemeKind, width: f32) -> St
     for _ in 0..3 {
         let mut output = ctx
             .run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(width, 600.0))), ..Default::default() }, |ui| {
-                gallery(ui, old, profile)
+                gallery(ui, profile)
             });
         out = format!("{:?}", output.shapes);
         output.textures_delta.clear();
     }
     out
 }
+/// FNV-1a of the painted shapes' Debug output for each theme, width and profile. Captured from the
+/// frozen pre-consolidation (J18) Editor/Library painters, which the shared widgets reproduced
+/// exactly; a mismatch is a visual change that needs explicit review.
+const SHAPE_GOLDENS: &[(theme::ThemeKind, f32, Profile, u64)] = &[
+    (theme::ThemeKind::Pro, 180.0, Profile::Editor, 0x30664f8b638c5108),
+    (theme::ThemeKind::Pro, 180.0, Profile::Library, 0xebe13d7980f92e83),
+    (theme::ThemeKind::Pro, 270.0, Profile::Editor, 0xf7c8ec826361c4b0),
+    (theme::ThemeKind::Pro, 270.0, Profile::Library, 0x21879f781e285050),
+    (theme::ThemeKind::ProMedium, 180.0, Profile::Editor, 0x3dea42616dcc97f1),
+    (theme::ThemeKind::ProMedium, 180.0, Profile::Library, 0xf22202ec21811379),
+    (theme::ThemeKind::ProMedium, 270.0, Profile::Editor, 0x3fcf4c5952ce9669),
+    (theme::ThemeKind::ProMedium, 270.0, Profile::Library, 0x20627cb633f32784),
+    (theme::ThemeKind::Studio, 180.0, Profile::Editor, 0x070bf7e80694a767),
+    (theme::ThemeKind::Studio, 180.0, Profile::Library, 0x36203faae2c65e45),
+    (theme::ThemeKind::Studio, 270.0, Profile::Editor, 0x1bf784f44d0b5291),
+    (theme::ThemeKind::Studio, 270.0, Profile::Library, 0x4346c004644dc954),
+    (theme::ThemeKind::StudioLight, 180.0, Profile::Editor, 0xcb9affbb7f58e12d),
+    (theme::ThemeKind::StudioLight, 180.0, Profile::Library, 0xc9d4d36a08503837),
+    (theme::ThemeKind::StudioLight, 270.0, Profile::Editor, 0xff57e9d52e7a54a3),
+    (theme::ThemeKind::StudioLight, 270.0, Profile::Library, 0x4a3a69e02bc6dbec),
+    (theme::ThemeKind::Classic, 180.0, Profile::Editor, 0xab5b180b7db706d3),
+    (theme::ThemeKind::Classic, 180.0, Profile::Library, 0x64ea6cfe77be0fc9),
+    (theme::ThemeKind::Classic, 270.0, Profile::Editor, 0xba3bb361cc462471),
+    (theme::ThemeKind::Classic, 270.0, Profile::Library, 0xe44dd8f1f18f3432),
+];
+
 #[test]
-fn j18_widget_frozen_painters_match_all_themes_and_widths() {
-    for kind in theme::ThemeKind::ALL {
-        for width in [180.0, 270.0] {
-            for profile in [Profile::Editor, Profile::Library] {
-                assert_eq!(shapes(false, profile, kind, width), shapes(true, profile, kind, width), "{kind:?} {profile:?} width{width}");
-            }
-        }
+fn j18_widget_shapes_match_goldens_for_all_themes_and_widths() {
+    let fnv1a = |s: String| s.bytes().fold(0xcbf29ce484222325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+    assert_eq!(SHAPE_GOLDENS.len(), theme::ThemeKind::ALL.len() * 4, "one golden per theme, width and profile");
+    for &(kind, width, profile, golden) in SHAPE_GOLDENS {
+        assert_eq!(fnv1a(shapes(profile, kind, width)), golden, "{kind:?} {profile:?} width{width}");
     }
 }
 

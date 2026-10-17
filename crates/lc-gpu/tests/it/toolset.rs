@@ -2,8 +2,7 @@
 //! from the lens database, the tone equalizer, colour calibration, capture sharpening, depth
 //! masks, film looks and AI Remove patches. Same bounds as `equivalence.rs` (mean |Δ| < 0.5 LSB,
 //! max |Δ| ≤ 3 LSB per channel). Tools the GPU has no kernel for must come back as `None` with
-//! the reason recorded (the caller renders on the CPU). Skips (passes with a note) when no GPU
-//! adapter exists, e.g. on CI.
+//! the reason recorded (the caller renders on the CPU). Fails when no GPU adapter exists.
 
 use std::sync::Arc;
 
@@ -18,6 +17,12 @@ use lightcraft_raster::{Rgb32f, Rgba8};
 const MEAN_LSB: f64 = 0.5;
 const MAX_LSB: u8 = 3;
 
+fn require_gpu() {
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
+    eprintln!("adapter: {}", lightcraft_gpu::adapter_name().unwrap_or_default());
+}
+
+/// Benchmarks only: they also time the CPU path when no adapter exists.
 fn gpu() -> bool {
     let ok = lightcraft_gpu::available();
     if ok {
@@ -142,9 +147,7 @@ fn lens_on(s: &mut DevelopSettings, strength: f64) {
 #[test]
 fn lens_profiles_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(2, 900, 600);
     let req = RenderRequest::fit(720, 720);
     for (name, c) in lenses() {
@@ -178,9 +181,7 @@ fn lens_profiles_match() {
 #[test]
 fn lens_profiles_with_crop_rotation_and_perspective_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(2, 900, 600);
     let info = SourceInfo { lens_db: Some(barrel()), ..raw() };
     for o in [Orientation::Normal, Orientation::Rotate90, Orientation::Rotate270, Orientation::FlipH] {
@@ -219,9 +220,7 @@ fn lens_profiles_with_crop_rotation_and_perspective_match() {
 #[test]
 fn lens_profile_strength_changes_reach_cached_renders() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // A strength drag changes the geometry: a cached view must re-sample, not reuse the old frame.
     let src = scene(1, 900, 600);
     let info = SourceInfo { lens_db: Some(barrel()), ..raw() };
@@ -239,9 +238,7 @@ fn lens_profile_strength_changes_reach_cached_renders() {
 #[test]
 fn lens_profiles_at_borders_all_orientations_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // High contrast edges reach all four borders, with distinct colour planes.
     // Odd, non-square dimensions expose half-pixel/axis-swap mistakes.
     let src = Arc::new(Rgb32f::from_fn(769, 513, |x, y| {
@@ -295,9 +292,7 @@ fn lens_profiles_at_borders_all_orientations_match() {
 fn embedded_profiles_precede_database_and_zero_strength_matches_disabled() {
     let _gpu = crate::support::lock();
     use lightcraft_develop::{EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(2, 301, 199);
     let req = RenderRequest::fit(301, 301);
     let lens = EmbeddedLens {
@@ -334,9 +329,7 @@ fn embedded_profiles_precede_database_and_zero_strength_matches_disabled() {
 #[test]
 fn tone_equalizer_matches_and_draws_a_mask() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(0, 640, 427);
     let info = raw();
     let mut s = DevelopSettings::default();
@@ -363,9 +356,7 @@ fn tone_equalizer_matches_and_draws_a_mask() {
     s.set_section_enabled("toneEq", false);
     assert!(!lightcraft_pipeline::toneeq::mask_wanted(&s));
     assert!(!lightcraft_pipeline::tools_need_cpu(&s, &req));
-    if lightcraft_gpu::available() {
-        check("tone eq section off", &src, &info, &s, &req);
-    }
+    check("tone eq section off", &src, &info, &s, &req);
 }
 
 // Colour calibration: folded linear matrices and native per-pixel nonlinear adaptation.
@@ -383,9 +374,7 @@ fn cal(adaptation: Adaptation, illuminant: Illuminant, gamut: f64, clip: bool) -
 #[test]
 fn color_calibration_matches() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(0, 900, 600);
     let req = RenderRequest::fit(720, 720);
     use Adaptation::*;
@@ -435,9 +424,7 @@ fn color_calibration_matches() {
 #[test]
 fn color_calibration_changes_reach_cached_renders() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // Switching between the linear (GPU) and mixed (CPU linear stage) paths on one view.
     let src = scene(0, 900, 600);
     let info = raw();
@@ -470,9 +457,7 @@ fn capture(s: &mut DevelopSettings, radius: f64, threshold: f64, iterations: f64
 #[test]
 fn capture_sharpening_matches() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(3, 900, 600);
     let info = SourceInfo { capture_radius: Some(0.8), ..raw() };
     let req = RenderRequest::fit(900, 900);
@@ -496,9 +481,7 @@ fn capture_sharpening_matches() {
 #[test]
 fn capture_sharpening_changes_re_upload_the_source() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // Render, change one capture value, render again on the same view: the device's sharpened
     // source and downstream stages must be rebuilt (the original upload can now stay resident).
     let src = scene(3, 900, 600);
@@ -559,9 +542,7 @@ fn capture_chart(w: usize, h: usize) -> Arc<Rgb32f> {
 #[test]
 fn capture_sharpening_parameter_sweeps_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = capture_chart(193, 129);
     let info = SourceInfo { capture_radius: Some(0.8), capture_threshold: 0.32, ..raw() };
     let req = RenderRequest::fit(193, 193);
@@ -593,9 +574,7 @@ fn capture_sharpening_binned_previews_edges_and_borders_match() {
     let _gpu = crate::support::lock();
     // Build tiny fixtures even without an adapter so border arithmetic is exercised.
     let fixtures = [(7, 5), (8, 33), (9, 9), (17, 41), (257, 193)].map(|(w, h)| ((w, h), capture_chart(w, h)));
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     for ((w, h), src) in fixtures {
         for scale in [1.0, 2.0, 4.0] {
             let info = SourceInfo { sensor_scale: scale, capture_radius: Some(1.2), ..raw() };
@@ -612,9 +591,7 @@ fn capture_sharpening_binned_previews_edges_and_borders_match() {
 #[test]
 fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let mut src = capture_chart(193, 129);
     let mut info = SourceInfo { capture_radius: Some(0.8), capture_threshold: 0.2, ..raw() };
     let stages = StageCache::default();
@@ -651,9 +628,7 @@ fn capture_sharpening_source_info_and_geometry_changes_invalidate_cache() {
 #[test]
 fn capture_sharpening_reuses_device_source_for_other_tools_and_sizes() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = capture_chart(193, 129);
     let info = raw();
     let stages = StageCache::default();
@@ -677,9 +652,7 @@ fn capture_sharpening_reuses_device_source_for_other_tools_and_sizes() {
 #[test]
 fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = capture_chart(257, 193);
     let info = raw();
     let mut s = DevelopSettings::default();
@@ -695,9 +668,7 @@ fn capture_sharpening_over_limit_source_falls_back_without_device_failure() {
 #[test]
 fn capture_sharpening_before_source_analysis_matches() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = Arc::new(Rgb32f::from_fn(193, 129, |x, y| {
         let dx = x as f32 - 105.0;
         let dy = y as f32 - 61.0;
@@ -791,9 +762,7 @@ fn depth_mask(lo: f64, hi: f64, feather: f64, adjust: LocalAdjustments) -> Mask 
 #[test]
 fn depth_masks_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(4, 900, 600);
     let info = raw();
     let req = RenderRequest::fit(720, 720);
@@ -845,9 +814,7 @@ const FILM_LOOKS: [&str; 8] = [
 #[test]
 fn film_looks_match_the_cpu_export() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let req = RenderRequest::fit(720, 720);
     for (i, info) in [(0, raw()), (5, SourceInfo::default())] {
         let src = scene(i, 900, 600);
@@ -899,9 +866,7 @@ fn ai_spot(key: &str, rect: [f64; 4], opacity: f64) -> Spot {
 #[test]
 fn ai_remove_patches_are_in_the_gpu_render() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     use lightcraft_pipeline::patches::{PatchPixels, forget, insert};
     let src = scene(2, 900, 600);
     let info = raw();
@@ -1145,9 +1110,7 @@ fn bench_toolset_24mp() {
 #[test]
 fn dual_illuminant_wb_and_dcp_inside_gpu_render() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     use li_color::{
         Mat3,
         camera::{CameraColor, CameraWhite},
@@ -1213,9 +1176,7 @@ fn detail_scene() -> Arc<Rgb32f> {
 #[test]
 fn detail_sharpen_radius_detail_masking_and_alt_preview_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = detail_scene();
     let mut s = DevelopSettings::default();
     for scale in [1.0, 2.0] {
@@ -1236,9 +1197,7 @@ fn detail_sharpen_radius_detail_masking_and_alt_preview_match() {
 #[test]
 fn detail_y0u0v0_wavelets_six_sliders_and_preview_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = detail_scene();
     let info = raw();
     for edge in [257, 137, 31] {
@@ -1270,9 +1229,7 @@ fn detail_y0u0v0_wavelets_six_sliders_and_preview_match() {
 #[test]
 fn detail_dark_channel_rgb_guidance_positive_negative_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = detail_scene();
     for scale in [1.0, 2.0] {
         for edge in [257, 137, 31] {
@@ -1288,9 +1245,7 @@ fn detail_dark_channel_rgb_guidance_positive_negative_match() {
 #[test]
 fn detail_slider_and_sensor_scale_changes_invalidate_cached_planes() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = detail_scene();
     let stages = StageCache::default();
     let mut info = raw();
@@ -1320,9 +1275,7 @@ fn detail_slider_and_sensor_scale_changes_invalidate_cached_planes() {
 #[test]
 fn tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     for (w, h) in [(1, 1), (3, 7), (129, 91), (641, 427)] {
         let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
             let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
@@ -1358,9 +1311,7 @@ fn tone_equalizer_extremes_masks_tiny_odd_and_cached_edits_match() {
 fn layer_tools_curves_and_effects_match_across_order_opacity_and_cache() {
     let _gpu = crate::support::lock();
     use lightcraft_develop::{Detail, Effects, Grain, LayerTools, Light, ToneCurve, Vignette};
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = scene(2, 257, 173);
     let info = raw();
     let cache = StageCache::default();
@@ -1408,9 +1359,7 @@ fn layer_tools_curves_and_effects_match_across_order_opacity_and_cache() {
 #[test]
 fn tone_equalizer_layer_curve_across_finish_bands_matches() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // Just over BAND_PIXELS: the finish dispatch needs a second row band.
     let (w, h) = (2053, 2049);
     let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
@@ -1429,9 +1378,7 @@ fn tone_equalizer_layer_curve_across_finish_bands_matches() {
 #[test]
 fn capture_sensor_protection_matches_and_invalidates_cached_source() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = Arc::new(Rgb32f::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
     let mut s = DevelopSettings::default();
     capture(&mut s, 1., 20., 20.);
@@ -1455,9 +1402,7 @@ fn capture_sensor_protection_matches_and_invalidates_cached_source() {
 #[test]
 fn cropped_refine_mask_keeps_source_scale_on_gpu() {
     let _gpu = crate::support::lock();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let src = Arc::new(Rgb32f::filled(256, 256, [0.18; 3]));
     let mut s = DevelopSettings::default();
     s.masks.push(Mask {

@@ -223,26 +223,15 @@ fn the_move_preview_is_what_the_move_commits() {
 fn layout_document_composites_on_the_gpu_like_the_cpu() {
     let _gpu = crate::gpu_lock();
     use eframe::wgpu;
-    fn block_on<F: std::future::Future>(f: F) -> F::Output {
-        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-        let mut f = std::pin::pin!(f);
-        loop {
-            if let std::task::Poll::Ready(v) = f.as_mut().poll(&mut cx) {
-                return v;
-            }
-            std::thread::yield_now();
-        }
-    }
-    let Ok(adapter) = block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        eprintln!("skipping: no GPU adapter");
-        return;
-    };
-    if photocraft_gpu::Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
-        eprintln!("skipping: adapter can't render Rgba32Float");
-        return;
-    }
-    let Ok((device, queue)) = block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) else { return };
-    let Ok(mut comp) = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float) else { return };
+    let g = li_testkit::gpu::hardware_device("layout document GPU parity");
+    assert_eq!(
+        photocraft_gpu::Compositor::preferred_acc_format(&g.adapter),
+        wgpu::TextureFormat::Rgba32Float,
+        "Rgba32Float accumulation required: {:?}",
+        g.info
+    );
+    let (device, queue) = (g.device, g.queue);
+    let mut comp = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).expect("Rgba32Float compositor");
     let (d, _) = layout_doc::build(layout_doc::Spec::small());
     let (_, texts) = layout_doc::count(&d);
     assert!(texts >= 10);

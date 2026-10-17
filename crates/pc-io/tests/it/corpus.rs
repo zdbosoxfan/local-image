@@ -53,18 +53,6 @@ use std::time::Instant;
 use photocraft_io::*;
 use photocraft_psd::PsdFile;
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
-    for e in rd.flatten() {
-        let p = e.path();
-        if p.is_dir() {
-            collect(&p, out);
-        } else if p.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("psd") || e.eq_ignore_ascii_case("psb")) {
-            out.push(p);
-        }
-    }
-}
-
 const PASS_TOL: f32 = 2.0 / 255.0;
 /// Export → re-import must render within one 8-bit step of the imported document.
 const ROUNDTRIP_TOL: f32 = 1.0 / 255.0 + 1e-5;
@@ -174,7 +162,7 @@ fn group_of(name: &str, depth: usize) -> String {
 
 fn files_in(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    collect(root, &mut files);
+    crate::common::collect_psd_files(root, &mut files);
     files.sort();
     files
 }

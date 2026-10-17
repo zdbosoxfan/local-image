@@ -21,18 +21,12 @@ fn library_shutdown_waits_for_kernel_warm_up_even_without_a_photo() {
     // No photo/renderer job joins the kernel compiler for us. App destruction is the barrier.
     drop(h);
     if !lightcraft_engine::gpu::ready() {
-        assert!(
-            !lightcraft_engine::gpu::enabled() && std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(),
-            "Library shutdown left the detached shader compiler running"
-        );
-        eprintln!("skipped: GPU disabled");
-        return;
+        assert!(!lightcraft_engine::gpu::enabled(), "Library shutdown left the detached shader compiler running");
+        panic!("real GPU required but GPU rendering is disabled: {:?}", lightcraft_engine::gpu::unavailable_reason());
     }
-    if let Some(adapter) = lightcraft_engine::gpu::adapter_name() {
-        eprintln!("Library shutdown completed on {adapter}");
-    } else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "hardware GPU required for the Library exit regression");
-    }
+    let adapter = lightcraft_engine::gpu::adapter_name()
+        .unwrap_or_else(|| panic!("real GPU required for the Library exit regression: {:?}", lightcraft_engine::gpu::unavailable_reason()));
+    eprintln!("Library shutdown completed on {adapter}");
 }
 
 #[test]

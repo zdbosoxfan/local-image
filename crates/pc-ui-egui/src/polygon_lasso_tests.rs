@@ -2,55 +2,18 @@
 //! new-selection polygon hides the selection it replaces while it is drawn (⇧ or ⌥ at the first
 //! click keep it, to add to or subtract from), replacing it in one history step.
 
-use egui::{Modifiers, PointerButton, Pos2, vec2};
+use egui::{Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use photocraft_geom::Rect;
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::canvas::ViewXform;
+use crate::canvas_test_support::{canvas_harness, screen};
 use crate::state::Tool;
 
+/// 60 fps, so a double-click's two clicks fall inside egui's 0.3 s window.
 fn harness() -> Harness<'static, PhotocraftApp> {
-    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-    app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
-    app.sync_views();
-    app.ui.extras.rulers = false;
-    app.ui.tool = Tool::PolygonLasso;
-    // 60 fps, so a double-click's two clicks fall inside egui's 0.3 s window.
-    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).with_step_dt(1.0 / 60.0).build_ui_state(
-        |ui, app: &mut PhotocraftApp| {
-            let ctx = ui.ctx().clone();
-            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                return;
-            }
-            crate::shortcuts::handle(app, &ctx);
-            egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
-        },
-        app,
-    );
-    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
-    h.run_steps(4);
-    // 100 %: one document pixel per point.
-    let v = &mut h.state_mut().ui.views[0];
-    v.zoom = 1.0;
-    v.center = [200.0, 150.0];
-    v.fit_pending = false;
-    h.run_steps(2);
-    h
-}
-
-fn screen(h: &Harness<'static, PhotocraftApp>, x: f32, y: f32) -> Pos2 {
-    let app = h.state();
-    let v = &app.ui.views[0];
-    let xf = ViewXform {
-        rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-        zoom: v.zoom,
-        center: v.center,
-        flip: app.ui.view.flip_horizontal,
-        rotation: v.rotation,
-    };
-    xf.to_screen(x, y)
+    canvas_harness(Tool::PolygonLasso, Some(1.0 / 60.0))
 }
 
 fn button(h: &mut Harness<'static, PhotocraftApp>, p: Pos2, down: bool, m: Modifiers) {

@@ -1,5 +1,5 @@
 //! Device-memory bookkeeping: a view's stages are counted, released buffers are pooled within
-//! the pool limit, and trimming frees them. Skips when no GPU adapter exists.
+//! the pool limit, and trimming frees them. Fails when no GPU adapter exists.
 mod support;
 
 use std::sync::Arc;
@@ -10,10 +10,7 @@ use lightcraft_pipeline::{RenderRequest, SourceInfo, StageCache};
 #[test]
 fn stages_are_counted_and_the_pool_is_bounded_and_trimmed() {
     let _gpu = support::lock();
-    if !lightcraft_gpu::available() {
-        eprintln!("skipped: no GPU adapter");
-        return;
-    }
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
     let limit = 64u64 << 20;
     lightcraft_gpu::set_pool_limit(limit);
     let info = SourceInfo { raw: true, ..Default::default() };

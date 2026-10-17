@@ -1,18 +1,16 @@
-//! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
+//! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
+mod arch_coverage;
+mod browser_coverage;
+mod browser_oct9_coverage;
+mod catalog_coverage;
+mod cloud_coverage;
+mod comfy_coverage;
+mod custom_coverage;
+mod download_coverage;
 mod download_trash_inventory_coverage;
-mod ds_arch_coverage;
-mod ds_browser_coverage;
-mod ds_browser_oct9_coverage;
-mod ds_catalog_coverage;
-mod ds_catalog_oct9_coverage;
-mod ds_cloud_coverage;
-mod ds_comfy_coverage;
-mod ds_comfy_oct9_coverage;
-mod ds_custom_coverage;
-mod ds_download_coverage;
-mod ds_inventory_coverage;
-mod ds_mock_coverage;
-mod ds_mock_hub_coverage;
-mod ds_ops_coverage;
 mod family_coverage;
+mod inventory_coverage;
+mod mock_coverage;
+mod mock_hub_coverage;
+mod ops_coverage;

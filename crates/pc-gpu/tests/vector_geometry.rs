@@ -5,31 +5,12 @@ use photocraft_pathops as ops;
 
 #[test]
 fn constructive_vector_geometry_matches_cpu() {
-    let rtx_required = std::env::var_os("REQUIRE_VECTOR_GPU").is_some();
-    let required = rtx_required || std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_some();
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-        backends: if cfg!(target_os = "macos") { wgpu::Backends::METAL } else { wgpu::Backends::PRIMARY },
-        ..wgpu::InstanceDescriptor::new_without_display_handle()
-    });
-    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) else {
-        assert!(!required, "required real GPU adapter unavailable");
-        eprintln!("skipped: no GPU adapter");
-        return;
-    };
-    if photocraft_gpu::Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
-        assert!(!required, "required Rgba32Float GPU target unavailable");
-        eprintln!("skipped: no Rgba32Float GPU target");
-        return;
+    let _lock = li_testkit::gpu::lock();
+    let li_testkit::gpu::HardwareGpu { adapter, info, device, queue } = li_testkit::gpu::hardware_device("photocraft-gpu vector geometry");
+    assert_eq!(photocraft_gpu::Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float, "hardware adapter can't render Rgba32Float");
+    if std::env::var_os("REQUIRE_VECTOR_GPU").is_some() {
+        assert!(info.name.contains("RTX 5090") && info.device_type == wgpu::DeviceType::DiscreteGpu, "RTX 5090 required: {info:?}");
     }
-    let info = adapter.get_info();
-    println!("Vector geometry GPU: {} ({:?}, {:?})", info.name, info.device_type, info.backend);
-    if required {
-        assert_ne!(info.device_type, wgpu::DeviceType::Cpu);
-    }
-    if rtx_required {
-        assert!(info.name.contains("RTX 5090") && info.device_type == wgpu::DeviceType::DiscreteGpu);
-    }
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
     let mut comp = photocraft_gpu::Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let a = photocraft_vector::shapes::ellipse(6.0, 6.0, 32.0, 32.0);
     let b = photocraft_vector::shapes::ellipse(18.0, 8.0, 32.0, 32.0);

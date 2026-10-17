@@ -1933,10 +1933,7 @@ mod tests {
 
     #[test]
     fn capture_source_cache_reuses_upload_and_invalidates_parameters() {
-        let Some(gpu_device) = crate::test_device() else {
-            eprintln!("skipped: no GPU adapter");
-            return;
-        };
+        let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
         let gpu = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(gpu);
         let errors = crate::ctx::ErrorScopes::push(gpu);

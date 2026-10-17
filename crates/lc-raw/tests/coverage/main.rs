@@ -1,3 +1,3 @@
-//! DeepSeek-written coverage tests, one module per source module; a single test binary per crate keeps link time down.
+//! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
 
-mod ds_camera_matrices_coverage;
+mod camera_matrices_coverage;

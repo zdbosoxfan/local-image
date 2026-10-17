@@ -28,6 +28,8 @@ rayon = { workspace = true }
 photocraft-cms = { workspace = true }
 wgpu = { version = "30" }
 pollster = "1"
+# The strict real-GPU prelude: GPU tests fail (never skip) without a hardware adapter.
+li-testkit = { workspace = true, features = ["gpu"] }
 # Shape layers in the effect parity tests.
 photocraft-vector = { workspace = true }
 photocraft-pathops.workspace = true

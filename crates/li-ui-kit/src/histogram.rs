@@ -271,13 +271,6 @@ pub fn paint_sample(painter: &egui::Painter, rect: Rect, rgb: [f32; 3], t: &Toke
 }
 
 #[cfg(test)]
-#[path = "../tests/reference/histogram_editor.rs"]
-pub(crate) mod previous_editor;
-#[cfg(test)]
-#[path = "../tests/reference/histogram_library.rs"]
-pub(crate) mod previous_library;
-
-#[cfg(test)]
 #[derive(Clone, Debug, PartialEq)]
 struct Fixture {
     channels: [[u64; BINS]; 3],
@@ -427,7 +420,7 @@ mod tests {
         assert_eq!(h, original, "display filtering must never change raw statistics");
     }
     #[test]
-    fn j18_histogram_frozen_editor_and_library_shape_parity() {
+    fn j18_histogram_editor_and_library_shape_goldens() {
         let ctx = egui::Context::default();
         let shapes = |paint: &dyn Fn(&egui::Painter)| {
             let mut output = ctx.run_ui(Default::default(), |ui| paint(ui.painter()));
@@ -457,6 +450,10 @@ mod tests {
                 })
             })
         });
+        // FNV-1a over the Debug output of every sample/theme/width, captured from the frozen
+        // pre-consolidation (J18) Editor and Library painters that these reproduced exactly.
+        let fnv1a = |h: u64, s: &str| s.bytes().fold(h, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+        let (mut editor, mut library) = (0xcbf29ce484222325_u64, 0xcbf29ce484222325_u64);
         for channels in samples {
             let wide = channels.map(|channel| channel.map(u64::from));
             let luma = channels[1];
@@ -464,15 +461,14 @@ mod tests {
                 let t = Tokens::for_kind(kind);
                 for width in [250.0, 400.0] {
                     let rect = Rect::from_min_max(pos2(8.0, 8.0), pos2(width - 8.0, 108.0));
-                    let old = shapes(&|p| previous_editor::paint(p, rect, &wide, &t));
-                    let new = shapes(&|p| paint_rgb(p, rect, Histogram::u64(&wide, None), &t));
-                    assert_eq!(format!("{old:?}"), format!("{new:?}"), "editor {kind:?}/{width}");
-                    let old = shapes(&|p| previous_library::paint(p, rect, &channels, &luma));
-                    let new = shapes(&|p| paint_library(p, rect, Histogram::u32(channels.each_ref().map(|c| c.as_slice()), Some(&luma)), &t));
-                    assert_eq!(format!("{old:?}"), format!("{new:?}"), "library {kind:?}/{width}");
+                    editor = fnv1a(editor, &format!("{:?}", shapes(&|p| paint_rgb(p, rect, Histogram::u64(&wide, None), &t))));
+                    let view = Histogram::u32(channels.each_ref().map(|c| c.as_slice()), Some(&luma));
+                    library = fnv1a(library, &format!("{:?}", shapes(&|p| paint_library(p, rect, view, &t))));
                 }
             }
         }
+        assert_eq!(editor, 0x750abd6ff3c88bf7, "editor histogram shapes changed");
+        assert_eq!(library, 0xf17040e0326c4778, "library histogram shapes changed");
     }
 
     #[test]

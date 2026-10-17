@@ -9,49 +9,8 @@ use photocraft_geom::Rect;
 use serde_json::json;
 
 use crate::PhotocraftApp;
-use crate::canvas::ViewXform;
+use crate::canvas_test_support::{canvas_harness, screen};
 use crate::state::Tool;
-
-fn harness(tool: Tool) -> Harness<'static, PhotocraftApp> {
-    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-    app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
-    app.sync_views();
-    app.ui.extras.rulers = false;
-    app.ui.tool = tool;
-    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
-        |ui, app: &mut PhotocraftApp| {
-            let ctx = ui.ctx().clone();
-            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                return;
-            }
-            crate::shortcuts::handle(app, &ctx);
-            egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
-        },
-        app,
-    );
-    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
-    h.run_steps(4);
-    // 100 %: one document pixel per point, so drags land on whole pixels.
-    let v = &mut h.state_mut().ui.views[0];
-    v.zoom = 1.0;
-    v.center = [200.0, 150.0];
-    v.fit_pending = false;
-    h.run_steps(2);
-    h
-}
-
-fn screen(h: &Harness<'static, PhotocraftApp>, x: f32, y: f32) -> Pos2 {
-    let app = h.state();
-    let v = &app.ui.views[0];
-    let xf = ViewXform {
-        rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-        zoom: v.zoom,
-        center: v.center,
-        flip: app.ui.view.flip_horizontal,
-        rotation: v.rotation,
-    };
-    xf.to_screen(x, y)
-}
 
 fn mods(h: &mut Harness<'static, PhotocraftApp>, m: Modifiers) {
     h.event(egui::Event::ModifiersChanged(m));
@@ -99,7 +58,7 @@ fn readout(h: &Harness<'static, PhotocraftApp>, w: i32, ht: i32) -> bool {
 
 #[test]
 fn shift_during_the_drag_draws_a_square_and_the_readout_follows() {
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     press_at(&mut h, 50.0, 50.0, Modifiers::NONE);
     move_to(&mut h, 150.0, 90.0);
     assert!(readout(&h, 100, 40), "free drag: 100 × 40");
@@ -114,7 +73,7 @@ fn shift_during_the_drag_draws_a_square_and_the_readout_follows() {
 
 #[test]
 fn alt_draws_from_the_centre_and_shift_alt_a_centred_circle() {
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     press_at(&mut h, 200.0, 150.0, Modifiers::NONE);
     mods(&mut h, Modifiers::ALT);
     move_to(&mut h, 240.0, 170.0);
@@ -123,7 +82,7 @@ fn alt_draws_from_the_centre_and_shift_alt_a_centred_circle() {
     mods(&mut h, Modifiers::NONE);
     assert_eq!(selection(&h), Rect::new(160, 130, 240, 170), "centred on the press point");
     // Elliptical, ⇧⌥: a circle centred on the press point (replacing the selection).
-    let mut h = harness(Tool::EllipseMarquee);
+    let mut h = canvas_harness(Tool::EllipseMarquee, None);
     press_at(&mut h, 200.0, 150.0, Modifiers::NONE);
     mods(&mut h, Modifiers::SHIFT | Modifiers::ALT);
     move_to(&mut h, 230.0, 160.0);
@@ -137,7 +96,7 @@ fn alt_draws_from_the_centre_and_shift_alt_a_centred_circle() {
 #[test]
 fn modifiers_held_before_the_drag_pick_the_mode_not_the_shape() {
     // #188: ⇧ held at the press adds (no square); released and pressed again it constrains.
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     h.state_mut().run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
     mods(&mut h, Modifiers::SHIFT);
     press_at(&mut h, 100.0, 100.0, Modifiers::SHIFT);
@@ -150,7 +109,7 @@ fn modifiers_held_before_the_drag_pick_the_mode_not_the_shape() {
     let sel = st.doc.selection.as_ref().unwrap();
     assert!(sel.sample_channel(20, 20, 0) > 0.99 && sel.sample_channel(150, 120, 0) > 0.99 && sel.sample_channel(60, 60, 0) < 0.01);
     // ⇧ at the press, released, pressed again: add mode and a square.
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     h.state_mut().run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
     mods(&mut h, Modifiers::SHIFT);
     press_at(&mut h, 100.0, 100.0, Modifiers::SHIFT);
@@ -166,7 +125,7 @@ fn modifiers_held_before_the_drag_pick_the_mode_not_the_shape() {
     assert!(sel.sample_channel(20, 20, 0) > 0.99, "still added");
     assert!(sel.sample_channel(170, 170, 0) > 0.99 && sel.sample_channel(170, 185, 0) < 0.01, "an 80 px square");
     // ⌥ held at the press subtracts.
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     h.state_mut().run("select.rect", json!({"x": 0, "y": 0, "width": 400, "height": 300})).unwrap();
     mods(&mut h, Modifiers::ALT);
     press_at(&mut h, 100.0, 100.0, Modifiers::ALT);
@@ -288,7 +247,7 @@ fn cmd_drag_floats_the_selected_pixels() {
 /// Through the real canvas (mouse events): a drag inside the ants moves the selection.
 #[test]
 fn mouse_drag_inside_the_selection_moves_it() {
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     press_at(&mut h, 100.0, 80.0, Modifiers::NONE);
     release_at(&mut h, 200.0, 160.0, Modifiers::NONE);
     assert_eq!(selection(&h), Rect::new(100, 80, 200, 160), "drawn");

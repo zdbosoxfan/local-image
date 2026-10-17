@@ -2077,6 +2077,9 @@ mod transform_undo_tests;
 mod move_auto_select_tests;
 
 #[cfg(test)]
+mod canvas_test_support;
+
+#[cfg(test)]
 mod marquee_tests;
 
 #[cfg(test)]

@@ -2,7 +2,7 @@
 //! view's [`RenderJob`] with its stage cache), against the CPU pipeline: raw options decoded again
 //! when switched, lens profiles from the real lens database, AI Remove patches
 //! results (both put in place before the renderers split). Same bounds as `lightcraft-gpu`'s
-//! equivalence tests (mean |Δ| < 0.5 LSB, max |Δ| ≤ 3 LSB). Skips when no GPU adapter exists.
+//! equivalence tests (mean |Δ| < 0.5 LSB, max |Δ| ≤ 3 LSB). Fails when no GPU adapter exists.
 
 use std::sync::Arc;
 
@@ -68,12 +68,8 @@ fn session_gpu_scopes_nest_and_release_after_session_fields() {
     HELD.with(|held| assert_eq!(held.borrow().as_ref().unwrap().1, 1));
 }
 
-fn gpu() -> bool {
-    let ok = lightcraft_gpu::available();
-    if !ok {
-        eprintln!("skipped: no GPU adapter ({:?})", lightcraft_gpu::unavailable_reason());
-    }
-    ok
+fn require_gpu() {
+    assert!(lightcraft_gpu::available(), "real GPU required: {:?}", lightcraft_gpu::unavailable_reason());
 }
 
 /// (mean |Δ|, max |Δ|).
@@ -125,9 +121,7 @@ fn views(s: &mut Session, id: PhotoId, size: usize, stages: &Arc<StageCache>) ->
 #[test]
 fn new_cfa_methods_and_segmentation_render_on_the_gpu() {
     let _gpu = gpu_state();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let dng = crate::tests_toolset::textured_dng();
     // CFA decoding is shared before the CPU/GPU boundary. Exercise both full decoding
     // and the reduced-CFA preview hook through the existing GPU renderer.
@@ -156,7 +150,7 @@ fn new_cfa_methods_and_segmentation_render_on_the_gpu() {
 #[test]
 fn demosaic_quality_methods_real_gpu_parity() {
     let _state = gpu_state();
-    assert!(gpu(), "a hardware GPU is required for this demosaic parity test");
+    require_gpu();
     let adapter = lightcraft_gpu::adapter_name().unwrap();
     assert!(!adapter.to_lowercase().contains("llvmpipe") && !adapter.to_lowercase().contains("lavapipe"), "software adapter {adapter}");
     eprintln!("demosaic GPU adapter: {adapter}");
@@ -185,9 +179,7 @@ fn demosaic_quality_methods_real_gpu_parity() {
 #[test]
 fn raw_options_decode_again_and_render_on_the_gpu() {
     let _gpu = gpu_state();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let dir = std::env::temp_dir().join(format!("lc-gpu-raw-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("t.dng");
@@ -229,9 +221,7 @@ fn raw_options_decode_again_and_render_on_the_gpu() {
 #[test]
 fn lens_database_profiles_render_on_the_gpu() {
     let _gpu = gpu_state();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     // a fully calibrated lens from the bundled database (distortion, TCA, vignetting)
     let db = crate::lens_db::database().unwrap();
     let lens = db.lenses.iter().find(|l| l.calib_distortion.len() > 1 && l.calib_vignetting.len() > 2 && !l.calib_tca.is_empty()).unwrap();
@@ -290,9 +280,7 @@ impl crate::enhance::AiHost for Mock {
 #[test]
 fn ai_remove_is_in_the_gpu_render() {
     let _gpu = gpu_state();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let mut s = Session::with_demo();
     s.enhance.host = Some(Arc::new(Mock));
     let id = s.visible_cloned()[0];
@@ -321,9 +309,7 @@ fn ai_remove_is_in_the_gpu_render() {
 #[test]
 fn native_tone_equalizer_layers_and_depth_use_engine_gpu_stages() {
     let _gpu = gpu_state();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     use lightcraft_develop::{DevelopSettings, Mask, MaskComponent, MaskOp, MaskShape, SegMask, ToneCurve};
     let src = Arc::new(Rgb32f::from_fn(129, 91, |x, y| {
         let v = 0.004 + x as f32 * 0.006;
@@ -389,9 +375,7 @@ fn assert_deep_close(src: Arc<Rgb32f>, info: &SourceInfo, s: &lightcraft_develop
 #[test]
 fn deep_raw_output_uses_the_gpu_with_raw_processing_options() {
     let _gpu = gpu_state();
-    if !gpu() {
-        return;
-    }
+    require_gpu();
     let bytes = crate::tests_toolset::textured_dng();
     let mut settings = lightcraft_develop::DevelopSettings::default();
     settings.raw.demosaic = lightcraft_develop::Demosaic::Rcd;
@@ -412,7 +396,7 @@ fn deep_raw_output_uses_the_gpu_with_raw_processing_options() {
 #[ignore = "set LOCAL_IMAGE_TEST_RAW to a corpus raw file"]
 fn deep_corpus_raw_gpu_matches_cpu() {
     let _gpu = gpu_state();
-    assert!(gpu(), "a real GPU is required for this corpus check");
+    require_gpu();
     crate::memory::set_budget(1 << 30); // exercise the app's bounded GPU buffer pool
     let bytes = std::fs::read(std::env::var("LOCAL_IMAGE_TEST_RAW").expect("LOCAL_IMAGE_TEST_RAW")).unwrap();
     let (src, info) = crate::files::load_bytes(&bytes, usize::MAX).unwrap();

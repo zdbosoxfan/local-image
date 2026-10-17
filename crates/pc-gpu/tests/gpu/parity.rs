@@ -1,5 +1,6 @@
 //! GPU vs CPU parity: every blend mode, adjustment, group/clip/mask/fill combination must match
-//! the reference compositor within 1/255 (premultiplied). Skips when no GPU adapter exists.
+//! the reference compositor within 1/255 (premultiplied). Fails without a hardware GPU
+//! (`li_testkit::gpu`, the strict real-GPU prelude).
 
 use photocraft_color::{BlendMode, Color, ColorMode, PixelFormat, SampleType};
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel};
@@ -8,10 +9,6 @@ use photocraft_geom::{Rect, Size};
 use photocraft_gpu::{Compositor, render_to_vec};
 
 const TOL: f32 = 1.0 / 255.0;
-
-/// Concurrent wgpu instances in one process segfault on some drivers (RADV), so the GPU tests
-/// take this lock and hold it until their device is dropped.
-use crate::GPU_LOCK;
 
 struct Gpu {
     device: wgpu::Device,
@@ -26,48 +23,26 @@ struct Gpu {
 /// Simulated texture limit (pages and chunks of 256 px).
 const PAGED_LIMIT: u32 = 256;
 
-fn gpu() -> Option<Gpu> {
-    let lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let instance = wgpu::Instance::default();
-    let adapter = match pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default())) {
-        Ok(a) => a,
-        Err(e) => {
-            assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required GPU adapter unavailable: {e}");
-            eprintln!("skipping GPU parity tests: no adapter ({e})");
-            return None;
-        }
-    };
-    if std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_some() {
-        assert_ne!(adapter.get_info().device_type, wgpu::DeviceType::Cpu, "hardware GPU required");
-    }
-    let (device, queue) = match pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())) {
-        Ok(device) => device,
-        Err(e) => {
-            assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required GPU device unavailable: {e}");
-            return None;
-        }
-    };
-    // Exact parity needs 32-bit float targets. Adapters without them (e.g. GL software
-    // rasterizers) use the CPU compositor in the app, so there is nothing to compare there.
-    if Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required Rgba32Float GPU target unavailable");
-        eprintln!("skipping GPU parity tests: adapter can't render Rgba32Float");
-        return None;
-    }
-    eprintln!("parity adapter: {:?}", adapter.get_info());
+/// Concurrent wgpu instances in one process segfault on some drivers (RADV), so every GPU test
+/// holds `li_testkit::gpu::lock()` until its device is dropped.
+fn gpu() -> Gpu {
+    let lock = li_testkit::gpu::lock();
+    let li_testkit::gpu::HardwareGpu { adapter, device, queue, .. } = li_testkit::gpu::hardware_device("photocraft-gpu parity");
+    // Exact parity needs 32-bit float targets (adapters without them use the CPU compositor in the
+    // app); every supported hardware adapter renders them.
+    assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float, "hardware adapter can't render Rgba32Float");
     let comp = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).expect("compositor pipelines on a supported adapter");
     let mut paged = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).expect("paged compositor pipelines");
     paged.set_texture_limit(PAGED_LIMIT);
-    Some(Gpu { device, queue, comp, paged, _lock: lock })
+    Gpu { device, queue, comp, paged, _lock: lock }
 }
 
-/// Any adapter and device, for the fallback-path tests (which don't need 32-bit float targets).
-/// The returned guard holds [`GPU_LOCK`] until the device is dropped.
-fn any_device() -> Option<(wgpu::Adapter, wgpu::Device, wgpu::Queue, std::sync::MutexGuard<'static, ()>)> {
-    let lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let adapter = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())).ok()?;
-    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).ok()?;
-    Some((adapter, device, queue, lock))
+/// A hardware adapter and device for the fallback-path tests (which don't need 32-bit float
+/// targets). The returned guard holds the GPU test lock until the device is dropped.
+fn any_device() -> (wgpu::Adapter, wgpu::Device, wgpu::Queue, std::sync::MutexGuard<'static, ()>) {
+    let lock = li_testkit::gpu::lock();
+    let g = li_testkit::gpu::hardware_device("photocraft-gpu fallback paths");
+    (g.adapter, g.device, g.queue, lock)
 }
 
 /// Deterministic pseudo-random values in 0..1.
@@ -152,13 +127,13 @@ fn check(g: &mut Gpu, doc: &Document, what: &str) {
 fn first_frame_renders() {
     // Regression: the first submission after device creation is dropped on some drivers
     // (RADV), which used to make the very first render come back all zeroes.
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     check(&mut g, &base_doc(64, 48), "first frame");
 }
 
 #[test]
 fn sparse_mask_defaults_invalidate_warm_resident_pages() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut doc = Document::new("Sparse mask defaults", Size::new(768, 32), ColorMode::Rgb, SampleType::U8);
     let mut pixels = photocraft_raster::Surface::new(doc.pixel_format());
     pixels.fill_rect(doc.bounds(), &[1.0, 0.0, 0.0, 1.0]);
@@ -207,7 +182,7 @@ fn sparse_mask_defaults_invalidate_warm_resident_pages() {
 
 #[test]
 fn blend_modes() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for mode in BlendMode::LAYER_MODES {
         let mut d = base_doc(64, 48);
         let mut l = noise_layer("top", PixelFormat::RGBA8, Rect::new(4, 3, 60, 45), 2, 0.0);
@@ -293,7 +268,7 @@ fn lookup(n: usize, tetrahedral: bool, dither: bool) -> Adjustment {
 
 #[test]
 fn color_lookup_nondefault_domain_matches_cpu() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     // Cross the simulated page boundary, with opaque pixels so channel-code comparisons
     // are direct and do not hide interpolation differences behind premultiplication.
     let mut failures = Vec::new();
@@ -350,7 +325,7 @@ fn color_lookup_nondefault_domain_matches_cpu() {
 
 #[test]
 fn adjustment_layers() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     // 16-bit and float documents (adjustment results round to 1/32768 resp. not at all).
     for depth in [SampleType::U16, SampleType::F32] {
         let mut d = Document::new("t", Size::new(40, 30), ColorMode::Rgb, depth);
@@ -386,7 +361,7 @@ fn adjustment_layers() {
 
 #[test]
 fn groups_masks_and_clipping() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let child = |seed, mode| {
         let mut l = noise_layer("c", PixelFormat::RGBA8, Rect::new(5, 5, 50, 40), seed, 0.0);
         l.blend = mode;
@@ -456,7 +431,7 @@ fn groups_masks_and_clipping() {
 
 #[test]
 fn fills_and_dissolve() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = base_doc(64, 48);
     let mut solid = Layer::new("solid", LayerContent::Fill(Fill::Solid(Color::rgb(0.2, 0.5, 0.8))));
     solid.mask = Some(mask(Rect::new(0, 0, 32, 48), 31, 0.0));
@@ -525,7 +500,7 @@ fn fills_and_dissolve() {
 
 #[test]
 fn formats_offsets_and_chunks() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     // 16-bit and float layers, and a layer extending off-canvas at negative coordinates.
     let mut d = Document::new("t", Size::new(300, 70), ColorMode::Rgb, SampleType::U16);
     d.layers.push(noise_layer("bg16", PixelFormat::RGBA16, Rect::new(0, 0, 300, 70), 51, 1.0));
@@ -553,7 +528,7 @@ fn formats_offsets_and_chunks() {
 
 #[test]
 fn incremental_updates_follow_the_document() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = base_doc(600, 300);
     d.layers.push(noise_layer("top", PixelFormat::RGBA8, Rect::new(0, 0, 600, 300), 61, 0.0));
     check(&mut g, &d, "initial");
@@ -586,7 +561,7 @@ use photocraft_doc::{
 /// opacity), layers partly off the canvas and over several chunks must still match the CPU.
 #[test]
 fn small_layers_composite_over_their_bounds() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let small = |seed: u32, x: i32, y: i32, mode: BlendMode| {
         let mut l = noise_layer("s", PixelFormat::RGBA8, Rect::from_xywh(x, y, 23, 17), seed, 0.0);
         l.blend = mode;
@@ -951,7 +926,7 @@ fn fx_check(g: &mut Gpu, doc: &Document, what: &str) -> photocraft_gpu::Stats {
 /// reach is part of the group's effect source, so the canvas matches the CPU.
 #[test]
 fn group_effects_follow_a_childs_stroke() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = fx_doc(100, 80, SampleType::U8);
     let mut a = blob("a", d.pixel_format(), 45.0, 40.0, 16.0, [0.6, 0.6, 0.6]);
     a.effects.items = vec![Effect::Stroke(stroke(8.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 0.0))))];
@@ -963,7 +938,7 @@ fn group_effects_follow_a_childs_stroke() {
 
 #[test]
 fn layer_effects_every_kind() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut failures = Vec::new();
     for depth in [SampleType::U8, SampleType::U16] {
         for (name, fx) in effect_cases() {
@@ -982,7 +957,7 @@ fn layer_effects_every_kind() {
 
 #[test]
 fn layer_effects_opacity_fill_blend_and_off_canvas() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let stack = effect_cases().into_iter().find(|(n, _)| *n == "full stack").unwrap().1;
     for (opacity, fill, blend) in [
         (0.7, 1.0, BlendMode::Normal),
@@ -1022,7 +997,7 @@ fn layer_effects_opacity_fill_blend_and_off_canvas() {
 
 #[test]
 fn layer_effects_on_groups_clipping_and_fills() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let ds = Effect::DropShadow(shadow(BlendMode::Multiply, 0.8, 120.0, 5.0, 6.0, 0.0));
     let st = Effect::Stroke(stroke(3.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(1.0, 1.0, 1.0))));
     let bv = Effect::BevelEmboss(bevel(BevelStyle::InnerBevel, true, 5.0, 1.0));
@@ -1067,7 +1042,7 @@ fn layer_effects_on_groups_clipping_and_fills() {
 
 #[test]
 fn layer_effects_update_incrementally() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let stack = effect_cases().into_iter().find(|(n, _)| *n == "full stack").unwrap().1;
     let mut d = fx_doc(700, 600, SampleType::U8);
     let mut l = blob("fx", d.pixel_format(), 300.0, 280.0, 200.0, [0.9, 0.4, 0.2]);
@@ -1117,7 +1092,7 @@ fn layer_effects_update_incrementally() {
 
 #[test]
 fn layer_effects_on_shape_layers() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     use photocraft_doc::vector::{Path, ShapeLayer, Subpath};
     for alpha in [1.0, 0.55] {
         let mut d = fx_doc(90, 70, SampleType::U8);
@@ -1143,7 +1118,7 @@ fn stroke_effects_on_filled_and_stroked_shapes() {
     // compose::effect_outline (a fading gradient fill keeps its strokes along the path), several
     // stroke instances with gradient frames, and a vector stroke above the interior effects with
     // clipped layers and a mask.
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, StrokeAlign, Subpath};
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         for (fill_kind, vector_stroke, masked) in [(0, false, false), (1, false, true), (0, true, false), (1, true, true)] {
@@ -1186,7 +1161,7 @@ fn stroke_effects_on_filled_and_stroked_shapes() {
 
 #[test]
 fn channel_restrictions() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for mask_bits in [0b001u32, 0b010, 0b100, 0b101, 0b111] {
         // Raster layer in a blend mode, an adjustment and a clipped layer.
         let mut d = base_doc(64, 48);
@@ -1243,7 +1218,7 @@ static TEXT_GAMMA: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[test]
 fn type_layers_blend_with_text_gamma() {
     let _gamma = TEXT_GAMMA.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Color] {
         let mut d = base_doc(64, 48);
         let mut l = as_text(noise_layer("text", PixelFormat::RGBA8, Rect::new(4, 3, 60, 45), 21, 0.0));
@@ -1307,7 +1282,7 @@ fn type_layers_blend_with_text_gamma() {
 #[test]
 fn blend_mode_extremes() {
     // Exact 0 / 1 channels on both sides (Color Burn / Dodge / Vivid Light / Hard Mix corners).
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let vals = [0.0f32, 1.0, 0.5];
     for depth in [SampleType::U8, SampleType::U16] {
         for mode in BlendMode::LAYER_MODES {
@@ -1335,7 +1310,7 @@ fn blend_mode_extremes() {
 
 #[test]
 fn stroked_shapes_with_clipped_layers() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     use photocraft_doc::vector::{Path, ShapeLayer, ShapeStroke, Subpath};
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         for (blend, masked) in [(BlendMode::Normal, false), (BlendMode::Multiply, true)] {
@@ -1366,7 +1341,7 @@ fn stroked_shapes_with_clipped_layers() {
 /// layer effects. Reusing the compositor across movement and depth changes exercises keys.
 #[test]
 fn shape_gradient_fields_strokes_clips_and_effects() {
-    let mut g = gpu().expect("vector sync parity requires a GPU adapter");
+    let mut g = gpu();
     use photocraft_doc::vector::{ShapeLayer, ShapeStroke};
     use photocraft_doc::{Effect, FxCommon, FxPaint, StrokeFx, StrokePosition};
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
@@ -1424,7 +1399,7 @@ fn shape_gradient_fields_strokes_clips_and_effects() {
 
 #[test]
 fn artboards() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     use photocraft_doc::{Artboard, ArtboardBackground};
     let backgrounds = [
         ArtboardBackground::White,
@@ -1462,7 +1437,7 @@ fn artboards() {
 
 #[test]
 fn pattern_fill_layers() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let pat = checker_pattern();
     for (link, scale, angle, masked) in [(true, 1.0, 0.0, false), (false, 0.7, 25.0, true), (true, 1.6, -40.0, false)] {
         let mut d = base_doc(70, 50);
@@ -1491,7 +1466,7 @@ fn pattern_fill_layers() {
 
 #[test]
 fn lab_documents_mix_in_lab() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for depth in [SampleType::U8, SampleType::U16] {
         let mut d = Document::new("lab", Size::new(48, 40), ColorMode::Lab, depth);
         let fmt = d.pixel_format();
@@ -1525,11 +1500,8 @@ fn rgba16f_fallback_path_renders() {
     // Rgba16Float. Force that path here (even on a 32f-capable GPU) to prove it works end to end —
     // pipeline creation, the accumulation texture, and the half-float readback — within display
     // tolerance of the CPU reference. This is the path Intel-Vulkan / limited GPUs take.
-    let Some((adapter, device, queue, _lock)) = any_device() else { return };
-    let mut comp = match Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba16Float) {
-        Ok(c) => c,
-        Err(e) => return eprintln!("skipping: {e}"),
-    };
+    let (adapter, device, queue, _lock) = any_device();
+    let mut comp = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba16Float).expect("Rgba16Float compositor on a hardware adapter");
     let mut d = base_doc(48, 32);
     let mut top = noise_layer("top", PixelFormat::RGBA8, Rect::from_xywh(0, 0, 48, 32), 7, 1.0);
     top.blend = BlendMode::Multiply;
@@ -1555,7 +1527,7 @@ fn rgba16f_fallback_path_renders() {
 fn unbuildable_pipelines_are_an_error_not_a_panic() {
     // The app falls back to the CPU compositor on Err; a panic here would crash it (as FXC once
     // did on D3D12). A depth format can't be a colour target, so its pipelines fail to build.
-    let Some((adapter, device, _, _lock)) = any_device() else { return };
+    let (adapter, device, _, _lock) = any_device();
     let e = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Depth32Float).err().expect("depth target must fail");
     assert!(e.0.contains("pipelines"), "{e}");
     // The format the app picks builds (effect maps the adapter can't render are left out, not fatal).
@@ -1609,7 +1581,7 @@ fn big_doc() -> Document {
 #[test]
 fn documents_larger_than_the_texture_limit() {
     let _gamma = TEXT_GAMMA.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = big_doc();
     assert!(g.paged.supports(&d).is_ok());
     // Every pass sees page borders, and effect maps and blurs crossing them.
@@ -1632,7 +1604,7 @@ fn documents_larger_than_the_texture_limit() {
 #[test]
 fn pages_are_evicted_under_the_budget() {
     let _gamma = TEXT_GAMMA.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = big_doc();
     check(&mut g, &d, "warm");
     let all = g.paged.resident_bytes();
@@ -1656,7 +1628,7 @@ fn pages_are_evicted_under_the_budget() {
 #[test]
 fn the_focused_view_stays_resident_after_a_full_refresh() {
     let _gamma = TEXT_GAMMA.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(g) = gpu() else { return };
+    let g = gpu();
     let d = big_doc();
     let mut comp = Compositor::try_new_with_format(&g.device, wgpu::TextureFormat::Rgba32Float).unwrap();
     comp.set_texture_limit(PAGED_LIMIT);
@@ -1682,7 +1654,7 @@ fn the_focused_view_stays_resident_after_a_full_refresh() {
 
 #[test]
 fn cached_plans_rebind_pixel_edits_and_survive_document_switches() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut a = base_doc(64, 64);
     let b = base_doc(64, 64);
     check(&mut g, &a, "cached A");
@@ -1703,7 +1675,7 @@ fn cached_plans_rebind_pixel_edits_and_survive_document_switches() {
 
 #[test]
 fn cached_feathered_mask_updates_match_cpu() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = base_doc(64, 64);
     let mut mask = LayerMask::reveal_all();
     mask.feather = 3.0;
@@ -1718,7 +1690,7 @@ fn cached_feathered_mask_updates_match_cpu() {
 
 #[test]
 fn deferred_encode_uniforms_survive_an_intervening_render() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let a = Document::with_background("deferred", Size::new(64, 64), ColorMode::Rgb, SampleType::U8, Color::rgb(0.2, 0.5, 0.8));
     let b = Document::with_background("submitted first", Size::new(64, 64), ColorMode::Rgb, SampleType::U8, Color::rgb(0.9, 0.1, 0.3));
     let row = 64 * 16;
@@ -1776,7 +1748,7 @@ fn blend_ranges() -> photocraft_doc::BlendIf {
 #[test]
 fn blend_if_integer_arithmetic_matches_cpu() {
     use wgpu::util::DeviceExt;
-    let Some(g) = gpu() else { return };
+    let g = gpu();
     let mut colors = Vec::<[f32; 3]>::new();
     for levels in [255, 65535] {
         colors.extend((0..=levels).map(|n| [n as f32 / levels as f32; 3]));
@@ -1867,7 +1839,7 @@ fn blend_if_integer_arithmetic_matches_cpu() {
 
 #[test]
 fn blend_if_ranges_depth_modes_and_boundaries() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen, BlendMode::Overlay] {
             let mut d = Document::new("Blend If", Size::new(72, 48), ColorMode::Rgb, depth);
@@ -1953,7 +1925,7 @@ fn blend_if_ranges_depth_modes_and_boundaries() {
 
 #[test]
 fn blend_if_groups_clipping_adjustments_and_damage() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for group_mode in [BlendMode::PassThrough, BlendMode::Multiply] {
         let mut d = base_doc(530, 90);
         let mut base = noise_layer("base", d.pixel_format(), Rect::new(220, -10, 520, 80), 31, 0.3);
@@ -1989,7 +1961,7 @@ fn blend_if_groups_clipping_adjustments_and_damage() {
 
 #[test]
 fn noisy_shadows_and_glows_depth_modes_and_pages() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         for mode in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Screen] {
             for kind in 0..6 {
@@ -2038,7 +2010,7 @@ fn noisy_shadows_and_glows_depth_modes_and_pages() {
 
 #[test]
 fn noisy_maps_hash_damage_move_and_setting_changes() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = Document::new("noise hash", Size::new(280, 60), ColorMode::Rgb, SampleType::F32);
     let mut l = Layer::raster("hash", d.pixel_format());
     l.surface_mut().unwrap().fill_rect(Rect::new(-5, -5, 275, 55), &[0.2, 0.5, 0.7, 0.5]);
@@ -2086,7 +2058,7 @@ fn native_adjustments(space: photocraft_doc::adjust::ToneSpace) -> [Adjustment; 
 #[test]
 fn native_cmyk_lab_tones_depth_blends_masks_clipping() {
     use photocraft_doc::adjust::ToneSpace;
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         for doc_mode in [ColorMode::Rgb, ColorMode::Cmyk, ColorMode::Lab] {
             for space in [ToneSpace::Cmyk, ToneSpace::Lab] {
@@ -2119,7 +2091,7 @@ fn native_cmyk_lab_tones_depth_blends_masks_clipping() {
 #[test]
 fn former_fallbacks_combined_damage_and_pages() {
     use photocraft_doc::adjust::ToneSpace;
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         let mut d = fx_doc(530, 80, depth);
         let mut base = blob("combined", d.pixel_format(), 255.0, 40.0, 32.0, [0.7, 0.2, 0.4]);
@@ -2150,7 +2122,7 @@ fn former_fallbacks_combined_damage_and_pages() {
 // the CPU, through the clamped kernel and the clipped apron.
 #[test]
 fn oversized_blur_is_clamped_like_the_cpu() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = fx_doc(270, 16, SampleType::U16);
     let mut l = blob("wide blur", d.pixel_format(), 250.0, 8.0, 4.0, [0.5, 0.2, 0.1]);
     let mut s = shadow(BlendMode::Normal, 0.7, 0.0, 0.0, 2051.0, 0.0);
@@ -2165,17 +2137,11 @@ fn oversized_blur_is_clamped_like_the_cpu() {
 
 #[test]
 fn oversized_effect_apron_splits_page_work() {
-    let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let Ok(adapter) = pollster::block_on(wgpu::Instance::default().request_adapter(&wgpu::RequestAdapterOptions::default())) else { return };
-    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-        required_limits: wgpu::Limits { max_texture_dimension_2d: 4096, ..Default::default() },
-        ..Default::default()
-    })) else {
-        return;
-    };
-    if Compositor::preferred_acc_format(&adapter) != wgpu::TextureFormat::Rgba32Float {
-        return;
-    }
+    let _lock = li_testkit::gpu::lock();
+    let li_testkit::gpu::HardwareGpu { adapter, device, queue, .. } = li_testkit::gpu::hardware_device_with("photocraft-gpu apron split", |_| {
+        wgpu::DeviceDescriptor { required_limits: wgpu::Limits { max_texture_dimension_2d: 4096, ..Default::default() }, ..Default::default() }
+    });
+    assert_eq!(Compositor::preferred_acc_format(&adapter), wgpu::TextureFormat::Rgba32Float, "hardware adapter can't render Rgba32Float");
     let mut comp = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
     let mut d = base_doc(4200, 4);
     let mut l = noise_layer("long shifted shadow", d.pixel_format(), d.bounds(), 391, 0.2);
@@ -2192,7 +2158,7 @@ fn oversized_effect_apron_splits_page_work() {
 
 #[test]
 fn noisy_group_shape_tracks_blend_if_edits_and_document_mode() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = base_doc(300, 80);
     let mut child = blob("child", d.pixel_format(), 250.0, 40.0, 25.0, [0.8, 0.3, 0.1]);
     child.blend_if = blend_ranges();
@@ -2215,7 +2181,7 @@ fn noisy_group_shape_tracks_blend_if_edits_and_document_mode() {
 
 #[test]
 fn noisy_blur_damage_keeps_reference_residue_speckles() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = fx_doc(300, 90, SampleType::U8);
     let mut l = blob("soft noisy", d.pixel_format(), 245.0, 40.0, 26.0, [0.8, 0.3, 0.2]);
     let mut glow = glow(FxPaint::Color(Color::rgb(0.7, 0.6, 0.3)), GlowTechnique::Softer, 9.0, 0.2, GlowSource::Edge);
@@ -2231,7 +2197,7 @@ fn noisy_blur_damage_keeps_reference_residue_speckles() {
 
 #[test]
 fn wide_glow_fields_remain_exact_inside_the_reference_region() {
-    let Some(mut g) = gpu() else { return };
+    let mut g = gpu();
     let mut d = fx_doc(800, 540, SampleType::U8);
     let mut l = blob("wide precise", d.pixel_format(), 250.0, 10.0, 8.0, [0.4, 0.2, 0.7]);
     l.effects.items = vec![Effect::OuterGlow(glow(FxPaint::Color(Color::rgb(0.9, 0.7, 0.1)), GlowTechnique::Precise, 1000.0, 0.6, GlowSource::Edge))];
@@ -2242,10 +2208,7 @@ fn wide_glow_fields_remain_exact_inside_the_reference_region() {
 
 #[test]
 fn replaced_resident_views_do_not_accumulate_binding_owners() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let mut d = Document::new("resident replacement", Size::new(512, 512), ColorMode::Rgb, SampleType::U8);
     d.layers.push(Layer::raster("changing page", PixelFormat::RGBA8));
     let mut baseline = None;
@@ -2273,10 +2236,7 @@ fn replaced_resident_views_do_not_accumulate_binding_owners() {
 
 #[test]
 fn removed_layers_release_cached_texture_bindings_under_budget() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let mut d = base_doc(64, 64);
     for step in 0..8 {
         check(&mut g, &d, "layer before removal");
@@ -2292,10 +2252,7 @@ fn removed_layers_release_cached_texture_bindings_under_budget() {
 
 #[test]
 fn effect_and_pattern_replacement_do_not_accumulate_binding_owners() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let mut d = fx_doc(96, 96, SampleType::U8);
     d.layers.push(blob("effect", d.pixel_format(), 48.0, 48.0, 18.0, [0.8, 0.3, 0.1]));
     let mut ceiling = 0;
@@ -2339,10 +2296,7 @@ fn effect_and_pattern_replacement_do_not_accumulate_binding_owners() {
 
 #[test]
 fn closing_pattern_documents_releases_primary_cache() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     for step in 0..8 {
         let mut d = base_doc(64, 64);
         let mut pat = checker_pattern();
@@ -2380,10 +2334,7 @@ fn pattern_budget_doc(label: &str, count: u32) -> Document {
 
 #[test]
 fn pattern_cache_budget_evicts_old_documents_and_preserves_warm_patterns() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let one = 6 * 5 * 16;
     let budget = 3 * one;
     g.comp.set_memory_budget(budget * 8);
@@ -2408,10 +2359,7 @@ fn pattern_cache_budget_evicts_old_documents_and_preserves_warm_patterns() {
 
 #[test]
 fn pattern_working_set_refusal_precedes_allocation_and_budget_changes_retry() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let d = pattern_budget_doc("over budget", 4);
     let one = 6 * 5 * 16;
     g.comp.set_memory_budget(3 * one * 8);
@@ -2433,10 +2381,7 @@ fn pattern_working_set_refusal_precedes_allocation_and_budget_changes_retry() {
 
 #[test]
 fn effect_only_pattern_inputs_obey_working_set_budget() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let mut d = fx_doc(64, 64, SampleType::U8);
     let mut layer = blob("pattern bevel", d.pixel_format(), 32.0, 32.0, 12.0, [0.7, 0.3, 0.1]);
     layer.effects.items = effect_cases().into_iter().find(|(name, _)| *name == "bevel texture").unwrap().1;
@@ -2453,10 +2398,7 @@ fn effect_only_pattern_inputs_obey_working_set_budget() {
 
 #[test]
 fn pattern_context_tracks_document_cmyk_profile() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let mut d = Document::new("CMYK pattern profile", Size::new(64, 64), ColorMode::Cmyk, SampleType::U8);
     let surface = photocraft_raster::Surface::with_default(PixelFormat::new(ColorMode::Cmyk, SampleType::U8, true), &[0.0, 0.5, 0.5, 0.0, 1.0]);
     let pat = Pattern::new("CMYK", surface, 6, 5);
@@ -2485,10 +2427,7 @@ fn pattern_context_tracks_document_cmyk_profile() {
 
 #[test]
 fn pattern_context_pixel_changes_rebuild_bevel_program() {
-    let Some(mut g) = gpu() else {
-        assert!(std::env::var_os("LOCAL_IMAGE_REQUIRE_GPU").is_none(), "required hardware adapter unavailable");
-        return;
-    };
+    let mut g = gpu();
     let mut d = fx_doc(96, 96, SampleType::U8);
     let mut layer = blob("textured bevel", d.pixel_format(), 48.0, 48.0, 24.0, [0.7, 0.3, 0.1]);
     layer.effects.items = effect_cases().into_iter().find(|(name, _)| *name == "bevel texture").unwrap().1;

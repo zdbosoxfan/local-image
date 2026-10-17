@@ -10,7 +10,7 @@
 //! of moves past the click distance), render the frame mid-drag and look at the pixels along the
 //! preview's edges on white and on black documents. They also check the preview follows every
 //! move (each move's frame shows the new outline) and that the animated ants keep frames coming
-//! while the pointer is held still. Skips when no GPU adapter exists (like `live_stroke_canvas.rs`).
+//! while the pointer is held still. Fails when no GPU adapter exists (like `live_stroke_canvas.rs`).
 
 use egui::{Modifiers, PointerButton, Pos2};
 use photocraft_ui_egui::PhotocraftApp;
@@ -41,24 +41,14 @@ impl Image {
     }
 }
 
-fn harness(ppp: f32) -> Option<Harness> {
-    let built = std::panic::catch_unwind(|| {
-        egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 640.0)).with_pixels_per_point(ppp).with_max_steps(64).wgpu().build_eframe(|cc| {
-            PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
-            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
-            if let Some(rs) = cc.wgpu_render_state.as_ref() {
-                app.set_wgpu(rs.clone());
-            }
-            app
-        })
-    });
-    match built {
-        Ok(h) => Some(h),
-        Err(_) => {
-            eprintln!("skipping: no GPU adapter");
-            None
-        }
-    }
+fn harness(ppp: f32) -> Harness {
+    egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 640.0)).with_pixels_per_point(ppp).with_max_steps(64).wgpu().build_eframe(|cc| {
+        PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        let rs = cc.wgpu_render_state.as_ref().expect("real GPU required: no wgpu render state");
+        app.set_wgpu(rs.clone());
+        app
+    })
 }
 
 fn control(h: &mut Harness, method: &str, params: Value) {
@@ -165,7 +155,7 @@ fn edges(h: &Harness, a: [f32; 2], b: [f32; 2]) -> [(Pos2, Pos2); 4] {
 fn marquee_previews_show_while_dragging_on_white_and_black_at_1x_and_2x() {
     let _gpu = crate::gpu_lock();
     for ppp in [1.0, 2.0] {
-        let Some(mut h) = harness(ppp) else { return };
+        let mut h = harness(ppp);
         h.run_steps(4);
         for tool in ["rectMarquee", "ellipseMarquee"] {
             for bg in ["white", "black"] {
@@ -211,7 +201,7 @@ fn marquee_previews_show_while_dragging_on_white_and_black_at_1x_and_2x() {
 fn lasso_and_crop_previews_show_while_dragging() {
     let _gpu = crate::gpu_lock();
     for ppp in [1.0, 2.0] {
-        let Some(mut h) = harness(ppp) else { return };
+        let mut h = harness(ppp);
         h.run_steps(4);
         for bg in ["white", "black"] {
             // Lasso: a straight run, then down; the path shows as contrasting ants.
@@ -243,7 +233,7 @@ fn lasso_and_crop_previews_show_while_dragging() {
 #[test]
 fn a_held_marquee_drag_keeps_requesting_frames() {
     let _gpu = crate::gpu_lock();
-    let Some(mut h) = harness(1.0) else { return };
+    let mut h = harness(1.0);
     h.run_steps(4);
     setup(&mut h, "white", "rectMarquee");
     let shortest: Arc<Mutex<Option<Duration>>> = Arc::default();
