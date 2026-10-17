@@ -1,6 +1,6 @@
-//! Full-app acceptance for 00 after appearance router/preview/panel hooks are registered.
-//! Requires UiState::vector_appearance and Tool::{VectorFill,Transparency}; deliberately
-//! unregistered until the coordinator supplies those real hooks. Widget GPU tests are separate.
+//! Full-app acceptance for the appearance router/preview/panel hooks.
+//! Requires UiState::vector_appearance and Tool::{VectorFill,Transparency}; it
+//! needs those real hooks and no substitute. Widget GPU tests are separate.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::{Harness, kittest::Queryable};
@@ -128,7 +128,7 @@ fn appearance_app_gpu_fill_transparency_panel_preview_release_undo_cancel() {
     assert!(h.state_mut().session.undo());
 }
 #[test]
-#[ignore = "coordinator: run release real-app pointer-frame measurement after router registration"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn appearance_app_pointer_frame_release_measurement_rtx5090() {
     let _gpu_gate = crate::gpu_lock();
     if cfg!(debug_assertions) {

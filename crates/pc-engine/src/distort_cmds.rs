@@ -35,7 +35,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-// ---------- params ----------
+// Params
 
 /// Liquify params: the strokes and the field resolution (`meshSize`, px per field node).
 pub fn liquify_params(cmd: &str, p: &Value, canvas: Rect) -> Result<(Vec<LiquifyStroke>, f64)> {
@@ -110,7 +110,7 @@ fn interp(p: &Value) -> Interp {
     Interp::parse(p.get("interpolation").and_then(Value::as_str).unwrap_or("bicubic"))
 }
 
-// ---------- pixel operations ----------
+// Pixel operations
 
 /// Mixes `new` over `old` by the selection's coverage (premultiplied when there is alpha).
 fn mix_by_selection(old: &Surface, new: &Surface, sel: &Surface) -> Surface {
@@ -188,7 +188,7 @@ pub fn apply_to_surface(id: &str, params: &Value, surf: &Surface, canvas: Rect) 
     }
 }
 
-// ---------- commands ----------
+// Commands
 
 fn target(s: &Session, p: &Value) -> Result<LayerId> {
     match p.get("layer").and_then(Value::as_u64) {

@@ -144,20 +144,9 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
 /// `filter.*` command; smart filters re-run it on re-render). `bounds` frames distortions;
 /// `selection` limits the result. Like layer filters, neighbourhood filters repeat the edge pixels
 /// of `canvas` ∪ the surface's content instead of fading in transparency, and the output is
-/// clipped to it. `None` for ids that aren't pixel filters.
-pub fn apply_filter_to_surface(
-    id: &str,
-    params: &Value,
-    surf: &photocraft_raster::Surface,
-    bounds: photocraft_geom::Rect,
-    selection: Option<&photocraft_raster::Surface>,
-    canvas: photocraft_geom::Rect,
-) -> Option<photocraft_raster::Surface> {
-    apply_filter_to_surface_in(id, params, surf, bounds, selection, canvas, None)
-}
-
-/// [`apply_filter_to_surface`] knowing the document's RGB profile (`color_cmds::composite_profile`),
-/// which the Camera Raw Filter (`filter.develop`) converts through; `None` = sRGB.
+/// clipped to it. `None` for ids that aren't pixel filters. `profile` is the document's RGB profile
+/// (`color_cmds::composite_profile`), which the Camera Raw Filter (`filter.develop`) converts
+/// through; `None` = sRGB.
 pub fn apply_filter_to_surface_in(
     id: &str,
     params: &Value,

@@ -31,26 +31,10 @@ impl Normal {
 
 /// Runs `f(y, row)` for every row of a `w × h × ch` buffer, in parallel on native targets.
 pub(crate) fn par_rows<T: Send + Sync>(buf: &mut [T], w: usize, ch: usize, f: impl Fn(usize, &mut [T]) + Sync + Send) {
-    let stride = (w * ch).max(1);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use rayon::prelude::*;
-        buf.par_chunks_mut(stride).enumerate().for_each(|(y, row)| f(y, row));
-    }
-    #[cfg(target_arch = "wasm32")]
-    buf.chunks_mut(stride).enumerate().for_each(|(y, row)| f(y, row));
+    li_raster::par_rows(buf, (w * ch).max(1), f);
 }
 
-/// Maps `f` over `0..n` (in parallel on native targets), keeping order.
-pub(crate) fn par_map<T: Send>(n: usize, f: impl Fn(usize) -> T + Sync + Send) -> Vec<T> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use rayon::prelude::*;
-        (0..n).into_par_iter().map(f).collect()
-    }
-    #[cfg(target_arch = "wasm32")]
-    (0..n).map(f).collect()
-}
+pub(crate) use li_raster::par_map;
 
 /// Deterministic 64-bit generator (SplitMix64).
 pub(crate) struct Rng(pub u64);
@@ -67,9 +51,7 @@ impl Rng {
     }
 }
 
-pub(super) fn srgb_to_linear(v: f32) -> f32 {
-    li_color::transfer::srgb_to_linear(v)
-}
+pub(super) use li_color::transfer::srgb_to_linear;
 pub(super) fn gauss_blur_n(buf: &mut [f32], w: usize, h: usize, n: usize, sigma: f32) {
     li_raster::blur::gaussian_boxes_n(buf, w, h, n, sigma);
 }

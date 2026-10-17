@@ -36,7 +36,6 @@ macro_rules! gallery {
 }
 
 gallery! {
-    // ---- Artistic ----
     ColoredPencil = "coloredPencil", "Colored Pencil", "Artistic", r#"{"pencilWidth":1..24=4,"strokePressure":0..15=8,"paperBrightness":0..50=25}"#;
     Cutout = "cutout", "Cutout", "Artistic", r#"{"numberOfLevels":2..8=4,"edgeSimplicity":0..10=4,"edgeFidelity":1..3=2}"#;
     DryBrush = "dryBrush", "Dry Brush", "Artistic", r#"{"brushSize":0..10=2,"brushDetail":0..10=8,"texture":1..3=1}"#;
@@ -52,7 +51,6 @@ gallery! {
     Sponge = "sponge", "Sponge", "Artistic", r#"{"brushSize":0..10=2,"definition":0..25=12,"smoothness":1..15=5}"#;
     Underpainting = "underpainting", "Underpainting", "Artistic", r#"{"brushSize":0..40=6,"textureCoverage":0..40=16,"texture":"canvas|brick|burlap|sandstone","scaling":50..200=100,"relief":0..50=4,"light":"top|topRight|right|bottomRight|bottom|bottomLeft|left|topLeft","invert":bool}"#;
     Watercolor = "watercolor", "Watercolor", "Artistic", r#"{"brushDetail":1..14=9,"shadowIntensity":0..10=1,"texture":1..3=1}"#;
-    // ---- Brush Strokes ----
     AccentedEdges = "accentedEdges", "Accented Edges", "Brush Strokes", r#"{"edgeWidth":1..14=2,"edgeBrightness":0..50=38,"smoothness":1..15=5}"#;
     AngledStrokes = "angledStrokes", "Angled Strokes", "Brush Strokes", r#"{"directionBalance":0..100=50,"strokeLength":3..50=15,"sharpness":0..10=3}"#;
     Crosshatch = "crosshatch", "Crosshatch", "Brush Strokes", r#"{"strokeLength":3..50=9,"sharpness":0..20=6,"strength":1..3=1}"#;
@@ -61,11 +59,9 @@ gallery! {
     Spatter = "spatter", "Spatter", "Brush Strokes", r#"{"sprayRadius":0..25=10,"smoothness":1..15=5}"#;
     SprayedStrokes = "sprayedStrokes", "Sprayed Strokes", "Brush Strokes", r#"{"strokeLength":0..20=12,"sprayRadius":0..25=7,"strokeDirection":"rightDiagonal|horizontal|leftDiagonal|vertical"}"#;
     SumiE = "sumiE", "Sumi-e", "Brush Strokes", r#"{"strokeWidth":3..15=10,"strokePressure":0..15=2,"contrast":0..40=16}"#;
-    // ---- Distort ----
     DiffuseGlow = "diffuseGlow", "Diffuse Glow", "Distort", r#"{"graininess":0..10=6,"glowAmount":0..20=10,"clearAmount":0..20=15,"background":json}"#;
     Glass = "glass", "Glass", "Distort", r#"{"distortion":0..20=5,"smoothness":1..15=3,"texture":"frosted|blocks|canvas|tinyLens","scaling":50..200=100,"invert":bool}"#;
     OceanRipple = "oceanRipple", "Ocean Ripple", "Distort", r#"{"rippleSize":1..15=9,"rippleMagnitude":0..20=9}"#;
-    // ---- Sketch (foreground = ink, background = paper) ----
     BasRelief = "basRelief", "Bas Relief", "Sketch", r#"{"detail":1..15=13,"smoothness":1..15=3,"light":"bottom|bottomLeft|left|topLeft|top|topRight|right|bottomRight","foreground":json,"background":json}"#;
     ChalkCharcoal = "chalkCharcoal", "Chalk & Charcoal", "Sketch", r#"{"charcoalArea":0..20=6,"chalkArea":0..20=6,"strokePressure":0..5=1,"foreground":json,"background":json}"#;
     Charcoal = "charcoal", "Charcoal", "Sketch", r#"{"charcoalThickness":1..7=1,"detail":0..5=5,"lightDarkBalance":0..100=50,"foreground":json,"background":json}"#;
@@ -80,9 +76,7 @@ gallery! {
     Stamp = "stamp", "Stamp", "Sketch", r#"{"lightDarkBalance":0..50=25,"smoothness":1..50=5,"foreground":json,"background":json}"#;
     TornEdges = "tornEdges", "Torn Edges", "Sketch", r#"{"imageBalance":0..50=25,"smoothness":1..15=11,"contrast":1..25=17,"foreground":json,"background":json}"#;
     WaterPaper = "waterPaper", "Water Paper", "Sketch", r#"{"fiberLength":3..50=15,"brightness":0..100=60,"contrast":0..100=80}"#;
-    // ---- Stylize ----
     GlowingEdges = "glowingEdges", "Glowing Edges", "Stylize", r#"{"edgeWidth":1..14=2,"edgeBrightness":0..20=6,"smoothness":1..15=5}"#;
-    // ---- Texture ----
     Craquelure = "craquelure", "Craquelure", "Texture", r#"{"crackSpacing":2..100=15,"crackDepth":0..10=6,"crackBrightness":0..10=9}"#;
     Grain = "grain", "Grain", "Texture", r#"{"intensity":0..100=40,"contrast":0..100=50,"grainType":"regular|soft|sprinkles|clumped|contrasty|enlarged|stippled|horizontal|vertical|speckle","foreground":json,"background":json}"#;
     MosaicTiles = "mosaicTiles", "Mosaic Tiles", "Texture", r#"{"tileSize":2..100=12,"groutWidth":1..15=3,"lightenGrout":0..10=9}"#;

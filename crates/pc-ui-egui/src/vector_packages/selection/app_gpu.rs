@@ -1,5 +1,4 @@
-//! Real-app gates. These require 00's engine registration and route() hook. Running them
-//! in a disposable registration copy proves the supplied hooks, not production wiring.
+//! Real-app gates. These require the engine registration and route() hook.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{PhotocraftApp, state::Tool as AppTool};
@@ -132,7 +131,7 @@ fn selection_full_app_gpu_live_lasso_cancel_release_wand_add_rtx5090() {
     assert_eq!(h.state().session.active().unwrap().doc, doc);
 }
 #[test]
-#[ignore = "release real-app 500-object pointer-frame benchmark; run after 00 routing"]
+#[ignore = "release-build 500-object pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 fn selection_full_app_release_500_pointer_frames_under_16ms_rtx5090() {
     let _gpu_gate = crate::gpu_test_support::lock();
     if cfg!(debug_assertions) {
@@ -258,7 +257,7 @@ fn selection_full_app_gpu_group_circle_then_node_lasso_delete_03_rtx5090() {
     assert_eq!(h.state().session.active().unwrap().doc, doc);
     assert_eq!(h.state().session.active().unwrap().revision, revision);
     assert_eq!(h.state().session.active().unwrap().history.past_len(), history);
-    // The exact 03 frame hook owns Delete. Use a four-node diamond and real
+    // The Direct Select frame hook owns Delete. Use a four-node diamond and real
     // app keyboard input after lasso publication, without a test-only delete handler.
     h.state_mut()
         .session

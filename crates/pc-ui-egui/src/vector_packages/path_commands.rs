@@ -1,4 +1,4 @@
-//! Package 36 Object/Path menu fragment and captured dialogs. The host installs menu() in its
+//! Object/Path menu fragment and captured dialogs. The host installs menu() in its
 //! Object menu, shortcuts() before Pixel shortcuts in Vector persona, and dialog() each frame.
 //! UI conventions follow Adobe's Average/Simplify/Split Into Grid/Expand help (SOURCES.md).
 use egui::{Key, Modifiers, Ui};
@@ -289,7 +289,7 @@ impl State {
         }
         true
     }
-    /// Exact menu fragment; 00 supplies it from Object and Edit and supplies the i18n closure.
+    /// Exact menu fragment; the host supplies it from Object and Edit, along with the i18n closure.
     pub fn menu(&mut self, ui: &mut Ui, s: &mut Session, ids: &[LayerId], anchors: &[Anchors], tr: impl Fn(&str) -> String) {
         ui.menu_button(tr("Path"), |ui| {
             for (label, action) in [

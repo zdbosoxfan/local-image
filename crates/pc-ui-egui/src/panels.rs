@@ -9,7 +9,7 @@ use crate::state::Tool;
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
 
-// ----------------------------------------------------------------------------- toolbar
+// Toolbar
 
 /// Tool groups separated by hairlines, Photoshop order.
 /// Photoshop toolbar: divider-separated sections of slots; each slot is a flyout group whose button
@@ -408,7 +408,7 @@ fn color_chips(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
-// ----------------------------------------------------------------------------- title bar
+// Title bar
 
 /// The app's top bar: brand mark, menus, the document title and the workspace controls. With
 /// [`PhotocraftApp::custom_titlebar`] (Windows and Linux) it is also the window's title bar, as in
@@ -638,7 +638,7 @@ fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::B
     }
 }
 
-// ----------------------------------------------------------------------------- options bar
+// Options bar
 
 pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     crate::toolsets_ui::persona::frame(app, ui.ctx());
@@ -1196,7 +1196,7 @@ fn hint(ui: &mut egui::Ui, s: &str) {
     ui.label(RichText::new(s).color(t.text_faint));
 }
 
-// ----------------------------------------------------------------------------- status bar
+// Status bar
 
 pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     // A caller may forward a raw error returned by `run`; normalize at the last report
@@ -1275,7 +1275,7 @@ pub fn status_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
 }
 
-// ----------------------------------------------------------------------------- dock
+// Dock
 
 pub fn right_dock(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
@@ -1605,7 +1605,7 @@ fn color_picker_edit(app: &mut PhotocraftApp, ui: &mut egui::Ui, notify_type: bo
     });
 }
 
-// ----------------------------------------------------------------------------- layers
+// Layers
 
 /// The simple themes' single lock button. On the Background it converts the layer to a normal
 /// one, as clicking the Background's lock does in Photoshop. Elsewhere it clears every lock when
@@ -2430,7 +2430,7 @@ fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-// ----------------------------------------------------------------------------- properties
+// Properties
 
 /// Floating Properties card anchored to the canvas' top-right corner.
 pub fn properties_window(app: &mut PhotocraftApp, ctx: &egui::Context) {

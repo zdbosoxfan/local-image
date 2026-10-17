@@ -12,14 +12,9 @@ pub enum ConversionChoice {
     Curves,
     Envelope,
 }
-/// Typed 20 handoff; the envelope provider must implement detached preview and atomic commit.
 #[derive(Clone, Debug, PartialEq)]
 pub struct EnvelopeRequest {
     pub transform: Commit,
-}
-pub trait EnvelopeRouter {
-    fn preview(&self, session: &Session, request: &EnvelopeRequest) -> Result<Document>;
-    fn commit(&self, session: &mut Session, request: &EnvelopeRequest) -> Result<Vec<LayerId>>;
 }
 pub fn conversion_targets(doc: &Document, ids: &[LayerId]) -> Vec<LayerId> {
     fn walk(layer: &Layer, out: &mut Vec<LayerId>) {
@@ -52,7 +47,7 @@ pub(crate) fn ordinary(t: &TextLayer, shaped: TextLayout) -> Result<Vec<on_path:
             .map(|(color, elements)| on_path::PaintedOutline { color, elements })
             .collect());
     }
-    // Identity placement reuses 12's per-style glyph, faux-bold and decoration projector.
+    // Identity placement reuses the path-text per-style glyph, faux-bold and decoration projector.
     // Every glyph sees the same identity transform; decoration clusters retain their spans.
     let clusters = shaped
         .clusters

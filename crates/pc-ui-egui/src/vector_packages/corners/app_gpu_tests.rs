@@ -1,4 +1,4 @@
-//! Package-06 full-app gate, registered by 00 in tests/gpu/main.rs. Uses the actual app canvas,
+//! Corners full-app gate, registered in tests/gpu/main.rs. Uses the actual app canvas,
 //! actual pointer capture, normal shape-split GPU plan and release. No desktop window or skip.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
@@ -61,7 +61,7 @@ fn harness(kind: CornerKind, star: bool) -> H {
     });
     h.run_steps(3);
     // Compare native canvas pixels at exactly aligned source-pixel centres; no resampling oracle
-    // is needed. Separate scaled-view packages own 2/4/8x coverage tests.
+    // is needed. Separate scaled-view tests own 2/4/8x coverage.
     let center = xf(&h).rect.center();
     h.state_mut().ui.views[0].center = [64.0 + center.x.fract(), 64.0 + center.y.fract()];
     h.run_steps(2);

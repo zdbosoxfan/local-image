@@ -1,5 +1,4 @@
-//! Scoped, test-only snapshots. Ordinary renders and the legacy environment trace
-//! retain no snapshots. A dump does not change process environment or GPU state.
+//! Scoped, test-only snapshots. Ordinary renders retain no snapshots. A dump does not change process environment or GPU state.
 use std::cell::RefCell;
 
 struct Snapshot {

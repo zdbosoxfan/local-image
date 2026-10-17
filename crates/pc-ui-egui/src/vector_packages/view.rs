@@ -1,6 +1,4 @@
-//! Package 09 display integration. These source-path bridges compile the owned modules
-//! without competing edits to package 00's crate registries. 00 may replace bridges with
-//! public crate modules; the app already exercises the same source files here.
+//! Display integration: re-exports of the scaled-view projection modules.
 pub use photocraft_compose::scaled_view as cpu;
 pub use photocraft_compose::{Buffer, cmyk_space, effects, fill_frame, gradient_fill, masks, pattern, render_tiled};
 pub use photocraft_gpu::scaled_view as gpu;
@@ -12,21 +10,8 @@ pub fn render(doc: &photocraft_doc::Document, rect: photocraft_geom::Rect) -> Bu
     photocraft_compose::render(doc, rect)
 }
 
-/// Same legacy providers in CPU fallback and GPU projection. Enhanced geometry/appearance
-/// providers install at this boundary after 08/12/15/18–20; absence is an error.
+/// Same providers in CPU fallback and GPU projection.
 pub fn project(
-    doc: &photocraft_doc::Document,
-    layer: &photocraft_doc::Layer,
-    scale: f64,
-    clip: photocraft_geom::Rect,
-) -> Result<photocraft_raster::Surface, cpu::ViewError> {
-    if let Some(provider) = PROJECTOR.get() {
-        return provider(doc, layer, scale, clip);
-    }
-    enhanced_project(doc, layer, scale, clip)
-}
-
-pub fn enhanced_project(
     doc: &photocraft_doc::Document,
     layer: &photocraft_doc::Layer,
     scale: f64,
@@ -102,12 +87,6 @@ pub fn damage(old: &photocraft_doc::Document, new: &photocraft_doc::Document) ->
         // fill/adjustment with a canvas-wide source, which already returns None above.
     }
     Some(if changed.is_empty() { changed } else { changed.inflate(reach(old).max(reach(new))).intersect(&new.bounds()) })
-}
-
-static PROJECTOR: std::sync::OnceLock<cpu::Projector> = std::sync::OnceLock::new();
-/// Install 08's display paint provider once during app startup. Same boundary for fallback.
-pub fn install_projector(provider: cpu::Projector) -> Result<(), cpu::Projector> {
-    PROJECTOR.set(provider)
 }
 
 #[cfg(test)]

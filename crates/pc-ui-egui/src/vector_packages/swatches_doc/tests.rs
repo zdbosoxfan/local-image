@@ -3,7 +3,7 @@ use super::*;
 use egui_kittest::{Harness, kittest::Queryable};
 use photocraft_doc::{ColorMode, Document, Layer, LayerContent, SampleType, ShapeLayer, Size};
 pub(crate) fn access() -> Access {
-    // Test-only fake of the owned document storage provider. Production uses 00's fields.
+    // Test-only fake of the owned document storage provider. Production uses the native document fields.
     Access {
         read: |d| serde_json::from_str(d.metadata.xmp.as_deref().unwrap_or("{}")).map_err(|e| EngineError::Other(e.to_string())),
         write: |d, b| {

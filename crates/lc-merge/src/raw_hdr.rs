@@ -16,7 +16,7 @@ use lightcraft_raw::{Normalized, NormalizedSamples, RawImage, Rect};
 use rayon::prelude::*;
 
 use crate::frame::{Frame, FrameColor, exif_exposure};
-use crate::hdr::{self, Deghost, HdrOptions, HdrResult};
+use crate::hdr::{self, Deghost, HdrOptions, HdrResult, smoothstep};
 use crate::{MergeError, Progress, Result, align, check};
 
 fn decode_error(e: lightcraft_raw::RawError) -> MergeError {
@@ -115,11 +115,6 @@ fn sample_phase(samples: &NormalizedSamples<'_>, sx: f64, sy: f64, phase: (usize
         }
     }
     Some((value, saturation))
-}
-
-fn smoothstep(a: f32, b: f32, value: f32) -> f32 {
-    let t = ((value - a) / (b - a)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 /// Preserve all channels together when a contributor is clipped. CFA inputs use

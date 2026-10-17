@@ -27,7 +27,7 @@ use photocraft_doc::{
 };
 use photocraft_geom::Rect;
 
-use crate::pattern::{PREPARED_PATTERN_BYTES, Placement, PreparedPatterns};
+use crate::pattern::{Placement, PreparedPatterns};
 use crate::{Buffer, psblend};
 
 /// `true` if the layer has at least one enabled effect and the master switch is on.
@@ -1179,11 +1179,6 @@ fn satin_map(shape: &Map, s: &photocraft_doc::effects::Satin) -> Map {
 }
 
 /// Build every effect map for `layer` from its alpha `shape` over `rect`.
-pub fn build_maps(layer: &Layer, shape: Vec<f32>, rect: Rect, light: &GlobalLight, tex: &TextureCtx) -> FxMaps {
-    let prepared = PreparedPatterns::new(tex.patterns, PREPARED_PATTERN_BYTES);
-    build_maps_prepared(layer, shape, rect, light, tex, &prepared)
-}
-
 pub(crate) fn build_maps_prepared(
     layer: &Layer,
     shape: Vec<f32>,
@@ -1238,11 +1233,6 @@ const FAR: f32 = 1.0e9;
 
 /// Composites `content` (the layer's own pixels over `big`, alpha already
 /// masked, clipped layers applied) plus its effects into `backdrop`.
-pub fn composite_with_effects(layer: &Layer, content: &Buffer, backdrop: &mut Buffer, maps: &FxMaps, layer_bounds: Rect, patterns: &[Pattern]) {
-    let prepared = PreparedPatterns::new(patterns, PREPARED_PATTERN_BYTES);
-    composite_with_effects_prepared(layer, content, backdrop, maps, layer_bounds, &prepared, None);
-}
-
 pub(crate) fn composite_with_effects_prepared(
     layer: &Layer,
     content: &Buffer,
@@ -1566,7 +1556,7 @@ fn mix_premul(a: [f32; 4], b: [f32; 4], k: f32) -> [f32; 4] {
 
 /// A distance field of an effect shape, as the map builders above compute it (for the GPU
 /// compositor, which builds the rest of the maps itself; keep in sync with `shadow_map`,
-/// `glow_map`, `bevel_maps` and `build_maps`).
+/// `glow_map`, `bevel_maps` and `build_maps_prepared`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FieldKind {
     /// `dist_outside` of the shape: precise outer and centre glows, bevels.
@@ -1600,6 +1590,7 @@ pub fn distance_field(kind: FieldKind, alpha: Vec<f32>, w: usize, h: usize) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pattern::PREPARED_PATTERN_BYTES;
 
     #[test]
     fn edt_is_exact() {

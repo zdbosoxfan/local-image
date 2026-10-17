@@ -1,5 +1,5 @@
 //! Explicit private-runtime API acceptance. Does not exercise native editor/document publication.
-//! Run only in the coordinator's exclusive AI interval, with the generation fixture launcher.
+//! Run only with no other AI work on the machine, using the generation fixture launcher.
 use anyhow::{Context, Result, ensure};
 use image::{Rgba, RgbaImage};
 use li_ai::{Ai, GenerateMode, GenerateRequest, JobControl, ModelId, Stage, ops::Generated};

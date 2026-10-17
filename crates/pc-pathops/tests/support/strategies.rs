@@ -7,8 +7,6 @@
 use photocraft_pathops::geom::{Anchor, PathData, Point, Rect, SubPath};
 use proptest::prelude::*;
 
-// ---------------------------------------------------------------- geometry
-
 pub fn arb_point(lo: f64, hi: f64) -> impl Strategy<Value = Point> {
     (lo..hi, lo..hi).prop_map(|(x, y)| Point::new(x, y))
 }

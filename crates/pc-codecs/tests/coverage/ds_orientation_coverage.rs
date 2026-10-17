@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use lightcraft_meta::upright_xmp;
 use lightcraft_tiff::exif::{orientation as exif_orientation, upright as upright_exif};
 
-// ---------- helpers for constructing synthetic TIFF/EXIF blocks ----------
+// Helpers for constructing synthetic TIFF/EXIF blocks
 
 #[derive(Clone, Copy)]
 enum Endian {
@@ -85,7 +85,7 @@ const TYPE_SHORT: u16 = 3;
 const TYPE_LONG: u16 = 4;
 const TYPE_ASCII: u16 = 2;
 
-// ---------- exif_orientation tests ----------
+// Exif_orientation tests
 
 #[test]
 fn exif_orientation_empty_and_tiny_inputs_are_one() {
@@ -183,7 +183,7 @@ fn exif_orientation_parses_big_tiff() {
     assert_eq!(exif_orientation(&data_long), 7);
 }
 
-// ---------- upright_exif tests ----------
+// Upright_exif tests
 
 #[test]
 fn upright_exif_no_change_when_empty_already_one_or_malformed() {
@@ -256,7 +256,7 @@ fn upright_exif_big_tiff_rewrites_short_value() {
     assert_eq!(&out[44..], &data[44..]);
 }
 
-// ---------- upright_xmp tests ----------
+// Upright_xmp tests
 
 #[test]
 fn upright_xmp_no_change_cases() {

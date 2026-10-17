@@ -223,7 +223,7 @@ impl std::fmt::Debug for FaceModels {
 
 impl FaceModels {
     /// Load `<dir>/segmentation/<file>`, the app's model layout. A directory containing the
-    /// two files directly is also accepted for coordinator/reference harnesses.
+    /// two files directly is also accepted for reference harnesses.
     /// Download size/hash verification is the model manager's responsibility.
     pub fn load(dir: &Path) -> Result<Self> {
         let dir = if dir.join(YUNET.file).is_file() { dir.to_path_buf() } else { dir.join("segmentation") };

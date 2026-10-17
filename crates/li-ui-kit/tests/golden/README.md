@@ -1,8 +1,7 @@
 # Pre-J17 reference values
 
 `previous_backends.json` was captured from the original files at branch base `88a073c5`, before
-extracting any token/font implementation. The only existing working-tree change at task start was
-`docs/wip/CODEX-TASK.md`.
+extracting any token/font implementation.
 
 The temporary reference harness used the old editor token constructors/style applicator, the old
 Library defaults/style applicator, the original host `library_palette`, and the original Latin font

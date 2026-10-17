@@ -1,5 +1,5 @@
-//! Package 24 full-app gate. Register in the existing UI GPU aggregate after 00 wiring.
-//! This requires PhotocraftApp::affinity plus the canvas preview/input hooks in 24.md.
+//! Affinity full-app gate, registered in the UI GPU aggregate.
+//! This requires PhotocraftApp::affinity plus the canvas preview/input hooks.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};
 use egui_kittest::{Harness, kittest::Queryable};

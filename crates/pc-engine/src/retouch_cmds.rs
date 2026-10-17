@@ -129,9 +129,7 @@ fn damage_json(r: Rect) -> Value {
     json!([r.x0, r.y0, r.width(), r.height()])
 }
 
-// ---------------------------------------------------------------------------------------------
 // Sampling sources
-// ---------------------------------------------------------------------------------------------
 
 /// Which pixels Clone Stamp / Healing Brush sample.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -260,9 +258,7 @@ fn clamp_samples(fmt: &PixelFormat, data: &mut [f32]) {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
 // Clone Stamp / Healing Brush / History Brush
-// ---------------------------------------------------------------------------------------------
 
 fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.cloneStamp";
@@ -410,9 +406,7 @@ fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Spot Healing
-// ---------------------------------------------------------------------------------------------
 
 /// Dilate a mask by `r` pixels (square structuring element).
 fn dilate(w: usize, h: usize, m: &[bool], r: usize) -> Vec<bool> {
@@ -523,9 +517,7 @@ fn spot_healing(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Toning (Dodge / Burn / Sponge) and focus (Blur / Sharpen), Smudge
-// ---------------------------------------------------------------------------------------------
 
 /// Per-dab strength such that one pass over a point totals roughly `e`, whatever the spacing
 /// (about `1/spacing` dabs overlap each point on the stroke's centre line).
@@ -717,9 +709,7 @@ fn smudge_cmd(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({ "damage": damage_json(dmg) }))
 }
 
-// ---------------------------------------------------------------------------------------------
 // Registry
-// ---------------------------------------------------------------------------------------------
 
 /// The brush every retouching command shares, plus the tool's own params.
 macro_rules! brush_params {

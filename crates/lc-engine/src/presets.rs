@@ -245,7 +245,7 @@ pub fn builtin() -> Vec<Preset> {
             "Cinematic",
             json!({"curve": {"shadows": 20.0, "highlights": -10.0}, "grading": {"shadows": {"hue": 190.0, "sat": 25.0, "lum": 0.0}, "highlights": {"hue": 30.0, "sat": 18.0, "lum": 0.0}}, "light": {"contrast": 15.0}, "vignette": {"amount": -20.0}}),
         ),
-        // ---- Portrait
+        // Portrait
         p(
             "Portrait",
             "moody-portrait",
@@ -264,7 +264,7 @@ pub fn builtin() -> Vec<Preset> {
             "Clean Studio",
             json!({"light": {"contrast": 10.0, "whites": 15.0, "blacks": -8.0}, "effects": {"texture": -10.0}, "color": {"vibrance": 5.0}}),
         ),
-        // ---- Landscape
+        // Landscape
         p(
             "Landscape",
             "crisp-vista",
@@ -295,7 +295,7 @@ pub fn builtin() -> Vec<Preset> {
             "Misty Morning",
             json!({"effects": {"dehaze": -18.0, "clarity": -12.0}, "light": {"contrast": -18.0, "highlights": -10.0}, "grading": {"shadows": {"hue": 210.0, "sat": 10.0, "lum": 0.0}}, "color": {"saturation": -10.0}}),
         ),
-        // ---- Urban
+        // Urban
         p(
             "Urban",
             "gritty-street",
@@ -320,7 +320,7 @@ pub fn builtin() -> Vec<Preset> {
             "Faded Urban",
             json!({"curve": {"shadows": 30.0}, "color": {"saturation": -22.0}, "light": {"contrast": -8.0}, "grain": {"amount": 12.0, "size": 25.0, "roughness": 45.0}}),
         ),
-        // ---- Food
+        // Food
         p(
             "Food",
             "fresh-bright",
@@ -339,7 +339,7 @@ pub fn builtin() -> Vec<Preset> {
             "Dark & Moody",
             json!({"light": {"exposure": -0.3, "contrast": 22.0, "highlights": -20.0, "blacks": -15.0}, "effects": {"texture": 18.0}, "vignette": {"amount": -22.0}}),
         ),
-        // ---- Seasons
+        // Seasons
         p(
             "Seasons",
             "autumn-gold",
@@ -364,7 +364,7 @@ pub fn builtin() -> Vec<Preset> {
             "Summer Haze",
             json!({"effects": {"dehaze": -12.0}, "curve": {"shadows": 18.0}, "grading": {"highlights": {"hue": 45.0, "sat": 14.0, "lum": 0.0}}, "light": {"contrast": -10.0}}),
         ),
-        // ---- Vintage
+        // Vintage
         p(
             "Vintage",
             "instant-70s",
@@ -383,7 +383,7 @@ pub fn builtin() -> Vec<Preset> {
             "Bleach Bypass",
             json!({"color": {"saturation": -40.0}, "light": {"contrast": 35.0, "highlights": -15.0}, "effects": {"clarity": 15.0}}),
         ),
-        // ---- B&W toners
+        // B&W toners
         p(
             "B&W",
             "bw-sepia",

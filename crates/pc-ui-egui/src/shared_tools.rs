@@ -1,5 +1,4 @@
-//! One handler per tool family for both personas. Package 00 installs this adapter in
-//! its serial router; existing Pixel entrypoints already reuse the Pen/shape core.
+//! One handler per tool family for both personas; existing Pixel entrypoints already reuse the Pen/shape core.
 //! No gesture state lives in egui's cloning temp-data store.
 use crate::{
     PhotocraftApp,
@@ -18,7 +17,7 @@ use photocraft_geom::Point;
 pub type PointerHandler = fn(&mut State, &mut PhotocraftApp, ToolEvent, Modifiers) -> Result<()>;
 
 /// The function address is independent of persona, including aliases. This is also
-/// the integration guard against adding a separate reduced Pixel implementation.
+/// a guard against adding a separate reduced Pixel implementation.
 pub fn handler(id: &str, persona: Persona) -> Option<PointerHandler> {
     Some(match registry::resolve(id, persona)? {
         Handler::Pen => pen_event,
@@ -203,7 +202,7 @@ impl State {
         result.map(|()| true)
     }
     /// Common raw-event adapter, with capture outside the canvas and current modifiers.
-    /// Returns ownership, allowing 00 to suppress the old dispatch exactly once.
+    /// Returns ownership, allowing the caller to suppress the old dispatch exactly once.
     pub fn input(&mut self, app: &mut PhotocraftApp, ui: &mut egui::Ui, id: &str, persona: Persona, xf: &ViewXform, rect: Rect) -> bool {
         if !self.activate(app, id, persona) {
             return false;

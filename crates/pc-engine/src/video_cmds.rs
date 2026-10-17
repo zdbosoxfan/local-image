@@ -153,7 +153,7 @@ fn rasterize(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({"rasterized": true}))
 }
 
-// ------------------------------------------------------------------ file-based footage
+// File-based footage
 
 /// Load frames from `path`: a single image (1 frame), or a directory of images (sorted = an image
 /// sequence). Each becomes a full raster frame in the document's format.

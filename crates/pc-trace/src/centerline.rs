@@ -53,9 +53,9 @@ impl<F: Fn() -> bool> Control<'_, F> {
     }
 }
 
-/// Package evaluator: no document mutation, thread pool, pathops or renderer dependency.
+/// Standalone evaluator: no document mutation, thread pool, pathops or renderer dependency.
 /// Routing in T1 calls this after mode validation. The cloned fill preset below
-/// validates existing numeric fields on the pre-integration T1 baseline too.
+/// validates existing numeric fields the same way T1 does.
 pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() -> bool) -> Result<CenterlineTrace, Error> {
     image.validate()?;
     let mut checked = params.clone();

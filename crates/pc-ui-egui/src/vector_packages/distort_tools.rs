@@ -427,7 +427,7 @@ fn distance(a: [f64; 2], b: [f64; 2]) -> f64 {
 fn angle(a: [f64; 2], c: [f64; 2]) -> f64 {
     (a[1] - c[1]).atan2(a[0] - c[0])
 }
-/// A test host can dispatch the supplied engine CommandSpecs before 00 installs the registry
+/// A test host can dispatch the supplied engine CommandSpecs without the registry
 /// slot. The production entrypoint below always calls Session::execute.
 pub fn input_with(
     state: &mut State,
@@ -574,7 +574,7 @@ pub fn context(ui: &mut egui::Ui, state: &mut State) {
         }
     }
 }
-/// Render beside the context bar; 00 may replace this inline prompt with the common modal.
+/// Render beside the context bar; the common modal may replace this inline prompt.
 pub fn conversion_prompt_with(ui: &mut egui::Ui, state: &mut State, s: &mut Session, run: Execute) -> Result<()> {
     let Some(c) = state.conversion.clone() else {
         return Ok(());
@@ -596,9 +596,6 @@ pub fn conversion_prompt_with(ui: &mut egui::Ui, state: &mut State, s: &mut Sess
         state.deactivate();
     }
     Ok(())
-}
-pub fn conversion_prompt(ui: &mut egui::Ui, state: &mut State, s: &mut Session) -> Result<()> {
-    conversion_prompt_with(ui, state, s, execute)
 }
 pub fn paint_overlay(state: &State, painter: &egui::Painter, to_screen: impl Fn([f64; 2]) -> Pos2) {
     let blue = egui::Color32::from_rgb(50, 170, 255);

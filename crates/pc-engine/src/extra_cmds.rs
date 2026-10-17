@@ -57,7 +57,7 @@ fn step_key(s: &Session, what: &str) -> String {
     format!("{what}#{}", s.active().map_or(0, |d| d.revision))
 }
 
-// ---------- pixel helpers ----------
+// Pixel helpers
 
 /// Rewrite the active pixel layer's RGBA over the selection bounds (or the canvas). `f` gets the
 /// area, the pixels, and the selection coverage per pixel; results are blended back by coverage,
@@ -257,7 +257,7 @@ fn clouds(s: &mut Session, p: &Value, difference: bool) -> Result<Value> {
     })
 }
 
-// ---------- transform presets ----------
+// Transform presets
 
 fn transform_preset(s: &mut Session, kind: &str) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -280,7 +280,7 @@ fn transform_preset(s: &mut Session, kind: &str) -> Result<Value> {
     s.execute("edit.transform", json!({"layer": id.0, "matrix": m, "interpolation": "nearest"}))
 }
 
-// ---------- selection / clipboard ----------
+// Selection / clipboard
 
 fn reselect_target(s: &Session) -> Option<photocraft_raster::Surface> {
     let d = s.active()?;
@@ -329,7 +329,7 @@ fn paste_into(s: &mut Session, p: &Value, outside: bool) -> Result<Value> {
     Ok(r)
 }
 
-// ---------- layers ----------
+// Layers
 
 fn layer_from_background(s: &mut Session) -> Result<Value> {
     let id = s.edit("Layer From Background", |doc, active| {
@@ -617,7 +617,7 @@ fn rasterize_all(s: &mut Session) -> Result<Value> {
     Ok(json!({"rasterized": n}))
 }
 
-// ---------- registry ----------
+// Registry
 
 pub fn specs() -> Vec<CommandSpec> {
     macro_rules! spec {

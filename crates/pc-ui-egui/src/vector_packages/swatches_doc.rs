@@ -1,5 +1,5 @@
 //! Document-palette Swatches tab hook. Original GPL-3.0-or-later egui UI following
-//! Affinity Global Colors and Illustrator Swatches. 00 routes returned events through
+//! Affinity Global Colors and Illustrator Swatches. The host routes returned events through
 //! Session::execute and its existing file dialogs. Previews never mutate Session.
 use egui::{Color32, Sense};
 use photocraft_doc::{Color, Fill, GradientStyle};

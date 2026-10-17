@@ -1,4 +1,4 @@
-//! Package 00 registers this module in the IO test aggregate after its importer hook.
+//! PSD/PSB export and re-import round trips for the vector fallback.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use photocraft_doc::vector_design::{appearance::*, text::*};
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, ShapeStroke, Size, SymbolInstance, TextLayer};
@@ -158,7 +158,7 @@ fn vector_fallback_integrated_shape_user_mask_and_gradient_effect_preserve_pixel
 fn vector_fallback_integrated_path_text_symbol_proxy_caches_and_empty_stacks() {
     let mut doc = fixture(SampleType::U8);
     let cache = doc.layers[0].surface().unwrap().clone();
-    // Injected native-cache fixtures exercise format fidelity; app_gpu uses real 12/15 providers.
+    // Injected native-cache fixtures exercise format fidelity; app_gpu uses the real text and symbol providers.
     let mut text = Layer::new("Path type proxy", LayerContent::Text(TextLayer { text: "ABC".into(), cache: Some(cache.clone()), ..Default::default() }));
     text.vector.on_path =
         Some(PathText { path: photocraft_vector::shapes::ellipse(0., 0., 40., 40.), start: 0., end: 1., flip: true, align: PathTextAlign::Baseline });
@@ -206,7 +206,7 @@ fn vector_fallback_integrated_profile_brush_proxy_uses_cache_and_warns_once() {
     stroke.start_arrow = Some(Arrowhead::Circle);
     stroke.dash_align = true;
     stroke.gradient_mode = StrokeGradientMode::Across;
-    // The pre-existing prepared native cache is authoritative; feature rendering belongs to 11/17.
+    // The pre-existing prepared native cache is authoritative; width and brush rendering is not exercised here.
     let out = export(&doc, "psd", &Default::default()).unwrap();
     assert_eq!(out.warnings.len(), 1);
     for feature in ["width profiles", "vector brushes", "arrowheads", "dash alignment", "along/across stroke gradients"] {

@@ -180,7 +180,7 @@ fn optics_preview_matches_export() {
     assert!(err < 4.0, "mean abs error {err}");
 }
 
-// ------------------------------------------------------------------------------------------ M4.3 transforms
+// transforms
 
 /// Source whose content is a straight grid after the forward transform `h` (centred coordinates of a `w × h`
 /// image): each source pixel shows the grid at its transformed position.
@@ -277,7 +277,7 @@ fn transforms_preview_matches_export() {
     assert!(err < 4.0, "mean abs error {err}");
 }
 
-// ------------------------------------------------------------------------------------------ M4.4 Upright
+// Upright
 
 use crate::upright::{Segment, detect_segments, solve_guided};
 use lightcraft_develop::Upright;
@@ -469,23 +469,6 @@ fn upright_auto_leaves_natural_scenes_nearly_alone() {
             })
             .fold(0.0f64, f64::max);
         assert!(worst < 0.06, "{}: Auto moved a corner by {worst:.3} (centred units)", scene.name);
-    }
-}
-
-/// Diagnostics: `SCENE="Lake" cargo test -p lightcraft-pipeline debug_upright_scene -- --ignored --nocapture`.
-#[test]
-#[ignore]
-fn debug_upright_scene() {
-    let scene =
-        lightcraft_scenes::demo_library().into_iter().find(|s| s.name.starts_with(std::env::var("SCENE").as_deref().unwrap_or("Lake"))).unwrap();
-    let src = scene.render_fit(768);
-    let a = crate::upright::analyze_source(&src, &SourceInfo::default(), &DevelopSettings::default());
-    eprintln!("vert {} horiz {} vvp {:?} hvp {:?}", a.vertical.len(), a.horizontal.len(), a.vertical_vp, a.horizontal_vp);
-    for s in a.vertical.iter().take(20) {
-        eprintln!("  v {:.3},{:.3} -> {:.3},{:.3} len {:.3}", s.a.x, s.a.y, s.b.x, s.b.y, s.len());
-    }
-    for m in [Upright::Level, Upright::Vertical, Upright::Full, Upright::Auto] {
-        eprintln!("{m:?}: {:?}", crate::upright::solve(m, &a).0);
     }
 }
 

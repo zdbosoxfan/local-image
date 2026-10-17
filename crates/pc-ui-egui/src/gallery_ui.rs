@@ -437,7 +437,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         let area = ERect::from_min_max(body.min, pos2(mid.left(), body.bottom() - 30.0));
         let zoom_bar = ERect::from_min_max(pos2(body.left(), area.bottom()), pos2(mid.left(), body.bottom()));
 
-        // ---- Preview ----
+        // Preview
         painter.rect_filled(area, 0.0, t.canvas);
         update_preview(d, ctx, area);
         let clip = painter.with_clip_rect(area);
@@ -451,7 +451,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             let dl = resp.drag_delta() / d.zoom;
             d.center = [d.center[0] - dl.x, d.center[1] - dl.y];
         }
-        // ---- Zoom bar ----
+        // Zoom bar
         painter.rect_filled(zoom_bar, 0.0, t.dock);
         let mut zb = ui.new_child(egui::UiBuilder::new().max_rect(zoom_bar.shrink2(vec2(10.0, 3.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
         let steps = [0.0f32, 0.125, 0.25, 0.5, 1.0, 2.0, 4.0];
@@ -469,7 +469,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         }
         zb.label(egui::RichText::new(format!("{} {:.0} ms", tl!("Preview"), d.preview_ms)).color(t.text_faint).size(11.0));
 
-        // ---- Category folders with thumbnails ----
+        // Category folders with thumbnails
         painter.rect_filled(mid, 0.0, t.dock);
         painter.line_segment([mid.left_top(), mid.left_bottom()], Stroke::new(1.0, t.separator));
         update_thumbs(d, ctx, 6);
@@ -522,7 +522,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
             }
         });
 
-        // ---- Right: buttons, filter settings, effect layers ----
+        // Right: buttons, filter settings, effect layers
         painter.rect_filled(right, 0.0, t.dock);
         painter.line_segment([right.left_top(), right.left_bottom()], Stroke::new(1.0, t.separator));
         let inner = right.shrink2(vec2(12.0, 10.0));

@@ -299,7 +299,7 @@ fn filter_deleted_and_local() {
     let id3 = add_photo(&mut c, "c.jpg", "", "2026-01-01T00:00:00", 0, &[]);
 
     // Mark id2 as deleted, id3 as local
-    c.apply(Op::SetDeleted { id: id2, deleted: true }).unwrap();
+    c.apply(Op::SetDeleted { id: id2, deleted: true, deleted_at: None }).unwrap();
     c.apply(Op::SetLocal { id: id3, local: true }).unwrap();
 
     let f = Filter::default();

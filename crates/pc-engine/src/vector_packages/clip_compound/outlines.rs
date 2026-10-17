@@ -1,4 +1,4 @@
-//! Reuse package 12's native pc-text outline adapter; do not add another text shaper.
+//! Reuse pc-text's native outline adapter; do not add another text shaper.
 use super::super::path_text::on_path;
 use photocraft_doc::Path;
 #[path = "../path_text/curves.rs"]

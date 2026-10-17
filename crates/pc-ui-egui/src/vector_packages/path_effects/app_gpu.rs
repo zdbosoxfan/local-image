@@ -1,5 +1,5 @@
-//! Real offscreen app acceptance. Missing 00 menu/frame/display/persistence/36 hooks fail.
-//! The final task speed rule prohibits running this gate here; it opens no desktop window.
+//! Real offscreen app acceptance through the menu, frame, display and persistence hooks; it
+//! opens no desktop window.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::PhotocraftApp;
@@ -94,7 +94,6 @@ fn open(h: &mut H, group: &str, label: &str) {
     click(h, label);
 }
 #[test]
-#[ignore = "integration full-app GPU gate; task speed rules prohibit execution"]
 fn path_effects45_full_app_rtx5090_preview_pointer_release_cancel_and_expand() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

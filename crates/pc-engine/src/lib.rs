@@ -644,7 +644,6 @@ pub(crate) fn fix_selection(st: &mut DocState) {
 #[cfg(test)]
 mod tests;
 
-// Package 46 layout; shared shell/router hookup is supplied in integration/46.md.
 pub mod vector_toolbar_layout;
 
 pub mod shared_tools;

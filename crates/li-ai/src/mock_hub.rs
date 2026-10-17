@@ -161,7 +161,7 @@ fn query(url: &str, key: &str) -> Vec<String> {
         .collect()
 }
 
-// ------------------------------------------------------------------------------ cloud APIs
+// cloud APIs
 
 /// Images a mock BFL job produced, by id.
 static BFL_JOBS: std::sync::Mutex<Vec<(String, Vec<u8>)>> = std::sync::Mutex::new(Vec::new());

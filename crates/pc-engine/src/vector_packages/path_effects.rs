@@ -1,7 +1,7 @@
 //! Captured path-effect transactions, informed by VectorCraft cmd/effectcmd.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
-//! Native field registration/projection routing belongs to 00; no hidden production storage.
+//! Native field registration/projection routing is external; no hidden production storage.
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 pub use photocraft_doc::vector_design::effects::*;
 use photocraft_doc::{Document, Layer, LayerContent, LayerId, ShapeLayer, Surface};
@@ -18,7 +18,7 @@ fn bad(s: impl Into<String>) -> EngineError {
 fn geo<T>(r: geometry::Result<T>) -> Result<T> {
     r.map_err(|e| bad(e.to_string()))
 }
-/// Register once at engine bootstrap after 00 adds VectorData.effects. Both functions operate
+/// Register once at engine bootstrap, backed by VectorData.effects. Both functions operate
 /// on the document-owned Layer; write may not mutate external state or caches.
 #[derive(Clone, Copy)]
 pub struct Access {
@@ -117,7 +117,7 @@ pub fn project(layer: &Layer, effects: &[PathEffect], dpi: f32) -> Result<Vec<ge
     geo(geometry::project(&base, layer.vector.appearance.as_ref(), effects, geometry::Options { dpi: f64::from(dpi), ..Default::default() }))
 }
 /// Geometry-cache key uses source/provider inputs and effects, never whole-document revision.
-/// Patterns/render scale are owned by 08/09's paint/view keys rather than this geometry cache.
+/// Patterns/render scale are owned by the paint/view keys rather than this geometry cache.
 #[derive(Clone, Debug, PartialEq)]
 struct Key {
     layer: LayerId,
@@ -196,7 +196,7 @@ fn render(plan: &geometry::render::Compiled<'_>, doc: &Document) -> Result<Surfa
     }
     Ok(out)
 }
-/// Refresh one source-edit cache without baking its path. 00 calls this from node/live-shape/
+/// Refresh one source-edit cache without baking its path. Called from node/live-shape/
 /// appearance edits and reload; the same project() feeds scaled view and exporters.
 pub fn refresh(doc: &Document, layer: &mut Layer, a: Access) -> Result<()> {
     let effects = (a.read)(layer)?;
@@ -252,7 +252,7 @@ pub fn prepare(s: &Session, r: &Request, a: Access) -> Result<Prepared> {
     Ok(Prepared { request: r.clone(), layers, preview })
 }
 /// Paint operations become ordinary child shapes under original layer identity/transparency.
-/// Strokes remain ordinary stroke paths; package 36 may outline them using 08 after this step.
+/// Strokes remain ordinary stroke paths; Outline Stroke may outline them after this step.
 pub fn projected_layer(source: &Layer, scene: &[geometry::PaintPath], doc: &Document) -> Result<Layer> {
     projected_layer_with_ids(source, scene, doc, None)
 }
@@ -402,53 +402,6 @@ pub mod gpu;
 #[path = "path_effects/tests.rs"]
 mod tests;
 
-/// 09 callback for ordinary PaintPaths returned by project_document. Evaluate effects in
-/// document space first; scaling afterwards keeps Roughen seed/detail and offsets view-invariant.
-pub fn scaled_paint(doc: &Document, layer: &Layer, scale: f64, clip: photocraft_geom::Rect) -> Result<Surface> {
-    if !scale.is_finite() || !(1.0..=64.).contains(&scale) {
-        return Err(bad("invalid path-effect display scale"));
-    }
-    let LayerContent::Shape(source) = &layer.content else {
-        return Err(bad("scaled path-effect paint requires ordinary shape geometry"));
-    };
-    let mut shape = source.clone();
-    shape.path = shape.path.transform(&photocraft_geom::Affine::scale(scale));
-    shape.cache = None;
-    let mut appearance = layer.vector.appearance.clone().unwrap_or_else(|| photocraft_vector::appearance::legacy_appearance(source));
-    for item in &mut appearance.items {
-        let paint = match item {
-            photocraft_doc::vector_design::appearance::AppearanceItem::Mesh(mesh) => {
-                mesh.paint = (&photocraft_vector::mesh_paint::Mesh::from(&mesh.paint).transform(photocraft_geom::Affine::scale(scale)).map_err(bad)?).into();
-                continue;
-            }
-            photocraft_doc::vector_design::appearance::AppearanceItem::Fill(f) => &mut f.paint,
-            photocraft_doc::vector_design::appearance::AppearanceItem::Stroke(st) => {
-                st.base.width *= scale as f32;
-                if let Some(p) = &mut st.profile {
-                    for point in &mut p.points {
-                        point.left *= scale;
-                        point.right *= scale;
-                    }
-                }
-                &mut st.base.paint
-            }
-        };
-        if let photocraft_doc::Fill::Pattern { scale: s, phase, .. } = paint {
-            *s *= scale as f32;
-            phase.0 *= scale as f32;
-            phase.1 *= scale as f32;
-        }
-    }
-    let width = (f64::from(doc.size.width) * scale).ceil();
-    let height = (f64::from(doc.size.height) * scale).ceil();
-    if width > f64::from(i32::MAX / 4) || height > f64::from(i32::MAX / 4) {
-        return Err(bad("scaled path-effect canvas exceeds the coordinate budget"));
-    }
-    let canvas = photocraft_geom::Rect::new(0, 0, width as i32, height as i32);
-    photocraft_vector::appearance::CompiledAppearance::with_projection(&shape, Some(&appearance), &doc.patterns, canvas, &super::expand::Projection)
-        .and_then(|p| p.render(doc.pixel_format(), clip))
-        .map_err(bad)
-}
 #[cfg(test)]
 #[path = "path_effects/native.rs"]
 mod native;

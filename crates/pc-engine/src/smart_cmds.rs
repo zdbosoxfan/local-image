@@ -56,7 +56,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-// ---------- source encoding / decoding ----------
+// Source encoding / decoding
 
 /// Encodes a document as embedded smart-object contents: an in-memory `.pcraft` bundle.
 pub fn encode_source(doc: &Document) -> Result<Vec<u8>> {
@@ -271,9 +271,6 @@ fn plain_layer_surface(doc: &Document, fmt: PixelFormat) -> Option<Surface> {
 
 /// Layer › Smart Objects › Stack Mode: the source's layers (or, when it holds a single group, the
 /// group's layers) combined per pixel with `mode`. Cached like [`source_image_in_profile`], keyed by mode.
-pub fn stack_image(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode) -> Result<SourceImage> {
-    stack_image_in_profile(file_name, bytes, fmt, mode, &crate::color_cmds::working_profile(fmt.mode))
-}
 pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, mode: photocraft_doc::StackMode, target: &Profile) -> Result<SourceImage> {
     use photocraft_algo::stack::Stat;
     let mut key = cache_key(bytes, fmt, target);
@@ -325,7 +322,7 @@ pub fn stack_image_in_profile(file_name: &str, bytes: &[u8], fmt: PixelFormat, m
     Ok(img)
 }
 
-// ---------- rendering ----------
+// Rendering
 
 /// `top` blended over `base` with `mode` at `opacity` (a smart filter's blending options).
 fn blend_surfaces(base: &Surface, top: &Surface, mode: BlendMode, opacity: f32) -> Surface {
@@ -383,13 +380,8 @@ fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
     out
 }
 
-/// Runs the smart filter stack on the placed (unfiltered) content.
-pub fn apply_smart_filters(placed: &Surface, sm: &SmartObject, canvas: Rect) -> Surface {
-    apply_smart_filters_in(placed, sm, canvas, None)
-}
-
-/// [`apply_smart_filters`] in a document whose RGB profile is `profile` (the Camera Raw Filter
-/// converts through it; `None` = sRGB).
+/// Runs the smart filter stack on the placed (unfiltered) content in a document whose RGB profile
+/// is `profile` (the Camera Raw Filter converts through it; `None` = sRGB).
 pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Surface {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
         return placed.clone();
@@ -578,7 +570,7 @@ fn detach_psd(l: &mut Layer) {
     l.psd_blocks.retain(|(k, _)| !PLACED_KEYS.contains(&k));
 }
 
-// ---------- conversion ----------
+// Conversion
 
 #[path = "smart_cmds/resources.rs"]
 mod resources;
@@ -731,7 +723,7 @@ fn convert(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
-// ---------- contents ----------
+// Contents
 
 fn via_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
@@ -879,7 +871,7 @@ fn update_all(s: &mut Session) -> Result<Value> {
     Ok(json!({"updated": updated}))
 }
 
-// ---------- smart filter editing ----------
+// Smart filter editing
 
 fn edit_filters(s: &mut Session, p: &Value, label: &str, f: impl FnOnce(&mut SmartObject) -> Result<()>) -> Result<Value> {
     let id = layer_param(s, p)?;
@@ -968,7 +960,7 @@ fn move_filter(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
-// ---------- enablement ----------
+// Enablement
 
 /// Whether smart-filter command `spec` can run with `p`: its precondition is checked on an
 /// explicit `"layer"` of the active document (the layer it then edits) rather than on the

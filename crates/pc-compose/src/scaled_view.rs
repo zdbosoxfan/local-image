@@ -169,7 +169,7 @@ fn scale_effects(l: &mut Layer, s: f32) -> Result<(), ViewError> {
         *y *= f64::from(s);
     }
     // The established effect renderer caps reach at 512 device pixels. Refuse a projection
-    // that would silently truncate an effect until package 08 supplies an uncapped provider.
+    // that would silently truncate an effect; an uncapped provider is required first.
     if super::effects::has_effects(l) && super::effects::margin(l) >= super::effects::MAX_REACH as i32 + 2 {
         return Err(ViewError("scaled effects exceed compositor reach".into()));
     }

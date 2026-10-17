@@ -373,7 +373,6 @@ fn presets_versions_history_and_select_by() {
     s.execute("version.update", &json!({"index": 0})).unwrap();
     let v = s.catalog.photo(s.active().unwrap()).unwrap().versions[0].clone();
     assert_eq!((v.name.as_str(), v.settings.light.exposure), ("First", -2.0));
-    // history
     s.execute("history.clear", &json!({})).unwrap();
     let h = &s.catalog.photo(s.active().unwrap()).unwrap().history;
     assert_eq!(h.len(), 1);

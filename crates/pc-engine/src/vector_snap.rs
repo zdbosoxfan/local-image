@@ -23,7 +23,7 @@ const MAX_OBJECTS: usize = 4096;
 pub struct Settings {
     pub enabled: bool,
     pub nodes: bool,
-    /// Enable after package 00 installs V1 Geometry. Missing V1 is an error, never an
+    /// Enable once V1 Geometry is installed. Missing V1 is an error, never an
     /// approximate curve hit disguised as exact geometry.
     pub curves: bool,
     pub bounds: bool,
@@ -106,7 +106,7 @@ pub struct Geometry {
     pub bounds: fn(&Path) -> Result<Option<Bounds>>,
 }
 static GEOMETRY: OnceLock<Geometry> = OnceLock::new();
-/// Package 00 installs the V1 error/type adapter once during app/engine initialization.
+/// Installs the V1 error/type adapter once during app/engine initialization.
 pub fn install_geometry(geometry: Geometry) -> Result<()> {
     GEOMETRY.set(geometry).map_err(|_| error("vector snap geometry already installed"))
 }

@@ -17,6 +17,7 @@ li-keys = { workspace = true, features = ["egui"] }
 li-i18n.workspace = true
 li-ui-kit.workspace = true
 li-color.workspace = true
+half.workspace = true
 photocraft-svg = { workspace = true, features = ["svg-import-integrated"] }
 photocraft-pdf.workspace = true
 photocraft-affinity.workspace = true

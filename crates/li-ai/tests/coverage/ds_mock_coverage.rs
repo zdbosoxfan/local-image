@@ -7,9 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const PNG_SIGNATURE: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
 
-// ---------------------------------------------------------------------------
 // Minimal helpers
-// ---------------------------------------------------------------------------
 
 struct TempDir(PathBuf);
 impl TempDir {
@@ -123,9 +121,7 @@ fn post_prompt(addr: &str, body: &[u8]) -> String {
     String::from_utf8_lossy(&resp).to_string()
 }
 
-// ---------------------------------------------------------------------------
 // object_info tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn object_info_has_core_nodes() {
@@ -198,9 +194,7 @@ fn object_info_with_model_dir_dedupes_fixture_files() {
     assert_eq!(count, 1, "fixture file duplicated by model_dir listing");
 }
 
-// ---------------------------------------------------------------------------
 // Server lifecycle and raw HTTP endpoint tests
-// ---------------------------------------------------------------------------
 
 #[test]
 fn start_on_ephemeral_host_is_reachable_and_stop_cleans_up() {

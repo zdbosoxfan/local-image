@@ -2,7 +2,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 #[test]
-#[ignore = "owner speed rules: run real-GPU gates only at integration"]
 fn styles38_gpu_rtx5090_preview_release_redefine_parity() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("styles38");

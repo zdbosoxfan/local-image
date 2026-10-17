@@ -781,10 +781,6 @@ pub fn drag_feedback(app: &mut LightcraftApp, ctx: &egui::Context) {
 
 pub use super::filterbar::label_color;
 
-/// "Set Color Label" items (coloured dot + the label's name), shared by context menus.
-pub fn label_menu(app: &mut LightcraftApp, ui: &mut egui::Ui) {
-    label_menu_for(app, ui, None);
-}
 fn label_menu_for(app: &mut LightcraftApp, ui: &mut egui::Ui, context: Option<PhotoId>) {
     let current = context.or_else(|| app.session.active()).and_then(|id| app.session.catalog.photo(id)).and_then(|p| p.label);
     for l in ColorLabel::ALL {

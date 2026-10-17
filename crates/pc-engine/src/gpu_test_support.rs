@@ -1,4 +1,4 @@
-//! Engine GPU test support on the one shared strict real-GPU prelude (`li-testkit::gpu`, J7).
+//! Engine GPU test support on the one shared strict real-GPU prelude (`li-testkit::gpu`).
 //! Tests serialise with `li_testkit::gpu::lock()`. [`compositor_device`] is the engine GPU parity
 //! gates' prelude: a hardware Vulkan adapter, or Metal on macOS (Apple Silicon passes), never a
 //! software adapter, whose accumulation format is `Rgba32Float`. `LI_GPU_TEST_ADAPTER=<name>` pins

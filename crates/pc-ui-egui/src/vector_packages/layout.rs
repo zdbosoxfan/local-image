@@ -1,5 +1,5 @@
-//! Original V8 layout widgets and captured tools. Package 00 owns router registration;
-//! the same source is compiled by interaction tests before that serial merge.
+//! Original V8 layout widgets and captured tools. Router registration lives outside this
+//! module; interaction tests compile the same source.
 use egui::{Context, Key, Modifiers, Pos2, Ui};
 use photocraft_doc::vector_design::structure::DesignUnits;
 use photocraft_doc::{Document, LayerContent, LayerId};

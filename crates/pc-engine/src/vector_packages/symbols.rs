@@ -1,6 +1,5 @@
 //! V8 Symbols: ordinary layer templates, detached preparation and one undoable publication.
 //! Original GPL-3.0-or-later implementation; Affinity Symbols and SVG 1.1 reference semantics.
-//! Core activation is the atomic package-00 patch in integration/15.md.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 pub use photocraft_doc::vector_design::{symbol_expansion as expansion, symbol_validation as validation};
 use photocraft_doc::{Affine, DocId, Document, Layer, LayerContent, LayerId, SymbolDef, SymbolId, SymbolInstance};

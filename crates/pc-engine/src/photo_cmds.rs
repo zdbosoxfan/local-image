@@ -52,7 +52,7 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-// ---------- sources ----------
+// Sources
 
 /// One input image, flattened.
 pub(crate) struct Source {
@@ -389,7 +389,7 @@ pub(crate) fn seam_order(warped: &[Surface], reference: usize) -> Vec<usize> {
     order
 }
 
-// ---------- Photomerge ----------
+// Photomerge
 
 fn photomerge(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.automate.photomerge";
@@ -578,7 +578,7 @@ fn content_aware_fill(comp: &Surface, canvas: Rect) -> Surface {
     s
 }
 
-// ---------- Merge to HDR Pro ----------
+// Merge to HDR Pro
 
 fn shift_rgba(px: &[[f32; 4]], w: usize, h: usize, dx: i32, dy: i32) -> Vec<[f32; 4]> {
     (0..w * h)
@@ -788,7 +788,7 @@ fn merge_hdr_document(
     ))
 }
 
-// ---------- Crop and Straighten Photos ----------
+// Crop and Straighten Photos
 
 fn crop_and_straighten(s: &mut Session, _p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
@@ -842,7 +842,7 @@ fn crop_and_straighten(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({"photos": out}))
 }
 
-// ---------- specs ----------
+// Specs
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())

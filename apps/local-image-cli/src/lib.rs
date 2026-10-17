@@ -7,7 +7,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use photocraft_automation::library::tools::{LibraryReply, call_tool as library_tool};
-use photocraft_automation::{AuthorizedWorkspace, Headless, LibraryHeadless, PhotocraftMcp, files, security};
+use photocraft_automation::{AuthorizedWorkspace, BridgePolicy, Headless, LibraryHeadless, PhotocraftMcp, files, security};
 use photocraft_io::ExportOptions;
 use serde_json::{Value, json};
 
@@ -57,9 +57,12 @@ USAGE:
       Every library subcommand takes --library <dir> to work in a Library folder (edits are saved there); without
       it, files are opened in a temporary in-memory library.
   local-image-cli mcp [--bridge <127.0.0.1:port>] [--control-token <64-hex> | --control-token-file <path>]
-      [--automation-read-root <dir>] [--automation-write-root <dir>]
+      [--automation-read-root <dir>] [--automation-write-root <dir>] [--allow-destructive] [--allow-cloud-ai]
       Run the MCP server on stdio (headless engine, or bridge to a running `photocraft --control <port>`).
-      Headless, it also serves the Library as `library_*` tools (files below the automation roots).
+      Headless, it also serves the Library as `library_*` tools (files below the automation roots);
+      --allow-destructive lets them run Library commands that cannot be undone (photo.deletePermanently,
+      album.delete, keyword.delete/merge, preset deletes). In bridge mode, requests for stored API keys
+      are always refused, and those that can start paid cloud AI generation need --allow-cloud-ai.
   local-image-cli serve [--port <port>] [--control-token <64-hex> | --control-token-file <path>]
       [--automation-read-root <dir>] [--automation-write-root <dir>]
       Keep one headless session open and answer JSON lines ({\"id\",\"method\",\"params\"}) on stdio,
@@ -106,7 +109,7 @@ const SUBCOMMANDS: &[Subcommand] = &[
     Subcommand {
         name: "mcp",
         values: &["--bridge", "--control-token", "--control-token-file", "--automation-read-root", "--automation-write-root"],
-        bare: &[],
+        bare: &["--allow-destructive", "--allow-cloud-ai"],
         run: |a, _, _| mcp(a),
     },
     Subcommand {
@@ -485,19 +488,29 @@ fn serve(a: &Args, err: &mut dyn Write) -> R {
 }
 
 fn mcp(a: &Args) -> R {
-    let server = match a.get("--bridge") {
-        Some(addr) => {
-            let (supplied, token_file) = security::token_inputs(a.get("--control-token").map(str::to_owned), a.get("--control-token-file").map(PathBuf::from));
-            let token = security::client_token(supplied.as_deref(), token_file.as_deref()).map_err(|e| e.to_string())?;
-            PhotocraftMcp::bridge(addr, &token).map_err(|e| e.to_string())?
-        }
-        None => PhotocraftMcp::headless_with_workspace(automation_workspace(a)?),
-    };
+    let server = mcp_server(a)?;
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
     rt.block_on(server.serve_stdio()).map_err(|e| e.to_string())
 }
 
-// ---------------------------------------------------------------- Library (`library <action>`)
+fn mcp_server(a: &Args) -> Result<PhotocraftMcp, String> {
+    Ok(match a.get("--bridge") {
+        Some(_) if a.has("--allow-destructive") => {
+            return Err("--allow-destructive applies to the headless Library tools; it has no effect with --bridge".into());
+        }
+        Some(addr) => {
+            let (supplied, token_file) = security::token_inputs(a.get("--control-token").map(str::to_owned), a.get("--control-token-file").map(PathBuf::from));
+            let token = security::client_token(supplied.as_deref(), token_file.as_deref()).map_err(|e| e.to_string())?;
+            PhotocraftMcp::bridge_with_policy(addr, &token, BridgePolicy { allow_cloud_ai: a.has("--allow-cloud-ai") }).map_err(|e| e.to_string())?
+        }
+        None if a.has("--allow-cloud-ai") => {
+            return Err("--allow-cloud-ai applies to --bridge (the headless engine has no cloud AI)".into());
+        }
+        None => PhotocraftMcp::headless_with_workspace(automation_workspace(a)?).allow_destructive(a.has("--allow-destructive")),
+    })
+}
+
+// Library (`library <action>`)
 
 const LIBRARY_DEVELOP_FLAGS: &[&str] = &["--library", "--id", "--set", "--settings", "--preset", "--amount"];
 const LIBRARY_EXPORT_FLAGS: &[&str] =
@@ -710,7 +723,7 @@ mod tests {
         std::fs::write(path, photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap()).unwrap();
     }
 
-    /// J5: the Library is reachable from the CLI — import into a library folder, develop, export
+    /// The Library is reachable from the CLI — import into a library folder, develop, export
     /// and snapshot, by file and by id.
     #[test]
     fn j05_library_subcommands_import_develop_export_snapshot() {

@@ -2,7 +2,7 @@
 //! engine/cmd/style.rs and cmd/stylelib.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors (MIT OR Apache-2.0).
 //! Detached preparation validates the complete set and budgets caches before one Session edit.
-//! Package 00 supplies persistence hooks; no process-global document/style sidecar is used.
+//! The host supplies persistence hooks; no process-global document/style sidecar is used.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 pub use photocraft_doc::vector_design::styles::{Attributes, GraphicStyle, Sample, StyleId, StyleLink};
 use photocraft_doc::vector_design::{
@@ -25,7 +25,7 @@ fn error(s: impl Into<String>) -> EngineError {
     EngineError::Other(s.into())
 }
 
-/// Detached view of the additive document list and per-layer links. Only the coordinator's
+/// Detached view of the additive document list and per-layer links. Only the
 /// native provider reads/writes these fields; this is also useful to file adapters via pc-doc.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -138,7 +138,7 @@ pub fn link(doc: &Document, id: LayerId, style: StyleId) -> Result<StyleLink> {
     };
     Ok(StyleLink { style, applied: sample(doc, id, None)?, character_runs, paragraph_runs })
 }
-/// Package 32's per-layer reader. Absent and locally edited links produce no key.
+/// Per-layer reader. Absent and locally edited links produce no key.
 pub fn style_key(layer: &Layer, baseline: Option<&StyleLink>) -> Result<Option<String>> {
     let Some(baseline) = baseline else {
         return Ok(None);
@@ -153,7 +153,7 @@ pub fn style_key(layer: &Layer, baseline: Option<&StyleLink>) -> Result<Option<S
 pub fn in_sync(doc: &Document, id: LayerId, baseline: &StyleLink) -> bool {
     link(doc, id, baseline.style).is_ok_and(|current| current == *baseline)
 }
-/// Reuse the installed package 11/17 algorithms for profiles, arrows, dashes and brushes.
+/// Reuse the installed algorithms for profiles, arrows, dashes and brushes.
 pub struct Projection;
 impl StrokeProjection for Projection {
     fn outline(
@@ -168,7 +168,7 @@ impl StrokeProjection for Projection {
         }
     }
 }
-/// 00 calls this at the end of Session::edit, on its detached candidate. New style application
+/// Called at the end of Session::edit, on its detached candidate. New style application
 /// links remain in sync; local appearance/text/effect edits break links in the SAME undo step.
 pub fn prune_links(doc: &mut Document) -> Result<()> {
     let Some(hooks) = installed_hooks() else {
@@ -460,7 +460,7 @@ fn validate_targets(doc: &Document, ids: &[LayerId]) -> Result<()> {
     }
     Ok(())
 }
-/// Pure core, also usable before the coordinator's native data mirror lands.
+/// Pure core, usable without the native data mirror.
 pub fn prepare(doc: &Document, revision: u64, original: &Store, request: &Request, projection: &dyn StrokeProjection) -> Result<Preview> {
     if doc.id.0 != request.document || revision != request.revision {
         return Err(error("style gesture is stale"));
@@ -736,8 +736,8 @@ pub fn commit_with_hooks(s: &mut Session, request: &Request, hooks: Option<Hooks
     })
 }
 pub fn commit(s: &mut Session, request: &Request) -> Result<()> {
-    // Once 00 registers the command, production calls gain normal Session journaling.
-    // The pure package remains executable through the authorized Session::edit boundary.
+    // When the command is registered, production calls gain normal Session journaling.
+    // The pure module remains executable through the authorized Session::edit boundary.
     if crate::commands::find("vector.styles.edit").is_some() {
         s.execute("vector.styles.edit", serde_json::to_value(request).map_err(|e| error(e.to_string()))?)?;
         Ok(())

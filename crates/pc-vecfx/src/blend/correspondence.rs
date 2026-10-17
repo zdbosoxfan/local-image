@@ -190,7 +190,7 @@ impl PathPair {
         Self::with_starts(a, b, (None, None))
     }
     /// Explicit first-contour start anchors win over the automatic least-twist match.
-    /// The shared persisted BlendSpec has no clicked-start field yet (00's schema lane).
+    /// The shared persisted BlendSpec has no clicked-start field yet.
     pub fn with_starts(a: &Path, b: &Path, starts: (Option<usize>, Option<usize>)) -> Result<Self> {
         validate_path(a)?;
         validate_path(b)?;

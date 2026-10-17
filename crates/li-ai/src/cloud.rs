@@ -265,7 +265,7 @@ impl CloudRequest {
     }
 }
 
-// ------------------------------------------------------------------------------ transport
+// transport
 
 const HOSTS: &[&str] = &["api.openai.com", "generativelanguage.googleapis.com", "api.bfl.ai", "api.stability.ai"];
 
@@ -326,14 +326,105 @@ fn read(provider: Provider, r: ureq::http::Response<ureq::Body>) -> Result<Vec<u
     Ok(body)
 }
 
-fn post_json(p: Provider, url: &str, headers: &[(&str, String)], body: &Value) -> Result<Vec<u8>> {
-    check(url)?;
-    let mut req = agent().post(url).header("Content-Type", "application/json");
-    for (k, v) in headers {
-        req = req.header(*k, v);
+/// Attempts per request: the first try and two retries.
+const MAX_ATTEMPTS: u32 = 3;
+/// The longest a provider's `Retry-After` is honoured.
+const RETRY_AFTER_CAP: Duration = Duration::from_secs(30);
+
+/// Statuses that mean "try again shortly": rate limited, or the gateway or provider is briefly down.
+fn status_retryable(status: u16) -> bool {
+    matches!(status, 429 | 502 | 503 | 504)
+}
+
+/// `Retry-After` in its seconds form (the HTTP-date form is ignored), capped at [`RETRY_AFTER_CAP`].
+fn parse_retry_after(value: &str) -> Option<Duration> {
+    let secs: u64 = value.trim().parse().ok()?;
+    Some(Duration::from_secs(secs).min(RETRY_AFTER_CAP))
+}
+
+/// 1s, 2s, 4s… for the `attempt`th failure (1-based), spread ±25% by `jitter` in `0.0..=1.0`.
+fn backoff(attempt: u32, jitter: f32) -> Duration {
+    let base = Duration::from_secs(1 << attempt.saturating_sub(1).min(5));
+    base.mul_f32(0.75 + 0.5 * jitter.clamp(0.0, 1.0))
+}
+
+/// How long to wait before the next attempt after attempt number `attempt` (1-based) failed with
+/// `status` (`None`: a transport failure the caller already judged safe to repeat), or `None` to
+/// give up: out of attempts, or an error another attempt cannot fix (never a 4xx other than 429).
+fn retry_delay(status: Option<u16>, retry_after: Option<&str>, attempt: u32, jitter: f32) -> Option<Duration> {
+    if attempt >= MAX_ATTEMPTS || status.is_some_and(|s| !status_retryable(s)) {
+        return None;
     }
-    let r = req.send(serde_json::to_vec(body)?.as_slice()).with_context(|| format!("Could not reach {}", p.label()))?;
-    read(p, r)
+    Some(retry_after.and_then(parse_retry_after).unwrap_or_else(|| backoff(attempt, jitter)))
+}
+
+/// Whether a request that failed in transport can be sent again without risking a second charge:
+/// the connection never came up, or (for a read-only GET) any timeout. A POST that timed out
+/// waiting for the reply may already have been accepted and billed, so it is not repeated.
+fn transport_retryable(e: &ureq::Error, post: bool) -> bool {
+    use ureq::{Error, Timeout};
+    match e {
+        Error::ConnectionFailed | Error::HostNotFound => true,
+        Error::Timeout(Timeout::Resolve | Timeout::Connect | Timeout::SendRequest) => true,
+        Error::Timeout(_) => !post,
+        _ => false,
+    }
+}
+
+/// Sleeps in short slices so a cancel is noticed promptly (and shortened under test).
+fn pause(ctl: &JobControl, d: Duration) -> Result<()> {
+    let end = Instant::now() + if cfg!(test) { d / 100 } else { d };
+    loop {
+        ctl.check()?;
+        let left = end.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Ok(());
+        }
+        std::thread::sleep(left.min(Duration::from_millis(100)));
+    }
+}
+
+/// Runs `attempt` (one HTTP exchange) up to [`MAX_ATTEMPTS`] times when the provider is rate
+/// limiting or briefly down, checking for cancellation before each try and while waiting.
+fn send_retrying(
+    p: Provider,
+    ctl: &JobControl,
+    post: bool,
+    mut attempt: impl FnMut() -> std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+) -> Result<Vec<u8>> {
+    let mut n = 1;
+    loop {
+        ctl.check()?;
+        let jitter = f32::from(uuid::Uuid::new_v4().as_bytes()[0]) / 255.0;
+        let delay = match attempt() {
+            Ok(r) => {
+                let retry_after = r.headers().get("retry-after").and_then(|v| v.to_str().ok());
+                match retry_delay(Some(r.status().as_u16()), retry_after, n, jitter) {
+                    Some(wait) => wait,
+                    None => return read(p, r),
+                }
+            }
+            Err(e) if transport_retryable(&e, post) => match retry_delay(None, None, n, jitter) {
+                Some(wait) => wait,
+                None => return Err(e).with_context(|| format!("Could not reach {}", p.label())),
+            },
+            Err(e) => return Err(e).with_context(|| format!("Could not reach {}", p.label())),
+        };
+        pause(ctl, delay)?;
+        n += 1;
+    }
+}
+
+fn post_json(p: Provider, url: &str, headers: &[(&str, String)], body: &Value, ctl: &JobControl) -> Result<Vec<u8>> {
+    check(url)?;
+    let body = serde_json::to_vec(body)?;
+    send_retrying(p, ctl, true, || {
+        let mut req = agent().post(url).header("Content-Type", "application/json");
+        for (k, v) in headers {
+            req = req.header(*k, v);
+        }
+        req.send(body.as_slice())
+    })
 }
 
 /// A multipart body: text fields and PNG files.
@@ -363,25 +454,27 @@ impl Multipart {
     }
 }
 
-fn post_multipart(p: Provider, url: &str, headers: &[(&str, String)], form: Multipart) -> Result<Vec<u8>> {
+fn post_multipart(p: Provider, url: &str, headers: &[(&str, String)], form: Multipart, ctl: &JobControl) -> Result<Vec<u8>> {
     check(url)?;
     let (ctype, body) = form.finish();
-    let mut req = agent().post(url).header("Content-Type", &ctype);
-    for (k, v) in headers {
-        req = req.header(*k, v);
-    }
-    let r = req.send(body.as_slice()).with_context(|| format!("Could not reach {}", p.label()))?;
-    read(p, r)
+    send_retrying(p, ctl, true, || {
+        let mut req = agent().post(url).header("Content-Type", &ctype);
+        for (k, v) in headers {
+            req = req.header(*k, v);
+        }
+        req.send(body.as_slice())
+    })
 }
 
-fn get(p: Provider, url: &str, headers: &[(&str, String)]) -> Result<Vec<u8>> {
+fn get(p: Provider, url: &str, headers: &[(&str, String)], ctl: &JobControl) -> Result<Vec<u8>> {
     check(url)?;
-    let mut req = agent().get(url);
-    for (k, v) in headers {
-        req = req.header(*k, v);
-    }
-    let r = req.call().with_context(|| format!("Could not reach {}", p.label()))?;
-    read(p, r)
+    send_retrying(p, ctl, false, || {
+        let mut req = agent().get(url);
+        for (k, v) in headers {
+            req = req.header(*k, v);
+        }
+        req.call()
+    })
 }
 
 fn b64(bytes: &[u8]) -> String {
@@ -400,7 +493,7 @@ fn png_gray(img: &GrayImage) -> Result<Vec<u8>> {
     crate::imaging::encode_png(img)
 }
 
-// ------------------------------------------------------------------------------ sizes
+// sizes
 
 /// The nearest of `ratios` (`"W:H"`) to `w × h`.
 fn nearest_ratio(w: u32, h: u32, ratios: &[&'static str]) -> &'static str {
@@ -472,7 +565,7 @@ fn prompt_for(req: &CloudRequest, green: bool) -> String {
     }
 }
 
-// ------------------------------------------------------------------------------ providers
+// providers
 
 fn openai(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaImage>> {
     let base = Provider::OpenAi.base();
@@ -480,7 +573,7 @@ fn openai(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaIma
     let n = req.count.clamp(1, 4);
     let body = if req.mode == CloudMode::Create && req.refs.is_empty() {
         let v = json!({ "model": req.model.model, "prompt": prompt_for(req, false), "n": n, "size": openai_size(req.width, req.height) });
-        post_json(Provider::OpenAi, &format!("{base}/v1/images/generations"), &auth, &v)?
+        post_json(Provider::OpenAi, &format!("{base}/v1/images/generations"), &auth, &v, ctl)?
     } else {
         let mut f = Multipart::new();
         f.text("model", req.model.model);
@@ -502,7 +595,7 @@ fn openai(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaIma
             f.png("mask", "mask.png", &png(&mask)?);
         }
         ctl.check()?;
-        post_multipart(Provider::OpenAi, &format!("{base}/v1/images/edits"), &auth, f)?
+        post_multipart(Provider::OpenAi, &format!("{base}/v1/images/edits"), &auth, f, ctl)?
     };
     let v: Value = serde_json::from_slice(&body)?;
     let images: Vec<RgbaImage> = v["data"]
@@ -538,7 +631,7 @@ fn google(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaIma
     let mut out = Vec::new();
     for _ in 0..req.count.clamp(1, 4) {
         ctl.check()?;
-        let v: Value = serde_json::from_slice(&post_json(Provider::Google, &url, &auth, &body)?)?;
+        let v: Value = serde_json::from_slice(&post_json(Provider::Google, &url, &auth, &body, ctl)?)?;
         let found = v["candidates"]
             .as_array()
             .into_iter()
@@ -587,7 +680,7 @@ fn bfl(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaImage>
                 }
             }
         }
-        let v: Value = serde_json::from_slice(&post_json(Provider::Bfl, &format!("{base}/v1/{model}"), &auth, &body)?)?;
+        let v: Value = serde_json::from_slice(&post_json(Provider::Bfl, &format!("{base}/v1/{model}"), &auth, &body, ctl)?)?;
         let poll = v["polling_url"]
             .as_str()
             .map(str::to_owned)
@@ -600,14 +693,14 @@ fn bfl(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<RgbaImage>
                 bail!("Black Forest Labs took too long.");
             }
             std::thread::sleep(Duration::from_millis(if cfg!(test) { 20 } else { 800 }));
-            let r: Value = serde_json::from_slice(&get(Provider::Bfl, &poll, &auth)?)?;
+            let r: Value = serde_json::from_slice(&get(Provider::Bfl, &poll, &auth, ctl)?)?;
             match r["status"].as_str().unwrap_or("") {
                 "Ready" => break r["result"]["sample"].as_str().context("no result URL")?.to_owned(),
                 "Pending" | "Queued" | "Processing" | "Task not found" => {}
                 other => bail!("Black Forest Labs: {other}"),
             }
         };
-        out.push(crate::imaging::decode_rgba(&get(Provider::Bfl, &sample, &[])?)?);
+        out.push(crate::imaging::decode_rgba(&get(Provider::Bfl, &sample, &[], ctl)?)?);
     }
     Ok(out)
 }
@@ -650,7 +743,7 @@ fn stability(req: &CloudRequest, key: &str, ctl: &JobControl) -> Result<Vec<Rgba
                 format!("{base}/v2beta/stable-image/generate/{m}")
             }
         };
-        out.push(crate::imaging::decode_rgba(&post_multipart(Provider::Stability, &url, &auth, f)?)?);
+        out.push(crate::imaging::decode_rgba(&post_multipart(Provider::Stability, &url, &auth, f, ctl)?)?);
     }
     Ok(out)
 }
@@ -820,5 +913,118 @@ mod tests {
         let e = generate(&req, &settings, &ctl).unwrap_err().to_string();
         assert!(e.contains("Local AI › Cloud"), "{e}");
         set_test_base(None);
+    }
+
+    #[test]
+    fn retry_policy_covers_rate_limits_and_outages_only() {
+        for status in [429, 502, 503, 504] {
+            assert!(retry_delay(Some(status), None, 1, 0.5).is_some(), "{status}");
+        }
+        for status in [400, 401, 402, 403, 404, 413, 422, 500, 501, 200] {
+            assert_eq!(retry_delay(Some(status), None, 1, 0.5), None, "{status}");
+        }
+        // Three attempts in all: nothing after the third failure.
+        assert!(retry_delay(Some(503), None, 2, 0.5).is_some());
+        assert_eq!(retry_delay(Some(503), None, 3, 0.5), None);
+        assert!(retry_delay(None, None, 1, 0.5).is_some());
+        assert_eq!(retry_delay(None, None, 3, 0.5), None);
+    }
+
+    #[test]
+    fn backoff_doubles_with_bounded_jitter() {
+        assert_eq!(backoff(1, 0.5), Duration::from_secs(1));
+        assert_eq!(backoff(2, 0.5), Duration::from_secs(2));
+        assert_eq!(backoff(3, 0.5), Duration::from_secs(4));
+        for attempt in 1..=3u32 {
+            let base = f32::from(1u16 << (attempt - 1));
+            let (lo, hi) = (backoff(attempt, 0.0).as_secs_f32(), backoff(attempt, 1.0).as_secs_f32());
+            assert!((lo - 0.75 * base).abs() < 1e-3 && (hi - 1.25 * base).abs() < 1e-3, "{attempt}: {lo} {hi}");
+        }
+        assert_eq!(backoff(2, 9.0), backoff(2, 1.0));
+    }
+
+    #[test]
+    fn retry_after_wins_over_backoff_and_is_capped() {
+        assert_eq!(retry_delay(Some(429), Some("7"), 1, 0.0), Some(Duration::from_secs(7)));
+        assert_eq!(retry_delay(Some(503), Some(" 3 "), 2, 1.0), Some(Duration::from_secs(3)));
+        assert_eq!(retry_delay(Some(429), Some("600"), 1, 0.5), Some(RETRY_AFTER_CAP));
+        // The HTTP-date form and junk fall back to the backoff.
+        assert_eq!(retry_delay(Some(429), Some("Wed, 21 Oct 2026 07:28:00 GMT"), 1, 0.5), Some(Duration::from_secs(1)));
+        assert_eq!(parse_retry_after("-1"), None);
+        assert_eq!(parse_retry_after(""), None);
+    }
+
+    #[test]
+    fn post_timeouts_are_not_repeated_but_connection_failures_are() {
+        use ureq::{Error, Timeout};
+        assert!(transport_retryable(&Error::ConnectionFailed, true));
+        assert!(transport_retryable(&Error::Timeout(Timeout::Connect), true));
+        assert!(!transport_retryable(&Error::Timeout(Timeout::RecvResponse), true));
+        assert!(!transport_retryable(&Error::Timeout(Timeout::Global), true));
+        assert!(transport_retryable(&Error::Timeout(Timeout::RecvResponse), false));
+        assert!(!transport_retryable(&Error::BodyExceedsLimit(1), false));
+    }
+
+    #[test]
+    fn a_cancelled_job_does_not_sleep_through_a_retry() {
+        let ctl = JobControl::new();
+        ctl.cancel();
+        let started = Instant::now();
+        assert!(pause(&ctl, Duration::from_secs(600)).is_err());
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    /// Serves `replies` (raw HTTP responses) to successive connections; returns its `host:port`
+    /// and a counter of the connections it saw.
+    fn scripted_server(replies: Vec<String>) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::io::{Read, Write};
+        use std::sync::{Arc, atomic::AtomicUsize, atomic::Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = listener.local_addr().unwrap().to_string();
+        let seen = Arc::new(AtomicUsize::new(0));
+        let count = seen.clone();
+        std::thread::spawn(move || {
+            for reply in replies {
+                let Ok((mut conn, _)) = listener.accept() else { return };
+                count.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 8192];
+                let _ = conn.read(&mut buf);
+                let _ = conn.write_all(reply.as_bytes());
+            }
+        });
+        (host, seen)
+    }
+
+    fn reply(status: &str, extra: &str, body: &str) -> String {
+        format!("HTTP/1.1 {status}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
+    }
+
+    #[test]
+    fn requests_retry_through_rate_limits_and_stop_on_client_errors() {
+        use std::sync::atomic::Ordering;
+        let ctl = JobControl::new();
+        let (host, seen) = scripted_server(vec![
+            reply("429 Too Many Requests", "Retry-After: 1\r\n", "slow down"),
+            reply("503 Service Unavailable", "", "{}"),
+            reply("200 OK", "", "fine"),
+        ]);
+        crate::download::allow_test_host(&host);
+        let url = format!("http://{host}/x");
+        assert_eq!(get(Provider::Bfl, &url, &[], &ctl).unwrap(), b"fine");
+        assert_eq!(seen.load(Ordering::SeqCst), 3);
+
+        // Out of attempts: the last status is reported.
+        let (host, seen) = scripted_server(vec![reply("503 Service Unavailable", "", "{\"message\":\"down\"}"); 3]);
+        crate::download::allow_test_host(&host);
+        let e = post_json(Provider::OpenAi, &format!("http://{host}/x"), &[], &json!({}), &ctl).unwrap_err().to_string();
+        assert!(e.contains("503") && e.contains("down"), "{e}");
+        assert_eq!(seen.load(Ordering::SeqCst), 3);
+
+        // A rejected key is not retried.
+        let (host, seen) = scripted_server(vec![reply("401 Unauthorized", "", "{}"), reply("200 OK", "", "never")]);
+        crate::download::allow_test_host(&host);
+        let e = post_json(Provider::OpenAi, &format!("http://{host}/x"), &[], &json!({}), &ctl).unwrap_err().to_string();
+        assert!(e.contains("rejected the API key"), "{e}");
+        assert_eq!(seen.load(Ordering::SeqCst), 1);
     }
 }

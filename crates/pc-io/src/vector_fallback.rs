@@ -315,7 +315,7 @@ pub(crate) fn needs_cache(layer: &Layer) -> bool {
         || matches!(layer.content, LayerContent::Text(_)) && (layer.vector.on_path.is_some() || layer.vector.frame_compose.is_some_and(|frame| frame.enabled))
 }
 
-/// Deterministic topmost visible supported fill/stroke using package 08's single mirror rule.
+/// Deterministic topmost visible supported fill/stroke using the single shared mirror rule.
 pub fn shape_mirror(layer: &Layer, shape: &ShapeLayer) -> ShapeLayer {
     let mut out = shape.clone();
     if let Some(a) = &layer.vector.appearance {

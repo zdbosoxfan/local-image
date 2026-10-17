@@ -203,7 +203,6 @@ fn panels_never_panic_on_odd_documents() {
     assert!(r.is_finite() && uv.is_finite() && r.width() > 0.0);
 }
 
-// ---------------------------------------------------------------------------------------------
 // #196: ⌥-click mask view, ⌘-click vector mask to select, vector-mask target brackets.
 
 /// The session above with a black dot painted into the layer mask at (50, 50).

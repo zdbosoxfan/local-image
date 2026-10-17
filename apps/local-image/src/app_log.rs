@@ -15,7 +15,7 @@
 //!
 //! Levels: info and above from the app's own crates and the window/GPU set-up (eframe, egui-wgpu),
 //! warnings and errors from everything else. `LOCAL_IMAGE_LOG=debug|info|warn|error|trace` raises
-//! or lowers the level for everything. Panics are logged by `crash_guard`'s hook.
+//! or lowers the level for everything. Panics are logged, and written to `crash-*.txt` reports in the same folder, by `crash_guard`'s hook.
 
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
@@ -54,6 +54,20 @@ pub fn log_dir(env: &impl Fn(&str) -> Option<OsString>, data: &lightcraft_sysmem
         var("XDG_DATA_HOME").or_else(|| var("HOME").map(|h| h.join(".local/share"))).map(|d| d.join("local-image").join("logs"))
     };
     platform.or_else(in_data)
+}
+
+/// The log directory of this process (where crash reports go too), without opening the log.
+pub fn current_log_dir() -> Option<PathBuf> {
+    log_dir(&|k: &str| std::env::var_os(k), lightcraft_sysmem::app_dirs::current())
+}
+
+/// `20261016-123456-789`: a UTC time that sorts like the time itself, safe in file names.
+pub fn file_stamp(now: SystemTime) -> String {
+    let d = now.duration_since(UNIX_EPOCH).unwrap_or_default();
+    let secs = d.as_secs();
+    let (y, mo, day) = civil_from_days((secs / 86_400) as i64);
+    let rem = secs % 86_400;
+    format!("{y:04}{mo:02}{day:02}-{:02}{:02}{:02}-{:03}", rem / 3600, rem / 60 % 60, rem % 60, d.subsec_millis())
 }
 
 /// The level for `target` under `over` (`LOCAL_IMAGE_LOG`, when set).
@@ -242,6 +256,7 @@ mod tests {
         assert_eq!(format_line(t, Level::Warn, "x", "hi"), "2026-10-10 00:00:00.123Z WARN  x: hi\n");
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(civil_from_days(11_016), (2000, 2, 29));
+        assert_eq!(file_stamp(t), "20261010-000000-123");
     }
 
     #[test]

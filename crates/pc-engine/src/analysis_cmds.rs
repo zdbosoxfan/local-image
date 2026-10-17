@@ -26,7 +26,7 @@ use serde_json::{Map, Value, json};
 use crate::commands::CommandSpec;
 use crate::{EngineError, Result, Session};
 
-// ------------------------------------------------------------------ state
+// State
 
 /// Data point columns: (key, Photoshop column header).
 pub const COLUMNS: &[(&str, &str)] = &[
@@ -119,7 +119,7 @@ pub struct AnalysisState {
     pub data_points: DataPoints,
 }
 
-// ------------------------------------------------------------------ helpers
+// Helpers
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
@@ -222,7 +222,7 @@ fn round4(v: f64) -> f64 {
     (v * 10_000.0).round() / 10_000.0
 }
 
-// ------------------------------------------------------------------ scale
+// Scale
 
 fn set_scale(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "image.analysis.setMeasurementScale";
@@ -259,7 +259,7 @@ fn scale_json(sc: &MeasurementScale) -> Value {
     json!({"pixelLength": sc.pixel_length, "logicalLength": sc.logical_length, "units": sc.units, "factor": sc.factor(), "text": sc.describe(), "default": sc.is_default()})
 }
 
-// ------------------------------------------------------------------ data points
+// Data points
 
 fn select_data_points(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "image.analysis.selectDataPoints";
@@ -305,7 +305,7 @@ fn select_data_points(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
-// ------------------------------------------------------------------ selection measurements
+// Selection measurements
 
 /// Measurements of one selection feature (or the summary of all).
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -549,7 +549,7 @@ fn selection_rows(d: &Document) -> Result<(Feature, Vec<Feature>)> {
     Ok((summary(&feats, med), feats))
 }
 
-// ------------------------------------------------------------------ ruler
+// Ruler
 
 /// Ruler readout: X/Y (start), W/H, angle A and lengths L1/L2, as in the options bar.
 pub fn ruler_info(r: &Ruler, sc: &MeasurementScale) -> Value {
@@ -669,7 +669,7 @@ fn straighten(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"angle": round4(rot), "cropped": crop, "width": nd.size.width, "height": nd.size.height}))
 }
 
-// ------------------------------------------------------------------ count
+// Count
 
 fn group_index(d: &Document, p: &Value) -> Option<usize> {
     let i = p.get("group").and_then(Value::as_u64).map(|v| v as usize).unwrap_or(d.measurement.active_count_group);
@@ -850,7 +850,7 @@ fn count_set_group(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(count_json(doc(s)?.as_ref()))
 }
 
-// ------------------------------------------------------------------ record + log
+// Record + log
 
 fn base_row(s: &mut Session, d: &Document, source: &str, label: &str, now: &str) -> Map<String, Value> {
     let sc = &d.measurement.scale;
@@ -981,6 +981,8 @@ fn csv_field(v: &Value) -> String {
         Value::Null => String::new(),
         other => other.to_string(),
     };
+    // Spreadsheet formula guard: a leading `=`, `+`, `-`, `@`, tab or CR gets a `'` prefix, except a plain number.
+    let s = if s.starts_with(['=', '+', '-', '@', '\t', '\r']) && s.parse::<f64>().is_err() { format!("'{s}") } else { s };
     if s.contains([',', '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s }
 }
 
@@ -1012,7 +1014,7 @@ fn log_export(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-// ------------------------------------------------------------------ scale marker
+// Scale marker
 
 /// A "nice" bar length (1, 2 or 5 × 10ⁿ) near a fifth of the image width, in logical units.
 fn nice_length(d: &Document) -> f64 {
@@ -1084,7 +1086,7 @@ fn trim_num(v: f64) -> String {
     if v.fract() == 0.0 { format!("{}", v as i64) } else { format!("{v}") }
 }
 
-// ------------------------------------------------------------------ info
+// Info
 
 fn analysis_info(s: &mut Session, _p: &Value) -> Result<Value> {
     let d = doc(s)?;

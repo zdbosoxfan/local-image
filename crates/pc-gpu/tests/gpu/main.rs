@@ -1,6 +1,5 @@
 //! All GPU integration tests in one binary. Concurrent wgpu instances in one process segfault on
-//! some drivers, so every test that opens a device holds this one process-wide lock (it used to be
-//! one lock per test file, which only worked because each file was its own process).
+//! some drivers, so every test that opens a device holds this one process-wide lock.
 mod device_loss;
 mod parity;
 mod vector_mask;

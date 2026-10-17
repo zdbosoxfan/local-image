@@ -385,11 +385,6 @@ impl Image {
         self.data
     }
 
-    /// Borrow samples as `u8` (only when the sample type is `U8`).
-    pub fn as_u8(&self) -> Option<&[u8]> {
-        (self.sample == SampleType::U8).then_some(&self.data[..])
-    }
-
     /// Copy samples out as `u16` (only when the sample type is `U16`).
     pub fn to_u16_samples(&self) -> Option<Vec<u16>> {
         (self.sample == SampleType::U16).then(|| self.data.as_chunks::<2>().0.iter().map(|c| u16::from_ne_bytes([c[0], c[1]])).collect())
@@ -512,9 +507,7 @@ impl Image {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Sample conversion helpers
-// ---------------------------------------------------------------------------
 
 #[inline]
 pub(crate) fn read_normalized(data: &[u8], sample: SampleType, i: usize) -> f32 {

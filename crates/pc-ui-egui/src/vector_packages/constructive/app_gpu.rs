@@ -1,6 +1,5 @@
 //! Full app, offscreen live pointer frames, GPU canvas, release/undo/cancel gate.
-//! Registered by 00 (10-register.py rehearses exact wiring under target). No software-adapter
-//! fallback and no skip. Intentionally not executed by package 10 under the owner's speed rules.
+//! No software-adapter fallback and no skip.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};

@@ -1,5 +1,5 @@
 //! Atomic path-text edits and detached pc-text projection. Original Local Image code.
-//! V1 owns arc-length/nearest geometry. See integration/12.md for shared type routing.
+//! V1 owns arc-length/nearest geometry.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::{
     Document, Fill, Layer, LayerContent, LayerId, Path, ShapeLayer, TextLayer,
@@ -13,9 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
-// Compile the SINGLE owned pc-text source until 00 adds `pub mod on_path` to
-// pc-text/lib.rs. Afterwards replace this path module/imports with
-// `pub use photocraft_text::on_path;`. No second implementation or shaper.
+// V1 curve helpers; the on-path layout itself is pc-text's `on_path`. No second implementation or shaper.
 pub mod curves;
 pub use photocraft_text::on_path;
 
@@ -146,7 +144,7 @@ fn preflight(doc: &Document, edits: &[Edit]) -> Result<()> {
 pub fn project(engine: &mut TextEngine, doc: &Document, t: &TextLayer, path: &PathText) -> Result<on_path::PathLayout> {
     on_path::layout(engine, t, &Sampler::new(&path.path)?, path, doc.resolution_dpi).map_err(text_error)
 }
-/// Refresh hook for 00's ordinary type edits/native reload/display projection.
+/// Refresh hook for ordinary type edits, native reload and display projection.
 pub fn refresh(doc: &Document, t: &mut TextLayer, path: &PathText) -> Result<on_path::PathLayout> {
     let mut engine = photocraft_text::shared().lock().map_err(|_| error("text engine is unavailable"))?;
     let layout = project(&mut engine, doc, t, path)?;

@@ -19,7 +19,7 @@ use std::collections::HashSet;
 mod conversion;
 pub(crate) use conversion::ordinary as ordinary_text_outlines;
 pub(crate) mod metadata;
-pub use conversion::{ConversionChoice, EnvelopeRequest, EnvelopeRouter, conversion_targets};
+pub use conversion::{ConversionChoice, EnvelopeRequest, conversion_targets};
 
 pub const MAX_TARGETS: usize = 1024;
 pub const MAX_CACHE_BYTES: u128 = 512 << 20;
@@ -685,7 +685,7 @@ pub fn commit(s: &mut Session, c: &Commit) -> Result<Vec<LayerId>> {
     let value = s.execute("vector.transform.apply", serde_json::to_value(c).map_err(|e| error(e.to_string()))?)?;
     serde_json::from_value(value["layers"].clone()).map_err(|e| error(e.to_string()))
 }
-/// Bridge for 00: document-scoped vector replay; Pixel's edit.transform state is untouched.
+/// Document-scoped vector replay; Pixel's edit.transform state is untouched.
 /// Replays the last successful vector command's operation/options/copy on the current targets.
 pub fn again_request(s: &Session, ids: &[LayerId]) -> Result<Commit> {
     let capture = Capture::begin(s, ids)?;

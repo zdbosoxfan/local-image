@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 //! Full PhotocraftApp canvas, pointer frames, GPU callbacks and release cache gate.
-//! Package 00 supplies the app field/routing listed in integration/05.md. Until persona
-//! package 01 integrates, register_ui.py rehearses that wiring under target/ using Pen
+//! The app field/routing is supplied by the host; Pen is used
 //! only as an activation sentinel. This is not final persona acceptance.
 use eframe::{egui_wgpu, wgpu};
 use egui::{Modifiers, vec2};

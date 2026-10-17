@@ -51,7 +51,7 @@ fn alpha_sum(s: &Surface, r: Rect) -> f32 {
     t
 }
 
-// ---------- tips ----------
+// Tips
 
 #[test]
 fn round_tip_roundness_and_angle() {
@@ -166,7 +166,7 @@ fn pencil_dabs_sit_on_the_pixel_grid() {
     assert_eq!(s.rgba(9, 5)[3], 1.0);
 }
 
-// ---------- spacing ----------
+// Spacing
 
 #[test]
 fn spacing_sets_dab_count() {
@@ -182,7 +182,7 @@ fn spacing_sets_dab_count() {
     assert!(d.windows(2).all(|w| ((w[1].center.x - w[0].center.x) - 10.0).abs() < 1e-6));
 }
 
-// ---------- dynamics ----------
+// Dynamics
 
 #[test]
 fn pressure_controls_size_with_minimum() {
@@ -731,7 +731,7 @@ fn tail_preview_shows_the_stroke_as_finishing_it_would() {
     assert!((0..60).all(|y| (0..120).all(|x| live.rgba(x, y) == done.rgba(x, y))));
 }
 
-// ---------- Tilt Scale, Brush Projection, speed spacing, locks, mixer transfer ----------
+// Tilt Scale, Brush Projection, speed spacing, locks, mixer transfer
 
 /// Coverage extent (pixels above half coverage) of a rasterised dab along x and y through its centre.
 fn extents(b: &BrushSettings, d: &Dab) -> (usize, usize) {
@@ -905,7 +905,7 @@ fn transfer_wetness_and_mix_vary_per_dab() {
     assert_eq!(old.mixer, crate::mixer::MixerSettings::default());
 }
 
-// ---------- continuous coverage (soft round brushes) ----------
+// Continuous coverage (soft round brushes)
 
 fn soft(spacing: f32, flow: f32) -> BrushSettings {
     BrushSettings { size: 40.0, hardness: 0.0, spacing, flow, ..brush() }

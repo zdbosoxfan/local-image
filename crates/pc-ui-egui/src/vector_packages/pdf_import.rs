@@ -1,5 +1,5 @@
-//! Package 22 PDF page selection and captured canvas placement. Transient state;
-//! File/Open, Place and canvas routing are installed by package 00 (integration/22.md).
+//! PDF page selection and captured canvas placement. Transient state;
+//! File/Open, Place and canvas routing are installed by the host app.
 use egui::{Context, Event, Key, PointerButton, Pos2, Rect, Ui};
 use photocraft_doc::{
     Document,
@@ -754,7 +754,7 @@ pub fn input(state: &mut State, session: &mut Session, ctx: &Context, canvas: Re
     }
     Ok(())
 }
-/// Shared app hooks registered by 00. They share the app's ordinary canvas/GPU caches.
+/// Shared app hooks. They share the app's ordinary canvas/GPU caches.
 fn app_modal_open(app: &crate::PhotocraftApp, ctx: &Context) -> bool {
     // Match the app-known custom modal ownership used by the shortcut router. These
     // editors paint after the vector/PDF hook, so egui's previous modal layer is insufficient.

@@ -69,7 +69,7 @@ fn norm(a: [f64; 3]) -> [f64; 3] {
     [a[0] / n, a[1] / n, a[2] / n]
 }
 
-// ------------------------------------------------------------------------------------------ segments
+// segments
 
 /// Detect line segments in a luminance plane (any scale; values roughly 0..1, perceptual). Returns segments in
 /// centred coordinates of the plane.
@@ -197,7 +197,7 @@ pub fn detect_segments(lum: &Plane) -> Vec<Segment> {
     out
 }
 
-// ------------------------------------------------------------------------------------------ vanishing points
+// vanishing points
 
 /// Angular error (radians) between a segment and the direction from its midpoint to the (homogeneous) point `v`.
 fn vp_error(s: &Segment, v: [f64; 3]) -> f64 {
@@ -307,7 +307,7 @@ pub fn vanishing_point(segs: &[Segment]) -> Option<([f64; 3], f64)> {
     (count >= 2).then_some((v, total))
 }
 
-// ------------------------------------------------------------------------------------------ solving
+// solving
 
 /// Direction (camera frame) of a vanishing point for focal length `f`.
 fn direction(v: [f64; 3], f: f64) -> [f64; 3] {
@@ -531,7 +531,7 @@ pub fn solve_guided(guides: &[Segment]) -> Homography {
     }
 }
 
-// ------------------------------------------------------------------------------------------ sources
+// sources
 
 /// Long edge of the analysis image.
 const ANALYSIS_LONG: usize = 1024;

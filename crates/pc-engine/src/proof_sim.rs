@@ -229,7 +229,7 @@ fn eval3(t: &Transform, v: &[f32]) -> [f32; 3] {
     if t.outputs() == 1 { [out[0]; 3] } else { [out[0], out[1], out[2]] }
 }
 
-// ------------------------------------------------------------------ commands
+// Commands
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())

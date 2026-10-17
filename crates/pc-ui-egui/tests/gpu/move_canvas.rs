@@ -189,7 +189,7 @@ fn move_canvas_backdrop_dependent_blend_keeps_live_reference_preview() {
 }
 
 #[test]
-#[ignore = "interactive 48 MP app benchmark; run explicitly on the owner's RTX 5090"]
+#[ignore = "interactive 48 MP app benchmark on a real GPU; run explicitly"]
 fn move_canvas_bench_8000x6000_real_app() {
     let _gpu = crate::gpu_lock();
     let mut h = harness(1.0);

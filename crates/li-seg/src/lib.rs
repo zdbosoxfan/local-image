@@ -824,7 +824,7 @@ impl ModelSpec {
     }
 }
 
-// ------------------------------------------------------------------------------ custom models
+// custom models
 
 /// A model the user picked for a function (an `.onnx` file copied into
 /// `<models>/segmentation/custom/`), used instead of the official one.
@@ -1196,7 +1196,7 @@ pub fn clear_custom(models_dir: &Path, group: Group, dispose: &dyn Fn(&Path) -> 
     Ok(bytes)
 }
 
-// ------------------------------------------------------------------------- which model runs
+// which model runs
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ArtifactIdentity {
@@ -1460,7 +1460,7 @@ fn forget_group(group: Group) {
 /// it at start-up). tract's matrix kernels run on rayon: on whichever pool the calling thread belongs
 /// to, i.e. the app's one sized compute pool (`lightcraft_sysmem::init`), or the background pool for
 /// indexing. Tile-level `par_iter`s and tract's own parallelism then share one set of threads
-/// instead of multiplying (threading rules 1-2: never `Executor::multithread`, which adds a second
+/// instead of multiplying (never `Executor::multithread`, which adds a second
 /// pool). `LOCAL_IMAGE_SEG_THREADS` is for measurement only: `1` runs tract single-threaded, `n > 1`
 /// on a private `n`-thread pool.
 /// API: tract-linalg 0.23.8 src/multithread.rs (Executor and set_default_executor).

@@ -47,14 +47,14 @@ impl Default for Scope {
         Self { edit_all_layers: true, select_hidden: false, active: None, isolation: None }
     }
 }
-/// Package-owned per-document view memory, for DocState's additive coordinator bridge.
+/// Per-document view memory, bridged from DocState.
 /// It is neither document persistence nor an undo state.
 #[derive(Clone, Debug, Default)]
 pub struct Memory {
     pub previous: Vec<LayerId>,
 }
 
-/// Package 00 installs the authoritative session scope (37) and per-document selection
+/// The host installs the authoritative session scope and per-document selection
 /// memory. UI/menu/MCP share these hooks; no global selection history is kept here.
 pub struct Hooks {
     pub scope: fn(&Session) -> Result<Scope>,
@@ -65,7 +65,7 @@ static HOOKS: OnceLock<Hooks> = OnceLock::new();
 pub fn install_hooks(hooks: Hooks) -> std::result::Result<(), Hooks> {
     HOOKS.set(hooks)
 }
-/// Read-only providers: 08 may project the authoritative appearance, and 38 supplies
+/// Read-only providers: appearance may project the authoritative appearance, and styles supply
 /// the style link. Missing style support is an error, never a match on absent links.
 #[derive(Clone, Copy, Default)]
 pub struct Readers {
@@ -262,7 +262,7 @@ pub struct Preview {
     pub scope: Scope,
     pub base: Vec<LayerId>,
     pub layers: Vec<LayerId>,
-    /// Node selections are returned to 03's existing DirectSelection state, never saved
+    /// Node selections are returned to the existing DirectSelection state, never saved
     /// into a second engine node-selection store. Object layer selection stays intact.
     pub nodes: Option<Vec<Nodes>>,
     pub bounds: Vec<(LayerId, [f64; 4])>,

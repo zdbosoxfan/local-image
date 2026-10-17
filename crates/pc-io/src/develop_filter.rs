@@ -45,7 +45,7 @@ pub const COMMAND: &str = "filter.develop";
 /// Params keys that are bookkeeping, not develop settings.
 pub const META_KEYS: [&str; 4] = ["layer", "convert", "index", "target"];
 
-// ------------------------------------------------------------------------------ settings
+// Settings
 
 /// Develop settings from command / smart-filter params (missing fields take their defaults;
 /// bookkeeping keys and `__`-prefixed private keys are ignored).
@@ -101,7 +101,7 @@ pub fn identity_json() -> Value {
 /// Section ids of the Develop panels hidden for a filter (see [`sanitize`]).
 pub const HIDDEN_SECTIONS: [&str; 4] = ["calibration", "crop", "geometry", "lensProfile"];
 
-// ------------------------------------------------------------------------------ colour
+// Colour
 
 /// Linear Rec.2020 (the develop engine's working space) as an ICC profile.
 pub fn linear_rec2020() -> &'static Profile {
@@ -198,7 +198,7 @@ impl Conv {
     }
 }
 
-// ------------------------------------------------------------------------------ rendering
+// Rendering
 
 /// Develops linear Rec.2020 pixels (`w × h`) with `s` as a rendered (non-raw) photo, at full
 /// size. Uses Library Develop's GPU/DeviceHealth path with automatic CPU fallback.
@@ -335,7 +335,7 @@ pub fn camera_raw_curve_lut(cr: &CameraRaw, n: usize) -> Vec<f32> {
         .collect()
 }
 
-// ------------------------------------------------------------------------------ lens profile
+// Lens profile
 
 /// A lens or camera of the lens database (maker and model), as Develop stores it.
 pub use lightcraft_engine::lens_db::Named as LensName;
@@ -582,7 +582,7 @@ fn through_profile(s: photocraft_algo::lens::Sample, m: &LensProfileMap, frame: 
     photocraft_algo::lens::Sample { p, pr: at(s.pr, 0), pb: at(s.pb, 2), gain: s.gain * g }
 }
 
-// ------------------------------------------------------------------------------ red eye
+// Red eye
 
 /// One eye for [`red_eye_surface`]: where to look (an ellipse, document pixels) and how to fix it
 /// (Develop's red eye / pet eye controls).
@@ -700,7 +700,7 @@ pub fn red_eye_surface(surf: &Surface, bounds: Rect, eye: &EyeFix, profile: &Pro
     Ok(Some(out))
 }
 
-// ------------------------------------------------------------------------------ Camera Raw subset
+// Camera Raw subset
 
 /// Relative temperature (−100..100, rendered files) → Kelvin, the Library's scale.
 pub fn rel_to_kelvin(r: f64) -> f64 {

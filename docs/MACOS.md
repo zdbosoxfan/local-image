@@ -73,7 +73,7 @@ kernels through the system Metal runtime; it needs no separate `metal` compiler 
 export MACOSX_DEPLOYMENT_TARGET=13.0
 export CRAFT_FONTS_DIR=/absolute/path/to/craft-fonts CRAFT_FONTS_REQUIRED=1
 cargo xtask package macos
-./script/build_and_run.sh --verify
+./scripts/build_and_run.sh --verify
 ```
 
 `cargo xtask package macos --skip-build` packages existing native release binaries. The caller

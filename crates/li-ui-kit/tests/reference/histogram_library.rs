@@ -1,4 +1,4 @@
-//! Frozen pre-J18 Library histogram painter, test-only parity oracle.
+//! Frozen earlier Library histogram painter, test-only parity oracle.
 #![allow(clippy::needless_range_loop)] // Preserve the frozen painter verbatim.
 use egui::epaint::{Mesh, Vertex};
 use egui::{Color32, Pos2, Rect, Stroke, pos2};

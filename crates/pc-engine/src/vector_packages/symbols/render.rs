@@ -69,8 +69,8 @@ fn composite_surface(doc: &Document, layers: Vec<Layer>, bounds: Rect) -> Result
     cache.prune();
     Ok(cache)
 }
-/// Applies the shared data projection exactly once. Package 09 may substitute its scaled
-/// geometry/appearance provider for this legacy preparation step, using the same Expansion.
+/// Applies the shared data projection exactly once. A scaled
+/// geometry/appearance provider may substitute for this legacy preparation step, using the same Expansion.
 pub fn prepare_expansion(doc: &Document, ex: expansion::Expansion) -> Result<Vec<Layer>> {
     prepare_expansion_with(doc, ex, true)
 }

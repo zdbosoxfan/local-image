@@ -1,4 +1,4 @@
-//! Package 29: a transient Library → existing Compositing file-open request.
+//! A transient Library → existing Compositing file-open request.
 //! No selection, filters, files, history or Develop settings are changed here.
 use egui::{Context, Id, Ui};
 use lightcraft_catalog::{PhotoId, Source};
@@ -55,7 +55,7 @@ pub fn disabled_reason(app: &LightcraftApp, id: PhotoId) -> Option<&'static str>
 }
 
 /// Append this to the existing photo context menu. Call before its selection-changing
-/// code (see integration/29.md); this action always preserves the pre-menu selection.
+/// code; this action always preserves the pre-menu selection.
 pub fn context_action(app: &LightcraftApp, ui: &mut Ui, id: PhotoId) -> bool {
     let reason = disabled_reason(app, id);
     let response = ui.add_enabled(reason.is_none() && !pending(ui.ctx()), egui::Button::new(li_i18n::library::t(LABEL)));

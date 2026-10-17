@@ -63,7 +63,7 @@ A connected large object is resized as a whole, so it cannot acquire incompatibl
 structures across independent tiles. This bounds inference memory on any hardware,
 but very large removals lose fine detail. Nearby edits should use small masks with
 adequate surrounding texture. The crop policy is an original adaptation for the
-fixed export, selected by the measured bake-off in `docs/wip/CODEX-REPORT-lama.md`.
+fixed export, selected by a measured bake-off.
 LaMa can blur/reinvent hidden lines or texture; the available Qwen engine remains
 useful when semantic reconstruction is needed.
 

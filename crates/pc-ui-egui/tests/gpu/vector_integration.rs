@@ -1,6 +1,5 @@
-//! Package 00: #1321 through real pointer events and the app's actual GPU canvas.
-//! Synthetic GPL-3.0-or-later inputs; fixture parameters and references are in
-//! docs/wip/vector-tasks/integration/00-SOURCES.md. No desktop windows or adapter skips.
+//! #1321 through real pointer events and the app's actual GPU canvas.
+//! Synthetic GPL-3.0-or-later inputs. No desktop windows or adapter skips.
 
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;

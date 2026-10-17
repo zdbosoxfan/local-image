@@ -201,7 +201,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-// ------------------------------------------------------------------ styles
+// Styles
 
 pub fn styles_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool) {
     let t = Tokens::get(ui.ctx());
@@ -510,7 +510,7 @@ fn family_picker(ui: &mut egui::Ui, salt: &str, current: &mut String) -> bool {
     changed
 }
 
-// ------------------------------------------------------------------ glyphs
+// Glyphs
 
 /// Font family/style the Glyphs panel shows: its own choice, else the type selection's font.
 fn glyph_font(app: &PhotocraftApp) -> (String, String) {
@@ -708,7 +708,7 @@ pub fn glyphs_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
 }
 
-// ------------------------------------------------------------------ spelling
+// Spelling
 
 fn refresh_spelling(app: &mut PhotocraftApp) {
     let Some(d) = app.ui.type_panels.spell.clone() else { return };

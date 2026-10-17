@@ -285,8 +285,6 @@ pub fn to_params(adj: &Adjustment) -> Value {
     }
 }
 
-// ---------------------------------------------------------------------------------------------
-
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }

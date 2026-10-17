@@ -1,5 +1,5 @@
-//! Heavy-job permits (threading rule 6: "limit concurrent heavy jobs by memory first, cores
-//! second"). A batch pipeline (export, Build Previews, import copies) takes a [`Permit`] for each
+//! Heavy-job permits: concurrent heavy jobs are limited by memory first, cores
+//! second. A batch pipeline (export, Build Previews, import copies) takes a [`Permit`] for each
 //! item before its heavy work starts; the permit reserves the item's estimated working memory and
 //! one of the [`HeavyJobs::max_jobs`] job slots.
 //!
@@ -168,7 +168,7 @@ impl HeavyJobs {
 
     /// Wait for a permit for a heavy item of about `bytes`. Re-reads the memory while it waits;
     /// returns `None` once `stop` says so (cancel). Blocks the calling thread: call it from a
-    /// pipeline's own OS thread, never from inside a rayon task (threading rule 5).
+    /// pipeline's own OS thread, never from inside a rayon task.
     pub fn admit(&self, bytes: u64, stop: &dyn Fn() -> bool) -> Option<Permit<'_>> {
         let mut s = self.lock();
         loop {

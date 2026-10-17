@@ -169,7 +169,7 @@ impl AtomicFs for RealFs {
     }
     fn write_new_interrupted(&self, tmp: &Path, bytes: &[u8], interrupt: &Interrupt<'_>) -> io::Result<()> {
         check_interrupt(interrupt)?;
-        write_stream_to(tmp, Policy::Durable, &mut |w| {
+        write_stream_to(tmp, Policy::Durable, false, &mut |w| {
             let mut written = 0;
             for chunk in bytes.chunks(1 << 20) {
                 check_interrupt(interrupt)?;
@@ -372,6 +372,37 @@ fn prepare(fs: &dyn AtomicFs, path: &Path, bytes: &[u8], interrupt: &Interrupt<'
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     atomic_write_with(&RealFs, RenameRetry::platform(), path, bytes)
 }
+/// As [`atomic_write`] for secrets (API keys, tokens): on unix the staging file is created owner-only
+/// (0600) before any bytes are written and the published file ends up 0600 even when it replaces a
+/// looser one. Other platforms behave like [`atomic_write`].
+pub fn atomic_write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    atomic_write_with(&PrivateFs, RenameRetry::platform(), path, bytes)
+}
+/// [`RealFs`] with owner-only staging files that never inherit the destination's mode.
+struct PrivateFs;
+impl AtomicFs for PrivateFs {
+    fn write_new(&self, tmp: &Path, bytes: &[u8]) -> io::Result<()> {
+        write_stream_to(tmp, Policy::Durable, true, &mut |w| w.write_all(bytes)).map(drop)
+    }
+    fn rename(&self, from: &Path, to: &Path) -> io::Result<()> {
+        RealFs.rename(from, to)
+    }
+    fn remove(&self, path: &Path) -> io::Result<()> {
+        RealFs.remove(path)
+    }
+    fn sync_dir(&self, dir: &Path) -> io::Result<()> {
+        RealFs.sync_dir(dir)
+    }
+    fn copy_permissions(&self, from: &Path, to: &Path) -> io::Result<()> {
+        RealFs.copy_permissions(from, to)
+    }
+    fn sync_temp(&self, tmp: &Path) -> io::Result<()> {
+        RealFs.sync_temp(tmp)
+    }
+    fn preserve_permissions(&self, from: &Path, to: &Path, policy: Policy) -> io::Result<()> {
+        if cfg!(unix) { Ok(()) } else { RealFs.preserve_permissions(from, to, policy) }
+    }
+}
 pub fn atomic_write_with(fs: &dyn AtomicFs, retry: RenameRetry, path: &Path, bytes: &[u8]) -> io::Result<()> {
     let (target, tmp) = prepare(fs, path, bytes, &Interrupt::NONE)?;
     let mut cleanup = Temp { fs, path: Some(tmp.clone()) };
@@ -421,8 +452,17 @@ pub fn stage_stream(path: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn W
     }
     Ok(staged)
 }
-fn write_stream_to(tmp: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>) -> io::Result<u64> {
-    let file = OpenOptions::new().write(true).create_new(true).open(tmp)?;
+fn write_stream_to(tmp: &Path, policy: Policy, private: bool, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>) -> io::Result<u64> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if private {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = private;
+    let file = options.open(tmp)?;
     write_owned_stream(file, tmp, policy, fill)
 }
 fn write_owned_stream(file: File, tmp: &Path, policy: Policy, fill: &mut dyn FnMut(&mut dyn Write) -> io::Result<()>) -> io::Result<u64> {

@@ -12,7 +12,7 @@
 //!   control protocol's envelope, used by `local-image-cli serve`.
 //! * [`files`]: open/save any supported format, `.pcraft` natively.
 //! * [`library`]: the Library (photo catalog and raw developer) as a headless session and the
-//!   `library_*` MCP tools, under the same filesystem policy (one automation layer, J5).
+//!   `library_*` MCP tools, under the same filesystem policy (one automation layer).
 //!
 //! L6, no UI-toolkit dependencies.
 #![forbid(unsafe_code)]
@@ -28,7 +28,7 @@ pub mod security;
 pub mod server;
 pub mod workspace;
 
-pub use bridge::BridgeClient;
+pub use bridge::{BridgeClient, BridgePolicy};
 pub use headless::Headless;
 pub use library::LibraryHeadless;
 pub use server::{Backend, PhotocraftMcp};

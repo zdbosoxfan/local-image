@@ -954,7 +954,7 @@ fn general_interaction(
     let _ = (native, aspect);
 }
 
-// ------------------------------------------------------------------------ crop
+// crop
 
 fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, frame: &Frame, d: &DevelopSettings, id: PhotoId) {
     if app.ui.tool == "guidedUpright" {
@@ -1160,7 +1160,7 @@ fn frame_crop_quad(d: &DevelopSettings, frame: &Frame) -> [Point; 4] {
     f.crop_quad_norm()
 }
 
-// ------------------------------------------------------------------------ masks
+// masks
 
 /// Where a mask component's pin sits (normalized), for shapes that have a place on the photo.
 pub(crate) fn component_pin(shape: &MaskShape) -> Option<Point> {
@@ -1383,7 +1383,6 @@ fn mask_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         }
         return;
     }
-    // brush tool
     if app.ui.tool == "brush" {
         let r = (app.ui.brush_size as f64 * long) as f32;
         if let Some(h) = resp.hover_pos() {
@@ -1487,7 +1486,7 @@ fn pin(p: &egui::Painter, c: Pos2, sel: bool) {
     p.circle_stroke(c, 6.0, Stroke::new(1.5, Color32::WHITE));
 }
 
-// ------------------------------------------------------------------------ remove
+// remove
 
 /// Grab radius of a spot's pin (screen points): only the pin grabs a spot, so painting next to
 /// (or over) an earlier spot always paints.
@@ -1934,7 +1933,7 @@ fn spot_anchor(s: &lightcraft_develop::Spot) -> Option<Point> {
     s.patch.as_ref().map(|p| Point::new((p.rect[0] + p.rect[2]) / 2.0, (p.rect[1] + p.rect[3]) / 2.0))
 }
 
-// ------------------------------------------------------------------------ red eye
+// red eye
 
 /// Red Eye tool: drag an ellipse over an eye (a new correction), click one to select it.
 fn eye_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, d: &DevelopSettings) {
@@ -1992,7 +1991,7 @@ fn eye_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response
     }
 }
 
-// ------------------------------------------------------------------------ filmstrip
+// filmstrip
 
 pub(crate) fn filmstrip(app: &mut LightcraftApp, ui: &mut egui::Ui, r: Rect) {
     let t = Tokens::get(ui.ctx());

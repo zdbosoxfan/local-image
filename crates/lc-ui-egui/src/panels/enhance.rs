@@ -33,7 +33,7 @@ fn progress(app: &mut LightcraftApp, ui: &mut egui::Ui, id: &str, label: &str, f
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
 }
 
-// ------------------------------------------------------------------------------ AI Remove
+// AI Remove
 
 /// Whether `sp` is a content-aware heal (made on this computer) rather than an AI removal.
 pub fn is_local(sp: &Spot) -> bool {

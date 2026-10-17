@@ -53,7 +53,7 @@ pub struct EdgePaint {
     pub signature: Signature,
     pub stroke: Option<ShapeStroke>,
 }
-/// Serde schema requested from 00. Ordinary group children remain the editable sources.
+/// Serde schema for the document's additive live-paint data. Ordinary group children remain the editable sources.
 /// Paint records whose signatures disappear are retained, allowing Undo/topology restoration.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -71,7 +71,7 @@ pub enum Operation {
     },
 }
 
-/// Package 00 installs thin adapters to V1's actual join/split_at exports. There is no second
+/// Thin adapters to V1's actual join/split_at exports. There is no second
 /// join/split implementation here. An absent provider is an error, never successful geometry.
 pub type Nearest = Option<(usize, usize, f64, Point, f64)>;
 pub struct Geometry {
@@ -96,7 +96,7 @@ pub fn hit(path: &Path, p: Point, tolerance: f64, handles: &[([usize; 2], Handle
     legacy
 }
 
-/// 00 adapts the shared 06/08 feature projection/paint renderer here. The same callback
+/// Adapts the shared feature projection/paint renderer. The same callback
 /// prepares detached previews and commits, preserving metadata-backed corners/appearance.
 pub type RenderCache = fn(&Document, &photocraft_doc::ShapeLayer, &photocraft_doc::VectorData) -> Result<photocraft_doc::Surface>;
 static RENDER_CACHE: OnceLock<RenderCache> = OnceLock::new();

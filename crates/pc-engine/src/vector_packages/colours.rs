@@ -1,7 +1,7 @@
 //! Document swatch transactions, informed by VectorCraft `engine/src/cmd/swatch.rs`
 //! at d522c1d7be4035bd4f4a84cd6ebfca44f5155092 (MIT OR Apache-2.0).
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
-//! 00 installs Access for additive document/paint storage. No palette is hidden in metadata.
+//! The host installs Access for additive document/paint storage. No palette is hidden in metadata.
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::vector_design::appearance::AppearanceItem;
 pub use photocraft_doc::vector_design::swatches::*;
@@ -15,7 +15,7 @@ use std::sync::OnceLock;
 pub(super) fn bad(s: impl Into<String>) -> EngineError {
     EngineError::Other(s.into())
 }
-/// Injected only by 00 after registering Document.swatches and optional paint references.
+/// Injected by the host after it registers Document.swatches and optional paint references.
 /// write participates in the same Session::edit as the pixels; it must not mutate external state.
 #[derive(Clone, Copy)]
 pub struct Access {
@@ -352,7 +352,7 @@ fn resolve_swatches(book: &mut SwatchBook) -> Result<()> {
     Ok(())
 }
 /// All validation precedes cache preparation. Caches stay bounds-limited and aggregate bytes
-/// are checked before rendering. 08's projection provider can handle brush/profile strokes.
+/// are checked before rendering. The appearance projection provider can handle brush/profile strokes.
 pub fn finish(mut document: Document, mut book: SwatchBook, changed: &[PaintTarget], projection: &dyn StrokeProjection) -> Result<Preview> {
     book.validate().map_err(bad)?;
     for link in &book.links {
@@ -756,7 +756,7 @@ fn preview_query(s: &mut Session, v: &Value) -> Result<Value> {
     let p = prepare(s, access()?, &r)?;
     Ok(json!({"detached":true,"palette":p.book,"warnings":p.warnings}))
 }
-/// 00 appends these specs once after installing Access. UI calls the public detached preview.
+/// The host appends these specs once after installing Access. UI calls the public detached preview.
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec {

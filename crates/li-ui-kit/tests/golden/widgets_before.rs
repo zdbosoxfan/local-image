@@ -1,4 +1,4 @@
-//! Frozen pre-J18 painter/control implementations; parity oracle only.
+//! Frozen earlier painter/control implementations; parity oracle only.
 #![allow(dead_code, unused_imports)]
 pub mod editor {
     use egui::{Align2, Color32, CornerRadius, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};

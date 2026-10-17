@@ -2,7 +2,7 @@
 //! and crates/doc/src/appearance.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 //! SPDX-License-Identifier: MIT OR Apache-2.0; see licenses/vectorcraft-NOTICE.
-//! Source paths stay editable. Package 08 renders the filled package 11 projection.
+//! Source paths stay editable. The appearance renderer draws the filled width projection.
 
 use crate::{EngineError, Result, Session, commands::CommandSpec, vector_api};
 use photocraft_doc::vector_design::appearance::{AppearanceItem, StrokeItem};

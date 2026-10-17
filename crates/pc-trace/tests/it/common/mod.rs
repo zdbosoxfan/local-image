@@ -362,7 +362,7 @@ pub fn reference_score(case: &Case, path: &FsPath) -> TestResult<Score> {
         seconds: 0.,
     })
 }
-/// Licensed external files supplied by the coordinator. SVGs have vector ground truth;
+/// Licensed external files supplied outside the repository. SVGs have vector ground truth;
 /// scans use their input as the fidelity target and have no ground-truth node ratio.
 pub fn external_cases() -> TestResult<Vec<Case>> {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");

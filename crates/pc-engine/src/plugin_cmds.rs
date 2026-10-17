@@ -99,7 +99,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"layer": layer.0, "plugin": id}))
 }
 
-/// Smart-filter re-render of a recorded `plugin.run` (see `filters::apply_filter_to_surface`).
+/// Smart-filter re-render of a recorded `plugin.run` (see `filters::apply_filter_to_surface_in`).
 /// `None` when `command` isn't a plug-in run or the plug-in isn't installed (the smart filter is
 /// then skipped, as for other unknown filters) or fails.
 pub(crate) fn apply_to_surface(command: &str, params: &Value, surf: &Surface, selection: Option<&Surface>, canvas: photocraft_geom::Rect) -> Option<Surface> {

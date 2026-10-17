@@ -118,7 +118,7 @@ fn any_user_change_keeps_a_record() {
         ("capture time", op(|id| Op::SetCaptured { id, captured: Some("2020-01-01T00:00:00".into()) })),
         ("rename", set(|p| p.file_name = "renamed.JPG".into())),
         ("culling", op(|id| Op::SetAnalysis { id, analysis: Some(Analysis::default()) })),
-        ("deleted", op(|id| Op::SetDeleted { id, deleted: true })),
+        ("deleted", op(|id| Op::SetDeleted { id, deleted: true, deleted_at: None })),
         ("pick", op(|id| Op::SetFlag { id, flag: Flag::Pick })),
         (
             "album",

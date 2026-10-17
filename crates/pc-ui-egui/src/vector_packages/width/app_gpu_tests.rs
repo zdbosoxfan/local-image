@@ -1,4 +1,4 @@
-//! Full-app width gate for 00's serialized tests/gpu/main.rs registration after router wiring.
+//! Full-app width gate, registered in the serialized tests/gpu/main.rs.
 //! Uses actual app input, preview selection, GPU canvas and release. No desktop windows.
 use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
@@ -51,7 +51,7 @@ fn harness() -> H {
         app.ui.extras.snap = false;
         app.ui.view.extras = false;
         app.session.edit_prefs(|p| p.interface.contextual_task_bar = false);
-        // 01 registers this tool; 00 maps it to width_state lifecycle/input/display_doc hooks.
+        // The Width tool maps to width_state lifecycle/input/display_doc hooks.
         app.ui.tool = Tool::Width;
         app
     });
@@ -86,7 +86,6 @@ fn event(h: &mut H, p: Pos2, pressed: Option<bool>) {
     h.step();
 }
 #[test]
-#[ignore = "requires package 00/01 Width router integration and real RTX 5090; speed rules prohibit execution"]
 fn width_gpu_full_app_live_preview_release_cancel_and_undo_parity() {
     let _lock = super::gpu_lock();
     let mut h = harness();

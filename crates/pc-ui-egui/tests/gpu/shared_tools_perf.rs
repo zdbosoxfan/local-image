@@ -1,4 +1,4 @@
-//! Package 47: production shared Pen/shape routes on a large vector document.
+//! Production shared Pen/shape routes on a large vector document.
 //! Original synthetic scene; timing includes the app frame and RTX GPU readback.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};
@@ -38,7 +38,7 @@ fn frames(h: &mut H, moving: bool) -> Vec<f64> {
         .collect()
 }
 #[test]
-#[ignore = "package 47 release real-app shared Pen/shape timing and cache measurement"]
+#[ignore = "release-build Pen/shape timing and cache benchmark on a real GPU; run with --release --ignored"]
 fn shared_pen_shape_large_document_release_pointer_frames_rtx5090() {
     let _gate = crate::gpu_lock();
     if cfg!(debug_assertions) {

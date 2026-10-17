@@ -20,7 +20,7 @@ const OUTSIDE: RegionId = u32::MAX;
 /// Unique lattice edges, counted before graph allocation. No per-region overdraw.
 pub const EDGE_BUDGET: usize = 8_000_000;
 
-/// Additive parameter type for package 00/28 routing. Old settings default to T1.
+/// Additive parameter type for routing. Old settings default to T1.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Layering {
@@ -90,8 +90,8 @@ pub fn trace_with_cancel(image: Image<'_>, params: &Params, cancel: impl Fn() ->
     evaluate(&seg, params, EDGE_BUDGET, &cancel)
 }
 
-/// Package 00 may route its common T1 segmentation directly here after palette
-/// assignment, before `stack_colors`; no second frontend is required then.
+/// The common T1 segmentation can route directly here after palette
+/// assignment, before `stack_colors`; no second frontend is required.
 pub(crate) fn evaluate(seg: &Segmentation, params: &Params, edge_budget: usize, cancel: &dyn Fn() -> bool) -> Result<Trace, Error> {
     if cancel() {
         return Err(Error::Cancelled);

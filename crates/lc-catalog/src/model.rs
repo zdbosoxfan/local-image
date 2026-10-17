@@ -252,6 +252,12 @@ pub struct Photo {
     /// In "Recently Deleted".
     #[serde(default)]
     pub deleted: bool,
+    /// When it went to Recently Deleted (ISO 8601 local time), for purging old deletions. `None`
+    /// while not deleted, or when the deletion predates this field (unknown: a purge first gives
+    /// it the time it sees it, so it is never purged at once). Left out when `None`, so catalogs
+    /// without it read and write unchanged, and a build that doesn't know it just ignores it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<String>,
     /// Seen while browsing a folder on disk (Local), not added to the library: only folder views
     /// show it until it is added.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -337,6 +343,7 @@ impl Photo {
             versions: Vec::new(),
             history: Vec::new(),
             deleted: false,
+            deleted_at: None,
             local: false,
             duration: None,
             as_shot_wb: None,

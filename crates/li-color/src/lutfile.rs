@@ -289,8 +289,8 @@ fn xml_section<'a>(text: &'a str, name: &str) -> Result<Option<&'a str>, LutErro
 }
 
 fn parse_look_inner(text: &str) -> Result<LutFile, LutError> {
-    // Baked table tags belong to <LUT>, not arbitrary shader metadata. Keep the
-    // previously accepted direct <look><size>... dialect when no LUT block exists.
+    // Baked table tags belong to <LUT>, not arbitrary shader metadata. Keep accepting the
+    // direct <look><size>... dialect when no LUT block exists.
     let table = xml_section(text, "LUT")?.or(xml_section(text, "look")?).unwrap_or(text);
     let mut mask_rest = text;
     while let Some(at) = mask_rest.find("<mask") {

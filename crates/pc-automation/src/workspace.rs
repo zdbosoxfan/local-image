@@ -368,12 +368,84 @@ pub fn authorize_engine_command(id: &str, params: &Value) -> Result<(), Automati
 /// paths. Commands which implicitly resolve those settings are denied even
 /// when their request parameters contain no path. Fresh headless sessions
 /// cannot acquire such settings through the automation interface.
+///
+/// The desktop session also holds the user's cloud AI provider keys, so stored credentials are
+/// out of reach and surfaces that can start paid cloud generation stay closed
+/// ([`authorize_cloud_command`] without `allow_cloud_ai`).
 pub fn authorize_desktop_engine_command(id: &str, params: &Value) -> Result<(), AutomationError> {
     authorize_engine_command(id, params)?;
     if id.starts_with("image.mode.") {
         return Err(command_error(id));
     }
+    authorize_cloud_command(id, params, false)
+}
+
+/// Commands that open a surface whose Generate button can send the prompt and images to a paid
+/// cloud provider with the API key saved in the app (the Generate panel, File › New from
+/// Prompt). The engine's own `ai.*` commands run on local models and are not listed.
+pub const CLOUD_GENERATION_COMMANDS: &[&str] = &["li.newFromPrompt", "li.panel.generate"];
+
+/// Commands that open the Local AI settings, where provider API keys and credentials are entered.
+pub const CREDENTIAL_SETTINGS_COMMANDS: &[&str] = &["li.localAi"];
+
+/// Deny automation access to stored credentials (always) and to the paid cloud generation
+/// surfaces (unless `allow_cloud_ai`).
+pub fn authorize_cloud_command(id: &str, params: &Value, allow_cloud_ai: bool) -> Result<(), AutomationError> {
+    if CREDENTIAL_SETTINGS_COMMANDS.contains(&id) || touches_secret_preference(id, params) {
+        return Err(credential_error(id));
+    }
+    if !allow_cloud_ai && CLOUD_GENERATION_COMMANDS.contains(&id) {
+        return Err(cloud_ai_error(id));
+    }
     Ok(())
+}
+
+/// A preference name that holds a credential (`openai_api_key`, `server.token`, …), with the
+/// engine's normalisation: ASCII letters and digits only, lowercase.
+pub fn secret_name(name: &str) -> bool {
+    let key: String = name.chars().filter(char::is_ascii_alphanumeric).flat_map(|c| c.to_lowercase()).collect();
+    ["apikey", "token", "password", "secret"].iter().any(|suffix| key.ends_with(suffix))
+}
+
+/// A dotted preference path with a credential segment.
+pub fn secret_path(path: &str) -> bool {
+    path.split('.').any(secret_name)
+}
+
+/// Whether any object key below `value` names a credential.
+pub fn mentions_secret(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => fields.iter().any(|(key, value)| secret_path(key) || mentions_secret(value)),
+        Value::Array(values) => values.iter().any(mentions_secret),
+        _ => false,
+    }
+}
+
+/// `prefs.get` / `prefs.set` / `prefs.reset` naming a credential, carrying one in a section
+/// value, or resetting a scope that holds them (everything, or the `ai` section).
+fn touches_secret_preference(id: &str, params: &Value) -> bool {
+    if !id.starts_with("prefs.") {
+        return false;
+    }
+    let path = params.get("path").and_then(Value::as_str);
+    if path.is_some_and(secret_path) || params.get("values").is_some_and(mentions_secret) || params.get("value").is_some_and(mentions_secret) {
+        return true;
+    }
+    id == "prefs.reset" && path.and_then(|p| p.split('.').find(|segment| !segment.is_empty())).is_none_or(|section| section == "ai")
+}
+
+fn credential_error(id: &str) -> AutomationError {
+    AutomationError::BadRequest(format!(
+        "automation command `{id}` reaches stored API keys, tokens or passwords and is disabled; enter credentials in the app yourself"
+    ))
+}
+
+fn cloud_ai_error(id: &str) -> AutomationError {
+    AutomationError::BadRequest(format!(
+        "automation command `{id}` can start paid cloud AI generation with the API keys saved in the app and is disabled; \
+         start `local-image-cli mcp --bridge` with --allow-cloud-ai to permit it (an app started with automation roots \
+         keeps it closed to automation)"
+    ))
 }
 
 /// [`authorize_engine_command`] as the function pointer [`photocraft_engine::Session::authorize`]
@@ -875,5 +947,37 @@ mod tests {
         }
         headless.command_run("file.new", serde_json::json!({"width": 5, "height": 5})).unwrap();
         assert!(headless.session.file_menu.event_log.is_empty());
+    }
+
+    #[test]
+    fn desktop_automation_never_reaches_credentials_or_cloud_generation() {
+        use serde_json::json;
+        for (id, params) in [
+            ("prefs.get", json!({"path": "ai.openai_api_key"})),
+            ("prefs.set", json!({"path": "ai.stability_api_key", "value": "sk-test"})),
+            ("prefs.set", json!({"path": "ai", "value": {"google_api_key": "k"}})),
+            ("prefs.set", json!({"values": {"ai.server.authToken": "t"}})),
+            ("prefs.reset", json!({"path": "ai"})),
+            ("prefs.reset", json!({})),
+            ("li.localAi", json!({})),
+            ("li.panel.generate", json!({})),
+            ("li.newFromPrompt", json!({})),
+        ] {
+            let error = authorize_desktop_engine_command(id, &params).unwrap_err().to_string();
+            assert!(error.contains(id), "{id}: {error}");
+        }
+        assert!(authorize_cloud_command("li.panel.generate", &json!({}), false).unwrap_err().to_string().contains("--allow-cloud-ai"));
+        assert!(authorize_cloud_command("li.panel.generate", &json!({}), true).is_ok());
+        assert!(authorize_cloud_command("prefs.get", &json!({"path": "ai.bfl_api_key"}), true).is_err(), "credentials have no opt-in");
+        for (id, params) in [
+            ("prefs.get", json!({"path": "interface.language"})),
+            ("prefs.get", json!({"path": "ai"})),
+            ("prefs.set", json!({"path": "interface.language", "value": "fr"})),
+            ("prefs.reset", json!({"path": "interface"})),
+            ("ai.generativeFill", json!({"prompt": "a red balloon"})),
+            ("layer.new.layer", json!({"name": "token"})),
+        ] {
+            assert!(authorize_desktop_engine_command(id, &params).is_ok(), "{id} {params}");
+        }
     }
 }

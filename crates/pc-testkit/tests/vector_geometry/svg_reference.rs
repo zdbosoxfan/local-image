@@ -131,11 +131,11 @@ fn geometry31_svg_normalizer_preserves_transforms_holes_and_cubic_handles() -> T
 }
 
 #[test]
-#[ignore = "coordinator-only normalization after external Inkscape generation, no CLI invocation"]
+#[ignore = "normalizes externally generated Inkscape references; run after regenerating them"]
 fn geometry31_prepare_inkscape_sidecars() -> TestResult {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pc-pathops/tests/tricky");
     let manifest: Value = serde_json::from_str(&std::fs::read_to_string(root.join("manifest.json"))?)?;
-    // The coordinator records the actual --version result and every executed action recipe.
+    // The generation record holds the actual --version result and every executed action recipe.
     // Without that external provenance record, never stamp invented Inkscape metadata.
     let record: Value = serde_json::from_str(&std::fs::read_to_string(root.join("goldens/generation.json"))?)?;
     assert_eq!(record["tool"], "Inkscape 1.4.4");

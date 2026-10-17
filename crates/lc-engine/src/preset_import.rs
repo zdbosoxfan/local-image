@@ -26,7 +26,7 @@ pub struct Imported {
 /// Extensions of files read as presets (beyond our own `.lcpreset`).
 pub const PRESET_EXTS: &[&str] = &["xmp", "lrtemplate", "zip", "dng", "lmp", "mplumpack"];
 
-// ------------------------------------------------------------------------------------- zip
+// zip
 
 /// The files of a zip archive: (path inside the archive, bytes). Stored and deflated entries;
 /// directories, macOS resource forks and hidden files are skipped.
@@ -69,7 +69,7 @@ pub fn read_zip(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
     Ok(out)
 }
 
-// ------------------------------------------------------------------------------- Lua tables
+// Lua tables
 
 /// A value of a Lua table literal (what `.lrtemplate` files contain).
 #[derive(Clone, Debug, PartialEq)]
@@ -377,7 +377,7 @@ pub fn lrtemplate_props(text: &str) -> Result<(Option<String>, Props, crate::crs
     Ok((title, props, values))
 }
 
-// ------------------------------------------------------------------------------- XMP in files
+// XMP in files
 
 /// The XMP packet embedded in a file of any container (DNG, JPEG, TIFF…): the text from
 /// `<x:xmpmeta` to `</x:xmpmeta>`.
@@ -387,7 +387,7 @@ pub fn embedded_xmp(bytes: &[u8]) -> Option<String> {
     Some(String::from_utf8_lossy(&bytes[start..end]).to_string())
 }
 
-// ----------------------------------------------------------------------------------- files
+// files
 
 /// A preset group named after the innermost folder of `dir` (a path inside the imported folder or
 /// bundle) that isn't a container named for an app or a format (`Lightroom Classic`, `XMP`,

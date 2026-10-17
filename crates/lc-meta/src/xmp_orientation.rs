@@ -48,7 +48,7 @@ fn edits(packet: &str) -> Option<Vec<(usize, usize)>> {
                     if !names.insert(key.clone()) {
                         return None;
                     }
-                    let value = attr.unescape_value().ok()?.into_owned();
+                    let value = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok()?.into_owned();
                     if key == "xmlns" {
                         scope.push((String::new(), value.clone()));
                     } else if let Some(prefix) = key.strip_prefix("xmlns:") {

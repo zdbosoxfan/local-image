@@ -1,4 +1,4 @@
-//! Requires 00's real VectorData field; no test persistence substitute passes this gate.
+//! Requires the real VectorData field; no test persistence substitute passes this gate.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 #[test]

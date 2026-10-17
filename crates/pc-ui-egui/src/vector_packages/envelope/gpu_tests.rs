@@ -1,6 +1,6 @@
-//! Real offscreen full-app renderer gate with a package-owned display/input host.
+//! Real offscreen full-app renderer gate with its own display/input host.
 //! This exercises the app canvas with detached projection. Production router wiring is
-//! separately owned by 00; this test does not claim the menu/router is integrated.
+//! separate from this gate; this test does not claim the menu/router is integrated.
 use super::*;
 use crate::{PhotocraftApp, state::Tool};
 use eframe::{egui_wgpu, wgpu};
@@ -104,7 +104,6 @@ fn parity(h: &mut Harness<'_, PhotocraftApp>) {
 }
 
 #[test]
-#[ignore = "integration milestone: full app on real RTX 5090 Vulkan"]
 fn envelope_gpu_app_mesh_drag_warp_text_cancel_release_cpu_parity() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut h = harness();

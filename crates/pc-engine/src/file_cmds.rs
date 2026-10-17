@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 use crate::commands::{CommandSpec, layer_param};
 use crate::{EngineError, Result, Session};
 
-// ---------- predicates ----------
+// Predicates
 
 fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
@@ -64,7 +64,7 @@ fn has_shape(s: &Session) -> std::result::Result<(), String> {
     }
 }
 
-// ---------- file system (native only) ----------
+// File system (native only)
 
 #[cfg(not(target_arch = "wasm32"))]
 fn is_file(path: &str) -> bool {
@@ -239,7 +239,7 @@ fn size_param(p: &Value, key: &str) -> Option<f64> {
     f64_param(p, key).filter(|v| *v > 0.0)
 }
 
-// ---------- pixels ----------
+// Pixels
 
 /// A composite buffer as a surface in `fmt` (straight RGBA → the format's model and depth).
 pub(crate) fn buffer_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat) -> Surface {
@@ -261,7 +261,7 @@ pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Result<Surface> {
     Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, None))
 }
 
-// ---------- close / revert / save a copy / open as ----------
+// Close / revert / save a copy / open as
 
 /// Dispositions use stable document IDs, so closing earlier tabs cannot retarget them.
 pub(crate) fn close_document(s: &mut Session, index: usize, params: &Value) -> Option<crate::DocState> {
@@ -364,7 +364,7 @@ fn open_as(s: &mut Session, p: &Value) -> Result<Value> {
     open_bytes_as(s, &path, &bytes, as_ext, Some(path.clone()))
 }
 
-// ---------- place ----------
+// Place
 
 /// History label of an embedded place.
 pub const PLACE_EMBEDDED: &str = "Place Embedded";
@@ -527,7 +527,7 @@ fn place(s: &mut Session, p: &Value, linked: bool) -> Result<Value> {
     place_source(s, &path, crate::jobs::OpenSource::Path(path.clone()), linked.then(|| path.clone()), p)
 }
 
-// ---------- File Info (XMP) ----------
+// File Info (XMP)
 
 // All XMP parsing and editing lives in the shared backend.
 use lightcraft_meta::read_file_info;
@@ -547,7 +547,7 @@ fn file_info(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(read_file_info(d.doc.metadata.xmp.as_deref()))
 }
 
-// ---------- Automate ----------
+// Automate
 
 fn fit_image(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -766,7 +766,7 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"document": i, "layers": n}))
 }
 
-// ---------- Scripts: flatten effects / masks ----------
+// Scripts: flatten effects / masks
 
 fn has_live_effects(l: &Layer) -> bool {
     l.effects.enabled && l.effects.items.iter().any(|e| e.enabled())
@@ -855,7 +855,7 @@ fn flatten_all_masks(s: &mut Session) -> Result<Value> {
     Ok(json!({"flattened": n, "skipped": skipped}))
 }
 
-// ---------- Export ----------
+// Export
 
 fn layers_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layersToFiles";
@@ -942,7 +942,7 @@ fn color_lookup_tables(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-// ---------- guides ----------
+// Guides
 
 fn push_unique(v: &mut Vec<f32>, x: f64) {
     let x = x as f32;
@@ -1062,7 +1062,7 @@ fn clear_canvas_guides(s: &mut Session) -> Result<Value> {
     Ok(json!({"cleared": n}))
 }
 
-// ---------- registry ----------
+// Registry
 
 pub fn specs() -> Vec<CommandSpec> {
     macro_rules! spec {

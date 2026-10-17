@@ -571,7 +571,7 @@ fn incremental_updates_follow_the_document() {
     check(&mut g, &d, "opacity");
 }
 
-// ---- layer effects --------------------------------------------------------------------------
+// Layer effects
 
 use photocraft_doc::adjust::CurvePoint as Cp;
 use photocraft_doc::{
@@ -1565,7 +1565,7 @@ fn unbuildable_pipelines_are_an_error_not_a_panic() {
     }
 }
 
-// ---- documents larger than the texture limit ------------------------------------------------
+// Documents larger than the texture limit
 
 /// A document several pages wide under [`PAGED_LIMIT`]: pixel layers crossing page borders (one
 /// masked, one off-canvas), a big effect layer whose region exceeds the limit (maps built per
@@ -2145,10 +2145,9 @@ fn former_fallbacks_combined_damage_and_pages() {
     }
 }
 
-// TEST-CHANGED (was `blur_lut_spans_multiple_rows`): PhotoCraft f82a55f0 clamps box widths to
-// MAX_REACH, so no blur kernel spans more than one 4096-wide LUT row any more (the multi-row
-// effect-map LUT upload was removed; `fx::tests::every_effect_map_lut_fits_one_row`). A size far
-// past the clamp still matches the CPU, through the clamped kernel and the clipped apron.
+// Box widths are clamped to MAX_REACH, so no blur kernel spans more than one 4096-wide LUT row
+// (`fx::tests::every_effect_map_lut_fits_one_row`). A size far past the clamp still matches
+// the CPU, through the clamped kernel and the clipped apron.
 #[test]
 fn oversized_blur_is_clamped_like_the_cpu() {
     let Some(mut g) = gpu() else { return };

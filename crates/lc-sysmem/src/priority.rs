@@ -1,4 +1,4 @@
-//! Thread priority classes (threading rule 7): batch and indexing work runs at a lower OS priority,
+//! Thread priority classes: batch and indexing work runs at a lower OS priority,
 //! so the UI thread wins contested time slices instead of a core being left idle. On Apple silicon
 //! QoS lets the scheduler choose performance/efficiency cores (there is no affinity API).
 //!

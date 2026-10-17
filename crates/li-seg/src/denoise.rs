@@ -129,12 +129,6 @@ impl Denoiser {
     pub fn denoise(&self, rgb: &[[f32; 3]], w: usize, h: usize, progress: &(dyn Fn(usize, usize) -> bool + Sync)) -> Result<Vec<[f32; 3]>> {
         self.denoise_channels(rgb.as_flattened(), w, h, progress)
     }
-
-    /// [`Self::denoise`] on the shared dense frame.
-    pub fn denoise_frame(&self, rgb: &li_raster::Frame<[f32; 3]>, progress: &(dyn Fn(usize, usize) -> bool + Sync)) -> Result<li_raster::Frame<[f32; 3]>> {
-        let out = self.denoise(&rgb.data, rgb.width, rgb.height, progress)?;
-        li_raster::Frame::from_vec(rgb.width, rgb.height, out).context("the denoiser returned an unexpected size")
-    }
 }
 
 /// Mirror index: `i` reflected into `0..n` (any distance outside, `n ≥ 1`).
@@ -330,7 +324,7 @@ pub fn match_variant_gain(out: &mut [[f32; 3]], input: &[f32], kind: Variant, wi
     }
 }
 
-// ------------------------------------------------------------------------------ install
+// install
 
 /// Read entry `name` from a zip archive (stored or deflated), at most `limit` bytes.
 pub fn zip_entry(zip: &[u8], name: &str, limit: usize) -> Result<Vec<u8>> {

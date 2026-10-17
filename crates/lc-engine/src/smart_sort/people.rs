@@ -17,7 +17,7 @@ use std::sync::{
 };
 
 pub const FACE_MODEL: &str = "yunet-sface";
-/// Conservative folder cutoff above the .45 review threshold; coordinator can tune this.
+/// Conservative folder cutoff above the .45 review threshold.
 pub const SURE_COSINE: f32 = 0.60;
 
 pub trait FaceTagger: Send + Sync {
@@ -741,7 +741,7 @@ pub fn analyze(s: &mut Session, ids: &[PhotoId], cancel: &AtomicBool, progress: 
             todo.push(*id);
         }
     }
-    // Face indexing: the shared low-priority background pool (threading rules 2 and 7).
+    // Face indexing: the shared low-priority background pool.
     for batch in todo.chunks(32) {
         if !lightcraft_sysmem::power::wait_background(&|| cancel.load(Ordering::Relaxed)) {
             break;

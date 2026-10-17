@@ -188,10 +188,13 @@ pub(crate) fn toneeq_eigf(cx: &mut Cx<'_>, lin: &Buf, lum: &Buf, w: usize, h: us
 
 fn trace_enabled() -> bool {
     #[cfg(test)]
-    if trace::enabled() {
-        return true;
+    {
+        trace::enabled()
     }
-    std::env::var_os("LC_TONEEQ_TRACE").is_some()
+    #[cfg(not(test))]
+    {
+        false
+    }
 }
 
 #[cfg(test)]

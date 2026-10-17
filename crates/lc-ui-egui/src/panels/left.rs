@@ -116,7 +116,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
                 let _ = app.run("library.source", json!({"kind": "missing"}));
             }
             ui.add_space(10.0);
-            // Albums header
             let (ar, albums_open) = sidebar_section_header(app, ui, "albums", "Collections");
             let mut hdr = ui.new_child(
                 egui::UiBuilder::new()
@@ -148,7 +147,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             }
             ui.add_space(10.0);
             local_section(app, ui);
-            // By date
             let (_, dates_open) = sidebar_section_header(app, ui, "byDate", "By Date");
             let groups = if dates_open { app.caches.date_groups(&app.session.catalog) } else { Default::default() };
             for g in groups.iter() {

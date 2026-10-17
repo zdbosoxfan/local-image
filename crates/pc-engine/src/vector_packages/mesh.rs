@@ -1,7 +1,7 @@
 //! Gradient mesh captured transactions. Behaviour informed by VectorCraft
 //! engine/cmd/live.rs (object.mesh.*), pin d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors (MIT OR Apache-2.0).
-//! Native appearance schema and paint dispatch are supplied by packages 00/08.
+//! Native appearance schema and paint dispatch are supplied by the host.
 //! No mesh is stored in a process-global sidecar or committed as flattened geometry.
 use crate::{
     EngineError, Result, Session,
@@ -134,7 +134,7 @@ pub struct Hooks {
     pub render: fn(&Document, &ShapeEdit) -> Result<Surface>,
     pub cache_bytes: fn(&Document, &ShapeEdit) -> Result<u128>,
 }
-/// 09 installs its existing scaled projection entrypoint after serial registration.
+/// The scaled projection entrypoint plugs in here.
 /// This stores only a provider function, never document/mesh state.
 #[derive(Clone, Copy)]
 pub struct ViewHooks {
@@ -148,7 +148,7 @@ pub fn view_hooks() -> Option<ViewHooks> {
     VIEW_HOOKS.get().copied()
 }
 pub const NATIVE: Hooks = Hooks { read: read_native, write: write_native, render: render_native, cache_bytes: cache_bytes_native };
-/// JSON bridge keeps 43 compiled before the owner adds the additive mesh paint variant.
+/// JSON bridge to the additive mesh paint variant.
 /// It uses the real native Appearance model; absent schema is an error, never success.
 pub fn read_native(layer: &Layer) -> Result<Option<MeshData>> {
     let Some(a) = &layer.vector.appearance else {
@@ -372,7 +372,7 @@ fn info(s: &mut Session, v: &Value) -> Result<Value> {
     let g = Gesture::begin(s, &ids, None)?;
     Ok(json!(g.request()))
 }
-/// 00 adds this to the aggregate registration; public to keep the isolated compiled slot useful.
+/// Registered in the vector_packages aggregate; public so the module can be used on its own.
 pub fn specs() -> Vec<CommandSpec> {
     [
         ("object.mesh.create", "Create Gradient Mesh…", create as fn(&mut Session, &Value) -> Result<Value>, true),

@@ -1,5 +1,5 @@
-//! Full PhotocraftApp RTX 5090 gates. Require 00's command, route, display-doc and context hooks.
-//! Deliberately fail if integration is absent; never accept software or skipped adapters.
+//! Full PhotocraftApp RTX 5090 gates. Require the command, route, display-doc and context hooks.
+//! Deliberately fail if those hooks are absent; never accept software or skipped adapters.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{PhotocraftApp, canvas::ViewXform};
@@ -98,7 +98,6 @@ fn parity(a: &[[u8; 4]], b: &[[u8; 4]]) {
     assert!(max <= 1, "premultiplied max diff {max}/255");
 }
 #[test]
-#[ignore = "speed rules prohibit GPU runs; requires 00 runtime registry/canvas/display hooks"]
 fn distort41_gpu_full_app_every_tool_live_pixels_release_one_journal_undo_cancel() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _lock = GPU_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -139,7 +138,7 @@ fn distort41_gpu_full_app_every_tool_live_pixels_release_one_journal_undo_cancel
     }
 }
 #[test]
-#[ignore = "speed rules prohibit release builds/benchmarks; requires integrated 00 app routes"]
+#[ignore = "release-build pointer-frame timing benchmark on a real GPU; run with --release --ignored"]
 #[allow(clippy::assertions_on_constants)]
 fn distort41_gpu_release_app_pointer_frames_2000_nodes_at_least_60hz() {
     let _gpu_gate = crate::gpu_test_support::lock();

@@ -13,6 +13,7 @@ photocraft-vector.workspace = true
 photocraft-pathops.workspace = true
 photocraft-text.workspace = true
 photocraft-compose.workspace = true
+photocraft-export-common.workspace = true
 krilla.workspace = true
 kurbo.workspace = true
 serde.workspace = true

@@ -13,7 +13,7 @@ use photocraft_psd::path::{PathData, PsdKnot, PsdSubpath, VectorMaskBlock};
 
 use crate::blocks::{bool_of, enum_of, fill_from_desc, fill_to_desc, get_desc, num, parse_prefix_versioned};
 
-// Package 23 owns this registration point. Package 00 may also re-export it at the crate root.
+// The PSD fallback for advanced vector content lives in `vector_fallback.rs`.
 #[path = "vector_fallback.rs"]
 pub mod fallback;
 
@@ -186,9 +186,7 @@ pub fn vector_mask_block_matches(data: &[u8], m: &VectorMask, w: u32, h: u32) ->
     vector_mask_from_block(data, w, h).is_some_and(|b| b.path == m.path && b.enabled == m.enabled && b.linked == m.linked)
 }
 
-// ---------------------------------------------------------------------------
 // vscg (shape fill content)
-// ---------------------------------------------------------------------------
 
 /// `vscg`: content key (`SoCo`/`GdFl`/`PtFl`) + version-16 descriptor.
 pub fn fill_from_vscg(data: &[u8]) -> Option<Fill> {
@@ -204,9 +202,7 @@ pub fn vscg_bytes(f: &Fill) -> Vec<u8> {
     out
 }
 
-// ---------------------------------------------------------------------------
 // vstk (shape stroke)
-// ---------------------------------------------------------------------------
 
 /// Decoded `vstk`: the stroke (None when disabled) and whether the fill is enabled.
 #[derive(Clone, Debug, PartialEq)]
@@ -340,9 +336,7 @@ pub fn vstk_bytes(stroke: Option<&ShapeStroke>, fill_enabled: bool, dpi: f32) ->
     VersionedDescriptor::new(d).to_bytes()
 }
 
-// ---------------------------------------------------------------------------
 // vogk (live shape origination)
-// ---------------------------------------------------------------------------
 
 fn rect_of(d: &Descriptor) -> Option<[f64; 4]> {
     let b = get_desc(d, "keyOriginShapeBBox")?;
@@ -448,9 +442,7 @@ pub fn vogk_bytes(s: &LiveShape, dpi: f32) -> Option<Vec<u8>> {
     Some(out)
 }
 
-// ---------------------------------------------------------------------------
 // Shape layers
-// ---------------------------------------------------------------------------
 
 /// Fills the typed parts of a shape layer from its PSD blocks.
 pub fn shape_from_blocks(sh: &mut ShapeLayer, block: &dyn Fn(&[u8; 4]) -> Option<Vec<u8>>, w: u32, h: u32, dpi: f32) {

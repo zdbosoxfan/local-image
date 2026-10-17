@@ -46,8 +46,6 @@ fn q16(v: f32) -> u16 {
     (v.clamp(0.0, 1.0) * 65535.0 + 0.5) as u16
 }
 
-// ---------- serde ----------
-
 #[derive(Serialize)]
 struct GrayTileOut<'a> {
     width: u32,
@@ -147,8 +145,6 @@ pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
     }
     Some(out)
 }
-
-// ---------- sampling ----------
 
 /// A float mip pyramid of a [`GrayTile`] for sampling at any scale without aliasing.
 #[derive(Clone, Debug)]

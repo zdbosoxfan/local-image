@@ -137,7 +137,6 @@ pub fn apply_params(img: &mut Rgb32f, k: &NegParams) {
     });
 }
 
-// ------------------------------------------------------------------------------------------------
 // Auto pickers (negadoctor's colour-picker auto-tuners), on statistics of the stage's input.
 
 /// Statistics of the conversion's input (the white-balanced scan) over an area.
@@ -248,7 +247,6 @@ pub fn auto_print(n: &Negative, area: &AreaStats) -> Negative {
     out
 }
 
-// ------------------------------------------------------------------------------------------------
 // Sampling the stage's input from a source.
 
 /// Longest edge of the proxy the samplers measure.

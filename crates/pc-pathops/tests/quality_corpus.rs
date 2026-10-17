@@ -1,5 +1,5 @@
 //! Original CC0 synthetic geometry corpus; independently checked against native coverage.
-//! See SOURCES.md. External Inkscape goldens remain coordinator-owned (quality plan A.1).
+//! See SOURCES.md. External Inkscape goldens are generated offline.
 use photocraft_doc::{FillRule, Path, PathOp, Subpath};
 use photocraft_geom::{Affine, Rect};
 use photocraft_pathops as ops;

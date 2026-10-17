@@ -169,7 +169,7 @@ must therefore **always show a review step before export**.
 ### Model choice
 | Role | Model | Why |
 |---|---|---|
-| Tagging | **LAION OpenCLIP ViT-B-32 laion2B-s34B-b79K**, ONNX export by Immich | Retained after the 330-photo evaluation: 86.4% top-1, 48.8 ms/photo CPU throughput, 607 MB download; the only shipped tagging model. The candidate comparison is archived in [the evaluation report](../wip/CODEX-REPORT-tagging-eval.md). |
+| Tagging | **LAION OpenCLIP ViT-B-32 laion2B-s34B-b79K**, ONNX export by Immich | Retained after the 330-photo evaluation: 86.4% top-1, 48.8 ms/photo CPU throughput, 607 MB download; the only shipped tagging model. |
 | Face detection (Phase 3) | **YuNet 2023mar** (OpenCV Zoo) | MIT, 233 KB, 5 landmarks for alignment, works in tract at any size. |
 | Face embedding (Phase 3) | **SFace 2021dec** (OpenCV Zoo) | Apache-2.0, 39 MB, 128-d, LFW ≈ 99.4 % per OpenCV Zoo eval. |
 
@@ -495,7 +495,7 @@ Acceptance:
 CLIP is the only shipped tagging model, with its existing BPE tokenizer, three-crop
 preprocessing, 512-dimensional embeddings and softmax/background scoring. The
 330-photo open comparison and rejected candidate's results remain in
-[the tagging evaluation report](../wip/CODEX-REPORT-tagging-eval.md).
+`crates/lc-engine/tests/references/tagging-eval/`.
 
 The model-choice setting and UI have been removed. Older libraries' `taggingModel`
 fields are ignored by serde, so any former selection loads with CLIP while the

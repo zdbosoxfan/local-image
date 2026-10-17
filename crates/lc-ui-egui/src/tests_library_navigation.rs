@@ -1,4 +1,4 @@
-//! U026 actual event, persistence and no-op controls; coordinator executes these tests.
+//! Library navigation: actual events, persistence and no-op controls.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{

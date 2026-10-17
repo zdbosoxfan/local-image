@@ -1,9 +1,7 @@
 use lightcraft_engine::preset_import::{Lua, embedded_xmp, group_from_dir, lrtemplate_props, parse_lua, read_presets, read_zip};
 
-// ---------------------------------------------------------------------------
 // Minimal ZIP writer (stored entries only) for tests.
 // The CRC-32 is set to 0; `read_zip` does not check it.
-// ---------------------------------------------------------------------------
 fn write_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
     write_zip_with_method(entries, 0)
 }

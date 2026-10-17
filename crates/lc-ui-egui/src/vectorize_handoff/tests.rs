@@ -7,7 +7,7 @@ use lightcraft_catalog::{Op, Photo};
 use serde_json::json;
 
 /// The owned menu contribution is hosted on a photo response in Library's existing
-/// offscreen driver. Permanent grid/menu insertion remains package 00's hook.
+/// offscreen driver.
 struct Menu {
     app: LightcraftApp,
     view: HeadlessView,

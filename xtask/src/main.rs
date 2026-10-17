@@ -164,7 +164,7 @@ fn copy_distribution_attributions(stage: &Path) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ Linux
+// Linux
 
 fn package_linux(skip_build: bool) -> Result<()> {
     let v = version()?;
@@ -215,7 +215,7 @@ fn package_linux(skip_build: bool) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ Windows
+// Windows
 
 /// `(PE machine, subsystem)` of an executable.
 fn pe_header(path: &Path) -> Result<(u16, u16)> {
@@ -340,7 +340,7 @@ fn package_windows(arch: &str, skip_build: bool) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ check-icons
+// check-icons
 
 /// ICE50: advertised shortcut icon ids must exist and carry the target file's extension
 /// (Windows Installer caches the icon under that id; a wrong extension shows a generic icon).
@@ -349,7 +349,11 @@ fn check_icons(wxs: &Path) -> Result<()> {
     let xml = std::fs::read_to_string(wxs).with_context(|| wxs.display().to_string())?;
     let mut reader = quick_xml::Reader::from_str(&xml);
     let attr = |e: &quick_xml::events::BytesStart, k: &str| -> Option<String> {
-        e.attributes().flatten().find(|a| a.key.as_ref() == k.as_bytes()).and_then(|a| a.unescape_value().ok()).map(|v| v.into_owned())
+        e.attributes()
+            .flatten()
+            .find(|a| a.key.as_ref() == k.as_bytes())
+            .and_then(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok())
+            .map(|v| v.into_owned())
     };
     let (mut icons, mut shortcuts, mut arp) = (Vec::new(), Vec::new(), None);
     let mut file_stack: Vec<Option<String>> = Vec::new();
@@ -394,7 +398,7 @@ fn check_icons(wxs: &Path) -> Result<()> {
     Ok(())
 }
 
-// ------------------------------------------------------------------------------ sign
+// sign
 
 fn warn(msg: &str) {
     if std::env::var_os("GITHUB_ACTIONS").is_some() {
@@ -455,8 +459,7 @@ fn sign(files: &[PathBuf]) -> Result<()> {
             // AZURE_CLIENT_SECRET from the environment).
             let mut body = Vec::new();
             xtask_agent().get("https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client").call()?.body_mut().as_reader().read_to_end(&mut body)?;
-            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(body))?;
-            zip.extract(tmp.join("client"))?;
+            extract_plain_files(&mut zip::ZipArchive::new(std::io::Cursor::new(body))?, &tmp.join("client"))?;
             let dlib = find_file(&tmp.join("client"), "Azure.CodeSigning.Dlib.dll", "x64")
                 .context("Azure.CodeSigning.Dlib.dll not found in Microsoft.Trusted.Signing.Client")?;
             let metadata = tmp.join("metadata.json");
@@ -482,6 +485,24 @@ fn sign(files: &[PathBuf]) -> Result<()> {
 
 use std::io::Read as _;
 
+/// Writes the archive's regular files under `dest`. Unlike `ZipArchive::extract`, entries whose
+/// names escape `dest`, symlinks and Unix permission bits are never applied.
+fn extract_plain_files<R: std::io::Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, dest: &Path) -> Result<()> {
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let Some(rel) = entry.enclosed_name() else { continue };
+        if entry.is_dir() || entry.is_symlink() {
+            continue;
+        }
+        let out = dest.join(rel);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::io::copy(&mut entry, &mut std::fs::File::create(&out)?)?;
+    }
+    Ok(())
+}
+
 fn find_file(dir: &Path, name: &str, under: &str) -> Option<PathBuf> {
     for e in std::fs::read_dir(dir).ok()?.flatten() {
         let p = e.path();
@@ -496,7 +517,7 @@ fn find_file(dir: &Path, name: &str, under: &str) -> Option<PathBuf> {
     None
 }
 
-// ------------------------------------------------------------------------------ main
+// main
 
 const USAGE: &str = "usage: cargo xtask <task>
   test-fast
@@ -539,7 +560,7 @@ fn main() -> Result<()> {
     }
 }
 
-// ------------------------------------------------------------------ deps-pure
+// deps-pure
 
 /// Crates that compile C/C++/assembly (or drive a C toolchain). The app is all Rust.
 const IMPURE: &[&str] = &["ring", "openssl-sys", "openssl-src", "aws-lc-sys", "aws-lc-rs", "cmake", "bindgen", "cc"];
@@ -628,7 +649,7 @@ mod deps_pure_tests {
     }
 }
 
-// ------------------------------------------------------------------ upstream-check
+// upstream-check
 
 /// A row of docs/PORTS.md: one ported algorithm.
 #[derive(Debug, PartialEq)]

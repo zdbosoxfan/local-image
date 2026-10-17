@@ -264,7 +264,7 @@ impl Default for Watermark {
     }
 }
 
-/// Inter SemiBold (OFL, see assets/ATTRIBUTION.md).
+/// Inter SemiBold (OFL, see assets/ATTRIBUTION-lightcraft.md).
 static WATERMARK_FONT: &[u8] = include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf");
 
 /// The watermark faces: Inter first, then the craft-fonts CJK faces (Mincho first, the watermark's
@@ -1326,7 +1326,7 @@ fn pixels((w, h): (usize, usize)) -> u64 {
     if w == 0 || h == 0 { UNKNOWN_PIXELS } else { w as u64 * h as u64 }
 }
 
-/// Working memory of one rendered export (threading rule 6), from its pixel counts: the decoded
+/// Working memory of one rendered export, from its pixel counts: the decoded
 /// source in f32 RGB (12 B/px) plus about two working copies in the develop pipeline (36 B/px of
 /// the source), and at the output size the RGBA8 result, the encoder's copy and the encoded file
 /// (about 12 B/px) plus the high-bit-depth samples when the format keeps them.
@@ -1662,7 +1662,7 @@ pub fn run_batch(
 
 /// The background export uses this control for cancellation within a restoration tile/job.
 ///
-/// The batch runs as an ordered pipeline (threading rules 3, 5, 6, 10): a feeder admits photos in
+/// The batch runs as an ordered pipeline: a feeder admits photos in
 /// order, each with a heavy-job permit sized from its pixels ([`lightcraft_sysmem::heavy_jobs`]),
 /// render threads develop them (the GPU one at a time), encode threads encode them, and this
 /// thread names, checks and writes them strictly in input order (`progress`, conflict handling,
@@ -1904,7 +1904,7 @@ pub mod pipeline {
     use super::{Exported, PreparedExport};
 
     /// Batch renders that would use the GPU take this one at a time: concurrent full-size GPU
-    /// renders could exhaust video memory. Device errors now use bounded recovery; local
+    /// renders could exhaust video memory. Device errors use bounded recovery; local
     /// ComfyUI pressure temporarily selects CPU rendering. Their decoding runs in parallel outside it. Interactive renders (loupe, grid)
     /// never take it.
     pub static GPU_GATE: Mutex<()> = Mutex::new(());
@@ -2165,7 +2165,7 @@ mod tests {
         assert_eq!(paths, ["/exports/pair.nef", "/exports/pair.xmp", "/exports/pair-2.jpg", "/exports/pair-2.xmp"]);
     }
 
-    // ---- the ordered batch pipeline (threading rules 6, 9, 10, 11)
+    // the ordered batch pipeline
 
     fn wide_open() -> lightcraft_sysmem::HeavyJobs {
         lightcraft_sysmem::HeavyJobs::new(4, 64 << 30, || lightcraft_sysmem::MemoryNow { available: 64 << 30, rss: None })

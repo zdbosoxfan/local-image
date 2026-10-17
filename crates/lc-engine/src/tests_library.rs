@@ -366,6 +366,29 @@ fn scale_100k_library_queries() {
     m("albums.list", &mut || {
         let _ = s.execute("albums.list", &serde_json::json!({})).unwrap();
     });
+    let manual = lightcraft_catalog::AlbumId(s.execute("album.create", &serde_json::json!({"name": "Half"})).unwrap()["id"].as_u64().unwrap());
+    let members: Vec<PhotoId> = (1..=n).rev().step_by(2).map(PhotoId).collect();
+    s.commit("Add to Album", Op::SetAlbumPhotos { id: manual, photos: members }).unwrap();
+    m("album 50k (manual order)", &mut || {
+        s.source = crate::LibrarySource::Album(manual);
+        let _ = s.visible_cloned();
+    });
+    m("albums_of × 10k", &mut || {
+        for i in 1..=10_000 {
+            let _ = s.catalog.albums_of(PhotoId(i));
+        }
+    });
+    s.source = crate::LibrarySource::All;
+    m("sort file name", &mut || {
+        s.sort.key = lightcraft_catalog::SortKey::FileName;
+        let _ = s.visible_cloned();
+    });
+    s.sort = Default::default();
+    m("search text (2 tokens)", &mut || {
+        s.execute("library.filter", &serde_json::json!({"text": "Italy MODEL"})).unwrap();
+        let _ = s.visible_cloned();
+    });
+    s.execute("library.filter", &serde_json::json!({"text": ""})).unwrap();
     m("select all", &mut || {
         s.execute("library.selectAll", &serde_json::json!({})).unwrap();
     });
@@ -377,6 +400,87 @@ fn scale_100k_library_queries() {
     });
     worst.sort_by(|a, b| b.1.total_cmp(&a.1));
     eprintln!("slowest: {:?}", &worst[..3]);
+}
+
+fn open_at(dir: &std::path::Path, now: &'static str) -> Session {
+    let mut s = Session::new();
+    s.clock = Box::new(move || now.to_string());
+    s.open_library(dir, false).unwrap();
+    s
+}
+
+/// Recently Deleted retention: with `purgeDeletedDays` set, opening the library removes photos
+/// deleted that many days ago from the catalog (their files stay on disk) as one undo step.
+/// Deletions without a recorded time (made by earlier builds) start counting at the first open
+/// that sees them, so they are never purged then.
+#[test]
+fn recently_deleted_is_purged_after_the_retention_period() {
+    use lightcraft_catalog::{AlbumId, Op, Photo, PhotoId, Source};
+    let dir = temp_dir("purge-deleted");
+    let originals = temp_dir("purge-deleted-originals");
+    std::fs::create_dir_all(&originals).unwrap();
+    let file = originals.join("a.jpg");
+    std::fs::write(&file, b"original bytes").unwrap();
+
+    let mut s = open_at(&dir, "2026-01-01T10:00:00");
+    let source = |i: u64| if i == 1 { Source::File { path: file.to_string_lossy().to_string() } } else { Source::Demo { scene: i as u32 } };
+    let ops = (1..=5).map(|i| Op::AddPhoto { photo: Box::new(Photo::new(PhotoId(i), source(i), "a.jpg", "JPEG", 4, 3, "2026-01-01T00:00:00")) });
+    s.commit("Add", Op::Batch { ops: ops.collect() }).unwrap();
+    let (a, b, c, d, e) = (PhotoId(1), PhotoId(2), PhotoId(3), PhotoId(4), PhotoId(5));
+    s.selection = crate::Selection::single(e);
+    let album = AlbumId(s.execute("album.create", &json!({"name": "Keep"})).unwrap()["id"].as_u64().unwrap());
+    s.execute("album.addPhotos", &json!({"id": album.0, "ids": [a.0, e.0]})).unwrap();
+    s.execute("photo.delete", &json!({"ids": [a.0, b.0]})).unwrap();
+    assert_eq!(s.catalog.photo(a).unwrap().deleted_at.as_deref(), Some("2026-01-01T10:00:00"));
+    s.clock = Box::new(|| "2026-01-20T10:00:00".to_string());
+    s.execute("photo.delete", &json!({"ids": [c.0]})).unwrap();
+    // deleting again keeps the time it went to Recently Deleted
+    s.execute("photo.delete", &json!({"ids": [a.0]})).unwrap();
+    assert_eq!(s.catalog.photo(a).unwrap().deleted_at.as_deref(), Some("2026-01-01T10:00:00"));
+    // as a build before deletion times wrote it
+    s.commit("Delete", Op::SetDeleted { id: d, deleted: true, deleted_at: None }).unwrap();
+    s.persist().unwrap();
+    // off by default: opening much later removes nothing and records nothing
+    drop(s);
+    let s = open_at(&dir, "2026-06-01T10:00:00");
+    assert_eq!(s.purge_deleted_days, 0);
+    assert!(s.undo.is_empty() && s.catalog.len() == 5);
+    assert!(s.catalog.photo(d).unwrap().deleted_at.is_none());
+    drop(s);
+
+    let mut s = open_at(&dir, "2026-01-25T10:00:00");
+    let r = s.execute("library.preferences", &json!({"purgeDeletedDays": 30})).unwrap();
+    assert_eq!(r["purgeDeletedDays"], 30);
+    assert_eq!(s.purge_deleted(None).unwrap(), vec![], "nothing is 30 days old yet");
+    assert_eq!(s.catalog.photo(d).unwrap().deleted_at.as_deref(), Some("2026-01-25T10:00:00"), "unknown: counted from now");
+    assert!(s.undo.is_empty(), "giving a time is not an undo step");
+    drop(s);
+
+    let mut s = open_at(&dir, "2026-02-05T10:00:00");
+    assert_eq!(s.purge_deleted_days, 30, "the preference is saved with the library");
+    assert!(s.catalog.photo(a).is_none() && s.catalog.photo(b).is_none(), "35 days in Recently Deleted");
+    assert!(s.catalog.photo(c).is_some() && s.catalog.photo(d).is_some() && s.catalog.photo(e).is_some());
+    assert_eq!(s.catalog.album(album).unwrap().photos, vec![e]);
+    assert!(file.exists() && std::fs::read(&file).unwrap() == b"original bytes", "originals are never touched");
+    assert_eq!(s.undo_entry().map(|u| u.label.as_str()), Some("Empty Recently Deleted"));
+    s.execute("edit.undo", &json!({})).unwrap();
+    let back = s.catalog.photo(a).unwrap();
+    assert!(back.deleted && back.deleted_at.as_deref() == Some("2026-01-01T10:00:00"));
+    assert_eq!(s.catalog.album(album).unwrap().photos, vec![a, e], "album membership comes back");
+    assert!(s.catalog.album_has(album, a));
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert!(s.catalog.photo(a).is_none() && !s.catalog.album_has(album, a));
+    s.execute("edit.undo", &json!({})).unwrap();
+    // 0 = never, whatever the photos' age
+    assert!(s.purge_deleted(Some(0)).unwrap().is_empty());
+    drop(s);
+
+    // the undo was saved: the next open purges them again, and only them
+    let s = open_at(&dir, "2026-02-05T10:00:00");
+    assert!(s.catalog.photo(a).is_none() && s.catalog.photo(b).is_none() && s.catalog.photo(c).is_some());
+    assert!(file.exists());
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&originals);
 }
 
 /// Issue #99: a library is open in one session at a time. A second opener is refused (nothing

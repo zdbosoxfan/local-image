@@ -1,4 +1,4 @@
-//! Original line-art fixtures plus coordinator-provided, licensed scans.
+//! Original line-art fixtures plus externally supplied, licensed scans.
 //! Missing external inputs are recorded as missing gates, never successful cases.
 use pc_trace::{
     Image, Params, Preset,
@@ -19,7 +19,7 @@ fn render(out: &CenterlineTrace) -> Result<image::RgbImage> {
         photocraft_doc::Color::WHITE,
     );
     for stroke in &out.strokes {
-        // Actual variable-width renderer belongs to package 11. Refuse rather
+        // The actual variable-width renderer is separate. Refuse rather
         // than measure a uniform-width approximation as the traced result.
         if stroke.profile.is_some() {
             return Err("benchmark requires package 11 width projection".into());

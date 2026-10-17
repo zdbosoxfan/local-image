@@ -91,9 +91,7 @@ fn bounded_manifest(manifest: &Manifest, limit: usize) -> Result<Vec<u8>> {
     Ok(writer.bytes)
 }
 
-// ---------------------------------------------------------------------------
 // Sources
-// ---------------------------------------------------------------------------
 
 pub(crate) trait Source {
     fn get(&self, path: &str, max: usize) -> Result<Vec<u8>>;
@@ -126,9 +124,7 @@ impl Source for DirSource {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Loading
-// ---------------------------------------------------------------------------
 
 /// Deepest JSON nesting a manifest may have: each group level adds three (the layer object, its
 /// content object and the `children` array), with headroom for the document and leaf layer fields.
@@ -299,9 +295,7 @@ pub(crate) fn load(src: &dyn Source, opts: &LoadOptions) -> Result<Document> {
     Ok(doc)
 }
 
-// ---------------------------------------------------------------------------
 // Saving
-// ---------------------------------------------------------------------------
 
 /// What a save did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

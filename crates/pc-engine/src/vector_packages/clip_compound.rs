@@ -466,7 +466,7 @@ pub fn prepare(s: &Session, c: &Capture, action: &Action) -> Result<Prepared> {
     validate_tree(&doc)?;
     Ok(Prepared { document: doc, selection, capture: c.clone() })
 }
-/// Capture the exact insertion target at pointer-down. 37 supplies its isolation target
+/// Capture the exact insertion target at pointer-down. Isolation supplies its target
 /// as `target`; callers must not resolve a different active object on release.
 pub fn prepare_insert(s: &Session, c: &Capture, mode: DrawMode, target: Option<LayerId>, mut layer: Layer) -> Result<Prepared> {
     c.check(s)?;

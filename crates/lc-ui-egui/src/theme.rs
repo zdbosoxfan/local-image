@@ -1,5 +1,5 @@
 //! Design tokens (colours, sizes, fonts). Values measured from black-box observation of the
-//! reference app's dark theme (see plan/lightroom/10-observed-ui.md); everything is our own code.
+//! reference app's dark theme; everything is our own code.
 
 use std::sync::Arc;
 
@@ -182,10 +182,7 @@ impl Tokens {
         li_ui_kit::fonts::semibold(size)
     }
 }
-pub use li_ui_kit::library::{readable_text, text_on};
-pub fn apply(ctx: &egui::Context) {
-    li_ui_kit::library::apply(ctx);
-}
+pub use li_ui_kit::library::{apply, readable_text, text_on};
 pub fn apply_tokens(ctx: &egui::Context, t: Tokens) {
     li_ui_kit::library::apply_tokens(ctx, t.into());
 }

@@ -40,6 +40,7 @@ egui_extras = { version = "0.36", default-features = false }
 egui_kittest = { version = "0.36" }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 getrandom = { version = "0.3" }
+half = { version = "2" }
 hex = { version = "0.4" }
 # Owner-approved vector bootstrap (architecture §2). Keep these exact pins and selected
 # features; xtask's optional vector-bootstrap anchors the lock until the adapters land.
@@ -92,6 +93,7 @@ photocraft-color = { path = "crates/pc-color" }
 photocraft-compose = { path = "crates/pc-compose" }
 photocraft-doc = { path = "crates/pc-doc" }
 photocraft-engine = { path = "crates/pc-engine" }
+photocraft-export-common = { path = "crates/pc-export-common" }
 photocraft-format = { path = "crates/pc-format" }
 photocraft-geom = { path = "crates/pc-geom" }
 photocraft-gpu = { path = "crates/pc-gpu" }
@@ -110,7 +112,7 @@ pc-trace = { path = "crates/pc-trace" }
 png = { version = "0.18" }
 pollster = { version = "1" }
 proptest = { version = "1" }
-quick-xml = { version = "0.38" }
+quick-xml = { version = "0.41" }
 rand = { version = "0.9" }
 ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rayon = { version = "1" }

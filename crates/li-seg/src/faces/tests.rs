@@ -588,7 +588,7 @@ fn pinned_model_metadata_matches_the_build_spec() {
 }
 
 #[test]
-#[ignore = "coordinator: LI_SEG_TEST_MODELS points to downloaded YuNet/SFace; no downloads"]
+#[ignore = "requires LI_SEG_TEST_MODELS pointing to downloaded YuNet/SFace models"]
 fn real_weights_migrant_mother_twice_and_no_tetons_faces() {
     let dir = std::env::var_os("LI_SEG_TEST_MODELS").expect("set LI_SEG_TEST_MODELS to the model directory");
     let models = FaceModels::load(Path::new(&dir)).unwrap();

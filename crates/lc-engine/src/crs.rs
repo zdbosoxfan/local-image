@@ -5,7 +5,6 @@
 //! fields to a *partial* [`DevelopSettings`](lightcraft_develop::DevelopSettings) JSON object
 //! (only the fields present in the packet), which is then merged like a preset. Our pipeline is
 //! not theirs, so the result is a best-effort approximation of the look, not a pixel match.
-//! The full table is in `docs/xmp-interop.md`.
 //!
 //! Implemented from the public XMP specification (ISO 16684-1) and black-box observation of what
 //! each field means; no third-party code or preset content was used.
@@ -138,7 +137,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
             put(o, path, json!(v));
         }
     };
-    // ---- Light (process version 2012+ names)
+    // Light (process version 2012+ names)
     n(o, "Exposure2012", "light.exposure");
     n(o, "Contrast2012", "light.contrast");
     n(o, "Highlights2012", "light.highlights");
@@ -165,7 +164,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     old(o, "FillLight", "light.shadows", &|v| v);
     old(o, "Shadows", "light.blacks", &|v| -(v - 5.0) * 4.0);
     old(o, "Brightness", "light.whites", &|v| (v - 50.0) * 0.6);
-    // ---- Presence
+    // Presence
     n(o, "Texture", "effects.texture");
     n(o, "Clarity2012", "effects.clarity");
     old(o, "Clarity", "effects.clarity", &|v| v);
@@ -173,7 +172,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     n(o, "Vibrance", "color.vibrance");
     n(o, "Saturation", "color.saturation");
 
-    // ---- White balance
+    // White balance
     let mode = first(props, "crs:WhiteBalance").map(|m| match m.to_ascii_lowercase().replace(' ', "").as_str() {
         "asshot" => "asShot",
         "auto" => "auto",
@@ -207,7 +206,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         (None, None) => {}
     }
 
-    // ---- Treatment + B&W mix
+    // Treatment + B&W mix
     if let Some(bw) = boolean(props, "crs:ConvertToGrayscale") {
         put(o, "treatment", json!(if bw { "bw" } else { "color" }));
     }
@@ -218,7 +217,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         n(o, &format!("GrayMixer{crs}"), &format!("bw_mix.{band}"));
     }
 
-    // ---- Tone curve: parametric regions + point curves
+    // Tone curve: parametric regions + point curves
     n(o, "ParametricShadows", "curve.shadows");
     n(o, "ParametricDarks", "curve.darks");
     n(o, "ParametricLights", "curve.lights");
@@ -241,7 +240,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         }
     }
 
-    // ---- Color grading (split toning fields are shared with the older split-toning panel)
+    // Color grading (split toning fields are shared with the older split-toning panel)
     n(o, "SplitToningShadowHue", "grading.shadows.hue");
     n(o, "SplitToningShadowSaturation", "grading.shadows.sat");
     n(o, "ColorGradeShadowLum", "grading.shadows.lum");
@@ -257,7 +256,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     n(o, "ColorGradeBlending", "grading.blending");
     n(o, "SplitToningBalance", "grading.balance");
 
-    // ---- Detail (Lightroom's native units and ranges)
+    // Detail (Lightroom's native units and ranges)
     for (crs, path, lo, hi) in [
         ("Sharpness", "sharpen_amount", 0.0, 150.0),
         ("SharpenRadius", "sharpen_radius", 0.5, 3.0),
@@ -275,7 +274,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         }
     }
 
-    // ---- Effects: post-crop vignette + grain
+    // Effects: post-crop vignette + grain
     n(o, "PostCropVignetteAmount", "vignette.amount");
     n(o, "PostCropVignetteMidpoint", "vignette.midpoint");
     n(o, "PostCropVignetteRoundness", "vignette.roundness");
@@ -293,7 +292,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     n(o, "GrainSize", "grain.size");
     n(o, "GrainFrequency", "grain.roughness");
 
-    // ---- Optics (manual corrections; lens profiles are ours, only the switch carries over)
+    // Optics (manual corrections; lens profiles are ours, only the switch carries over)
     if let Some(b) = boolean(props, "crs:LensProfileEnable") {
         put(o, "optics.lens_profile", json!(b));
     }
@@ -310,7 +309,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     n(o, "DefringeGreenHueLo", "optics.defringe_green_hue_lo");
     n(o, "DefringeGreenHueHi", "optics.defringe_green_hue_hi");
 
-    // ---- Calibration
+    // Calibration
     n(o, "ShadowTint", "calibration.shadows_tint");
     n(o, "RedHue", "calibration.red_hue");
     n(o, "RedSaturation", "calibration.red_sat");
@@ -319,7 +318,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
     n(o, "BlueHue", "calibration.blue_hue");
     n(o, "BlueSaturation", "calibration.blue_sat");
 
-    // ---- Geometry
+    // Geometry
     n(o, "PerspectiveVertical", "geometry.vertical");
     n(o, "PerspectiveHorizontal", "geometry.horizontal");
     n(o, "PerspectiveRotate", "geometry.rotate");
@@ -339,7 +338,7 @@ pub fn to_partial(props: &Props, raw: Option<bool>) -> Value {
         put(o, "geometry.upright", json!(mode));
     }
 
-    // ---- Crop (normalized edges of the unrotated image + straighten angle)
+    // Crop (normalized edges of the unrotated image + straighten angle)
     match boolean(props, "crs:HasCrop") {
         Some(true) => {
             let e = |k: &str, d: f64| num(props, &format!("crs:Crop{k}")).unwrap_or(d).clamp(0.0, 1.0);

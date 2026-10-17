@@ -253,6 +253,9 @@ pub struct Session {
     /// Untouched Local records of folders not browsed for this many days are forgotten when the
     /// library opens (0 = never; persisted in prefs.json). See `cmd/browse.rs`.
     pub forget_local_days: u32,
+    /// Photos in Recently Deleted for this many days are removed from the library when it opens
+    /// (0 = never, the default; persisted in prefs.json). See [`Session::purge_deleted`].
+    pub purge_deleted_days: u32,
     pub backup_preferences: library_safety::BackupPreferences,
     /// local-image: the Camera Raw Filter's temporary photo (see [`ephemeral`]).
     pub(crate) ephemeral: Option<ephemeral::Ephemeral>,
@@ -336,6 +339,7 @@ impl Session {
             cache_mb: 0,
             smart_previews_dir: None,
             forget_local_days: lightcraft_catalog::DEFAULT_FORGET_DAYS,
+            purge_deleted_days: 0,
             backup_preferences: Default::default(),
             ephemeral: None,
             enhance: enhance::Enhance::default(),
@@ -424,7 +428,7 @@ impl Session {
         command_specs().iter().map(|c| c.info(self)).collect()
     }
 
-    // ---------------------------------------------------------------- ops, undo
+    // ops, undo
 
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
@@ -506,6 +510,38 @@ impl Session {
         let tail = self.undo.split_off(self.undo.len() - n);
         let ops = tail.into_iter().rev().map(|e| e.op).collect();
         self.undo.push(UndoEntry { group, label: label.to_string(), op: Op::Batch { ops }, folder: None, people: None });
+    }
+
+    /// Remove the photos that have been in Recently Deleted for `days` days or more (default
+    /// [`Session::purge_deleted_days`]; 0 = never) from the library, as Remove from Library does:
+    /// one undo step, and the files on disk are never touched. A deletion whose time isn't known
+    /// (made before it was recorded) is first given the current time — logged, not an undo step —
+    /// so it goes `days` after the first purge that sees it, never at once. Returns the photos
+    /// removed.
+    pub fn purge_deleted(&mut self, days: Option<u32>) -> Result<Vec<PhotoId>> {
+        let days = days.unwrap_or(self.purge_deleted_days);
+        if days == 0 {
+            return Ok(Vec::new());
+        }
+        let now = (self.clock)();
+        let undated = self.catalog.undated_deleted();
+        for chunk in undated.chunks(2000) {
+            let ops = chunk.iter().map(|id| Op::SetDeleted { id: *id, deleted: true, deleted_at: Some(now.clone()) }).collect();
+            let op = Op::Batch { ops };
+            self.catalog.apply(op.clone())?;
+            self.pending_log.push(op);
+        }
+        let ids = self.catalog.deleted_before(&now, days);
+        if ids.is_empty() {
+            return Ok(ids);
+        }
+        let op = self.catalog.delete_photos_permanently_ops(&ids);
+        self.commit("Empty Recently Deleted", op)?;
+        let gone: std::collections::HashSet<PhotoId> = ids.iter().copied().collect();
+        self.selection.ids.retain(|id| !gone.contains(id));
+        self.selection.active = self.selection.active.filter(|id| !gone.contains(id));
+        log::info!("removed {} photo(s) in Recently Deleted for {days} days or more from the library", ids.len());
+        Ok(ids)
     }
 
     /// Apply without recording undo (interactive previews).
@@ -626,7 +662,7 @@ impl Session {
         std::mem::take(&mut self.pending_log)
     }
 
-    // ---------------------------------------------------------------- develop edits
+    // develop edits
 
     /// The photo being edited (the active photo).
     pub fn active(&self) -> Option<PhotoId> {
@@ -730,7 +766,7 @@ impl Session {
         Ok(())
     }
 
-    // ---------------------------------------------------------------- library view
+    // library view
 
     /// Photos shown in the grid/filmstrip for the current source, filter and sort.
     pub fn visible(&mut self) -> &[PhotoId] {
@@ -758,8 +794,11 @@ impl Session {
                 && !al.is_smart()
                 && self.filter == Filter::default()
             {
-                let order = al.photos.clone();
-                visible.sort_by_key(|id| order.iter().position(|x| x == id).unwrap_or(usize::MAX));
+                let mut order = std::collections::HashMap::with_capacity(al.photos.len());
+                for (i, id) in al.photos.iter().enumerate() {
+                    order.entry(*id).or_insert(i);
+                }
+                visible.sort_by_key(|id| order.get(id).copied().unwrap_or(usize::MAX));
                 if !self.sort.ascending {
                     visible.reverse();
                 }

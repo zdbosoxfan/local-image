@@ -149,7 +149,7 @@ pub fn update_adjustment(existing: &Adjustment, p: &Value) -> Option<Result<Adju
     }
 }
 
-// ---------- destructive helpers ----------
+// Destructive helpers
 
 /// Runs `f` on the target surface's content as straight RGBA (`w × h` = content bounds), blending
 /// the result through the selection.
@@ -211,7 +211,7 @@ fn has_doc(s: &Session) -> std::result::Result<(), String> {
     s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 
-// ---------- commands ----------
+// Commands
 
 /// Image › Adjustments run as a smart filter (`image.adjustments.<kind>` recorded on a smart
 /// object): the adjustment applied to a copy of `surf`. `None` for kinds or params it can't run.

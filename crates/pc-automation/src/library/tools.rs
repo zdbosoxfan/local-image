@@ -33,20 +33,32 @@ impl LibraryReply {
     }
 }
 
-fn tool(name: &str, title: &str, description: &str, properties: Value, required: &[&str]) -> Value {
+fn tool(name: &str, title: &str, description: &str, properties: Value, required: &[&str], annotations: Value) -> Value {
     json!({
         "name": format!("{TOOL_PREFIX}{name}"),
         "title": title,
         "description": description,
         "inputSchema": {"type": "object", "properties": properties, "required": required},
+        "annotations": annotations,
     })
+}
+
+/// MCP tool annotations: a tool that only reports state.
+fn read_only() -> Value {
+    json!({"readOnlyHint": true, "openWorldHint": false})
+}
+
+/// MCP tool annotations: a tool that changes the session or writes files.
+fn changes(destructive: bool, idempotent: bool) -> Value {
+    json!({"readOnlyHint": false, "destructiveHint": destructive, "idempotentHint": idempotent, "openWorldHint": false})
 }
 
 fn ids_schema(what: &str) -> Value {
     json!({"type": "array", "items": {"type": "integer"}, "description": what})
 }
 
-/// The Library tools as MCP tool definitions (`name`, `title`, `description`, `inputSchema`).
+/// The Library tools as MCP tool definitions (`name`, `title`, `description`, `inputSchema`,
+/// `annotations`).
 pub fn tool_definitions() -> Vec<Value> {
     let photo_id = json!({"type": "integer", "description": "Photo id (default: the active photo). Makes that photo active first."});
     vec![
@@ -59,6 +71,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "enabled_only": {"type": "boolean", "description": "Only commands that can run right now"}
             }),
             &[],
+            read_only(),
         ),
         tool(
             "command_run",
@@ -66,6 +79,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "Run any Library command by id with JSON params (see library_command_list for ids and parameter docs), e.g. {command: \"photo.rate\", params: {rating: 4}}. Edits are undoable (edit.undo / edit.redo).",
             json!({"command": {"type": "string"}, "params": {"type": "object", "description": "Command parameters", "additionalProperties": true}}),
             &["command"],
+            changes(true, false),
         ),
         tool(
             "import",
@@ -80,6 +94,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "rename": {"type": "string", "description": "Copy or move: file-name template, e.g. {date:%Y%m%d_%H%M%S}_{seq:3} (photo.renameTokens lists the tags); the extension is kept"}
             }),
             &["paths"],
+            changes(false, false),
         ),
         tool(
             "query_photos",
@@ -92,6 +107,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "limit": {"type": "integer", "description": "Default 200"}
             }),
             &[],
+            read_only(),
         ),
         tool(
             "select_photos",
@@ -99,6 +115,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "Set the selection; the active photo (the one develop tools edit) is `active` or the first id.",
             json!({"ids": ids_schema("Photo ids"), "active": {"type": "integer"}, "mode": {"type": "string", "enum": ["replace", "add", "toggle", "range"]}}),
             &["ids"],
+            changes(false, true),
         ),
         tool(
             "list_controls",
@@ -106,6 +123,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "Every develop slider (id like `light.exposure`, label, section, min, max, default, current value) for the active photo.",
             json!({"section": {"type": "string", "description": "Only this section (e.g. light, color, effects, detail)"}}),
             &[],
+            read_only(),
         ),
         tool(
             "get_develop",
@@ -113,6 +131,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "The full develop settings JSON of a photo (white balance, light, color, curves, mixer, grading, effects, crop, masks, spots…).",
             json!({"id": photo_id}),
             &[],
+            read_only(),
         ),
         tool(
             "set_develop",
@@ -125,6 +144,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "label": {"type": "string", "description": "History label for `settings`"}
             }),
             &[],
+            changes(false, true),
         ),
         tool(
             "apply_preset",
@@ -132,6 +152,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "Apply a develop preset (ids from library_command_run presets.list) to the selection or `ids`, at `amount` percent (0..200, default 100).",
             json!({"preset": {"type": "string", "description": "Preset id"}, "amount": {"type": "number"}, "ids": ids_schema("Photo ids (default: selection)")}),
             &["preset"],
+            changes(false, false),
         ),
         tool(
             "crop",
@@ -139,6 +160,7 @@ pub fn tool_definitions() -> Vec<Value> {
             "Set the crop of a photo: `rect` [x0,y0,x1,y1] in normalized coordinates (0..1, origin top-left) of the straightened frame, `angle` in degrees. `reset: true` clears it. Give at least one of them.",
             json!({"id": photo_id, "rect": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4}, "angle": {"type": "number"}, "reset": {"type": "boolean"}}),
             &[],
+            changes(false, true),
         ),
         tool(
             "render_photo",
@@ -151,6 +173,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "path": {"type": "string", "description": "Also save the rendered file here (below the automation write root); never over an original"}
             }),
             &[],
+            changes(true, true),
         ),
         tool(
             "export",
@@ -183,6 +206,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "watermark": {"description": "Text, or {text, vertical (boolean; defaults to false), size (fraction of short edge), opacity, anchor (topLeft|top|topRight|left|center|right|bottomLeft|bottom|bottomRight), inset, color [r,g,b], shadow}"}
             }),
             &[],
+            changes(true, false),
         ),
     ]
 }

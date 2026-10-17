@@ -1,6 +1,6 @@
 //! Appearance / Stroke panels and Fill / Transparency canvas gestures.
 //! Paint edits use the engine's captured document/revision/target transaction. State and preview
-//! are transient; package 00 routes preview into the existing CPU/GPU canvas and cancellation.
+//! are transient; the app routes preview into the existing CPU/GPU canvas and cancellation.
 use egui::{Color32, Event, Key, PointerButton, Pos2, Rect, Sense, Stroke, Ui};
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, Arrowhead, FillItem, StrokeGradientMode, StrokeItem};
 use photocraft_doc::{BlendMode, Color, Document, Fill, GradientStyle, LayerContent, LayerId, LineCap, LineJoin, ShapeStroke, StrokeAlign};

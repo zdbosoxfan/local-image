@@ -63,8 +63,7 @@ fn jobs_for(s: &mut Session, id: lightcraft_catalog::PhotoId, edge: Option<usize
     v
 }
 
-/// Run `work(position, item)` for each item on a bounded group of threads (threading rules 3, 5,
-/// 6, 9): as many workers as the heavy-job permits allow (`permits.max_jobs()`, never more than
+/// Run `work(position, item)` for each item on a bounded group of threads: as many workers as the heavy-job permits allow (`permits.max_jobs()`, never more than
 /// items), each item admitted with a permit for its estimated `cost` bytes, so the free memory
 /// decides how many run at once. Stops taking items once `cancelled` says so; items already
 /// started finish. Workers are named OS threads in the Utility class (one worker runs inline on
@@ -109,7 +108,7 @@ pub(crate) fn for_each_bounded<T: Send>(
     });
 }
 
-/// Working memory of one photo's preview build at long edge `edge` (rule 6): its raw data
+/// Working memory of one photo's preview build at long edge `edge`: its raw data
 /// (2 B/px of the original) plus a render at that size ([`crate::export::render_cost`]).
 fn preview_cost(width: u32, height: u32, edge: usize) -> u64 {
     let (w, h) = (width as usize, height as usize);
@@ -169,7 +168,7 @@ fn build(s: &mut Session, p: &Value) -> Result<Value> {
         std::thread::Builder::new()
             .name("lc-build-previews".into())
             .spawn(move || {
-                // A batch with a progress bar (threading rule 7).
+                // A batch with a progress bar.
                 lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
                 run_all(jobs, &st, lightcraft_sysmem::heavy_jobs())
             })

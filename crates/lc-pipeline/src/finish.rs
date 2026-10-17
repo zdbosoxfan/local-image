@@ -544,7 +544,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 let l_pre = p.log_l.data[i];
                 let l0 = l_pre + ev;
 
-                // --- local (mask) contributions: alpha-weighted sums of the masks' terms
+                // local (mask) contributions: alpha-weighted sums of the masks' terms
                 let mut l = [0.0f32; MASK_SUMS];
                 let mut tint_col: Option<([f32; 3], f32)> = None;
                 for (m, t) in p.masks.iter().zip(&terms) {
@@ -579,7 +579,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     l_defringe,
                 ] = l;
 
-                // --- local Moiré (and the colour part of Noise): chromaticity towards its blur
+                // local Moiré (and the colour part of Noise): chromaticity towards its blur
                 let mt = (l_moire + 0.5 * l_noise.max(0.0)).clamp(-1.0, 1.0);
                 if mt != 0.0
                     && let Some(cb) = &p.chroma_blur
@@ -587,7 +587,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     let (y, ch0, cb) = (luminance_2020(c), crate::masks::chromaticity(raw), cb.data[i]);
                     c = std::array::from_fn(|k| ((ch0[k] + (cb[k] - ch0[k]) * mt) * y).max(0.0));
                 }
-                // --- local Defringe: desaturate purple / green fringes along edges
+                // local Defringe: desaturate purple / green fringes along edges
                 let df = l_defringe.clamp(0.0, 1.0);
                 if df > 0.0
                     && let Some(b) = &p.texture_blur
@@ -599,7 +599,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- dehaze (scene linear)
+                // dehaze (scene linear)
                 let dz = dehaze + l_dehaze;
                 if dz != 0.0
                     && let Some(hz) = &p.haze
@@ -621,7 +621,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- local exposure / temp / tint
+                // local exposure / temp / tint
                 if l_exp != 0.0 {
                     let g = l_exp.exp2();
                     c = c.map(|v| v * g);
@@ -649,7 +649,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- tone equalizer: exposure by luminance zone (its mask is pre-exposure, see `toneeq`)
+                // tone equalizer: exposure by luminance zone (its mask is pre-exposure, see `toneeq`)
                 let mut teq = false;
                 if let (Some((curve, adj)), Some(m)) = (&fp.tone_eq, &p.tone_eq) {
                     let g = curve.gain(adj.zone_ev(m.data[i], ev));
@@ -659,7 +659,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- local tone in log luminance
+                // local tone in log luminance
                 let l1 = if dz != 0.0 || l_exp != 0.0 || layer_scene || teq { log_lum(c) } else { l0 };
                 let shift = l1 - l0;
                 let base = p.base.data[i] + ev + shift;
@@ -734,12 +734,12 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- calibration (scene linear, before the tone map)
+                // calibration (scene linear, before the tone map)
                 if fp.calib.is_some() || fp.shadow_tint != 0.0 {
                     c = crate::colorops::calibrate(c, fp.calib.as_ref(), fp.shadow_tint);
                 }
 
-                // --- tone map on luminance, highlight desaturation
+                // tone map on luminance, highlight desaturation
                 d = if fp.mode == FinishMode::Layer {
                     crate::layers::contrast(c, fp.layer_contrast)
                 } else if fp.mode == FinishMode::Working {
@@ -756,7 +756,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- colour
+                // colour
                 d = ops.apply(d, l_sat, l_hue);
                 if let Some((dir, amt)) = tint_col {
                     let lab = li_color::perceptual::oklab_from_2020(d);
@@ -771,7 +771,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
 
-                // --- vignette (display linear, post-crop)
+                // vignette (display linear, post-crop)
                 if let Some(v) = vig {
                     d = vignette_px(v, d, x, y, w, h, aspect);
                 }
@@ -822,7 +822,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 gamut_map(if fp.soft_gamut { soft_gamut(r) } else { r }, *out_luma).0
             };
 
-            // --- encode, curves, grain
+            // encode, curves, grain
             let mut e = if fp.proof.is_some() {
                 r.map(linear_to_srgb)
             } else if exact {

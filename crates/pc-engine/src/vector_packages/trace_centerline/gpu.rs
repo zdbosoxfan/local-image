@@ -1,5 +1,5 @@
 //! Real resulting stroke caches through the production CPU/GPU compositor.
-//! Full dialog/canvas acceptance belongs to 28; this gate never substitutes a software adapter.
+//! Full dialog/canvas acceptance belongs to the trace dialog; this gate never substitutes a software adapter.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use photocraft_gpu::{Compositor, render_to_vec};

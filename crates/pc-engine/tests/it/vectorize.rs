@@ -141,7 +141,7 @@ fn v1_paths_and_vector_masks_survive_vectorize() -> TestResult {
         l.surface_mut().ok_or("surface")?.fill_rect(bounds, &[0., 0., 0., 1.]);
     }
     let old = photocraft_format::save_to_bytes(&s.active().ok_or("doc")?.doc, &Default::default())?;
-    // TEST-CHANGED: v3 since f63fb309 (independent group isolation); the paths and masks below are unchanged.
+    // Format version 3 (independent group isolation); the paths and masks below are unchanged.
     assert_eq!(photocraft_format::FORMAT_VERSION, 3);
     let loaded = photocraft_format::load_from_bytes(&old)?;
     assert!(loaded.layers.iter().any(|l| matches!(l.content, LayerContent::Shape(_))));

@@ -195,7 +195,7 @@ fn main() -> eframe::Result {
         lightcraft_sysmem::app_dirs::config_dir(),
         log_path
     );
-    // One compute pool sized from the hardware, built before anything uses rayon (threading rules 1-2).
+    // One compute pool sized from the hardware, built before anything uses rayon.
     compute_policy::init(services::prefs_file().as_deref());
 
     // A malformed control port must not silently drop the control server (issue #701): name the
@@ -217,6 +217,9 @@ fn main() -> eframe::Result {
     }
 
     let control = if let Some(port) = control_port {
+        if control_token.is_some() {
+            eprintln!("local-image: warning: --control-token is visible to other local users in the process list; use --control-token-file <path> instead");
+        }
         let (supplied, token_file) = photocraft_automation::security::token_inputs(control_token, control_token_file);
         let token = match photocraft_automation::security::server_token(supplied.as_deref(), token_file.as_deref()) {
             Ok(token) => token,
@@ -536,6 +539,19 @@ fn main() -> eframe::Result {
             // Portable marker found but its data folder isn't writable (#228): say where settings went.
             if let Some(w) = &lightcraft_sysmem::app_dirs::current().warning {
                 photocraft_ui_egui::notices::post(&mut app, "Portable mode is off", vec![w.clone()], false, None);
+            }
+            // A report written by the hook in an earlier session: say where it is, once.
+            if let Some(dir) = app_log::current_log_dir()
+                && let Some(report) = crash_guard::newest_unacknowledged_report(&dir)
+            {
+                photocraft_ui_egui::notices::post(
+                    &mut app,
+                    "Local Image reported a crash last time",
+                    vec![format!("The crash report is saved at {}", report.display())],
+                    true,
+                    None,
+                );
+                let _ = crash_guard::acknowledge_crash_report(&dir, &report);
             }
             // The native bar and in-window menu visibility start in the remembered module.
             let mut host = library_host::Host::new(app);

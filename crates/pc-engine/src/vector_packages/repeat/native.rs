@@ -1,4 +1,4 @@
-//! Data-only native live-group compatibility codec, for 00's VectorData field registration.
+//! Data-only native live-group compatibility codec for the VectorData field.
 //! Original GPL-3.0-or-later. Adjacent tagging separates the live group's kind from the
 //! nested repeat/envelope kind. A blend or live-paint record without `spec` uses pc-doc's
 //! internally tagged form and is read as such; flattened repeat/envelope kinds are refused.

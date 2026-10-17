@@ -215,7 +215,6 @@ fn channel_picker(ui: &mut egui::Ui, id: egui::Id, label: &str) -> usize {
     ch
 }
 
-// ---------------------------------------------------------------------------------------------
 // Histogram panel
 
 /// Histogram panel (Window › Histogram): whole-image histogram with Photoshop's statistics.

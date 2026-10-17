@@ -118,7 +118,7 @@ fn copy_paste_presets_and_auto_sync_carry_layers() {
     let m = &s.develop_of(vis[3]).unwrap().masks[0];
     assert_eq!((&m.tools, m.opacity), (&src[0].tools, 60.0));
     // Auto Sync never carries a layer tool change: layers sync only through Sync / Copy, so the
-    // other photo keeps its own layers (TEST-CHANGED: used to expect the change to sync)
+    // other photo keeps its own layers
     let ids = [vis[0].0, vis[1].0];
     s.execute("library.select", &json!({"ids": ids})).unwrap();
     s.selection.active = Some(PhotoId(ids[0]));

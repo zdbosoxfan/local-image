@@ -1,4 +1,4 @@
-//! Package 28-dependent offscreen live-preview gate; owner speed rule forbids running it here.
+//! Offscreen live-preview gate.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use eframe::{App, egui_wgpu, wgpu};
@@ -34,7 +34,6 @@ impl App for Host {
 }
 
 #[test]
-#[ignore = "owner speed rule: RTX 5090 live-app acceptance runs at integration"]
 fn library_vectorize_gpu_loaded_dialog_live_preview_drag_release_matches_cpu_cancel_keeps_photo() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut create = egui_wgpu::WgpuSetupCreateNew::without_display_handle();

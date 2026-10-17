@@ -5,7 +5,7 @@
 //! isolated groups, clipping, masks, opacity × fill, adjustments, layer effects). Every pass
 //! reads slots and writes a fresh slot; slots are recycled as soon as nothing refers to them.
 //!
-//! Layer effects follow `photocraft_compose::effects::composite_with_effects`: the layer's
+//! Layer effects follow `photocraft_compose::effects::composite_with_effects_prepared`: the layer's
 //! effect maps (shadow / glow / satin / bevel coverage, stroke bands) are built once per layer
 //! state by [`crate::fx`] and sampled here; exterior effects paint into a copy of the backdrop,
 //! the layer at fill opacity takes the interior effects, and the two merge with the layer's mode
@@ -931,7 +931,7 @@ impl<'a> Planner<'a> {
         Ok(self.emit(p))
     }
 
-    /// `composite_with_effects` (atop = false) or the clipped-layer variant of `composite_atop`
+    /// `composite_with_effects_prepared` (atop = false) or the clipped-layer variant of `composite_atop`
     /// (atop = true: effects over the base treated as opaque, keeping the base's alpha).
     /// Consumes `backdrop`.
     fn effects(&mut self, layer: &'a Layer, clipped: &[&'a Layer], backdrop: Slot, atop: bool) -> Result<Slot, Unsupported> {
@@ -1232,7 +1232,7 @@ impl<'a> Planner<'a> {
             p.clip = Some(clip);
             self.emit(p)
         } else {
-            // Emboss styles shade the composited layer (`composite_with_effects`): merge at full
+            // Emboss styles shade the composited layer (`composite_with_effects_prepared`): merge at full
             // opacity, paint their maps (inside and outside halves), then mix.
             let mut p = Pass::new(Kernel::FxMerge, 0);
             p.a = Some(w);

@@ -29,7 +29,7 @@ fn other(e: impl std::fmt::Display) -> EngineError {
     EngineError::Other(e.to_string())
 }
 
-// ---------- settings ----------
+// Settings
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WebFormat {
@@ -280,7 +280,7 @@ pub fn preset_settings(name: &str) -> Option<WebSettings> {
     })
 }
 
-// ---------- the image ----------
+// The image
 
 /// The document as Save for Web sees it: RGB (converted to sRGB unless told otherwise), resized
 /// by `"width"`/`"height"`/`"percent"`, flattened. Returns the document and the scale factors.
@@ -874,7 +874,7 @@ fn save_for_web(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"files": files, "html": html_path, "bytes": total, "slices": chosen.len(), "width": wdoc.size.width, "height": wdoc.size.height}))
 }
 
-// ---------- Export Preferences / Quick Export ----------
+// Export Preferences / Quick Export
 
 fn export_preferences(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.exportPreferences";
@@ -970,7 +970,7 @@ fn quick_export(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"path": path, "format": fmt, "bytes": opt.bytes.len()}))
 }
 
-// ---------- Generate › Image Assets ----------
+// Generate › Image Assets
 
 /// One asset requested by a layer name.
 #[derive(Clone, Debug, PartialEq)]

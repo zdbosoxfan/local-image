@@ -2,13 +2,7 @@
 use pc_trace::cutout::trace;
 use pc_trace::{Image, Params};
 type TestResult = Result<(), Box<dyn std::error::Error>>;
-pub use photocraft_compose::{Buffer, cmyk_space, effects, fill_frame, gradient_fill, masks, pattern, render, render_tiled};
-// Compile package 09's supplied provider exactly as its own GPU gate does,
-// until package 00 registers the shared module. This is dependency evidence,
-// not full-app integration acceptance.
-#[allow(dead_code, clippy::unwrap_used)]
-#[path = "../../../../pc-compose/src/scaled_view.rs"]
-mod cpu;
+use photocraft_compose::scaled_view as cpu;
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};
 #[test]
 fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
@@ -53,11 +47,8 @@ fn cutout_rtx5090_vulkan_scaled_mosaic_cpu_parity() -> TestResult {
     Ok(())
 }
 
-/// Exact shared paths can still show seams under per-layer source-over AA.
-/// Keep this required integration gate explicit until 00/09 supply mosaic
-/// coverage composition. It must be run and its failure reported separately.
+/// Exact shared paths show no seams under per-layer source-over AA.
 #[test]
-#[ignore = "requires shared-coverage mosaic rendering from 00/09; run to expose the current compositor deficit"]
 fn cutout_composited_mosaic_has_no_antialias_seam() -> TestResult {
     let _gpu_gate = li_testkit::gpu::lock();
     let labels: Vec<_> = (0..32).flat_map(|y| (0..32).map(move |x| u32::from((x - 16i32).pow(2) + (y - 16i32).pow(2) < 100))).collect();

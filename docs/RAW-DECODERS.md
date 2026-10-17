@@ -4,7 +4,7 @@
 RW2/RWL packing 4 stay first. RAF, NRW and other RW2/RWL packings use **unmodified crates.io
 rawler** first, pinned to `=0.8.0` with default features disabled. Native Unsupported results use
 rawler; rawler-primary files can use native code when rawler cannot decode them. Safety Limit
-errors never fall through. See `wip/RAW-DECODER-COMPARISON.md` for numbers and the permanent harness. There are no model lists, vendored sources, forks, path dependencies or patches.
+errors never fall through. The permanent harness is `scripts/raw_decoder_comparison.py`. There are no model lists, vendored sources, forks, path dependencies or patches.
 All integration code lives in `crates/lc-raw/src/rawler_adapter.rs`.
 
 The adapter carries sensor samples, CFA, black/white levels, as-shot WB, matrices, active area,
@@ -60,8 +60,7 @@ file bytes; ambiguous trailers and genuinely truncated pixels remain errors. Son
 metadata, the shared `SourceInfo.sony_lens` boundary and DNG numeric tags; their
 sampled optics implementation remains owned by the lens-corrections workstream.
 
-The bounded camera/variant evidence and format-specific reference domains are
-in [`wip/CODEX-REPORT-sony-dji.md`](wip/CODEX-REPORT-sony-dji.md). LibRaw ARW6
+LibRaw ARW6
 references require the pinned external master revision because installed 0.22.2,
 darktable 5.6.2 and RawTherapee 5.13 lack that codec. No external reference tool,
 new dependency or C/-sys library enters the Cargo build.
@@ -130,7 +129,7 @@ per-plane DNG lens operations stay in camera-RGB raw development. The render
 source records that they are baked and suppresses automatic profile fallbacks.
 Rectilinear and GainMap retain the Sony/DJI job's SDK coordinate fixes. Calibrated
 CA samples camera planes before colour mixing; the fitted nonlinear camera look
-runs afterwards. See `docs/wip/CODEX-REPORT-lenscorr.md` for sources and validation.
+runs afterwards.
 Camera data calibration is applied after this decoder boundary. The `testgen` contract uses
 decoder-only samples/headers so per-camera calibration does not silently regenerate sensor
 goldens. The calibrated header/full geometry and levels are audited separately by
@@ -138,6 +137,6 @@ goldens. The calibrated header/full geometry and levels are audited separately b
 
 
 The permanent comparison driver is `scripts/raw_decoder_comparison.py`; its sample manifest,
-new ignored tests and cached reference protocol are documented in `wip/RAW-DECODER-COMPARISON.md`.
+new ignored tests and cached reference protocol are documented in the script and the ignored tests.
 Rerun correctness and robustness after every bump; five-run timing requires explicit authorization
 under the current owner testing rule. CFA conversion uses rawler's row/column argument order.

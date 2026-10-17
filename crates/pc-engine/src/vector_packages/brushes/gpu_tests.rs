@@ -1,9 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-//! Integration gate; intentionally not executed under the owner's speed rules.
+//! Real-GPU expanded-geometry parity gate.
 use super::*;
 use photocraft_doc::{ColorMode, SampleType, Size};
 #[test]
-#[ignore = "package 17 speed rules: coordinator RTX integration gate"]
 fn brush17_rtx5090_vulkan_preview_release_expanded_geometry_parity() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("Vector Brush");

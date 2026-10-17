@@ -24,7 +24,7 @@ pub mod rules;
 pub mod stacks;
 pub mod store;
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 pub use dates::{DateRun, GroupBy};
@@ -105,6 +105,9 @@ pub enum Op {
     SetDeleted {
         id: PhotoId,
         deleted: bool,
+        /// When the photo went to Recently Deleted (ISO 8601; see [`Photo::deleted_at`]).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        deleted_at: Option<String>,
     },
     /// Browsed-only (`true`) or part of the library.
     SetLocal {
@@ -240,6 +243,32 @@ pub struct Catalog {
     /// Increments on every applied op.
     #[serde(skip)]
     pub revision: u64,
+    #[serde(skip)]
+    album_index: AlbumIndex,
+}
+
+/// The photos of each regular album as a set, so membership tests don't scan the album's list.
+/// Derived from `albums` and never saved: built on first use (after a load or replay, too) and
+/// kept in step by every op that changes an album's photos. A clone starts without it.
+#[derive(Default)]
+struct AlbumIndex(std::sync::OnceLock<HashMap<AlbumId, HashSet<PhotoId>>>);
+
+impl Clone for AlbumIndex {
+    fn clone(&self) -> Self {
+        AlbumIndex::default()
+    }
+}
+
+impl PartialEq for AlbumIndex {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl std::fmt::Debug for AlbumIndex {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("AlbumIndex")
+    }
 }
 
 impl Catalog {
@@ -247,7 +276,7 @@ impl Catalog {
         Catalog { next_photo: 1, next_album: 1, next_stack: 1, ..Default::default() }
     }
 
-    // ---- ids
+    // ids
 
     pub fn alloc_photo_id(&mut self) -> PhotoId {
         let id = PhotoId(self.next_photo.max(1));
@@ -265,7 +294,7 @@ impl Catalog {
         id
     }
 
-    // ---- reads
+    // reads
 
     pub fn photo(&self, id: PhotoId) -> Option<&Arc<Photo>> {
         self.photos.get(&id)
@@ -301,15 +330,39 @@ impl Catalog {
     pub fn album_contains(&self, id: AlbumId, p: &Photo) -> bool {
         match self.albums.get(&id) {
             Some(Album { smart: Some(rules), .. }) => !p.deleted && rules.matches(p, self),
-            Some(a) => a.photos.contains(&p.id),
+            Some(_) => self.album_has(id, p.id),
             None => false,
+        }
+    }
+
+    /// Whether regular album `album` lists `photo` (smart albums list none).
+    pub fn album_has(&self, album: AlbumId, photo: PhotoId) -> bool {
+        self.album_sets().get(&album).is_some_and(|s| s.contains(&photo))
+    }
+
+    fn album_sets(&self) -> &HashMap<AlbumId, HashSet<PhotoId>> {
+        self.album_index
+            .0
+            .get_or_init(|| self.albums.values().filter(|a| !a.photos.is_empty()).map(|a| (a.id, a.photos.iter().copied().collect())).collect())
+    }
+
+    /// Bring the album index up to date with album `id` (added, removed or given new photos).
+    fn reindex_album(&mut self, id: AlbumId) {
+        let Some(sets) = self.album_index.0.get_mut() else { return };
+        match self.albums.get(&id) {
+            Some(a) if !a.photos.is_empty() => {
+                sets.insert(id, a.photos.iter().copied().collect());
+            }
+            _ => {
+                sets.remove(&id);
+            }
         }
     }
 
     /// The photos of an album: the stored list, or a smart album's current matches (id order).
     pub fn album_photos(&self, id: AlbumId) -> Vec<PhotoId> {
         match self.albums.get(&id) {
-            Some(Album { smart: Some(_), .. }) => self.photos.values().filter(|p| self.album_contains(id, p)).map(|p| p.id).collect(),
+            Some(Album { smart: Some(rules), .. }) => self.smart_matches(rules).map(|p| p.id).collect(),
             Some(a) => a.photos.clone(),
             None => Vec::new(),
         }
@@ -319,10 +372,16 @@ impl Catalog {
     pub fn album_count(&self, id: AlbumId) -> usize {
         match self.albums.get(&id) {
             // counted in place: no id list is built just for its length
-            Some(Album { smart: Some(_), .. }) => self.photos.values().filter(|p| self.album_contains(id, p)).count(),
+            Some(Album { smart: Some(rules), .. }) => self.smart_matches(rules).count(),
             Some(a) => a.photos.iter().filter(|p| self.photos.get(p).is_some_and(|p| !p.deleted)).count(),
             None => 0,
         }
+    }
+
+    /// The photos a smart album's `rules` select, as [`Self::album_contains`] decides it.
+    fn smart_matches<'a>(&'a self, rules: &'a Filter) -> impl Iterator<Item = &'a Arc<Photo>> + 'a {
+        let tokens = rules.text_tokens();
+        self.photos.values().filter(move |p| !p.deleted && rules.matches_tokens(p, self, &tokens))
     }
 
     /// Smart-album rules must not reference another smart album (no recursion) or deleted photos.
@@ -352,7 +411,7 @@ impl Catalog {
         self.label_names.iter().find(|(_, n)| n.trim().eq_ignore_ascii_case(name)).map(|(l, _)| *l).or_else(|| ColorLabel::parse(name))
     }
 
-    // ---- writes
+    // writes
 
     fn photo_mut(&mut self, id: PhotoId) -> Result<&mut Photo> {
         self.photos.get_mut(&id).map(Arc::make_mut).ok_or(CatalogError::NoPhoto(id))
@@ -415,9 +474,13 @@ impl Catalog {
                 let p = self.photo_mut(id)?;
                 Op::SetMeta { id, meta: Box::new(std::mem::replace(&mut p.meta, *meta)) }
             }
-            Op::SetDeleted { id, deleted } => {
+            Op::SetDeleted { id, deleted, deleted_at } => {
                 let p = self.photo_mut(id)?;
-                Op::SetDeleted { id, deleted: std::mem::replace(&mut p.deleted, deleted) }
+                Op::SetDeleted {
+                    id,
+                    deleted: std::mem::replace(&mut p.deleted, deleted),
+                    deleted_at: std::mem::replace(&mut p.deleted_at, deleted_at),
+                }
             }
             Op::SetLocal { id, local } => {
                 let p = self.photo_mut(id)?;
@@ -459,6 +522,7 @@ impl Catalog {
                 let id = album.id;
                 self.next_album = self.next_album.max(id.0 + 1);
                 self.albums.insert(id, album);
+                self.reindex_album(id);
                 Op::RemoveAlbum { id }
             }
             Op::RemoveAlbum { id } => {
@@ -466,6 +530,7 @@ impl Catalog {
                     return Err(CatalogError::Invalid("folder is not empty".into()));
                 }
                 let a = self.albums.remove(&id).ok_or(CatalogError::NoAlbum(id))?;
+                self.reindex_album(id);
                 Op::AddAlbum { album: a }
             }
             Op::RenameAlbum { id, name } => {
@@ -496,7 +561,9 @@ impl Catalog {
                         if a.folder { "folders can't hold photos" } else { "smart albums update automatically" }.into(),
                     ));
                 }
-                Op::SetAlbumPhotos { id, photos: std::mem::replace(&mut a.photos, photos) }
+                let old = std::mem::replace(&mut a.photos, photos);
+                self.reindex_album(id);
+                Op::SetAlbumPhotos { id, photos: old }
             }
             Op::SetAlbumCover { id, cover } => {
                 let a = self.album_mut(id)?;
@@ -614,7 +681,7 @@ impl Catalog {
         let mut ops: Vec<Op> = self
             .albums
             .values()
-            .filter(|a| a.photos.contains(&id))
+            .filter(|a| self.album_has(a.id, id))
             .map(|a| Op::SetAlbumPhotos { id: a.id, photos: a.photos.iter().copied().filter(|p| *p != id).collect() })
             .collect();
         ops.extend(self.remove_from_stacks_ops(&[id]));
@@ -640,7 +707,26 @@ impl Catalog {
         Op::Batch { ops }
     }
 
-    // ---- persistence
+    /// Photos in Recently Deleted whose deletion time isn't known ([`Photo::deleted_at`] is
+    /// `None`: deleted before it was recorded).
+    pub fn undated_deleted(&self) -> Vec<PhotoId> {
+        self.photos.values().filter(|p| p.deleted && p.deleted_at.is_none()).map(|p| p.id).collect()
+    }
+
+    /// Photos that have been in Recently Deleted for `days` days or more as of `now` (ISO 8601).
+    /// `days == 0`, an unreadable `now` and photos with an unknown or unreadable deletion time
+    /// select nothing.
+    pub fn deleted_before(&self, now: &str, days: u32) -> Vec<PhotoId> {
+        let Some(now) = stacks::iso_seconds(now).filter(|_| days > 0) else { return Vec::new() };
+        let max_age = i64::from(days) * 86_400;
+        self.photos
+            .values()
+            .filter(|p| p.deleted && p.deleted_at.as_deref().and_then(stacks::iso_seconds).is_some_and(|at| now - at >= max_age))
+            .map(|p| p.id)
+            .collect()
+    }
+
+    // persistence
 
     /// Full snapshot as JSON.
     pub fn to_snapshot(&self) -> String {
@@ -681,7 +767,11 @@ impl Catalog {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_album_index;
+#[cfg(test)]
 mod tests_background;
+#[cfg(test)]
+mod tests_deleted_at;
 #[cfg(test)]
 mod tests_format_version;
 #[cfg(test)]

@@ -31,7 +31,7 @@ fn display_rgb(rgb: [f32; 3]) -> [f32; 3] {
     rgb.map(|c| c.clamp(0.0, 1.0))
 }
 fn close_display(actual: &[f32], expected_ink: [f32; 4], a2b: &Transform, context: &str) -> [f32; 3] {
-    // TEST-CHANGED: the existing two-code contract concerns displayed RGB,
+    // The existing two-code contract concerns displayed RGB,
     // not individual CMYK ink channels. Fast B2A LUT interpolation can change
     // the ink separation while remaining within that visible-color contract.
     // Both sides below use the independent canonical A2B pipeline. Keep the

@@ -406,7 +406,7 @@ pub struct BrushSettings {
     pub mode: BlendMode,
     /// local-image: Photoshop's painting-only modes listed with the blend modes: Behind and Clear.
     pub paint_mode: PaintMode,
-    // --- Brush Tip Shape ---
+    // Brush Tip Shape
     pub tip: TipShape,
     /// Degrees, counter-clockwise.
     pub angle: f32,
@@ -416,7 +416,7 @@ pub struct BrushSettings {
     pub flip_y: bool,
     /// Pencil: no anti-aliasing (coverage is 0 or 1).
     pub aliased: bool,
-    // --- dynamics sections ---
+    // Dynamics sections
     pub shape_dynamics: ShapeDynamics,
     pub scattering: Scattering,
     pub texture: Texture,

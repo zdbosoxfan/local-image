@@ -183,10 +183,6 @@ impl Rect {
         let (nw, nh) = if w / h > a { (h * a, h) } else { (w, w / a) };
         Rect::from_center(self.center(), nw, nh)
     }
-    /// Round outward to integer pixel bounds.
-    pub fn round_out(&self) -> Rect {
-        Rect::new(self.x0.floor(), self.y0.floor(), self.x1.ceil(), self.y1.ceil())
-    }
 }
 
 /// 2-D affine transform `[a b c d e f]`: x' = a·x + c·y + e, y' = b·x + d·y + f.
@@ -222,10 +218,6 @@ impl Affine {
     pub fn apply_real<T: Real>(&self, x: T, y: T) -> (T, T) {
         let [a, b, c, d, e, f] = self.0;
         (x * a + y * c + e, x * b + y * d + f)
-    }
-    pub fn apply_vec(&self, v: Vec2) -> Vec2 {
-        let [a, b, c, d, ..] = self.0;
-        Vec2::new(a * v.x + c * v.y, b * v.x + d * v.y)
     }
     pub fn determinant(&self) -> f64 {
         self.0[0] * self.0[3] - self.0[1] * self.0[2]

@@ -1,5 +1,5 @@
-//! Package 31 full-app acceptance, registered ONLY in pc-ui-egui/tests/gpu/main.rs by 00.
-//! Requires 01's native Contour tool, 10's live canvas routing, and the Outline Stroke menu.
+//! Full-app Outline Stroke acceptance, registered only in pc-ui-egui/tests/gpu/main.rs.
+//! Requires the native Contour tool, live canvas routing, and the Outline Stroke menu.
 //! Original synthetic fixtures, CC0-1.0. No desktop window, adapter skip or software fallback.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};
@@ -73,7 +73,7 @@ fn harness(paths: Vec<ShapeLayer>, contour: bool) -> H {
         app.ui.view.show.smart_guides = false;
         app.session.edit_prefs(|p| p.interface.contextual_task_bar = false);
         if contour {
-            // A final native tool is required. Never activate the Pen rehearsal sentinel.
+            // A final native tool is required. Never substitute the Pen tool.
             app.ui.tool = Tool::Contour;
         }
         app
@@ -238,7 +238,7 @@ fn geometry31_app_gpu_outline_stroke_menu_matches_original_dashes_and_undo() {
     let history = h.state().session.active().unwrap().history.past_len();
     let journal = h.state().session.journal.len();
     let original = parity(&mut h, &before, before.id.0);
-    // 00 supplies this real menu route to V1 path.outlineStroke; never call the command
+    // Use the real menu route to V1 path.outlineStroke; never call the command
     // directly here to disguise an absent UI entry as integrated acceptance.
     h.get_by_label("Layer").click();
     h.run_steps(2);

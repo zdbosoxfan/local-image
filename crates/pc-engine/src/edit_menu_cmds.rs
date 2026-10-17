@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use crate::commands::{CommandSpec, blend_from_str, int, layer_param};
 use crate::{EngineError, Result, Session};
 
-// ------------------------------------------------------------------ state
+// State
 
 /// What Edit › Fade would fade: the result of the last filter, adjustment or paint command.
 #[derive(Clone, Debug, PartialEq)]
@@ -85,7 +85,7 @@ fn crate_fingerprint(s: &Surface) -> u64 {
     })
 }
 
-// ------------------------------------------------------------------ helpers
+// Helpers
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
@@ -130,7 +130,7 @@ fn writable_surface(doc: &mut Document, id: LayerId) -> Result<&mut Surface> {
     l.surface_mut().ok_or_else(|| EngineError::Other("not a pixel layer".into()))
 }
 
-// ------------------------------------------------------------------ Fade
+// Fade
 
 fn can_fade(s: &Session) -> std::result::Result<(), String> {
     let st = s.active().ok_or("no document open")?;
@@ -219,7 +219,7 @@ fn fade(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"faded": src.label, "opacity": opacity * 100.0, "mode": mode.label()}))
 }
 
-// ------------------------------------------------------------------ Purge
+// Purge
 
 fn history_bytes(s: &Session, all: bool) -> usize {
     let docs: Vec<&crate::DocState> = if all { s.documents().iter().collect() } else { s.active().into_iter().collect() };
@@ -285,7 +285,7 @@ fn can_purge_all(s: &Session) -> std::result::Result<(), String> {
         .or_else(|_| if photocraft_compose::effect_cache_bytes() > 0 { Ok(()) } else { Err("nothing to purge".into()) })
 }
 
-// ------------------------------------------------------------------ Content-Aware Fill
+// Content-Aware Fill
 
 /// Content-Aware Fill works on any layer: a pixel layer is filled in place (or per `output`); on
 /// anything else (a shape, type, Smart Object or Develop layer, a locked layer) it samples all
@@ -493,7 +493,7 @@ fn apply_content_aware_fill(
     Ok(json!({"layer": layer.0, "filled": n_hole, "window": [window.x0, window.y0, window.width(), window.height()]}))
 }
 
-// ------------------------------------------------------------------ Content-Aware Scale
+// Content-Aware Scale
 
 fn content_aware_scale(s: &mut Session, p: &Value) -> Result<Value> {
     use photocraft_algo::seam::{carve_with, resize_bilinear, skin_mask};
@@ -579,7 +579,7 @@ fn content_aware_scale(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
-// ------------------------------------------------------------------ Define Brush / Custom Shape
+// Define Brush / Custom Shape
 
 fn define_brush_preset(s: &mut Session, p: &Value) -> Result<Value> {
     let name = match p.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty()) {
@@ -640,7 +640,7 @@ fn define_custom_shape(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"name": name, "count": shapes.len()}))
 }
 
-// ------------------------------------------------------------------ Find and Replace Text
+// Find and Replace Text
 
 /// Byte ranges of `find` in `text` (case-insensitive unless `case`; whole words only with `whole`).
 pub fn find_matches(text: &str, find: &str, case: bool, whole: bool) -> Vec<(usize, usize)> {
@@ -798,7 +798,7 @@ fn find_replace(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-// ------------------------------------------------------------------ presets
+// Presets
 
 /// Libraries the Preset Manager edits (patterns export as `.pat` with `pattern.export`).
 const PRESET_KINDS: [&str; 3] = ["brushes", "customShapes", "patterns"];
@@ -943,7 +943,7 @@ fn export_import(s: &mut Session, p: &Value) -> Result<Value> {
     }
 }
 
-// ------------------------------------------------------------------ specs
+// Specs
 
 macro_rules! spec {
     ($id:literal, $label:literal, [$($m:literal),*], $sc:expr, $params:literal, $en:expr, $run:expr) => {

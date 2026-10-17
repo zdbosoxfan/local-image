@@ -150,7 +150,7 @@ impl Gesture {
         self.mode
     }
 
-    /// Package 07 uses this origin to snap along the same 45-degree construction ray.
+    /// Snapping uses this origin along the same 45-degree construction ray.
     pub fn constraint_origin(&self) -> Point {
         let index = if self.mode == Mode::Line { 0 } else { self.drag.as_ref().map_or_else(|| self.end(), |d| d.knot) };
         self.request.path.subpaths[self.subpath].knots[index].anchor

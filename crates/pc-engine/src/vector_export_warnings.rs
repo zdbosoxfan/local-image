@@ -12,7 +12,7 @@ pub fn collect(doc: &Document) -> Vec<VectorWarning> {
     LossCollector::document(doc).warnings()
 }
 
-/// Other adapters (14/21) pass their structured losses here for the same one-notice behavior.
+/// Other export adapters pass their structured losses here for the same one-notice behavior.
 pub fn notice(format: &str, warnings: &[VectorWarning]) -> Option<String> {
     notice_with(format, warnings, &str::to_owned)
 }

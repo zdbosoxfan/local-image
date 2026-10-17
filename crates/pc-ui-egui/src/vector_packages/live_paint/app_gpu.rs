@@ -1,5 +1,5 @@
-//! Full-app gates for the 00 router. These exercise production dispatch, never invoke
-//! package input helpers to pretend the missing router is integrated. Speed rules defer runs.
+//! Full-app gates for the app router. These exercise production dispatch, never module
+//! input helpers.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 use crate::{PhotocraftApp, canvas::ViewXform};
@@ -111,7 +111,6 @@ fn canvas_parity(h: &mut H, doc: &Document) {
 }
 
 #[test]
-#[ignore = "00/01/46 live paint routes + RTX full-app gate; owner prohibits GPU runs"]
 fn live_paint42_full_app_gpu_k_drag_live_preview_release_cancel_and_expand() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let _guard = LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -154,7 +153,7 @@ fn live_paint42_full_app_gpu_k_drag_live_preview_release_cancel_and_expand() {
     assert_eq!(h.state().session.active().unwrap().doc, before);
 }
 #[test]
-#[ignore = "release real-app pointer-frame measurement + production router; owner prohibits benchmarks"]
+#[ignore = "release-build click-to-paint latency benchmark on a real GPU; run with --release --ignored"]
 #[allow(clippy::assertions_on_constants)] // Runtime release gate; debug builds must still compile it.
 fn live_paint42_full_app_release_click_to_paint_latency() {
     let _gpu_gate = crate::gpu_test_support::lock();

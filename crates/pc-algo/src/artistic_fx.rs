@@ -511,7 +511,7 @@ fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
     let (w, h) = (win.w, win.h);
     let (fg, bg) = (rgb(e.foreground), rgb(e.background));
     match e.filter {
-        // ---------------- Artistic ----------------
+        // Artistic
         F::ColoredPencil => {
             let pw = g("pencilWidth");
             let pressure = g("strokePressure") / 15.0;
@@ -695,7 +695,7 @@ fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
                 win.c[i] = map(saturate(win.c[i], 1.2), |v| clamp01(v * k + n).powf(1.1 + sh * 0.6));
             }
         }
-        // ---------------- Brush Strokes ----------------
+        // Brush Strokes
         F::AccentedEdges => {
             let mut l = win.lum();
             blur1(&mut l, w, h, 0.4 + g("smoothness") * 0.3);
@@ -794,7 +794,7 @@ fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
                 *p = map(*p, |v| clamp01((v - 0.5) * (1.0 + con) + 0.5) * (1.0 - ink * 0.9 * (0.5 + con)));
             }
         }
-        // ---------------- Distort ----------------
+        // Distort
         F::DiffuseGlow => {
             let (gr, ga, ca) = (g("graininess") / 10.0, g("glowAmount") / 20.0, g("clearAmount") / 20.0);
             let thr = 0.2 + ca * 0.7;
@@ -838,7 +838,7 @@ fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
                 win.c[i] = src.sample(x as f32 + 0.5 + dx, y as f32 + 0.5 + dy);
             }
         }
-        // ---------------- Sketch ----------------
+        // Sketch
         F::BasRelief => {
             let mut l = win.lum();
             let orig = l.clone();
@@ -1032,7 +1032,7 @@ fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
                 win.c[i] = map(win.c[i], |v| (v * (0.85 + 0.25 * fib) - 0.5) * (co * 1.6 + 0.2) + 0.5 + (br - 0.5) * 0.8);
             }
         }
-        // ---------------- Stylize ----------------
+        // Stylize
         F::GlowingEdges => {
             blur3(&mut win.c, w, h, 0.3 + g("smoothness") * 0.25);
             let mut e3 = vec![[0.0f32; 3]; win.c.len()];
@@ -1048,7 +1048,7 @@ fn apply(e: &GalleryEffect, win: &mut Win, ctx: &Ctx) {
                 *p = map(*q, |v| clamp01(v * k));
             }
         }
-        // ---------------- Texture ----------------
+        // Texture
         F::Craquelure => {
             let (sp, dep, bri) = (g("crackSpacing"), g("crackDepth") / 10.0, g("crackBrightness") / 10.0);
             let cell = sp * 1.3 + 1.0;

@@ -1,5 +1,4 @@
-//! One progress + cancel readout for background jobs in both halves of the app (duplicate-systems
-//! audit D14): the editor's status bar, job dialog and opening tabs, and the Library's task panel
+//! One progress + cancel readout for background jobs in both halves of the app: the editor's status bar, job dialog and opening tabs, and the Library's task panel
 //! (export, culling, Smart Sort, faces…) draw their bars and job rows here. Fed by a job's
 //! fraction (`lightcraft_sysmem::JobCtl::fraction`: `None` = not reported yet, drawn as an
 //! indeterminate sliding segment). Callers translate labels.

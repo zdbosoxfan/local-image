@@ -100,7 +100,7 @@ pub fn licence_text(path: &str) -> Option<&'static str> {
     LICENCE_TEXTS.iter().find(|(p, _)| *p == path).map(|(_, t)| *t)
 }
 
-// ------------------------------------------------------------------------------ view
+// view
 
 /// The page's state, kept in egui's memory under the caller's salt.
 #[derive(Clone, Debug, Default)]

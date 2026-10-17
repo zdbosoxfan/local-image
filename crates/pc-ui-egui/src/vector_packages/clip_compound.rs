@@ -1,6 +1,6 @@
 //! Draw modes and Layers menu/drag fragments. Original GPL-3.0-or-later UI;
 //! Illustrator drawing modes and Affinity Layer clipping are behavior references.
-//! 00/46 route these entrypoints only in the Vector persona (integration/35.md).
+//! These entrypoints are routed only in the Vector persona.
 use egui::{Color32, Key, Modifiers, Pos2, Rect, Response, Sense, Stroke, Ui};
 use photocraft_doc::{Document, Fill, FillRule, LayerId, Path, ShapeStroke};
 use photocraft_engine::{
@@ -48,7 +48,7 @@ impl State {
             self.cancel();
         }
     }
-    /// 37 supplies its insertion target at Begin. None means use the current selection.
+    /// Isolation supplies its insertion target at Begin. None means use the current selection.
     pub fn begin_draw(&mut self, s: &Session, insertion_target: Option<LayerId>, fill: Option<Fill>, stroke: Option<ShapeStroke>) -> Result<()> {
         self.cancel();
         let st = s.active().ok_or(EngineError::NoDocument)?;
@@ -250,7 +250,7 @@ pub fn draw_mode_widget(ui: &mut Ui, s: &Session, state: &mut State, tr: impl Fn
         }
     });
 }
-/// Package-owned menu fragment; caller places it in Object and Layers context menus.
+/// Menu fragment; caller places it in Object and Layers context menus.
 pub fn context_menu(ui: &mut Ui, s: &mut Session, state: &mut State, tr: impl Fn(&str) -> String) {
     for command in [
         Command::MakeClip,
@@ -340,7 +340,7 @@ pub fn layers_end(ui: &Ui, s: &mut Session, state: &mut State) {
         }
     }
 }
-/// Small Layers host used by package tests; production applies layer_row to existing rows.
+/// Small Layers host used by tests; production applies layer_row to existing rows.
 pub fn layers_fragment(ui: &mut Ui, s: &mut Session, state: &mut State) -> Vec<(LayerId, Rect)> {
     let rows = s.active().map(|st| st.doc.walk().into_iter().rev().map(|(_, depth, l)| (l.id, depth, l.name.clone())).collect::<Vec<_>>()).unwrap_or_default();
     layers_begin(state);

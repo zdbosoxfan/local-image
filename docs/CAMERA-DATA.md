@@ -92,11 +92,10 @@ prints JSON lines with original/calibrated levels and crops, saturation pile-ups
 hue/chroma censuses. Membership is taken from calibrated sensor clipping and sensor-relative bins are
 identical in both images; default crop changes are separately recorded. This is a calibration audit,
 not a universal image-quality score: colored or partly clipped bins need not become neutral.
-See `docs/wip/CODEX-REPORT-camdata.md` for measured results, reference versions and limitations.
 
 Full CC0 repository evaluation: build the audit with `--features testgen`, copy its executable to
 `target/camdata-corpus/camdata_audit`, then run `python3 scripts/camera_corpus.py`. Downloads
 stream to target/ and verify the repository SHA-256; `--download-only` and `--audit-only` split
 those stages. Logs distinguish decoder errors from calibration/header failures. The highlight
 census uses valid-image sensor bins, reanchors black phases/deltas and separates full from partial
-clipping. Numeric summary: `docs/wip/CAMDATA-corpus-metrics.json`.
+clipping.

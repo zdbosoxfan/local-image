@@ -9,17 +9,12 @@
 use li_color::convert::{lab_to_srgb, srgb_to_lab};
 use serde::{Deserialize, Serialize};
 
-use crate::fxutil::gauss_blur_n;
+use crate::fxutil::{gauss_blur_n, smoothstep};
 use crate::other2::{hsl_to_rgb, rgb_to_hsl};
 use crate::photo_util::{par_map, par_rows};
 
 fn luma(c: [f32; 3]) -> f32 {
     li_color::convert::rgb_to_gray([c[0], c[1], c[2]])
-}
-
-fn smoothstep(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
 }
 
 /// Blurred luminance (Gaussian, `radius` px ≈ 2σ like Photoshop's radius fields).
@@ -368,6 +363,24 @@ pub fn hdr_toning(px: &mut [[f32; 4]], w: usize, h: usize, p: &HdrToning) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_smoothstep_matches_plain_formula_for_shadow_highlight_edges() {
+        let plain = |e0: f32, e1: f32, x: f32| {
+            let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
+            t * t * (3.0 - 2.0 * t)
+        };
+        for tone in [0.0f32, 0.01, 0.25, 0.5, 1.0, 2.0, f32::NAN] {
+            let width = tone.max(0.01);
+            for i in -64..=4160 {
+                let x = i as f32 / 4096.0;
+                for (e0, e1) in [(0.0, width), (1.0 - width, 1.0)] {
+                    let (a, b) = (smoothstep(e0, e1, x), plain(e0, e1, x));
+                    assert_eq!(a.to_bits(), b.to_bits(), "{e0} {e1} {x}");
+                }
+            }
+        }
+    }
 
     fn ramp(w: usize, h: usize) -> Vec<[f32; 4]> {
         (0..w * h)

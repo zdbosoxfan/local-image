@@ -44,7 +44,7 @@ impl Sampler for CompositeSampler<'_> {
     }
 }
 
-// ---------------------------------------------------------------- Sky
+// Sky
 
 /// Select › Sky: a background job (the sky model or the classical detector on the whole
 /// composite); the selection mode is applied to the selection when it finishes.
@@ -107,7 +107,7 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
     )
 }
 
-// ---------------------------------------------------------------- Isolate Layers
+// Isolate Layers
 
 fn isolate_layers(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
@@ -132,7 +132,7 @@ pub fn isolation_shows(doc: &Document, isolated: &[LayerId], id: LayerId) -> boo
     doc.layer(id).is_some_and(|l| contains(l, isolated))
 }
 
-// ---------------------------------------------------------------- Transform Selection
+// Transform Selection
 
 fn reference_point(p: &Value, r: [f64; 4]) -> [f64; 2] {
     let (x0, y0, x1, y1) = (r[0], r[1], r[2], r[3]);

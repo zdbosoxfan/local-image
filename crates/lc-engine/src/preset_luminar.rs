@@ -21,7 +21,7 @@ use std::path::Path;
 use crate::crs::Props;
 use crate::preset_import::{Imported, build, group_from_dir, read_zip};
 
-// ----------------------------------------------------------------------------- property lists
+// property lists
 
 /// A value of an XML property list.
 #[derive(Clone, Debug, PartialEq)]
@@ -242,7 +242,7 @@ pub fn parse_plist(bytes: &[u8]) -> Result<Plist, String> {
     p.value()
 }
 
-// ------------------------------------------------------------------------------------ mapping
+// mapping
 
 /// Luminar's colour bands (`h`/`s`/`l` + band in the HSL tool) — the same eight as `crs:`.
 const BANDS: [&str; 8] = ["Red", "Orange", "Yellow", "Green", "Aqua", "Blue", "Purple", "Magenta"];

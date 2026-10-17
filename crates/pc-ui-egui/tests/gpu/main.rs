@@ -55,13 +55,14 @@ mod path_text_app_acceptance;
 #[path = "../appearance/app_acceptance.rs"]
 mod appearance_app_acceptance;
 
-#[path = "../../../pc-engine/src/vector_packages/svg_import/app_acceptance.rs"]
 mod svg_import_app_acceptance;
+
+#[path = "../../../pc-export-common/cases/app_gpu.rs"]
+mod export_app_gpu;
 
 #[path = "../../../pc-svg/tests/export/app_gpu.rs"]
 mod svg_export_app_gpu;
 
-#[path = "../../../pc-engine/src/vector_packages/pdf_import/app_gpu.rs"]
 mod pdf_import_app_acceptance;
 
 #[path = "../../../pc-pdf/tests/export/app_gpu.rs"]

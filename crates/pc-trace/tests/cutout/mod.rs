@@ -1,4 +1,4 @@
-//! Independent exact-area and randomized partition oracles for package 27.
+//! Independent exact-area and randomized partition oracles for the cutout evaluator.
 use super::*;
 use crate::{Fitter, Preset};
 use photocraft_doc::Path;

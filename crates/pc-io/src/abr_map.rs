@@ -46,13 +46,7 @@ pub fn read_abr_with(bytes: &[u8], group: &str, ctl: &lightcraft_sysmem::jobs::I
     map_file_with(&f, group, &lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress)).map_err(|e| e.to_string())
 }
 
-/// Map a parsed file.
-pub fn map_file(f: &AbrFile, group: &str) -> AbrImport {
-    // Never cancelled, so always `Ok`.
-    map_file_with(f, group, &lightcraft_sysmem::jobs::Interrupt::NONE).unwrap_or_default()
-}
-
-/// [`map_file`] that checks `ctl` before each brush.
+/// Map a parsed file, checking `ctl` before each brush.
 pub fn map_file_with(f: &AbrFile, group: &str, ctl: &lightcraft_sysmem::jobs::Interrupt) -> Result<AbrImport, lightcraft_sysmem::jobs::Cancelled> {
     let mut out = AbrImport { version: f.version, warnings: f.warnings.clone(), ..Default::default() };
     let mut m = Mapper { file: f, warnings: BTreeSet::new(), unknown: BTreeSet::new(), remaining: 128 << 20 };
@@ -114,7 +108,7 @@ pub fn map_file_with(f: &AbrFile, group: &str, ctl: &lightcraft_sysmem::jobs::In
     Ok(out)
 }
 
-// ------------------------------------------------------------------ descriptor helpers
+// Descriptor helpers
 
 fn get<'a>(d: &'a Descriptor, k: &str) -> Option<&'a Value> {
     d.get(k)

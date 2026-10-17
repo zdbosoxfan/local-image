@@ -19,7 +19,7 @@ fn error(message: impl Into<String>) -> EngineError {
     EngineError::Other(message.into())
 }
 pub use photocraft_engine::vector_packages::isolation::{ViewMode as Mode, ViewState as State};
-/// Call BEFORE Pixel's proof-colors accelerator. 46 supplies persona/keymap enablement;
+/// Call BEFORE Pixel's proof-colors accelerator. The persona/keymap layer supplies enablement;
 /// text editors and modal dialogs pass enabled=false so typing cannot change canvas modes.
 pub fn shortcuts(ctx: &Context, state: &mut State, enabled: bool) -> bool {
     if !enabled || ctx.egui_wants_keyboard_input() {
@@ -53,11 +53,11 @@ pub fn menu(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) {
         }
     }
 }
-/// Provider uses the same feature projection as 08/09/export. Every returned path is in
+/// Provider uses the same feature projection as the appearance renderer, scaled view and export. Every returned path is in
 /// document coordinates. Raster boxes are added here; glyphs come exclusively from pc-text.
 pub trait Geometry {
     fn paths(&self, doc: &Document, layer: &Layer) -> Result<Vec<Path>>;
-    /// Feature providers override this for live/symbol geometry and reuse 08's fill paints.
+    /// Feature providers override this for live/symbol geometry and reuse the appearance fill paints.
     fn xray_layer(&self, doc: &Document, layer: &Layer) -> Result<Layer> {
         native_xray(doc, layer)
     }
@@ -250,7 +250,7 @@ pub struct Frame {
     pub pixel_preview: bool,
     pub view_key: u64,
 }
-/// Prepare paint policy before 09's scaled projection. The base remains in document space;
+/// Prepare paint policy before the scaled projection. The base remains in document space;
 /// overlays are already in exact device space, never bucket-scaled or persisted.
 pub fn prepare(doc: &Document, state: &State, scope: Scope, document_to_device: Affine, device_clip: Rect, geometry: &dyn Geometry) -> Result<Frame> {
     if scope.document != doc.id || state.document().is_some_and(|id| id != doc.id) {
@@ -411,7 +411,7 @@ impl Frame {
         Ok(())
     }
 }
-/// 09 supplies all shared projection dependency generations (fonts, masters, paints).
+/// The scaled view supplies all shared projection dependency generations (fonts, masters, paints).
 /// Source identity also keys detached previews that deliberately retain the document revision.
 #[derive(Default)]
 pub struct FrameCache {

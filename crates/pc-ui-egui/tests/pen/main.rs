@@ -1,4 +1,4 @@
-//! Package 04 isolated interaction host. Full-app acceptance is supplied separately for 00.
+//! Pen isolated interaction host. Full-app acceptance is separate (app_acceptance.rs).
 macro_rules! tl {
     ($s:expr) => {
         li_i18n::t($s)

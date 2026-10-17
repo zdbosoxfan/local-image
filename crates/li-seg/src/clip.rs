@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "coordinator: requires pinned CLIP bundle"]
+    #[ignore = "requires the pinned CLIP bundle"]
     fn real_bpe_golden_tokens() {
         let dir = PathBuf::from(std::env::var_os("LOCAL_IMAGE_MODELS_DIR").expect("models dir"));
         let bpe = Bpe::load(&companion_path(&dir, "clip-vocab.json"), &companion_path(&dir, "clip-merges.txt")).unwrap();
@@ -282,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "coordinator: requires pinned CLIP bundle and reference images"]
+    #[ignore = "requires the pinned CLIP bundle and reference images"]
     fn real_zero_shot_reference_rankings() {
         let dir = PathBuf::from(std::env::var_os("LOCAL_IMAGE_MODELS_DIR").expect("models dir"));
         let model = Clip::load(&dir, spec("clip-b32-laion").unwrap()).unwrap();

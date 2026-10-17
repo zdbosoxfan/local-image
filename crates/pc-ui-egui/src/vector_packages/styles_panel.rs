@@ -1,5 +1,5 @@
 //! Document Graphic Styles panel. Original Local Image UI; all edits pass through the
-//! captured engine preparation boundary. Persistence hooks belong to package 00.
+//! captured engine preparation boundary. Persistence hooks live outside this module.
 use egui::{Response, Ui};
 use photocraft_doc::Document;
 use photocraft_engine::{

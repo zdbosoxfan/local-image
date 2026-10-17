@@ -400,7 +400,7 @@ fn finish_open(
     Ok(())
 }
 
-// ------------------------------------------------------------------------------------- drawing
+// Drawing
 
 // Bars and percentages are the shared progress widget (`li_ui_kit::progress`, also the
 // Library's task panel): nothing reported yet = an indeterminate bar and no number.

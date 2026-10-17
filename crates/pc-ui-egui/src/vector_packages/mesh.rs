@@ -296,16 +296,6 @@ impl State {
         }
         Ok(())
     }
-    /// Swatches and the existing eyedropper call this same point-colour command path.
-    pub fn apply_color(&mut self, s: &mut Session, color: [f32; 4], opacity: f32) -> Result<()> {
-        let (layer, index) = self.selected.ok_or_else(|| error("select a mesh point"))?;
-        self.cancel();
-        let mut g = Gesture::begin(s, &[layer], None)?;
-        g.update(|_, m| m.set_color(index, color, opacity))?;
-        g.commit(s)?;
-        self.color = color;
-        Ok(())
-    }
     /// The same widget emits detached actions for production dispatch and headless replay.
     pub fn point_controls_with(&mut self, ui: &mut Ui, s: &Session, swatches: &[[f32; 4]], hooks: Hooks) -> Result<Vec<Action>> {
         let mut actions = Vec::new();

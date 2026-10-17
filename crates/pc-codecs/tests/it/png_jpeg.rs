@@ -5,9 +5,7 @@ use crate::common;
 use common::*;
 use photocraft_codecs::*;
 
-// ---------------------------------------------------------------------------
 // PNG Adam7
-// ---------------------------------------------------------------------------
 
 fn interlaced(img: &Image) -> Vec<u8> {
     encode(img, Format::Png, &EncodeOptions { png_interlaced: true, ..Default::default() }).unwrap()
@@ -93,9 +91,7 @@ fn png_palette_and_low_bit_depth_expand() {
     assert_eq!((img.layout(), img.data()), (ChannelLayout::Rgba, &[255u8, 0, 0, 128, 0, 0, 255, 255][..]));
 }
 
-// ---------------------------------------------------------------------------
 // JPEG colour models
-// ---------------------------------------------------------------------------
 
 #[test]
 fn jpeg_grayscale_decodes_as_gray() {
@@ -159,9 +155,7 @@ fn jpeg_progressive_from_other_encoder_decodes() {
     assert!(psnr(&img, &back) > 25.0);
 }
 
-// ---------------------------------------------------------------------------
 // Oracle: files we write are readable by the image crate
-// ---------------------------------------------------------------------------
 
 #[test]
 fn png_output_matches_oracle_all_layouts() {
@@ -195,10 +189,8 @@ fn tiff_f32_output_matches_oracle() {
     assert_eq!(o, img.to_f32_samples().unwrap());
 }
 
-// ---------------------------------------------------------------------------
 // PngSuite corpus (repo-root corpus/pngsuite/*.png; feature `corpus`, fetched by
 // `cargo xtask corpus --all`; missing = failure)
-// ---------------------------------------------------------------------------
 
 #[cfg(feature = "corpus")]
 #[test]

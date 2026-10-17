@@ -37,9 +37,7 @@ fn file_photo(id: u64, path: &Path, name: &str) -> Photo {
     Photo::new(PhotoId(id), Source::File { path: path.to_string_lossy().to_string() }, name, "JPG", 1, 1, "2026-01-01T00:00:00")
 }
 
-// -----------------------------------------------------------------------------
 // Token expansion and template machinery
-// -----------------------------------------------------------------------------
 
 #[test]
 fn expand_tokens_knows_every_documented_token_and_alias() {
@@ -173,9 +171,7 @@ fn token_help_json_and_summary_are_consistent() {
     }
 }
 
-// -----------------------------------------------------------------------------
 // File moving
-// -----------------------------------------------------------------------------
 
 #[test]
 fn move_file_renames_photo_and_sidecars() {
@@ -264,9 +260,7 @@ fn move_file_shared_stem_sidecar_is_copied_not_taken() {
     assert_eq!(fs::read(dir.join("Trip_2.xmp")).unwrap(), b"shared-xmp");
 }
 
-// -----------------------------------------------------------------------------
 // Session rename planning and application
-// -----------------------------------------------------------------------------
 
 #[test]
 fn session_plan_rename_resolves_collisions() {

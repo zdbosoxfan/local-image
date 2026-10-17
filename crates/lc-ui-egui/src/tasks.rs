@@ -1,4 +1,4 @@
-//! The Library's background-task runner, on the editor's job model (duplicate-systems audit D14):
+//! The Library's background-task runner, on the editor's job model:
 //! work runs on a worker thread against what it captured, its result is applied on the UI thread
 //! between frames, and every task carries one [`JobCtl`] — real cancel (the worker sees it at its
 //! next check; a cancelled task's result is discarded, so the library is left as it was) and
@@ -123,7 +123,7 @@ pub fn spawn_job<T: Send + 'static>(
     std::thread::Builder::new()
         .name(format!("lc-task-{label}"))
         .spawn(move || {
-            // A task the user started and can watch (threading rule 7), like the editor's jobs.
+            // A task the user started and can watch, like the editor's jobs.
             lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
             run()
         })

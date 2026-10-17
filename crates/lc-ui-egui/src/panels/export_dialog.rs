@@ -478,7 +478,7 @@ fn dim(ui: &mut Ui, text: &str) {
     });
 }
 
-// ------------------------------------------------------------------------------------------ presets
+// presets
 
 fn presets(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog, body_h: f32) {
     let t = Tokens::get(ui.ctx());
@@ -573,7 +573,7 @@ fn presets(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog, body_h: f32) 
     }
 }
 
-// ------------------------------------------------------------------------------------------ sections
+// sections
 
 fn location(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) {
     let Dialog::Export { opts, dir, add_to_library, add_to_stack, ask_existing, .. } = dlg else { return };

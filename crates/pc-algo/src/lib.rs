@@ -297,7 +297,7 @@ pub enum FilterParams {
         mode: PolarMode,
     },
 
-    // ---- Pixelate ----
+    // Pixelate
     /// Max dot radius px (4–127); screen angles per channel in degrees.
     ColorHalftone {
         max_radius: f32,
@@ -321,7 +321,7 @@ pub enum FilterParams {
         background: [f32; 4],
     },
 
-    // ---- Stylize ----
+    // Stylize
     Diffuse {
         mode: DiffuseMode,
         seed: u32,
@@ -367,7 +367,7 @@ pub enum FilterParams {
         seed: u32,
     },
 
-    // ---- Distort ----
+    // Distort
     /// Scales in % (−999…999; 100 % = 128 px at full map contrast). The map is
     /// supplied by the caller (another document, layer or file).
     Displace {
@@ -390,7 +390,7 @@ pub enum FilterParams {
         style: ZigZagStyle,
     },
 
-    // ---- Render ----
+    // Render
     /// Variance 1–64, strength 1–64; colours straight sRGB RGBA.
     Fibers {
         variance: f32,
@@ -428,7 +428,7 @@ pub enum FilterParams {
         softness: f32,
     },
 
-    // ---- Noise ----
+    // Noise
     /// Strength 0–10, the rest 0–100 %.
     ReduceNoise {
         strength: f32,
@@ -438,7 +438,7 @@ pub enum FilterParams {
         remove_jpeg_artifact: bool,
     },
 
-    // ---- Blur ----
+    // Blur
     /// Radius 0.1–100 px, threshold 0.1–100 levels.
     SmartBlur {
         radius: f32,
@@ -472,7 +472,7 @@ pub enum FilterParams {
         shape: BlurShape,
     },
 
-    // ---- Blur Gallery ----
+    // Blur Gallery
     /// Centre fractions, angle degrees, focus/transition as fractions of the bounds' shorter side.
     TiltShift {
         blur: f32,
@@ -495,7 +495,7 @@ pub enum FilterParams {
         paths: Vec<BlurPath>,
     },
 
-    // ---- Other ----
+    // Other
     /// 5×5 kernel (row-major, centre = index 12), divided by `scale`, plus `offset` levels.
     Custom {
         kernel: Vec<f32>,
@@ -507,7 +507,7 @@ pub enum FilterParams {
         output: HsbModel,
     },
 
-    // ---- Video ----
+    // Video
     /// Removes the even (or odd) lines and rebuilds them by interpolation (or duplication).
     DeInterlace {
         eliminate_even: bool,

@@ -25,7 +25,7 @@ fn error(s: impl Into<String>) -> EngineError {
 fn point(p: [f64; 2]) -> Result<()> {
     if p.iter().all(|v| v.is_finite() && v.abs() <= LIMIT) { Ok(()) } else { Err(error("measurement coordinates must be finite and bounded")) }
 }
-/// Optional persistence contract for 00. A 1:100 drawing has factor=100.
+/// Optional persistence contract. A 1:100 drawing has factor=100.
 /// Absence in old documents means 1:1; readings themselves must never be serialized.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -174,7 +174,7 @@ impl Gesture {
             return Ok(snap);
         }
         // VC Measure rotates the raw vector onto the constrained ray without
-        // changing its length (geom::constrain_angle), unlike 07's angle-guide projection.
+        // changing its length (geom::constrain_angle), unlike the snapping angle-guide projection.
         let length = d[0].hypot(d[1]);
         let p = [self.start[0] + length * unit[0], self.start[1] + length * unit[1]];
         point(p)?;
@@ -404,7 +404,7 @@ impl AreaCache {
         })
     }
 }
-/// Prepared metadata-only edit for 00's document/artboard persistence hook. No caches
+/// Prepared metadata-only edit for the document/artboard persistence hook. No caches
 /// change. The setter must only update the requested scale field; Session::edit is atomic.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

@@ -4,7 +4,7 @@
 //! stage, both read the same resolved parameters ([`lightcraft_pipeline::Plan`],
 //! [`lightcraft_pipeline::finish::FinishParams`]), and the equivalence tests (`tests/`) render the
 //! same settings on both and bound the difference in 8-bit previews and 16-bit output. Stages
-//! without a kernel run on the CPU inside the same render (per-stage hybrid); see `docs/gpu-pipeline.md`.
+//! without a kernel run on the CPU inside the same render (per-stage hybrid).
 //!
 //! Which backends wgpu may load (DX12 only on Windows; `LOCAL_IMAGE_GPU_BACKEND`, `WGPU_BACKEND`) is
 //! decided by the shared [`li_gpu::backend`] (issue #136).
@@ -633,9 +633,6 @@ pub fn render_hs_candidate(
                     ctx::FailKind::Limit | ctx::FailKind::Blank => format!("{what}: {}", f.reason),
                 };
                 log::warn!("gpu: rendering on the CPU instead: {reason}");
-                if render::profiling() {
-                    eprintln!("  gpu fallback to the CPU: {reason}");
-                }
                 record_fallback(reason);
                 None
             }

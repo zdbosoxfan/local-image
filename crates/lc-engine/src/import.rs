@@ -899,7 +899,7 @@ impl ImportJob {
         crate::memory::release();
         // Copies (copy, sync, verify; optional DNG conversion) run on a bounded group of threads
         // while this loop goes on in file order; everything that decides names, folders, sequence
-        // numbers and duplicates stays here, in order (threading rules 6, 10, 11).
+        // numbers and duplicates stays here, in order.
         // never more copy threads than files (a single file is copied right here)
         let workers = if cfg!(target_arch = "wasm32") {
             1
@@ -1514,7 +1514,7 @@ pub fn commit_prepared(s: &mut Session, opts: &ImportOptions, now: &str, prepare
                     // (browsing a folder in Local only looks: it never restores)
                     Some(id) if opts.on_deleted == OnDeleted::Restore && !opts.local => {
                         if !report.restored.contains(&id.0) {
-                            ops.push(Op::SetDeleted { id, deleted: false });
+                            ops.push(Op::SetDeleted { id, deleted: false, deleted_at: None });
                             // matched by content from another path, and the file the record points
                             // at is gone (moved, renamed): the photo follows the file
                             if reason == "content" && trashed_file_is_gone(&s.catalog, id) {
@@ -1754,7 +1754,7 @@ mod shared_decode_registry_tests {
     }
 }
 
-/// J24: one content identity (BLAKE3) for duplicates, Reload and Find Missing.
+/// One content identity (BLAKE3) for duplicates, Reload and Find Missing.
 #[cfg(test)]
 mod j24_identity_tests {
     use lightcraft_catalog::PhotoId;

@@ -1,4 +1,4 @@
-//! Package 13 dialog/canvas adapter. State is transient; routing is owned by package 00.
+//! SVG import dialog/canvas adapter. State is transient.
 use egui::{Context, Event, Key, PointerButton, Pos2, Rect, Ui};
 use photocraft_doc::{
     Document, LayerId,

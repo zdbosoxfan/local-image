@@ -1,4 +1,4 @@
-//! Package 00 registers this module in its GPU binary. Real full-app pointer/preview/release,
+//! Registered in the GPU binary. Real full-app pointer/preview/release,
 //! repeated GPU cache invalidation, zoom and undo; no window, fallback or adapter skip.
 use egui::{Event, Modifiers, PointerButton, Pos2};
 use egui_kittest::{Harness, kittest::Queryable};

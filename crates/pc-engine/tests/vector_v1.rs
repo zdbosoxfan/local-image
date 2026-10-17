@@ -276,7 +276,7 @@ fn checked_in_shapes_fixture_with_missing_defaults_loads() {
 }
 
 #[test]
-#[ignore = "interactive command performance on the owner machine"]
+#[ignore = "interactive command performance benchmark; run explicitly"]
 fn interactive_thousand_node_boolean_includes_cache_and_history() {
     let mut s = session();
     let mut ids = Vec::new();

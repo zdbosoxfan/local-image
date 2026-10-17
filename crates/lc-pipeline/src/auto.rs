@@ -7,7 +7,6 @@ use lightcraft_raster::Rgb32f;
 use serde::Serialize;
 
 use crate::SourceInfo;
-use crate::local::effective_wb;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
 pub struct AutoTone {
@@ -131,11 +130,6 @@ pub fn auto_wb(src: &Rgb32f, info: &SourceInfo) -> (f64, f64) {
     let seen = bradford(REC2020.white, shot).apply(xyz);
     let (t, tint) = xy_to_temp_tint(Xy::from_xyz(seen));
     (t.clamp(2000.0, 50000.0).round(), tint.clamp(-150.0, 150.0).round())
-}
-
-/// Temperature/tint currently in effect (for UI display).
-pub fn current_wb(info: &SourceInfo, s: &DevelopSettings) -> (f64, f64) {
-    effective_wb(info, s)
 }
 
 #[cfg(test)]

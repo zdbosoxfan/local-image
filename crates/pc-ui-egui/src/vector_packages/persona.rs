@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use crate::PhotocraftApp;
 use crate::state::Tool;
 
-/// Each feature supplies these exact entrypoints to 00's serial router. A missing hook is
+/// Each feature supplies these exact entrypoints to the router. A missing hook is
 /// unavailable; it must not fall through to a raster tool's input handler.
 pub struct FeatureHooks {
     pub pointer: fn(&mut PhotocraftApp, crate::canvas::ToolEvent, Modifiers) -> bool,
@@ -30,7 +30,7 @@ struct Observed {
 }
 
 /// Captured before a gesture or a delayed operation. Revision, document and the entire target
-/// set must still match at release. Feature packages can reuse this for detached previews.
+/// set must still match at release. Features can reuse this for detached previews.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GestureTarget {
     pub doc: DocId,
@@ -52,7 +52,7 @@ impl GestureTarget {
     }
 }
 
-/// 00 stores this as a serde-skipped field in UiState and invokes before the shared canvas
+/// The app stores this as a serde-skipped field in UiState and invokes before the shared canvas
 /// router, including automation. Unlike a frame observer, it protects a same-frame release.
 #[derive(Clone, Debug, Default)]
 pub struct PointerGuard {
@@ -106,7 +106,7 @@ impl PointerGuard {
     }
 }
 
-/// Add this capture to the existing rasterization dialog at open; 00 calls the paired check
+/// Add this capture to the existing rasterization dialog at open; the app calls the paired check
 /// before its existing rasterize-and-paint confirmation. All metadata stays out of UI text.
 pub fn capture_rasterize_prompt(app: &PhotocraftApp, fields: &mut serde_json::Map<String, Value>) -> Result<(), String> {
     let target = GestureTarget::capture(app).ok_or_else(|| tl!("No document").to_string())?;
@@ -160,7 +160,7 @@ fn memory_key() -> egui::Id {
     egui::Id::new("vector-persona-observed")
 }
 
-/// Called before chrome/canvas each frame (00 also calls this when chrome is hidden). The
+/// Called before chrome/canvas each frame (also called when chrome is hidden). The
 /// owned toolbar and context bar use it already. Automation changes use the same prefs.
 pub fn frame(app: &mut PhotocraftApp, ctx: &Context) {
     if let Some(document) = app.ui.photo_admission.take()
@@ -298,8 +298,8 @@ pub fn switcher(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     });
 }
 
-/// Stable vector slots, resolved through the shell registry after 00 adds the reserved Tool
-/// variants. Existing tools work now; no absent tool is silently mapped to a raster tool.
+/// Stable vector slots, resolved through the shell registry via the reserved Tool
+/// variants. No absent tool is silently mapped to a raster tool.
 pub fn vector_slots() -> Vec<(usize, Vec<Tool>)> {
     let registered: Vec<_> = VECTOR_TOOLS.iter().map(|entry| entry.id).filter(|id| Tool::from_name(id).is_some()).collect();
     photocraft_engine::vector_toolbar_layout::groups(&registered, None)

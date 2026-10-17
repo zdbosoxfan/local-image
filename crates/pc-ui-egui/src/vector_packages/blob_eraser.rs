@@ -1,7 +1,7 @@
 //! Blob Brush / vector Eraser pointer capture, adapted from VectorCraft
 //! crates/tools/src/draw2/gesture.rs at d522c1d7be4035bd4f4a84cd6ebfca44f5155092.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors. MIT OR Apache-2.0.
-//! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE} and integration/40.md.
+//! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
 use crate::canvas::{ToolEvent, ViewXform};
 use photocraft_doc::Document;
 use photocraft_engine::{

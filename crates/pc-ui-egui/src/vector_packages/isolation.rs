@@ -5,7 +5,7 @@ use egui::{Context, Key, PointerButton, Response, Ui};
 use photocraft_doc::{DocId, Document, LayerId};
 use photocraft_engine::{
     EngineError, Result, Session,
-    vector_packages::isolation::{self as engine, Capture, Target},
+    vector_packages::isolation::{self as engine, Capture},
 };
 
 #[derive(Clone, Debug, Default)]
@@ -51,7 +51,7 @@ impl State {
     }
 }
 /// Pointer-down capture belongs to the same response used for double-click/thumbnail
-/// release. The caller passes the hit from 32 (wireframe hit in Outline mode).
+/// release. The caller passes the hit from the outline view (wireframe hit in Outline mode).
 pub fn canvas(ui: &Ui, response: &Response, session: &mut Session, state: &mut State, hit: Option<LayerId>, enabled: bool) -> Result<bool> {
     if !enabled {
         state.cancel();
@@ -168,7 +168,7 @@ pub fn select(session: &mut Session, state: &State, ids: &[LayerId]) -> Result<(
     Ok(())
 }
 
-/// 00 stores this bridge in egui's temporary state and calls frame before any canvas or
+/// The app stores this bridge in egui's temporary state and calls frame before any canvas or
 /// accelerator dispatch. It is not serialized into prefs/documents.
 #[derive(Clone, Debug, Default)]
 pub struct Bridge {
@@ -188,7 +188,7 @@ pub fn bridge(ctx: &Context) -> Bridge {
 pub fn store(ctx: &Context, bridge: Bridge) {
     ctx.data_mut(|d| d.insert_temp(key(), bridge));
 }
-/// Returns true when 00 must cancel all pending drawing/transform/selection gestures.
+/// Returns true when the caller must cancel all pending drawing/transform/selection gestures.
 /// Persona/document switches are cancellation boundaries even with no active isolation.
 pub fn frame(app: &mut crate::PhotocraftApp, ctx: &Context) -> bool {
     let mut b = bridge(ctx);
@@ -230,7 +230,7 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &Context) -> bool {
     owner_changed || document_changed || changed || escaped || toggled || generation_changed
 }
 /// Scope and view preparation are evaluated from the same source document, including
-/// detached gesture previews. Revision/source Arc/dependency generations join view_key in 09.
+/// detached gesture previews. Revision/source Arc/dependency generations join view_key in the scaled view.
 pub fn prepare(
     ctx: &Context,
     source: &Document,
@@ -242,25 +242,16 @@ pub fn prepare(
     view_modes::prepare(source, &b.views, b.isolation.scope.scope(source)?, transform, clip, projection)
 }
 /// New objects use the engine insertion-target API (document/group, symbol master local
-/// coordinates, or package 35's compound provider); never silently insert at the document root.
+/// coordinates, or the compound-path provider); never silently insert at the document root.
 pub fn insertion_target(ctx: &Context, doc: &Document) -> Result<engine::InsertionTarget> {
     bridge(ctx).isolation.scope.insertion_target(doc)
-}
-/// 32 currently exposes group-only Scope.isolation. This adapter supplies the native group
-/// case; compound/symbol queries must use engine::Scope/select_all until 00 extends 32.
-pub fn group_scope(ctx: &Context) -> Result<Option<LayerId>> {
-    match bridge(ctx).isolation.scope.current() {
-        Some(Target::Group { layer }) => Ok(Some(layer)),
-        None => Ok(None),
-        _ => Err(EngineError::Other("package 32 must use the compound/symbol isolation scope query".into())),
-    }
 }
 #[cfg(test)]
 #[path = "isolation/tests.rs"]
 mod tests;
 
 /// Store every menu/row/canvas change to the same authoritative session stores installed
-/// by 00, before another frame or an automation query reads them.
+/// by the host, before another frame or an automation query reads them.
 pub fn store_session(session: &mut Session, ctx: &Context, b: Bridge) {
     engine::publish_view_state(session, &b.isolation.scope);
     engine::publish_view(session, &b.views);

@@ -1,4 +1,4 @@
-//! Production hooks for 00's serial canvas/router lane. State is kept separately from
+//! Production hooks for the canvas/router. State is kept separately from
 //! source documents. Display projection is shared by GPU, CPU fallback, Navigator and export.
 use super::*;
 use crate::{PhotocraftApp, canvas::ViewXform, state::Tool};

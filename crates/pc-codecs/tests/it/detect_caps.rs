@@ -5,9 +5,7 @@ use crate::common;
 use common::*;
 use photocraft_codecs::*;
 
-// ---------------------------------------------------------------------------
 // Symmetric guarantee
-// ---------------------------------------------------------------------------
 
 #[test]
 fn every_enabled_format_is_symmetric_or_whitelisted() {
@@ -111,9 +109,7 @@ fn caps_function_matches_method() {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Detection
-// ---------------------------------------------------------------------------
 
 #[test]
 fn detect_encoded_output_of_every_format() {
@@ -224,9 +220,7 @@ fn decode_unknown_is_error() {
     assert!(matches!(decode(b"garbage garbage"), Err(CodecError::UnknownFormat)));
 }
 
-// ---------------------------------------------------------------------------
 // Extensions
-// ---------------------------------------------------------------------------
 
 #[test]
 fn extensions_map_back() {

@@ -52,7 +52,7 @@ impl<S: LineSink> LineSink for WarpSink<'_, S> {
 /// Draws every glyph and decoration of `layout` whose style colour is `color` (or all of them
 /// when `color` is `None`) into `sink`, through `transform` (text space → sink space), bending
 /// the outlines with `warp` first (in text space).
-fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>) {
+pub fn draw(layout: &TextLayout, transform: &Xform, sink: &mut impl LineSink, only_color: Option<&Color>, warp: Option<&Warp>) {
     for g in &layout.glyphs {
         let st = &layout.styles[g.style as usize];
         if only_color.is_some_and(|c| c != &st.color) {
@@ -131,7 +131,7 @@ pub fn layout_warp(layout: &TextLayout, warp: Option<&photocraft_doc::text::Text
 }
 
 /// Colour components in `format`'s model (without alpha).
-fn color_in(format: &PixelFormat, c: &Color) -> Vec<f32> {
+pub fn color_in(format: &PixelFormat, c: &Color) -> Vec<f32> {
     let n = format.mode.color_channels();
     if c.mode == format.mode {
         c.c[..n].to_vec()

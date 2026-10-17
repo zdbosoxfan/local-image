@@ -9,7 +9,6 @@ Upstream reference checkout was read-only and HEAD verified as
 Read `effects/{distort,stylize,util,warp,live}.rs`, `doc/live.rs`,
 `engine/cmd/effectcmd.rs` and its edit tests. No source is fetched during tests.
 Notices: repository `licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}`.
-Attribution row fragment: `docs/wip/vector-tasks/integration/45.md`.
 
 Official behavior source (accessed 2026-10-10):
 https://helpx.adobe.com/illustrator/using/appearance-attributes.html

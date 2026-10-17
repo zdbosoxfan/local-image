@@ -167,7 +167,6 @@ fn live_paint42_ui_k_bucket_data_dependency_and_numeric_width_type() {
     assert!(h.state().session.journal.is_empty());
 }
 #[test]
-#[ignore = "00 native LivePaint data dependency; integrated bucket click/drag/Shift edge acceptance"]
 fn live_paint42_ui_k_click_drag_shift_edge_and_expand_pixels() {
     let mut h = harness(Keymap::Illustrator);
     h.key_press(Key::K);

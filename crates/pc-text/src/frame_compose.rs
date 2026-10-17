@@ -2,8 +2,8 @@
 //!
 //! No alternate shaper/renderer is used. The disabled route is the native layout exactly.
 //! Bidi, vertical, tabs, discretionary/dictionary hyphenation and complex-script breaking
-//! remain native until a cluster-safe adapter for those cases is audited. Integration owns
-//! persisting Options beside TextLayer and selecting this hook during cache refresh.
+//! remain native until a cluster-safe adapter for those cases is audited. The caller persists
+//! Options beside TextLayer and selects this hook during cache refresh.
 use std::ops::Range;
 
 use crate::{TextEngine, layout::TextLayout};

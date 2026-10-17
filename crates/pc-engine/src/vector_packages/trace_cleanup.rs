@@ -1,5 +1,5 @@
-//! Package 26's detached evaluator and guarded publication helper for package 28.
-//! Public layer.vectorize command IDs and dialog routing remain owned by package 28.
+//! Detached cleanup evaluator and guarded publication helper for the trace dialog.
+//! Public layer.vectorize command IDs and dialog routing live in the trace dialog.
 mod transaction;
 use crate::commands::CommandSpec;
 pub use pc_trace::cleanup::{Options, Output, Stats, Upscale};

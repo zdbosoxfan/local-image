@@ -1,8 +1,7 @@
-//! Real-GPU gate supplied for integration; owner speed rules forbid executing it here.
+//! Real-GPU eraser parity gate.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
 #[test]
-#[ignore = "owner speed rules: coordinator RTX 5090 integration acceptance"]
 fn blob40_gpu_rtx5090_vulkan_preview_release_eraser_and_undo_pixels() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = crate::gpu_test_support::compositor_device("blob40");

@@ -1,9 +1,0 @@
-key	en
-library_vectorize.context	Vectorize in Compositing…
-library_vectorize.unavailable	Compositing isn't available here
-library_vectorize.requires_file	Vectorize requires a photo file
-library_vectorize.stale_photo	The photo changed; try Vectorize again
-library_vectorize.stale_document	The loaded photo changed; try Vectorize again
-library_vectorize.busy	A photo is already opening for Vectorize
-library_vectorize.missing_document	The open job returned no photo document
-library_vectorize.requires_raster	Vectorize requires a raster photo layer

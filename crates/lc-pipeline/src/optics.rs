@@ -568,7 +568,7 @@ impl LensReal for Interval {
     }
 }
 
-// ------------------------------------------------------------------------------------------ lateral CA
+// lateral CA
 
 /// Estimate lateral chromatic aberration: the radial magnification of the red and blue planes relative to green
 /// (`[α_R, α_B]`, dimensionless; red edges sit at `r·(1 + α_R)`). Strong, radially oriented green edges are
@@ -733,7 +733,7 @@ fn estimate_lateral_ca_uncached(img: &Rgb32f) -> [f64; 2] {
     [fit(&obs[0]), fit(&obs[1])]
 }
 
-// ------------------------------------------------------------------------------------------ defringe
+// defringe
 
 /// OkLab hue (degrees) spanned by the purple hue slider (0..100) and the green one.
 const PURPLE_HUES: (f32, f32) = (240.0, 360.0);

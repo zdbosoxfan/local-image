@@ -8,11 +8,7 @@ use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 
 pub use photocraft_compose::bounds::content_bounds;
-
-/// Bounds of a layer's own pixels: `photocraft_compose::layer_bounds`.
-pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
-    photocraft_compose::layer_bounds(layer, canvas)
-}
+pub use photocraft_compose::{composite_bounds, layer_bounds, transparent_outside};
 
 /// The region a layer's effect maps cover: its effect source bounds (for a group, its children
 /// with their own effects: `photocraft_compose::effect_source_bounds`, upstream 980cf05b) grown by
@@ -20,16 +16,6 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
 pub fn effect_region(layer: &Layer, canvas: Rect) -> Rect {
     let m = photocraft_compose::effects::margin(layer);
     photocraft_compose::effect_source_bounds(layer, canvas).inflate(m).intersect(&canvas.inflate(m))
-}
-
-/// `photocraft_compose::transparent_outside`.
-pub fn transparent_outside(layer: &Layer) -> bool {
-    photocraft_compose::transparent_outside(layer)
-}
-
-/// `photocraft_compose::composite_bounds`: where compositing the layer can change anything.
-pub fn composite_bounds(layer: &Layer, canvas: Rect) -> Option<Rect> {
-    photocraft_compose::composite_bounds(layer, canvas)
 }
 
 #[cfg(test)]

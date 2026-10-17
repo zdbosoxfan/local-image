@@ -1,4 +1,4 @@
-//! Full-app RTX acceptance source for 00, registered only AFTER its canvas/menu hooks.
+//! Full-app RTX acceptance; needs the canvas/menu hooks.
 //! No test-only projection injection: real PhotocraftApp events, GpuCanvas and UI controls.
 use eframe::egui_wgpu::{self, wgpu};
 use egui::{Event, Modifiers, PointerButton};
@@ -41,7 +41,6 @@ fn pointer(h: &mut Harness<'_, PhotocraftApp>, x: f32, y: f32, pressed: Option<b
     h.run_steps(1);
 }
 #[test]
-#[ignore = "requires 00 canvas/menu integration and RTX GPU; speed rules defer execution"]
 fn blend18_full_app_rtx_live_preview_release_expand_cancel_and_undo() {
     let _gpu_gate = crate::gpu_lock();
     let mut h = Harness::builder().with_size(egui::vec2(1500., 1000.)).wgpu_setup(setup()).build_eframe(|cc| {

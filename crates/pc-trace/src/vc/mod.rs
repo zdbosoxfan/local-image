@@ -1,5 +1,4 @@
 //! Minimal image storage for the visioncortex port; no bit-vec dependency.
-#![allow(dead_code)]
 mod bound;
 mod color;
 pub mod color_clusters;
@@ -19,9 +18,6 @@ pub struct ColorImage {
 impl ColorImage {
     pub fn new() -> Self {
         Self::default()
-    }
-    pub fn new_w_h(width: usize, height: usize) -> Self {
-        Self { width, height, pixels: vec![0; width * height * 4] }
     }
     pub fn get_pixel(&self, x: usize, y: usize) -> Color {
         let i = (y * self.width + x) * 4;
@@ -120,9 +116,6 @@ impl BinaryClusters {
     }
     pub fn get_cluster(&self, i: usize) -> &BinaryCluster {
         &self.0[i]
-    }
-    pub fn iter(&self) -> std::slice::Iter<'_, BinaryCluster> {
-        self.0.iter()
     }
 }
 pub struct Shape;

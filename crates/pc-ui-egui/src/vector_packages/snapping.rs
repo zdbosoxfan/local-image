@@ -1,4 +1,4 @@
-//! Snapping manager and captured pointer bridge for package 00's canvas router.
+//! Snapping manager and captured pointer bridge for the canvas router.
 //! State owns no document edits: every Action carries final snapped geometry for the
 //! tool's detached preview or its single engine commit. Releasing re-queries the raw
 //! pointer with CURRENT modifiers, never the already-snapped preview position.

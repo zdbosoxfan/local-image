@@ -22,7 +22,6 @@ fn parity(c: &mut Compositor, d: &wgpu::Device, q: &wgpu::Queue, doc: &Document)
 }
 
 #[test]
-#[ignore = "integration gate: real RTX 5090 Vulkan required; task speed rules prohibit execution"]
 fn width_gpu_profile_strokes_preview_release_and_undo() {
     let _gpu_gate = li_testkit::gpu::lock();
     let (device, queue) = device();

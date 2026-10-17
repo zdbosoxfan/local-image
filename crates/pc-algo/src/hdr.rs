@@ -7,7 +7,7 @@ use lightcraft_merge::editor::hdr::{MergeOptions, Merged, estimate_exposures, me
 fn luma(c: [f32; 4]) -> f32 {
     li_color::luminance_709([c[0], c[1], c[2]])
 }
-// ---------- tone mapping ----------
+// Tone mapping
 
 /// The four 16/8-bit conversion methods of Merge to HDR Pro / HDR Toning.
 #[derive(Clone, Debug, PartialEq)]
@@ -231,7 +231,7 @@ mod j19_parity {
         let opts = MergeOptions { exposures: vec![0.5, 1.0, 2.0], remove_ghosts: false, ghost_base: Some(1), response: Some(response) };
         let actual = merge(w, h, &imgs, &opts).unwrap();
         let shared = lightcraft_merge::editor::hdr::merge(w, h, &imgs, &opts).unwrap();
-        // Captured from the pre-J19 independent implementation; target/j19/logs/baseline-goldens.log.
+        // Goldens captured from an independent reference implementation.
         let golden = [
             [0.04999948, 0.03999894, 0.029998705, 0.7],
             [0.100998975, 0.08079933, 0.060598865, 0.7],

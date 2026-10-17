@@ -643,7 +643,7 @@ mod tests {
         assert!(cov(&s, 30, 50) >= 0.5 && cov(&s, 130, 50) < 0.5);
     }
 
-    // ------------------------------------------------ background jobs (audit F13)
+    // Background jobs (audit F13)
 
     use crate::jobs::{JobEvent, JobId, JobOutcome, Started};
     use crate::seg::{MockModel, mock_subject_model_on_thread};
