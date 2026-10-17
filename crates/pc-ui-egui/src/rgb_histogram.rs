@@ -12,6 +12,13 @@ pub(crate) fn paint_sample(painter: &egui::Painter, rect: Rect, rgb: [f32; 3], t
 }
 
 #[cfg(test)]
+#[path = "../../li-ui-kit/tests/reference/histogram_editor.rs"]
+mod previous_editor;
+#[cfg(test)]
+#[path = "../../li-ui-kit/tests/reference/histogram_library.rs"]
+mod previous_library;
+
+#[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
@@ -67,5 +74,51 @@ mod tests {
                 }
             }
         }
+    }
+    #[test]
+    fn j18_histogram_cpu_pixels_match_frozen_profiles() {
+        let channels: [[u32; 256]; 3] = std::array::from_fn(|c| std::array::from_fn(|i| ((i * (c + 1) * 73 + c * 37) % 101) as u32));
+        let wide = channels.map(|c| c.map(u64::from));
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/j18-histogram");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut checked_pixels = 0usize;
+        for kind in [ThemeKind::ProMedium, ThemeKind::StudioLight] {
+            for width in [250.0, 400.0] {
+                for ppp in [1.0, 1.5] {
+                    for library in [false, true] {
+                        let mut harness =
+                            Harness::builder().with_size(egui::vec2(width, 140.0)).with_pixels_per_point(ppp).renderer(cpu_renderer()).build_ui_state(
+                                move |ui, baseline: &mut bool| {
+                                    crate::theme::apply(ui.ctx(), kind);
+                                    let t = Tokens::get(ui.ctx());
+                                    let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 120.0), egui::Sense::hover());
+                                    ui.painter().rect_filled(rect, t.radius_sm, t.histogram_background());
+                                    let plot = rect.shrink(li_ui_kit::histogram::EDITOR_INSET);
+                                    let view = li_ui_kit::histogram::Histogram::u64(&wide, Some(&wide[1]));
+                                    match (library, *baseline) {
+                                        (false, false) => li_ui_kit::histogram::paint_rgb(ui.painter(), plot, view, &t),
+                                        (false, true) => previous_editor::paint(ui.painter(), plot, &wide, &t),
+                                        (true, false) => li_ui_kit::histogram::paint_library(ui.painter(), plot, view, &t),
+                                        (true, true) => previous_library::paint(ui.painter(), plot, &channels, &channels[1]),
+                                    }
+                                },
+                                true,
+                            );
+                        harness.run_steps(2);
+                        let old = harness.render().unwrap();
+                        *harness.state_mut() = false;
+                        harness.run_steps(1);
+                        let new = harness.render().unwrap();
+                        assert_eq!(old, new, "frozen pixel parity {kind:?}/{width}/{ppp}/library={library}");
+                        checked_pixels += new.width() as usize * new.height() as usize;
+                        let profile = if library { "library" } else { "editor" };
+                        for (phase, image) in [("before", old), ("after", new)] {
+                            image.save(dir.join(format!("{phase}-{profile}-{kind:?}-{}-{ppp}.png", width as u32))).unwrap();
+                        }
+                    }
+                }
+            }
+        }
+        eprintln!("histogram frozen parity: {checked_pixels} RGBA pixels checked; differing pixels=0; maximum channel error=0");
     }
 }
