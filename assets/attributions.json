@@ -1610,7 +1610,7 @@
         },
         {
           "name": "VectorCraft",
-          "used_for": "Package 02 live-shape input/preview/context hooks; registered by packages 00/01.",
+          "used_for": "Live-shape input/preview/context hooks.",
           "upstream": "crates/tools/src/shape.rs",
           "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
           "ours": "crates/pc-ui-egui/src/vector_packages/drawing.rs",
