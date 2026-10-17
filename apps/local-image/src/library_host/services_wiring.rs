@@ -111,7 +111,7 @@ pub(super) fn services(opens: Opens) -> Services {
         })),
         write_shared: Some(Arc::new(lightcraft_engine::export::write_file)),
         write: Some(Box::new(lightcraft_engine::export::write_file)),
-        png: Some(Box::new(|img: &lightcraft_raster::Rgba8| {
+        png: Some(Box::new(|img: &li_raster::Rgba8| {
             lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(img), &lightcraft_codecs::EncodeMeta::default()).unwrap_or_default()
         })),
         backup_library: None,

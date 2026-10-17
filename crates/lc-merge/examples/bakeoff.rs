@@ -10,16 +10,16 @@ mod common;
 use std::time::Instant;
 
 use common::{Backend, Bracket, Merged, Pair, Registration, Result};
+use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_geom::{Homography, Point};
 use lightcraft_merge::{Deghost, Frame, HdrOptions, features, merge_hdr, no_progress, ransac};
-use lightcraft_raster::{Plane, Rgb32f};
 
 struct Lightcraft;
 impl Backend for Lightcraft {
     const NAME: &'static str = "lc_mops";
     fn register(pair: &Pair) -> Registration {
         let t = Instant::now();
-        let make = |v: &[f32]| Plane::from_fn(pair.w, pair.h, |x, y| v[y * pair.w + x]);
+        let make = |v: &[f32]| GrayFrame::from_fn(pair.w, pair.h, |x, y| v[y * pair.w + x]);
         let a = features::detect(&make(&pair.a), common::MAX_FEATURES);
         let b = features::detect(&make(&pair.b), common::MAX_FEATURES);
         let detect_ms = common::elapsed_ms(t);
@@ -50,7 +50,7 @@ impl Backend for Lightcraft {
             .iter()
             .zip(common::EXPOSURES)
             .map(|(rgb, e)| {
-                let image = Rgb32f::from_fn(b.truth.w, b.truth.h, |x, y| rgb[y * b.truth.w + x]);
+                let image = RgbFrame::from_fn(b.truth.w, b.truth.h, |x, y| rgb[y * b.truth.w + x]);
                 let mut f = Frame::from_linear_rec2020(image, Some(e.log2() as f64));
                 // Simulated linear sensor data with an explicit white level. This does not exercise
                 // the camera mosaic decoder or establish raw-domain production parity.
@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn j10_float_dng_keeps_hdr_precision() -> Result<()> {
         use lightcraft_merge::{DngSamples, write_linear_dng};
-        let image = Rgb32f::from_fn(16, 8, |x, y| [2f32.powf(x as f32 - 10.0), y as f32 * 0.1234567, 0.000012345]);
+        let image = RgbFrame::from_fn(16, 8, |x, y| [2f32.powf(x as f32 - 10.0), y as f32 * 0.1234567, 0.000012345]);
         let f = Frame::from_linear_rec2020(image.clone(), Some(0.0));
         let bytes = write_linear_dng(&image, &f.color, f.orientation, &f.metadata, 0.0, DngSamples::Float)?;
         let raw = lightcraft_raw::decode(&bytes)?;

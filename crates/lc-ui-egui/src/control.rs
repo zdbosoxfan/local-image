@@ -522,7 +522,7 @@ pub fn save_screenshot(app: &mut LightcraftApp, image: &egui::ColorImage, path: 
         return json!({"ok": true, "result": {"width": w, "height": h}});
     };
     let rgba: Vec<u8> = image.pixels.iter().flat_map(|c| c.to_array()).collect();
-    let Some(img) = lightcraft_raster::Rgba8::from_bytes(w, h, &rgba) else {
+    let Some(img) = li_raster::Rgba8::from_bytes(w, h, &rgba) else {
         return json!({"ok": false, "error": "bad screenshot buffer"});
     };
     let Some(png) = app.services.png.as_ref() else { return json!({"ok": false, "error": "no encoder"}) };

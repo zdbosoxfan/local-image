@@ -8,7 +8,7 @@
 //! Value convention: list 1 runs on raw sample values (16-bit scale), lists 2 and 3 on values normalised to
 //! [0, 1]; table/polynomial/delta opcodes are defined on the normalised range and are rescaled accordingly.
 
-use crate::{Cfa, Rgb32f};
+use crate::{Cfa, RgbFrame};
 use serde::{Deserialize, Serialize};
 
 /// Rectangular area + plane selection + pitch shared by the "area" opcodes.
@@ -516,7 +516,7 @@ fn fix_pixels(buf: &mut [f32], w: usize, h: usize, cpp: usize, cfa: Option<&Cfa>
 }
 
 /// Apply `OpcodeList3` (on the demosaiced RGB image, values normalised to [0, 1]).
-pub fn apply_list3(list: &[Opcode], img: &mut Rgb32f) {
+pub fn apply_list3(list: &[Opcode], img: &mut RgbFrame) {
     if list.is_empty() {
         return;
     }
@@ -539,15 +539,15 @@ pub fn apply_list3(list: &[Opcode], img: &mut Rgb32f) {
 
 /// DNG `WarpRectilinear`: for each output pixel, the source position is the radial + tangential model around the
 /// optical centre, with coordinates normalised by the distance to the farthest corner.
-pub fn warp_rectilinear(img: &Rgb32f, planes: &[[f64; 6]], center: [f64; 2]) -> Rgb32f {
+pub fn warp_rectilinear(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2]) -> RgbFrame {
     let (w, h) = (img.width, img.height);
     // Match Adobe dng_filter_warp: bounds are [0,w) × [0,h), while
     // the warp evaluates integer pixel indices (the sampler adds its half pixel).
     let (cx, cy) = (center[0] * w as f64, center[1] * h as f64);
     let m = max_radius(cx, cy, w as f64, h as f64);
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     let coef = |p: usize| planes[p.min(planes.len() - 1)];
-    lightcraft_raster::par_rows(&mut out.data, w, |y, row| {
+    li_raster::par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             for (c, v) in px.iter_mut().enumerate() {
                 let [kr0, kr1, kr2, kr3, kt0, kt1] = coef(c);
@@ -569,15 +569,15 @@ pub fn warp_rectilinear(img: &Rgb32f, planes: &[[f64; 6]], center: [f64; 2]) -> 
 /// normalised to the farthest corner, to `theta = atan(r)` and evaluate the
 /// per-plane odd polynomial in `theta`. Sampling uses the same pixel centres
 /// and bilinear kernel as [`warp_rectilinear`].
-pub fn warp_fisheye(img: &Rgb32f, planes: &[[f64; 4]], center: [f64; 2]) -> Rgb32f {
+pub fn warp_fisheye(img: &RgbFrame, planes: &[[f64; 4]], center: [f64; 2]) -> RgbFrame {
     if img.width == 0 || img.height == 0 || !matches!(planes.len(), 1 | 3) || !center.iter().chain(planes.iter().flatten()).all(|v| v.is_finite()) {
         return img.clone();
     }
     let (w, h) = (img.width, img.height);
     let (cx, cy) = (center[0] * (w as f64 - 1.0), center[1] * (h as f64 - 1.0));
     let m = max_radius(cx, cy, w as f64 - 1.0, h as f64 - 1.0);
-    let mut out = Rgb32f::new(w, h);
-    lightcraft_raster::par_rows(&mut out.data, w, |y, row| {
+    let mut out = RgbFrame::new(w, h);
+    li_raster::par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             let dx = x as f64 - cx;
             let dy = y as f64 - cy;
@@ -729,7 +729,7 @@ pub(crate) mod tests {
 
     #[test]
     fn vignette_and_warp_identity() {
-        let mut img = Rgb32f::from_fn(9, 7, |x, y| [x as f32 / 9.0, y as f32 / 7.0, 0.5]);
+        let mut img = RgbFrame::from_fn(9, 7, |x, y| [x as f32 / 9.0, y as f32 / 7.0, 0.5]);
         let orig = img.clone();
         let mut p = be(&[0.0; 5]);
         p.extend(be(&[0.5, 0.5]));
@@ -747,14 +747,14 @@ pub(crate) mod tests {
         let mut p = be(&[1.0, 0.0, 0.0, 0.0, 0.0]);
         p.extend(be(&[0.5, 0.5]));
         let list = parse_list(&ListWriter::new().op(3, &p).finish());
-        let mut flat = Rgb32f::filled(9, 9, [0.5; 3]);
+        let mut flat = RgbFrame::filled(9, 9, [0.5; 3]);
         apply_list3(&list, &mut flat);
         assert!(flat.get(0, 0)[0] > 0.85 && (flat.get(4, 4)[0] - 0.5).abs() < 0.01, "{:?}", flat.get(0, 0));
     }
 
     #[test]
     fn warp_barrel_moves_pixels_outward() {
-        let img = Rgb32f::from_fn(31, 31, |x, y| if x == 24 && y == 15 { [1.0; 3] } else { [0.0; 3] });
+        let img = RgbFrame::from_fn(31, 31, |x, y| if x == 24 && y == 15 { [1.0; 3] } else { [0.0; 3] });
         // source radius = r (1 + k r²) with k < 0 → content moves outward
         let out = warp_rectilinear(&img, &[[1.0, -0.6, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
         let (bx, _) = (0..31).map(|x| (x, out.get(x, 15)[0])).fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
@@ -766,7 +766,7 @@ pub(crate) mod tests {
     #[test]
     fn sony_dji_sdk_opcode_coordinates() {
         let (w, h) = (8, 6);
-        let ramp = Rgb32f::from_fn(w, h, |x, y| [x as f32, y as f32, (x + y) as f32]);
+        let ramp = RgbFrame::from_fn(w, h, |x, y| [x as f32, y as f32, (x + y) as f32]);
         let warped = warp_rectilinear(&ramp, &[[0.5, 0.0, 0.0, 0.0, 0.0, 0.0]], [0.25, 0.75]);
         // SDK image bounds [0,8) × [0,6): centre (2,4.5).
         // At integer index (3,2), source = centre + 0.5 * (index-centre).
@@ -795,7 +795,7 @@ pub(crate) mod tests {
 
     #[test]
     fn warp_fisheye_dng_coordinate_ramps_and_center_limit() {
-        let original = Rgb32f::from_fn(41, 31, |x, y| [x as f32 / 40.0, y as f32 / 30.0, (x + 2 * y) as f32 / 100.0]);
+        let original = RgbFrame::from_fn(41, 31, |x, y| [x as f32 / 40.0, y as f32 / 30.0, (x + 2 * y) as f32 / 100.0]);
         let coefficients = [[0.87, 0.025, -0.02, 0.01], [0.92, -0.01, 0.03, -0.005], [0.97, 0.015, -0.01, 0.002]];
         // Off-centre optical axis is exactly at pixel (10, 12). The farthest
         // corner is (40, 30), independently giving sqrt(30² + 18²).
@@ -834,7 +834,7 @@ pub(crate) mod tests {
             assert_eq!(fisheye_scale(k, 0.0), k[0]);
             assert!((fisheye_scale(k, 1e-12) - k[0]).abs() < 1e-12);
         }
-        let singleton = Rgb32f::filled(1, 1, [0.2, 0.4, 0.6]);
+        let singleton = RgbFrame::filled(1, 1, [0.2, 0.4, 0.6]);
         assert_eq!(warp_fisheye(&singleton, &[coefficients[0]], [0.5, 0.5]), singleton);
         assert_eq!(warp_fisheye(&original, &[], [0.5, 0.5]), original);
         assert_eq!(warp_fisheye(&original, &coefficients[..2], [0.5, 0.5]), original);

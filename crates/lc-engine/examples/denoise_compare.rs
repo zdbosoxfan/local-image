@@ -1,8 +1,8 @@
 //! Reproducible paired evaluation, PSNR and Wang et al. single-scale SSIM.
 //! Reference images and masks remain in the supplied evaluation folder, never owner photos.
+use li_raster::RgbFrame;
 use li_seg::denoise::Variant;
 use lightcraft_engine::enhance::denoise::{camera_rgb_to_working, infer, pack_bayer, prepare_raw, unpack_camera};
-use lightcraft_raster::Rgb32f;
 use std::{
     path::{Path, PathBuf},
     time::Instant,
@@ -31,7 +31,7 @@ fn main() -> Result<(), String> {
         return Err("pair is too small for a 768 px comparison crop".into());
     }
     // A single exposure normalization, determined from the input pair, shared by every candidate.
-    let mean = |img: &Rgb32f| img.data.iter().map(|p| p[1].clamp(0., 1.) as f64).sum::<f64>() / img.data.len() as f64;
+    let mean = |img: &RgbFrame| img.data.iter().map(|p| p[1].clamp(0., 1.) as f64).sum::<f64>() / img.data.len() as f64;
     let gain = (mean(&noisy) / mean(&clean)) as f32;
     clean.map_in_place(|p| p.map(|v| v * gain));
     let offset = align(&noisy, &clean);
@@ -65,7 +65,7 @@ fn main() -> Result<(), String> {
                 scene,
                 index,
                 if kind == Variant::Rgb { "nind-rgb" } else { "rawnind-linear" },
-                &Rgb32f { width: side, height: side, data: out },
+                &RgbFrame { width: side, height: side, data: out },
                 &reference,
                 seconds,
             )?;
@@ -116,14 +116,14 @@ fn main() -> Result<(), String> {
     println!("backend {} adapter {:?}", if gpu { "gpu" } else { "cpu" }, lightcraft_gpu::adapter_name());
     Ok(())
 }
-fn crop(img: &Rgb32f, x: usize, y: usize, n: usize) -> Rgb32f {
-    Rgb32f {
+fn crop(img: &RgbFrame, x: usize, y: usize, n: usize) -> RgbFrame {
+    RgbFrame {
         width: n,
         height: n,
         data: (0..n).flat_map(|yy| img.data[(yy + y) * img.width + x..(yy + y) * img.width + x + n].iter().copied()).collect(),
     }
 }
-fn display(img: &Rgb32f) -> Vec<[f32; 3]> {
+fn display(img: &RgbFrame) -> Vec<[f32; 3]> {
     let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
     img.data.iter().map(|p| m.apply_f32(*p).map(|v| li_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
 }
@@ -133,7 +133,7 @@ fn from_display(data: &mut [[f32; 3]]) {
         *p = m.apply_f32(p.map(li_color::transfer::srgb_to_linear));
     }
 }
-fn align(input: &Rgb32f, reference: &Rgb32f) -> [i32; 2] {
+fn align(input: &RgbFrame, reference: &RgbFrame) -> [i32; 2] {
     let score = |dx: i32, dy: i32| {
         let mut e = 0f64;
         for y in (64..input.height - 64).step_by(32) {
@@ -158,7 +158,7 @@ fn align(input: &Rgb32f, reference: &Rgb32f) -> [i32; 2] {
     }
     best
 }
-fn evaluate(dir: &Path, scene: &str, index: usize, name: &str, img: &Rgb32f, reference: &Rgb32f, seconds: f64) -> Result<(), String> {
+fn evaluate(dir: &Path, scene: &str, index: usize, name: &str, img: &RgbFrame, reference: &RgbFrame, seconds: f64) -> Result<(), String> {
     let a = display(img);
     let b = display(reference);
     let n = img.width;

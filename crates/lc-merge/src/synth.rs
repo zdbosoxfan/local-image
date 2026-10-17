@@ -1,9 +1,9 @@
 //! Synthetic merge inputs from procedural scenes (tests, demos, UI checks — no media files):
 //! exposure brackets as linear DNGs and overlapping panorama views as PNGs.
 
+use li_raster::RgbFrame;
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
-use lightcraft_raster::Rgb32f;
 
 use crate::frame::FrameColor;
 use crate::linalg::{self, M3};
@@ -35,7 +35,7 @@ pub fn bracket_dngs(w: usize, h: usize, evs: &[f64]) -> Result<Vec<Vec<u8>>> {
         .map(|(i, ev)| {
             let k = 2f32.powf(*ev as f32) * s;
             let (dx, dy) = ((i as f32 * 2.3) % 5.0 - 2.0, (i as f32 * 1.7) % 4.0 - 1.5);
-            let img = Rgb32f::from_fn(w, h, |x, y| {
+            let img = RgbFrame::from_fn(w, h, |x, y| {
                 let p = truth.sample_bilinear(x as f32 + 0.5 + m as f32 - dx, y as f32 + 0.5 + m as f32 - dy);
                 let q = [0, 1, 2].map(|r| to_srgb[r][0] * p[0] + to_srgb[r][1] * p[1] + to_srgb[r][2] * p[2]);
                 q.map(|v| (v * k).clamp(0.0, 1.0))
@@ -55,7 +55,7 @@ pub fn bracket_dngs(w: usize, h: usize, evs: &[f64]) -> Result<Vec<Vec<u8>>> {
 
 /// `yaws.len()` overlapping views (degrees of yaw, small pitch/roll wobble) of a canyon scene used
 /// as a 200° × 70° spherical environment, `w × h` pixels with focal length `f`, as linear sRGB.
-pub fn pano_views(w: usize, h: usize, f: f64, yaws: &[f64]) -> Result<Vec<Rgb32f>> {
+pub fn pano_views(w: usize, h: usize, f: f64, yaws: &[f64]) -> Result<Vec<RgbFrame>> {
     let env = scene(lightcraft_scenes::Kind::Canyon)?.render(2400, 840);
     let mut l: Vec<f32> = env.data.iter().map(|p| p[1]).collect();
     l.sort_by(|a, b| a.total_cmp(b));
@@ -70,7 +70,7 @@ pub fn pano_views(w: usize, h: usize, f: f64, yaws: &[f64]) -> Result<Vec<Rgb32f
             let rx = linalg::rodrigues([(wob * 1.5).to_radians(), 0.0, 0.0]);
             let rz = linalg::rodrigues([0.0, 0.0, (wob * 0.8).to_radians()]);
             let c2w: M3 = linalg::mul3(&linalg::mul3(&ry, &rx), &rz);
-            Rgb32f::from_fn(w, h, |x, y| {
+            RgbFrame::from_fn(w, h, |x, y| {
                 let d = linalg::apply3(&c2w, [(x as f64 + 0.5 - w as f64 / 2.0) / f, (y as f64 + 0.5 - h as f64 / 2.0) / f, 1.0]);
                 let t = d[0].atan2(d[2]).to_degrees();
                 let p = (d[1] / linalg::norm(d)).asin().to_degrees();

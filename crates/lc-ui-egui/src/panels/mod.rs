@@ -199,7 +199,7 @@ mod toast_tests {
                 std::fs::create_dir_all(&dir).unwrap();
                 let save = |view: &HeadlessView, name: &str| {
                     let image = view.paint(&HashMap::new());
-                    let out = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+                    let out = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
                     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
                     std::fs::write(dir.join(format!("library-{name}-{}-{}.png", if light { "light" } else { "dark" }, width as u32)), bytes).unwrap();
                 };

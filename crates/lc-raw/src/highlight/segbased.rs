@@ -181,7 +181,7 @@ mod review_tests {
 
     #[test]
     fn ds_finding_narrow_recovery_plane() {
-        let mut n = crate::demosaic::mosaic_from_rgb(&crate::Rgb32f::filled(4, 60, [2.0; 3]), &Cfa::bayer("RGGB").unwrap());
+        let mut n = crate::demosaic::mosaic_from_rgb(&crate::RgbFrame::filled(4, 60, [2.0; 3]), &Cfa::bayer("RGGB").unwrap());
         let options = SegmentationOptions { recovery: Recovery::Small, strength: 1.0, ..Default::default() };
         assert!(segmentation(&mut n, [1.0; 3], 0.99, &options) > 0);
         assert!(n.data.iter().all(|v| v.is_finite()));

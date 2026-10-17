@@ -2,13 +2,13 @@
 //! scores compare across photos): focus, clipping, and a tiny signature for finding similar
 //! shots (bursts). Classical image statistics — no learned models.
 
-use lightcraft_raster::Rgb32f;
+use li_raster::RgbFrame;
 
 /// Long edge the measurements run at.
 const EDGE: usize = 512;
 
 /// Display-ish luminance (sRGB-encoded) of `img` resampled to fit `EDGE` (box filter).
-fn luma(img: &Rgb32f) -> (Vec<f32>, usize, usize) {
+fn luma(img: &RgbFrame) -> (Vec<f32>, usize, usize) {
     let (w, h) = (img.width.max(1), img.height.max(1));
     let s = (EDGE as f64 / w.max(h) as f64).min(1.0);
     let (ow, oh) = (((w as f64 * s).round() as usize).max(8), ((h as f64 * s).round() as usize).max(8));
@@ -33,7 +33,7 @@ fn luma(img: &Rgb32f) -> (Vec<f32>, usize, usize) {
 
 /// Focus 0..100: detail energy (Laplacian) of the sharpest areas — the 90th percentile of
 /// 16 × 16-pixel blocks, so a sharp subject on a soft background still reads as sharp.
-pub fn sharpness(img: &Rgb32f) -> f32 {
+pub fn sharpness(img: &RgbFrame) -> f32 {
     let (l, w, h) = luma(img);
     let b = 16;
     let mut blocks = Vec::new();
@@ -66,14 +66,14 @@ pub fn sharpness(img: &Rgb32f) -> f32 {
 }
 
 /// Share of clipped pixels (crushed blacks + blown highlights), 0..1.
-pub fn clipped(img: &Rgb32f) -> f32 {
+pub fn clipped(img: &RgbFrame) -> f32 {
     let n = img.data.len().max(1);
     let c = img.data.iter().filter(|p| p.iter().any(|v| *v >= 0.985) || p.iter().all(|v| *v <= 0.002)).count();
     c as f32 / n as f32
 }
 
 /// A tiny look-alike signature: 8 × 8 luminance, normalised to zero mean and unit norm.
-pub fn signature(img: &Rgb32f) -> [f32; 64] {
+pub fn signature(img: &RgbFrame) -> [f32; 64] {
     let (l, w, h) = luma(img);
     let mut s = [0f32; 64];
     for (i, v) in s.iter_mut().enumerate() {
@@ -104,7 +104,7 @@ pub fn similarity(a: &[f32; 64], b: &[f32; 64]) -> f32 {
 mod tests {
     use super::*;
 
-    fn blur(img: &Rgb32f, r: usize) -> Rgb32f {
+    fn blur(img: &RgbFrame, r: usize) -> RgbFrame {
         let (w, h) = (img.width, img.height);
         let mut out = img.clone();
         for y in 0..h {

@@ -8,7 +8,7 @@
 //! are applied and removed here), the clipped-channel test reads each channel (darktable's loop
 //! reads the first channel for all three), and the superpixel grid rounds up.
 
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 
 /// Mean of the two channels other than `c`, in cube-root space (darktable's `_calc_linear_refavg`).
@@ -44,7 +44,7 @@ fn dilation_offsets() -> Vec<(isize, isize)> {
 /// Rebuild clipped channels of `img` (camera RGB, white = 1.0, not white balanced). `wb` are the
 /// white-balance multipliers applied later, `clip` the sensor clip level (e.g. 0.99). Returns the
 /// number of pixels with a clipped channel; pixels without one are not changed.
-pub fn opposed(img: &mut Rgb32f, wb: [f32; 3], clip: f32) -> usize {
+pub fn opposed(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
     let (w, h) = (img.width, img.height);
     let wb = wb.map(|v| if v.is_finite() && v > 0.0 { v } else { 1.0 });
     let clips = [clip * wb[0], clip * wb[1], clip * wb[2]];
@@ -123,8 +123,8 @@ pub fn opposed(img: &mut Rgb32f, wb: [f32; 3], clip: f32) -> usize {
 mod tests {
     use super::*;
 
-    fn warm_gradient() -> Rgb32f {
-        Rgb32f::from_fn(96, 48, |x, _| {
+    fn warm_gradient() -> RgbFrame {
+        RgbFrame::from_fn(96, 48, |x, _| {
             let v = 0.3 + 1.2 * x as f32 / 95.0;
             [v, v * 0.6, v * 0.35]
         })
@@ -134,7 +134,7 @@ mod tests {
     fn rebuilds_a_clipped_channel_from_the_opposed_ones() {
         let truth = warm_gradient();
         let mut img = truth.map(|p| p.map(|v| v.min(1.0)));
-        let err = |img: &Rgb32f| img.data.iter().zip(&truth.data).map(|(a, b)| (a[0] - b[0]).abs()).sum::<f32>();
+        let err = |img: &RgbFrame| img.data.iter().zip(&truth.data).map(|(a, b)| (a[0] - b[0]).abs()).sum::<f32>();
         let before = err(&img);
         let clipped = img.clone();
         assert!(opposed(&mut img, [1.0; 3], 0.999) > 0);
@@ -154,17 +154,17 @@ mod tests {
     #[test]
     fn white_balance_scales_the_clip_levels() {
         // only blue clips once white balanced: a small blue multiplier keeps it below its clip
-        let mut img = Rgb32f::filled(30, 30, [0.5, 0.5, 1.0]);
+        let mut img = RgbFrame::filled(30, 30, [0.5, 0.5, 1.0]);
         assert_eq!(opposed(&mut img, [2.0, 1.0, 1.5], 0.99), 900);
         let p = img.data[0];
         // blue (white balanced 1.5) is rebuilt from red/green (1.0, 0.5): at least its clip level
         assert!(p[2] >= 1.0 - 1e-6);
         assert_eq!((p[0], p[1]), (0.5, 0.5));
-        let mut none = Rgb32f::filled(8, 8, [0.4; 3]);
+        let mut none = RgbFrame::filled(8, 8, [0.4; 3]);
         assert_eq!(opposed(&mut none, [2.0, 1.0, 1.5], 0.99), 0);
-        assert_eq!(opposed(&mut Rgb32f::new(0, 0), [1.0; 3], 0.99), 0);
+        assert_eq!(opposed(&mut RgbFrame::new(0, 0), [1.0; 3], 0.99), 0);
         // fully clipped stays bright and finite
-        let mut white = Rgb32f::filled(12, 12, [1.0; 3]);
+        let mut white = RgbFrame::filled(12, 12, [1.0; 3]);
         opposed(&mut white, [2.0, 1.0, 1.5], 0.99);
         assert!(white.data.iter().all(|p| p.iter().all(|v| v.is_finite() && *v >= 0.99)));
     }
@@ -175,7 +175,7 @@ mod refvec_tests {
     use super::*;
     #[test]
     fn upstream_opposed_and_channel_test_difference() {
-        let mut img = Rgb32f::from_fn(96, 96, |x, y| {
+        let mut img = RgbFrame::from_fn(96, 96, |x, y| {
             let v = 0.4 + 0.002 * x as f32 + 0.001 * y as f32;
             let mut p = [v * 0.8, v, v * 1.2];
             let (x, y) = (x as i32, y as i32);

@@ -8,7 +8,7 @@
 //! In particular, boundary values must survive when vcdalt becomes Dgrb.
 #![allow(unused_parens, unused_mut, non_snake_case)]
 use super::Mosaic;
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 // Float offsets reproduce upstream's 128-byte cache padding and shared lifetimes.
 // DELHV/PMWT, VCD/RBM, CDDIFF/DELP, DELM/RBINT, VCD_ALT/Dgrb and DGINTV/Dgrb2
@@ -73,14 +73,14 @@ fn clampnan(x: f32, a: f32, b: f32) -> f32 {
         x
     }
 }
-pub(crate) fn amaze(m: &Mosaic) -> Rgb32f {
+pub(crate) fn amaze(m: &Mosaic) -> RgbFrame {
     // Upstream's 16-pixel mirror padding requires a 33-pixel minimum extent.
     // Extend tiny crops with parity-preserving reflection, then crop the result.
     if m.w < 33 || m.h < 33 {
         let (w, h) = (m.w.max(34), m.h.max(34));
         let data: Vec<f32> = (0..w * h).map(|i| m.get((i % w) as isize, (i / w) as isize)).collect();
         let padded = amaze(&Mosaic { w, h, data: &data, cfa: m.cfa });
-        return Rgb32f::from_fn(m.w, m.h, |x, y| padded.get(x, y));
+        return RgbFrame::from_fn(m.w, m.h, |x, y| padded.get(x, y));
     }
     let width = m.w as i32;
     let height = m.h as i32;
@@ -1594,7 +1594,7 @@ pub(crate) fn amaze(m: &Mosaic) -> Rgb32f {
     } else {
         out.par_chunks_mut(m.w * 128).enumerate().for_each_init(new_scratch, process_band);
     }
-    Rgb32f { width: m.w, height: m.h, data: out }
+    RgbFrame { width: m.w, height: m.h, data: out }
 }
 #[cfg(test)]
 mod tests {

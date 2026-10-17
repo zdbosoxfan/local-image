@@ -36,7 +36,7 @@ fn psd(rgb: [u8; 3]) -> Vec<u8> {
 }
 
 fn layer(name: &str, kind: LayerKind, follows: Option<u64>) -> DocLayer {
-    let thumb = Some(lightcraft_raster::Rgba8 { width: 4, height: 3, data: vec![[200, 120, 40, 255]; 12] });
+    let thumb = Some(li_raster::Rgba8 { width: 4, height: 3, data: vec![[200, 120, 40, 255]; 12] });
     DocLayer { name: name.into(), depth: 0, visible: true, opacity: 1.0, blend: "Normal".into(), kind, follows, thumb }
 }
 

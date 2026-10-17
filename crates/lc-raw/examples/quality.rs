@@ -2,7 +2,7 @@
 //! `RAYON_NUM_THREADS=8 cargo +1.98.1 run --offline --release -p lightcraft-raw --example quality -- [--timings]`
 use lightcraft_raw::demosaic::{mosaic_from_rgb, psnr};
 use lightcraft_raw::highlight::{SegmentationOptions, segmentation};
-use lightcraft_raw::{BlackLevel, Cfa, ColorData, Method, Normalized, Orientation, RawData, RawFormat, RawImage, Rect, Rgb32f};
+use lightcraft_raw::{BlackLevel, Cfa, ColorData, Method, Normalized, Orientation, RawData, RawFormat, RawImage, Rect, RgbFrame};
 use std::time::Instant;
 
 mod quality_support;
@@ -33,8 +33,8 @@ fn raw(n: Normalized) -> RawImage {
         metadata: Default::default(),
     }
 }
-fn highlights(w: usize, h: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, y| {
+fn highlights(w: usize, h: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, y| {
         let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
         let lum = 0.2 + 1.8 * fx + 0.07 * (fy * 16.0).sin();
         [lum, 0.7 * lum, 0.5 * lum]
@@ -58,7 +58,7 @@ fn preview() {
             })
             .unwrap()
             .unwrap();
-        let down = lightcraft_raster::resample::fit(&full, p.width, p.height, li_raster::resample::Filter::Box);
+        let down = full.fit(p.width, p.height, li_raster::resample::Filter::Box);
         let mut max = 0.0f32;
         for (a, b) in p.data.iter().zip(&down.data) {
             for c in 0..3 {

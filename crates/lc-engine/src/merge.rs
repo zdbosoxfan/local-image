@@ -11,11 +11,11 @@
 
 use std::sync::Arc;
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_catalog::{PhotoId, Source};
 use lightcraft_develop::DevelopSettings;
 use lightcraft_merge::{Deghost, Frame, HdrOptions, PanoOptions, Projection};
 use lightcraft_pipeline::{Quality, RenderRequest, SourceInfo};
-use lightcraft_raster::{Rgb32f, Rgba8};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -357,14 +357,9 @@ impl MergeJob {
         let mut result = lightcraft_merge::merge_raw_hdr(&raws, options, &|f, stage| progress(0.3 + 0.7 * f, stage)).map_err(err)?;
         if let Some(edge) = self.preview {
             // Alignment/CFA fusion always sees the original sensor sampling lattice.
-            result.radiance = lightcraft_raster::resample::fit(&result.radiance, edge, edge, li_raster::resample::Filter::Box);
+            result.radiance = result.radiance.fit(edge, edge, li_raster::resample::Filter::Box);
             if !result.ghost.data.is_empty() {
-                result.ghost = lightcraft_raster::resample::resize(
-                    &result.ghost,
-                    result.radiance.width,
-                    result.radiance.height,
-                    li_raster::resample::Filter::Box,
-                );
+                result.ghost = result.ghost.resize(result.radiance.width, result.radiance.height, li_raster::resample::Filter::Box);
             }
         }
         Ok((result, permit, true))
@@ -475,7 +470,7 @@ impl MergeJob {
                 // Reconstruction must see the original CFA sampling lattice even for
                 // previews. Resize the complete reconstruction, never its source mosaics.
                 if let Some(edge) = self.preview {
-                    image = lightcraft_raster::resample::fit(&image, edge, edge, li_raster::resample::Filter::Box);
+                    image = image.fit(edge, edge, li_raster::resample::Filter::Box);
                 }
                 let info = json!({"shots": r.shots, "motionPixels": motion_pixels, "motionCorrection": self.sources.len() > 1,
                     "motionFallback": if self.sources.len() > 1 { "firstShotAuto" } else { "alreadyComposed" }});
@@ -649,7 +644,7 @@ fn render_preview(
     edge: usize,
     auto: bool,
     crop: Option<[f64; 4]>,
-    ghost: Option<&lightcraft_raster::Plane>,
+    ghost: Option<&li_raster::GrayFrame>,
 ) -> std::result::Result<Rgba8, String> {
     let (src, info) = crate::files::load_bytes(dng, edge)?;
     let mut s = DevelopSettings::for_raw(info.as_shot_temp, info.as_shot_tint);
@@ -692,7 +687,7 @@ fn render_preview(
     Ok(img)
 }
 
-fn apply_auto(s: &mut DevelopSettings, src: &Rgb32f, info: &SourceInfo) {
+fn apply_auto(s: &mut DevelopSettings, src: &RgbFrame, info: &SourceInfo) {
     let a = lightcraft_pipeline::auto::auto_tone(src, info, s);
     s.light.exposure = a.exposure;
     s.light.contrast = a.contrast;
@@ -838,7 +833,7 @@ mod j19_tests {
         let evs = [-2.0, 0.0, 2.0, -2.0, 0.0, 2.0, 0.0];
         let mut bytes = std::collections::HashMap::new();
         for (i, ev) in evs.into_iter().enumerate() {
-            let image = Rgb32f::from_fn(48, 32, |x, y| {
+            let image = RgbFrame::from_fn(48, 32, |x, y| {
                 let signal = (0.04 + 0.002 * x as f32 + 0.001 * y as f32) * 2f32.powf(ev);
                 [signal, signal * 0.9, signal * 0.8]
             });
@@ -958,7 +953,7 @@ mod j19_tests {
         job.sources.truncate(3);
         // Source reads remain in memory; only new generated outputs use target/.
         job.sources[0].1 = dir.join("source.dng").to_string_lossy().into_owned();
-        let image = Rgb32f::from_fn(48, 32, |x, y| [0.03 + x as f32 * 0.004, 0.03 + y as f32 * 0.003, 0.07]);
+        let image = RgbFrame::from_fn(48, 32, |x, y| [0.03 + x as f32 * 0.004, 0.03 + y as f32 * 0.003, 0.07]);
         let color = Frame::from_linear_rec2020(image.clone(), None).color;
         let dng = lightcraft_merge::write_linear_dng(
             &image,

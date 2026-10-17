@@ -13,13 +13,12 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_engine::export::{ExportOptions, encode_image};
 use lightcraft_engine::media::develop;
 use lightcraft_pipeline::{Quality, RenderRequest, SourceInfo, StageCache};
-use lightcraft_raster::Rgb32f;
-use lightcraft_raster::resample::fit;
 
 /// Process CPU time in ms (all threads). The only `unsafe` is this libc clock read, in a dev-only example.
 #[allow(unsafe_code)]
@@ -72,7 +71,7 @@ fn typical() -> DevelopSettings {
 }
 
 /// Max and mean |Δ| (8-bit, RGB) between two renders.
-fn diff(a: &lightcraft_raster::Rgba8, b: &lightcraft_raster::Rgba8) -> (u8, f64) {
+fn diff(a: &li_raster::Rgba8, b: &li_raster::Rgba8) -> (u8, f64) {
     let (mut max, mut sum) = (0u8, 0u64);
     for (p, q) in a.data.iter().zip(&b.data) {
         for c in 0..3 {
@@ -113,7 +112,7 @@ fn main() {
                     })
                 );
                 println!("  {:<36} {}", "clone (binned):", best(n, || drop(img.clone())));
-                println!("  {:<36} {}", "fit 2560 (binned):", best(n, || drop(fit(&img, 2560, 2560, Filter::Box))));
+                println!("  {:<36} {}", "fit 2560 (binned):", best(n, || drop(img.fit(2560, 2560, Filter::Box))));
             }
             println!("  {:<36} {}", "embedded preview (2560):", best(n, || drop(lightcraft_engine::files::load_embedded_preview(&bytes, 2560))));
             for edge in [512usize, 2560, usize::MAX] {
@@ -135,7 +134,7 @@ fn main() {
             r
         }
         None => (
-            Rgb32f::from_fn(6000, 4000, |x, y| {
+            RgbFrame::from_fn(6000, 4000, |x, y| {
                 let v = ((x as f32 * 0.011).sin() * (y as f32 * 0.007).cos() * 0.5 + 0.5) * 0.4 + ((x * 31 + y * 17) % 13) as f32 * 0.002;
                 [v, v * 0.9, v * 0.7]
             }),
@@ -156,7 +155,7 @@ fn main() {
         let cols: Vec<String> = backends.iter().map(|&g| format!("{}", best(n, || f(g)))).collect();
         println!("{name:<38} cpu: {}{}", cols[0], cols.get(1).map(|g| format!("  |  gpu: {g}")).unwrap_or_default());
     };
-    let preview = Arc::new(fit(&full, 2560, 2560, Filter::Box));
+    let preview = Arc::new(full.fit(2560, 2560, Filter::Box));
     let s = typical();
     let view = RenderRequest::fit(1920, 1280);
     let draft = RenderRequest { quality: Quality::Draft, ..RenderRequest::fit(1152, 768) };

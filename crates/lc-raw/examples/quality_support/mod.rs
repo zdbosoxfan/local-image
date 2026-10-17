@@ -1,6 +1,6 @@
-use lightcraft_raster::Rgb32f;
-pub fn scene(kind: usize, w: usize, h: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, y| {
+use li_raster::RgbFrame;
+pub fn scene(kind: usize, w: usize, h: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, y| {
         let mut sum = [0.0; 3];
         for dy in 0..4 {
             for dx in 0..4 {
@@ -27,7 +27,7 @@ pub fn scene(kind: usize, w: usize, h: usize) -> Rgb32f {
         sum
     })
 }
-pub fn chroma_error(a: &Rgb32f, b: &Rgb32f, border: usize) -> f64 {
+pub fn chroma_error(a: &RgbFrame, b: &RgbFrame, border: usize) -> f64 {
     let (mut sum, mut n) = (0.0, 0);
     for y in border..a.height - border {
         for x in border..a.width - border {

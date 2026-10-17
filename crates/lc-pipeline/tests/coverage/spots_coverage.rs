@@ -1,13 +1,13 @@
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, Spot, SpotMode};
 use lightcraft_geom::Point;
 use lightcraft_pipeline::geometry::Frame;
 use lightcraft_pipeline::spots::{self, Stages};
-use lightcraft_raster::Rgb32f;
 use std::time::Duration;
 
 /// Deterministic textured test image: gradients, a hash noise grain.
-fn synthetic(w: usize, h: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, y| {
+fn synthetic(w: usize, h: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, y| {
         let n = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA6B);
         let n = (n ^ (n >> 15)).wrapping_mul(0x2C1B_3C6D);
         let grain = ((n >> 8) & 0xFFFF) as f32 / 65535.0 - 0.5;
@@ -17,8 +17,8 @@ fn synthetic(w: usize, h: usize) -> Rgb32f {
 }
 
 /// Half dark, half bright image.
-fn half_half(w: usize, h: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, _| if x < w / 2 { [0.1; 3] } else { [0.9; 3] })
+fn half_half(w: usize, h: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, _| if x < w / 2 { [0.1; 3] } else { [0.9; 3] })
 }
 
 fn make_spot(mode: SpotMode, points: Vec<Point>, size: f64, feather: f64, source_offset: Option<Point>) -> Spot {
@@ -68,7 +68,7 @@ fn boundary_spot_near_edge_does_not_panic() {
 
 #[test]
 fn tiny_image_1x1_does_not_panic() {
-    let mut img = Rgb32f::new(1, 1);
+    let mut img = RgbFrame::new(1, 1);
     img.set(0, 0, [0.5; 3]);
     let frame = Frame::new(1, 1, &DevelopSettings::default(), true);
     let ppl = frame.px_per_long(1);
@@ -140,7 +140,7 @@ fn pick_source_returns_none_for_empty_spot_points() {
 #[test]
 fn pick_source_returns_none_when_no_candidates_fit() {
     // Small image (1x1) so rings go out of bounds
-    let src = Rgb32f::from_fn(1, 1, |_, _| [0.5; 3]);
+    let src = RgbFrame::from_fn(1, 1, |_, _| [0.5; 3]);
     let info = lightcraft_pipeline::SourceInfo::default();
     let settings = DevelopSettings::default();
     let spot = make_spot(SpotMode::Heal, vec![Point::new(0.5, 0.5)], 0.5, 0.0, None);

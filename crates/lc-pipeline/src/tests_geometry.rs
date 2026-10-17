@@ -1,10 +1,9 @@
 //! Geometry / optics tests on synthetic images with known distortions.
 
 use li_raster::resample::Filter;
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::Point;
-use lightcraft_raster::resample::resize;
-use lightcraft_raster::{Rgb32f, Rgba8};
 
 use crate::{RenderRequest, SourceInfo, render};
 
@@ -19,8 +18,8 @@ pub(crate) fn grid_value(p: Point, step: f64) -> f32 {
 }
 
 /// Render a source of `w × h` where each pixel shows `pattern` at `undistort(pixel centre)`.
-pub(crate) fn synth(w: usize, h: usize, undistort: impl Fn(Point) -> Point + Sync, pattern: impl Fn(Point) -> [f32; 3] + Sync) -> Rgb32f {
-    Rgb32f::from_fn(w, h, |x, y| pattern(undistort(Point::new(x as f64 + 0.5, y as f64 + 0.5))))
+pub(crate) fn synth(w: usize, h: usize, undistort: impl Fn(Point) -> Point + Sync, pattern: impl Fn(Point) -> [f32; 3] + Sync) -> RgbFrame {
+    RgbFrame::from_fn(w, h, |x, y| pattern(undistort(Point::new(x as f64 + 0.5, y as f64 + 0.5))))
 }
 
 /// Sub-pixel x of the dark vertical line nearest `x0` on row `y` (green channel darkness centroid).
@@ -97,7 +96,7 @@ fn manual_distortion_straightens_barrel_grid() {
 }
 
 /// CA: red plane magnified by `ar`, blue by `ab`, on a neutral disc grid.
-fn ca_source(w: usize, h: usize, ar: f64, ab: f64) -> Rgb32f {
+fn ca_source(w: usize, h: usize, ar: f64, ab: f64) -> RgbFrame {
     let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
     let disc = move |p: Point| -> f32 {
         let cell = 40.0;
@@ -105,7 +104,7 @@ fn ca_source(w: usize, h: usize, ar: f64, ab: f64) -> Rgb32f {
         let d = fx.hypot(fy) * cell - 11.0;
         (0.04 + 0.8 * (d / 1.2 + 0.5).clamp(0.0, 1.0)) as f32
     };
-    Rgb32f::from_fn(w, h, |x, y| {
+    RgbFrame::from_fn(w, h, |x, y| {
         let p = Point::new(x as f64 + 0.5, y as f64 + 0.5);
         let at = |a: f64| disc(Point::new(cx + (p.x - cx) / (1.0 + a), cy + (p.y - cy) / (1.0 + a)));
         [at(ar), at(0.0), at(ab)]
@@ -160,7 +159,7 @@ fn profile_corrections_use_embedded_lens_only_when_enabled() {
 }
 
 fn mean_abs_diff_downscaled(small: &Rgba8, big: &Rgba8) -> f32 {
-    let down = resize(&big.to_linear(), small.width, small.height, Filter::Box).to_srgb8();
+    let down = big.to_linear().resize(small.width, small.height, Filter::Box).to_srgb8();
     small.data.iter().zip(&down.data).map(|(a, b)| (0..3).map(|i| (a[i] as f32 - b[i] as f32).abs()).sum::<f32>() / 3.0).sum::<f32>()
         / small.len() as f32
 }
@@ -184,7 +183,7 @@ fn optics_preview_matches_export() {
 
 /// Source whose content is a straight grid after the forward transform `h` (centred coordinates of a `w × h`
 /// image): each source pixel shows the grid at its transformed position.
-fn keystoned_grid(w: usize, h: usize, fwd: lightcraft_geom::Homography, step: f64) -> Rgb32f {
+fn keystoned_grid(w: usize, h: usize, fwd: lightcraft_geom::Homography, step: f64) -> RgbFrame {
     let l = w.max(h) as f64 / 2.0;
     let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
     synth(
@@ -240,16 +239,20 @@ fn manual_transforms_straighten_known_keystone() {
 }
 
 fn blank_fraction(img: &Rgba8) -> f64 {
-    let blank =
-        crate::render(&Rgb32f::filled(4, 4, crate::geometry::BLANK), &SourceInfo::default(), &DevelopSettings::default(), &RenderRequest::fit(4, 4))
-            .image
-            .get(1, 1);
+    let blank = crate::render(
+        &RgbFrame::filled(4, 4, crate::geometry::BLANK),
+        &SourceInfo::default(),
+        &DevelopSettings::default(),
+        &RenderRequest::fit(4, 4),
+    )
+    .image
+    .get(1, 1);
     img.data.iter().filter(|p| (0..3).all(|i| (p[i] as i32 - blank[i] as i32).abs() <= 1)).count() as f64 / img.len() as f64
 }
 
 #[test]
 fn constrain_crop_removes_blank_areas() {
-    let src = Rgb32f::from_fn(300, 200, |x, y| [0.05 + 0.002 * x as f32, 0.1 + 0.002 * y as f32, 0.3]);
+    let src = RgbFrame::from_fn(300, 200, |x, y| [0.05 + 0.002 * x as f32, 0.1 + 0.002 * y as f32, 0.3]);
     let mut s = DevelopSettings::default();
     s.geometry.vertical = -60.0;
     s.geometry.rotate = 4.0;
@@ -295,7 +298,7 @@ fn segment_detector_finds_known_lines() {
         let t = ((p - a).dot(ab) / ab.dot(ab)).clamp(0.0, 1.0);
         p.dist(a + ab * t)
     };
-    let lum = lightcraft_raster::Plane::from_fn(480, 320, |x, y| {
+    let lum = li_raster::GrayFrame::from_fn(480, 320, |x, y| {
         let p = Point::new(x as f64 + 0.5, y as f64 + 0.5);
         let d = lines.iter().map(|(a, b)| dist(p, *a, *b)).fold(f64::MAX, f64::min);
         (0.15 + 0.7 * ((d - 1.0) / 1.2).clamp(0.0, 1.0)) as f32
@@ -346,7 +349,7 @@ fn horizontal_line_track(img: &Rgba8, y0: f64) -> Vec<f64> {
     [img.width / 6 + 7, img.width * 5 / 6 - 7].iter().map(|&x| track(x, mid, 10.0)).chain([mid]).collect()
 }
 
-fn upright_render(src: &Rgb32f, mode: Upright) -> Rgba8 {
+fn upright_render(src: &RgbFrame, mode: Upright) -> Rgba8 {
     let mut s = DevelopSettings::default();
     s.geometry.upright = mode;
     s.geometry.upright_transform = Some(crate::upright::auto_transform(src, &SourceInfo::default(), &s, mode));
@@ -478,7 +481,7 @@ fn upright_auto_leaves_natural_scenes_nearly_alone() {
 fn level_degrees_sign_matches_crop_angle() {
     let (w, h) = (900usize, 600usize);
     let t = 6f32.to_radians().tan();
-    let src = Rgb32f::from_fn(w, h, |x, y| {
+    let src = RgbFrame::from_fn(w, h, |x, y| {
         let yh = h as f32 / 2.0 + (x as f32 - w as f32 / 2.0) * t;
         if (y as f32) < yh {
             [0.6, 0.7, 0.9]

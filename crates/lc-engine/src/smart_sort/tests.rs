@@ -1,6 +1,6 @@
 use super::*;
+use li_raster::Rgba8;
 use lightcraft_catalog::{Flag, Op, PhotoId, Source};
-use lightcraft_raster::Rgba8;
 use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -427,7 +427,7 @@ fn inputs_prefer_embedded_raw_and_support_offline_smart_previews() {
     photo.height = 16;
     let id = photo.id;
     let file = crate::smart::file_name(&photo);
-    let bytes = crate::smart::encode(&lightcraft_raster::Rgb32f::filled(32, 16, [0.8, 0.1, 0.05]), None).unwrap();
+    let bytes = crate::smart::encode(&li_raster::RgbFrame::filled(32, 16, [0.8, 0.1, 0.05]), None).unwrap();
     std::fs::write(dir.join(file), bytes).unwrap();
     s.commit("offline", Op::AddPhoto { photo: Box::new(photo) }).unwrap();
     let r = s.execute("smartSort.analyze", &json!({"ids":[id]})).unwrap();

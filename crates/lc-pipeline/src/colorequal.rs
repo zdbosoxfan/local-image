@@ -3,8 +3,8 @@
 //! Extension: node positions are Lightroom's eight hue bands; pixel radii scale
 //! with the original 6000px long edge. No fast/draft bypass of the colour filters.
 use crate::{eigf, ucs};
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, MIXER_HUES};
-use lightcraft_raster::Rgb32f;
 use std::{
     f32::consts::{PI, TAU},
     sync::OnceLock,
@@ -128,7 +128,7 @@ fn gradient(s: &[f32], w: usize, h: usize, x: usize, y: usize) -> f32 {
     let gy = 47. / 255. * (p(-1, -1) - p(-1, 1) + p(1, -1) - p(1, 1)) + 162. / 255. * (p(0, -1) - p(0, 1));
     (gx * gx + gy * gy).sqrt()
 }
-pub fn apply(img: &mut Rgb32f, s: &DevelopSettings, ppl: f64) {
+pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
     if s.mixer.is_neutral() && !crate::is_bw(s) {
         return;
     }

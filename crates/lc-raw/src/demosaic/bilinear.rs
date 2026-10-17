@@ -2,8 +2,8 @@
 //! 3×3 neighbourhood (5×5 when the 3×3 has none, as happens in some non-Bayer layouts).
 
 use super::Mosaic;
-use crate::Rgb32f;
-use lightcraft_raster::par_rows;
+use crate::RgbFrame;
+use li_raster::par_rows;
 
 /// Offsets (dx, dy) of same-colour neighbours for each pattern position and colour.
 pub(crate) fn neighbour_table(m: &Mosaic) -> Vec<[Vec<(isize, isize)>; 3]> {
@@ -33,11 +33,11 @@ pub(crate) fn neighbour_table(m: &Mosaic) -> Vec<[Vec<(isize, isize)>; 3]> {
     table
 }
 
-pub(crate) fn bilinear(m: &Mosaic) -> Rgb32f {
+pub(crate) fn bilinear(m: &Mosaic) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     let table = neighbour_table(m);
     let cfa = m.cfa;
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             let own = cfa.color_at(x, y) as usize;

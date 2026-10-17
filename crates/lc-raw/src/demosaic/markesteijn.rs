@@ -2,7 +2,7 @@
 //! xtrans.c at 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).
 //! Safe, disjoint output bands replace OpenMP/pointer writes. See docs/PORTS.md.
 use super::Mosaic;
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 const PAD: usize = 17;
 const N: usize = 122;
@@ -23,9 +23,9 @@ pub(crate) fn supported(m: &Mosaic) -> bool {
 }
 
 /// darktable's three-colour VNG linear interpolation (X-Trans dual low branch).
-pub(crate) fn linear(m: &Mosaic) -> Rgb32f {
-    let mut out = Rgb32f::new(m.w, m.h);
-    lightcraft_raster::par_rows(&mut out.data, m.w, |y, row| {
+pub(crate) fn linear(m: &Mosaic) -> RgbFrame {
+    let mut out = RgbFrame::new(m.w, m.h);
+    li_raster::par_rows(&mut out.data, m.w, |y, row| {
         for (x, p) in row.iter_mut().enumerate() {
             let own = m.cfa.color_at(x, y) as usize;
             let mut sum = [0.0; 3];
@@ -343,7 +343,7 @@ fn tile(m: &Mosaic, x0: usize, y0: usize, hex: &[[[isize; 8]; 3]; 3], sy: isize,
     out
 }
 
-pub(crate) fn markesteijn(m: &Mosaic) -> Rgb32f {
+pub(crate) fn markesteijn(m: &Mosaic) -> RgbFrame {
     if m.w < 36 || m.h < 36 {
         return super::xtrans::directional(m);
     }

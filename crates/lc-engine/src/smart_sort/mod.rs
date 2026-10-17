@@ -17,8 +17,8 @@ pub mod tagsets;
 pub mod tokens;
 
 use crate::{RenderJob, Session};
+use li_raster::Rgba8;
 use lightcraft_catalog::{MediaKind, PhotoId, Source};
-use lightcraft_raster::Rgba8;
 use std::sync::Arc;
 
 pub use plan::FolderDef;

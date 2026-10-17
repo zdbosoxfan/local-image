@@ -28,7 +28,7 @@ fn the_library_shows_the_unsaved_composite_of_a_photo_in_compositing() {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("photo.png");
-    let img = lightcraft_raster::Rgba8 { width: 40, height: 30, data: (0..40 * 30).map(|i| [(i % 40 * 6) as u8, 120, 60, 255]).collect() };
+    let img = li_raster::Rgba8 { width: 40, height: 30, data: (0..40 * 30).map(|i| [(i % 40 * 6) as u8, 120, 60, 255]).collect() };
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     std::fs::write(&path, png).unwrap();
     let mut s = lightcraft_engine::Session::new().with_fs();

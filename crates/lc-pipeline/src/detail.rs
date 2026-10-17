@@ -8,9 +8,8 @@ pub mod nr;
 pub use haze::{Haze, dehaze_px, haze_plane};
 pub use nr::{NrParams, denoise, nr_params};
 
+use li_raster::GrayFrame;
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::Plane;
-use lightcraft_raster::blur::gaussian_fine;
 
 use crate::for_rows;
 
@@ -40,9 +39,9 @@ pub fn sharp_sigma(s: &DevelopSettings, out_per_orig: f32) -> f32 {
 
 /// The blurred planes sharpening reads: `log_l` blurred once and twice by `sigma` (true Gaussian
 /// kernels: the radii are a pixel or two).
-pub fn sharp_planes(log_l: &Plane, sigma: f32) -> (Plane, Plane) {
-    let b1 = gaussian_fine(log_l, sigma);
-    let b2 = gaussian_fine(&b1, sigma);
+pub fn sharp_planes(log_l: &GrayFrame, sigma: f32) -> (GrayFrame, GrayFrame) {
+    let b1 = log_l.gaussian_fine(sigma);
+    let b2 = b1.gaussian_fine(sigma);
     (b1, b2)
 }
 
@@ -120,9 +119,9 @@ pub fn sharpen_at(amount: f32, k: &SharpK, l: &[f32], b1: &[f32], b2: &[f32], w:
 }
 
 /// The Masking slider's mask as a plane (the Alt-drag preview, [`crate::Overlay::SharpenMask`]).
-pub fn sharp_mask_plane(b2: &Plane, k: &SharpK) -> Plane {
+pub fn sharp_mask_plane(b2: &GrayFrame, k: &SharpK) -> GrayFrame {
     let (w, h) = (b2.width, b2.height);
-    let mut out = Plane::new(w, h);
+    let mut out = GrayFrame::new(w, h);
     for_rows(&mut out.data, w, |y, row| {
         for (x, v) in row.iter_mut().enumerate() {
             *v = sharp_mask_at(&b2.data, w, h, x, y, k);

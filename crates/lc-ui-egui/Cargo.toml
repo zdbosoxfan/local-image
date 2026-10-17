@@ -23,7 +23,6 @@ li-raster = { path = "../li-raster" }
 photocraft-engine = { workspace = true }
 lightcraft-geom = { workspace = true }
 lightcraft-meta = { workspace = true }
-lightcraft-raster = { workspace = true }
 lightcraft-codecs = { workspace = true }
 lightcraft-develop = { workspace = true }
 lightcraft-pipeline = { workspace = true }

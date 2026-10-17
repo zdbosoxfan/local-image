@@ -6,7 +6,7 @@
 //! filter + colour + three-median stencil; upstream uses 12. The upstream
 //! 136-pixel working tile is retained. Safe, disjoint output bands use Rayon.
 use super::Mosaic;
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 use std::sync::OnceLock;
 const PAD: usize = 16;
@@ -194,10 +194,10 @@ fn run(m: &Mosaic, x0: usize, y0: usize, scale: f32) -> Vec<[f32; 3]> {
     out
 }
 
-pub(crate) fn lmmse(m: &Mosaic) -> Rgb32f {
+pub(crate) fn lmmse(m: &Mosaic) -> RgbFrame {
     // Retain unclipped scene-linear highlights; gamma tables operate in [0,1].
     let scale = m.data.iter().copied().fold(1.0f32, f32::max);
-    let mut out = Rgb32f::new(m.w, m.h);
+    let mut out = RgbFrame::new(m.w, m.h);
     out.data.par_chunks_mut(m.w * TILE).enumerate().for_each(|(band, rows)| {
         for x0 in (0..m.w).step_by(TILE) {
             let w = (m.w - x0).min(TILE);

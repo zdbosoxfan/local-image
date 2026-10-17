@@ -9,7 +9,7 @@ use std::sync::Arc;
 use lightcraft_develop::DevelopSettings;
 use lightcraft_pipeline::{RenderRequest, SourceInfo};
 
-fn render_once(src: &Arc<lightcraft_raster::Rgb32f>, w: usize, h: usize) {
+fn render_once(src: &Arc<li_raster::RgbFrame>, w: usize, h: usize) {
     let mut s = DevelopSettings::default();
     s.light.exposure = 0.3;
     s.effects.clarity = 20.0;

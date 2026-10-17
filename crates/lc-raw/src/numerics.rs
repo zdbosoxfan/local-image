@@ -1,6 +1,6 @@
 //! Numerical helpers from darktable `common/{math.h,gaussian.c}` at
 //! 733bd69f32cac7ff5e41025115942772add1f088 (GPL-3.0-or-later).
-use lightcraft_raster::par_rows;
+use li_raster::par_rows;
 
 /// darktable's bit approximation (including its positive-argument behavior).
 pub(crate) fn fast_exp(x: f32) -> f32 {

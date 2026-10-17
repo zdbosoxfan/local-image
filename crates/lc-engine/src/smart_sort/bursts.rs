@@ -12,8 +12,8 @@
 //! going to the highest rating, then the earliest capture, then the lowest id. Writing library
 //! stacks is not done here (the dialog uses the existing `stack.group` command).
 
+use li_raster::Rgba8;
 use lightcraft_catalog::{Catalog, PhotoId, stacks::iso_seconds};
-use lightcraft_raster::Rgba8;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
@@ -441,13 +441,13 @@ mod tests {
 #[cfg(test)]
 #[test]
 fn j01_final_burst_blur_keeps_sharpness_order() {
-    let sharp = lightcraft_raster::Rgba8::from_fn(48, 32, |x, y| {
+    let sharp = li_raster::Rgba8::from_fn(48, 32, |x, y| {
         let v = if (x / 4 + y / 4).is_multiple_of(2) { 235 } else { 20 };
         [v, v, v, 255]
     });
     let mut samples: Vec<f32> = sharp.data.iter().map(|p| f32::from(p[0])).collect();
     li_raster::blur::box_blur_n(&mut samples, sharp.width, sharp.height, 1, 2);
-    let soft = lightcraft_raster::Rgba8::from_fn(sharp.width, sharp.height, |x, y| {
+    let soft = li_raster::Rgba8::from_fn(sharp.width, sharp.height, |x, y| {
         let v = samples[y * sharp.width + x] as u8;
         [v, v, v, 255]
     });

@@ -11,7 +11,7 @@ fn embedded_radial_gpu_matches_cpu_geometry_and_gain() {
     eprintln!("embedded radial device: {:?}", crate::adapter_name());
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
-    let src = Arc::new(Rgb32f::from_fn(129, 87, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(129, 87, |x, y| {
         let u = x as f32 / 129.0;
         let v = y as f32 / 87.0;
         [0.12 + 0.4 * u, 0.16 + 0.3 * v, 0.08 + 0.2 * (u + v) + 0.01 * (u * 12.0).sin()]
@@ -82,7 +82,7 @@ fn embedded_camera_basis_gpu_corrects_physically_misregistered_planes() {
     // Construct independently shifted CAMERA planes of an achromatic ramp,
     // then mix them into working RGB as the raw loader does. The physical
     // ground truth is the original ramp transformed by the camera matrix.
-    let src = Arc::new(Rgb32f::from_fn(w, h, |x, y| {
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
         let camera =
             scales.map(|scale| brightness(centre.x + (x as f64 + 0.5 - centre.x) / scale, centre.y + (y as f64 + 0.5 - centre.y) / scale) as f32);
         forward.apply_f32(camera)
@@ -134,7 +134,7 @@ fn embedded_dng_fisheye_gpu_matches_independent_mapping() {
     let _scope = crate::ctx::RenderScope::new(gpu);
     let errors = crate::ctx::ErrorScopes::push(gpu);
     let (w, h) = (129, 87);
-    let camera = Rgb32f::from_fn(w, h, |x, y| {
+    let camera = RgbFrame::from_fn(w, h, |x, y| {
         let u = x as f32 / w as f32;
         let v = y as f32 / h as f32;
         [0.12 + 0.3 * u, 0.14 + 0.2 * v, 0.11 + 0.1 * (u + v)]

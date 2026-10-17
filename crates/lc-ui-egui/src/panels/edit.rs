@@ -1908,7 +1908,7 @@ mod j22_tests {
                     let x0 = (panel.left() * scale) as usize;
                     let x1 = (panel.right() * scale) as usize;
                     let y1 = ((panel.top() + 500.0) * scale) as usize;
-                    let crop = lightcraft_raster::Rgba8::from_fn(x1 - x0, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
+                    let crop = li_raster::Rgba8::from_fn(x1 - x0, y1, |x, y| image.pixels[y * image.size[0] + x + x0].to_array());
                     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&crop), &Default::default()).unwrap();
                     std::fs::write(dir.join(format!("proof-{}-{}-{scale}.png", if dark { "dark" } else { "light" }, width as u32)), png).unwrap();
                 }

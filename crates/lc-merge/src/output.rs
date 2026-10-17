@@ -10,9 +10,9 @@
 //!   `ForwardMatrix1` = RGB → XYZ(D50), `AsShotNeutral` = (1, 1, 1).
 
 use li_color::{D50, D65, Mat3, bradford};
+use li_raster::RgbFrame;
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
-use lightcraft_raster::Rgb32f;
 use lightcraft_raw::{BlackLevel, ColorData, DngCompression, DngWriteOptions, OpcodeLists, RawData, RawFormat, RawImage, Rect};
 
 use crate::frame::FrameColor;
@@ -54,7 +54,7 @@ pub fn color_data(color: &FrameColor) -> ColorData {
 
 /// Encode `img` (scene-linear, 1.0 = source white) as a LinearRaw DNG.
 pub fn write_linear_dng(
-    img: &Rgb32f,
+    img: &RgbFrame,
     color: &FrameColor,
     orientation: Orientation,
     metadata: &Metadata,
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn linear_dng_round_trips_through_the_raw_decoder() {
-        let img = Rgb32f::from_fn(80, 60, |x, y| [x as f32 / 20.0, y as f32 / 30.0, 0.3]);
+        let img = RgbFrame::from_fn(80, 60, |x, y| [x as f32 / 20.0, y as f32 / 30.0, 0.3]);
         let color = FrameColor::Linear { to_xyz_d50: bradford(D65, D50).mul(&li_color::SRGB.to_xyz()) };
         let bytes = write_linear_dng(&img, &color, Orientation::Normal, &Metadata::default(), 0.0, DngSamples::Half).unwrap();
         let raw = lightcraft_raw::decode(&bytes).unwrap();

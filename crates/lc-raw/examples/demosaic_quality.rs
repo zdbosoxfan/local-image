@@ -1,7 +1,7 @@
 //! Reproducible linear noisy re-mosaic curves, rawler second reference and crop evidence.
 //! Outputs only under target/demosaic-quality. No dependencies or private photographs.
 use lightcraft_raw::demosaic::{mosaic_from_rgb, noise_sigma, psnr};
-use lightcraft_raw::{Cfa, Method, Normalized, RawData, Rgb32f};
+use lightcraft_raw::{Cfa, Method, Normalized, RawData, RgbFrame};
 use std::io::Write;
 use std::path::Path;
 mod quality_support;
@@ -14,14 +14,14 @@ fn gaussian(seed: &mut u32) -> f32 {
     let b = uniform();
     (-2.0 * a.ln()).sqrt() * (std::f32::consts::TAU * b).cos()
 }
-fn ppm(path: &Path, img: &Rgb32f) {
+fn ppm(path: &Path, img: &RgbFrame) {
     let mut f = std::fs::File::create(path).unwrap();
     write!(f, "P6\n{} {}\n255\n", img.width, img.height).unwrap();
     for p in &img.data {
         f.write_all(&p.map(|v| (v.clamp(0.0, 1.0).powf(1.0 / 2.2) * 255.0).round() as u8)).unwrap();
     }
 }
-fn floats(path: &Path, img: &Rgb32f) {
+fn floats(path: &Path, img: &RgbFrame) {
     let mut f = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
     for p in &img.data {
         for v in p {
@@ -29,14 +29,14 @@ fn floats(path: &Path, img: &Rgb32f) {
         }
     }
 }
-fn rawler(n: &Normalized) -> Rgb32f {
+fn rawler(n: &Normalized) -> RgbFrame {
     use rawler::imgop::sensor::{Demosaic, xtrans::markesteijn::XTransMarkesteijnDemosaic};
     let c = n.cfa.as_ref().unwrap();
     let pattern: String = (0..6).flat_map(|y| (0..6).map(move |x| "RGB".as_bytes()[c.color_at(x, y) as usize] as char)).collect();
     let pixels = rawler::pixarray::PixF32::new_with(n.data.clone(), n.width, n.height);
     let rect = rawler::imgop::Rect::new(rawler::imgop::Point::new(0, 0), rawler::imgop::Dim2::new(n.width, n.height));
     let out = XTransMarkesteijnDemosaic::new_pass_3().demosaic(&pixels, &rawler::CFA::new(&pattern), &rawler::cfa::PlaneColor::new("RGB"), rect);
-    Rgb32f { width: n.width, height: n.height, data: out.data }
+    RgbFrame { width: n.width, height: n.height, data: out.data }
 }
 fn dng(n: Normalized, path: &Path) {
     use lightcraft_raw::{BlackLevel, ColorData, Orientation, RawFormat, RawImage, Rect};
@@ -70,7 +70,7 @@ fn natural_curves(paths: &[String]) {
         let bytes = std::fs::read(path).unwrap();
         let values: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|v| f32::from_le_bytes(*v)).collect();
         assert_eq!(values.len(), 512 * 512 * 3);
-        let truth = Rgb32f { width: 512, height: 512, data: values.as_chunks::<3>().0.to_vec() };
+        let truth = RgbFrame { width: 512, height: 512, data: values.as_chunks::<3>().0.to_vec() };
         for (sensor, cfa, methods) in [
             (
                 "NaturalBayer",
@@ -167,7 +167,7 @@ fn main() {
             let truth = if kind < 3 {
                 quality_support::scene(kind, 384, 384)
             } else {
-                Rgb32f::from_fn(384, 384, |x, y| {
+                RgbFrame::from_fn(384, 384, |x, y| {
                     let fx = x as f32 / 384.0;
                     let fy = y as f32 / 384.0;
                     let l = if kind == 3 {
@@ -245,7 +245,7 @@ fn profile_curves(table: &str, paths: &[String]) {
         let bytes = std::fs::read(path).unwrap();
         let values: Vec<f32> = bytes.as_chunks::<4>().0.iter().map(|v| f32::from_le_bytes(*v)).collect();
         assert_eq!(values.len(), 512 * 512 * 3);
-        let truth = Rgb32f { width: 512, height: 512, data: values.as_chunks::<3>().0.to_vec() };
+        let truth = RgbFrame { width: 512, height: 512, data: values.as_chunks::<3>().0.to_vec() };
         for (sensor, cfa, methods) in [
             (
                 "ProfileBayer",

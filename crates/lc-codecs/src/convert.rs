@@ -5,8 +5,7 @@ use crate::icc::{self, IccColorModel, IccKind};
 use crate::space::{NamedSpace, SourceSpace, SpaceOrigin, Trc};
 use crate::{DecodeOptions, Decoded, Error, Format, Result};
 use li_raster::resample::Filter;
-use lightcraft_raster::resample::fit;
-use lightcraft_raster::{Plane, Rgb32f, par_rows};
+use li_raster::{GrayFrame, RgbFrame, par_rows};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Model {
@@ -177,7 +176,7 @@ pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u3
 
     // Alpha plane (straight).
     let alpha = raw.alpha.then(|| {
-        let mut a = Plane::new(raw.width, raw.height);
+        let mut a = GrayFrame::new(raw.width, raw.height);
         for (i, o) in a.data.iter_mut().enumerate() {
             *o = raw.buf.norm(i * ch + ch - 1).clamp(0.0, 1.0);
         }
@@ -216,8 +215,8 @@ pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u3
         Some((mw, mh)) if (image.width as u32 > mw || image.height as u32 > mh) && mw > 0 && mh > 0 => {
             let factor = (image.width as f64 / mw as f64).max(image.height as f64 / mh as f64);
             let f = if factor >= 2.0 { Filter::Box } else { Filter::Mitchell };
-            let img = fit(&image, mw as usize, mh as usize, f);
-            let alpha = alpha.map(|a| fit(&a, mw as usize, mh as usize, f));
+            let img = image.fit(mw as usize, mh as usize, f);
+            let alpha = alpha.map(|a| a.fit(mw as usize, mh as usize, f));
             (img, alpha)
         }
         _ => (image, alpha),
@@ -244,9 +243,9 @@ pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u3
     })
 }
 
-fn to_rgb_passthrough(raw: &Raw, ch: usize) -> Rgb32f {
+fn to_rgb_passthrough(raw: &Raw, ch: usize) -> RgbFrame {
     let gray = raw.model == Model::Gray;
-    let mut img = Rgb32f::new(raw.width, raw.height);
+    let mut img = RgbFrame::new(raw.width, raw.height);
     par_rows(&mut img.data, raw.width, |y, row| {
         for (x, o) in row.iter_mut().enumerate() {
             let p = y * raw.width + x;
@@ -262,9 +261,9 @@ fn to_rgb_passthrough(raw: &Raw, ch: usize) -> Rgb32f {
 }
 
 /// Per-channel linearization via LUTs (8/16-bit) or direct evaluation (float).
-fn linearize(raw: &Raw, ch: usize, trc: &[Trc; 3]) -> Rgb32f {
+fn linearize(raw: &Raw, ch: usize, trc: &[Trc; 3]) -> RgbFrame {
     let gray = raw.model == Model::Gray;
-    let mut img = Rgb32f::new(raw.width, raw.height);
+    let mut img = RgbFrame::new(raw.width, raw.height);
     let w = raw.width;
     if raw.associated_integer() {
         par_rows(&mut img.data, w, |y, row| {
@@ -347,11 +346,11 @@ fn device_samples(raw: &Raw, ch: usize, n_color: usize) -> Vec<f32> {
     out
 }
 
-fn from_vec(w: usize, h: usize, data: Vec<[f32; 3]>) -> Rgb32f {
-    Rgb32f { width: w, height: h, data }
+fn from_vec(w: usize, h: usize, data: Vec<[f32; 3]>) -> RgbFrame {
+    RgbFrame { width: w, height: h, data }
 }
 
-fn rgb_or_gray(raw: &Raw, ch: usize, meta: &Meta, info: Option<&icc::IccInfo>, float: bool) -> (Rgb32f, SourceSpace) {
+fn rgb_or_gray(raw: &Raw, ch: usize, meta: &Meta, info: Option<&icc::IccInfo>, float: bool) -> (RgbFrame, SourceSpace) {
     let gray = raw.model == Model::Gray;
     if let (Some(bytes), Some(info)) = (meta.icc.as_deref(), info) {
         match (&info.kind, gray) {
@@ -410,7 +409,7 @@ fn rgb_or_gray(raw: &Raw, ch: usize, meta: &Meta, info: Option<&icc::IccInfo>, f
     (linearize(raw, ch, &t), s)
 }
 
-fn cmyk(raw: &Raw, ch: usize, icc_bytes: Option<&[u8]>, info: Option<&icc::IccInfo>) -> (Rgb32f, SourceSpace) {
+fn cmyk(raw: &Raw, ch: usize, icc_bytes: Option<&[u8]>, info: Option<&icc::IccInfo>) -> (RgbFrame, SourceSpace) {
     let samples = device_samples(raw, ch, 4);
     if let (Some(bytes), Some(info)) = (icc_bytes, info)
         && info.model == IccColorModel::Cmyk

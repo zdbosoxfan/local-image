@@ -8,8 +8,8 @@
 //!    side of an edge dominate.
 
 use super::Mosaic;
-use crate::Rgb32f;
-use lightcraft_raster::par_rows;
+use crate::RgbFrame;
+use li_raster::par_rows;
 
 const EPS: f32 = 1e-3;
 
@@ -139,12 +139,12 @@ fn green(m: &Mosaic, off: &Offsets) -> Vec<f32> {
     g
 }
 
-pub(crate) fn directional(m: &Mosaic) -> Rgb32f {
+pub(crate) fn directional(m: &Mosaic) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     let off = Offsets::new(m);
     let g = green(m, &off);
     let gg = |x: isize, y: isize| g[super::reflect(y, h) * w + super::reflect(x, w)];
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     par_rows(&mut out.data, w, |y, row| {
         let interior_y = y >= 2 && y + 2 < h;
         let yi = y as isize;
@@ -209,7 +209,7 @@ mod tests {
 
     /// The straightforward per-pixel formulation (reflection at every access): the precomputed
     /// interior path must match it bit for bit.
-    fn reference(m: &Mosaic) -> Rgb32f {
+    fn reference(m: &Mosaic) -> RgbFrame {
         let (w, h) = (m.w, m.h);
         let mut g = vec![0f32; w * h];
         for y in 0..h as isize {
@@ -236,7 +236,7 @@ mod tests {
             }
         }
         let gg = |x: isize, y: isize| g[super::super::reflect(y, h) * w + super::super::reflect(x, w)];
-        Rgb32f::from_fn(w, h, |x, y| {
+        RgbFrame::from_fn(w, h, |x, y| {
             let (x, y) = (x as isize, y as isize);
             let own = m.color(x, y) as usize;
             let gp = gg(x, y);

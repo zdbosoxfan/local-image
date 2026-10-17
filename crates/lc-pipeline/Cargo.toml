@@ -19,7 +19,6 @@ photocraft-raster = { workspace = true }
 li-color = { workspace = true }
 li-raster = { path = "../li-raster" }
 lightcraft-geom = { workspace = true }
-lightcraft-raster = { workspace = true }
 lightcraft-develop = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }

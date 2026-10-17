@@ -4,8 +4,8 @@
 //! darktable developers; dcraw VNG by Dave Coffin. GPL-3.0-or-later.
 //! Bayer greens remain separate until the final averaging pass.
 use super::Mosaic;
-use crate::Rgb32f;
-use lightcraft_raster::par_rows;
+use crate::RgbFrame;
+use li_raster::par_rows;
 use rayon::prelude::*;
 
 const TERMS: [i32; 384] = [
@@ -36,7 +36,7 @@ struct Term {
 }
 
 /// `linear_only` is darktable's low-frequency dual demosaic, full VNG otherwise.
-pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
+pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     let mut linear = vec![[0.0f32; 4]; w * h];
     // Precompute the interior stencil for each CFA phase. Keep the original
@@ -166,11 +166,11 @@ pub(crate) fn vng(m: &Mosaic, linear_only: bool) -> Rgb32f {
         });
         result
     };
-    Rgb32f { width: w, height: h, data: result.into_par_iter().map(|p| [p[0].max(0.0), (0.5 * (p[1] + p[3])).max(0.0), p[2].max(0.0)]).collect() }
+    RgbFrame { width: w, height: h, data: result.into_par_iter().map(|p| [p[0].max(0.0), (0.5 * (p[1] + p[3])).max(0.0), p[2].max(0.0)]).collect() }
 }
 
 /// Two passes of darktable's 3×3 median of R−G and B−G, preserving green.
-pub(crate) fn color_smoothing(img: &mut Rgb32f, passes: usize) {
+pub(crate) fn color_smoothing(img: &mut RgbFrame, passes: usize) {
     let (w, h) = (img.width, img.height);
     if w < 3 || h < 3 {
         return;

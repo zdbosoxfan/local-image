@@ -3,8 +3,8 @@
 use super::geom::Homography;
 use super::support::par_map;
 pub use crate::ransac::Model;
+use li_raster::GrayFrame;
 use lightcraft_geom::Point;
-use lightcraft_raster::Plane;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Corner {
     pub x: f32,
@@ -53,7 +53,7 @@ pub fn mops(w: usize, h: usize, img: &[f32], valid: Option<&[bool]>, max: usize)
     if w == 0 || h == 0 || w.checked_mul(h) != Some(img.len()) || valid.is_some_and(|v| v.len() != img.len()) || max == 0 {
         return crate::features::Features::default();
     }
-    let plane = Plane { width: w, height: h, data: img.to_vec() };
+    let plane = GrayFrame { width: w, height: h, data: img.to_vec() };
     let mut f = crate::features::detect(&plane, max);
     let mut points = Vec::new();
     let mut desc = Vec::new();
@@ -234,7 +234,7 @@ mod j19_tests {
         let (w, h) = (128, 96);
         let img: Vec<_> =
             (0..w * h).map(|i| (((i % w / 7) * 37 + (i / w / 8) * 23 + (i % w / 13) * (i / w / 11) * 17) % 127) as f32 / 127.0).collect();
-        let native = crate::features::detect(&Plane { width: w, height: h, data: img.clone() }, 100);
+        let native = crate::features::detect(&GrayFrame { width: w, height: h, data: img.clone() }, 100);
         let editor = mops(w, h, &img, None, 100);
         assert!(!editor.points.is_empty());
         assert_eq!(native.desc, editor.desc);

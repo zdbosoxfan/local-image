@@ -1,6 +1,6 @@
 //! Independent numeric fixtures from pinned upstream C/C++, extracted outside the build.
 use crate::detail::{haze, nr};
-use lightcraft_raster::Rgb32f;
+use li_raster::RgbFrame;
 
 fn noise(x: usize, y: usize, k: u32) -> f32 {
     let mut v = (x as u32).wrapping_mul(0x8da6_b343) ^ (y as u32).wrapping_mul(0xd816_3841) ^ k.wrapping_mul(0xcb1a_b31f);
@@ -45,10 +45,10 @@ fn upstream_vst_matrices_and_fast_exp() {
 }
 #[test]
 fn upstream_eaw_bayes_shrink_and_synthesis() {
-    let mut img = Rgb32f::from_fn(37, 29, |x, y| {
+    let mut img = RgbFrame::from_fn(37, 29, |x, y| {
         std::array::from_fn(|c| 12.0 + 0.05 * x as f32 + 0.03 * y as f32 + if x >= 37 / 2 { 20.0 } else { 0.0 } + 2.0 * noise(x, y, c as u32 + 1))
     });
-    let mut acc = Rgb32f::new(37, 29);
+    let mut acc = RgbFrame::new(37, 29);
     let mut worst = 0.0;
     let mut worst_stats = 0.0;
     for level in 0..3 {
@@ -88,7 +88,7 @@ fn upstream_eaw_bayes_shrink_and_synthesis() {
 }
 #[test]
 fn upstream_ambient_transmission_guidance_and_boxes() {
-    let img = Rgb32f::from_fn(37, 29, |x, y| {
+    let img = RgbFrame::from_fn(37, 29, |x, y| {
         std::array::from_fn(|c| {
             0.15 + 0.012 * x as f32 + 0.004 * y as f32 + 0.03 * c as f32 + if x > 37 / 2 { 0.12 } else { 0.0 } + 0.008 * noise(x, y, c as u32 + 1)
         })

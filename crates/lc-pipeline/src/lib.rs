@@ -83,7 +83,7 @@ use std::any::Any;
 use std::borrow::Cow;
 use std::sync::{Arc, Mutex};
 
-use lightcraft_raster::{Histogram, Plane, Rgb32f, Rgba8, par_rows};
+use li_raster::{GrayFrame, Histogram, RgbFrame, Rgba8, par_rows};
 
 pub use tone::ToneMap;
 
@@ -294,25 +294,25 @@ pub struct Rendered {
 /// Spatial filters on log luminance are shift-equivariant, so this equals filtering after exposure.
 #[derive(Clone)]
 pub(crate) struct Prepared {
-    pub img: Arc<Rgb32f>,
+    pub img: Arc<RgbFrame>,
     /// Log2 luminance relative to middle grey (before exposure: add `ev`).
-    pub log_l: Arc<Plane>,
-    pub base: Arc<Plane>,
-    pub clarity_blur: Option<Arc<Plane>>,
-    pub texture_blur: Option<Arc<Plane>>,
+    pub log_l: Arc<GrayFrame>,
+    pub base: Arc<GrayFrame>,
+    pub clarity_blur: Option<Arc<GrayFrame>>,
+    pub texture_blur: Option<Arc<GrayFrame>>,
     /// Blurred chromaticity (`rgb / Y`) for local Moiré / Noise.
-    pub chroma_blur: Option<Arc<Rgb32f>>,
+    pub chroma_blur: Option<Arc<RgbFrame>>,
     pub masks: Vec<masks::Evaluated>,
     /// Develop layers' noise reduction: (evaluated mask index, the image denoised again with the
     /// layer's settings), see [`layers`].
-    pub layer_nr: Vec<(usize, Arc<Rgb32f>)>,
+    pub layer_nr: Vec<(usize, Arc<RgbFrame>)>,
     /// Output pixels per unit of the source long edge.
     pub px_per_long: f64,
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
-    pub tone_eq: Option<Arc<Plane>>,
+    pub tone_eq: Option<Arc<GrayFrame>>,
     /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
-    pub sharp: Option<(Arc<Plane>, Arc<Plane>, f32)>,
-    pub layer_sharp: Vec<(usize, Arc<Plane>, Arc<Plane>, f32)>,
+    pub sharp: Option<(Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
+    pub layer_sharp: Vec<(usize, Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
     /// dehaze: the refined dark channel and the airlight (before exposure).
     pub haze: Option<Arc<detail::Haze>>,
 }
@@ -329,7 +329,7 @@ pub fn native_output_size(src_w: usize, src_h: usize, s: &DevelopSettings) -> (f
 }
 
 /// The geometric frame `render` uses for `src` (lens data, automatic CA estimate included).
-pub fn frame_for(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
+pub fn frame_for(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_crop: bool) -> geometry::Frame {
     let embedded = info.embedded_lens(src.width as f64, src.height as f64);
     // Built-in ordered DNG corrections have already run before colour conversion.
     // Suppress all automatic fallbacks, while preserving manual Optics controls.
@@ -375,7 +375,7 @@ pub struct StageCache {
     pre: Mutex<Option<CapturedSource>>,
 }
 
-type CapturedSource = (Arc<Rgb32f>, u64, Arc<Rgb32f>, Option<Arc<ClipConfidence>>);
+type CapturedSource = (Arc<RgbFrame>, u64, Arc<RgbFrame>, Option<Arc<ClipConfidence>>);
 
 impl Default for StageCache {
     fn default() -> Self {
@@ -418,7 +418,7 @@ impl StageCache {
     /// Bytes of the intermediate images held (each buffer counted once; the sources they were
     /// made from belong to their owner and are not counted).
     pub fn bytes(&self) -> usize {
-        fn size<T>(i: &lightcraft_raster::Image<T>) -> usize {
+        fn size<T>(i: &li_raster::Frame<T>) -> usize {
             i.data.len() * std::mem::size_of::<T>()
         }
         let mut seen: Vec<usize> = Vec::new();
@@ -474,7 +474,7 @@ impl StageCache {
         self.entries.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    fn get(&self, src: &Arc<Rgb32f>, geo: u64) -> Option<CacheEntry> {
+    fn get(&self, src: &Arc<RgbFrame>, geo: u64) -> Option<CacheEntry> {
         self.lock().iter().find(|e| e.geo == geo && Arc::ptr_eq(&e.src, src)).cloned()
     }
 
@@ -490,10 +490,10 @@ impl StageCache {
 
 #[derive(Clone)]
 struct CacheEntry {
-    src: Arc<Rgb32f>,
+    src: Arc<RgbFrame>,
     geo: u64,
-    sampled: Arc<Rgb32f>,
-    lin: Option<(u64, Arc<Rgb32f>)>,
+    sampled: Arc<RgbFrame>,
+    lin: Option<(u64, Arc<RgbFrame>)>,
     planes: local::Planes,
     primary: primary::Cached,
     stack: layers::Cache,
@@ -526,7 +526,7 @@ pub struct Plan<'a> {
 }
 
 /// Resolve `s` against `src` for `req` (see [`Plan`]).
-pub fn plan<'a>(src: &Rgb32f, info: &SourceInfo, s: &'a DevelopSettings, req: &RenderRequest) -> Plan<'a> {
+pub fn plan<'a>(src: &RgbFrame, info: &SourceInfo, s: &'a DevelopSettings, req: &RenderRequest) -> Plan<'a> {
     let mut settings: Cow<'a, DevelopSettings> = match profiles::effective(s) {
         Cow::Borrowed(b) => upright::resolve(src, info, b),
         Cow::Owned(o) => Cow::Owned(upright::resolve(src, info, &o).into_owned()),
@@ -591,7 +591,7 @@ pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
 /// the scan's scene-linear transmittance (white-balanced, in the working space), and everything
 /// after it (defringe's purple/green hues, retouching, noise reduction, tone and colour) has to see
 /// the positive image.
-pub fn lin_cpu(img: &mut Rgb32f, info: &SourceInfo, p: &Plan<'_>) {
+pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
     if let Some(table) = info.source_hue_sat.as_ref()
         && let Some(look) = source_color::HueSat::new(table)
@@ -634,11 +634,11 @@ const CAPTURE_DEFAULT_RADIUS: f32 = 0.5;
 
 /// The capture-sharpened source (`None`: nothing to sharpen; render `src`), reused from `cache`
 /// while the source and the parameters are unchanged. Both renderers call it first.
-pub fn presource(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, cache: Option<&StageCache>) -> Option<Arc<Rgb32f>> {
+pub fn presource(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, cache: Option<&StageCache>) -> Option<Arc<RgbFrame>> {
     capture_params(info, s).map(|p| presource_with(src, info, &p, cache))
 }
 
-fn presource_with(src: &Arc<Rgb32f>, info: &SourceInfo, p: &capture::CaptureParams, cache: Option<&StageCache>) -> Arc<Rgb32f> {
+fn presource_with(src: &Arc<RgbFrame>, info: &SourceInfo, p: &capture::CaptureParams, cache: Option<&StageCache>) -> Arc<RgbFrame> {
     let key = hash_of((format!("{p:?}"), info.clip_confidence.as_ref().map(|c| Arc::as_ptr(c) as usize)));
     if let Some(c) = cache
         && let Some((s0, k, out, _)) = c.pre.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
@@ -658,12 +658,12 @@ fn presource_with(src: &Arc<Rgb32f>, info: &SourceInfo, p: &capture::CapturePara
 
 /// Render `src` with settings `s`. Legacy infallible adapter: an unsupported proof
 /// yields an empty render. Custom ICC callers should use [`render_checked`] for the error.
-pub fn render(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rendered {
+pub fn render(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Rendered {
     render_checked(src, info, s, req).unwrap_or_else(|_| empty_render())
 }
 
 /// Render with explicit CMS linking errors (printer and monitor profiles are never substituted).
-pub fn render_checked(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Result<Rendered, photocraft_cms::CmsError> {
+pub fn render_checked(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest) -> Result<Rendered, photocraft_cms::CmsError> {
     if let Some(proof) = &req.proof {
         proof.try_params(req.space)?;
     }
@@ -671,13 +671,13 @@ pub fn render_checked(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req:
 }
 
 /// [`render`], reusing the intermediate results in `cache`.
-pub fn render_cached(src: &Arc<Rgb32f>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: &StageCache) -> Rendered {
+pub fn render_cached(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, cache: &StageCache) -> Rendered {
     render_cached_checked(src, info, s, req, cache).unwrap_or_else(|_| empty_render())
 }
 
 /// [`render_checked`] with the app's intermediate stage cache.
 pub fn render_cached_checked(
-    src: &Arc<Rgb32f>,
+    src: &Arc<RgbFrame>,
     info: &SourceInfo,
     s: &DevelopSettings,
     req: &RenderRequest,
@@ -696,13 +696,13 @@ fn empty_render() -> Rendered {
 }
 
 /// Internal evaluation harness entry point; never persisted in photo settings.
-pub fn render_hs_candidate(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, method: primary::HsMethod) -> Rendered {
+pub fn render_hs_candidate(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, method: primary::HsMethod) -> Rendered {
     render_impl(Src::Borrowed(src), info, s, req, None, method)
 }
 
 enum Src<'a> {
-    Borrowed(&'a Rgb32f),
-    Shared(&'a Arc<Rgb32f>),
+    Borrowed(&'a RgbFrame),
+    Shared(&'a Arc<RgbFrame>),
 }
 
 fn render_impl(
@@ -722,7 +722,7 @@ fn render_impl(
     };
     let mut t = profiling().then(std::time::Instant::now);
     // capture sharpening works on the source itself (sensor-scale blur), before everything else
-    let pre: Option<Arc<Rgb32f>> = capture_params(info, s).map(|p| match &src {
+    let pre: Option<Arc<RgbFrame>> = capture_params(info, s).map(|p| match &src {
         Src::Shared(a) => presource_with(a, info, &p, cache),
         Src::Borrowed(r) => {
             let mut img = (*r).clone();
@@ -734,7 +734,7 @@ fn render_impl(
         Some(a) => Src::Shared(a),
         None => src,
     };
-    let src_img: &Rgb32f = match &src {
+    let src_img: &RgbFrame = match &src {
         Src::Borrowed(r) => r,
         Src::Shared(a) => a,
     };
@@ -775,7 +775,7 @@ fn render_impl(
         match cached.as_ref().and_then(|e| e.primary.clone()).filter(|(key, _)| *key == primary_key) {
             Some(p) => Some(p),
             None => {
-                let proxy = if primary::needs_proxy(&plan.settings) { primary::proxy_for(src_img, info, &plan) } else { Rgb32f::new(0, 0) };
+                let proxy = if primary::needs_proxy(&plan.settings) { primary::proxy_for(src_img, info, &plan) } else { RgbFrame::new(0, 0) };
                 Some((primary_key, Arc::new(primary::process(&lin, &proxy, info, &plan, hs_method))))
             }
         }
@@ -822,13 +822,13 @@ fn render_impl(
 
 /// A CPU finish stage inside the GPU renderer, for the faithful EIGF tone equalizer.
 /// Geometry, white balance, and noise reduction have already run on the device.
-pub fn finish_scene_stage(mut img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
+pub fn finish_scene_stage(mut img: Arc<RgbFrame>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
     if layers::active(&plan.settings) {
         let original = &*plan.settings;
         let mut background = Plan { settings: Cow::Owned(layers::background(original)), ..plan.clone() };
         let key = layers::background_key(&background, info, req.quality, primary::DEFAULT_HS_METHOD);
         if primary::active(&background.settings) {
-            let proxy = if primary::needs_proxy(&background.settings) { (*img).clone() } else { Rgb32f::new(0, 0) };
+            let proxy = if primary::needs_proxy(&background.settings) { (*img).clone() } else { RgbFrame::new(0, 0) };
             img = Arc::new(primary::process(&img, &proxy, info, &background, primary::DEFAULT_HS_METHOD));
             background.settings = Cow::Owned(visualize::remaining_for_overlay(req.overlay, &background.settings));
         }
@@ -853,7 +853,7 @@ pub fn finish_scene_stage(mut img: Arc<Rgb32f>, plan: &Plan<'_>, info: &SourceIn
     finish_prepared(&prep, plan, info, req)
 }
 
-fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&Plane>) -> Rendered {
+fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&GrayFrame>) -> Rendered {
     let neutral = DevelopSettings::default();
     let deep = (req.depth != OutputDepth::U8)
         .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof.clone(), finish::FinishMode::Output));
@@ -899,7 +899,13 @@ fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Re
 /// The colour a colour-range mask would sample at normalized image point `p` (OkLab of the
 /// exposed scene colours, as [`MaskShape::ColorRange`](lightcraft_develop::MaskShape) compares
 /// them), averaged over 3 × 3 pixels of a render fitting `req`. `None` outside the image.
-pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, p: lightcraft_geom::Point) -> Option<[f64; 3]> {
+pub fn color_range_sample(
+    src: &RgbFrame,
+    info: &SourceInfo,
+    s: &DevelopSettings,
+    req: &RenderRequest,
+    p: lightcraft_geom::Point,
+) -> Option<[f64; 3]> {
     let plan = plan(src, info, s, req);
     let mut img = plan.frame.sample(src, plan.w, plan.h);
     lin_cpu(&mut img, info, &plan);
@@ -927,7 +933,7 @@ pub fn color_range_sample(src: &Rgb32f, info: &SourceInfo, s: &DevelopSettings, 
 
 /// Scene-linear UCS22 reference sampled before Skin Tone, averaged over 3×3 pixels.
 pub fn skin_reference_sample(
-    src: &Rgb32f,
+    src: &RgbFrame,
     info: &SourceInfo,
     s: &DevelopSettings,
     req: &RenderRequest,
@@ -942,7 +948,7 @@ pub fn skin_reference_sample(
     let mut img = plan.frame.sample(src, plan.w, plan.h);
     lin_cpu(&mut img, info, &plan);
     if primary::active(&plan.settings) {
-        let proxy = if primary::needs_proxy(&plan.settings) { primary::proxy_for(src, info, &plan) } else { Rgb32f::new(0, 0) };
+        let proxy = if primary::needs_proxy(&plan.settings) { primary::proxy_for(src, info, &plan) } else { RgbFrame::new(0, 0) };
         img = primary::process(&img, &proxy, info, &plan, primary::DEFAULT_HS_METHOD);
     }
     let q = plan.frame.norm_to_out(plan.w, plan.h).apply(p);
@@ -968,7 +974,7 @@ pub fn skin_reference_sample(
 
 /// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
 /// fresh evaluation. Full coverage is drawn scalarly and needs no diagnostic plane either.
-fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<Plane> {
+fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<GrayFrame> {
     if let Some(skin) = o.skin(&plan.settings).filter(|s| s.reference.is_some()) {
         return Some(visualize::skin_alpha(&prep.img, skin, (plan.settings.light.exposure as f32).exp2()));
     }
@@ -1056,7 +1062,7 @@ pub mod basecurves;
 #[test]
 fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
     use lightcraft_develop::{Mask, MaskComponent, MaskShape};
-    let src = Rgb32f::from_fn(32, 16, |_, _| [0.1; 3]);
+    let src = RgbFrame::from_fn(32, 16, |_, _| [0.1; 3]);
     let info = SourceInfo::default();
     let mut s = DevelopSettings {
         masks: vec![Mask {

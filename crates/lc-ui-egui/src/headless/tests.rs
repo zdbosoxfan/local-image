@@ -129,7 +129,7 @@ fn colorprofiles_picker_clicks_persist_and_fit_both_themes() {
                 );
             }
             let image = h.paint();
-            let out = lightcraft_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
+            let out = li_raster::Rgba8::from_fn(image.size[0], image.size[1], |x, y| image.pixels[y * image.size[0] + x].to_array());
             let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&out), &Default::default()).unwrap();
             std::fs::write(dir.join(format!("{}-{}.png", if dark { "dark" } else { "light" }, width as u32)), bytes).unwrap();
         }
@@ -677,7 +677,7 @@ fn export_same_folder_conflicts_catalog_stack_and_postprocessing() {
     let base = std::env::temp_dir().join(format!("lc-ui-export-location-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
-    let image = lightcraft_raster::Rgba8::from_fn(16, 12, |_, _| [50, 90, 120, 255]);
+    let image = li_raster::Rgba8::from_fn(16, 12, |_, _| [50, 90, 120, 255]);
     let original = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
     let source = base.join("Photo.png");
     std::fs::write(&source, &original).unwrap();
@@ -747,7 +747,7 @@ fn save_over_confirmation_cancel_copy_overwrite_and_preference() {
     let base = std::env::temp_dir().join(format!("lc-ui-save-over-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     std::fs::create_dir_all(&base).unwrap();
-    let image = lightcraft_raster::Rgba8::from_fn(16, 12, |_, _| [30, 60, 90, 255]);
+    let image = li_raster::Rgba8::from_fn(16, 12, |_, _| [30, 60, 90, 255]);
     let original = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
     let source = base.join("Photo.png");
     std::fs::write(&source, &original).unwrap();
@@ -974,7 +974,7 @@ fn browse_a_local_folder() {
     let dir = std::env::temp_dir().join(format!("lc-ui-browse-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("inner")).unwrap();
-    let img = lightcraft_raster::Rgba8::from_fn(24, 16, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
+    let img = li_raster::Rgba8::from_fn(24, 16, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
     let o = lightcraft_engine::export::ExportOptions { format: lightcraft_engine::export::ExportFormat::Png, ..Default::default() };
     for (i, p) in [dir.join("a.png"), dir.join("inner/b.png")].iter().enumerate() {
         let mut img = img.clone();
@@ -1209,7 +1209,7 @@ fn add_folder_opens_the_import_review() {
     let dir = std::env::temp_dir().join(format!("lc-addfolder-{}", std::process::id()));
     let sub = dir.join("day 2");
     std::fs::create_dir_all(&sub).unwrap();
-    let img = lightcraft_raster::Rgba8::from_fn(24, 16, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
+    let img = li_raster::Rgba8::from_fn(24, 16, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
     let png = lightcraft_engine::export::encode_image(
         &img,
         &lightcraft_engine::export::ExportOptions { format: lightcraft_engine::export::ExportFormat::Png, ..Default::default() },
@@ -1250,7 +1250,7 @@ fn browsing_the_same_folder_again_does_not_restart() {
     let t = Duration::from_secs(10);
     let dir = std::env::temp_dir().join(format!("lc-browse-again-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let img = lightcraft_raster::Rgba8::from_fn(8, 8, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
+    let img = li_raster::Rgba8::from_fn(8, 8, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
     let o = lightcraft_engine::export::ExportOptions { format: lightcraft_engine::export::ExportFormat::Png, ..Default::default() };
     std::fs::write(dir.join("a.png"), lightcraft_engine::export::encode_image(&img, &o).unwrap()).unwrap();
     let gate = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1281,7 +1281,7 @@ fn add_folder_scans_in_the_background() {
     let t = Duration::from_secs(10);
     let dir = std::env::temp_dir().join(format!("lc-scanbg-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let img = lightcraft_raster::Rgba8::from_fn(8, 8, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
+    let img = li_raster::Rgba8::from_fn(8, 8, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
     let png = lightcraft_engine::export::encode_image(
         &img,
         &lightcraft_engine::export::ExportOptions { format: lightcraft_engine::export::ExportFormat::Png, ..Default::default() },
@@ -1305,7 +1305,7 @@ fn folder_scan_cancel_and_busy() {
     let t = Duration::from_secs(10);
     let dir = std::env::temp_dir().join(format!("lc-scancancel-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let img = lightcraft_raster::Rgba8::from_fn(8, 8, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
+    let img = li_raster::Rgba8::from_fn(8, 8, |x, y| [(x * 9) as u8, (y * 12) as u8, 80, 255]);
     let png = lightcraft_engine::export::encode_image(
         &img,
         &lightcraft_engine::export::ExportOptions { format: lightcraft_engine::export::ExportFormat::Png, ..Default::default() },
@@ -1434,7 +1434,7 @@ fn import_review_dialog() {
     for i in 0..5u8 {
         let (w, h) = (40usize, 30usize);
         let data: Vec<[u8; 4]> = (0..w * h).map(|k| [(k % w * 6) as u8, i * 40, (k / w * 8) as u8, 255]).collect();
-        let img = lightcraft_raster::Rgba8 { width: w, height: h, data };
+        let img = li_raster::Rgba8 { width: w, height: h, data };
         let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
         std::fs::write(dir.join(format!("img{i}.png")), png).unwrap();
     }
@@ -1489,7 +1489,7 @@ fn readding_a_deleted_photo_shows_it_in_recently_deleted() {
     let dir = std::env::temp_dir().join(format!("lc-ui-readd-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let img = lightcraft_raster::Rgba8 { width: 16, height: 12, data: vec![[200, 120, 40, 255]; 16 * 12] };
+    let img = li_raster::Rgba8 { width: 16, height: 12, data: vec![[200, 120, 40, 255]; 16 * 12] };
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     let file = dir.join("flower.png");
     std::fs::write(&file, png).unwrap();
@@ -1580,7 +1580,7 @@ fn import_copy_renames_into_destination() {
     let (src, dest) = (base.join("card"), base.join("out"));
     std::fs::create_dir_all(&src).unwrap();
     for i in 0..10u8 {
-        let img = lightcraft_raster::Rgba8 { width: 8, height: 8, data: vec![[i * 20, 3, 9, 255]; 64] };
+        let img = li_raster::Rgba8 { width: 8, height: 8, data: vec![[i * 20, 3, 9, 255]; 64] };
         let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
         std::fs::write(src.join(format!("IMG_{i:02}.png")), png).unwrap();
     }
@@ -1628,7 +1628,7 @@ fn import_copy_into_a_custom_folder_template() {
     let _ = std::fs::remove_dir_all(&base);
     let (src, dest) = (base.join("card"), base.join("out"));
     std::fs::create_dir_all(&src).unwrap();
-    let img = lightcraft_raster::Rgba8 { width: 8, height: 8, data: vec![[40, 3, 9, 255]; 64] };
+    let img = li_raster::Rgba8 { width: 8, height: 8, data: vec![[40, 3, 9, 255]; 64] };
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     std::fs::write(src.join("IMG_01.png"), png).unwrap();
     let dest_s = dest.to_string_lossy().to_string();
@@ -1681,7 +1681,7 @@ fn import_move_into_a_folder_template() {
     let (src, dest) = (base.join("card"), base.join("Photos"));
     std::fs::create_dir_all(&src).unwrap();
     for i in 0..2u8 {
-        let img = lightcraft_raster::Rgba8 { width: 8, height: 8, data: vec![[40 + i, 3, 9, 255]; 64] };
+        let img = li_raster::Rgba8 { width: 8, height: 8, data: vec![[40 + i, 3, 9, 255]; 64] };
         let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
         std::fs::write(src.join(format!("IMG_0{i}.png")), png).unwrap();
     }
@@ -1730,7 +1730,7 @@ fn import_rename_tags_insert_at_the_cursor() {
     let dir = std::env::temp_dir().join(format!("lc-ui-import-tags-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let img = lightcraft_raster::Rgba8 { width: 8, height: 8, data: vec![[90, 3, 9, 255]; 64] };
+    let img = li_raster::Rgba8 { width: 8, height: 8, data: vec![[90, 3, 9, 255]; 64] };
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     std::fs::write(dir.join("IMG_0007.png"), png).unwrap();
     let lib = dir.join("lib");

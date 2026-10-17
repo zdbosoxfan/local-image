@@ -1,7 +1,7 @@
+use li_raster::RgbFrame;
 use lightcraft_develop::{DevelopSettings, EmbeddedLens, EmbeddedVignette, EmbeddedWarp};
 use lightcraft_geom::{Affine, Orientation, Point};
 use lightcraft_pipeline::optics::{Warp, defringe, embedded_vignette_gain, embedded_warp, estimate_lateral_ca, reorient_lens};
-use lightcraft_raster::Rgb32f;
 
 #[test]
 fn warp_identity_defaults() {
@@ -101,7 +101,7 @@ fn reorient_lens_normal_returns_same() {
 #[test]
 fn estimate_lateral_ca_tiny_image_zero() {
     // 10x10 is below the 32px threshold; estimate should be exactly [0, 0].
-    let img = Rgb32f::from_fn(10, 10, |x, y| [x as f32 / 10.0, y as f32 / 10.0, 0.5]);
+    let img = RgbFrame::from_fn(10, 10, |x, y| [x as f32 / 10.0, y as f32 / 10.0, 0.5]);
     let [r, b] = estimate_lateral_ca(&img);
     assert_eq!(r, 0.0);
     assert_eq!(b, 0.0);
@@ -110,7 +110,7 @@ fn estimate_lateral_ca_tiny_image_zero() {
 #[test]
 fn estimate_lateral_ca_clean_image_zero() {
     // Uniform image has no edges; estimator should return zero.
-    let img = Rgb32f::filled(600, 400, [0.5, 0.5, 0.5]);
+    let img = RgbFrame::filled(600, 400, [0.5, 0.5, 0.5]);
     let [r, b] = estimate_lateral_ca(&img);
     assert!(r.abs() < 1e-6 && b.abs() < 1e-6);
 }
@@ -120,7 +120,7 @@ fn defringe_noop_when_zero() {
     let mut s = DevelopSettings::default();
     s.optics.defringe_purple_amount = 0.0;
     s.optics.defringe_green_amount = 0.0;
-    let mut img = Rgb32f::from_fn(40, 20, |x, _| if x < 20 { [0.9; 3] } else { [0.02; 3] });
+    let mut img = RgbFrame::from_fn(40, 20, |x, _| if x < 20 { [0.9; 3] } else { [0.02; 3] });
     let before = img.data.clone();
     defringe(&mut img, &s, 1.0);
     assert_eq!(img.data, before);
@@ -128,7 +128,7 @@ fn defringe_noop_when_zero() {
 
 #[test]
 fn defringe_empty_image_no_panic() {
-    let mut img = Rgb32f::new(0, 0);
+    let mut img = RgbFrame::new(0, 0);
     let mut s = DevelopSettings::default();
     s.optics.defringe_purple_amount = 100.0;
     defringe(&mut img, &s, 1.0);

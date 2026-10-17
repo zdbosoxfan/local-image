@@ -25,7 +25,7 @@ fn rmse(errors: impl Iterator<Item = f64>) -> Option<f64> {
     (n > 0).then(|| (sum / n as f64).sqrt())
 }
 
-fn metrics(label: &str, image: &lightcraft_raster::Rgb32f, truth: &lightcraft_raster::Rgb32f, motion: &[bool], ms: f64) {
+fn metrics(label: &str, image: &li_raster::RgbFrame, truth: &li_raster::RgbFrame, motion: &[bool], ms: f64) {
     let log_error = |a: f32, b: f32| (a.max(1e-6) as f64 / b.max(1e-6) as f64).log2();
     let pairs = || image.data.iter().zip(&truth.data).enumerate().filter(|(i, _)| !motion[*i]);
     let log = rmse(pairs().map(|(_, (a, b))| log_error(a[1], b[1])));
@@ -37,7 +37,7 @@ fn metrics(label: &str, image: &lightcraft_raster::Rgb32f, truth: &lightcraft_ra
             .map(|(_, (a, b))| log_error(a[1], b[1])),
     );
     let moving = rmse(image.data.iter().zip(&truth.data).enumerate().filter(|(i, _)| motion[*i]).map(|(_, (a, b))| log_error(a[1], b[1])));
-    let dr = |img: &lightcraft_raster::Rgb32f| {
+    let dr = |img: &li_raster::RgbFrame| {
         let mut samples: Vec<_> = img.data.iter().map(|p| p[1].max(1e-6)).collect();
         samples.sort_by(f32::total_cmp);
         (samples[samples.len() * 999 / 1000] as f64 / samples[samples.len() / 100] as f64).log2()
@@ -54,7 +54,7 @@ fn main() -> common::Result<()> {
     let scene = common::load(std::path::Path::new(&path))?;
     for moving in [false, true] {
         let b = common::bracket(&scene, moving);
-        let rgb = lightcraft_raster::Rgb32f::from_fn(b.truth.w, b.truth.h, |x, y| b.truth.rgb[y * b.truth.w + x]);
+        let rgb = li_raster::RgbFrame::from_fn(b.truth.w, b.truth.h, |x, y| b.truth.rgb[y * b.truth.w + x]);
         let frame = Frame::from_linear_rec2020(rgb.clone(), Some(0.0));
         let bytes =
             lightcraft_merge::write_linear_dng(&rgb, &frame.color, frame.orientation, &frame.metadata, 0.0, lightcraft_merge::DngSamples::Float)?;

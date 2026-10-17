@@ -1,7 +1,7 @@
 //! Exposure independent guided filter, from darktable `eigf.h`, `gaussian.c`, and
 //! `fast_guided_filter.h` at 733bd69f. GPL-3.0-or-later. No final coefficient averaging:
 //! the linear luminance variance is normalized by mean × pixel, as in upstream.
-use lightcraft_raster::Plane;
+use li_raster::GrayFrame;
 
 /// Upstream's corner-aligned bilinear interpolation (including its last-pixel weights).
 pub fn interpolate(input: &[f32], w: usize, h: usize, ow: usize, oh: usize, nc: usize) -> Vec<f32> {
@@ -103,7 +103,7 @@ impl Params {
 
 /// Faithful `fast_eigf_surface_blur`, both quantized/cross and self-guided paths.
 /// Tiny images clamp downsampled dimensions to one (upstream can allocate a zero-sized buffer).
-pub fn filter(input: &Plane, p: Params) -> Plane {
+pub fn filter(input: &GrayFrame, p: Params) -> GrayFrame {
     if input.is_empty() {
         return input.clone();
     }
@@ -178,7 +178,7 @@ mod review_tests {
 
     #[test]
     fn ds_finding_quantized_negative_guide_stays_finite() {
-        let input = Plane::from_fn(8, 8, |_, _| -0.5);
+        let input = GrayFrame::from_fn(8, 8, |_, _| -0.5);
         let p = Params { quantization: 1.0, ..Params::new(2.0, 0.1) };
         let out = filter(&input, p);
         assert!(out.data.iter().all(|v| v.is_finite() && *v >= 0.0));
@@ -186,7 +186,7 @@ mod review_tests {
 
     #[test]
     fn review_zero_feathering_keeps_constant_planes() {
-        let input = Plane::from_fn(8, 8, |_, _| 0.5);
+        let input = GrayFrame::from_fn(8, 8, |_, _| 0.5);
         for quantization in [0.0, 1.0] {
             let p = Params { quantization, ..Params::new(2.0, 0.0) };
             let out = filter(&input, p);

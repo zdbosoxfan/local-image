@@ -12,7 +12,7 @@ fn pattern(sw: usize, sh: usize) -> Vec<f32> {
 fn rendered(sw: usize, sh: usize, samples: DeepSamples) -> lightcraft_pipeline::Rendered {
     lightcraft_pipeline::Rendered {
         image: Rgba8::new(sw, sh),
-        histogram: lightcraft_raster::Histogram::of_srgb8(&Rgba8::new(1, 1)),
+        histogram: li_raster::Histogram::of_srgb8(&Rgba8::new(1, 1)),
         deep: Some(DeepImage { width: sw, height: sh, space: OutputSpace::Srgb, samples }),
     }
 }

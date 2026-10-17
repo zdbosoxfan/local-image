@@ -1,10 +1,10 @@
+use li_raster::RgbFrame;
 use lightcraft_engine::Session;
 use lightcraft_engine::catalog::{Op, Photo, PhotoId, Source};
 use lightcraft_engine::develop::DevelopSettings;
 use lightcraft_engine::media;
 use lightcraft_engine::pipeline::{Quality, RenderRequest, SourceInfo};
 use lightcraft_geom::Rect;
-use lightcraft_raster::Rgb32f;
 use std::sync::Arc;
 
 #[test]
@@ -65,14 +65,14 @@ fn source_info_demo_and_file() {
 
 #[test]
 fn decoded_source_info_or_uses_header_fallback() {
-    let img = Arc::new(Rgb32f::new(1, 1));
+    let img = Arc::new(RgbFrame::new(1, 1));
     let ds = media::DecodedSource::new(img, None);
 
     let header = SourceInfo { raw: true, ..Default::default() };
     let info = ds.info_or(header.clone());
     assert!(info.raw);
 
-    let with_info = media::DecodedSource::new(Arc::new(Rgb32f::new(1, 1)), Some(SourceInfo { raw: false, ..Default::default() }));
+    let with_info = media::DecodedSource::new(Arc::new(RgbFrame::new(1, 1)), Some(SourceInfo { raw: false, ..Default::default() }));
     let info2 = with_info.info_or(header);
     assert!(!info2.raw);
 }
@@ -80,7 +80,7 @@ fn decoded_source_info_or_uses_header_fallback() {
 #[test]
 fn media_cache_forget_and_clear() {
     let mut m = media::MediaCache::default();
-    let img = Arc::new(Rgb32f::new(5, 5));
+    let img = Arc::new(RgbFrame::new(5, 5));
     m.insert(PhotoId(1), media::SourceLevel::Thumb, img.clone());
     m.insert(PhotoId(1), media::SourceLevel::Preview, img.clone());
     m.insert(PhotoId(1), media::SourceLevel::Full, img.clone());
@@ -100,7 +100,7 @@ fn media_cache_forget_and_clear() {
 fn media_cache_preview_capacity_lru() {
     let mut m = media::MediaCache::default();
     m.preview_capacity = 2;
-    let img = Arc::new(Rgb32f::new(5, 5));
+    let img = Arc::new(RgbFrame::new(5, 5));
     m.insert(PhotoId(1), media::SourceLevel::Preview, img.clone());
     m.insert(PhotoId(2), media::SourceLevel::Preview, img.clone());
     m.insert(PhotoId(3), media::SourceLevel::Preview, img.clone());
@@ -114,7 +114,7 @@ fn media_cache_preview_capacity_lru() {
 fn media_cache_budget_enforced_evicts() {
     let mut m = media::MediaCache::default();
     m.set_budget(1);
-    let img = Arc::new(Rgb32f::new(10, 10));
+    let img = Arc::new(RgbFrame::new(10, 10));
     m.insert(PhotoId(1), media::SourceLevel::Thumb, img);
     assert!(m.get(PhotoId(1), media::SourceLevel::Thumb).is_none());
 }
@@ -154,7 +154,7 @@ fn render_job_draft_changes_quality_and_key() {
 
 #[test]
 fn develop_outputs_finite_and_size() {
-    let img = Arc::new(Rgb32f::new(8, 8));
+    let img = Arc::new(RgbFrame::new(8, 8));
     let info = SourceInfo::default();
     let settings = DevelopSettings::default();
     let req = RenderRequest::fit(8, 8);

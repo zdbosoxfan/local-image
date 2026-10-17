@@ -9,12 +9,12 @@
 //! - **Fill edges**: transparent areas are filled by push–pull diffusion of the surrounding pixels
 //!   in log space (no patch synthesis).
 
-use lightcraft_raster::{Plane, Rgb32f};
+use li_raster::{GrayFrame, RgbFrame};
 use rayon::prelude::*;
 
 use super::blend::{Buf, push_pull};
 
-fn edges(alpha: &Plane, vertical: bool) -> Option<(Vec<f64>, Vec<f64>)> {
+fn edges(alpha: &GrayFrame, vertical: bool) -> Option<(Vec<f64>, Vec<f64>)> {
     let (w, h) = (alpha.width, alpha.height);
     let (n, len) = if vertical { (w, h) } else { (h, w) };
     let at = |i: usize, k: usize| if vertical { alpha.get(i, k) } else { alpha.get(k, i) };
@@ -63,12 +63,12 @@ fn edges(alpha: &Plane, vertical: bool) -> Option<(Vec<f64>, Vec<f64>)> {
     Some((smooth(&lo), smooth(&hi)))
 }
 
-fn stretch(img: &Rgb32f, alpha: &Plane, amount: f64, vertical: bool) -> (Rgb32f, Plane) {
+fn stretch(img: &RgbFrame, alpha: &GrayFrame, amount: f64, vertical: bool) -> (RgbFrame, GrayFrame) {
     let Some((lo, hi)) = edges(alpha, vertical) else { return (img.clone(), alpha.clone()) };
     let (w, h) = (img.width, img.height);
     let len = if vertical { h } else { w } as f64;
-    let mut out = Rgb32f::new(w, h);
-    let mut oa = Plane::new(w, h);
+    let mut out = RgbFrame::new(w, h);
+    let mut oa = GrayFrame::new(w, h);
     out.data.par_chunks_mut(w).zip(oa.data.par_chunks_mut(w)).enumerate().for_each(|(y, (row, arow))| {
         for x in 0..w {
             let (i, k) = if vertical { (x, y) } else { (y, x) };
@@ -84,7 +84,7 @@ fn stretch(img: &Rgb32f, alpha: &Plane, amount: f64, vertical: bool) -> (Rgb32f,
 }
 
 /// Boundary warp by `amount` (0..1).
-pub fn boundary_warp(img: &Rgb32f, alpha: &Plane, amount: f64) -> (Rgb32f, Plane) {
+pub fn boundary_warp(img: &RgbFrame, alpha: &GrayFrame, amount: f64) -> (RgbFrame, GrayFrame) {
     if amount <= 0.0 {
         return (img.clone(), alpha.clone());
     }
@@ -94,7 +94,7 @@ pub fn boundary_warp(img: &Rgb32f, alpha: &Plane, amount: f64) -> (Rgb32f, Plane
 }
 
 /// Largest axis-aligned rectangle where `alpha ≥ 0.999`: (x, y, w, h) in pixels.
-pub fn auto_crop(alpha: &Plane) -> Option<(usize, usize, usize, usize)> {
+pub fn auto_crop(alpha: &GrayFrame) -> Option<(usize, usize, usize, usize)> {
     let (w, h) = (alpha.width, alpha.height);
     if w == 0 || h == 0 {
         return None;
@@ -146,7 +146,7 @@ pub fn auto_crop(alpha: &Plane) -> Option<(usize, usize, usize, usize)> {
 }
 
 /// Fill transparent pixels (alpha < 1) from their surroundings; returns the image with alpha 1.
-pub fn fill_edges(img: &Rgb32f, alpha: &Plane) -> Rgb32f {
+pub fn fill_edges(img: &RgbFrame, alpha: &GrayFrame) -> RgbFrame {
     let (w, h) = (img.width, img.height);
     let mut b = Buf::new(w, h, 3);
     for (i, p) in img.data.iter().enumerate() {
@@ -175,7 +175,7 @@ mod tests {
 
     #[test]
     fn crop_finds_the_largest_rectangle() {
-        let mut a = Plane::new(100, 60);
+        let mut a = GrayFrame::new(100, 60);
         for y in 10..50 {
             for x in 5..90 {
                 a.set(x, y, 1.0);
@@ -190,8 +190,8 @@ mod tests {
     #[test]
     fn warp_fills_a_curved_boundary() {
         let (w, h) = (200, 100);
-        let mut a = Plane::new(w, h);
-        let img = Rgb32f::from_fn(w, h, |x, _| [(x + 1) as f32 / w as f32; 3]);
+        let mut a = GrayFrame::new(w, h);
+        let img = RgbFrame::from_fn(w, h, |x, _| [(x + 1) as f32 / w as f32; 3]);
         for x in 0..w {
             let dip = (10.0 * (1.0 - ((x as f32 - 100.0) / 100.0).powi(2))) as usize;
             for y in dip..h - dip {

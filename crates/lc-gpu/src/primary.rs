@@ -236,7 +236,7 @@ fn eigf_impl(
     iterations: usize,
     quant: f32,
     geometric: bool,
-    mut reference: Option<lightcraft_raster::Plane>,
+    mut reference: Option<li_raster::GrayFrame>,
 ) -> Buf {
     let scale = sigma.clamp(1., 4.);
     let dim = ((w as f32 / scale) as usize, (h as f32 / scale) as usize);
@@ -878,15 +878,15 @@ pub(crate) fn clip_plane(cx: &mut Cx<'_>, rgb: &Buf, n: usize) -> Buf {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use li_raster::{GrayFrame, RgbFrame};
     use lightcraft_pipeline::{RenderRequest, primary};
-    use lightcraft_raster::{Plane, Rgb32f};
     #[test]
     fn native_toneeq_eigf_matches_cpu_float_words() {
         let gpu_device = crate::test_device().unwrap_or_else(device);
         let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let (w, h) = (71, 47);
-        let rgb = Rgb32f::from_fn(w, h, |x, y| {
+        let rgb = RgbFrame::from_fn(w, h, |x, y| {
             let v = 0.0003 * 1.02f32.powf(x as f32 * 320.0 / w as f32) * (1.0 + 0.06 * (y as f32 * 0.7).sin());
             [v, v * 0.7, v * 0.4]
         });
@@ -1004,7 +1004,7 @@ pub(crate) mod tests {
         let _scope = crate::ctx::RenderScope::new(g);
         let mut cx = Cx::new(g);
         let (w, h) = (37, 29);
-        let p = Plane::from_fn(w, h, |x, y| {
+        let p = GrayFrame::from_fn(w, h, |x, y| {
             0.002 + 0.013 * x as f32 + 0.0007 * y as f32 + if x > 18 { 0.7 } else { 0. } + 0.002 * (x as f32 * 0.7 + y as f32 * 0.3).sin()
         });
         let b = g.upload(&p.data.iter().copied().map(f).collect::<Vec<_>>());
@@ -1053,7 +1053,7 @@ pub(crate) mod tests {
         let gpu_device = device();
         let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
-        let src = Arc::new(Rgb32f::from_fn(53, 37, |x, y| {
+        let src = Arc::new(RgbFrame::from_fn(53, 37, |x, y| {
             let t = (x as f32 / 52. * 8. - 6.).exp2();
             [t * (1. + 0.1 * (y as f32).sin()), t * 0.6, t * 0.3]
         }));
@@ -1171,13 +1171,13 @@ pub(crate) mod tests {
 
     fn check_render(
         g: &crate::ctx::Gpu,
-        src: &Arc<Rgb32f>,
+        src: &Arc<RgbFrame>,
         info: &SourceInfo,
         s: &DevelopSettings,
         req: &RenderRequest,
         method: HsMethod,
         cache: &crate::render::GpuStages,
-    ) -> lightcraft_raster::Rgba8 {
+    ) -> li_raster::Rgba8 {
         let cpu = lightcraft_pipeline::render_hs_candidate(src, info, s, req, method);
         let out = crate::render::render(g, src, info, s, req, Some(cache), None, method);
         assert!(out.is_some());
@@ -1202,7 +1202,7 @@ pub(crate) mod tests {
         let gpu_device = device();
         let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
-        let src = Arc::new(Rgb32f::from_fn(311, 207, |x, y| {
+        let src = Arc::new(RgbFrame::from_fn(311, 207, |x, y| {
             let l = (x as f32 / 310. * 10. - 7.).exp2();
             [l, l * (0.6 + 0.1 * (y as f32 * 0.3).cos()), l * 0.3]
         }));
@@ -1275,7 +1275,7 @@ pub(crate) mod tests {
         let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let lw = ucs::y_to_l_star(1.);
-        let src = Arc::new(Rgb32f::from_fn(91, 65, |x, y| {
+        let src = Arc::new(RgbFrame::from_fn(91, 65, |x, y| {
             let j = [
                 0.5 + 0.02 * (y as f32 * 0.07).sin(),
                 0.045 + 0.008 * (x as f32 * 0.1).sin() + 0.0005 * (x as f32 * 1.8).sin(),
@@ -1329,7 +1329,7 @@ pub(crate) mod tests {
         let g = &*gpu_device;
         let _scope = crate::ctx::RenderScope::new(g);
         let _limit = crate::ctx::LimitOverride::new(100_000);
-        let src = Arc::new(Rgb32f::from_fn(91, 65, |x, y| [0.12 + x as f32 * 0.001, 0.07 + y as f32 * 0.001, 0.04]));
+        let src = Arc::new(RgbFrame::from_fn(91, 65, |x, y| [0.12 + x as f32 * 0.001, 0.07 + y as f32 * 0.001, 0.04]));
         let mut s = DevelopSettings::default();
         s.mixer.orange.hue = 35.;
         s.mixer.orange.lum = 20.;

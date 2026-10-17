@@ -12,7 +12,7 @@
 //! clip level when the caller knows it, and the automatic radius comes from the raw decoder
 //! (`lightcraft_raw::capture`).
 
-use lightcraft_raster::{Plane, Rgb32f, par_rows};
+use li_raster::{GrayFrame, RgbFrame, par_rows};
 
 /// Kernel σ steps of the per-pixel kernel table (darktable's `CAPTURE_GAUSS_FRACTION`).
 const SIGMA_STEP: f32 = 0.01;
@@ -160,7 +160,7 @@ fn blur_with(
 /// Where to sharpen (0..1): structure above the contrast threshold, nothing near clipped or
 /// black pixels or at the outermost 2 px (darktable's `_prepare_blend` + `_modify_blend` + the
 /// blurred/unblurred mix). Also returns the luminance.
-pub fn blend_mask(img: &Rgb32f, p: &CaptureParams) -> (Plane, Plane) {
+pub fn blend_mask(img: &RgbFrame, p: &CaptureParams) -> (GrayFrame, GrayFrame) {
     blend_mask_with_confidence(img, p, None)
 }
 
@@ -177,7 +177,7 @@ pub fn sensor_clipped(clip: Option<&crate::ClipConfidence>, x: usize, y: usize, 
 }
 
 /// Capture preparation with pre-reconstruction sensor saturation metadata.
-pub fn blend_mask_with_confidence(img: &Rgb32f, p: &CaptureParams, clip: Option<&crate::ClipConfidence>) -> (Plane, Plane) {
+pub fn blend_mask_with_confidence(img: &RgbFrame, p: &CaptureParams, clip: Option<&crate::ClipConfidence>) -> (GrayFrame, GrayFrame) {
     let (w, h) = (img.width, img.height);
     let lum: Vec<f32> = img.data.iter().map(|c| li_color::luminance_2020(*c).max(0.0)).collect();
     // 1. clipped / black pixels exclude their 5×5 (diamond-ish) neighbourhood; borders excluded
@@ -235,7 +235,7 @@ pub fn blend_mask_with_confidence(img: &Rgb32f, p: &CaptureParams, clip: Option<
             *o = (mask[irow * w + icol] * 1.01011 * (weight - 0.01)).clamp(0.0, 1.0);
         }
     });
-    let unblurred = Plane { width: w, height: h, data: modified };
+    let unblurred = GrayFrame { width: w, height: h, data: modified };
     let mut blurred = crate::blur::gaussian(&unblurred, 2.0);
     // after the blur, tiny edges keep the unblurred strength
     for (b, u) in blurred.data.iter_mut().zip(&unblurred.data) {
@@ -251,17 +251,17 @@ pub fn blend_mask_with_confidence(img: &Rgb32f, p: &CaptureParams, clip: Option<
             }
         }
     }
-    (blurred, Plane { width: w, height: h, data: lum })
+    (blurred, GrayFrame { width: w, height: h, data: lum })
 }
 
 /// Sharpen `img` in place. Does nothing for σ ≤ 0.2 px, no iterations or images smaller than
 /// 9 × 9.
-pub fn sharpen(img: &mut Rgb32f, p: &CaptureParams) {
+pub fn sharpen(img: &mut RgbFrame, p: &CaptureParams) {
     sharpen_with_confidence(img, p, None);
 }
 
 /// Source-scale capture sharpening with sensor saturation protection.
-pub fn sharpen_with_confidence(img: &mut Rgb32f, p: &CaptureParams, clip: Option<&crate::ClipConfidence>) {
+pub fn sharpen_with_confidence(img: &mut RgbFrame, p: &CaptureParams, clip: Option<&crate::ClipConfidence>) {
     let (w, h) = (img.width, img.height);
     if p.sigma <= 0.2 || p.iterations == 0 || w < 9 || h < 9 {
         return;
@@ -296,8 +296,8 @@ mod tests {
     use super::*;
 
     /// A grey test chart: discs and bars with sharp edges, lightly textured.
-    fn chart(w: usize, h: usize) -> Rgb32f {
-        Rgb32f::from_fn(w, h, |x, y| {
+    fn chart(w: usize, h: usize) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |x, y| {
             let (fx, fy) = (x as f32, y as f32);
             let disc = ((fx - 40.0).powi(2) + (fy - 40.0).powi(2)).sqrt() < 22.0;
             let bars = x > 70 && (x / 5) % 2 == 0;
@@ -306,18 +306,18 @@ mod tests {
         })
     }
 
-    fn blur(img: &Rgb32f, sigma: f32) -> Rgb32f {
-        lightcraft_raster::blur::gaussian(img, sigma)
+    fn blur(img: &RgbFrame, sigma: f32) -> RgbFrame {
+        img.gaussian(sigma)
     }
 
     /// A vertical step edge (0.12 → 0.6) at x = 40 blurred by an exact Gaussian of σ px.
-    fn soft_edge(w: usize, h: usize, sigma: f32) -> Rgb32f {
+    fn soft_edge(w: usize, h: usize, sigma: f32) -> RgbFrame {
         let erf = |x: f32| {
             let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
             let y = 1.0 - (((((1.061_405_4 * t - 1.453_152_1) * t) + 1.421_413_7) * t - 0.284_496_74) * t + 0.254_829_6) * t * (-x * x).exp();
             if x >= 0.0 { y } else { -y }
         };
-        Rgb32f::from_fn(w, h, |x, _| {
+        RgbFrame::from_fn(w, h, |x, _| {
             let t = 0.5 * (1.0 + erf((x as f32 + 0.5 - 40.0) / (sigma * std::f32::consts::SQRT_2)));
             let v = 0.12 + 0.48 * t;
             [v * 0.9, v, v * 1.1]
@@ -329,7 +329,7 @@ mod tests {
         let soft = soft_edge(96, 48, 1.0);
         let mut out = soft.clone();
         sharpen(&mut out, &CaptureParams { sigma: 1.0, threshold: 0.2, iterations: 20, ..Default::default() });
-        let slope = |img: &Rgb32f| (30..50).map(|x| img.get(x + 1, 24)[1] - img.get(x, 24)[1]).fold(0.0f32, f32::max);
+        let slope = |img: &RgbFrame| (30..50).map(|x| img.get(x + 1, 24)[1] - img.get(x, 24)[1]).fold(0.0f32, f32::max);
         let (before, after) = (slope(&soft), slope(&out));
         assert!(after > before * 1.3, "steepest step {before} → {after}");
         // bounded overshoot, and far from the edge nothing changes
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn flat_areas_borders_and_clipped_pixels_stay() {
         // flat with faint noise: below the contrast threshold
-        let flat = Rgb32f::from_fn(64, 64, |x, y| {
+        let flat = RgbFrame::from_fn(64, 64, |x, y| {
             let n = ((x * 31 + y * 17) % 7) as f32 * 0.0002;
             [0.3 + n, 0.3 + n, 0.3 + n]
         });
@@ -424,7 +424,7 @@ mod sensor_protection_regression {
     fn capture_source_uses_sensor_clipping_and_invalidates_warm_cache() {
         // The sensor-clipped half is below 1 in working RGB, and the unclipped
         // half includes over-white colour: working-RGB thresholds are incorrect.
-        let src = Arc::new(Rgb32f::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
+        let src = Arc::new(RgbFrame::from_fn(64, 64, |x, _| if x < 32 { [1.2, 0.1, 0.2] } else { [0.8, 0.8, 0.8] }));
         let mut s = DevelopSettings::default();
         s.raw.capture.enabled = true;
         s.raw.capture.radius = 1.;

@@ -141,7 +141,7 @@ fn original_and_dng_need_a_file() {
 fn dng_export_rejects_non_raw_photos() {
     let dir = temp_dir("export-dng-jpeg");
     let src = dir.join("a.png");
-    let img = lightcraft_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
+    let img = li_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
     std::fs::write(&src, crate::export::encode_image(&img, &ExportOptions { format: ExportFormat::Png, ..Default::default() }).unwrap()).unwrap();
     let mut s = Session::new().with_fs();
     s.execute("library.import", &json!({"paths": [src.to_string_lossy()]})).unwrap();
@@ -269,7 +269,7 @@ fn export_falls_back_to_the_cpu_when_gpu_work_is_lost() {
 fn library_with_jpeg(tag: &str) -> (Session, lightcraft_catalog::PhotoId, std::path::PathBuf, std::path::PathBuf, Vec<u8>) {
     let dir = temp_dir(tag);
     let src = dir.join("IMG_1.jpg");
-    let img = lightcraft_raster::Rgba8::from_fn(48, 32, |x, y| [(x * 5) as u8, (y * 7) as u8, 120, 255]);
+    let img = li_raster::Rgba8::from_fn(48, 32, |x, y| [(x * 5) as u8, (y * 7) as u8, 120, 255]);
     let bytes = crate::export::encode_image(&img, &ExportOptions::default()).unwrap();
     std::fs::write(&src, &bytes).unwrap();
     let mut s = Session::new().with_fs();
@@ -436,7 +436,7 @@ fn people_names_export_opt_in_metadata_and_original_sidecar() {
     let id = s.catalog.alloc_photo_id();
     let dir = temp_dir("people-names-export");
     let path = dir.join("original.png");
-    let image = lightcraft_raster::Rgba8::filled(16, 16, [80, 90, 100, 255]);
+    let image = li_raster::Rgba8::filled(16, 16, [80, 90, 100, 255]);
     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &Default::default()).unwrap();
     std::fs::write(&path, &bytes).unwrap();
     let mut p = Photo::new(id, Source::File { path: path.to_string_lossy().into_owned() }, "original.png", "PNG", 16, 16, "2026-10-09");
@@ -474,7 +474,7 @@ fn remove_location_holds_for_original_and_dng_exports() {
     std::fs::write(&raw, synthetic_dng_with(None, Default::default())).unwrap();
     // a JPEG with GPS in its EXIF
     let jpg = dir.join("Geo.jpg");
-    let img = lightcraft_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
+    let img = li_raster::Rgba8::from_fn(32, 24, |x, y| [(x * 8) as u8, (y * 10) as u8, 90, 255]);
     let exif = lightcraft_meta::write_exif(&gps);
     let meta = lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() };
     std::fs::write(&jpg, lightcraft_codecs::encode_jpeg(&lightcraft_codecs::EncodeImage::rgba8(&img), 90, Default::default(), &meta).unwrap())
@@ -516,7 +516,7 @@ fn remove_location_holds_for_original_and_dng_exports() {
 #[test]
 fn dsfix_original_export_refuses_textual_xmp_and_iptc_locations() {
     let dir = temp_dir("dsfix-export-places");
-    let image = lightcraft_raster::Rgba8::from_fn(2, 2, |_, _| [20, 30, 40, 255]);
+    let image = li_raster::Rgba8::from_fn(2, 2, |_, _| [20, 30, 40, 255]);
     for (i, place) in ["sublocation", "city", "state", "country"].into_iter().enumerate() {
         let mut metadata = lightcraft_meta::Metadata::default();
         match place {

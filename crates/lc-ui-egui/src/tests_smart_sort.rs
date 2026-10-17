@@ -219,8 +219,7 @@ fn smart_sort_dialog_layout_at_both_sizes_and_no_service_download() {
             assert_eq!(screenshot["result"]["width"], size[0] as u64);
             let image = h.snapshot(T);
             assert!(image.pixels.iter().any(|p| p.r() > 30 || p.g() > 30 || p.b() > 30));
-            let rgba =
-                lightcraft_raster::Rgba8 { width: image.size[0], height: image.size[1], data: image.pixels.iter().map(|p| p.to_array()).collect() };
+            let rgba = li_raster::Rgba8 { width: image.size[0], height: image.size[1], data: image.pixels.iter().map(|p| p.to_array()).collect() };
             let png =
                 lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &lightcraft_codecs::EncodeMeta::default()).unwrap();
             let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/smart-sort-p2b/screenshots");
@@ -261,7 +260,7 @@ fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
         fn embed_text(&self, text: &str) -> Result<Vec<f32>, String> {
             MockTagger.embed_text(text)
         }
-        fn embed_image(&self, img: &lightcraft_raster::Rgba8) -> Result<Vec<f32>, String> {
+        fn embed_image(&self, img: &li_raster::Rgba8) -> Result<Vec<f32>, String> {
             // The engine publishes 32-image batches. Let one batch finish, then hold later
             // inference until the UI has requested cancellation, independent of worker count.
             if self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed) >= 32 {
@@ -276,7 +275,7 @@ fn smart_sort_cancel_keeps_cache_and_resume_skips_completed_photos() {
     std::fs::create_dir_all(&directory).unwrap();
     // Even a whole second batch in flight must leave a third batch for cancellation to skip.
     let total = 96;
-    let image = lightcraft_raster::Rgba8::filled(16, 16, [255, 0, 0, 255]);
+    let image = li_raster::Rgba8::filled(16, 16, [255, 0, 0, 255]);
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&image), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     h.app.session = std::mem::take(&mut h.app.session).with_fs();
     let mut ids = Vec::new();
@@ -374,7 +373,7 @@ fn p2b_harness(size: [f32; 2], times: &[Option<&str>], red_count: usize) -> Head
         h.app.session.commit("test photo", Op::AddPhoto { photo: Box::new(photo) }).unwrap();
         let key = lightcraft_engine::media::content_key(h.app.session.catalog.photo(id).unwrap());
         let direction = if index < red_count {
-            MockTagger.embed_image(&lightcraft_raster::Rgba8::filled(16, 16, [255, 0, 0, 255])).unwrap()
+            MockTagger.embed_image(&li_raster::Rgba8::filled(16, 16, [255, 0, 0, 255])).unwrap()
         } else {
             MockTagger.embed_text("blue").unwrap()
         };
@@ -603,8 +602,7 @@ fn smart_sort_p2b_sessions_bursts_layout_at_both_sizes() {
                 }
             )));
             let image = h.snapshot(T);
-            let rgba =
-                lightcraft_raster::Rgba8 { width: image.size[0], height: image.size[1], data: image.pixels.iter().map(|p| p.to_array()).collect() };
+            let rgba = li_raster::Rgba8 { width: image.size[0], height: image.size[1], data: image.pixels.iter().map(|p| p.to_array()).collect() };
             let png =
                 lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &lightcraft_codecs::EncodeMeta::default()).unwrap();
             let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/smart-sort-p2b/screenshots");

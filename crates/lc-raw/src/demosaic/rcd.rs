@@ -17,7 +17,7 @@
 //! RCD code reads the site).
 
 use super::Mosaic;
-use crate::Rgb32f;
+use crate::RgbFrame;
 use rayon::prelude::*;
 
 /// Pixels around a tile that are computed but not kept (darktable's `RCD_BORDER`).
@@ -243,9 +243,9 @@ impl Tile {
 }
 
 /// RCD demosaic of a Bayer mosaic (any size ≥ 1×1; the caller sends tiny images to bilinear).
-pub(crate) fn rcd(m: &Mosaic) -> Rgb32f {
+pub(crate) fn rcd(m: &Mosaic) -> RgbFrame {
     let (w, h) = (m.w, m.h);
-    let mut out = Rgb32f::new(w, h);
+    let mut out = RgbFrame::new(w, h);
     out.data.par_chunks_mut(TILE * w).enumerate().for_each(|(ty, band)| {
         let y0 = ty * TILE;
         let rows = band.len() / w;

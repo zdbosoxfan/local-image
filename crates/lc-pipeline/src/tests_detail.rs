@@ -2,8 +2,8 @@
 //! halo control and preview scaling; luminance NR's Contrast; colour NR's edge awareness; dehaze
 //! without halos; previews against full size. Measurements are printed (`--nocapture`).
 
+use li_raster::{RgbFrame, Rgba8};
 use lightcraft_develop::DevelopSettings;
-use lightcraft_raster::{Rgb32f, Rgba8};
 
 use crate::{RenderRequest, SourceInfo, StageCache, render, render_cached};
 
@@ -20,11 +20,11 @@ fn settings() -> DevelopSettings {
     DevelopSettings::default()
 }
 
-fn shot(src: &Rgb32f, s: &DevelopSettings) -> Rgba8 {
+fn shot(src: &RgbFrame, s: &DevelopSettings) -> Rgba8 {
     render(src, &SourceInfo::default(), s, &RenderRequest::fit(src.width, src.height)).image
 }
 
-fn shot_at(src: &Rgb32f, s: &DevelopSettings, w: usize) -> Rgba8 {
+fn shot_at(src: &RgbFrame, s: &DevelopSettings, w: usize) -> Rgba8 {
     render(src, &SourceInfo::default(), s, &RenderRequest::fit(w, w)).image
 }
 
@@ -33,8 +33,8 @@ fn luma(p: [u8; 4]) -> f32 {
 }
 
 /// Gaussian-blurred (σ px, the "lens") linear image of `f(x, y)` (supersampled ×4 per axis).
-fn optics(w: usize, h: usize, sigma: f32, f: impl Fn(f32, f32) -> f32 + Sync) -> Rgb32f {
-    let img = Rgb32f::from_fn(w, h, |x, y| {
+fn optics(w: usize, h: usize, sigma: f32, f: impl Fn(f32, f32) -> f32 + Sync) -> RgbFrame {
+    let img = RgbFrame::from_fn(w, h, |x, y| {
         let mut acc = 0.0;
         for j in 0..4 {
             for i in 0..4 {
@@ -43,7 +43,7 @@ fn optics(w: usize, h: usize, sigma: f32, f: impl Fn(f32, f32) -> f32 + Sync) ->
         }
         [acc / 16.0; 3]
     });
-    lightcraft_raster::blur::gaussian_fine(&img, sigma)
+    img.gaussian_fine(sigma)
 }
 
 // Slanted edge: ESF → LSF → MTF (ISO 12233-style, 4× oversampled projection)
@@ -53,7 +53,7 @@ const EDGE_H: usize = 160;
 /// Edge slope (dx per row): about 5°.
 const SLANT: f32 = 0.0875;
 
-fn edge_scene() -> Rgb32f {
+fn edge_scene() -> RgbFrame {
     optics(EDGE_W, EDGE_H, 0.9, |x, y| {
         let d = x - (EDGE_W as f32 / 2.0 + (y - EDGE_H as f32 / 2.0) * SLANT);
         if d < 0.0 { 0.04 } else { 0.32 }
@@ -209,7 +209,7 @@ fn detail_trades_halo_control_for_fine_detail() {
 #[test]
 fn masking_spares_flat_areas() {
     let w = 160;
-    let src = Rgb32f::from_fn(w, w, |x, y| {
+    let src = RgbFrame::from_fn(w, w, |x, y| {
         let base = if x < w / 2 { 0.06 } else { 0.3 };
         [base * (1.0 + 0.04 * noise(x, y, 3)); 3]
     });
@@ -281,12 +281,12 @@ fn sharpening_preview_matches_the_downscaled_full_size_render() {
 // Noise reduction
 
 /// Flat patches (left) and a fine texture (right, period 6 px, ±0.25 EV), with noise everywhere.
-fn texture_scene(w: usize) -> (Rgb32f, Rgb32f) {
-    let clean = Rgb32f::from_fn(w, w, |x, y| {
+fn texture_scene(w: usize) -> (RgbFrame, RgbFrame) {
+    let clean = RgbFrame::from_fn(w, w, |x, y| {
         let t = if x >= w / 2 { 0.25 * ((x as f32 * std::f32::consts::TAU / 6.0).sin() * (y as f32 * 0.6).cos()) } else { 0.0 };
         [0.12 * t.exp2(); 3]
     });
-    let noisy = Rgb32f::from_fn(w, w, |x, y| {
+    let noisy = RgbFrame::from_fn(w, w, |x, y| {
         let c = clean.get(x, y);
         let n = 0.08 * noise(x, y, 7);
         [c[0] * (1.0 + n), c[1] * (1.0 + n), c[2] * (1.0 + n)]
@@ -339,7 +339,7 @@ fn luminance_nr_contrast_keeps_texture() {
     assert!(c0.data != c100.data, "Contrast is read");
     assert!(t100 > t0 + 0.01, "Contrast keeps more of the texture");
     // the variance-stabilised filter smooths deep shadows too
-    let dark = Rgb32f::from_fn(w, w, |x, y| [0.01 * (1.0 + 0.25 * noise(x, y, 9)); 3]);
+    let dark = RgbFrame::from_fn(w, w, |x, y| [0.01 * (1.0 + 0.25 * noise(x, y, 9)); 3]);
     let mut s = settings();
     s.detail.nr_luminance = 60.0;
     s.light.exposure = 3.0;
@@ -352,8 +352,8 @@ fn luminance_nr_contrast_keeps_texture() {
 
 /// A sharp red | green edge (about equal luminance, so a luminance guide alone can't hold it)
 /// with chroma noise on both sides.
-fn colour_edge(w: usize) -> Rgb32f {
-    Rgb32f::from_fn(w, w, |x, y| {
+fn colour_edge(w: usize) -> RgbFrame {
+    RgbFrame::from_fn(w, w, |x, y| {
         let (r, g) = (0.5 + 0.3 * noise(x, y, 11), 0.5 + 0.3 * noise(x, y, 12));
         let b = 0.5 + 0.3 * noise(x, y, 13);
         let base = if x < w / 2 { [0.30, 0.09, 0.07] } else { [0.06, 0.13, 0.05] };
@@ -404,9 +404,9 @@ fn colour_nr_does_not_bleed_across_a_colour_edge() {
 // Dehaze
 
 /// A dark tower on a bright hazy sky over a hazy ground getting hazier with distance: J·t + A(1−t).
-fn hazy_scene(w: usize, h: usize) -> Rgb32f {
+fn hazy_scene(w: usize, h: usize) -> RgbFrame {
     let air = [0.75, 0.78, 0.85];
-    Rgb32f::from_fn(w, h, |x, y| {
+    RgbFrame::from_fn(w, h, |x, y| {
         let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
         let tower = (0.42..0.58).contains(&fx) && fy > 0.2;
         let (j, t) = if tower {
@@ -517,7 +517,7 @@ fn obsolete_process_field_is_ignored() {
 fn tiny_black_negative_and_hdr_detail_stays_finite() {
     for (w, h) in [(1, 1), (2, 7), (7, 2), (19, 13)] {
         for value in [-0.1, 0.0, 1e-7, 0.18, 8.0] {
-            let mut src = Rgb32f::filled(w, h, [value; 3]);
+            let mut src = RgbFrame::filled(w, h, [value; 3]);
             let mut s = settings();
             s.detail.nr_luminance = 100.0;
             s.detail.nr_color = 100.0;

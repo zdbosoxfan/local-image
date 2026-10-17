@@ -9,7 +9,7 @@ fn src_px(w: u32, h: u32, x: i32, y: i32) -> vec3<f32> {
     return vec3<f32>(src[j], src[j + 1u], src[j + 2u]);
 }
 
-// `Rgb32f::sample_bilinear` (pixel centres at +0.5, clamped edges).
+// `RgbFrame::sample_bilinear` (pixel centres at +0.5, clamped edges).
 fn bilinear(w: u32, h: u32, x: f32, y: f32) -> vec3<f32> {
     let fx = x - 0.5;
     let fy = y - 0.5;
