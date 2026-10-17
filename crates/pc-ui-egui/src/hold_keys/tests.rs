@@ -2,67 +2,13 @@
 //! and ⌘Space / ⌘⌥Space are temporary Hand / Zoom tools that give the tool back, D / X and the
 //! fill keys are commands whose Keyboard Shortcuts overrides replace the defaults.
 
-use egui::{Event, Key, Modifiers, PointerButton, Pos2, vec2};
+use egui::{Event, Key, Modifiers, PointerButton, Pos2};
 use egui_kittest::Harness;
 use photocraft_geom::Rect;
 use serde_json::json;
 
 use super::*;
-use crate::canvas::ViewXform;
-
-fn harness(tool: Tool) -> Harness<'static, PhotocraftApp> {
-    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
-    app.run("file.new", json!({"width": 400, "height": 300})).unwrap();
-    app.sync_views();
-    app.ui.extras.rulers = false;
-    app.ui.tool = tool;
-    let mut h = Harness::builder().with_size(vec2(1000.0, 700.0)).build_ui_state(
-        |ui, app: &mut PhotocraftApp| {
-            let ctx = ui.ctx().clone();
-            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
-                return;
-            }
-            crate::shortcuts::handle(app, &ctx);
-            egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
-        },
-        app,
-    );
-    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
-    h.run_steps(4);
-    let v = &mut h.state_mut().ui.views[0];
-    v.zoom = 1.0;
-    v.center = [200.0, 150.0];
-    v.fit_pending = false;
-    h.run_steps(2);
-    h
-}
-
-fn screen(h: &Harness<'static, PhotocraftApp>, x: f32, y: f32) -> Pos2 {
-    let app = h.state();
-    let v = &app.ui.views[0];
-    let xf = ViewXform {
-        rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-        zoom: v.zoom,
-        center: v.center,
-        flip: app.ui.view.flip_horizontal,
-        rotation: v.rotation,
-    };
-    xf.to_screen(x, y)
-}
-
-/// The platform's modifiers for `Cmd` (⌘ on the Mac, Ctrl elsewhere), as egui-winit reports them.
-fn platform(m: Modifiers) -> Modifiers {
-    let mut out = Modifiers { alt: m.alt, shift: m.shift, ctrl: m.ctrl, ..Default::default() };
-    if m.command {
-        out.command = true;
-        if cfg!(target_os = "macos") {
-            out.mac_cmd = true;
-        } else {
-            out.ctrl = true;
-        }
-    }
-    out
-}
+use crate::canvas_test_support::{canvas_harness, platform, screen};
 
 fn key(h: &mut Harness<'static, PhotocraftApp>, k: Key, pressed: bool, m: Modifiers) {
     let m = platform(m);
@@ -112,7 +58,7 @@ fn click(h: &mut Harness<'static, PhotocraftApp>, x: f32, y: f32, m: Modifiers) 
 
 #[test]
 fn space_repositions_a_marquee_being_drawn_then_sizing_resumes() {
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     press_at(&mut h, 50.0, 50.0);
     move_to(&mut h, 150.0, 110.0);
     key(&mut h, Key::Space, true, Modifiers::NONE);
@@ -128,7 +74,7 @@ fn space_repositions_a_marquee_being_drawn_then_sizing_resumes() {
     assert_eq!(h.state().ui.tool, Tool::RectMarquee);
 
     // Release Space mid-drag: sizing continues from the moved corner.
-    let mut h = harness(Tool::EllipseMarquee);
+    let mut h = canvas_harness(Tool::EllipseMarquee, None);
     press_at(&mut h, 50.0, 50.0);
     move_to(&mut h, 150.0, 110.0);
     key(&mut h, Key::Space, true, Modifiers::NONE);
@@ -143,7 +89,7 @@ fn space_repositions_a_marquee_being_drawn_then_sizing_resumes() {
 
 #[test]
 fn space_moves_a_lasso_being_drawn() {
-    let mut h = harness(Tool::Lasso);
+    let mut h = canvas_harness(Tool::Lasso, None);
     press_at(&mut h, 50.0, 50.0);
     move_to(&mut h, 120.0, 50.0);
     move_to(&mut h, 120.0, 100.0);
@@ -158,7 +104,7 @@ fn space_moves_a_lasso_being_drawn() {
 
 #[test]
 fn space_is_a_temporary_hand_and_gives_the_tool_back() {
-    let mut h = harness(Tool::Brush);
+    let mut h = canvas_harness(Tool::Brush, None);
     key(&mut h, Key::Space, true, Modifiers::NONE);
     assert_eq!(held_tool(h.state(), &h.ctx), Some(Temporary::Hand));
     let before = h.state().ui.views[0].center;
@@ -175,7 +121,7 @@ fn space_is_a_temporary_hand_and_gives_the_tool_back() {
 
 #[test]
 fn temporary_zoom_in_and_out_restore_the_tool() {
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     let z0 = h.state().ui.views[0].zoom;
     key(&mut h, Key::Space, true, Modifiers::COMMAND);
     assert_eq!(held_tool(h.state(), &h.ctx), Some(Temporary::ZoomIn));
@@ -201,7 +147,7 @@ fn temporary_zoom_in_and_out_restore_the_tool() {
 
 #[test]
 fn temporary_zoom_drag_is_a_scrubby_zoom() {
-    let mut h = harness(Tool::Brush);
+    let mut h = canvas_harness(Tool::Brush, None);
     let z0 = h.state().ui.views[0].zoom;
     key(&mut h, Key::Space, true, Modifiers::COMMAND);
     press_at(&mut h, 200.0, 150.0);
@@ -219,7 +165,7 @@ fn temporary_zoom_drag_is_a_scrubby_zoom() {
 
 #[test]
 fn rebound_temporary_zoom_uses_the_new_key_only() {
-    let mut h = harness(Tool::RectMarquee);
+    let mut h = canvas_harness(Tool::RectMarquee, None);
     h.state_mut().run("edit.keyboardShortcuts", json!({"set": {"tools.temporary.zoomIn": "Alt+Z"}})).unwrap();
     key(&mut h, Key::Space, true, Modifiers::COMMAND);
     assert_eq!(held_tool(h.state(), &h.ctx), Some(Temporary::Hand), "⌘Space is no longer zoom; Space still pans");
@@ -242,7 +188,7 @@ fn fg_bg(h: &Harness<'static, PhotocraftApp>) -> ([f32; 4], [f32; 4]) {
 
 #[test]
 fn d_and_x_are_rebindable_commands() {
-    let mut h = harness(Tool::Brush);
+    let mut h = canvas_harness(Tool::Brush, None);
     h.state_mut().run("tools.setColors", json!({"foreground": "#ff0000", "background": "#00ff00"})).unwrap();
     tap(&mut h, Key::X, Modifiers::NONE);
     assert_eq!(fg_bg(&h), ([0.0, 1.0, 0.0, 1.0], [1.0, 0.0, 0.0, 1.0]), "X swaps");
@@ -264,7 +210,7 @@ fn rgba(h: &Harness<'static, PhotocraftApp>, x: i32, y: i32) -> [f32; 4] {
 
 #[test]
 fn fill_keys_fill_and_follow_overrides() {
-    let mut h = harness(Tool::Brush);
+    let mut h = canvas_harness(Tool::Brush, None);
     h.state_mut().run("layer.new.layer", json!({})).unwrap();
     h.state_mut().run("tools.setColors", json!({"foreground": "#ff0000", "background": "#0000ff"})).unwrap();
     h.state_mut().run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
@@ -294,7 +240,7 @@ fn fill_keys_fill_and_follow_overrides() {
 
 #[test]
 fn fill_key_on_a_locked_layer_reports_instead_of_crashing() {
-    let mut h = harness(Tool::Brush);
+    let mut h = canvas_harness(Tool::Brush, None);
     h.state_mut().run("layer.new.layer", json!({})).unwrap();
     h.state_mut().run("layer.lockLayers", json!({"pixels": true})).unwrap();
     tap(&mut h, Key::Backspace, Modifiers::ALT);

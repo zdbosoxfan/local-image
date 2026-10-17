@@ -74,6 +74,8 @@ photocraft-pathops = { workspace = true }
 egui_kittest = { workspace = true, features = ["wgpu", "snapshot", "eframe"] }
 # Deterministic CPU kittest renderer for UI screenshots (J7).
 li-testkit = { workspace = true, features = ["kittest"] }
+# Blocking on wgpu adapter/device futures in the GPU benches.
+pollster = { workspace = true }
 # Benchmark helpers for the `--json` benches `cargo xtask perf` runs (in-process RSS, percentiles).
 photocraft-testkit = { workspace = true }
 # Only for examples/perf_scenarios.rs (a 500-brush .abr for the #210 import row).
