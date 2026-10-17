@@ -30,6 +30,12 @@ ignore = [
     # --- Unmaintained crates (informational; no known vulnerability).
     { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro (pulp -> exr); no runtime code" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25.1 unmaintained, via ab_glyph; replace with a maintained font parser" },
+    # zvariant, zvariant_derive and zbus_names were folded into zbus 6 rather than abandoned. They
+    # come only from eframe -> accesskit_unix (Linux AT-SPI accessibility); clears when eframe moves
+    # to zbus 6.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant merged into zbus 6; via eframe/accesskit_unix; no compatible upgrade yet" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names merged into zbus 6; via eframe/accesskit_unix; no compatible upgrade yet" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive merged into zbus 6; via eframe/accesskit_unix; no compatible upgrade yet" },
     # --- zip 7.2.0 extraction advisories, fixed in >=9.0.0, which candle-core =0.9.2 (zip ^7.2.0)
     # does not allow. candle only reads named entries; the one extraction (xtask Windows signing,
     # Microsoft's NuGet package) uses xtask's extract_plain_files, which confines paths to the
