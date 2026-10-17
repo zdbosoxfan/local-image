@@ -112,7 +112,7 @@ pc-trace = { path = "crates/pc-trace" }
 png = { version = "0.18" }
 pollster = { version = "1" }
 proptest = { version = "1" }
-quick-xml = { version = "0.38" }
+quick-xml = { version = "0.41" }
 rand = { version = "0.9" }
 ravif = { version = "0.13", default-features = false, features = ["threading"] }
 rayon = { version = "1" }

@@ -52,7 +52,10 @@ fn check_style(id: &str, svg: &str, original: bool) -> Result<()> {
                 let mut attrs = BTreeMap::new();
                 for a in e.attributes() {
                     let a = a?;
-                    attrs.insert(String::from_utf8_lossy(a.key.as_ref()).into_owned(), a.decode_and_unescape_value(reader.decoder())?.into_owned());
+                    attrs.insert(
+                        String::from_utf8_lossy(a.key.as_ref()).into_owned(),
+                        a.decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())?.into_owned(),
+                    );
                 }
                 let attr = |k: &str| attrs.get(k).map(String::as_str);
                 if root {

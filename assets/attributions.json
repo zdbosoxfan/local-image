@@ -11144,13 +11144,6 @@
         },
         {
           "name": "quick-xml",
-          "version": "0.38.4",
-          "used_for": "High performance xml reader and writer",
-          "licence": "MIT",
-          "url": "https://github.com/tafia/quick-xml"
-        },
-        {
-          "name": "quick-xml",
           "version": "0.41.0",
           "used_for": "High performance xml reader and writer",
           "licence": "MIT",
@@ -11543,7 +11536,7 @@
         },
         {
           "name": "rustls",
-          "version": "0.23.45",
+          "version": "0.23.46",
           "used_for": "Rustls is a modern TLS library written in Rust.",
           "licence": "Apache-2.0 OR ISC OR MIT",
           "url": "https://github.com/rustls/rustls"
@@ -13118,7 +13111,7 @@
         },
         {
           "name": "yoke-derive",
-          "version": "0.8.3",
+          "version": "0.8.4",
           "used_for": "Custom derive for the yoke crate",
           "licence": "Unicode-3.0",
           "url": "https://github.com/unicode-org/icu4x"

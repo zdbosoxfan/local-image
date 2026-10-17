@@ -349,7 +349,11 @@ fn check_icons(wxs: &Path) -> Result<()> {
     let xml = std::fs::read_to_string(wxs).with_context(|| wxs.display().to_string())?;
     let mut reader = quick_xml::Reader::from_str(&xml);
     let attr = |e: &quick_xml::events::BytesStart, k: &str| -> Option<String> {
-        e.attributes().flatten().find(|a| a.key.as_ref() == k.as_bytes()).and_then(|a| a.unescape_value().ok()).map(|v| v.into_owned())
+        e.attributes()
+            .flatten()
+            .find(|a| a.key.as_ref() == k.as_bytes())
+            .and_then(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok())
+            .map(|v| v.into_owned())
     };
     let (mut icons, mut shortcuts, mut arp) = (Vec::new(), Vec::new(), None);
     let mut file_stack: Vec<Option<String>> = Vec::new();
@@ -455,8 +459,7 @@ fn sign(files: &[PathBuf]) -> Result<()> {
             // AZURE_CLIENT_SECRET from the environment).
             let mut body = Vec::new();
             xtask_agent().get("https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client").call()?.body_mut().as_reader().read_to_end(&mut body)?;
-            let mut zip = zip::ZipArchive::new(std::io::Cursor::new(body))?;
-            zip.extract(tmp.join("client"))?;
+            extract_plain_files(&mut zip::ZipArchive::new(std::io::Cursor::new(body))?, &tmp.join("client"))?;
             let dlib = find_file(&tmp.join("client"), "Azure.CodeSigning.Dlib.dll", "x64")
                 .context("Azure.CodeSigning.Dlib.dll not found in Microsoft.Trusted.Signing.Client")?;
             let metadata = tmp.join("metadata.json");
@@ -481,6 +484,24 @@ fn sign(files: &[PathBuf]) -> Result<()> {
 }
 
 use std::io::Read as _;
+
+/// Writes the archive's regular files under `dest`. Unlike `ZipArchive::extract`, entries whose
+/// names escape `dest`, symlinks and Unix permission bits are never applied.
+fn extract_plain_files<R: std::io::Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, dest: &Path) -> Result<()> {
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i)?;
+        let Some(rel) = entry.enclosed_name() else { continue };
+        if entry.is_dir() || entry.is_symlink() {
+            continue;
+        }
+        let out = dest.join(rel);
+        if let Some(parent) = out.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::io::copy(&mut entry, &mut std::fs::File::create(&out)?)?;
+    }
+    Ok(())
+}
 
 fn find_file(dir: &Path, name: &str, under: &str) -> Option<PathBuf> {
     for e in std::fs::read_dir(dir).ok()?.flatten() {

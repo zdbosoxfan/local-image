@@ -18,17 +18,6 @@ yanked = "deny"
 # catches NEW advisories; none is a claim that the finding is harmless. Remove an entry as soon as
 # the dependency can move (cargo-deny warns about an ignore that no longer matches anything).
 ignore = [
-    # --- quick-xml 0.38.4 (lightcraft-meta XMP parser, lightcraft-raw). Fixed in >=0.41.0, a 0.x
-    # minor jump that needs the workspace pin raised and the reader API re-checked. Untrusted XMP
-    # is reachable, so this is availability only (CPU / memory DoS on the parsing thread).
-    { id = "RUSTSEC-2026-0194", reason = "quick-xml <0.41 quadratic attribute check; DoS only; upgrade to >=0.41 pending" },
-    { id = "RUSTSEC-2026-0195", reason = "quick-xml <0.41 unbounded NsReader namespace allocation; DoS only; upgrade to >=0.41 pending" },
-    # --- rustls 0.23.45 via rustls-rustcrypto 0.0.2-alpha (li-ai/ureq: model and ComfyUI downloads).
-    # All four are fixed in rustls >=0.23.46 (`cargo update -p rustls` if rustls-rustcrypto allows).
-    { id = "RUSTSEC-2026-0346", reason = "rustls <0.23.46 Debug of session values; no custom ClientSessionStore is used; bump pending" },
-    { id = "RUSTSEC-2026-0347", reason = "rustls <0.23.46 ECH-rejection buffering; ECH is not enabled; bump pending" },
-    { id = "RUSTSEC-2026-0348", reason = "rustls <0.23.46 brotli certificate decompression; the non-default brotli feature is not enabled; bump pending" },
-    { id = "RUSTSEC-2026-0349", reason = "rustls <0.23.46 ServerHello key-exchange downgrade; bump pending" },
     # --- rustls-webpki 0.102.8 (old webpki pinned by rustls-rustcrypto 0.0.2-alpha). Fixed in
     # >=0.103.10, which that alpha crate does not allow; needs a different rustls crypto provider.
     { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 CRL distribution point matching; CRL checking is not used; move off rustls-rustcrypto" },
@@ -41,9 +30,17 @@ ignore = [
     # --- Unmaintained crates (informational; no known vulnerability).
     { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro (pulp -> exr); no runtime code" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25.1 unmaintained, via ab_glyph; replace with a maintained font parser" },
-    # --- Yanked releases still in Cargo.lock. Not vulnerabilities; refresh with `cargo update -p`.
-    { crate = "yoke-derive@0.8.3", reason = "yanked; transitive of hayro-interpret via yoke; refresh the lock entry" },
-    { crate = "zip@7.2.0", reason = "yanked; used only by the xtask packaging tool, never shipped" },
+    # --- zip 7.2.0 extraction advisories, fixed in >=9.0.0, which candle-core =0.9.2 (zip ^7.2.0)
+    # does not allow. candle only reads named entries; the one extraction (xtask Windows signing,
+    # Microsoft's NuGet package) uses xtask's extract_plain_files, which confines paths to the
+    # destination and never creates symlinks or applies Unix permission bits.
+    { id = "RUSTSEC-2026-0367", reason = "zip <9 extract() SUID/SGID preservation; ZipArchive::extract is not called (xtask uses extract_plain_files)" },
+    { id = "RUSTSEC-2026-0368", reason = "zip <9 extract() permissions through symlinks; ZipArchive::extract is not called and symlink entries are skipped" },
+    { id = "RUSTSEC-2026-0369", reason = "zip <9 extract() symlink targets outside destination; ZipArchive::extract is not called and symlink entries are skipped" },
+    # --- Yanked release. Not a vulnerability. Every zip 7.x is yanked and candle-core 0.9.2 through
+    # 0.10.2 require ^7.2.0; candle-core 0.11 needs zip ^8.6.0 whose only release (8.6.0) is also
+    # yanked. Resolved by a future candle-core release that depends on zip 9.
+    { crate = "zip@7.2.0", reason = "yanked; required by candle-core =0.9.2 (zip ^7.2.0; all of 7.x and 8.6.0 are yanked); needs a candle-core release on zip 9" },
 ]
 
 [licenses]
