@@ -968,6 +968,10 @@ impl PhotocraftApp {
         if suppress_events {
             self.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
         }
+        // A draft Pen path belongs to the current document, not the one about to be created.
+        if id == "file.new" {
+            vector_ui::finish_pen_drafts(self);
+        }
         // Long commands become background jobs when enabled (`jobs_ui`); the rest run inline.
         let params = self.with_mask_target(id, params);
         let created_mask = matches!(

@@ -185,6 +185,20 @@ pub fn pen_up(app: &mut PhotocraftApp) {
     }
 }
 
+/// Finish every Pen path being drawn (the canvas Pen's and an old serialized draft), so it stays
+/// in the document it was drawn on when another one is created.
+pub fn finish_pen_drafts(app: &mut PhotocraftApp) {
+    if app.shared_tools.pen.gesture.is_some()
+        && let Err(e) = app.shared_tools.pen.enter(&mut app.session)
+    {
+        app.ui.status = e.to_string();
+        app.ui.status_error = true;
+    }
+    if app.ui.pen.is_some() {
+        pen_commit(app, false);
+    }
+}
+
 /// Finish through the same atomic command as the Pen tool, including old serialized drafts.
 pub fn pen_commit(app: &mut PhotocraftApp, closed: bool) {
     let Some(mut pen) = app.ui.pen.take() else { return };
@@ -1417,6 +1431,25 @@ mod tests {
         path_selection_finish(&mut app, [50.0, 50.0], [60.0, 55.0]);
         let wp = app.session.active().unwrap().doc.work_path.clone().unwrap();
         assert_eq!((wp.subpaths[0].knots[0].anchor.x, wp.subpaths[0].knots[0].anchor.y), (30.0, 25.0));
+    }
+
+    #[test]
+    fn opening_a_new_document_finishes_the_previous_pen_path() {
+        let mut app = app();
+        app.ui.tool = Tool::Pen;
+        for (x, y) in [(20.0, 20.0), (120.0, 20.0)] {
+            pen_down(&mut app, x, y);
+            pen_up(&mut app);
+        }
+        assert!(app.ui.pen.is_some(), "the draft is open");
+        let original = app.session.active().unwrap().doc.id;
+        app.run("file.new", json!({"width": 300, "height": 200})).unwrap();
+        assert!(app.ui.pen.is_none(), "the Pen draft must not overlay the new document");
+        let docs = app.session.documents();
+        assert_eq!(docs.len(), 2);
+        assert_eq!(docs[0].doc.id, original);
+        assert_eq!(docs[0].doc.work_path.as_ref().unwrap().subpaths[0].knots.len(), 2);
+        assert!(docs[1].doc.work_path.is_none(), "the new document starts with no path");
     }
 
     /// #534: dragging in a shape's fill picker, opened from the Properties panel at the right edge
