@@ -180,7 +180,7 @@ mod lock_tests {
     fn click_lock(app: &mut PhotocraftApp) {
         let st = app.session.active().unwrap();
         let l = st.active_layer.and_then(|id| st.doc.layer(id)).unwrap();
-        let (cmd, p) = simple_lock_toggle(crate::doc_props_ui::is_background(&st.doc, l), l);
+        let (cmd, p) = simple_lock_toggle(crate::doc_props_ui::is_background(&st.doc, l), l, &json!({"layer": l.id.0}));
         app.run(&cmd, p).unwrap();
     }
 
@@ -362,5 +362,119 @@ mod title_tests {
         assert_eq!(title_x(400.0, 420.0, 480.0, 60.0), None);
         assert_eq!(title_x(f32::NAN, 420.0, 1300.0, 60.0), Some(436.0));
         assert_eq!(title_x(400.0, f32::INFINITY, 1300.0, 60.0), None);
+    }
+}
+
+#[cfg(test)]
+mod several_layer_tests {
+    //! The Layers panel's blend mode, Opacity, Fill and lock controls change every selected layer,
+    //! as in Photoshop, not only the active one.
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    use super::*;
+
+    fn harness(theme: crate::theme::ThemeKind) -> Harness<'static, PhotocraftApp> {
+        let mut h = Harness::builder().with_size(vec2(1400.0, 900.0)).with_max_steps(64).build_eframe(move |cc| {
+            PhotocraftApp::setup_context(&cc.egui_ctx, theme);
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("prefs.set", json!({"path": "interface.theme", "value": theme.id()})).unwrap();
+            app.ui.theme = theme;
+            app.run("file.new", json!({"width": 64, "height": 64, "background": "white"})).unwrap();
+            app
+        });
+        h.run_steps(6);
+        h
+    }
+
+    fn locked(h: &Harness<'static, PhotocraftApp>, id: u64) -> bool {
+        h.state().session.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().locks.all
+    }
+
+    #[test]
+    fn the_layers_panel_locks_every_selected_layer() {
+        let mut h = harness(crate::theme::ThemeKind::default());
+        let background = h.state().session.active().unwrap().doc.layers[0].id.0;
+        let a = h.state_mut().run("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        let b = h.state_mut().run("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        h.state_mut().run("layer.select", json!({"layer": a, "mode": "add"})).unwrap();
+        h.run_steps(3);
+        assert_eq!(h.state().session.active().unwrap().selected_layers().len(), 2);
+        h.query_by_label_contains("Lock all").expect("the Lock all button").click();
+        h.run_steps(3);
+        assert!(locked(&h, a) && locked(&h, b), "both selected layers lock");
+        assert!(!locked(&h, background), "the unselected Background doesn't");
+    }
+
+    #[test]
+    fn the_basic_lock_toggle_locks_every_selected_layer() {
+        let mut h = harness(crate::theme::ThemeKind::Studio);
+        let a = h.state_mut().run("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        let b = h.state_mut().run("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        h.state_mut().run("layer.select", json!({"layer": a, "mode": "add"})).unwrap();
+        h.run_steps(4);
+        h.get_by_label("Lock layer").click();
+        h.run_steps(3);
+        assert!(locked(&h, a) && locked(&h, b), "both selected layers lock");
+    }
+
+    /// A selected Background is left out of a several-layer change: an Opacity, Fill or blend
+    /// change would turn it into a normal layer.
+    #[test]
+    fn a_selected_background_is_left_out_of_a_several_layer_change() {
+        let mut h = harness(crate::theme::ThemeKind::default());
+        let background = h.state().session.active().unwrap().doc.layers[0].id.0;
+        let top = h.state_mut().run("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
+        h.state_mut().run("layer.select", json!({"layer": background})).unwrap();
+        h.state_mut().run("layer.select", json!({"layer": top, "mode": "add"})).unwrap();
+        h.run_steps(3);
+        h.get_by_label("Lock all").click();
+        h.run_steps(3);
+        assert!(locked(&h, top), "the layer locks");
+        let st = h.state().session.active().unwrap();
+        assert!(crate::doc_props_ui::is_background(&st.doc, st.doc.layer(photocraft_doc::LayerId(background)).unwrap()));
+        assert!(!locked(&h, background), "the Background is left as it was");
+    }
+}
+
+#[cfg(test)]
+mod crop_ratio_tests {
+    use super::*;
+
+    #[test]
+    fn the_crop_ratio_fields_show_three_decimals_and_showing_them_changes_nothing() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.tool = Tool::Crop;
+        app.ui.tool_options.crop_ratio = "1.414:1".into();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1600.0, 90.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    options_bar(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(4);
+        fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut shown = Vec::new();
+        h.output().shapes.iter().for_each(|s| texts(&s.shape, &mut shown));
+        assert!(shown.iter().any(|t| t == "1.414"), "{shown:?}");
+        assert_eq!(h.state().ui.tool_options.crop_ratio, "1.414:1");
+    }
+
+    #[test]
+    fn number_text_keeps_the_requested_decimals_without_trailing_zeros() {
+        assert_eq!(widgets::fmt_num_prec(1.414, 3), "1.414");
+        assert_eq!(widgets::fmt_num_prec(16.0, 3), "16");
+        assert_eq!(widgets::fmt_num_prec(0.7995, 2), "0.8");
+        assert_eq!(widgets::fmt_num_prec(-0.0001, 3), "0");
+        assert_eq!(widgets::fmt_num_prec(12.0, 0), "12");
     }
 }

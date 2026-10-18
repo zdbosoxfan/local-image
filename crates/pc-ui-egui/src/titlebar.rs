@@ -18,6 +18,7 @@ pub const WIDTH: f32 = 3.0 * BUTTON_WIDTH;
 /// Resize zone thickness along an edge, and the side of a corner zone.
 const EDGE: f32 = 5.0;
 const CORNER: f32 = 12.0;
+const MODAL_DRAG_AREA: &str = "titlebar-modal-drag-area";
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Caption {
@@ -32,6 +33,41 @@ const CAPTIONS: [Caption; 3] = [Caption::Minimize, Caption::Maximize, Caption::C
 /// Caption button ids (stable, so tests and agents can find them).
 fn caption_id(c: Caption) -> Id {
     Id::new(("titlebar-caption", c as u8))
+}
+
+/// The title bar's unused gap, saved by `panels::title_bar` for drags that begin while a modal
+/// backdrop is on top of the normal title-bar widgets.
+pub(crate) fn modal_drag_area_id() -> Id {
+    Id::new(MODAL_DRAG_AREA)
+}
+
+/// Restores window dragging over the title bar's empty gap after a modal has blocked the normal
+/// title-bar layer. The hit target stays limited to the same gap, so menus and caption controls
+/// remain owned by their widgets.
+pub(crate) fn modal_drag_overlay(ctx: &egui::Context) {
+    let Some(area) = ctx.data(|d| d.get_temp::<Rect>(modal_drag_area_id())) else { return };
+    if !area.is_positive() || egui::Popup::is_any_open(ctx) || !crate::dialogs::titlebar_drag_area_is_clear(ctx, area) {
+        return;
+    }
+    egui::Area::new(Id::new("titlebar-modal-drag-overlay")).order(Order::Tooltip).fixed_pos(area.min).movable(false).sense(Sense::hover()).show(ctx, |ui| {
+        let response = ui.allocate_rect(area, Sense::click_and_drag());
+        if response.drag_started() {
+            ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+        }
+        if response.double_clicked() {
+            toggle_maximize(ctx);
+        }
+    });
+}
+
+impl PhotocraftApp {
+    /// Whether the title bar's free gap gets the drag overlay this frame: the app draws its title
+    /// strip (`chrome`: not hidden by the screen mode) and a dialog's modal layer covers it. Not
+    /// only with the custom title bar: on macOS the strip under the traffic lights is the window's
+    /// title bar too, and an open dialog left it undraggable.
+    pub(crate) fn titlebar_modal_drag(&self, chrome: bool) -> bool {
+        chrome && !self.ui.dialogs.is_empty()
+    }
 }
 
 fn maximized(ctx: &egui::Context) -> bool {
@@ -184,6 +220,10 @@ mod tests {
         }
 
         fn frame(&mut self, events: Vec<Event>) -> egui::FullOutput {
+            self.frame_with_modal(events, false)
+        }
+
+        fn frame_with_modal(&mut self, events: Vec<Event>, modal: bool) -> egui::FullOutput {
             self.time += 0.05;
             let mut input =
                 RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(self.width, 600.0))), time: Some(self.time), events, ..Default::default() };
@@ -193,6 +233,12 @@ mod tests {
             let app = &mut self.app;
             let mut out = self.ctx.run_ui(input, |ui| {
                 crate::panels::title_bar(app, ui);
+                if modal {
+                    egui::Modal::new(Id::new("titlebar-drag-test-modal")).backdrop_color(egui::Color32::TRANSPARENT).show(ui.ctx(), |ui| {
+                        ui.label("Modal dialog");
+                    });
+                    modal_drag_overlay(ui.ctx());
+                }
                 resize_zones(ui);
             });
             out.textures_delta.clear();
@@ -202,10 +248,17 @@ mod tests {
         /// Frames for a pointer gesture: move to `path[0]`, press, move along `path`, release. The
         /// viewport commands the frames sent.
         fn gesture(&mut self, path: &[Pos2]) -> Vec<ViewportCommand> {
+            self.gesture_with_modal(path, false)
+        }
+
+        fn gesture_with_modal(&mut self, path: &[Pos2], modal: bool) -> Vec<ViewportCommand> {
             let mut events = vec![vec![Event::PointerMoved(path[0])], vec![button(path[0], true)]];
             events.extend(path[1..].iter().map(|p| vec![Event::PointerMoved(*p)]));
             events.push(vec![button(*path.last().unwrap_or(&path[0]), false)]);
-            events.into_iter().flat_map(|e| self.frame(e).viewport_output.remove(&ViewportId::ROOT).map(|v| v.commands).unwrap_or_default()).collect()
+            events
+                .into_iter()
+                .flat_map(|e| self.frame_with_modal(e, modal).viewport_output.remove(&ViewportId::ROOT).map(|v| v.commands).unwrap_or_default())
+                .collect()
         }
 
         fn click(&mut self, p: Pos2) -> Vec<ViewportCommand> {
@@ -247,6 +300,46 @@ mod tests {
 
     fn button(p: Pos2, pressed: bool) -> Event {
         Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: Default::default() }
+    }
+
+    #[test]
+    fn empty_bar_space_still_drags_with_a_modal_open() {
+        let mut w = Win::new(1440.0);
+        w.frame(vec![]);
+        w.frame_with_modal(vec![], true);
+        let empty = pos2(980.0, 16.0);
+        let drag_area = w.ctx.data(|d| d.get_temp::<Rect>(modal_drag_area_id()));
+        assert!(drag_area.is_some_and(|r| r.contains(empty)), "the test point must be in the current title-bar gap: {drag_area:?}");
+        assert!(w.bar_widgets().iter().all(|r| !r.contains(empty)), "the probe point must be empty bar space");
+        let cmds = w.gesture_with_modal(&[empty, empty + vec2(12.0, 4.0), empty + vec2(30.0, 8.0)], true);
+        assert_eq!(cmds.iter().filter(|c| matches!(c, ViewportCommand::StartDrag)).count(), 1, "{cmds:?}");
+    }
+
+    #[test]
+    fn modal_drag_overlay_does_not_cover_a_dialog_moved_into_the_gap() {
+        let mut w = Win::new(1440.0);
+        w.frame(vec![]);
+        w.frame_with_modal(vec![], true);
+        let area = w.ctx.data(|d| d.get_temp::<Rect>(modal_drag_area_id())).unwrap_or(Rect::NOTHING);
+        assert!(area.contains(pos2(980.0, 16.0)), "the probe point must be in the gap: {area:?}");
+        w.ctx.data_mut(|d| d.insert_temp(Id::new("pc-dialog-rects"), vec![area]));
+        let cmds = w.gesture_with_modal(&[area.center(), area.center() + vec2(12.0, 4.0)], true);
+        assert!(!cmds.iter().any(|c| matches!(c, ViewportCommand::StartDrag)), "{cmds:?}");
+    }
+
+    /// The drag overlay under a dialog doesn't depend on the custom title bar: on macOS (OS
+    /// traffic lights over the app's own title strip) a dialog left the window undraggable.
+    #[test]
+    fn a_dialog_keeps_the_title_strip_draggable_with_either_title_bar() {
+        for custom in [false, true] {
+            let mut app = PhotocraftApp::new(Session::new(), crate::Services::default());
+            app.custom_titlebar = custom;
+            app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+            assert!(!app.titlebar_modal_drag(true), "no dialog, no overlay");
+            assert!(crate::filter_dialog::open(&mut app, "filter.blur.gaussianBlur").is_some());
+            assert!(app.titlebar_modal_drag(true), "custom title bar: {custom}");
+            assert!(!app.titlebar_modal_drag(false), "chrome hidden (full screen): no title strip");
+        }
     }
 
     #[test]

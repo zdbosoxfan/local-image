@@ -866,6 +866,15 @@ fn hidden_menu_items_disappear() {
 }
 
 #[test]
+fn essential_menu_items_stay_visible() {
+    let (mut app, _) = app_with_store();
+    app.run("prefs.set", json!({"values": {"menus": {"hidden": ["edit.menus", "file.exit", "edit.fade"], "colors": {}}}})).unwrap();
+    let items = crate::menus::menu_items(&app);
+    assert!(items.iter().any(|i| i.id == "edit.menus") && items.iter().any(|i| i.id == "file.exit"));
+    assert!(!items.iter().any(|i| i.id == "edit.fade"));
+}
+
+#[test]
 fn autosave_runs_for_dirty_documents() {
     type Saved = Arc<Mutex<Vec<(u64, u64)>>>;
     let saved: Saved = Arc::default();

@@ -7,6 +7,7 @@ mod gauss_small_sigma;
 mod guide_layout_limit;
 mod hdr_gamma_direction;
 mod keyboard_shortcut_bulk;
+mod layer_props_several;
 mod panic_hunt;
 mod path_blur_speed_clamp;
 #[cfg(feature = "corpus")]
