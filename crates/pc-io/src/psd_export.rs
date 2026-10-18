@@ -1451,7 +1451,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     // block and won't open a file whose `Lr16`/`Lr32` comes first: the layer block goes right
     // after the last kept marker, else first.
     let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
-    let placement = match (has_layers, sample) {
+    let mut placement = match (has_layers, sample) {
         (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr16", padding: None },
         (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr32", padding: None },
         _ => LayerInfoPlacement::Section,
@@ -1460,9 +1460,19 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     let mut layer_info = has_layers.then_some(LayerInfo { merged_alpha: has_alpha, layers: records, padding: None });
     if let Some(info) = &mut layer_info {
         // Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a global
-        // `Lr16`/`Lr32` block, #200). A length that cannot be computed keeps the even default.
-        if info.pad_to(version, 4).is_err() {
-            info.padding = None;
+        // `Lr16`/`Lr32` block, #200). In a global block the length is the exact data length and
+        // the padding follows the block: readers that check that length exactly (Unity's PSD
+        // Importer) reject it otherwise. A length that cannot be computed keeps the even default.
+        match (&mut placement, info.unpadded_len(version)) {
+            (LayerInfoPlacement::GlobalBlock { padding, .. }, Ok(len)) => {
+                info.padding = Some(Vec::new());
+                *padding = Some(vec![0; ((4 - len % 4) % 4) as usize]);
+            }
+            _ => {
+                if info.pad_to(version, 4).is_err() {
+                    info.padding = None;
+                }
+            }
         }
     }
     // 32-bit files carry Photoshop's HDR toning records as Color Mode Data; Photoshop will not
