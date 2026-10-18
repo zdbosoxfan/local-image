@@ -100,6 +100,45 @@ pub(super) fn reserved_library_chord(id: &str, chord: &str) -> Option<&'static s
         None
     }
 }
+/// Keys the system takes before the app sees them (switching apps, closing the window, force quit,
+/// virtual consoles), in our notation where `Cmd` is Ctrl off the Mac.
+fn reserved_system_shortcut(shortcut: &str) -> bool {
+    let Some(chord) = li_keys::normalize_shortcut(shortcut) else { return false };
+    let reserved: &[&str] = if cfg!(target_os = "macos") {
+        &["Cmd+Tab", "Cmd+Shift+Tab", "Cmd+Alt+Escape", "Cmd+`"]
+    } else if cfg!(target_os = "windows") {
+        &["Alt+Tab", "Alt+Shift+Tab", "Alt+F4", "Cmd+Alt+Delete", "Cmd+Escape", "Cmd+Shift+Escape"]
+    } else {
+        &[
+            "Alt+Tab",
+            "Alt+Shift+Tab",
+            "Alt+F4",
+            "Cmd+Alt+Delete",
+            "Cmd+Alt+F1",
+            "Cmd+Alt+F2",
+            "Cmd+Alt+F3",
+            "Cmd+Alt+F4",
+            "Cmd+Alt+F5",
+            "Cmd+Alt+F6",
+            "Cmd+Alt+F7",
+            "Cmd+Alt+F8",
+            "Cmd+Alt+F9",
+            "Cmd+Alt+F10",
+            "Cmd+Alt+F11",
+            "Cmd+Alt+F12",
+        ]
+    };
+    reserved.iter().filter_map(|key| li_keys::normalize_shortcut(key)).any(|key| key == chord)
+}
+
+/// A fingerprint of the bindings a shortcut conflict describes: any later change makes it stale.
+fn conflict_state(overrides: &BTreeMap<String, String>, selected: &str, profiles: &li_keys::ShortcutProfiles) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (overrides, selected, serde_json::to_string(profiles).unwrap_or_default()).hash(&mut hasher);
+    hasher.finish()
+}
+
 pub(super) fn reserved_message(action: &str) -> String {
     format!("This shortcut is reserved for {action}. Choose another shortcut; the existing binding is unchanged.")
 }
@@ -166,6 +205,7 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
     let mut colors: BTreeMap<String, String> = f.get("colors").and_then(|v| serde_json::from_value(v.clone()).ok()).unwrap_or_default();
     let mut selected = f.get("selected").and_then(Value::as_str).unwrap_or("").to_string();
     let mut capture = f.get("capture").and_then(Value::as_bool).unwrap_or(false);
+    let mut conflict = f.get("conflict").filter(|value| value.is_object()).cloned();
     let mut message = f.get("message").and_then(Value::as_str).unwrap_or("").to_string();
     let mut items = shortcut_items(app);
     if tab == 0 {
@@ -288,12 +328,17 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
             });
             if key == egui::Key::Escape {
                 capture = false;
+                conflict = None;
             } else if matches!(key, egui::Key::Backspace | egui::Key::Delete) && m.is_none() {
                 overrides.insert(selected.clone(), String::new());
                 capture = false;
                 message = tl!("Shortcut removed.").into();
             } else if let Some(sc) = shortcut_text(key, m) {
-                if let Some(action) = crate::keymaps::global_conflict(&sc) {
+                if reserved_system_shortcut(&sc) {
+                    message = li_i18n::fmt(tl!("{shortcut} is reserved by the system and can't be assigned."), &[("shortcut", &crate::shortcuts::pretty(&sc))]);
+                    capture = false;
+                    conflict = None;
+                } else if let Some(action) = crate::keymaps::global_conflict(&sc) {
                     overrides.insert(selected.clone(), sc.clone());
                     message = format!("Conflict with Global: {action}. This binding is ignored.");
                     capture = false;
@@ -301,30 +346,34 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
                     message = reserved_message(action);
                     capture = false;
                 } else {
-                    let clash: Vec<String> = items
+                    let holders: Vec<_> = items
                         .iter()
                         .filter(|(id, _, _, def)| {
                             *id != selected
                                 && same_shortcut_scope(id, &selected)
                                 && eff(&overrides, id, def).as_deref().is_some_and(|old| same_chord_in_scope(&selected, old, &sc))
                         })
+                        .map(|(id, ..)| id.clone())
+                        .collect();
+                    let clash: Vec<String> = items
+                        .iter()
+                        .filter(|(id, ..)| holders.contains(id))
                         .map(|(id, label, path, _)| {
                             let (path, label) = shown(id, label, path);
                             format!("{} › {}", path.join(" › "), label.trim_end_matches('…'))
                         })
                         .collect();
+                    conflict = holders.first().map(|first| {
+                        json!({
+                            "with": first, "holders": holders, "command": selected, "main": overrides.get(&selected)
+                        })
+                    });
                     if selected.starts_with("library::") {
-                        let displaced: Vec<_> = items
-                            .iter()
-                            .filter(|(id, _, _, def)| {
-                                *id != selected
-                                    && same_shortcut_scope(id, &selected)
-                                    && eff(&overrides, id, def).as_deref().is_some_and(|old| same_chord_in_scope(&selected, old, &sc))
-                            })
-                            .map(|(id, _, _, _)| id.clone())
-                            .collect();
-                        for id in displaced {
-                            overrides.insert(id, String::new());
+                        if let Some(current) = &mut conflict {
+                            current["displaced"] = json!(holders.iter().map(|id| (id.clone(), overrides.get(id).cloned())).collect::<BTreeMap<_, _>>());
+                        }
+                        for holder in &holders {
+                            overrides.insert(holder.clone(), String::new());
                         }
                     }
                     overrides.insert(selected.clone(), sc.clone());
@@ -482,6 +531,46 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
             t.text_dim
         }));
     }
+    if conflict.as_ref().and_then(|c| c.get("state")).is_some_and(|state| state.as_u64() != Some(conflict_state(&overrides, &selected, &profiles))) {
+        conflict = None;
+    }
+    if tab == 0
+        && let Some(current) = conflict.clone()
+    {
+        ui.horizontal(|ui| {
+            if ui.button(tl!("Accept and Go to Conflict")).on_hover_text(tl!("Take the shortcut from the other command and select it")).clicked() {
+                if let Some(holders) = current["holders"].as_array() {
+                    for holder in holders.iter().filter_map(Value::as_str) {
+                        overrides.insert(holder.to_string(), String::new());
+                    }
+                }
+                selected = current["with"].as_str().unwrap_or_default().to_string();
+                filter.clear();
+                f.insert("filter".into(), json!(filter));
+                message = tl!("Choose a new shortcut for this command, or leave it without one.").into();
+                conflict = None;
+            }
+            if ui.button(tl!("Undo Changes")).on_hover_text(tl!("Put this command's shortcuts back as they were")).clicked() {
+                if let Some(displaced) = current["displaced"].as_object() {
+                    for (holder, previous) in displaced {
+                        if let Some(previous) = previous.as_str() {
+                            overrides.insert(holder.clone(), previous.to_string());
+                        } else {
+                            overrides.remove(holder);
+                        }
+                    }
+                }
+                let command = current["command"].as_str().unwrap_or_default();
+                if let Some(original) = current["main"].as_str() {
+                    overrides.insert(command.to_string(), original.to_string());
+                } else {
+                    overrides.remove(command);
+                }
+                message = tl!("Changes undone.").into();
+                conflict = None;
+            }
+        });
+    }
     if overrides_ok {
         if tab == 0 && overrides != original_overrides {
             let library = scope == "library";
@@ -498,9 +587,13 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
                     overrides.iter().filter(|(id, _)| id.starts_with("library::") == library).map(|(id, key)| (id.clone(), key.clone())).collect();
             }
         }
+        if let Some(current) = conflict.as_mut().filter(|current| current.get("state").is_none()) {
+            current["state"] = json!(conflict_state(&overrides, &selected, &profiles));
+        }
         f.insert("profiles".into(), json!(profiles));
         f.insert("overrides".into(), json!(overrides));
     }
+    f.insert("conflict".into(), conflict.unwrap_or(Value::Null));
     f.insert("hidden".into(), json!(hidden));
     f.insert("colors".into(), json!(colors));
     f.insert("selected".into(), json!(selected));
