@@ -962,9 +962,9 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         }
         // Channel options (overlay colour, opacity, colour indicates) and spot inks.
         if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO) {
-            crate::channel_map::apply_display_info_skipping(&r.data, true, skip, &mut doc.channels);
+            crate::channel_map::apply_display_info(&r.data, true, skip, &mut doc.channels);
         } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
-            crate::channel_map::apply_display_info_skipping(&r.data, false, skip, &mut doc.channels);
+            crate::channel_map::apply_display_info(&r.data, false, skip, &mut doc.channels);
         }
         // Saved in Quick Mask mode: that channel becomes the document's Quick Mask again.
         if let Some(r) = file.resource(crate::channel_map::QUICK_MASK_INFO)

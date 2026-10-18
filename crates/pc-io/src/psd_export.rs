@@ -1429,7 +1429,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         let names: Vec<&str> = has_alpha.then_some("Transparency").into_iter().chain(extra.iter().map(|a| a.name.as_str())).collect();
         resources.push(ImageResource::new(1006, pascal_names_resource(&names)));
         resources.push(ImageResource::new(1045, unicode_names_resource(&names)));
-        let display = if has_alpha { crate::channel_map::display_info_after_transparency(&extra) } else { crate::channel_map::display_info(&extra) };
+        let display = crate::channel_map::display_info(&extra, has_alpha);
         resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, display));
     }
     if let Some(id) = quick_mask_id {
