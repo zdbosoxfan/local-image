@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use std::collections::BTreeMap;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
@@ -19,6 +20,24 @@ fn next_revision() -> u64 {
 use photocraft_color::{ColorMode, PixelFormat, SampleType, read_sample, write_sample};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
 
+/// A checked surface allocation could not be represented or reserved.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AllocationError {
+    SizeOverflow,
+    NotEnoughMemory { bytes: usize },
+}
+
+impl fmt::Display for AllocationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SizeOverflow => f.write_str("requested surface allocation is too large"),
+            Self::NotEnoughMemory { bytes } => write!(f, "not enough memory to allocate {bytes} bytes"),
+        }
+    }
+}
+
+impl std::error::Error for AllocationError {}
+
 /// Pixel storage for one tile: `TILE_SIZE² × bytes_per_pixel`, row-major, interleaved channels.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tile {
@@ -26,6 +45,29 @@ pub struct Tile {
 }
 
 impl Tile {
+    fn try_filled(format: &PixelFormat, pixel: &[u8]) -> Result<Self, AllocationError> {
+        let n = (TILE_SIZE * TILE_SIZE) as usize;
+        let bytes = n.checked_mul(format.bytes_per_pixel()).ok_or(AllocationError::SizeOverflow)?;
+        let mut data = Vec::new();
+        data.try_reserve_exact(bytes).map_err(|_| AllocationError::NotEnoughMemory { bytes })?;
+        data.resize(bytes, 0);
+        if pixel.iter().any(|&b| b != 0) {
+            for px in data.chunks_exact_mut(pixel.len()) {
+                px.copy_from_slice(pixel);
+            }
+        }
+        Ok(Tile { data: data.into_boxed_slice() })
+    }
+
+    /// Clone this tile's pixel buffer with a fallible reservation.
+    pub fn try_clone(&self) -> Result<Self, AllocationError> {
+        let bytes = self.data.len();
+        let mut data = Vec::new();
+        data.try_reserve_exact(bytes).map_err(|_| AllocationError::NotEnoughMemory { bytes })?;
+        data.extend_from_slice(&self.data);
+        Ok(Tile { data: data.into_boxed_slice() })
+    }
+
     fn filled(format: &PixelFormat, pixel: &[u8]) -> Self {
         let n = (TILE_SIZE * TILE_SIZE) as usize;
         let mut data = vec![0u8; n * format.bytes_per_pixel()];
@@ -193,6 +235,23 @@ impl Surface {
         let dp = self.default_pixel.clone();
         let arc = self.tiles.entry(c).or_insert_with(|| Arc::new(Tile::filled(&fmt, &dp)));
         Arc::make_mut(arc)
+    }
+
+    /// Fallible counterpart to [`Surface::tile_mut`]. Pixel storage is reserved before changing
+    /// the surface, and a shared tile is copied only after its replacement has been allocated.
+    pub fn try_tile_mut(&mut self, c: TileCoord) -> Result<&mut Tile, AllocationError> {
+        let replacement = match self.tiles.get(&c) {
+            None => Some(Tile::try_filled(&self.format, &self.default_pixel)?),
+            Some(t) if Arc::strong_count(t) > 1 => Some(t.try_clone()?),
+            Some(_) => None,
+        };
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
+        if let Some(tile) = replacement {
+            self.tiles.insert(c, Arc::new(tile));
+        }
+        // The tile is now unshared, so `make_mut` only detaches weak pins and never copies pixels.
+        self.tiles.get_mut(&c).map(Arc::make_mut).ok_or(AllocationError::SizeOverflow)
     }
 
     /// Coarse bounds: union of allocated tile rects.
@@ -511,6 +570,50 @@ impl Surface {
         }
     }
 
+    /// Writes a region using fallible pixel-tile allocations. A failure can leave earlier tiles
+    /// written, so callers write into a staged document copy and commit only on success.
+    pub fn try_write_region(&mut self, r: Rect, data: &[f32]) -> Result<(), AllocationError> {
+        let n = self.channels();
+        let sample = self.format.sample;
+        let w = r.width() as usize;
+        let expected = w.checked_mul(r.height() as usize).and_then(|v| v.checked_mul(n)).ok_or(AllocationError::SizeOverflow)?;
+        if data.len() != expected {
+            return Err(AllocationError::SizeOverflow);
+        }
+        for tc in r.tiles() {
+            let tr = tc.rect().intersect(&r);
+            let t = self.try_tile_mut(tc)?;
+            let span = tr.width() as usize * n;
+            for y in tr.y0..tr.y1 {
+                let src = (((y - r.y0) as usize) * w + (tr.x0 - r.x0) as usize) * n;
+                let dst = (((y - tc.ty * TILE_SIZE) as usize) * TILE_SIZE as usize + (tr.x0 - tc.tx * TILE_SIZE) as usize) * n;
+                for (i, v) in data[src..src + span].iter().enumerate() {
+                    write_sample(&mut t.data, sample, dst + i, *v);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Fallible counterpart to [`Surface::take_tiles`]. Reserves the complete result and any
+    /// default tile before removing a tile, so a reservation failure leaves the surface intact.
+    pub fn try_take_tiles(&mut self, r: Rect) -> Result<Vec<(TileCoord, Arc<Tile>)>, AllocationError> {
+        let count = r.tiles().count();
+        let bytes = count.checked_mul(std::mem::size_of::<(TileCoord, Arc<Tile>)>()).ok_or(AllocationError::SizeOverflow)?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(count).map_err(|_| AllocationError::NotEnoughMemory { bytes })?;
+        let has_missing = r.tiles().any(|c| !self.tiles.contains_key(&c));
+        let blank = if has_missing { Some(Arc::new(Tile::try_filled(&self.format, &self.default_pixel)?)) } else { None };
+        *self.revision.get_mut() = 0;
+        self.content_bounds.take();
+        for c in r.tiles() {
+            if let Some(tile) = self.tiles.remove(&c).or_else(|| blank.clone()) {
+                out.push((c, tile));
+            }
+        }
+        Ok(out)
+    }
+
     /// Take the tiles covering `r` out of the surface (missing ones filled with the default
     /// pixel), so they can be edited elsewhere, e.g. in parallel: `Arc::unwrap_or_clone` copies a
     /// tile only if an undo snapshot still shares it. Give them back with [`Surface::put_tiles`].
@@ -773,6 +876,46 @@ mod tests {
     use super::*;
     use photocraft_color::PixelFormat;
     use proptest::prelude::*;
+
+    #[test]
+    fn fallible_region_write_rejects_bad_input_without_mutating_surface() {
+        let mut surface = Surface::new(PixelFormat::RGBA8);
+        let before = surface.clone();
+        assert_eq!(surface.try_write_region(Rect::new(0, 0, 2, 2), &[1.0]), Err(AllocationError::SizeOverflow));
+        assert_eq!(surface, before);
+    }
+
+    #[test]
+    fn fallible_region_write_matches_write_region_and_unshares_tiles() {
+        let mut a = Surface::new(PixelFormat::RGBA16);
+        a.fill_rect(Rect::new(0, 0, 300, 300), &[0.2, 0.4, 0.6, 1.0]);
+        let snapshot = a.clone();
+        let mut b = a.clone();
+        let r = Rect::new(250, 250, 270, 262);
+        let data: Vec<f32> = (0..r.width() * r.height() * 4).map(|i| (i % 97) as f32 / 96.0).collect();
+        a.write_region(r, &data);
+        b.try_write_region(r, &data).unwrap();
+        assert_eq!(a, b);
+        let mut untouched = Surface::new(PixelFormat::RGBA16);
+        untouched.fill_rect(Rect::new(0, 0, 300, 300), &[0.2, 0.4, 0.6, 1.0]);
+        assert_eq!(snapshot, untouched, "the shared snapshot keeps its pixels");
+    }
+
+    #[test]
+    fn fallible_take_tiles_matches_take_tiles() {
+        let mut a = Surface::new(PixelFormat::GRAY8);
+        a.write_pixel(10, 10, &[0.5]);
+        let mut b = a.clone();
+        let r = Rect::new(0, 0, 600, 300);
+        let ta = a.take_tiles(r);
+        let tb = b.try_take_tiles(r).unwrap();
+        assert_eq!(ta.len(), tb.len());
+        for ((ca, ta), (cb, tb)) in ta.iter().zip(&tb) {
+            assert_eq!((ca, ta.bytes()), (cb, tb.bytes()));
+        }
+        assert_eq!(a.tile_count(), 0);
+        assert_eq!(b.tile_count(), 0);
+    }
 
     #[test]
     fn from_rgba_into_matches_from_rgba() {

@@ -31,10 +31,17 @@ fn mode(p: &Value) -> SelectionMode {
 fn sample_pixels(s: &Session, all_layers: bool) -> Result<(Rect, Vec<[f32; 4]>)> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let area = d.doc.bounds();
+    // Match the decoders' raster budget before either the layer or composite path allocates.
+    let len = area.size().area();
+    let max_bytes: u64 = if cfg!(target_pointer_width = "64") { 8 << 30 } else { 2 << 30 };
+    if len > max_bytes / std::mem::size_of::<[f32; 4]>() as u64 {
+        return Err(EngineError::Other("the canvas is too large to sample for a selection".into()));
+    }
     let layer = d.active_layer.and_then(|id| d.doc.layer(id)).and_then(|l| l.surface());
     match (all_layers, layer) {
         (false, Some(surf)) => {
-            let mut px = vec![[0.0f32; 4]; area.width() as usize * area.height() as usize];
+            let len = usize::try_from(len).map_err(|_| EngineError::Other("the canvas is too large to sample for a selection".into()))?;
+            let mut px = crate::allocation::filled(len, [0.0f32; 4], "sampling pixels for a selection")?;
             surf.read_rgba_into(area, &mut px);
             Ok((area, px))
         }
@@ -225,6 +232,9 @@ fn color_range(s: &mut Session, p: &Value) -> Result<Value> {
     set_selection(s, "Color Range", area, mask, mode(p))
 }
 
+/// Largest canvas Modify works on: it holds the whole canvas as f32 masks, several at once.
+const MAX_MODIFY_PIXELS: u64 = 1 << 30;
+
 fn modify(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     // The dialogs' ranges (Photoshop's limits); anything else is refused, never clamped silently.
     let max = match op {
@@ -237,7 +247,12 @@ fn modify(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
         return Err(EngineError::BadParams { cmd: format!("select.modify.{op}"), msg: format!("radius must be a number in 0..{max}") });
     }
     let r = r.max(0.0);
-    let (area, m) = current_mask(&s.active().ok_or(EngineError::NoDocument)?.doc);
+    let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+    let area = doc.bounds();
+    if area.size().area() > MAX_MODIFY_PIXELS {
+        return Err(EngineError::BadParams { cmd: format!("select.modify.{op}"), msg: "the selection is too large to modify".into() });
+    }
+    let (_, m) = current_mask(doc);
     let (w, h) = (area.width() as usize, area.height() as usize);
     let out = match op {
         "expand" => sel::expand(&m, w, h, r),
@@ -391,6 +406,60 @@ mod tests {
 
     fn coverage(s: &Session, x: i32, y: i32) -> f32 {
         s.active().unwrap().doc.selection.as_ref().map_or(0.0, |m| m.sample_channel(x, y, 0))
+    }
+
+    #[test]
+    fn selection_sampling_refuses_oversized_canvases_before_reading_pixels() {
+        let mut s = Session::new();
+        s.add_document(
+            photocraft_doc::Document::new(
+                "large",
+                photocraft_geom::Size::new(300_000, 300_000),
+                photocraft_color::ColorMode::Rgb,
+                photocraft_color::SampleType::U8,
+            ),
+            None,
+        );
+        for all_layers in [false, true] {
+            assert!(sample_pixels(&s, all_layers).unwrap_err().to_string().contains("too large to sample"));
+        }
+        assert!(!s.active().unwrap().history.can_undo());
+    }
+
+    #[test]
+    fn selection_sampling_allocation_failure_keeps_the_selection() {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 5, "y": 5, "width": 4, "height": 4})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let entries = s.active().unwrap().history.entries();
+        crate::allocation::fail_next_for_test();
+        let result = s.execute("select.similar", json!({"sampleAllLayers": false}));
+        let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+        assert!(result.unwrap_err().to_string().contains("not enough memory"));
+        assert_eq!(*s.active().unwrap().doc, *before);
+        assert_eq!(s.active().unwrap().history.entries(), entries);
+    }
+
+    #[test]
+    fn modify_rejects_oversized_canvases_before_reading_the_mask() {
+        let mut s = Session::new();
+        let mut doc = photocraft_doc::Document::new(
+            "large",
+            photocraft_geom::Size::new(300_000, 300_000),
+            photocraft_color::ColorMode::Rgb,
+            photocraft_color::SampleType::U8,
+        );
+        let mut selection = photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8);
+        selection.write_pixel(0, 0, &[1.0]);
+        doc.selection = Some(selection);
+        s.add_document(doc, None);
+        let before = s.active().unwrap().doc.clone();
+        for op in ["expand", "contract", "border", "smooth", "feather"] {
+            let error = s.execute(&format!("select.modify.{op}"), json!({"radius": 1})).unwrap_err();
+            assert!(error.to_string().contains("too large to modify"), "{error}");
+            assert_eq!(*s.active().unwrap().doc, *before);
+            assert!(!s.active().unwrap().history.can_undo());
+        }
     }
 
     #[test]

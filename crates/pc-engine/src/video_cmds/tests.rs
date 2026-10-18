@@ -136,3 +136,25 @@ fn inspect_reports_video_layer() {
     assert_eq!(vid["frames"], 2);
     assert_eq!(vid["source"]["file"].as_str(), Some(dir.as_str()));
 }
+
+#[test]
+fn render_video_rejects_a_loaded_timeline_past_the_frame_cap() {
+    let mut s = session();
+    let mut doc = (*s.active().unwrap().doc).clone();
+    doc.timeline = Some(Timeline::new(usize::MAX, 30.0));
+    {
+        let st = s.active_mut().unwrap();
+        st.doc = std::sync::Arc::new(doc);
+        st.revision += 1;
+    }
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("overlong"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("limited to"), "{err}");
+}
+
+#[test]
+fn render_video_rejects_gif_frames_too_large_to_stage() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 9000, "height": 8000})).unwrap();
+    let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("large-gif"), "format": "gif"})).unwrap_err();
+    assert!(err.to_string().contains("too large"), "{err}");
+}

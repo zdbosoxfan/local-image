@@ -16,6 +16,7 @@ pub mod seg;
 pub mod adjust_cmds;
 pub mod adjust_params;
 pub mod align_cmds;
+mod allocation;
 pub mod analysis_cmds;
 pub mod artboard_cmds;
 pub mod automate_cmds;
@@ -147,6 +148,12 @@ pub enum EngineError {
 
 pub type Result<T> = std::result::Result<T, EngineError>;
 
+impl From<photocraft_raster::AllocationError> for EngineError {
+    fn from(error: photocraft_raster::AllocationError) -> Self {
+        Self::Other(format!("not enough memory for this operation ({error}); the document was not changed"))
+    }
+}
+
 /// The pixels of a raster layer (typically one a command just created), as an error instead
 /// of a panic if the layer has none.
 pub(crate) fn pixels_mut(l: &mut photocraft_doc::Layer) -> Result<&mut photocraft_raster::Surface> {
@@ -206,6 +213,20 @@ pub struct DocState {
 }
 
 impl DocState {
+    /// Trim the history to its budget, counting the allocations only History panel snapshots
+    /// hold against it too. Returns how many states were dropped.
+    pub fn trim_history(&mut self) -> usize {
+        let snaps: Vec<&Document> = self.snapshots.iter().map(|s| &*s.doc).collect();
+        self.history.trim_with(&self.doc, &snaps)
+    }
+
+    /// Backing bytes of the document, those only its history holds and those only its History
+    /// panel snapshots hold.
+    pub fn memory_bytes(&self) -> usize {
+        let snaps: Vec<&Document> = self.snapshots.iter().map(|s| &*s.doc).collect();
+        self.history.pixel_bytes(&self.doc).saturating_add(self.history.extra_bytes(&self.doc, &snaps))
+    }
+
     pub fn new(doc: Document, path: Option<String>) -> Self {
         let active_layer = doc.top_layer();
         let mut history = History::default();
@@ -541,7 +562,7 @@ impl Session {
         let layers = st.layer_target();
         if key.is_none() || st.coalesce != key || !st.history.can_undo() {
             st.history.record(label, before, layers);
-            st.history.trim(&st.doc);
+            st.trim_history();
         } else {
             st.history.set_current_layers(layers);
         }

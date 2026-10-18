@@ -898,3 +898,23 @@ fn bigbrush_ready_commit_keeps_original_target_when_active_layer_changes() {
     assert_eq!(s.live_commits_reused(), 1);
     assert_eq!(s.active().unwrap().active_layer, Some(group));
 }
+
+#[test]
+fn define_brush_from_selection_survives_allocation_failure() {
+    // An allocation failure must be an error that leaves the brush, presets, history and
+    // document untouched, never a panic or an OOM abort.
+    let mut s = session(40, 40);
+    s.execute("select.rect", json!({"x": 5, "y": 5, "width": 20, "height": 20})).unwrap();
+    let brush_before = s.tools.brush.clone();
+    let presets_before = s.tools.presets.clone();
+    let history_before = s.active().unwrap().history.past_len();
+    let doc_before = s.active().unwrap().doc.clone();
+    crate::allocation::fail_next_for_test();
+    let result = s.execute("brush.defineFromSelection", json!({"name": "Blob"}));
+    let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+    assert!(result.unwrap_err().to_string().contains("not enough memory"));
+    assert_eq!(s.tools.brush, brush_before, "the current brush is unchanged");
+    assert_eq!(s.tools.presets, presets_before, "the preset list is unchanged");
+    assert_eq!(s.active().unwrap().history.past_len(), history_before, "no history step was recorded");
+    assert_eq!(*s.active().unwrap().doc, *doc_before);
+}

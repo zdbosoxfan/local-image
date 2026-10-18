@@ -46,7 +46,7 @@ use std::sync::Arc;
 
 use photocraft_color::{PixelFormat, SampleType};
 use photocraft_compose::effects::FieldKind;
-use photocraft_doc::{DocId, Document, Layer, LayerContent, LayerId, Pattern};
+use photocraft_doc::{DocId, Document, LayerContent, LayerId, Pattern};
 use photocraft_geom::{Rect, TILE_SIZE, TileCoord};
 use photocraft_raster::{Surface, Tile};
 
@@ -272,8 +272,8 @@ struct FxEntry {
     shape_key: u64,
     /// Tiles the shape was rendered from (content, mask): damage is their difference.
     tiles: [Option<fx::Tiles>; 2],
-    /// Groups: a clone pinning the tile pointers `shape_key` hashes.
-    _pin: Option<Layer>,
+    /// Groups: the tiles `shape_key` hashes, by address only (see [`fx::Tiles`]).
+    _pin: Vec<std::sync::Weak<Tile>>,
     /// The shape on the CPU (distance fields are computed from it) and on the GPU.
     shape_cpu: Vec<f32>,
     shape: Tex,
@@ -299,8 +299,8 @@ struct NoiseEntry {
     key: String,
     region: Rect,
     gates: Vec<Option<Vec<u8>>>,
-    // Pin tile identities used in the key until it changes.
-    _pin: Layer,
+    /// The tiles the key hashes, by address only (see [`fx::Tiles`]), until it changes.
+    _pin: Vec<std::sync::Weak<Tile>>,
     last_used: u64,
 }
 
@@ -1747,7 +1747,9 @@ impl Compositor {
             self.noise.remove(&f.layer.id);
             return;
         }
-        let key = format!("{:?}", (fx::group_key(f.layer, &doc.global_light), doc.mode, doc.depth, self.cmyk, f.region));
+        let mut pin = Vec::new();
+        let group_key = fx::group_key(f.layer, &doc.global_light, &mut |t| pin.push(Arc::downgrade(t)));
+        let key = format!("{:?}", (group_key, doc.mode, doc.depth, self.cmyk, f.region));
         if let Some(e) = self.noise.get_mut(&f.layer.id)
             && e.key == key
         {
@@ -1756,7 +1758,7 @@ impl Compositor {
         }
         let shape = fx::shape(doc, f.layer, f.region);
         let gates = photocraft_compose::effects::noise_gates(f.layer, shape, f.region, &doc.global_light);
-        self.noise.insert(f.layer.id, NoiseEntry { doc: doc.id, key, region: f.region, gates, _pin: f.layer.clone(), last_used: self.frame });
+        self.noise.insert(f.layer.id, NoiseEntry { doc: doc.id, key, region: f.region, gates, _pin: pin, last_used: self.frame });
     }
 
     /// Upload the cached reference eligibility cropped to this GPU map window.
@@ -1806,7 +1808,7 @@ impl Compositor {
             // A group's alpha can depend on Blend If and adjustment quantization. Document
             // mode/depth/profile changes must invalidate it even when child tiles stay put.
             let mut h = std::collections::hash_map::DefaultHasher::new();
-            format!("{:?}", (fx::group_key(layer, &doc.global_light), doc.mode, doc.depth, self.cmyk)).hash(&mut h);
+            format!("{:?}", (fx::group_key(layer, &doc.global_light, &mut |_| {}), doc.mode, doc.depth, self.cmyk)).hash(&mut h);
             h.finish()
         } else {
             fx::shape_key(layer, canvas)
@@ -1862,7 +1864,13 @@ impl Compositor {
                     region,
                     shape_key,
                     tiles: [None, None],
-                    _pin: is_group.then(|| layer.clone()),
+                    _pin: if is_group {
+                        let mut pin = Vec::new();
+                        fx::group_key(layer, &doc.global_light, &mut |t| pin.push(Arc::downgrade(t)));
+                        pin
+                    } else {
+                        Vec::new()
+                    },
                     shape_cpu: vec![0.0; n],
                     shape,
                     fields: HashMap::new(),
@@ -2279,6 +2287,7 @@ pub fn render_to_vec_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use photocraft_doc::Layer;
 
     #[test]
     fn color_lookup_uses_precise_inputs_only_at_high_document_depth() {
