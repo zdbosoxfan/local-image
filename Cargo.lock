@@ -4536,6 +4536,7 @@ dependencies = [
  "lightcraft-gpu",
  "lightcraft-sysmem",
  "lightcraft-ui-egui",
+ "local-image-cli",
  "log",
  "muda",
  "objc2 0.6.4",

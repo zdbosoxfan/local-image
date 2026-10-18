@@ -7,7 +7,8 @@ are separate downloads.
 ## Install
 
 Open `local-image-<version>-macos-arm64.pkg` and follow Installer. It installs
-`/Applications/Local Image.app`, with the CLI in `Contents/MacOS/local-image-cli`.
+`/Applications/Local Image.app`, with the CLI at `Contents/MacOS/local-image-cli`: a symlink to
+the app's one executable, which runs the command line when started under that name.
 Finder's Open With can open native `.pcraft` documents, images, raw photos, PDFs and SVGs.
 Settings, AI data and models live in `~/Library/Application Support/Local Image`.
 
@@ -76,10 +77,13 @@ cargo xtask package macos
 ./scripts/build_and_run.sh --verify
 ```
 
-`cargo xtask package macos --skip-build` packages existing native release binaries. The caller
-must ensure those binaries have `local-image/heif,local-image-cli/heif` enabled.
-It checks ARM64 architecture, rejects non-system dylibs, includes attribution texts, creates
-an icon and document associations, signs nested code, verifies the app signature, builds the
+`cargo xtask package macos --skip-build` packages an existing native release binary. The caller
+must ensure it was built with `local-image/heif` enabled.
+The bundle ships one Mach-O, `Contents/MacOS/local-image`; `local-image-cli` beside it is a
+relative symlink to it. It checks ARM64 architecture, rejects non-system dylibs, includes
+attribution texts, creates an icon and document associations, signs the executable and then the
+bundle (which seals the symlink), verifies the app signature with `codesign --deep --strict`,
+runs the CLI through the symlink, builds the
 Installer package and writes a SHA-256 file. It disables Installer bundle relocation so an
 upgrade replaces the app in Applications instead of a copy elsewhere.
 Set `MACOS_SIGN_IDENTITY` and `MACOS_INSTALLER_SIGN_IDENTITY` for Developer ID signatures.

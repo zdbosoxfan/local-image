@@ -46,7 +46,8 @@ does not require an AI server. See [MACOS.md](MACOS.md) for backend requirements
 
 ```
 apps/local-image       the desktop app (window, services, raw import, Library mode host, branding)
-apps/local-image-cli   the command line
+apps/local-image-cli   the command line (a library the app also links: packages ship one executable,
+                       and `local-image` started as `local-image-cli` runs the CLI)
 crates/pc-*            the editor: document model, engine and commands, compositor, PSD, colour
                        management, paint, text, codecs, egui UI (from PhotoCraft)
 crates/lc-*            raw development, pipeline, catalogue, export, Library UI (from LightCraft)

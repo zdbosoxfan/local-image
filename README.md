@@ -409,7 +409,9 @@ local-image-cli convert input.png output.webp
 local-image-cli library commands --filter develop
 ```
 
-On macOS, the CLI is inside `Local Image.app/Contents/MacOS/`. See [Coming from Lightroom Classic](docs/COMING-FROM-LIGHTROOM-CLASSIC.md) or [Coming from Photoshop / Affinity](docs/COMING-FROM-PHOTOSHOP-AFFINITY.md) for familiar workflows.
+The CLI is the app's own executable started under the name `local-image-cli`: packages ship it as a
+symlink beside the app (on macOS, `Local Image.app/Contents/MacOS/local-image-cli`; on Linux,
+`local-image --install` links it into the same `bin` folder). See [Coming from Lightroom Classic](docs/COMING-FROM-LIGHTROOM-CLASSIC.md) or [Coming from Photoshop / Affinity](docs/COMING-FROM-PHOTOSHOP-AFFINITY.md) for familiar workflows.
 
 ## Licence
 

@@ -26,30 +26,18 @@ pub fn package(skip_build: bool) -> Result<()> {
     if !skip_build {
         let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
         cmd.current_dir(root())
-            .args([
-                "build",
-                "--offline",
-                "--release",
-                "--locked",
-                "-p",
-                "local-image",
-                "-p",
-                "local-image-cli",
-                "--features",
-                "local-image/heif,local-image-cli/heif",
-            ])
+            .args(["build", "--offline", "--release", "--locked", "-p", "local-image", "--features", "local-image/heif"])
             .env("MACOSX_DEPLOYMENT_TARGET", "13.0");
         build_env(&mut cmd);
-        run("build Apple Silicon binaries", &mut cmd)?;
+        run("build Apple Silicon binary", &mut cmd)?;
     }
-    for name in ["local-image", "local-image-cli"] {
-        let source = target_dir().join("release").join(name);
-        let dest = bin.join(name);
-        std::fs::copy(&source, &dest).with_context(|| format!("{}: build release binaries first", source.display()))?;
-        run("verify arm64 executable", Command::new("lipo").arg("-verify_arch").arg("arm64").arg(&dest))?;
-        verify_libraries(&dest)?;
-        run("strip debug symbols", Command::new("strip").arg("-S").arg(&dest))?;
-    }
+    let source = target_dir().join("release").join("local-image");
+    let exe = bin.join("local-image");
+    std::fs::copy(&source, &exe).with_context(|| format!("{}: build the release binary first", source.display()))?;
+    run("verify arm64 executable", Command::new("lipo").arg("-verify_arch").arg("arm64").arg(&exe))?;
+    verify_libraries(&exe)?;
+    run("strip debug symbols", Command::new("strip").arg("-S").arg(&exe))?;
+    crate::link_cli(&bin)?;
     std::fs::write(contents.join("Info.plist"), info_plist(&version))?;
     std::fs::write(contents.join("PkgInfo"), "APPL????")?;
     for file in ["README.md", "LICENSE"] {
@@ -61,12 +49,11 @@ pub fn package(skip_build: bool) -> Result<()> {
     // Ad-hoc signing makes arm64 code valid locally. Developer ID signing is available to
     // distributors; a Developer ID installer identity can independently sign the .pkg below.
     let identity = std::env::var("MACOS_SIGN_IDENTITY").unwrap_or_else(|_| "-".into());
-    for name in ["local-image-cli", "local-image"] {
-        sign(&bin.join(name), &identity)?;
-    }
+    // The CLI is a symlink, not code: signing the executable and then the bundle seals it.
+    sign(&exe, &identity)?;
     sign(&app, &identity)?;
     run("verify app signature", Command::new("codesign").args(["--verify", "--deep", "--strict", "--verbose=2"]).arg(&app))?;
-    run("verify bundled CLI", Command::new(bin.join("local-image-cli")).arg("--version"))?;
+    run("verify bundled CLI", Command::new(bin.join(crate::CLI)).arg("--version"))?;
     let name = format!("local-image-{version}-macos-arm64.pkg");
     let output = dist()?.join(&name);
     // Disable bundle relocation: upgrading must replace /Applications/Local Image.app,
