@@ -81,6 +81,7 @@ muda = { version = "=0.21.1", default-features = false }
 
 # Drop position on X11 (`cursor.rs`): pure-Rust X client, already in Cargo.lock; pinned exactly.
 [target.'cfg(target_os = "linux")'.dependencies]
+wl-clipboard-rs = { version = "=0.9.4", default-features = false }
 x11rb = { version = "=0.13.2", default-features = false }
 # Already locked via accesskit; pure Rust, Linux-only colord fallback.
 zbus = { version = "=5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
