@@ -373,6 +373,43 @@ fn animation_imports_the_first_frame_with_a_warning() {
 }
 
 #[test]
+fn gray_webp_uses_display_encoding_and_keeps_alpha() {
+    use photocraft_cms::{Builtin, Intent, Transform};
+    let mut linear = Builtin::SGray.profile().clone();
+    linear.gray_trc = Some(li_color::curve::Curve::Gamma(1.0));
+    linear.description = "Linear test gray".into();
+    let linear = linear.with_encoded_bytes();
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for (profile, converted) in [(Builtin::GrayGamma22.profile(), true), (Builtin::SGray.profile(), false), (&linear, true)] {
+            for lossless in [true, false] {
+                let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 0.5], &[0.5, 1.0]]);
+                d.icc_profile = Some(profile.to_bytes());
+                let stored = column_pixels(&d, 2);
+                let options = ExportOptions {
+                    encode: photocraft_codecs::EncodeOptions { webp_lossless: lossless, webp_quality: 100, ..Default::default() },
+                    ..Default::default()
+                };
+                let result = export(&d, "webp", &options).unwrap();
+                let image = photocraft_codecs::decode(&result.bytes).unwrap();
+                assert!(image.icc.is_none());
+                let values = image.to_normalized();
+                let transform = Transform::new(profile, Builtin::SGray.profile(), Intent::RelativeColorimetric, false).unwrap();
+                for (i, pixel) in stored.iter().enumerate() {
+                    let mut expected = pixel.clone();
+                    transform.apply(&mut expected, 2);
+                    let at = (8 * image.width() as usize + 16 * i + 8) * 4;
+                    for value in &values[at..at + 3] {
+                        assert!((value - expected[0]).abs() <= 3. / 255.);
+                    }
+                    assert!((values[at + 3] - pixel[1]).abs() <= 1. / 255.);
+                }
+                assert_eq!(result.warnings.iter().any(|w| w.contains("converted to sGray")), converted);
+            }
+        }
+    }
+}
+
+#[test]
 fn plain_lab_tiff_keeps_native_samples_and_document_mode() {
     for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
         let doc = columns(ColorMode::Lab, depth, &[&[0.5, 108. / 255., 158. / 255., 1.]]);

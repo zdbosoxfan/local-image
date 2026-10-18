@@ -777,12 +777,16 @@ pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Resu
         if let Some(linear) = convert_rgb(&img, Builtin::LinearSrgb.profile(), Intent::RelativeColorimetric, false, CSample::F32)? {
             img = linear;
         }
-    } else if !format.caps().icc {
-        // Untagged files read back as sRGB: convert to it (as Quick Export does) rather than
-        // write values that only mean something under the dropped profile.
+    } else if !format.caps().icc || (img.layout().is_gray() && !format.caps().layouts.iter().any(|l| l.is_gray())) {
+        // Untagged files read back as sRGB/sGray. Even an ICC-capable format like WebP loses a
+        // gray profile when the codec expands gray to RGB. Convert first (as Quick Export does)
+        // rather than write values that only mean something under the dropped profile.
         if let Some(srgb) = convert_rgb(&img, Builtin::Srgb.profile(), Intent::Perceptual, true, img.sample_type())? {
             img = srgb;
             warnings.push(format!("colours converted to sRGB; {format:?} can't embed the document's colour profile"));
+        } else if let Some(gray) = convert_gray(&img, Builtin::SGray.profile(), img.sample_type())? {
+            img = gray;
+            warnings.push(format!("colours converted to sGray; {format:?} can't embed the document's colour profile"));
         }
     }
     for w in codecs::fidelity_warnings_with(&img, format, &opts.encode) {
@@ -830,16 +834,40 @@ fn matte_over_white(img: &Image) -> Result<Image, IoError> {
 /// RGB pixels converted from their profile (sRGB when untagged) to `dst`, unclamped, untagged and
 /// stored as `sample`. `None` when the image isn't RGB or already holds `dst`'s colours.
 fn convert_rgb(img: &Image, dst: &photocraft_cms::Profile, intent: photocraft_cms::Intent, bpc: bool, sample: CSample) -> Result<Option<Image>, IoError> {
-    use photocraft_cms::{Builtin, ColorSpace, Profile, Transform};
+    use photocraft_cms::{Builtin, ColorSpace, Profile};
     if !img.layout().is_rgb() {
         return Ok(None);
     }
     let src =
         img.icc.as_ref().and_then(|b| Profile::parse(b).ok()).filter(|p| p.color_space == ColorSpace::Rgb).unwrap_or_else(|| Builtin::Srgb.profile().clone());
+    convert_from(img, &src, dst, intent, bpc, sample)
+}
+
+/// Gray pixels converted from their profile (sGray when untagged) to `dst`, unclamped, untagged
+/// and stored as `sample`. `None` when the image isn't gray or already holds `dst`'s colours.
+fn convert_gray(img: &Image, dst: &photocraft_cms::Profile, sample: CSample) -> Result<Option<Image>, IoError> {
+    use photocraft_cms::{Builtin, ColorSpace, Intent, Profile};
+    if !img.layout().is_gray() {
+        return Ok(None);
+    }
+    let src =
+        img.icc.as_ref().and_then(|b| Profile::parse(b).ok()).filter(|p| p.color_space == ColorSpace::Gray).unwrap_or_else(|| Builtin::SGray.profile().clone());
+    convert_from(img, &src, dst, Intent::RelativeColorimetric, false, sample)
+}
+
+/// `img`'s pixels converted from `src` to `dst` (see [`convert_rgb`]).
+fn convert_from(
+    img: &Image,
+    src: &photocraft_cms::Profile,
+    dst: &photocraft_cms::Profile,
+    intent: photocraft_cms::Intent,
+    bpc: bool,
+    sample: CSample,
+) -> Result<Option<Image>, IoError> {
     if src.same_colors(dst) {
         return Ok(None);
     }
-    let t = Transform::new(&src, dst, intent, bpc).map_err(|e| IoError::Unsupported(e.to_string()))?;
+    let t = photocraft_cms::Transform::new(src, dst, intent, bpc).map_err(|e| IoError::Unsupported(e.to_string()))?;
     let stride = img.layout().channels();
     let out = map_bands(img, img.layout(), sample, |mut vals| {
         t.apply(&mut vals, stride);
