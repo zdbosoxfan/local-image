@@ -291,6 +291,7 @@ pub fn zoom_step(z: f32, dir: i32) -> f32 {
 /// Tabs + canvas for the active document, or the start screen; then drops layers dragged onto
 /// another document (`layer_transfer`).
 pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::distort_ui::drop_foreign(app);
     poll_live_stroke(app, ui.ctx());
     let blocked = crate::restoration_ui::is_open(app);
     if blocked {
