@@ -26,6 +26,9 @@ use crate::header::Version;
 
 /// Largest pattern edge accepted (Photoshop's own limit is far lower).
 const MAX_EDGE: u32 = 30_000;
+/// Decoded pattern planes (zero padding included) allowed for every pattern of one parse: a
+/// block, a `.pat` file, an `.abr`, or all the pattern blocks of one document.
+pub const MAX_PATTERN_DECODED_BYTES: u64 = 128 << 20;
 // A PackBits run packet emits at most 128 bytes from a 2-byte packet.
 const MAX_RLE_EXPANSION: u64 = 64;
 
@@ -140,7 +143,7 @@ fn read_pattern(r: &mut Rd, remaining: &mut u64) -> Result<PsdPattern> {
         return Err(PsdError::LimitExceeded("pattern channel count"));
     }
     let mut planes = Vec::new();
-    let mut depth = 8u16;
+    let mut first_depth: Option<u16> = None;
     let mut decoded_bytes = 0u64;
     for _ in 0..count + 2 {
         if v.p >= body.len() {
@@ -165,7 +168,10 @@ fn read_pattern(r: &mut Rd, remaining: &mut u64) -> Result<PsdPattern> {
         if !matches!(d, 1 | 8 | 16 | 32) {
             return Err(PsdError::invalid(format!("pattern depth {d}")));
         }
-        depth = d;
+        // Every plane is sized by one depth; a channel at another depth can't be written back.
+        if *first_depth.get_or_insert(d) != d {
+            return Err(PsdError::invalid("pattern channels have different depths"));
+        }
         if ct < top || cl < left || cb > bottom || cr > right || cb < ct || cr < cl {
             return Err(PsdError::invalid("pattern channel rectangle falls outside pattern rectangle"));
         }
@@ -222,6 +228,7 @@ fn read_pattern(r: &mut Rd, remaining: &mut u64) -> Result<PsdPattern> {
     }
     let alpha = (planes.len() > nc).then(|| planes.remove(nc));
     planes.truncate(nc);
+    let depth = first_depth.unwrap_or(8);
     Ok(PsdPattern { mode, width: w, height: h, name, id, palette, depth, channels: planes, alpha })
 }
 
@@ -354,7 +361,8 @@ fn write_pattern(p: &PsdPattern, out: &mut Vec<u8>) -> Result<()> {
 
 /// Parses the data of a `Patt` / `Pat2` / `Pat3` global block.
 pub fn parse_pattern_block(data: &[u8]) -> Result<Vec<PsdPattern>> {
-    parse_pattern_block_with_budget(data, &mut (128 << 20))
+    let mut remaining = MAX_PATTERN_DECODED_BYTES;
+    parse_pattern_block_with_budget(data, &mut remaining)
 }
 
 /// Shared decoded-plane budget for containers holding multiple pattern sections.
@@ -413,7 +421,7 @@ pub fn parse_pat_file(data: &[u8]) -> Result<Vec<PsdPattern>> {
     if count > 4096 || count as usize > data.len().saturating_sub(r.p) / 24 {
         return Err(PsdError::LimitExceeded("pattern count"));
     }
-    let mut remaining = 128 << 20;
+    let mut remaining = MAX_PATTERN_DECODED_BYTES;
     for _ in 0..count {
         out.push(read_pattern(&mut r, &mut remaining)?);
     }
@@ -603,6 +611,21 @@ mod tests {
         set_i32(&mut global, vma + 8, 30_000);
         set_i32(&mut global, vma + 12, 30_000);
         assert!(matches!(parse_pattern_block(&global), Err(PsdError::LimitExceeded(_))));
+    }
+
+    #[test]
+    fn channels_at_different_depths_are_rejected() {
+        // The second colour channel claims 8 bits in a 16-bit pattern. It used to be accepted with
+        // the pattern's depth taken from the last channel, so the result couldn't be written back.
+        let p = pat(16, false);
+        let mut block = write_pattern_block(std::slice::from_ref(&p)).unwrap();
+        let first = pattern_vma_rect_offset(4, &p) + 20;
+        let first_len = u32::from_be_bytes(block[first + 4..first + 8].try_into().unwrap()) as usize;
+        let second = first + 8 + first_len;
+        block[second + 8..second + 12].copy_from_slice(&8u32.to_be_bytes());
+        block[second + 28..second + 30].copy_from_slice(&8u16.to_be_bytes());
+        let err = parse_pattern_block(&block).unwrap_err().to_string();
+        assert!(err.contains("different depths"), "{err}");
     }
 
     #[test]

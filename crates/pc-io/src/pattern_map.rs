@@ -9,7 +9,7 @@ use std::sync::Arc;
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_doc::{Document, Pattern};
 use photocraft_geom::Rect;
-use photocraft_psd::patterns::{PsdPattern, block_key, mode_channels, parse_pattern_block, write_pattern_block};
+use photocraft_psd::patterns::{PsdPattern, block_key, mode_channels, parse_pattern_block_with_budget, write_pattern_block};
 use photocraft_raster::Surface;
 
 use crate::pixels::{deinterleave, interleave, max_sample, psd_depth, sample_for_depth, zero_sample};
@@ -120,15 +120,21 @@ pub fn to_psd(p: &Pattern) -> PsdPattern {
     }
 }
 
-/// Patterns decoded from the document's raw pattern blocks (malformed blocks are skipped).
+/// Patterns decoded from the document's raw pattern blocks (malformed blocks are skipped). Every
+/// block decodes from one shared budget, so repeating a block can't multiply it.
 pub fn from_global_blocks(doc: &Document) -> Vec<Pattern> {
+    from_global_blocks_within(doc, photocraft_psd::patterns::MAX_PATTERN_DECODED_BYTES)
+}
+
+/// [`from_global_blocks`] decoding at most `decode_left` bytes of pattern planes.
+fn from_global_blocks_within(doc: &Document, mut decode_left: u64) -> Vec<Pattern> {
     let mut remaining = 128usize << 20;
     let mut out = Vec::new();
     for (_, key, data) in &doc.metadata.psd_global_blocks {
         if !PATTERN_KEYS.contains(key) {
             continue;
         }
-        let Ok(patterns) = parse_pattern_block(data) else { continue };
+        let Ok(patterns) = parse_pattern_block_with_budget(data, &mut decode_left) else { continue };
         for p in patterns {
             let cost = import_cost(&p);
             if cost > remaining || out.len() >= 4096 {
@@ -216,6 +222,18 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Every pattern block of a document decodes from one budget: a repeated block can't claim
+    /// a fresh allowance each time.
+    #[test]
+    fn pattern_blocks_share_one_decode_budget() {
+        let mut d = Document::new("x", photocraft_geom::Size { width: 4, height: 4 }, ColorMode::Rgb, SampleType::U8);
+        let raw = Arc::new(write_pattern_block(&[to_psd(&pattern(ColorMode::Rgb, SampleType::U8, false))]).unwrap());
+        d.metadata.psd_global_blocks = vec![(*b"8BIM", *b"Patt", raw.clone()), (*b"8BIM", *b"Patt", raw)];
+        // A 5x3 RGB 8-bit pattern decodes 45 bytes.
+        assert_eq!(from_global_blocks_within(&d, 90).len(), 2);
+        assert_eq!(from_global_blocks_within(&d, 89).len(), 1);
     }
 
     #[test]
