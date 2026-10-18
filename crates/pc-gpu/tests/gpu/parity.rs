@@ -2485,3 +2485,21 @@ fn threshold_posterize_and_tone_curves_match_cpu_at_every_depth() {
         }
     }
 }
+
+#[test]
+fn wide_strokes_and_blended_shadow_knockout_match_cpu() {
+    let mut g = gpu();
+    for blend in [BlendMode::Normal, BlendMode::Multiply, BlendMode::Exclusion] {
+        let mut d = base_doc(128, 128);
+        let mut layer = Layer::raster("shape", PixelFormat::RGBA8);
+        layer.surface_mut().unwrap().fill_rect(Rect::new(50, 50, 78, 78), &[1.0, 0.25, 0.5, 1.0]);
+        layer.blend = blend;
+        layer.effects.items = vec![
+            Effect::Stroke(stroke(40.0, StrokePosition::Outside, FxPaint::Color(Color::BLACK))),
+            Effect::Stroke(stroke(4.0, StrokePosition::Outside, FxPaint::Color(Color::WHITE))),
+            Effect::DropShadow(shadow(BlendMode::Multiply, 1.0, 90.0, 0.0, 0.0, 0.0)),
+        ];
+        d.layers.push(layer);
+        fx_check(&mut g, &d, &format!("wide stroke and knockout {blend:?}"));
+    }
+}

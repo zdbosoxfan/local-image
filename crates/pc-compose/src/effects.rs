@@ -12,7 +12,8 @@
 //! Interior effects are painted relative to the layer's shape and then take the shape's alpha
 //! (an overlay recolours a half-transparent edge without adding coverage). The outside parts
 //! of strokes blend onto the backdrop with their own modes, an upper stroke covering the
-//! lower ones. Drop shadows are knocked out only through see-through fill.
+//! lower ones. Drop shadows are knocked out through see-through fill, and beneath the whole shape
+//! when the layer's mode lets what's under it show through (see [`shadow_see_through`]).
 //!
 //! Shapes come from the layer's alpha (after its mask). Inside strokes, narrow outside strokes and
 //! spread / choke measure distances with a 5 × 5 chamfer metric seeded at sub-pixel edge offsets
@@ -1278,6 +1279,16 @@ pub(crate) fn build_maps_prepared(
 /// Far outside any shape (distance fill for cropped distance fields).
 const FAR: f32 = 1.0e9;
 
+/// How far the layer lets a knocked-out drop shadow show beneath its own shape (Layer Knocks Out
+/// Drop Shadow), 0 = covered, 1 = knocked out wholly. In a normal mode an opaque layer covers the
+/// shadow anyway, so only see-through fill knocks it out (and anti-aliased edges are not
+/// attenuated twice). In any other mode the layer blends with what's beneath it, shadow and all:
+/// an Exclusion or Difference layer would invert it, Multiply darken by it, Screen show it as
+/// grey. Photoshop keeps it out from under the shape, so here it's knocked out wholly.
+pub fn shadow_see_through(layer: &Layer) -> f32 {
+    if matches!(layer.blend, BlendMode::Normal | BlendMode::Dissolve | BlendMode::PassThrough) { 1.0 - layer.fill_opacity.clamp(0.0, 1.0) } else { 1.0 }
+}
+
 /// Composites `content` (the layer's own pixels over `big`, alpha already
 /// masked, clipped layers applied) plus its effects into `backdrop`.
 pub(crate) fn composite_with_effects_prepared(
@@ -1326,10 +1337,10 @@ pub(crate) fn composite_with_effects_prepared(
         if let Effect::DropShadow(s) = e {
             let mut m = fx(i, 0);
             if s.knocks_out {
-                // The layer hides the shadow beneath it only where its fill is see-through: at
-                // 100 % fill the layer covers it anyway (and anti-aliased edges are not
-                // attenuated twice), at 0 % the shape shows the bare backdrop.
-                let see_through = 1.0 - layer.fill_opacity.clamp(0.0, 1.0);
+                // The layer hides the shadow beneath it where its fill is see-through (at 100 %
+                // fill in a normal mode it covers it anyway; at 0 % the shape shows the bare
+                // backdrop), and wholly in a mode that blends with it ([`shadow_see_through`]).
+                let see_through = shadow_see_through(layer);
                 for (v, a) in m.v.iter_mut().zip(&shape.v) {
                     *v *= 1.0 - a * see_through;
                 }
