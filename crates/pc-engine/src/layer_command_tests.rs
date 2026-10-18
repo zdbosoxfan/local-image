@@ -215,6 +215,19 @@ fn opacity_and_fill_reject_out_of_range_values_without_mutation() {
 }
 
 #[test]
+fn fibers_fills_an_empty_layer_within_the_selection() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("select.rect", json!({"x": 2, "y": 3, "width": 12, "height": 10})).unwrap();
+    s.execute("filter.render.fibers", json!({"seed": 1})).unwrap();
+    let st = s.active().unwrap();
+    let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+    assert_eq!(surf.content_bounds(), photocraft_geom::Rect::new(2, 3, 14, 13));
+    assert!(surf.rgba(5, 5)[3] > 0.99);
+    assert_eq!(surf.rgba(0, 0)[3], 0.0);
+}
+
+#[test]
 fn default_grayscale_conversion_matches_dot_gain_twenty_percent() {
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
