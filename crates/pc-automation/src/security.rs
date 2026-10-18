@@ -118,8 +118,28 @@ pub fn authentication_reply(line: &str, expected_token: &str) -> (Value, bool) {
     }
 }
 
+/// Read an existing control-token file. The checks run on the opened handle, not the name: it must
+/// be a regular file that no other local principal can read, so a group- or world-readable token is
+/// refused rather than trusted as the control credential. [`create_token_file`] writes 0600.
 fn read_token_file(path: &Path) -> Result<String, AutomationError> {
-    let token = std::fs::read_to_string(path).map_err(|e| AutomationError::Io(format!("{}: {e}", path.display())))?;
+    let io_err = |e: std::io::Error| AutomationError::Io(format!("{}: {e}", path.display()));
+    let mut file = std::fs::File::open(path).map_err(io_err)?;
+    let meta = file.metadata().map_err(io_err)?;
+    if !meta.is_file() {
+        return Err(AutomationError::Io(format!("{}: control token file is not a regular file", path.display())));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if meta.mode() & 0o077 != 0 {
+            return Err(AutomationError::Io(format!(
+                "{}: control token file is readable by group or others (mode {:o}); restrict it to its owner (chmod 600)",
+                path.display(),
+                meta.mode() & 0o777
+            )));
+        }
+    }
+    let token = std::io::read_to_string(&mut file).map_err(io_err)?;
     let token = token.trim().to_owned();
     validate_token(&token)?;
     Ok(token)
@@ -302,6 +322,32 @@ mod tests {
         assert_eq!(server, client);
         assert!(token_matches(&server, &client));
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn token_file_must_be_an_owner_only_regular_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("photocraft-token-perm-{}-{}", std::process::id(), generate_token().unwrap()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("token.txt");
+        let token = generate_token().unwrap();
+        std::fs::write(&path, &token).unwrap();
+
+        for mode in [0o644, 0o640, 0o604] {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            assert!(read_token_file(&path).is_err(), "a {mode:o} token file must be refused");
+            assert!(client_token(None, Some(&path)).is_err());
+            assert!(server_token(None, Some(&path)).is_err(), "the server must not trust or replace a shared token");
+        }
+
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        assert_eq!(read_token_file(&path).unwrap(), token);
+
+        // A directory at the token path is not a credential.
+        assert!(read_token_file(&dir).is_err());
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
