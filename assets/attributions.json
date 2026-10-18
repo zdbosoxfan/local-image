@@ -9583,7 +9583,7 @@
         },
         {
           "name": "heic-rs",
-          "version": "0.1.1",
+          "version": "0.1.4",
           "used_for": "Pure-Rust HEIC/HEIF image decoder: no C, no unsafe, no_std-friendly, wasm-ready",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/tbraun96/heic-rs"
@@ -10094,7 +10094,7 @@
         },
         {
           "name": "libc",
-          "version": "0.2.189",
+          "version": "0.2.191",
           "used_for": "Raw FFI bindings to platform libraries like libc.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-lang/libc"
@@ -10304,7 +10304,7 @@
         },
         {
           "name": "muda",
-          "version": "0.21.1",
+          "version": "0.21.2",
           "used_for": "Menu Utilities for Desktop Applications",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/tauri-apps/muda"
@@ -11445,14 +11445,14 @@
         },
         {
           "name": "rmcp",
-          "version": "3.5.0",
+          "version": "3.5.1",
           "used_for": "Rust SDK for Model Context Protocol",
           "licence": "Apache-2.0",
           "url": "https://github.com/modelcontextprotocol/rust-sdk/"
         },
         {
           "name": "rmcp-macros",
-          "version": "3.5.0",
+          "version": "3.5.1",
           "used_for": "Rust SDK for Model Context Protocol macros library",
           "licence": "Apache-2.0",
           "url": "https://github.com/modelcontextprotocol/rust-sdk/"
@@ -11599,14 +11599,14 @@
         },
         {
           "name": "schemars",
-          "version": "1.2.2",
+          "version": "1.2.3",
           "used_for": "Generate JSON Schemas from Rust code",
           "licence": "MIT",
           "url": "https://github.com/GREsau/schemars"
         },
         {
           "name": "schemars_derive",
-          "version": "1.2.2",
+          "version": "1.2.3",
           "used_for": "Macros for #[derive(JsonSchema)], for use with schemars",
           "licence": "MIT",
           "url": "https://github.com/GREsau/schemars"
@@ -11676,7 +11676,7 @@
         },
         {
           "name": "serde_json",
-          "version": "1.0.151",
+          "version": "1.0.154",
           "used_for": "A JSON serialization file format",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/serde-rs/json"
@@ -12089,7 +12089,7 @@
         },
         {
           "name": "tokio",
-          "version": "1.53.1",
+          "version": "1.53.3",
           "used_for": "An event-driven, non-blocking I/O platform for writing asynchronous I/O backed applications.",
           "licence": "MIT",
           "url": "https://github.com/tokio-rs/tokio"
@@ -12418,7 +12418,7 @@
         },
         {
           "name": "uuid",
-          "version": "1.26.1",
+          "version": "1.28.0",
           "used_for": "A library to generate and parse UUIDs.",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/uuid-rs/uuid"
