@@ -228,16 +228,19 @@ impl Filter {
     }
 
     pub fn matches(&self, p: &Photo, cat: &Catalog) -> bool {
-        self.matches_tokens(p, cat, &self.text_tokens())
+        self.matches_prepared(p, cat, &self.prepare())
     }
 
-    /// The free-text search tokens, lower-cased (once per query rather than once per photo).
-    pub(crate) fn text_tokens(&self) -> Vec<String> {
-        self.text.split_whitespace().map(str::to_lowercase).collect()
+    /// What every photo's match needs, computed once per query rather than once per photo.
+    pub(crate) fn prepare(&self) -> Prepared {
+        Prepared {
+            tokens: self.text.split_whitespace().map(str::to_lowercase).collect(),
+            only: (self.only.len() > Prepared::SCAN_LIMIT).then(|| self.only.iter().copied().collect()),
+        }
     }
 
-    /// [`Self::matches`] with the search tokens from [`Self::text_tokens`].
-    pub(crate) fn matches_tokens(&self, p: &Photo, cat: &Catalog, tokens: &[String]) -> bool {
+    /// [`Self::matches`] with the state from [`Self::prepare`].
+    pub(crate) fn matches_prepared(&self, p: &Photo, cat: &Catalog, prepared: &Prepared) -> bool {
         if p.deleted != self.deleted {
             return false;
         }
@@ -276,7 +279,11 @@ impl Filter {
         if !self.labels.is_empty() && !p.label.is_some_and(|l| self.labels.contains(&l)) {
             return false;
         }
-        if !self.only.is_empty() && !self.only.contains(&p.id) {
+        let in_only = match &prepared.only {
+            Some(set) => set.contains(&p.id),
+            None => self.only.is_empty() || self.only.contains(&p.id),
+        };
+        if !in_only {
             return false;
         }
         if let Some(want) = &self.merged {
@@ -344,15 +351,29 @@ impl Filter {
         {
             return false;
         }
-        tokens.iter().all(|t| token_matches(p, t))
+        prepared.tokens.iter().all(|t| token_matches(p, t))
     }
+}
+
+/// Per-query state for [`Filter::matches_prepared`].
+pub(crate) struct Prepared {
+    /// The free-text search tokens, lower-cased.
+    tokens: Vec<String>,
+    /// [`Filter::only`] as a set, once it is too long to scan for every photo (Find Similar can
+    /// return thousands of hits).
+    only: Option<std::collections::HashSet<PhotoId>>,
+}
+
+impl Prepared {
+    /// Up to this many ids, scanning the list is cheaper than hashing.
+    const SCAN_LIMIT: usize = 16;
 }
 
 impl Catalog {
     /// Photos matching `filter`, in `sort` order (ties broken by id for stability).
     pub fn query(&self, filter: &Filter, sort: &Sort) -> Vec<PhotoId> {
-        let tokens = filter.text_tokens();
-        let mut v: Vec<&Photo> = self.photos().map(|p| p.as_ref()).filter(|p| filter.matches_tokens(p, self, &tokens)).collect();
+        let prepared = filter.prepare();
+        let mut v: Vec<&Photo> = self.photos().map(|p| p.as_ref()).filter(|p| filter.matches_prepared(p, self, &prepared)).collect();
         if sort.key == SortKey::FileName {
             // lower-case each name once, not once per comparison
             let mut keyed: Vec<(String, PhotoId)> = v.into_iter().map(|p| (p.file_name.to_lowercase(), p.id)).collect();
@@ -430,8 +451,8 @@ impl Catalog {
     pub fn people_in(&self, filter: &Filter) -> Vec<Person> {
         let filter = Filter { person: None, person_ids: Vec::new(), people_everyone: false, ..filter.clone() };
         let mut m: std::collections::HashMap<String, (Person, f64)> = Default::default();
-        let tokens = filter.text_tokens();
-        for p in self.photos().filter(|p| filter.matches_tokens(p, self, &tokens)) {
+        let prepared = filter.prepare();
+        for p in self.photos().filter(|p| filter.matches_prepared(p, self, &prepared)) {
             let mut seen: Vec<String> = Vec::new();
             for r in p.meta.regions.iter().filter(|r| r.kind == lightcraft_meta::RegionKind::Face) {
                 let Some(name) = r.name.as_deref().map(str::trim).filter(|n| !n.is_empty()) else { continue };
