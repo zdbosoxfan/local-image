@@ -450,8 +450,22 @@ fn duplicate(s: &mut Session, p: &Value) -> Result<Value> {
         surf.write_region(doc.bounds(), &vals);
         surf.prune();
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(surf))];
+        // Variables drove template layers that no longer exist: drop the whole binding set.
+        doc.variables = photocraft_doc::Variables::default();
     }
-    for_each_layer(&mut doc.layers, &mut |l| l.id = photocraft_doc::LayerId::fresh());
+    let mut ids = std::collections::HashMap::new();
+    for_each_layer(&mut doc.layers, &mut |l| {
+        let fresh = photocraft_doc::LayerId::fresh();
+        ids.insert(l.id, fresh);
+        l.id = fresh;
+    });
+    // Variable definitions follow their layers. A target that was already deleted is left as is,
+    // so it stays a missing-layer skip rather than driving an unrelated layer.
+    for def in &mut doc.variables.defs {
+        if let Some(&fresh) = ids.get(&def.layer) {
+            def.layer = fresh;
+        }
+    }
     let name = doc.name.clone();
     let index = s.add_document(doc, None);
     Ok(json!({ "document": index, "name": name }))
@@ -540,6 +554,116 @@ pub fn specs() -> Vec<CommandSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use photocraft_doc::LayerId;
+
+    /// A document with `photo`, `badge` and `title` layers and one variable bound to each.
+    fn variables_scene(png: &str) -> (Session, [LayerId; 3]) {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 64, "height": 48})).unwrap();
+        let ids = s
+            .edit("setup", |doc, _| {
+                let fmt = doc.pixel_format();
+                let mut photo = Layer::raster("photo", fmt);
+                photo.surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 64, 48), &photocraft_raster::from_rgba(&fmt, [0.5, 0.5, 0.5, 1.0]));
+                let badge = Layer::raster("badge", fmt);
+                let title = Layer::new("title", LayerContent::Text(photocraft_doc::TextLayer { text: "Old".into(), ..Default::default() }));
+                let ids = [photo.id, badge.id, title.id];
+                doc.layers.extend([photo, badge, title]);
+                Ok(ids)
+            })
+            .unwrap();
+        let [photo, badge, title] = ids;
+        s.execute(
+            "image.variables.define",
+            json!({"defs": [
+                {"name": "showBadge", "layer": badge.0, "type": "visibility"},
+                {"name": "headline", "layer": title.0, "type": "textReplacement"},
+                {"name": "photo", "layer": photo.0, "type": "pixelReplacement", "method": "conform"},
+            ]}),
+        )
+        .unwrap();
+        s.execute(
+            "image.variables.dataSets",
+            json!({"dataSets": [{"name": "A", "values": [
+                {"variable": "showBadge", "kind": "visibility", "value": false},
+                {"variable": "headline", "kind": "text", "value": "Hello"},
+                {"variable": "photo", "kind": "pixels", "value": png},
+            ]}]}),
+        )
+        .unwrap();
+        (s, ids)
+    }
+
+    fn layer_named(s: &Session, name: &str) -> LayerId {
+        s.active().unwrap().doc.walk().into_iter().find(|(_, _, l)| l.name == name).unwrap().2.id
+    }
+
+    /// Upstream 57d48803 (#4969): a duplicated document's variables drive the copied layers, the
+    /// source keeps its own bindings, and a dangling target is not rewritten.
+    #[test]
+    fn duplicated_documents_keep_variables_targeting_the_copied_layers() {
+        let dir = std::env::temp_dir().join(format!("pc-dup-vars-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let red = photocraft_doc::Document::with_background(
+            "red",
+            photocraft_doc::Size::new(4, 4),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::rgb(1.0, 0.0, 0.0),
+        );
+        let png = dir.join("replacement.png").to_string_lossy().into_owned();
+        std::fs::write(&png, photocraft_io::export(&red, "png", &photocraft_io::ExportOptions::default()).unwrap().bytes).unwrap();
+
+        for command in ["image.duplicate", "history.newDocument"] {
+            let (mut s, [photo, badge, title]) = variables_scene(&png);
+            s.execute(command, json!({})).unwrap();
+            let (new_photo, new_badge, new_title) = (layer_named(&s, "photo"), layer_named(&s, "badge"), layer_named(&s, "title"));
+            assert_ne!(new_photo, photo, "{command}: layers get new identities");
+            let targets: Vec<LayerId> = s.active().unwrap().doc.variables.defs.iter().map(|d| d.layer).collect();
+            assert_eq!(targets, vec![new_badge, new_title, new_photo], "{command}: variable defs follow their layers");
+
+            s.execute("image.applyDataSet", json!({"name": "A"})).unwrap();
+            let doc = &s.active().unwrap().doc;
+            assert!(!doc.layer(new_badge).unwrap().visible, "{command}: visibility drives the copy");
+            match &doc.layer(new_title).unwrap().content {
+                LayerContent::Text(t) => assert_eq!(t.text, "Hello", "{command}: text drives the copy"),
+                _ => panic!("not a text layer"),
+            }
+            let px = doc.layer(new_photo).unwrap().surface().unwrap().pixel(0, 0);
+            assert!(px[0] > 0.9 && px[1] < 0.1, "{command}: pixel replacement drives the copy: {px:?}");
+
+            s.set_active(0);
+            let src = &s.active().unwrap().doc;
+            assert_eq!(src.variables.defs.iter().map(|d| d.layer).collect::<Vec<_>>(), vec![badge, title, photo], "{command}: source defs untouched");
+            assert!(src.layer(badge).unwrap().visible);
+        }
+
+        let (mut s, _) = variables_scene(&png);
+        let missing = LayerId(u64::MAX);
+        s.edit("Break one def", |doc, _| {
+            doc.variables.defs.iter_mut().find(|d| d.name == "showBadge").unwrap().layer = missing;
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.duplicate", json!({})).unwrap();
+        let defs = &s.active().unwrap().doc.variables.defs;
+        assert_eq!(defs.iter().find(|d| d.name == "showBadge").unwrap().layer, missing, "a deleted target is not rewritten");
+        assert_eq!(defs.iter().find(|d| d.name == "photo").unwrap().layer, layer_named(&s, "photo"), "live targets still remap");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Upstream 57d48803: a merged-only copy has none of the template layers its variables drove.
+    #[test]
+    fn merged_only_duplicate_drops_variables_for_removed_layers() {
+        let (mut s, _) = variables_scene("unused.png");
+        s.execute("image.duplicate", json!({"mergedOnly": true})).unwrap();
+        let d = &s.active().unwrap().doc;
+        assert_eq!(d.layers.len(), 1);
+        assert!(d.variables.defs.is_empty() && d.variables.data_sets.is_empty());
+        assert_eq!(d.variables.active, None);
+        s.set_active(0);
+        assert_eq!(s.active().unwrap().doc.variables.defs.len(), 3, "the original keeps its variables");
+    }
 
     #[test]
     fn straightened_crop_comes_out_upright_and_undoes() {
