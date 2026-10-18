@@ -25,7 +25,7 @@ fn app_with(pick_open: Option<(String, Vec<u8>)>, pick_save: Option<String>) -> 
             let warnings = if name.contains("warn") { vec!["Adjustment layer \"Curves 1\" was flattened".to_string()] } else { Vec::new() };
             Ok((Document::new(name, Size::new(4, 4), ColorMode::Rgb, SampleType::U8), warnings))
         })),
-        export: Some(Box::new(|_doc: &Document, path: &str, _s: &crate::ExportSettings| {
+        export: Some(std::sync::Arc::new(|_doc: &Document, path: &str, _s: &crate::ExportSettings| {
             let warnings = if path.ends_with(".png") { vec!["Layers were flattened".to_string()] } else { Vec::new() };
             Ok((b"out".to_vec(), warnings))
         })),

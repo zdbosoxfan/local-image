@@ -146,7 +146,7 @@ fn parity(gpu: &GpuCanvas, doc: &Document) {
 /// Fixtures have a background then a movable advanced object, with a visible ordinary effect
 /// to force the app's composited preview texture (rather than independent Move planes).
 #[allow(dead_code)]
-pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], projection: Option<Arc<dyn Projection>>) {
+pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], projection: Option<Arc<dyn Projection + Send + Sync>>) {
     let (mut h, gpu) = harness();
     let id = doc.layers[1].id;
     h.state_mut().session.open_document(doc, None);
@@ -158,7 +158,7 @@ pub fn verify_projected_fixture(doc: Document, expected_losses: &[&str], project
     let written = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
     let record = written.clone();
     h.state_mut().services.pick_save = Some(Box::new(|_| Some("fixture.psd".into())));
-    h.state_mut().services.export = Some(Box::new(move |doc, path, _| {
+    h.state_mut().services.export = Some(std::sync::Arc::new(move |doc, path, _| {
         if let Some(provider) = projection.as_deref() {
             let out = photocraft_io::vector_map::fallback::export(doc, &Default::default(), Some(provider)).map_err(|e| e.to_string())?;
             let mut warnings = LossCollector::default();

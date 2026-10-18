@@ -964,7 +964,7 @@ mod tests {
 
         // Without granted roots both fail closed, even with an exporter and an ambient writer.
         let services = crate::Services {
-            export: Some(Box::new(|_d: &Document, _p: &str, _s: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new())))),
+            export: Some(std::sync::Arc::new(|_d: &Document, _p: &str, _s: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new())))),
             write: Some(Box::new(|_p: &str, _b: &[u8]| Err("ambient writer used".into()))),
             ..Default::default()
         };
@@ -982,7 +982,9 @@ mod tests {
             import: Some(Box::new(|name: &str, _b: &[u8]| {
                 Ok((Document::new(name, Size::new(4, 4), ColorMode::Rgb, SampleType::U8), vec!["Adjustment layer flattened".to_string()]))
             })),
-            export: Some(Box::new(|_d: &Document, _p: &str, _s: &crate::ExportSettings| Ok((b"out".to_vec(), vec!["Layers were flattened".to_string()])))),
+            export: Some(std::sync::Arc::new(|_d: &Document, _p: &str, _s: &crate::ExportSettings| {
+                Ok((b"out".to_vec(), vec!["Layers were flattened".to_string()]))
+            })),
             automation_read: Some(Box::new(|path: &str| Ok((path.rsplit('/').next().unwrap_or(path).to_string(), b"x".to_vec())))),
             automation_write: Some(Box::new(move |path: &str, _b: &[u8]| {
                 w.borrow_mut().push(path.to_string());

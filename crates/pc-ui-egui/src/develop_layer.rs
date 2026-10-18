@@ -311,7 +311,7 @@ mod tests {
         assert_ne!(a, b);
         app.session.set_active(0);
         app.run("file.scripts.scriptEventsManager", json!({"add":{"event":"saveDocument","steps":[["document.activate",{"document":1}]]}})).unwrap();
-        app.services.export = Some(Box::new(|_, _, _| Ok((vec![1], Vec::new()))));
+        app.services.export = Some(std::sync::Arc::new(|_, _, _| Ok((vec![1], Vec::new()))));
         app.services.write = Some(Box::new(|_, _| Ok(())));
         app.save_as(Some(dir.join("saved.psd").to_string_lossy().to_string())).unwrap();
         assert_eq!(app.session.active_index(), Some(1), "Save Document callback did not run");

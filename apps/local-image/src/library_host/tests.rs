@@ -546,7 +546,7 @@ fn library_with_photo_format(tag: &str, ext: &str) -> (PathBuf, String, Lightcra
 /// Develop layer with a layer added on top (unsaved work).
 fn host_with_round_trip(library: LightcraftApp, photo: lightcraft_catalog::PhotoId, path: &str) -> Host {
     let services = photocraft_ui_egui::Services {
-        export: Some(Box::new(|doc: &photocraft_doc::Document, path: &str, _: &photocraft_ui_egui::ExportSettings| {
+        export: Some(std::sync::Arc::new(|doc: &photocraft_doc::Document, path: &str, _: &photocraft_ui_egui::ExportSettings| {
             photocraft_io::export(doc, path, &photocraft_io::ExportOptions::default()).map(|r| (r.bytes, r.warnings)).map_err(|e| e.to_string())
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| std::fs::write(path, bytes).map_err(|e| e.to_string()))),
@@ -1791,7 +1791,7 @@ fn save_notice_retains_encoder_warnings_in_one_reserved_result() {
         let (dir, path, lib, photo) = library_with_photo(&format!("notice-warnings-{}", size.x));
         let mut host = host_with_round_trip(lib, photo, &path);
         let export = host.editor.services.export.take().unwrap();
-        host.editor.services.export = Some(Box::new(move |doc, path, settings| {
+        host.editor.services.export = Some(std::sync::Arc::new(move |doc, path, settings| {
             let (bytes, mut warnings) = export(doc, path, settings)?;
             warnings.push("Encoder preserved pixels but flattened an unsupported adjustment".into());
             Ok((bytes, warnings))

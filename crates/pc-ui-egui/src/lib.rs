@@ -284,7 +284,8 @@ impl Default for ExportSettings {
 }
 
 /// Encode a document: (file bytes, warnings about anything approximated or dropped).
-pub type ExportFn = Box<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String>>;
+/// May run on a background export-preview worker.
+pub type ExportFn = std::sync::Arc<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String> + Send + Sync>;
 /// Prepared off-thread; the main thread rechecks authority and current source/history state
 /// before publication. The snapshot is exactly the document encoded, including frozen links.
 pub struct PreparedSave {
