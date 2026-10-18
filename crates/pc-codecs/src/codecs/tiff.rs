@@ -35,6 +35,7 @@ use tiff::encoder::colortype::{self, ColorType as TiffColorType};
 use tiff::encoder::{Rational, TiffEncoder, TiffKind, TiffKindBig, TiffKindStandard, TiffValue};
 use tiff::tags::{PhotometricInterpretation, ResolutionUnit, SampleFormat, Tag, Type};
 
+use super::tiff_exif;
 use super::tiff_ifd::{self as ifd, File, Ifd};
 use crate::Format;
 use crate::error::CodecError;
@@ -198,6 +199,9 @@ fn metadata(f: &File<'_>, dir: &Ifd, icc: &mut Option<Vec<u8>>) -> Metadata {
         if dir.at == f.first_ifd { photoshop_tags(f.b) } else { (f.tag_bytes(dir, TAG_PHOTOSHOP), f.tag_bytes(dir, TAG_IMAGE_SOURCE_DATA)) };
     meta.photoshop_resources = resources.map(<[u8]>::to_vec);
     meta.photoshop_layers = layers.map(<[u8]>::to_vec);
+    if dir.at == f.first_ifd {
+        meta.exif = tiff_exif::read(f.b).and_then(|dirs| tiff_exif::block(&dirs));
+    }
     meta
 }
 
@@ -938,6 +942,7 @@ custom_colortype!(CmykA16, u16, PI::CMYK, &[16; 5], &[SampleFormat::Uint; 5], in
 custom_colortype!(CmykA32F, f32, PI::CMYK, &[32; 5], &[SampleFormat::IEEEFP; 5], float);
 
 struct TagSet<'a> {
+    exif: Option<lightcraft_tiff::IfdBuilder>,
     icc: Option<&'a [u8]>,
     xmp: Option<&'a [u8]>,
     dpi: Option<(f32, f32)>,
@@ -965,6 +970,12 @@ where
     [C::Inner]: TiffValue,
     K: TiffKind,
 {
+    let mut pointers = Vec::new();
+    if let Some(exif) = &tags.exif {
+        for (&tag, fields) in &exif.children {
+            pointers.push((tag, tiff_exif::write_directory(enc, fields)?));
+        }
+    }
     let mut im = enc.new_image::<C>(w, h)?;
     if let Some((x, y)) = tags.dpi {
         im.resolution_unit(ResolutionUnit::Inch);
@@ -984,6 +995,12 @@ where
     }
     for (tag, s) in &tags.text {
         d.write_tag(*tag, *s)?;
+    }
+    if let Some(exif) = &tags.exif {
+        tiff_exif::write_fields(d, exif, |tag| !tags.text.iter().any(|(t, _)| t.to_u16() == tag))?;
+    }
+    for (tag, offset) in pointers {
+        d.write_tag(Tag::Unknown(tag), offset)?;
     }
     if let Some(r) = tags.photoshop_resources {
         d.write_tag(Tag::Unknown(TAG_PHOTOSHOP), r)?;
@@ -1032,7 +1049,13 @@ const CLASSIC_LIMIT: u64 = u32::MAX as u64;
 /// room for the directory and strip tables.
 fn estimated_size(img: &Image, tags: &TagSet<'_>) -> u64 {
     let payloads = [tags.icc, tags.xmp, tags.photoshop_resources, tags.photoshop_layers].iter().flatten().map(|p| p.len() as u64).sum::<u64>();
-    let text = tags.text.iter().map(|(_, s)| s.len() as u64).sum::<u64>();
+    let exif_bytes = tags
+        .exif
+        .iter()
+        .flat_map(|root| std::iter::once(root).chain(root.children.values()))
+        .flat_map(|dir| dir.entries.values())
+        .fold(0u64, |sum, value| sum.saturating_add((value.count() as u64).saturating_mul(value.field_type().size() as u64).saturating_add(20)));
+    let text = tags.text.iter().map(|(_, s)| s.len() as u64).sum::<u64>().saturating_add(exif_bytes);
     // Strip tables: one offset and one count per strip of about 1 MB.
     let tables = (img.data().len() as u64 / (1 << 20) + 1) * 16;
     (img.data().len() as u64).saturating_add(payloads).saturating_add(text).saturating_add(tables).saturating_add(1 << 20)
@@ -1064,6 +1087,7 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
     // TIFF writes no Orientation tag (= 1): keep the XMP from contradicting it.
     let xmp = if opts.embed_metadata { img.meta.xmp.as_deref().map(|x| crate::orientation::encoded_xmp(x, opts.keep_orientation)) } else { None };
     let tags = TagSet {
+        exif: if opts.embed_metadata { img.meta.exif.as_deref().and_then(tiff_exif::read) } else { None },
         icc: if opts.embed_icc { img.icc.as_deref() } else { None },
         xmp: xmp.as_deref().map(str::as_bytes),
         dpi: if opts.embed_metadata { img.meta.dpi.filter(|d| d.0 > 0.0 && d.1 > 0.0) } else { None },
