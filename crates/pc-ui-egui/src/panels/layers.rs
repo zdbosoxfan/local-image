@@ -308,6 +308,9 @@ pub(super) fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         });
     });
     for (id, p) in actions {
+        if id == "layer.select" && app.ui.text_edit.is_some() {
+            crate::type_tool::commit(app);
+        }
         if id == "ui.maskTarget" {
             app.ui.mask_target = p.as_bool().unwrap_or(false);
             app.ui.vector_mask_target = false;

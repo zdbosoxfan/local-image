@@ -6,6 +6,7 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+- Clicking a Layers-panel row while editing type commits the edit.
 - Security hardening and cleanup — see PR
 
 ## [2.0.0-alpha.1] - TBD
