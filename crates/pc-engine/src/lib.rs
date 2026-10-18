@@ -324,6 +324,17 @@ impl Default for ToolState {
     }
 }
 
+/// Effects and blending options copied between layers.
+#[derive(Clone, Debug)]
+pub struct CopiedStyle {
+    pub effects: photocraft_doc::Effects,
+    pub blend: photocraft_color::BlendMode,
+    pub fill: f32,
+    pub blend_if: photocraft_doc::BlendIf,
+    pub excluded_channels: u32,
+    pub mode: photocraft_color::ColorMode,
+}
+
 #[derive(Default)]
 pub struct Session {
     /// Captured insertion policy for the active vector drawing gesture; never persisted.
@@ -337,8 +348,8 @@ pub struct Session {
     coalesce_request: Option<String>,
     /// Pixels copied with Edit › Copy / Cut (shared by all documents, like Photoshop).
     pub clipboard: Option<edit_cmds::Clip>,
-    /// Layer › Layer Style › Copy Layer Style: effects, blend mode and fill opacity.
-    pub style_clipboard: Option<(photocraft_doc::Effects, photocraft_color::BlendMode, f32)>,
+    /// Copied effects, blend mode, fill opacity, Blend If and channel restrictions.
+    pub style_clipboard: Option<CopiedStyle>,
     /// Shape path context menu: copied vector fill and stroke styles.
     pub path_fill_clipboard: Option<photocraft_doc::Fill>,
     pub path_stroke_clipboard: Option<photocraft_doc::ShapeStroke>,
@@ -680,3 +691,6 @@ mod gpu_test_support;
 
 #[cfg(test)]
 mod hotfix_critical_tests;
+
+#[cfg(test)]
+mod layer_command_tests;
