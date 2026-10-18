@@ -32,6 +32,42 @@ use serde_json::{Value, json};
 
 use crate::{EngineError, Result, Session};
 
+/// The type of [`Session::authorize`].
+type Authorization = fn(&str, &Value) -> Result<()>;
+
+thread_local! {
+    // Smart-filter rendering has no Session argument, and stored filter params (a Color Lookup
+    // `file`, a Displace `mapPath`) can come from an untrusted document. The requesting session's
+    // gate is carried through synchronous rendering here and reinstalled on background workers.
+    static RENDER_AUTHORIZATION: std::cell::Cell<Option<Authorization>> = const { std::cell::Cell::new(None) };
+}
+
+/// Installs a render gate on this thread until dropped, then restores the previous one.
+pub(crate) struct AuthorizationScope(Option<Authorization>);
+
+impl AuthorizationScope {
+    /// Enter with `gate`, or keep the gate already installed when `gate` is `None`, so trusted
+    /// work nested inside an untrusted request never widens its authority.
+    pub(crate) fn enter(gate: Option<Authorization>) -> Self {
+        Self(RENDER_AUTHORIZATION.with(|current| current.replace(gate.or(current.get()))))
+    }
+}
+
+impl Drop for AuthorizationScope {
+    fn drop(&mut self) {
+        RENDER_AUTHORIZATION.with(|current| current.set(self.0));
+    }
+}
+
+/// Recheck a stored filter's command and params with the requesting session's gate before it is
+/// evaluated. Trusted work (no gate installed) passes.
+pub(crate) fn authorize_render_command(id: &str, params: &Value) -> Result<()> {
+    match RENDER_AUTHORIZATION.with(std::cell::Cell::get) {
+        Some(gate) => gate(id, params),
+        None => Ok(()),
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 mod open_pool;
 
@@ -287,6 +323,10 @@ pub fn run<T: Send + 'static>(
     work: impl FnOnce(&JobCtl) -> Result<T> + Send + 'static,
     apply: impl FnOnce(&mut Session, T) -> Result<Value> + Send + 'static,
 ) -> Result<Value> {
+    // The worker and the later apply run outside the request that started the job (the desktop
+    // drops its automation gate as soon as the request returns), so both carry its gate.
+    let authorization = s.authorize.or_else(|| RENDER_AUTHORIZATION.with(std::cell::Cell::get));
+    let _authorization = AuthorizationScope::enter(authorization);
     if !s.jobs.spawn || cfg!(target_arch = "wasm32") {
         let t = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&JobCtl::new())))
             .map_err(|_| EngineError::Other("Import or job failed unexpectedly; the document is unchanged".into()))??;
@@ -303,6 +343,7 @@ pub fn run<T: Send + 'static>(
     let ctx = JobCtl::new();
     let (tx, rx) = std::sync::mpsc::channel::<Result<Payload>>();
     let erased: Apply = Box::new(move |s, any| {
+        let _authorization = AuthorizationScope::enter(authorization);
         let t = any.downcast::<T>().map_err(|_| EngineError::Other("internal error: job result type mismatch".into()))?;
         apply(s, *t)
     });
@@ -315,6 +356,7 @@ pub fn run<T: Send + 'static>(
         // The work closure is moved into the thread. If spawning fails (thread limits), there is
         // no way to get it back, so the error is reported instead.
         let task = move || {
+            let _authorization = AuthorizationScope::enter(authorization);
             // local-image: a job with a progress bar (threading rule 7); fails soft.
             lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Utility);
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work(&wctx).map(|t| Box::new(t) as Payload)))
@@ -739,6 +781,7 @@ impl Session {
         if let Some(gate) = self.authorize {
             gate(id, &params)?;
         }
+        let _authorization = AuthorizationScope::enter(self.authorize);
         // A floating selection drops before any other command (Undo puts it back instead).
         if let Some(v) = crate::float_cmds::before_command(self, id)? {
             return Ok(Started::Done(v));
