@@ -262,6 +262,16 @@ fn jpeg_dpi_in_jfif() {
 }
 
 #[test]
+fn png_written_at_300_ppi_opens_at_exactly_300() {
+    for dpi in [300.0, 72.0, 96.0] {
+        let mut img = test_image(ChannelLayout::Rgb, SampleType::U8);
+        img.meta.dpi = Some((dpi, dpi));
+        let back = decode(&encode(&img, Format::Png, &EncodeOptions::default()).unwrap()).unwrap();
+        assert_eq!(back.meta.dpi, Some((dpi, dpi)));
+    }
+}
+
+#[test]
 fn tiff_icc_readable_by_oracle() {
     let img = test_image(ChannelLayout::Rgb, SampleType::U16).with_icc(Some(sample_icc(1234)));
     let bytes = encode(&img, Format::Tiff, &EncodeOptions::default()).unwrap();
