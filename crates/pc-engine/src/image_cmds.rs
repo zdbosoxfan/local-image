@@ -125,6 +125,9 @@ fn auto_resample(r: Option<&str>, enlarging: bool) -> Option<Resample> {
     }
 }
 
+/// The largest raster Image Size resamples to: the decoders' default allocation budget.
+const MAX_RESAMPLE_BYTES: u64 = if cfg!(target_pointer_width = "64") { 8 << 30 } else { 2 << 30 };
+
 /// Image → Image Size.
 fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -140,6 +143,17 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let (nw, nh) = (nw.round().clamp(1.0, 300_000.0) as u32, nh.round().clamp(1.0, 300_000.0) as u32);
     let resample = auto_resample(p.get("resample").and_then(Value::as_str), u64::from(nw) * u64::from(nh) > u64::from(ow) * u64::from(oh));
+    let pixel_bytes = d.doc.pixel_format().bytes_per_pixel().max(1) as u64;
+    let bytes = u64::from(nw).saturating_mul(u64::from(nh)).saturating_mul(pixel_bytes);
+    if resample.is_some() && (nw, nh) != (ow, oh) && bytes > MAX_RESAMPLE_BYTES {
+        return Err(bad(
+            "image.imageSize",
+            format!(
+                "{nw} x {nh} px exceeds the {} megapixels resampling limit at this bit depth. Choose a smaller size, or turn Resample off to change only the resolution",
+                MAX_RESAMPLE_BYTES / pixel_bytes / 1_000_000
+            ),
+        ));
+    }
     let dpi = p.get("resolution").and_then(Value::as_f64).map(|v| v as f32);
     s.edit("Image Size", |doc, _| {
         if let Some(r) = dpi {

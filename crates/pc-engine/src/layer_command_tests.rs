@@ -74,6 +74,21 @@ fn quick_mask_invert_includes_unstored_black() {
 }
 
 #[test]
+fn oversized_image_resampling_preserves_document_and_history() {
+    let mut s = session();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    let err = s.execute("image.imageSize", json!({"width": 300000, "height": 300000})).unwrap_err();
+    assert!(err.to_string().contains("megapixels"));
+    assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    s.execute("image.imageSize", json!({"width": 300000, "height": 300000, "resample": "none", "resolution": 300})).unwrap();
+    assert_eq!(s.active().unwrap().doc.size, before.size);
+    s.execute("image.imageSize", json!({"width": 40, "height": 40})).unwrap();
+    assert_eq!(s.active().unwrap().doc.size, photocraft_doc::Size::new(40, 40));
+}
+
+#[test]
 fn script_browse_explains_unsupported_photoshop_formats() {
     let mut s = session();
     for ext in ["js", "jsx", "JSX", "jsxbin", "psjs", "ccjs"] {
