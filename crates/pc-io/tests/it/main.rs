@@ -25,6 +25,7 @@ mod large_psb;
 mod modes;
 mod multichannel_resources;
 mod orientation;
+mod pattern_fill_psd;
 mod psd32_export;
 mod psd_block_alignment;
 mod psd_block_layout;
