@@ -7,6 +7,7 @@ All notable changes to Local Image are recorded here. The format follows
 ## [Unreleased]
 
 - Clicking a Layers-panel row while editing type commits the edit.
+- Match Color's live preview reads the chosen Source document, so it shows what OK applies.
 - Security hardening and cleanup — see PR
 
 ## [2.0.0-alpha.1] - TBD

@@ -557,7 +557,8 @@ pub(super) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Opti
     let fresh = matches!(&app.filter_preview, Some(p) if p.doc == doc_id && p.hash == hash);
     if !fresh {
         let t0 = crate::gpu_canvas::now_ms();
-        let result = crate::filter_dialog::preview_document(&doc, active, &cmd, &params, k).map(std::sync::Arc::new);
+        let documents: Vec<_> = app.session.documents().iter().map(|state| state.doc.clone()).collect();
+        let result = crate::filter_dialog::preview_document_with_sources(&doc, active, &cmd, &params, k, &documents).map(std::sync::Arc::new);
         if let Some(r) = &result {
             let buf = photocraft_compose::flatten(r);
             let t1 = crate::gpu_canvas::now_ms();

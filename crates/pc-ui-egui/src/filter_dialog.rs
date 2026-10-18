@@ -562,13 +562,39 @@ pub fn params_of(f: &Map<String, Value>) -> Value {
 
 /// Compute a preview document: run `command` with `params` on the proxy (scaled) copy of `doc`.
 pub fn preview_document(doc: &Document, active: Option<photocraft_doc::LayerId>, command: &str, params: &Value, k: u32) -> Option<Document> {
+    preview_document_with_sources(doc, active, command, params, k, &[])
+}
+
+/// Open documents are in session order; document parameters refer to these indices.
+pub(crate) fn preview_document_with_sources(
+    doc: &Document,
+    active: Option<photocraft_doc::LayerId>,
+    command: &str,
+    params: &Value,
+    k: u32,
+    documents: &[Arc<Document>],
+) -> Option<Document> {
     let proxy = crate::proxy::proxy_document(doc, k);
     let mut s = photocraft_engine::Session::new();
     s.add_document(proxy, None);
+    let mut p = params.clone();
+    if let Some(spec) = photocraft_engine::commands::find(command)
+        && let Some(fields) = p.as_object_mut()
+    {
+        let mut added = std::collections::BTreeMap::new();
+        for param in parse_spec(spec.params).into_iter().filter(|p| p.kind == Kind::Document) {
+            let Some(value) = fields.get_mut(&param.key) else { continue };
+            let Some(index) = value.as_u64().and_then(|i| usize::try_from(i).ok()) else { continue };
+            let Some(source) = documents.get(index) else { continue };
+            let mapped =
+                if source.id == doc.id { 0 } else { *added.entry(index).or_insert_with(|| s.add_document(crate::proxy::proxy_document(source, k), None)) };
+            *value = json!(mapped);
+        }
+        s.set_active(0);
+    }
     if let Some(id) = active {
         s.select_layer(id).ok()?;
     }
-    let mut p = params.clone();
     if k > 1
         && let Some(o) = p.as_object_mut()
     {
@@ -596,6 +622,38 @@ pub struct FilterPreview {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn match_color_preview_uses_the_source_document() {
+        use photocraft_doc::{Color, ColorMode, SampleType, Size};
+        let solid = |name: &str, c: [f32; 4]| {
+            let mut d = Document::with_background(name, Size::new(32, 32), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 32, 32), &c);
+            d.layers[0].surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 16, 32), &[c[0] * 0.5, c[1] * 0.5, c[2] * 0.5, 1.0]);
+            d
+        };
+        let mut s = photocraft_engine::Session::new();
+        s.add_document(solid("reference", [0.1, 0.3, 0.9, 1.0]), None);
+        s.add_document(solid("texture", [0.9, 0.5, 0.2, 1.0]), None);
+        let doc = s.active().unwrap().doc.clone();
+        let layer = doc.layers[0].id;
+        let documents: Vec<_> = s.documents().iter().map(|d| d.doc.clone()).collect();
+        for source in [0, 1] {
+            let params = json!({"source": source});
+            let mut applied = photocraft_engine::Session::new();
+            for document in &documents {
+                applied.add_document((**document).clone(), None);
+            }
+            applied.execute("image.adjustments.matchColor", params.clone()).unwrap();
+            let want = applied.active().unwrap().doc.layers[0].surface().unwrap().pixel(24, 16);
+            let preview = preview_document_with_sources(&doc, Some(layer), "image.adjustments.matchColor", &params, 1, &documents).unwrap();
+            let got = preview.layers[0].surface().unwrap().pixel(24, 16);
+            assert!((0..3).all(|c| (got[c] - want[c]).abs() < 1.0 / 255.0 + 1e-4), "source {source}: preview {got:?}, applied {want:?}");
+        }
+        let preview = preview_document_with_sources(&doc, Some(layer), "image.adjustments.matchColor", &json!({"source": 0}), 2, &documents).unwrap();
+        let pixel = preview.layers[0].surface().unwrap().pixel(12, 8);
+        assert!(pixel[2] > pixel[0], "proxy should take the reference's blue: {pixel:?}");
+    }
 
     #[test]
     fn parses_registry_notation() {
