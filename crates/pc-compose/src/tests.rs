@@ -1119,8 +1119,48 @@ fn modern_brightness_matches_photoshop() {
         for (i, &x) in xs.iter().enumerate() {
             let got = adjust::modern_brightness(x as f32 / 255.0, b) * 255.0;
             let err = (got - out[i] as f32).abs();
-            // The brightness roll-off is a spline; our fit is close but approximate at the top.
-            assert!(err <= 6.0, "brightness {b} x={x}: got {got:.1} want {} (err {err:.1})", out[i]);
+            // Within about a level of Photoshop's (rounded) output everywhere.
+            assert!(err <= 1.2, "brightness {b} x={x}: got {got:.1} want {} (err {err:.1})", out[i]);
+        }
+    }
+    // Photoshop 27.11's brightness +25 with contrast +30 (photoshop corpus rgb8
+    // brightness-contrast.psd): what the oracle's levels become.
+    let oracle = [
+        (8, 7),
+        (24, 23),
+        (48, 49),
+        (72, 78),
+        (88, 99),
+        (104, 120),
+        (128, 154),
+        (144, 174),
+        (160, 192),
+        (176, 208),
+        (192, 222),
+        (200, 228),
+        (216, 239),
+        (232, 247),
+        (240, 250),
+        (248, 253),
+    ];
+    for (x, want) in oracle {
+        let got = adjust::modern_contrast(adjust::modern_brightness(x as f32 / 255.0, 25.0), 30.0) * 255.0;
+        assert!((got - want as f32).abs() <= 1.0, "+25/+30 x={x}: got {got:.2} want {want}");
+    }
+    // psd-tools' brightnesscontrast_rgb.psd masks four layers to their own columns: the brightness
+    // each applies, read back through its (exact) contrast curve.
+    // (brightness, tolerance in levels, [(input level, Photoshop's output level)])
+    type Measured = (f32, f32, &'static [(u32, f32)]);
+    let measured: [Measured; 4] = [
+        (-95.0, 1.5, &[(24, 13.3), (64, 35.1), (96, 52.9), (128, 69.7), (160, 89.6), (192, 114.4), (224, 151.6)]),
+        (-31.0, 1.5, &[(24, 20.3), (64, 53.4), (96, 79.0), (128, 105.6), (160, 132.3), (192, 161.8), (224, 197.4)]),
+        (23.0, 1.5, &[(24, 27.9), (64, 74.0), (96, 110.9), (128, 147.7), (160, 182.9), (192, 213.7), (224, 239.6)]),
+        (150.0, 6.0, &[(24, 60.3), (64, 162.1), (96, 214.5), (128, 238.4), (160, 248.9)]),
+    ];
+    for (b, tol, points) in measured {
+        for &(x, want) in points {
+            let got = adjust::modern_brightness(x as f32 / 255.0, b) * 255.0;
+            assert!((got - want).abs() <= tol, "brightness {b} x={x}: got {got:.1} want {want}");
         }
     }
     // Endpoints and the zero slider are exact.
@@ -1637,3 +1677,5 @@ fn effect_cache_keeps_no_pixels_of_a_dropped_layer() {
     assert_eq!(std::sync::Arc::strong_count(&own), 1);
     assert_eq!(std::sync::Arc::strong_count(&child), 1);
 }
+
+mod tone_curves;
