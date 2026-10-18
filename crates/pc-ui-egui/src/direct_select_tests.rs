@@ -150,6 +150,24 @@ fn pen_with_command_edits_paths_and_ends_the_one_being_drawn() {
 }
 
 #[test]
+fn creating_a_document_finishes_the_canvas_pen_path_in_its_own_document() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    let mut app = app(Tool::Pen);
+    for p in [[30.0, 30.0], [90.0, 30.0]] {
+        click(&mut app, p, Modifiers::NONE);
+    }
+    assert!(app.shared_tools.pen.gesture.is_some(), "a draft is open");
+    let original = app.session.active().unwrap().doc.id;
+    app.run("file.new", json!({"width": 300, "height": 200})).unwrap();
+    assert!(app.shared_tools.pen.gesture.is_none(), "the draft must not follow the user to the new document");
+    let docs = app.session.documents();
+    assert_eq!(docs.len(), 2);
+    assert_eq!(docs[0].doc.id, original);
+    assert_eq!(docs[0].doc.work_path.as_ref().unwrap().subpaths[0].knots.len(), 2);
+    assert!(docs[1].doc.work_path.is_none(), "the new document starts with no path");
+}
+
+#[test]
 fn pen_with_alt_converts_points() {
     let _gpu_gate = crate::gpu_test_support::lock();
     let mut app = app(Tool::Pen);

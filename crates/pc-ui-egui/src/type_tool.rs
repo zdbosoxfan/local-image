@@ -254,11 +254,15 @@ pub fn pointer_move(app: &mut PhotocraftApp, x: f64, y: f64) {
     }
 }
 
+/// Half a caret blink cycle in seconds: Photoshop's ~0.53 s rhythm.
+const CARET_BLINK_PERIOD: f64 = 0.530;
+
 /// Pointer up. `rect` is the dragged box (document px) when no edit session consumed the press.
 pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
     if let Some(e) = app.ui.text_edit.as_mut() {
         e.dragging = false;
         e.resize = None;
+        app.ui.caret_blink_time = app.last_frame_time;
         return;
     }
     let (w, h) = ((end[0] - start[0]).abs(), (end[1] - start[1]).abs());
@@ -289,6 +293,7 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
         }
         // Like Photoshop: the placeholder is selected, so typing replaces it.
         let n = PLACEHOLDER.chars().count();
+        app.ui.caret_blink_time = app.last_frame_time;
         app.ui.text_edit = Some(TextEdit { layer: id, caret: n, anchor: 0, session: key, created: true, dragging: false, resize: None, preedit: None });
     }
 }
@@ -424,6 +429,10 @@ fn line_edge(app: &mut PhotocraftApp, id: LayerId, caret: usize, end: bool) -> u
 /// tool shortcuts must then be skipped). Handled events are removed from the frame's input.
 pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
     let Some(ed) = app.ui.text_edit.clone() else { return false };
+    // The font picker (and other focused text fields) owns keyboard input while it is open.
+    if ctx.text_edit_focused() {
+        return true;
+    }
     let id = LayerId(ed.layer);
     let Some(text) = current_text(app, id) else {
         app.ui.text_edit = None;
@@ -435,7 +444,10 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         e.caret = e.caret.min(n);
         e.anchor = e.anchor.min(n);
     }
-    ctx.request_repaint_after(std::time::Duration::from_millis(530)); // caret blink
+    // Caret blink: repaint at the next phase boundary since the last interaction.
+    let elapsed = (ctx.input(|i| i.time) - app.ui.caret_blink_time).max(0.0);
+    let remaining = CARET_BLINK_PERIOD - (elapsed % CARET_BLINK_PERIOD);
+    ctx.request_repaint_after(std::time::Duration::from_secs_f64(remaining.clamp(0.010, CARET_BLINK_PERIOD)));
     let events = ctx.input(|i| i.events.clone());
     let vertical_flow = is_vertical(app, id);
     let mut handled = vec![false; events.len()];
@@ -549,6 +561,7 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
         }
     }
     if handled.iter().any(|h| *h) {
+        app.ui.caret_blink_time = ctx.input(|i| i.time);
         let mut k = 0;
         ctx.input_mut(|i| {
             i.events.retain(|_| {
@@ -656,9 +669,10 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
             }
         }
     } else {
-        // Blinking caret (Photoshop's ~0.53 s rhythm), solid while dragging.
-        let time = painter.ctx().input(|i| i.time);
-        if ed.dragging || (time * 1000.0 / 530.0) as i64 % 2 == 0 {
+        // Blinking caret (Photoshop's ~0.53 s rhythm), solid while dragging or right after an
+        // interaction.
+        let elapsed = (painter.ctx().input(|i| i.time) - app.ui.caret_blink_time).max(0.0);
+        if ed.dragging || (elapsed / CARET_BLINK_PERIOD) as i64 % 2 == 0 {
             let (x, top, bot) = l.caret(a);
             let (x, top, bot) = if l.lines.is_empty() { (0.0, -(12.0 * l.px_per_pt.max(1.0)), 3.0) } else { (x, top, bot) };
             let c = if crate::theme::Tokens::get(painter.ctx()).pro { Color32::WHITE } else { Color32::BLACK };
@@ -1484,6 +1498,50 @@ mod tests {
     fn layer_text(app: &PhotocraftApp) -> String {
         let ed = app.ui.text_edit.as_ref().unwrap();
         current_text(app, LayerId(ed.layer)).unwrap()
+    }
+
+    #[test]
+    fn arrow_keys_reset_caret_blink_phase() {
+        let mut app = app();
+        pointer_up(&mut app, [10.0, 50.0], [10.0, 50.0]);
+        insert(&mut app, "Hello");
+        app.ui.caret_blink_time = 0.0;
+        let ctx = egui::Context::default();
+
+        let has_caret = |app: &mut PhotocraftApp, ctx: &egui::Context, time: f64| -> bool {
+            let mut out = ctx.run_ui(egui::RawInput { time: Some(time), ..Default::default() }, |ui| {
+                let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+                let painter = ui.ctx().layer_painter(egui::LayerId::background()).with_clip_rect(rect);
+                let xf = ViewXform { rect, zoom: 1.0, center: [100.0, 100.0], flip: false, rotation: 0.0 };
+                draw_overlay(app, &painter, &xf);
+            });
+            out.textures_delta.clear();
+            out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::LineSegment { stroke, .. } if (stroke.width - 1.5).abs() < 1e-4))
+        };
+
+        // t = 10.5 s is in the off half of the blink cycle (10.5 / 0.53 = 19, odd) for phase 0.
+        assert!(!has_caret(&mut app, &ctx, 10.5), "caret is off at t = 10.5 with phase 0");
+
+        ctx.begin_pass(egui::RawInput {
+            time: Some(10.5),
+            events: vec![egui::Event::Key { key: egui::Key::ArrowRight, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }],
+            ..Default::default()
+        });
+        handle_keys(&mut app, &ctx);
+        assert_eq!(app.ui.caret_blink_time, 10.5);
+
+        assert!(has_caret(&mut app, &ctx, 10.5), "the caret is solid right after an arrow key");
+    }
+
+    #[test]
+    fn pointer_up_click_resets_caret_blink_phase() {
+        let mut app = app();
+        pointer_up(&mut app, [10.0, 50.0], [10.0, 50.0]);
+        insert(&mut app, "Hello");
+        app.ui.caret_blink_time = 0.0;
+        app.last_frame_time = 12.3;
+        pointer_up(&mut app, [10.0, 50.0], [10.0, 50.0]);
+        assert_eq!(app.ui.caret_blink_time, 12.3);
     }
 
     #[test]

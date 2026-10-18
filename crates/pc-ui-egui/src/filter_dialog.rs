@@ -322,6 +322,9 @@ pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     if command == "image.rotation.arbitrary" {
         straighten_defaults(app, &mut fields);
     }
+    if command == "edit.assignProfile" {
+        assign_profile_defaults(app, &mut fields);
+    }
     if parse_spec(spec.params).iter().any(|p| p.kind == Kind::Document) {
         // The document picker lists every open document (params refer to them by index).
         let names: Vec<String> = app.session.documents().iter().map(|d| d.doc.name.clone()).collect();
@@ -345,6 +348,25 @@ fn straighten_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
     }
     fields.insert("angle".into(), json!(rot.abs()));
     fields.insert("direction".into(), json!(if rot < 0.0 { "ccw" } else { "cw" }));
+}
+
+/// Assign Profile offers only the profiles the document's colour mode can take: the command
+/// refuses one of another colour space. `__profiles` lists them for the `profile` menu.
+fn assign_profile_defaults(app: &PhotocraftApp, fields: &mut Map<String, Value>) {
+    let Some(st) = app.session.active() else { return };
+    let Some(spec) = photocraft_engine::commands::find("edit.assignProfile") else { return };
+    let space = photocraft_engine::color_cmds::mode_space(st.doc.mode);
+    let fits = |name: &str| name == "none" || app.session.color.resolve(name, Some(&st.doc), None).is_ok_and(|p| p.color_space == space);
+    let builtin: Vec<String> = parse_spec(spec.params)
+        .into_iter()
+        .filter(|p| p.key == "profile")
+        .flat_map(|p| match p.kind {
+            Kind::Choice(options) => options,
+            _ => Vec::new(),
+        })
+        .collect();
+    let allowed: Vec<String> = builtin.iter().filter(|name| fits(name)).cloned().collect();
+    fields.insert("__profiles".into(), json!(allowed));
 }
 
 /// A filter dialog with live preview for `command` whose parameters follow `spec` (registry
@@ -442,10 +464,17 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
                 }
                 f.insert(p.key, json!((v * 10.0).round() / 10.0));
             }
-            Kind::Choice(options) => {
+            Kind::Choice(mut options) => {
+                // Assign Profile: only what the document's colour mode can take.
+                if cmd == "edit.assignProfile"
+                    && p.key == "profile"
+                    && let Some(allowed) = f.get("__profiles").and_then(Value::as_array)
+                {
+                    options.retain(|o| allowed.iter().any(|a| a.as_str() == Some(o.as_str())));
+                }
                 ui.horizontal(|ui| {
                     ui.label(egui::RichText::new(label(&p.key)).color(t.text_dim));
-                    let mut cur = f.get(&p.key).and_then(Value::as_str).unwrap_or(&options[0]).to_string();
+                    let mut cur = f.get(&p.key).and_then(Value::as_str).or(options.first().map(String::as_str)).unwrap_or_default().to_string();
                     let labels: Vec<String> = options.iter().map(|o| choice_label(o)).collect();
                     let opts: Vec<(String, &str)> = options.iter().cloned().zip(labels.iter().map(String::as_str)).collect();
                     crate::widgets::dropdown(ui, &format!("flt-{cmd}-{}", p.key), &mut cur, &opts, 170.0);
@@ -601,6 +630,44 @@ mod tests {
         assert!(uses_logarithmic_slider(1.0, 9999.0));
         assert!(!uses_logarithmic_slider(1.0, 500.0));
         assert!(!uses_logarithmic_slider(0.0, 1000.0));
+    }
+
+    /// The profiles Assign Profile offers for a new document converted with `mode` (if any),
+    /// and which of the command's built-in profiles the command itself accepts for it.
+    fn assign_profile_offers(mode: Option<&str>) -> (Vec<String>, Vec<String>) {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": 8, "height": 8})).unwrap();
+        if let Some(mode) = mode {
+            app.run(mode, json!({})).unwrap();
+        }
+        let id = open(&mut app, "edit.assignProfile").unwrap();
+        let offered: Vec<String> =
+            app.ui.dialog_mut(id).unwrap().fields["__profiles"].as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+        let spec = photocraft_engine::commands::find("edit.assignProfile").unwrap();
+        let builtin = parse_spec(spec.params).into_iter().find(|p| p.key == "profile").unwrap();
+        let Kind::Choice(options) = builtin.kind else { panic!("profile is a menu") };
+        let accepted = options.into_iter().filter(|name| app.session.execute("edit.assignProfile", json!({"profile": name})).is_ok()).collect();
+        (offered, accepted)
+    }
+
+    /// Assign Profile lists the profiles the command accepts for the document's colour mode, and
+    /// none of the others.
+    #[test]
+    fn assign_profile_offers_only_profiles_of_the_documents_colour_mode() {
+        for mode in [None, Some("image.mode.cmyk"), Some("image.mode.grayscale")] {
+            let (offered, accepted) = assign_profile_offers(mode);
+            for name in &accepted {
+                assert!(offered.contains(name), "{mode:?}: {name} can be assigned, so it is offered");
+            }
+            for name in ["srgb", "coated-cmyk", "sgray"] {
+                assert_eq!(offered.iter().any(|o| o == name), accepted.iter().any(|a| a == name), "{mode:?}: {name}");
+            }
+            assert!(offered.iter().any(|o| o == "working") && offered.iter().any(|o| o == "none"), "{mode:?}: working space and none always fit");
+        }
+        let (rgb, _) = assign_profile_offers(None);
+        assert!(rgb.iter().any(|o| o == "srgb") && !rgb.iter().any(|o| o == "coated-cmyk"), "an RGB document gets RGB profiles");
+        let (cmyk, _) = assign_profile_offers(Some("image.mode.cmyk"));
+        assert!(cmyk.iter().any(|o| o == "coated-cmyk") && !cmyk.iter().any(|o| o == "srgb"), "a CMYK document gets CMYK profiles");
     }
 
     #[test]

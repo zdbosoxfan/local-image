@@ -369,6 +369,7 @@ pub(super) fn tool_event_with_pose(
             {
                 e.dragging = false;
                 e.resize = None;
+                app.ui.caret_blink_time = app.last_frame_time;
             }
             if tool == Tool::Pen {
                 crate::vector_ui::pen_up(app);
@@ -605,9 +606,25 @@ pub(super) fn polygon_click(app: &mut PhotocraftApp, x: f64, y: f64, mods: egui:
         return;
     }
     if app.ui.polygon.is_empty() {
+        app.ui.polygon_doc = app.session.active().map(|st| st.doc.id);
         app.ui.polygon_mode = selection_mode(app, mods).into();
     }
     app.ui.polygon.push([x, y]);
+}
+
+/// The polygon in progress belongs to the document it was started on (`UiState::polygon_doc`):
+/// once another document becomes active it is dropped, so its outline doesn't show on (or get
+/// committed to) the other document, and the selection it would have replaced is shown again.
+/// Like the Lasso's ([`crate::lasso_ui::cancel_stale`]).
+pub fn polygon_cancel_stale(app: &mut PhotocraftApp) {
+    let active = app.session.active().map(|st| st.doc.id);
+    if app.ui.polygon.is_empty() {
+        app.ui.polygon_doc = None;
+    } else if app.ui.polygon_doc.is_some_and(|d| Some(d) != active) {
+        app.ui.polygon.clear();
+        app.ui.polygon_mode.clear();
+        app.ui.polygon_doc = None;
+    }
 }
 
 /// A new-selection polygonal (or magnetic) lasso is being drawn, so the selection it will replace

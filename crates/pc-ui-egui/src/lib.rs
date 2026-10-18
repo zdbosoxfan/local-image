@@ -604,7 +604,7 @@ pub struct PhotocraftApp {
     /// The document each of `ui.views` belongs to, as of the last [`Self::sync_views`].
     view_docs: Vec<DocId>,
     pub fps: f32,
-    last_frame_time: f64,
+    pub(crate) last_frame_time: f64,
     thumbs: HashMap<(photocraft_doc::LayerId, u8), (u64, egui::TextureHandle)>,
     /// Snapshots whose live layer/mask keys were last used to prune thumbnail handles.
     thumb_documents: Vec<(DocId, std::sync::Weak<Document>)>,
@@ -968,6 +968,10 @@ impl PhotocraftApp {
         if suppress_events {
             self.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
         }
+        // A draft Pen path belongs to the current document, not the one about to be created.
+        if id == "file.new" {
+            vector_ui::finish_pen_drafts(self);
+        }
         // Long commands become background jobs when enabled (`jobs_ui`); the rest run inline.
         let params = self.with_mask_target(id, params);
         let created_mask = matches!(
@@ -1030,6 +1034,7 @@ impl PhotocraftApp {
     /// when tabs move (`document.move`) or close.
     pub fn sync_views(&mut self) {
         crate::lasso_ui::cancel_stale(self);
+        crate::canvas::polygon_cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {

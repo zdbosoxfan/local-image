@@ -367,6 +367,25 @@ fn long_brush_drag_bounds_damage_and_reuses_the_commit() {
     assert_eq!(&shown, app.session.active().unwrap().doc.layers[0].surface().unwrap());
 }
 
+/// A device that allows smaller textures than MAX_TEXTURE (2048 on some older GPUs and WebGL
+/// contexts): the canvas texture is reduced to fit it. A 2600 px document was uploaded at full
+/// size, which egui asserts on and the backend can't create.
+#[test]
+fn cpu_canvas_texture_fits_the_device_limit() {
+    let _gpu_gate = crate::gpu_test_support::lock();
+    for (side, (w, h), want) in [(2048, (2600, 1700), [1300, 850]), (2048, (5000, 2000), [1666, 666]), (8192, (5000, 2000), [2500, 1000])] {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+        app.run("file.new", json!({"width": w, "height": h})).unwrap();
+        let ctx = egui::Context::default();
+        ctx.input_mut(|i| i.max_texture_side = side);
+        let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let sizes: Vec<_> = delta.set.get(&tex).into_iter().flatten().map(|d| d.image.size()).collect();
+        delta.clear();
+        assert_eq!(sizes, vec![want], "{w}x{h} on a {side} px device");
+    }
+}
+
 #[test]
 fn live_stroke_uses_pen_tilt_and_updates_a_reduced_texture_partially() {
     let _gpu_gate = crate::gpu_test_support::lock();
@@ -375,6 +394,7 @@ fn live_stroke_uses_pen_tilt_and_updates_a_reduced_texture_partially() {
     // must update only the reduced pixels it touched.
     let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
     let ctx = egui::Context::default();
+    ctx.input_mut(|i| i.max_texture_side = 8192);
     app.run("file.new", json!({"width": 4097, "height": 90, "background": "transparent"})).unwrap();
     let tilt = json!({"size": 30, "hardness": 1.0, "spacing": 0.05, "shapeDynamics": {"enabled": true, "size": {"control": "penTilt"}}});
     app.run("tools.setBrush", json!({ "brush": tilt })).unwrap();

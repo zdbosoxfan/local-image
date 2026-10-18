@@ -209,3 +209,29 @@ fn lasso_tools_apply_the_options_bar_feather() {
     drag(&mut app, Tool::Patch);
     assert_eq!((coverage(&app, 37), coverage(&app, 41)), (0.0, 1.0), "patch: a hard edge");
 }
+
+/// The polygon belongs to the document it was started on: another document becoming active drops
+/// it while the tool stays the Polygonal Lasso (its outline would otherwise show on the other
+/// document), and the selection it would have replaced is shown again.
+#[test]
+fn switching_documents_drops_the_polygon_in_progress() {
+    let mut h = harness();
+    click(&mut h, 50.0, 50.0, Modifiers::NONE);
+    h.run_steps(30);
+    click(&mut h, 150.0, 50.0, Modifiers::NONE);
+    h.run_steps(30);
+    assert_eq!(h.state().ui.polygon.len(), 2);
+    let first = h.state().session.active().map(|st| st.doc.id);
+    assert!(first.is_some());
+    assert_eq!(h.state().ui.polygon_doc, first, "the polygon remembers its document");
+    h.state_mut().run("file.new", json!({"width": 200, "height": 100})).unwrap();
+    assert_ne!(h.state().session.active().map(|st| st.doc.id), first, "another document is active");
+    let app = h.state();
+    assert!(app.ui.polygon.is_empty(), "the outline is gone: {:?}", app.ui.polygon);
+    assert!(app.ui.polygon_mode.is_empty() && app.ui.polygon_doc.is_none());
+    assert!(!crate::canvas::polygon_replaces_selection(app));
+    assert_eq!(app.ui.tool, Tool::PolygonLasso, "the tool stays");
+    h.state_mut().run("document.activate", json!({"document": 0})).unwrap();
+    h.state_mut().sync_views();
+    assert!(h.state().ui.polygon.is_empty(), "nothing is left of it on the first document");
+}
