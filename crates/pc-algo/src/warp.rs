@@ -201,7 +201,13 @@ pub fn warp_triangles(src: &Surface, src_rect: Rect, verts: &[([f64; 2], [f64; 2
         if fx0 > fx1 {
             return None;
         }
-        let foot = Rect::new(fx0.floor() as i32 - 3, fy0.floor() as i32 - 3, fx1.ceil() as i32 + 3, fy1.ceil() as i32 + 3).intersect(&src_rect);
+        let foot = Rect::new(
+            (fx0.floor() as i32).saturating_sub(3),
+            (fy0.floor() as i32).saturating_sub(3),
+            (fx1.ceil() as i32).saturating_add(3),
+            (fy1.ceil() as i32).saturating_add(3),
+        )
+        .intersect(&src_rect);
         if foot.is_empty() || !src.has_tiles_in(foot) {
             return None;
         }
