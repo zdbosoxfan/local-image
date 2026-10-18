@@ -54,6 +54,10 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &V
     if !no_params(params) {
         return None;
     }
+    // File › Save to a file another app changed asks first.
+    if id == "file.save" {
+        return crate::disk_change_prompt::intercept_save(app);
+    }
     let dir = default_dir(app);
     let stem = doc_stem(app);
     Some(Ok(match id {

@@ -231,6 +231,7 @@ fn complete(app: &mut PhotocraftApp, pending: &Pending, mut saved: Saved) {
     if pending.tiff_dont_ask {
         app.session.edit_prefs(|prefs| prefs.file_handling.ask_before_saving_layered_tiff = false);
     }
+    crate::disk_change_prompt::wrote(app, pending.doc, &pending.path, pending.preserves);
     let mut detail = if pending.preserves { format!("Saved {}", pending.path) } else { format!("Saved a copy to {}", pending.path) };
     if pending.preserves
         && let Some(index) = app.session.documents().iter().position(|state| state.doc.id == pending.doc)

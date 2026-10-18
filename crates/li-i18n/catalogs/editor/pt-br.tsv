@@ -3914,3 +3914,6 @@ ai	New	Novos
 	Scope	Escopo
 	Colour	Cor
 	Monochrome (default)	Monocromático (padrão)
+	Replace	Substituir
+	{name} was changed by another app after it was opened or saved here.	{name} foi alterado por outro app depois de ser aberto ou salvo aqui.
+	Replace it with this document, or cancel and use File › Save As to keep both.	Substitua-o por este documento, ou cancele e use Arquivo › Salvar como para manter os dois.

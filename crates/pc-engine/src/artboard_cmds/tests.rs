@@ -121,8 +121,8 @@ fn export_to_files_and_pdf() {
     let r = s.execute("file.export.artboardsToFiles", json!({"dir": d, "prefix": "site"})).unwrap();
     let files: Vec<String> = r["files"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect();
     assert_eq!(files.len(), 2);
-    assert!(files[0].ends_with("site_Empty_One.png"), "{files:?}");
-    assert!(files[1].ends_with("site_Red Board.png"), "{files:?}");
+    assert!(files[0].ends_with("site_0000_Empty_One.png"), "{files:?}");
+    assert!(files[1].ends_with("site_0001_Red Board.png"), "{files:?}");
     let img = photocraft_io::import("x.png", &std::fs::read(&files[1]).unwrap()).unwrap().document;
     assert_eq!((img.size.width, img.size.height), (10, 10));
     let img2 = photocraft_io::import("x.png", &std::fs::read(&files[0]).unwrap()).unwrap().document;
@@ -141,6 +141,54 @@ fn export_to_files_and_pdf() {
     assert_eq!(text.matches("/Type /Page ").count(), 2);
     assert_eq!(text.matches("/DCTDecode").count(), 2);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Upstream f360cb0b (#6613): each artboard gets its own output even when names are identical or
+/// collide after sanitizing or case folding, and each file holds that board's pixels.
+#[test]
+fn artboard_exports_with_colliding_names_keep_every_board() {
+    let cases: [(u32, &[&str], Option<&str>, &str); 4] = [
+        (8, &["Artboard 1", "Artboard 1"], None, "png"),
+        (16, &["Hero/1", "Hero:1", "Hero?1", ".", " "], Some(""), "tiff"),
+        (8, &["Logo", "logo", "Logo_0001", "0000_Logo", "Лого", "лого"], Some("site"), "png"),
+        (32, &["Same", "Same"], Some("Launch/Run"), "png"),
+    ];
+    for (n, (depth, names, prefix, format)) in cases.into_iter().enumerate() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"name": "Board Export", "width": 96, "height": 32, "depth": depth})).unwrap();
+        let mut boards = Vec::new();
+        for (i, name) in names.iter().enumerate() {
+            let width = 3 + i as u32;
+            let color = if i % 2 == 0 { [1.0, 0.0, 0.0, 1.0] } else { [0.0, 0.0, 1.0, 1.0] };
+            s.execute("layer.new.artboard", json!({"name": name, "rect": [12 * i, 0, width, 2], "background": "custom", "color": color})).unwrap();
+            boards.push((width, color));
+        }
+        let dir = std::env::temp_dir().join(format!("photocraft-artboard-names-{}-{n}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut params = json!({"dir": dir.to_string_lossy(), "format": format});
+        if let Some(prefix) = prefix {
+            params["prefix"] = json!(prefix);
+        }
+        let revision = s.active().unwrap().revision;
+        let r = s.execute("file.export.artboardsToFiles", params).unwrap();
+        let files: Vec<&str> = r["files"].as_array().unwrap().iter().map(|f| f.as_str().unwrap()).collect();
+        assert_eq!(files.len(), names.len());
+        let lower: std::collections::HashSet<String> = files.iter().map(|f| f.to_lowercase()).collect();
+        assert_eq!(lower.len(), files.len(), "export paths collide: {files:?}");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), files.len(), "one physical output per returned path");
+        // Exports run top of the Layers panel first: the last-created board comes first.
+        for (file, (width, color)) in files.iter().zip(boards.iter().rev()) {
+            let img = photocraft_io::import(file, &std::fs::read(file).unwrap()).unwrap().document;
+            assert_eq!((img.size.width, img.size.height), (*width, 2), "wrong artboard in {file}");
+            let px = photocraft_compose::flatten(&img).px[0];
+            for (actual, expected) in px.iter().zip(color) {
+                assert!((actual - expected).abs() < 1e-3, "wrong pixels in {file}: {px:?}");
+            }
+        }
+        assert_eq!(s.active().unwrap().revision, revision, "export must not edit the source document");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]

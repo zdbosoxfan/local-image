@@ -538,3 +538,25 @@ fn a_non_finite_float_is_refused_at_save_rather_than_breaking_every_later_load()
     let back = load_from_bytes(&save_to_bytes(&doc, &SaveOptions::default()).unwrap()).unwrap();
     assert_eq!(back, doc);
 }
+
+/// Upstream 57d48803 (#4969): variable definitions follow layer id remapping on load; a dangling
+/// target stays dangling and never collides with a live layer.
+#[test]
+fn variables_follow_layer_id_remapping() {
+    use photocraft_doc::{VarKind, VariableDef};
+    let mut doc = rich_doc(ColorMode::Rgb, SampleType::U8);
+    let id_of = |d: &Document, name: &str| d.walk().into_iter().find(|(_, _, l)| l.name == name).unwrap().2.id;
+    doc.variables.defs = vec![
+        VariableDef { name: "head".into(), layer: id_of(&doc, "Paint"), kind: VarKind::TextReplacement },
+        VariableDef { name: "badge".into(), layer: id_of(&doc, "Inner"), kind: VarKind::Visibility },
+        VariableDef { name: "gone".into(), layer: LayerId(u64::MAX), kind: VarKind::Visibility },
+    ];
+    let bytes = save_to_bytes(&doc, &SaveOptions::default()).unwrap();
+    assert_eq!(load_from_bytes(&bytes).unwrap(), doc, "preserved ids keep every definition as saved");
+    let back = load_from_bytes_with(&bytes, &LoadOptions { preserve_ids: false, ..Default::default() }).unwrap();
+    let defs = &back.variables.defs;
+    assert_eq!(defs.iter().find(|d| d.name == "head").unwrap().layer, id_of(&back, "Paint"));
+    assert_eq!(defs.iter().find(|d| d.name == "badge").unwrap().layer, id_of(&back, "Inner"));
+    let gone = defs.iter().find(|d| d.name == "gone").unwrap().layer;
+    assert!(back.walk().into_iter().all(|(_, _, l)| l.id != gone), "a dangling target must not address a live layer");
+}

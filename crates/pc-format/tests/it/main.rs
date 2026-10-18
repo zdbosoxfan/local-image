@@ -3,6 +3,7 @@ mod analysis;
 mod autosave;
 mod common;
 mod corruption;
+mod directory_cleanup;
 mod roundtrip;
 
 mod vector_foundations;
