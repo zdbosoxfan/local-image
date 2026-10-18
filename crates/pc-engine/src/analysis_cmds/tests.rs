@@ -310,3 +310,26 @@ fn now_iso_shape() {
     assert_eq!(t.len(), 20, "{t}");
     assert!(t.ends_with('Z') && &t[4..5] == "-");
 }
+
+#[test]
+fn failed_compound_restores_targeting_history_and_clean_state() {
+    let mut s = session(20, 20, 8);
+    let st = s.active().unwrap();
+    let before = st.doc.clone();
+    let prior = st.active_layer;
+    let selected = st.selected_layers.clone();
+    let history = st.history.past_len();
+    let journal = s.journal.len();
+    let result: Result<()> = compound(&mut s, "Scale Marker", |s| {
+        s.execute("layer.new.layer", json!({}))?;
+        Err(bad("test", "second step failed"))
+    });
+    assert!(result.is_err());
+    let st = s.active().unwrap();
+    assert!(Arc::ptr_eq(&before, &st.doc));
+    assert_eq!(st.active_layer, prior);
+    assert_eq!(st.selected_layers, selected);
+    assert_eq!(st.history.past_len(), history);
+    assert_eq!(s.journal.len(), journal);
+    assert!(!st.is_dirty());
+}
