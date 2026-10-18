@@ -347,9 +347,9 @@ fn unlock_background(l: &mut Layer) {
     l.locks.position = false;
 }
 
-/// Before `id` gets a layer mask: the Background can't have one, so it becomes a normal layer
-/// first ("Layer 0"), as when adding a mask to it in Photoshop. Other layers are left alone.
-pub(crate) fn background_to_layer_for_mask(doc: &mut photocraft_doc::Document, id: photocraft_doc::LayerId) {
+/// Before `id` gets something the Background can't have (a layer mask, opacity, fill or a blend
+/// mode): it becomes a normal layer first ("Layer 0"), as in Photoshop. Other layers are left alone.
+pub(crate) fn background_to_layer(doc: &mut photocraft_doc::Document, id: photocraft_doc::LayerId) {
     if let Some(l) = doc.layers.first_mut().filter(|l| l.id == id && is_background(l)) {
         unlock_background(l);
     }

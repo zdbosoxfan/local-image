@@ -98,6 +98,43 @@ fn pixel_lock_clears_and_holds_off_transparency_lock() {
 }
 
 #[test]
+fn background_becomes_layer_zero_when_blending_changes() {
+    for params in [json!({"opacity": 0.5}), json!({"fill": 0.5}), json!({"blend": "Multiply"})] {
+        let mut s = session();
+        s.execute("layer.setProps", params).unwrap();
+        let st = s.active().unwrap();
+        let l = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        assert_eq!(l.name, "Layer 0");
+        assert!(!l.locks.position && !l.locks.transparency);
+    }
+}
+
+#[test]
+fn refining_a_mask_preserves_metadata_and_explicit_target() {
+    let mut s = session();
+    let id = s.active().unwrap().active_layer.unwrap();
+    s.edit("Mask", |doc, _| {
+        let mut mask = photocraft_doc::LayerMask::hide_all();
+        mask.surface.fill_rect(photocraft_geom::Rect::new(0, 0, 10, 20), &[1.0]);
+        mask.density = 0.75;
+        mask.feather = 3.5;
+        mask.linked = false;
+        mask.enabled = false;
+        doc.layer_mut(id).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("select.rect", json!({"x": 10, "y": 0, "width": 10, "height": 20})).unwrap();
+    s.execute("select.refineEdge", json!({"target": "mask", "output": "layerMask", "radius": 0})).unwrap();
+    let l = s.active().unwrap().doc.layer(id).unwrap();
+    let m = l.mask.as_ref().unwrap();
+    assert_eq!((m.density, m.feather, m.linked, m.enabled), (0.75, 3.5, false, false));
+    assert!(m.surface.sample_channel(2, 10, 0) > 0.9);
+    assert!(m.surface.sample_channel(18, 10, 0) < 0.1);
+    assert_eq!(l.name, "Layer 0");
+}
+
+#[test]
 fn multiple_layers_align_to_active_selection() {
     let mut s = session();
     let mut ids = Vec::new();

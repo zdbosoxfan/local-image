@@ -265,8 +265,10 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     if decontaminate && matches!(output.as_str(), "selection" | "layerMask") {
         output = "newLayerWithMask".into();
     }
+    let active = s.active().and_then(|d| d.active_layer);
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
-        let sel = doc.selection.as_ref()?;
+        let mask = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
+        let sel = if p.get("target").and_then(Value::as_str) == Some("mask") { mask.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask) }?;
         matting::refine_mask(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params)
     })?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
@@ -284,7 +286,9 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
             s.edit("Select and Mask", |doc, _| {
                 let surface =
                     region.as_ref().map(matting::region_surface).unwrap_or_else(|| photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8));
-                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..LayerMask::reveal_all() });
+                crate::extra_cmds::background_to_layer(doc, id);
+                let existing = doc.layer(id).and_then(|l| l.mask.as_ref()).cloned().unwrap_or_else(LayerMask::reveal_all);
+                doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(LayerMask { surface, ..existing });
                 doc.selection = None;
                 Ok(())
             })?;

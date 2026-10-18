@@ -568,6 +568,11 @@ fn build() -> Vec<CommandSpec> {
                 let local = p.get("clipped").is_none() && p.get("channels").is_none();
                 s.edit(label, |doc, _| {
                     for &id in &ids {
+                        let changes_opacity = ["opacity", "fill"].iter().any(|key| p.get(*key).and_then(Value::as_f64).is_some_and(|v| v < 1.0));
+                        let changes_blend = p.get("blend").and_then(Value::as_str).and_then(blend_from_str).is_some_and(|blend| blend != BlendMode::Normal);
+                        if changes_opacity || changes_blend {
+                            crate::extra_cmds::background_to_layer(doc, id);
+                        }
                         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
                         if let Some(v) = p.get("name").and_then(Value::as_str) {
                             l.name = v.to_string();
@@ -1212,7 +1217,7 @@ fn set_mask(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask>) ->
     let id = layer_param(s, p)?;
     s.edit(label, |doc, _| {
         if mask.is_some() {
-            crate::extra_cmds::background_to_layer_for_mask(doc, id);
+            crate::extra_cmds::background_to_layer(doc, id);
         }
         doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = mask;
         Ok(())
