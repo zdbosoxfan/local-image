@@ -891,7 +891,8 @@ mod tests {
         while std::time::Instant::now() < deadline {
             prefs_ui::tick(&mut app, &ctx);
             recovered = list_recovery(&recovery);
-            if !recovered.is_empty() {
+            // A committed bundle is listed before its sidecar is written; wait for the sidecar.
+            if recovered.first().is_some_and(|e| e.info.revision == revision) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
