@@ -349,11 +349,37 @@ impl Ctx<'_> {
                 Some(p) if !stack.filters.is_empty() => self.filter_mask(&p.placed, &stack, &name),
                 _ => None,
             };
+            // Photoshop stores the filtered pixels without the filter mask and mixes the unfiltered
+            // ones (`FEid`) back in through it; our smart objects hold the mixed result.
+            let stored = self.record_surface(rec, &name);
+            let shown = stack.enabled && stack.filters.iter().any(|f| f.visible);
+            let cache = match (&placed, filter_mask.as_ref().filter(|m| m.enabled && shown)) {
+                (Some(p), Some(mask)) => {
+                    let index = self.filter_effects.iter().position(|i| i.id == p.placed);
+                    let unfiltered = index.and_then(|index| {
+                        if self.filter_effects[index].slots.get(..self.cc).is_none_or(|planes| planes.iter().any(Option::is_none)) {
+                            return None;
+                        }
+                        let rect = self.filter_effects[index].rect;
+                        rect.size().ok()?;
+                        let area = Rect::new(rect.left, rect.top, rect.right, rect.bottom).union(&stored.content_bounds());
+                        if !self.charge(area.width() as usize, area.height() as usize, self.fmt.channels().saturating_mul(4)) {
+                            return None;
+                        }
+                        crate::smart_map::unfiltered_from_item(&self.filter_effects[index], self.fmt)
+                    });
+                    match unfiltered {
+                        Some(base) => photocraft_compose::filter_mask::mix(&base, &stored, mask),
+                        None => stored,
+                    }
+                }
+                _ => stored,
+            };
             LayerContent::Smart(SmartObject {
                 source: SmartSource::Linked { path: id },
                 transform,
                 smart_filters: stack.filters,
-                cache: Some(self.record_surface(rec, &name)),
+                cache: Some(cache),
                 psd_raw: principal(k),
                 filters_enabled: stack.enabled,
                 filter_mask,
@@ -1083,6 +1109,43 @@ mod file_input_regressions {
                 assert!(error.to_string().contains("no document was opened"), "{error}");
                 assert!(crate::import("broken.psd", &file.to_bytes().unwrap()).is_err());
             }
+        }
+    }
+
+    #[test]
+    fn smart_filter_mask_is_visible_immediately_after_open() {
+        use photocraft_psd::filter_effects::FilterEffects;
+        let mut file = smart_mask_file(false);
+        let mut base = Surface::new(PixelFormat::RGBA8);
+        base.fill_rect(Rect::new(0, 0, 2, 2), &[0.1, 0.2, 0.3, 1.]);
+        let mask = LayerMask { surface: Surface::with_default(PixelFormat::GRAY8, &[0.]), ..LayerMask::reveal_all() };
+        let item = crate::smart_map::feid_item("synthetic-placement", &base, Some(&mask), Rect::new(0, 0, 2, 2), PixelFormat::RGBA8).unwrap();
+        file.global_blocks.iter_mut().find(|b| &b.key == b"FEid").unwrap().data = FilterEffects { version: 3, items: vec![item] }.to_bytes();
+        let (doc, _) = psd_to_document(&file).unwrap();
+        let LayerContent::Smart(smart) = &doc.layers[0].content else { panic!("expected a smart object") };
+        assert_eq!(smart.cache.as_ref().unwrap().pixel(0, 0), base.pixel(0, 0));
+    }
+
+    #[test]
+    fn saving_a_masked_smart_object_does_not_apply_its_mask_twice() {
+        use photocraft_psd::filter_effects::FilterEffects;
+        let mut file = smart_mask_file(false);
+        let source = photocraft_codecs::Image::from_u8(2, 2, photocraft_codecs::ChannelLayout::Rgba, [26, 51, 77, 255].repeat(4)).unwrap();
+        let bytes = photocraft_codecs::encode(&source, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        let linked = crate::linked::LinkedFile { uuid: "synthetic-source".into(), file_name: "source.png".into(), bytes };
+        file.global_blocks.push(TaggedBlock::new(*b"lnk2", crate::linked::encode_linked_file(&linked)));
+        let mut base = Surface::new(PixelFormat::RGBA8);
+        base.fill_rect(Rect::new(0, 0, 2, 2), &[0.1, 0.2, 0.3, 1.]);
+        let mask = LayerMask { surface: Surface::with_default(PixelFormat::GRAY8, &[0.5]), ..LayerMask::reveal_all() };
+        let item = crate::smart_map::feid_item("synthetic-placement", &base, Some(&mask), Rect::new(0, 0, 2, 2), PixelFormat::RGBA8).unwrap();
+        file.global_blocks.iter_mut().find(|b| &b.key == b"FEid").unwrap().data = FilterEffects { version: 3, items: vec![item] }.to_bytes();
+        let (doc, _) = psd_to_document(&file).unwrap();
+        let expected = doc.layers[0].surface().unwrap().read_region(doc.bounds());
+        let saved = crate::export(&doc, "psd", &Default::default()).unwrap();
+        let reopened = crate::import("mask.psd", &saved.bytes).unwrap().document;
+        assert!(matches!(reopened.layers[0].content, LayerContent::Smart(_)));
+        for (a, b) in reopened.layers[0].surface().unwrap().read_region(doc.bounds()).iter().zip(expected) {
+            assert!((a - b).abs() <= 1. / 255.);
         }
     }
 

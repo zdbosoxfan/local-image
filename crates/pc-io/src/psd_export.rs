@@ -125,6 +125,14 @@ struct SmartOut {
     keep_fx: std::collections::HashSet<String>,
     /// Regenerated `FEid` items.
     new_fx: Vec<photocraft_psd::filter_effects::FilterEffectsItem>,
+    /// The unfiltered pixels of each smart object whose filter mask shows: its layer record holds
+    /// the filtered pixels without the mask, as Photoshop's do (`compose::filter_mask`).
+    unfiltered: std::collections::HashMap<photocraft_doc::LayerId, Surface>,
+}
+
+/// Whether a smart object's filter mask shows: enabled over at least one visible, enabled filter.
+fn masked(sm: &photocraft_doc::SmartObject) -> bool {
+    sm.filter_mask.as_ref().is_some_and(|m| m.enabled) && sm.filters_enabled && sm.smart_filters.iter().any(|f| f.visible)
 }
 
 /// `FEid` data padded to 4 bytes inside the block length: Photoshop counts the padding in the
@@ -669,6 +677,11 @@ impl Ex {
             }
             if !stack.filters.is_empty() {
                 self.smart.keep_fx.insert(t.placed.clone());
+                if masked(sm)
+                    && let Some(base) = self.smart.old_fx.iter().find(|i| i.id == t.placed).and_then(|i| crate::smart_map::unfiltered_from_item(i, self.fmt))
+                {
+                    self.smart.unfiltered.insert(l.id, base);
+                }
             }
             return;
         }
@@ -707,7 +720,11 @@ impl Ex {
                         }
                         None => photocraft_algo::warp::place_source(&img, img_bounds, &sm.transform, sm.warp.as_ref()),
                     };
-                    crate::smart_map::feid_item(&placed, &unfiltered, sm.filter_mask.as_ref(), bounds, self.fmt)
+                    let item = crate::smart_map::feid_item(&placed, &unfiltered, sm.filter_mask.as_ref(), bounds, self.fmt);
+                    if item.is_some() && masked(sm) {
+                        self.smart.unfiltered.insert(l.id, if unfiltered.format() == self.fmt { unfiltered } else { unfiltered.convert(self.fmt) });
+                    }
+                    item
                 }
                 _ => None,
             };
@@ -918,7 +935,11 @@ impl Ex {
                     self.records.push(r);
                 }
                 LayerContent::Smart(sm) => {
-                    let r = self.record(l, extra, sm.cache.as_ref());
+                    let unmixed = match (self.smart.unfiltered.get(&l.id), sm.cache.as_ref(), sm.filter_mask.as_ref()) {
+                        (Some(base), Some(cache), Some(mask)) if masked(sm) => Some(photocraft_compose::filter_mask::unmix(base, cache, mask)),
+                        _ => None,
+                    };
+                    let r = self.record(l, extra, unmixed.as_ref().or(sm.cache.as_ref()));
                     self.records.push(r);
                 }
                 LayerContent::Symbol(s) => {

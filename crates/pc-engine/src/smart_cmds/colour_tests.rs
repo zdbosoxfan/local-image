@@ -247,7 +247,7 @@ fn smart_colour_filter_mask_mix_preserves_hdr_and_negative_float_values() {
     let mut mask = LayerMask::reveal_all();
     mask.surface = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
     mask.surface.write_region(area, &[0.5]);
-    close(&mask_mix(&base, &filtered, &mask).read_region(area), &[8.0 / 3.0, -0.2, 1.0, 0.75], 1e-6);
+    close(&photocraft_compose::filter_mask::mix(&base, &filtered, &mask).read_region(area), &[8.0 / 3.0, -0.2, 1.0, 0.75], 1e-6);
 }
 
 #[test]

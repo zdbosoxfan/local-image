@@ -22,6 +22,7 @@ pub mod adjust;
 pub mod bounds;
 pub mod effects;
 pub mod fill_layout;
+pub mod filter_mask;
 pub mod gradient_fill;
 pub mod masks;
 pub mod multichannel;
