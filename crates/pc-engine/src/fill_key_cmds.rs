@@ -16,7 +16,22 @@ pub const IDS: [&str; 4] = ["edit.fillForeground", "edit.fillBackground", "edit.
 
 const PARAMS: &str = r##"{"layer":id?,"target":"pixels"|{"channel":i}|"quickMask"?}"##;
 
+fn text_target(s: &Session, p: &Value) -> Option<photocraft_doc::LayerId> {
+    if crate::channel_cmds::is_channel_target(p) || crate::commands::is_mask_target(p) {
+        return None;
+    }
+    let st = s.active()?;
+    if st.channel_view.target != crate::channel_cmds::ChannelTarget::Composite {
+        return None;
+    }
+    let id = p.get("layer").and_then(Value::as_u64).map(photocraft_doc::LayerId).or(st.active_layer)?;
+    matches!(st.doc.layer(id)?.content, photocraft_doc::LayerContent::Text(_)).then_some(id)
+}
+
 fn enabled(s: &Session) -> std::result::Result<(), String> {
+    if text_target(s, &Value::Null).is_some() {
+        return Ok(());
+    }
     let edit_fill = crate::commands::find("edit.fill").ok_or_else(|| "Fill is unavailable".to_string())?;
     (edit_fill.enabled)(s)
 }
@@ -33,6 +48,11 @@ fn fill(s: &mut Session, p: &Value, cmd: &str, background: bool, preserve: bool)
         q.remove(k);
     }
     let c = if background { s.tools.background } else { s.tools.foreground };
+    if let Some(id) = text_target(s, p) {
+        crate::commands::check_layer_unlocked(&s.active().ok_or(EngineError::NoDocument)?.doc, id, true)?;
+        let command = crate::commands::find("type.setStyle").ok_or_else(|| EngineError::Other("type.setStyle is unavailable".into()))?;
+        return (command.run)(s, &json!({"layer": id.0, "color": [c[0], c[1], c[2], 1.0]}));
+    }
     q.insert("color".into(), json!([c[0], c[1], c[2], 1.0]));
     q.insert("preserveTransparency".into(), json!(preserve));
     let edit_fill = crate::commands::find("edit.fill").ok_or_else(|| EngineError::Other("Fill is unavailable".into()))?;

@@ -171,6 +171,28 @@ fn refining_a_mask_preserves_metadata_and_explicit_target() {
 }
 
 #[test]
+fn fill_keys_recolor_editable_text_and_respect_locks() {
+    let mut s = session();
+    s.tools.foreground = [1.0, 0.0, 0.0, 1.0];
+    s.tools.background = [0.0, 0.0, 1.0, 1.0];
+    s.execute("type.create", json!({"x": 1, "y": 5, "text": "Hello", "size": 4, "color": "#000000"})).unwrap();
+    let colors = |s: &Session| {
+        let st = s.active().unwrap();
+        let photocraft_doc::LayerContent::Text(t) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("expected editable text") };
+        t.char_runs().iter().map(|r| r.style.color.to_rgb()).collect::<Vec<_>>()
+    };
+    s.execute("edit.fillForeground", json!({})).unwrap();
+    assert_eq!(colors(&s), [[1.0, 0.0, 0.0]]);
+    s.execute("edit.fillBackgroundPreserve", json!({})).unwrap();
+    assert_eq!(colors(&s), [[0.0, 0.0, 1.0]]);
+    s.undo();
+    assert_eq!(colors(&s), [[1.0, 0.0, 0.0]]);
+    s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+    assert!(s.execute("edit.fillBackground", json!({})).unwrap_err().to_string().contains("locked"));
+    assert_eq!(colors(&s), [[1.0, 0.0, 0.0]]);
+}
+
+#[test]
 fn multiple_layers_align_to_active_selection() {
     let mut s = session();
     let mut ids = Vec::new();
