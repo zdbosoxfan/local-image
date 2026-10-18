@@ -97,6 +97,39 @@ or absent secrets skip the corresponding stage clearly. The temporary certificat
 removed on exit. Upload permission is read-only for repository contents, and no credentials are
 included in artifacts. Do not enable shell command tracing in this script.
 
+## Debug symbols and crash reports
+
+Release executables are stripped (`strip = "symbols"` in the release profile). Their line
+tables are kept outside the packages, as release artifacts beside them:
+
+* macOS: `local-image-<version>-macos-arm64.dSYM.zip` next to the `.pkg` (the release profile's
+  `split-debuginfo = "packed"` makes the `.dSYM`; `xtask package macos` checks its UUID matches
+  the shipped executable).
+* Linux: `local-image-<version>-linux-x86_64.debug`, a GNU debug file that `xtask package linux`
+  splits off with binutils' `objcopy`; the executable carries a debuglink to it. The tarball and
+  the AppImage contain only the stripped executable.
+
+Keep each release's symbol file: it only matches the executable it was built with. A crash
+report (`crash-*.txt` in the log folder) shows the panic location (file and line) and message
+in plain text, then the backtrace as raw addresses plus an `anchor: install_hook @ 0x…` line.
+To symbolicate the addresses, find the anchor's link-time address in the symbol file, derive
+the load address, and look the frames up:
+
+```sh
+# macOS
+unzip local-image-<version>-macos-arm64.dSYM.zip
+nm local-image.dSYM/Contents/Resources/DWARF/* | grep 'crash_guard12install_hook$'
+# load = anchor − (that address − 0x100000000)
+xcrun atos -arch arm64 -o local-image.dSYM -l <load> <frame address>…
+
+# Linux
+nm local-image-<version>-linux-x86_64.debug | grep 'crash_guard12install_hook$'
+# base = anchor − that address; each frame's file offset is its address − base
+addr2line -f -C -i -e local-image-<version>-linux-x86_64.debug <frame address − base>…
+```
+
+Development builds next to their `.dSYM` (or unstripped) print symbolicated backtraces directly.
+
 ## Update checks and privacy
 
 **Help → Check for Updates…** checks the public GitHub releases JSON through rustls and the

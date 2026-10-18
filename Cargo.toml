@@ -164,7 +164,13 @@ debug = false
 [profile.release]
 lto = "thin"
 codegen-units = 1
+# Shipped executables carry no symbols or debug info. The line tables go to a separate file
+# instead (macOS: `local-image.dSYM`), which packages ship beside the installer so crash
+# backtraces can be symbolicated offline (docs/RELEASE.md). `xtask package linux` overrides the
+# last two settings and splits a GNU debug file itself.
 debug = "line-tables-only"
+strip = "symbols"
+split-debuginfo = "packed"
 
 [patch.crates-io]
 egui-wgpu = { path = "vendor/egui-wgpu" }

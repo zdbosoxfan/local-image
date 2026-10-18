@@ -191,7 +191,13 @@ fn package_linux(skip_build: bool) -> Result<()> {
     println!("Local Image {v} for Linux {arch}");
     if !skip_build {
         let mut c = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        c.args(["build", "--offline", "--release", "--locked", "-p", "local-image", "--features", "local-image/heif"]).current_dir(root());
+        c.args(["build", "--offline", "--release", "--locked", "-p", "local-image", "--features", "local-image/heif"])
+            .current_dir(root())
+            // Keep the line tables in the executable for `split_debug_info` to move into a GNU debug
+            // file. The profile's packed split DWARF is no use here: the .dwp needs the skeleton units
+            // that stripping removes from the executable.
+            .env("CARGO_PROFILE_RELEASE_STRIP", "none")
+            .env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "off");
         build_env(&mut c);
         run("cargo build", &mut c)?;
     }
@@ -201,6 +207,9 @@ fn package_linux(skip_build: bool) -> Result<()> {
     std::fs::create_dir_all(&stage)?;
     let from = target_dir().join("release").join("local-image");
     std::fs::copy(&from, stage.join("local-image")).with_context(|| format!("{} (build first, or drop --skip-build)", from.display()))?;
+    let debug_name = format!("{name}.debug");
+    let debug = dist()?.join(&debug_name);
+    split_debug_info(&stage.join("local-image"), &debug)?;
     link_cli(&stage)?;
     for f in ["README.md", "LICENSE"] {
         std::fs::copy(root().join(f), stage.join(f))?;
@@ -208,11 +217,24 @@ fn package_linux(skip_build: bool) -> Result<()> {
     copy_dir(&root().join("licenses"), &stage.join("licenses"))?;
     copy_distribution_attributions(&stage)?;
     run("local-image-cli --version", Command::new(stage.join(CLI)).arg("--version"))?;
+    std::fs::write(debug.with_extension("debug.sha256"), format!("{}  {debug_name}\n", sha256_hex(&debug)?))?;
     let out = dist()?.join(format!("{name}.tar.gz"));
     write_tarball(&stage, &name, &out)?;
     std::fs::write(out.with_extension("gz.sha256"), format!("{}  {name}.tar.gz\n", sha256_hex(&out)?))?;
     println!("{} ({} MB)", out.display(), std::fs::metadata(&out)?.len() / 1_000_000);
     Ok(())
+}
+
+/// Move `exe`'s debug info into `debug` (shipped beside the package, not in it) and strip `exe`,
+/// leaving a GNU debuglink so gdb and addr2line find the file. Needs binutils (`readelf`, `objcopy`).
+fn split_debug_info(exe: &Path, debug: &Path) -> Result<()> {
+    let headers =
+        Command::new("readelf").args(["--section-headers", "--wide"]).arg(exe).output().context("readelf (binutils) is needed to split the debug info")?;
+    if !headers.status.success() || !String::from_utf8_lossy(&headers.stdout).contains(".debug_line") {
+        bail!("{} has no line tables to keep: build it without --skip-build (xtask keeps them)", exe.display());
+    }
+    run("extract debug info", Command::new("objcopy").arg("--only-keep-debug").arg(exe).arg(debug))?;
+    run("strip executable", Command::new("objcopy").arg("--strip-all").arg(format!("--add-gnu-debuglink={}", debug.display())).arg(exe))
 }
 
 /// `stage` as `out` (gzipped tar, entries under `name/`). Symlinks stay symlinks, so the CLI is not
