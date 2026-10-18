@@ -389,6 +389,13 @@ fn scale_100k_library_queries() {
         let _ = s.visible_cloned();
     });
     s.execute("library.filter", &serde_json::json!({"text": ""})).unwrap();
+    // Find Similar filters the view to its hits
+    let similar: Vec<PhotoId> = (1..=n).step_by(10).map(PhotoId).collect();
+    m("filter 10k ids", &mut || {
+        s.filter.only = similar.clone();
+        assert_eq!(s.visible().len(), similar.len());
+    });
+    s.filter.only.clear();
     m("select all", &mut || {
         s.execute("library.selectAll", &serde_json::json!({})).unwrap();
     });

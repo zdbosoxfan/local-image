@@ -333,8 +333,17 @@ impl Metadata {
 /// Read everything we understand from a whole file (JPEG, PNG, WebP, TIFF-based incl. DNG/raw).
 /// Precedence: EXIF, then IPTC fills gaps, then XMP overrides user fields and fills the rest.
 pub fn extract(bytes: &[u8]) -> Metadata {
-    let e = embedded(bytes);
-    let mut m = e.exif.as_deref().map(read_exif).unwrap_or_default();
+    extract_with_xmp(bytes).0
+}
+
+/// [`extract`] and the file's XMP packet ([`Embedded::xmp`]) from one pass over the container.
+pub fn extract_with_xmp(bytes: &[u8]) -> (Metadata, Option<String>) {
+    let (e, tiff) = container::blocks(bytes);
+    let mut m = match &tiff {
+        // a TIFF-based file is its own Exif block: read it in place, from the parse already made
+        Some(t) => from_tiff_with_bytes(bytes, t),
+        None => e.exif.as_deref().map(read_exif).unwrap_or_default(),
+    };
     if let Some(i) = e.iptc.as_deref() {
         m.fill_missing(&parse_iptc(i));
     }
@@ -343,7 +352,7 @@ pub fn extract(bytes: &[u8]) -> Metadata {
         m.fill_missing(&x.metadata);
     }
     m.fill_dji_gps();
-    m
+    (m, e.xmp)
 }
 
 /// Lenient number parsing used by XMP/IPTC: `"28/10"`, `"2.8"`, `"+0.7"`.
@@ -359,6 +368,38 @@ pub(crate) fn parse_number(s: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A TIFF-based file is read in place (not copied into an Exif block): EXIF facts, then XMP
+    /// over the user fields, exactly as reading the copied block did; the packet comes back too.
+    #[test]
+    fn tiff_metadata_and_xmp_come_from_one_pass() {
+        use lightcraft_tiff::{ByteOrder, IfdBuilder, TiffWriter, Value, tags as t};
+        let xmp = write_xmp(&Metadata { caption: Some("Keynote".into()), rating: Some(4), ..Default::default() }, None);
+        for order in [ByteOrder::Little, ByteOrder::Big] {
+            let mut root = IfdBuilder::new();
+            root.set(t::MAKE, Value::Ascii("Sony".into()));
+            root.set(t::ORIENTATION, Value::Short(vec![6]));
+            root.set(t::IMAGE_DESCRIPTION, Value::Ascii("EXIF caption".into()));
+            root.set(t::RATING, Value::Short(vec![1]));
+            root.set(t::XMP, Value::Byte(xmp.as_bytes().to_vec()));
+            let mut bytes = TiffWriter { order, bigtiff: false }.write(&[root]).unwrap();
+            bytes.resize(1 << 20, 0);
+            let (m, packet) = extract_with_xmp(&bytes);
+            let mut copied = read_exif(embedded(&bytes).exif.as_deref().unwrap());
+            let x = parse_xmp(&xmp).unwrap().metadata;
+            copied.overlay_user_fields(&x);
+            copied.fill_missing(&x);
+            copied.fill_dji_gps();
+            assert_eq!(m, copied);
+            assert_eq!(
+                (m.make.as_deref(), m.orientation, m.caption.as_deref(), m.rating),
+                (Some("Sony"), Some(Orientation::Rotate90), Some("Keynote"), Some(4))
+            );
+            assert_eq!(packet.as_deref(), Some(xmp.as_str()));
+            assert_eq!(extract(&bytes), m);
+        }
+        assert_eq!(extract_with_xmp(b"not an image"), (Metadata::default(), None));
+    }
 
     #[test]
     fn numbers() {

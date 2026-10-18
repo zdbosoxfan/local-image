@@ -570,3 +570,29 @@ fn creator_snapshot_survives_inverse_ops_and_single_creator_defaults() {
     let reopened: Meta = serde_json::from_value(serde_json::to_value(&multiple).unwrap()).unwrap();
     assert_eq!(reopened, multiple);
 }
+
+/// A long `only` list (Find Similar hits) is looked up as a set: it selects what scanning the
+/// list does, with ids repeated, missing from the catalog or deleted, and with other rules.
+#[test]
+fn long_only_lists_select_what_a_scan_selects() {
+    let mut c = Catalog::new();
+    let ids: Vec<PhotoId> = (0..200).map(|i| photo(&mut c, &format!("{i}.jpg"), "2026-04-01T10:00:00")).collect();
+    for (i, &id) in ids.iter().enumerate() {
+        c.apply(Op::SetRating { id, rating: (i % 6) as u8 }).unwrap();
+    }
+    c.apply(Op::SetDeleted { id: ids[3], deleted: true, deleted_at: None }).unwrap();
+    let mut only: Vec<PhotoId> = ids.iter().copied().step_by(3).collect();
+    only.extend_from_within(..);
+    only.push(PhotoId(999_999));
+    let scan = |only: &[PhotoId]| -> Vec<PhotoId> {
+        let mut v: Vec<PhotoId> = c.photos().filter(|p| !p.deleted && p.rating >= 3 && only.contains(&p.id)).map(|p| p.id).collect();
+        v.sort_unstable_by(|a, b| b.cmp(a));
+        v
+    };
+    let query = |only: &[PhotoId]| c.query(&Filter { only: only.to_vec(), rating: 3, ..Default::default() }, &Sort::default());
+    assert!(only.len() > 16);
+    assert_eq!(query(&only), scan(&only));
+    assert!(!scan(&only).is_empty());
+    assert_eq!(query(&only[..5]), scan(&only[..5]));
+    assert!(query(&[PhotoId(999_999); 40]).is_empty());
+}

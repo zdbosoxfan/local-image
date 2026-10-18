@@ -380,8 +380,8 @@ impl Catalog {
 
     /// The photos a smart album's `rules` select, as [`Self::album_contains`] decides it.
     fn smart_matches<'a>(&'a self, rules: &'a Filter) -> impl Iterator<Item = &'a Arc<Photo>> + 'a {
-        let tokens = rules.text_tokens();
-        self.photos.values().filter(move |p| !p.deleted && rules.matches_tokens(p, self, &tokens))
+        let prepared = rules.prepare();
+        self.photos.values().filter(move |p| !p.deleted && rules.matches_prepared(p, self, &prepared))
     }
 
     /// Smart-album rules must not reference another smart album (no recursion) or deleted photos.
