@@ -144,7 +144,7 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
         let area = band.content_bounds().intersect(&canvas);
         if !area.is_empty() {
-            crate::pixels::fill_surface(surf, area, color, Some(&band), lock);
+            crate::pixels::fill_surface(surf, area, color, Some(&band), lock)?;
             surf.prune();
         }
         Ok(())

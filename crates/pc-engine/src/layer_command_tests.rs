@@ -183,6 +183,21 @@ fn refining_a_mask_preserves_metadata_and_explicit_target() {
 }
 
 #[test]
+fn failed_copy_preserves_existing_clipboard_and_history() {
+    let mut s = session();
+    s.execute("edit.copy", json!({})).unwrap();
+    let clip = s.clipboard.clone().unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    crate::allocation::fail_next_for_test();
+    assert!(s.execute("edit.copy", json!({})).unwrap_err().to_string().contains("not enough memory"));
+    assert_eq!(s.clipboard.as_ref().unwrap().surface, clip.surface);
+    assert_eq!(s.clipboard.as_ref().unwrap().bounds, clip.bounds);
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+}
+
+#[test]
 fn fill_keys_recolor_editable_text_and_respect_locks() {
     let mut s = session();
     s.tools.foreground = [1.0, 0.0, 0.0, 1.0];
@@ -270,6 +285,17 @@ fn fibers_fills_an_empty_layer_within_the_selection() {
     assert_eq!(surf.content_bounds(), photocraft_geom::Rect::new(2, 3, 14, 13));
     assert!(surf.rgba(5, 5)[3] > 0.99);
     assert_eq!(surf.rgba(0, 0)[3], 0.0);
+}
+
+#[test]
+fn failed_clear_allocation_keeps_pixels_and_history() {
+    let mut s = session();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    crate::allocation::fail_next_for_test();
+    assert!(s.execute("edit.clear", json!({})).unwrap_err().to_string().contains("not enough memory"));
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
 }
 
 #[test]

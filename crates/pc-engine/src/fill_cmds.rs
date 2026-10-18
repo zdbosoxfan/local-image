@@ -517,7 +517,7 @@ mod tests {
         let st = s.active().unwrap();
         let mut surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().clone();
         let t = std::time::Instant::now();
-        crate::pixels::fill_surface(&mut surf, Rect::new(0, 0, 6000, 4000), [0.2, 0.4, 0.6, 1.0], None, false);
+        crate::pixels::fill_surface(&mut surf, Rect::new(0, 0, 6000, 4000), [0.2, 0.4, 0.6, 1.0], None, false).unwrap();
         println!("{:<48} {:>8.1} ms", "old fill_surface, no selection", t.elapsed().as_secs_f64() * 1000.0);
     }
 
