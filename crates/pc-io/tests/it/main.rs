@@ -5,6 +5,7 @@ mod artboard_guide_order;
 mod banded;
 mod cancel;
 mod channels;
+mod cmyk_export;
 mod color;
 mod common;
 mod composite;

@@ -282,7 +282,8 @@ pub fn merged_composite(file: &PsdFile) -> Result<Vec<[f32; 4]>, IoError> {
     }
     let l = doc.layers.first().ok_or_else(|| IoError::Unsupported("no merged image".into()))?;
     let s = l.surface().ok_or_else(|| IoError::Unsupported("no merged image".into()))?;
-    Ok(photocraft_compose::surface_to_buffer(s, doc.bounds()).px)
+    let space = photocraft_compose::cmyk_space(&doc);
+    Ok(photocraft_color::convert::with_cmyk_space(space.as_ref(), || photocraft_compose::surface_to_buffer(s, doc.bounds()).px))
 }
 
 pub mod brush_import;
