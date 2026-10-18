@@ -187,7 +187,7 @@ pub fn probe_bytes(name: &str, bytes: &[u8]) -> Result<ProbeInfo, String> {
 }
 
 fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Result<ProbeInfo, String> {
-    let m = lightcraft_meta::extract(bytes);
+    let (m, xmp) = lightcraft_meta::extract_with_xmp(bytes);
     let (meta, captured) = meta_of(&m);
     if lightcraft_raw::probe(bytes).is_some() {
         let mut raw = match lightcraft_raw::probe_info(bytes) {
@@ -205,7 +205,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
                     meta,
                     as_shot_wb: None,
                     content_hash,
-                    xmp: lightcraft_meta::embedded(bytes).xmp,
+                    xmp,
                     preview_only: Some(why),
                     ..Default::default()
                 });
@@ -241,7 +241,7 @@ fn describe_bytes(name: &str, bytes: &[u8], content_hash: Option<String>) -> Res
             meta,
             as_shot_wb,
             content_hash,
-            xmp: lightcraft_meta::embedded(bytes).xmp,
+            xmp,
             preview_only: None,
             modified: None,
         });

@@ -28,27 +28,39 @@ pub struct Embedded {
 
 /// Sniff the container and collect its metadata blocks. Unknown containers yield an empty result.
 pub fn embedded(bytes: &[u8]) -> Embedded {
+    let (mut e, tiff) = blocks(bytes);
+    if tiff.is_some() {
+        e.exif = Some(bytes.to_vec());
+    }
+    e
+}
+
+/// [`embedded`] without copying a TIFF-based file into [`Embedded::exif`]: there the whole file is
+/// the Exif block, so `exif` stays `None` and the file's parse is returned instead.
+pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
     if bytes.starts_with(b"FUJIFILMCCD-RAW") {
         // Fujifilm RAF: metadata lives in the embedded JPEG whose (offset, length) are big-endian u32s at byte 84
         let be = |i: usize| bytes.get(i..i + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);
-        return match (be(84), be(88)) {
+        let e = match (be(84), be(88)) {
             (Some(o), Some(l)) if o > 0 => bytes.get(o..o.saturating_add(l).min(bytes.len())).map(jpeg_segments).unwrap_or_default(),
             _ => Embedded::default(),
         };
+        return (e, None);
     }
     if let Some(c) = crate::cr3::parse_cr3(bytes) {
-        return Embedded { exif: crate::cr3::merged_exif(&c), xmp: c.xmp.map(|b| String::from_utf8_lossy(b).into_owned()), ..Default::default() };
+        let e = Embedded { exif: crate::cr3::merged_exif(&c), xmp: c.xmp.map(|b| String::from_utf8_lossy(b).into_owned()), ..Default::default() };
+        return (e, None);
     }
     if bytes.starts_with(&[0xff, 0xd8]) {
-        jpeg_segments(bytes)
+        (jpeg_segments(bytes), None)
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        png_chunks(bytes)
+        (png_chunks(bytes), None)
     } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        webp_chunks(bytes)
+        (webp_chunks(bytes), None)
     } else if let Ok(t) = Tiff::parse(bytes) {
         let ifd0 = &t.ifds[0];
-        Embedded {
-            exif: Some(bytes.to_vec()),
+        let e = Embedded {
+            exif: None,
             xmp: ifd0.bytes(tags::XMP).map(|b| String::from_utf8_lossy(b).into_owned()),
             xmp_extended: None,
             icc: ifd0.bytes(tags::ICC_PROFILE).map(|b| b.to_vec()),
@@ -56,9 +68,10 @@ pub fn embedded(bytes: &[u8]) -> Embedded {
                 lightcraft_tiff::Value::Byte(b) | lightcraft_tiff::Value::Undefined(b) => b.clone(),
                 other => lightcraft_tiff::writer::encode(t.order, other),
             }),
-        }
+        };
+        (e, Some(t))
     } else {
-        Embedded::default()
+        (Embedded::default(), None)
     }
 }
 

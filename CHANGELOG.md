@@ -14,6 +14,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Export As size estimates for large documents use the configured exporter on the preview worker.
 - Security hardening and cleanup — see PR
 - Find Similar results with thousands of hits filter a large Library about 50 times faster.
+- Reading a TIFF-based raw's metadata no longer copies the whole file, twice per imported raw.
 
 ## [2.0.0-alpha.1] - TBD
 
