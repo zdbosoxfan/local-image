@@ -756,6 +756,18 @@ pub fn layer_bounds(layer: &Layer, canvas: Rect) -> Rect {
         LayerContent::Fill(_) => canvas,
         _ => {
             let b = layer.surface().map_or(Rect::EMPTY, bounds::content_bounds);
+            let b = if let LayerContent::Shape(shape) = &layer.content {
+                let vector = shape_bounds(shape).map_or(Rect::EMPTY, |r| r.intersect(&canvas));
+                if b.is_empty() {
+                    vector
+                } else if vector.is_empty() {
+                    b
+                } else {
+                    b.union(&vector)
+                }
+            } else {
+                b
+            };
             // Effects follow a filled shape's outline, also where its fill is transparent.
             match effect_outline(layer).and_then(|_| paint_bounds(layer)).filter(|_| effects::has_effects(layer)) {
                 Some(p) if !b.is_empty() => b.union(&p),
@@ -873,6 +885,17 @@ pub fn paint_bounds(layer: &Layer) -> Option<Rect> {
     let LayerContent::Shape(sh) = &layer.content else { return psd_fallback_paint_bounds(layer) };
     let (x0, y0, x1, y1) = sh.path.control_bounds()?;
     let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.floor() as i32, y1.floor() as i32);
+    (!r.is_empty()).then_some(r)
+}
+
+/// The bounding box of a shape layer's vector content: its path control bounds plus stroke width.
+pub fn shape_bounds(sh: &photocraft_doc::ShapeLayer) -> Option<Rect> {
+    if sh.fill.is_none() && sh.stroke.as_ref().is_none_or(|s| s.width <= 0.0 || s.opacity <= 0.0) {
+        return None;
+    }
+    let (x0, y0, x1, y1) = sh.path.control_bounds()?;
+    let stroke_margin = sh.stroke.as_ref().filter(|s| s.opacity > 0.0).map_or(0.0, |s| s.width.ceil()) as i32;
+    let r = Rect::new(x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32).inflate(stroke_margin);
     (!r.is_empty()).then_some(r)
 }
 
@@ -1426,12 +1449,18 @@ fn composite_layer_plain(layer: &Layer, clipped: &[Layer], backdrop: &mut Buffer
 
     // Pass-through groups composite their children straight into the backdrop. Below 100% fill
     // Photoshop renders the group isolated, like Normal (psd-tools passthrough_fill_*: an
-    // adjustment inside no longer reaches the layers beneath).
+    // adjustment inside no longer reaches the layers beneath), and so it does for a group that
+    // is the base of a clipping group and holds an adjustment layer (psd-tools
+    // passthrough_clipping_mask_adjustment: an Exposure inside leaves the layers beneath alone),
+    // while such a group's blend modes still reach the backdrop (passthrough_clipping_mask_blendmode).
+    let clip_base_adjusts = clipped.iter().any(|c| c.visible)
+        && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
     if let LayerContent::Group(g) = &layer.content
         && g.isolation == photocraft_doc::GroupIsolation::Auto
         && layer.blend == BlendMode::PassThrough
         && layer.fill_opacity >= 1.0
         && !effects::has_effects(layer)
+        && !clip_base_adjusts
     {
         let needs_mix = opacity < 1.0 || layer.mask.is_some() || layer.vector_mask.is_some();
         let has_clipped = clipped.iter().any(|c| c.visible);

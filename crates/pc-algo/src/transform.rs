@@ -444,7 +444,8 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                 any = true;
                 let o = ((y - t.y0) as usize * w + (x - t.x0) as usize) * n;
                 for c in 0..a {
-                    outp[o + c] = (acc[c] / al).clamp(0.0, 1.0) as f32;
+                    // Integer storage clips on write; float colours retain their signed/HDR range.
+                    outp[o + c] = (acc[c] / al) as f32;
                 }
                 outp[o + a] = al as f32;
             }
@@ -659,5 +660,42 @@ mod tests {
         assert!(o.format().alpha);
         assert_eq!(o.pixel(2, 2)[3], 0.0);
         assert_eq!(o.pixel(7, 2), vec![1.0, 0.0, 0.0, 1.0]);
+    }
+    #[test]
+    fn translation_preserves_colour_range_at_every_depth() {
+        use photocraft_color::{ColorMode, SampleType};
+
+        let h = Homography([1.0, 0.0, 7.0, 0.0, 1.0, -3.0, 0.0, 0.0, 1.0]);
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+                for alpha in [false, true] {
+                    let mut s = Surface::new(PixelFormat::new(mode, sample, alpha));
+                    let mut pixel = if mode == ColorMode::Rgb { vec![2.0, -0.25, 0.5] } else { vec![2.0] };
+                    if alpha {
+                        pixel.push(0.5);
+                    }
+                    s.fill_rect(Rect::new(4, 4, 8, 8), &pixel);
+                    let mut expected = s.pixel(5, 5);
+                    if !alpha {
+                        expected.push(1.0);
+                    }
+                    for interp in [Interp::Nearest, Interp::Bilinear, Interp::Bicubic] {
+                        let out = warp_surface(&s, s.content_bounds(), &h, interp);
+                        assert_eq!(out.pixel(12, 2), expected, "{sample:?}/{mode:?}/alpha={alpha}/{interp:?}");
+                        assert_eq!(out.pixel(0, 0).last(), Some(&0.0));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn bilinear_translation_interpolates_signed_hdr_colours() {
+        let mut s = Surface::new(PixelFormat::RGBA32F);
+        s.write_pixel(0, 0, &[2.0, -0.5, 0.25, 0.5]);
+        s.write_pixel(1, 0, &[4.0, -0.25, 0.75, 0.5]);
+        let h = Homography([1.0, 0.0, 0.5, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let out = warp_surface(&s, s.content_bounds(), &h, Interp::Bilinear);
+        assert_eq!(out.pixel(1, 0), vec![3.0, -0.375, 0.5, 0.5]);
     }
 }
