@@ -28,6 +28,27 @@ impl Homography {
         ((m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w)
     }
 
+    /// The homogeneous `w` of `(x, y)`: its sign is the side of the horizon the point maps to
+    /// (0 on the horizon itself).
+    pub fn w(&self, x: f64, y: f64) -> f64 {
+        let m = &self.0;
+        m[6] * x + m[7] * y + m[8]
+    }
+
+    /// The side of the horizon (+1 or −1) that most corners of `r` (`[x0, y0, x1, y1]`) map to,
+    /// the centre's on a tie. A Distort dragged past the horizon maps the rest of the source to the
+    /// far side, where it would show as a mirrored copy wrapped round infinity; drawing keeps to
+    /// this side, as Photoshop's does.
+    pub fn front_side(&self, r: [f64; 4]) -> f64 {
+        let ahead = [(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])].iter().filter(|(x, y)| self.w(*x, *y) > 0.0).count();
+        match ahead {
+            3 | 4 => 1.0,
+            0 | 1 => -1.0,
+            _ if self.w((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0) >= 0.0 => 1.0,
+            _ => -1.0,
+        }
+    }
+
     pub fn mul(&self, o: &Homography) -> Homography {
         let (a, b) = (&self.0, &o.0);
         let mut r = [0.0; 9];
@@ -354,6 +375,7 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
         src_rect = crate::resample::scaled_rect(src_rect, f, f);
     }
     let Some(inv) = h.inverse() else { return out };
+    let front = h.front_side([src_rect.x0 as f64, src_rect.y0 as f64, src_rect.x1 as f64, src_rect.y1 as f64]);
     // Destination bounds: the warped corners (plus a pixel for filter support).
     let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
         .map(|(x, y)| h.apply(x as f64, y as f64));
@@ -414,6 +436,9 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
         let mut acc = [0.0f64; 8];
         for y in t.y0..t.y1 {
             for x in t.x0..t.x1 {
+                if front * inv.w(x as f64 + 0.5, y as f64 + 0.5) <= 0.0 {
+                    continue;
+                }
                 let (u, v) = inv.apply(x as f64 + 0.5, y as f64 + 0.5);
                 let (u, v) = (u - 0.5, v - 0.5);
                 if u < src_rect.x0 as f64 - 1.0 || v < src_rect.y0 as f64 - 1.0 || u > src_rect.x1 as f64 || v > src_rect.y1 as f64 {
@@ -491,6 +516,29 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn projective_distort_draws_only_the_front_of_the_horizon() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 100, 100), &[0.0, 0.5, 1.0, 1.0]);
+        let h = Homography::rect_to_quad([0.0, 0.0, 100.0, 100.0], [[0.0, 0.0], [300.0, 0.0], [60.0, 60.0], [0.0, 300.0]]).unwrap();
+        let side = h.front_side([0.0, 0.0, 100.0, 100.0]);
+        let inv = h.inverse().unwrap();
+        for interp in [Interp::Nearest, Interp::Bilinear] {
+            let out = warp_surface(&s, s.content_bounds(), &h, interp);
+            let bounds = out.content_bounds();
+            let mut drawn = 0;
+            for y in bounds.y0..bounds.y1 {
+                for x in bounds.x0..bounds.x1 {
+                    if out.sample_channel(x, y, 3) > 0.0 {
+                        drawn += 1;
+                        assert!(side * inv.w(x as f64 + 0.5, y as f64 + 0.5) > 0.0);
+                    }
+                }
+            }
+            assert!(drawn > 1000);
+        }
+    }
 
     #[test]
     fn inverse_footprint_handles_extreme_finite_affines() {
