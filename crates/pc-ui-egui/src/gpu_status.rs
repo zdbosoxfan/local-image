@@ -149,6 +149,10 @@ fn choose_recovery(app: &mut PhotocraftApp, retry: bool) -> Result<(), String> {
     )?;
     crate::prefs_ui::save_preferences(app)?;
     app.ui.gpu_fallback_notice = None;
+    if !retry {
+        app.perf.gpu_info.recovery = None;
+        app.perf.gpu_info.lost = None;
+    }
     if retry {
         crate::notices::post(
             app,
@@ -248,8 +252,12 @@ mod tests {
             ..Default::default()
         };
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+        app.perf.gpu_info.canvas = "cpu".into();
+        app.perf.gpu_info.recovery = Some("startup failure".into());
+        app.perf.gpu_info.lost = Some("device unavailable".into());
         queue_fallback_notice(&mut app, "device unavailable");
         choose_recovery(&mut app, false).unwrap();
+        assert_eq!(app.perf.gpu_info.failure(), None, "Keep Using CPU acknowledges the displayed recovery reason");
         assert_eq!(app.session.prefs().performance.rendering_mode, photocraft_engine::prefs::RenderingMode::Cpu);
         assert_eq!(app.session.prefs().get("performance.renderingMode"), Some(json!("cpu")));
         assert!(app.ui.gpu_fallback_notice.is_none());
