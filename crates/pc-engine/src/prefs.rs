@@ -463,6 +463,8 @@ pub struct Performance {
     /// Memory PhotoCraft may use, in MB: bounds each document's pixels plus its History (the
     /// oldest states are dropped beyond it).
     pub memory_usage_mb: u32,
+    /// GPU compositor cache budget in MB; zero chooses automatically.
+    pub gpu_memory_mb: u32,
     /// Undo steps kept per document (History panel states).
     pub history_states: u32,
     /// Display cache levels (mip levels kept for zoomed-out views).
@@ -507,6 +509,7 @@ impl Default for Performance {
     fn default() -> Self {
         Self {
             memory_usage_mb: 8192,
+            gpu_memory_mb: 0,
             history_states: 50,
             cache_levels: 4,
             cache_tile_size: 8192,
@@ -1044,6 +1047,7 @@ pub fn range(path: &str) -> Option<(f64, f64)> {
         "fileHandling.autosaveMinutes" => (1.0, 240.0),
         "fileHandling.recentFileCount" => (0.0, 100.0),
         "export.jpegQuality" => (1.0, 100.0),
+        "performance.gpuMemoryMb" => (0.0, 1_048_576.0),
         "performance.memoryUsageMb" => (256.0, 1_048_576.0),
         "performance.historyStates" => (1.0, 1000.0),
         "performance.cacheLevels" => (1.0, 8.0),

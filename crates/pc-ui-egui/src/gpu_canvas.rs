@@ -127,6 +127,8 @@ pub struct GpuCanvas {
     rs: RenderState,
     tile: u32,
     high: HighPolicy,
+    vram: Option<u64>,
+    canvas_budget: u64,
     health: DeviceHealth,
     seen_errors: std::sync::Arc<std::sync::atomic::AtomicU64>,
     health_frame: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -164,13 +166,34 @@ impl GpuCanvas {
         res.health = health.clone();
         rs.renderer.write().callback_resources.insert(res);
         log::info!("gpu canvas: target {:?}, max texture {max}, tile {tile}, 16F canvas {high:?}", rs.target_format);
+        let vram = li_gpu::memory::video_memory(&rs.adapter.get_info());
         Self {
             rs: rs.clone(),
             tile,
             high,
+            vram,
+            canvas_budget: canvas_budget(physical_memory(), vram),
             health,
             seen_errors: Default::default(),
             health_frame: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(u64::MAX)),
+        }
+    }
+
+    /// Dedicated memory detected for the window adapter.
+    pub fn video_memory(&self) -> Option<u64> {
+        self.vram
+    }
+
+    /// Whether a `size` canvas's display textures in `format` fit [`canvas_budget`]; when they
+    /// don't, nothing is created for it and it is drawn on the CPU canvas.
+    pub fn fits_canvas(&self, size: [u32; 2], format: wgpu::TextureFormat) -> bool {
+        canvas_texture_bytes(size, self.tile, texel_bytes(format)) <= self.canvas_budget
+    }
+
+    /// Drop document `key`'s display textures (a set left from before the canvas grew is stale).
+    pub(crate) fn discard_display(&self, key: u64) {
+        if let Some(res) = self.rs.renderer.write().callback_resources.get_mut::<Resources>() {
+            res.docs.remove(&key);
         }
     }
 
@@ -270,7 +293,7 @@ impl GpuCanvas {
         let px = size[0] as u64 * size[1] as u64;
         let high = match self.high {
             HighPolicy::Off => false,
-            HighPolicy::Budget => px <= F16_BUDGET_PX,
+            HighPolicy::Budget => px <= F16_BUDGET_PX && self.fits_canvas(size, FORMAT_HIGH),
             HighPolicy::Always => true,
         };
         if high && depth != photocraft_doc::SampleType::U8 { FORMAT_HIGH } else { FORMAT }
@@ -402,7 +425,15 @@ impl GpuCanvas {
 
     /// Replace the whole document image with a `format` texture of premultiplied `texels`.
     fn upload_full_as(&self, doc: u64, size: [u32; 2], format: wgpu::TextureFormat, texels: &[u8]) {
-        if size[0] == 0 || size[1] == 0 || texels.len() as u64 != size[0] as u64 * size[1] as u64 * texel_bytes(format) || !self.health.can_present() {
+        if size[0] == 0
+            || size[1] == 0
+            || texels.len() as u64 != u64::from(size[0]).saturating_mul(u64::from(size[1])).saturating_mul(texel_bytes(format))
+            || !self.health.can_present()
+        {
+            return;
+        }
+        if !self.fits_canvas(size, format) {
+            self.discard_display(doc);
             return;
         }
         let (device, queue) = (&self.rs.device, &self.rs.queue);
@@ -481,6 +512,10 @@ impl GpuCanvas {
         let size = [doc.size.width, doc.size.height];
         if size[0] == 0 || size[1] == 0 {
             return Err(photocraft_gpu::Unsupported("empty document".into()));
+        }
+        if !self.fits_canvas(size, self.format_for(doc.depth, size)) {
+            self.discard_display(doc.id.0);
+            return Err(photocraft_gpu::Unsupported(OVER_CANVAS_BUDGET.into()));
         }
         if std::env::var_os("PHOTOCRAFT_CPU_COMPOSE").is_some() {
             return Err(photocraft_gpu::Unsupported("disabled by PHOTOCRAFT_CPU_COMPOSE".into()));
@@ -697,6 +732,10 @@ impl GpuCanvas {
         let bounds = doc.bounds();
         let size = [doc.size.width, doc.size.height];
         let format = self.format_for(doc.depth, size);
+        if !self.fits_canvas(size, format) {
+            self.discard_display(key);
+            return Refresh { kind: REFRESH_OVER_BUDGET, fallback: Some(OVER_CANVAS_BUDGET.into()), ..Default::default() };
+        }
         let damage = damage.filter(|_| self.has(key, size) && self.format_of(key) == Some(format)).map(|r| r.intersect(&bounds));
         let t0 = now_ms();
         let mut out = Refresh::default();
@@ -758,6 +797,10 @@ impl GpuCanvas {
             return;
         }
         let format = self.format_for(doc.depth, size);
+        if !self.fits_canvas(size, format) {
+            self.discard_display(key);
+            return;
+        }
         let (device, queue) = (&self.rs.device, &self.rs.queue);
         {
             let mut renderer = self.rs.renderer.write();
@@ -975,7 +1018,8 @@ fn texture_buffer<'a>(
 /// What a [`GpuCanvas::refresh`] did.
 #[derive(Clone, Debug, Default)]
 pub struct Refresh {
-    /// "gpu-rect", "gpu-full" (wgpu compositor), "rect" or "full" (CPU compositor).
+    /// "gpu-rect", "gpu-full" (wgpu compositor), "rect" or "full" (CPU compositor); "lost" or
+    /// [`REFRESH_OVER_BUDGET`] when nothing was drawn and the caller should use the CPU canvas.
     pub kind: &'static str,
     /// Pixels refreshed.
     pub px: u64,
