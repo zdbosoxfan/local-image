@@ -74,6 +74,18 @@ fn quick_mask_invert_includes_unstored_black() {
 }
 
 #[test]
+fn script_browse_explains_unsupported_photoshop_formats() {
+    let mut s = session();
+    for ext in ["js", "jsx", "JSX", "jsxbin", "psjs", "ccjs"] {
+        let err = s.execute("file.scripts.browse", json!({"name": format!("hello.{ext}"), "script": "alert(1);"})).unwrap_err();
+        assert!(err.to_string().contains("not Photoshop ExtendScript"));
+        assert!(err.to_string().contains("JSON"));
+    }
+    let result = s.execute("file.scripts.browse", json!({"name": "new.json", "script": "[[\"file.new\", {\"width\":8, \"height\":8}]]"})).unwrap();
+    assert_eq!(result["ok"], true);
+}
+
+#[test]
 fn copied_styles_keep_blend_if_channels_and_group_blending() {
     let mut s = session();
     let a = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
