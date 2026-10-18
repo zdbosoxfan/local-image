@@ -277,3 +277,35 @@ fn garbage_is_an_error() {
     assert!(read_abr(b"8BPS not a brush", "g").is_err());
     assert!(read_abr(&[0, 6, 0, 2], "g").is_err());
 }
+
+/// Photoshop CC presets store the dual tip's spacing in `dualBrush › Brsh › Spcn` and a `Spcn`
+/// of 100 % on the `dualBrush` object beside it; the tip's value is the panel's. A tip without
+/// one still takes the outer value, and the main brush's spacing stays its own.
+#[test]
+fn dual_brush_spacing_comes_from_its_tip() {
+    let dual = |tip: Descriptor| {
+        Descriptor::new("brushPreset")
+            .with("Nm  ", t("SPACING 10%"))
+            .with("Brsh", Value::Descriptor(Descriptor::new("computedBrush").with("Dmtr", u(b"#Pxl", 30.0))))
+            .with(
+                "dualBrush",
+                Value::Descriptor(
+                    Descriptor::new("dualBrush")
+                        .with("useDualBrush", Value::Boolean(true))
+                        .with("Brsh", Value::Descriptor(tip))
+                        .with("BlnM", en("BlnM", "Ovrl"))
+                        .with("Spcn", prc(100.0)),
+                ),
+            )
+    };
+    let brush = |preset: Descriptor| {
+        let bytes = write_v6(2, &[], &[], &[preset], false).unwrap();
+        read_abr(&bytes, "Test").unwrap().presets[0].brush.clone()
+    };
+    let tip = Descriptor::new("computedBrush").with("Dmtr", u(b"#Pxl", 40.0));
+    let b = brush(dual(tip.clone().with("Spcn", prc(10.0))));
+    assert!(b.dual_brush.enabled);
+    assert!((b.dual_brush.spacing - 0.10).abs() < 1e-6, "the tip's 10 %, not the outer 100 %");
+    assert!((b.spacing - 0.25).abs() < 1e-6, "main brush spacing is independent");
+    assert!((brush(dual(tip)).dual_brush.spacing - 1.0).abs() < 1e-6, "no tip spacing: the outer value");
+}
