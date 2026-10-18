@@ -1096,6 +1096,10 @@ pub struct UiState {
     /// Inline type editing session, if any.
     #[serde(default)]
     pub text_edit: Option<TextEdit>,
+    /// Clock time in seconds when the type caret's blink was last reset (a keystroke, a click that
+    /// places the caret, a drag): the caret is solid for a blink period after it.
+    #[serde(skip)]
+    pub caret_blink_time: f64,
     /// Free Transform session, if any.
     #[serde(default)]
     pub transform: Option<TransformSession>,
@@ -1259,6 +1263,7 @@ impl Default for UiState {
             ai: Default::default(),
             recent_files: Vec::new(),
             text_edit: None,
+            caret_blink_time: 0.0,
             transform: None,
             mask_target: false,
             vector_mask_target: false,
