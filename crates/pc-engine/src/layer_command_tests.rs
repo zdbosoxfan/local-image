@@ -198,6 +198,25 @@ fn refining_a_mask_preserves_metadata_and_explicit_target() {
 }
 
 #[test]
+fn history_reads_locked_source_pixels_but_rejects_locked_destinations() {
+    for (cmd, params) in
+        [("edit.fill", json!({"contents": "history", "state": 1})), ("paint.historyBrush", json!({"points": [[8, 8]], "size": 4, "hardness": 100, "state": 1}))]
+    {
+        let mut s = session();
+        s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+        s.execute("layer.lockLayers", json!({"pixels": false})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        s.execute(cmd, params.clone()).unwrap();
+        let pixel = s.execute("document.pixel", json!({"x": 8, "y": 8})).unwrap();
+        assert!(pixel.as_array().unwrap().iter().all(|v| v.as_f64().unwrap() > 0.99), "{pixel}");
+        s.execute("layer.lockLayers", json!({"pixels": true})).unwrap();
+        let history = s.active().unwrap().history.past_len();
+        assert!(s.execute(cmd, params).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+    }
+}
+
+#[test]
 fn failed_copy_preserves_existing_clipboard_and_history() {
     let mut s = session();
     s.execute("edit.copy", json!({})).unwrap();

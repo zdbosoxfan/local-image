@@ -497,6 +497,19 @@ pub(crate) fn is_channel_target(p: &Value) -> bool {
     matches!(target_of(p), Target::Alpha(_) | Target::QuickMask)
 }
 
+/// Read a historical target without applying its editing locks.
+pub(crate) fn read_target_surface<'a>(doc: &'a Document, layer: Option<LayerId>, p: &Value) -> Result<&'a Surface> {
+    match target_of(p) {
+        Target::Alpha(i) => doc.channels.get(i).map(|c| &c.surface).ok_or_else(|| EngineError::Other(format!("no alpha channel {i}"))),
+        Target::QuickMask => doc.quick_mask.as_ref().map(|c| &c.surface).ok_or_else(|| EngineError::Other("not in Quick Mask mode".into())),
+        Target::Pixels | Target::Mask => {
+            let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+            if target_of(p) == Target::Mask { l.mask.as_ref().map(|m| &m.surface) } else { l.surface() }.ok_or(EngineError::NoLayer(id))
+        }
+    }
+}
+
 /// The surface a pixel command writes to and whether the layer's transparency is locked.
 pub(crate) fn target_surface<'a>(doc: &'a mut Document, layer: Option<LayerId>, p: &Value) -> Result<(&'a mut Surface, bool)> {
     match target_of(p) {

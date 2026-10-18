@@ -124,8 +124,7 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
                 // The History Brush's default source: the oldest state still held.
                 None => st.history.state(0).unwrap_or_else(|| st.doc.clone()),
             };
-            let mut source_doc = (*source_doc).clone();
-            let (src, _) = crate::channel_cmds::target_surface(&mut source_doc, id, p)
+            let src = crate::channel_cmds::read_target_surface(&source_doc, id, p)
                 .map_err(|_| EngineError::Other("the target did not exist (as pixels, a mask or a channel) in that history state".into()))?;
             Source::Pixels(area, read_rgba(src, area, "reading Fill's history source")?)
         }
