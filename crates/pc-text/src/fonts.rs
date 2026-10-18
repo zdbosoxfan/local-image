@@ -354,9 +354,37 @@ pub fn face_count(bytes: &[u8]) -> usize {
 
 /// Heuristic PostScript-name split: `MyriadPro-BoldIt` → ("Myriad Pro", 700, italic).
 pub fn guess_from_postscript(ps: &str) -> ResolvedFont {
-    let (fam, style) = ps.split_once('-').unwrap_or((ps, ""));
-    let fam = fam.trim_end_matches("MT").trim_end_matches("PS").trim_end_matches("Std").trim_end_matches("Pro");
-    let pro = ps.split_once('-').map_or(ps, |p| p.0);
+    // A vendor or family name may contain hyphens; start with the final face suffix.
+    let (mut pro, mut style) = ps.rsplit_once('-').unwrap_or((ps, ""));
+    // Keep compound style suffixes such as Bold-It. Regular alone must not consume a family
+    // component named Bold or Black.
+    if matches!(style.to_ascii_lowercase().as_str(), "it" | "italic" | "oblique")
+        && let Some((family, weight)) = pro.rsplit_once('-')
+        && matches!(
+            weight.to_ascii_lowercase().as_str(),
+            "thin"
+                | "hairline"
+                | "extralight"
+                | "ultralight"
+                | "light"
+                | "regular"
+                | "roman"
+                | "book"
+                | "medium"
+                | "semibold"
+                | "demibold"
+                | "demi"
+                | "bold"
+                | "extrabold"
+                | "ultrabold"
+                | "heavy"
+                | "black"
+        )
+    {
+        pro = family;
+        style = ps.strip_prefix(family).and_then(|s| s.strip_prefix('-')).unwrap_or(style);
+    }
+    let fam = pro.trim_end_matches("MT").trim_end_matches("PS").trim_end_matches("Std").trim_end_matches("Pro");
     let suffix = if pro.ends_with("Pro") {
         " Pro"
     } else if pro.ends_with("Std") {
@@ -603,4 +631,19 @@ fn export_font_snapshot_keeps_registered_families_and_independent_layout() {
     assert_eq!(actual.clusters, expected.clusters);
     assert_eq!(actual.glyphs.iter().map(|glyph| glyph.id).collect::<Vec<_>>(), expected.glyphs.iter().map(|glyph| glyph.id).collect::<Vec<_>>());
     assert!(!crate::TextEngine::new().fonts.has_family(family), "fixture must exercise a non-bundled registration");
+}
+
+#[cfg(test)]
+#[test]
+fn hyphenated_postscript_names_preserve_family_weight_and_slant() {
+    for (ps, family, weight, italic) in [
+        ("FOT-NewRodinPro-Regular", "FOT-New Rodin Pro", 400, false),
+        ("Vendor-FamilyPro-BoldIt", "Vendor-Family Pro", 700, true),
+        ("MyriadPro-Bold-It", "Myriad Pro", 700, true),
+        ("FOT-NewRodinPro-Bold-It", "FOT-New Rodin Pro", 700, true),
+        ("Vendor-Bold-Regular", "Vendor-Bold", 400, false),
+    ] {
+        let guessed = guess_from_postscript(ps);
+        assert_eq!((guessed.family.as_str(), guessed.weight, guessed.italic), (family, weight, italic));
+    }
 }

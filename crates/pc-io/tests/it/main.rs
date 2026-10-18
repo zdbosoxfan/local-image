@@ -31,6 +31,7 @@ mod psd_block_alignment;
 mod psd_block_layout;
 mod psd_damaged_merged;
 mod psd_empty_channels;
+mod psd_font_identity;
 mod psd_kerning;
 mod psd_structure;
 mod psd_type_bounds;
