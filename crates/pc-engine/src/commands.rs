@@ -494,60 +494,99 @@ fn build() -> Vec<CommandSpec> {
             "Layer Properties",
             [],
             None,
-            r##"{"layer":id?,"name":str?,"visible":bool?,"opacity":0..1?,"fill":0..1?,"blend":"Multiply|…"?,"clipped":bool?,"locked":bool?,"locks":{"transparency","pixels","position","artboard","all":bool}?,"channels":[bool,…]? (Advanced Blending: which colour channels blend, R G B / C M Y K / L a b)}"##,
+            r##"{"layer":id?,"layers":[id,…]? (the same change to each, one step: the Layers panel's controls with several layers selected),"name":str? (one layer only),"visible":bool?,"opacity":0..1?,"fill":0..1?,"blend":"Multiply|…"?,"clipped":bool?,"locked":bool?,"locks":{"transparency","pixels","position","artboard","all":bool}?,"channels":[bool,…]? (Advanced Blending: which colour channels blend, R G B / C M Y K / L a b)}"##,
             has_layer,
             |s, p| {
-                let id = layer_param(s, p)?;
-                let only_visibility =
-                    p.as_object().is_some_and(|o| o.contains_key("visible") && o.keys().all(|k| matches!(k.as_str(), "layer" | "visible" | "coalesce")));
-                let label = if only_visibility { "Layer Visibility" } else { "Layer Properties" };
+                // Several layers at once (the Layers panel with several selected, as in Photoshop),
+                // else the given or active one.
+                let ids: Vec<LayerId> = match p.get("layers") {
+                    None | Some(Value::Null) => vec![layer_param(s, p)?],
+                    Some(Value::Array(a)) if !a.is_empty() && a.len() <= 10_000 => {
+                        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+                        let mut ids = Vec::with_capacity(a.len());
+                        for v in a {
+                            let id = v.as_u64().map(LayerId).ok_or_else(|| bad("layer.setProps", format!("`layers` holds layer ids, got {v}")))?;
+                            if doc.layer(id).is_none() {
+                                return Err(EngineError::NoLayer(id));
+                            }
+                            if !ids.contains(&id) {
+                                ids.push(id);
+                            }
+                        }
+                        ids
+                    }
+                    Some(v) => return Err(bad("layer.setProps", format!("`layers` is a non-empty list of layer ids, got {v}"))),
+                };
+                if ids.len() > 1 && p.get("name").is_some() {
+                    return Err(bad("layer.setProps", "`name` renames one layer, not several"));
+                }
+                // Photoshop's History names for a single kind of change; a mix is "Layer Properties".
+                let changed: Vec<&str> = p
+                    .as_object()
+                    .map(|o| o.keys().map(String::as_str).filter(|k| !matches!(*k, "layer" | "layers" | "coalesce")).collect())
+                    .unwrap_or_default();
+                let label = match changed.as_slice() {
+                    ["visible"] => "Layer Visibility",
+                    ["opacity"] => "Opacity Change",
+                    ["fill"] => "Fill Opacity Change",
+                    ["blend"] => "Blending Change",
+                    ["name"] => "Rename Layer",
+                    _ => "Layer Properties",
+                };
                 let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
                 // Clipping and channel changes reach the layers around it: recomposite everything.
                 let local = p.get("clipped").is_none() && p.get("channels").is_none();
                 s.edit(label, |doc, _| {
-                    let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-                    if let Some(v) = p.get("name").and_then(Value::as_str) {
-                        l.name = v.to_string();
-                    }
-                    if let Some(v) = p.get("visible").and_then(Value::as_bool) {
-                        l.visible = v;
-                    }
-                    if let Some(v) = p.get("opacity").and_then(Value::as_f64) {
-                        l.opacity = (v as f32).clamp(0.0, 1.0);
-                    }
-                    if let Some(v) = p.get("fill").and_then(Value::as_f64) {
-                        l.fill_opacity = (v as f32).clamp(0.0, 1.0);
-                    }
-                    if let Some(v) = p.get("blend").and_then(Value::as_str) {
-                        l.blend = blend_from_str(v).ok_or_else(|| bad("layer.setProps", format!("unknown blend mode `{v}`")))?;
-                    }
-                    if let Some(v) = p.get("clipped").and_then(Value::as_bool) {
-                        l.clipped = v;
-                    }
-                    if let Some(v) = p.get("locked").and_then(Value::as_bool) {
-                        l.locks.all = v;
-                    }
-                    if let Some(Value::Array(ch)) = p.get("channels") {
-                        // Blending Options › Advanced Blending › Channels: unchecked = left out.
-                        l.excluded_channels = ch.iter().take(32).enumerate().filter(|(_, v)| v.as_bool() == Some(false)).fold(0, |m, (i, _)| m | 1 << i);
-                    }
-                    if let Some(Value::Object(m)) = p.get("locks") {
-                        for (k, v) in m {
-                            let v = v.as_bool().unwrap_or(false);
-                            match k.as_str() {
-                                "transparency" => l.locks.transparency = v,
-                                "pixels" => l.locks.pixels = v,
-                                "position" => l.locks.position = v,
-                                "artboard" => l.locks.artboard = v,
-                                "all" => l.locks.all = v,
-                                other => return Err(bad("layer.setProps", format!("unknown lock `{other}`"))),
+                    for &id in &ids {
+                        let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+                        if let Some(v) = p.get("name").and_then(Value::as_str) {
+                            l.name = v.to_string();
+                        }
+                        if let Some(v) = p.get("visible").and_then(Value::as_bool) {
+                            l.visible = v;
+                        }
+                        if let Some(v) = p.get("opacity").and_then(Value::as_f64) {
+                            l.opacity = (v as f32).clamp(0.0, 1.0);
+                        }
+                        if let Some(v) = p.get("fill").and_then(Value::as_f64) {
+                            l.fill_opacity = (v as f32).clamp(0.0, 1.0);
+                        }
+                        if let Some(v) = p.get("blend").and_then(Value::as_str) {
+                            let b = blend_from_str(v).ok_or_else(|| bad("layer.setProps", format!("unknown blend mode `{v}`")))?;
+                            // Pass Through is a group's mode only, as in Photoshop.
+                            if b == BlendMode::PassThrough && !l.is_group() {
+                                return Err(bad("layer.setProps", format!("Pass Through applies to groups only; layer {} isn't one", l.id.0)));
+                            }
+                            l.blend = b;
+                        }
+                        if let Some(v) = p.get("clipped").and_then(Value::as_bool) {
+                            l.clipped = v;
+                        }
+                        if let Some(v) = p.get("locked").and_then(Value::as_bool) {
+                            l.locks.all = v;
+                        }
+                        if let Some(Value::Array(ch)) = p.get("channels") {
+                            // Blending Options › Advanced Blending › Channels: unchecked = left out.
+                            l.excluded_channels = ch.iter().take(32).enumerate().filter(|(_, v)| v.as_bool() == Some(false)).fold(0, |m, (i, _)| m | 1 << i);
+                        }
+                        if let Some(Value::Object(m)) = p.get("locks") {
+                            for (k, v) in m {
+                                let v = v.as_bool().unwrap_or(false);
+                                match k.as_str() {
+                                    "transparency" => l.locks.transparency = v,
+                                    "pixels" => l.locks.pixels = v,
+                                    "position" => l.locks.position = v,
+                                    "artboard" => l.locks.artboard = v,
+                                    "all" => l.locks.all = v,
+                                    other => return Err(bad("layer.setProps", format!("unknown lock `{other}`"))),
+                                }
                             }
                         }
                     }
                     Ok(())
                 })?;
                 if local {
-                    crate::layer_multi_cmds::note_damage(s, &before, &[id]);
+                    crate::layer_multi_cmds::note_damage(s, &before, &ids);
                 }
                 Ok(Value::Null)
             }

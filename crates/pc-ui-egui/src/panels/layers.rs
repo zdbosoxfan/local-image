@@ -8,14 +8,25 @@ use super::*;
 /// any is set, and locks all otherwise. Toggling only "lock all" would leave the Background's
 /// transparency lock (still showing as locked), and a second click would lock its pixels,
 /// shutting out the Eraser and every other paint tool (#76).
-pub(super) fn simple_lock_toggle(background: bool, l: &Layer) -> (String, Value) {
+/// The active layer's state decides, and every target follows it (`targets`: `{"layer": id}` or
+/// `{"layers": [ids]}`).
+pub(super) fn simple_lock_toggle(background: bool, l: &Layer, targets: &Value) -> (String, Value) {
     if background {
         return ("layer.new.layerFromBackground".into(), json!({}));
     }
     let k = &l.locks;
     let locked = k.transparency || k.pixels || k.position || k.artboard || k.all;
     let locks = if locked { json!({"transparency": false, "pixels": false, "position": false, "artboard": false, "all": false}) } else { json!({"all": true}) };
-    ("layer.setProps".into(), json!({"layer": l.id.0, "locks": locks}))
+    let mut p = targets.clone();
+    p["locks"] = locks;
+    ("layer.setProps".into(), p)
+}
+
+/// The `layer.setProps` edit of the Opacity or Fill (`key`) field at `pct` percent.
+fn pct_action(targets: &Value, key: &str, pct: f32) -> (String, Value) {
+    let mut p = targets.clone();
+    p[key] = json!(pct / 100.0);
+    ("layer.setProps".into(), p)
 }
 
 pub(super) fn blend_options(groups: bool) -> Vec<(BlendMode, &'static str)> {
@@ -67,8 +78,20 @@ pub(super) fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.add_space(4.0);
     }
     if let Some(l) = active_layer {
+        // With several layers selected, blend mode, Opacity, Fill and the locks change every one
+        // of them, as in Photoshop; the controls show the active layer's values. A selected
+        // Background stays out of a several-layer change: Opacity, Fill or a blend mode would
+        // turn it into Layer 0.
+        let ids: Vec<LayerId> = if selection.len() > 1 && selection.contains(&l.id) {
+            selection.iter().copied().filter(|id| *id == l.id || !doc.layer(*id).is_some_and(|x| crate::doc_props_ui::is_background(&doc, x))).collect()
+        } else {
+            vec![l.id]
+        };
+        let targets = if ids.len() > 1 { json!({"layers": ids.iter().map(|id| id.0).collect::<Vec<_>>()}) } else { json!({"layer": l.id.0}) };
         // Photoshop greys blend mode, Opacity and Fill for the Background layer.
         let bg = crate::doc_props_ui::is_background(&doc, l);
+        // Pass Through is a group's mode: offered only when every target is a group.
+        let all_groups = ids.iter().all(|id| doc.layer(*id).is_some_and(Layer::is_group));
         ui.horizontal(|ui| {
             ui.add_enabled_ui(!bg, |ui| {
                 let mut m = l.blend;
@@ -77,13 +100,15 @@ pub(super) fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let opacity_label = if t.pro { tl!("Opacity:") } else { tl!("Opacity") };
                 let right = (body_text_width(ui, opacity_label) + 66.0 + 2.0 * ui.spacing().item_spacing.x + 16.0).max(150.0);
                 let w = ui.available_width() - right;
-                if widgets::dropdown(ui, "blend", &mut m, &blend_options(l.is_group()), w.max(100.0)) {
-                    actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "blend": m.label()})));
+                if widgets::dropdown(ui, "blend", &mut m, &blend_options(all_groups), w.max(100.0)) {
+                    let mut p = targets.clone();
+                    p["blend"] = json!(m.label());
+                    actions.push(("layer.setProps".into(), p));
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut o = l.opacity * 100.0;
                     if widgets::value_field(ui, &mut o, 0.0..=100.0, "%", 66.0).changed() {
-                        actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "opacity": o / 100.0})));
+                        actions.push(pct_action(&targets, "opacity", o));
                     }
                     label(ui, opacity_label);
                 });
@@ -113,21 +138,23 @@ pub(super) fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     ("all", "lock", tl!("Lock all"), lk.all),
                 ] {
                     if icons::button(ui, icon, 20.0, on, tip).clicked() {
-                        actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "locks": { key: !on }})));
+                        let mut p = targets.clone();
+                        p["locks"] = json!({ key: !on });
+                        actions.push(("layer.setProps".into(), p));
                     }
                 }
             }
             if !t.pro {
                 let locked = l.locks.transparency || l.locks.position || l.locks.all;
                 if icons::button(ui, if locked { "lock" } else { "lock-open" }, 22.0, locked, tl!("Lock layer")).clicked() {
-                    actions.push(simple_lock_toggle(bg, l));
+                    actions.push(simple_lock_toggle(bg, l, &targets));
                 }
             }
             ui.add_enabled_ui(!bg, |ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let mut f = l.fill_opacity * 100.0;
                     if widgets::value_field(ui, &mut f, 0.0..=100.0, "%", 66.0).changed() {
-                        actions.push(("layer.setProps".into(), json!({"layer": l.id.0, "fill": f / 100.0})));
+                        actions.push(pct_action(&targets, "fill", f));
                     }
                     label(ui, fill_label);
                 })
