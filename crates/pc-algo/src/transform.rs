@@ -3,7 +3,7 @@
 //! A transform is described by where the four corners of a source rectangle land (a quad). Scale,
 //! rotate, skew and flips are affine special cases; Distort and Perspective use the full
 //! homography. Warping is an inverse mapping with premultiplied-alpha sampling (nearest, bilinear
-//! or Catmull-Rom bicubic), processed per destination tile (in parallel on native) so memory stays
+//! or Photoshop’s Keys bicubic), processed per destination tile (in parallel on native) so memory stays
 //! bounded by the tile working set. Large reductions are pre-filtered with a proper resize first,
 //! so shrinking a layer doesn't alias.
 
@@ -312,10 +312,13 @@ impl Interp {
     }
 }
 
-fn catmull_rom(t: f64) -> [f64; 4] {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    [-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2]
+/// Photoshop's Bicubic: the Keys cubic at a = −0.75 (Catmull-Rom is −0.5), the weights of the
+/// four source pixels around a sample `t` (0..1) past the second.
+pub(crate) fn bicubic(t: f64) -> [f64; 4] {
+    const A: f64 = -0.75;
+    let near = |x: f64| (A + 2.0) * x * x * x - (A + 3.0) * x * x + 1.0;
+    let far = |x: f64| A * (x * x * x - 5.0 * x * x + 8.0 * x - 4.0);
+    [far(1.0 + t), near(t), near(1.0 - t), far(2.0 - t)]
 }
 
 /// Warp `src` (its content inside `src_rect`) by `h` (source → destination document space).
@@ -337,13 +340,15 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
     }
     let mut h = *h;
     let mut src_rect = src_rect;
-    // Pre-reduce for large downscales (bicubic alone aliases below ~50%).
+    // A Bicubic reduction first resizes the source by the whole local scale with the same Keys
+    // cubic widened by 1 / scale (`BicubicSharper` is a = −0.75), so the warp samples it at about
+    // 1:1; a plain 4×4 kernel aliases at 50 %. Bilinear samples the source directly.
     let (cx, cy) = ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0);
     let scale = h.local_scale(cx, cy);
     let reduced;
-    if interp != Interp::Nearest && scale < 0.5 && scale > 0.0 {
-        let f = 2f64.powf(scale.log2().ceil()).min(1.0); // remaining scale lands in [0.5, 1)
-        reduced = resize_surface(src, f, f, Resample::Bicubic);
+    if interp == Interp::Bicubic && scale < 0.999 && scale > 0.0 {
+        let f = scale.max(1.0 / 64.0);
+        reduced = resize_surface(src, f, f, Resample::BicubicSharper);
         src = &reduced;
         h = h.mul(&Homography([1.0 / f, 0.0, 0.0, 0.0, 1.0 / f, 0.0, 0.0, 0.0, 1.0]));
         src_rect = crate::resample::scaled_rect(src_rect, f, f);
@@ -435,7 +440,7 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                     }
                     Interp::Bicubic => {
                         let (ix, iy) = (u.floor() as i32, v.floor() as i32);
-                        let (wx, wy) = (catmull_rom(u - ix as f64), catmull_rom(v - iy as f64));
+                        let (wx, wy) = (bicubic(u - ix as f64), bicubic(v - iy as f64));
                         for (j, wyj) in wy.iter().enumerate() {
                             for (i, wxi) in wx.iter().enumerate() {
                                 let k = wxi * wyj;
@@ -508,6 +513,22 @@ mod tests {
         let h = Homography([1.0, 0.0, -f64::from(origin), 0.0, 1.0, -f64::from(origin), 0.0, 0.0, 1.0]);
         let output = warp_surface(&source, bounds, &h, Interp::Bilinear);
         assert_eq!(output.pixel(2, 2), source.pixel(origin + 2, origin + 2));
+    }
+
+    #[test]
+    fn bicubic_upscale_matches_photoshop() {
+        let mut src = rgba();
+        let g = |v: f32| v / 255.0;
+        src.fill_rect(Rect::new(0, 0, 32, 64), &[g(64.0), g(64.0), g(64.0), 1.0]);
+        src.fill_rect(Rect::new(32, 0, 64, 64), &[g(192.0), g(192.0), g(192.0), 1.0]);
+        let q = [[-32.0, -32.0], [96.0, -32.0], [96.0, 96.0], [-32.0, 96.0]];
+        let h = Homography::rect_to_quad([0.0, 0.0, 64.0, 64.0], q).unwrap();
+        let out = warp_surface(&src, Rect::new(0, 0, 64, 64), &h, Interp::Bicubic);
+        let photoshop = [64.0, 64.0, 64.0, 60.0, 51.0, 93.0, 163.0, 206.0, 197.0, 192.0];
+        for (i, want) in photoshop.iter().enumerate() {
+            let got = out.pixel(26 + i as i32, 50)[0] * 255.0;
+            assert!((got - want).abs() <= 1.5, "column {}: {got} vs {want}", 26 + i);
+        }
     }
 
     #[test]
