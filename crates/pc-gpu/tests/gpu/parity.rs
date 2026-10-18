@@ -2460,3 +2460,28 @@ fn pattern_context_pixel_changes_rebuild_bevel_program() {
     let stats = fx_check(&mut g, &d, "changed bevel texture");
     assert!(stats.fx_programs > 0, "pattern-only change must rebuild its effect maps");
 }
+
+#[test]
+fn threshold_posterize_and_tone_curves_match_cpu_at_every_depth() {
+    let mut g = gpu();
+    let mut ranges = HueRange::defaults();
+    ranges[0].hue = 60.0;
+    ranges[0].lightness = 30.0;
+    let adjustments = [
+        Adjustment::Threshold { level: 60.0 / 255.0 },
+        Adjustment::Posterize { levels: 3 },
+        Adjustment::BrightnessContrast { brightness: -95.0, contrast: 30.0, legacy: false },
+        Adjustment::ColorBalance { shadows: [-6.0, 22.0, 5.0], midtones: [30.0, 0.0, 30.0], highlights: [-1.0, -4.0, -6.0], preserve_luminosity: true },
+        Adjustment::GradientMap { stops: vec![(0.0, [0.0; 3]), (1.0, [1.0; 3])], reverse: false, dither: false },
+        Adjustment::HueSaturation { hue: 0.0, saturation: 0.0, lightness: 17.0, colorize: false, ranges },
+    ];
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for adj in &adjustments {
+            let mut d = Document::new("tones", Size::new(40, 30), ColorMode::Rgb, depth);
+            let fmt = d.pixel_format();
+            d.layers.push(noise_layer("colour", fmt, Rect::from_xywh(0, 0, 40, 30), 71, 1.0));
+            d.layers.push(Layer::new("adjustment", LayerContent::Adjustment(adj.clone())));
+            check(&mut g, &d, &format!("{} {depth:?}", adj.label()));
+        }
+    }
+}
