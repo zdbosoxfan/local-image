@@ -8,6 +8,47 @@ fn session() -> Session {
 }
 
 #[test]
+fn locked_text_rejects_edits_without_history() {
+    let mut s = session();
+    s.execute("type.create", json!({"x": 5, "y": 5, "text": "a", "size": 12})).unwrap();
+    s.execute("layer.setProps", json!({"locked": true})).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("type.edit", json!({"text": "b"})).unwrap_err().to_string().contains("locked"));
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+    s.execute("layer.setProps", json!({"locked": false})).unwrap();
+    s.execute("type.edit", json!({"text": "b"})).unwrap();
+    let st = s.active().unwrap();
+    let photocraft_doc::LayerContent::Text(t) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("expected text") };
+    assert_eq!(t.text, "b");
+}
+
+#[test]
+fn all_lock_blocks_mask_painting_but_pixel_lock_permits_it() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let id = s.active().unwrap().active_layer.unwrap();
+    s.edit("Mask", |doc, _| {
+        doc.layer_mut(id).unwrap().mask = Some(photocraft_doc::LayerMask::reveal_all());
+        Ok(())
+    })
+    .unwrap();
+    let stroke = json!({"points": [[5, 5]], "size": 4, "hardness": 1.0, "color": "#000000", "target": "mask"});
+    s.execute("layer.setProps", json!({"locks": {"all": true}})).unwrap();
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("paint.stroke", stroke.clone()).unwrap_err().to_string().contains("locked"));
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    let mask_value = |s: &Session| s.active().unwrap().doc.layer(id).unwrap().mask.as_ref().unwrap().surface.pixel(5, 5)[0];
+    assert!(mask_value(&s) > 0.99);
+    s.execute("layer.setProps", json!({"locks": {"all": false, "pixels": true}})).unwrap();
+    s.execute("paint.stroke", stroke).unwrap();
+    assert!(mask_value(&s) < 0.01);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert!(mask_value(&s) > 0.99);
+}
+
+#[test]
 fn copied_styles_keep_blend_if_channels_and_group_blending() {
     let mut s = session();
     let a = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
@@ -37,6 +78,23 @@ fn copied_styles_keep_blend_if_channels_and_group_blending() {
     s.execute("layer.layerStyle.copyLayerStyle", json!({})).unwrap();
     s.execute("layer.layerStyle.pasteLayerStyle", json!({"layer": pixel})).unwrap();
     assert_eq!(s.active().unwrap().doc.layer(photocraft_doc::LayerId(pixel)).unwrap().blend, photocraft_color::BlendMode::Normal);
+}
+
+#[test]
+fn pixel_lock_clears_and_holds_off_transparency_lock() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let locks = |s: &Session| {
+        let st = s.active().unwrap();
+        st.doc.layer(st.active_layer.unwrap()).unwrap().locks
+    };
+    for command in ["layer.setProps", "layer.lockLayers"] {
+        for params in [json!({"pixels": false}), json!({"transparency": true}), json!({"pixels": true}), json!({"transparency": true})] {
+            let p = if command == "layer.setProps" { json!({"locks": params}) } else { params };
+            s.execute(command, p).unwrap();
+        }
+        assert!(locks(&s).pixels && !locks(&s).transparency);
+    }
 }
 
 #[test]

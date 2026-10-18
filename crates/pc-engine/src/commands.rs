@@ -57,16 +57,39 @@ pub(crate) fn has_paintable(s: &Session) -> std::result::Result<(), String> {
 
 /// Surface a paint command writes to: the layer's pixels, or its mask with `"target":"mask"`.
 pub(crate) fn paint_surface<'a>(doc: &'a mut Document, id: LayerId, p: &Value) -> Result<&'a mut photocraft_raster::Surface> {
-    let locks = doc.effective_locks(id);
+    check_layer_unlocked(doc, id, !is_mask_target(p))?;
     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-    if !is_mask_target(p) && (locks.pixels || locks.all) {
-        return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", l.name)));
-    }
     if is_mask_target(p) {
         l.mask.as_mut().map(|m| &mut m.surface).ok_or_else(|| EngineError::Other("layer has no mask".into()))
     } else {
         l.surface_mut().ok_or_else(|| EngineError::Other("not a pixel layer".into()))
     }
+}
+
+pub(crate) fn check_layer_unlocked(doc: &Document, id: LayerId, pixels: bool) -> Result<()> {
+    let locks = doc.effective_locks(id);
+    let layer = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    if locks.all || (pixels && locks.pixels) {
+        return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", layer.name)));
+    }
+    Ok(())
+}
+
+pub(crate) fn set_lock(locks: &mut photocraft_doc::Locks, key: &str, on: bool) -> bool {
+    match key {
+        "transparency" => locks.transparency = on && !locks.pixels,
+        "pixels" => {
+            locks.pixels = on;
+            if on {
+                locks.transparency = false;
+            }
+        }
+        "position" => locks.position = on,
+        "artboard" => locks.artboard = on,
+        "all" => locks.all = on,
+        _ => return false,
+    }
+    true
 }
 
 pub(crate) fn is_mask_target(p: &Value) -> bool {
@@ -572,13 +595,8 @@ fn build() -> Vec<CommandSpec> {
                         if let Some(Value::Object(m)) = p.get("locks") {
                             for (k, v) in m {
                                 let v = v.as_bool().unwrap_or(false);
-                                match k.as_str() {
-                                    "transparency" => l.locks.transparency = v,
-                                    "pixels" => l.locks.pixels = v,
-                                    "position" => l.locks.position = v,
-                                    "artboard" => l.locks.artboard = v,
-                                    "all" => l.locks.all = v,
-                                    other => return Err(bad("layer.setProps", format!("unknown lock `{other}`"))),
+                                if !set_lock(&mut l.locks, k, v) {
+                                    return Err(bad("layer.setProps", format!("unknown lock `{k}`")));
                                 }
                             }
                         }

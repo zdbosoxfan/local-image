@@ -666,13 +666,7 @@ fn lock_layers(s: &mut Session, p: &Value) -> Result<Value> {
         for id in &sel {
             let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
             for (k, v) in &given {
-                match *k {
-                    "transparency" => l.locks.transparency = *v,
-                    "pixels" => l.locks.pixels = *v,
-                    "position" => l.locks.position = *v,
-                    "artboard" => l.locks.artboard = *v,
-                    _ => l.locks.all = *v,
-                }
+                crate::commands::set_lock(&mut l.locks, k, *v);
             }
         }
         Ok(())
