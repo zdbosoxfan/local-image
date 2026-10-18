@@ -533,7 +533,6 @@ fn replace_effects(s: &mut Session, p: &Value) -> Result<Value> {
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         l.effects.items = list;
-        l.effects.enabled = true;
         Ok(())
     })?;
     Ok(json!({ "layer": id.0, "effects": count }))
@@ -553,7 +552,6 @@ fn set_effect(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
             crate::pattern_cmds::ensure_in_doc(doc, pat);
         }
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-        l.effects.enabled = true;
         match l.effects.items.iter_mut().find(|e| same_kind(e, &fx)) {
             Some(slot) if !add => *slot = fx,
             _ => l.effects.items.push(fx),
@@ -995,5 +993,27 @@ mod tests {
         let entries: Vec<Value> = items.iter().map(|fx| json!({"kind": "stroke", "fx": serde_json::to_value(fx).unwrap(), "params": {}})).collect();
         s.execute("layer.layerStyle.replace", json!({"layer": id.0, "effects": entries})).unwrap();
         assert_eq!(px(&mut s, 24, 14), before, "both strokes render identically after the round trip");
+    }
+    #[test]
+    fn editing_effects_preserves_the_disabled_master_switch() {
+        for (cmd, params) in [
+            ("layer.layerStyle.colorOverlay", json!({"color": "#00ff00"})),
+            ("layer.layerStyle.replace", json!({"effects": [{"kind": "colorOverlay", "params": {"color": "#00ff00"}}]})),
+        ] {
+            let mut s = session();
+            s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+            s.execute("layer.layerStyle.colorOverlay", json!({"color": "#ff0000"})).unwrap();
+            s.execute("layer.layerStyle.hideAllEffects", json!({})).unwrap();
+            let before = s.execute("document.pixel", json!({"x": 3, "y": 3})).unwrap();
+            s.execute(cmd, params).unwrap();
+            let st = s.active().unwrap();
+            let fx = &st.doc.layer(st.active_layer.unwrap()).unwrap().effects;
+            assert!(!fx.enabled);
+            assert_eq!(fx.items.len(), 1);
+            assert!(fx.items[0].enabled());
+            assert_eq!(s.execute("document.pixel", json!({"x": 3, "y": 3})).unwrap(), before);
+            s.execute("layer.layerStyle.showAllEffects", json!({})).unwrap();
+            assert_ne!(s.execute("document.pixel", json!({"x": 3, "y": 3})).unwrap(), before);
+        }
     }
 }
