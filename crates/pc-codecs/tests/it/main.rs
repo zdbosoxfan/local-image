@@ -14,6 +14,7 @@ mod orientation;
 mod png_jpeg;
 mod pnm_headers;
 mod roundtrip;
+mod tga;
 mod tiff_bench;
 mod tiff_pages;
 mod tiff_photoshop;

@@ -148,6 +148,9 @@ pub(crate) fn encode(f: Format, src: &Image, plan: Plan, opts: &EncodeOptions) -
         return Err(CodecError::encode(f, format!("dimensions exceed {mw}x{mh}")));
     }
     let img = src.converted(plan.layout, plan.sample);
+    if f == Format::Tga {
+        return super::tga::encode(&img);
+    }
     let dynimg = to_dynamic(&img)?;
     let mut cursor = Cursor::new(Vec::new());
     dynimg.write_to(&mut cursor, fmt).map_err(|e| CodecError::encode(f, e))?;
