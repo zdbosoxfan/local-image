@@ -172,7 +172,10 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                 if p[3] <= 0.0 {
                     continue;
                 }
-                let mut t = rgb_to_gray([p[0], p[1], p[2]]);
+                // Driven by the W3C luminosity (0.3, 0.59, 0.11), not the Rec. 601 grey: photoshop
+                // corpus rgb8 and rgb16 gradient-map.psd match within a level (2 levels off with
+                // 0.299, 0.587, 0.114).
+                let mut t = photocraft_color::blend::lum([p[0], p[1], p[2]]);
                 if *reverse {
                     t = 1.0 - t;
                 }
@@ -930,6 +933,18 @@ mod tone_tests {
         apply(&Adjustment::GradientMap { stops, reverse: false, dither: true }, &mut b);
         assert!(a.px.iter().zip(&b.px).all(|(x, y)| (x[0] - y[0]).abs() <= 0.5 / 255.0 + 1e-6));
         assert!(a.px.iter().zip(&b.px).any(|(x, y)| x[0] != y[0]));
+    }
+
+    #[test]
+    fn gradient_map_follows_the_w3c_luminosity() {
+        // Photoshop's Gradient Map is driven by 0.3 R + 0.59 G + 0.11 B (photoshop corpus rgb8 and
+        // rgb16 gradient-map.psd), not the Rec. 601 grey.
+        let stops = vec![(0.0, [0.0; 3]), (1.0, [1.0; 3])];
+        for (c, t) in [([0.0, 1.0, 0.0], 0.59), ([1.0, 0.0, 0.0], 0.3), ([0.0, 0.0, 1.0], 0.11), ([0.2, 0.6, 0.9], 0.513)] {
+            let mut b = Buffer::filled(crate::Rect::new(0, 0, 1, 1), [c[0], c[1], c[2], 1.0]);
+            apply(&Adjustment::GradientMap { stops: stops.clone(), reverse: false, dither: false }, &mut b);
+            assert!((b.px[0][0] - t).abs() < 1e-5, "{c:?}: {}", b.px[0][0]);
+        }
     }
 
     /// Pixel → Photoshop's split. 8-bit from psd-tools threshold_rgb.psd: the first three are
