@@ -8343,6 +8343,13 @@
           "url": "https://github.com/RustCrypto/utils"
         },
         {
+          "name": "block-buffer",
+          "version": "0.12.1",
+          "used_for": "Buffer types for block processing of data",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/utils"
+        },
+        {
           "name": "block2",
           "version": "0.5.1",
           "used_for": "Apple's C language extension of blocks",
@@ -8596,6 +8603,13 @@
         },
         {
           "name": "const-oid",
+          "version": "0.10.2",
+          "used_for": "Const-friendly implementation of the ISO/IEC Object Identifier (OID) standard as defined in ITU X.660, with support for BER/DER encoding/decoding as well as heapless no_std (i.e. embedded) support",
+          "licence": "Apache-2.0 OR MIT",
+          "url": "https://github.com/RustCrypto/formats"
+        },
+        {
+          "name": "const-oid",
           "version": "0.9.6",
           "used_for": "Const-friendly implementation of the ISO/IEC Object Identifier (OID) standard as defined in ITU X.660, with support for BER/DER encoding/decoding as well as heapless no_std (i.e. embedded) support",
           "licence": "Apache-2.0 OR MIT",
@@ -8721,6 +8735,13 @@
           "url": "https://github.com/RustCrypto/traits"
         },
         {
+          "name": "crypto-common",
+          "version": "0.2.2",
+          "used_for": "Common traits used by cryptographic algorithms",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/traits"
+        },
+        {
           "name": "ctr",
           "version": "0.9.2",
           "used_for": "CTR block modes of operation",
@@ -8814,6 +8835,13 @@
         {
           "name": "digest",
           "version": "0.10.7",
+          "used_for": "Traits for cryptographic hash functions and message authentication codes",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/traits"
+        },
+        {
+          "name": "digest",
+          "version": "0.11.3",
           "used_for": "Traits for cryptographic hash functions and message authentication codes",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/RustCrypto/traits"
@@ -9583,7 +9611,7 @@
         },
         {
           "name": "heic-rs",
-          "version": "0.1.1",
+          "version": "0.1.4",
           "used_for": "Pure-Rust HEIC/HEIF image decoder: no C, no unsafe, no_std-friendly, wasm-ready",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/tbraun96/heic-rs"
@@ -9636,6 +9664,13 @@
           "used_for": "HTTP date parsing and formatting",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/pyfisch/httpdate"
+        },
+        {
+          "name": "hybrid-array",
+          "version": "0.4.15",
+          "used_for": "Hybrid typenum-based and const generic array types designed to provide the flexibility of typenum-based expressions while also allowing interoperability and a transition path to const generics",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RustCrypto/hybrid-array"
         },
         {
           "name": "iana-time-zone",
@@ -10094,7 +10129,7 @@
         },
         {
           "name": "libc",
-          "version": "0.2.189",
+          "version": "0.2.191",
           "used_for": "Raw FFI bindings to platform libraries like libc.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/rust-lang/libc"
@@ -10304,7 +10339,7 @@
         },
         {
           "name": "muda",
-          "version": "0.21.1",
+          "version": "0.21.2",
           "used_for": "Menu Utilities for Desktop Applications",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/tauri-apps/muda"
@@ -11445,14 +11480,14 @@
         },
         {
           "name": "rmcp",
-          "version": "3.5.0",
+          "version": "3.5.1",
           "used_for": "Rust SDK for Model Context Protocol",
           "licence": "Apache-2.0",
           "url": "https://github.com/modelcontextprotocol/rust-sdk/"
         },
         {
           "name": "rmcp-macros",
-          "version": "3.5.0",
+          "version": "3.5.1",
           "used_for": "Rust SDK for Model Context Protocol macros library",
           "licence": "Apache-2.0",
           "url": "https://github.com/modelcontextprotocol/rust-sdk/"
@@ -11467,6 +11502,13 @@
         {
           "name": "roxmltree",
           "version": "0.20.0",
+          "used_for": "Represent an XML as a read-only tree.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RazrFalcon/roxmltree"
+        },
+        {
+          "name": "roxmltree",
+          "version": "0.21.1",
           "used_for": "Represent an XML as a read-only tree.",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/RazrFalcon/roxmltree"
@@ -11599,14 +11641,14 @@
         },
         {
           "name": "schemars",
-          "version": "1.2.2",
+          "version": "1.2.3",
           "used_for": "Generate JSON Schemas from Rust code",
           "licence": "MIT",
           "url": "https://github.com/GREsau/schemars"
         },
         {
           "name": "schemars_derive",
-          "version": "1.2.2",
+          "version": "1.2.3",
           "used_for": "Macros for #[derive(JsonSchema)], for use with schemars",
           "licence": "MIT",
           "url": "https://github.com/GREsau/schemars"
@@ -11676,7 +11718,7 @@
         },
         {
           "name": "serde_json",
-          "version": "1.0.151",
+          "version": "1.0.154",
           "used_for": "A JSON serialization file format",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/serde-rs/json"
@@ -11704,7 +11746,7 @@
         },
         {
           "name": "sha1",
-          "version": "0.10.7",
+          "version": "0.11.0",
           "used_for": "SHA-1 hash function",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/RustCrypto/hashes"
@@ -12089,7 +12131,7 @@
         },
         {
           "name": "tokio",
-          "version": "1.53.1",
+          "version": "1.53.3",
           "used_for": "An event-driven, non-blocking I/O platform for writing asynchronous I/O backed applications.",
           "licence": "MIT",
           "url": "https://github.com/tokio-rs/tokio"
@@ -12285,7 +12327,7 @@
         },
         {
           "name": "tungstenite",
-          "version": "0.27.0",
+          "version": "0.30.0",
           "used_for": "Lightweight stream-based WebSocket implementation",
           "licence": "MIT OR Apache-2.0",
           "url": "https://github.com/snapview/tungstenite-rs"
@@ -12396,13 +12438,6 @@
           "url": "https://github.com/linebender/resvg"
         },
         {
-          "name": "utf-8",
-          "version": "0.7.6",
-          "used_for": "Incremental, zero-copy UTF-8 decoding with error handling",
-          "licence": "MIT OR Apache-2.0",
-          "url": "https://github.com/SimonSapin/rust-utf8"
-        },
-        {
           "name": "utf8-zero",
           "version": "0.8.1",
           "used_for": "Zero-copy, incremental UTF-8 decoding with error handling",
@@ -12418,7 +12453,7 @@
         },
         {
           "name": "uuid",
-          "version": "1.26.1",
+          "version": "1.28.0",
           "used_for": "A library to generate and parse UUIDs.",
           "licence": "Apache-2.0 OR MIT",
           "url": "https://github.com/uuid-rs/uuid"

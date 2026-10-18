@@ -288,7 +288,7 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
     let limits = options.limits;
     let xml = roxmltree::Document::parse_with_options(
         source,
-        roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: limits.objects.saturating_mul(4).min(400_000) as u32 },
+        roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: limits.objects.saturating_mul(4).min(400_000) as u32, ..Default::default() },
     )
     .map_err(|e| ImportError::Invalid(e.to_string()))?;
     let root = xml.root_element();
