@@ -104,8 +104,6 @@ fn lut(row: i32, v: f32) -> f32 {
     return textureLoad(lut_tex, vec2(i, row), 0).r * (1.0 - f) + textureLoad(lut_tex, vec2(j, row), 0).r * f;
 }
 
-fn gray(c: vec3<f32>) -> f32 { return 0.299 * c.r + 0.587 * c.g + 0.114 * c.b; }
-
 // ---- blend modes (photocraft_color::blend + compose::psblend) ------------------------------
 
 const M_NORMAL: i32 = 1;
@@ -793,18 +791,6 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             if (p0.x > 0.5) { t = 1.0 - t; }
             var o = vec3(lut(0, t), lut(1, t), lut(2, t));
             if (p0.y > 0.5) { o = clamp(o + bayer4(adj_px) / 255.0, vec3(0.0), vec3(1.0)); }
-            return o;
-        }
-        case 14: {                                                             // Color balance
-            let l = gray(c);
-            let ws = clamp(1.0 - l * 2.0, 0.0, 1.0);
-            let wh = clamp(l * 2.0 - 1.0, 0.0, 1.0);
-            let wm = 1.0 - ws - wh;
-            let o = clamp(c + (p0.rgb * ws + p1.rgb * wm + p2.rgb * wh) / 100.0 * 0.5, vec3(0.0), vec3(1.0));
-            if (p3.x > 0.5) {
-                let l1 = max(gray(o), 1e-6);
-                return clamp(o * l / l1, vec3(0.0), vec3(1.0));
-            }
             return o;
         }
         case 15: { return selective_color(c, p0.x > 0.5); }                       // Selective color

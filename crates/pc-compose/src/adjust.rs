@@ -3,7 +3,7 @@
 //! Formulas are documented approximations of Photoshop behaviour. Exact matching is tuned in
 //! milestone M7 against Photoshop-rendered PSD composites (the oracle in `testkit`).
 
-use li_color::convert::{D50, SRGB_TO_XYZ_D50, XYZ_D50_TO_SRGB, mat3_mul, rgb_to_gray, srgb_to_linear};
+use li_color::convert::{D50, SRGB_TO_XYZ_D50, XYZ_D50_TO_SRGB, mat3_mul, srgb_to_linear};
 use photocraft_color::SampleType;
 use photocraft_doc::Adjustment;
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, ToneSpace};
@@ -187,19 +187,10 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                 p[..3].copy_from_slice(&o);
             }
         }
-        Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => map_rgb(buf, |c| {
-            let l = rgb_to_gray(c);
-            let ws = (1.0 - l * 2.0).clamp(0.0, 1.0);
-            let wh = (l * 2.0 - 1.0).clamp(0.0, 1.0);
-            let wm = 1.0 - ws - wh;
-            let out: [f32; 3] = std::array::from_fn(|i| (c[i] + (shadows[i] * ws + midtones[i] * wm + highlights[i] * wh) / 100.0 * 0.5).clamp(0.0, 1.0));
-            if *preserve_luminosity {
-                let l1 = rgb_to_gray(out).max(1e-6);
-                out.map(|v| (v * l / l1).clamp(0.0, 1.0))
-            } else {
-                out
-            }
-        }),
+        Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => {
+            let tones = [*shadows, *midtones, *highlights];
+            map_rgb(buf, |c| std::array::from_fn(|ch| color_balance_channel(tones, *preserve_luminosity, ch, c[ch])))
+        }
         Adjustment::SelectiveColor { relative, adjustments } => map_rgb(buf, |c| selective_color(c, *relative, adjustments)),
         Adjustment::ColorLookup { lut: Some(table), size, tetrahedral, dither, domain, .. } if lut3d_len(*size).is_some_and(|len| table.len() >= len) => {
             let (n, w, x0, y0) = (*size as usize, buf.rect.width().max(1) as usize, buf.rect.x0, buf.rect.y0);
@@ -245,6 +236,67 @@ pub fn threshold_white(c: [f32; 3], level: f32, depth: Option<SampleType>) -> bo
         Some(SampleType::F32) => (0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]) * 255.0 >= t,
     }
 }
+
+/// Color Balance on channel `ch` (0 red, 1 green, 2 blue) of `v` (0..1); `tones` are the
+/// shadows, midtones and highlights slider triples (cyan–red, magenta–green, yellow–blue,
+/// −100..100).
+///
+/// Reverse-engineered from Photoshop (a 16-bit gray ramp through every tone at ±10..±100, pairs of
+/// tones, and random settings of all nine sliders, Preserve Luminosity on and off): the three
+/// tones fold into one Levels per channel (input black point, input white point, midtone gamma),
+/// within 0.8 of 255 everywhere. Folding matters: a lowered shadows and a raised highlights
+/// slider cancel each other's gamma, which applying the tones one after another doesn't.
+/// - Preserve Luminosity off: a slider only moves its own channel. Lowered shadows set the black
+///   point to |shadows| levels, raised highlights set the white point to 255 − highlights levels,
+///   and the gamma is 2^(m / 100) with m = midtones + (shadows + highlights) / 2.
+/// - Preserve Luminosity on: each channel's black point is (max − own) shadows levels, its white
+///   point 255 − (own − min) highlights levels, and m = own − (max + min) / 2 midtones, so with
+///   several midtones sliders moved the shared offset depends on the two extremes, not their sum.
+///
+/// A gamma > 1 starts with slope 2^gamma at black ([`balance_gamma`]: up to 18 of 255 brighter
+/// near black without it). When the black point reaches the white point, input at or above the
+/// white point is white and the rest black.
+pub fn color_balance_channel(tones: [[f32; 3]; 3], preserve_luminosity: bool, ch: usize, v: f32) -> f32 {
+    let [shadows, midtones, highlights] = tones.map(|t| t.map(|s| if s.is_finite() { s.clamp(-100.0, 100.0) } else { 0.0 }));
+    let own = |t: [f32; 3]| t.get(ch).copied().unwrap_or(0.0);
+    let max = |t: [f32; 3]| t[0].max(t[1]).max(t[2]);
+    let min = |t: [f32; 3]| t[0].min(t[1]).min(t[2]);
+    let (black, white, m) = if preserve_luminosity {
+        (max(shadows) - own(shadows), own(highlights) - min(highlights), own(midtones) - (max(midtones) + min(midtones)) / 2.0)
+    } else {
+        ((-own(shadows)).max(0.0), own(highlights).max(0.0), own(midtones) + (own(shadows) + own(highlights)) / 2.0)
+    };
+    let (b, w) = (black / 255.0, 1.0 - white / 255.0);
+    let v = if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 };
+    if v >= w {
+        return 1.0;
+    }
+    if v <= b {
+        return 0.0;
+    }
+    balance_gamma((v - b) / (w - b), 2f32.powf(m / 100.0))
+}
+
+/// The midtone gamma of Color Balance's per-channel Levels (`u` in 0..1): `u^(1/gamma)`, except
+/// that a gamma > 1 (which would start with infinite slope) starts at slope 2^gamma and joins the
+/// power curve in a cubic Hermite at twice the input where that line meets it (Photoshop,
+/// measured on a 16-bit ramp at gamma 1.07..2: within 0.02 of 255).
+fn balance_gamma(u: f32, gamma: f32) -> f32 {
+    let e = 1.0 / gamma.max(0.01);
+    let power = u.powf(e);
+    if gamma <= 1.0 {
+        return power;
+    }
+    let s0 = 2f32.powf(gamma);
+    let u0 = (2.0 * s0.powf(1.0 / (e - 1.0))).min(1.0);
+    if u0.is_nan() || u0 <= 0.0 || u >= u0 {
+        return power;
+    }
+    let (p, d, t) = (u0.powf(e), e * u0.powf(e - 1.0), u / u0);
+    let (t2, t3) = (t * t, t * t * t);
+    ((t3 - 2.0 * t2 + t) * u0 * s0 + (3.0 * t2 - 2.0 * t3) * p + (t3 - t2) * u0 * d).clamp(0.0, 1.0)
+}
+
 /// Per-channel LUTs of a Levels or Curves adjustment, each channel's record composed with the
 /// master (Photoshop applies the channel curve first, then the composite). Four rows: the three
 /// `per_channel` channels then black (identity unless the space is CMYK). In Lab there is no
@@ -987,6 +1039,97 @@ mod tone_tests {
         }
         // 8 bits keep their rule.
         assert_eq!(posterize_in(128.0 / 255.0, 3, Some(SampleType::U8)), posterize(128.0 / 255.0, 3));
+    }
+
+    /// Photoshop, measured (8-bit gray ramp, every channel): whole settings, where the tones fold
+    /// into one Levels per channel. Midtones red +100 / magenta −100 (the shadow toe), a layer with
+    /// Preserve Luminosity off and on, all nine sliders with Preserve Luminosity on, a black point
+    /// past the white point, and lowered shadows with raised highlights (their gammas cancel: a
+    /// straight line between the two points).
+    #[test]
+    fn color_balance_whole_settings_match_photoshop() {
+        const X: [u8; 12] = [0, 4, 8, 16, 32, 64, 96, 128, 160, 192, 224, 255];
+        type Case = ([[f32; 3]; 3], bool, [[u8; 12]; 3]);
+        let cases: [Case; 6] = [
+            (
+                [[0.0; 3], [100.0, -100.0, 0.0], [0.0; 3]],
+                false,
+                [[0, 16, 30, 55, 90, 128, 156, 181, 202, 221, 239, 255], [0, 0, 0, 1, 4, 16, 36, 64, 100, 145, 197, 255], X],
+            ),
+            (
+                [[-6.0, 22.0, 5.0], [-1.0, -3.0, -8.0], [-1.0, -4.0, -6.0]],
+                false,
+                [
+                    [0, 0, 2, 9, 25, 56, 89, 122, 156, 188, 222, 255],
+                    [0, 5, 9, 18, 35, 67, 100, 131, 163, 194, 225, 255],
+                    [0, 3, 7, 14, 29, 60, 91, 123, 156, 189, 222, 255],
+                ],
+            ),
+            (
+                [[-6.0, 22.0, 5.0], [-1.0, -3.0, -8.0], [-1.0, -4.0, -6.0]],
+                true,
+                [
+                    [0, 0, 0, 0, 5, 42, 80, 117, 154, 189, 226, 255],
+                    [0, 4, 8, 16, 33, 66, 98, 130, 162, 195, 226, 255],
+                    [0, 0, 0, 0, 15, 48, 82, 116, 151, 186, 221, 255],
+                ],
+            ),
+            (
+                [[40.0, -30.0, 20.0], [-50.0, 25.0, 60.0], [30.0, -70.0, 10.0]],
+                true,
+                [
+                    [0, 1, 3, 9, 25, 69, 126, 193, 255, 255, 255, 255],
+                    [0, 0, 0, 0, 0, 0, 46, 93, 136, 177, 217, 255],
+                    [0, 0, 0, 0, 44, 107, 156, 199, 238, 255, 255, 255],
+                ],
+            ),
+            (
+                [[100.0, -100.0, 0.0], [0.0; 3], [-100.0, 100.0, 0.0]],
+                true,
+                [X, [0, 0, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255], [0, 0, 0, 0, 0, 0, 0, 130, 255, 255, 255, 255]],
+            ),
+            (
+                [[-76.0, -2.0, 60.0], [0.0; 3], [99.0, 0.0, -30.0]],
+                false,
+                [
+                    [0, 0, 0, 0, 0, 0, 71, 171, 255, 255, 255, 255],
+                    [0, 2, 6, 14, 29, 61, 94, 126, 158, 191, 224, 255],
+                    [0, 6, 11, 21, 39, 73, 106, 137, 168, 197, 227, 255],
+                ],
+            ),
+        ];
+        for (tones, preserve, want) in cases {
+            for (ch, row) in want.iter().enumerate() {
+                for (x, w) in X.iter().zip(row) {
+                    let got = (color_balance_channel(tones, preserve, ch, f32::from(*x) / 255.0) * 255.0).round() as i32;
+                    assert!((got - i32::from(*w)).abs() <= 1, "{tones:?} pl {preserve} ch {ch} at {x}: {got} vs Photoshop {w}");
+                }
+            }
+        }
+        // Hostile input stays in range.
+        for v in [f32::NAN, -1.0, 2.0, f32::INFINITY] {
+            let out = color_balance_channel([[f32::NAN, 1e9, -1e9]; 3], true, 7, v);
+            assert!((0.0..=1.0).contains(&out), "{v}: {out}");
+        }
+    }
+
+    #[test]
+    fn color_balance_midtones_with_multiple_sliders_preserve_luminosity() {
+        // A shared offset depends on the two extremes, not the sum of moved sliders.
+        let tones = [[0.0; 3], [30.0, 0.0, 30.0], [0.0; 3]];
+        for input in [0.25_f32, 0.5, 0.75] {
+            for (ch, offset) in [-0.15_f32, 0.15, -0.15].into_iter().enumerate() {
+                let expected = input.powf(2f32.powf(offset));
+                let actual = color_balance_channel(tones, true, ch, input);
+                assert!((actual - expected).abs() < 1e-6, "channel {ch}, input {input}: {actual} vs {expected}");
+            }
+            // Preserve Luminosity off must still affect only the moved channels.
+            assert_eq!(color_balance_channel(tones, false, 1, input), input);
+            // One moved slider uses half-strength compensation.
+            let single = [[0.0; 3], [30.0, 0.0, 0.0], [0.0; 3]];
+            assert!((color_balance_channel(single, true, 0, input) - input.powf(2f32.powf(-0.15))).abs() < 1e-6);
+            assert!((color_balance_channel(single, true, 1, input) - input.powf(2f32.powf(0.15))).abs() < 1e-6);
+        }
     }
 
     #[test]
