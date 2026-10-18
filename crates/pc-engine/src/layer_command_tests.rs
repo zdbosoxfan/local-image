@@ -49,6 +49,31 @@ fn all_lock_blocks_mask_painting_but_pixel_lock_permits_it() {
 }
 
 #[test]
+fn quick_mask_invert_includes_unstored_black() {
+    for depth in [8, 16, 32] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 20, "height": 20, "depth": depth})).unwrap();
+        s.execute("select.rect", json!({"x": 5, "y": 5, "width": 10, "height": 10})).unwrap();
+        s.execute("select.editInQuickMaskMode", json!({"on": true})).unwrap();
+        s.execute("image.adjustments.invert", json!({"target": "quickMask"})).unwrap();
+        let st = s.active().unwrap();
+        let mask = &st.doc.quick_mask.as_ref().unwrap().surface;
+        assert!(mask.sample_channel(8, 8, 0) < 0.01);
+        assert!(mask.sample_channel(1, 1, 0) > 0.99);
+        s.execute("select.editInQuickMaskMode", json!({"on": false})).unwrap();
+        let selection = s.active().unwrap().doc.selection.as_ref().unwrap();
+        assert!(selection.sample_channel(8, 8, 0) < 0.01);
+        assert!(selection.sample_channel(1, 1, 0) > 0.99);
+        s.execute("select.deselect", json!({})).unwrap();
+        s.execute("channel.new", json!({"fill": "black"})).unwrap();
+        s.execute("image.adjustments.invert", json!({"target": {"channel": 0}})).unwrap();
+        assert!(s.active().unwrap().doc.channels[0].surface.sample_channel(1, 1, 0) > 0.99);
+        s.undo();
+        assert!(s.active().unwrap().doc.channels[0].surface.sample_channel(1, 1, 0) < 0.01);
+    }
+}
+
+#[test]
 fn copied_styles_keep_blend_if_channels_and_group_blending() {
     let mut s = session();
     let a = s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap();
@@ -150,6 +175,25 @@ fn multiple_layers_align_to_active_selection() {
     s.execute("layer.align.leftEdges", json!({})).unwrap();
     for id in ids {
         assert_eq!(s.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().surface().unwrap().content_bounds().x0, 15);
+    }
+}
+
+#[test]
+fn curves_on_masks_use_gray_levels_in_lab_and_cmyk_documents() {
+    for mode in ["lab", "cmyk"] {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 20, "height": 20, "mode": mode})).unwrap();
+        s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+        s.edit("Mask", |doc, active| {
+            let bounds = doc.bounds();
+            doc.layer_mut(active.unwrap()).unwrap().mask.as_mut().unwrap().surface.fill_rect(bounds, &[0.25]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("image.adjustments.curves", json!({"target": "mask", "points": [[0, 255], [255, 0]]})).unwrap();
+        let st = s.active().unwrap();
+        let mask = &st.doc.layer(st.active_layer.unwrap()).unwrap().mask.as_ref().unwrap().surface;
+        assert!((mask.sample_channel(5, 5, 0) - 0.75).abs() < 0.02);
     }
 }
 

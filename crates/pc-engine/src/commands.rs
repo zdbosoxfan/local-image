@@ -225,8 +225,7 @@ fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) 
         return s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
             if let Some(surf) = crate::channel_cmds::channel_surface_for_filter(doc, None, p)? {
-                pixels::adjust_surface(surf, &adj, sel.as_ref(), ColorMode::Grayscale);
-                surf.prune();
+                pixels::adjust_mask(surf, &adj, sel.as_ref());
             }
             Ok(Value::Null)
         });
@@ -1056,7 +1055,18 @@ fn build() -> Vec<CommandSpec> {
             enabled: has_pixel_or_channel,
             run: |s, p| {
                 let kind = p.get("__kind").and_then(Value::as_str).unwrap_or("invert").to_string();
-                let adj = crate::adjust_params::from_params(&kind, p, None, doc_mode(s))?;
+                let gray_target = is_mask_target(p) || crate::channel_cmds::is_channel_target(p);
+                let mut tone = p.clone();
+                if gray_target
+                    && matches!(kind.as_str(), "curves" | "levels")
+                    && let Some(params) = tone.as_object_mut()
+                {
+                    for key in ["cyan", "magenta", "yellow", "black", "lightness", "a", "b"] {
+                        params.remove(key);
+                    }
+                }
+                let mode = if gray_target { ColorMode::Grayscale } else { doc_mode(s) };
+                let adj = crate::adjust_params::from_params(&kind, &tone, None, mode)?;
                 let label = adj.label().to_string();
                 destructive_adjust(s, &label, adj, p)
             },
