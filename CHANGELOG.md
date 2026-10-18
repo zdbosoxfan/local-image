@@ -13,6 +13,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Keyboard Shortcuts refuses keys the system reserves and offers Accept and Go to Conflict or Undo Changes for a key another command holds.
 - Export As size estimates for large documents use the configured exporter on the preview worker.
 - Security hardening and cleanup — see PR
+- Find Similar results with thousands of hits filter a large Library about 50 times faster.
 
 ## [2.0.0-alpha.1] - TBD
 
