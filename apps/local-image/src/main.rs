@@ -64,7 +64,8 @@ const CUSTOM_TITLEBAR: bool = !cfg!(target_os = "macos");
 /// The main window: 1440 × 900 (shrunk to fit the monitor, and maximized on the first frame
 /// when it still doesn't fit, `work_area::fit_window`), centred on the main monitor. Without
 /// `centered`, Windows cascades each new window from the top-left corner, so it opened at a
-/// different offset every launch (#419). Wayland compositors place windows themselves.
+/// different offset every launch (#419). A later launch restores the saved position instead
+/// (`main` turns `centered` off). Wayland compositors place windows themselves.
 fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -276,6 +277,9 @@ fn main() -> eframe::Result {
     ui_state::sanitize(options.persistence_path.as_deref());
     // Crash-safe GPU startup (#4): pick the backend (a marker left by a start that died in the
     // driver moves to a safer one), and lock this start's marker until the first frames render.
+    // Centre only the first window: eframe centres after restoring the saved position, so a
+    // window closed on another monitor reopened in the middle of the main one.
+    options.centered = !ui_state::has_saved_position(options.persistence_path.as_deref());
     let t_sentinel = std::time::Instant::now();
     let os = gpu_startup::Os::current();
     let (pref, mode) = gpu_startup::read_rendering_prefs(services::prefs_file().as_deref());
