@@ -547,12 +547,114 @@ fn unicode_names(data: &[u8]) -> Vec<String> {
     while at + 4 <= data.len() {
         let n = u32::from_be_bytes([data[at], data[at + 1], data[at + 2], data[at + 3]]) as usize;
         at += 4;
-        let Some(b) = data.get(at..at + n * 2) else { break };
+        // Checked: `n * 2` overflows a 32-bit `usize` for a hostile length.
+        let Some(end) = n.checked_mul(2).and_then(|len| at.checked_add(len)) else { break };
+        let Some(b) = data.get(at..end) else { break };
         let units: Vec<u16> = b.as_chunks::<2>().0.iter().map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
         out.push(String::from_utf16_lossy(&units).trim_end_matches('\0').to_string());
-        at += n * 2;
+        at = end;
     }
     out
+}
+
+/// Plane `i` of a decoded merged image whose planes are `plane` bytes each, or `None` when it is
+/// short or the offsets overflow.
+fn merged_plane(all: &[u8], i: usize, plane: usize) -> Option<&[u8]> {
+    all.get(i.checked_mul(plane)?..i.checked_add(1)?.checked_mul(plane)?)
+}
+
+/// The merged image of a file the layered path does not open (Bitmap, Indexed, Duotone; 1-bit
+/// files) as RGBA8. What `composite_rgba8` can't read (Multichannel) shows its first channels as
+/// RGB. An output over `cap` bytes is refused, never allocated.
+fn flat_composite(file: &PsdFile, merged: Option<&[u8]>, cap: u64) -> Result<photocraft_psd::RgbaImage, photocraft_psd::PsdError> {
+    use photocraft_psd::PsdError;
+    match file.composite_rgba8() {
+        Ok(img) => return Ok(img),
+        // Over the output budget: the fallback below would make the same allocation.
+        Err(e @ PsdError::LimitExceeded(_)) => return Err(e),
+        Err(_) => {}
+    }
+    let all = merged.ok_or_else(|| PsdError::Invalid("no merged image".into()))?;
+    let h = &file.header;
+    let (w, hh) = (h.width as usize, h.height as usize);
+    let len = w
+        .checked_mul(hh)
+        .and_then(|n| n.checked_mul(4))
+        .filter(|&len| len as u64 <= cap)
+        .ok_or(PsdError::LimitExceeded("RGBA output exceeds the decode budget"))?;
+    let plane = h.row_bytes().checked_mul(hh).ok_or(PsdError::LimitExceeded("plane size overflow"))?;
+    let mut data = Vec::new();
+    data.try_reserve_exact(len).map_err(|_| PsdError::LimitExceeded("not enough memory for RGBA output"))?;
+    data.resize(len, 255u8);
+    for c in 0..3.min(usize::from(h.channels)) {
+        let bytes = merged_plane(all, c, plane).ok_or_else(|| PsdError::Invalid("channel size mismatch".into()))?;
+        let p = photocraft_psd::pixels::plane_to_u8(bytes, h.depth, w, hh)?;
+        for (px, v) in data.as_chunks_mut::<4>().0.iter_mut().zip(&p) {
+            px[c] = *v;
+        }
+    }
+    Ok(photocraft_psd::RgbaImage { left: 0, top: 0, width: h.width, height: h.height, data })
+}
+
+/// Whether every pixel of `s` inside `r` is fully opaque, read a band of tile rows at a time (no
+/// full-size float copy) and stopping at the first transparent pixel.
+pub(crate) fn opaque_within(s: &Surface, r: Rect) -> bool {
+    let n = s.channels();
+    let mut vals = Vec::new();
+    let mut y = r.y0;
+    while y < r.y1 {
+        let band = Rect::new(r.x0, y, r.x1, y.saturating_add(TILE_SIZE).min(r.y1));
+        s.read_region_into(band, &mut vals);
+        if !vals.chunks_exact(n).all(|p| p.last().is_some_and(|a| *a >= 1.0)) {
+            return false;
+        }
+        y = band.y1;
+    }
+    true
+}
+
+/// A flattened file's merged image as its layer: like Photoshop, an opaque one is the locked
+/// Background, so it is written back as one.
+fn flat_background(s: Surface) -> Layer {
+    let r = s.content_bounds();
+    let opaque = !r.is_empty() && opaque_within(&s, r);
+    let mut l = Layer::new("Background", LayerContent::Raster(s));
+    l.locks.transparency = opaque;
+    l.locks.position = opaque;
+    l
+}
+
+/// Photoshop opens a file's bottom layer as its Background when that layer's record has no
+/// transparency (`-1`) channel, whatever its name and lock flags say: it is then locked
+/// (psd-tools and ag-psd files name it "Фон", "bg" or "Layer 1" and carry no locks).
+fn mark_background(file: &PsdFile, layers: &mut [Layer]) {
+    let Some(rec) = file.layers().first() else { return };
+    let Some(bottom) = layers.first_mut() else { return };
+    let opaque_record = !rec.channels.is_empty() && rec.channels.iter().all(|c| c.id >= 0);
+    if opaque_record && matches!(bottom.content, LayerContent::Raster(_)) && !bottom.clipped {
+        bottom.locks.transparency = true;
+        bottom.locks.position = true;
+    }
+}
+
+/// Writes RGBA8 `data` covering `canvas` into `s`, a band of tile rows at a time (no full-size
+/// float copy of the image).
+fn write_rgba8(s: &mut Surface, canvas: Rect, data: &[u8]) {
+    let fmt = s.format();
+    let row = (canvas.width() as usize).saturating_mul(4);
+    let mut vals = Vec::new();
+    let mut y = canvas.y0;
+    while y < canvas.y1 {
+        let band = Rect::new(canvas.x0, y, canvas.x1, y.saturating_add(TILE_SIZE).min(canvas.y1));
+        let start = ((y - canvas.y0) as usize).saturating_mul(row);
+        let Some(rows) = data.get(start..start.saturating_add((band.height() as usize).saturating_mul(row))) else { break };
+        vals.clear();
+        for p in rows.as_chunks::<4>().0 {
+            vals.extend(photocraft_raster::from_rgba(&fmt, p.map(|x| f32::from(x) / 255.0)));
+        }
+        s.write_region(band, &vals);
+        y = band.y1;
+    }
 }
 
 fn parse_guides(data: &[u8], doc: &mut Document) {
@@ -606,8 +708,8 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         match r.id {
             ids::RESOLUTION_INFO => {
                 if let Ok(ri) = photocraft_psd::ResolutionInfo::from_bytes(&r.data) {
-                    let f = if ri.h_res_unit == 2 { 2.54 } else { 1.0 };
-                    doc.resolution_dpi = (ri.h_res() * f) as f32;
+                    // Fixed 16.16 hRes is pixels per inch; the unit only says how to show it.
+                    doc.resolution_dpi = ri.h_res() as f32;
                 }
             }
             ids::ICC_PROFILE => doc.icc_profile = Some(Arc::new(r.data.clone())),
@@ -647,6 +749,10 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         }
     }
     for b in &file.global_blocks {
+        // A layer block still here, with no layers read, is one the parser could not read.
+        if file.layers().is_empty() && matches!(&b.key, b"Layr" | b"Lr16" | b"Lr32") {
+            warnings.push(format!("the layers ({} block) could not be read; only the merged image opens", b.key_str()));
+        }
         doc.metadata.psd_global_blocks.push((b.signature, b.key, Arc::new(b.data.clone())));
     }
     doc.patterns = crate::pattern_map::from_global_blocks(&doc);
@@ -698,7 +804,9 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
     }
 
     let (w, hh) = (h.width as usize, h.height as usize);
-    let n = w * hh;
+    // Pixels per plane and bytes per merged plane, checked: a 1-bit plane can decode within the
+    // budget while `w * hh` does not fit a 32-bit `usize`.
+    let sizes = w.checked_mul(hh).zip(h.row_bytes().checked_mul(hh));
     let canvas = Rect::new(0, 0, h.width as i32, h.height as i32);
     // The merged composite is decoded only when something consumes it: a flattened or
     // multichannel file (it *is* the image), or extra alpha/spot channels behind the colour
@@ -737,6 +845,9 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         // children, so no file can make this tree, or anything walking or dropping it, recurse deeper.
         let tree = file.layer_tree_max_depth(photocraft_doc::MAX_GROUP_DEPTH);
         doc.layers = cx.build(&tree, 0);
+        // Photoshop's Background: the bottom record stored without a transparency channel (-1),
+        // locked whatever its (localized) name and whether or not the file carries `lspf`.
+        mark_background(file, &mut doc.layers);
         // local-image: smart objects that are Develop layers get their develop link back
         crate::smart_map::resolve_develop_layers(&mut doc);
         // Layer › Link Layers: resource 1026 holds one group id per layer record (0 = unlinked).
@@ -747,12 +858,13 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         }
         if doc.layers.is_empty()
             && let Some(Ok(all)) = &merged
+            // Always `Some` here: a decoded 8/16/32-bit plane holds at least `w * hh` bytes.
+            && let Some((n, plane)) = sizes
         {
             // Flattened file: the merged image becomes the background layer.
-            let plane = h.row_bytes() * hh;
             let alpha_idx = if file.merged_has_alpha() { Some(cc) } else { None };
-            let mut planes: Vec<Option<&[u8]>> = (0..cc).map(|c| all.get(c * plane..(c + 1) * plane)).collect();
-            planes.push(alpha_idx.and_then(|a| all.get(a * plane..(a + 1) * plane)));
+            let mut planes: Vec<Option<&[u8]>> = (0..cc).map(|c| merged_plane(all, c, plane)).collect();
+            planes.push(alpha_idx.and_then(|a| merged_plane(all, a, plane)));
             let mut fill = vec![zero_sample(depth); cc];
             fill.push(max_sample(depth));
             let mut inv = vec![cx.cmyk; cc];
@@ -808,50 +920,32 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         } else if !file.color_mode_data.is_empty() {
             cx.warn("color mode data is not preserved");
         }
-        let rgba = if merged.as_ref().is_some_and(|r| r.is_err()) {
-            Err(photocraft_psd::PsdError::LimitExceeded("PSD import memory budget"))
-        } else {
-            file.composite_rgba8()
-        }
-        .or_else(|_| {
-            // Multichannel: show the first channels as RGB.
-            let all = merged.clone().ok_or_else(|| photocraft_psd::PsdError::Invalid("no merged image".into()))??;
-            let plane = h.row_bytes() * hh;
-            let mut data = vec![255u8; n * 4];
-            for c in 0..3.min(usize::from(h.channels)) {
-                let p = photocraft_psd::pixels::plane_to_u8(&all[c * plane..(c + 1) * plane], h.depth, w, hh)?;
-                for i in 0..n {
-                    data[i * 4 + c] = p[i];
-                }
-            }
-            Ok::<_, photocraft_psd::PsdError>(photocraft_psd::RgbaImage { left: 0, top: 0, width: h.width, height: h.height, data })
-        });
-        let img = rgba.map_err(|e| crate::IoError::Unsupported(format!("merged image could not be decoded ({e}); no document was opened")))?;
-        {
-            let mut s = Surface::new(fmt);
-            let vals: Vec<f32> = img
-                .data
-                .as_chunks::<4>()
-                .0
-                .iter()
-                .flat_map(|p| {
-                    let v = photocraft_raster::from_rgba(&fmt, [p[0], p[1], p[2], p[3]].map(|x| f32::from(x) / 255.0));
-                    v.into_iter()
-                })
-                .collect();
-            s.write_region(canvas, &vals);
-            s.prune();
-            doc.layers.push(Layer::new("Background", LayerContent::Raster(s)));
-        }
+        // A merged image that failed to decode already ended the import above.
+        let all = match &merged {
+            Some(Ok(all)) => Some(all.as_slice()),
+            _ => None,
+        };
+        let img = flat_composite(file, all, photocraft_psd::compression::MAX_DECODED_BYTES)
+            .map_err(|e| crate::IoError::Unsupported(format!("merged image could not be decoded ({e}); no document was opened")))?;
+        let mut s = Surface::new(fmt);
+        write_rgba8(&mut s, canvas, &img.data);
+        drop(img);
+        s.prune();
+        doc.layers.push(flat_background(s));
     }
 
     // Extra (alpha / spot) channels of the merged image.
-    if layered && let Some(Ok(all)) = &merged {
+    if layered
+        && let Some(Ok(all)) = &merged
+        && let Some((n, plane)) = sizes
+    {
         let first = cc + usize::from(file.merged_has_alpha());
-        let plane = h.row_bytes() * hh;
         let names = file.resource(1045).map(|r| unicode_names(&r.data)).unwrap_or_default();
+        // Photoshop lists every extra channel, the merged transparency first when there is one.
+        let skip = usize::from(file.merged_has_alpha() && names.len() == usize::from(h.channels).saturating_sub(cc));
+        let names = names.get(skip..).unwrap_or_default();
         for (k, idx) in (first..usize::from(h.channels)).enumerate() {
-            let Some(p) = all.get(idx * plane..(idx + 1) * plane) else { break };
+            let Some(p) = merged_plane(all, idx, plane) else { break };
             let mut s = Surface::new(cx.mask_fmt);
             s.write_interleaved(canvas, &be_to_ne_plane(p, depth, n));
             s.prune();
@@ -860,9 +954,9 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         }
         // Channel options (overlay colour, opacity, colour indicates) and spot inks.
         if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO) {
-            crate::channel_map::apply_display_info(&r.data, true, &mut doc.channels);
+            crate::channel_map::apply_display_info_skipping(&r.data, true, skip, &mut doc.channels);
         } else if let Some(r) = file.resource(crate::channel_map::DISPLAY_INFO_OLD) {
-            crate::channel_map::apply_display_info(&r.data, false, &mut doc.channels);
+            crate::channel_map::apply_display_info_skipping(&r.data, false, skip, &mut doc.channels);
         }
         // Saved in Quick Mask mode: that channel becomes the document's Quick Mask again.
         if let Some(r) = file.resource(crate::channel_map::QUICK_MASK_INFO)
@@ -1102,5 +1196,52 @@ mod file_input_regressions {
         assert!(ctx.charge(1, 1, 4));
         assert!(ctx.charge(1, 1, 4));
         assert!(!ctx.charge(1, 1, 4));
+    }
+
+    /// The Multichannel fallback checks its RGBA output against the budget before allocating it
+    /// (here a 2x2 image, 16 bytes, against caps of 15 and 16 bytes).
+    #[test]
+    fn flat_fallback_refuses_an_output_over_the_cap() {
+        use photocraft_psd::{Compression, PsdError, Version, testgen};
+        let file = testgen::merged_only(Version::Psd, PsdMode::Multichannel, 8, Compression::Raw, 2, 2);
+        assert!(file.composite_rgba8().is_err(), "Multichannel goes through the fallback");
+        let merged = file.decode_merged().unwrap();
+        assert!(matches!(flat_composite(&file, Some(&merged), 15), Err(PsdError::LimitExceeded(_))));
+        let img = flat_composite(&file, Some(&merged), 16).unwrap();
+        assert_eq!(img.data.len(), 16);
+    }
+
+    /// A composite over the budget is not retried by the fallback, which would allocate the
+    /// refused buffer (14.4 GB for this 60000x60000 Bitmap header).
+    #[test]
+    fn flat_fallback_does_not_retry_an_over_budget_composite() {
+        use photocraft_psd::{Compression, PsdError, Version, testgen};
+        let mut file = testgen::small(Version::Psb, Compression::Raw);
+        file.header.color_mode = PsdMode::Bitmap;
+        file.header.depth = 1;
+        file.header.channels = 1;
+        file.header.width = 60_000;
+        file.header.height = 60_000;
+        let merged = vec![0u8; 16];
+        let cap = photocraft_psd::compression::MAX_DECODED_BYTES;
+        assert!(matches!(flat_composite(&file, Some(&merged), cap), Err(PsdError::LimitExceeded(_))));
+    }
+
+    /// A hostile name length ends the list instead of overflowing.
+    #[test]
+    fn unicode_names_stop_at_a_hostile_length() {
+        let mut data = 1u32.to_be_bytes().to_vec();
+        data.extend([0, b'A']);
+        data.extend(u32::MAX.to_be_bytes());
+        data.extend([0, b'B']);
+        assert_eq!(unicode_names(&data), ["A"]);
+    }
+
+    #[test]
+    fn merged_plane_checks_offsets() {
+        let all = [1u8, 2, 3, 4];
+        assert_eq!(merged_plane(&all, 1, 2), Some(&[3u8, 4][..]));
+        assert_eq!(merged_plane(&all, 2, 2), None);
+        assert_eq!(merged_plane(&all, usize::MAX, 2), None);
     }
 }

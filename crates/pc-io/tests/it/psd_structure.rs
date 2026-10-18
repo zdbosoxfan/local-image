@@ -459,13 +459,19 @@ fn guides_and_alpha_names_roundtrip() {
 }
 
 #[test]
-fn resolution_in_cm_converted() {
+fn resolution_info_cm_display_unit_stays_pixels_per_inch() {
+    // Resource 1005 stores pixels per inch whatever the display unit: scaling it by 2.54 opened
+    // a 300 ppi file with a cm unit at 762 ppi and wrote that back.
     let mut f = testgen::small(Version::Psd, Compression::Raw);
-    let mut ri = photocraft_psd::ResolutionInfo::from_dpi(100.0);
+    let mut ri = photocraft_psd::ResolutionInfo::from_dpi(300.0);
     ri.h_res_unit = 2;
+    ri.v_res_unit = 2;
     f.resources[0] = photocraft_psd::ImageResource::new(1005, ri.to_bytes());
     let (d, _) = psd_to_document(&f).unwrap();
-    assert!((d.resolution_dpi - 254.0).abs() < 1e-3);
+    assert!((d.resolution_dpi - 300.0).abs() < 1e-3, "{}", d.resolution_dpi);
+    let written = document_to_psd(&d).resolution().unwrap();
+    assert!((written.h_res() - 300.0).abs() < 1e-3, "{}", written.h_res());
+    assert!((written.v_res() - 300.0).abs() < 1e-3, "{}", written.v_res());
 }
 
 #[test]

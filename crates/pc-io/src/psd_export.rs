@@ -50,6 +50,8 @@ struct Ex {
     cmyk: bool,
     version: Version,
     next_id: u32,
+    /// Ids already taken by layers and generated dividers.
+    used_ids: std::collections::HashSet<u32>,
     /// PSD ids assigned to document layers (kept from `psd_id` when unique).
     layer_ids: std::collections::HashMap<photocraft_doc::LayerId, u32>,
     canvas: photocraft_geom::Rect,
@@ -62,6 +64,25 @@ struct Ex {
     comps: Option<(Vec<photocraft_doc::LayerComp>, Option<photocraft_doc::LayerComp>)>,
     /// Smart objects: embedded files and filter caches for the global blocks.
     smart: SmartOut,
+    /// The layer written as Photoshop's Background (see [`psd_background`]).
+    background: Option<photocraft_doc::LayerId>,
+}
+
+/// The layer Photoshop should open as its Background: the bottom top-level layer when it is a
+/// locked (transparency and position), unclipped, unmasked raster that is opaque over the whole
+/// canvas at full opacity and Normal, as a Background always is. Photoshop recognises a
+/// Background by the bottom layer having no transparency channel; with one written, re-exported
+/// files reopened with their Background as an ordinary layer.
+fn psd_background(doc: &Document) -> Option<photocraft_doc::LayerId> {
+    let l = doc.layers.first()?;
+    let LayerContent::Raster(s) = &l.content else { return None };
+    let locked = l.locks.transparency && l.locks.position;
+    let plain = !l.clipped && l.mask.is_none() && l.vector_mask.is_none() && l.opacity >= 1.0 && l.fill_opacity >= 1.0;
+    if !(locked && plain && l.blend == photocraft_doc::BlendMode::Normal) {
+        return None;
+    }
+    let canvas = doc.bounds();
+    (!canvas.is_empty() && s.content_bounds() == canvas && crate::psd_import::opaque_within(s, canvas)).then_some(l.id)
 }
 
 /// How deep embedded documents are exported inside each other before a smart object is written
@@ -315,10 +336,15 @@ impl Ex {
         (MaskData::Mask(pm), Some(self.encode(-2, &plane, w, h)))
     }
 
-    /// Ids for section dividers: above every layer id.
+    /// Ids for section dividers: above every layer id, wrapping past `u32::MAX` to the lowest
+    /// unused id (the release build has no overflow checks, so `+= 1` wrapped to duplicates).
     fn fresh_id(&mut self) -> u32 {
-        self.next_id += 1;
-        self.next_id
+        loop {
+            self.next_id = self.next_id.wrapping_add(1).max(1);
+            if self.used_ids.insert(self.next_id) {
+                return self.next_id;
+            }
+        }
     }
 
     fn layer_id(&mut self, l: &Layer) -> u32 {
@@ -352,6 +378,10 @@ impl Ex {
                 trailing: Vec::new(),
                 real_first: true,
             });
+        }
+        // A Background carries no transparency channel: that is how Photoshop tells it apart.
+        if self.background == Some(l.id) {
+            channels.retain(|c| c.id != -1);
         }
         let mut flags = LayerFlags(0);
         flags.set_hidden(!l.visible);
@@ -1285,6 +1315,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         cmyk: fmt.mode == ColorMode::Cmyk,
         version,
         next_id: 0,
+        used_ids: Default::default(),
         layer_ids: Default::default(),
         canvas: doc.bounds(),
         records: Vec::new(),
@@ -1293,6 +1324,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         guides: doc.guides.clone(),
         comps: (!crate::comps_map::comps_unchanged(doc)).then(|| (doc.layer_comps.clone(), doc.last_document_state.clone())),
         smart: SmartOut::new(doc, depth),
+        background: psd_background(doc),
     };
     if big && !opts.force_psb {
         ex.warnings.push("document exceeds 30000 px; written as PSB".into());
@@ -1328,6 +1360,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
             }
         }
         ex.next_id = used.iter().copied().max().unwrap_or(0);
+        ex.used_ids = used;
     }
     ex.emit(&doc.layers);
 
@@ -1386,10 +1419,13 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         resources.push(ImageResource::new(1032, guides_resource(doc)));
     }
     if !extra.is_empty() {
-        let names: Vec<&str> = extra.iter().map(|a| a.name.as_str()).collect();
+        // One entry per extra channel, the merged transparency included: one short, Photoshop
+        // refuses the file ("unexpected end-of-file").
+        let names: Vec<&str> = has_alpha.then_some("Transparency").into_iter().chain(extra.iter().map(|a| a.name.as_str())).collect();
         resources.push(ImageResource::new(1006, pascal_names_resource(&names)));
         resources.push(ImageResource::new(1045, unicode_names_resource(&names)));
-        resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, crate::channel_map::display_info(&extra)));
+        let display = if has_alpha { crate::channel_map::display_info_after_transparency(&extra) } else { crate::channel_map::display_info(&extra) };
+        resources.push(ImageResource::new(crate::channel_map::DISPLAY_INFO, display));
     }
     if let Some(id) = quick_mask_id {
         let mut data = id.to_be_bytes().to_vec();
@@ -1409,6 +1445,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     }
     let mut global_blocks = Vec::new();
     for (sig, key, data) in &ex.smart.finish(crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc))) {
+        // A kept (unreadable) layer block would sit beside the one written for the layers.
+        if !ex.records.is_empty() && matches!(key, b"Layr" | b"Lr16" | b"Lr32") {
+            continue;
+        }
         global_blocks.push(global_block(block_signature(*sig, version), *key, data));
     }
     let comps_resource = ex.comps.is_some().then(|| crate::comps_map::write_comps_resource(doc));
@@ -1444,18 +1484,32 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     resources.push(version_info_resource(true));
 
     let has_layers = !ex.records.is_empty();
-    let placement = match (has_layers, sample) {
-        (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index: 0, signature: *b"8BIM", key: *b"Lr16", padding: None },
-        (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index: 0, signature: *b"8BIM", key: *b"Lr32", padding: None },
+    // Photoshop writes a merged-transparency marker (`Mtrn`, `Mt16`, `Mt32`) before the layer
+    // block and won't open a file whose `Lr16`/`Lr32` comes first: the layer block goes right
+    // after the last kept marker, else first.
+    let index = global_blocks.iter().rposition(|b| matches!(&b.key, b"Mtrn" | b"Mt16" | b"Mt32")).map_or(0, |i| i + 1);
+    let mut placement = match (has_layers, sample) {
+        (true, SampleType::U16) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr16", padding: None },
+        (true, SampleType::F32) => LayerInfoPlacement::GlobalBlock { index, signature: *b"8BIM", key: *b"Lr32", padding: None },
         _ => LayerInfoPlacement::Section,
     };
     let records = std::mem::take(&mut ex.records);
     let mut layer_info = has_layers.then_some(LayerInfo { merged_alpha: has_alpha, layers: records, padding: None });
     if let Some(info) = &mut layer_info {
         // Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a global
-        // `Lr16`/`Lr32` block, #200). A length that cannot be computed keeps the even default.
-        if info.pad_to(version, 4).is_err() {
-            info.padding = None;
+        // `Lr16`/`Lr32` block, #200). In a global block the length is the exact data length and
+        // the padding follows the block: readers that check that length exactly (Unity's PSD
+        // Importer) reject it otherwise. A length that cannot be computed keeps the even default.
+        match (&mut placement, info.unpadded_len(version)) {
+            (LayerInfoPlacement::GlobalBlock { padding, .. }, Ok(len)) => {
+                info.padding = Some(Vec::new());
+                *padding = Some(vec![0; ((4 - len % 4) % 4) as usize]);
+            }
+            _ => {
+                if info.pad_to(version, 4).is_err() {
+                    info.padding = None;
+                }
+            }
         }
     }
     // 32-bit files carry Photoshop's HDR toning records as Color Mode Data; Photoshop will not
@@ -1568,6 +1622,140 @@ mod tests {
         };
         assert_eq!(signatures(false), vec![(*b"8BIM", *b"FMsk"), (*b"8BIM", *b"Patt")]);
         assert_eq!(signatures(true), vec![(*b"8B64", *b"FMsk"), (*b"8BIM", *b"Patt")], "a PSB keeps 8B64");
+    }
+
+    /// Photoshop opens a PSD's bottom layer as its Background only when that layer has no
+    /// transparency channel; with the channel written, re-exported files reopened with the
+    /// Background as an ordinary layer.
+    #[test]
+    fn a_background_is_written_without_a_transparency_channel() {
+        use photocraft_doc::Color;
+        let size = photocraft_geom::Size::new(8, 6);
+        let mut doc = Document::with_background("bg", size, ColorMode::Rgb, SampleType::U8, Color::rgb(0.2, 0.4, 0.6));
+        doc.layers.push(Layer::raster("Layer 1", doc.pixel_format()));
+        let file = document_to_psd(&doc);
+        let layers = &file.layer_info.as_ref().unwrap().layers;
+        let ids = |i: usize| layers[i].channels.iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(0), vec![0, 1, 2], "the Background has no -1 channel");
+        assert!(layers[0].flags.transparency_protected());
+        assert!(ids(1).contains(&-1), "other layers keep their transparency");
+        // It comes back as the same locked, opaque Background.
+        let back = crate::import("bg.psd", &file.to_bytes().unwrap()).unwrap().document;
+        let bg = &back.layers[0];
+        assert!(bg.locks.transparency && bg.locks.position, "{:?}", bg.locks);
+        assert_eq!(bg.surface().unwrap().read_region(back.bounds()), doc.layers[0].surface().unwrap().read_region(doc.bounds()));
+        // A bottom layer with transparency (or unlocked) is not a Background.
+        let mut holey = doc.clone();
+        holey.layers[0].surface_mut().unwrap().write_pixel(2, 2, &[0.0, 0.0, 0.0, 0.0]);
+        assert!(document_to_psd(&holey).layer_info.unwrap().layers[0].channels.iter().any(|c| c.id == -1));
+        let mut unlocked = doc.clone();
+        unlocked.layers[0].locks.position = false;
+        assert!(document_to_psd(&unlocked).layer_info.unwrap().layers[0].channels.iter().any(|c| c.id == -1));
+    }
+
+    /// A flat 1-bit Bitmap file (no layers) opens as its locked Background, as in Photoshop, and
+    /// is written back as one (no transparency channel).
+    #[test]
+    fn a_flat_bitmap_file_opens_and_saves_as_a_background() {
+        let file = photocraft_psd::testgen::merged_only(Version::Psd, PsdMode::Bitmap, 1, photocraft_psd::Compression::Raw, 8, 4);
+        let doc = crate::import("flat.psd", &file.to_bytes().unwrap()).unwrap().document;
+        let bg = &doc.layers[0];
+        assert!(bg.name == "Background" && bg.locks.transparency && bg.locks.position, "{:?}", bg.locks);
+        let out = document_to_psd(&doc);
+        assert!(out.layer_info.unwrap().layers[0].channels.iter().all(|c| c.id >= 0));
+    }
+
+    #[test]
+    fn group_divider_id_wraps_without_colliding_with_imported_layer_ids() {
+        let mut doc = document(8, 8);
+        let mut group = Layer::group("Imported group", vec![Layer::raster("Child", doc.pixel_format())]);
+        group.psd_id = Some(u32::MAX);
+        doc.layers.push(group);
+
+        let file = document_to_psd(&doc);
+        let ids: Vec<u32> = file.layers().iter().filter_map(|layer| layer.layer_id()).collect();
+        let unique: std::collections::HashSet<u32> = ids.iter().copied().collect();
+        assert_eq!(ids.len(), 3, "group, child and closing divider");
+        assert_eq!(unique.len(), ids.len(), "no generated ID may collide");
+        assert!(unique.contains(&u32::MAX), "preserve the imported group ID");
+        assert!(unique.contains(&1), "reuse the first unused positive ID on wrap");
+
+        let parsed = PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap();
+        let reloaded_ids: std::collections::HashSet<u32> = parsed.layers().iter().filter_map(|layer| layer.layer_id()).collect();
+        assert_eq!(unique, reloaded_ids);
+    }
+
+    /// A layered document with transparency in the merged image and an alpha channel: the name
+    /// and DisplayInfo resources hold one entry per extra channel, the merged transparency first
+    /// (one short, Photoshop 27.11 refused the file with "unexpected end-of-file"). The alpha
+    /// channel keeps its own name and options on the way back.
+    #[test]
+    fn alpha_names_count_the_merged_transparency() {
+        let mut doc = document(8, 6);
+        let mut layer = Layer::raster("Layer 1", doc.pixel_format());
+        layer.surface_mut().unwrap().write_pixel(1, 1, &[1.0, 0.0, 0.0, 1.0]);
+        doc.layers.push(layer);
+        let mut a = photocraft_doc::AlphaChannel::new("Alpha 1", Surface::new(PixelFormat::GRAY8));
+        a.opacity = 0.5;
+        doc.channels.push(a);
+        let file = document_to_psd(&doc);
+        let header_extra = usize::from(file.header.channels) - 3;
+        let resource = |id| file.resources.iter().find(|r| r.id == id).map(|r| r.data.clone()).unwrap();
+        let pascal = resource(1006);
+        let (mut count, mut i) = (0, 0);
+        while i < pascal.len() {
+            count += 1;
+            i += 1 + usize::from(pascal[i]);
+        }
+        assert_eq!((header_extra, count), (2, 2), "transparency + Alpha 1");
+        assert_eq!(resource(crate::channel_map::DISPLAY_INFO).len(), 4 + 2 * 13);
+        let back = crate::import("a.psd", &file.to_bytes().unwrap()).unwrap().document;
+        assert_eq!(back.channels.len(), 1);
+        assert_eq!(back.channels[0].name, "Alpha 1");
+        assert!((back.channels[0].opacity - 0.5).abs() < 1e-6);
+    }
+
+    /// A 16-bit file whose Lr16 block claims five layers but holds none opens flattened with a
+    /// warning, and a save with layers writes one layer block, not the kept bad one beside it.
+    #[test]
+    fn unreadable_lr16_warns_on_import_and_is_not_saved_twice() {
+        let mut doc = Document::new("t", photocraft_geom::Size::new(4, 4), ColorMode::Rgb, SampleType::U16);
+        doc.layers.push(Layer::raster("Layer 1", doc.pixel_format()));
+        let mut file = document_to_psd(&doc);
+        file.layer_info = None;
+        file.layer_info_placement = LayerInfoPlacement::Section;
+        file.global_blocks.insert(0, TaggedBlock::new(*b"Lr16", vec![0, 5, 0, 0]));
+        let opened = crate::import("bad.psd", &file.to_bytes().unwrap()).unwrap();
+        assert!(opened.warnings.iter().any(|w| w.contains("Lr16 block")), "{:?}", opened.warnings);
+        let mut back = opened.document;
+        back.layers.push(Layer::raster("Added", back.pixel_format()));
+        let saved = PsdFile::from_bytes(&document_to_psd(&back).to_bytes().unwrap()).unwrap();
+        assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { key: k, .. } if k == *b"Lr16"));
+        assert!(saved.global_block(b"Lr16").is_none(), "the bad block is not kept beside the new one");
+    }
+
+    /// Photoshop won't open a file whose `Lr32` comes before the `Mt32` marker it keeps for a
+    /// 32-bit document's merged transparency. The layer block follows a kept marker.
+    #[test]
+    fn layer_block_follows_a_kept_merged_transparency_marker() {
+        for (depth, key, marker) in [(SampleType::F32, *b"Lr32", *b"Mt32"), (SampleType::U16, *b"Lr16", *b"Mt16"), (SampleType::F32, *b"Lr32", *b"Mtrn")] {
+            let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, depth);
+            let mut s = Surface::new(doc.pixel_format());
+            s.fill_rect(photocraft_geom::Rect::new(1, 1, 5, 4), &[0.5, 0.2, 0.9, 1.0]);
+            doc.layers.push(Layer::new("Layer 1", LayerContent::Raster(s)));
+            doc.metadata.psd_global_blocks = vec![(*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new())), (*b"8BIM", marker, std::sync::Arc::new(Vec::new()))];
+            let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
+            let LayerInfoPlacement::GlobalBlock { index, key: written, .. } = saved.layer_info_placement else { panic!("{depth:?}: a global layer block") };
+            assert_eq!(written, key);
+            let at = saved.global_blocks.iter().position(|b| b.key == marker).expect("the marker is kept");
+            assert!(at < index, "{depth:?}: {marker:?} at {at}, the layer block at {index}");
+        }
+        // Without a marker the layer block stays first.
+        let mut doc = Document::new("t", photocraft_geom::Size::new(8, 6), ColorMode::Rgb, SampleType::F32);
+        doc.layers.push(Layer::new("Layer 1", LayerContent::Raster(Surface::new(doc.pixel_format()))));
+        doc.metadata.psd_global_blocks = vec![(*b"8BIM", *b"Patt", std::sync::Arc::new(Vec::new()))];
+        let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
+        assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { index: 0, .. }));
     }
 }
 

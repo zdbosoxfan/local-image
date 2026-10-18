@@ -458,6 +458,17 @@ fn load_files_into_stack_and_image_processor_and_batch() {
     let inv = photocraft_io::import("a.png", &std::fs::read(join(&out, "a.png")).unwrap()).unwrap().document;
     let px = photocraft_compose::render(&inv, Rect::new(1, 1, 2, 2)).px[0];
     assert!(px[0] < 0.01 && px[1] > 0.99 && px[2] > 0.99, "red inverted to cyan: {px:?}");
+    // Recorded Quick Export and Save a Copy steps write to the recorded location, but Batch owns
+    // the destination (upstream 4fdf1a72). Replaying them would fail for scratch documents with no
+    // save path, or overwrite the recorded file once per input.
+    let quick_out = join(&dir, "batch-with-save-steps");
+    let recorded = join(&dir, "recorded.png");
+    let steps = json!([["image.adjustments.invert", {}], ["file.export.quickExport", {}], ["file.saveACopy", {"path": recorded}]]);
+    let r = s.execute("file.automate.batch", json!({"steps": steps, "input": input, "output": quick_out, "format": "png"})).unwrap();
+    assert_eq!(r["files"].as_array().unwrap().len(), 2, "{r}");
+    assert!(r["errors"].as_array().unwrap().is_empty(), "{r}");
+    assert!(std::path::Path::new(&join(&quick_out, "a.png")).is_file());
+    assert!(!std::path::Path::new(&recorded).exists(), "the recorded Save a Copy destination is not written");
     assert!(s.execute("file.automate.batch", json!({"steps": [["no.such.command", {}]], "input": input, "output": out})).is_err());
 }
 

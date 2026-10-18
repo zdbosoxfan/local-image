@@ -149,7 +149,7 @@ fn iteration(cx: &mut Cx<'_>, est: &Buf, next: &Buf, ratio: &Buf, prep: &Prepare
     cx.run("capture_mul", &k, &[None, Some(ratio), Some(est), Some(&prep.blend), Some(&prep.indices), Some(table), Some(next)], groups);
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) fn sharpen(cx: &mut Cx<'_>, src: &Buf, host: &li_raster::RgbFrame, p: &CaptureParams) -> Buf {
     sharpen_with_confidence(cx, src, host, p, None)
 }

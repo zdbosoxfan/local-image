@@ -29,6 +29,9 @@ ruzstd = "0.9.1"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+# Directory-bundle cleanup unlinks through pinned no-follow directory descriptors (store.rs).
+# Already locked and in the build tree through li-fs.
+rustix = { version = "1.1", default-features = false, features = ["std", "fs"] }
 
 [dev-dependencies]
 proptest = { workspace = true }

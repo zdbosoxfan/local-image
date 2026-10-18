@@ -369,7 +369,7 @@ fn chosen_artboards(doc: &Document, p: &Value) -> Vec<LayerId> {
     }
 }
 
-/// File › Export › Artboards to Files: `<prefix>_<artboard name>.<format>` per board.
+/// File › Export › Artboards to Files: `<prefix>_<index:04>_<artboard name>.<format>` per board.
 fn artboards_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.artboardsToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
@@ -380,7 +380,9 @@ fn artboards_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let mut files = Vec::new();
     for id in chosen_artboards(&doc, p) {
         let Some(one) = artboard_document(&doc, id) else { continue };
-        let name = if prefix.is_empty() { sanitize(&one.name) } else { format!("{}_{}", sanitize(&prefix), sanitize(&one.name)) };
+        // Names may be identical, or collide after sanitizing or filesystem case folding.
+        let i = files.len();
+        let name = if prefix.is_empty() { format!("{i:04}_{}", sanitize(&one.name)) } else { format!("{}_{i:04}_{}", sanitize(&prefix), sanitize(&one.name)) };
         let path = join(&dir, &format!("{name}.{format}"));
         save_doc(&one, &path, SaveOpts::from_params(p))?;
         files.push(path);

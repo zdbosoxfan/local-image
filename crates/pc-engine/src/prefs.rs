@@ -802,6 +802,20 @@ pub struct MenuCustomization {
     pub colors: BTreeMap<String, String>,
 }
 
+impl MenuCustomization {
+    /// False for the items Edit › Menus can't hide: the way back into this dialog (Edit › Menus,
+    /// Edit › Keyboard Shortcuts), Preferences, Save, Save As and Exit.
+    pub fn hideable(id: &str) -> bool {
+        !matches!(id, "edit.menus" | "edit.keyboardShortcuts" | "file.save" | "file.saveAs" | "file.exit") && !id.starts_with("edit.preferences")
+    }
+
+    /// Whether the menus leave `id` out. Items that can't be hidden stay shown even when an
+    /// older or hand-edited preferences file lists them.
+    pub fn is_hidden(&self, id: &str) -> bool {
+        Self::hideable(id) && self.hidden.iter().any(|h| h == id)
+    }
+}
+
 /// Edit › Toolbar: hidden tools and a custom order (tool names as in `ui.set {tool}`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -1502,7 +1516,7 @@ impl Session {
         for st in &mut self.docs {
             st.history.max_states = n;
             st.history.max_bytes = bytes;
-            st.history.trim(&st.doc);
+            st.trim_history();
         }
         photocraft_compose::set_effect_cache_budget(budget << 20);
         crate::plugin_cmds::sync_prefs(self);
@@ -1850,6 +1864,9 @@ fn menus(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     let (hide, show) = (ids("hide"), ids("show"));
+    if let Some(id) = hide.iter().find(|id| !MenuCustomization::hideable(id)) {
+        return Err(bad("edit.menus", format!("`{id}` can't be hidden")));
+    }
     s.edit_prefs(|pr| {
         if p.get("reset").and_then(Value::as_bool) == Some(true) {
             pr.menus = MenuCustomization::default();

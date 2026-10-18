@@ -425,8 +425,10 @@ pub(super) fn shortcuts_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut
                     )
                     .on_hover_text(conflict.as_deref().unwrap_or(""));
                 } else {
-                    let mut visible = !hidden.contains(id);
-                    crate::widgets::checkbox(ui, &mut visible, tl!("Visible"));
+                    // Edit › Menus, Keyboard Shortcuts, Preferences, Save and Exit always stay.
+                    let hideable = photocraft_engine::prefs::MenuCustomization::hideable(id);
+                    let mut visible = !hideable || !hidden.contains(id);
+                    ui.add_enabled_ui(hideable, |ui| crate::widgets::checkbox(ui, &mut visible, tl!("Visible")));
                     if visible {
                         hidden.retain(|h| h != id);
                     } else if !hidden.contains(id) {

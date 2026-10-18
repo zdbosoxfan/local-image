@@ -351,9 +351,19 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
         // While the field has focus it shows what is being typed, not the colour: rebuilding it from
         // the colour every frame would throw away every keystroke until six valid digits were in.
         let id = ui.id().with("cp-hex");
-        let typing = if ui.memory(|m| m.has_focus(id)) { ui.data(|d| d.get_temp::<String>(id)) } else { None };
-        let mut h = typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string());
+        // A pasted hex colour replaces the whole code: the six-character limit would drop it
+        // into a full field (every paste after the first) or when it starts with `#`.
+        let focused = ui.memory(|m| m.has_focus(id));
+        let pasted = if focused { take_hex_paste(ui) } else { None };
+        let typing = if focused { ui.data(|d| d.get_temp::<String>(id)) } else { None };
+        let mut h = match pasted {
+            Some(c) => hex(c).trim_start_matches('#').to_string(),
+            None => typing.unwrap_or_else(|| hex(rgb).trim_start_matches('#').to_string()),
+        };
         let r = ui.add(egui::TextEdit::singleline(&mut h).id(id).char_limit(6).desired_width(54.0).font(crate::theme::mono(12.0)));
+        if let Some(c) = pasted {
+            edit = Some((c, Keep::Nothing));
+        }
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::TextEdit, ui.is_enabled(), tl!("Hex colour")));
         if r.has_focus() {
             ui.data_mut(|d| d.insert_temp(id, h.clone()));
@@ -373,6 +383,24 @@ fn fields(ui: &mut egui::Ui, f: &mut Map<String, Value>, mode: &str, now: &Compo
     if let Some((c, keep)) = edit {
         set_rgb(f, c, keep);
     }
+}
+
+/// Takes a pasted hex colour out of this frame's input events, leaving other pastes alone.
+fn take_hex_paste(ui: &egui::Ui) -> Option<[f32; 3]> {
+    ui.input_mut(|i| {
+        let mut found = None;
+        i.events.retain(|e| match e {
+            egui::Event::Paste(s) => match parse_hex(s) {
+                Some(c) => {
+                    found = Some(c);
+                    false
+                }
+                None => true,
+            },
+            _ => true,
+        });
+        found
+    })
 }
 
 /// OK: set the foreground or background colour.
@@ -444,6 +472,25 @@ mod tests {
         h.key_press(egui::Key::Tab);
         h.run_steps(2);
         assert_eq!(color(&h), "#ff8800");
+    }
+
+    #[test]
+    fn hex_field_takes_every_paste_with_or_without_hash() {
+        let mut h = picker("#336699");
+        h.get_by_role(Role::TextInput).click();
+        h.run_steps(1);
+        for (paste, want) in [("ff8800", "#ff8800"), ("#00ff00", "#00ff00"), (" 1234AB\n", "#1234ab")] {
+            h.event(egui::Event::Paste(paste.into()));
+            h.run_steps(2);
+            assert_eq!(color(&h), want, "paste {paste:?}");
+            assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some(&want[1..]));
+        }
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.run_steps(1);
+        h.event(egui::Event::Paste("ff".into()));
+        h.run_steps(2);
+        assert_eq!(h.get_by_role(Role::TextInput).value().as_deref(), Some("ff"));
+        assert_eq!(color(&h), "#1234ab");
     }
 
     #[test]

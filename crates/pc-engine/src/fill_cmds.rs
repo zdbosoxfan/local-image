@@ -93,7 +93,7 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let doc_bounds = st.doc.bounds();
     let sel = st.doc.selection.clone();
-    let area = sel.as_ref().map(|m| m.content_bounds()).unwrap_or(doc_bounds);
+    let area = sel.as_ref().map_or(doc_bounds, |m| m.content_bounds().intersect(&doc_bounds));
     let mut out = json!({ "contents": contents });
     let restore = contents == "history";
     let source = match contents {
@@ -127,7 +127,7 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
             let mut source_doc = (*source_doc).clone();
             let (src, _) = crate::channel_cmds::target_surface(&mut source_doc, id, p)
                 .map_err(|_| EngineError::Other("the target did not exist (as pixels, a mask or a channel) in that history state".into()))?;
-            Source::Pixels(area, read_rgba(src, area))
+            Source::Pixels(area, read_rgba(src, area, "reading Fill's history source")?)
         }
         "contentAware" => {
             let sel = sel.as_ref().ok_or_else(|| EngineError::Other("Content-Aware fill needs a selection".into()))?;
@@ -142,23 +142,24 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
         }
         _ => return Err(bad(format!("unknown contents `{contents}`"))),
     };
-    let area = area.intersect(&doc_bounds);
     if area.is_empty() {
         return Ok(out);
     }
     s.edit("Fill", |doc, _| {
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
-        blend_into(surf, area, &source, sel.as_ref(), Blend { mode, opacity, keep_alpha: preserve || lock, restore });
-        Ok(())
+        blend_into(surf, area, &source, sel.as_ref(), Blend { mode, opacity, keep_alpha: preserve || lock, restore })
     })?;
     Ok(out)
 }
 
-fn read_rgba(src: &Surface, area: Rect) -> Vec<[f32; 4]> {
-    let mut px = vec![[0.0f32; 4]; area.width() as usize * area.height() as usize];
+fn read_rgba(src: &Surface, area: Rect, purpose: &str) -> Result<Vec<[f32; 4]>> {
+    let len = (area.width() as usize)
+        .checked_mul(area.height() as usize)
+        .ok_or_else(|| EngineError::Other(format!("not enough memory for {purpose} (requested size overflowed); the document was not changed")))?;
+    let mut px = crate::allocation::filled(len, [0.0f32; 4], purpose)?;
     src.read_rgba_into(area, &mut px);
-    px
+    Ok(px)
 }
 
 /// The selection filled from its surroundings (`photocraft_algo::content_aware`), as straight
@@ -241,7 +242,9 @@ fn lerp(d: [f32; 4], c: [f32; 4], k: f32) -> [f32; 4] {
 /// Blend `source` into `surf` over `area`: per pixel, the selection coverage times the opacity,
 /// in the blend mode.
 /// Works tile by tile in parallel on the encoded pixels (no full-surface f32 round trip).
-fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surface>, b: Blend) {
+/// An allocation failure can leave `surf` missing tiles, so it must be a staged copy (as in
+/// [`Session::edit`]) that the error discards.
+fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surface>, b: Blend) -> Result<()> {
     use rayon::prelude::*;
     let fmt = surf.format();
     // An opaque colour in Normal mode at 100 % that may replace alpha: fully covered tiles become
@@ -254,24 +257,36 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
         }
         _ => None,
     };
-    let tiles = surf.take_tiles(area);
-    let done: Vec<_> = tiles
-        .into_par_iter()
-        .map(|(tc, tile)| {
-            let tr = tc.rect().intersect(&area);
-            let mask = sel.map(|m| Mask { bytes: m.tile(tc).map_or(m.default_bytes(), |t| t.bytes()), fmt: m.format(), origin: tc.rect() });
-            if let Some(s) = &solid
-                && tr == tc.rect()
-                && mask.as_ref().is_none_or(|m| m.full(tr))
-            {
-                return (tc, s.clone());
-            }
-            let mut tile = std::sync::Arc::unwrap_or_clone(tile);
-            blend_tile(tile.bytes_mut(), &fmt, tc.rect(), tr, source, mask.as_ref(), b);
-            (tc, std::sync::Arc::new(tile))
-        })
-        .collect();
-    surf.put_tiles(done);
+    let done = crate::allocation::capacity(area.tiles().count(), "blending pixels")?;
+    let tiles = surf.try_take_tiles(area)?;
+    let done = std::sync::Mutex::new(done);
+    let push = |entry| done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(entry);
+    let blended = tiles.into_par_iter().try_for_each(|(tc, tile)| -> Result<()> {
+        let tr = tc.rect().intersect(&area);
+        let mask = sel.map(|m| Mask { bytes: m.tile(tc).map_or(m.default_bytes(), |t| t.bytes()), fmt: m.format(), origin: tc.rect() });
+        if let Some(s) = &solid
+            && tr == tc.rect()
+            && mask.as_ref().is_none_or(|m| m.full(tr))
+        {
+            push((tc, s.clone()));
+            return Ok(());
+        }
+        // Nothing selected in this tile (or no opacity): `blend_tile` would leave every pixel as
+        // it is, so keep the tile itself rather than a copy the history would hold again.
+        if b.opacity <= 0.0 || mask.as_ref().is_some_and(|m| m.empty(tr)) {
+            push((tc, tile));
+            return Ok(());
+        }
+        let mut tile = match std::sync::Arc::try_unwrap(tile) {
+            Ok(tile) => tile,
+            Err(shared) => shared.try_clone()?,
+        };
+        blend_tile(tile.bytes_mut(), &fmt, tc.rect(), tr, source, mask.as_ref(), b);
+        push((tc, std::sync::Arc::new(tile)));
+        Ok(())
+    });
+    surf.put_tiles(done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner));
+    blended
 }
 
 /// The selection's coverage over one tile (its channel 0).
@@ -291,6 +306,10 @@ impl Mask<'_> {
     /// Fully selected over `r`?
     fn full(&self, r: Rect) -> bool {
         (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) >= 1.0))
+    }
+    /// Nothing selected over `r`?
+    fn empty(&self, r: Rect) -> bool {
+        (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) <= 0.0))
     }
 }
 
@@ -374,6 +393,24 @@ mod tests {
 
     fn close(a: [f32; 4], b: [f32; 4]) -> bool {
         a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1.5 / 255.0)
+    }
+
+    #[test]
+    fn history_fill_reads_only_the_selection_inside_the_canvas() {
+        let mut s = session();
+        s.edit("selection", |doc, _| {
+            let mut selection = Surface::new(photocraft_color::PixelFormat::GRAY8);
+            selection.write_pixel(-2_000_000_000, -2_000_000_000, &[1.0]);
+            selection.write_pixel(4, 4, &[1.0]);
+            doc.selection = Some(selection);
+            Ok(())
+        })
+        .unwrap();
+        // Reading the full sparse selection rectangle overflows the allocation size;
+        // only its intersection with this small canvas is meaningful to Fill.
+        s.execute(CMD, json!({"contents": "history"})).unwrap();
+        assert!(s.undo());
+        assert!(s.active().unwrap().doc.selection.as_ref().unwrap().sample_channel(4, 4, 0) > 0.0);
     }
 
     #[test]
@@ -569,5 +606,53 @@ mod tests {
         s.execute(CMD, json!({"contents": "white"})).unwrap();
         s.execute(CMD, json!({"contents": "contentAware", "colorAdaptation": false})).unwrap();
         assert!(close(px(&s, 17, 12), [0x33 as f32 / 255.0, 0x66 as f32 / 255.0, 0x99 as f32 / 255.0, 1.0]), "{:?}", px(&s, 17, 12));
+    }
+
+    /// A Fill inside a selection keeps the tiles the selection doesn't reach as they were
+    /// (shared with the history), instead of storing a copy of each.
+    #[test]
+    fn unselected_tiles_stay_shared() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 1024, "height": 1024, "background": "white"})).unwrap();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute(CMD, json!({"color": "#336699"})).unwrap();
+        let id = s.active().unwrap().active_layer.unwrap();
+        let surf = |s: &Session| s.active().unwrap().doc.layer(id).unwrap().surface().unwrap().clone();
+        for params in [json!({"color": "#ff0000"}), json!({"color": "#00ff00", "opacity": 50}), json!({"contents": "black", "mode": "multiply"})] {
+            // Two small selections in opposite corners (256 px tiles): the selection's bounds
+            // span every tile, but only the two corner tiles have anything selected.
+            s.execute("select.rect", json!({"x": 20, "y": 20, "width": 100, "height": 100})).unwrap();
+            s.execute("select.rect", json!({"x": 900, "y": 900, "width": 100, "height": 100, "mode": "add"})).unwrap();
+            let before = surf(&s);
+            s.execute(CMD, params.clone()).unwrap();
+            let after = surf(&s);
+            let corners = [Rect::new(0, 0, 256, 256), Rect::new(768, 768, 1024, 1024)];
+            let mut kept = 0;
+            for (c, t) in before.tiles() {
+                if corners.iter().all(|r| c.rect().intersect(r).is_empty()) {
+                    assert!(after.tile(*c).is_some_and(|a| std::sync::Arc::ptr_eq(a, t)), "{params}: unselected tile {c:?} was copied");
+                    kept += 1;
+                }
+            }
+            assert_eq!(kept, 14, "{params}: the 14 tiles between the corners");
+            for r in corners {
+                assert_ne!(before.read_region(r), after.read_region(r), "{params} changed the selected corner {r:?}");
+            }
+            s.execute("select.deselect", json!({})).unwrap();
+        }
+    }
+
+    #[test]
+    fn fill_allocation_failure_keeps_document_and_history() {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 2, "y": 2, "width": 10, "height": 10})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let entries = s.active().unwrap().history.entries();
+        crate::allocation::fail_next_for_test();
+        let err = s.execute(CMD, json!({"color": "#ff0000", "opacity": 50})).unwrap_err();
+        assert!(err.to_string().contains("not enough memory"), "{err}");
+        assert_eq!(*s.active().unwrap().doc, *before);
+        assert_eq!(s.active().unwrap().history.entries(), entries);
+        s.execute(CMD, json!({"color": "#ff0000", "opacity": 50})).unwrap();
     }
 }

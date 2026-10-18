@@ -381,28 +381,34 @@ fn mask_mix(base: &Surface, filtered: &Surface, mask: &LayerMask) -> Surface {
 }
 
 /// Runs the smart filter stack on the placed (unfiltered) content in a document whose RGB profile
-/// is `profile` (the Camera Raw Filter converts through it; `None` = sRGB).
-pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Surface {
+/// is `profile` (the Camera Raw Filter converts through it; `None` = sRGB). `Err` when the
+/// requesting session's gate denies a stored filter (see [`crate::filters::apply_filter_to_surface_in`]).
+pub fn apply_smart_filters_in(placed: &Surface, sm: &SmartObject, canvas: Rect, profile: Option<&photocraft_cms::Profile>) -> Result<Surface> {
     if !sm.filters_enabled || !sm.smart_filters.iter().any(|f| f.visible) {
-        return placed.clone();
+        return Ok(placed.clone());
     }
     let mut cur = placed.clone();
     // Edge pixels repeat at the canvas ∪ placed-content edge, as for layer filters.
     let extent = canvas.union(&placed.content_bounds());
     for f in sm.smart_filters.iter().filter(|f| f.visible) {
         // Unknown ids (e.g. Photoshop filters we don't implement) leave the pixels alone.
-        let Some(out) = crate::filters::apply_filter_to_surface_in(&f.command, &f.params, &cur, canvas, None, extent, profile) else { continue };
+        let Some(out) = crate::filters::apply_filter_to_surface_in(&f.command, &f.params, &cur, canvas, None, extent, profile)? else { continue };
         cur = if f.blend == BlendMode::Normal && f.opacity >= 1.0 { out } else { blend_surfaces(&cur, &out, f.blend, f.opacity.clamp(0.0, 1.0)) };
     }
-    match sm.filter_mask.as_ref().filter(|m| m.enabled) {
+    Ok(match sm.filter_mask.as_ref().filter(|m| m.enabled) {
         Some(m) => mask_mix(placed, &cur, m),
         None => cur,
-    }
+    })
 }
 
 /// Renders a smart object from its source. `Ok(None)` when the source is unavailable (a missing
 /// linked file, or a PSD placed layer without embedded data): callers keep the existing cache.
 pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
+    // Stored filters can come from a file or another layer: check them all against the session's
+    // gate before decoding the source.
+    for f in sm.smart_filters.iter().filter(|f| sm.filters_enabled && f.visible) {
+        crate::jobs::authorize_render_command(&f.command, &f.params)?;
+    }
     let Some((name, bytes)) = source_bytes(&doc.metadata, &sm.source) else { return Ok(None) };
     let target = crate::color_cmds::document_profile(doc);
     let img = match (&sm.develop, sm.stack_mode) {
@@ -421,7 +427,7 @@ pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
         .any(|f| f.command == crate::develop_filter_cmds::DEVELOP || f.command == crate::lens_cmds::RAW)
         .then(|| crate::color_cmds::composite_profile(doc));
     let cmyk = photocraft_compose::cmyk_space(doc);
-    Ok(Some(photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref()))))
+    photocraft_color::convert::with_cmyk_space(cmyk.as_ref(), || apply_smart_filters_in(&placed, sm, doc.bounds(), profile.as_deref())).map(Some)
 }
 
 /// The smart object's pixels below smart filter `index` (the input that filter edits): the placed
@@ -501,7 +507,7 @@ pub(crate) fn add_smart_filter(doc: &mut Document, id: LayerId, sf: photocraft_d
     }
     let bounds = selection.map(Surface::content_bounds).filter(|b| !b.is_empty()).unwrap_or(canvas);
     let cache = sm.cache.as_ref().ok_or_else(|| other("smart object has no pixels"))?;
-    let out = crate::filters::apply_filter_to_surface_in(&sf.command, &sf.params, cache, bounds, selection, canvas, Some(&profile))
+    let out = crate::filters::apply_filter_to_surface_in(&sf.command, &sf.params, cache, bounds, selection, canvas, Some(&profile))?
         .ok_or_else(|| other(format!("unknown filter {}", sf.command)))?;
     sm.cache = Some(out);
     sm.smart_filters.push(sf);
@@ -780,13 +786,29 @@ fn replace_contents(s: &mut Session, p: &Value) -> Result<Value> {
     set_source(s, p, "Replace Contents", false, |_, _| Ok(SmartSource::Embedded { file_name: name, bytes: Arc::new(bytes) }))
 }
 
+/// Writes the smart object's file as it is. To a path with another extension (a `.png` for
+/// `.psb` or `.pcraft` contents) the contents are opened and exported in that format instead.
 fn export_contents(s: &mut Session, p: &Value) -> Result<Value> {
     let path = path_param("layer.smartObjects.exportContents", p)?;
     let id = layer_param(s, p)?;
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let (name, bytes) = source_bytes(&st.doc.metadata, &smart(&st.doc, id)?.source).ok_or_else(|| other("the smart object's contents are unavailable"))?;
-    crate::file_cmds::write_file(path, &bytes)?;
-    Ok(json!({"path": path, "fileName": name, "bytes": bytes.len()}))
+    let ext = |f: &str| {
+        let e = std::path::Path::new(f).extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase);
+        e.map(|e| match e.as_str() {
+            "jpeg" => "jpg".to_string(),
+            "tiff" => "tif".to_string(),
+            _ => e,
+        })
+    };
+    if ext(path).is_none() || ext(path) == ext(&name) {
+        crate::file_cmds::write_file(path, &bytes)?;
+        return Ok(json!({"path": path, "fileName": name, "bytes": bytes.len(), "converted": false}));
+    }
+    let contents = decode_source(&name, &bytes)?;
+    let r = photocraft_io::export(&contents, path, &Default::default()).map_err(|e| other(format!("can't export the contents as {}: {e}", base_name(path))))?;
+    crate::file_cmds::write_file(path, &r.bytes)?;
+    Ok(json!({"path": path, "fileName": name, "bytes": r.bytes.len(), "converted": true, "warnings": r.warnings}))
 }
 
 fn edit_contents(s: &mut Session, p: &Value) -> Result<Value> {
@@ -906,6 +928,7 @@ fn set_filter_visible(s: &mut Session, p: &Value) -> Result<Value> {
 fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
     let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
+    let authorize = s.authorize;
     edit_filters(s, p, "Edit Smart Filter", |sm| {
         let i = filter_index(CMD, p, sm)?;
         let f = &mut sm.smart_filters[i];
@@ -915,6 +938,11 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         match (&mut f.params, new) {
             (Value::Object(old), Value::Object(n)) => old.extend(n),
             (slot, n) => *slot = n,
+        }
+        // The request alone can't be trusted: authorize the filter's command with the complete
+        // merged params, including paths already stored in the document, before re-rendering.
+        if let Some(gate) = authorize {
+            gate(&f.command, &f.params)?;
         }
         Ok(())
     })

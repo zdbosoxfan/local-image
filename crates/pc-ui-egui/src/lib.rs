@@ -132,6 +132,7 @@ pub mod dialog_filter;
 pub mod dialogs;
 pub mod direct_select;
 pub mod discard_ui;
+pub mod disk_change_prompt;
 pub mod distort_ui;
 pub mod doc_props_ui;
 pub mod dock;
@@ -309,6 +310,15 @@ pub struct PreparedOverwrite {
 }
 pub type OverwriteFn = Box<dyn FnMut(&Document, &str, u8) -> Result<PreparedOverwrite, String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
+/// What a file on disk looked like when a document last read or wrote it: File › Save asks
+/// before replacing a file another app changed since (see `disk_change_prompt`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileStamp {
+    pub len: u64,
+    pub modified: Option<std::time::SystemTime>,
+}
+/// The [`FileStamp`] of the file at a path, `None` when it can't be read.
+pub type FileStampFn = Box<dyn Fn(&str) -> Option<FileStamp>>;
 /// A prepared native write. Dropping this token abandons/removes its staging file.
 /// Consume the commit only after the UI rechecks cancellation and captured document state.
 pub struct PreparedWrite {
@@ -422,6 +432,9 @@ pub struct Services {
     pub pick_save: Option<PickSaveFn>,
     /// Write bytes to a path (native) or trigger a download (web).
     pub write: Option<WriteFn>,
+    /// Size and modification time of a file (native); `None` on the web, where Save never
+    /// writes back to a file.
+    pub file_stamp: Option<FileStampFn>,
     /// Optional background staging with a small final publication step.
     pub stage_write: Option<StageWriteFn>,
     /// File access used only by control/MCP requests. Interactive dialogs keep
@@ -604,7 +617,7 @@ pub struct PhotocraftApp {
     /// The document each of `ui.views` belongs to, as of the last [`Self::sync_views`].
     view_docs: Vec<DocId>,
     pub fps: f32,
-    last_frame_time: f64,
+    pub(crate) last_frame_time: f64,
     thumbs: HashMap<(photocraft_doc::LayerId, u8), (u64, egui::TextureHandle)>,
     /// Snapshots whose live layer/mask keys were last used to prune thumbnail handles.
     thumb_documents: Vec<(DocId, std::sync::Weak<Document>)>,
@@ -687,6 +700,9 @@ pub struct PhotocraftApp {
     /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
     pub(crate) pending_save: Option<save_worker::Pending>,
+    /// Each document's own file as it was when the document was opened from it or saved to it
+    /// (see [`FileStamp`]).
+    pub(crate) disk_stamps: HashMap<photocraft_doc::DocId, (String, FileStamp)>,
     pub overwrite_prompt: Option<overwrite_original::Prompt>,
     /// Set once the user has agreed to quit, so the resulting close request goes through.
     pub(crate) allow_close: bool,
@@ -815,6 +831,7 @@ impl PhotocraftApp {
             discard: None,
             tiff_options: None,
             pending_save: None,
+            disk_stamps: HashMap::new(),
             overwrite_prompt: None,
             allow_close: false,
             stylus: Default::default(),
@@ -968,6 +985,10 @@ impl PhotocraftApp {
         if suppress_events {
             self.session.edit_prefs(|prefs| prefs.script_events.enabled = false);
         }
+        // A draft Pen path belongs to the current document, not the one about to be created.
+        if id == "file.new" {
+            vector_ui::finish_pen_drafts(self);
+        }
         // Long commands become background jobs when enabled (`jobs_ui`); the rest run inline.
         let params = self.with_mask_target(id, params);
         let created_mask = matches!(
@@ -1030,6 +1051,7 @@ impl PhotocraftApp {
     /// when tabs move (`document.move`) or close.
     pub fn sync_views(&mut self) {
         crate::lasso_ui::cancel_stale(self);
+        crate::canvas::polygon_cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {
@@ -1287,6 +1309,9 @@ impl PhotocraftApp {
         if preserves_document && let Some(st) = self.session.active_mut() {
             st.path = Some(path.clone());
             st.saved_revision = st.revision;
+        }
+        if let Some(doc) = self.session.active().map(|st| st.doc.id) {
+            disk_change_prompt::wrote(self, doc, &path, preserves_document);
         }
         self.ui.status = if preserves_document { format!("Saved {path}") } else { li_i18n::fmt(tl!("Saved a copy to {path}"), &[("path", &path)]) };
         // "Save Document" script events and File › Generate › Image Assets.
@@ -1584,6 +1609,9 @@ impl eframe::App for PhotocraftApp {
         canvas::extra_windows(self, &ctx);
         notices::show(self, &ctx);
         gpu_status::show_fallback(self, &ctx);
+        if self.titlebar_modal_drag(chrome) {
+            titlebar::modal_drag_overlay(&ctx);
+        }
         if self.custom_titlebar {
             titlebar::resize_zones(ui);
         }

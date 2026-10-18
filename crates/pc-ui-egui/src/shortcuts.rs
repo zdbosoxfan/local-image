@@ -307,6 +307,19 @@ pub fn handle(app: &mut PhotocraftApp, ctx: &egui::Context) {
             return;
         }
     }
+    // A finished work path shown by the Pen or Path Selection: ⌫/Delete deletes it, as in
+    // Photoshop, never Edit › Clear on the pixels under it.
+    if focus == Focus::None && crate::vector_ui::delete_key_deletes_work_path(app) {
+        let mods = ctx.input(|i| i.modifiers);
+        if !mods.command && !mods.ctrl && !mods.shift && !mods.alt && ctx.input_mut(|i| i.consume_key(mods, Key::Backspace) || i.consume_key(mods, Key::Delete))
+        {
+            if let Err(e) = app.run("path.delete", json!({"name": "work"})) {
+                app.ui.status = e;
+                app.ui.status_error = true;
+            }
+            return;
+        }
+    }
     // Perspective Crop: ↩ commits, Esc cancels.
     if crate::perspective_crop_ui::keys(app, ctx) {
         return;

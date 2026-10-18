@@ -12,6 +12,7 @@ mod malformed;
 mod metadata;
 mod orientation;
 mod png_jpeg;
+mod pnm_headers;
 mod roundtrip;
 mod tiff_bench;
 mod tiff_pages;

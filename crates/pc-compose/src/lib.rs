@@ -1629,11 +1629,12 @@ fn split_parts(layer: &Layer, rect: Rect, cx: &Ctx) -> Option<(Buffer, Buffer, O
 // Layer-effect map cache
 
 /// Order-independent identity of a layer's pixels, masks, effects and (for groups) children.
-/// Pixels are identified by their copy-on-write tile pointers; cache entries pin a clone of the
-/// layer so those tiles (and their addresses) stay alive while the entry exists.
-fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHasher) {
+/// Pixels are identified by their copy-on-write tile pointers. `pin` sees every tile hashed: a
+/// cache entry keeps a [`std::sync::Weak`] to each, which reserves the tile's address (so no
+/// other tile can reuse it and match the key) without keeping its pixels alive.
+fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHasher, pin: &mut dyn FnMut(&std::sync::Arc<photocraft_raster::Tile>)) {
     use std::hash::{Hash, Hasher};
-    fn surface_fp(s: &Surface) -> u64 {
+    fn surface_fp(s: &Surface, pin: &mut dyn FnMut(&std::sync::Arc<photocraft_raster::Tile>)) -> u64 {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         s.format().hash(&mut h);
         s.revision().hash(&mut h);
@@ -1642,6 +1643,7 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
             sample.to_bits().hash(&mut h);
         }
         let tiles = s.tiles().fold(s.tile_count() as u64, |acc, (c, t)| {
+            pin(t);
             let mut x = (std::sync::Arc::as_ptr(t) as usize as u64) ^ ((c.tx as u64) << 40) ^ ((c.ty as u32 as u64) << 8);
             x = x.wrapping_mul(0x9e37_79b9_7f4a_7c15);
             acc.wrapping_add(x ^ (x >> 29))
@@ -1660,7 +1662,7 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
     match &layer.content {
         LayerContent::Group(g) => {
             for c in &g.children {
-                layer_identity(c, h);
+                layer_identity(c, h, pin);
             }
             format!("{:?}", g.artboard).hash(h);
             g.isolation.hash(h);
@@ -1668,14 +1670,14 @@ fn layer_identity(layer: &Layer, h: &mut std::collections::hash_map::DefaultHash
         LayerContent::Fill(f) => {
             format!("{f:?}").hash(h);
             if let Some(cache) = layer.fill_cache.as_ref().filter(|cache| cache.fill == *f) {
-                surface_fp(&cache.surface).hash(h);
+                surface_fp(&cache.surface, pin).hash(h);
             }
         }
         LayerContent::Adjustment(a) => format!("{a:?}").hash(h),
-        _ => layer.surface().map_or(0, surface_fp).hash(h),
+        _ => layer.surface().map_or(0, |s| surface_fp(s, pin)).hash(h),
     }
     if let Some(m) = &layer.mask {
-        (surface_fp(&m.surface), m.enabled, m.density.to_bits(), m.feather.to_bits()).hash(h);
+        (surface_fp(&m.surface, pin), m.enabled, m.density.to_bits(), m.feather.to_bits()).hash(h);
     }
     if let Some(vm) = &layer.vector_mask {
         format!("{vm:?}").hash(h);
@@ -1688,13 +1690,14 @@ fn layers_identity(layers: &[Layer]) -> u64 {
     use std::hash::Hasher;
     let mut h = std::collections::hash_map::DefaultHasher::new();
     for layer in layers {
-        layer_identity(layer, &mut h);
+        layer_identity(layer, &mut h, &mut |_| {});
     }
     h.finish()
 }
 struct FxEntry {
     maps: std::sync::Arc<effects::FxMaps>,
-    _pin: Layer,
+    /// The tiles the key identifies (see [`layer_identity`]): their addresses, not their pixels.
+    _pin: Vec<std::sync::Weak<photocraft_raster::Tile>>,
     bytes: usize,
 }
 
@@ -1753,7 +1756,7 @@ fn effect_maps(layer: &Layer, cx: &Ctx) -> std::sync::Arc<effects::FxMaps> {
         return std::sync::Arc::new(effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns));
     }
     let mut h = std::collections::hash_map::DefaultHasher::new();
-    layer_identity(layer, &mut h);
+    layer_identity(layer, &mut h, &mut |_| {});
     (cx.paint_key, cx.mode, cx.depth, cx.canvas, cx.suppress_adjustments, cx.counterfactual_root.map(|id| id.0)).hash(&mut h);
     if matches!(&layer.content,LayerContent::Group(g) if g.isolation==photocraft_doc::GroupIsolation::NonIsolated) {
         cx.backdrop_key.hash(&mut h);
@@ -1793,9 +1796,13 @@ fn cached_effect_maps(layer: &Layer, region: Rect, key: u64, cx: &Ctx) -> std::s
         None => {
             let shape: Vec<f32> = if region.is_empty() { Vec::new() } else { effect_shape(layer, region, cx) };
             let maps = effects::build_maps_prepared(layer, shape, region, &cx.light, &texture_ctx(layer, region, cx), cx.patterns);
-            let bytes = maps.bytes();
+            let mut pin = Vec::new();
+            layer_identity(layer, &mut std::collections::hash_map::DefaultHasher::new(), &mut |t| pin.push(std::sync::Arc::downgrade(t)));
+            // The maps, plus what each reserved tile address keeps allocated.
+            let bytes =
+                maps.bytes().saturating_add(pin.len().saturating_mul(std::mem::size_of::<photocraft_raster::Tile>() + 2 * std::mem::size_of::<usize>()));
             let maps = std::sync::Arc::new(maps);
-            if slot.set(FxEntry { maps: maps.clone(), _pin: layer.clone(), bytes }).is_ok() {
+            if slot.set(FxEntry { maps: maps.clone(), _pin: pin, bytes }).is_ok() {
                 // Counted exactly once, by the build that filled the slot, and only while the
                 // slot is still cached (eviction may have dropped it meanwhile).
                 let mut c = fx_cache().lock().unwrap_or_else(|e| e.into_inner());

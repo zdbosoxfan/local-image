@@ -1,6 +1,9 @@
 //! The options bar (per-tool controls and brush pickers) and the status bar.
 use super::*;
 
+/// Decimals a custom crop-ratio side keeps and shows: 1.414 : 1 (ISO A sizes), as in Photoshop.
+const CROP_RATIO_DECIMALS: u32 = 3;
+
 /// local-image: the painting tools' Mode list: the blend modes with Photoshop's Behind and Clear
 /// after Dissolve.
 pub(super) fn paint_mode_dropdown(ui: &mut egui::Ui, id: &str, b: &mut photocraft_engine::BrushSettings) {
@@ -349,14 +352,15 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                         widgets::dropdown(ui, "crop-ratio", &mut o.crop_ratio, &ratios, 120.0);
                         // Custom ratio fields (Photoshop shows the preset's numbers here).
                         let (mut rw, mut rh) = crate::chrome_ui::crop_ratio(&o.crop_ratio, 0.0, 0.0).map_or((0.0, 0.0), |(w, h)| (w as f32, h as f32));
-                        let cw = widgets::value_field(ui, &mut rw, 0.0..=99_999.0, "", 54.0).changed();
+                        let decimals = CROP_RATIO_DECIMALS;
+                        let cw = widgets::value_field_prec(ui, &mut rw, 0.0..=99_999.0, "", 54.0, decimals).changed();
                         let swap = icons::button(ui, "arrow-left-right", 22.0, false, tl!("Swaps height and width")).clicked();
-                        let ch = widgets::value_field(ui, &mut rh, 0.0..=99_999.0, "", 54.0).changed();
+                        let ch = widgets::value_field_prec(ui, &mut rh, 0.0..=99_999.0, "", 54.0, decimals).changed();
                         if swap {
                             std::mem::swap(&mut rw, &mut rh);
                         }
                         if (cw || ch || swap) && rw > 0.0 && rh > 0.0 {
-                            o.crop_ratio = format!("{}:{}", widgets::fmt_num(rw as f64), widgets::fmt_num(rh as f64));
+                            o.crop_ratio = format!("{}:{}", widgets::fmt_num_prec(f64::from(rw), decimals), widgets::fmt_num_prec(f64::from(rh), decimals));
                         }
                         widgets::vline(ui, 22.0);
                         if widgets::secondary_button(ui, tl!("Clear"), 0.0).clicked() {

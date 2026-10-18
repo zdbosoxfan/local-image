@@ -123,6 +123,24 @@ fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
 }
 
+/// `retain_docs` drops the plans, resident pages and effect maps of documents that aren't open,
+/// and keeps the open ones.
+#[test]
+fn retain_docs_frees_closed_documents() {
+    let mut g = gpu();
+    let a = base_doc(64, 48);
+    let mut b = base_doc(32, 32);
+    b.id = photocraft_doc::DocId(a.id.0 + 1);
+    check(&mut g, &a, "document a");
+    check(&mut g, &b, "document b");
+    assert_eq!(g.comp.held_docs(), vec![a.id, b.id]);
+    g.comp.retain_docs(|d| d == b.id);
+    assert_eq!(g.comp.held_docs(), vec![b.id], "only the open document is left");
+    g.comp.retain_docs(|_| false);
+    assert!(g.comp.held_docs().is_empty());
+    check(&mut g, &a, "renders again after being forgotten");
+}
+
 #[test]
 fn first_frame_renders() {
     // Regression: the first submission after device creation is dropped on some drivers

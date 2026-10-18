@@ -60,6 +60,11 @@ fn rects(ctx: &egui::Context) -> Vec<egui::Rect> {
     ctx.data(|m| m.get_temp(egui::Id::new(RECTS))).unwrap_or_default()
 }
 
+/// The window drag target must not cover a dialog which has been moved into the title bar.
+pub(crate) fn titlebar_drag_area_is_clear(ctx: &egui::Context, area: egui::Rect) -> bool {
+    rects(ctx).iter().all(|dialog| !dialog.intersects(area))
+}
+
 /// With a dialog open the rest of the window is inert (egui's modal layer), but like Photoshop the
 /// image can still be panned and zoomed under it. The pointer position when it is over `canvas`
 /// and not over a dialog or one of its popups.
@@ -231,6 +236,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     }
                     DialogKind::Command if crate::fill_ui::owns(&fields) => crate::fill_ui::body(app, ui, &mut fields),
                     DialogKind::Command if crate::rasterize_prompt::owns(&fields) => crate::rasterize_prompt::body(ui, &fields),
+                    DialogKind::Command if crate::disk_change_prompt::owns(&fields) => crate::disk_change_prompt::body(ui, &fields),
                     DialogKind::Command if crate::variables_ui::owns(&fields) => crate::variables_ui::body(app, ui, &mut fields),
                     DialogKind::Command if crate::file_ui::owns(&fields) => crate::file_ui::body(app, ui, &mut fields),
                     DialogKind::Command if crate::color_picker_ui::owns(&fields) => crate::color_picker_ui::body(ui, &mut fields),
@@ -268,6 +274,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                         tl!("Create")
                     } else if d.fields.contains_key("__export") {
                         tl!("Export")
+                    } else if crate::disk_change_prompt::owns(&d.fields) {
+                        tl!("Replace")
                     } else {
                         crate::file_ui::ok_label(&d.fields).unwrap_or(tl!("OK"))
                     };
@@ -432,6 +440,7 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         DialogKind::NewDocument => crate::new_doc_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::fill_ui::owns(&d.fields) => crate::fill_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::rasterize_prompt::owns(&d.fields) => crate::rasterize_prompt::confirm(app, &d.fields),
+        DialogKind::Command if crate::disk_change_prompt::owns(&d.fields) => crate::disk_change_prompt::confirm(app, &d.fields),
         DialogKind::Command if crate::variables_ui::owns(&d.fields) => crate::variables_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::file_ui::owns(&d.fields) => crate::file_ui::confirm(app, &d.fields),
         DialogKind::Command if crate::color_picker_ui::owns(&d.fields) => crate::color_picker_ui::confirm(app, &d.fields),

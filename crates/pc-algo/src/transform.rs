@@ -338,7 +338,7 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
     let mut h = *h;
     let mut src_rect = src_rect;
     // Pre-reduce for large downscales (bicubic alone aliases below ~50%).
-    let (cx, cy) = ((src_rect.x0 + src_rect.x1) as f64 / 2.0, (src_rect.y0 + src_rect.y1) as f64 / 2.0);
+    let (cx, cy) = ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0);
     let scale = h.local_scale(cx, cy);
     let reduced;
     if interp != Interp::Nearest && scale < 0.5 && scale > 0.0 {
@@ -368,10 +368,12 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
     let work = |t: &Rect| -> Option<(Rect, Vec<f32>)> {
         // Source footprint of this tile (inverse-mapped corners), padded for the filter.
         let tc = [(t.x0, t.y0), (t.x1, t.y0), (t.x1, t.y1), (t.x0, t.y1)].map(|(x, y)| inv.apply(x as f64, y as f64));
-        let fx0 = tc.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fy0 = tc.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fx1 = tc.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32 + 3;
-        let fy1 = tc.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32 + 3;
+        // A strongly skewed inverse saturates the casts at the i32 limits; the padding must not
+        // then overflow (the footprint is clipped to `src_rect` anyway).
+        let fx0 = (tc.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fy0 = (tc.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fx1 = (tc.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
+        let fy1 = (tc.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
         let foot = Rect::new(fx0, fy0, fx1, fy1).intersect(&src_rect);
         if foot.is_empty() || !src_ref.has_tiles_in(foot) {
             return None;
@@ -466,6 +468,29 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inverse_footprint_handles_extreme_finite_affines() {
+        let mut source = Surface::new(PixelFormat::RGBA8);
+        source.fill_rect(Rect::new(0, 0, 8, 8), &[1.0, 0.0, 0.0, 1.0]);
+        // A strongly skewed inverse maps the destination tiles beyond the i32 limits.
+        let h = Homography([1.0, 1e12, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let output = warp_surface(&source, source.content_bounds(), &h, Interp::Nearest);
+        // Rows keep their y under this shear, so nothing lands outside the source's rows.
+        let b = output.content_bounds();
+        assert!(b.is_empty() || (b.y0 >= -1 && b.y1 <= 9), "{b:?}");
+    }
+
+    #[test]
+    fn source_center_does_not_add_extreme_coordinates_in_i32() {
+        let mut source = Surface::new(PixelFormat::RGBA8);
+        let origin = 1_500_000_000;
+        let bounds = Rect::new(origin, origin, origin + 4, origin + 4);
+        source.fill_rect(bounds, &[0.2, 0.7, 0.4, 1.0]);
+        let h = Homography([1.0, 0.0, -f64::from(origin), 0.0, 1.0, -f64::from(origin), 0.0, 0.0, 1.0]);
+        let output = warp_surface(&source, bounds, &h, Interp::Bilinear);
+        assert_eq!(output.pixel(2, 2), source.pixel(origin + 2, origin + 2));
+    }
 
     fn rgba() -> Surface {
         Surface::new(PixelFormat::RGBA8)

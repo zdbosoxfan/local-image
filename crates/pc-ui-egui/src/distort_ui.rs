@@ -27,11 +27,20 @@ pub struct Distort {
     pub cage: Option<crate::cage_ui::CageSession>,
     /// Filter Gallery dialog (gallery_ui).
     pub gallery: Option<crate::gallery_ui::GalleryDialog>,
+    /// The document the open on-canvas sessions belong to, noted by [`drop_foreign`] on the first
+    /// frame they are open.
+    owner: Option<photocraft_doc::DocId>,
 }
 
 impl Distort {
     pub fn active(&self) -> bool {
         self.liquify.is_some() || self.puppet.is_some() || self.perspective.is_some() || self.cage.is_some()
+    }
+
+    /// An on-canvas session (Puppet Warp, Perspective Warp, Cage) is open. The Liquify and Filter
+    /// Gallery dialogs report a changed document themselves.
+    fn on_canvas(&self) -> bool {
+        self.puppet.is_some() || self.perspective.is_some() || self.cage.is_some()
     }
 
     /// Short description for `ui.inspect`.
@@ -233,8 +242,26 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> bool {
     false
 }
 
+/// Drops the open on-canvas sessions once the active document is not the one they were started on
+/// (closed, or another one opened or switched to). Without this, Puppet Warp's preview of the old
+/// document replaced the new document's canvas.
+pub fn drop_foreign(app: &mut PhotocraftApp) {
+    let current = app.session.active().map(|s| s.doc.id);
+    if !app.distort.on_canvas() {
+        app.distort.owner = None;
+    } else if app.distort.owner.is_none() {
+        app.distort.owner = current;
+    } else if app.distort.owner != current {
+        app.distort.puppet = None;
+        app.distort.perspective = None;
+        app.distort.cage = None;
+        app.distort.owner = None;
+    }
+}
+
 /// Full-window dialogs (Liquify, Filter Gallery).
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
+    drop_foreign(app);
     if app.distort.gallery.is_some() {
         crate::gallery_ui::show(app, ctx);
     }

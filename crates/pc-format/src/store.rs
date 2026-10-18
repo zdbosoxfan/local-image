@@ -711,9 +711,12 @@ impl PcraftWriter {
         for (name, data) in &p.previews {
             write_atomic(&dir.join(name), data)?;
         }
+        // Pin the bundle's directories before removing anything: on Unix, cleanup then stays
+        // inside them even if a pathname is swapped for a symlink meanwhile.
+        let gc = BundleGc::new(dir)?;
         for stale in [THUMB, COMPOSITE] {
             if !p.previews.iter().any(|(n, _)| *n == stale) {
-                let _ = std::fs::remove_file(dir.join(stale));
+                let _ = gc.remove(stale);
             }
         }
         write_atomic(&dir.join(MANIFEST), &p.manifest)?;
@@ -722,7 +725,7 @@ impl PcraftWriter {
         // complete save into a reported failure); a leftover is retried on the next save.
         for path in existing {
             if !p.objects.contains_key(&path) {
-                if std::fs::remove_file(dir.join(&path)).is_ok() {
+                if gc.remove(&path).is_ok() {
                     stats.objects_removed += 1;
                 }
                 if let Some(cache) = &mut self.verified_directory {
@@ -781,7 +784,8 @@ fn list_objects(dir: &Path) -> Result<HashSet<String>> {
         for e in rd {
             let e = e?;
             let name = e.file_name().to_string_lossy().into_owned();
-            if name.ends_with(".zst") {
+            // Only content-addressed objects belong to the bundle; anything else is left alone.
+            if name.strip_suffix(".zst").is_some_and(is_valid_hash) {
                 out.insert(format!("{sub}/{name}"));
             }
         }
@@ -789,10 +793,128 @@ fn list_objects(dir: &Path) -> Result<HashSet<String>> {
     Ok(out)
 }
 
+/// Removes stale previews and unreferenced objects from a directory bundle. Only the bundle's
+/// own files are valid targets: the previews and content-addressed `tiles/` and `blobs/` objects.
+#[cfg(unix)]
+struct BundleGc {
+    root: rustix::fd::OwnedFd,
+    tiles: rustix::fd::OwnedFd,
+    blobs: rustix::fd::OwnedFd,
+    composite: rustix::fd::OwnedFd,
+}
+
+/// Flags for the pinned directory handles. Cleanup needs traversal, not permission to list a
+/// directory; either mode keeps a descriptor to the directory opened here, so a later pathname
+/// replacement cannot redirect descriptor-relative unlinks.
+#[cfg(unix)]
+fn gc_directory_flags() -> rustix::fs::OFlags {
+    use rustix::fs::OFlags;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let access = OFlags::PATH;
+    #[cfg(target_vendor = "apple")]
+    let access = OFlags::from_bits_retain(libc::O_SEARCH.cast_unsigned());
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    let access = OFlags::RDONLY;
+    access | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC
+}
+
+#[cfg(unix)]
+impl BundleGc {
+    /// The bundle root itself may be a symlink (a linked bundle); its subdirectories may not.
+    fn new(root: &Path) -> Result<Self> {
+        use rustix::fs::{Mode, OFlags, open, openat};
+        let flags = gc_directory_flags();
+        let root = open(root, flags & !OFlags::NOFOLLOW, Mode::empty()).map_err(std::io::Error::from)?;
+        let tiles = openat(&root, "tiles", flags, Mode::empty()).map_err(std::io::Error::from)?;
+        let blobs = openat(&root, "blobs", flags, Mode::empty()).map_err(std::io::Error::from)?;
+        let composite = openat(&root, "composite", flags, Mode::empty()).map_err(std::io::Error::from)?;
+        Ok(Self { root, tiles, blobs, composite })
+    }
+
+    fn remove(&self, relative: &str) -> Result<()> {
+        let (handle, name) = match gc_target(relative)? {
+            GcDir::Root => (&self.root, THUMB),
+            GcDir::Composite => (&self.composite, "preview.png"),
+            GcDir::Tiles(name) => (&self.tiles, name),
+            GcDir::Blobs(name) => (&self.blobs, name),
+        };
+        rustix::fs::unlinkat(handle, name, rustix::fs::AtFlags::empty()).map_err(std::io::Error::from)?;
+        Ok(())
+    }
+}
+
+#[cfg(not(unix))]
+struct BundleGc {
+    root: PathBuf,
+}
+
+#[cfg(not(unix))]
+impl BundleGc {
+    fn new(root: &Path) -> Result<Self> {
+        Ok(Self { root: root.to_path_buf() })
+    }
+
+    fn remove(&self, relative: &str) -> Result<()> {
+        gc_target(relative)?;
+        std::fs::remove_file(self.root.join(relative))?;
+        Ok(())
+    }
+}
+
+enum GcDir<'a> {
+    Root,
+    Composite,
+    Tiles(&'a str),
+    Blobs(&'a str),
+}
+
+fn gc_target(relative: &str) -> Result<GcDir<'_>> {
+    Ok(match relative {
+        THUMB => GcDir::Root,
+        COMPOSITE => GcDir::Composite,
+        _ => match relative.split_once('/') {
+            Some(("tiles", name)) if name.strip_suffix(".zst").is_some_and(is_valid_hash) => GcDir::Tiles(name),
+            Some(("blobs", name)) if name.strip_suffix(".zst").is_some_and(is_valid_hash) => GcDir::Blobs(name),
+            _ => return Err(FormatError::Unsupported(format!("invalid bundle cleanup target: {relative}"))),
+        },
+    })
+}
+
 /// Crash-safe replace of one file (see [`crate::atomic`]).
 pub(crate) fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     li_fs::atomic_write(path, data)?;
     Ok(())
+}
+
+/// Upstream 2d5a7497: once cleanup has pinned the bundle's directories, swapping `tiles` for a
+/// symlink to another directory cannot make it delete a same-named file there.
+#[cfg(all(test, unix))]
+#[test]
+fn gc_pinned_directory_handles_resist_subdirectory_swap() {
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let root = std::env::temp_dir().join(format!("pcraft-gc-swap-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    let bundle = root.join("project.pcraft");
+    let outside = root.join("outside");
+    for sub in ["tiles", "blobs", "composite"] {
+        std::fs::create_dir_all(bundle.join(sub)).unwrap();
+    }
+    std::fs::create_dir(&outside).unwrap();
+    let filename = format!("{}.zst", "c".repeat(64));
+    std::fs::write(bundle.join("tiles").join(&filename), b"stale bundle file").unwrap();
+    std::fs::write(outside.join(&filename), b"outside file must survive").unwrap();
+
+    let gc = BundleGc::new(&bundle).unwrap();
+    std::fs::rename(bundle.join("tiles"), bundle.join("old-tiles")).unwrap();
+    symlink(&outside, bundle.join("tiles")).unwrap();
+
+    gc.remove(&format!("tiles/{filename}")).unwrap();
+    assert!(!bundle.join("old-tiles").join(&filename).exists());
+    assert_eq!(std::fs::read(outside.join(&filename)).unwrap(), b"outside file must survive");
+    assert!(gc.remove("tiles/../../outside/x.zst").is_err(), "only content-addressed objects are targets");
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[cfg(test)]

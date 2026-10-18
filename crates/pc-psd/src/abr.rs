@@ -29,7 +29,7 @@ use crate::compression::{Compression, PlaneLayout, decode_planes, encode_planes}
 use crate::descriptor::{Descriptor, Value, VersionedDescriptor};
 use crate::error::{PsdError, Result};
 use crate::header::Version;
-use crate::patterns::{PsdPattern, parse_pattern_block_with_budget, write_pattern_block};
+use crate::patterns::{MAX_PATTERN_DECODED_BYTES, PsdPattern, parse_pattern_block_with_budget, write_pattern_block};
 
 /// Largest sampled tip edge accepted (Photoshop's own limit is 5000 px).
 pub const MAX_EDGE: u32 = 8192;
@@ -312,12 +312,16 @@ fn read_desc(data: &[u8], out: &mut AbrFile) {
 }
 
 fn parse_v6(r: &mut Rd, out: &mut AbrFile) -> Result<()> {
+    parse_v6_within(r, out, &mut Budget(MAX_TOTAL_BYTES))
+}
+
+/// [`parse_v6`] with the samples and the embedded patterns sharing `budget`.
+fn parse_v6_within(r: &mut Rd, out: &mut AbrFile, budget: &mut Budget) -> Result<()> {
     out.subversion = r.u16()?;
     if !matches!(out.subversion, 1 | 2) {
         return Err(PsdError::Unsupported(format!("brush file subversion {}", out.subversion)));
     }
-    let mut budget = Budget(MAX_TOTAL_BYTES);
-    let mut pattern_budget = 128 << 20;
+    let mut pattern_budget = MAX_PATTERN_DECODED_BYTES;
     while r.left() >= 12 {
         let sig = r.arr::<4>()?;
         if &sig != b"8BIM" {
@@ -339,12 +343,22 @@ fn parse_v6(r: &mut Rd, out: &mut AbrFile) -> Result<()> {
             r.p += pad;
         }
         match &key {
-            b"samp" => read_samp(data, out.subversion, out, &mut budget)?,
-            b"patt" => match parse_pattern_block_with_budget(data, &mut pattern_budget) {
-                Ok(p) if out.patterns.len() + p.len() <= 4096 => out.patterns.extend(p),
-                Ok(_) => return Err(PsdError::LimitExceeded("pattern count")),
-                Err(e) => out.warnings.push(format!("embedded patterns unreadable: {e}")),
-            },
+            b"samp" => read_samp(data, out.subversion, out, budget)?,
+            b"patt" => {
+                // Patterns also spend the samples' budget, so the two can't each claim it whole.
+                // Charged only for patterns that are kept.
+                let before = pattern_budget.min(u64::try_from(budget.0).unwrap_or(u64::MAX));
+                let mut left = before;
+                match parse_pattern_block_with_budget(data, &mut left) {
+                    Ok(p) if out.patterns.len() + p.len() <= 4096 => {
+                        pattern_budget = pattern_budget.saturating_sub(before - left);
+                        budget.spend(usize::try_from(before - left).unwrap_or(usize::MAX))?;
+                        out.patterns.extend(p);
+                    }
+                    Ok(_) => return Err(PsdError::LimitExceeded("pattern count")),
+                    Err(e) => out.warnings.push(format!("embedded patterns unreadable: {e}")),
+                }
+            }
             b"desc" => read_desc(data, out),
             // Preset hierarchy (groups) and tool presets: not needed for the tips.
             b"phry" | b"lPdc" => {}
@@ -487,6 +501,35 @@ mod tests {
         let bpp = usize::from(depth / 8);
         let data = (0..w as usize * h as usize * bpp).map(|i| if (i / bpp) % 3 == 0 { 255 } else { (i % 7) as u8 * 30 }).collect();
         AbrSample { id: id.into(), width: w, height: h, depth, data }
+    }
+
+    #[test]
+    fn embedded_patterns_spend_the_samples_budget() {
+        let p = PsdPattern {
+            mode: 3,
+            width: 5,
+            height: 3,
+            name: "p".into(),
+            id: "id".into(),
+            palette: None,
+            depth: 8,
+            channels: vec![vec![1; 15], vec![2; 15], vec![3; 15]],
+            alpha: None,
+        };
+        let abr = write_v6(2, &[sample("s", 10, 10, 8)], &[p.clone(), p], &[], true).unwrap();
+        let parse_within = |left: usize| {
+            let mut out = AbrFile::default();
+            let mut budget = Budget(left);
+            parse_v6_within(&mut Rd::new(&abr[2..]), &mut out, &mut budget).unwrap();
+            (out, budget.0)
+        };
+        // 100 sample bytes plus two 45-byte patterns.
+        let (out, left) = parse_within(190);
+        assert_eq!((out.samples.len(), out.patterns.len(), left), (1, 2, 0));
+        // One byte short: the patterns no longer fit after the sample.
+        let (out, left) = parse_within(189);
+        assert_eq!((out.samples.len(), out.patterns.len(), left), (1, 0, 89));
+        assert!(out.warnings.iter().any(|w| w.contains("embedded patterns unreadable")), "{:?}", out.warnings);
     }
 
     #[test]

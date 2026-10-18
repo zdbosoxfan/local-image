@@ -329,7 +329,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
         let longest = doc.size.width.max(doc.size.height);
-        let factor = longest.div_ceil(MAX_TEXTURE).max(1);
+        let factor = longest.div_ceil(texture_side(ctx)).max(1);
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
@@ -526,7 +526,7 @@ pub(super) fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCa
         return;
     }
     let Some(st) = app.session.documents().get(idx) else { return };
-    let pixels = st.history.pixel_bytes(&st.doc) as u64;
+    let pixels = st.memory_bytes() as u64;
     let budget = crate::gpu_canvas::memory_budget(allowance, pixels, crate::gpu_canvas::physical_memory());
     let budget = lightcraft_sysmem::gpu::cache_budget(budget);
     gpu.set_memory_budget(budget);

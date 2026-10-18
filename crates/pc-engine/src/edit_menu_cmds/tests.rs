@@ -425,3 +425,23 @@ fn find_in_the_active_layer_finds_nothing_when_it_is_not_type() {
     let r = s.execute("edit.findAndReplaceText", json!({"find": "abc", "allLayers": false, "action": "find"})).unwrap();
     assert_eq!((r["found"]["layer"].as_u64(), r["found"]["text"].as_str()), (Some(id), Some("abc")));
 }
+
+#[test]
+fn fade_allocation_failure_keeps_document_and_history() {
+    for depth in [8, 16, 32] {
+        let mut s = session(depth);
+        s.execute("edit.fill", json!({"color": "#000000"})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let entries = s.active().unwrap().history.entries();
+        crate::allocation::fail_next_for_test();
+        let result = s.execute("edit.fade", json!({"opacity": 25}));
+        let _ = crate::allocation::capacity::<u8>(0, "reset failpoint");
+        assert!(result.unwrap_err().to_string().contains("not enough memory"));
+        assert_eq!(*s.active().unwrap().doc, *before);
+        assert_eq!(s.active().unwrap().history.entries(), entries);
+        assert!(s.is_enabled("edit.fade"));
+        s.execute("edit.fade", json!({"opacity": 25})).unwrap();
+        assert!(s.undo());
+        assert_eq!(*s.active().unwrap().doc, *before);
+    }
+}

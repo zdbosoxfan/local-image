@@ -26,6 +26,8 @@ pub struct Prompt {
     discarded: Vec<(DocId, u64)>,
     waiting: Option<DocId>,
     save_succeeded: Option<bool>,
+    /// The document whose question has already put keyboard focus on its default answer.
+    focused: Option<DocId>,
 }
 
 fn index_of(app: &PhotocraftApp, id: DocId) -> Option<usize> {
@@ -72,8 +74,17 @@ pub fn intercept(app: &mut PhotocraftApp, id: &str, params: &Value) -> bool {
         return false;
     }
     let waiting = docs.first().copied().filter(|doc| crate::save_worker::pending(app, *doc));
-    let prompt =
-        Prompt { id: id.to_string(), params: params.clone(), target, docs, answered: Vec::new(), discarded: Vec::new(), waiting, save_succeeded: None };
+    let prompt = Prompt {
+        id: id.to_string(),
+        params: params.clone(),
+        target,
+        docs,
+        answered: Vec::new(),
+        discarded: Vec::new(),
+        waiting,
+        save_succeeded: None,
+        focused: None,
+    };
     match &app.discard {
         None => app.discard = Some(prompt),
         // Quitting overrides whatever is pending: it covers every document, so nothing is lost.
@@ -184,6 +195,10 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
 
 pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if let Some(doc) = app.discard.as_ref().and_then(|p| p.waiting) {
+        // Hidden meanwhile: the question takes focus again when it comes back.
+        if let Some(p) = app.discard.as_mut() {
+            p.focused = None;
+        }
         if app.tiff_options.is_some() || crate::save_worker::pending(app, doc) {
             return;
         }
@@ -217,6 +232,12 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         };
         (tl!("Unsaved changes"), li_i18n::fmt(template, &[("name", &name)]))
     };
+    // Each question comes up with its default answer focused, as in Photoshop: the arrow keys then
+    // move between the answers and Enter presses the focused one.
+    let focus = p.focused != Some(doc);
+    if let Some(p) = app.discard.as_mut() {
+        p.focused = Some(doc);
+    }
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
     // The answers in the platform's words; `dialog_buttons` puts them in its order. Windows (and
     // Linux) ask Yes / No / Cancel with Y, N and Esc, as Photoshop does there; macOS asks
@@ -235,7 +256,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
     };
     let mut answer = ctx.input_mut(|i| buttons.iter().find(|b| b.2.is_some_and(|k| i.consume_key(egui::Modifiers::NONE, k))).map(|b| b.4));
     let labels: Vec<String> = buttons.iter().map(|b| b.2.map_or_else(|| tl!(b.1).to_string(), |k| mnemonic(b.1, k))).collect();
-    let row: Vec<DialogButton> = buttons.iter().zip(&labels).map(|(b, label)| DialogButton::new(b.0, label, b.3)).collect();
+    let row: Vec<DialogButton> =
+        buttons.iter().zip(&labels).map(|(b, label)| DialogButton::new(b.0, label, b.3).focus(focus && b.0 == ButtonRole::Default)).collect();
     let modal = egui::Modal::new(egui::Id::new("discard-prompt")).show(ctx, |ui| {
         ui.set_max_width(420.0);
         ui.label(egui::RichText::new(tl!(&title)).font(crate::theme::semibold(15.0)));
@@ -439,22 +461,51 @@ mod tests {
         v.into_iter().map(|(_, l)| l).collect()
     }
 
-    /// Tab walks `labels` left to right and wraps; Shift+Tab steps back.
-    fn tab_walks(h: &mut Prompted, labels: [&str; 3]) {
-        use egui_kittest::kittest::Queryable;
-        let focused = |h: &Prompted| labels.into_iter().find(|l| h.get_by_label(l).is_focused());
-        for want in [labels[0], labels[1], labels[2], labels[0]] {
+    /// Tab walks `labels` left to right from the focused default answer, `labels[default]`, and
+    /// wraps; Shift+Tab steps back.
+    fn tab_walks(h: &mut Prompted, labels: [&str; 3], default: usize) {
+        assert_eq!(focused(h, &labels), Some(labels[default]));
+        for step in 1..=3 {
             h.key_press(Key::Tab);
             h.run_steps(2);
-            assert_eq!(focused(h), Some(want));
+            assert_eq!(focused(h, &labels), Some(labels[(default + step) % 3]));
         }
         h.key_press_modifiers(egui::Modifiers::SHIFT, Key::Tab);
         h.run_steps(2);
-        assert_eq!(focused(h), Some(labels[2]));
+        assert_eq!(focused(h, &labels), Some(labels[(default + 2) % 3]));
+    }
+
+    /// Which of `labels` has keyboard focus.
+    fn focused<'a>(h: &Prompted, labels: &[&'a str]) -> Option<&'a str> {
+        use egui_kittest::kittest::Queryable;
+        labels.iter().copied().find(|l| h.get_by_label(l).is_focused())
     }
 
     fn docs_left(h: &Prompted) -> Option<usize> {
         h.state().discard.as_ref().map(|p| p.docs.len())
+    }
+
+    /// The default answer has keyboard focus as each question comes up, so the arrow keys move
+    /// between the answers and Enter presses the one they reached, as in Photoshop.
+    #[test]
+    fn each_question_comes_up_with_the_default_answer_focused() {
+        let mut h = prompt_on(egui::os::OperatingSystem::Windows);
+        let labels = ["(Y)es", "(N)o", "Cancel"];
+        assert_eq!(focused(&h, &labels), Some("(Y)es"));
+        h.key_press(Key::ArrowRight);
+        h.run_steps(2);
+        assert_eq!(focused(&h, &labels), Some("(N)o"));
+        h.key_press(Key::Enter);
+        h.run_steps(2);
+        assert_eq!(docs_left(&h), Some(1), "Enter pressed No");
+        assert_eq!(focused(&h, &labels), Some("(Y)es"), "the next question starts on the default again");
+
+        let mut h = prompt_on(egui::os::OperatingSystem::Mac);
+        let labels = ["(D)on't Save", "(C)ancel", "(S)ave"];
+        assert_eq!(focused(&h, &labels), Some("(S)ave"));
+        h.key_press(Key::ArrowLeft);
+        h.run_steps(2);
+        assert_eq!(focused(&h, &labels), Some("(C)ancel"));
     }
 
     #[test]
@@ -463,7 +514,7 @@ mod tests {
             let mut h = prompt_on(os);
             let labels = ["(Y)es", "(N)o", "Cancel"];
             assert_eq!(drawn_order(&h, labels), labels, "{os:?}");
-            tab_walks(&mut h, labels);
+            tab_walks(&mut h, labels, 0);
             h.key_press(Key::N);
             h.run_steps(2);
             assert_eq!(docs_left(&h), Some(1), "N answered the first document");
@@ -483,7 +534,7 @@ mod tests {
         let mut h = prompt_on(egui::os::OperatingSystem::Mac);
         let labels = ["(D)on't Save", "(C)ancel", "(S)ave"];
         assert_eq!(drawn_order(&h, labels), labels);
-        tab_walks(&mut h, labels);
+        tab_walks(&mut h, labels, 2);
         h.key_press(Key::D);
         h.run_steps(2);
         assert_eq!(docs_left(&h), Some(1), "D answered the first document");
@@ -508,11 +559,9 @@ mod tests {
         h.run_steps(2);
         assert!(asked.get(), "Enter answered Yes, which saves");
         assert_eq!(docs_left(&h), Some(2));
-        // Tab to No: Enter now presses it.
-        for _ in 0..2 {
-            h.key_press(Key::Tab);
-            h.run_steps(2);
-        }
+        // Tab from the focused Yes to No: Enter now presses it.
+        h.key_press(Key::Tab);
+        h.run_steps(2);
         asked.set(false);
         h.key_press(Key::Enter);
         h.run_steps(2);

@@ -140,10 +140,25 @@ impl PresetState {
 }
 
 impl Session {
-    /// Restore presets saved by [`PresetState::to_json`]. Missing sets keep their defaults; a
-    /// malformed blob is ignored (presets are never worth refusing to start over).
+    /// Restore presets saved by [`PresetState::to_json`]. Missing or malformed sets keep their
+    /// defaults (presets are never worth refusing to start over). Each set loads on its own: the
+    /// shell writes back only the keys that changed, so one damaged set would otherwise discard
+    /// every other set at each launch.
     pub fn load_presets_json(&mut self, v: Value) {
-        let Ok(p) = serde_json::from_value::<Persisted>(v) else { return };
+        let Value::Object(mut m) = v else { return };
+        fn take<T: serde::de::DeserializeOwned>(m: &mut serde_json::Map<String, Value>, key: &str) -> Option<T> {
+            m.remove(key).filter(|v| !v.is_null()).and_then(|v| serde_json::from_value(v).ok())
+        }
+        let p = Persisted {
+            gradients: take(&mut m, "gradients"),
+            gradient: take(&mut m, "gradient"),
+            styles: take(&mut m, "styles"),
+            shapes: take(&mut m, "shapes"),
+            pattern_groups: take(&mut m, "pattern_groups"),
+            tool_presets: take(&mut m, "tool_presets"),
+            custom_shapes: take(&mut m, "custom_shapes"),
+            layer_defaults: take(&mut m, "layer_defaults"),
+        };
         let st = &mut self.presets;
         if let Some(g) = p.gradients {
             st.gradients = g;

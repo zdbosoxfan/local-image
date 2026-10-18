@@ -181,12 +181,44 @@ impl History {
         self.undo.iter().chain(self.redo.iter()).fold(own, |n, s| n.saturating_add(backing_bytes(&s.doc, &mut seen)))
     }
 
+    /// Backing bytes only `extra` documents hold (History panel snapshots): not `current`'s and
+    /// not any state's. 0 without `extra`, without walking the states.
+    pub fn extra_bytes(&self, current: &Document, extra: &[&Document]) -> usize {
+        if extra.is_empty() {
+            return 0;
+        }
+        let mut seen = HashSet::new();
+        backing_bytes(current, &mut seen);
+        for s in self.undo.iter().chain(self.redo.iter()) {
+            backing_bytes(&s.doc, &mut seen);
+        }
+        extra.iter().fold(0, |n, d| n.saturating_add(backing_bytes(d, &mut seen)))
+    }
+
+    /// [`History::unique_bytes`] less the allocations `keep` documents also hold: what clearing
+    /// the history frees while they stay (Edit › Purge › Histories keeps the snapshots).
+    pub fn unique_bytes_besides(&self, current: &Document, keep: &[&Document]) -> usize {
+        let mut seen = HashSet::new();
+        backing_bytes(current, &mut seen);
+        for d in keep {
+            backing_bytes(d, &mut seen);
+        }
+        self.undo.iter().chain(self.redo.iter()).fold(0, |n, s| n.saturating_add(backing_bytes(&s.doc, &mut seen)))
+    }
+
     /// Apply [`History::max_states`] immediately, then keep backing memory within
     /// [`History::max_bytes`]: the current document's allocations plus
     /// those only history holds (newest states first). The oldest undo states that don't fit are
     /// dropped; the most recent one is always kept so the last step can be undone. Returns how
     /// many states were dropped.
     pub fn trim(&mut self, current: &Document) -> usize {
+        self.trim_with(current, &[])
+    }
+
+    /// [`History::trim`] counting the allocations only `pinned` documents hold (History panel
+    /// snapshots, which outlive the states) against the budget too, so they can't take memory
+    /// beyond it unseen. The most recent state is still always kept.
+    pub fn trim_with(&mut self, current: &Document, pinned: &[&Document]) -> usize {
         let count_drop = self.undo.len().saturating_sub(self.max_states.max(1));
         self.undo.drain(..count_drop);
         if self.max_bytes == 0 || self.undo.len() <= 1 {
@@ -194,6 +226,10 @@ impl History {
         }
         let mut seen = HashSet::new();
         let mut total = backing_bytes(current, &mut seen);
+        // Snapshot allocations stay whatever is trimmed, so they are counted before any state.
+        for d in pinned {
+            total = total.saturating_add(backing_bytes(d, &mut seen));
+        }
         for s in self.redo.iter().rev() {
             total = total.saturating_add(backing_bytes(&s.doc, &mut seen));
         }
@@ -312,6 +348,42 @@ mod tests {
         f(&mut d);
         *cur = Arc::new(d);
         h.record(label, before, LayerTarget::default());
+    }
+
+    /// Snapshot-only allocations count against the budget; tiles a snapshot shares with the
+    /// document or a state count once, and a purge frees only what no snapshot keeps.
+    #[test]
+    fn snapshot_tiles_count_against_the_budget() {
+        let mut h = History::new(50);
+        let mut cur = Arc::new(base());
+        let paint = |d: &mut Document, v: f32| {
+            let id = d.layers[0].id;
+            d.layer_mut(id).unwrap().surface_mut().unwrap().write_pixel(1, 1, &[v, 0.0, 0.0, 1.0]);
+        };
+        // A snapshot holding a tile nothing else does, then one sharing the first state's tile.
+        let mut own = (*cur).clone();
+        paint(&mut own, 0.9);
+        let tile = own.layers[0].surface().unwrap().tiles().next().unwrap().1.bytes().len();
+        edit(&mut h, &mut cur, "paint 0", |d| paint(d, 0.1));
+        let shared = h.state(0).unwrap();
+        for i in 1..6 {
+            edit(&mut h, &mut cur, &format!("paint {i}"), |d| paint(d, i as f32 / 8.0));
+        }
+        let snaps = [&own, &*shared];
+        assert_eq!(h.extra_bytes(&cur, &snaps), tile, "the shared tile is history's");
+        assert_eq!(h.extra_bytes(&cur, &[]), 0);
+        assert_eq!(h.unique_bytes(&cur), 6 * tile);
+        assert_eq!(h.unique_bytes_besides(&cur, &snaps), 5 * tile, "clearing keeps the shared tile");
+        // Both snapshot tiles stay whatever is trimmed (the shared one too), so beside the
+        // current tile they leave room for two history tiles; without them, four would fit.
+        h.max_bytes = 5 * tile;
+        assert_eq!(h.trim_with(&cur, &snaps), 4);
+        assert_eq!(h.past_len(), 2);
+        assert_eq!(h.pixel_bytes(&cur) + h.extra_bytes(&cur, &snaps), 5 * tile);
+        // Still keeps the last step undoable.
+        h.max_bytes = 1;
+        h.trim_with(&cur, &snaps);
+        assert_eq!(h.past_len(), 1);
     }
 
     #[test]

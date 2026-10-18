@@ -377,7 +377,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             small_label(ui, tl!("Width"));
             ui.horizontal(|ui| {
                 let mut w = to_unit(get_f(f, "width", 1920.0), &unit, ppi);
-                if widgets::value_field(ui, &mut w, 0.01..=300_000.0, "", 110.0).changed() {
+                if widgets::value_field(ui, &mut w, 0.0..=300_000.0, "", 110.0).changed() {
                     f.insert("width".into(), px_value(from_unit(w, &unit, ppi)));
                     f.remove("__preset");
                 }
@@ -389,7 +389,7 @@ pub fn body(ui: &mut egui::Ui, f: &mut Map<String, Value>) {
             small_label(ui, tl!("Height"));
             ui.horizontal(|ui| {
                 let mut h = to_unit(get_f(f, "height", 1080.0), &unit, ppi);
-                if widgets::value_field(ui, &mut h, 0.01..=300_000.0, "", 110.0).changed() {
+                if widgets::value_field(ui, &mut h, 0.0..=300_000.0, "", 110.0).changed() {
                     f.insert("height".into(), px_value(from_unit(h, &unit, ppi)));
                     f.remove("__preset");
                 }
@@ -649,6 +649,25 @@ mod tests {
             }
             enter(&mut h);
             assert_eq!(created(&h), (512, 512, 72.0));
+        }
+
+        #[test]
+        fn tiny_size_in_inches_is_not_changed_by_showing_it() {
+            // 1 px at 300 ppi is 0.0033 in: a field floored at 0.01 in turned it into 3 px unasked.
+            let mut h = harness();
+            let mut f = fields(&h);
+            for (k, v) in [
+                ("width", serde_json::json!(1)),
+                ("height", serde_json::json!(1)),
+                ("resolution", serde_json::json!(300.0)),
+                ("__unit", serde_json::json!("in")),
+            ] {
+                f.insert(k.into(), v);
+            }
+            set_fields(&mut h, f);
+            h.run_steps(2);
+            let p = super::super::command_params(&fields(&h));
+            assert_eq!((p["width"].as_u64(), p["height"].as_u64()), (Some(1), Some(1)));
         }
 
         #[test]

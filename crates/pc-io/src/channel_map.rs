@@ -1,10 +1,11 @@
 //! Alpha / spot channel options <-> PSD `DisplayInfo` image resources (1077, and the older 1007).
 //!
 //! Layout (Adobe PSD spec, "DisplayInfo"): resource 1077 starts with a 4-byte version (1), then
-//! one 14-byte record per extra channel: colour space (u16), four u16 colour components, opacity
-//! (u16, 0..100), kind (u8: 0 = colour indicates selected areas, 1 = masked ("protected") areas,
-//! 2 = spot channel) and one padding byte. Resource 1007 has the same records without the
-//! version and without the spot kind.
+//! one 13-byte record per extra channel: colour space (u16), four u16 colour components, opacity
+//! (u16, 0..100) and kind (u8: 0 = colour indicates selected areas, 1 = masked ("protected")
+//! areas, 2 = spot channel). Resource 1007 has the same records without the version and the spot
+//! kind, each followed by a padding byte (14 bytes). Photoshop writes 13-byte 1077 records; 14
+//! shifts every channel after the first, and Photoshop refuses such a file.
 
 use photocraft_color::{Color, ColorMode};
 use photocraft_doc::{AlphaChannel, ColorIndicates};
@@ -21,7 +22,21 @@ const SPACE_GRAY: u16 = 8;
 
 /// Resource 1077 for `channels` (in file order).
 pub(crate) fn display_info(channels: &[&AlphaChannel]) -> Vec<u8> {
+    display_info_records(false, channels)
+}
+
+/// Resource 1077 for a merged image whose first extra channel is its transparency, followed by
+/// `channels`: the transparency gets the first record, as Photoshop writes it.
+pub(crate) fn display_info_after_transparency(channels: &[&AlphaChannel]) -> Vec<u8> {
+    display_info_records(true, channels)
+}
+
+fn display_info_records(transparency: bool, channels: &[&AlphaChannel]) -> Vec<u8> {
     let mut out = 1u32.to_be_bytes().to_vec();
+    if transparency {
+        // As Photoshop writes it: red, 100 %, masked areas.
+        out.extend_from_slice(&[0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 100, 1]);
+    }
     for c in channels {
         let (color, opacity, kind) = match c.spot {
             Some((ink, solidity)) => (ink, solidity, 2u8),
@@ -34,15 +49,19 @@ pub(crate) fn display_info(channels: &[&AlphaChannel]) -> Vec<u8> {
         }
         out.extend_from_slice(&((opacity.clamp(0.0, 1.0) * 100.0).round() as u16).to_be_bytes());
         out.push(kind);
-        out.push(0);
     }
     out
 }
 
 /// Applies a DisplayInfo resource (`versioned` = 1077) to the imported channels in order.
 pub(crate) fn apply_display_info(data: &[u8], versioned: bool, channels: &mut [AlphaChannel]) {
-    let body = if versioned { data.get(4..).unwrap_or(&[]) } else { data };
-    for (c, rec) in channels.iter_mut().zip(body.as_chunks::<14>().0) {
+    apply_display_info_skipping(data, versioned, 0, channels);
+}
+
+/// [`apply_display_info`] after skipping the first `skip` records (the merged transparency's).
+pub(crate) fn apply_display_info_skipping(data: &[u8], versioned: bool, skip: usize, channels: &mut [AlphaChannel]) {
+    let (body, size) = if versioned { (data.get(4..).unwrap_or(&[]), 13) } else { (data, 14) };
+    for (c, rec) in channels.iter_mut().zip(body.chunks_exact(size).skip(skip)) {
         let u = |i: usize| u16::from_be_bytes([rec[i], rec[i + 1]]);
         let comps = [u(2), u(4), u(6), u(8)];
         let color = decode_color(u(0), comps);
@@ -50,6 +69,8 @@ pub(crate) fn apply_display_info(data: &[u8], versioned: bool, channels: &mut [A
         match rec[12] {
             2 => c.spot = Some((color, opacity)),
             k => {
+                // An alpha channel, not an ink (a Multichannel import starts every channel as one).
+                c.spot = None;
                 c.color = color;
                 c.opacity = opacity;
                 c.indicates = if k == 0 { ColorIndicates::SelectedAreas } else { ColorIndicates::MaskedAreas };
@@ -98,17 +119,47 @@ mod tests {
         let mut s = AlphaChannel::new("S", Surface::new(PixelFormat::GRAY8));
         s.spot = Some((Color::rgb(1.0, 0.0, 1.0), 0.8));
         let bytes = display_info(&[&a, &s]);
-        assert_eq!(bytes.len(), 4 + 28);
+        // 13 bytes per channel, as Photoshop lays out 1077.
+        assert_eq!(bytes.len(), 4 + 2 * 13);
         let mut back = vec![AlphaChannel::new("A", Surface::new(PixelFormat::GRAY8)), AlphaChannel::new("S", Surface::new(PixelFormat::GRAY8))];
         apply_display_info(&bytes, true, &mut back);
         assert_eq!(back[0].color, a.color);
         assert!((back[0].opacity - 0.3).abs() < 1e-6);
         assert_eq!(back[0].indicates, ColorIndicates::SelectedAreas);
         assert_eq!(back[1].spot, s.spot);
+        // With the merged transparency's record first, the channels still get their own.
+        let with_t = display_info_after_transparency(&[&a, &s]);
+        assert_eq!(with_t.len(), 4 + 3 * 13);
+        let mut back = vec![AlphaChannel::new("A", Surface::new(PixelFormat::GRAY8)), AlphaChannel::new("S", Surface::new(PixelFormat::GRAY8))];
+        apply_display_info_skipping(&with_t, true, 1, &mut back);
+        assert_eq!(back[0].indicates, ColorIndicates::SelectedAreas);
+        assert_eq!(back[1].spot, s.spot);
         // Truncated data is ignored rather than misread.
         let mut c = vec![AlphaChannel::new("x", Surface::new(PixelFormat::GRAY8))];
         apply_display_info(&bytes[..10], true, &mut c);
         assert_eq!(c[0].opacity, 0.5);
+    }
+
+    /// The legacy 1007 resource keeps its 14-byte records.
+    #[test]
+    fn legacy_display_info_uses_fourteen_byte_records() {
+        let rec = |opacity: u8, kind: u8| vec![0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, opacity, kind, 0];
+        let data = [rec(20, 0), rec(70, 1)].concat();
+        let mut back = vec![AlphaChannel::new("A", Surface::new(PixelFormat::GRAY8)), AlphaChannel::new("B", Surface::new(PixelFormat::GRAY8))];
+        apply_display_info(&data, false, &mut back);
+        assert!((back[0].opacity - 0.2).abs() < 1e-6);
+        assert!((back[1].opacity - 0.7).abs() < 1e-6);
+        assert_eq!(back[1].indicates, ColorIndicates::MaskedAreas);
+    }
+
+    /// A Multichannel import starts every channel as a black ink; an alpha-type record (selected
+    /// or masked areas) makes it an alpha channel again.
+    #[test]
+    fn alpha_kind_display_info_clears_the_ink() {
+        let a = AlphaChannel::new("A", Surface::new(PixelFormat::GRAY8));
+        let mut back = vec![AlphaChannel { spot: Some((Color::BLACK, 0.0)), ..AlphaChannel::new("A", Surface::new(PixelFormat::GRAY8)) }];
+        apply_display_info(&display_info(&[&a]), true, &mut back);
+        assert_eq!(back[0].spot, None);
     }
 
     #[test]

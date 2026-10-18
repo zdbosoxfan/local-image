@@ -566,6 +566,15 @@ impl Loader<'_> {
                 }
             }
         }
+        // Variable targets follow their layers through id remapping; a dangling one keeps a
+        // non-colliding placeholder so it stays a missing-layer skip rather than driving an
+        // unrelated layer. With preserved ids the defs stay as saved.
+        let mut variables = m.variables.clone();
+        if !self.preserve_ids {
+            for vd in &mut variables.defs {
+                vd.layer = self.id_map.get(&vd.layer.0).copied().unwrap_or(LayerId(u64::MAX - vd.layer.0.min(u64::MAX / 2)));
+            }
+        }
         let id = if self.preserve_ids {
             self.max_id = self.max_id.max(m.id);
             DocId(m.id)
@@ -608,7 +617,7 @@ impl Loader<'_> {
             patterns,
             color_table: m.color_table.clone(),
             duotone: m.duotone.clone(),
-            variables: m.variables.clone(),
+            variables,
             timeline: m.timeline.clone(),
             layer_comps,
             last_applied_comp: m.last_applied_comp,

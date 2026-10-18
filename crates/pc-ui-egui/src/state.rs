@@ -1096,6 +1096,10 @@ pub struct UiState {
     /// Inline type editing session, if any.
     #[serde(default)]
     pub text_edit: Option<TextEdit>,
+    /// Clock time in seconds when the type caret's blink was last reset (a keystroke, a click that
+    /// places the caret, a drag): the caret is solid for a blink period after it.
+    #[serde(skip)]
+    pub caret_blink_time: f64,
     /// Free Transform session, if any.
     #[serde(default)]
     pub transform: Option<TransformSession>,
@@ -1206,6 +1210,10 @@ pub struct UiState {
     /// modifiers held at its first click.
     #[serde(default)]
     pub polygon_mode: String,
+    /// The document the polygon is drawn on (set at its first click): another document becoming
+    /// active drops it (`canvas::polygon_cancel_stale`).
+    #[serde(default)]
+    pub polygon_doc: Option<photocraft_doc::DocId>,
     /// Magnetic Lasso border in progress (`magnetic_lasso_ui`).
     #[serde(default)]
     pub magnetic: crate::magnetic_lasso_ui::MagneticLasso,
@@ -1255,6 +1263,7 @@ impl Default for UiState {
             ai: Default::default(),
             recent_files: Vec::new(),
             text_edit: None,
+            caret_blink_time: 0.0,
             transform: None,
             mask_target: false,
             vector_mask_target: false,
@@ -1298,6 +1307,7 @@ impl Default for UiState {
             vector_snapping: Default::default(),
             polygon: Vec::new(),
             polygon_mode: String::new(),
+            polygon_doc: None,
             magnetic: Default::default(),
             crop_rect: None,
             next_id: 1,

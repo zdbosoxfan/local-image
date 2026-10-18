@@ -30,6 +30,13 @@ pub use self::tools::*;
 /// Largest texture side we upload; bigger documents display downsampled until the GPU path lands.
 pub const MAX_TEXTURE: u32 = 4096;
 
+/// The largest texture side to upload on this device: [`MAX_TEXTURE`], or less where the GPU
+/// allows less (2048 on some older or low-end GPUs and WebGL contexts). Past the device's limit
+/// egui asserts and the backend fails to create the texture.
+fn texture_side(ctx: &egui::Context) -> u32 {
+    u32::try_from(ctx.input(|i| i.max_texture_side)).unwrap_or(MAX_TEXTURE).clamp(1, MAX_TEXTURE)
+}
+
 pub struct CanvasCache {
     pub revision: u64,
     pub texture: Option<egui::TextureHandle>,
@@ -284,6 +291,7 @@ pub fn zoom_step(z: f32, dir: i32) -> f32 {
 /// Tabs + canvas for the active document, or the start screen; then drops layers dragged onto
 /// another document (`layer_transfer`).
 pub fn document_area(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
+    crate::distort_ui::drop_foreign(app);
     poll_live_stroke(app, ui.ctx());
     let blocked = crate::restoration_ui::is_open(app);
     if blocked {
