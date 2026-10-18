@@ -25,8 +25,8 @@ jobs:
           - [self-hosted, macOS, ARM64, local-image-nightly, metal]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: storytold/craft-fonts
           ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
@@ -72,7 +72,7 @@ jobs:
         crate: [pc-codecs, pc-psd, pc-format, lc-raw, lc-meta, pc-svg]
     runs-on: [self-hosted, Linux, X64, local-image-nightly]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # With a SHA ref the action cannot infer the toolchain from the ref name: pass it.

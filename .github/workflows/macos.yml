@@ -24,10 +24,10 @@ jobs:
     # real Metal-capable host; never silently treat an adapter skip as acceleration proof.
     runs-on: ${{ inputs.metal_runner && fromJSON('["self-hosted", "macOS", "ARM64", "metal"]') || 'macos-15' }}
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify native Apple Silicon host
         run: test "$(uname -m)" = arm64
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: storytold/craft-fonts
           ref: 3d9ab3a132ed0eff457e424226a435a901da30d3
