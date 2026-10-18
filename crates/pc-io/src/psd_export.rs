@@ -1445,6 +1445,10 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     }
     let mut global_blocks = Vec::new();
     for (sig, key, data) in &ex.smart.finish(crate::annotations_map::export_blocks(doc, crate::pattern_map::export_global_blocks(doc))) {
+        // A kept (unreadable) layer block would sit beside the one written for the layers.
+        if !ex.records.is_empty() && matches!(key, b"Layr" | b"Lr16" | b"Lr32") {
+            continue;
+        }
         global_blocks.push(global_block(block_signature(*sig, version), *key, data));
     }
     let comps_resource = ex.comps.is_some().then(|| crate::comps_map::write_comps_resource(doc));
@@ -1709,6 +1713,25 @@ mod tests {
         assert_eq!(back.channels.len(), 1);
         assert_eq!(back.channels[0].name, "Alpha 1");
         assert!((back.channels[0].opacity - 0.5).abs() < 1e-6);
+    }
+
+    /// A 16-bit file whose Lr16 block claims five layers but holds none opens flattened with a
+    /// warning, and a save with layers writes one layer block, not the kept bad one beside it.
+    #[test]
+    fn unreadable_lr16_warns_on_import_and_is_not_saved_twice() {
+        let mut doc = Document::new("t", photocraft_geom::Size::new(4, 4), ColorMode::Rgb, SampleType::U16);
+        doc.layers.push(Layer::raster("Layer 1", doc.pixel_format()));
+        let mut file = document_to_psd(&doc);
+        file.layer_info = None;
+        file.layer_info_placement = LayerInfoPlacement::Section;
+        file.global_blocks.insert(0, TaggedBlock::new(*b"Lr16", vec![0, 5, 0, 0]));
+        let opened = crate::import("bad.psd", &file.to_bytes().unwrap()).unwrap();
+        assert!(opened.warnings.iter().any(|w| w.contains("Lr16 block")), "{:?}", opened.warnings);
+        let mut back = opened.document;
+        back.layers.push(Layer::raster("Added", back.pixel_format()));
+        let saved = PsdFile::from_bytes(&document_to_psd(&back).to_bytes().unwrap()).unwrap();
+        assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { key: k, .. } if k == *b"Lr16"));
+        assert!(saved.global_block(b"Lr16").is_none(), "the bad block is not kept beside the new one");
     }
 
     /// Photoshop won't open a file whose `Lr32` comes before the `Mt32` marker it keeps for a

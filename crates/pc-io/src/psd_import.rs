@@ -749,6 +749,10 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         }
     }
     for b in &file.global_blocks {
+        // A layer block still here, with no layers read, is one the parser could not read.
+        if file.layers().is_empty() && matches!(&b.key, b"Layr" | b"Lr16" | b"Lr32") {
+            warnings.push(format!("the layers ({} block) could not be read; only the merged image opens", b.key_str()));
+        }
         doc.metadata.psd_global_blocks.push((b.signature, b.key, Arc::new(b.data.clone())));
     }
     doc.patterns = crate::pattern_map::from_global_blocks(&doc);
