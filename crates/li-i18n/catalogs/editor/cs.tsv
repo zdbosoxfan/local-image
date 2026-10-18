@@ -3934,3 +3934,4 @@ ai	New	Nové
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} je vyhrazena systémem a nelze ji přiřadit.
 	Put this command's shortcuts back as they were	Vrátit zkratky tohoto příkazu do původního stavu
 	Take the shortcut from the other command and select it	Odebrat zkratku druhému příkazu a vybrat ho
+	GPU Memory (MB, 0 = Automatic)	Paměť GPU (MB, 0 = Automaticky)

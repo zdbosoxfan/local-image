@@ -3894,3 +3894,4 @@ ai	New	Neu
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} ist vom System reserviert und kann nicht zugewiesen werden.
 	Put this command's shortcuts back as they were	Die Kurzbefehle dieses Befehls wiederherstellen
 	Take the shortcut from the other command and select it	Den Kurzbefehl dem anderen Befehl entziehen und diesen auswählen
+	GPU Memory (MB, 0 = Automatic)	GPU-Speicher (MB, 0 = Automatisch)

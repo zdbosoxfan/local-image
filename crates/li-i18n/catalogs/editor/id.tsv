@@ -3905,3 +3905,4 @@ ai	New	Baru
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} dicadangkan oleh sistem dan tidak dapat ditetapkan.
 	Put this command's shortcuts back as they were	Kembalikan pintasan perintah ini seperti semula
 	Take the shortcut from the other command and select it	Ambil pintasan dari perintah lain dan pilih perintah itu
+	GPU Memory (MB, 0 = Automatic)	Memori GPU (MB, 0 = Otomatis)

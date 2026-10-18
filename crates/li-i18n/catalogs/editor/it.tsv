@@ -3930,3 +3930,4 @@ ai	New	Nuovi
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} è riservata dal sistema e non può essere assegnata.
 	Put this command's shortcuts back as they were	Ripristina le scorciatoie di questo comando com'erano
 	Take the shortcut from the other command and select it	Togli la scorciatoia all'altro comando e selezionalo
+	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)

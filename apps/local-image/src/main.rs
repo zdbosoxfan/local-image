@@ -349,6 +349,7 @@ fn main() -> eframe::Result {
     let saved_recovery = recovery.clone();
     // For the re-launch after a renderer initialisation failure (the closure below takes `plan`).
     let planned_backend = plan.backend;
+    let keep_marker = gpu_startup::keep_marker_after_error(&plan, os);
     let next_after_failure = gpu_startup::after_init_failure(&plan, os);
     let app_created = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let created_in_callback = app_created.clone();
@@ -483,16 +484,9 @@ fn main() -> eframe::Result {
             // Once the first frames rendered: clear the marker, and keep a hardware crash fallback.
             // CPU rendering after a failed GPU start is temporary: only the recovery dialog's
             // "Keep Using CPU" persists it.
-            let cpu_recovery = startup_failure.is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
             let remember = gpu_startup::backend_to_remember(&plan);
             // What to write to `gpu-recovery.json` once this start has worked.
-            let new_recovery = if cpu_recovery {
-                fallback_reason.clone().or_else(|| plan.reason.clone()).map(|reason| gpu_startup::Recovery { reason, avoid: None })
-            } else if plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Gl && os == gpu_startup::Os::Other {
-                plan.reason.clone().map(|reason| gpu_startup::Recovery { reason, avoid: plan.avoid.clone() })
-            } else {
-                None
-            };
+            let new_recovery = gpu_startup::Recovery::from_plan(&plan, os);
             let recovery_dir = config_dir.clone();
             app.on_started(move |app| {
                 if let Some(s) = started_sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
@@ -561,13 +555,6 @@ fn main() -> eframe::Result {
     if lightcraft_gpu::shutdown(std::time::Duration::from_secs(3)) {
         li_gpu::device::release_window();
     }
-    // Closed before the first frames rendered: not a driver crash. (A start that failed to
-    // create its device keeps the marker, so the next one tries a safer backend.)
-    if result.is_ok()
-        && let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
-    {
-        s.finish();
-    }
     if let Err(e) = &result {
         log::error!("the window couldn't start: {e}");
     }
@@ -608,6 +595,10 @@ fn main() -> eframe::Result {
                 Err(error) => log::error!("could not re-launch after the GPU start-up failure: {error}"),
             }
         }
+    }
+    // The start returned rather than crashed: what it leaves for the next one.
+    if let Some(s) = sentinel.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
+        gpu_startup::finish_attempt(s, &previous, keep_marker, &result);
     }
     log::logger().flush();
     result

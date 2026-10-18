@@ -28,9 +28,9 @@ pub struct Perf {
     /// GPU memory the compositor may hold for layer pages and effect maps (MB; see
     /// [`memory_budget`]).
     pub gpu_budget_mb: u64,
-    /// The Memory Usage allowance (bytes) `gpu_budget_mb` was computed from.
+    /// Memory Usage and GPU Memory (bytes) and the document `gpu_budget_mb` was computed for.
     #[serde(skip)]
-    pub gpu_budget_allowance: u64,
+    pub gpu_budget_inputs: (u64, u64, Option<photocraft_doc::DocId>),
     /// Last command run through the app and its duration (ms).
     pub last_command: String,
     pub command_ms: f64,
@@ -175,15 +175,73 @@ impl Perf {
 /// Floor of the compositor's memory budget: enough for a viewport's pages of a dozen layers.
 pub const MIN_GPU_BUDGET: u64 = 512 << 20;
 
-/// GPU memory the wgpu compositor may hold for layer pages and effect maps: what Memory Usage
-/// (`allowance`, Preferences › Performance) leaves after the document's pixels and History
-/// (`pixels`), at most a quarter of physical memory (`ram`; 16 GB assumed when unknown), and at
-/// least [`MIN_GPU_BUDGET`]. On unified-memory machines these textures share RAM with the
-/// document, so a huge document keeps its layers on the GPU only as far as memory allows; the
-/// rest is uploaded per refresh as the view needs it.
-pub fn memory_budget(allowance: u64, pixels: u64, ram: Option<u64>) -> u64 {
-    let ram = ram.unwrap_or(16 << 30);
-    allowance.saturating_sub(pixels).min(ram / 4).max(MIN_GPU_BUDGET)
+/// Why a document whose display textures don't fit [`canvas_budget`] is drawn on the CPU canvas.
+pub const OVER_CANVAS_BUDGET: &str = "the canvas exceeds the GPU texture budget; drawing it on the CPU canvas";
+
+/// [`Refresh::kind`] when the document's display textures don't fit [`canvas_budget`]: nothing
+/// was created, and the caller draws the CPU canvas instead.
+pub const REFRESH_OVER_BUDGET: &str = "over-budget";
+
+/// GPU memory the wgpu compositor may hold for layer pages and effect maps.
+///
+/// `fixed` (Preferences › Performance › GPU Memory, bytes) sets it when it isn't 0, within
+/// [`vram_share`] of a discrete GPU's own memory (`vram`, from `li_gpu::memory::video_memory`).
+/// Otherwise it is Memory Usage (`allowance`) within a quarter of physical memory (`ram`; 16 GB
+/// assumed when unknown) and the VRAM share. The document's pixels and History (`pixels`) come
+/// off Memory Usage unless the card's own memory is known: a discrete card doesn't hold them,
+/// while integrated and software adapters (and a card whose memory can't be read) share the
+/// system's. Never below [`MIN_GPU_BUDGET`].
+pub fn memory_budget(allowance: u64, pixels: u64, ram: Option<u64>, vram: Option<u64>, fixed: u64) -> u64 {
+    let card = vram.map_or(u64::MAX, vram_share);
+    if fixed > 0 {
+        return fixed.min(card).max(MIN_GPU_BUDGET);
+    }
+    let charged = if vram.is_some() { 0 } else { pixels };
+    allowance.saturating_sub(charged).min(ram.unwrap_or(16 << 30) / 4).min(card).max(MIN_GPU_BUDGET)
+}
+
+/// The share of a discrete GPU's memory each of [`memory_budget`] and [`canvas_budget`] may plan
+/// for: three eighths, so together they leave a quarter of the card to the window and other
+/// applications.
+pub fn vram_share(vram: u64) -> u64 {
+    vram / 8 * 3
+}
+
+/// GPU bytes one document's display texture set (every tile and mip level) may take: a quarter
+/// of physical memory (`ram`; 16 GB assumed when unknown) and at most [`vram_share`] of a discrete
+/// GPU's own memory, at least [`MIN_GPU_BUDGET`]. The set covers the whole canvas at full
+/// resolution, so its size follows the declared canvas, not the layer pixels.
+pub fn canvas_budget(ram: Option<u64>, vram: Option<u64>) -> u64 {
+    (ram.unwrap_or(16 << 30) / 4).min(vram.map_or(u64::MAX, vram_share)).max(MIN_GPU_BUDGET)
+}
+
+/// Price every tile and mip level without allocating or iterating over the canvas area.
+pub fn canvas_texture_bytes(size: [u32; 2], tile: u32, bpp: u64) -> u64 {
+    if tile == 0 {
+        return u64::MAX;
+    }
+    let [w, h] = size;
+    let axis = |side| [(tile, u64::from(side / tile)), (side % tile, 1)];
+    let mut bytes = 0u64;
+    for (w, nx) in axis(w) {
+        for (h, ny) in axis(h) {
+            if w == 0 || h == 0 {
+                continue;
+            }
+            let (mut w, mut h) = (w, h);
+            let mut pixels = 0u64;
+            loop {
+                pixels = pixels.saturating_add(u64::from(w) * u64::from(h));
+                if w == 1 && h == 1 {
+                    break;
+                }
+                w = (w / 2).max(1);
+                h = (h / 2).max(1);
+            }
+            bytes = bytes.saturating_add(pixels.saturating_mul(nx).saturating_mul(ny).saturating_mul(bpp));
+        }
+    }
+    bytes
 }
 
 /// Physical memory of this machine in bytes, if known. `PHOTOCRAFT_RAM_MB` overrides it (to
@@ -220,4 +278,40 @@ pub(super) fn detect_physical_memory() -> Option<u64> {
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "freebsd")))]
 pub(super) fn detect_physical_memory() -> Option<u64> {
     None
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    #[test]
+    fn discrete_memory_excludes_document_pixels_and_caps_explicit_budgets() {
+        const G: u64 = 1 << 30;
+        assert_eq!(memory_budget(8 * G, 3 * G, Some(48 * G), Some(24 * G), 0), 8 * G);
+        assert_eq!(memory_budget(8 * G, 3 * G, Some(48 * G), None, 0), 5 * G);
+        assert_eq!(memory_budget(8 * G, 9 * G, Some(16 * G), None, 12 * G), 12 * G);
+        assert_eq!(memory_budget(8 * G, 0, Some(96 * G), Some(8 * G), 12 * G), 3 * G);
+        assert_eq!(canvas_budget(Some(96 * G), Some(8 * G)), 3 * G);
+        assert_eq!(memory_budget(0, u64::MAX, None, None, 0), MIN_GPU_BUDGET);
+    }
+
+    #[test]
+    fn canvas_pricing_counts_partial_tiles_and_mips_without_overflow() {
+        for size in [[1, 1], [5, 3], [17, 25], [128, 128]] {
+            for tile in [1, 3, 16, 256] {
+                let mut expected = 0;
+                for y in (0..size[1]).step_by(tile as usize) {
+                    for x in (0..size[0]).step_by(tile as usize) {
+                        let (w, h) = (tile.min(size[0] - x), tile.min(size[1] - y));
+                        for level in 0..super::super::mip_count(w, h) {
+                            expected += u64::from((w >> level).max(1)) * u64::from((h >> level).max(1)) * 8;
+                        }
+                    }
+                }
+                assert_eq!(canvas_texture_bytes(size, tile, 8), expected);
+            }
+        }
+        assert_eq!(canvas_texture_bytes([u32::MAX; 2], 8192, 8), u64::MAX);
+        assert!(canvas_texture_bytes([300_000; 2], 8192, 4) > canvas_budget(Some(1 << 40), None));
+    }
 }

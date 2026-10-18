@@ -4,6 +4,7 @@
 pub mod backend;
 pub mod device;
 pub mod health;
+pub mod memory;
 pub mod startup;
 pub mod wgsl;
 pub use device::{SharedDevice, device_limits, install_window, reserve_window};

@@ -3917,3 +3917,4 @@ ai	New	新着
 	{shortcut} is reserved by the system and can't be assigned.	{shortcut} はシステムで予約されているため割り当てられません。
 	Put this command's shortcuts back as they were	このコマンドのショートカットを元に戻す
 	Take the shortcut from the other command and select it	もう一方のコマンドからショートカットを外して選択
+	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）

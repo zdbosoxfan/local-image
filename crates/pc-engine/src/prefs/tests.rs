@@ -538,3 +538,16 @@ fn dsfix_shortcut_path_keeps_profile_only_bindings() {
         assert_eq!(prefs.shortcut_overrides(library).get(profile_only).map(String::as_str), Some("F8"));
     }
 }
+
+#[test]
+fn gpu_memory_preference_defaults_for_old_files_and_round_trips() {
+    let mut s = session();
+    s.load_prefs_json(r#"{"performance":{"memoryUsageMb":4096}}"#).unwrap();
+    assert_eq!(s.prefs().performance.gpu_memory_mb, 0);
+    s.execute("prefs.set", json!({"path":"performance.gpuMemoryMb", "value":12288})).unwrap();
+    let mut restored = session();
+    restored.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert_eq!(restored.prefs().performance.gpu_memory_mb, 12288);
+    restored.execute("prefs.reset", json!({"path":"performance"})).unwrap();
+    assert_eq!(restored.prefs().performance.gpu_memory_mb, 0);
+}
