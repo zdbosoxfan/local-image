@@ -42,9 +42,9 @@ fn default_for_rgb_is_srgb() {
 }
 
 #[test]
-fn default_for_gray_is_sgray() {
+fn default_for_gray_is_dot_gain_twenty_percent() {
     match default_for(ColorSpace::Gray) {
-        Some(p) => assert!(std::ptr::eq(p as *const Profile, Builtin::SGray.profile() as *const Profile)),
+        Some(p) => assert!(std::ptr::eq(p as *const Profile, Builtin::DotGain20Compat.profile() as *const Profile)),
         None => panic!("default_for(Gray) returned None"),
     }
 }

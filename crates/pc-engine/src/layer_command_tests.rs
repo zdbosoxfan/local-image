@@ -213,3 +213,23 @@ fn opacity_and_fill_reject_out_of_range_values_without_mutation() {
         }
     }
 }
+
+#[test]
+fn default_grayscale_conversion_matches_dot_gain_twenty_percent() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 4, "height": 1, "background": "white"})).unwrap();
+    s.edit("Paint", |doc, _| {
+        let surf = doc.layers[0].surface_mut().unwrap();
+        for (x, c) in [[64.0, 64.0, 64.0], [128.0, 128.0, 128.0], [192.0, 192.0, 192.0], [255.0, 0.0, 0.0]].into_iter().enumerate() {
+            surf.fill_rect(photocraft_geom::Rect::new(x as i32, 0, x as i32 + 1, 1), &[c[0] / 255.0, c[1] / 255.0, c[2] / 255.0, 1.0]);
+        }
+        Ok(())
+    })
+    .unwrap();
+    s.execute("image.mode.grayscale", json!({})).unwrap();
+    let surf = s.active().unwrap().doc.layers[0].surface().unwrap();
+    for (x, want) in [46.0, 105.0, 177.0, 107.0].into_iter().enumerate() {
+        let got = surf.pixel(x as i32, 0)[0] * 255.0;
+        assert!((got - want).abs() <= 1.5, "{x}: {got} vs {want}");
+    }
+}

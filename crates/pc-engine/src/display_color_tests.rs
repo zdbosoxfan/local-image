@@ -81,8 +81,10 @@ fn srgb_is_the_identity_fast_path() {
         assert!(s.color.canvas_lut(&d, 9).unwrap().is_none(), "no GPU LUT either");
         assert!(close(shown(&s, &d), [204.0, 127.5, 76.5], 0.6));
     }
-    // Untagged gray (sGray), CMYK (shown in sRGB) and Lab composites are sRGB too.
-    let g = Document::with_background("g", Size::new(4, 4), ColorMode::Grayscale, SampleType::U8, Color::gray(0.3));
+    // Explicitly tagged sGray and CMYK composites are sRGB too.
+    let mut g = Document::with_background("g", Size::new(4, 4), ColorMode::Grayscale, SampleType::U8, Color::gray(0.3));
+    assert!(!s.color.canvas_display(&g).unwrap().is_identity());
+    g.icc_profile = Some(Builtin::SGray.profile().to_bytes());
     assert!(s.color.canvas_display(&g).unwrap().is_identity());
     assert!(s.color.canvas_display(&cmyk_doc(None, [0.1, 0.5, 0.5, 0.0])).unwrap().is_identity());
     // Cached: the same Arc for the same profiles.
