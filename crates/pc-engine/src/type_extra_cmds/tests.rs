@@ -344,3 +344,55 @@ fn convert_to_shape_preserves_overlapping_counter_geometry_and_paint_order() {
         assert!(matches!(session.active().unwrap().doc.layer(id).unwrap().content, LayerContent::Text(_)));
     }
 }
+
+#[test]
+fn missing_font_detection_uses_exact_and_guessed_postscript_faces() {
+    let mut fonts = photocraft_text::FontDb::new();
+    let mut style =
+        photocraft_doc::text::CharStyle { font_family: "Unavailable family".into(), postscript_name: Some("Inter-Regular".into()), ..Default::default() };
+    assert!(!style_font_missing(&mut fonts, &style));
+    style.postscript_name = Some("Inter-Bold".into());
+    assert!(!style_font_missing(&mut fonts, &style));
+    style.postscript_name = Some("Unavailable-Regular".into());
+    assert!(style_font_missing(&mut fonts, &style));
+    style.font_family = "Inter".into();
+    assert!(!style_font_missing(&mut fonts, &style));
+}
+
+#[test]
+fn replacing_missing_fonts_keeps_resolved_runs_with_the_same_family_label() {
+    let mut session = Session::new();
+    session.execute("file.new", json!({"width":32,"height":32})).unwrap();
+    session
+        .edit("type", |doc, _| {
+            let mut text = TextLayer {
+                text: "AB".into(),
+                runs: vec![
+                    photocraft_doc::text::TextRun {
+                        len: 1,
+                        style: photocraft_doc::text::CharStyle {
+                            font_family: "Unavailable shared family".into(),
+                            postscript_name: Some("Inter-Regular".into()),
+                            ..Default::default()
+                        },
+                    },
+                    photocraft_doc::text::TextRun {
+                        len: 1,
+                        style: photocraft_doc::text::CharStyle { font_family: "Unavailable shared family".into(), ..Default::default() },
+                    },
+                ],
+                ..Default::default()
+            };
+            text.sync_summary();
+            doc.layers.push(Layer::new("type", LayerContent::Text(text)));
+            Ok(())
+        })
+        .unwrap();
+    session.execute("type.resolveMissingFonts", json!({"map":{"Unavailable shared family":"JetBrains Mono"}})).unwrap();
+    let LayerContent::Text(text) = &session.active().unwrap().doc.layers.last().unwrap().content else { panic!("text layer") };
+    let runs = text.char_runs();
+    assert_eq!(runs[0].style.font_family, "Unavailable shared family");
+    assert_eq!(runs[0].style.postscript_name.as_deref(), Some("Inter-Regular"));
+    assert_eq!(runs[1].style.font_family, "JetBrains Mono");
+    assert_eq!(runs[1].style.postscript_name, None);
+}
