@@ -34,7 +34,11 @@ fn check_format(format: Format) {
     } else {
         assert!(warnings.contains(&FidelityWarning::IccDropped), "{format:?}");
     }
-    if c.exif {
+    if format == Format::Tiff {
+        // This fixture contains only IFD0 structural tags; TIFF writes those from the image.
+        assert!(!warnings.contains(&FidelityWarning::ExifDropped));
+        assert!(back.meta.exif.is_none());
+    } else if c.exif {
         assert_eq!(back.meta.exif, img.meta.exif, "{format:?} exif");
     } else {
         assert!(warnings.contains(&FidelityWarning::ExifDropped), "{format:?}");

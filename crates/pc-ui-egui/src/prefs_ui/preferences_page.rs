@@ -2,6 +2,9 @@
 use super::*;
 
 pub(super) fn humanize(key: &str) -> String {
+    if key == "gpuMemoryMb" {
+        return "GPU Memory (MB, 0 = Automatic)".into();
+    }
     if key == "checkForUpdatesAtStartup" {
         return "Check for updates at startup".into();
     }

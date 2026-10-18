@@ -328,12 +328,15 @@ fn brush_drag_shows_the_real_stroke_and_commits_it() {
     }
     let (shown, key) = display_doc(&mut app, &egui::Context::default(), 0);
     assert_ne!(key, 0);
-    assert!(alpha(&shown, 40, 30) > 0.5 && (0.01..0.5).contains(&alpha(&shown, 40, 38)), "soft stroke while drawing");
+    // A partial value near the edge: the soft tip (which reaches past its radius), not a hard
+    // flat stand-in.
+    assert!(alpha(&shown, 40, 30) > 0.5 && (0.01..0.95).contains(&alpha(&shown, 40, 38)), "soft stroke while drawing");
     assert_eq!(alpha(&app.session.documents()[0].doc, 40, 30), 0.0, "not committed yet");
     // The canvas redraws only what the stroke touched.
     let dk = canvas_display(&app, &app.session.documents()[0].doc, None).1;
     let d = damage_since(&app, 0, (rev, dk), (rev, key), dk, None).unwrap();
-    assert!(d.contains(40, 30) && !d.contains(40, 2) && d.width() < 120, "{d:?}");
+    // (The soft tip's reach takes the stroke's ends to the canvas edges, so only its height is bounded.)
+    assert!(d.contains(40, 30) && !d.contains(40, 2) && d.height() < 60, "{d:?}");
     tool_event(&mut app, ToolEvent::Up { x: 100.0, y: 30.0 }, m);
     let doc = app.session.documents()[0].doc.clone();
     assert!(app.live_stroke.is_none() && display_doc(&mut app, &egui::Context::default(), 0).1 == 0);

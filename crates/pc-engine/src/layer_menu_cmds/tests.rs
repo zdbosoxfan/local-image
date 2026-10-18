@@ -434,3 +434,79 @@ fn load_files_into_stack_as_smart_object_then_median() {
     assert!((px[0] - 0.2).abs() < 2.0 / 255.0, "{px:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn applying_a_feathered_mask_preserves_visible_coverage() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 1.0]);
+        s.edit("Mask", |doc, active| {
+            let mut mask = LayerMask::hide_all();
+            mask.surface.fill_rect(Rect::new(0, 0, 20, 30), &[1.0]);
+            mask.feather = 2.0;
+            doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+            Ok(())
+        })
+        .unwrap();
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        assert!(before[15 * 40 + 19][3] > 0.0 && before[15 * 40 + 19][3] < 1.0);
+        s.execute("layer.layerMask.apply", json!({})).unwrap();
+        assert!(active(&s).mask.is_none());
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-5, "depth {depth}: {a:?} -> {b:?}");
+        }
+        s.undo();
+        assert_eq!(active(&s).mask.as_ref().unwrap().feather, 2.0);
+    }
+}
+
+#[test]
+fn transparency_mask_retains_off_canvas_alpha() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 0.5]);
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        s.execute("layer.translate", json!({"dx": 20})).unwrap();
+        s.execute("layer.layerMask.fromTransparency", json!({})).unwrap();
+        assert!((active(&s).mask.as_ref().unwrap().value(50, 10) - 0.5).abs() < 1.0 / 255.0 + 1e-6);
+        s.execute("layer.translate", json!({"dx": -20})).unwrap();
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-6);
+        }
+    }
+}
+
+#[test]
+fn applying_disabled_feathered_mask_preserves_pixels() {
+    let mut s = session(8, "rgb");
+    paint(&mut s, |_, _| [0.7, 0.2, 0.1, 1.0]);
+    s.edit("Mask", |doc, active| {
+        let mut mask = LayerMask::hide_all();
+        mask.feather = 3.0;
+        mask.enabled = false;
+        doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.layerMask.apply", json!({})).unwrap();
+    assert_eq!(active(&s).surface().unwrap().rgba(20, 15)[3], 1.0);
+}
+
+#[test]
+fn applying_feathered_mask_retains_off_canvas_coverage() {
+    let mut s = session(8, "rgb");
+    paint(&mut s, |_, _| [1.0, 0.0, 0.0, 1.0]);
+    s.execute("layer.translate", json!({"dx": 20})).unwrap();
+    s.edit("Mask", |doc, active| {
+        let mut mask = LayerMask::hide_all();
+        mask.surface.fill_rect(Rect::new(0, 0, 60, 30), &[1.0]);
+        mask.feather = 2.0;
+        doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.layerMask.apply", json!({})).unwrap();
+    assert_eq!(active(&s).surface().unwrap().rgba(52, 15)[3], 1.0);
+}

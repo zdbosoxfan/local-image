@@ -199,7 +199,14 @@ impl BrushContext {
     /// Bounding rectangle of a dab (rotated sampled tips need the corner reach).
     pub fn dab_rect(&self, d: &Dab, dual: bool) -> Rect {
         let sampled = if dual { self.dual_tip.is_some() } else { self.tip.is_some() };
-        let reach = if sampled { d.radius * std::f32::consts::SQRT_2 } else { d.radius };
+        let hardness = if dual { self.brush.dual_brush.hardness } else { self.brush.hardness };
+        let reach = if sampled {
+            d.radius * std::f32::consts::SQRT_2
+        } else if self.brush.aliased && !dual {
+            d.radius
+        } else {
+            crate::tip_reach(d.radius, hardness).max(d.radius)
+        };
         if !d.center.x.is_finite() || !d.center.y.is_finite() || !d.radius.is_finite() || d.radius < 0.0 || d.radius > 5000.0 {
             return Rect::EMPTY;
         }
@@ -240,7 +247,8 @@ impl BrushContext {
         let r = d.radius;
         let ro = d.roundness.max(0.5 / r).min(1.0);
         let rm = (r * ro).max(0.5);
-        let reach2 = (rm + 0.5) * (rm + 0.5);
+        let reach = if aliased || mips.is_some() { rm } else { crate::tip_reach(rm, hardness).max(rm) };
+        let reach2 = (reach + 0.5) * (reach + 0.5);
         // Sampled-tip mapping.
         let (level, inv_scale, tw, th) = match mips {
             Some(m) => {

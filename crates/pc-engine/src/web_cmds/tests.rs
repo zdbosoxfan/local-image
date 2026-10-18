@@ -534,3 +534,43 @@ fn image_assets_reject_existing_symlinks_in_folders_and_files() {
     assert!(exported["html"].as_str().unwrap().ends_with("/rootlink/web.html"));
     assert!(std::path::Path::new(&format!("{outside}/web.html")).is_file());
 }
+
+#[test]
+fn save_for_web_has_no_default_matte_while_presets_and_quick_export_keep_white() {
+    let dir = tmp("default-matte");
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 256, "height": 8, "background": "transparent"})).unwrap();
+    s.edit("Shadow", |doc, active| {
+        let fmt = doc.pixel_format();
+        let mut layer = Layer::raster("Shadow", fmt);
+        for x in 0..256 {
+            layer.surface_mut().unwrap().fill_rect(Rect::new(x, 0, x + 1, 8), &photocraft_raster::from_rgba(&fmt, [0.0, 0.0, 0.0, 1.0 - x as f32 / 255.0]));
+        }
+        *active = Some(doc.insert_above(None, layer));
+        Ok(())
+    })
+    .unwrap();
+    for (name, matte, black) in [("default", None, true), ("white", Some("#ffffff"), false)] {
+        let path = format!("{dir}/{name}.png");
+        let mut params = json!({"format": "png8", "path": path});
+        if let Some(matte) = matte {
+            params["matte"] = json!(matte);
+        }
+        s.execute("file.export.saveForWebLegacy", params).unwrap();
+        let image = decode(&path).convert(photocraft_codecs::ChannelLayout::Rgba, photocraft_codecs::SampleType::U8);
+        let pixel = &image.data()[64 * 4..65 * 4];
+        if black {
+            assert_eq!(pixel, &[0, 0, 0, 255]);
+        } else {
+            assert!(pixel[0] > 40 && pixel[3] == 255);
+        }
+    }
+    assert_eq!(WebSettings::from_params(&json!({"preset": "PNG-8 128 Dithered"}), "export").unwrap().matte, Some([1.0; 3]));
+    s.execute("file.export.exportPreferences", json!({"quickExportFormat": "gif"})).unwrap();
+    let path = format!("{dir}/quick.gif");
+    s.execute("file.export.quickExport", json!({"path": path})).unwrap();
+    let image = decode(&path).convert(photocraft_codecs::ChannelLayout::Rgba, photocraft_codecs::SampleType::U8);
+    let pixel = &image.data()[64 * 4..65 * 4];
+    assert!(pixel[0] > 40 && pixel[3] == 255, "Quick Export keeps its white matte: {pixel:?}");
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}

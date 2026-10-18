@@ -508,7 +508,7 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
             "selection" => doc.selection.as_ref().map(|m| m.content_bounds()).ok_or_else(|| EngineError::Other("there is no selection to align to".into()))?,
             "auto" | "layers" => match (&doc.selection, sel.len()) {
                 // Photoshop: one layer plus an active selection aligns to the selection bounds.
-                (Some(m), 1) if to == "auto" => m.content_bounds(),
+                (Some(m), _) if to == "auto" && !m.content_bounds().is_empty() => m.content_bounds(),
                 // One layer with no selection aligns to the canvas (otherwise it would align to itself).
                 (None, 1) if to == "auto" => doc.bounds(),
                 _ => items.iter().fold(Rect::EMPTY, |a, (_, b)| a.union(b)),
@@ -666,13 +666,7 @@ fn lock_layers(s: &mut Session, p: &Value) -> Result<Value> {
         for id in &sel {
             let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
             for (k, v) in &given {
-                match *k {
-                    "transparency" => l.locks.transparency = *v,
-                    "pixels" => l.locks.pixels = *v,
-                    "position" => l.locks.position = *v,
-                    "artboard" => l.locks.artboard = *v,
-                    _ => l.locks.all = *v,
-                }
+                crate::commands::set_lock(&mut l.locks, k, *v);
             }
         }
         Ok(())
@@ -763,14 +757,30 @@ fn merge_layers(s: &mut Session) -> Result<Value> {
         if solo.layers.is_empty() {
             return Err(EngineError::Other("the selected layers are all hidden".into()));
         }
-        let buf = photocraft_compose::flatten(&solo);
+        let reach = solo
+            .layers
+            .iter()
+            .map(|l| {
+                let bounds = photocraft_compose::layer_bounds(l, solo.bounds());
+                let margin = if photocraft_compose::effects::has_effects(l) { photocraft_compose::effects::margin(l) } else { 0 };
+                if bounds.is_empty() { bounds } else { bounds.inflate(margin) }
+            })
+            .fold(solo.bounds(), |a, b| a.union(&b));
+        let area = solo.layers.iter().map(|l| photocraft_compose::composite_bounds(l, reach).unwrap_or(solo.bounds())).fold(Rect::EMPTY, |a, b| a.union(&b));
+        let (w, h) = (u64::from(area.width()), u64::from(area.height()));
+        if w.saturating_mul(h) > photocraft_compose::MAX_RENDER_PIXELS {
+            let detail = format!("the merged layer would be {w} x {h} px, more than the {} px limit", photocraft_compose::MAX_RENDER_PIXELS);
+            return Err(crate::allocation::error("merging layers", &detail));
+        }
+        let buf = photocraft_compose::render(&solo, area);
         let fmt = doc.pixel_format();
         let fmt = PixelFormat::new(fmt.mode, fmt.sample, true);
-        let data: Vec<f32> = buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&fmt, *p)).collect();
+        let mut data = crate::allocation::capacity(buf.px.len().saturating_mul(fmt.channels()), "merging layers")?;
+        data.extend(buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&fmt, *p)));
         let mut merged = Layer::raster(top.name.clone(), fmt);
         merged.locks = top.locks;
         let surf = crate::pixels_mut(&mut merged)?;
-        surf.write_region(doc.bounds(), &data);
+        surf.write_region(area, &data);
         surf.prune();
         let mid = merged.id;
         // Hidden selected layers are discarded, as in Photoshop.

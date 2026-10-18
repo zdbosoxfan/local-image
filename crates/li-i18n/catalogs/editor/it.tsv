@@ -3923,3 +3923,11 @@ ai	New	Nuovi
 	Replace	Sostituisci
 	{name} was changed by another app after it was opened or saved here.	{name} è stato modificato da un'altra app dopo essere stato aperto o salvato qui.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Sostituiscilo con questo documento, oppure annulla e usa File › Salva con nome per tenerli entrambi.
+	Accept and Go to Conflict	Accetta e vai al conflitto
+	Changes undone.	Modifiche annullate.
+	Choose a new shortcut for this command, or leave it without one.	Scegli una nuova scorciatoia per questo comando o lascialo senza.
+	Undo Changes	Annulla modifiche
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} è riservata dal sistema e non può essere assegnata.
+	Put this command's shortcuts back as they were	Ripristina le scorciatoie di questo comando com'erano
+	Take the shortcut from the other command and select it	Togli la scorciatoia all'altro comando e selezionalo
+	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)

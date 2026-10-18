@@ -57,16 +57,39 @@ pub(crate) fn has_paintable(s: &Session) -> std::result::Result<(), String> {
 
 /// Surface a paint command writes to: the layer's pixels, or its mask with `"target":"mask"`.
 pub(crate) fn paint_surface<'a>(doc: &'a mut Document, id: LayerId, p: &Value) -> Result<&'a mut photocraft_raster::Surface> {
-    let locks = doc.effective_locks(id);
+    check_layer_unlocked(doc, id, !is_mask_target(p))?;
     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-    if !is_mask_target(p) && (locks.pixels || locks.all) {
-        return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", l.name)));
-    }
     if is_mask_target(p) {
         l.mask.as_mut().map(|m| &mut m.surface).ok_or_else(|| EngineError::Other("layer has no mask".into()))
     } else {
         l.surface_mut().ok_or_else(|| EngineError::Other("not a pixel layer".into()))
     }
+}
+
+pub(crate) fn check_layer_unlocked(doc: &Document, id: LayerId, pixels: bool) -> Result<()> {
+    let locks = doc.effective_locks(id);
+    let layer = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    if locks.all || (pixels && locks.pixels) {
+        return Err(EngineError::Other(format!("Could not complete your request because the layer \"{}\" is locked", layer.name)));
+    }
+    Ok(())
+}
+
+pub(crate) fn set_lock(locks: &mut photocraft_doc::Locks, key: &str, on: bool) -> bool {
+    match key {
+        "transparency" => locks.transparency = on && !locks.pixels,
+        "pixels" => {
+            locks.pixels = on;
+            if on {
+                locks.transparency = false;
+            }
+        }
+        "position" => locks.position = on,
+        "artboard" => locks.artboard = on,
+        "all" => locks.all = on,
+        _ => return false,
+    }
+    true
 }
 
 pub(crate) fn is_mask_target(p: &Value) -> bool {
@@ -202,8 +225,7 @@ fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) 
         return s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
             if let Some(surf) = crate::channel_cmds::channel_surface_for_filter(doc, None, p)? {
-                pixels::adjust_surface(surf, &adj, sel.as_ref(), ColorMode::Grayscale);
-                surf.prune();
+                pixels::adjust_mask(surf, &adj, sel.as_ref());
             }
             Ok(Value::Null)
         });
@@ -497,6 +519,13 @@ fn build() -> Vec<CommandSpec> {
             r##"{"layer":id?,"layers":[id,…]? (the same change to each, one step: the Layers panel's controls with several layers selected),"name":str? (one layer only),"visible":bool?,"opacity":0..1?,"fill":0..1?,"blend":"Multiply|…"?,"clipped":bool?,"locked":bool?,"locks":{"transparency","pixels","position","artboard","all":bool}?,"channels":[bool,…]? (Advanced Blending: which colour channels blend, R G B / C M Y K / L a b)}"##,
             has_layer,
             |s, p| {
+                for key in ["opacity", "fill"] {
+                    if let Some(value) = p.get(key)
+                        && !value.as_f64().is_some_and(|v| (0.0..=1.0).contains(&v))
+                    {
+                        return Err(bad("layer.setProps", format!("{key} must be a number in 0..1 (1 = 100 %), got {value}")));
+                    }
+                }
                 // Several layers at once (the Layers panel with several selected, as in Photoshop),
                 // else the given or active one.
                 let ids: Vec<LayerId> = match p.get("layers") {
@@ -538,6 +567,11 @@ fn build() -> Vec<CommandSpec> {
                 let local = p.get("clipped").is_none() && p.get("channels").is_none();
                 s.edit(label, |doc, _| {
                     for &id in &ids {
+                        let changes_opacity = ["opacity", "fill"].iter().any(|key| p.get(*key).and_then(Value::as_f64).is_some_and(|v| v < 1.0));
+                        let changes_blend = p.get("blend").and_then(Value::as_str).and_then(blend_from_str).is_some_and(|blend| blend != BlendMode::Normal);
+                        if changes_opacity || changes_blend {
+                            crate::extra_cmds::background_to_layer(doc, id);
+                        }
                         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
                         if let Some(v) = p.get("name").and_then(Value::as_str) {
                             l.name = v.to_string();
@@ -572,13 +606,8 @@ fn build() -> Vec<CommandSpec> {
                         if let Some(Value::Object(m)) = p.get("locks") {
                             for (k, v) in m {
                                 let v = v.as_bool().unwrap_or(false);
-                                match k.as_str() {
-                                    "transparency" => l.locks.transparency = v,
-                                    "pixels" => l.locks.pixels = v,
-                                    "position" => l.locks.position = v,
-                                    "artboard" => l.locks.artboard = v,
-                                    "all" => l.locks.all = v,
-                                    other => return Err(bad("layer.setProps", format!("unknown lock `{other}`"))),
+                                if !set_lock(&mut l.locks, k, v) {
+                                    return Err(bad("layer.setProps", format!("unknown lock `{k}`")));
                                 }
                             }
                         }
@@ -654,7 +683,7 @@ fn build() -> Vec<CommandSpec> {
                 below.push(idx - 1);
                 let lower = doc.layer_at(&below).ok_or(EngineError::NoLayer(id))?.clone();
                 let upper = doc.layer(id).ok_or(EngineError::NoLayer(id))?.clone();
-                let merged = pixels::merge_down(doc.bounds(), &lower, &upper, doc.pixel_format());
+                let merged = pixels::merge_down(doc, &lower, &upper);
                 doc.remove(id);
                 *doc.layer_at_mut(&below).ok_or(EngineError::NoLayer(lower.id))? = merged;
                 *active = Some(lower.id);
@@ -1026,7 +1055,18 @@ fn build() -> Vec<CommandSpec> {
             enabled: has_pixel_or_channel,
             run: |s, p| {
                 let kind = p.get("__kind").and_then(Value::as_str).unwrap_or("invert").to_string();
-                let adj = crate::adjust_params::from_params(&kind, p, None, doc_mode(s))?;
+                let gray_target = is_mask_target(p) || crate::channel_cmds::is_channel_target(p);
+                let mut tone = p.clone();
+                if gray_target
+                    && matches!(kind.as_str(), "curves" | "levels")
+                    && let Some(params) = tone.as_object_mut()
+                {
+                    for key in ["cyan", "magenta", "yellow", "black", "lightness", "a", "b"] {
+                        params.remove(key);
+                    }
+                }
+                let mode = if gray_target { ColorMode::Grayscale } else { doc_mode(s) };
+                let adj = crate::adjust_params::from_params(&kind, &tone, None, mode)?;
                 let label = adj.label().to_string();
                 destructive_adjust(s, &label, adj, p)
             },
@@ -1187,7 +1227,7 @@ fn set_mask(s: &mut Session, p: &Value, label: &str, mask: Option<LayerMask>) ->
     let id = layer_param(s, p)?;
     s.edit(label, |doc, _| {
         if mask.is_some() {
-            crate::extra_cmds::background_to_layer_for_mask(doc, id);
+            crate::extra_cmds::background_to_layer(doc, id);
         }
         doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = mask;
         Ok(())

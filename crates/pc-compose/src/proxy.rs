@@ -5,7 +5,7 @@
 //! document would cost seconds and gigabytes.
 
 use photocraft_doc::{Document, Layer, LayerContent, Size};
-use photocraft_geom::Rect;
+use photocraft_geom::{Affine, Rect};
 use photocraft_raster::Surface;
 
 /// Nearest-neighbour downsample of a surface by integer factor `k` (document coordinates / k).
@@ -63,7 +63,22 @@ fn shrink_layer(l: &mut Layer, k: u32) {
         }
         LayerContent::Text(t) => t.cache = t.cache.as_ref().map(|s| downsample(s, k)),
         LayerContent::Shape(sh) => sh.cache = sh.cache.as_ref().map(|s| downsample(s, k)),
-        LayerContent::Smart(so) => so.cache = so.cache.as_ref().map(|s| downsample(s, k)),
+        LayerContent::Smart(so) => {
+            so.cache = so.cache.as_ref().map(|s| downsample(s, k));
+            if let Some(mask) = &mut so.filter_mask {
+                mask.surface = downsample(&mask.surface, k);
+            }
+            // The placement shrinks too: a preview that adds a smart filter re-renders the source
+            // through it, which left in full-size coordinates came out `k` times too large.
+            let scale = 1.0 / f64::from(k);
+            so.transform = Affine::scale(scale).mul(&so.transform);
+            // Scaling the document side of the projective map scales its first two rows.
+            if let Some(perspective) = &mut so.perspective {
+                for value in perspective.iter_mut().take(6) {
+                    *value *= scale;
+                }
+            }
+        }
         LayerContent::Symbol(s) => s.cache = s.cache.as_ref().map(|s| downsample(s, k)),
         LayerContent::Adjustment(_) | LayerContent::Fill(_) => {}
     }
@@ -128,6 +143,33 @@ mod tests {
         assert_eq!(p.layers[0].id, doc.layers[0].id);
         assert_eq!(p.layers[0].surface().unwrap().pixel(999, 749), vec![1.0; 4]);
         assert!(proxy_faithful(&doc));
+    }
+
+    /// A smart object re-rendered on the proxy (a smart filter preview, such as Curves) goes through
+    /// its placement, which must shrink with the canvas, cache and filter mask.
+    #[test]
+    fn proxy_scales_smart_object_placement() {
+        use photocraft_doc::{LayerMask, SmartObject, SmartSource};
+        let mut doc = Document::new("smart", Size::new(64, 64), ColorMode::Rgb, SampleType::U8);
+        let mut cache = Surface::new(doc.pixel_format());
+        cache.fill_rect(Rect::new(16, 16, 32, 48), &[0.0, 0.0, 0.0, 1.0]);
+        let source = SmartSource::Embedded { file_name: "s.png".into(), bytes: std::sync::Arc::new(Vec::new()) };
+        let mut sm = SmartObject::new(source, Affine::translate(16.0, 16.0).mul(&Affine::scale(2.0)), Some(cache));
+        let mut mask = LayerMask::hide_all();
+        mask.surface.fill_rect(Rect::new(16, 16, 32, 32), &[1.0]);
+        sm.filter_mask = Some(mask);
+        sm.perspective = Some([2.0, 0.0, 16.0, 0.0, 2.0, 16.0, 0.0, 0.0, 1.0]);
+        doc.layers.push(Layer::new("smart", LayerContent::Smart(sm)));
+        let p = proxy_document(&doc, 4);
+        let LayerContent::Smart(sm) = &p.layers[0].content else { panic!("a smart object") };
+        assert_eq!(sm.transform, Affine { m: [0.5, 0.0, 0.0, 0.5, 4.0, 4.0] });
+        assert_eq!(sm.perspective, Some([0.5, 0.0, 4.0, 0.0, 0.5, 4.0, 0.0, 0.0, 1.0]));
+        assert_eq!(sm.cache.as_ref().unwrap().content_bounds(), Rect::new(4, 4, 8, 12));
+        let mask = &sm.filter_mask.as_ref().unwrap().surface;
+        assert_eq!((mask.pixel(4, 4)[0], mask.pixel(8, 8)[0]), (1.0, 0.0));
+        // The document keeps its full-size placement.
+        let LayerContent::Smart(orig) = &doc.layers[0].content else { panic!("a smart object") };
+        assert_eq!(orig.transform.m[4], 16.0);
     }
 
     #[test]

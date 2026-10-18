@@ -13,13 +13,14 @@ pub(crate) enum Model {
     Rgb,
     /// Subtractive CMYK, 0 = no ink.
     Cmyk,
+    Lab,
 }
 
 impl Model {
     pub fn channels(self) -> usize {
         match self {
             Model::Gray => 1,
-            Model::Rgb => 3,
+            Model::Rgb | Model::Lab => 3,
             Model::Cmyk => 4,
         }
     }
@@ -149,6 +150,7 @@ pub(crate) fn from_shared(format: Format, mut image: photocraft_codecs::Image, s
         model: match layout {
             L::Gray | L::GrayA => Model::Gray,
             L::Cmyk | L::CmykA => Model::Cmyk,
+            L::Lab | L::LabA => Model::Lab,
             _ => Model::Rgb,
         },
         alpha: layout.has_alpha(),
@@ -186,6 +188,20 @@ pub(crate) fn finish(format: Format, raw: Raw, meta: Meta, source_dims: (u32, u3
     let parsed_icc = meta.icc.as_deref().and_then(icc::parse);
     let (image, space) = if let Some(space) = meta.already_linear.clone() {
         (to_rgb_passthrough(&raw, ch), space)
+    } else if raw.model == Model::Lab {
+        let mut image = RgbFrame::new(raw.width, raw.height);
+        par_rows(&mut image.data, raw.width, |y, row| {
+            for (x, output) in row.iter_mut().enumerate() {
+                let pixel = y * raw.width + x;
+                let lab = [
+                    raw.device_sample(pixel, 0, ch) * 100.,
+                    raw.device_sample(pixel, 1, ch) * 255. - 128.,
+                    raw.device_sample(pixel, 2, ch) * 255. - 128.,
+                ];
+                *output = li_color::convert::lab_to_srgb(lab).map(li_color::transfer::srgb_to_linear);
+            }
+        });
+        (image, SourceSpace::named(NamedSpace::Srgb, SpaceOrigin::Container))
     } else if raw.model == Model::Cmyk {
         cmyk(&raw, ch, meta.icc.as_deref(), parsed_icc.as_ref())
     } else {
@@ -502,4 +518,18 @@ mod alpha_tests {
         assert!(!decoded.float);
         assert_eq!(decoded.image.data[0], [0.25, 0.5, 0.75]);
     }
+}
+
+#[cfg(test)]
+#[test]
+fn shared_lab_pixels_reach_the_photo_pipeline_as_linear_rgb() {
+    let image = photocraft_codecs::Image::from_u8(1, 1, photocraft_codecs::ChannelLayout::LabA, vec![128, 128, 128, 128]).unwrap();
+    let decoded = from_shared(Format::Tiff, image, (1, 1), &DecodeOptions::default()).unwrap();
+    let expected = li_color::convert::lab_to_srgb([128. / 255. * 100., 0., 0.]).map(li_color::transfer::srgb_to_linear);
+    for (a, b) in decoded.image.data[0].iter().zip(expected) {
+        assert!((a - b).abs() < 1e-6);
+    }
+    assert_eq!(decoded.alpha.unwrap().data, vec![128. / 255.]);
+    assert_eq!(decoded.bit_depth, 8);
+    assert!(!decoded.float);
 }

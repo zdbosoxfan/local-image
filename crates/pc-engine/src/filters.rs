@@ -43,7 +43,14 @@ fn preserve(p: &Value) -> Preserve {
 fn preset(id: &str) -> Option<(&'static str, FilterParams)> {
     Some(match id {
         "filter.blur.blur" => ("Blur", FilterParams::GaussianBlur { radius: 0.6 }),
-        "filter.blur.blurMore" => ("Blur More", FilterParams::GaussianBlur { radius: 1.4 }),
+        "filter.blur.blurMore" => (
+            "Blur More",
+            FilterParams::Custom {
+                kernel: vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 1.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0, 0.0, 1.0, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                scale: 14.0,
+                offset: 0.0,
+            },
+        ),
         "filter.sharpen.sharpen" => ("Sharpen", FilterParams::UnsharpMask { amount: 60.0, radius: 0.5, threshold: 0.0 }),
         "filter.sharpen.sharpenMore" => ("Sharpen More", FilterParams::UnsharpMask { amount: 150.0, radius: 0.6, threshold: 0.0 }),
         "filter.sharpen.sharpenEdges" => ("Sharpen Edges", FilterParams::UnsharpMask { amount: 100.0, radius: 0.8, threshold: 6.0 }),
@@ -202,7 +209,88 @@ pub(crate) fn has_filterable_layer(s: &Session) -> std::result::Result<(), Strin
     }
 }
 
+/// A strictly validated filter parameter: its dialog-unit contract.
+#[derive(Clone, Copy)]
+enum Rule {
+    Number(f64, f64),
+    Choice(&'static str),
+    Bool,
+}
+
+impl Rule {
+    fn accepts(self, v: &Value) -> bool {
+        match self {
+            Rule::Number(min, max) => v.as_f64().is_some_and(|n| n.is_finite() && (min..=max).contains(&n)),
+            Rule::Choice(choices) => v.as_str().is_some_and(|s| choices.split('|').any(|c| c == s)),
+            Rule::Bool => v.is_boolean(),
+        }
+    }
+
+    fn expected(self) -> String {
+        match self {
+            Rule::Number(min, max) => format!("a number in {min}..{max}"),
+            Rule::Choice(choices) => format!("one of {choices}"),
+            Rule::Bool => "a boolean".into(),
+        }
+    }
+}
+
+/// The filters whose new invocations are checked against their documented ranges and choices
+/// instead of clamped. Stored smart-filter records still decode tolerantly through `params_for`.
+fn strict_fields(id: &str) -> Option<&'static [(&'static str, Rule)]> {
+    use Rule::{Bool, Choice, Number};
+    Some(match id {
+        "filter.blur.smartBlur" => &[
+            ("radius", Number(0.1, 100.0)),
+            ("threshold", Number(0.1, 100.0)),
+            ("quality", Choice("high|medium|low")),
+            ("mode", Choice("normal|edgeOnly|overlayEdge")),
+        ],
+        "filter.blur.shapeBlur" => &[("radius", Number(5.0, 1000.0)), ("shape", Choice("circle|ring|square|diamond|triangle|hexagon|star|heart|cross"))],
+        "filter.noise.reduceNoise" => &[
+            ("strength", Number(0.0, 10.0)),
+            ("preserveDetails", Number(0.0, 100.0)),
+            ("reduceColorNoise", Number(0.0, 100.0)),
+            ("sharpenDetails", Number(0.0, 100.0)),
+            ("removeJpegArtifact", Bool),
+        ],
+        _ => return None,
+    })
+}
+
+/// Rejects unknown keys and out-of-range values for the filters in [`strict_fields`], before any
+/// side effect (it runs at dispatch, ahead of committing a floating selection, and again in
+/// [`run_filter`] for Last Filter). Other commands pass unchecked.
+pub(crate) fn validate_params(id: &str, p: &Value) -> Result<()> {
+    let Some(fields) = strict_fields(id) else { return Ok(()) };
+    let bad = |msg: String| EngineError::BadParams { cmd: id.to_string(), msg };
+    if p.is_null() {
+        return Ok(());
+    }
+    let p = p.as_object().ok_or_else(|| bad("params must be a JSON object".into()))?;
+    for (key, value) in p {
+        let (valid, expected) = match fields.iter().find(|(name, _)| name == key) {
+            Some((_, rule)) => (rule.accepts(value), rule.expected()),
+            None => match key.as_str() {
+                "layer" => (value.as_u64().is_some(), "an unsigned layer id".into()),
+                "coalesce" => (value.is_string(), "a string".into()),
+                "target" => (
+                    value.as_str().is_some_and(|v| matches!(v, "pixels" | "mask" | "quickMask"))
+                        || value.as_object().is_some_and(|o| o.len() == 1 && o.get("channel").is_some_and(|c| c.as_u64().is_some())),
+                    "pixels, mask, quickMask or {\"channel\": index}".into(),
+                ),
+                _ => return Err(bad(format!("unknown parameter `{key}`"))),
+            },
+        };
+        if !valid {
+            return Err(bad(format!("`{key}` must be {expected}")));
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> {
+    validate_params(id, p)?;
     // Session state some filters read (colours) becomes explicit params; external inputs resolve here.
     let prepared = crate::filters_ext::prepare(s, id, p);
     let p = &prepared;
@@ -371,6 +459,130 @@ fn last_filter(s: &Session) -> Option<(String, Value)> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn strict_extended_filters_keep_defaults_targets_history_and_last_filter() {
+        for depth in [8, 16, 32] {
+            for id in ["filter.blur.smartBlur", "filter.blur.shapeBlur", "filter.noise.reduceNoise"] {
+                let mut s = Session::new();
+                s.execute("file.new", json!({"width":16,"height":16,"depth":depth})).unwrap();
+                s.execute("layer.new.layer", json!({})).unwrap();
+                let layer = s.active().unwrap().active_layer.unwrap();
+                for params in [Value::Null, json!({}), json!({"layer":layer.0,"target":"pixels","coalesce":"extended"})] {
+                    let before = s.active().unwrap().doc.clone();
+                    let history = s.active().unwrap().history.past_len();
+                    s.execute(id, params).unwrap();
+                    assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+                    let after = s.active().unwrap().doc.clone();
+                    s.undo();
+                    assert_eq!(*s.active().unwrap().doc, *before);
+                    s.redo();
+                    assert_eq!(*s.active().unwrap().doc, *after);
+                }
+                s.execute("filter.lastFilter", json!({})).unwrap();
+                // The session injects this target when editing an alpha channel.
+                s.execute("channel.new", json!({"fill":"white"})).unwrap();
+                s.execute(id, json!({})).unwrap();
+            }
+        }
+    }
+    #[test]
+    fn blur_more_uses_the_measured_three_by_three_kernel() {
+        let mut s = session();
+        s.edit("impulse", |doc, active| {
+            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+            surf.fill_rect(photocraft_geom::Rect::new(0, 0, 48, 32), &[0.0, 0.0, 0.0, 1.0]);
+            surf.write_pixel(20, 16, &[1.0; 4]);
+            Ok(())
+        })
+        .unwrap();
+        s.execute("filter.blur.blurMore", json!({})).unwrap();
+        let st = s.active().unwrap();
+        let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+        for (x, y, want) in [(20, 16, 2.0 / 14.0), (19, 15, 1.0 / 14.0), (20, 15, 2.0 / 14.0), (18, 16, 0.0)] {
+            assert!((surf.sample_channel(x, y, 0) - want).abs() <= 1.0 / 255.0);
+        }
+    }
+
+    #[test]
+    fn stored_extended_filter_records_still_decode_tolerantly() {
+        use photocraft_algo::{BlurQuality, BlurShape, FilterParams, SmartBlurMode};
+        let smart =
+            crate::filters::params_for("filter.blur.smartBlur", &json!({"radius":-2,"threshold":900,"quality":"old","mode":false,"extra":true})).unwrap();
+        assert!(matches!(smart, FilterParams::SmartBlur { radius: 0.1, threshold: 100.0, quality: BlurQuality::High, mode: SmartBlurMode::Normal }));
+        let shape = crate::filters::params_for("filter.blur.shapeBlur", &json!({"radius":2000,"shape":"old"})).unwrap();
+        assert!(matches!(shape, FilterParams::ShapeBlur { radius: 1000.0, shape: BlurShape::Circle }));
+        let noise = crate::filters::params_for("filter.noise.reduceNoise", &json!({"strength":-1,"preserveDetails":101,"removeJpegArtifact":"yes"})).unwrap();
+        assert!(matches!(noise, FilterParams::ReduceNoise { strength: 0.0, preserve_details: 100.0, remove_jpeg_artifact: false, .. }));
+    }
+    #[test]
+    fn bounded_extended_filters_reject_invalid_fields_without_editing() {
+        let numbers = [
+            ("filter.blur.smartBlur", "radius", 0.1, 100.0),
+            ("filter.blur.smartBlur", "threshold", 0.1, 100.0),
+            ("filter.blur.shapeBlur", "radius", 5.0, 1000.0),
+            ("filter.noise.reduceNoise", "strength", 0.0, 10.0),
+            ("filter.noise.reduceNoise", "preserveDetails", 0.0, 100.0),
+            ("filter.noise.reduceNoise", "reduceColorNoise", 0.0, 100.0),
+            ("filter.noise.reduceNoise", "sharpenDetails", 0.0, 100.0),
+        ];
+        let mut s = session();
+        let before = s.active().unwrap().doc.clone();
+        let journal = s.journal.clone();
+        for (id, key, lo, hi) in numbers {
+            for value in [json!("3"), json!(true), Value::Null, json!([]), json!({}), json!(lo - 0.01), json!(hi + 0.01), json!(1e300)] {
+                let err = s.execute(id, json!({key:value})).unwrap_err();
+                assert!(matches!(err, EngineError::BadParams { .. }), "{id}.{key}: {err}");
+                // The message names the field and its range, so a caller can correct the call.
+                let msg = err.to_string();
+                assert!(msg.contains(key) && msg.contains(&format!("{lo}..{hi}")), "{msg}");
+                assert_eq!(*s.active().unwrap().doc, *before);
+                assert_eq!(s.journal, journal);
+            }
+            for v in [lo, hi] {
+                validate_params(id, &json!({key:v})).unwrap();
+            }
+        }
+        for id in ["filter.blur.smartBlur", "filter.blur.shapeBlur", "filter.noise.reduceNoise"] {
+            for p in [json!({"radus":3}), json!({"layer":"2"}), json!({"target":"typo"}), json!({"coalesce":false})] {
+                assert!(matches!(s.start(id, p.clone()), Err(EngineError::BadParams { .. })));
+                assert!(matches!(run_filter(&mut s, id, &p), Err(EngineError::BadParams { .. })));
+            }
+        }
+        for (id, key, allowed) in [
+            ("filter.blur.smartBlur", "quality", "high|medium|low"),
+            ("filter.blur.smartBlur", "mode", "normal|edgeOnly|overlayEdge"),
+            ("filter.blur.shapeBlur", "shape", "circle|ring|square|diamond|triangle|hexagon|star|heart|cross"),
+        ] {
+            for v in [json!("typo"), json!(false), json!(1), Value::Null] {
+                assert!(validate_params(id, &json!({key:v})).is_err());
+            }
+            for v in allowed.split('|') {
+                validate_params(id, &json!({key:v})).unwrap();
+            }
+        }
+        for v in [json!("true"), json!(1), Value::Null, json!([])] {
+            assert!(validate_params("filter.noise.reduceNoise", &json!({"removeJpegArtifact":v})).is_err());
+        }
+        assert_eq!(*s.active().unwrap().doc, *before);
+        assert_eq!(s.journal, journal);
+        assert!(s.jobs().is_empty());
+    }
+
+    #[test]
+    fn invalid_extended_filters_preserve_floating_selection() {
+        let mut s = session();
+        paint_pattern(&mut s);
+        s.execute("select.rect", json!({"x":0,"y":0,"width":4,"height":4})).unwrap();
+        s.execute("select.float", json!({"dx":8})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        for id in ["filter.blur.smartBlur", "filter.blur.shapeBlur", "filter.noise.reduceNoise"] {
+            assert!(s.execute(id, json!({"radus":3})).is_err());
+            assert!(s.start(id, json!({"radus":3})).is_err());
+            assert!(crate::float_cmds::floating(s.active().unwrap()).is_some());
+            assert_eq!(*s.active().unwrap().doc, *before);
+        }
+    }
+
     fn session() -> Session {
         let mut s = Session::new();
         s.execute("file.new", json!({"width": 48, "height": 32})).unwrap();
@@ -508,6 +720,31 @@ mod tests {
             assert_eq!(after[i..i + 4], before[i..i + 4]);
             let j = (5 * 48 + 5) * 4;
             assert_ne!(after[j..j + 4], before[j..j + 4]);
+        }
+    }
+
+    #[test]
+    fn minimum_signed_offset_matches_its_wrapped_distance() {
+        for depth in [8, 16, 32] {
+            let make_session = || {
+                let mut s = Session::new();
+                s.execute("file.new", json!({"width": 48, "height": 32, "depth": depth})).unwrap();
+                s.execute("layer.new.layer", json!({})).unwrap();
+                paint_pattern(&mut s);
+                s
+            };
+            let mut actual = make_session();
+            let before = active_pixels(&actual);
+            actual.execute("filter.other.offset", json!({"horizontal": i32::MIN, "vertical": i32::MIN})).unwrap();
+            let mut expected = make_session();
+            expected.execute("filter.other.offset", json!({"horizontal": i32::MIN.rem_euclid(48), "vertical": i32::MIN.rem_euclid(32)})).unwrap();
+            let after = active_pixels(&actual);
+            assert_eq!(after, active_pixels(&expected), "depth {depth}");
+            assert_ne!(after, before);
+            actual.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(active_pixels(&actual), before);
+            actual.execute("edit.redo", json!({})).unwrap();
+            assert_eq!(active_pixels(&actual), after);
         }
     }
 

@@ -532,6 +532,32 @@ fn grid_rects(r: Rect, step: u32) -> Vec<Rect> {
     out
 }
 
+/// Number of rectangles `grid_rects` would produce, without allocating them during preflight.
+fn grid_rect_count(r: Rect, step: u32) -> Result<usize, Unsupported> {
+    if r.is_empty() {
+        return Ok(0);
+    }
+    let step = i64::from(step.max(1));
+    let axis = |lo: i32, hi: i32| usize::try_from((i64::from(hi) - 1).div_euclid(step) - i64::from(lo).div_euclid(step) + 1).ok();
+    axis(r.x0, r.x1).and_then(|x| axis(r.y0, r.y1).and_then(|y| x.checked_mul(y))).ok_or_else(|| Unsupported("GPU compositor chunk count is too large".into()))
+}
+
+/// Host length of the chunk and pass uniform records, checked against the device's buffer limit
+/// and the u32 dynamic binding offsets, so an unsupported stack is declined before an invalid
+/// buffer faults the device.
+fn uniform_buffer_len(chunks: usize, passes: usize, limit: u64) -> Result<usize, Unsupported> {
+    let too_large = || Unsupported("GPU compositor uniform buffer is too large".into());
+    let records = chunks.checked_add(passes).and_then(|n| u64::try_from(n).ok()).ok_or_else(too_large)?;
+    let bytes = records.checked_mul(STRIDE).ok_or_else(too_large)?;
+    if bytes > limit {
+        return Err(Unsupported(format!("GPU compositor uniform buffer requires {bytes} bytes; device limit is {limit}")));
+    }
+    if bytes.saturating_sub(STRIDE) > u64::from(u32::MAX) {
+        return Err(Unsupported("GPU compositor uniform offsets exceed u32".into()));
+    }
+    usize::try_from(bytes).map_err(|_| too_large())
+}
+
 /// The reach up to which each distance field must be exact (the largest any program asks for).
 fn field_reaches(progs: &[fx::MapProgram]) -> HashMap<FieldKind, i32> {
     let mut want: HashMap<FieldKind, i32> = HashMap::new();
@@ -1088,6 +1114,16 @@ impl Compositor {
         if region.is_empty() {
             return Ok(stats);
         }
+        let page = self.page;
+        let fx_side = self.fx_work_side(doc, &plan)?;
+        let mut cells = grid_rects(region, page);
+        // Reject every work cell before uploads, submissions or partial sink output.
+        for part in &cells {
+            let cell = (part.x0.div_euclid(page as i32), part.y0.div_euclid(page as i32));
+            for work in grid_rects(cell_rect(cell, page), fx_side) {
+                uniform_buffer_len(grid_rect_count(work.intersect(part), self.chunk)?, plan.passes.len(), device.limits().max_buffer_size)?;
+            }
+        }
         if self.frame == 0 {
             // The first submission after device creation is dropped on some drivers (RADV),
             // which would render the first frame black; land it on an empty buffer instead.
@@ -1111,9 +1147,6 @@ impl Compositor {
 
         // Page cells; every other frame in reverse, so a repeated full refresh of a document
         // larger than the budget starts with the pages still resident.
-        let page = self.page;
-        let fx_side = self.fx_work_side(doc, &plan)?;
-        let mut cells = grid_rects(region, page);
         if self.frame.is_multiple_of(2) {
             cells.reverse();
         }
@@ -1404,7 +1437,8 @@ impl Compositor {
         let make = || {
             let b = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("pc_compose_uniforms"),
-                size: (data.len() as u64).next_power_of_two(),
+                // Rounded up for reuse, but never past the limit `uniform_buffer_len` checked.
+                size: (data.len() as u64).next_power_of_two().min(device.limits().max_buffer_size),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -2288,6 +2322,26 @@ pub fn render_to_vec_stats(
 mod tests {
     use super::*;
     use photocraft_doc::Layer;
+
+    #[test]
+    fn uniform_buffer_sizes_are_checked_before_allocation() {
+        assert_eq!(uniform_buffer_len(1, 255, 65_536).unwrap(), 65_536);
+        assert!(uniform_buffer_len(1, 255, 65_535).is_err());
+        assert!(uniform_buffer_len(usize::MAX, 1, u64::MAX).is_err());
+        assert!(uniform_buffer_len(usize::MAX, 0, u64::MAX).is_err());
+        assert!(uniform_buffer_len(1, 16_777_216, u64::MAX).is_err());
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(uniform_buffer_len(1, 16_777_215, u64::MAX).unwrap(), 4_294_967_296);
+    }
+
+    #[test]
+    fn chunk_preflight_counts_partial_and_negative_grid_cells() {
+        for rect in [Rect::new(2047, 0, 4096, 2048), Rect::new(-3, -5, 7, 8), Rect::new(0, 0, 0, 0)] {
+            for step in [1024, 2048] {
+                assert_eq!(grid_rect_count(rect, step).unwrap(), grid_rects(rect, step).len());
+            }
+        }
+    }
 
     #[test]
     fn color_lookup_uses_precise_inputs_only_at_high_document_depth() {

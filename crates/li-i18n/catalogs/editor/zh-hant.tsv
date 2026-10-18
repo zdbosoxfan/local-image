@@ -3905,3 +3905,11 @@ ai	New	最新
 	Replace	取代
 	{name} was changed by another app after it was opened or saved here.	{name} 在此處開啟或儲存後已被其他 App 更改。
 	Replace it with this document, or cancel and use File › Save As to keep both.	以此文件取代它，或取消並使用「檔案 › 另存新檔」以保留兩者。
+	Accept and Go to Conflict	接受並前往衝突
+	Changes undone.	已還原變更。
+	Choose a new shortcut for this command, or leave it without one.	為此指令選擇新的快速鍵，或保持沒有快速鍵。
+	Undo Changes	還原變更
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} 由系統保留，無法指定。
+	Put this command's shortcuts back as they were	將此指令的快速鍵恢復原狀
+	Take the shortcut from the other command and select it	從另一個指令移除該快速鍵並選取它
+	GPU Memory (MB, 0 = Automatic)	GPU 記憶體（MB，0 = 自動）

@@ -120,6 +120,14 @@ fn run_steps(s: &mut Session, steps: &[(String, Value)]) -> Vec<Value> {
 /// File › Scripts › Browse…: run a script file on the session.
 fn browse(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.scripts.browse";
+    for key in ["path", "name"] {
+        if let Some(path) = p.get(key).and_then(Value::as_str) {
+            let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+            if name.rsplit_once('.').is_some_and(|(_, ext)| matches!(ext.to_ascii_lowercase().as_str(), "js" | "jsx" | "jsxbin" | "psjs" | "ccjs")) {
+                return Err(bad(cmd, "Local Image scripts are JSON or command lists (one command.id {json} per line), not Photoshop ExtendScript (.js/.jsx)"));
+            }
+        }
+    }
     let steps = match (p.get("path").and_then(Value::as_str), p.get("script").and_then(Value::as_str), p.get("steps")) {
         (Some(path), _, _) => parse_script(&String::from_utf8_lossy(&read_file(path)?))?,
         (_, Some(text), _) => parse_script(text)?,

@@ -5,12 +5,12 @@ fn gpu_budget_follows_memory_usage_and_ram() {
     let _gpu_gate = crate::gpu_test_support::lock();
     const G: u64 = 1 << 30;
     // What Memory Usage leaves after the document, within a quarter of RAM.
-    assert_eq!(memory_budget(8 * G, 3 * G, Some(48 * G)), 5 * G);
-    assert_eq!(memory_budget(8 * G, 3 * G, Some(16 * G)), 4 * G);
-    assert_eq!(memory_budget(64 * G, 3 * G, Some(16 * G)), 4 * G);
+    assert_eq!(memory_budget(8 * G, 3 * G, Some(48 * G), None, 0), 5 * G);
+    assert_eq!(memory_budget(8 * G, 3 * G, Some(16 * G), None, 0), 4 * G);
+    assert_eq!(memory_budget(64 * G, 3 * G, Some(16 * G), None, 0), 4 * G);
     // Never below the floor, even with nothing left; 16 GB assumed when RAM is unknown.
-    assert_eq!(memory_budget(8 * G, 10 * G, Some(48 * G)), MIN_GPU_BUDGET);
-    assert_eq!(memory_budget(64 * G, 0, None), 4 * G);
+    assert_eq!(memory_budget(8 * G, 10 * G, Some(48 * G), None, 0), MIN_GPU_BUDGET);
+    assert_eq!(memory_budget(64 * G, 0, None, None, 0), 4 * G);
     assert!(physical_memory().is_none_or(|b| b >= 256 << 20));
 }
 
@@ -73,6 +73,33 @@ fn shaders_validate() {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod health_and_output_tests {
     use super::*;
+
+    #[test]
+    fn display_budget_rejects_large_canvases_and_downgrades_float_textures() {
+        let _gate = crate::gpu_test_support::lock();
+        let rs = egui_kittest::wgpu::create_render_state(wgpu_setup(), Default::default());
+        assert_ne!(rs.adapter.get_info().device_type, wgpu::DeviceType::Cpu);
+        let mut gpu = GpuCanvas::new(&rs);
+        let size = [128, 64];
+        let floats = canvas_texture_bytes(size, gpu.tile, 8);
+        gpu.high = HighPolicy::Budget;
+        gpu.canvas_budget = floats - 1;
+        assert_eq!(gpu.format_for(photocraft_doc::SampleType::U16, size), FORMAT);
+        gpu.canvas_budget = floats;
+        assert_eq!(gpu.format_for(photocraft_doc::SampleType::U16, size), FORMAT_HIGH);
+        let doc =
+            photocraft_doc::Document::new("Huge", photocraft_doc::Size::new(300_000, 300_000), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+        gpu.upload_full(doc.id.0, size, &vec![0; size[0] as usize * size[1] as usize * 4]);
+        assert!(gpu.texture_info(doc.id.0).is_some());
+        let result = gpu.refresh(doc.id.0, &doc, None, None);
+        assert_eq!(result.kind, REFRESH_OVER_BUDGET);
+        assert!(gpu.composite(&doc, doc.bounds(), false).is_err());
+        gpu.upload_composite(doc.id.0, &doc, None);
+        assert!(!gpu.has(doc.id.0, [300_000, 300_000]));
+        assert!(gpu.texture_info(doc.id.0).is_none(), "growing past the budget releases the stale display");
+        assert_eq!(gpu.health.errors(), 0);
+        li_gpu::device::release_window();
+    }
 
     #[test]
     fn soft_circuit_breaker_displays_cpu_and_recovers_same_device() {

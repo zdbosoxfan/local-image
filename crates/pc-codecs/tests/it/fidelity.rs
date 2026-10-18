@@ -21,7 +21,12 @@ fn png_u16_rgba_is_clean() {
 fn tiff_is_clean_for_all_integer_and_f32_layouts() {
     for l in ChannelLayout::ALL {
         for s in [SampleType::U8, SampleType::U16, SampleType::F32, SampleType::F16] {
-            assert!(warns(&test_image(l, s), Format::Tiff).is_empty(), "{l:?} {s:?}");
+            let warnings = warns(&test_image(l, s), Format::Tiff);
+            if l.is_lab() && s.is_float() {
+                assert!(warnings.contains(&W::DepthReduced { from: s, to: SampleType::U16 }));
+            } else {
+                assert!(warnings.is_empty(), "{l:?} {s:?}");
+            }
         }
     }
 }

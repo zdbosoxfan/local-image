@@ -445,3 +445,18 @@ fn fade_allocation_failure_keeps_document_and_history() {
         assert_eq!(*s.active().unwrap().doc, *before);
     }
 }
+
+#[test]
+fn empty_layer_content_aware_fill_samples_visible_pixels() {
+    let mut s = blob_session(8);
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let id = s.active().unwrap().active_layer;
+    assert_eq!(px(&s, 30, 20)[3], 0.0);
+    s.execute("edit.contentAwareFill", json!({"colorAdaptation": "none"})).unwrap();
+    assert_eq!(s.active().unwrap().active_layer, id);
+    assert!(px(&s, 30, 20)[3] > 0.5);
+    assert_eq!(px(&s, 20, 20)[3], 0.0, "pixels outside the selection stay empty");
+    s.undo();
+    s.execute("edit.contentAwareFill", json!({"sampleAllLayers": false, "colorAdaptation": "none"})).unwrap();
+    assert!(px(&s, 30, 20)[3] < 0.05);
+}

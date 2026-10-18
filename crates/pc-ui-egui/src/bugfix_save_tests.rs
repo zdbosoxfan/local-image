@@ -12,7 +12,7 @@ fn app() -> (PhotocraftApp, Writes) {
     let mut app = PhotocraftApp::new(
         photocraft_engine::Session::new(),
         Services {
-            export: Some(Box::new(|doc, path, settings| {
+            export: Some(std::sync::Arc::new(|doc, path, settings| {
                 let options = photocraft_io::ExportOptions { tiff_layers: settings.tiff_layers, ..Default::default() };
                 let result = photocraft_io::export(doc, path.rsplit('.').next().unwrap(), &options).map_err(|e| e.to_string())?;
                 Ok((result.bytes, result.warnings))

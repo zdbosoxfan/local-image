@@ -284,7 +284,8 @@ impl Default for ExportSettings {
 }
 
 /// Encode a document: (file bytes, warnings about anything approximated or dropped).
-pub type ExportFn = Box<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String>>;
+/// May run on a background export-preview worker.
+pub type ExportFn = std::sync::Arc<dyn Fn(&Document, &str, &ExportSettings) -> Result<(Vec<u8>, Vec<String>), String> + Send + Sync>;
 /// Prepared off-thread; the main thread rechecks authority and current source/history state
 /// before publication. The snapshot is exactly the document encoded, including frozen links.
 pub struct PreparedSave {
@@ -430,6 +431,8 @@ pub struct Services {
     pub pick_place_path: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Show a "save file" dialog; returns a path/name to write.
     pub pick_save: Option<PickSaveFn>,
+    /// Select an existing directory for frame import or an output directory for rendering.
+    pub pick_folder: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Write bytes to a path (native) or trigger a download (web).
     pub write: Option<WriteFn>,
     /// Size and modification time of a file (native); `None` on the web, where Save never

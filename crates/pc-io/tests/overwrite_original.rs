@@ -91,6 +91,17 @@ fn overwrite_original_jpeg_quality_uses_preference_and_unsupported_input_fails()
 }
 
 #[test]
+fn overwrite_original_refuses_a_lab_tiff() {
+    let lab = Image::from_u8(4, 4, ChannelLayout::Lab, [128, 160, 96].repeat(16)).unwrap();
+    let original = photocraft_codecs::encode(&lab, Format::Tiff, &EncodeOptions::default()).unwrap();
+    let rgb = Image::from_u8(4, 4, ChannelLayout::Rgb, [200, 100, 50].repeat(16)).unwrap();
+    let png = photocraft_codecs::encode(&rgb, Format::Png, &EncodeOptions::default()).unwrap();
+    let doc = photocraft_io::import("composite", &png).unwrap().document;
+    let error = photocraft_io::export_over_original(&doc, &original, 85).unwrap_err().to_string();
+    assert!(error.contains("Lab originals can't be overwritten"), "{error}");
+}
+
+#[test]
 fn overwrite_original_removes_stale_embedded_jpeg_thumbnail() {
     let red = Image::from_u8(4, 3, ChannelLayout::Rgb, [255, 0, 0].repeat(12)).unwrap();
     let blue = Image::from_u8(4, 3, ChannelLayout::Rgb, [0, 0, 255].repeat(12)).unwrap();

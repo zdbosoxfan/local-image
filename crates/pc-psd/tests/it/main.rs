@@ -3,6 +3,7 @@ mod builder;
 #[cfg(feature = "corpus")]
 mod corpus;
 mod malformed;
+mod merged_recovery;
 mod proptests;
 mod roundtrip;
 mod tree;

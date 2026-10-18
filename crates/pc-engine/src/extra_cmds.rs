@@ -144,7 +144,7 @@ fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
         let surf = crate::commands::paint_surface(doc, id, &Value::Null)?;
         let area = band.content_bounds().intersect(&canvas);
         if !area.is_empty() {
-            crate::pixels::fill_surface(surf, area, color, Some(&band), lock);
+            crate::pixels::fill_surface(surf, area, color, Some(&band), lock)?;
             surf.prune();
         }
         Ok(())
@@ -347,9 +347,9 @@ fn unlock_background(l: &mut Layer) {
     l.locks.position = false;
 }
 
-/// Before `id` gets a layer mask: the Background can't have one, so it becomes a normal layer
-/// first ("Layer 0"), as when adding a mask to it in Photoshop. Other layers are left alone.
-pub(crate) fn background_to_layer_for_mask(doc: &mut photocraft_doc::Document, id: photocraft_doc::LayerId) {
+/// Before `id` gets something the Background can't have (a layer mask, opacity, fill or a blend
+/// mode): it becomes a normal layer first ("Layer 0"), as in Photoshop. Other layers are left alone.
+pub(crate) fn background_to_layer(doc: &mut photocraft_doc::Document, id: photocraft_doc::LayerId) {
     if let Some(l) = doc.layers.first_mut().filter(|l| l.id == id && is_background(l)) {
         unlock_background(l);
     }
@@ -677,8 +677,16 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!("layer.new.layerFromBackground", "Layer From Background…", &["Layer", "New"], None, "{}", has_background, |s, _| layer_from_background(s)),
         spec!("layer.layerStyle.copyLayerStyle", "Copy Layer Style", &["Layer", "Layer Style"], None, r##"{"layer":id?}"##, has_layer, |s, p| {
             let id = layer_param(s, p)?;
-            let l = s.active().and_then(|d| d.doc.layer(id)).ok_or(EngineError::NoLayer(id))?;
-            let style = (l.effects.clone(), l.blend, l.fill_opacity);
+            let d = s.active().ok_or(EngineError::NoDocument)?;
+            let l = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+            let style = crate::CopiedStyle {
+                effects: l.effects.clone(),
+                blend: l.blend,
+                fill: l.fill_opacity,
+                blend_if: l.blend_if.clone(),
+                excluded_channels: l.excluded_channels,
+                mode: d.doc.mode,
+            };
             s.style_clipboard = Some(style);
             Ok(Value::Null)
         }),
@@ -694,12 +702,21 @@ pub fn specs() -> Vec<CommandSpec> {
             },
             |s, p| {
                 let id = layer_param(s, p)?;
-                let (fx, blend, fill) = s.style_clipboard.clone().ok_or(EngineError::Other("no layer style has been copied".into()))?;
+                let style = s.style_clipboard.clone().ok_or(EngineError::Other("no layer style has been copied".into()))?;
                 s.edit("Paste Layer Style", |doc, _| {
+                    let same_mode = doc.mode == style.mode;
+                    let mut blend_if = photocraft_doc::BlendIf::default();
+                    blend_if.set(0, style.blend_if.get(0));
                     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-                    l.effects = fx;
-                    l.blend = blend;
-                    l.fill_opacity = fill;
+                    l.effects = style.effects;
+                    l.blend = if style.blend == photocraft_color::BlendMode::PassThrough && !l.is_group() {
+                        photocraft_color::BlendMode::Normal
+                    } else {
+                        style.blend
+                    };
+                    l.fill_opacity = style.fill;
+                    l.blend_if = if same_mode { style.blend_if } else { blend_if };
+                    l.excluded_channels = if same_mode { style.excluded_channels } else { 0 };
                     Ok(())
                 })?;
                 Ok(Value::Null)

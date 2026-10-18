@@ -596,12 +596,16 @@ impl<'a> Planner<'a> {
         let opacity = layer.opacity * layer.fill_opacity;
         let visible_clipped: Vec<&'a Layer> = clipped.iter().filter(|c| c.visible).collect();
 
-        // Below 100% fill a pass-through group renders isolated (as the CPU compositor does).
+        // Below 100% fill a pass-through group renders isolated (as the CPU compositor does), and
+        // so does one that is the base of a clipping group and holds an adjustment layer.
+        let clip_base_adjusts = !visible_clipped.is_empty()
+            && matches!(&layer.content, LayerContent::Group(g) if g.children.iter().any(|c| c.visible && matches!(c.content, LayerContent::Adjustment(_))));
         if let LayerContent::Group(g) = &layer.content
             && g.isolation == photocraft_doc::GroupIsolation::Auto
             && layer.blend == BlendMode::PassThrough
             && layer.fill_opacity >= 1.0
             && !has_effects(layer)
+            && !clip_base_adjusts
         {
             let before = self.retain(backdrop);
             let mut after = self.stack(&g.children, backdrop)?;
@@ -1021,9 +1025,10 @@ impl<'a> Planner<'a> {
         };
         for &(i, e) in &rev {
             if let Effect::DropShadow(s) = e {
-                // The layer hides the shadow beneath it where its fill is see-through.
+                // The layer hides the shadow beneath it where its fill is see-through, and wholly
+                // in a mode that blends with it (as the CPU renderer: `shadow_see_through`).
                 let flags = if s.knocks_out { F_KNOCKOUT } else { 0 };
-                let see_through = 1.0 - layer.fill_opacity.clamp(0.0, 1.0);
+                let see_through = photocraft_compose::effects::shadow_see_through(layer);
                 w = self.paint_k(
                     w,
                     content,
@@ -1536,11 +1541,17 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
     match adj {
         Adjustment::Invert => (1, p, None),
         Adjustment::Threshold { level } => {
-            p[0][0] = (level * 255.0).round();
+            let t = (level * 255.0).round();
+            p[0] = match depth {
+                photocraft_color::SampleType::U8 => [t, 1.0, 0.0, 0.0],
+                photocraft_color::SampleType::U16 => [t, 2.0, (t * 32768.0 / 255.0).round(), 0.0],
+                photocraft_color::SampleType::F32 => [t, 0.0, 0.0, 0.0],
+            };
             (2, p, None)
         }
         Adjustment::Posterize { levels } => {
             p[0][0] = (*levels).clamp(2, 255) as f32;
+            p[0][1] = if depth == photocraft_color::SampleType::U16 { 1.0 } else { 0.0 };
             (3, p, None)
         }
         Adjustment::BrightnessContrast { brightness, contrast, legacy: true } => {
@@ -1550,10 +1561,10 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             (4, p, None)
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
-            // Modern B/C: the shader rebuilds the curves from raw slider values (see compose.wgsl
-            // `mbright`/`mcontrast`, mirroring compose::adjust::modern_brightness/modern_contrast).
-            p[0] = [*brightness, *contrast, 0.0, 0.0];
-            (5, p, None)
+            // Modern B/C: the CPU's lookup table (compose::adjust::modern_lut) on every channel,
+            // through the Levels / Curves kernel.
+            let row = to_row(&adjust::modern_lut(*brightness, *contrast));
+            (7, p, Some(vec![row; 3]))
         }
         Adjustment::Exposure { exposure, offset, gamma } => {
             p[0] = [2f32.powf(*exposure), *offset, gamma.max(0.01), transfer_exponent(transfer.for_exposure())];
@@ -1641,11 +1652,10 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             (13, p, Some(rows))
         }
         Adjustment::ColorBalance { shadows, midtones, highlights, preserve_luminosity } => {
-            p[0] = [shadows[0], shadows[1], shadows[2], 0.0];
-            p[1] = [midtones[0], midtones[1], midtones[2], 0.0];
-            p[2] = [highlights[0], highlights[1], highlights[2], 0.0];
-            p[3][0] = if *preserve_luminosity { 1.0 } else { 0.0 };
-            (14, p, None)
+            // The CPU's per-channel curves (compose::adjust::color_balance_channel) as tone rows.
+            let tones = [*shadows, *midtones, *highlights];
+            let rows = lut_rows(|ch, value| adjust::color_balance_channel(tones, *preserve_luminosity, ch, value), 3);
+            (7, p, Some(rows))
         }
         Adjustment::SelectiveColor { relative, adjustments } => {
             // 9 ranges × CMYK don't fit the 16 params: they go in LUT row 0 (read texel-exact).

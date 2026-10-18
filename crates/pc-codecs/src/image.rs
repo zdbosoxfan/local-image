@@ -21,19 +21,30 @@ pub enum ChannelLayout {
     /// Ink amounts, `0 = no ink`, `max = full ink` (not Adobe-inverted).
     Cmyk,
     CmykA,
+    /// D50 Lab: L / 100, (a + 128) / 255, (b + 128) / 255.
+    Lab,
+    LabA,
 }
 
 impl ChannelLayout {
-    pub const ALL: [ChannelLayout; 6] =
-        [ChannelLayout::Gray, ChannelLayout::GrayA, ChannelLayout::Rgb, ChannelLayout::Rgba, ChannelLayout::Cmyk, ChannelLayout::CmykA];
+    pub const ALL: [ChannelLayout; 8] = [
+        ChannelLayout::Gray,
+        ChannelLayout::GrayA,
+        ChannelLayout::Rgb,
+        ChannelLayout::Rgba,
+        ChannelLayout::Cmyk,
+        ChannelLayout::CmykA,
+        ChannelLayout::Lab,
+        ChannelLayout::LabA,
+    ];
 
     /// Total number of channels including alpha.
     pub const fn channels(self) -> usize {
         match self {
             ChannelLayout::Gray => 1,
             ChannelLayout::GrayA => 2,
-            ChannelLayout::Rgb => 3,
-            ChannelLayout::Rgba | ChannelLayout::Cmyk => 4,
+            ChannelLayout::Rgb | ChannelLayout::Lab => 3,
+            ChannelLayout::Rgba | ChannelLayout::Cmyk | ChannelLayout::LabA => 4,
             ChannelLayout::CmykA => 5,
         }
     }
@@ -44,7 +55,7 @@ impl ChannelLayout {
     }
 
     pub const fn has_alpha(self) -> bool {
-        matches!(self, ChannelLayout::GrayA | ChannelLayout::Rgba | ChannelLayout::CmykA)
+        matches!(self, ChannelLayout::GrayA | ChannelLayout::Rgba | ChannelLayout::CmykA | ChannelLayout::LabA)
     }
 
     pub const fn is_gray(self) -> bool {
@@ -59,12 +70,17 @@ impl ChannelLayout {
         matches!(self, ChannelLayout::Cmyk | ChannelLayout::CmykA)
     }
 
+    pub const fn is_lab(self) -> bool {
+        matches!(self, Self::Lab | Self::LabA)
+    }
+
     /// The same colour model with alpha added.
     pub const fn with_alpha(self) -> Self {
         match self {
             ChannelLayout::Gray | ChannelLayout::GrayA => ChannelLayout::GrayA,
             ChannelLayout::Rgb | ChannelLayout::Rgba => ChannelLayout::Rgba,
             ChannelLayout::Cmyk | ChannelLayout::CmykA => ChannelLayout::CmykA,
+            ChannelLayout::Lab | ChannelLayout::LabA => ChannelLayout::LabA,
         }
     }
 
@@ -74,12 +90,13 @@ impl ChannelLayout {
             ChannelLayout::Gray | ChannelLayout::GrayA => ChannelLayout::Gray,
             ChannelLayout::Rgb | ChannelLayout::Rgba => ChannelLayout::Rgb,
             ChannelLayout::Cmyk | ChannelLayout::CmykA => ChannelLayout::Cmyk,
+            ChannelLayout::Lab | ChannelLayout::LabA => ChannelLayout::Lab,
         }
     }
 
     /// `true` if both layouts share a colour model (ignoring alpha).
     pub const fn same_model(self, other: Self) -> bool {
-        (self.is_gray() && other.is_gray()) || (self.is_rgb() && other.is_rgb()) || (self.is_cmyk() && other.is_cmyk())
+        (self.is_gray() && other.is_gray()) || (self.is_rgb() && other.is_rgb()) || (self.is_cmyk() && other.is_cmyk()) || (self.is_lab() && other.is_lab())
     }
 }
 
@@ -583,6 +600,7 @@ pub(crate) fn convert_layout(src: &[f32], from: ChannelLayout, to: ChannelLayout
                 ChannelLayout::Gray | ChannelLayout::GrayA => [color[0]; 3],
                 ChannelLayout::Rgb | ChannelLayout::Rgba => [color[0], color[1], color[2]],
                 ChannelLayout::Cmyk | ChannelLayout::CmykA => cmyk_to_rgb(color[0], color[1], color[2], color[3]),
+                ChannelLayout::Lab | ChannelLayout::LabA => li_color::convert::lab_to_srgb([color[0] * 100., color[1] * 255. - 128., color[2] * 255. - 128.]),
             };
             match to {
                 ChannelLayout::Gray | ChannelLayout::GrayA => {
@@ -590,6 +608,10 @@ pub(crate) fn convert_layout(src: &[f32], from: ChannelLayout, to: ChannelLayout
                 }
                 ChannelLayout::Rgb | ChannelLayout::Rgba => out.extend_from_slice(&rgb),
                 ChannelLayout::Cmyk | ChannelLayout::CmykA => out.extend_from_slice(&rgb_to_cmyk(rgb[0], rgb[1], rgb[2])),
+                ChannelLayout::Lab | ChannelLayout::LabA => {
+                    let lab = li_color::convert::srgb_to_lab(rgb.map(|v| v.clamp(0., 1.)));
+                    out.extend_from_slice(&[lab[0] / 100., (lab[1] + 128.) / 255., (lab[2] + 128.) / 255.].map(|v| v.clamp(0., 1.)));
+                }
             }
         }
         if to.has_alpha() {

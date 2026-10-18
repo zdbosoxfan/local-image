@@ -3910,3 +3910,11 @@ ai	New	新着
 	Replace	置き換え
 	{name} was changed by another app after it was opened or saved here.	{name} は、ここで開くか保存した後に別のアプリで変更されました。
 	Replace it with this document, or cancel and use File › Save As to keep both.	この書類で置き換えるか、キャンセルしてファイル › 名前を付けて保存で両方を残してください。
+	Accept and Go to Conflict	適用して競合へ移動
+	Changes undone.	変更を取り消しました。
+	Choose a new shortcut for this command, or leave it without one.	このコマンドに新しいショートカットを選択するか、なしのままにしてください。
+	Undo Changes	変更を取り消し
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} はシステムで予約されているため割り当てられません。
+	Put this command's shortcuts back as they were	このコマンドのショートカットを元に戻す
+	Take the shortcut from the other command and select it	もう一方のコマンドからショートカットを外して選択
+	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）

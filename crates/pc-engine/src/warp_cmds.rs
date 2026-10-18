@@ -164,7 +164,7 @@ fn warp_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, w: &Warp, 
                         let fmt = surf.format();
                         let warped = warp_mesh_surface(surf, rect, &map, interp);
                         let mut rest = surf.convert(photocraft_color::PixelFormat::new(fmt.mode, fmt.sample, true));
-                        crate::pixels::clear_surface(&mut rest, rect, None);
+                        crate::pixels::clear_surface(&mut rest, rect, None)?;
                         crate::transform_cmds::composite_over(&mut rest, &warped);
                         rest.prune();
                         rest

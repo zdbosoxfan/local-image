@@ -59,6 +59,7 @@ pub(crate) fn image_to_document(name: &str, img: &Image) -> Result<ImportResult,
         ChannelLayout::Gray | ChannelLayout::GrayA => (ColorMode::Grayscale, ChannelLayout::GrayA),
         ChannelLayout::Rgb | ChannelLayout::Rgba => (ColorMode::Rgb, ChannelLayout::Rgba),
         ChannelLayout::Cmyk | ChannelLayout::CmykA => (ColorMode::Cmyk, ChannelLayout::CmykA),
+        ChannelLayout::Lab | ChannelLayout::LabA => (ColorMode::Lab, ChannelLayout::LabA),
     };
     let (depth, csample) = match img.sample_type() {
         CSample::U8 => (SampleType::U8, CSample::U8),
@@ -201,6 +202,8 @@ pub(crate) fn layout_for(mode: ColorMode, alpha: bool) -> ChannelLayout {
         (ColorMode::Grayscale, true) => ChannelLayout::GrayA,
         (ColorMode::Cmyk, false) => ChannelLayout::Cmyk,
         (ColorMode::Cmyk, true) => ChannelLayout::CmykA,
+        (ColorMode::Lab, false) => ChannelLayout::Lab,
+        (ColorMode::Lab, true) => ChannelLayout::LabA,
         (_, false) => ChannelLayout::Rgb,
         (_, true) => ChannelLayout::Rgba,
     }
@@ -216,12 +219,17 @@ pub(crate) fn csample(s: SampleType) -> CSample {
 
 /// Renders the document to a flat codec image (native pixels when possible).
 pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<Image, IoError> {
+    document_to_image_for(doc, warnings, true, false)
+}
+
+/// [`document_to_image`] for a format that does (`true`) or doesn't store CMYK and Lab pixels.
+fn document_to_image_for(doc: &Document, warnings: &mut Vec<String>, cmyk_target: bool, lab_target: bool) -> Result<Image, IoError> {
     let (w, h) = (doc.size.width, doc.size.height);
     let canvas = doc.bounds();
     let fmt = doc.pixel_format();
-    let n = (w as usize) * (h as usize);
-    // Lab has no flat-format layout here: Lab documents always go through the composite.
-    let native = single_layer(doc).filter(|_| fmt.mode != ColorMode::Lab);
+    let n = (w as usize).checked_mul(h as usize).ok_or_else(|| IoError::Unsupported("image size overflow".into()))?;
+    // Lab samples stay native only when the target supports Lab.
+    let native = single_layer(doc).filter(|_| fmt.mode != ColorMode::Lab || lab_target);
     let mut icc = doc.icc_profile.as_ref().map(|i| i.to_vec());
     let img = if let Some(s) = native {
         // Native path: keep model and depth. The surface's encoded samples are the codec's raw
@@ -250,16 +258,40 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
     } else {
         let count = doc.layer_count();
         warnings.push(format!("{count} layer(s) flattened; layers, masks and blend modes are not kept"));
-        // The compositor works in RGB; write RGB/gray.
+        let cmyk = fmt.mode == ColorMode::Cmyk && cmyk_target;
+        let space = if cmyk {
+            use photocraft_cms::{Builtin, ColorSpace, Intent, Profile, Transform};
+            let profile = match &doc.icc_profile {
+                Some(bytes) => Profile::parse(bytes).map_err(|e| IoError::Unsupported(format!("invalid CMYK composite profile: {e}")))?,
+                None => Builtin::CoatedCmyk.profile().clone(),
+            };
+            if profile.color_space != ColorSpace::Cmyk {
+                return Err(IoError::Unsupported("CMYK composite requires a CMYK ICC profile".into()));
+            }
+            Transform::new(&profile, Builtin::Srgb.profile(), Intent::RelativeColorimetric, true).map_err(|e| IoError::Unsupported(e.to_string()))?;
+            Transform::new(Builtin::Srgb.profile(), &profile, Intent::RelativeColorimetric, true).map_err(|e| IoError::Unsupported(e.to_string()))?;
+            if icc.is_none() {
+                icc = Some(profile.to_bytes().to_vec());
+            }
+            photocraft_compose::cmyk_space(doc)
+        } else {
+            None
+        };
         let gray = fmt.mode == ColorMode::Grayscale;
-        if fmt.mode == ColorMode::Cmyk || fmt.mode == ColorMode::Lab {
+        if (fmt.mode == ColorMode::Cmyk && !cmyk) || fmt.mode == ColorMode::Lab {
             // The compositor renders CMYK/Lab documents in sRGB (CMYK through the built-in
             // profile), so the file is tagged sRGB.
             warnings.push(format!("{:?} composite written as sRGB RGB (colour-managed conversion)", fmt.mode));
             icc = Some(photocraft_cms::Builtin::Srgb.profile().to_bytes().to_vec());
         }
         let cs = csample(fmt.sample);
-        let colors = if gray { 1 } else { 3 };
+        let colors = if cmyk {
+            4
+        } else if gray {
+            1
+        } else {
+            3
+        };
         // Rendered and quantised in bands (no full-size float composite), with alpha; the alpha
         // is dropped afterwards, in place, when every pixel turned out opaque.
         let mut data = try_buffer(n, (colors + 1) * cs.bytes())?;
@@ -267,26 +299,35 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
         let _ = photocraft_compose::render_bands(doc, canvas, 0, |band| -> Result<(), ()> {
             opaque &= band.px.iter().all(|p| p[3] >= 1.0);
             let parts = crate::pixels::par_map(crate::pixels::bands(band.px.len()), |range| {
-                let mut out = Vec::with_capacity(range.len() * (colors + 1) * cs.bytes());
-                let mut put = |v: f32| {
-                    let v = if v.is_nan() { 0.0 } else { v };
-                    match cs {
-                        CSample::U8 => out.push((v.clamp(0.0, 1.0) * 255.0).round() as u8),
-                        CSample::U16 => out.extend_from_slice(&((v.clamp(0.0, 1.0) * 65535.0).round() as u16).to_ne_bytes()),
-                        CSample::F16 | CSample::F32 => out.extend_from_slice(&v.to_ne_bytes()),
+                photocraft_color::convert::with_cmyk_space(space.as_ref(), || {
+                    let mut out = Vec::with_capacity(range.len().saturating_mul(colors + 1).saturating_mul(cs.bytes()));
+                    let mut put = |v: f32| {
+                        let v = if v.is_nan() { 0.0 } else { v };
+                        match cs {
+                            CSample::U8 => out.push((v.clamp(0.0, 1.0) * 255.0).round() as u8),
+                            CSample::U16 => out.extend_from_slice(&((v.clamp(0.0, 1.0) * 65535.0).round() as u16).to_ne_bytes()),
+                            CSample::F16 | CSample::F32 => out.extend_from_slice(&v.to_ne_bytes()),
+                        }
+                    };
+                    for p in &band.px[range] {
+                        if cmyk {
+                            let mut converted = [0.; 5];
+                            let channels = photocraft_raster::from_rgba_into(&fmt, *p, &mut converted);
+                            for &value in &converted[..channels] {
+                                put(value);
+                            }
+                            continue;
+                        } else if gray {
+                            put(li_color::convert::rgb_to_gray([p[0], p[1], p[2]]));
+                        } else {
+                            put(p[0]);
+                            put(p[1]);
+                            put(p[2]);
+                        }
+                        put(p[3]);
                     }
-                };
-                for p in &band.px[range] {
-                    if gray {
-                        put(li_color::convert::rgb_to_gray([p[0], p[1], p[2]]));
-                    } else {
-                        put(p[0]);
-                        put(p[1]);
-                        put(p[2]);
-                    }
-                    put(p[3]);
-                }
-                out
+                    out
+                })
             });
             for part in parts {
                 data.extend_from_slice(&part);
@@ -296,7 +337,16 @@ pub fn document_to_image(doc: &Document, warnings: &mut Vec<String>) -> Result<I
         if opaque {
             drop_alpha(&mut data, colors * cs.bytes(), cs.bytes());
         }
-        let layout = layout_for(if gray { ColorMode::Grayscale } else { ColorMode::Rgb }, !opaque);
+        let layout = layout_for(
+            if cmyk {
+                ColorMode::Cmyk
+            } else if gray {
+                ColorMode::Grayscale
+            } else {
+                ColorMode::Rgb
+            },
+            !opaque,
+        );
         Image::from_raw(w, h, layout, cs, data)?
     };
     let meta = codecs::Metadata {
@@ -347,6 +397,10 @@ pub fn export_over_original(doc: &Document, original: &[u8], jpeg_quality: u8) -
     };
     if !source.warnings.is_empty() {
         return Err(IoError::Unsupported("Animated, multi-page or damaged originals can't be overwritten; save a copy instead".into()));
+    }
+    // The replacement is converted through ICC profiles, which have no Lab model here.
+    if source.layout().is_lab() {
+        return Err(IoError::Unsupported("Lab originals can't be overwritten; save a copy instead".into()));
     }
     let mut warnings = Vec::new();
     let mut img = document_to_image(doc, &mut warnings)?;
@@ -702,7 +756,8 @@ pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Resu
         return Ok(r);
     }
     let mut warnings = Vec::new();
-    let mut img = document_to_image(doc, &mut warnings)?;
+    let cmyk_target = format.caps().layouts.iter().any(|layout| layout.is_cmyk());
+    let mut img = document_to_image_for(doc, &mut warnings, cmyk_target, format.caps().layouts.iter().any(|l| l.is_lab()))?;
     if opts.xmp == XmpEmbed::None {
         // Export As's Metadata: None: the packet lists the text of every type layer and one id
         // per placed document (#647).
@@ -722,12 +777,16 @@ pub fn export_flat(doc: &Document, format: Format, opts: &ExportOptions) -> Resu
         if let Some(linear) = convert_rgb(&img, Builtin::LinearSrgb.profile(), Intent::RelativeColorimetric, false, CSample::F32)? {
             img = linear;
         }
-    } else if !format.caps().icc {
-        // Untagged files read back as sRGB: convert to it (as Quick Export does) rather than
-        // write values that only mean something under the dropped profile.
+    } else if !format.caps().icc || (img.layout().is_gray() && !format.caps().layouts.iter().any(|l| l.is_gray())) {
+        // Untagged files read back as sRGB/sGray. Even an ICC-capable format like WebP loses a
+        // gray profile when the codec expands gray to RGB. Convert first (as Quick Export does)
+        // rather than write values that only mean something under the dropped profile.
         if let Some(srgb) = convert_rgb(&img, Builtin::Srgb.profile(), Intent::Perceptual, true, img.sample_type())? {
             img = srgb;
             warnings.push(format!("colours converted to sRGB; {format:?} can't embed the document's colour profile"));
+        } else if let Some(gray) = convert_gray(&img, Builtin::SGray.profile(), img.sample_type())? {
+            img = gray;
+            warnings.push(format!("colours converted to sGray; {format:?} can't embed the document's colour profile"));
         }
     }
     for w in codecs::fidelity_warnings_with(&img, format, &opts.encode) {
@@ -775,16 +834,40 @@ fn matte_over_white(img: &Image) -> Result<Image, IoError> {
 /// RGB pixels converted from their profile (sRGB when untagged) to `dst`, unclamped, untagged and
 /// stored as `sample`. `None` when the image isn't RGB or already holds `dst`'s colours.
 fn convert_rgb(img: &Image, dst: &photocraft_cms::Profile, intent: photocraft_cms::Intent, bpc: bool, sample: CSample) -> Result<Option<Image>, IoError> {
-    use photocraft_cms::{Builtin, ColorSpace, Profile, Transform};
+    use photocraft_cms::{Builtin, ColorSpace, Profile};
     if !img.layout().is_rgb() {
         return Ok(None);
     }
     let src =
         img.icc.as_ref().and_then(|b| Profile::parse(b).ok()).filter(|p| p.color_space == ColorSpace::Rgb).unwrap_or_else(|| Builtin::Srgb.profile().clone());
+    convert_from(img, &src, dst, intent, bpc, sample)
+}
+
+/// Gray pixels converted from their profile (sGray when untagged) to `dst`, unclamped, untagged
+/// and stored as `sample`. `None` when the image isn't gray or already holds `dst`'s colours.
+fn convert_gray(img: &Image, dst: &photocraft_cms::Profile, sample: CSample) -> Result<Option<Image>, IoError> {
+    use photocraft_cms::{Builtin, ColorSpace, Intent, Profile};
+    if !img.layout().is_gray() {
+        return Ok(None);
+    }
+    let src =
+        img.icc.as_ref().and_then(|b| Profile::parse(b).ok()).filter(|p| p.color_space == ColorSpace::Gray).unwrap_or_else(|| Builtin::SGray.profile().clone());
+    convert_from(img, &src, dst, Intent::RelativeColorimetric, false, sample)
+}
+
+/// `img`'s pixels converted from `src` to `dst` (see [`convert_rgb`]).
+fn convert_from(
+    img: &Image,
+    src: &photocraft_cms::Profile,
+    dst: &photocraft_cms::Profile,
+    intent: photocraft_cms::Intent,
+    bpc: bool,
+    sample: CSample,
+) -> Result<Option<Image>, IoError> {
     if src.same_colors(dst) {
         return Ok(None);
     }
-    let t = Transform::new(&src, dst, intent, bpc).map_err(|e| IoError::Unsupported(e.to_string()))?;
+    let t = photocraft_cms::Transform::new(src, dst, intent, bpc).map_err(|e| IoError::Unsupported(e.to_string()))?;
     let stride = img.layout().channels();
     let out = map_bands(img, img.layout(), sample, |mut vals| {
         t.apply(&mut vals, stride);
@@ -905,7 +988,7 @@ mod j03_parity_tests {
         doc.layers.push(Layer::new("Pixels", LayerContent::Raster(surface)));
         doc.metadata.exif = Some(Arc::new(lightcraft_tiff::exif::minimal_exif(6)));
         doc.metadata.xmp = Some(r#"<rdf:Description tiff:Orientation="6"/>"#.into());
-        for (ext, size, expected) in [("psd", 570, 0x5573b328077b7c9du64), ("tiff", 325, 0xfbffddd714c68a3a)] {
+        for (ext, size, expected) in [("psd", 570, 0xb48c029c61d4be65u64), ("tiff", 325, 0xfbffddd714c68a3a)] {
             let bytes = crate::export(&doc, ext, &ExportOptions::default()).unwrap().bytes;
             let hash = bytes.iter().fold(0xcbf29ce484222325u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3));
             assert_eq!(bytes.len(), size, "{ext} length changed");

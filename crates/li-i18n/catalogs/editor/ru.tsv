@@ -4010,3 +4010,11 @@ ai	New	Новые
 	Replace	Заменить
 	{name} was changed by another app after it was opened or saved here.	Файл {name} был изменён другим приложением после того, как его открыли или сохранили здесь.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Замените его этим документом или отмените и используйте Файл › Сохранить как, чтобы сохранить оба.
+	Accept and Go to Conflict	Принять и перейти к конфликту
+	Changes undone.	Изменения отменены.
+	Choose a new shortcut for this command, or leave it without one.	Выберите новую комбинацию для этой команды или оставьте её без комбинации.
+	Undo Changes	Отменить изменения
+	{shortcut} is reserved by the system and can't be assigned.	Комбинация {shortcut} зарезервирована системой и не может быть назначена.
+	Put this command's shortcuts back as they were	Вернуть комбинации этой команды
+	Take the shortcut from the other command and select it	Снять комбинацию с другой команды и выбрать её
+	GPU Memory (MB, 0 = Automatic)	Память GPU (МБ, 0 = автоматически)

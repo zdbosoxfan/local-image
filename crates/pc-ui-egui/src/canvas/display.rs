@@ -466,6 +466,12 @@ pub(super) fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     }
     let preview_key = raw_key ^ display_key;
     let size = [doc.size.width, doc.size.height];
+    // Display textures for a canvas this large would not fit the GPU: the reduced CPU canvas
+    // draws it.
+    if !gpu.fits_canvas(size, gpu.format_for(doc.depth, size)) {
+        gpu.discard_display(id.0);
+        return false;
+    }
     let cache = app.canvases.entry((id, GPU_OUTPUT)).or_insert(CanvasCache {
         revision: 0,
         texture: None,
@@ -476,7 +482,13 @@ pub(super) fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
         tex_preview_key: 0,
     });
     let present = cache.on_gpu && gpu.has(id.0, size);
-    if present && cache.revision == revision && cache.preview_key == preview_key {
+    let current = present && cache.revision == revision && cache.preview_key == preview_key;
+    if current {
+        // GPU Memory, Memory Usage or the active document changed with nothing to redraw: size
+        // the budget at once rather than at the next refresh.
+        if app.perf.gpu_budget_inputs != budget_inputs(app, idx) {
+            gpu_budget(app, &gpu, idx, false, visible);
+        }
         // An adjustment preview composited where the view was: catch up where it moved to.
         if let Some(r) = crate::adjust_preview::uncovered(app, id, raw_key, visible) {
             let r = gpu.refresh_snapshot(id.0, &doc, Some(r), display.as_deref());
@@ -487,8 +499,9 @@ pub(super) fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     let partial = present && damage.is_some();
     gpu_budget(app, &gpu, idx, partial, visible);
     let r = gpu.refresh_snapshot(id.0, &doc, if partial { damage } else { None }, display.as_deref());
-    if r.kind == "lost" {
-        // The device is gone: draw this frame on the CPU path; `gpu_status` drops the GPU canvas.
+    if r.kind == "lost" || r.kind == crate::gpu_canvas::REFRESH_OVER_BUDGET {
+        // The device is gone (`gpu_status` then drops the GPU canvas) or the canvas is over the
+        // texture budget: draw this frame on the CPU path.
         return false;
     }
     if let Some(e) = &r.fallback
@@ -511,27 +524,40 @@ pub(super) fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
     true
 }
 
-/// Point the wgpu compositor at what the view shows, and size its memory budget from Memory
-/// Usage, the document's pixels and History, and physical memory: on full refreshes (pixels
-/// counted once per structural change, not per brush dab) and whenever the preference changes.
+/// Point the wgpu compositor at what the view shows, and size its memory budget from GPU Memory,
+/// or Memory Usage, the document's pixels and History (charged where the GPU shares the system's
+/// memory), physical memory and the GPU's own: on full refreshes (pixels counted once per
+/// structural change, not per brush dab) and whenever a preference or the document changes.
 pub(super) fn gpu_budget(app: &mut PhotocraftApp, gpu: &crate::gpu_canvas::GpuCanvas, idx: usize, partial: bool, visible: DRect) {
     gpu.set_focus(Some(visible));
-    let allowance = u64::from(app.session.prefs().performance.memory_usage_mb).saturating_mul(1 << 20);
+    let inputs = budget_inputs(app, idx);
     if partial
         && lightcraft_sysmem::gpu::sample().is_none()
         && !lightcraft_sysmem::gpu::pressured()
-        && app.perf.gpu_budget_allowance == allowance
+        && app.perf.gpu_budget_inputs == inputs
         && gpu.memory_budget().is_some()
     {
         return;
     }
     let Some(st) = app.session.documents().get(idx) else { return };
     let pixels = st.memory_bytes() as u64;
-    let budget = crate::gpu_canvas::memory_budget(allowance, pixels, crate::gpu_canvas::physical_memory());
+    let (allowance, fixed, _) = inputs;
+    let budget = crate::gpu_canvas::memory_budget(allowance, pixels, crate::gpu_canvas::physical_memory(), gpu.video_memory(), fixed);
     let budget = lightcraft_sysmem::gpu::cache_budget(budget);
     gpu.set_memory_budget(budget);
     app.perf.gpu_budget_mb = budget >> 20;
-    app.perf.gpu_budget_allowance = allowance;
+    app.perf.gpu_budget_inputs = inputs;
+}
+
+/// Memory Usage and GPU Memory (Preferences › Performance, bytes) and the document the budget is
+/// sized for.
+fn budget_inputs(app: &PhotocraftApp, idx: usize) -> (u64, u64, Option<photocraft_doc::DocId>) {
+    let performance = &app.session.prefs().performance;
+    (
+        u64::from(performance.memory_usage_mb).saturating_mul(1 << 20),
+        u64::from(performance.gpu_memory_mb).saturating_mul(1 << 20),
+        app.session.documents().get(idx).map(|st| st.doc.id),
+    )
 }
 
 /// Live preview for an open filter dialog: run the filter on the proxy and upload it.
@@ -557,7 +583,8 @@ pub(super) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Opti
     let fresh = matches!(&app.filter_preview, Some(p) if p.doc == doc_id && p.hash == hash);
     if !fresh {
         let t0 = crate::gpu_canvas::now_ms();
-        let result = crate::filter_dialog::preview_document(&doc, active, &cmd, &params, k).map(std::sync::Arc::new);
+        let documents: Vec<_> = app.session.documents().iter().map(|state| state.doc.clone()).collect();
+        let result = crate::filter_dialog::preview_document_with_sources(&doc, active, &cmd, &params, k, &documents).map(std::sync::Arc::new);
         if let Some(r) = &result {
             let buf = photocraft_compose::flatten(r);
             let t1 = crate::gpu_canvas::now_ms();

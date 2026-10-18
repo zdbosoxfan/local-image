@@ -80,6 +80,28 @@ struct Level {
     hole: Vec<bool>,
 }
 
+/// A hole at most `1 / THIN_RATIO` as thick as its bounds are long (a wire, a string, a hair) is
+/// thin: its pyramid stops by thickness, not by bounds, since shrunk until its bounds are a few
+/// patches across it swallows its surroundings and the fill keeps the removed object's outline.
+const THIN_RATIO: usize = 4;
+
+/// How thick a hole is: twice the greatest distance from a hole pixel to the nearest pixel that is
+/// not one (the image boundary counts as not hole).
+fn hole_thickness(w: usize, (x0, y0, x1, y1): (usize, usize, usize, usize), hole: &[bool]) -> usize {
+    let (bw, bh) = (x1 - x0, y1 - y0);
+    let Some(gw) = bw.checked_add(2) else { return usize::MAX };
+    let Some(gh) = bh.checked_add(2) else { return usize::MAX };
+    let Some(len) = gw.checked_mul(gh) else { return usize::MAX };
+    let outside: Vec<bool> = (0..len)
+        .map(|i| {
+            let (x, y) = (i % gw, i / gw);
+            x == 0 || y == 0 || x > bw || y > bh || !hole[(y0 + y - 1) * w + x0 + x - 1]
+        })
+        .collect();
+    let deepest = li_matte::distance::edt(&outside, gw, gh).into_iter().fold(0.0f32, f32::max);
+    (2.0 * deepest).ceil() as usize
+}
+
 fn downsample(l: &Level, ch: usize) -> Level {
     let (w, h) = (l.w.div_ceil(2), l.h.div_ceil(2));
     let mut img = vec![0.0f32; w * h * ch];
@@ -512,6 +534,11 @@ pub fn complete_with(
     // Pyramid: shrink until the hole is a few patches across.
     let mut levels = vec![Level { w, h, img: img.to_vec(), hole: hole.to_vec() }];
     let mut ext = (bx1 - bx0).max(by1 - by0);
+    let thickness = hole_thickness(w, (bx0, by0, bx1, by1), hole);
+    let thin = thickness.saturating_mul(THIN_RATIO) <= ext;
+    if thin {
+        ext = thickness;
+    }
     let mut exts = vec![ext];
     while let Some(l) = levels.last() {
         ctl.check()?;
@@ -533,7 +560,22 @@ pub fn complete_with(
         let Level { w: lw, h: lh, img: mut limg, hole: lhole } = levels[li].clone();
         // Initialise the hole: membrane at the coarsest level, upsampled result elsewhere.
         match &prev {
-            None => limg = membrane_fill(lw, lh, ch, &limg, &lhole),
+            None => {
+                let mut unknown = lhole.clone();
+                // A thin hole's membrane starts a patch radius out, past the anti-aliased fringe or
+                // halo a selection drawn close to the object leaves outside it.
+                if thin {
+                    for (u, d) in unknown.iter_mut().zip(li_matte::distance::edt(&lhole, lw, lh)) {
+                        *u |= d <= r as f32;
+                    }
+                }
+                let membrane = membrane_fill(lw, lh, ch, &limg, &unknown);
+                for (i, inside) in lhole.iter().enumerate() {
+                    if *inside {
+                        limg[i * ch..(i + 1) * ch].copy_from_slice(&membrane[i * ch..(i + 1) * ch]);
+                    }
+                }
+            }
             Some((pw, ph, pimg)) => {
                 for y in 0..lh {
                     for x in 0..lw {
@@ -817,6 +859,41 @@ pub fn synthesize(w: usize, h: usize, ch: usize, img: &[f32], hole: &[bool], blo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thin_hole_thickness_measures_across_the_hole_including_canvas_edges() {
+        let (w, h) = (240, 120);
+        let band: Vec<bool> = (0..w * h).map(|i| (20..220).contains(&(i % w)) && (50..59).contains(&(i / w))).collect();
+        assert!((9..=11).contains(&hole_thickness(w, hole_bbox(w, h, &band).unwrap(), &band)));
+        let disc: Vec<bool> = (0..w * h).map(|i| ((i % w) as f32 - 120.0).hypot((i / w) as f32 - 60.0) < 20.0).collect();
+        assert!((39..=42).contains(&hole_thickness(w, hole_bbox(w, h, &disc).unwrap(), &disc)));
+        let edge: Vec<bool> = (0..w * h).map(|i| i / w < 9).collect();
+        assert!((9..=11).contains(&hole_thickness(w, hole_bbox(w, h, &edge).unwrap(), &edge)));
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn thin_hole_fill_keeps_the_surrounding_pixels_and_is_thread_independent() {
+        let (w, h) = (100, 60);
+        let img: Vec<f32> = (0..w * h).map(|i| 0.2 + (i % w) as f32 / 200.0).collect();
+        let hole: Vec<bool> = (0..w * h).map(|i| (10..90).contains(&(i % w)) && (28..32).contains(&(i / w))).collect();
+        let run = |threads| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .unwrap()
+                .install(|| complete(w, h, 1, &img, &hole, &CompleteParams::default()).unwrap())
+        };
+        let out = run(1);
+        assert_eq!(out, run(4));
+        for i in 0..w * h {
+            if hole[i] {
+                assert!((out[i] - img[i]).abs() < 0.03, "pixel {i}: {} vs {}", out[i], img[i]);
+            } else {
+                assert_eq!(out[i], img[i]);
+            }
+        }
+    }
 
     /// Smooth gradient plus deterministic fine noise.
     fn texture(w: usize, h: usize) -> Vec<f32> {

@@ -35,6 +35,7 @@ use tiff::encoder::colortype::{self, ColorType as TiffColorType};
 use tiff::encoder::{Rational, TiffEncoder, TiffKind, TiffKindBig, TiffKindStandard, TiffValue};
 use tiff::tags::{PhotometricInterpretation, ResolutionUnit, SampleFormat, Tag, Type};
 
+use super::tiff_exif;
 use super::tiff_ifd::{self as ifd, File, Ifd};
 use crate::Format;
 use crate::error::CodecError;
@@ -198,6 +199,9 @@ fn metadata(f: &File<'_>, dir: &Ifd, icc: &mut Option<Vec<u8>>) -> Metadata {
         if dir.at == f.first_ifd { photoshop_tags(f.b) } else { (f.tag_bytes(dir, TAG_PHOTOSHOP), f.tag_bytes(dir, TAG_IMAGE_SOURCE_DATA)) };
     meta.photoshop_resources = resources.map(<[u8]>::to_vec);
     meta.photoshop_layers = layers.map(<[u8]>::to_vec);
+    if dir.at == f.first_ifd {
+        meta.exif = tiff_exif::read(f.b).and_then(|dirs| tiff_exif::block(&dirs));
+    }
     meta
 }
 
@@ -466,6 +470,10 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     } else {
         None
     };
+    let lab = matches!(photometric, 8 | 9);
+    if lab && (spp < 3 || !matches!(src, Src::U8 | Src::U16)) {
+        return Err(CodecError::unsupported(F, format!("Lab image with {spp} samples of {bits} bits")));
+    }
     let mut patches: Vec<(u64, Vec<u8>)> = Vec::new();
     let encode_u = |v: u64, len: usize| -> Vec<u8> {
         let b = if f.le { v.to_le_bytes() } else { v.to_be_bytes() };
@@ -480,14 +488,14 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // The directory is seen as the last of its chain: the chain was walked already, and a
     // cycle through it must not fail this page.
     patches.push((dir.next_at, vec![0; if f.big { 8 } else { 4 }]));
-    if invert || palette.is_some() {
+    if invert || palette.is_some() || lab {
         let e = photometric_entry.ok_or_else(|| err("missing PhotometricInterpretation"))?;
         let len = match e.ty {
             3 if e.count == 1 => 2,
             4 if e.count == 1 => 4,
             _ => return Err(err("malformed PhotometricInterpretation")),
         };
-        patches.push((e.value_at, encode_u(1, len)));
+        patches.push((e.value_at, encode_u(if lab { 2 } else { 1 }, len)));
     }
 
     let tl = {
@@ -516,6 +524,12 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         tiff::ColorType::CMYK(_) => (ChannelLayout::Cmyk, 4),
         tiff::ColorType::CMYKA(_) => (ChannelLayout::CmykA, 5),
         other => return Err(CodecError::unsupported(F, format!("colour type {other:?}"))),
+    };
+    let out_layout = match out_layout {
+        ChannelLayout::Rgb if lab => ChannelLayout::Lab,
+        ChannelLayout::Rgba if lab => ChannelLayout::LabA,
+        _ if lab => return Err(err("Lab requires three colour samples")),
+        layout => layout,
     };
     let chunk_spp = if planar { 1 } else { chunk_spp };
     if matches!(src, Src::Bits(_)) && (out_layout.channels() > 1 || spp != 1) && palette.is_none() {
@@ -590,6 +604,9 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let tally = decode_bands(&lay, &mut data, band_bytes, &mut dec, &open)?;
     if tally.decoded == 0 && tally.missing > 0 {
         return Err(err("the image data is missing (cut off or past the end of the file)"));
+    }
+    if lab {
+        convert_ab(&mut data, out_layout.channels(), out, photometric == 8, false);
     }
     let mut img = Image::from_raw(w, h, out_layout, out, data)?;
     img.source_bit_depth = Some(bits as u8);
@@ -937,7 +954,41 @@ custom_colortype!(GrayA32F, f32, PI::BlackIsZero, &[32, 32], &[SampleFormat::IEE
 custom_colortype!(CmykA16, u16, PI::CMYK, &[16; 5], &[SampleFormat::Uint; 5], int);
 custom_colortype!(CmykA32F, f32, PI::CMYK, &[32; 5], &[SampleFormat::IEEEFP; 5], float);
 
+custom_colortype!(Lab8, u8, PI::CIELab, &[8; 3], &[SampleFormat::Uint; 3], int);
+custom_colortype!(Lab16, u16, PI::CIELab, &[16; 3], &[SampleFormat::Uint; 3], int);
+custom_colortype!(LabA8, u8, PI::CIELab, &[8; 4], &[SampleFormat::Uint; 4], int);
+custom_colortype!(LabA16, u16, PI::CIELab, &[16; 4], &[SampleFormat::Uint; 4], int);
+
+// TIFF chroma uses signed a*256 (CIELab) or offset a*256 (ICCLab); our U16 uses (a+128)*257.
+fn convert_ab(data: &mut [u8], channels: usize, sample: SampleType, signed: bool, to_file: bool) {
+    match sample {
+        SampleType::U8 if signed => {
+            for pixel in data.chunks_exact_mut(channels) {
+                pixel[1] ^= 128;
+                pixel[2] ^= 128;
+            }
+        }
+        SampleType::U16 => {
+            for pixel in data.chunks_exact_mut(channels * 2) {
+                for c in [1, 2] {
+                    let v = u16::from_ne_bytes([pixel[c * 2], pixel[c * 2 + 1]]);
+                    let value = if to_file {
+                        let a = ((f64::from(v) - 32896.) * 256. / 257.).round().clamp(-32768., 32767.);
+                        if signed { (a as i16) as u16 } else { (a + 32768.) as u16 }
+                    } else {
+                        let a = if signed { f64::from(v as i16) } else { f64::from(v) - 32768. };
+                        (a * 257. / 256. + 32896.).round().clamp(0., 65535.) as u16
+                    };
+                    pixel[c * 2..c * 2 + 2].copy_from_slice(&value.to_ne_bytes());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 struct TagSet<'a> {
+    exif: Option<lightcraft_tiff::IfdBuilder>,
     icc: Option<&'a [u8]>,
     xmp: Option<&'a [u8]>,
     dpi: Option<(f32, f32)>,
@@ -965,6 +1016,12 @@ where
     [C::Inner]: TiffValue,
     K: TiffKind,
 {
+    let mut pointers = Vec::new();
+    if let Some(exif) = &tags.exif {
+        for (&tag, fields) in &exif.children {
+            pointers.push((tag, tiff_exif::write_directory(enc, fields)?));
+        }
+    }
     let mut im = enc.new_image::<C>(w, h)?;
     if let Some((x, y)) = tags.dpi {
         im.resolution_unit(ResolutionUnit::Inch);
@@ -984,6 +1041,12 @@ where
     }
     for (tag, s) in &tags.text {
         d.write_tag(*tag, *s)?;
+    }
+    if let Some(exif) = &tags.exif {
+        tiff_exif::write_fields(d, exif, |tag| !tags.text.iter().any(|(t, _)| t.to_u16() == tag))?;
+    }
+    for (tag, offset) in pointers {
+        d.write_tag(Tag::Unknown(tag), offset)?;
     }
     if let Some(r) = tags.photoshop_resources {
         d.write_tag(Tag::Unknown(TAG_PHOTOSHOP), r)?;
@@ -1021,6 +1084,19 @@ fn write_image<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, img:
         (L::CmykA, S::U8) => write_one::<colortype::CMYKA8, K>(enc, w, h, d8, tags),
         (L::CmykA, S::U16) => write_one::<CmykA16, K>(enc, w, h, &u16s(), tags),
         (L::CmykA, S::F32) => write_one::<CmykA32F, K>(enc, w, h, &f32s(), tags),
+        (L::Lab | L::LabA, _) => {
+            let sample = if img.sample_type() == S::U8 { S::U8 } else { S::U16 };
+            let mut file = img.convert(img.layout(), sample);
+            let channels = file.layout().channels();
+            convert_ab(file.data_mut(), channels, sample, true, true);
+            let u16s = || file.to_u16_samples().unwrap_or_default();
+            match (file.layout(), sample) {
+                (L::Lab, S::U8) => write_one::<Lab8, K>(enc, w, h, file.data(), tags),
+                (L::Lab, _) => write_one::<Lab16, K>(enc, w, h, &u16s(), tags),
+                (_, S::U8) => write_one::<LabA8, K>(enc, w, h, file.data(), tags),
+                _ => write_one::<LabA16, K>(enc, w, h, &u16s(), tags),
+            }
+        }
         (l, s) => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unsupported {l:?} {s:?}")).into()),
     }
 }
@@ -1032,7 +1108,13 @@ const CLASSIC_LIMIT: u64 = u32::MAX as u64;
 /// room for the directory and strip tables.
 fn estimated_size(img: &Image, tags: &TagSet<'_>) -> u64 {
     let payloads = [tags.icc, tags.xmp, tags.photoshop_resources, tags.photoshop_layers].iter().flatten().map(|p| p.len() as u64).sum::<u64>();
-    let text = tags.text.iter().map(|(_, s)| s.len() as u64).sum::<u64>();
+    let exif_bytes = tags
+        .exif
+        .iter()
+        .flat_map(|root| std::iter::once(root).chain(root.children.values()))
+        .flat_map(|dir| dir.entries.values())
+        .fold(0u64, |sum, value| sum.saturating_add((value.count() as u64).saturating_mul(value.field_type().size() as u64).saturating_add(20)));
+    let text = tags.text.iter().map(|(_, s)| s.len() as u64).sum::<u64>().saturating_add(exif_bytes);
     // Strip tables: one offset and one count per strip of about 1 MB.
     let tables = (img.data().len() as u64 / (1 << 20) + 1) * 16;
     (img.data().len() as u64).saturating_add(payloads).saturating_add(text).saturating_add(tables).saturating_add(1 << 20)
@@ -1064,6 +1146,7 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
     // TIFF writes no Orientation tag (= 1): keep the XMP from contradicting it.
     let xmp = if opts.embed_metadata { img.meta.xmp.as_deref().map(|x| crate::orientation::encoded_xmp(x, opts.keep_orientation)) } else { None };
     let tags = TagSet {
+        exif: if opts.embed_metadata { img.meta.exif.as_deref().and_then(tiff_exif::read) } else { None },
         icc: if opts.embed_icc { img.icc.as_deref() } else { None },
         xmp: xmp.as_deref().map(str::as_bytes),
         dpi: if opts.embed_metadata { img.meta.dpi.filter(|d| d.0 > 0.0 && d.1 > 0.0) } else { None },

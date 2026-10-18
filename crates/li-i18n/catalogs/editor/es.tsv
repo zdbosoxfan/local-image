@@ -3918,3 +3918,11 @@ ai	New	Nuevos
 	Replace	Reemplazar
 	{name} was changed by another app after it was opened or saved here.	Otra aplicación cambió {name} después de abrirlo o guardarlo aquí.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Reemplázalo con este documento, o cancela y usa Archivo › Guardar como para conservar ambos.
+	Accept and Go to Conflict	Aceptar e ir al conflicto
+	Changes undone.	Cambios deshechos.
+	Choose a new shortcut for this command, or leave it without one.	Elija un nuevo método abreviado para este comando o déjelo sin ninguno.
+	Undo Changes	Deshacer cambios
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} está reservado por el sistema y no se puede asignar.
+	Put this command's shortcuts back as they were	Restaurar los métodos abreviados de este comando como estaban
+	Take the shortcut from the other command and select it	Quitar el método abreviado al otro comando y seleccionarlo
+	GPU Memory (MB, 0 = Automatic)	Memoria de GPU (MB, 0 = Automático)

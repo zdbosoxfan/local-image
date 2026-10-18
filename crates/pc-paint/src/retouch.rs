@@ -102,7 +102,7 @@ pub fn dab_rect(d: &Dab) -> Rect {
 
 /// Rasterize one dab's coverage.
 pub fn footprint(d: &Dab, index: usize, hardness: f32) -> Footprint {
-    let rect = dab_rect(d);
+    let rect = crate::render::rect_around(d, crate::tip_reach(d.radius, hardness).max(d.radius));
     let (cx, cy) = (d.center.x as f32, d.center.y as f32);
     let mut cov = Vec::with_capacity(rect.width() as usize * rect.height() as usize);
     for y in rect.y0..rect.y1 {

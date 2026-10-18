@@ -24,8 +24,9 @@
 //! the compatible GPU set ([`after_init_failure`], [`RETRY_ENV`]), and only then the CPU renderer.
 //!
 //! The choice that worked is remembered in `performance.gpuBackend` (Preferences › Performance,
-//! where it can be reset), and why in `gpu-recovery.json` ([`Recovery`]), which keeps the adapter
-//! to avoid for the compatible set and the reason the UI shows while GPU acceleration stays off.
+//! where it can be reset). `gpu-recovery.json` ([`Recovery`]) keeps the adapter to avoid for the
+//! Linux compatible GPU set and why. A CPU fallback is temporary and writes no note: its reason
+//! shows for that launch, and "Keep Using CPU" acknowledges it.
 //! With `auto`, Intel adapters on Windows use DX12. `WGPU_BACKEND` still overrides everything, and
 //! `--safe-gpu` forces the CPU path for one launch.
 //!
@@ -251,6 +252,30 @@ pub fn describe(b: GpuBackend, os: Os) -> &'static str {
 /// Windows and macOS go straight to the CPU renderer, as before. `None`: use the CPU renderer.
 pub fn after_init_failure(plan: &Plan, os: Os) -> Option<GpuBackend> {
     (os == Os::Other && plan.env.is_none() && matches!(plan.backend, GpuBackend::Auto | GpuBackend::Vulkan)).then_some(GpuBackend::Gl)
+}
+
+/// A handled graphics error only needs a marker when a later launch can choose a safer backend.
+pub fn keep_marker_after_error(plan: &Plan, os: Os) -> bool {
+    plan.env.is_none() && next_safer(plan.backend, os) != plan.backend
+}
+
+/// What a start that returned (so it didn't crash in the driver) leaves for the next one. Success
+/// clears the marker. A renderer error keeps it only when a safer backend exists (`keep_marker`,
+/// from [`keep_marker_after_error`]). Any other error (no display, app setup) says nothing about
+/// the driver: it restores the previous start's crash evidence, or clears the marker.
+pub fn finish_attempt(mut sentinel: Sentinel, previous: &Previous, keep_marker: bool, result: &eframe::Result) {
+    match result {
+        Err(eframe::Error::Wgpu(_)) if keep_marker => {}
+        Err(eframe::Error::Wgpu(_)) | Ok(()) => sentinel.finish(),
+        Err(_) => match previous.crashed() {
+            Some(marker) => {
+                if let Err(error) = sentinel.write(marker.clone()) {
+                    log::warn!("couldn't restore the GPU startup marker: {error}");
+                }
+            }
+            None => sentinel.finish(),
+        },
+    }
 }
 
 /// The plan for a process re-launched by [`after_init_failure`]: `retry` is [`RETRY_ENV`],
@@ -553,11 +578,9 @@ pub fn read_rendering_prefs(path: Option<&Path>) -> (GpuBackend, RenderingMode) 
     (backend, mode)
 }
 
-/// Why GPU acceleration is reduced or off after a failure (`gpu-recovery.json` in the config
-/// directory), written once the fallback start succeeded. While it applies ([`Recovery::applies`])
-/// the UI keeps saying why the app is in CPU mode, and the Linux compatible set keeps avoiding the
-/// adapter that failed. Choosing GPU or Automatic again (Retry GPU) makes it stale; the next
-/// launch removes it.
+/// A remembered compatible hardware fallback (`gpu-recovery.json` in the config directory).
+/// The Linux compatible set avoids the adapter that failed while [`Recovery::applies`].
+/// Choosing another backend or explicit CPU mode makes the note stale; the next launch removes it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Recovery {
     pub reason: String,
@@ -565,6 +588,15 @@ pub struct Recovery {
 }
 
 impl Recovery {
+    /// Only a remembered compatible hardware backend needs a recovery note across launches.
+    pub fn from_plan(plan: &Plan, os: Os) -> Option<Self> {
+        if plan.remember && plan.backend == GpuBackend::Gl && os == Os::Other {
+            plan.reason.clone().map(|reason| Self { reason, avoid: plan.avoid.clone() })
+        } else {
+            None
+        }
+    }
+
     pub fn to_json(&self) -> String {
         json!({
             "reason": self.reason,
@@ -592,17 +624,16 @@ impl Recovery {
 
     pub fn save(&self, dir: &Path) -> std::io::Result<()> {
         std::fs::create_dir_all(dir)?;
-        std::fs::write(dir.join(RECOVERY_FILE), self.to_json())
+        li_fs::atomic_write(&dir.join(RECOVERY_FILE), self.to_json().as_bytes())
     }
 
     pub fn clear(dir: &Path) {
         let _ = std::fs::remove_file(dir.join(RECOVERY_FILE));
     }
 
-    /// Whether a saved recovery still describes the preferences: CPU mode, or (Linux) the
-    /// compatible GPU set it chose.
+    /// Explicit CPU mode acknowledges the failure; only the compatible hardware set retains it.
     pub fn applies(pref: GpuBackend, mode: RenderingMode, os: Os) -> bool {
-        mode == RenderingMode::Cpu || (os == Os::Other && pref == GpuBackend::Gl)
+        mode != RenderingMode::Cpu && os == Os::Other && pref == GpuBackend::Gl
     }
 }
 
@@ -613,6 +644,63 @@ mod tests {
 
     fn crashed(backend: &str, adapter_backend: &str) -> Marker {
         Marker { backend: backend.into(), adapter: "Intel(R) UHD Graphics".into(), adapter_backend: adapter_backend.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn keeping_cpu_acknowledges_recovery_and_cpu_fallback_does_not_save_it() {
+        let cpu = plan(Gl, Some(&crashed("gl", "gl")), None, false, Os::Other);
+        assert_eq!(cpu.backend, Cpu);
+        assert!(Recovery::from_plan(&cpu, Os::Other).is_none());
+        for os in [Os::Mac, Os::Other, Os::Windows] {
+            for backend in [Auto, Cpu, Gl] {
+                assert!(!Recovery::applies(backend, RenderingMode::Cpu, os));
+            }
+        }
+        let compatible = Plan { backend: Gl, remember: true, reason: Some("failed Vulkan".into()), ..Default::default() };
+        assert_eq!(Recovery::from_plan(&compatible, Os::Other).unwrap().reason, "failed Vulkan");
+        assert!(Recovery::applies(Gl, RenderingMode::Auto, Os::Other));
+    }
+
+    #[test]
+    fn failed_starts_keep_the_marker_only_when_a_safer_backend_exists() {
+        for os in [Os::Windows, Os::Mac, Os::Other] {
+            assert!(!keep_marker_after_error(&plan(Auto, None, None, true, os), os));
+            assert!(!keep_marker_after_error(&plan(Cpu, None, None, false, os), os));
+            assert!(!keep_marker_after_error(&plan(Auto, None, Some("vulkan"), false, os), os));
+            assert!(keep_marker_after_error(&plan(Auto, None, None, false, os), os));
+        }
+    }
+
+    #[test]
+    fn failed_cpu_start_clears_the_marker_and_windowing_errors_restore_prior_evidence() {
+        for backend in [Auto, Cpu] {
+            for graphics in [false, true] {
+                for prior in [Previous::Clean, Previous::Crashed(crashed("vulkan", "vulkan"))] {
+                    let dir = temp_dir("failed-start");
+                    let (_, sentinel) = Sentinel::begin(&dir);
+                    let mut sentinel = sentinel.unwrap();
+                    sentinel.write(crashed(backend.name(), "")).unwrap();
+                    let result = if graphics {
+                        Err(eframe::Error::Wgpu(egui_wgpu::WgpuError::CustomNativeAdapterSelectionError("no adapter".into())))
+                    } else {
+                        Err(eframe::Error::AppCreation(Box::new(std::io::Error::other("window setup failed"))))
+                    };
+                    let launch = plan(backend, None, None, false, Os::Other);
+                    finish_attempt(sentinel, &prior, keep_marker_after_error(&launch, Os::Other), &result);
+                    let (actual, sentinel) = begin_after_exit(&dir);
+                    let expected = if !graphics {
+                        prior
+                    } else if backend == Cpu {
+                        Previous::Clean
+                    } else {
+                        Previous::Crashed(crashed("auto", ""))
+                    };
+                    assert_eq!(actual, expected);
+                    sentinel.unwrap().finish();
+                    let _ = std::fs::remove_dir_all(dir);
+                }
+            }
+        }
     }
 
     #[test]
@@ -872,7 +960,7 @@ mod tests {
         assert_eq!(Recovery::parse("{oops"), None);
         assert_eq!(Recovery::parse(r#"{"reason": "x", "avoidAdapter": ""}"#), Some(Recovery { reason: "x".into(), avoid: None }));
 
-        assert!(Recovery::applies(Auto, RenderingMode::Cpu, Os::Windows));
+        assert!(!Recovery::applies(Auto, RenderingMode::Cpu, Os::Windows));
         assert!(Recovery::applies(Gl, RenderingMode::Gpu, Os::Other));
         assert!(!Recovery::applies(Auto, RenderingMode::Gpu, Os::Other), "Retry GPU makes it stale");
         assert!(!Recovery::applies(Gl, RenderingMode::Auto, Os::Windows));
@@ -883,6 +971,19 @@ mod tests {
         assert_eq!(with_recovery(plan(Auto, None, None, false, Os::Other), Some(&r), Os::Other).avoid, None);
         assert_eq!(with_recovery(plan(Gl, None, None, false, Os::Windows), Some(&r), Os::Windows).avoid, None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn begin_after_exit(dir: &Path) -> (Previous, Option<Sentinel>) {
+        // A concurrent child can inherit the file lock until exec closes the descriptor.
+        let (mut previous, mut sentinel) = Sentinel::begin(dir);
+        for _ in 0..50 {
+            if previous != Previous::Busy {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            (previous, sentinel) = Sentinel::begin(dir);
+        }
+        (previous, sentinel)
     }
 
     fn temp_dir(name: &str) -> PathBuf {
@@ -906,16 +1007,7 @@ mod tests {
         assert!(none.is_none());
         // The process dies in the driver: the lock goes, the marker stays.
         drop(s);
-        // Another test in this binary spawns a process: between its fork and exec the child briefly
-        // shares this file's flock, so `begin` can see the lock as busy. Retry for a moment.
-        let (mut prev, mut s) = Sentinel::begin(&dir);
-        for _ in 0..50 {
-            if prev != Previous::Busy {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            (prev, s) = Sentinel::begin(&dir);
-        }
+        let (prev, s) = begin_after_exit(&dir);
         let m = prev.crashed().cloned().expect("crash detected");
         assert_eq!((m.adapter.as_str(), m.tried()), ("GPU", Some(Vulkan)));
         // This start succeeds: the next one finds nothing.

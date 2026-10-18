@@ -854,6 +854,49 @@ pub fn mask_from_item(item: &FilterEffectsItem, sample: SampleType, stack: &Filt
     Ok(Some(LayerMask { surface, enabled: stack.mask_enabled, linked: stack.mask_linked, density: 1.0, feather: 0.0 }))
 }
 
+/// Unfiltered FEid pixels in document coordinates; missing colour planes are unusable.
+pub(crate) fn unfiltered_from_item(item: &FilterEffectsItem, fmt: PixelFormat) -> Option<Surface> {
+    let depth = u16::try_from(item.depth).ok()?;
+    if depth != crate::pixels::psd_depth(fmt.sample) || !fmt.alpha {
+        return None;
+    }
+    let (w, h) = item.rect.size().ok()?;
+    let n = w.checked_mul(h)?;
+    let cc = fmt.mode.color_channels();
+    let bytes = n.checked_mul(cc.checked_add(1)?)?.checked_mul(fmt.sample.bytes())?.checked_mul(3)?;
+    if bytes as u64 > photocraft_psd::compression::MAX_IMPORT_DECODED_BYTES {
+        return None;
+    }
+    if item.slots.len() < cc + 1 {
+        return None;
+    }
+    let mut planes = Vec::with_capacity(cc + 1);
+    for slot in (0..cc).chain(std::iter::once(item.slots.len() - 1)) {
+        planes.push(match item.slots.get(slot).and_then(Option::as_ref) {
+            Some(p) => Some(p.decode(w, h, depth).ok()?),
+            None if slot < cc => return None,
+            None => None,
+        });
+    }
+    let refs: Vec<_> = planes.iter().map(|p| p.as_deref()).collect();
+    let mut fill = vec![crate::pixels::zero_sample(fmt.sample); cc];
+    fill.push(match fmt.sample {
+        SampleType::U8 => vec![255],
+        SampleType::U16 => u16::MAX.to_ne_bytes().to_vec(),
+        SampleType::F32 => 1.0f32.to_ne_bytes().to_vec(),
+    });
+    let mut invert = vec![fmt.mode == ColorMode::Cmyk; cc];
+    invert.push(false);
+    let mut bytes = crate::pixels::interleave(&refs, &fill, n, fmt.sample, &invert);
+    if fmt.mode == ColorMode::Lab && fmt.sample == SampleType::U16 {
+        crate::pixels::lab16_chroma(&mut bytes, cc + 1, true);
+    }
+    let mut surface = Surface::new(fmt);
+    surface.write_interleaved(GeomRect::new(item.rect.left, item.rect.top, item.rect.right, item.rect.bottom), &bytes);
+    surface.prune();
+    Some(surface)
+}
+
 /// An `FEid` item for a smart object with filters: the unfiltered placed pixels Photoshop
 /// filters from (colour channels from slot 0, transparency in the last slot; in the document's
 /// pixel format, CMYK inverted as in layer channels) and the filter mask over `bounds` (white
@@ -1231,5 +1274,27 @@ mod tests {
         assert_eq!(u.len(), 36);
         assert_eq!(u, uuid_from(b"x"));
         assert_ne!(u, uuid_from(b"y"));
+    }
+
+    #[test]
+    fn unfiltered_cache_recovers_native_colours_alpha_and_opaque_fallback() {
+        for mode in [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Cmyk, ColorMode::Lab] {
+            for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+                let fmt = PixelFormat::new(mode, sample, true);
+                let mut source = Surface::new(fmt);
+                let mut pixel = vec![0.4; fmt.channels()];
+                *pixel.last_mut().unwrap() = 0.5;
+                source.write_pixel(0, 0, &pixel);
+                let mut item = feid_item("placed", &source, None, GeomRect::new(0, 0, 1, 1), fmt).unwrap();
+                let decoded = unfiltered_from_item(&item, fmt).unwrap();
+                for (a, b) in decoded.pixel(0, 0).iter().zip(source.pixel(0, 0)) {
+                    assert!((a - b).abs() <= 1. / 32768.);
+                }
+                *item.slots.last_mut().unwrap() = None;
+                assert_eq!(*unfiltered_from_item(&item, fmt).unwrap().pixel(0, 0).last().unwrap(), 1.);
+                item.slots[0] = None;
+                assert!(unfiltered_from_item(&item, fmt).is_none());
+            }
+        }
     }
 }
