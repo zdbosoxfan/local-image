@@ -54,7 +54,7 @@ fn active_id(s: &Session) -> Result<LayerId> {
 }
 
 /// The pixels of `src` inside the selection (or all of them), as a straight-alpha surface.
-fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Clip {
+fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Result<Clip> {
     let fmt = src.format();
     let with_alpha = PixelFormat::new(fmt.mode, fmt.sample, true);
     let area = match sel {
@@ -63,17 +63,18 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Clip {
     };
     let mut out = Surface::new(with_alpha);
     if area.is_empty() {
-        return Clip::new(out, Rect::EMPTY);
+        return Ok(Clip::new(out, Rect::EMPTY));
     }
     // Only the selected area is read: converting the whole layer (a 24 MP Background gaining
     // alpha) cost about a second per Layer via Copy (#668).
     let n = with_alpha.channels();
     let mut px = if fmt.alpha {
-        src.read_region(area)
+        crate::allocation::read_region(src, area, "copying pixels")?
     } else {
-        let opaque = src.read_region(area);
+        let opaque = crate::allocation::read_region(src, area, "copying pixels")?;
         let k = fmt.channels();
-        let mut v = Vec::with_capacity(opaque.len() / k.max(1) * n);
+        let len = (opaque.len() / k.max(1)).checked_mul(n).ok_or_else(|| crate::allocation::error("copying pixels", "requested size overflowed"))?;
+        let mut v = crate::allocation::capacity(len, "copying pixels")?;
         for p in opaque.chunks_exact(k.max(1)) {
             v.extend_from_slice(p);
             v.push(1.0);
@@ -81,27 +82,27 @@ fn lift(src: &Surface, sel: Option<&Surface>, canvas: Rect) -> Clip {
         v
     };
     if let Some(m) = sel {
-        let mask = m.read_region(area);
+        let mask = crate::allocation::read_region(m, area, "copying selection")?;
         let mk = m.format().channels().max(1);
         for (p, a) in px.chunks_exact_mut(n).zip(mask.chunks_exact(mk)) {
             p[n - 1] *= a[0];
         }
     }
-    out.write_region(area, &px);
+    out.try_write_region(area, &px).map_err(|e| crate::allocation::error("copying pixels", &e.to_string()))?;
     out.prune();
     let bounds = out.content_bounds();
-    Clip::new(out, bounds)
+    Ok(Clip::new(out, bounds))
 }
 
 fn copy(s: &mut Session, merged: bool) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let canvas = d.doc.bounds();
     let mut clip = if merged {
-        lift(&Clip::from_document(&d.doc)?.surface, d.doc.selection.as_ref(), canvas)
+        lift(&Clip::from_document(&d.doc)?.surface, d.doc.selection.as_ref(), canvas)?
     } else {
         let id = d.active_layer.ok_or(EngineError::Other("no active layer".into()))?;
         let surf = d.doc.layer(id).and_then(Layer::surface).ok_or(EngineError::Other("the active layer has no pixels".into()))?;
-        lift(surf, d.doc.selection.as_ref(), canvas)
+        lift(surf, d.doc.selection.as_ref(), canvas)?
     };
     if clip.surface.format().mode == d.doc.mode {
         clip.profile = crate::color_cmds::document_profile(&d.doc);
@@ -137,9 +138,9 @@ pub(crate) fn clear_area(doc: &mut Document, id: LayerId, area: Rect, sel: Optio
     let bg = crate::extra_cmds::is_background(l);
     let surf = l.surface_mut().ok_or(EngineError::Other("the active layer has no pixels".into()))?;
     if bg {
-        crate::pixels::fill_surface(surf, area, background, sel, true);
+        crate::pixels::fill_surface(surf, area, background, sel, true)?;
     } else {
-        crate::pixels::clear_surface(surf, area, sel);
+        crate::pixels::clear_surface(surf, area, sel)?;
     }
     surf.prune();
     Ok(())
@@ -228,7 +229,7 @@ fn layer_via(s: &mut Session, cut: bool) -> Result<Value> {
         return Ok(json!({"layer": nid.0}));
     }
     let surf = d.doc.layer(id).and_then(Layer::surface).ok_or(EngineError::Other("the active layer has no pixels".into()))?;
-    let clip = lift(surf, d.doc.selection.as_ref(), d.doc.bounds());
+    let clip = lift(surf, d.doc.selection.as_ref(), d.doc.bounds())?;
     if clip.bounds.is_empty() {
         return Err(EngineError::Other("Could not complete the command: the selected area is empty".into()));
     }

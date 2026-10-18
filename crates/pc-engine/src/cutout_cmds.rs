@@ -110,7 +110,7 @@ pub fn apply_output(doc: &mut Document, id: LayerId, mask: Surface, output: &Bac
         doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.visible = false;
         new_id
     } else {
-        crate::extra_cmds::background_to_layer_for_mask(doc, id);
+        crate::extra_cmds::background_to_layer(doc, id);
         let layer = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         if *output == BackgroundOutput::Transparent {
             let src = layer.surface().ok_or_else(|| EngineError::Other("Remove Background needs a pixel layer".into()))?;

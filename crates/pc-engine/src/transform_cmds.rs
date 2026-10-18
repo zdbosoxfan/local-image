@@ -175,8 +175,56 @@ pub(crate) fn group_locks(doc: &Document, id: LayerId) -> Locks {
     doc.path_of(id).and_then(|p| Some(doc.locks_at(p.split_last()?.1))).unwrap_or_default()
 }
 
+pub(crate) fn check_budget(src: Rect, h: &Homography, what: &str) -> Result<()> {
+    let Some(bounds) = photocraft_algo::transform::warp_output_bounds(src, h) else { return Ok(()) };
+    let (w, height) = (u64::from(bounds.width()), u64::from(bounds.height()));
+    let budget = 1u64 << 30;
+    if w.saturating_mul(height) > budget {
+        return Err(crate::allocation::error(
+            "transforming pixels",
+            &format!("the transformed {what} would be {w} x {height} px, more than the {budget} px limit"),
+        ));
+    }
+    Ok(())
+}
+
+fn check_layer_budget(selection: Option<&Surface>, layer: &Layer, h: &Homography) -> Result<()> {
+    let mut stack = vec![(layer, selection)];
+    while let Some((layer, selection)) = stack.pop() {
+        match &layer.content {
+            LayerContent::Group(group) => stack.extend(group.children.iter().map(|child| (child, None))),
+            LayerContent::Text(_) | LayerContent::Shape(_) => {}
+            LayerContent::Smart(sm) => {
+                if let Some(cache) = &sm.cache {
+                    check_budget(cache.content_bounds(), h, "smart object")?;
+                }
+                if let Some(mask) = &sm.filter_mask {
+                    check_budget(mask.surface.content_bounds(), h, "smart filter mask")?;
+                }
+            }
+            _ => {
+                if let Some(surface) = layer.surface() {
+                    check_budget(surface.content_bounds(), h, "layer")?;
+                }
+            }
+        }
+        if let Some(mask) = &layer.mask
+            && mask.linked
+        {
+            let selected_pixels = !matches!(
+                layer.content,
+                LayerContent::Group(_) | LayerContent::Text(_) | LayerContent::Shape(_) | LayerContent::Smart(_) | LayerContent::Symbol(_)
+            );
+            let bounds = selection.filter(|_| selected_pixels).map_or_else(|| mask.surface.content_bounds(), Surface::content_bounds);
+            check_budget(bounds, h, "layer mask")?;
+        }
+    }
+    Ok(())
+}
+
 /// `group` holds the locks `l` inherits from the groups around it ([`group_locks`]).
 pub(crate) fn transform_layer(doc_sel: Option<&Surface>, group: Locks, l: &mut Layer, h: &Homography, affine: Option<Affine>, interp: Interp) -> Result<()> {
+    check_layer_budget(doc_sel, l, h)?;
     transform_layer_map(doc_sel, group, l, &QuadMap::Projective(*h), affine, interp)
 }
 
@@ -442,9 +490,13 @@ fn transform(s: &mut Session, p: &Value) -> Result<Value> {
     let lone = lone.is_some();
     s.edit("Free Transform", |doc, _| {
         let sel = doc.selection.clone();
+        if let Some(sel) = &sel {
+            check_budget(sel.content_bounds(), &h, "selection")?;
+        }
         if lone {
             // A targeted unlinked mask, alpha channel or Quick Mask transforms by itself.
             let (surf, _) = crate::channel_cmds::target_surface(doc, id, p)?;
+            check_budget(sel.as_ref().map_or_else(|| surf.content_bounds(), Surface::content_bounds), &h, "mask or channel")?;
             *surf = match &sel {
                 Some(sel) => warp_gray_selected(surf, sel, &h, interp),
                 None => warp_gray(surf, &h, interp),

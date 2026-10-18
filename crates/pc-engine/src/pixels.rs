@@ -70,10 +70,10 @@ fn adjusted(s: &Surface, r: Rect, adj: &Adjustment, selection: Option<&Surface>,
     })
 }
 /// Fill (respecting selection coverage) with a straight RGBA colour.
-pub fn fill_surface(s: &mut Surface, area: Rect, color: [f32; 4], selection: Option<&Surface>, lock_transparency: bool) {
+pub fn fill_surface(s: &mut Surface, area: Rect, color: [f32; 4], selection: Option<&Surface>, lock_transparency: bool) -> crate::Result<()> {
     let fmt = s.format();
     let n = fmt.channels();
-    let mut region = s.read_region(area);
+    let mut region = crate::allocation::read_region(s, area, "editing pixels")?;
     let w = area.width() as usize;
     for (i, px) in region.chunks_exact_mut(n).enumerate() {
         let x = area.x0 + (i % w) as i32;
@@ -96,17 +96,18 @@ pub fn fill_surface(s: &mut Surface, area: Rect, color: [f32; 4], selection: Opt
         photocraft_raster::from_rgba_into(&fmt, o, &mut enc);
         px.copy_from_slice(&enc[..n]);
     }
-    s.write_region(area, &region);
+    s.try_write_region(area, &region).map_err(|e| crate::allocation::error("editing pixels", &e.to_string()))?;
+    Ok(())
 }
 
 /// Clear pixels (make transparent) within the selection.
-pub fn clear_surface(s: &mut Surface, area: Rect, selection: Option<&Surface>) {
+pub fn clear_surface(s: &mut Surface, area: Rect, selection: Option<&Surface>) -> crate::Result<()> {
     let fmt = s.format();
     let n = fmt.channels();
     if !fmt.alpha {
-        return;
+        return Ok(());
     }
-    let mut region = s.read_region(area);
+    let mut region = crate::allocation::read_region(s, area, "editing pixels")?;
     let w = area.width() as usize;
     for (i, px) in region.chunks_exact_mut(n).enumerate() {
         let k = selection.map_or(1.0, |sel| sel.sample_channel(area.x0 + (i % w) as i32, area.y0 + (i / w) as i32, 0));
@@ -116,8 +117,9 @@ pub fn clear_surface(s: &mut Surface, area: Rect, selection: Option<&Surface>) {
             px.fill(0.0);
         }
     }
-    s.write_region(area, &region);
+    s.try_write_region(area, &region).map_err(|e| crate::allocation::error("editing pixels", &e.to_string()))?;
     s.prune();
+    Ok(())
 }
 
 /// Remap a surface through a pixel-coordinate mapping (used for flips/rotations).

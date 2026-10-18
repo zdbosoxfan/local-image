@@ -297,3 +297,22 @@ fn commands_fail_gracefully() {
     let g = s.execute(SET, json!({"scale": 1})).unwrap();
     assert!((g["scale"].as_f64().unwrap() - 10.0).abs() < 1e-3, "{g}");
 }
+
+#[test]
+fn locked_gradient_rejects_edits_without_history() {
+    let mut s = session(8, "white");
+    s.execute(CREATE, json!({"from": [0, 0], "to": [16, 0], "stops": [[0, "#000000"], [1, "#ffffff"]]})).unwrap();
+    s.execute("layer.lockLayers", json!({"all": true})).unwrap();
+    let before = active_fill(&s);
+    let history = s.active().unwrap().history.past_len();
+    for (cmd, params) in [(SET, json!({"reverse": true})), (STOP, json!({"action": "color", "index": 0, "color": "#ff0000"}))] {
+        assert!(s.execute(cmd, params).unwrap_err().to_string().contains("locked"));
+        assert_eq!(active_fill(&s), before);
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+    }
+    s.execute("layer.lockLayers", json!({"all": false})).unwrap();
+    s.execute(SET, json!({"reverse": true})).unwrap();
+    assert_ne!(active_fill(&s), before);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(active_fill(&s), before);
+}

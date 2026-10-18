@@ -325,6 +325,7 @@ fn set(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn replace_fill(s: &mut Session, id: LayerId, label: &str, new: Fill) -> Result<()> {
+    crate::commands::check_layer_unlocked(&s.active().ok_or(EngineError::NoDocument)?.doc, id, true)?;
     s.edit(label, |doc, _| {
         let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
         l.content = LayerContent::Fill(new);

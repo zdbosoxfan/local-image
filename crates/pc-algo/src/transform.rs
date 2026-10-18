@@ -342,6 +342,24 @@ pub(crate) fn bicubic(t: f64) -> [f64; 4] {
     [far(1.0 + t), near(t), near(1.0 - t), far(2.0 - t)]
 }
 
+/// Destination bounds of a projective warp, including filter support.
+pub fn warp_output_bounds(src_rect: Rect, h: &Homography) -> Option<Rect> {
+    if src_rect.is_empty() || h.inverse().is_none() {
+        return None;
+    }
+    let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
+        .map(|(x, y)| h.apply(f64::from(x), f64::from(y)));
+    if corners.iter().any(|c| !c.0.is_finite() || !c.1.is_finite()) {
+        return None;
+    }
+    let lim = f64::from(1 << 20);
+    let x0 = (corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-lim) as i32).saturating_sub(1);
+    let y0 = (corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-lim) as i32).saturating_sub(1);
+    let x1 = (corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim) as i32).saturating_add(1);
+    let y1 = (corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil().min(lim) as i32).saturating_add(1);
+    Some(Rect::new(x0, y0, x1, y1))
+}
+
 /// Warp `src` (its content inside `src_rect`) by `h` (source → destination document space).
 /// The result has the same format as `src`, with alpha added if `src` had none; pixels outside
 /// the warped quad are transparent.
@@ -376,18 +394,7 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
     }
     let Some(inv) = h.inverse() else { return out };
     let front = h.front_side([src_rect.x0 as f64, src_rect.y0 as f64, src_rect.x1 as f64, src_rect.y1 as f64]);
-    // Destination bounds: the warped corners (plus a pixel for filter support).
-    let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
-        .map(|(x, y)| h.apply(x as f64, y as f64));
-    if corners.iter().any(|c| !c.0.is_finite() || !c.1.is_finite()) {
-        return out;
-    }
-    let lim = 1 << 20;
-    let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-(lim as f64)) as i32 - 1;
-    let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-(lim as f64)) as i32 - 1;
-    let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim as f64) as i32 + 1;
-    let by1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil().min(lim as f64) as i32 + 1;
-    let dst = Rect::new(bx0, by0, bx1, by1);
+    let Some(dst) = warp_output_bounds(src_rect, &h) else { return out };
     let n = fmt.channels();
     let a = n - 1;
     let tiles: Vec<Rect> = dst.tiles().map(|tc| tc.rect().intersect(&dst)).filter(|r| !r.is_empty()).collect();

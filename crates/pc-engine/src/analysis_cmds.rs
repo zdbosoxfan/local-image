@@ -174,8 +174,16 @@ fn set_quiet(s: &mut Session, f: impl FnOnce(&mut Document)) -> Result<()> {
 /// Run several commands as one history step labelled `label`.
 fn compound<R>(s: &mut Session, label: &str, f: impl FnOnce(&mut Session) -> Result<R>) -> Result<R> {
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    let (before, history) = (st.doc.clone(), st.history.clone());
+    let (before, history, prior) = (st.doc.clone(), st.history.clone(), st.layer_target());
+    let anchor = st.layer_anchor;
+    let view = st.channel_view.clone();
+    let coalesce = st.coalesce.clone();
+    let was_clean = !st.is_dirty();
+    let journal = s.journal.len();
     let r = f(s);
+    if r.is_err() {
+        s.journal.truncate(journal);
+    }
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     st.history = history;
     match r {
@@ -187,7 +195,15 @@ fn compound<R>(s: &mut Session, label: &str, f: impl FnOnce(&mut Session) -> Res
         }
         Err(e) => {
             st.doc = before;
+            st.active_layer = prior.active;
+            st.selected_layers = prior.selected;
+            st.layer_anchor = anchor;
+            st.channel_view = view;
+            st.coalesce = coalesce;
             st.revision += 1;
+            if was_clean {
+                st.saved_revision = st.revision;
+            }
             st.last_damage = None;
             Err(e)
         }

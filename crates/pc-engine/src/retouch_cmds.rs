@@ -392,9 +392,8 @@ fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
         None => st.history.state(0).unwrap_or_else(|| st.doc.clone()),
     };
     // The same target (pixels, mask, channel) as it was in that state.
-    let mut source_doc = (*source_doc).clone();
-    let src_surface = crate::channel_cmds::target_surface(&mut source_doc, id, p)
-        .map(|(surf, _)| surf.clone())
+    let src_surface = crate::channel_cmds::read_target_surface(&source_doc, id, p)
+        .cloned()
         .map_err(|_| EngineError::Other("the target did not exist (as pixels, a mask or a channel) in that history state".into()))?;
     let dmg = run_stroke(s, "History Brush", id, p, |_, surf, sel, lock| {
         let fmt = surf.format();

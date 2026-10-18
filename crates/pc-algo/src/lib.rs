@@ -861,6 +861,7 @@ pub const TILE: i32 = 256;
 pub fn output_area(params: &FilterParams, content: Rect, bounds: Rect, selection_bounds: Option<Rect>) -> Rect {
     let mut area = match params.halo() {
         Halo::Bounds => bounds,
+        Halo::Radius(_) if matches!(params, FilterParams::Fibers { .. }) => bounds,
         Halo::Radius(r) => {
             if content.is_empty() {
                 Rect::EMPTY
