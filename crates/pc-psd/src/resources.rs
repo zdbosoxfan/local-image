@@ -45,20 +45,23 @@ pub struct ImageResource {
 }
 
 /// Fixed-point resolution info (resource 1005).
+///
+/// `h_res_fixed` and `v_res_fixed` are always pixels per inch (16.16 fixed). `h_res_unit` and
+/// `v_res_unit` only say how to display that number (1 = pixels/inch, 2 = pixels/cm).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ResolutionInfo {
-    /// Horizontal resolution, 16.16 fixed point (pixels per inch/cm).
+    /// Horizontal resolution, 16.16 fixed point, always pixels per inch.
     pub h_res_fixed: u32,
-    /// 1 = pixels per inch, 2 = pixels per cm.
+    /// Display unit for the horizontal resolution (1 = px/in, 2 = px/cm).
     pub h_res_unit: u16,
-    /// Display unit for width (1 in, 2 cm, 3 pt, 4 pica, 5 column).
+    /// Ruler unit for width (1 in, 2 cm, 3 pt, 4 pica, 5 column).
     pub width_unit: u16,
-    /// Vertical resolution, 16.16 fixed.
+    /// Vertical resolution, 16.16 fixed point, always pixels per inch.
     pub v_res_fixed: u32,
-    /// Vertical resolution unit.
+    /// Display unit for the vertical resolution (1 = px/in, 2 = px/cm).
     pub v_res_unit: u16,
-    /// Display unit for height.
+    /// Ruler unit for height (1 in, 2 cm, 3 pt, 4 pica, 5 column).
     pub height_unit: u16,
 }
 
