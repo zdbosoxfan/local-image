@@ -5888,6 +5888,7 @@ dependencies = [
  "photocraft-raster",
  "proptest",
  "rayon",
+ "rustix 1.1.5",
  "ruzstd",
  "serde",
  "serde_json",
