@@ -355,6 +355,21 @@ fn opacity_and_fill_reject_out_of_range_values_without_mutation() {
 }
 
 #[test]
+fn undo_restores_an_explicitly_empty_layer_target() {
+    let mut s = session();
+    s.execute("select.deselectLayers", json!({})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let created = s.active().unwrap().active_layer;
+    s.undo();
+    let st = s.active().unwrap();
+    assert!(st.active_layer.is_none());
+    assert!(st.selected_layers.is_empty());
+    assert!(st.layer_anchor.is_none());
+    s.redo();
+    assert_eq!(s.active().unwrap().active_layer, created);
+}
+
+#[test]
 fn fibers_fills_an_empty_layer_within_the_selection() {
     let mut s = session();
     s.execute("layer.new.layer", json!({})).unwrap();
