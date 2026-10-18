@@ -161,19 +161,23 @@ pub(crate) fn polar(src: &Image, out: Rect, ctx: &Ctx, mode: PolarMode) -> Vec<f
     let (w, h) = (b.width().max(1) as f32, b.height().max(1) as f32);
     let (cx, cy) = (b.x0 as f32 + w / 2.0, b.y0 as f32 + h / 2.0);
     let rmax = w.min(h) / 2.0;
-    remap(src, out, ctx, Edge::Transparent, |x, y| match mode {
-        PolarMode::RectangularToPolar => {
-            // Output is polar: angle from 12 o'clock clockwise → source x,
-            // radius → source y.
-            let (dx, dy) = (x - cx, y - cy);
-            let theta = dx.atan2(-dy).rem_euclid(std::f32::consts::TAU);
-            let r = (dx * dx + dy * dy).sqrt();
-            (b.x0 as f32 + theta / std::f32::consts::TAU * w, b.y0 as f32 + r / rmax * h)
-        }
-        PolarMode::PolarToRectangular => {
-            let theta = (x - b.x0 as f32) / w * std::f32::consts::TAU;
-            let r = (y - b.y0 as f32) / h * rmax;
-            (cx + r * theta.sin(), cy - r * theta.cos())
-        }
+    // The angular seam reads the right edge; coordinates are measured at pixel corners.
+    remap(src, out, ctx, Edge::Repeat, |x, y| {
+        let (x, y) = (x - 0.5, y - 0.5);
+        let (sx, sy) = match mode {
+            PolarMode::RectangularToPolar => {
+                let (dx, dy) = (x - cx, y - cy);
+                let theta = (-dx).atan2(-dy);
+                let theta = if theta <= 0.0 { theta + std::f32::consts::TAU } else { theta };
+                let r = (dx * dx + dy * dy).sqrt();
+                (b.x0 as f32 + theta / std::f32::consts::TAU * w, b.y0 as f32 + r / rmax * h)
+            }
+            PolarMode::PolarToRectangular => {
+                let theta = (x + 1.0 - b.x0 as f32) / w * std::f32::consts::TAU;
+                let r = (y - b.y0 as f32) / h * rmax;
+                (cx - r * theta.sin(), cy - r * theta.cos())
+            }
+        };
+        (sx + 0.5, sy + 0.5)
     })
 }
