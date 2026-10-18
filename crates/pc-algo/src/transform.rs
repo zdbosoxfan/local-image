@@ -394,6 +394,15 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                 px[((y - foot.y0) as usize * fw + (x - foot.x0) as usize) * n + c] as f64
             }
         };
+        // Samples past the source rect repeat its edge, so a stretched edge row or column keeps its
+        // colour and opacity; the outline is antialiased by coverage instead. `foot_u`/`foot_v` are
+        // a destination pixel's extent in source pixels.
+        let clamped = |x: i32, y: i32, c: usize| at(x.clamp(src_rect.x0, src_rect.x1 - 1), y.clamp(src_rect.y0, src_rect.y1 - 1), c);
+        let (mx, my) = ((f64::from(t.x0) + f64::from(t.x1)) / 2.0, (f64::from(t.y0) + f64::from(t.y1)) / 2.0);
+        let (o, dx, dy) = (inv.apply(mx, my), inv.apply(mx + 1.0, my), inv.apply(mx, my + 1.0));
+        let extent = |e: f64| if e.is_finite() && e > 1e-12 { e } else { 1.0 };
+        let foot_u = extent((dx.0 - o.0).abs() + (dy.0 - o.0).abs());
+        let foot_v = extent((dx.1 - o.1).abs() + (dy.1 - o.1).abs());
         let w = t.width() as usize;
         let mut outp = vec![0.0f32; w * t.height() as usize * n];
         let mut any = false;
@@ -419,7 +428,7 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                         for (dy, wy) in [(0, 1.0 - fy), (1, fy)] {
                             for (dx, wx) in [(0, 1.0 - fx), (1, fx)] {
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix + dx, iy + dy, c) * wx * wy;
+                                    *s += clamped(ix + dx, iy + dy, c) * wx * wy;
                                 }
                             }
                         }
@@ -431,10 +440,19 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                             for (i, wxi) in wx.iter().enumerate() {
                                 let k = wxi * wyj;
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
+                                    *s += clamped(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
                                 }
                             }
                         }
+                    }
+                }
+                if interp != Interp::Nearest {
+                    // How much of this pixel the warped source rect covers, per axis.
+                    let (uc, vc) = (u + 0.5, v + 0.5);
+                    let cu = ((uc - src_rect.x0 as f64).min(src_rect.x1 as f64 - uc) / foot_u + 0.5).clamp(0.0, 1.0);
+                    let cv = ((vc - src_rect.y0 as f64).min(src_rect.y1 as f64 - vc) / foot_v + 0.5).clamp(0.0, 1.0);
+                    for s in acc.iter_mut().take(n) {
+                        *s *= cu * cv;
                     }
                 }
                 let al = acc[a].clamp(0.0, 1.0);
@@ -490,6 +508,22 @@ mod tests {
         let h = Homography([1.0, 0.0, -f64::from(origin), 0.0, 1.0, -f64::from(origin), 0.0, 0.0, 1.0]);
         let output = warp_surface(&source, bounds, &h, Interp::Bilinear);
         assert_eq!(output.pixel(2, 2), source.pixel(origin + 2, origin + 2));
+    }
+
+    #[test]
+    fn stretched_single_column_stays_opaque() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 1, 4), &[0.0, 1.0, 0.0, 1.0]);
+        for interp in [Interp::Bicubic, Interp::Bilinear] {
+            let h = Homography::rect_to_quad([0.0, 0.0, 1.0, 4.0], [[0.0, 0.0], [100.0, 0.0], [100.0, 4.0], [0.0, 4.0]]).unwrap();
+            let out = warp_surface(&s, Rect::new(0, 0, 1, 4), &h, interp);
+            assert_eq!(out.content_bounds(), Rect::new(0, 0, 100, 4));
+            for x in [0, 1, 25, 50, 75, 99] {
+                for y in 0..4 {
+                    assert!((out.sample_channel(x, y, 3) - 1.0).abs() < 1e-6, "{interp:?}: ({x}, {y})");
+                }
+            }
+        }
     }
 
     fn rgba() -> Surface {
