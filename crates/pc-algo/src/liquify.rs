@@ -533,7 +533,7 @@ pub fn apply_liquify(src: &Surface, field: &LiquifyField) -> Surface {
     if field.is_identity() || b.is_empty() {
         return out;
     }
-    let maxd = f64::from(field.max_displacement()).ceil() as i32 + 3;
+    let maxd = (f64::from(field.max_displacement()).ceil() as i32).saturating_add(3);
     let tiles: Vec<Rect> = b.tiles().map(|t| t.rect().intersect(&b)).filter(|r| !r.is_empty() && field.touches(*r)).collect();
     let work = |t: &Rect| -> Option<(Rect, Vec<f32>)> {
         let w = t.width() as usize;
@@ -565,8 +565,14 @@ pub fn apply_liquify(src: &Surface, field: &LiquifyField) -> Surface {
         if !moved {
             return None;
         }
-        let foot =
-            Rect::new(fx0.floor() as i32 - 3, fy0.floor() as i32 - 3, fx1.ceil() as i32 + 3, fy1.ceil() as i32 + 3).intersect(&t.inflate(maxd)).intersect(&b);
+        let foot = Rect::new(
+            (fx0.floor() as i32).saturating_sub(3),
+            (fy0.floor() as i32).saturating_sub(3),
+            (fx1.ceil() as i32).saturating_add(3),
+            (fy1.ceil() as i32).saturating_add(3),
+        )
+        .intersect(&t.inflate(maxd))
+        .intersect(&b);
         if foot.is_empty() {
             return None;
         }
@@ -602,7 +608,8 @@ pub fn apply_liquify(src: &Surface, field: &LiquifyField) -> Surface {
                         if k == 0.0 {
                             continue;
                         }
-                        let o = at(ix - 1 + i as i32, iy - 1 + j as i32);
+                        // A displacement past the i32 range saturates `ix`/`iy`; `at` clamps the tap.
+                        let o = at(ix.saturating_add(i as i32 - 1), iy.saturating_add(j as i32 - 1));
                         for (c, s) in acc.iter_mut().enumerate().take(n) {
                             *s += f64::from(px[o + c]) * k;
                         }
@@ -750,6 +757,26 @@ impl ProxyImage {
 mod tests {
     use super::*;
     use photocraft_color::{ColorMode, PixelFormat, SampleType};
+
+    #[test]
+    fn extreme_displacements_do_not_overflow_source_padding() {
+        let bounds = Rect::new(0, 0, 8, 8);
+        let mut src = Surface::new(PixelFormat::RGBA8);
+        src.fill_rect(bounds, &[0.2, 0.4, 0.6, 1.0]);
+        for d in [i32::MIN as f32, i32::MAX as f32] {
+            let mut field = LiquifyField::new(bounds, 2.0);
+            field.d.fill([d, d]);
+            assert_eq!(apply_liquify(&src, &field), src);
+        }
+        // One extreme cell among still ones: the footprint stays non-empty and the sample's tap
+        // indices sit at the i32 limits.
+        for d in [i32::MIN as f32, i32::MAX as f32] {
+            let mut field = LiquifyField::new(bounds, 2.0);
+            field.d[0] = [d, d];
+            let out = apply_liquify(&src, &field);
+            assert_eq!(out.pixel(7, 7), src.pixel(7, 7), "far from the extreme cell nothing moves");
+        }
+    }
 
     fn sample(st: SampleType) -> Surface {
         let mut s = Surface::new(PixelFormat::new(ColorMode::Rgb, st, true));

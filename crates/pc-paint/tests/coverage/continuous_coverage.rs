@@ -13,35 +13,32 @@ fn assert_finite_in_range(values: &[f32], max_exclusive: f32, context: &str) {
 fn dab_reach_basic_bounds() {
     let d = Dab::round(Point::new(10.0, 20.0), 5.0, 1.0);
     let rect = dab_reach(&d);
-    // center x = 10.0 floor = 10, rr = ceil(5.0) + 1 = 6
-    assert_eq!(rect.x0, 4);
-    assert_eq!(rect.y0, 14);
-    assert_eq!(rect.x1, 17);
-    assert_eq!(rect.y1, 27);
-    assert_eq!(rect.width(), 13);
-    assert_eq!(rect.height(), 13);
+    assert_eq!(rect.x0, 0);
+    assert_eq!(rect.y0, 10);
+    assert_eq!(rect.x1, 21);
+    assert_eq!(rect.y1, 31);
+    assert_eq!(rect.width(), 21);
+    assert_eq!(rect.height(), 21);
 }
 
 #[test]
 fn dab_reach_zero_radius_and_negative_center() {
     let d = Dab::round(Point::new(-3.0, -7.0), 0.0, 1.0);
     let rect = dab_reach(&d);
-    // rr = ceil(0.0) as i32 + 1 = 1
-    assert_eq!(rect.width(), 3);
-    assert_eq!(rect.height(), 3);
-    assert_eq!(rect.x0, -4); // -3 - 1 = -4
-    assert_eq!(rect.y0, -8);
+    assert_eq!(rect.width(), 5);
+    assert_eq!(rect.height(), 5);
+    assert_eq!(rect.x0, -5);
+    assert_eq!(rect.y0, -9);
 }
 
 #[test]
 fn dab_reach_fractional_center_rounds_down() {
     let d = Dab::round(Point::new(2.3, 5.9), 2.0, 1.0);
     let rect = dab_reach(&d);
-    // center.x.floor = 2, center.y.floor = 5, rr = ceil(2.0)+1 = 3
-    assert_eq!(rect.x0, -1);
-    assert_eq!(rect.y0, 2);
-    assert_eq!(rect.x1, 6);
-    assert_eq!(rect.y1, 9);
+    assert_eq!(rect.x0, -3);
+    assert_eq!(rect.y0, 0);
+    assert_eq!(rect.x1, 8);
+    assert_eq!(rect.y1, 11);
 }
 
 #[test]

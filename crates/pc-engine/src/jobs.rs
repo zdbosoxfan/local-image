@@ -782,6 +782,7 @@ impl Session {
             gate(id, &params)?;
         }
         let _authorization = AuthorizationScope::enter(self.authorize);
+        crate::filters::validate_params(id, &params)?;
         // A floating selection drops before any other command (Undo puts it back instead).
         if let Some(v) = crate::float_cmds::before_command(self, id)? {
             return Ok(Started::Done(v));

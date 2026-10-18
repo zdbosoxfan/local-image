@@ -141,6 +141,11 @@ pub fn merge_brush(base: &BrushSettings, patch: &Value, cmd: &str) -> Result<Bru
     if let Some(p) = pattern {
         out.texture.pattern = p;
     }
+    if patch.get("size").is_some() && !touches(&["dualBrush", "size"]) {
+        let new_size = out.size;
+        out.size = base.size;
+        out.resize_with_dual_brush(new_size);
+    }
     Ok(out)
 }
 
@@ -184,7 +189,7 @@ pub fn resolve_brush(s: &Session, p: &Value, cmd: &str) -> Result<BrushSettings>
         b = merge_brush(&b, patch, cmd)?;
     }
     if let Some(v) = num(p, "size") {
-        b.size = v.max(0.5);
+        b.resize_with_dual_brush(v.max(0.5));
     }
     // local-image: strokes drawn by hand on the canvas are joined with a spline (see
     // `BrushSettings::freehand`).

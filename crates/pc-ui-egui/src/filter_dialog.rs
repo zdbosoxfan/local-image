@@ -572,11 +572,19 @@ pub fn preview_document(doc: &Document, active: Option<photocraft_doc::LayerId>,
     if k > 1
         && let Some(o) = p.as_object_mut()
     {
+        // A scaled length stays at or above the command's documented minimum (Shape Blur's 5 px
+        // radius), which validated filters refuse instead of clamping.
+        let spec = photocraft_engine::commands::find(command).map(|c| parse_spec(c.params)).unwrap_or_default();
         for (key, v) in o.iter_mut() {
             if is_pixel_param(key)
                 && let Some(x) = v.as_f64()
             {
-                *v = json!((x / k as f64).max(if key == "cellSize" { 1.0 } else { 0.1 }));
+                let floor = if key == "cellSize" { 1.0 } else { 0.1 };
+                let minimum = spec.iter().find(|p| p.key == *key).and_then(|p| match p.kind {
+                    Kind::Range { min, .. } => Some(f64::from(min)),
+                    _ => None,
+                });
+                *v = json!((x / k as f64).max(minimum.map_or(floor, |m| m.max(floor))));
             }
         }
     }
@@ -748,6 +756,23 @@ mod tests {
         let p = out.layers[0].surface().unwrap().pixel(32, 32);
         assert!(p[0] > 0.2 && p[0] < 0.8, "edge blurred: {p:?}");
         assert_eq!(label("wavelengthMin"), "Wavelength Min");
+    }
+
+    #[test]
+    fn a_reduced_preview_keeps_lengths_at_the_filters_minimum() {
+        let doc = Document::with_background(
+            "p",
+            photocraft_doc::Size::new(64, 64),
+            photocraft_doc::ColorMode::Rgb,
+            photocraft_doc::SampleType::U8,
+            photocraft_doc::Color::gray(0.5),
+        );
+        let bg = doc.layers[0].id;
+        // Shape Blur's radius is 5..1000: a 10 px radius at a quarter-size proxy is 2.5, which the
+        // filter refuses, so the preview runs it at 5.
+        for k in [1, 2, 4] {
+            assert!(preview_document(&doc, Some(bg), "filter.blur.shapeBlur", &json!({"radius": 10.0}), k).is_some(), "k={k}");
+        }
     }
 
     #[test]

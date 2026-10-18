@@ -494,6 +494,14 @@ impl Default for BrushSettings {
 }
 
 impl BrushSettings {
+    /// Resize the primary tip, keeping an enabled secondary tip proportional.
+    pub fn resize_with_dual_brush(&mut self, new_size: f32) {
+        if self.dual_brush.enabled && self.size.is_finite() && self.size > 0.0 && new_size.is_finite() && new_size > 0.0 {
+            self.dual_brush.size = (self.dual_brush.size * (new_size / self.size)).clamp(0.5, MAX_BRUSH_SIZE);
+        }
+        self.size = new_size;
+    }
+
     /// local-image: does this brush paint with continuous coverage ([`crate::continuous`])
     /// instead of stamping? Soft round tips without per-dab variation, at spacings of at most
     /// [`crate::continuous::SEGMENT_SPACING`]: no sampled tip, aliasing, wet edges, noise, dual

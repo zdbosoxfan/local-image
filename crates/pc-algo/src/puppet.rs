@@ -775,11 +775,16 @@ pub const MAX_WARP_PIXELS: f64 = (1u64 << 30) as f64;
 /// Applies a puppet warp to `src` (content inside `bounds`). `None` when the deformed mesh would
 /// span more than [`MAX_WARP_PIXELS`].
 pub fn puppet_warp(src: &Surface, bounds: Rect, w: &PuppetWarp, interp: Interp) -> Option<Surface> {
+    puppet_warp_with_mask(src, bounds, w, interp, None).map(|(out, _)| out)
+}
+
+/// Deform the pixels and an optional linked mask on the same solved mesh.
+pub fn puppet_warp_with_mask(src: &Surface, bounds: Rect, w: &PuppetWarp, interp: Interp, mask: Option<&Surface>) -> Option<(Surface, Option<Surface>)> {
     let (solver, v, order) = deform(src, bounds, w, ITERATIONS);
     // No triangles (an expansion that shrinks every pixel away): nothing to warp. Rendering the
     // empty mesh would drop every pixel of the layer (upstream 64db46f5).
     if solver.mesh.tris.is_empty() {
-        return Some(src.clone());
+        return Some((src.clone(), mask.cloned()));
     }
     let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     for p in &v {
@@ -789,13 +794,103 @@ pub fn puppet_warp(src: &Surface, bounds: Rect, w: &PuppetWarp, interp: Interp) 
     if area.is_nan() || area > MAX_WARP_PIXELS {
         return None;
     }
-    Some(render(src, bounds, &solver.mesh, &v, &order, interp))
+    let out = render(src, bounds, &solver.mesh, &v, &order, interp);
+    let mask = match mask {
+        Some(mask) => Some(render_mask(mask, &solver.mesh, &v, &order, interp)?),
+        None => None,
+    };
+    Some((out, mask))
+}
+
+/// Moves a one-channel layer mask with a deformed mesh: the mask under the mesh is lifted,
+/// deformed like the layer's pixels and laid over the rest. The area the mesh leaves takes the
+/// mask's default value (as [`crate::warp::warp_mesh_gray`] leaves it); outside the mesh the
+/// mask keeps its values.
+fn render_mask(mask: &Surface, mesh: &PuppetMesh, deformed: &[[f64; 2]], order: &[usize], interp: Interp) -> Option<Surface> {
+    let mut out = mask.clone();
+    if mesh.tris.is_empty() || deformed.len() != mesh.verts.len() || mask.format().channels() != 1 {
+        return Some(out);
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for p in &mesh.verts {
+        (x0, y0, x1, y1) = (x0.min(p[0]), y0.min(p[1]), x1.max(p[0]), y1.max(p[1]));
+    }
+    if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
+        return Some(out);
+    }
+    // The mesh's source area, a pixel wider so its edge samples stay inside.
+    let lim = f64::from(1 << 20);
+    let src = Rect::new(
+        (x0.clamp(-lim, lim).floor() as i32).saturating_sub(1),
+        (y0.clamp(-lim, lim).floor() as i32).saturating_sub(1),
+        (x1.clamp(-lim, lim).ceil() as i32).saturating_add(1),
+        (y1.clamp(-lim, lim).ceil() as i32).saturating_add(1),
+    );
+    if src.is_empty() {
+        return Some(out);
+    }
+    let bytes = (src.width() as usize).checked_mul(src.height() as usize)?.checked_mul(2)?.checked_mul(std::mem::size_of::<f32>())?;
+    if bytes > isize::MAX as usize || src.size().area() as f64 > MAX_WARP_PIXELS {
+        return None;
+    }
+    let default = mask.default_pixel().first().copied().unwrap_or(0.0);
+    let fmt = mask.format();
+    let mut tmp = Surface::new(photocraft_color::PixelFormat::new(fmt.mode, fmt.sample, true));
+    tmp.write_region(src, &mask.read_region(src).iter().flat_map(|g| [*g, 1.0]).collect::<Vec<f32>>());
+    let tris: Vec<[usize; 3]> = order.iter().filter_map(|&t| mesh.tris.get(t).copied()).collect();
+    // Lift: where the undeformed mesh covers the mask, the mask takes its default value.
+    let still: Vec<([f64; 2], [f64; 2])> = mesh.verts.iter().map(|s| (*s, *s)).collect();
+    let lifted = crate::warp::warp_triangles(&tmp, src, &still, &tris, Interp::Nearest);
+    let b = lifted.content_bounds();
+    if !b.is_empty() {
+        let under = out.read_region(b);
+        let flat: Vec<f32> = lifted.read_region(b).as_chunks::<2>().0.iter().zip(&under).map(|(p, u)| default * p[1] + u * (1.0 - p[1])).collect();
+        out.write_region(b, &flat);
+    }
+    // Lay the deformed mask over what is left.
+    let moved: Vec<([f64; 2], [f64; 2])> = deformed.iter().zip(&mesh.verts).map(|(d, s)| (*d, *s)).collect();
+    let warped = crate::warp::warp_triangles(&tmp, src, &moved, &tris, interp);
+    let b = warped.content_bounds();
+    if !b.is_empty() {
+        let under = out.read_region(b);
+        let flat: Vec<f32> = warped.read_region(b).as_chunks::<2>().0.iter().zip(&under).map(|(p, u)| p[0] * p[1] + u * (1.0 - p[1])).collect();
+        out.write_region(b, &flat);
+    }
+    out.prune();
+    Some(out)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use photocraft_color::{ColorMode, PixelFormat, SampleType};
+
+    #[test]
+    fn a_linked_mask_moves_with_the_mesh_and_leaves_its_default_behind() {
+        // A hide-all mask (default 0) that reveals the bar's top (y 10..30): moved down by
+        // 8, the revealed patch moves along, what it left is hidden again, and the mask away
+        // from the puppet keeps its values.
+        let s = blob(SampleType::U8);
+        let b = s.content_bounds();
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let mut mask = Surface::with_default(PixelFormat::new(ColorMode::Grayscale, sample, false), &[0.0]);
+            mask.fill_rect(Rect::new(20, 10, 36, 30), &[1.0]);
+            mask.fill_rect(Rect::new(90, 90, 94, 94), &[0.5]);
+            let w = PuppetWarp {
+                pins: vec![PuppetPin { src: [28.0, 30.0], dst: [28.0, 38.0], rotate: None, depth: 0 }],
+                mode: PuppetMode::Rigid,
+                density: PuppetDensity::Normal,
+                expansion: 2.0,
+            };
+            let (_, moved) = puppet_warp_with_mask(&s, b, &w, Interp::Bilinear, Some(&mask)).expect("warps");
+            let m = moved.expect("a mask in, a mask out");
+            let at = |x, y| m.sample_channel(x, y, 0);
+            assert!(at(28, 20) > 0.99 && at(28, 36) > 0.99, "{sample:?}: the revealed patch moved down");
+            assert!(at(28, 15) < 0.01, "{sample:?}: its old top is hidden again");
+            assert!((at(91, 91) - 0.5).abs() <= 1.0 / 255.0, "{sample:?}: away from the mesh nothing changes");
+            assert!(puppet_warp_with_mask(&s, b, &w, Interp::Bilinear, None).expect("warps").1.is_none());
+        }
+    }
 
     fn blob(st: SampleType) -> Surface {
         let mut s = Surface::new(PixelFormat::new(ColorMode::Rgb, st, true));

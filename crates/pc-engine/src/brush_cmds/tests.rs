@@ -827,10 +827,10 @@ fn out_of_range_scatter_is_rejected_and_the_maximum_still_paints() {
         let d: Vec<i64> = r["damage"].as_array().unwrap().iter().map(|v| v.as_i64().unwrap()).collect();
         assert!(d[0].abs() < 1000 && d[1].abs() < 1000 && d[2] > 0 && d[3] > 0, "{r}");
     }
-    // Control: 200 % scatter paints where it did before the cap.
+    // A scattered soft tip damages its full shoulder, beyond the nominal radius.
     let mut s = new();
     s.execute("tools.setBrush", json!({ "brush": scatter(2.0) })).unwrap();
-    assert_eq!(s.execute("paint.stroke", stroke).unwrap(), json!({"damage": [17, 14, 23, 23]}));
+    assert_eq!(s.execute("paint.stroke", stroke).unwrap(), json!({"damage": [15, 12, 27, 27]}));
 }
 
 #[test]
@@ -917,4 +917,26 @@ fn define_brush_from_selection_survives_allocation_failure() {
     assert_eq!(s.tools.presets, presets_before, "the preset list is unchanged");
     assert_eq!(s.active().unwrap().history.past_len(), history_before, "no history step was recorded");
     assert_eq!(*s.active().unwrap().doc, *doc_before);
+}
+
+#[test]
+fn resizing_a_brush_resizes_its_enabled_secondary_tip() {
+    let mut s = session(64, 64);
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"enabled": true, "size": 12}})).unwrap();
+    s.execute("tools.setBrush", json!({"size": 80})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (80.0, 24.0));
+
+    s.execute("tools.setBrush", json!({"brush": {"size": 20}})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (20.0, 6.0));
+
+    // Editing both diameters in the same patch is an explicit secondary-tip size.
+    s.execute("tools.setBrush", json!({"size": 40, "dualBrush": {"size": 18}})).unwrap();
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 18.0));
+    s.execute("tools.setBrush", json!({"dualBrush": {"size": 9}})).unwrap();
+    assert_eq!(s.tools.brush.dual_brush.size, 9.0);
+
+    // The stroke-level size override must use the same proportional dimensions.
+    let for_stroke = resolve_brush(&s, &json!({"size": 80, "points": [[10, 10]]}), "paint.stroke").unwrap();
+    assert_eq!((for_stroke.size, for_stroke.dual_brush.size), (80.0, 18.0));
+    assert_eq!((s.tools.brush.size, s.tools.brush.dual_brush.size), (40.0, 9.0));
 }

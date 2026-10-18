@@ -450,3 +450,28 @@ fn layer_filters_repeat_the_canvas_edge() {
         assert!(faded.pixel(0, 0)[3] < 0.9, "{depth:?}: unclamped path should read transparency");
     }
 }
+
+/// Photoshop 27.11's Polar Coordinates turn counter-clockwise from 12 o'clock: just left of the
+/// top centre, Rectangular to Polar samples the source's left edge (clockwise would take its right).
+#[test]
+fn polar_coordinates_turn_counter_clockwise() {
+    let r = Rect::new(0, 0, 64, 64);
+    let mut s = flat(SampleType::U8, r, [0.0, 0.0, 1.0, 1.0]);
+    s.fill_rect(Rect::new(0, 0, 32, 64), &[1.0, 0.0, 0.0, 1.0]);
+    let p = FilterParams::PolarCoordinates { mode: PolarMode::RectangularToPolar };
+    let out = apply(&s, &p, r, r, None);
+    let left_of_top = out.rgba(28, 12);
+    assert!(left_of_top[0] > 0.9 && left_of_top[2] < 0.1, "{left_of_top:?}");
+    // The corners outside the circle repeat the source's edge instead of going transparent.
+    assert!(out.rgba(0, 0)[3] > 0.99, "{:?}", out.rgba(0, 0));
+}
+
+#[test]
+fn find_edges_uses_full_sobel_strength() {
+    let r = Rect::new(0, 0, 16, 16);
+    let mut s = flat(SampleType::F32, r, [0.0, 0.0, 0.0, 1.0]);
+    s.fill_rect(Rect::new(8, 0, 16, 16), &[60.0 / 255.0, 60.0 / 255.0, 60.0 / 255.0, 1.0]);
+    let out = apply(&s, &FilterParams::FindEdges, r, r, None);
+    assert!((out.rgba(7, 8)[0] - 15.0 / 255.0).abs() < 1e-5);
+    assert_eq!(out.rgba(2, 8), [1.0; 4]);
+}

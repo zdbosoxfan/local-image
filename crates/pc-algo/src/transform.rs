@@ -3,7 +3,7 @@
 //! A transform is described by where the four corners of a source rectangle land (a quad). Scale,
 //! rotate, skew and flips are affine special cases; Distort and Perspective use the full
 //! homography. Warping is an inverse mapping with premultiplied-alpha sampling (nearest, bilinear
-//! or Catmull-Rom bicubic), processed per destination tile (in parallel on native) so memory stays
+//! or Photoshop’s Keys bicubic), processed per destination tile (in parallel on native) so memory stays
 //! bounded by the tile working set. Large reductions are pre-filtered with a proper resize first,
 //! so shrinking a layer doesn't alias.
 
@@ -26,6 +26,27 @@ impl Homography {
         let m = &self.0;
         let w = m[6] * x + m[7] * y + m[8];
         ((m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w)
+    }
+
+    /// The homogeneous `w` of `(x, y)`: its sign is the side of the horizon the point maps to
+    /// (0 on the horizon itself).
+    pub fn w(&self, x: f64, y: f64) -> f64 {
+        let m = &self.0;
+        m[6] * x + m[7] * y + m[8]
+    }
+
+    /// The side of the horizon (+1 or −1) that most corners of `r` (`[x0, y0, x1, y1]`) map to,
+    /// the centre's on a tie. A Distort dragged past the horizon maps the rest of the source to the
+    /// far side, where it would show as a mirrored copy wrapped round infinity; drawing keeps to
+    /// this side, as Photoshop's does.
+    pub fn front_side(&self, r: [f64; 4]) -> f64 {
+        let ahead = [(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])].iter().filter(|(x, y)| self.w(*x, *y) > 0.0).count();
+        match ahead {
+            3 | 4 => 1.0,
+            0 | 1 => -1.0,
+            _ if self.w((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0) >= 0.0 => 1.0,
+            _ => -1.0,
+        }
     }
 
     pub fn mul(&self, o: &Homography) -> Homography {
@@ -312,10 +333,13 @@ impl Interp {
     }
 }
 
-fn catmull_rom(t: f64) -> [f64; 4] {
-    let t2 = t * t;
-    let t3 = t2 * t;
-    [-0.5 * t3 + t2 - 0.5 * t, 1.5 * t3 - 2.5 * t2 + 1.0, -1.5 * t3 + 2.0 * t2 + 0.5 * t, 0.5 * t3 - 0.5 * t2]
+/// Photoshop's Bicubic: the Keys cubic at a = −0.75 (Catmull-Rom is −0.5), the weights of the
+/// four source pixels around a sample `t` (0..1) past the second.
+pub(crate) fn bicubic(t: f64) -> [f64; 4] {
+    const A: f64 = -0.75;
+    let near = |x: f64| (A + 2.0) * x * x * x - (A + 3.0) * x * x + 1.0;
+    let far = |x: f64| A * (x * x * x - 5.0 * x * x + 8.0 * x - 4.0);
+    [far(1.0 + t), near(t), near(1.0 - t), far(2.0 - t)]
 }
 
 /// Warp `src` (its content inside `src_rect`) by `h` (source → destination document space).
@@ -337,18 +361,21 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
     }
     let mut h = *h;
     let mut src_rect = src_rect;
-    // Pre-reduce for large downscales (bicubic alone aliases below ~50%).
+    // A Bicubic reduction first resizes the source by the whole local scale with the same Keys
+    // cubic widened by 1 / scale (`BicubicSharper` is a = −0.75), so the warp samples it at about
+    // 1:1; a plain 4×4 kernel aliases at 50 %. Bilinear samples the source directly.
     let (cx, cy) = ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0);
     let scale = h.local_scale(cx, cy);
     let reduced;
-    if interp != Interp::Nearest && scale < 0.5 && scale > 0.0 {
-        let f = 2f64.powf(scale.log2().ceil()).min(1.0); // remaining scale lands in [0.5, 1)
-        reduced = resize_surface(src, f, f, Resample::Bicubic);
+    if interp == Interp::Bicubic && scale < 0.999 && scale > 0.0 {
+        let f = scale.max(1.0 / 64.0);
+        reduced = resize_surface(src, f, f, Resample::BicubicSharper);
         src = &reduced;
         h = h.mul(&Homography([1.0 / f, 0.0, 0.0, 0.0, 1.0 / f, 0.0, 0.0, 0.0, 1.0]));
         src_rect = crate::resample::scaled_rect(src_rect, f, f);
     }
     let Some(inv) = h.inverse() else { return out };
+    let front = h.front_side([src_rect.x0 as f64, src_rect.y0 as f64, src_rect.x1 as f64, src_rect.y1 as f64]);
     // Destination bounds: the warped corners (plus a pixel for filter support).
     let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
         .map(|(x, y)| h.apply(x as f64, y as f64));
@@ -394,12 +421,24 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                 px[((y - foot.y0) as usize * fw + (x - foot.x0) as usize) * n + c] as f64
             }
         };
+        // Samples past the source rect repeat its edge, so a stretched edge row or column keeps its
+        // colour and opacity; the outline is antialiased by coverage instead. `foot_u`/`foot_v` are
+        // a destination pixel's extent in source pixels.
+        let clamped = |x: i32, y: i32, c: usize| at(x.clamp(src_rect.x0, src_rect.x1 - 1), y.clamp(src_rect.y0, src_rect.y1 - 1), c);
+        let (mx, my) = ((f64::from(t.x0) + f64::from(t.x1)) / 2.0, (f64::from(t.y0) + f64::from(t.y1)) / 2.0);
+        let (o, dx, dy) = (inv.apply(mx, my), inv.apply(mx + 1.0, my), inv.apply(mx, my + 1.0));
+        let extent = |e: f64| if e.is_finite() && e > 1e-12 { e } else { 1.0 };
+        let foot_u = extent((dx.0 - o.0).abs() + (dy.0 - o.0).abs());
+        let foot_v = extent((dx.1 - o.1).abs() + (dy.1 - o.1).abs());
         let w = t.width() as usize;
         let mut outp = vec![0.0f32; w * t.height() as usize * n];
         let mut any = false;
         let mut acc = [0.0f64; 8];
         for y in t.y0..t.y1 {
             for x in t.x0..t.x1 {
+                if front * inv.w(x as f64 + 0.5, y as f64 + 0.5) <= 0.0 {
+                    continue;
+                }
                 let (u, v) = inv.apply(x as f64 + 0.5, y as f64 + 0.5);
                 let (u, v) = (u - 0.5, v - 0.5);
                 if u < src_rect.x0 as f64 - 1.0 || v < src_rect.y0 as f64 - 1.0 || u > src_rect.x1 as f64 || v > src_rect.y1 as f64 {
@@ -419,22 +458,31 @@ pub fn warp_surface(src: &Surface, src_rect: Rect, h: &Homography, interp: Inter
                         for (dy, wy) in [(0, 1.0 - fy), (1, fy)] {
                             for (dx, wx) in [(0, 1.0 - fx), (1, fx)] {
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix + dx, iy + dy, c) * wx * wy;
+                                    *s += clamped(ix + dx, iy + dy, c) * wx * wy;
                                 }
                             }
                         }
                     }
                     Interp::Bicubic => {
                         let (ix, iy) = (u.floor() as i32, v.floor() as i32);
-                        let (wx, wy) = (catmull_rom(u - ix as f64), catmull_rom(v - iy as f64));
+                        let (wx, wy) = (bicubic(u - ix as f64), bicubic(v - iy as f64));
                         for (j, wyj) in wy.iter().enumerate() {
                             for (i, wxi) in wx.iter().enumerate() {
                                 let k = wxi * wyj;
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
+                                    *s += clamped(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
                                 }
                             }
                         }
+                    }
+                }
+                if interp != Interp::Nearest {
+                    // How much of this pixel the warped source rect covers, per axis.
+                    let (uc, vc) = (u + 0.5, v + 0.5);
+                    let cu = ((uc - src_rect.x0 as f64).min(src_rect.x1 as f64 - uc) / foot_u + 0.5).clamp(0.0, 1.0);
+                    let cv = ((vc - src_rect.y0 as f64).min(src_rect.y1 as f64 - vc) / foot_v + 0.5).clamp(0.0, 1.0);
+                    for s in acc.iter_mut().take(n) {
+                        *s *= cu * cv;
                     }
                 }
                 let al = acc[a].clamp(0.0, 1.0);
@@ -471,6 +519,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn projective_distort_draws_only_the_front_of_the_horizon() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 100, 100), &[0.0, 0.5, 1.0, 1.0]);
+        let h = Homography::rect_to_quad([0.0, 0.0, 100.0, 100.0], [[0.0, 0.0], [300.0, 0.0], [60.0, 60.0], [0.0, 300.0]]).unwrap();
+        let side = h.front_side([0.0, 0.0, 100.0, 100.0]);
+        let inv = h.inverse().unwrap();
+        for interp in [Interp::Nearest, Interp::Bilinear] {
+            let out = warp_surface(&s, s.content_bounds(), &h, interp);
+            let bounds = out.content_bounds();
+            let mut drawn = 0;
+            for y in bounds.y0..bounds.y1 {
+                for x in bounds.x0..bounds.x1 {
+                    if out.sample_channel(x, y, 3) > 0.0 {
+                        drawn += 1;
+                        assert!(side * inv.w(x as f64 + 0.5, y as f64 + 0.5) > 0.0);
+                    }
+                }
+            }
+            assert!(drawn > 1000);
+        }
+    }
+
+    #[test]
     fn inverse_footprint_handles_extreme_finite_affines() {
         let mut source = Surface::new(PixelFormat::RGBA8);
         source.fill_rect(Rect::new(0, 0, 8, 8), &[1.0, 0.0, 0.0, 1.0]);
@@ -491,6 +562,38 @@ mod tests {
         let h = Homography([1.0, 0.0, -f64::from(origin), 0.0, 1.0, -f64::from(origin), 0.0, 0.0, 1.0]);
         let output = warp_surface(&source, bounds, &h, Interp::Bilinear);
         assert_eq!(output.pixel(2, 2), source.pixel(origin + 2, origin + 2));
+    }
+
+    #[test]
+    fn bicubic_upscale_matches_photoshop() {
+        let mut src = rgba();
+        let g = |v: f32| v / 255.0;
+        src.fill_rect(Rect::new(0, 0, 32, 64), &[g(64.0), g(64.0), g(64.0), 1.0]);
+        src.fill_rect(Rect::new(32, 0, 64, 64), &[g(192.0), g(192.0), g(192.0), 1.0]);
+        let q = [[-32.0, -32.0], [96.0, -32.0], [96.0, 96.0], [-32.0, 96.0]];
+        let h = Homography::rect_to_quad([0.0, 0.0, 64.0, 64.0], q).unwrap();
+        let out = warp_surface(&src, Rect::new(0, 0, 64, 64), &h, Interp::Bicubic);
+        let photoshop = [64.0, 64.0, 64.0, 60.0, 51.0, 93.0, 163.0, 206.0, 197.0, 192.0];
+        for (i, want) in photoshop.iter().enumerate() {
+            let got = out.pixel(26 + i as i32, 50)[0] * 255.0;
+            assert!((got - want).abs() <= 1.5, "column {}: {got} vs {want}", 26 + i);
+        }
+    }
+
+    #[test]
+    fn stretched_single_column_stays_opaque() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 1, 4), &[0.0, 1.0, 0.0, 1.0]);
+        for interp in [Interp::Bicubic, Interp::Bilinear] {
+            let h = Homography::rect_to_quad([0.0, 0.0, 1.0, 4.0], [[0.0, 0.0], [100.0, 0.0], [100.0, 4.0], [0.0, 4.0]]).unwrap();
+            let out = warp_surface(&s, Rect::new(0, 0, 1, 4), &h, interp);
+            assert_eq!(out.content_bounds(), Rect::new(0, 0, 100, 4));
+            for x in [0, 1, 25, 50, 75, 99] {
+                for y in 0..4 {
+                    assert!((out.sample_channel(x, y, 3) - 1.0).abs() < 1e-6, "{interp:?}: ({x}, {y})");
+                }
+            }
+        }
     }
 
     fn rgba() -> Surface {
