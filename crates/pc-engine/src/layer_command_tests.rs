@@ -333,6 +333,30 @@ fn multiple_layers_align_to_active_selection() {
 }
 
 #[test]
+fn smart_filter_masks_follow_canvas_geometry() {
+    for (command, params, x, y) in [
+        ("image.imageSize", json!({"width": 40, "height": 40, "resample": "nearest"}), 12, 10),
+        ("image.canvasSize", json!({"width": 40, "height": 20, "anchor": "right", "extensionColor": "transparent"}), 25, 5),
+        ("image.crop", json!({"x": 4, "y": 0, "width": 16, "height": 20}), 1, 5),
+    ] {
+        let mut s = session();
+        s.execute("filter.convertForSmartFilters", json!({})).unwrap();
+        s.edit("Filter mask", |doc, active| {
+            let photocraft_doc::LayerContent::Smart(sm) = &mut doc.layer_mut(active.unwrap()).unwrap().content else { panic!("expected smart object") };
+            let mut mask = photocraft_doc::LayerMask::hide_all();
+            mask.surface.fill_rect(photocraft_geom::Rect::new(0, 0, 10, 20), &[1.0]);
+            sm.filter_mask = Some(mask);
+            Ok(())
+        })
+        .unwrap();
+        s.execute(command, params).unwrap();
+        let st = s.active().unwrap();
+        let photocraft_doc::LayerContent::Smart(sm) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("expected smart object") };
+        assert!(sm.filter_mask.as_ref().unwrap().surface.sample_channel(x, y, 0) > 0.9, "{command}");
+    }
+}
+
+#[test]
 fn curves_on_masks_use_gray_levels_in_lab_and_cmyk_documents() {
     for mode in ["lab", "cmyk"] {
         let mut s = Session::new();

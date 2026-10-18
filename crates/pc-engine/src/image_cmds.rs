@@ -42,6 +42,9 @@ pub(crate) fn for_each_surface(layers: &mut [Layer], masks: bool, f: &mut dyn Fn
                 if let Some(c) = &mut sm.cache {
                     f(c, false)
                 }
+                if masks && let Some(mask) = &mut sm.filter_mask {
+                    f(&mut mask.surface, true);
+                }
             }
             LayerContent::Symbol(s) => {
                 if let Some(cache) = &mut s.cache {
