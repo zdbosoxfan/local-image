@@ -914,6 +914,30 @@ impl Compositor {
         self.patterns.retain(|_, entry| entry.doc != doc);
     }
 
+    /// [`Self::forget_doc`] for every document `keep` rejects: what the compositor holds for
+    /// documents that were closed, however their canvas entry went.
+    pub fn retain_docs(&mut self, keep: impl Fn(DocId) -> bool) {
+        for d in self.held_docs().into_iter().filter(|d| !keep(*d)) {
+            self.forget_doc(d);
+        }
+    }
+
+    /// Documents the compositor holds plans, pages, effect maps, noise or patterns for.
+    pub fn held_docs(&self) -> Vec<DocId> {
+        let plans = self.plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut docs: Vec<DocId> = plans
+            .keys()
+            .copied()
+            .chain(self.residents.values().map(|r| r.doc))
+            .chain(self.fx.values().map(|e| e.doc))
+            .chain(self.noise.values().map(|e| e.doc))
+            .chain(self.patterns.values().map(|e| e.doc))
+            .collect();
+        docs.sort_by_key(|d| d.0);
+        docs.dedup();
+        docs
+    }
+
     /// Memory held by cached effect maps and their CPU shape/noise inputs (bytes).
     pub fn fx_cache_bytes(&self) -> usize {
         self.fx.values().map(FxEntry::bytes).sum::<usize>() + self.noise.values().flat_map(|e| e.gates.iter().flatten()).map(Vec::len).sum::<usize>()
