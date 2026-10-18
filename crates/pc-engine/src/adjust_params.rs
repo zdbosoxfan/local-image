@@ -73,7 +73,7 @@ pub fn default_for(kind: &str, mode: ColorMode) -> Result<Adjustment> {
 /// None or of another kind). `mode` picks the Levels/Curves channel space when neither the params
 /// nor the base name one.
 pub fn from_params(kind: &str, p: &Value, base: Option<&Adjustment>, mode: ColorMode) -> Result<Adjustment> {
-    let cmd = format!("adjustment `{kind}`");
+    let cmd = format!("{kind} adjustment");
     if !p.is_object() && !p.is_null() {
         return Err(bad(&cmd, "params must be an object"));
     }
@@ -480,8 +480,9 @@ pub fn parse_curve(cmd: &str, key: &str, v: &Value) -> Result<Vec<CurvePoint>> {
     let mut pts = Vec::with_capacity(a.len());
     for q in a {
         let q = q.as_array().filter(|q| q.len() == 2).ok_or_else(err)?;
-        let x = q.first().and_then(Value::as_f64).filter(|x| x.is_finite()).ok_or_else(err)?;
-        let y = q.get(1).and_then(Value::as_f64).filter(|y| y.is_finite()).ok_or_else(err)?;
+        let level = |v: Option<&Value>| v.and_then(Value::as_f64).filter(|v| (-1e-6..=255.0 + 1e-6).contains(v));
+        let x = level(q.first()).ok_or_else(err)?;
+        let y = level(q.get(1)).ok_or_else(err)?;
         pts.push(CurvePoint { input: (x as f32).clamp(0.0, 255.0) / 255.0, output: (y as f32).clamp(0.0, 255.0) / 255.0 });
     }
     pts.sort_by(|a, b| a.input.total_cmp(&b.input));
@@ -804,5 +805,14 @@ mod tests {
                 assert!(matches!(r, Err(EngineError::BadParams { .. })), "{prefix}{kind} {p}: {r:?}");
             }
         }
+    }
+    #[test]
+    fn curve_points_outside_the_document_range_are_refused() {
+        for points in [json!([[0, 0], [300, 255]]), json!([[0, -1], [255, 255]]), json!([[0, 0]])] {
+            let error = from_params("curves", &json!({"points": points}), None, ColorMode::Rgb).unwrap_err().to_string();
+            assert!(error.contains("[input, output] pairs in 0..255") && error.contains("`curves adjustment`"), "{error}");
+        }
+        let points = parse_curve("curves", "points", &json!([[0, 0], [128.5, 140], [255, 255]])).unwrap();
+        assert!((points[1].input - 128.5 / 255.0).abs() < 1e-6);
     }
 }
