@@ -2,6 +2,9 @@
 
 #[cfg(target_os = "linux")]
 mod pdf_raster;
+#[cfg(target_os = "linux")]
+mod portal_save;
+mod save_dialog;
 
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Image};
 use photocraft_doc::Document;
@@ -583,19 +586,40 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         })),
         pick_save: Some(Box::new(|suggested: &str| {
             let p = std::path::Path::new(suggested);
+            let folder = p.parent().filter(|d| d.is_absolute() && d.is_dir());
+            // On Linux the portal's own dialog, which reports the file type picked; rfd if the
+            // portal can't show it (see save_dialog).
+            #[cfg(target_os = "linux")]
+            {
+                let req = save_dialog::SaveRequest {
+                    name: save_dialog::dialog_file_name(suggested),
+                    suggested: p.file_name().map(|n| n.to_string_lossy().into_owned()),
+                    folder: folder.map(Path::to_path_buf),
+                    filters: save_filters(suggested),
+                    current: Some(0),
+                };
+                let portal = zbus::blocking::Connection::session()
+                    .map_err(|e| e.to_string())
+                    .and_then(|conn| save_dialog::save_as(|r| portal_save::save_file(&conn, r), req));
+                match portal {
+                    Ok(path) => return path.map(|p| p.to_string_lossy().into_owned()),
+                    Err(e) => log::info!("portal save dialog unavailable ({e}), using rfd"),
+                }
+            }
             let mut d = file_dialog();
             for (name, exts) in save_filters(suggested) {
                 let exts: Vec<&str> = exts.iter().map(String::as_str).collect();
                 d = d.add_filter_nocase(name, &exts);
             }
             // A suggestion with a folder (a photo from the Library: beside its original) opens there.
-            if let Some(dir) = p.parent().filter(|d| d.is_absolute() && d.is_dir()) {
+            if let Some(dir) = folder {
                 d = d.set_directory(dir);
             }
             if let Some(name) = p.file_name() {
                 d = d.set_file_name(name.to_string_lossy());
             }
-            Some(crate::file_dialog_probe::explain_empty(d.save_file())?.to_string_lossy().to_string())
+            let chosen = crate::file_dialog_probe::explain_empty(d.save_file())?.to_string_lossy().into_owned();
+            Some(save_dialog::with_suggested_extension(chosen, suggested))
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
         stage_write: Some(Arc::new(|path, bytes, interrupt| {
