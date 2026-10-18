@@ -17,7 +17,7 @@ fn app() -> (PhotocraftApp, Disk, Written) {
     let app = PhotocraftApp::new(
         photocraft_engine::Session::new(),
         Services {
-            export: Some(Box::new(|doc, path, _| {
+            export: Some(std::sync::Arc::new(|doc, path, _| {
                 let r = photocraft_io::export(doc, path.rsplit('.').next().unwrap(), &Default::default()).map_err(|e| e.to_string())?;
                 Ok((r.bytes, r.warnings))
             })),

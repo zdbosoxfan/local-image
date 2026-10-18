@@ -252,8 +252,8 @@ fn scaled_estimate(bytes: usize, doc: &Document, proxy: &Document, f: &Map<Strin
     (bytes as f64 * full / small) as u64
 }
 
-fn estimate(app: &PhotocraftApp, doc: &Document, proxy: &Document, f: &Map<String, Value>) -> Option<u64> {
-    let export = app.services.export.as_ref()?;
+fn estimate(export: Option<&crate::ExportFn>, doc: &Document, proxy: &Document, f: &Map<String, Value>) -> Option<u64> {
+    let export = export?;
     let (bytes, _) = export(proxy, &format!("estimate.{}", s_fmt(f)), &settings(f)).ok()?;
     Some(scaled_estimate(bytes.len(), doc, proxy, f))
 }
@@ -273,7 +273,7 @@ fn preview_pixels(proxy: &Document, estimate: Option<u64>) -> PreviewPixels {
 
 fn preview_sync(app: &PhotocraftApp, doc: &Document, f: &Map<String, Value>) -> Result<PreviewPixels, String> {
     let proxy = preview_proxy(doc, f)?;
-    Ok(preview_pixels(&proxy, estimate(app, doc, &proxy, f)))
+    Ok(preview_pixels(&proxy, estimate(app.services.export.as_ref(), doc, &proxy, f)))
 }
 
 #[derive(Clone)]
@@ -321,6 +321,7 @@ fn poll_or_start_preview(
     signature: &str,
     doc: Arc<Document>,
     fields: &Map<String, Value>,
+    export: Option<crate::ExportFn>,
 ) -> Option<Result<PreviewPixels, String>> {
     let pending_key = egui::Id::new(("export-preview-pending", doc.id.0));
     let pending: Option<PendingPreview> = ui.data(|d| d.get_temp(pending_key));
@@ -339,7 +340,7 @@ fn poll_or_start_preview(
         let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let source = source_document_from(doc.clone(), &fields).unwrap_or(doc);
             let proxy = preview_proxy(&source, &fields)?;
-            let estimate = estimate_encoded(&source, &proxy, &fields);
+            let estimate = estimate(export.as_ref(), &source, &proxy, &fields);
             Ok::<_, String>(preview_pixels(&proxy, estimate))
         }))
         .unwrap_or_else(|_| Err("preview worker panicked".into()));
@@ -353,24 +354,6 @@ fn poll_or_start_preview(
         }
         Err(error) => Some(Err(format!("could not start preview worker: {error}"))),
     }
-}
-
-/// The size estimate for the worker: the app's exporter (`Services::export`) can't leave the UI
-/// thread, so this encodes with the same engine entry point and options.
-fn estimate_encoded(doc: &Document, proxy: &Document, f: &Map<String, Value>) -> Option<u64> {
-    let settings = settings(f);
-    let mut options = photocraft_io::ExportOptions::default();
-    if let Some(quality) = settings.jpeg_quality {
-        options.encode.jpeg_quality = quality;
-    }
-    options.encode.webp_lossless = settings.webp_lossless;
-    if let Some(quality) = settings.webp_quality {
-        options.encode.webp_quality = quality;
-    }
-    options.tiff_layers = settings.tiff_layers;
-    options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
-    let bytes = photocraft_engine::vector_integration::export_document(proxy, &format!("estimate.{}", s_fmt(f)), &options).ok()?.bytes;
-    Some(scaled_estimate(bytes.len(), doc, proxy, f))
 }
 
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
@@ -470,7 +453,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 Some(cached) => Some(cached),
                 None => {
                     let result = if background_preview_needed(&doc) {
-                        poll_or_start_preview(ui, key, &sig, doc.clone(), f)
+                        poll_or_start_preview(ui, key, &sig, doc.clone(), f, app.services.export.clone())
                     } else {
                         let source = source_document(app, f).unwrap_or_else(|_| doc.clone());
                         Some(preview_sync(app, &source, f))
@@ -593,7 +576,7 @@ mod tests {
         let poll = |result: &mut Option<Result<PreviewPixels, String>>| {
             let mut output = ctx.run_ui(Default::default(), |ui| {
                 egui::CentralPanel::default().show(ui, |ui| {
-                    *result = poll_or_start_preview(ui, key, "png100", doc.clone(), &fields);
+                    *result = poll_or_start_preview(ui, key, "png100", doc.clone(), &fields, Some(Arc::new(|_, _, _| Ok((vec![0; 123], vec![])))));
                 });
             });
             output.textures_delta.clear();
@@ -607,7 +590,7 @@ mod tests {
                 let preview = preview.unwrap();
                 assert_eq!((preview.width, preview.height), (32, 16));
                 assert_eq!(preview.rgba.len(), 32 * 16 * 4);
-                assert!(preview.estimate.is_some_and(|bytes| bytes > 0));
+                assert_eq!(preview.estimate, Some(123), "the worker must use the configured exporter");
                 break;
             }
             assert!(std::time::Instant::now() < deadline, "background preview did not complete");

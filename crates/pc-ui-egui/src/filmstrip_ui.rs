@@ -693,7 +693,7 @@ mod tests {
             let mut app = PhotocraftApp::new(
                 photocraft_engine::Session::new(),
                 crate::Services {
-                    export: Some(Box::new(|_, _, _| Ok((vec![1], vec![])))),
+                    export: Some(std::sync::Arc::new(|_, _, _| Ok((vec![1], vec![])))),
                     write: Some(Box::new(|_, _| Ok(()))),
                     pick_save: Some(Box::new(|_| Some("/fixture/copy.tif".into()))),
                     ..Default::default()
@@ -757,7 +757,7 @@ mod tests {
         }
         let services = crate::Services {
             import: Some(Box::new(|name: &str, _b: &[u8]| Ok((Document::new(name, Size::new(8, 8), ColorMode::Rgb, SampleType::U8), Vec::new())))),
-            export: Some(Box::new(|_d: &Document, _p: &str, _s: &crate::ExportSettings| Ok((b"edited".to_vec(), Vec::new())))),
+            export: Some(std::sync::Arc::new(|_d: &Document, _p: &str, _s: &crate::ExportSettings| Ok((b"edited".to_vec(), Vec::new())))),
             write: Some(Box::new(|p: &str, b: &[u8]| std::fs::write(p, b).map_err(|e| e.to_string()))),
             ..Default::default()
         };
@@ -809,7 +809,7 @@ mod tests {
         let mut app = PhotocraftApp::new(
             photocraft_engine::Session::new(),
             crate::Services {
-                export: Some(Box::new(|_, _, _| Ok((vec![1, 2, 3], vec![])))),
+                export: Some(std::sync::Arc::new(|_, _, _| Ok((vec![1, 2, 3], vec![])))),
                 write: Some(Box::new(move |_, _| {
                     sink.fetch_add(1, Ordering::SeqCst);
                     Ok(())

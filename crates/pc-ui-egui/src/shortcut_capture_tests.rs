@@ -189,3 +189,71 @@ fn shortcut_dialog_preserves_unknown_entries_without_clearing_other_bindings() {
         assert_eq!(h.state().session.prefs().shortcut("layer.new.layerViaCopy", Some("Cmd+J")), Some("Cmd+J"));
     }
 }
+
+fn capture_key(h: &mut Harness<'_, PhotocraftApp>, id: u64, k: Key, modifiers: Modifiers) {
+    h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("capture".into(), json!(true));
+    h.run_steps(2);
+    key(h, k, true, modifiers);
+    h.run_steps(2);
+    key(h, k, false, modifiers);
+    h.run_steps(2);
+}
+
+#[test]
+fn shortcut_conflict_accept_moves_every_holder_and_selects_the_conflict() {
+    let (mut h, id) = dialog(1.0, "edit.paste", "");
+    h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"edit.copy": "Cmd+X"}));
+    h.run_steps(2);
+    capture_key(&mut h, id, Key::X, Modifiers::COMMAND);
+    assert_eq!(field(&h, id, "conflict")["holders"].as_array().unwrap().len(), 2);
+    let target = field(&h, id, "conflict")["with"].clone();
+    h.get_by_label("Accept and Go to Conflict").click();
+    h.run_steps(3);
+    let overrides = field(&h, id, "overrides");
+    assert_eq!(overrides["edit.cut"], "");
+    assert_eq!(overrides["edit.copy"], "");
+    assert_eq!(overrides["edit.paste"], "Cmd+X");
+    assert_eq!(field(&h, id, "selected"), target);
+    assert!(field(&h, id, "conflict").is_null());
+}
+
+#[test]
+fn shortcut_conflict_undo_restores_the_original_binding() {
+    for original in [None, Some("Cmd+Shift+X")] {
+        let (mut h, id) = dialog(1.0, "edit.cut", "");
+        if let Some(original) = original {
+            h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("overrides".into(), json!({"edit.cut": original}));
+        }
+        h.run_steps(2);
+        capture_key(&mut h, id, Key::C, Modifiers::COMMAND);
+        h.get_by_label("Undo Changes").click();
+        h.run_steps(3);
+        assert_eq!(field(&h, id, "overrides").get("edit.cut").and_then(Value::as_str), original);
+        assert!(field(&h, id, "conflict").is_null());
+    }
+}
+
+#[test]
+fn system_shortcut_capture_keeps_the_existing_binding() {
+    let (mut h, id) = dialog(1.0, "edit.cut", "");
+    let (k, modifiers) = if cfg!(target_os = "macos") { (Key::Tab, Modifiers::COMMAND | Modifiers::MAC_CMD) } else { (Key::F4, Modifiers::ALT) };
+    capture_key(&mut h, id, k, modifiers);
+    assert!(field(&h, id, "overrides").get("edit.cut").is_none());
+    assert!(field(&h, id, "message").as_str().unwrap().contains("reserved"));
+}
+
+#[test]
+fn shortcut_conflict_is_discarded_after_reset_or_escape() {
+    for action in ["Reset All to Defaults", "Use Default", "escape"] {
+        let (mut h, id) = dialog(1.0, "edit.cut", "");
+        capture_key(&mut h, id, Key::C, Modifiers::COMMAND);
+        assert!(field(&h, id, "conflict").is_object());
+        if action == "escape" {
+            capture_key(&mut h, id, Key::Escape, Modifiers::NONE);
+        } else {
+            h.get_by_label(action).click();
+            h.run_steps(3);
+        }
+        assert!(field(&h, id, "conflict").is_null(), "{action}");
+    }
+}

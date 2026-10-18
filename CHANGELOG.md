@@ -6,6 +6,12 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+- Clicking a Layers-panel row while editing type commits the edit.
+- Match Color's live preview reads the chosen Source document, so it shows what OK applies.
+- Render Video and Video Frames to Layers ask for a folder instead of failing without one.
+- Wayland paste accepts JPEG, BMP and WebP clipboard images, not only PNG.
+- Keyboard Shortcuts refuses keys the system reserves and offers Accept and Go to Conflict or Undo Changes for a key another command holds.
+- Export As size estimates for large documents use the configured exporter on the preview worker.
 - Security hardening and cleanup — see PR
 
 ## [2.0.0-alpha.1] - TBD

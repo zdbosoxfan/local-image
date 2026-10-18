@@ -3887,3 +3887,10 @@ ai	New	Neu
 	Replace	Ersetzen
 	{name} was changed by another app after it was opened or saved here.	{name} wurde von einer anderen App geändert, nachdem es hier geöffnet oder gespeichert wurde.
 	Replace it with this document, or cancel and use File › Save As to keep both.	Ersetze die Datei durch dieses Dokument oder brich ab und nutze Datei › Speichern unter, um beide zu behalten.
+	Accept and Go to Conflict	Übernehmen und zum Konflikt
+	Changes undone.	Änderungen rückgängig gemacht.
+	Choose a new shortcut for this command, or leave it without one.	Wählen Sie einen neuen Kurzbefehl für diesen Befehl oder lassen Sie ihn ohne.
+	Undo Changes	Änderungen rückgängig machen
+	{shortcut} is reserved by the system and can't be assigned.	{shortcut} ist vom System reserviert und kann nicht zugewiesen werden.
+	Put this command's shortcuts back as they were	Die Kurzbefehle dieses Befehls wiederherstellen
+	Take the shortcut from the other command and select it	Den Kurzbefehl dem anderen Befehl entziehen und diesen auswählen

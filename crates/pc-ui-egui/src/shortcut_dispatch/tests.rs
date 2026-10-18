@@ -31,7 +31,7 @@ fn realistic() -> photocraft_engine::Session {
 
 fn services() -> crate::Services {
     // Saving is available in the app (an exporter is installed); nothing is written here.
-    crate::Services { export: Some(Box::new(|_, _, _| Err("tests don't write files".into()))), ..Default::default() }
+    crate::Services { export: Some(std::sync::Arc::new(|_, _, _| Err("tests don't write files".into()))), ..Default::default() }
 }
 
 fn harness() -> Harness<'static, PhotocraftApp> {
@@ -361,7 +361,7 @@ fn saving_harness() -> (Harness<'static, PhotocraftApp>, Saved) {
     let mut h = Harness::builder().with_size(vec2(1440.0, 900.0)).with_max_steps(64).build_eframe(move |cc| {
         PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
         let services = crate::Services {
-            export: Some(Box::new(|doc, _, _| Ok((doc.layers.len().to_string().into_bytes(), Vec::new())))),
+            export: Some(std::sync::Arc::new(|doc, _, _| Ok((doc.layers.len().to_string().into_bytes(), Vec::new())))),
             write: Some(Box::new(move |_, bytes| {
                 out.borrow_mut().push(bytes.to_vec());
                 Ok(())

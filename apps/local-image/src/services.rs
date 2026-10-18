@@ -1,5 +1,7 @@
 //! Native platform services: file dialogs (rfd), filesystem, codecs.
 
+#[cfg(any(target_os = "linux", test))]
+mod clipboard;
 #[cfg(target_os = "linux")]
 mod pdf_raster;
 #[cfg(target_os = "linux")]
@@ -553,7 +555,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
         })),
         #[cfg(target_os = "linux")]
         pdf_raster: Some(Arc::new(pdf_raster::run)),
-        export: Some(Box::new(|doc: &Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
+        export: Some(std::sync::Arc::new(|doc: &Document, path: &str, settings: &photocraft_ui_egui::ExportSettings| {
             let mut opts = photocraft_io::ExportOptions::default();
             if let Some(q) = settings.jpeg_quality {
                 opts.encode.jpeg_quality = q;
@@ -573,6 +575,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
                 as photocraft_ui_egui::OverwriteFn
         }),
+        pick_folder: Some(Box::new(|| crate::file_dialog_probe::explain_empty(file_dialog().pick_folder()).map(|path| path.to_string_lossy().into_owned()))),
         pick_open: Some(Box::new(|| {
             let path = crate::file_dialog_probe::explain_empty(open_dialog().pick_file())?;
             // A read failure goes back to the app, which reports it like any other open failure.
@@ -676,8 +679,13 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
                         Some(c) => c,
                         None => slot.insert(arboard::Clipboard::new().ok()?),
                     };
-                    let img = cb.get_image().ok()?;
-                    Some((img.width as u32, img.height as u32, img.bytes.into_owned()))
+                    if let Ok(image) = cb.get_image() {
+                        return Some((image.width as u32, image.height as u32, image.bytes.into_owned()));
+                    }
+                    #[cfg(target_os = "linux")]
+                    return clipboard::wayland_clipboard_image();
+                    #[cfg(not(target_os = "linux"))]
+                    None
                 })
             })
         }),
@@ -983,7 +991,7 @@ mod tests {
     }
 
     /// A 1×1 uncompressed 32-bit TGA (TGA has no magic number).
-    fn tga_1x1() -> Vec<u8> {
+    pub(super) fn tga_1x1() -> Vec<u8> {
         let mut b = vec![0u8, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 32, 8];
         b.extend_from_slice(&[0, 0, 255, 255]); // BGRA red
         b

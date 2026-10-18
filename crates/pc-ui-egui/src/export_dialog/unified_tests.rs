@@ -32,7 +32,7 @@ fn fixture(output: &Arc<Output>) -> PhotocraftApp {
             picker.names.lock().unwrap().push(name.into());
             picker.pick.load(Ordering::SeqCst).then(|| format!("/exports/{name}"))
         })),
-        export: Some(Box::new(move |_, _, settings| {
+        export: Some(std::sync::Arc::new(move |_, _, settings| {
             encoder.settings.lock().unwrap().push(settings.clone());
             Ok((b"raster encoded".to_vec(), vec![]))
         })),
