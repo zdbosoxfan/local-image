@@ -430,6 +430,8 @@ pub struct Services {
     pub pick_place_path: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Show a "save file" dialog; returns a path/name to write.
     pub pick_save: Option<PickSaveFn>,
+    /// Select an existing directory for frame import or an output directory for rendering.
+    pub pick_folder: Option<Box<dyn FnMut() -> Option<String>>>,
     /// Write bytes to a path (native) or trigger a download (web).
     pub write: Option<WriteFn>,
     /// Size and modification time of a file (native); `None` on the web, where Save never

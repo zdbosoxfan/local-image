@@ -359,6 +359,10 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             let dialog = app.ui.open_dialog(DialogKind::About, fields);
             Ok(json!({"dialog": dialog, "info": crate::gpu_status::system_info_json(app)}))
         }
+        // Render Video writes a frame sequence into a folder and Video Frames to Layers reads one;
+        // automation that already names the folder runs without a dialog.
+        "file.export.renderVideo" if params.get("dir").is_none() => run_in_picked_folder(app, id, params, "dir"),
+        "file.import.videoFramesToLayers" if params.get("path").is_none() => run_in_picked_folder(app, id, params, "path"),
         // `{"format": "pdf"}` (or any Export As format) opens the dialog on that format.
         "file.export.exportAs" => {
             let dialog = match params.get("format").and_then(Value::as_str) {
@@ -517,6 +521,16 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         }
         _ => app.run(id, params),
     }
+}
+
+/// Ask for a folder, then run `id` with it as `param`; cancelling the dialog runs nothing.
+fn run_in_picked_folder(app: &mut PhotocraftApp, id: &str, params: Value, param: &str) -> Result<Value, String> {
+    app.session.active().ok_or("no document")?;
+    let picker = app.services.pick_folder.as_mut().ok_or("no folder picker configured")?;
+    let Some(folder) = picker() else { return Ok(json!({"cancelled": true})) };
+    let mut params = params.as_object().cloned().unwrap_or_default();
+    params.insert(param.into(), json!(folder));
+    app.run(id, Value::Object(params))
 }
 
 fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
@@ -1353,6 +1367,9 @@ pub fn apply_workspace(app: &mut PhotocraftApp) {
     p.properties = props;
     p.character = false;
 }
+
+#[cfg(test)]
+mod video_tests;
 
 #[cfg(test)]
 mod tests {

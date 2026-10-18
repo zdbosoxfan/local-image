@@ -573,6 +573,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
                 as photocraft_ui_egui::OverwriteFn
         }),
+        pick_folder: Some(Box::new(|| crate::file_dialog_probe::explain_empty(file_dialog().pick_folder()).map(|path| path.to_string_lossy().into_owned()))),
         pick_open: Some(Box::new(|| {
             let path = crate::file_dialog_probe::explain_empty(open_dialog().pick_file())?;
             // A read failure goes back to the app, which reports it like any other open failure.
