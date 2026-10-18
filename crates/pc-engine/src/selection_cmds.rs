@@ -225,6 +225,9 @@ fn color_range(s: &mut Session, p: &Value) -> Result<Value> {
     set_selection(s, "Color Range", area, mask, mode(p))
 }
 
+/// Largest canvas Modify works on: it holds the whole canvas as f32 masks, several at once.
+const MAX_MODIFY_PIXELS: u64 = 1 << 30;
+
 fn modify(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
     // The dialogs' ranges (Photoshop's limits); anything else is refused, never clamped silently.
     let max = match op {
@@ -237,7 +240,12 @@ fn modify(s: &mut Session, p: &Value, op: &str) -> Result<Value> {
         return Err(EngineError::BadParams { cmd: format!("select.modify.{op}"), msg: format!("radius must be a number in 0..{max}") });
     }
     let r = r.max(0.0);
-    let (area, m) = current_mask(&s.active().ok_or(EngineError::NoDocument)?.doc);
+    let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+    let area = doc.bounds();
+    if area.size().area() > MAX_MODIFY_PIXELS {
+        return Err(EngineError::BadParams { cmd: format!("select.modify.{op}"), msg: "the selection is too large to modify".into() });
+    }
+    let (_, m) = current_mask(doc);
     let (w, h) = (area.width() as usize, area.height() as usize);
     let out = match op {
         "expand" => sel::expand(&m, w, h, r),
@@ -391,6 +399,28 @@ mod tests {
 
     fn coverage(s: &Session, x: i32, y: i32) -> f32 {
         s.active().unwrap().doc.selection.as_ref().map_or(0.0, |m| m.sample_channel(x, y, 0))
+    }
+
+    #[test]
+    fn modify_rejects_oversized_canvases_before_reading_the_mask() {
+        let mut s = Session::new();
+        let mut doc = photocraft_doc::Document::new(
+            "large",
+            photocraft_geom::Size::new(300_000, 300_000),
+            photocraft_color::ColorMode::Rgb,
+            photocraft_color::SampleType::U8,
+        );
+        let mut selection = photocraft_raster::Surface::new(photocraft_color::PixelFormat::GRAY8);
+        selection.write_pixel(0, 0, &[1.0]);
+        doc.selection = Some(selection);
+        s.add_document(doc, None);
+        let before = s.active().unwrap().doc.clone();
+        for op in ["expand", "contract", "border", "smooth", "feather"] {
+            let error = s.execute(&format!("select.modify.{op}"), json!({"radius": 1})).unwrap_err();
+            assert!(error.to_string().contains("too large to modify"), "{error}");
+            assert_eq!(*s.active().unwrap().doc, *before);
+            assert!(!s.active().unwrap().history.can_undo());
+        }
     }
 
     #[test]
