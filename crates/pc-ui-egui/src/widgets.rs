@@ -189,11 +189,33 @@ pub fn value_field_with_precision<T: egui::emath::Numeric>(
 fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::ops::RangeInclusive<T>, decimals: usize) -> Response {
     let (id, ctx) = (ui.next_auto_id(), ui.ctx().clone());
     let held = id.with("arithmetic");
+/// Longest text, in characters, a numeric field takes in one input event or holds while editing.
+const NUMERIC_INPUT_LIMIT: usize = 128;
+
     let math = ui.memory(|m| m.has_focus(id)) && ui.data(|d| d.get_temp(held)).unwrap_or(false);
     ui.data_mut(|d| d.insert_temp(held, math));
     let before = *value;
     let mut resp = ui.add(
         egui::DragValue::new(value)
+    // Mirror DragValue's focus check before it builds its TextEdit: an oversized event must never
+    // reach text layout. Registering interest also covers focus arriving by Tab this frame.
+    let editing = ui.is_enabled()
+        && ui.memory_mut(|m| {
+            m.interested_in_focus(id, ui.layer_id());
+            m.has_focus(id)
+        });
+    if editing {
+        ui.input_mut(|input| {
+            input.events.retain(|event| {
+                let text = match event {
+                    egui::Event::Text(text) | egui::Event::Paste(text) | egui::Event::Ime(egui::ImeEvent::Commit(text)) => text,
+                    egui::Event::Ime(egui::ImeEvent::Preedit { text, .. }) => text,
+                    _ => return true,
+                };
+                text.chars().nth(NUMERIC_INPUT_LIMIT).is_none()
+            });
+        });
+    }
             .range(range.start().to_f64()..=range.end().to_f64())
             .speed(if decimals >= 2 { 0.01 } else { 0.5 })
             .custom_formatter(move |v, _| match decimals {
@@ -201,6 +223,9 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
                 1 => fmt_num(v),
                 2 => fmt_num2(v),
                 _ => format!("{v:.decimals$}"),
+            // Only edits are clamped: showing a value past the range, such as a type layer scaled
+            // to 2400 pt in a 1296 pt field, must not change it.
+            .clamp_existing_to_range(false)
             })
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
@@ -209,6 +234,10 @@ fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::
                 if ctx.memory(|m| m.has_focus(id)) && plain(s).is_none() {
                     // Still typing arithmetic: hold it, and stop applying keystrokes once it parses.
                     ctx.data_mut(|d| d.insert_temp(held, v.is_some()));
+                    return None;
+                }
+                // Short events can accumulate: reject before the parser normalizes the text.
+                if s.chars().nth(NUMERIC_INPUT_LIMIT).is_some() {
                     return None;
                 }
                 v
@@ -1033,3 +1062,7 @@ pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimat
     let t = Tokens::get(ui.ctx());
     ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.warning } else { t.text_dim }));
 }
+
+#[cfg(test)]
+#[path = "widgets/numeric_input_tests.rs"]
+mod numeric_input_tests;
