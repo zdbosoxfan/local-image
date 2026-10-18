@@ -672,8 +672,13 @@ fn parse_guides(data: &[u8], doc: &mut Document) {
     }
 }
 
-/// Converts a parsed PSD into a complete document. Required pixel/mask failures
-/// are fatal: a partial editable document must never overwrite its source.
+/// Modes whose independently stored layers can replace a damaged merged preview.
+pub(crate) fn can_recover_layers(file: &PsdFile) -> bool {
+    matches!(file.header.color_mode, PsdMode::Grayscale | PsdMode::Rgb | PsdMode::Cmyk | PsdMode::Lab) && file.header.depth != 1 && !file.layers().is_empty()
+}
+
+/// Converts a parsed PSD into a complete document. Required pixel/mask failures are fatal; a
+/// damaged merged image is tolerated, with a warning, only when the layers can replace it.
 pub fn psd_to_document(file: &PsdFile) -> Result<(Document, Vec<String>), crate::IoError> {
     psd_to_document_with(file, &lightcraft_sysmem::jobs::Interrupt::NONE)
 }
@@ -824,7 +829,10 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         }
         ctl.progress(0.1);
         if let Err(e) = &m {
-            return Err(crate::IoError::Unsupported(format!("merged image could not be decoded ({e}); no document was opened")));
+            if !can_recover_layers(file) || matches!(e, photocraft_psd::PsdError::LimitExceeded(_)) {
+                return Err(crate::IoError::Unsupported(format!("merged image could not be decoded ({e}); no document was opened")));
+            }
+            cx.warn(format!("merged image could not be decoded: {e}; extra alpha/spot channels could not be recovered"));
         }
         Some(m)
     } else {

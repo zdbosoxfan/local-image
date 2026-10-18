@@ -305,11 +305,13 @@ fn layered_import_skips_the_unused_merged_composite() {
     let (d, warnings) = psd_to_document(&f).unwrap();
     assert_eq!(d.layers.len(), 1);
     assert!(!warnings.iter().any(|w| w.contains("merged image")), "an unused composite is not decoded: {warnings:?}");
-    // A real extra channel behind the colour ones is part of the composite: it is decoded,
-    // and the garbage above must refuse the incomplete document.
+    // Extra channels require decoding; damage is reported while the independent layers survive.
     f.layer_info.as_mut().unwrap().merged_alpha = false;
-    let error = psd_to_document(&f).unwrap_err().to_string();
-    assert!(error.contains("merged image"), "{error}");
+    let (recovered, warnings) = psd_to_document(&f).unwrap();
+    assert_eq!(recovered.layers.len(), 1);
+    assert_eq!(recovered.layers[0].surface(), d.layers[0].surface());
+    assert!(recovered.channels.is_empty());
+    assert!(warnings.iter().any(|w| w.contains("alpha/spot channels")), "{warnings:?}");
 }
 
 #[test]

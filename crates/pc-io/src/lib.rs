@@ -168,13 +168,19 @@ fn import_stages(name: &str, bytes: &[u8], ctl: &lightcraft_sysmem::jobs::Interr
         return Ok(ImportResult { document: photocraft_format::load_from_bytes(bytes)?, warnings: Vec::new() });
     }
     if is_psd(bytes) {
-        let file = PsdFile::from_bytes(bytes)?;
+        let (file, merged_error) = PsdFile::from_bytes_recovering(bytes, psd_import::can_recover_layers)?;
         // Nesting past the document model's cap could never be saved (.pcraft refuses it) and
         // would overflow the importer's recursion; reject the file with the actionable limit.
         psd_import::check_group_depth(&file)?;
         ctl.check().map_err(|_| IoError::Cancelled)?;
         ctl.progress(0.05);
-        let (mut document, warnings) = psd_import::psd_to_document_with(&file, ctl)?;
+        let (mut document, mut warnings) = psd_import::psd_to_document_with(&file, ctl)?;
+        // A merged image the import needed (extra channels) has already reported its damage.
+        if let Some(error) = merged_error
+            && !warnings.iter().any(|w| w.starts_with("merged image could not be decoded"))
+        {
+            warnings.push(format!("merged image could not be decoded; opened the available layers instead: {error}"));
+        }
         document.name = name.to_string();
         return Ok(ImportResult { document, warnings });
     }
