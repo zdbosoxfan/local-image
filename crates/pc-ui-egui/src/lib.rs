@@ -1030,6 +1030,7 @@ impl PhotocraftApp {
     /// when tabs move (`document.move`) or close.
     pub fn sync_views(&mut self) {
         crate::lasso_ui::cancel_stale(self);
+        crate::canvas::polygon_cancel_stale(self);
         let ids: Vec<DocId> = self.session.documents().iter().map(|d| d.doc.id).collect();
         // Where the document of view `i` is now. Views not tracked yet keep their index.
         let now = |i: usize| match self.view_docs.get(i) {
