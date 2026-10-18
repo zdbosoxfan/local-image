@@ -10542,7 +10542,7 @@
         },
         {
           "name": "objc2",
-          "version": "0.6.4",
+          "version": "0.6.5",
           "used_for": "Objective-C interface and runtime bindings",
           "licence": "MIT",
           "url": "https://github.com/madsmtm/objc2"
@@ -13006,7 +13006,7 @@
         },
         {
           "name": "winresource",
-          "version": "0.1.31",
+          "version": "0.1.34",
           "used_for": "Create and set windows icons and metadata for executables",
           "licence": "MIT",
           "url": "https://github.com/BenjaminRi/winresource"
