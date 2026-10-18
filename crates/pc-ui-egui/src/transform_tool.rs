@@ -475,6 +475,9 @@ fn preview_image(
             for l in solo.layers.iter_mut() {
                 if l.id != id && doc.layer(id).is_some_and(|_| !contains(l, id)) {
                     l.visible = false;
+                } else {
+                    // Its clipping base is hidden here, which would clip it away entirely.
+                    l.clipped = false;
                 }
             }
             let buf = photocraft_compose::render(&solo, b);
@@ -2337,6 +2340,27 @@ mod tests {
             assert_eq!(texel_alpha(&image, 2, 4), if linked { 0 } else { 255 });
             assert_eq!(texel_alpha(&image, 12, 4), 255);
         }
+    }
+
+    /// A smart object clipped to the layer under it previewed as nothing while the box was open
+    /// (its flattened render hid the clipping base too).
+    #[test]
+    fn preview_of_a_clipped_smart_object_is_not_empty() {
+        let mut app = app_with_square(64, photocraft_geom::Rect::new(8, 8, 24, 24));
+        app.session.execute("layer.new.layer", json!({})).unwrap();
+        app.session
+            .edit("paint", |doc, a| {
+                doc.layer_mut(a.unwrap()).unwrap().surface_mut().unwrap().fill_rect(photocraft_geom::Rect::new(0, 0, 64, 64), &[0.0, 0.0, 1.0, 1.0]);
+                Ok(())
+            })
+            .unwrap();
+        app.session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        app.session.execute("layer.createClippingMask", json!({})).unwrap();
+        let st = app.session.active().unwrap();
+        let id = st.active_layer.unwrap();
+        assert!(st.doc.layer(id).unwrap().clipped);
+        let (img, _) = preview_image(&st.doc, id, None, photocraft_geom::Rect::new(0, 0, 64, 64), 4096);
+        assert_eq!(texel_alpha(&img, 32, 32), 255, "the moving object shows");
     }
 
     #[test]
