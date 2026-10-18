@@ -363,3 +363,35 @@ fn default_grayscale_conversion_matches_dot_gain_twenty_percent() {
         assert!((got - want).abs() <= 1.5, "{x}: {got} vs {want}");
     }
 }
+
+#[test]
+fn oversized_transform_preserves_layers_selection_and_history() {
+    for selection in [false, true] {
+        let mut s = session();
+        s.execute("layer.new.layer", json!({})).unwrap();
+        s.execute("edit.fill", json!({"color": "#ff0000"})).unwrap();
+        if selection {
+            s.execute("select.all", json!({})).unwrap();
+        }
+        let before = s.active().unwrap().doc.clone();
+        let history = s.active().unwrap().history.past_len();
+        let params = json!({"matrix": [30000, 0, 0, 30000, 0, 0]});
+        let error = s.execute("edit.transform", params.clone()).unwrap_err().to_string();
+        assert!(error.contains("not enough memory for transforming pixels"), "{error}");
+        assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        if selection {
+            assert!(s.execute("select.transformSelection", params).unwrap_err().to_string().contains("transformed selection"));
+            assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+        }
+        if selection {
+            s.execute("select.deselect", json!({})).unwrap();
+        }
+        s.execute("edit.transform", json!({"matrix": [1, 0, 0, 1, 900000, -900000], "interpolation": "nearest"})).unwrap();
+        let st = s.active().unwrap();
+        assert_eq!(
+            st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap().content_bounds(),
+            photocraft_geom::Rect::new(900000, -900000, 900020, -899980)
+        );
+    }
+}
