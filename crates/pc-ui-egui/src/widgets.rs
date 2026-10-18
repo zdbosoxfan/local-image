@@ -189,20 +189,14 @@ pub fn value_field_with_precision<T: egui::emath::Numeric>(
     resp
 }
 
+/// Longest text, in characters, a numeric field takes in one input event or holds while editing.
+const NUMERIC_INPUT_LIMIT: usize = 128;
+
 /// The number in a [`value_field`]. A typed number applies as it's typed; arithmetic waits for
 /// Enter, Tab or click-away, because per keystroke `5/2` would land first and a caller that
 /// rounds it would cut `5/2*2` short. `changed()` means a new value, not just a keystroke.
 fn number_edit<T: egui::emath::Numeric>(ui: &mut Ui, value: &mut T, range: std::ops::RangeInclusive<T>, decimals: usize) -> Response {
     let (id, ctx) = (ui.next_auto_id(), ui.ctx().clone());
-    let held = id.with("arithmetic");
-/// Longest text, in characters, a numeric field takes in one input event or holds while editing.
-const NUMERIC_INPUT_LIMIT: usize = 128;
-
-    let math = ui.memory(|m| m.has_focus(id)) && ui.data(|d| d.get_temp(held)).unwrap_or(false);
-    ui.data_mut(|d| d.insert_temp(held, math));
-    let before = *value;
-    let mut resp = ui.add(
-        egui::DragValue::new(value)
     // Mirror DragValue's focus check before it builds its TextEdit: an oversized event must never
     // reach text layout. Registering interest also covers focus arriving by Tab this frame.
     let editing = ui.is_enabled()
@@ -222,7 +216,16 @@ const NUMERIC_INPUT_LIMIT: usize = 128;
             });
         });
     }
+    let held = id.with("arithmetic");
+    let math = ui.memory(|m| m.has_focus(id)) && ui.data(|d| d.get_temp(held)).unwrap_or(false);
+    ui.data_mut(|d| d.insert_temp(held, math));
+    let before = *value;
+    let mut resp = ui.add(
+        egui::DragValue::new(value)
             .range(range.start().to_f64()..=range.end().to_f64())
+            // Only edits are clamped: showing a value past the range, such as a type layer scaled
+            // to 2400 pt in a 1296 pt field, must not change it.
+            .clamp_existing_to_range(false)
             .speed(if decimals >= 2 { 0.01 } else { 0.5 })
             .custom_formatter(move |v, _| match decimals {
                 0 => format!("{v:.0}"),
@@ -233,14 +236,14 @@ const NUMERIC_INPUT_LIMIT: usize = 128;
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
             .custom_parser(move |s| {
+                // Short events can accumulate: reject before the parser normalizes the text.
+                if s.chars().nth(NUMERIC_INPUT_LIMIT).is_some() {
+                    return None;
+                }
                 let v = parse_num(s);
                 if ctx.memory(|m| m.has_focus(id)) && plain(s).is_none() {
                     // Still typing arithmetic: hold it, and stop applying keystrokes once it parses.
                     ctx.data_mut(|d| d.insert_temp(held, v.is_some()));
-                    return None;
-                }
-                // Short events can accumulate: reject before the parser normalizes the text.
-                if s.chars().nth(NUMERIC_INPUT_LIMIT).is_some() {
                     return None;
                 }
                 v
@@ -369,15 +372,23 @@ pub struct DialogButton<'a> {
     pub label: &'a str,
     pub min_width: f32,
     pub enabled: bool,
+    /// Take keyboard focus this frame (see [`DialogButton::focus`]).
+    pub focus: bool,
 }
 
 impl<'a> DialogButton<'a> {
     pub fn new(role: ButtonRole, label: &'a str, min_width: f32) -> Self {
-        Self { role, label, min_width, enabled: true }
+        Self { role, label, min_width, enabled: true, focus: false }
     }
 
     pub fn enabled(self, enabled: bool) -> Self {
         Self { enabled, ..self }
+    }
+
+    /// Asks for keyboard focus for this button: from there the arrow keys move between the row's
+    /// buttons and Enter or Space presses the focused one.
+    pub fn focus(self, focus: bool) -> Self {
+        Self { focus, ..self }
     }
 }
 
@@ -402,6 +413,9 @@ pub fn dialog_buttons(ui: &mut Ui, buttons: &[DialogButton]) -> Option<ButtonRol
                     })
                     .inner;
                 ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new(("dialog-button-role", b.role as u8)), r.rect));
+                if b.focus && b.enabled {
+                    r.request_focus();
+                }
                 if r.clicked() {
                     hit = Some(b.role);
                 }
@@ -632,6 +646,14 @@ pub fn fmt_num(v: f64) -> String {
     if (r - r.round()).abs() < 1e-9 { format!("{}", r.round() as i64) } else { format!("{r:.1}") }
 }
 
+/// Rounds `v` to `decimals` places and drops trailing zeros, so a value is never shown with more
+/// precision than it has: `1.4140` at three places is `1.414`, `16.0` is `16`.
+pub fn fmt_num_prec(v: f64, decimals: u32) -> String {
+    let s = format!("{v:.*}", decimals as usize);
+    let s = if decimals == 0 { s } else { s.trim_end_matches('0').trim_end_matches('.').to_string() };
+    if s == "-0" { "0".to_string() } else { s }
+}
+
 /// Two-decimal variant of [`fmt_num`] for small ranges: `1.05`, `0.78`, `2`.
 pub fn fmt_num2(v: f64) -> String {
     let r = (v * 100.0).round() / 100.0;
@@ -644,14 +666,6 @@ pub fn fmt_num2(v: f64) -> String {
 pub fn parse_num(text: &str) -> Option<f64> {
     let s = clean(text);
     s.parse().ok().or_else(|| sum(&s)).filter(|v: &f64| v.is_finite())
-}
-
-/// Rounds `v` to `decimals` places and drops trailing zeros, so a value is never shown with more
-/// precision than it has: `1.4140` at three places is `1.414`, `16.0` is `16`.
-pub fn fmt_num_prec(v: f64, decimals: u32) -> String {
-    let s = format!("{v:.*}", decimals as usize);
-    let s = if decimals == 0 { s } else { s.trim_end_matches('0').trim_end_matches('.').to_string() };
-    if s == "-0" { "0".to_string() } else { s }
 }
 
 /// A plain typed number, no arithmetic.
