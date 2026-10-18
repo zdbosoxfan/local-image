@@ -119,14 +119,30 @@ impl PsdFile {
                 layer_mask_trailing = s.peek_rest().to_vec();
             }
         }
-        // 16/32-bit files keep their layers in a global Lr16/Lr32 block.
-        if layer_info.is_none()
-            && let Some(i) = global_blocks.iter().position(|b| matches!(&b.key, b"Lr16" | b"Lr32" | b"Layr"))
-            && let Ok(info) = LayerInfo::read_body(&global_blocks[i].data, header.version)
-        {
-            let b = global_blocks.remove(i);
-            layer_info = Some(info);
-            layer_info_placement = LayerInfoPlacement::GlobalBlock { index: i, signature: b.signature, key: b.key, padding: b.padding };
+        // 16/32-bit files keep their layers in a global Lr16/Lr32 block. Photoshop also writes an
+        // empty or 8-bit compatibility layer info section in them, which the block overrides.
+        let depth_key: Option<&[u8; 4]> = match header.depth {
+            16 => Some(b"Lr16"),
+            32 => Some(b"Lr32"),
+            _ => None,
+        };
+        let candidate = match depth_key {
+            Some(k) => global_blocks.iter().position(|b| &b.key == k),
+            None if layer_info.as_ref().is_some_and(|i| !i.layers.is_empty()) => None,
+            None => global_blocks.iter().position(|b| matches!(&b.key, b"Lr16" | b"Lr32" | b"Layr")),
+        };
+        if let Some(i) = candidate {
+            match LayerInfo::read_body(&global_blocks[i].data, header.version) {
+                Ok(info) => {
+                    let b = global_blocks.remove(i);
+                    layer_info = Some(info);
+                    layer_info_placement = LayerInfoPlacement::GlobalBlock { index: i, signature: b.signature, key: b.key, padding: b.padding };
+                }
+                // Compatibility records don't decode at 16/32 bits: an unreadable block leaves
+                // no layers (the block itself is kept raw).
+                Err(_) if depth_key.is_some() => layer_info = None,
+                Err(_) => {}
+            }
         }
         let image_data = ImageData::read(&mut r, &header)?;
         Ok(PsdFile { header, color_mode_data, resources, layer_info, layer_info_placement, global_layer_mask, global_blocks, layer_mask_trailing, image_data })
@@ -266,5 +282,38 @@ impl PsdFile {
     pub fn save(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         let b = self.to_bytes().map_err(std::io::Error::other)?;
         std::fs::write(path, b)
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use crate::compression::Compression;
+    use crate::testgen;
+
+    /// Photoshop's 16/32-bit files hold an empty or 8-bit compatibility layer info section beside
+    /// the global `Lr16`/`Lr32` block that has the real layers: the block wins.
+    #[test]
+    fn depth_layer_block_overrides_a_compatibility_section() {
+        for version in [Version::Psd, Version::Psb] {
+            for depth in [16, 32] {
+                let file = testgen::layered(version, ColorMode::Rgb, depth, Compression::Raw);
+                let key = if depth == 16 { *b"Lr16" } else { *b"Lr32" };
+                let mut lr_data = Vec::new();
+                file.layer_info.as_ref().unwrap().write_body(&mut lr_data, version).unwrap();
+                for compat in [vec![], vec![LayerRecord { name: b"Compatibility".to_vec(), ..Default::default() }]] {
+                    let mut with_compat = file.clone();
+                    with_compat.layer_info = Some(LayerInfo { layers: compat, ..Default::default() });
+                    with_compat.layer_info_placement = LayerInfoPlacement::Section;
+                    with_compat.global_blocks.insert(0, TaggedBlock::new(key, lr_data.clone()));
+                    let parsed = PsdFile::from_bytes(&with_compat.to_bytes().unwrap()).unwrap();
+                    assert_eq!(parsed.layers().len(), file.layers().len(), "{version:?} {depth}");
+                    assert_eq!(parsed.layers()[0].name, file.layers()[0].name);
+                    assert!(matches!(parsed.layer_info_placement, LayerInfoPlacement::GlobalBlock { key: k, .. } if k == key));
+                    assert!(parsed.global_block(&key).is_none(), "the block became the layer info");
+                }
+            }
+        }
     }
 }
