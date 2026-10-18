@@ -487,3 +487,30 @@ fn clone_source_errors_and_overlay() {
     assert_eq!(v["width"], json!(1000.0));
     assert_eq!(v["rotation"], json!(-90.0));
 }
+
+/// Upstream c61cf9f0 (#5602): one damaged preset set in the preferences file must not discard
+/// the user's other saved sets at the next launch.
+#[test]
+fn a_damaged_preset_set_keeps_the_other_sets() {
+    let mut s = Session::new();
+    s.presets.tool_presets.push(super::tools::ToolPreset { name: "Soft 40".into(), tool: "brush".into(), options: json!({"size": 40}) });
+    s.presets.layer_defaults.insert("dropShadow".into(), json!({"distance": 9}));
+    let saved = s.presets.to_json(&s);
+    let defaults = Session::new();
+    for key in ["gradients", "gradient", "styles", "shapes", "pattern_groups", "tool_presets", "custom_shapes", "layer_defaults"] {
+        let mut blob = saved.clone();
+        blob[key] = json!("not a preset set");
+        let mut next = Session::new();
+        next.load_presets_json(blob);
+        let tools = if key == "tool_presets" { &defaults.presets.tool_presets } else { &s.presets.tool_presets };
+        let layer_defaults = if key == "layer_defaults" { &defaults.presets.layer_defaults } else { &s.presets.layer_defaults };
+        assert_eq!(&next.presets.tool_presets, tools, "damaged `{key}`");
+        assert_eq!(&next.presets.layer_defaults, layer_defaults, "damaged `{key}`");
+    }
+    // Null sets keep their defaults.
+    let mut next = Session::new();
+    next.load_presets_json(json!({"tool_presets": null, "gradients": null, "layer_defaults": saved["layer_defaults"].clone()}));
+    assert_eq!(next.presets.tool_presets, defaults.presets.tool_presets);
+    assert_eq!(next.presets.gradients.len(), defaults.presets.gradients.len());
+    assert_eq!(next.presets.layer_defaults, s.presets.layer_defaults);
+}
