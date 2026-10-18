@@ -67,9 +67,11 @@ const CUSTOM_TITLEBAR: bool = !cfg!(target_os = "macos");
 /// different offset every launch (#419). A later launch restores the saved position instead
 /// (`main` turns `centered` off). Wayland compositors place windows themselves.
 fn native_options() -> eframe::NativeOptions {
+    let viewport = egui::ViewportBuilder::default();
+    // Not inside a macOS app bundle: its Dock icon is the bundle's .icns (`app_icon`).
+    let viewport = if app_icon::sets_runtime_icon(std::env::current_exe().ok().as_deref()) { viewport.with_icon(app_icon::window_icon()) } else { viewport };
     eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_icon(app_icon::window_icon())
+        viewport: viewport
             .with_app_id(APP_ID)
             .with_title("Local Image")
             .with_inner_size([1440.0, 900.0])
@@ -275,11 +277,11 @@ fn main() -> eframe::Result {
     }
     // eframe restores the saved window layout before our code runs; drop values that would crash it.
     ui_state::sanitize(options.persistence_path.as_deref());
-    // Crash-safe GPU startup (#4): pick the backend (a marker left by a start that died in the
-    // driver moves to a safer one), and lock this start's marker until the first frames render.
     // Centre only the first window: eframe centres after restoring the saved position, so a
     // window closed on another monitor reopened in the middle of the main one.
     options.centered = !ui_state::has_saved_position(options.persistence_path.as_deref());
+    // Crash-safe GPU startup (#4): pick the backend (a marker left by a start that died in the
+    // driver moves to a safer one), and lock this start's marker until the first frames render.
     let t_sentinel = std::time::Instant::now();
     let os = gpu_startup::Os::current();
     let (pref, mode) = gpu_startup::read_rendering_prefs(services::prefs_file().as_deref());
