@@ -1187,8 +1187,7 @@ fn levels_matches_photoshop() {
         let want = ((x as f32 / 255.0).powi(2) * 255.0).round();
         assert_eq!(got, want, "levels gamma 0.5 x={x}");
     }
-    // Endpoints pinned; identity is identity. (The gamma>1 toe's soft-min leaves white within a
-    // few parts in 1e5 of 1.0 — invisible at any bit depth; exact at 8-bit.)
+    // The toe ends before white, leaving both endpoints pinned.
     assert_eq!(adjust::levels(&ident(2.5), 0.0), 0.0);
     assert_eq!((adjust::levels(&ident(2.5), 1.0) * 255.0).round(), 255.0);
     assert!((adjust::levels(&ident(2.5), 1.0) - 1.0).abs() < 5e-4);
