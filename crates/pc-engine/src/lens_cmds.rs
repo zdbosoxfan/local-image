@@ -653,7 +653,7 @@ mod j04_tests {
                 for builtin in [photocraft_cms::Builtin::Srgb, photocraft_cms::Builtin::DisplayP3, photocraft_cms::Builtin::LinearSrgb] {
                     let profile = builtin.profile();
                     let expected = photocraft_io::develop_filter::camera_raw_surface(&source, area, &cr, profile).unwrap();
-                    let filtered = crate::filters::apply_filter_to_surface_in(RAW, &params, &source, area, None, area, Some(profile)).unwrap();
+                    let filtered = crate::filters::apply_filter_to_surface_in(RAW, &params, &source, area, None, area, Some(profile)).unwrap().unwrap();
                     assert_eq!(filtered, expected, "{sample:?}/{mode:?}/{builtin:?}");
                     let original = source.read_region(area);
                     let result = filtered.read_region(area);

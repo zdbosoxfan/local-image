@@ -144,9 +144,11 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
 /// `filter.*` command; smart filters re-run it on re-render). `bounds` frames distortions;
 /// `selection` limits the result. Like layer filters, neighbourhood filters repeat the edge pixels
 /// of `canvas` ∪ the surface's content instead of fading in transparency, and the output is
-/// clipped to it. `None` for ids that aren't pixel filters. `profile` is the document's RGB profile
-/// (`color_cmds::composite_profile`), which the Camera Raw Filter (`filter.develop`) converts
-/// through; `None` = sRGB.
+/// clipped to it. `Ok(None)` for ids that aren't pixel filters. `profile` is the document's RGB
+/// profile (`color_cmds::composite_profile`), which the Camera Raw Filter (`filter.develop`)
+/// converts through; `None` = sRGB. `Err` when the requesting session's gate denies the stored
+/// command or params (an ambient path the session may not read): callers surface it rather than
+/// render unfiltered pixels.
 pub fn apply_filter_to_surface_in(
     id: &str,
     params: &Value,
@@ -155,31 +157,34 @@ pub fn apply_filter_to_surface_in(
     selection: Option<&photocraft_raster::Surface>,
     canvas: photocraft_geom::Rect,
     profile: Option<&photocraft_cms::Profile>,
-) -> Option<photocraft_raster::Surface> {
+) -> Result<Option<photocraft_raster::Surface>> {
+    // Re-renders bypass command dispatch; stored params must still obey the session's gate
+    // before any resolver below reads a file they name.
+    crate::jobs::authorize_render_command(id, params)?;
     if id == crate::develop_filter_cmds::DEVELOP {
-        return crate::develop_filter_cmds::apply_to_surface(id, params, surf, canvas, profile);
+        return Ok(crate::develop_filter_cmds::apply_to_surface(id, params, surf, canvas, profile));
     }
     // Liquify / Puppet Warp / Perspective Warp smart filters (distort_cmds).
     if let Some(out) = crate::distort_cmds::apply_to_surface(id, params, surf, canvas) {
-        return Some(out);
+        return Ok(Some(out));
     }
     // Lens Correction / Adaptive Wide Angle / Camera Raw smart filters (lens_cmds).
     if let Some(out) = crate::lens_cmds::apply_to_surface_in(id, params, surf, canvas, profile) {
-        return Some(out);
+        return Ok(Some(out));
     }
     // Image › Adjustments recorded as smart filters (Levels, Curves, Shadows/Highlights… from PSD).
     if let Some(kind) = id.strip_prefix("image.adjustments.") {
-        return crate::adjust_cmds::adjust_as_filter(kind, params, surf);
+        return Ok(crate::adjust_cmds::adjust_as_filter(kind, params, surf));
     }
     // WebAssembly plug-in smart filters (plugin_cmds).
     if id == crate::plugin_cmds::RUN {
-        return crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas);
+        return Ok(crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas));
     }
-    let fp = params_for(id, params)?;
+    let Some(fp) = params_for(id, params) else { return Ok(None) };
     let sel_bounds = selection.map(photocraft_raster::Surface::content_bounds);
     let content = surf.content_bounds();
     let area = algo::output_area(&fp, content, bounds, sel_bounds);
-    Some(algo::apply_in(surf, &fp, area, bounds, selection, canvas.union(&content)))
+    Ok(Some(algo::apply_in(surf, &fp, area, bounds, selection, canvas.union(&content))))
 }
 
 pub(crate) fn has_filterable_layer(s: &Session) -> std::result::Result<(), String> {

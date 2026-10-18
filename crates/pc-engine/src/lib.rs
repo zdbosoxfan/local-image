@@ -517,6 +517,9 @@ impl Session {
 
     /// Apply an undoable edit to the active document.
     pub fn edit<R>(&mut self, label: &str, f: impl FnOnce(&mut Document, &mut Option<LayerId>) -> Result<R>) -> Result<R> {
+        // Every mutation path (transforms, warps, linked-file refresh) re-renders smart objects
+        // through here; the session's gate must reach the stored filters those renders run.
+        let _authorization = jobs::AuthorizationScope::enter(self.authorize);
         let restrict = self.color_restrict;
         let st = self.active_mut().ok_or(EngineError::NoDocument)?;
         let before = st.doc.clone();
