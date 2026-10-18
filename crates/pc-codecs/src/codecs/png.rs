@@ -18,6 +18,15 @@ fn err(e: impl std::fmt::Display) -> CodecError {
     CodecError::malformed(F, e)
 }
 
+/// Pixels per inch for `pHYs` pixels per metre. A whole number of ppi is stored rounded to whole
+/// pixels per metre (300 ppi = 11811), so reading it back gives 299.9994: the whole number that
+/// rounds to the stored value is the resolution that was meant, as Photoshop reads it.
+pub(crate) fn dpi_of_ppm(ppm: u32) -> f32 {
+    let dpi = f64::from(ppm) * f64::from(METERS_PER_INCH);
+    let whole = dpi.round();
+    if (whole / f64::from(METERS_PER_INCH)).round() == f64::from(ppm) { whole as f32 } else { dpi as f32 }
+}
+
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError> {
     let mut input = Cursor::new(bytes);
     let mut decoder = png::Decoder::new_with_limits(&mut input, png::Limits { bytes: limits.alloc_usize() });
@@ -78,7 +87,7 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
         && d.xppu > 0
         && d.yppu > 0
     {
-        meta.dpi = Some((d.xppu as f32 * METERS_PER_INCH, d.yppu as f32 * METERS_PER_INCH));
+        meta.dpi = Some((dpi_of_ppm(d.xppu), dpi_of_ppm(d.yppu)));
     }
     drop(reader);
     let end = usize::try_from(input.position()).map_err(|_| err("invalid PNG reader position"))?;
@@ -533,6 +542,20 @@ pub fn encode_indexed(width: u32, height: u32, indices: &[u8], palette: &[[u8; 3
         writer.finish().map_err(|e| CodecError::encode(F, e))?;
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod resolution_tests {
+    use super::*;
+
+    #[test]
+    fn phys_of_a_whole_ppi_reads_back_whole() {
+        // 300 ppi is stored as 11811 px/m (299.9994) and 72 as 2835 (72.009); a value no
+        // whole ppi rounds to stays as stored.
+        for (ppm, want) in [(11811, 300.0), (2835, 72.0), (3937, 100.0), (11812, 300.0248), (5906, 150.0)] {
+            assert!((dpi_of_ppm(ppm) - want).abs() < 1e-4, "{ppm} px/m gave {}, wanted {want}", dpi_of_ppm(ppm));
+        }
+    }
 }
 
 #[cfg(test)]
