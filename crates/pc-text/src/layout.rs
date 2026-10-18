@@ -398,6 +398,8 @@ struct KernSlot {
     size: f32,
     rtl: bool,
     blank: bool,
+    /// What horizontal scale adds to the shaped advance (px; negative below 100%).
+    growth: f32,
     /// Vertical type, upright glyph (its outline doesn't run along the column).
     upright: bool,
 }
@@ -546,13 +548,30 @@ impl Layouter {
             };
             let indent_start = ps.start_indent_pt * k;
             let indent_end = ps.end_indent_pt * k;
+            // Horizontal scale is applied after shaping, so paragraph text breaks at the box
+            // width divided by it. Mixed scales break at the largest, so no line overflows.
+            let break_scale = if is_box {
+                let si0 = style_at(prange.start);
+                (0..out.styles.len())
+                    .filter(|&ri| {
+                        let rs = run_starts.get(ri).copied().unwrap_or(0);
+                        let end = rs.saturating_add(runs.get(ri).map_or(0, |r| r.len));
+                        ri == si0 || (rs.max(prange.start) < end.min(content_end))
+                    })
+                    .filter_map(|ri| out.styles.get(ri))
+                    .map(effective_horizontal_scale)
+                    .fold(0.0f32, f32::max)
+            } else {
+                1.0
+            };
+            let break_scale = if break_scale > 0.0 { break_scale } else { 1.0 };
             if ps.first_line_indent_pt != 0.0 {
-                layout.set_text_indent(ps.first_line_indent_pt * k, IndentOptions::default());
+                layout.set_text_indent(ps.first_line_indent_pt * k / break_scale, IndentOptions::default());
             }
             // Box extent along the lines: width, or height for vertical type (columns).
             let (line_origin, line_len) = if vertical { (box_rect.1, box_rect.3) } else { (box_rect.0, box_rect.2) };
             let avail = if is_box { Some((line_len - indent_start - indent_end).max(1.0)) } else { None };
-            layout.break_all_lines(avail);
+            layout.break_all_lines(avail.map(|a| a / break_scale));
             let alignment = if is_box {
                 match ps.align {
                     TextAlign::Left => Alignment::Left,
@@ -651,6 +670,7 @@ impl Layouter {
                             size: run.font_size(),
                             rtl: c.is_rtl(),
                             blank: first.is_none() || c.is_space_or_nbsp() || c.text_range().end <= prefix.len(),
+                            growth: c.advance() * (out.styles.get(c.first_style().brush.0 as usize).map_or(1.0, effective_horizontal_scale) - 1.0),
                             upright: vertical && c.first_style().brush.1 != VClass::Rotate as u8,
                         });
                     }
@@ -721,15 +741,18 @@ impl Layouter {
                 };
                 let dx = if is_box {
                     let base = line_origin + indent_start - kern_align;
-                    let slack = avail.unwrap_or(0.0) - adv - line_kern;
+                    let slack = avail.unwrap_or(0.0) - adv * break_scale - line_kern;
+                    // Parley aligned the unscaled line in `avail / break_scale`: scale its
+                    // indent and alignment offset back to the box.
+                    let scaled_offset = m.offset * (break_scale - 1.0);
                     base + if last_line {
                         match ps.align {
                             TextAlign::JustifyCenter => slack * 0.5 - m.offset,
                             TextAlign::JustifyRight => slack - m.offset,
-                            _ => 0.0,
+                            _ => scaled_offset,
                         }
                     } else {
-                        0.0
+                        scaled_offset
                     }
                 } else {
                     let target = match ps.align {
@@ -898,7 +921,8 @@ impl Layouter {
                     range: map(lr.start)..map(lr.end).min(content_end),
                     baseline,
                     x0,
-                    x1: x0 + adv + extra,
+                    // Trailing whitespace is outside the line's extent (`adv`), scaled or not.
+                    x1: x0 + adv + extra - slots.iter().rev().take_while(|s| s.blank).map(|s| s.growth).sum::<f32>(),
                     ascent,
                     descent,
                     paragraph: pi,
@@ -908,6 +932,11 @@ impl Layouter {
         }
         out
     }
+}
+
+/// A style's horizontal scale; unset (zero or negative) is 100%.
+fn effective_horizontal_scale(st: &CharStyle) -> f32 {
+    if st.horizontal_scale > 0.0 && st.horizontal_scale.is_finite() { st.horizontal_scale } else { 1.0 }
 }
 
 /// Byte ranges of paragraphs (each including its `\r`, `\n` or `\r\n` terminator). Text ending
