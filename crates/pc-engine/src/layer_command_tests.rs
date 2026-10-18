@@ -89,6 +89,20 @@ fn oversized_image_resampling_preserves_document_and_history() {
 }
 
 #[test]
+fn removing_indexed_transparency_restores_stored_pixels() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 16, "height": 16, "background": "#ff0000"})).unwrap();
+    s.execute("image.mode.indexedColor", json!({"palette": "exact", "colors": 2, "forced": "none", "dither": "none"})).unwrap();
+    s.execute("image.mode.colorTable", json!({"transparent": 0})).unwrap();
+    let pixel = |s: &mut Session| s.execute("document.pixel", json!({"x": 5, "y": 8})).unwrap();
+    assert_eq!(pixel(&mut s), json!([0.0, 0.0, 0.0, 0.0]));
+    s.execute("image.mode.colorTable", json!({"transparent": null})).unwrap();
+    assert_eq!(pixel(&mut s), json!([1.0, 0.0, 0.0, 1.0]));
+    s.undo();
+    assert_eq!(pixel(&mut s), json!([0.0, 0.0, 0.0, 0.0]));
+}
+
+#[test]
 fn script_browse_explains_unsupported_photoshop_formats() {
     let mut s = session();
     for ext in ["js", "jsx", "JSX", "jsxbin", "psjs", "ccjs"] {
