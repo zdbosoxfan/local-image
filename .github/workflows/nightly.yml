@@ -76,7 +76,7 @@ jobs:
         with:
           persist-credentials: false
       # With a SHA ref the action cannot infer the toolchain from the ref name: pass it.
-      - uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly
+      - uses: dtolnay/rust-toolchain@18f0487477426dce244608110aa2660c2893deb7 # nightly
         with:
           toolchain: nightly
       - name: Install cargo-fuzz
