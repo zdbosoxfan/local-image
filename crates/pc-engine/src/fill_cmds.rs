@@ -127,7 +127,7 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
             let mut source_doc = (*source_doc).clone();
             let (src, _) = crate::channel_cmds::target_surface(&mut source_doc, id, p)
                 .map_err(|_| EngineError::Other("the target did not exist (as pixels, a mask or a channel) in that history state".into()))?;
-            Source::Pixels(area, read_rgba(src, area))
+            Source::Pixels(area, read_rgba(src, area, "reading Fill's history source")?)
         }
         "contentAware" => {
             let sel = sel.as_ref().ok_or_else(|| EngineError::Other("Content-Aware fill needs a selection".into()))?;
@@ -148,16 +148,18 @@ pub fn fill(s: &mut Session, p: &Value) -> Result<Value> {
     s.edit("Fill", |doc, _| {
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(doc, id, p)?;
-        blend_into(surf, area, &source, sel.as_ref(), Blend { mode, opacity, keep_alpha: preserve || lock, restore });
-        Ok(())
+        blend_into(surf, area, &source, sel.as_ref(), Blend { mode, opacity, keep_alpha: preserve || lock, restore })
     })?;
     Ok(out)
 }
 
-fn read_rgba(src: &Surface, area: Rect) -> Vec<[f32; 4]> {
-    let mut px = vec![[0.0f32; 4]; area.width() as usize * area.height() as usize];
+fn read_rgba(src: &Surface, area: Rect, purpose: &str) -> Result<Vec<[f32; 4]>> {
+    let len = (area.width() as usize)
+        .checked_mul(area.height() as usize)
+        .ok_or_else(|| EngineError::Other(format!("not enough memory for {purpose} (requested size overflowed); the document was not changed")))?;
+    let mut px = crate::allocation::filled(len, [0.0f32; 4], purpose)?;
     src.read_rgba_into(area, &mut px);
-    px
+    Ok(px)
 }
 
 /// The selection filled from its surroundings (`photocraft_algo::content_aware`), as straight
@@ -240,7 +242,9 @@ fn lerp(d: [f32; 4], c: [f32; 4], k: f32) -> [f32; 4] {
 /// Blend `source` into `surf` over `area`: per pixel, the selection coverage times the opacity,
 /// in the blend mode.
 /// Works tile by tile in parallel on the encoded pixels (no full-surface f32 round trip).
-fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surface>, b: Blend) {
+/// An allocation failure can leave `surf` missing tiles, so it must be a staged copy (as in
+/// [`Session::edit`]) that the error discards.
+fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surface>, b: Blend) -> Result<()> {
     use rayon::prelude::*;
     let fmt = surf.format();
     // An opaque colour in Normal mode at 100 % that may replace alpha: fully covered tiles become
@@ -253,24 +257,30 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
         }
         _ => None,
     };
-    let tiles = surf.take_tiles(area);
-    let done: Vec<_> = tiles
-        .into_par_iter()
-        .map(|(tc, tile)| {
-            let tr = tc.rect().intersect(&area);
-            let mask = sel.map(|m| Mask { bytes: m.tile(tc).map_or(m.default_bytes(), |t| t.bytes()), fmt: m.format(), origin: tc.rect() });
-            if let Some(s) = &solid
-                && tr == tc.rect()
-                && mask.as_ref().is_none_or(|m| m.full(tr))
-            {
-                return (tc, s.clone());
-            }
-            let mut tile = std::sync::Arc::unwrap_or_clone(tile);
-            blend_tile(tile.bytes_mut(), &fmt, tc.rect(), tr, source, mask.as_ref(), b);
-            (tc, std::sync::Arc::new(tile))
-        })
-        .collect();
-    surf.put_tiles(done);
+    let done = crate::allocation::capacity(area.tiles().count(), "blending pixels")?;
+    let tiles = surf.try_take_tiles(area)?;
+    let done = std::sync::Mutex::new(done);
+    let push = |entry| done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(entry);
+    let blended = tiles.into_par_iter().try_for_each(|(tc, tile)| -> Result<()> {
+        let tr = tc.rect().intersect(&area);
+        let mask = sel.map(|m| Mask { bytes: m.tile(tc).map_or(m.default_bytes(), |t| t.bytes()), fmt: m.format(), origin: tc.rect() });
+        if let Some(s) = &solid
+            && tr == tc.rect()
+            && mask.as_ref().is_none_or(|m| m.full(tr))
+        {
+            push((tc, s.clone()));
+            return Ok(());
+        }
+        let mut tile = match std::sync::Arc::try_unwrap(tile) {
+            Ok(tile) => tile,
+            Err(shared) => shared.try_clone()?,
+        };
+        blend_tile(tile.bytes_mut(), &fmt, tc.rect(), tr, source, mask.as_ref(), b);
+        push((tc, std::sync::Arc::new(tile)));
+        Ok(())
+    });
+    surf.put_tiles(done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner));
+    blended
 }
 
 /// The selection's coverage over one tile (its channel 0).
@@ -586,5 +596,19 @@ mod tests {
         s.execute(CMD, json!({"contents": "white"})).unwrap();
         s.execute(CMD, json!({"contents": "contentAware", "colorAdaptation": false})).unwrap();
         assert!(close(px(&s, 17, 12), [0x33 as f32 / 255.0, 0x66 as f32 / 255.0, 0x99 as f32 / 255.0, 1.0]), "{:?}", px(&s, 17, 12));
+    }
+
+    #[test]
+    fn fill_allocation_failure_keeps_document_and_history() {
+        let mut s = session();
+        s.execute("select.rect", json!({"x": 2, "y": 2, "width": 10, "height": 10})).unwrap();
+        let before = s.active().unwrap().doc.clone();
+        let entries = s.active().unwrap().history.entries();
+        crate::allocation::fail_next_for_test();
+        let err = s.execute(CMD, json!({"color": "#ff0000", "opacity": 50})).unwrap_err();
+        assert!(err.to_string().contains("not enough memory"), "{err}");
+        assert_eq!(*s.active().unwrap().doc, *before);
+        assert_eq!(s.active().unwrap().history.entries(), entries);
+        s.execute(CMD, json!({"color": "#ff0000", "opacity": 50})).unwrap();
     }
 }
