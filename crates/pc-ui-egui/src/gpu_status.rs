@@ -1,7 +1,8 @@
-//! GPU health in the shell (#243, #4): when the wgpu device is lost or keeps reporting errors,
-//! the GPU canvas is dropped and every document keeps drawing through the CPU compositor and egui
-//! textures for the rest of the session, with a recovery warning. Also runs the desktop app's
-//! "started" hook once the first frames have rendered (the crash-safe startup marker), and
+//! GPU health in the shell (#243, #4): recoverable errors pause GPU compute while the existing
+//! canvas presents CPU-composited textures, then compute resumes on the same device after backoff.
+//! A lost device drops the GPU canvas, and every document keeps drawing through the CPU compositor
+//! and egui textures for the rest of the session, with a recovery warning. Also runs the desktop
+//! app's "started" hook once the first frames have rendered (the crash-safe startup marker), and
 //! provides the Help › System Info text (including the monitor profile in use).
 
 use serde_json::json;
@@ -18,10 +19,10 @@ const STARTED_MAX_FRAMES: u64 = 120;
 /// Hook run once the app has rendered its first frames (see [`PhotocraftApp::on_started`]).
 pub type StartedHook = Box<dyn FnOnce(&mut PhotocraftApp)>;
 
-/// Per-frame check: switch to the CPU canvas when the GPU faulted, and run the started hook.
+/// Per-frame check: switch to the CPU canvas when the GPU device was lost, and run the started hook.
 pub fn check(app: &mut PhotocraftApp, ctx: &egui::Context) {
-    // A frame boundary for the error strikes: one uncaptured error is redone on the CPU, errors
-    // in several frames drop the GPU canvas (`li_gpu::health`).
+    // A frame boundary for the error strikes (`li_gpu::health`): recoverable errors invalidate
+    // cached GPU results and pause compute; only device loss drops the GPU canvas.
     if let Some(g) = &app.gpu {
         g.begin_frame(app.frame);
     }
