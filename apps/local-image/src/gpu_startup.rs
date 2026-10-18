@@ -292,6 +292,12 @@ pub fn plan_with_mode(pref: GpuBackend, mode: RenderingMode, crashed: Option<&Ma
     plan(backend, crashed, env, safe_gpu, os)
 }
 
+/// Persist successful hardware fallbacks, but never silently pin CPU mode. The recovery dialog
+/// ("Keep Using CPU") stores CPU rendering when the user chooses it.
+pub fn backend_to_remember(plan: &Plan) -> Option<GpuBackend> {
+    (plan.remember && plan.backend != GpuBackend::Cpu).then_some(plan.backend)
+}
+
 /// Instance backends for `plan` (`None`: egui's default, which honours `WGPU_BACKEND`).
 pub fn backends(plan: &Plan, os: Os) -> Option<wgpu::Backends> {
     if plan.env.is_some() {
@@ -694,6 +700,24 @@ mod tests {
         assert_eq!(plan(Auto, None, Some("  "), false, Os::Windows).env, None);
         // --safe-gpu with the override: CPU canvas, the override's backends.
         assert_eq!(plan(Auto, None, Some("dx12"), true, Os::Windows).backend, Cpu);
+    }
+
+    /// A temporary CPU recovery must not change the next launch.
+    #[test]
+    fn cpu_recovery_requires_explicit_confirmation_to_persist() {
+        let cpu = plan_with_mode(Gl, RenderingMode::Auto, Some(&crashed("gl", "gl")), None, false, Os::Other);
+        assert_eq!((cpu.backend, cpu.remember), (Cpu, true));
+        assert_eq!(backend_to_remember(&cpu), None);
+
+        let safe = plan_with_mode(Auto, RenderingMode::Auto, None, None, true, Os::Other);
+        assert_eq!((safe.backend, backend_to_remember(&safe)), (Cpu, None));
+        // An unconfirmed fallback leaves the original automatic selection intact.
+        assert_eq!(plan_with_mode(Auto, RenderingMode::Auto, None, None, false, Os::Other).backend, Auto);
+        // A working hardware fallback can still be remembered.
+        let dx12 = plan_with_mode(Auto, RenderingMode::Auto, Some(&crashed("auto", "vulkan")), None, false, Os::Windows);
+        assert_eq!(backend_to_remember(&dx12), Some(Dx12));
+        // CPU explicitly selected in preferences still works.
+        assert_eq!(plan_with_mode(Auto, RenderingMode::Cpu, None, None, false, Os::Other).backend, Cpu);
     }
 
     #[test]

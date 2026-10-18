@@ -474,11 +474,13 @@ fn main() -> eframe::Result {
             app.perf.gpu_info.recovery =
                 fallback_reason.clone().or_else(|| (app.perf.gpu_info.canvas == "cpu").then(|| saved_recovery.as_ref().map(|r| r.reason.clone())).flatten());
             app.perf.span("gpuSentinel", sentinel_ms);
-            // Once the first frames rendered: clear the marker, and keep a crash fallback.
-            let remember_cpu = startup_failure.is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
-            let remember = plan.remember.then_some(plan.backend);
+            // Once the first frames rendered: clear the marker, and keep a hardware crash fallback.
+            // CPU rendering after a failed GPU start is temporary: only the recovery dialog's
+            // "Keep Using CPU" persists it.
+            let cpu_recovery = startup_failure.is_some() || (plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Cpu);
+            let remember = gpu_startup::backend_to_remember(&plan);
             // What to write to `gpu-recovery.json` once this start has worked.
-            let new_recovery = if remember_cpu {
+            let new_recovery = if cpu_recovery {
                 fallback_reason.clone().or_else(|| plan.reason.clone()).map(|reason| gpu_startup::Recovery { reason, avoid: None })
             } else if plan.remember && plan.backend == photocraft_engine::prefs::GpuBackend::Gl && os == gpu_startup::Os::Other {
                 plan.reason.clone().map(|reason| gpu_startup::Recovery { reason, avoid: plan.avoid.clone() })
@@ -495,16 +497,6 @@ fn main() -> eframe::Result {
                     && let Err(e) = r.save(dir)
                 {
                     log::warn!("couldn't save the GPU recovery note: {e}");
-                }
-                if remember_cpu
-                    && let Err(error) = app.run(
-                        "prefs.set",
-                        serde_json::json!({"values": {
-                            "performance.renderingMode": "cpu"
-                        }}),
-                    )
-                {
-                    log::warn!("couldn't remember CPU recovery: {error}");
                 }
                 if let Some(b) = remember
                     && app.session.prefs().performance.gpu_backend != b
