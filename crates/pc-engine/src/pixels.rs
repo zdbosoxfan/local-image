@@ -5,7 +5,7 @@ use rayon::prelude::*;
 use photocraft_compose::{Buffer, adjust};
 use photocraft_doc::{Adjustment, Document, Layer, LayerContent};
 use photocraft_geom::Rect;
-use photocraft_raster::{Surface, from_rgba, to_rgba};
+use photocraft_raster::{Surface, to_rgba};
 
 /// Apply an adjustment destructively to a surface, weighted by an optional selection.
 /// Applies `adj` to a surface (any colour model and depth, via straight RGBA) through the
@@ -136,18 +136,15 @@ pub fn remap_surface(s: &Surface, map: impl Fn(i32, i32) -> (i32, i32)) -> Surfa
 }
 
 /// Merge `upper` onto `lower` producing a raster layer (Layer → Merge Down).
-pub fn merge_down(doc_bounds: Rect, lower: &Layer, upper: &Layer, format: photocraft_color::PixelFormat) -> Layer {
+pub fn merge_down(doc: &Document, lower: &Layer, upper: &Layer) -> Layer {
+    let doc_bounds = doc.bounds();
+    let format = doc.pixel_format();
     let area = [lower, upper].iter().map(|l| l.surface().map(|s| s.content_bounds()).unwrap_or(doc_bounds)).fold(Rect::EMPTY, |a, b| a.union(&b));
     let stack = vec![lower.clone(), upper.clone()];
     let mut tmp = Document::new("merge", doc_bounds.size(), format.mode, format.sample);
     tmp.layers = stack;
-    let buf = photocraft_compose::render(&tmp, area);
-    let mut s = Surface::new(format);
-    let data: Vec<f32> = buf.px.iter().flat_map(|p| from_rgba(&format, *p)).collect();
-    if !area.is_empty() {
-        s.write_region(area, &data);
-        s.prune();
-    }
+    tmp.icc_profile = doc.icc_profile.clone();
+    let s = photocraft_compose::composite_to_surface(&tmp, area, format, None);
     let mut merged = Layer::new(lower.name.clone(), LayerContent::Raster(s));
     merged.id = lower.id;
     merged.blend = lower.blend;
@@ -177,7 +174,7 @@ mod parallel_tests {
             let mut reference = Vec::new();
             for (i, (a, o)) in buf.px.iter().zip(&original).enumerate() {
                 let k = selection.sample_channel(r.x0 + (i % 73) as i32, r.y0 + (i / 73) as i32, 0);
-                reference.extend(from_rgba(&fmt, std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k)));
+                reference.extend(photocraft_raster::from_rgba(&fmt, std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k)));
             }
             for threads in [1, 4] {
                 let pool = rayon::ThreadPoolBuilder::new().num_threads(threads).build().unwrap();
@@ -186,4 +183,18 @@ mod parallel_tests {
             }
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn merging_normal_cmyk_layers_keeps_the_original_ink_separations() {
+    use photocraft_color::{ColorMode, SampleType};
+    let doc = Document::new("inks", photocraft_geom::Size::new(2, 1), ColorMode::Cmyk, SampleType::U16);
+    let mut lower = Layer::raster("lower", doc.pixel_format());
+    lower.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.2, 0.4, 0.1, 0.8, 1.]);
+    let mut upper = Layer::raster("upper", doc.pixel_format());
+    upper.surface_mut().unwrap().write_pixel(1, 0, &[0.7, 0.2, 0.3, 0.6, 1.]);
+    let merged = merge_down(&doc, &lower, &upper);
+    assert_eq!(merged.surface().unwrap().pixel(0, 0), lower.surface().unwrap().pixel(0, 0));
+    assert_eq!(merged.surface().unwrap().pixel(1, 0), upper.surface().unwrap().pixel(1, 0));
 }

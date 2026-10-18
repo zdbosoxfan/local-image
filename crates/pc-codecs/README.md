@@ -34,11 +34,11 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | PNG | yes | yes | U8, U16 | Gray, GrayA, RGB, RGBA | yes | yes (iCCP) | yes (eXIf) | yes (iTXt `XML:com.adobe.xmp`) | yes (pHYs) | yes (tEXt/zTXt/iTXt) | no | `png` |
 | JPEG | yes | yes | U8 | Gray, RGB, CMYK | no | yes (multi-segment APP2) | yes (APP1) | yes (APP1) | yes (JFIF) | no | yes | `zune-jpeg` / `jpeg-encoder` |
-| TIFF | yes | yes | U8, U16, F32 | all six (CMYK, CMYK+A included) | yes | yes (tag 34675) | no | yes (tag 700) | yes | yes (Description, Make, Model, Software, DateTime, Artist, Copyright) | no | `tiff` |
+| TIFF | yes | yes | U8, U16, F32 | all eight (CMYK, CMYK+A, CIELab, CIELab+A included; Lab writes U8/U16) | yes | yes (tag 34675) | yes (Exif and GPS directories) | yes (tag 700) | yes | yes (Description, Make, Model, Software, DateTime, Artist, Copyright) | no | `tiff` |
 | WebP | yes | yes (lossless only) | U8 | RGB, RGBA | yes | yes | yes | yes | no | no | no | `image-webp` |
 | GIF | yes | yes | U8 | RGBA | 1-bit | no | no | no | no | no | yes (256-colour palette) | `image` |
 | BMP | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |
-| TGA | yes | yes | U8 | Gray, GrayA, RGB, RGBA | yes | no | no | no | no | no | no | `image` |
+| TGA | yes | yes | U8 | Gray, GrayA, RGB, RGBA | yes | no | no | no | no | no | no | `image` (read) / built in (RLE write, one scanline per packet) |
 | ICO | yes | yes | U8 | RGBA (at most 256×256) | yes | no | no | no | no | no | no | `image` |
 | Netpbm (PBM/PGM/PPM/PAM/PFM) | yes | yes | U8, U16, F32 (float: PFM gray/RGB only) | all six (PAM `CMYK`/`CMYK_ALPHA`) | yes (PAM) | no | no | no | no | no | no | built in |
 | QOI | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |

@@ -1,5 +1,6 @@
 //! The top-level [`PsdFile`] model, parser and writer.
 
+use crate::Compression;
 use crate::error::{PsdError, Result};
 use crate::header::{ColorMode, Header, Version};
 use crate::image_data::ImageData;
@@ -90,6 +91,13 @@ pub struct PsdFile {
 impl PsdFile {
     /// Parses a PSD or PSB file.
     pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        Self::from_bytes_recovering(data, |_| false).map(|(file, _)| file)
+    }
+
+    /// Accepts damage confined to the merged image when the caller can use the parsed layers.
+    /// The returned error must be reported to the user; encoded bytes remain intact.
+    /// Missing compression fields and safety-limit failures are always fatal.
+    pub fn from_bytes_recovering(data: &[u8], recover: impl FnOnce(&Self) -> bool) -> Result<(Self, Option<PsdError>)> {
         let mut r = Reader::new(data);
         let header = Header::read(&mut r)?;
         let psb = header.version.is_psb();
@@ -144,8 +152,29 @@ impl PsdFile {
                 Err(_) => {}
             }
         }
-        let image_data = ImageData::read(&mut r, &header)?;
-        Ok(PsdFile { header, color_mode_data, resources, layer_info, layer_info_placement, global_layer_mask, global_blocks, layer_mask_trailing, image_data })
+        let mut encoded = r.clone();
+        let image_data = ImageData { compression: Compression::Raw, data: Vec::new() };
+        let mut file =
+            PsdFile { header, color_mode_data, resources, layer_info, layer_info_placement, global_layer_mask, global_blocks, layer_mask_trailing, image_data };
+        let error = match ImageData::read(&mut r, &file.header) {
+            Ok(image) => {
+                file.image_data = image;
+                None
+            }
+            Err(error) => {
+                if matches!(error, PsdError::LimitExceeded(_)) || !recover(&file) {
+                    return Err(error);
+                }
+                let compression = Compression::from_u16(encoded.u16()?);
+                let source = encoded.peek_rest();
+                let mut data = Vec::new();
+                data.try_reserve_exact(source.len()).map_err(|_| PsdError::LimitExceeded("not enough memory to retain the damaged merged image"))?;
+                data.extend_from_slice(source);
+                file.image_data = ImageData { compression, data };
+                Some(error)
+            }
+        };
+        Ok((file, error))
     }
 
     /// Serializes the file.
