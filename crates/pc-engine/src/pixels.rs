@@ -53,8 +53,10 @@ fn adjusted(s: &Surface, r: Rect, adj: &Adjustment, selection: Option<&Surface>,
         let mut buf = Buffer { rect: r, px: raw.par_chunks_exact(n).map(|p| to_rgba(&fmt, p)).collect() };
         let orig = buf.clone();
         // 32-bit documents get the float behaviour of an adjustment layer there (Levels doesn't clip);
-        // integer depths keep the unrounded, clipped curves.
-        let depth = (fmt.sample == photocraft_color::SampleType::F32).then_some(fmt.sample);
+        // integer depths keep the unrounded, clipped curves. Threshold and Posterize split on the
+        // surface's whole samples, so they always get its depth, as an adjustment layer does.
+        let samples_split = matches!(adj, Adjustment::Threshold { .. } | Adjustment::Posterize { .. });
+        let depth = (fmt.sample == photocraft_color::SampleType::F32 || samples_split).then_some(fmt.sample);
         adjust::apply_depth(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample), depth);
         let w = r.width() as usize;
         let mut out = vec![0.0; raw.len()];
