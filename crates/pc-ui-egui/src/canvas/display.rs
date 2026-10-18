@@ -329,7 +329,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
         let longest = doc.size.width.max(doc.size.height);
-        let factor = longest.div_ceil(MAX_TEXTURE).max(1);
+        let factor = longest.div_ceil(texture_side(ctx)).max(1);
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
