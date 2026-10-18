@@ -11472,6 +11472,13 @@
           "url": "https://github.com/RazrFalcon/roxmltree"
         },
         {
+          "name": "roxmltree",
+          "version": "0.21.1",
+          "used_for": "Represent an XML as a read-only tree.",
+          "licence": "MIT OR Apache-2.0",
+          "url": "https://github.com/RazrFalcon/roxmltree"
+        },
+        {
           "name": "rsa",
           "version": "0.9.10",
           "used_for": "Pure Rust RSA implementation",
