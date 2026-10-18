@@ -1,8 +1,9 @@
 //! File › Export › Export As… (and Quick Export as PNG): format, quality, transparency and scale,
 //! with a preview and an estimated file size. The estimate encodes a small proxy and scales by
-//! pixel count, so the dialog stays instant on 36 MP documents.
+//! pixel count, so the dialog stays instant on 36 MP documents. A many-layer or very large
+//! document is reduced and encoded on a worker thread instead of inside the UI frame.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use li_raster::resample::ResampleChoice;
 use photocraft_doc::Document;
@@ -169,12 +170,15 @@ pub fn quick_export_layer_png(app: &mut PhotocraftApp, layer: photocraft_doc::La
 }
 
 /// The document a dialog exports: the whole image, or one layer (`__layer`).
-fn source_document(app: &PhotocraftApp, f: &Map<String, Value>) -> Result<Arc<Document>, String> {
-    let st = app.session.active().ok_or("no document")?;
+fn source_document_from(doc: Arc<Document>, f: &Map<String, Value>) -> Result<Arc<Document>, String> {
     match f.get("__layer").and_then(Value::as_u64) {
-        Some(id) => photocraft_engine::layer_menu_cmds::layer_document(&st.doc, photocraft_doc::LayerId(id)).map(Arc::new).map_err(|e| e.to_string()),
-        None => Ok(st.doc.clone()),
+        Some(id) => photocraft_engine::layer_menu_cmds::layer_document(&doc, photocraft_doc::LayerId(id)).map(Arc::new).map_err(|e| e.to_string()),
+        None => Ok(doc),
     }
+}
+
+fn source_document(app: &PhotocraftApp, f: &Map<String, Value>) -> Result<Arc<Document>, String> {
+    source_document_from(app.session.active().ok_or("no document")?.doc.clone(), f)
 }
 
 fn s(f: &Map<String, Value>, k: &str) -> String {
@@ -234,15 +238,139 @@ fn settings(f: &Map<String, Value>) -> ExportSettings {
     }
 }
 
-/// Estimated size (bytes) from a ≤512 px proxy encode, scaled by pixel count.
-fn estimate(app: &PhotocraftApp, doc: &Document, f: &Map<String, Value>) -> Option<u64> {
-    let export = app.services.export.as_ref()?;
-    let proxy = export_document(doc, f, Some(512)).ok()?;
-    let (bytes, _) = export(&proxy, &format!("estimate.{}", s_fmt(f)), &settings(f)).ok()?;
+/// The preview and the size estimate share one reduced document: resizing every layer twice is
+/// what froze the dialog on large layered files.
+fn preview_proxy(doc: &Document, f: &Map<String, Value>) -> Result<Document, String> {
+    export_document(doc, f, Some(512))
+}
+
+/// File size at full scale from the encoded size of the ≤512 px `proxy`, by pixel count.
+fn scaled_estimate(bytes: usize, doc: &Document, proxy: &Document, f: &Map<String, Value>) -> u64 {
     let scale = n(f, "scale", 100.0) / 100.0;
     let full = doc.size.width as f64 * scale * doc.size.height as f64 * scale;
     let small = (proxy.size.width as f64 * proxy.size.height as f64).max(1.0);
-    Some((bytes.len() as f64 * full / small) as u64)
+    (bytes as f64 * full / small) as u64
+}
+
+fn estimate(app: &PhotocraftApp, doc: &Document, proxy: &Document, f: &Map<String, Value>) -> Option<u64> {
+    let export = app.services.export.as_ref()?;
+    let (bytes, _) = export(proxy, &format!("estimate.{}", s_fmt(f)), &settings(f)).ok()?;
+    Some(scaled_estimate(bytes.len(), doc, proxy, f))
+}
+
+/// What the dialog shows for one set of options: the thumbnail's pixels and the size estimate.
+struct PreviewPixels {
+    estimate: Option<u64>,
+    width: usize,
+    height: usize,
+    rgba: Vec<u8>,
+}
+
+fn preview_pixels(proxy: &Document, estimate: Option<u64>) -> PreviewPixels {
+    let img = photocraft_compose::thumbnail(proxy, 360);
+    PreviewPixels { estimate, width: img.width as usize, height: img.height as usize, rgba: img.pixels }
+}
+
+fn preview_sync(app: &PhotocraftApp, doc: &Document, f: &Map<String, Value>) -> Result<PreviewPixels, String> {
+    let proxy = preview_proxy(doc, f)?;
+    Ok(preview_pixels(&proxy, estimate(app, doc, &proxy, f)))
+}
+
+#[derive(Clone)]
+struct CachedPreview {
+    signature: String,
+    estimate: Option<u64>,
+    /// `None` when the preview could not be made.
+    texture: Option<Arc<egui::TextureHandle>>,
+}
+
+fn cache_preview(ui: &mut egui::Ui, key: egui::Id, signature: String, result: Result<PreviewPixels, String>) -> CachedPreview {
+    let preview = match result {
+        Ok(pixels) => {
+            let image = egui::ColorImage::from_rgba_unmultiplied([pixels.width, pixels.height], &pixels.rgba);
+            let texture = Arc::new(ui.ctx().load_texture("export-preview", image, egui::TextureOptions::LINEAR));
+            CachedPreview { signature, estimate: pixels.estimate, texture: Some(texture) }
+        }
+        Err(error) => {
+            log::warn!("Export As preview failed: {error}");
+            CachedPreview { signature, estimate: None, texture: None }
+        }
+    };
+    ui.data_mut(|d| d.insert_temp(key, preview.clone()));
+    preview
+}
+
+#[derive(Clone)]
+struct PendingPreview {
+    key: egui::Id,
+    signature: String,
+    result: Arc<Mutex<Option<Result<PreviewPixels, String>>>>,
+}
+
+/// Many layers or many pixels: reducing the document is too slow for a UI frame.
+fn background_preview_needed(doc: &Document) -> bool {
+    doc.walk().len() > 32 || u64::from(doc.size.width) * u64::from(doc.size.height) > 16_000_000
+}
+
+/// The result of the document's running preview job once it is done (`None` while it runs or
+/// has just been started). One job per document, so dragging a slider doesn't start a worker per
+/// tick; a finished job for options that have since changed is dropped and a new one starts.
+fn poll_or_start_preview(
+    ui: &mut egui::Ui,
+    key: egui::Id,
+    signature: &str,
+    doc: Arc<Document>,
+    fields: &Map<String, Value>,
+) -> Option<Result<PreviewPixels, String>> {
+    let pending_key = egui::Id::new(("export-preview-pending", doc.id.0));
+    let pending: Option<PendingPreview> = ui.data(|d| d.get_temp(pending_key));
+    if let Some(pending) = pending {
+        let result = pending.result.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()?;
+        ui.data_mut(|d| d.remove::<PendingPreview>(pending_key));
+        if pending.key == key && pending.signature == signature {
+            return Some(result);
+        }
+    }
+    let result = Arc::new(Mutex::new(None));
+    let shared = result.clone();
+    let ctx = ui.ctx().clone();
+    let fields = fields.clone();
+    let started = std::thread::Builder::new().name("export-preview".into()).spawn(move || {
+        let prepared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let source = source_document_from(doc.clone(), &fields).unwrap_or(doc);
+            let proxy = preview_proxy(&source, &fields)?;
+            let estimate = estimate_encoded(&source, &proxy, &fields);
+            Ok::<_, String>(preview_pixels(&proxy, estimate))
+        }))
+        .unwrap_or_else(|_| Err("preview worker panicked".into()));
+        *shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(prepared);
+        ctx.request_repaint();
+    });
+    match started {
+        Ok(_) => {
+            ui.data_mut(|d| d.insert_temp(pending_key, PendingPreview { key, signature: signature.to_string(), result }));
+            None
+        }
+        Err(error) => Some(Err(format!("could not start preview worker: {error}"))),
+    }
+}
+
+/// The size estimate for the worker: the app's exporter (`Services::export`) can't leave the UI
+/// thread, so this encodes with the same engine entry point and options.
+fn estimate_encoded(doc: &Document, proxy: &Document, f: &Map<String, Value>) -> Option<u64> {
+    let settings = settings(f);
+    let mut options = photocraft_io::ExportOptions::default();
+    if let Some(quality) = settings.jpeg_quality {
+        options.encode.jpeg_quality = quality;
+    }
+    options.encode.webp_lossless = settings.webp_lossless;
+    if let Some(quality) = settings.webp_quality {
+        options.encode.webp_quality = quality;
+    }
+    options.tiff_layers = settings.tiff_layers;
+    options.xmp = if settings.xmp_all { photocraft_io::XmpEmbed::All } else { photocraft_io::XmpEmbed::None };
+    let bytes = photocraft_engine::vector_integration::export_document(proxy, &format!("estimate.{}", s_fmt(f)), &options).ok()?.bytes;
+    Some(scaled_estimate(bytes.len(), doc, proxy, f))
 }
 
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>) {
@@ -337,28 +465,34 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
                 n(f, "scale", 100.0),
                 s(f, "metadata")
             );
-            let cached: Option<(String, Option<u64>, Arc<egui::TextureHandle>)> = ui.data(|d| d.get_temp(key));
-            let (size, tex) = match cached.filter(|c| c.0 == sig) {
-                Some((_, size, tex)) => (size, tex),
+            let cached: Option<CachedPreview> = ui.data(|d| d.get_temp(key));
+            let preview = match cached.filter(|cached| cached.signature == sig) {
+                Some(cached) => Some(cached),
                 None => {
-                    let src = source_document(app, f).unwrap_or_else(|_| doc.clone());
-                    let size = estimate(app, &src, f);
-                    let img = photocraft_compose::thumbnail(&export_document(&src, f, Some(360)).unwrap_or_else(|_| (*src).clone()), 360);
-                    let color = egui::ColorImage::from_rgba_unmultiplied([img.width as usize, img.height as usize], &img.pixels);
-                    let tex = Arc::new(ui.ctx().load_texture("export-preview", color, egui::TextureOptions::LINEAR));
-                    ui.data_mut(|d| d.insert_temp(key, (sig, size, tex.clone())));
-                    (size, tex)
+                    let result = if background_preview_needed(&doc) {
+                        poll_or_start_preview(ui, key, &sig, doc.clone(), f)
+                    } else {
+                        let source = source_document(app, f).unwrap_or_else(|_| doc.clone());
+                        Some(preview_sync(app, &source, f))
+                    };
+                    result.map(|result| cache_preview(ui, key, sig, result))
                 }
             };
             let side = 300.0;
             let (r, _) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::hover());
             crate::widgets::checker(ui.painter(), r, 8.0);
-            let ts = tex.size_vec2();
-            let k = (side / ts.x.max(ts.y)).min(1.0e3);
-            let ir = egui::Rect::from_center_size(r.center(), ts * k);
-            ui.painter().image(tex.id(), ir, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            if let Some(tex) = preview.as_ref().and_then(|preview| preview.texture.as_ref()) {
+                let ts = tex.size_vec2();
+                let k = (side / ts.x.max(ts.y)).min(1.0e3);
+                let ir = egui::Rect::from_center_size(r.center(), ts * k);
+                ui.painter().image(tex.id(), ir, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+            } else if preview.is_none() {
+                ui.put(egui::Rect::from_center_size(r.center(), egui::vec2(24.0, 24.0)), egui::Spinner::new());
+            } else {
+                ui.painter().text(r.center(), egui::Align2::CENTER_CENTER, tl!("Preview"), egui::FontId::proportional(12.0), t.text_dim);
+            }
             ui.painter().rect_stroke(r, 0.0, egui::Stroke::new(1.0, t.separator), egui::StrokeKind::Outside);
-            let est = size.map_or("—".to_string(), |b| crate::sizing::human_bytes(b as f64));
+            let est = preview.as_ref().and_then(|preview| preview.estimate).map_or("—".to_string(), |b| crate::sizing::human_bytes(b as f64));
             ui.label(egui::RichText::new(format!("{}  ≈ {est}", s_fmt(f).to_uppercase())).color(t.text_dim).size(11.5));
         });
     });
@@ -442,6 +576,44 @@ pub fn quick_export_png(app: &mut PhotocraftApp) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layered_preview_runs_outside_the_ui_frame() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 32, "height": 16})).unwrap();
+        for _ in 0..33 {
+            app.run("layer.new.layer", json!({})).unwrap();
+        }
+        let doc = app.session.active().unwrap().doc.clone();
+        assert!(background_preview_needed(&doc));
+        let fields = Map::from_iter([("format".into(), json!("png")), ("scale".into(), json!(100))]);
+        let ctx = egui::Context::default();
+        let key = egui::Id::new("layered-preview-test");
+        let mut result = None;
+        let poll = |result: &mut Option<Result<PreviewPixels, String>>| {
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    *result = poll_or_start_preview(ui, key, "png100", doc.clone(), &fields);
+                });
+            });
+            output.textures_delta.clear();
+        };
+        poll(&mut result);
+        assert!(result.is_none(), "the first UI frame must only start the worker");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            poll(&mut result);
+            if let Some(preview) = result.take() {
+                let preview = preview.unwrap();
+                assert_eq!((preview.width, preview.height), (32, 16));
+                assert_eq!(preview.rgba.len(), 32 * 16 * 4);
+                assert!(preview.estimate.is_some_and(|bytes| bytes > 0));
+                break;
+            }
+            assert!(std::time::Instant::now() < deadline, "background preview did not complete");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
 
     #[test]
     fn export_document_scales_and_flattens() {
