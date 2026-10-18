@@ -31,10 +31,14 @@ pub fn install_hook() {
                     .unwrap_or("(non-text panic payload)");
                 let location = info.location().map_or_else(|| "(unknown)".to_string(), |l| l.to_string());
                 let thread = std::thread::current();
+                // Release builds ship without symbols, so frames print as addresses (`{:#}`). The
+                // anchor's address gives the load slide, which with the separate debug file
+                // (.dSYM / .debug) symbolicates them offline: see docs/RELEASE.md.
                 let report = format!(
-                    "Local Image crash report\nversion: {}\nthread: {}\nlocation: {location}\nmessage: {message}\n\nbacktrace:\n{}\n",
+                    "Local Image crash report\nversion: {}\nthread: {}\nlocation: {location}\nmessage: {message}\nanchor: install_hook @ {:#x}\n\nbacktrace:\n{:#}\n",
                     photocraft_engine::build_info::long_version(),
                     thread.name().unwrap_or("(unnamed)"),
+                    install_hook as *const () as usize,
                     std::backtrace::Backtrace::force_capture()
                 );
                 let _ = write_report(&dir, std::time::SystemTime::now(), &report);

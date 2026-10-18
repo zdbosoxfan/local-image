@@ -14,7 +14,7 @@ build = "build.rs"
 sam = ["lightcraft-engine/sam"]
 # Open HEIC/HEIF photos (the optional photocraft-heif crate). Not default so distributors choose
 # it; official builds (CI, packaging/, release) build with `--features heif`.
-heif = ["photocraft-codecs/heif"]
+heif = ["photocraft-codecs/heif", "local-image-cli/heif"]
 
 [lints]
 workspace = true
@@ -35,6 +35,9 @@ photocraft-codecs = { workspace = true }
 photocraft-io = { workspace = true }
 photocraft-format = { workspace = true }
 photocraft-automation = { workspace = true }
+# The command line: this executable runs it when started as `local-image-cli` (one binary ships
+# as both; see `cli_invocation` in main.rs).
+local-image-cli = { path = "../local-image-cli" }
 photocraft-ui-egui = { workspace = true }
 # The Library mode: LightCraft's catalog and its UI (library_host.rs).
 lightcraft-ui-egui = { workspace = true }

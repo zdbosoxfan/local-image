@@ -1,6 +1,7 @@
-//! `local-image --install [--system]` and `local-image --uninstall` on Linux: copies the app (and
-//! `local-image-cli` beside it) into `~/.local/bin` (or `/usr/local/bin` with `--system`) and adds
-//! the desktop entry and icons so Local Image appears in the application menu with its file types.
+//! `local-image --install [--system]` and `local-image --uninstall` on Linux: copies the app into
+//! `~/.local/bin` (or `/usr/local/bin` with `--system`), links `local-image-cli` to it (the same
+//! executable runs the command line under that name), and adds the desktop entry and icons so
+//! Local Image appears in the application menu with its file types.
 //! Settings and the library are never touched.
 
 use std::path::{Path, PathBuf};
@@ -40,6 +41,19 @@ fn write(path: &Path, bytes: &[u8], exec: bool) -> Result<(), String> {
     staged.commit().map_err(|e| format!("{}: {e}", path.display()))
 }
 
+/// `bin/local-image-cli` as a relative symlink to `local-image`, replacing whatever is there (an
+/// older install shipped a separate CLI executable). Created beside and renamed into place.
+fn link_cli(bin: &Path) -> Result<(), String> {
+    let link = bin.join("local-image-cli");
+    let staged = bin.join(format!(".local-image-cli.{}", std::process::id()));
+    let _ = std::fs::remove_file(&staged);
+    std::os::unix::fs::symlink("local-image", &staged).map_err(|e| format!("{}: {e}", staged.display()))?;
+    std::fs::rename(&staged, &link).map_err(|e| {
+        let _ = std::fs::remove_file(&staged);
+        format!("{}: {e}", link.display())
+    })
+}
+
 /// Installs from wherever this binary runs.
 pub fn install(system: bool) -> Result<String, String> {
     let p = prefix(system)?;
@@ -47,11 +61,8 @@ pub fn install(system: bool) -> Result<String, String> {
     let bin = p.join("bin");
     if me.parent() != Some(bin.as_path()) {
         write(&bin.join("local-image"), &std::fs::read(&me).map_err(|e| e.to_string())?, true)?;
-        let cli = me.with_file_name("local-image-cli");
-        if cli.exists() {
-            write(&bin.join("local-image-cli"), &std::fs::read(&cli).map_err(|e| e.to_string())?, true)?;
-        }
     }
+    link_cli(&bin)?;
     let exec = bin.join("local-image");
     let desktop = DESKTOP.replace("Exec=local-image %F", &format!("Exec={} %F", exec.display()));
     write(&p.join("share/applications").join(format!("{APP_ID}.desktop")), desktop.as_bytes(), false)?;
@@ -100,6 +111,18 @@ mod tests {
             super::write(&path, b"executable", true).unwrap();
             assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o755);
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_cli_is_installed_as_a_link_replacing_an_old_copy() {
+        let dir = std::env::temp_dir().join(format!("install-cli-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("local-image-cli"), b"old separate executable").unwrap();
+        super::link_cli(&dir).unwrap();
+        super::link_cli(&dir).unwrap();
+        assert_eq!(std::fs::read_link(dir.join("local-image-cli")).unwrap(), std::path::Path::new("local-image"));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

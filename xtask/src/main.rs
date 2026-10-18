@@ -112,6 +112,25 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The command-line name. Packages ship one executable, `local-image`, which runs the CLI when
+/// started under this name (`apps/local-image/src/main.rs`).
+const CLI: &str = "local-image-cli";
+
+/// `dir/local-image-cli` as a relative symlink to `local-image` beside it.
+#[cfg(unix)]
+fn link_cli(dir: &Path) -> Result<()> {
+    let link = dir.join(CLI);
+    if link.symlink_metadata().is_ok() {
+        std::fs::remove_file(&link)?;
+    }
+    std::os::unix::fs::symlink("local-image", &link).with_context(|| link.display().to_string())
+}
+
+#[cfg(not(unix))]
+fn link_cli(_dir: &Path) -> Result<()> {
+    bail!("macOS and Linux packages must be built on a Unix host")
+}
+
 fn sha256_hex(path: &Path) -> Result<String> {
     use sha2::Digest as _;
     let mut h = sha2::Sha256::new();
@@ -172,19 +191,13 @@ fn package_linux(skip_build: bool) -> Result<()> {
     println!("Local Image {v} for Linux {arch}");
     if !skip_build {
         let mut c = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        c.args([
-            "build",
-            "--offline",
-            "--release",
-            "--locked",
-            "-p",
-            "local-image",
-            "-p",
-            "local-image-cli",
-            "--features",
-            "local-image/heif,local-image-cli/heif",
-        ])
-        .current_dir(root());
+        c.args(["build", "--offline", "--release", "--locked", "-p", "local-image", "--features", "local-image/heif"])
+            .current_dir(root())
+            // Keep the line tables in the executable for `split_debug_info` to move into a GNU debug
+            // file. The profile's packed split DWARF is no use here: the .dwp needs the skeleton units
+            // that stripping removes from the executable.
+            .env("CARGO_PROFILE_RELEASE_STRIP", "none")
+            .env("CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO", "off");
         build_env(&mut c);
         run("cargo build", &mut c)?;
     }
@@ -192,26 +205,47 @@ fn package_linux(skip_build: bool) -> Result<()> {
     let stage = target_dir().join("linux-package").join(&name);
     let _ = std::fs::remove_dir_all(&stage);
     std::fs::create_dir_all(&stage)?;
-    for bin in ["local-image", "local-image-cli"] {
-        let from = target_dir().join("release").join(bin);
-        std::fs::copy(&from, stage.join(bin)).with_context(|| format!("{} (build first, or drop --skip-build)", from.display()))?;
-    }
+    let from = target_dir().join("release").join("local-image");
+    std::fs::copy(&from, stage.join("local-image")).with_context(|| format!("{} (build first, or drop --skip-build)", from.display()))?;
+    let debug_name = format!("{name}.debug");
+    let debug = dist()?.join(&debug_name);
+    split_debug_info(&stage.join("local-image"), &debug)?;
+    link_cli(&stage)?;
     for f in ["README.md", "LICENSE"] {
         std::fs::copy(root().join(f), stage.join(f))?;
     }
     copy_dir(&root().join("licenses"), &stage.join("licenses"))?;
     copy_distribution_attributions(&stage)?;
-    run("local-image-cli --version", Command::new(stage.join("local-image-cli")).arg("--version"))?;
+    run("local-image-cli --version", Command::new(stage.join(CLI)).arg("--version"))?;
+    std::fs::write(debug.with_extension("debug.sha256"), format!("{}  {debug_name}\n", sha256_hex(&debug)?))?;
     let out = dist()?.join(format!("{name}.tar.gz"));
-    {
-        let gz = flate2::write::GzEncoder::new(std::fs::File::create(&out)?, flate2::Compression::best());
-        let mut tar = tar::Builder::new(gz);
-        tar.mode(tar::HeaderMode::Deterministic);
-        tar.append_dir_all(&name, &stage)?;
-        tar.into_inner()?.finish()?;
-    }
+    write_tarball(&stage, &name, &out)?;
     std::fs::write(out.with_extension("gz.sha256"), format!("{}  {name}.tar.gz\n", sha256_hex(&out)?))?;
     println!("{} ({} MB)", out.display(), std::fs::metadata(&out)?.len() / 1_000_000);
+    Ok(())
+}
+
+/// Move `exe`'s debug info into `debug` (shipped beside the package, not in it) and strip `exe`,
+/// leaving a GNU debuglink so gdb and addr2line find the file. Needs binutils (`readelf`, `objcopy`).
+fn split_debug_info(exe: &Path, debug: &Path) -> Result<()> {
+    let headers =
+        Command::new("readelf").args(["--section-headers", "--wide"]).arg(exe).output().context("readelf (binutils) is needed to split the debug info")?;
+    if !headers.status.success() || !String::from_utf8_lossy(&headers.stdout).contains(".debug_line") {
+        bail!("{} has no line tables to keep: build it without --skip-build (xtask keeps them)", exe.display());
+    }
+    run("extract debug info", Command::new("objcopy").arg("--only-keep-debug").arg(exe).arg(debug))?;
+    run("strip executable", Command::new("objcopy").arg("--strip-all").arg(format!("--add-gnu-debuglink={}", debug.display())).arg(exe))
+}
+
+/// `stage` as `out` (gzipped tar, entries under `name/`). Symlinks stay symlinks, so the CLI is not
+/// a second copy of the executable.
+fn write_tarball(stage: &Path, name: &str, out: &Path) -> Result<()> {
+    let gz = flate2::write::GzEncoder::new(std::fs::File::create(out)?, flate2::Compression::best());
+    let mut tar = tar::Builder::new(gz);
+    tar.mode(tar::HeaderMode::Deterministic);
+    tar.follow_symlinks(false);
+    tar.append_dir_all(name, stage)?;
+    tar.into_inner()?.finish()?;
     Ok(())
 }
 
@@ -264,7 +298,8 @@ fn package_windows(arch: &str, skip_build: bool) -> Result<()> {
         run("cargo build", &mut c)?;
     }
     let bin = target_dir().join(target).join("release");
-    // The app must be a GUI program (no console window); the CLI a console one.
+    // The app must be a GUI program (no console window); the CLI a console one. That is why
+    // Windows ships two executables where macOS and Linux link the CLI name to the app.
     for (exe, subsystem) in [("local-image.exe", 2u16), ("local-image-cli.exe", 3)] {
         let (m, s) = pe_header(&bin.join(exe))?;
         if m != machine {
@@ -803,6 +838,34 @@ mod tests {
         assert!(stage.join("assets/fonts/OFL-Inter.txt").is_file());
         assert!(stage.join("assets/fonts/OFL-JetBrainsMono.txt").is_file());
         std::fs::remove_dir_all(stage).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn linux_package_ships_the_cli_as_a_link_to_the_one_executable() {
+        let dir = std::env::temp_dir().join(format!("li-package-cli-link-{}", std::process::id()));
+        let stage = dir.join("stage");
+        std::fs::create_dir_all(&stage).unwrap();
+        std::fs::write(stage.join("local-image"), b"executable").unwrap();
+        link_cli(&stage).unwrap();
+        link_cli(&stage).unwrap();
+        assert_eq!(std::fs::read_link(stage.join(CLI)).unwrap(), Path::new("local-image"));
+
+        let out = dir.join("package.tar.gz");
+        write_tarball(&stage, "pkg", &out).unwrap();
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(std::fs::File::open(&out).unwrap()));
+        let mut seen = Vec::new();
+        for entry in archive.entries().unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path().unwrap().into_owned();
+            if path == Path::new("pkg/local-image-cli") {
+                assert!(entry.header().entry_type().is_symlink());
+                assert_eq!(entry.link_name().unwrap().unwrap(), Path::new("local-image"));
+            }
+            seen.push(path);
+        }
+        assert!(seen.contains(&PathBuf::from("pkg/local-image")) && seen.contains(&PathBuf::from("pkg/local-image-cli")), "{seen:?}");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

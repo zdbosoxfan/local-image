@@ -131,7 +131,39 @@ mod control_port_tests {
     }
 }
 
+/// Whether the process was started under the command-line name (`local-image-cli`, with any
+/// extension): the installed CLI is a link to this executable, so `argv[0]` picks the mode.
+fn cli_invocation(argv0: Option<&std::ffi::OsStr>) -> bool {
+    argv0.and_then(|arg| std::path::Path::new(arg).file_stem()).is_some_and(|stem| stem == "local-image-cli")
+}
+
+#[cfg(test)]
+mod cli_invocation_tests {
+    use super::cli_invocation;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn the_cli_name_selects_cli_mode() {
+        for argv0 in ["local-image-cli", "./local-image-cli", "/Applications/Local Image.app/Contents/MacOS/local-image-cli", "local-image-cli.exe"] {
+            assert!(cli_invocation(Some(OsStr::new(argv0))), "{argv0}");
+        }
+    }
+
+    #[test]
+    fn other_names_start_the_app() {
+        for argv0 in ["local-image", "/usr/local/bin/local-image", "local-image.exe", "local-image-cli-old", "cli/local-image", ""] {
+            assert!(!cli_invocation(Some(OsStr::new(argv0))), "{argv0}");
+        }
+        assert!(!cli_invocation(None));
+    }
+}
+
 fn main() -> eframe::Result {
+    // The command line never touches windowing, the GPU, the app log or the crash hook, so its
+    // output and exit status match the standalone `local-image-cli` binary.
+    if cli_invocation(std::env::args_os().next().as_deref()) {
+        std::process::exit(photocraft_cli::process_main());
+    }
     crash_guard::install_hook();
     let mut control_port: Option<u16> = None;
     let mut control_arg_errors: Vec<String> = Vec::new();

@@ -21,9 +21,21 @@ include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
 pub const UI_JAPANESE_FAMILY: &str = "BIZ UDPGothic";
 
 impl CraftFont {
+    /// Whether the font is meant for `script` (ISO 15924, e.g. `"Jpan"`).
+    pub fn covers(&self, script: &str) -> bool {
+        self.scripts.contains(&script)
+    }
+
+    /// Whether the font can stand in for `script`: it is meant for it, or (until craft-fonts has a
+    /// Traditional Chinese face) it is a Simplified Chinese face, which carries the Traditional
+    /// characters too, with mainland glyph forms; still closer than the Japanese faces.
+    pub fn serves(&self, script: &str) -> bool {
+        self.covers(script) || (script == "Hant" && self.covers("Hans"))
+    }
+
     /// True for a font meant for Japanese text.
     pub fn is_japanese(&self) -> bool {
-        self.scripts.contains(&"Jpan")
+        self.covers("Jpan")
     }
 
     /// True for a Mincho (serif) face.

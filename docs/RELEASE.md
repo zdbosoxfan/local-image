@@ -57,16 +57,20 @@ Actions artifacts with SHA-256 files; it never pushes a tag, creates a GitHub re
 an artifact to the releases API. Keep the existing macOS hardware workflow for broader Apple
 integration acceptance.
 
-Linux: `cargo +1.98.1 xtask package linux` builds the HEIF-enabled app and CLI with SAM off and
-creates the existing tarball with all notices. `packaging/linux/appimage.sh` packages those
-binaries into an AppDir and an x86_64 AppImage. It uses the AppImage project’s standard AppRun,
+Linux: `cargo +1.98.1 xtask package linux` builds the HEIF-enabled app with SAM off and creates
+the existing tarball with all notices. The package has one executable, `local-image`;
+`local-image-cli` beside it is a relative symlink to it (the app runs the command line when
+started under that name), kept as a symlink in the tarball and the AppDir.
+`packaging/linux/appimage.sh` packages that payload into an AppDir and an x86_64 AppImage. It uses the AppImage project’s standard AppRun,
 desktop entry and icon layout. The external packaging tool and AppImage container runtime are not Rust build dependencies.
 The workflow verifies the published tool and type-2 runtime SHA-256 values before use; the `continuous` URL
 moves, so tool refreshes must deliberately update that hash after review (a change fails closed).
 The AppImage runtime still requires the host's Linux display/graphics drivers; Ubuntu 22.04
 sets the glibc baseline. Check distribution compatibility on real supported hosts before a
-public release. AppImage's launcher forwards files/arguments to the app; the CLI is in the
-AppDir's `usr/bin`. The tarball remains available for direct CLI use.
+public release. AppImage's launcher forwards files/arguments to the app; the CLI symlink is in the
+AppDir's `usr/bin`. The tarball remains available for direct CLI use. Windows (experimental)
+still ships two executables: the app is a GUI-subsystem program, so it cannot also be the
+console CLI.
 
 macOS: `packaging/macos/release.sh` invokes the existing `cargo +1.98.1 xtask package macos`.
 It packages the native app, a drag-to-Applications `.dmg`, the existing `.pkg`, and a bundle ZIP.
@@ -92,6 +96,39 @@ stops the job; it cannot fall back to unsigned output after a configured signing
 or absent secrets skip the corresponding stage clearly. The temporary certificate/keychain is
 removed on exit. Upload permission is read-only for repository contents, and no credentials are
 included in artifacts. Do not enable shell command tracing in this script.
+
+## Debug symbols and crash reports
+
+Release executables are stripped (`strip = "symbols"` in the release profile). Their line
+tables are kept outside the packages, as release artifacts beside them:
+
+* macOS: `local-image-<version>-macos-arm64.dSYM.zip` next to the `.pkg` (the release profile's
+  `split-debuginfo = "packed"` makes the `.dSYM`; `xtask package macos` checks its UUID matches
+  the shipped executable).
+* Linux: `local-image-<version>-linux-x86_64.debug`, a GNU debug file that `xtask package linux`
+  splits off with binutils' `objcopy`; the executable carries a debuglink to it. The tarball and
+  the AppImage contain only the stripped executable.
+
+Keep each release's symbol file: it only matches the executable it was built with. A crash
+report (`crash-*.txt` in the log folder) shows the panic location (file and line) and message
+in plain text, then the backtrace as raw addresses plus an `anchor: install_hook @ 0x…` line.
+To symbolicate the addresses, find the anchor's link-time address in the symbol file, derive
+the load address, and look the frames up:
+
+```sh
+# macOS
+unzip local-image-<version>-macos-arm64.dSYM.zip
+nm local-image.dSYM/Contents/Resources/DWARF/* | grep 'crash_guard12install_hook$'
+# load = anchor − (that address − 0x100000000)
+xcrun atos -arch arm64 -o local-image.dSYM -l <load> <frame address>…
+
+# Linux
+nm local-image-<version>-linux-x86_64.debug | grep 'crash_guard12install_hook$'
+# base = anchor − that address; each frame's file offset is its address − base
+addr2line -f -C -i -e local-image-<version>-linux-x86_64.debug <frame address − base>…
+```
+
+Development builds next to their `.dSYM` (or unstripped) print symbolicated backtraces directly.
 
 ## Update checks and privacy
 

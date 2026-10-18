@@ -164,6 +164,17 @@ impl Args {
 
 type R = Result<(), String>;
 
+/// The `local-image-cli` process: sizes the compute pool, then runs the command line (without
+/// `argv[0]`) against stdout and stderr and returns the exit status. The standalone binary and
+/// `local-image` started under the `local-image-cli` name both call this, so they behave the same.
+pub fn process_main() -> i32 {
+    // One compute pool sized from the hardware, before anything uses rayon (`LOCAL_IMAGE_THREADS`
+    // and `RAYON_NUM_THREADS` override it).
+    lightcraft_sysmem::init(lightcraft_sysmem::Overrides::default());
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    run(&args, &mut std::io::stdout(), &mut std::io::stderr())
+}
+
 /// Run the CLI. Returns the process exit code (0 ok, 1 failure, 2 usage).
 pub fn run(args: &[String], out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let Some(cmd) = args.first() else {

@@ -26,30 +26,29 @@ pub fn package(skip_build: bool) -> Result<()> {
     if !skip_build {
         let mut cmd = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
         cmd.current_dir(root())
-            .args([
-                "build",
-                "--offline",
-                "--release",
-                "--locked",
-                "-p",
-                "local-image",
-                "-p",
-                "local-image-cli",
-                "--features",
-                "local-image/heif,local-image-cli/heif",
-            ])
+            .args(["build", "--offline", "--release", "--locked", "-p", "local-image", "--features", "local-image/heif"])
             .env("MACOSX_DEPLOYMENT_TARGET", "13.0");
         build_env(&mut cmd);
-        run("build Apple Silicon binaries", &mut cmd)?;
+        run("build Apple Silicon binary", &mut cmd)?;
     }
-    for name in ["local-image", "local-image-cli"] {
-        let source = target_dir().join("release").join(name);
-        let dest = bin.join(name);
-        std::fs::copy(&source, &dest).with_context(|| format!("{}: build release binaries first", source.display()))?;
-        run("verify arm64 executable", Command::new("lipo").arg("-verify_arch").arg("arm64").arg(&dest))?;
-        verify_libraries(&dest)?;
-        run("strip debug symbols", Command::new("strip").arg("-S").arg(&dest))?;
+    let source = target_dir().join("release").join("local-image");
+    let exe = bin.join("local-image");
+    std::fs::copy(&source, &exe).with_context(|| format!("{}: build the release binary first", source.display()))?;
+    run("verify arm64 executable", Command::new("lipo").arg("-verify_arch").arg("arm64").arg(&exe))?;
+    verify_libraries(&exe)?;
+    // The release profile strips the executable and packs its line tables into a .dSYM beside it
+    // (`split-debuginfo = "packed"`); the .dSYM ships next to the installer, not in the bundle.
+    // Cargo's `target/release/local-image.dSYM` is a symlink into `deps/`: stage the real bundle.
+    let built_dsym = source.with_extension("dSYM");
+    if dwarf_uuids(&built_dsym)? != dwarf_uuids(&exe)? {
+        bail!("{} does not match {}: rebuild instead of using --skip-build", built_dsym.display(), source.display());
     }
+    let dsym = stage.join("local-image.dSYM");
+    if dsym.exists() {
+        std::fs::remove_dir_all(&dsym)?;
+    }
+    run("stage debug symbols", Command::new("ditto").arg(built_dsym.canonicalize()?).arg(&dsym))?;
+    crate::link_cli(&bin)?;
     std::fs::write(contents.join("Info.plist"), info_plist(&version))?;
     std::fs::write(contents.join("PkgInfo"), "APPL????")?;
     for file in ["README.md", "LICENSE"] {
@@ -61,12 +60,11 @@ pub fn package(skip_build: bool) -> Result<()> {
     // Ad-hoc signing makes arm64 code valid locally. Developer ID signing is available to
     // distributors; a Developer ID installer identity can independently sign the .pkg below.
     let identity = std::env::var("MACOS_SIGN_IDENTITY").unwrap_or_else(|_| "-".into());
-    for name in ["local-image-cli", "local-image"] {
-        sign(&bin.join(name), &identity)?;
-    }
+    // The CLI is a symlink, not code: signing the executable and then the bundle seals it.
+    sign(&exe, &identity)?;
     sign(&app, &identity)?;
     run("verify app signature", Command::new("codesign").args(["--verify", "--deep", "--strict", "--verbose=2"]).arg(&app))?;
-    run("verify bundled CLI", Command::new(bin.join("local-image-cli")).arg("--version"))?;
+    run("verify bundled CLI", Command::new(bin.join(crate::CLI)).arg("--version"))?;
     let name = format!("local-image-{version}-macos-arm64.pkg");
     let output = dist()?.join(&name);
     // Disable bundle relocation: upgrading must replace /Applications/Local Image.app,
@@ -129,7 +127,11 @@ pub fn package(skip_build: bool) -> Result<()> {
     }
     run("build macOS installer", product.arg(&output))?;
     std::fs::write(output.with_extension("pkg.sha256"), format!("{}  {name}\n", sha256_hex(&output)?))?;
-    println!("{}", output.display());
+    let symbols_name = format!("local-image-{version}-macos-arm64.dSYM.zip");
+    let symbols = dist()?.join(&symbols_name);
+    run("archive debug symbols", Command::new("ditto").args(["-c", "-k", "--keepParent"]).arg(&dsym).arg(&symbols))?;
+    std::fs::write(symbols.with_extension("zip.sha256"), format!("{}  {symbols_name}\n", sha256_hex(&symbols)?))?;
+    println!("{}\n{}", output.display(), symbols.display());
     if identity == "-" {
         println!("Ad-hoc signed app; installer is for local testing. Developer ID signing and notarization require distributor credentials.");
     }
@@ -143,6 +145,21 @@ fn sign(path: &Path, identity: &str) -> Result<()> {
         cmd.args(["--options", "runtime", "--timestamp"]);
     }
     run("sign native code", cmd.arg(path))
+}
+
+/// The Mach-O UUIDs of an executable or .dSYM (`dwarfdump --uuid`), which must match for the
+/// .dSYM to symbolicate that executable.
+fn dwarf_uuids(path: &Path) -> Result<Vec<String>> {
+    let out = Command::new("dwarfdump").arg("--uuid").arg(path).output()?;
+    if !out.status.success() {
+        bail!("dwarfdump --uuid {} failed: build with the release profile (split-debuginfo = \"packed\")", path.display());
+    }
+    let uuids: Vec<String> =
+        String::from_utf8_lossy(&out.stdout).lines().filter_map(|l| l.strip_prefix("UUID: ")?.split_whitespace().next().map(str::to_owned)).collect();
+    if uuids.is_empty() {
+        bail!("{}: no Mach-O UUID", path.display());
+    }
+    Ok(uuids)
 }
 
 fn verify_libraries(binary: &Path) -> Result<()> {

@@ -359,19 +359,6 @@
             "licenses/OFL-noto-sans-thai.txt",
             "licenses/craft-fonts-NOTICE.md"
           ]
-        },
-        {
-          "name": "Brush importer test artwork",
-          "author": "rubberduck; Krita resource artists; Jay Versluis; Martin Renold and the MyPaint team",
-          "used_for": "Small CC0 fixtures validating GIMP, Krita, Procreate and MyPaint brush pack import.",
-          "licence": "CC0-1.0",
-          "licence_files": [
-            "crates/pc-io/tests/fixtures/brushes/LICENSE-CC0.txt",
-            "crates/pc-io/tests/fixtures/brushes/LICENSE-VERSLUIS.txt",
-            "crates/pc-io/tests/fixtures/brushes/SOURCES.md"
-          ],
-          "url": "https://github.com/zdbosoxfan/local-image",
-          "ours": "crates/pc-io/tests/fixtures/brushes"
         }
       ]
     },
