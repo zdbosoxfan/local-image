@@ -62,9 +62,10 @@ impl Tip {
     }
 }
 
-/// Pixel rectangle a dab can touch.
+/// Pixel rectangle a dab can touch, at any hardness (a soft tip paints past its radius, and a
+/// tiny hard one a little further than a soft one: see [`crate::tip_reach`]).
 pub fn dab_reach(d: &Dab) -> Rect {
-    let rr = (d.radius.ceil() as i32).saturating_add(1);
+    let rr = ((0..=10).map(|h| crate::tip_reach(d.radius, h as f32 / 10.0)).fold(d.radius, f32::max).ceil() as i32).saturating_add(1);
     let (cx, cy) = (d.center.x.floor() as i32, d.center.y.floor() as i32);
     if !d.center.x.is_finite() || !d.center.y.is_finite() || !d.radius.is_finite() || d.radius < 0.0 || d.radius > 5000.0 {
         return Rect::EMPTY;
@@ -138,10 +139,14 @@ pub(crate) fn segment_interruptible(
     cancel: Option<&std::sync::atomic::AtomicBool>,
     executor: Option<&dyn crate::render::StrokeExecutor>,
 ) -> Rect {
-    let rect = dab_reach(a).union(&dab_reach(b));
+    let (ar, br) = (dab_reach(a), dab_reach(b));
+    let rect = ar.union(&br);
     let (w, h) = (rect.width() as usize, rect.height() as usize);
     out.clear();
     out.resize(w * h, 0.0);
+    if ar.is_empty() || br.is_empty() {
+        return rect;
+    }
     let (ax, ay) = (a.center.x, a.center.y);
     let (ex, ey) = (b.center.x - ax, b.center.y - ay);
     let len = ex.hypot(ey);
@@ -158,7 +163,7 @@ pub(crate) fn segment_interruptible(
         *table = Some(t);
         return rect;
     }
-    let rmax = f64::from(a.radius.max(b.radius)) + 1.0;
+    let rmax = f64::from(crate::tip_reach(a.radius.max(b.radius), hardness).max(a.radius.max(b.radius))) + 1.0;
     let row = |yy: usize, out: &mut [f32], _: Option<&mut [f32]>| {
         if cancelled(cancel) {
             return;
@@ -242,7 +247,7 @@ impl LineTable {
     pub fn new(d: &Dab, hardness: f32) -> LineTable {
         let ro = d.roundness.max(0.5 / d.radius).min(1.0);
         let rm = (d.radius * ro).max(0.5);
-        let reach = f64::from(rm) + 0.5;
+        let reach = f64::from(crate::tip_reach(rm, hardness).max(rm)) + 0.5;
         let alpha = f64::from(d.alpha);
         let f = |dist: f64| -> f64 {
             let c = dab_coverage(dist as f32, rm, hardness);

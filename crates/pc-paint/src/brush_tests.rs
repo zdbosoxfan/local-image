@@ -80,10 +80,11 @@ fn hardness_profile_is_monotonic() {
     for h in [0.0f32, 0.5, 1.0] {
         let b = BrushSettings { hardness: h, ..brush() };
         let r = raster(&b, &Dab::round(Point::new(50.0, 50.0), 20.0, 1.0));
-        let prof: Vec<f32> = (0..22).map(|i| at(&r, 50 + i, 50)).collect();
+        let n = crate::tip_reach(20.0, h).ceil() as i32 + 2;
+        let prof: Vec<f32> = (0..n).map(|i| at(&r, 50 + i, 50)).collect();
         assert!(prof.windows(2).all(|w| w[1] <= w[0] + 1e-6), "h={h} {prof:?}");
         assert!(prof[0] > 0.99);
-        assert_eq!(prof[21], 0.0);
+        assert_eq!(*prof.last().unwrap(), 0.0, "no coverage beyond the tip reach");
         let mid = at(&r, 60, 50);
         if h == 1.0 {
             assert!(mid > 0.99);
@@ -1069,7 +1070,7 @@ fn huge_scatter_is_capped_and_renders_at_every_depth() {
         let ctx = BrushContext::new(&b);
         for d in &capped.0 {
             let r = ctx.dab_rect(d, false);
-            assert!(!r.is_empty() && r.width() <= 24 && r.height() <= 24, "{r:?}");
+            assert_eq!((r.width(), r.height()), (27, 27), "the 20 px tip includes its measured shoulder: {r:?}");
         }
         for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
             let mut s = Surface::new(PixelFormat::new(ColorMode::Rgb, sample, true));
@@ -1133,4 +1134,31 @@ fn brush_batch_renderer_snapshots_keep_coverage_and_dual_tile_seams() {
             assert!((actual.rgba(x, y)[3] - r.coverage_at(x, y)).abs() < 1e-6, "({x},{y})");
         }
     }
+}
+
+#[test]
+fn round_tip_matches_measured_photoshop_rings() {
+    use crate::tip_falloff;
+    // Photoshop 27.11, single 40 px dabs (R = 20): mean alpha over rings 0.1 R wide starting at
+    // the given fraction of the radius (area-weighted, as measured).
+    let measured: [(f32, [(f32, f32); 4]); 3] = [
+        (0.0, [(0.2, 0.861), (0.5, 0.509), (0.9, 0.129), (1.2, 0.027)]),
+        (0.5, [(0.6, 0.97), (0.8, 0.561), (1.0, 0.135), (1.2, 0.012)]),
+        (1.0, [(0.8, 1.0), (0.9, 0.821), (1.2, 0.0), (1.3, 0.0)]),
+    ];
+    for (h, rings) in measured {
+        for (lo, want) in rings {
+            let (mut sum, mut area) = (0.0, 0.0);
+            for k in 0..64 {
+                let r = (lo + 0.1 * (k as f32 + 0.5) / 64.0) * 20.0;
+                sum += tip_falloff(r, 20.0, h) * r;
+                area += r;
+            }
+            let got = sum / area;
+            assert!((got - want).abs() < 0.05, "hardness {h} ring at {lo} R: {got} vs {want}");
+        }
+    }
+    let v: Vec<f32> = (0..=40).map(|i| tip_falloff(i as f32 * 0.5, 10.0, 0.0)).collect();
+    assert!(v.windows(2).all(|w| w[1] <= w[0]));
+    assert_eq!(tip_falloff(crate::tip_reach(10.0, 0.0) * 4.0, 10.0, 0.0), 0.0);
 }

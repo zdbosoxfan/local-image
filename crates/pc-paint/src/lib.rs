@@ -139,23 +139,62 @@ pub fn dabs(stroke: &Stroke) -> Vec<Dab> {
     out
 }
 
-/// Coverage of a round dab at distance `d` from its centre (anti-aliased edge, hardness falloff).
+/// Photoshop's round tip, measured (Photoshop 27.11, single dabs at hardness 0–100 at 40 px,
+/// checked at 100, 9 and 3 px): a solid core of radius `r0 · R`, then a Gaussian shoulder
+/// `exp(-((d − r0) / s)²)` of width `s · R`, both by hardness in tenths. A soft tip reaches well
+/// past its nominal radius (hardness 0 is a Gaussian of σ ≈ 0.47 R: 8 % at 1.05 R).
+const TIP_SHAPE: [(f32, f32); 11] =
+    [(0.00, 0.664), (0.14, 0.58), (0.28, 0.50), (0.40, 0.44), (0.52, 0.36), (0.63, 0.29), (0.70, 0.24), (0.78, 0.19), (0.84, 0.15), (0.89, 0.11), (1.00, 0.0)];
+
+/// The anti-aliased edge: the shoulder never narrows below this many pixels, and the core stays
+/// this far inside the radius (a hardness-100 tip is a disc with a ~1 px soft edge at any size).
+const TIP_EDGE_PX: f32 = 1.2;
+
+/// The core radius and shoulder width (both in pixels) of a round tip of `radius` and `hardness`.
+fn tip_shape(radius: f32, hardness: f32) -> (f32, f32) {
+    let h = if hardness.is_nan() { 0.0 } else { hardness.clamp(0.0, 1.0) } * 10.0;
+    let i = (h.floor() as usize).min(9);
+    let t = h - i as f32;
+    let (a, b) = (TIP_SHAPE[i], TIP_SHAPE[i + 1]);
+    let (r0, s) = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+    let radius = if radius.is_finite() { radius.max(0.0) } else { 0.0 };
+    // A tip of a few pixels keeps a narrower edge, so a small hard dab stays solid in the middle,
+    // but never sharper than a quarter pixel.
+    let edge = TIP_EDGE_PX.min(0.3 * radius).max(0.25);
+    ((r0 * radius).min(radius - edge).max(0.0), (s * radius).max(edge).max(1e-3))
+}
+
+/// Round tip coverage including its antialiased shoulder.
+#[inline]
+pub fn tip_falloff(d: f32, radius: f32, hardness: f32) -> f32 {
+    let (r0, s) = tip_shape(radius, hardness);
+    if d <= r0 {
+        return 1.0;
+    }
+    let x = (d - r0) / s;
+    // exp(-x²) as (1 − x²/64)⁶⁴ by six squarings: within 1/255 of exp where it matters, the same on
+    // every platform, and exactly 0 from x² = 64.
+    let mut g = (1.0 - x * x / 64.0).clamp(0.0, 1.0);
+    for _ in 0..6 {
+        g *= g;
+    }
+    g
+}
+
+/// Distance where a round tip's coverage drops below approximately 0.1 percent.
+#[inline]
+pub fn tip_reach(radius: f32, hardness: f32) -> f32 {
+    let (r0, s) = tip_shape(radius, hardness);
+    r0 + 2.6 * s
+}
+
+/// Coverage of a round dab at distance `d` from its centre.
 #[inline]
 pub fn dab_coverage(d: f32, radius: f32, hardness: f32) -> f32 {
-    if d >= radius + 0.5 {
+    if d.is_nan() || d >= tip_reach(radius, hardness) + 0.5 {
         return 0.0;
     }
-    let edge = ((radius + 0.5 - d).clamp(0.0, 1.0)).min(1.0);
-    let h = hardness.clamp(0.0, 1.0);
-    let inner = radius * h;
-    let falloff = if d <= inner || radius - inner < 1e-3 {
-        1.0
-    } else {
-        let t = ((d - inner) / (radius - inner)).clamp(0.0, 1.0);
-        // smoothstep falloff
-        1.0 - t * t * (3.0 - 2.0 * t)
-    };
-    edge * falloff
+    tip_falloff(d, radius, hardness)
 }
 
 /// Rasterize a stroke onto `target`, optionally limited by a selection (grayscale coverage surface).
@@ -211,7 +250,8 @@ mod tests {
         assert_eq!(dab_coverage(20.0, 10.0, 1.0), 0.0);
         let soft_mid = dab_coverage(5.0, 10.0, 0.0);
         assert!(soft_mid > 0.2 && soft_mid < 0.8);
-        assert!(dab_coverage(9.9, 10.0, 1.0) > 0.5);
+        assert!(dab_coverage(8.5, 10.0, 1.0) > 0.99 && dab_coverage(9.5, 10.0, 1.0) > 0.5);
+        assert!(dab_coverage(11.0, 10.0, 1.0) < 0.05);
     }
 
     #[test]
