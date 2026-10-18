@@ -50,6 +50,8 @@ struct Ex {
     cmyk: bool,
     version: Version,
     next_id: u32,
+    /// Ids already taken by layers and generated dividers.
+    used_ids: std::collections::HashSet<u32>,
     /// PSD ids assigned to document layers (kept from `psd_id` when unique).
     layer_ids: std::collections::HashMap<photocraft_doc::LayerId, u32>,
     canvas: photocraft_geom::Rect,
@@ -315,10 +317,15 @@ impl Ex {
         (MaskData::Mask(pm), Some(self.encode(-2, &plane, w, h)))
     }
 
-    /// Ids for section dividers: above every layer id.
+    /// Ids for section dividers: above every layer id, wrapping past `u32::MAX` to the lowest
+    /// unused id (the release build has no overflow checks, so `+= 1` wrapped to duplicates).
     fn fresh_id(&mut self) -> u32 {
-        self.next_id += 1;
-        self.next_id
+        loop {
+            self.next_id = self.next_id.wrapping_add(1).max(1);
+            if self.used_ids.insert(self.next_id) {
+                return self.next_id;
+            }
+        }
     }
 
     fn layer_id(&mut self, l: &Layer) -> u32 {
@@ -1285,6 +1292,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         cmyk: fmt.mode == ColorMode::Cmyk,
         version,
         next_id: 0,
+        used_ids: Default::default(),
         layer_ids: Default::default(),
         canvas: doc.bounds(),
         records: Vec::new(),
@@ -1328,6 +1336,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
             }
         }
         ex.next_id = used.iter().copied().max().unwrap_or(0);
+        ex.used_ids = used;
     }
     ex.emit(&doc.layers);
 
@@ -1585,6 +1594,26 @@ mod tests {
         };
         assert_eq!(signatures(false), vec![(*b"8BIM", *b"FMsk"), (*b"8BIM", *b"Patt")]);
         assert_eq!(signatures(true), vec![(*b"8B64", *b"FMsk"), (*b"8BIM", *b"Patt")], "a PSB keeps 8B64");
+    }
+
+    #[test]
+    fn group_divider_id_wraps_without_colliding_with_imported_layer_ids() {
+        let mut doc = document(8, 8);
+        let mut group = Layer::group("Imported group", vec![Layer::raster("Child", doc.pixel_format())]);
+        group.psd_id = Some(u32::MAX);
+        doc.layers.push(group);
+
+        let file = document_to_psd(&doc);
+        let ids: Vec<u32> = file.layers().iter().filter_map(|layer| layer.layer_id()).collect();
+        let unique: std::collections::HashSet<u32> = ids.iter().copied().collect();
+        assert_eq!(ids.len(), 3, "group, child and closing divider");
+        assert_eq!(unique.len(), ids.len(), "no generated ID may collide");
+        assert!(unique.contains(&u32::MAX), "preserve the imported group ID");
+        assert!(unique.contains(&1), "reuse the first unused positive ID on wrap");
+
+        let parsed = PsdFile::from_bytes(&file.to_bytes().unwrap()).unwrap();
+        let reloaded_ids: std::collections::HashSet<u32> = parsed.layers().iter().filter_map(|layer| layer.layer_id()).collect();
+        assert_eq!(unique, reloaded_ids);
     }
 
     /// A layered document with transparency in the merged image and an alpha channel: the name
