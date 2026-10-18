@@ -364,3 +364,45 @@ mod title_tests {
         assert_eq!(title_x(400.0, f32::INFINITY, 1300.0, 60.0), None);
     }
 }
+
+#[cfg(test)]
+mod crop_ratio_tests {
+    use super::*;
+
+    #[test]
+    fn the_crop_ratio_fields_show_three_decimals_and_showing_them_changes_nothing() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.tool = Tool::Crop;
+        app.ui.tool_options.crop_ratio = "1.414:1".into();
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1600.0, 90.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                    options_bar(app, ui);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::Studio);
+        h.run_steps(4);
+        fn texts(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(t) => out.push(t.galley.job.text.clone()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                _ => {}
+            }
+        }
+        let mut shown = Vec::new();
+        h.output().shapes.iter().for_each(|s| texts(&s.shape, &mut shown));
+        assert!(shown.iter().any(|t| t == "1.414"), "{shown:?}");
+        assert_eq!(h.state().ui.tool_options.crop_ratio, "1.414:1");
+    }
+
+    #[test]
+    fn number_text_keeps_the_requested_decimals_without_trailing_zeros() {
+        assert_eq!(widgets::fmt_num_prec(1.414, 3), "1.414");
+        assert_eq!(widgets::fmt_num_prec(16.0, 3), "16");
+        assert_eq!(widgets::fmt_num_prec(0.7995, 2), "0.8");
+        assert_eq!(widgets::fmt_num_prec(-0.0001, 3), "0");
+        assert_eq!(widgets::fmt_num_prec(12.0, 0), "12");
+    }
+}

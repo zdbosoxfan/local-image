@@ -141,6 +141,12 @@ pub fn value_field(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive
     value_field_with_precision(ui, value, range, suffix, width, decimals)
 }
 
+/// A [`value_field`] showing up to `decimals` decimal places (trailing zeros dropped) instead of
+/// the one or two it picks from the range: a crop ratio of 1.414 : 1 must not read 1.4.
+pub fn value_field_prec(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32, decimals: u32) -> Response {
+    value_field_with_precision(ui, value, range, suffix, width, decimals as usize)
+}
+
 /// A value field whose precision is independent of the backend's range (e.g. ComfyUI guidance).
 pub fn value_field_with_precision<T: egui::emath::Numeric>(
     ui: &mut Ui,
@@ -222,10 +228,7 @@ const NUMERIC_INPUT_LIMIT: usize = 128;
                 0 => format!("{v:.0}"),
                 1 => fmt_num(v),
                 2 => fmt_num2(v),
-                _ => format!("{v:.decimals$}"),
-            // Only edits are clamped: showing a value past the range, such as a type layer scaled
-            // to 2400 pt in a 1296 pt field, must not change it.
-            .clamp_existing_to_range(false)
+                _ => fmt_num_prec(v, decimals as u32),
             })
             .update_while_editing(!math)
             // Focus is read when parsing, not above: Tab hands it on inside `ui.add`.
@@ -641,6 +644,14 @@ pub fn fmt_num2(v: f64) -> String {
 pub fn parse_num(text: &str) -> Option<f64> {
     let s = clean(text);
     s.parse().ok().or_else(|| sum(&s)).filter(|v: &f64| v.is_finite())
+}
+
+/// Rounds `v` to `decimals` places and drops trailing zeros, so a value is never shown with more
+/// precision than it has: `1.4140` at three places is `1.414`, `16.0` is `16`.
+pub fn fmt_num_prec(v: f64, decimals: u32) -> String {
+    let s = format!("{v:.*}", decimals as usize);
+    let s = if decimals == 0 { s } else { s.trim_end_matches('0').trim_end_matches('.').to_string() };
+    if s == "-0" { "0".to_string() } else { s }
 }
 
 /// A plain typed number, no arithmetic.
