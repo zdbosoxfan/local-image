@@ -289,7 +289,7 @@ fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<li_raster::G
     let crop = raw.crop.clipped(n.width, n.height);
     let crop = if crop.width > 1 && crop.height > 1 { crop } else { lightcraft_raw::Rect { x: 0, y: 0, width: n.width, height: n.height } };
     let tile = n.cfa.as_ref().map_or(1, |c| c.width.max(c.height));
-    let p = li_raster::GrayFrame::from_fn(crop.width.div_ceil(tile), crop.height.div_ceil(tile), |x, y| {
+    let confidence = |x: usize, y: usize| {
         let mut counts = [0usize; 3];
         let mut clipped = [0usize; 3];
         for dy in 0..tile {
@@ -313,7 +313,12 @@ fn sensor_clip_confidence(raw: &lightcraft_raw::RawImage) -> Option<li_raster::G
             }
         }
         (0..3).map(|c| clipped[c] as f32 / counts[c].max(1) as f32).sum::<f32>() / 3.
-    });
+    };
+    // a pass over the whole sensor on every raw load: rows of tiles are independent
+    use rayon::prelude::*;
+    let mut p = li_raster::GrayFrame::new(crop.width.div_ceil(tile), crop.height.div_ceil(tile));
+    let width = p.width;
+    p.data.par_chunks_mut(width.max(1)).enumerate().for_each(|(y, row)| row.iter_mut().enumerate().for_each(|(x, v)| *v = confidence(x, y)));
     Some(p)
 }
 
@@ -831,6 +836,41 @@ mod tests {
         // Exercise the real decode path used by render workers, including clipping metadata.
         let (_, info) = load_bytes(&bytes, 16).unwrap();
         assert!(info.clip_confidence.is_some());
+    }
+
+    /// Each tile's confidence is the mean over channels of its clipped-sample fraction: per CFA
+    /// colour for a mosaic, per channel for linear RGB, and all-or-nothing for monochrome.
+    #[test]
+    fn sensor_confidence_is_the_mean_clipped_fraction_per_channel() {
+        let mut raw = lightcraft_raw::decode(&crate::tests_xmp::synthetic_dng_with(None, Default::default())).unwrap();
+        raw.width = 4;
+        raw.height = 4;
+        raw.active_area = lightcraft_raw::Rect::new(0, 0, 4, 4);
+        raw.crop = raw.active_area;
+        raw.black = lightcraft_raw::BlackLevel::uniform(0.0);
+        raw.white = vec![1000.0];
+        raw.cfa = Some(lightcraft_raw::Cfa::bayer("RGGB").unwrap());
+        let mut data = vec![200; 16];
+        // the first 2×2 tile: red, one of its two greens and blue clipped
+        data[0] = 1000;
+        data[1] = 1000;
+        data[5] = 1000;
+        raw.data = lightcraft_raw::RawData::U16(data);
+        let p = sensor_clip_confidence(&raw).unwrap();
+        assert_eq!((p.width, p.height), (2, 2));
+        assert_eq!(p.data, vec![5.0 / 6.0, 0.0, 0.0, 0.0]);
+        raw.cfa = None;
+        let p = sensor_clip_confidence(&raw).unwrap();
+        assert_eq!((p.width, p.height), (4, 4));
+        assert_eq!(p.data.iter().filter(|&&v| v == 1.0).count(), 3);
+        assert!(p.data.iter().all(|&v| v == 0.0 || v == 1.0));
+        raw.width = 2;
+        raw.height = 1;
+        raw.cpp = 3;
+        raw.active_area = lightcraft_raw::Rect::new(0, 0, 2, 1);
+        raw.crop = raw.active_area;
+        raw.data = lightcraft_raw::RawData::U16(vec![1000, 200, 1000, 200, 200, 200]);
+        assert_eq!(sensor_clip_confidence(&raw).unwrap().data, vec![2.0 / 3.0, 0.0]);
     }
 
     /// A CR3-shaped file (not decodable yet) whose only content is a `PRVW` preview box.
