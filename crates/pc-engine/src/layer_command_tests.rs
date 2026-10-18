@@ -220,6 +220,52 @@ fn fill_keys_recolor_editable_text_and_respect_locks() {
 }
 
 #[test]
+fn merge_layers_retains_off_canvas_pixels() {
+    let mut s = session();
+    let mut ids = Vec::new();
+    for area in [photocraft_geom::Rect::new(-20, -10, 5, 5), photocraft_geom::Rect::new(15, 15, 40, 40)] {
+        let id = photocraft_doc::LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        s.edit("Paint", |doc, _| {
+            doc.layer_mut(id).unwrap().surface_mut().unwrap().fill_rect(area, &[1.0, 0.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        ids.push(id);
+    }
+    s.execute("layer.select", json!({"layer": ids[0].0})).unwrap();
+    s.execute("layer.select", json!({"layer": ids[1].0, "mode": "add"})).unwrap();
+    s.execute("layer.mergeLayers", json!({})).unwrap();
+    let st = s.active().unwrap();
+    let surf = st.doc.layer(st.active_layer.unwrap()).unwrap().surface().unwrap();
+    assert_eq!(surf.content_bounds(), photocraft_geom::Rect::new(-20, -10, 40, 40));
+    assert_eq!(surf.rgba(-10, -5)[3], 1.0);
+    assert_eq!(surf.rgba(30, 30)[3], 1.0);
+}
+
+#[test]
+fn merging_layers_too_far_apart_is_refused_without_change() {
+    let mut s = session();
+    let mut ids = Vec::new();
+    for area in [photocraft_geom::Rect::new(0, 0, 4, 4), photocraft_geom::Rect::new(900_000, 1_200, 900_004, 1_204)] {
+        let id = photocraft_doc::LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        s.edit("Paint", |doc, _| {
+            doc.layer_mut(id).unwrap().surface_mut().unwrap().fill_rect(area, &[1.0, 0.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        ids.push(id);
+    }
+    s.execute("layer.select", json!({"layer": ids[0].0})).unwrap();
+    s.execute("layer.select", json!({"layer": ids[1].0, "mode": "add"})).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    let error = s.execute("layer.mergeLayers", json!({})).unwrap_err().to_string();
+    assert!(error.contains("not enough memory for merging layers"), "{error}");
+    assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+}
+
+#[test]
 fn multiple_layers_align_to_active_selection() {
     let mut s = session();
     let mut ids = Vec::new();

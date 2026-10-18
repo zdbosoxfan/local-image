@@ -757,14 +757,30 @@ fn merge_layers(s: &mut Session) -> Result<Value> {
         if solo.layers.is_empty() {
             return Err(EngineError::Other("the selected layers are all hidden".into()));
         }
-        let buf = photocraft_compose::flatten(&solo);
+        let reach = solo
+            .layers
+            .iter()
+            .map(|l| {
+                let bounds = photocraft_compose::layer_bounds(l, solo.bounds());
+                let margin = if photocraft_compose::effects::has_effects(l) { photocraft_compose::effects::margin(l) } else { 0 };
+                if bounds.is_empty() { bounds } else { bounds.inflate(margin) }
+            })
+            .fold(solo.bounds(), |a, b| a.union(&b));
+        let area = solo.layers.iter().map(|l| photocraft_compose::composite_bounds(l, reach).unwrap_or(solo.bounds())).fold(Rect::EMPTY, |a, b| a.union(&b));
+        let (w, h) = (u64::from(area.width()), u64::from(area.height()));
+        if w.saturating_mul(h) > photocraft_compose::MAX_RENDER_PIXELS {
+            let detail = format!("the merged layer would be {w} x {h} px, more than the {} px limit", photocraft_compose::MAX_RENDER_PIXELS);
+            return Err(crate::allocation::error("merging layers", &detail));
+        }
+        let buf = photocraft_compose::render(&solo, area);
         let fmt = doc.pixel_format();
         let fmt = PixelFormat::new(fmt.mode, fmt.sample, true);
-        let data: Vec<f32> = buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&fmt, *p)).collect();
+        let mut data = crate::allocation::capacity(buf.px.len().saturating_mul(fmt.channels()), "merging layers")?;
+        data.extend(buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&fmt, *p)));
         let mut merged = Layer::raster(top.name.clone(), fmt);
         merged.locks = top.locks;
         let surf = crate::pixels_mut(&mut merged)?;
-        surf.write_region(doc.bounds(), &data);
+        surf.write_region(area, &data);
         surf.prune();
         let mid = merged.id;
         // Hidden selected layers are discarded, as in Photoshop.
