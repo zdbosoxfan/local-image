@@ -64,6 +64,25 @@ struct Ex {
     comps: Option<(Vec<photocraft_doc::LayerComp>, Option<photocraft_doc::LayerComp>)>,
     /// Smart objects: embedded files and filter caches for the global blocks.
     smart: SmartOut,
+    /// The layer written as Photoshop's Background (see [`psd_background`]).
+    background: Option<photocraft_doc::LayerId>,
+}
+
+/// The layer Photoshop should open as its Background: the bottom top-level layer when it is a
+/// locked (transparency and position), unclipped, unmasked raster that is opaque over the whole
+/// canvas at full opacity and Normal, as a Background always is. Photoshop recognises a
+/// Background by the bottom layer having no transparency channel; with one written, re-exported
+/// files reopened with their Background as an ordinary layer.
+fn psd_background(doc: &Document) -> Option<photocraft_doc::LayerId> {
+    let l = doc.layers.first()?;
+    let LayerContent::Raster(s) = &l.content else { return None };
+    let locked = l.locks.transparency && l.locks.position;
+    let plain = !l.clipped && l.mask.is_none() && l.vector_mask.is_none() && l.opacity >= 1.0 && l.fill_opacity >= 1.0;
+    if !(locked && plain && l.blend == photocraft_doc::BlendMode::Normal) {
+        return None;
+    }
+    let canvas = doc.bounds();
+    (!canvas.is_empty() && s.content_bounds() == canvas && crate::psd_import::opaque_within(s, canvas)).then_some(l.id)
 }
 
 /// How deep embedded documents are exported inside each other before a smart object is written
@@ -359,6 +378,10 @@ impl Ex {
                 trailing: Vec::new(),
                 real_first: true,
             });
+        }
+        // A Background carries no transparency channel: that is how Photoshop tells it apart.
+        if self.background == Some(l.id) {
+            channels.retain(|c| c.id != -1);
         }
         let mut flags = LayerFlags(0);
         flags.set_hidden(!l.visible);
@@ -1301,6 +1324,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         guides: doc.guides.clone(),
         comps: (!crate::comps_map::comps_unchanged(doc)).then(|| (doc.layer_comps.clone(), doc.last_document_state.clone())),
         smart: SmartOut::new(doc, depth),
+        background: psd_background(doc),
     };
     if big && !opts.force_psb {
         ex.warnings.push("document exceeds 30000 px; written as PSB".into());
@@ -1594,6 +1618,47 @@ mod tests {
         };
         assert_eq!(signatures(false), vec![(*b"8BIM", *b"FMsk"), (*b"8BIM", *b"Patt")]);
         assert_eq!(signatures(true), vec![(*b"8B64", *b"FMsk"), (*b"8BIM", *b"Patt")], "a PSB keeps 8B64");
+    }
+
+    /// Photoshop opens a PSD's bottom layer as its Background only when that layer has no
+    /// transparency channel; with the channel written, re-exported files reopened with the
+    /// Background as an ordinary layer.
+    #[test]
+    fn a_background_is_written_without_a_transparency_channel() {
+        use photocraft_doc::Color;
+        let size = photocraft_geom::Size::new(8, 6);
+        let mut doc = Document::with_background("bg", size, ColorMode::Rgb, SampleType::U8, Color::rgb(0.2, 0.4, 0.6));
+        doc.layers.push(Layer::raster("Layer 1", doc.pixel_format()));
+        let file = document_to_psd(&doc);
+        let layers = &file.layer_info.as_ref().unwrap().layers;
+        let ids = |i: usize| layers[i].channels.iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(0), vec![0, 1, 2], "the Background has no -1 channel");
+        assert!(layers[0].flags.transparency_protected());
+        assert!(ids(1).contains(&-1), "other layers keep their transparency");
+        // It comes back as the same locked, opaque Background.
+        let back = crate::import("bg.psd", &file.to_bytes().unwrap()).unwrap().document;
+        let bg = &back.layers[0];
+        assert!(bg.locks.transparency && bg.locks.position, "{:?}", bg.locks);
+        assert_eq!(bg.surface().unwrap().read_region(back.bounds()), doc.layers[0].surface().unwrap().read_region(doc.bounds()));
+        // A bottom layer with transparency (or unlocked) is not a Background.
+        let mut holey = doc.clone();
+        holey.layers[0].surface_mut().unwrap().write_pixel(2, 2, &[0.0, 0.0, 0.0, 0.0]);
+        assert!(document_to_psd(&holey).layer_info.unwrap().layers[0].channels.iter().any(|c| c.id == -1));
+        let mut unlocked = doc.clone();
+        unlocked.layers[0].locks.position = false;
+        assert!(document_to_psd(&unlocked).layer_info.unwrap().layers[0].channels.iter().any(|c| c.id == -1));
+    }
+
+    /// A flat 1-bit Bitmap file (no layers) opens as its locked Background, as in Photoshop, and
+    /// is written back as one (no transparency channel).
+    #[test]
+    fn a_flat_bitmap_file_opens_and_saves_as_a_background() {
+        let file = photocraft_psd::testgen::merged_only(Version::Psd, PsdMode::Bitmap, 1, photocraft_psd::Compression::Raw, 8, 4);
+        let doc = crate::import("flat.psd", &file.to_bytes().unwrap()).unwrap().document;
+        let bg = &doc.layers[0];
+        assert!(bg.name == "Background" && bg.locks.transparency && bg.locks.position, "{:?}", bg.locks);
+        let out = document_to_psd(&doc);
+        assert!(out.layer_info.unwrap().layers[0].channels.iter().all(|c| c.id >= 0));
     }
 
     #[test]

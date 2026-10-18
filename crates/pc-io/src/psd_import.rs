@@ -596,6 +596,47 @@ fn flat_composite(file: &PsdFile, merged: Option<&[u8]>, cap: u64) -> Result<pho
     Ok(photocraft_psd::RgbaImage { left: 0, top: 0, width: h.width, height: h.height, data })
 }
 
+/// Whether every pixel of `s` inside `r` is fully opaque, read a band of tile rows at a time (no
+/// full-size float copy) and stopping at the first transparent pixel.
+pub(crate) fn opaque_within(s: &Surface, r: Rect) -> bool {
+    let n = s.channels();
+    let mut vals = Vec::new();
+    let mut y = r.y0;
+    while y < r.y1 {
+        let band = Rect::new(r.x0, y, r.x1, y.saturating_add(TILE_SIZE).min(r.y1));
+        s.read_region_into(band, &mut vals);
+        if !vals.chunks_exact(n).all(|p| p.last().is_some_and(|a| *a >= 1.0)) {
+            return false;
+        }
+        y = band.y1;
+    }
+    true
+}
+
+/// A flattened file's merged image as its layer: like Photoshop, an opaque one is the locked
+/// Background, so it is written back as one.
+fn flat_background(s: Surface) -> Layer {
+    let r = s.content_bounds();
+    let opaque = !r.is_empty() && opaque_within(&s, r);
+    let mut l = Layer::new("Background", LayerContent::Raster(s));
+    l.locks.transparency = opaque;
+    l.locks.position = opaque;
+    l
+}
+
+/// Photoshop opens a file's bottom layer as its Background when that layer's record has no
+/// transparency (`-1`) channel, whatever its name and lock flags say: it is then locked
+/// (psd-tools and ag-psd files name it "Фон", "bg" or "Layer 1" and carry no locks).
+fn mark_background(file: &PsdFile, layers: &mut [Layer]) {
+    let Some(rec) = file.layers().first() else { return };
+    let Some(bottom) = layers.first_mut() else { return };
+    let opaque_record = !rec.channels.is_empty() && rec.channels.iter().all(|c| c.id >= 0);
+    if opaque_record && matches!(bottom.content, LayerContent::Raster(_)) && !bottom.clipped {
+        bottom.locks.transparency = true;
+        bottom.locks.position = true;
+    }
+}
+
 /// Writes RGBA8 `data` covering `canvas` into `s`, a band of tile rows at a time (no full-size
 /// float copy of the image).
 fn write_rgba8(s: &mut Surface, canvas: Rect, data: &[u8]) {
@@ -800,6 +841,9 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         // children, so no file can make this tree, or anything walking or dropping it, recurse deeper.
         let tree = file.layer_tree_max_depth(photocraft_doc::MAX_GROUP_DEPTH);
         doc.layers = cx.build(&tree, 0);
+        // Photoshop's Background: the bottom record stored without a transparency channel (-1),
+        // locked whatever its (localized) name and whether or not the file carries `lspf`.
+        mark_background(file, &mut doc.layers);
         // local-image: smart objects that are Develop layers get their develop link back
         crate::smart_map::resolve_develop_layers(&mut doc);
         // Layer › Link Layers: resource 1026 holds one group id per layer record (0 = unlinked).
@@ -883,7 +927,7 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
         write_rgba8(&mut s, canvas, &img.data);
         drop(img);
         s.prune();
-        doc.layers.push(Layer::new("Background", LayerContent::Raster(s)));
+        doc.layers.push(flat_background(s));
     }
 
     // Extra (alpha / spot) channels of the merged image.
