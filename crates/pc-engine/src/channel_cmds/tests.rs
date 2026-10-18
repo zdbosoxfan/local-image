@@ -521,3 +521,17 @@ fn apply_image_and_calculations_fail_gracefully_never_panic() {
     // A well-formed self-apply still works.
     assert!(s.execute("image.applyImage", json!({"source": {"channel": "composite"}})).is_ok());
 }
+
+#[test]
+fn targeting_the_composite_hides_alpha_overlays() {
+    for (cmd, params) in [("channel.target", json!({"channel": "composite"})), ("channel.target.composite", json!({}))] {
+        let mut s = session();
+        s.execute("channel.new", json!({})).unwrap();
+        assert!(s.active().unwrap().channel_view.alpha_shown(0));
+        s.execute(cmd, params).unwrap();
+        let st = s.active().unwrap();
+        assert_eq!(st.channel_view.visible_colors(3), 3);
+        assert!(!st.channel_view.alpha_shown(0));
+        assert!(st.channel_view.is_plain(&st.doc));
+    }
+}

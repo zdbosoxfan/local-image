@@ -1050,7 +1050,10 @@ fn target(s: &mut Session, t: ChannelTarget) {
     let v = &mut st.channel_view;
     v.target = t;
     match t {
-        ChannelTarget::Composite => v.color_hidden.clear(),
+        ChannelTarget::Composite => {
+            v.color_hidden.clear();
+            v.alpha_visible.clear();
+        }
         ChannelTarget::Color(k) => {
             v.color_hidden = (0..colors).map(|c| c != k).collect();
             v.alpha_visible.clear();
