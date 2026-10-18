@@ -78,6 +78,8 @@ impl PhotocraftApp {
             && let Some(st) = self.session.active_mut()
         {
             st.path = Some(path.to_string());
+            let doc = st.doc.id;
+            crate::disk_change_prompt::remember_stamp(self, doc, path);
         }
         self.push_recent(path);
         // local-image: the filmstrip shows the folder the file came from.

@@ -622,6 +622,11 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Some(save_dialog::with_suggested_extension(chosen, suggested))
         })),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
+        file_stamp: Some(Box::new(|path: &str| {
+            // Follows a symlink, as Save writes through it to the file it points at.
+            let meta = std::fs::metadata(path).ok()?;
+            Some(photocraft_ui_egui::FileStamp { len: meta.len(), modified: meta.modified().ok() })
+        })),
         stage_write: Some(Arc::new(|path, bytes, interrupt| {
             let staged = li_fs::stage_write(Path::new(path), bytes, interrupt).map_err(|error| error.to_string())?;
             Ok(photocraft_ui_egui::PreparedWrite { commit: Box::new(move || staged.commit().map_err(|error| error.to_string())) })
