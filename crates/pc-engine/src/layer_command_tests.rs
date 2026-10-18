@@ -115,3 +115,20 @@ fn multiple_layers_align_to_active_selection() {
         assert_eq!(s.active().unwrap().doc.layer(photocraft_doc::LayerId(id)).unwrap().surface().unwrap().content_bounds().x0, 15);
     }
 }
+
+#[test]
+fn opacity_and_fill_reject_out_of_range_values_without_mutation() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    s.execute("layer.setProps", json!({"opacity": 0.55, "fill": 0.4})).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    for key in ["opacity", "fill"] {
+        for value in [json!(55), json!(-0.1), json!("55"), json!(null)] {
+            let error = s.execute("layer.setProps", json!({key: value})).unwrap_err().to_string();
+            assert!(error.contains("0..1"), "{error}");
+            assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+            assert_eq!(s.active().unwrap().history.past_len(), history);
+        }
+    }
+}

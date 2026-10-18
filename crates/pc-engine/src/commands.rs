@@ -520,6 +520,13 @@ fn build() -> Vec<CommandSpec> {
             r##"{"layer":id?,"layers":[id,…]? (the same change to each, one step: the Layers panel's controls with several layers selected),"name":str? (one layer only),"visible":bool?,"opacity":0..1?,"fill":0..1?,"blend":"Multiply|…"?,"clipped":bool?,"locked":bool?,"locks":{"transparency","pixels","position","artboard","all":bool}?,"channels":[bool,…]? (Advanced Blending: which colour channels blend, R G B / C M Y K / L a b)}"##,
             has_layer,
             |s, p| {
+                for key in ["opacity", "fill"] {
+                    if let Some(value) = p.get(key)
+                        && !value.as_f64().is_some_and(|v| (0.0..=1.0).contains(&v))
+                    {
+                        return Err(bad("layer.setProps", format!("{key} must be a number in 0..1 (1 = 100 %), got {value}")));
+                    }
+                }
                 // Several layers at once (the Layers panel with several selected, as in Photoshop),
                 // else the given or active one.
                 let ids: Vec<LayerId> = match p.get("layers") {
