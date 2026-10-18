@@ -3,37 +3,11 @@
 //! Built with `CRAFT_FONTS_DIR=<craft-fonts checkout>`, [`CRAFT_FONTS`] holds every font in its
 //! manifest (today: the Japanese and Simplified-Chinese UI and document fonts); otherwise it is
 //! empty and LightCraft uses only its own bundled fonts (Inter). Both the egui UI and the export
-//! watermark renderer read it from here. See craftrules `standards/fonts.md`.
+//! watermark renderer read it from here. The table is `photocraft_text`'s (embedded once, by its
+//! build script); this module adds LightCraft's CJK fallback ordering. See craftrules
+//! `standards/fonts.md`.
 
-/// A font from the optional craft-fonts build input (empty unless built with `CRAFT_FONTS_DIR`).
-pub struct CraftFont {
-    pub family: &'static str,
-    pub style: &'static str,
-    /// ISO 15924 scripts the font is for, e.g. `"Jpan"`.
-    pub scripts: &'static [&'static str],
-    pub bytes: &'static [u8],
-}
-
-include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
-
-impl CraftFont {
-    /// Whether the font is meant for `script` (ISO 15924, e.g. `"Jpan"`).
-    pub fn covers(&self, script: &str) -> bool {
-        self.scripts.contains(&script)
-    }
-
-    /// Mincho (serif) faces, the preferred Japanese faces for document-like text.
-    pub fn is_mincho(&self) -> bool {
-        self.family.contains("Mincho")
-    }
-
-    /// Whether the font can stand in for `script`: it is meant for it, or — until craft-fonts has a
-    /// Traditional Chinese face — it is a Simplified Chinese face, which carries the Traditional
-    /// characters too (with mainland glyph forms; still closer than the Japanese faces).
-    pub fn serves(&self, script: &str) -> bool {
-        self.covers(script) || (script == "Hant" && self.covers("Hans"))
-    }
-}
+pub use photocraft_text::{CRAFT_FONTS, CraftFont};
 
 /// The craft-fonts faces for Japanese, in `fonts`' order (empty without craft-fonts).
 pub fn japanese(fonts: &'static [CraftFont]) -> impl Iterator<Item = &'static CraftFont> {
