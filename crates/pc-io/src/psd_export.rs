@@ -383,7 +383,12 @@ impl Ex {
         if self.background == Some(l.id) {
             channels.retain(|c| c.id != -1);
         }
-        let mut flags = LayerFlags(0);
+        // As Photoshop writes them: bit 4 is meaningful, and set for layers whose pixels do not
+        // show (adjustment layers).
+        let mut flags = LayerFlags(LayerFlags::BIT4_USEFUL);
+        if matches!(l.content, LayerContent::Adjustment(_)) {
+            flags.0 |= LayerFlags::PIXEL_DATA_IRRELEVANT;
+        }
         flags.set_hidden(!l.visible);
         flags.set_transparency_protected(l.locks.transparency);
         let mut blocks = vec![TaggedBlock::unicode_name(&l.name), TaggedBlock::layer_id(id)];

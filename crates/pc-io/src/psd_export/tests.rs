@@ -5,6 +5,17 @@ fn document(width: u32, height: u32) -> Document {
 }
 
 #[test]
+fn layer_flags_mark_adjustment_pixels_irrelevant() {
+    let mut doc = document(2, 2);
+    doc.layers.push(Layer::raster("pixels", doc.pixel_format()));
+    doc.layers.push(Layer::new("invert", LayerContent::Adjustment(photocraft_doc::Adjustment::Invert)));
+    let file = document_to_psd(&doc);
+    let records = file.layers();
+    assert_eq!(records[0].flags.0, LayerFlags::BIT4_USEFUL);
+    assert_eq!(records[1].flags.0, LayerFlags::BIT4_USEFUL | LayerFlags::PIXEL_DATA_IRRELEVANT);
+}
+
+#[test]
 fn photo_filter_psd_is_four_byte_aligned_and_round_trips() {
     let color = [60000u16, 30000, 0].map(|x| x as f32 / 65535.0);
     let adjustment = photocraft_doc::Adjustment::PhotoFilter { color, density: 0.14, preserve_luminosity: true };

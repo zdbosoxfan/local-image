@@ -988,7 +988,7 @@ mod j03_parity_tests {
         doc.layers.push(Layer::new("Pixels", LayerContent::Raster(surface)));
         doc.metadata.exif = Some(Arc::new(lightcraft_tiff::exif::minimal_exif(6)));
         doc.metadata.xmp = Some(r#"<rdf:Description tiff:Orientation="6"/>"#.into());
-        for (ext, size, expected) in [("psd", 570, 0x5573b328077b7c9du64), ("tiff", 325, 0xfbffddd714c68a3a)] {
+        for (ext, size, expected) in [("psd", 570, 0xb48c029c61d4be65u64), ("tiff", 325, 0xfbffddd714c68a3a)] {
             let bytes = crate::export(&doc, ext, &ExportOptions::default()).unwrap().bytes;
             let hash = bytes.iter().fold(0xcbf29ce484222325u64, |hash, byte| (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3));
             assert_eq!(bytes.len(), size, "{ext} length changed");
