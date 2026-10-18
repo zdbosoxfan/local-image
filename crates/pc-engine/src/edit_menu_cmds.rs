@@ -334,8 +334,8 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
     use photocraft_algo::content_aware::{FillOptions, color_level, fill_with, rotation_level};
     let cmd = "edit.contentAwareFill";
     let st = s.active().ok_or(EngineError::NoDocument)?;
-    // Not a writable pixel layer (or Sample All Layers): sample the composite, fill a new layer.
-    let target = pixel_layer(s).ok().filter(|_| !bool_or(p, "sampleAllLayers", false));
+    // Non-pixel targets receive the result on a new layer.
+    let target = pixel_layer(s).ok();
     let anchor = target.or(st.active_layer);
     let doc = st.doc.clone();
     let sel = doc.selection.clone().ok_or_else(|| bad(cmd, "no selection"))?;
@@ -378,6 +378,10 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
         Some(id) => doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?.format(),
         None => PixelFormat { alpha: true, ..doc.pixel_format() },
     };
+    let sample_all = p
+        .get("sampleAllLayers")
+        .and_then(Value::as_bool)
+        .unwrap_or_else(|| target.and_then(|id| doc.layer(id)).and_then(Layer::surface).is_none_or(|surf| surf.content_bounds().intersect(&window).is_empty()));
     let n = fmt.channels();
     // Refuse a window too large to read before allocating for it, whatever the sampling (#963).
     let (w, h) = crate::fill_cmds::window_size(window)?;
@@ -390,7 +394,12 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
         true,
         move |ctx| {
             ctx.report(0.0, label);
-            let img = match target {
+            // Sampling other layers: the target keeps its own pixels outside the selection.
+            let own = match target.filter(|_| sample_all) {
+                Some(id) => Some(doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?.read_region(window)),
+                None => None,
+            };
+            let img = match target.filter(|_| !sample_all) {
                 Some(id) => doc.layer(id).and_then(|l| l.surface()).ok_or(EngineError::NoLayer(id))?.read_region(window),
                 None => {
                     let buf = photocraft_compose::render(&doc, window);
@@ -426,14 +435,15 @@ fn content_aware_fill(s: &mut Session, p: &Value) -> Result<Value> {
             }
             ctx.check()?;
             let filled = ctx.stage(0.05, 1.0, label, |ctl| fill_with(w, h, n, &img, &hole, &source, &opts, ctl)).map_err(|_| EngineError::Cancelled)?;
-            Ok((img, cover, hole, filled))
+            Ok((own.unwrap_or(img), cover, hole, filled))
         },
-        move |s, (img, cover, hole, filled)| apply_content_aware_fill(s, label, anchor, &output, fmt, window, &img, &cover, &hole, &filled),
+        move |s, (base, cover, hole, filled)| apply_content_aware_fill(s, label, anchor, &output, fmt, window, &base, sample_all, &cover, &hole, &filled),
     )
 }
 
 /// Write a Content-Aware Fill result (the job's apply step): into the layer, a new layer or a
-/// duplicate, as one undo step.
+/// duplicate, as one undo step. `base` is the target's own pixels over the window; with
+/// `sampled_other_layers` the fill is laid over them, else it blends with them by coverage.
 #[allow(clippy::too_many_arguments)]
 fn apply_content_aware_fill(
     s: &mut Session,
@@ -442,7 +452,8 @@ fn apply_content_aware_fill(
     output: &str,
     fmt: PixelFormat,
     window: Rect,
-    img: &[f32],
+    base: &[f32],
+    sampled_other_layers: bool,
     cover: &[f32],
     hole: &[bool],
     filled: &[f32],
@@ -485,12 +496,24 @@ fn apply_content_aware_fill(
             _ => id.ok_or(EngineError::Other("no pixel layer to fill".into()))?,
         };
         let surf = writable_surface(doc, target)?;
-        let mut out = img.to_vec();
+        let mut out = base.to_vec();
         for (i, &k) in cover.iter().enumerate() {
-            if k > 0.0 {
-                for c in 0..n {
-                    let j = i * n + c;
-                    out[j] = img[j] + (filled[j] - img[j]) * k;
+            if k <= 0.0 {
+                continue;
+            }
+            let px = i * n..(i + 1) * n;
+            if sampled_other_layers {
+                let top = to_rgba(&fmt, &filled[px.clone()]);
+                let under = to_rgba(&fmt, &base[px.clone()]);
+                let ta = top[3] * k;
+                let oa = ta + under[3] * (1.0 - ta);
+                let c = |j: usize| if oa > 0.0 { (top[j] * ta + under[j] * under[3] * (1.0 - ta)) / oa } else { 0.0 };
+                let mut enc = [0.0f32; 8];
+                from_rgba_into(&fmt, [c(0), c(1), c(2), oa], &mut enc);
+                out[px].copy_from_slice(&enc[..n]);
+            } else {
+                for j in px {
+                    out[j] = base[j] + (filled[j] - base[j]) * k;
                 }
             }
         }
