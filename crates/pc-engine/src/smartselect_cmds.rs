@@ -178,6 +178,18 @@ fn learned(
     })))
 }
 
+fn check_object_pixels(s: &Session, all: bool, area: Rect) -> Result<()> {
+    let st = s.active().ok_or(EngineError::NoDocument)?;
+    if !all
+        && let Some(surf) = st.active_layer.and_then(|id| st.doc.layer(id)).and_then(Layer::surface)
+        && surf.content_bounds().intersect(&area).is_empty()
+    {
+        let reason = if surf.content_bounds().is_empty() { "the active layer is empty" } else { "the active layer has no pixels in that area" };
+        return Err(bad("select.object", &format!("{reason}; set \"sampleAllLayers\": true or select a layer with pixels")));
+    }
+    Ok(())
+}
+
 fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
     // local-image: click mode (`"point": [x, y]`): the object under the click, from the learned
     // model. A background job (the model and the edge refinement take seconds on large images);
@@ -185,6 +197,7 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(pt) = p.get("point").and_then(Value::as_array) {
         let xy = (pt.first().and_then(Value::as_f64), pt.get(1).and_then(Value::as_f64));
         let (Some(x), Some(y)) = xy else { return Err(bad("select.object", "\"point\" must be [x, y]")) };
+        check_object_pixels(s, b(p, "sampleAllLayers", false), Rect::from_xywh(x.floor() as i32, y.floor() as i32, 1, 1))?;
         let model = crate::seg::SubjectModel::current()
             .ok_or_else(|| bad("select.object", "click mode needs a selection model (Edit › Preferences › Local AI…); drag a rectangle instead"))?;
         let all = b(p, "sampleAllLayers", false);
@@ -203,6 +216,7 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
         );
     }
     let rect = rect_param(p).ok_or_else(|| bad("select.object", "needs \"rect\": [x, y, w, h] or \"point\": [x, y]"))?;
+    check_object_pixels(s, b(p, "sampleAllLayers", false), rect)?;
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
     apply(s, "Object Selection", region, mode(p, "replace"))
 }

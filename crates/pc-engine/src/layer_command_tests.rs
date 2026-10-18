@@ -135,6 +135,17 @@ fn background_becomes_layer_zero_when_blending_changes() {
 }
 
 #[test]
+fn object_selection_explains_empty_active_layers() {
+    let mut s = session();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    for params in [json!({"rect": [0, 0, 20, 20]}), json!({"point": [5, 5]})] {
+        let error = s.execute("select.object", params).unwrap_err().to_string();
+        assert!(error.contains("active layer is empty") && error.contains("sampleAllLayers"), "{error}");
+        assert!(s.active().unwrap().doc.selection.is_none());
+    }
+}
+
+#[test]
 fn refining_a_mask_preserves_metadata_and_explicit_target() {
     let mut s = session();
     let id = s.active().unwrap().active_layer.unwrap();
