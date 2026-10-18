@@ -188,6 +188,14 @@ fn tiff_all_compressions_lossless() {
             for comp in [TiffCompression::None, TiffCompression::Lzw, TiffCompression::Deflate, TiffCompression::PackBits] {
                 let opts = EncodeOptions { tiff_compression: comp, ..Default::default() };
                 let back = decode(&encode(&img, Format::Tiff, &opts).unwrap()).unwrap();
+                if layout.is_lab() {
+                    assert_eq!(back.layout(), layout);
+                    assert_eq!(back.sample_type(), if sample == SampleType::U8 { SampleType::U8 } else { SampleType::U16 });
+                    for (a, b) in back.to_normalized().iter().zip(img.to_normalized()) {
+                        assert!((a - b).abs() <= 1.5 / 65535.);
+                    }
+                    continue;
+                }
                 let mut expected = img.clone().with_meta(back.meta.clone());
                 expected.source_bit_depth = Some(match sample {
                     SampleType::U8 => 8,

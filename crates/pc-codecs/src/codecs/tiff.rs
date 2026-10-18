@@ -470,6 +470,10 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     } else {
         None
     };
+    let lab = matches!(photometric, 8 | 9);
+    if lab && (spp < 3 || !matches!(src, Src::U8 | Src::U16)) {
+        return Err(CodecError::unsupported(F, format!("Lab image with {spp} samples of {bits} bits")));
+    }
     let mut patches: Vec<(u64, Vec<u8>)> = Vec::new();
     let encode_u = |v: u64, len: usize| -> Vec<u8> {
         let b = if f.le { v.to_le_bytes() } else { v.to_be_bytes() };
@@ -484,14 +488,14 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     // The directory is seen as the last of its chain: the chain was walked already, and a
     // cycle through it must not fail this page.
     patches.push((dir.next_at, vec![0; if f.big { 8 } else { 4 }]));
-    if invert || palette.is_some() {
+    if invert || palette.is_some() || lab {
         let e = photometric_entry.ok_or_else(|| err("missing PhotometricInterpretation"))?;
         let len = match e.ty {
             3 if e.count == 1 => 2,
             4 if e.count == 1 => 4,
             _ => return Err(err("malformed PhotometricInterpretation")),
         };
-        patches.push((e.value_at, encode_u(1, len)));
+        patches.push((e.value_at, encode_u(if lab { 2 } else { 1 }, len)));
     }
 
     let tl = {
@@ -520,6 +524,12 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
         tiff::ColorType::CMYK(_) => (ChannelLayout::Cmyk, 4),
         tiff::ColorType::CMYKA(_) => (ChannelLayout::CmykA, 5),
         other => return Err(CodecError::unsupported(F, format!("colour type {other:?}"))),
+    };
+    let out_layout = match out_layout {
+        ChannelLayout::Rgb if lab => ChannelLayout::Lab,
+        ChannelLayout::Rgba if lab => ChannelLayout::LabA,
+        _ if lab => return Err(err("Lab requires three colour samples")),
+        layout => layout,
     };
     let chunk_spp = if planar { 1 } else { chunk_spp };
     if matches!(src, Src::Bits(_)) && (out_layout.channels() > 1 || spp != 1) && palette.is_none() {
@@ -594,6 +604,9 @@ fn decode_ifd(f: &File<'_>, dir: &Ifd, limits: &Limits, keep_associated: bool) -
     let tally = decode_bands(&lay, &mut data, band_bytes, &mut dec, &open)?;
     if tally.decoded == 0 && tally.missing > 0 {
         return Err(err("the image data is missing (cut off or past the end of the file)"));
+    }
+    if lab {
+        convert_ab(&mut data, out_layout.channels(), out, photometric == 8, false);
     }
     let mut img = Image::from_raw(w, h, out_layout, out, data)?;
     img.source_bit_depth = Some(bits as u8);
@@ -941,6 +954,39 @@ custom_colortype!(GrayA32F, f32, PI::BlackIsZero, &[32, 32], &[SampleFormat::IEE
 custom_colortype!(CmykA16, u16, PI::CMYK, &[16; 5], &[SampleFormat::Uint; 5], int);
 custom_colortype!(CmykA32F, f32, PI::CMYK, &[32; 5], &[SampleFormat::IEEEFP; 5], float);
 
+custom_colortype!(Lab8, u8, PI::CIELab, &[8; 3], &[SampleFormat::Uint; 3], int);
+custom_colortype!(Lab16, u16, PI::CIELab, &[16; 3], &[SampleFormat::Uint; 3], int);
+custom_colortype!(LabA8, u8, PI::CIELab, &[8; 4], &[SampleFormat::Uint; 4], int);
+custom_colortype!(LabA16, u16, PI::CIELab, &[16; 4], &[SampleFormat::Uint; 4], int);
+
+// TIFF chroma uses signed a*256 (CIELab) or offset a*256 (ICCLab); our U16 uses (a+128)*257.
+fn convert_ab(data: &mut [u8], channels: usize, sample: SampleType, signed: bool, to_file: bool) {
+    match sample {
+        SampleType::U8 if signed => {
+            for pixel in data.chunks_exact_mut(channels) {
+                pixel[1] ^= 128;
+                pixel[2] ^= 128;
+            }
+        }
+        SampleType::U16 => {
+            for pixel in data.chunks_exact_mut(channels * 2) {
+                for c in [1, 2] {
+                    let v = u16::from_ne_bytes([pixel[c * 2], pixel[c * 2 + 1]]);
+                    let value = if to_file {
+                        let a = ((f64::from(v) - 32896.) * 256. / 257.).round().clamp(-32768., 32767.);
+                        if signed { (a as i16) as u16 } else { (a + 32768.) as u16 }
+                    } else {
+                        let a = if signed { f64::from(v as i16) } else { f64::from(v) - 32768. };
+                        (a * 257. / 256. + 32896.).round().clamp(0., 65535.) as u16
+                    };
+                    pixel[c * 2..c * 2 + 2].copy_from_slice(&value.to_ne_bytes());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 struct TagSet<'a> {
     exif: Option<lightcraft_tiff::IfdBuilder>,
     icc: Option<&'a [u8]>,
@@ -1038,6 +1084,19 @@ fn write_image<K: TiffKind>(enc: &mut TiffEncoder<&mut Cursor<Vec<u8>>, K>, img:
         (L::CmykA, S::U8) => write_one::<colortype::CMYKA8, K>(enc, w, h, d8, tags),
         (L::CmykA, S::U16) => write_one::<CmykA16, K>(enc, w, h, &u16s(), tags),
         (L::CmykA, S::F32) => write_one::<CmykA32F, K>(enc, w, h, &f32s(), tags),
+        (L::Lab | L::LabA, _) => {
+            let sample = if img.sample_type() == S::U8 { S::U8 } else { S::U16 };
+            let mut file = img.convert(img.layout(), sample);
+            let channels = file.layout().channels();
+            convert_ab(file.data_mut(), channels, sample, true, true);
+            let u16s = || file.to_u16_samples().unwrap_or_default();
+            match (file.layout(), sample) {
+                (L::Lab, S::U8) => write_one::<Lab8, K>(enc, w, h, file.data(), tags),
+                (L::Lab, _) => write_one::<Lab16, K>(enc, w, h, &u16s(), tags),
+                (_, S::U8) => write_one::<LabA8, K>(enc, w, h, file.data(), tags),
+                _ => write_one::<LabA16, K>(enc, w, h, &u16s(), tags),
+            }
+        }
         (l, s) => Err(io::Error::new(io::ErrorKind::InvalidInput, format!("unsupported {l:?} {s:?}")).into()),
     }
 }

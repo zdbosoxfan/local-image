@@ -371,3 +371,15 @@ fn animation_imports_the_first_frame_with_a_warning() {
     assert_eq!(three.warnings, ["only the first of 3 frames was imported"]);
     pixels_eq(&one.document, &three.document, 0.0);
 }
+
+#[test]
+fn plain_lab_tiff_keeps_native_samples_and_document_mode() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let doc = columns(ColorMode::Lab, depth, &[&[0.5, 108. / 255., 158. / 255., 1.]]);
+        let result = export(&doc, "tiff", &ExportOptions::default()).unwrap();
+        let back = import("lab.tiff", &result.bytes).unwrap().document;
+        assert_eq!(back.mode, ColorMode::Lab);
+        assert_eq!(back.depth, if depth == SampleType::U8 { SampleType::U8 } else { SampleType::U16 });
+        assert_colors(&column_pixels(&back, 1), &column_pixels(&doc, 1), 1.5 / 65535., "native Lab TIFF");
+    }
+}

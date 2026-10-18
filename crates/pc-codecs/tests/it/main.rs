@@ -17,6 +17,7 @@ mod roundtrip;
 mod tga;
 mod tiff_bench;
 mod tiff_exif;
+mod tiff_lab;
 mod tiff_pages;
 mod tiff_photoshop;
 mod tiff_regressions;

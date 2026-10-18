@@ -31,8 +31,8 @@ pub fn would_write_layers(doc: &Document) -> bool {
 }
 
 /// Documents a layered TIFF can hold: the TIFF composite must be in the document's model so
-/// that the layer channels inside the tag match it (Lab TIFFs are not decoded or encoded by
-/// `photocraft-codecs`), and there must be layers to keep (a Multichannel document has none:
+/// that the layer channels inside the tag match it (the layered composite path renders Lab as
+/// RGB), and there must be layers to keep (a Multichannel document has none:
 /// its channels are the image).
 fn layered_mode(doc: &Document) -> bool {
     matches!(doc.pixel_format().mode, ColorMode::Grayscale | ColorMode::Rgb | ColorMode::Cmyk) && doc.mode != ColorMode::Multichannel && !doc.layers.is_empty()
@@ -91,6 +91,7 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
         ChannelLayout::Gray | ChannelLayout::GrayA => (PsdMode::Grayscale, 1),
         ChannelLayout::Rgb | ChannelLayout::Rgba => (PsdMode::Rgb, 3),
         ChannelLayout::Cmyk | ChannelLayout::CmykA => (PsdMode::Cmyk, 4),
+        ChannelLayout::Lab | ChannelLayout::LabA => (PsdMode::Lab, 3),
     };
     let depth = match img.sample_type() {
         CSample::U8 => 8,
