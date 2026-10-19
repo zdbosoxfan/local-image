@@ -20,6 +20,7 @@ env:
   CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
 jobs:
   native:
+    timeout-minutes: 120
     # Standard hosted macOS VMs are build/portable-test hosts. GPU acceptance needs a
     # real Metal-capable host; never silently treat an adapter skip as acceleration proof.
     runs-on: ${{ inputs.metal_runner && fromJSON('["self-hosted", "macOS", "ARM64", "metal"]') || 'macos-15' }}
