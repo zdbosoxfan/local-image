@@ -1,4 +1,4 @@
-//! Bounded PDF import through hayro 0.7.0 Device callbacks, with native editable layers.
+//! Bounded PDF import through hayro 0.8.0 Device callbacks, with native editable layers.
 //! Mapping adapted from VectorCraft crates/pdf/src/import.rs and pages.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. Copyright (c) 2026 ArtCraft Team
 //! and VectorCraft contributors. MIT OR Apache-2.0; see licenses/vectorcraft-*.
@@ -20,6 +20,8 @@ mod pages;
 mod paint;
 #[path = "import/preflight.rs"]
 mod preflight;
+#[path = "import/transfer.rs"]
+mod transfer;
 pub use pages::{PageInfo, PdfInfo};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

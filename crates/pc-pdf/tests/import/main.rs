@@ -333,6 +333,22 @@ fn pdf_import_multiply_and_type3_glyph_artwork_are_editable() {
 }
 
 #[test]
+fn pdf_import_fill_stroke_text_paints_each_glyph_fill_then_stroke() {
+    let strokes = |content: &str| -> Vec<bool> {
+        let font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec();
+        let d = doc(import(&fixture::page(content, "/Font << /F 5 0 R >>", "", &[font]), &ImportOptions::default()).unwrap());
+        d.walk()
+            .into_iter()
+            .filter(|(_, _, l)| l.name == "PDF glyph")
+            .filter_map(|(_, _, l)| if let LayerContent::Shape(s) = &l.content { Some(s.stroke.is_some()) } else { None })
+            .collect()
+    };
+    assert_eq!(strokes("BT /F 20 Tf 2 Tr 1 0 0 rg 0 0 1 RG 4 20 Td (AB) Tj ET"), [false, true, false, true]);
+    // Separate fill and stroke shows of different glyphs keep their own order.
+    assert_eq!(strokes("BT /F 20 Tf 4 20 Td (AB) Tj 1 Tr (CD) Tj ET"), [false, false, true, true]);
+}
+
+#[test]
 fn pdf_import_exponential_page_tree_is_bounded_before_page_collection() {
     let mut objects = vec![b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()];
     for id in 2..=21 {

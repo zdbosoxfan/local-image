@@ -98,7 +98,7 @@ pub(super) fn convert(pdf: &preflight::Admitted, options: &ImportOptions, extra:
         frames.push((number, frame, transform));
     }
     let size = Size::new(x as u32, h as u32);
-    let mut b = Builder::new(options, cancel, photocraft_doc::Rect::from_size(size), pdf.groups.clone());
+    let mut b = Builder::new(options, cancel, pdf, photocraft_doc::Rect::from_size(size), pdf.groups.clone());
     if pdf.unverified_group_space {
         warn(
             &mut b.warnings,
@@ -127,6 +127,10 @@ pub(super) fn convert(pdf: &preflight::Admitted, options: &ImportOptions, extra:
                 let (feature, message) = match w {
                     InterpreterWarning::UnsupportedFont => ("unsupported-font", "Hayro could not decode a font; affected glyphs were omitted."),
                     InterpreterWarning::ImageDecodeFailure => ("image-decode", "Hayro could not decode an image; it was omitted."),
+                    InterpreterWarning::UnresolvedAnnotationAppearance => {
+                        ("annotation-appearance", "An annotation appearance could not be loaded; the annotation was omitted.")
+                    }
+                    _ => ("interpreter-warning", "Hayro skipped part of the page it could not interpret; the rest was imported."),
                 };
                 warn(&mut ws, feature, None, message);
             }
