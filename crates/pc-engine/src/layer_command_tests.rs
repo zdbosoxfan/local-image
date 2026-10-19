@@ -313,6 +313,47 @@ fn merging_layers_too_far_apart_is_refused_without_change() {
     assert_eq!(s.active().unwrap().history.past_len(), history);
 }
 
+fn two_painted_layers(s: &mut Session, areas: [photocraft_geom::Rect; 2]) -> [photocraft_doc::LayerId; 2] {
+    areas.map(|area| {
+        let id = photocraft_doc::LayerId(s.execute("layer.new.layer", json!({})).unwrap()["layer"].as_u64().unwrap());
+        s.edit("Paint", |doc, _| {
+            doc.layer_mut(id).unwrap().surface_mut().unwrap().fill_rect(area, &[1.0, 0.0, 0.0, 1.0]);
+            Ok(())
+        })
+        .unwrap();
+        id
+    })
+}
+
+#[test]
+fn merge_down_of_layers_too_far_apart_is_refused_without_change() {
+    let mut s = session();
+    let ids = two_painted_layers(&mut s, [photocraft_geom::Rect::new(0, 0, 4, 4), photocraft_geom::Rect::new(900_000, 1_200, 900_004, 1_204)]);
+    s.execute("layer.select", json!({"layer": ids[1].0})).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    let error = s.execute("layer.mergeDown", json!({})).unwrap_err().to_string();
+    assert!(error.contains("not enough memory for merging down"), "{error}");
+    assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+}
+
+#[test]
+fn merge_down_keeps_pixels_of_both_layers_including_off_canvas() {
+    let mut s = session();
+    let ids = two_painted_layers(&mut s, [photocraft_geom::Rect::new(-20, -10, -15, -5), photocraft_geom::Rect::new(15, 15, 40, 40)]);
+    s.execute("layer.select", json!({"layer": ids[1].0})).unwrap();
+    s.execute("layer.mergeDown", json!({})).unwrap();
+    let st = s.active().unwrap();
+    assert_eq!(st.active_layer, Some(ids[0]));
+    assert!(st.doc.layer(ids[1]).is_none());
+    let surf = st.doc.layer(ids[0]).unwrap().surface().unwrap();
+    assert_eq!(surf.content_bounds(), photocraft_geom::Rect::new(-20, -10, 40, 40));
+    assert_eq!(surf.rgba(-18, -8), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(surf.rgba(30, 30), [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(surf.rgba(0, 0)[3], 0.0);
+}
+
 #[test]
 fn multiple_layers_align_to_active_selection() {
     let mut s = session();
