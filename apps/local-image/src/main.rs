@@ -391,11 +391,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |cc| {
             created_in_callback.store(true, std::sync::atomic::Ordering::Relaxed);
-            // File dialogs are children of this window, so the portal picker on Wayland isn't a
-            // stray top-level hidden behind a fullscreen window (upstream LightCraft 9c2bad1).
-            #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-            photocraft_ui_egui::dialog_filter::set_dialog_parent(rfd::FileDialog::new().set_parent(cc));
-            // The editor's dialogs don't block the event loop (see `services`): a sheet on macOS.
+            // File dialogs are children of this window: a sheet on macOS, and on Wayland not a
+            // stray portal top-level hidden behind a fullscreen window (upstream LightCraft
+            // 9c2bad1). None of them blocks the event loop (see `services`).
             photocraft_ui_egui::dialog_filter::set_async_dialog_parent(rfd::AsyncFileDialog::new().set_parent(cc));
             let automation = control.as_ref().map(|(_, _, workspace)| workspace.clone());
             let mut services = services::native(automation);

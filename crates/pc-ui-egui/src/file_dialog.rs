@@ -4,20 +4,20 @@
 //! hands over what to do with the answer. The platform shell shows the dialog through
 //! [`Services::file_dialog`](crate::Services::file_dialog) and returns at once, answering later
 //! through the [`FileDialogReply`] from any thread; [`PhotocraftApp::poll_file_dialog`], every
-//! frame, continues the action once the answer is in. The window keeps drawing and answering the
-//! compositor meanwhile. A dialog run to completion inside the frame froze the window (Linux
-//! compositors offered to kill it) and, on macOS, ran AppKit's modal loop inside winit's event
-//! handler, which aborts the app when another event arrives.
+//! frame, continues the action once the answer is in (see [`li_ui_kit::file_dialog`]). UI code
+//! without the app at hand (the AI settings and model rows) asks with [`ask_later`].
 //!
 //! A service that answers before returning (tests, a dialog that couldn't be shown) continues the
 //! action straight away, so the command returns its own result. One dialog at a time: asking
 //! while one is open is refused.
 
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
 
 use photocraft_doc::DocId;
 use serde_json::{Value, json};
+
+use li_ui_kit::file_dialog::{Asked, ShowFileDialog};
+pub use li_ui_kit::file_dialog::{CANCELLED, FileDialogAnswer, FileDialogReply, FileDialogSpec, Pick, answering};
 
 use crate::PhotocraftApp;
 use crate::file_open::display_name;
@@ -36,54 +36,41 @@ pub enum FileDialogRequest {
     Save { suggested: String },
     /// An existing folder: answered with [`FileDialogAnswer::Paths`] holding it.
     Folder,
-}
-
-/// The user's choice (a cancelled dialog answers `None`).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FileDialogAnswer {
-    /// The chosen files or folder.
-    Paths(Vec<String>),
-    /// The chosen file's name (its full path on the desktop) and contents, or why it couldn't be
-    /// read (reported like any other open failure).
-    File(String, Result<Vec<u8>, String>),
-    /// The path to save to.
-    SaveTo(String),
-}
-
-/// Hands a dialog's answer to the app and wakes it, from any thread. Dropping it unanswered (a
-/// dialog that failed to show) counts as Cancel.
-pub struct FileDialogReply {
-    tx: Sender<Option<FileDialogAnswer>>,
-    /// The context to wake, known once the app has polled (see [`PhotocraftApp::poll_file_dialog`]).
-    wake: Arc<Mutex<Option<egui::Context>>>,
-}
-
-impl FileDialogReply {
-    pub fn send(self, answer: Option<FileDialogAnswer>) {
-        // Nothing is waiting any more when the app has quit meanwhile.
-        let _ = self.tx.send(answer);
-        if let Some(ctx) = self.wake.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_ref() {
-            ctx.request_repaint();
-        }
-    }
+    /// A dialog with its own title and filters (the AI, Generate and Swatches pickers), answered
+    /// as its [`Pick`] says.
+    Described(FileDialogSpec),
 }
 
 /// Show a file dialog and return at once, answering through the reply when the user is done.
-pub type FileDialogFn = Box<dyn FnMut(FileDialogRequest, FileDialogReply)>;
+pub type FileDialogFn = ShowFileDialog<FileDialogRequest>;
 
 /// What to do with the answer (`None`: cancelled).
 type Then = Box<dyn FnOnce(&mut PhotocraftApp, Option<FileDialogAnswer>) -> Result<Value, String>>;
 
+/// What to do with a dialog's answer, for [`ask_later`].
+type ThenLater = Box<dyn FnOnce(&mut PhotocraftApp, FileDialogAnswer) -> Result<Value, String>>;
+
 /// The file dialog in progress.
-pub(crate) struct Pending {
-    answer: Receiver<Option<FileDialogAnswer>>,
-    wake: Arc<Mutex<Option<egui::Context>>>,
-    then: Then,
+pub(crate) type Pending = li_ui_kit::file_dialog::Pending<Then>;
+
+const UNEXPECTED: &str = "the file dialog gave an unexpected answer";
+
+thread_local! {
+    /// The dialog asked for by [`ask_later`], shown by the next [`PhotocraftApp::poll_file_dialog`].
+    static LATER: RefCell<Option<(FileDialogRequest, ThenLater)>> = const { RefCell::new(None) };
 }
 
-/// The error of a cancelled dialog: not reported, since backing out is the user's choice.
-pub(crate) const CANCELLED: &str = "cancelled";
-const UNEXPECTED: &str = "the file dialog gave an unexpected answer";
+/// [`PhotocraftApp::ask_file`] for UI code without the app at hand: the dialog opens at the end of
+/// the frame and `then` continues from its answer like any other. A second request before then
+/// replaces the first.
+pub(crate) fn ask_later(
+    ctx: &egui::Context,
+    request: FileDialogRequest,
+    then: impl FnOnce(&mut PhotocraftApp, FileDialogAnswer) -> Result<Value, String> + 'static,
+) {
+    LATER.with(|later| *later.borrow_mut() = Some((request, Box::new(then))));
+    ctx.request_repaint();
+}
 
 /// Whether `r` is the result of a command that is waiting on the file dialog it opened.
 pub(crate) fn waiting(r: &Result<Value, String>) -> bool {
@@ -109,20 +96,21 @@ impl PhotocraftApp {
             return Err("a file dialog is already open".into());
         }
         let Some(show) = self.services.file_dialog.as_mut() else { return Err(CANCELLED.into()) };
-        let kind = match request {
+        let kind = match &request {
             FileDialogRequest::Open { .. } | FileDialogRequest::Read => "open",
             FileDialogRequest::Save { .. } => "save",
             FileDialogRequest::Folder => "folder",
+            FileDialogRequest::Described(spec) => match spec.pick {
+                Pick::File | Pick::Files => "open",
+                Pick::Save => "save",
+                Pick::Folder => "folder",
+            },
         };
-        let (tx, answer) = mpsc::channel();
-        let wake = Arc::new(Mutex::new(None));
-        show(request, FileDialogReply { tx, wake: wake.clone() });
         let then: Then = Box::new(move |app, answer| answer.map_or_else(|| Err(CANCELLED.into()), |a| then(app, a)));
-        match answer.try_recv() {
-            Ok(a) => then(self, a),
-            Err(TryRecvError::Disconnected) => then(self, None),
-            Err(TryRecvError::Empty) => {
-                self.file_dialog = Some(Pending { answer, wake, then });
+        match li_ui_kit::file_dialog::ask(show, request, then) {
+            Asked::Answered(then, a) => then(self, a),
+            Asked::Waiting(pending) => {
+                self.file_dialog = Some(pending);
                 Ok(json!({ "fileDialog": kind }))
             }
         }
@@ -206,20 +194,22 @@ impl PhotocraftApp {
         Ok(self.session.active().ok_or("no document")?.doc.id)
     }
 
-    /// Called every frame: continues the action that asked once the dialog is answered. Its
-    /// errors go to the status bar.
+    /// Called every frame: shows the dialog [`ask_later`] asked for, and continues the action
+    /// that asked once the dialog is answered. Its errors go to the status bar.
     pub fn poll_file_dialog(&mut self, ctx: &egui::Context) {
+        if let Some((request, then)) = LATER.with(|later| later.borrow_mut().take()) {
+            let r = self.ask_file(request, then);
+            self.report_file_dialog_error(r);
+        }
         let Some(p) = self.file_dialog.as_ref() else { return };
-        // Set before looking, so an answer that arrives after the look wakes the app.
-        p.wake.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_or_insert_with(|| ctx.clone());
-        let answer = match p.answer.try_recv() {
-            Err(TryRecvError::Empty) => return,
-            Ok(answer) => answer,
-            // The reply was dropped unanswered: the dialog couldn't be shown.
-            Err(TryRecvError::Disconnected) => None,
-        };
-        let Some(Pending { then, .. }) = self.file_dialog.take() else { return };
-        if let Err(e) = then(self, answer)
+        let Some(answer) = p.poll(ctx) else { return };
+        let Some(p) = self.file_dialog.take() else { return };
+        let r = (p.then)(self, answer);
+        self.report_file_dialog_error(r);
+    }
+
+    fn report_file_dialog_error(&mut self, r: Result<Value, String>) {
+        if let Err(e) = r
             && e != CANCELLED
         {
             self.ui.status = e;
@@ -234,13 +224,6 @@ pub(crate) fn read_picked(answer: FileDialogAnswer) -> Result<(String, Vec<u8>),
         FileDialogAnswer::File(name, bytes) => bytes.map(|b| (name.clone(), b)).map_err(|e| format!("{}: {e}", display_name(&name))),
         FileDialogAnswer::Paths(_) | FileDialogAnswer::SaveTo(_) => Err(UNEXPECTED.into()),
     }
-}
-
-/// Test helper: a dialog service that answers every request at once with `answer(request)`
-/// (`None`: Cancel). Used by this crate's tests and those of the crates that drive the app.
-#[doc(hidden)]
-pub fn answering(mut answer: impl FnMut(FileDialogRequest) -> Option<FileDialogAnswer> + 'static) -> FileDialogFn {
-    Box::new(move |request, reply| reply.send(answer(request)))
 }
 
 #[cfg(test)]

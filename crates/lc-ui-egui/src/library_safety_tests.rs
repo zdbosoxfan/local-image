@@ -35,7 +35,7 @@ fn safety_import_real_clicks_preview_and_second_copy_roundtrip() {
     let mut s = Session::new().with_fs();
     s.open_library(root.join("library"), false).unwrap();
     let backup = second.to_string_lossy().to_string();
-    let mut app = LightcraftApp::new(s, Services { pick_folder: Some(Box::new(move || Some(backup.clone()))), png: None, ..Default::default() });
+    let mut app = LightcraftApp::new(s, Services { file_dialog: Some(crate::file_dialog::choosing(backup)), png: None, ..Default::default() });
     app.ui.settings.gpu = false;
     let candidate = lightcraft_engine::import::ImportCandidate {
         path: photo.display().to_string(),
@@ -94,7 +94,7 @@ fn safety_backup_preferences_real_clicks_and_persisted_reopen() {
     let folder = output.display().to_string();
     let mut s = Session::new();
     s.open_library(root.join("library"), false).unwrap();
-    let mut app = LightcraftApp::new(s, Services { pick_folder: Some(Box::new(move || Some(folder.clone()))), png: None, ..Default::default() });
+    let mut app = LightcraftApp::new(s, Services { file_dialog: Some(crate::file_dialog::choosing(folder)), png: None, ..Default::default() });
     app.ui.settings.gpu = false;
     app.ui.dialog = Some(Dialog::Settings { tab: "general".into() });
     let mut h = Headless::new(app, [1400., 1300.], 1.5);
@@ -126,7 +126,7 @@ fn safety_proof_sheet_real_clicks_export_background_pdf() {
     let folder = root.display().to_string();
     let mut app = LightcraftApp::new(
         Session::with_demo(),
-        Services { pick_folder: Some(Box::new(move || Some(folder.clone()))), png: None, ..Default::default() },
+        Services { file_dialog: Some(crate::file_dialog::choosing(folder)), png: None, ..Default::default() },
     );
     app.ui.settings.gpu = false;
     app.run("dialog.proofSheet", json!({})).unwrap();

@@ -38,7 +38,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use lightcraft_ui_egui::{LightcraftApp, Services, UiState};
-use photocraft_ui_egui::dialog_filter::{FileDialogExt as _, file_dialog};
 use photocraft_ui_egui::{Module, PhotocraftApp};
 
 mod filmstrip;

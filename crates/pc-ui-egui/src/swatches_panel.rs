@@ -1385,21 +1385,24 @@ fn import_palette(app: &mut PhotocraftApp, scope: Scope) -> Result<bool, String>
     // dedicated native-dialog API here; standalone/web hosts retain injection.
     #[cfg(not(target_arch = "wasm32"))]
     if app.background_jobs {
-        use crate::dialog_filter::FileDialogExt;
-        let Some(path) =
-            crate::dialog_filter::file_dialog().set_title("Import Swatches").add_filter_nocase("Swatch files", &["ase", "aco", "gpl", "kpl"]).pick_file()
-        else {
-            return Ok(false);
-        };
-        let warnings = read_palette_path(&path).and_then(|bytes| import(app, scope, &path.to_string_lossy(), &bytes))?;
-        imported(app, warnings);
-        return Ok(true);
+        let request = crate::FileDialogSpec::new(crate::Pick::File).title("Import Swatches").filter("Swatch files", &["ase", "aco", "gpl", "kpl"]);
+        let r = app.ask_file(crate::FileDialogRequest::Described(request), move |app, answer| {
+            let path = answer.into_path().ok_or(crate::file_dialog::CANCELLED)?;
+            let warnings = read_palette_path(std::path::Path::new(&path)).and_then(|bytes| import(app, scope, &path, &bytes))?;
+            imported(app, warnings);
+            Ok(serde_json::Value::Null)
+        });
+        return imported_now(r);
     }
     let r = app.pick_file_bytes(move |app, name, bytes| {
         let warnings = import(app, scope, &name, &bytes)?;
         imported(app, warnings);
         Ok(serde_json::Value::Null)
     });
+    imported_now(r)
+}
+/// [`import_palette`]'s answer for `r`, the result of asking for the palette file.
+fn imported_now(r: Result<serde_json::Value, String>) -> Result<bool, String> {
     match r {
         Err(e) if e == crate::file_dialog::CANCELLED => Ok(false),
         r => {
@@ -1415,20 +1418,13 @@ fn export_palette(app: &mut PhotocraftApp, ext: &str, bytes: Vec<u8>, warnings: 
         app.ui.status = warnings.join("; ");
         Ok(serde_json::Value::Null)
     };
-    #[cfg(not(target_arch = "wasm32"))]
-    if app.background_jobs {
-        use crate::dialog_filter::FileDialogExt;
-        let Some(path) = crate::dialog_filter::file_dialog()
-            .set_title("Export Swatches")
-            .add_filter_nocase("Swatch file", &[ext])
-            .set_file_name(format!("Palette.{ext}"))
-            .save_file()
-        else {
-            return Ok(());
-        };
-        return write(app, path.to_string_lossy().into_owned()).map(|_| ());
-    }
-    match app.pick_save(&format!("Palette.{ext}"), write) {
+    let r = if cfg!(not(target_arch = "wasm32")) && app.background_jobs {
+        let request = crate::FileDialogSpec::new(crate::Pick::Save).title("Export Swatches").filter("Swatch file", &[ext]).file_name(format!("Palette.{ext}"));
+        app.ask_file(crate::FileDialogRequest::Described(request), move |app, answer| write(app, answer.into_path().ok_or(crate::file_dialog::CANCELLED)?))
+    } else {
+        app.pick_save(&format!("Palette.{ext}"), write)
+    };
+    match r {
         Err(e) if e == crate::file_dialog::CANCELLED => Ok(()),
         r => r.map(|_| ()),
     }

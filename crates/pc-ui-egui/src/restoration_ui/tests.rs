@@ -26,6 +26,15 @@ fn harness_at(size: egui::Vec2, ppp: f32) -> Harness<'static, PhotocraftApp> {
     h
 }
 
+/// The model file the next Import Restore model… dialog picks.
+fn will_pick(h: &mut Harness<'_, PhotocraftApp>, path: std::path::PathBuf) {
+    let path = path.to_string_lossy().into_owned();
+    h.state_mut().services.file_dialog = Some(crate::file_dialog::answering(move |request| {
+        assert_eq!(request, crate::ai_ui::onnx_request());
+        Some(crate::FileDialogAnswer::Paths(vec![path.clone()]))
+    }));
+}
+
 fn open_menu(h: &mut Harness<'_, PhotocraftApp>) {
     h.get_by_label("Filter").click();
     h.run_steps(3);
@@ -370,7 +379,7 @@ fn restoration_ui_local_real_5090_colourise_and_repair() {
         h.get_by_label(caption(task)).click();
         h.run_steps(2);
         let pin = local_pin(task).unwrap();
-        crate::ai_ui::TEST_PICK.with(|p| *p.borrow_mut() = Some(exports.join(pin.file)));
+        will_pick(&mut h, exports.join(pin.file));
         h.get_by_label("Import Restore model…").click();
         h.run_steps(2);
         let import_started = Instant::now();
@@ -521,7 +530,7 @@ fn restoration_ui_import_rejects_unpinned_file_without_document_edits() {
     open_menu(&mut h);
     h.get_by_label("Colourise").click();
     h.run_steps(2);
-    crate::ai_ui::TEST_PICK.with(|p| *p.borrow_mut() = Some(bad));
+    will_pick(&mut h, bad);
     h.get_by_label("Import Restore model…").click();
     h.run_steps(2);
     let start = Instant::now();

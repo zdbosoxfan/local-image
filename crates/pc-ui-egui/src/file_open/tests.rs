@@ -34,7 +34,7 @@ fn app_with(pick_open: Option<(String, Vec<u8>)>, pick_save: Option<String>) -> 
         file_dialog: Some(file_dialog::answering(move |request| match request {
             FileDialogRequest::Open { .. } | FileDialogRequest::Read => pick_open.take().map(|(name, bytes)| FileDialogAnswer::File(name, Ok(bytes))),
             FileDialogRequest::Save { .. } => pick_save.clone().map(FileDialogAnswer::SaveTo),
-            FileDialogRequest::Folder => None,
+            FileDialogRequest::Folder | FileDialogRequest::Described(_) => None,
         })),
         write: Some(Box::new(move |p: &str, b: &[u8]| {
             w.borrow_mut().push((p.to_string(), b.to_vec()));

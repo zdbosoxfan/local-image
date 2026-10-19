@@ -13,7 +13,7 @@ use photocraft_codecs::{ChannelLayout, EncodeOptions, Image};
 use photocraft_doc::Document;
 use photocraft_format::RecoveryStore;
 use photocraft_ui_egui::dialog_filter::{FileDialogExt as _, async_file_dialog};
-use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest, Recovered, Services};
+use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest, FileDialogSpec, Pick, Recovered, Services};
 use std::cell::RefCell;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -84,8 +84,8 @@ type Answer = Pin<Box<dyn Future<Output = Option<FileDialogAnswer>> + Send>>;
 /// b97a72ac): rfd's async dialog opens here, on the main thread, as a sheet on macOS and a dialog
 /// owned by the window elsewhere, and a helper thread waits for it and hands the answer to the
 /// app. An empty answer with no dialog backend on the system is explained, not taken for Cancel
-/// (see `file_dialog_probe`).
-fn show_file_dialog(request: FileDialogRequest, reply: FileDialogReply) {
+/// (see `file_dialog_probe`). The editor's and the Library's dialogs all open here.
+pub(crate) fn show_file_dialog(request: FileDialogRequest, reply: FileDialogReply) {
     let answer: Answer = match request {
         FileDialogRequest::Open { multiple: true } => {
             let picked = open_dialog().pick_files();
@@ -109,10 +109,45 @@ fn show_file_dialog(request: FileDialogRequest, reply: FileDialogReply) {
             Box::pin(async move { explain_empty(picked.await).map(|dir| FileDialogAnswer::Paths(vec![path_of(&dir)])) })
         }
         FileDialogRequest::Save { suggested } => save_as_dialog(suggested),
+        FileDialogRequest::Described(spec) => described_dialog(spec),
     };
     // Without the thread the reply is dropped unanswered, which the app takes as Cancel.
     if let Err(e) = std::thread::Builder::new().name("file dialog".into()).spawn(move || reply.send(block_on(answer))) {
         log::error!("couldn't wait for the file dialog: {e}");
+    }
+}
+
+/// rfd's dialog for `spec` (the Library's, the AI and Swatches pickers), which opens when this is
+/// called.
+fn described_dialog(spec: FileDialogSpec) -> Answer {
+    let mut d = async_file_dialog();
+    if let Some(title) = spec.title {
+        d = d.set_title(title);
+    }
+    for (name, exts) in spec.filters {
+        let exts: Vec<&str> = exts.iter().map(String::as_str).collect();
+        d = d.add_filter_nocase(name, &exts);
+    }
+    if let Some(name) = spec.file_name {
+        d = d.set_file_name(name);
+    }
+    match spec.pick {
+        Pick::File => {
+            let picked = d.pick_file();
+            Box::pin(async move { explain_empty(picked.await).map(|file| FileDialogAnswer::Paths(vec![path_of(&file)])) })
+        }
+        Pick::Files => {
+            let picked = d.pick_files();
+            Box::pin(async move { explain_empty(picked.await).map(|files| FileDialogAnswer::Paths(files.iter().map(path_of).collect())) })
+        }
+        Pick::Folder => {
+            let picked = d.pick_folder();
+            Box::pin(async move { explain_empty(picked.await).map(|dir| FileDialogAnswer::Paths(vec![path_of(&dir)])) })
+        }
+        Pick::Save => {
+            let picked = d.save_file();
+            Box::pin(async move { explain_empty(picked.await).map(|file| FileDialogAnswer::SaveTo(path_of(&file))) })
+        }
     }
 }
 
@@ -819,16 +854,47 @@ mod tests {
         assert_eq!(dialog_extensions_for(OPEN_EXTS, false), OPEN_EXTS);
     }
 
-    /// Every native dialog of the app goes through the case-insensitive helper.
-    #[test]
-    fn no_app_dialog_bypasses_the_nocase_filter_helper() {
-        for (file, src) in [("services.rs", include_str!("services.rs")), ("library_host/services_wiring.rs", include_str!("library_host/services_wiring.rs"))]
-        {
-            assert!(!src.contains(concat!(".add_filter", "(")), "{file} calls rfd's add_filter; use add_filter_nocase");
-            assert!(src.contains(".add_filter_nocase("), "{file}");
-            assert!(!src.contains(concat!("rfd::FileDialog::", "new()")), "{file} opens an unparented dialog; use file_dialog()");
-            assert!(!src.contains(concat!("rfd::AsyncFileDialog::", "new()")), "{file} opens an unparented dialog; use async_file_dialog()");
+    /// Every `.rs` file under `dir`, skipping build output.
+    fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n != "target") {
+                    rust_sources(&path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
         }
+    }
+
+    /// No file dialog blocks the event loop: rfd's blocking `FileDialog` froze the window on Linux
+    /// and aborted the app on macOS. Every dialog is an `AsyncFileDialog` parented to the window
+    /// (only the parent template is made without one), and every filter matches any letter case.
+    #[test]
+    fn every_file_dialog_is_asynchronous_parented_and_case_insensitive() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut files = Vec::new();
+        for dir in ["crates", "apps"] {
+            rust_sources(&root.join(dir), &mut files);
+        }
+        assert!(files.len() > 100, "found {} sources", files.len());
+        let blocking = concat!("rfd::", "FileDialog");
+        let unparented = concat!("rfd::AsyncFileDialog::", "new()");
+        for file in files {
+            let src = std::fs::read_to_string(&file).unwrap();
+            let name = file.strip_prefix(&root).unwrap_or(&file).display().to_string();
+            assert!(!src.contains(blocking), "{name} uses rfd's blocking FileDialog; ask through the app's file_dialog service");
+            let (any, asynchronous) = (concat!("FileDialog::", "new()"), concat!("AsyncFileDialog::", "new()"));
+            assert_eq!(src.matches(any).count(), src.matches(asynchronous).count(), "{name} uses a blocking FileDialog");
+            if src.contains(unparented) {
+                assert!(name.ends_with("dialog_filter.rs") || name.ends_with("main.rs"), "{name} opens an unparented dialog; use async_file_dialog()");
+            }
+            if !name.ends_with("dialog_filter.rs") {
+                assert!(!src.contains(concat!(".add_filter", "(")), "{name} calls rfd's add_filter; use add_filter_nocase");
+            }
+        }
+        assert!(include_str!("services.rs").contains(".add_filter_nocase("));
     }
 
     #[test]

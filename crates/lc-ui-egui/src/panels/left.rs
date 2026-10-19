@@ -3,7 +3,7 @@
 use egui::{Align2, Rect, Sense, pos2, vec2};
 use lightcraft_catalog::{Album, AlbumId, KeywordNode};
 use lightcraft_engine::LibrarySource;
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::LightcraftApp;
 use crate::icons::{Icon, paint};
@@ -254,16 +254,21 @@ fn local_section(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         folder_tree(app, ui, name, path, 0.0, current.as_deref(), reveal, transient);
     }
     if app.services.has_folder_picker() && row(app, ui, "local:browse", Icon::Plus, "Browse Folder…", None, false, 0.0).clicked() {
-        let picked = app.services.choose_folder("Choose Browse Folder");
-        if let Some(path) = picked {
+        let ctx = ui.ctx().clone();
+        let r = app.ask_file(crate::FileDialogRequest::folder("Choose Browse Folder"), move |app, answer| {
+            let Some(path) = answer.into_path() else { return Ok(Value::Null) };
             match app.run("library.browse", json!({"path": path})) {
                 // the picked folder stays in Local (and comes back if it was hidden)
                 Ok(r) => {
                     let dir = r["path"].as_str().unwrap_or(&path).to_string();
                     let _ = app.run("local.addRoot", json!({"path": dir}));
                 }
-                Err(e) => app.toast(ui.ctx(), e),
+                Err(e) => app.toast(&ctx, e),
             }
+            Ok(Value::Null)
+        });
+        if let Err(e) = r {
+            app.toast(ui.ctx(), e);
         }
     }
     let hidden = app.ui.hidden_locations.len();
@@ -527,12 +532,17 @@ fn folder_tree(
             });
         }
         if app.services.has_folder_picker() && ui.button(li_i18n::library::t("Move Folder To…")).clicked() {
-            let into = app.services.choose_folder("Choose Move Destination");
-            if let Some(into) = into {
+            let (ctx, path) = (ui.ctx().clone(), path.to_owned());
+            let r = app.ask_file(crate::FileDialogRequest::folder("Choose Move Destination"), move |app, answer| {
+                let Some(into) = answer.into_path() else { return Ok(Value::Null) };
                 match app.run("folder.move", json!({"path": path, "into": into})) {
-                    Ok(r) => app.toast(ui.ctx(), format!("Moved; {} photo(s) relinked", r["relinked"])),
-                    Err(e) => app.toast(ui.ctx(), e),
+                    Ok(r) => app.toast(&ctx, format!("Moved; {} photo(s) relinked", r["relinked"])),
+                    Err(e) => app.toast(&ctx, e),
                 }
+                Ok(Value::Null)
+            });
+            if let Err(e) = r {
+                app.toast(ui.ctx(), e);
             }
         }
         if app.services.reveal.is_some()

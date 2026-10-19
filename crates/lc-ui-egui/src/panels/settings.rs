@@ -329,11 +329,13 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             (false, false)
         };
         if choose {
-            if let Some(folder) = app.services.choose_folder("Choose Camera Profiles Folder") {
-                let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
-            }
+            app.choose_folder("Choose Camera Profiles Folder", "settingsCameraFolderChoose");
             ui.data_mut(|data| data.remove::<String>(edit_id));
-        } else if !choosing && response.lost_focus() && folder != d.camera_profiles_folder {
+        }
+        if let Some(folder) = app.take_chosen("settingsCameraFolderChoose") {
+            let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
+            ui.data_mut(|data| data.remove::<String>(edit_id));
+        } else if !choose && !choosing && response.lost_focus() && folder != d.camera_profiles_folder {
             let _ = app.run("library.preferences", json!({"import":{"cameraProfilesFolder":folder}}));
         }
     });
@@ -478,8 +480,10 @@ fn import_tab(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
             let can = app.services.has_folder_picker();
             let r = ui.add_enabled_ui(can, |ui| crate::widgets::text_button(ui, "settingsAutoFolder", "Choose…", false)).inner;
             register(ui.ctx(), "button:settingsAutoFolder", r.rect);
-            if r.clicked()
-                && let Some(f) = app.services.choose_folder("Choose Auto Import Folder")
+            if r.clicked() {
+                app.choose_folder("Choose Auto Import Folder", "settingsAutoFolder");
+            }
+            if let Some(f) = app.take_chosen("settingsAutoFolder")
                 && let Err(e) = app.run("library.autoImport", json!({"folder": f}))
             {
                 app.toast(ui.ctx(), e);
@@ -634,11 +638,12 @@ fn smart_previews(app: &mut LightcraftApp, ui: &mut egui::Ui, t: &Tokens) {
         if app.services.has_folder_picker() {
             let r = crate::widgets::text_button(ui, "settingsSmartChoose", "Choose Folder…", false);
             register(ui.ctx(), "button:settingsSmartChoose", r.rect);
-            if r.clicked()
-                && let Some(dir) = app.services.choose_folder("Choose Smart Preview Folder")
-            {
-                result = Some(app.run("library.smartPreviewsLocation", json!({"path": dir, "existing": existing})));
+            if r.clicked() {
+                app.choose_folder("Choose Smart Preview Folder", "settingsSmartChoose");
             }
+        }
+        if let Some(dir) = app.take_chosen("settingsSmartChoose") {
+            result = Some(app.run("library.smartPreviewsLocation", json!({"path": dir, "existing": existing})));
         }
         let r = ui.add_enabled_ui(custom, |ui| crate::widgets::text_button(ui, "settingsSmartReset", "Use Library Folder", false)).inner;
         register(ui.ctx(), "button:settingsSmartReset", r.rect);
@@ -722,13 +727,13 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
     }
     let path = match p.get("path").and_then(Value::as_str) {
         Some(x) => x.to_string(),
-        None => match app.services.has_folder_picker() {
-            true => match app.services.choose_folder("Choose Library Folder") {
-                Some(x) => x,
-                None => return Ok(Value::Null),
-            },
-            false => return Err("no folder dialog on this platform".into()),
-        },
+        None if !app.services.has_folder_picker() => return Err("no folder dialog on this platform".into()),
+        None => {
+            return app.ask_file(crate::FileDialogRequest::folder("Choose Library Folder"), |app, answer| match answer.into_path() {
+                Some(path) => app.run("app.openLibrary", json!({"path": path})),
+                None => Ok(Value::Null),
+            });
+        }
     };
     app.session.close_library().map_err(|e| e.to_string())?;
     app.session.open_library(&path, false).map_err(|e| e.to_string())?;

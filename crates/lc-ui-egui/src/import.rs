@@ -1157,10 +1157,10 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut ImportDialog) {
             ui.spacing_mut().item_spacing.x = 4.0;
             let shown = if d.destination.trim().is_empty() { "Library Originals".to_string() } else { d.destination.clone() };
             ui.label(egui::RichText::new(shown).color(Tokens::get(ui.ctx()).text_label));
-            if app.services.has_folder_picker()
-                && crate::widgets::text_button(ui, "importDest", li_i18n::library::t("Choose…"), false).clicked()
-                && let Some(f) = app.services.choose_folder("Choose Import Destination")
-            {
+            if app.services.has_folder_picker() && crate::widgets::text_button(ui, "importDest", li_i18n::library::t("Choose…"), false).clicked() {
+                app.choose_folder("Choose Import Destination", "importDest");
+            }
+            if let Some(f) = app.take_chosen("importDest") {
                 d.destination = f;
             }
             if !d.destination.is_empty() && crate::widgets::text_button(ui, "importDestReset", li_i18n::library::t("Library"), false).clicked() {
@@ -1484,8 +1484,10 @@ pub(crate) fn safety_options(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &mut
             "Second copy folder",
             "Choose…",
             app.services.has_folder_picker(),
-        ) && let Some(folder) = app.services.choose_folder("Choose Second Copy Folder")
-        {
+        ) {
+            app.choose_folder("Choose Second Copy Folder", "importSecondCopyFolder");
+        }
+        if let Some(folder) = app.take_chosen("importSecondCopyFolder") {
             d.second_copy = folder;
         }
         ui.label(li_i18n::library::t("Original files and sidecars are verified before importing. Use a separate backup drive."));
@@ -1671,9 +1673,10 @@ mod bugfix_develop_tests {
         let title = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let chosen = title.clone();
         let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), Default::default());
-        app.services.pick_folder_titled = Some(Box::new(move |purpose| {
-            *chosen.lock().unwrap() = purpose.to_string();
-            Some("/photos/imported".into())
+        app.services.file_dialog = Some(crate::file_dialog::answering(move |request| {
+            let crate::FileDialogRequest::Folder { title: Some(purpose) } = request else { return None };
+            *chosen.lock().unwrap() = purpose;
+            Some(crate::FileDialogAnswer::Paths(vec!["/photos/imported".into()]))
         }));
         app.ui.dialog = Some(crate::state::Dialog::Import { opts: Box::new(ImportDialog { copy: true, ..Default::default() }) });
         let mut h = crate::headless::Headless::new(app, [1400., 1100.], 1.);

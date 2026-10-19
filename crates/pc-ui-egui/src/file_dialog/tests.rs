@@ -2,6 +2,7 @@ use super::*;
 use crate::{Services, menus};
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 
 /// The requests the fake dialog service was given, with their replies: dialogs the user is still in.
 type Open = Rc<RefCell<Vec<(FileDialogRequest, FileDialogReply)>>>;

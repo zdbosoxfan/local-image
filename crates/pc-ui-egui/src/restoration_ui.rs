@@ -262,27 +262,41 @@ fn receive(r: &mut Runtime, preview: Preview) {
 
 fn install_local(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let Some(pin) = local_pin(app.restoration.task) else { return };
-    if let Some(path) = crate::ai_ui::pick_onnx() {
-        let pending: ImageResult = Arc::new(Mutex::new(None));
-        let output = pending.clone();
-        let dir = settings().model_dir();
-        let ctl = li_ai::JobControl::new();
-        let control = ctl.clone();
-        let ctx = ctx.clone();
-        match std::thread::Builder::new().name("restore-model-import".into()).spawn(move || {
-            let result = pin.install_checked(&path, &dir, &|| !control.is_cancelled()).map(|()| Preview::Installed).map_err(|e| format!("{e:#}"));
-            if let Ok(mut slot) = output.lock() {
-                *slot = Some(result);
-            }
-            ctx.request_repaint();
-        }) {
-            Ok(_) => {
-                app.restoration.pending = Some(pending);
-                app.restoration.ctl = Some(ctl);
-                app.restoration.started = Some(Instant::now());
-            }
-            Err(error) => app.restoration.message = error.to_string(),
+    let ctx = ctx.clone();
+    let r = app.ask_file(crate::ai_ui::onnx_request(), move |app, answer| {
+        if let Some(path) = answer.into_path() {
+            import_local(app, &ctx, pin, path.into());
         }
+        Ok(serde_json::Value::Null)
+    });
+    if let Err(e) = r
+        && e != crate::file_dialog::CANCELLED
+    {
+        app.restoration.message = e;
+    }
+}
+
+/// Installs the model at `path` as `pin` on a worker thread.
+fn import_local(app: &mut PhotocraftApp, ctx: &egui::Context, pin: li_seg::restoration::Pin, path: std::path::PathBuf) {
+    let pending: ImageResult = Arc::new(Mutex::new(None));
+    let output = pending.clone();
+    let dir = settings().model_dir();
+    let ctl = li_ai::JobControl::new();
+    let control = ctl.clone();
+    let ctx = ctx.clone();
+    match std::thread::Builder::new().name("restore-model-import".into()).spawn(move || {
+        let result = pin.install_checked(&path, &dir, &|| !control.is_cancelled()).map(|()| Preview::Installed).map_err(|e| format!("{e:#}"));
+        if let Ok(mut slot) = output.lock() {
+            *slot = Some(result);
+        }
+        ctx.request_repaint();
+    }) {
+        Ok(_) => {
+            app.restoration.pending = Some(pending);
+            app.restoration.ctl = Some(ctl);
+            app.restoration.started = Some(Instant::now());
+        }
+        Err(error) => app.restoration.message = error.to_string(),
     }
 }
 

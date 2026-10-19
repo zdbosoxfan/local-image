@@ -86,7 +86,7 @@ fn colorprofiles_picker_clicks_persist_and_fit_both_themes() {
                 h.step();
             };
             let picked = imports.to_string_lossy().into_owned();
-            h.app.services.pick_folder = Some(Box::new(move || Some(picked.clone())));
+            h.app.services.file_dialog = Some(crate::file_dialog::choosing(picked));
             h.app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "import".into() });
             h.step();
             h.step();
@@ -529,8 +529,7 @@ fn export_dialog_keeps_its_width() {
     // window grow a little every frame when the real button was wider (issue #8, Linux).
     let mut h = demo([1400.0, 900.0]);
     let t = Duration::from_secs(10);
-    h.app.services.pick_folder = Some(Box::new(|| None));
-    h.app.services.pick_files = Some(Box::new(Vec::new));
+    h.app.services.file_dialog = Some(crate::file_dialog::answering(|_| None));
     h.request("engine.execute", json!({"command": "dialog.export", "params": {}}), t);
     // the widest variant: watermark graphic and every optional row
     if let Some(crate::state::Dialog::Export { opts, .. }) = &mut h.app.ui.dialog {
@@ -1585,7 +1584,7 @@ fn import_copy_renames_into_destination() {
         std::fs::write(src.join(format!("IMG_{i:02}.png")), png).unwrap();
     }
     let dest_s = dest.to_string_lossy().to_string();
-    let services = crate::Services { png: None, pick_folder: Some(Box::new(move || Some(dest_s.clone()))), ..Default::default() };
+    let services = crate::Services { png: None, file_dialog: Some(crate::file_dialog::choosing(dest_s)), ..Default::default() };
     let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo().with_fs(), services);
     app.ui.view = crate::state::ViewMode::PhotoGrid;
     let mut h = Headless::new(app, [1300.0, 900.0], 1.0);
@@ -1632,7 +1631,7 @@ fn import_copy_into_a_custom_folder_template() {
     let png = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
     std::fs::write(src.join("IMG_01.png"), png).unwrap();
     let dest_s = dest.to_string_lossy().to_string();
-    let services = crate::Services { png: None, pick_folder: Some(Box::new(move || Some(dest_s.clone()))), ..Default::default() };
+    let services = crate::Services { png: None, file_dialog: Some(crate::file_dialog::choosing(dest_s)), ..Default::default() };
     let mut session = lightcraft_engine::Session::with_demo().with_fs();
     // undated files are filed by the import time
     session.clock = Box::new(|| "2026-01-14T05:58:48".to_string());
@@ -1686,7 +1685,7 @@ fn import_move_into_a_folder_template() {
         std::fs::write(src.join(format!("IMG_0{i}.png")), png).unwrap();
     }
     let dest_s = dest.to_string_lossy().to_string();
-    let services = crate::Services { png: None, pick_folder: Some(Box::new(move || Some(dest_s.clone()))), ..Default::default() };
+    let services = crate::Services { png: None, file_dialog: Some(crate::file_dialog::choosing(dest_s)), ..Default::default() };
     let mut session = lightcraft_engine::Session::with_demo().with_fs();
     session.clock = Box::new(|| "2026-01-14T05:58:48".to_string());
     let mut app = LightcraftApp::new(session, services);
@@ -2121,7 +2120,7 @@ fn strip_tool_tips_simple_renders_name_and_key_and_settings_round_trip() {
 #[test]
 fn ds_finding_camera_folder_focus_and_picker_do_not_keep_stale_text() {
     let mut h = demo([1300., 820.]);
-    h.app.services.pick_folder = Some(Box::new(|| Some("target/ds-camera-picked".into())));
+    h.app.services.file_dialog = Some(crate::file_dialog::choosing("target/ds-camera-picked"));
     h.app.ui.dialog = Some(crate::state::Dialog::Settings { tab: "import".into() });
     for _ in 0..4 {
         h.step();

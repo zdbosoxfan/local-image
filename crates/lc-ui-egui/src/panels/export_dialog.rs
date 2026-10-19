@@ -584,10 +584,10 @@ fn location(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) {
         row(ui, "Folder:", |ui| {
             let h = ui.spacing().interact_size.y.max(22.0);
             ui.allocate_ui_with_layout(vec2(ui.available_width(), h), Layout::right_to_left(Align::Center), |ui| {
-                if app.services.has_folder_picker()
-                    && crate::widgets::text_button(ui, "exportChooseFolder", "Choose…", false).clicked()
-                    && let Some(d) = app.services.choose_folder("Choose Export Folder")
-                {
+                if app.services.has_folder_picker() && crate::widgets::text_button(ui, "exportChooseFolder", "Choose…", false).clicked() {
+                    app.choose_folder("Choose Export Folder", "exportChooseFolder");
+                }
+                if let Some(d) = app.take_chosen("exportChooseFolder") {
                     *dir = d;
                 }
                 let r = ui.add(egui::TextEdit::singleline(dir).desired_width(ui.available_width()));
@@ -950,10 +950,10 @@ fn watermark(app: &mut LightcraftApp, ui: &mut Ui, dlg: &mut Dialog) {
         row(ui, "Graphic:", |ui| {
             let h = ui.spacing().interact_size.y.max(22.0);
             ui.allocate_ui_with_layout(vec2(ui.available_width(), h), Layout::right_to_left(Align::Center), |ui| {
-                if app.services.pick_files.is_some()
-                    && crate::widgets::text_button(ui, "exportWmChoose", "Choose…", false).clicked()
-                    && let Some(f) = app.services.pick_files.as_mut().and_then(|pick| pick().into_iter().next())
-                {
+                if app.services.file_dialog.is_some() && crate::widgets::text_button(ui, "exportWmChoose", "Choose…", false).clicked() {
+                    app.ask_into(crate::FileDialogRequest::Photos, "exportWmChoose");
+                }
+                if let Some(f) = app.take_chosen("exportWmChoose") {
                     wm.image = f;
                 }
                 ui.add(egui::TextEdit::singleline(&mut wm.image).hint_text("logo.png").desired_width(ui.available_width()));
