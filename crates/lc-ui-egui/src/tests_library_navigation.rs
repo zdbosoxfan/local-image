@@ -220,7 +220,7 @@ fn library_navigation_footer_compact_bounds_and_smart_sort_destination() {
     assert!(matches!(h.app.ui.dialog, Some(state::Dialog::SmartSort { .. })));
     // Use the real chooser on the Export step; a cancelled chooser must retain memory.
     h.size = egui::vec2(1280., 800.);
-    h.app.services.pick_folder = Some(Box::new(|| Some("/tmp/Chosen Photos".into())));
+    h.app.services.file_dialog = Some(crate::file_dialog::choosing("/tmp/Chosen Photos"));
     if let Some(state::Dialog::SmartSort { state }) = &mut h.app.ui.dialog {
         state.step = 2;
     }
@@ -229,7 +229,7 @@ fn library_navigation_footer_compact_bounds_and_smart_sort_destination() {
     }
     h.click("smartSort:chooseDest");
     assert_eq!(h.app.ui.smart_sort_destination, "/tmp/Chosen Photos");
-    h.app.services.pick_folder = Some(Box::new(|| None));
+    h.app.services.file_dialog = Some(crate::file_dialog::answering(|_| None));
     h.click("smartSort:chooseDest");
     assert_eq!(h.app.ui.smart_sort_destination, "/tmp/Chosen Photos");
     let saved = serde_json::to_value(&h.app.ui).unwrap();

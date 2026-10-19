@@ -126,7 +126,7 @@ fn shared_swatches_import_menu_each_format_and_export_container() {
     for (name, bytes) in fixtures {
         let mut app = app();
         let name = name.to_owned();
-        app.services.pick_open = Some(Box::new(move || Some((name.clone(), Ok(bytes.clone())))));
+        app.services.file_dialog = Some(crate::file_dialog::answering(move |_| Some(crate::FileDialogAnswer::File(name.clone(), Ok(bytes.clone())))));
         let mut h = harness(app);
         h.run();
         click(&mut h, "Document Swatches");

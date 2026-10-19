@@ -218,6 +218,26 @@ fn shared_decode_add_photos_picker_uses_readable_registry() {
     assert!(!extensions.contains(&"avif"));
 }
 
+/// The Library's dialogs keep their titles and file types now that the editor's asynchronous
+/// dialog service shows them.
+#[test]
+fn library_dialogs_keep_their_titles_and_file_types() {
+    use lightcraft_ui_egui::FileDialogRequest as R;
+    use photocraft_ui_egui::{FileDialogSpec, Pick};
+    let photos = library_dialog(R::Photos);
+    assert_eq!(photos.pick, Pick::Files);
+    assert_eq!(photos.filters, [("Photos".to_string(), add_photos_extensions().iter().map(|e| e.to_string()).collect::<Vec<_>>())]);
+    assert_eq!(
+        library_dialog(R::SavePreset { name: "Portraits.lcpreset".into() }),
+        FileDialogSpec::new(Pick::Save).title("Export Presets").filter("Preset", &["lcpreset"]).file_name("Portraits.lcpreset")
+    );
+    assert_eq!(library_dialog(R::Tracklog), FileDialogSpec::new(Pick::File).title("Auto-Tag from Tracklog").filter("GPS Track Log", &["gpx"]));
+    let denoised = library_dialog(R::SaveDenoised { name: "IMG_1-Denoised.tiff".into() });
+    assert_eq!((denoised.pick, denoised.title, denoised.file_name.as_deref()), (Pick::Save, None, Some("IMG_1-Denoised.tiff")));
+    assert_eq!(library_dialog(R::folder("Choose Export Folder")).title.as_deref(), Some(li_i18n::library::t("Choose Export Folder")));
+    assert_eq!(library_dialog(R::Folder { title: None }), FileDialogSpec::new(Pick::Folder).title("Choose Folder"));
+}
+
 #[test]
 fn add_photos_filter_covers_import_extensions_in_any_case() {
     use photocraft_ui_egui::dialog_filter::{dialog_extensions_for, glob_ext};

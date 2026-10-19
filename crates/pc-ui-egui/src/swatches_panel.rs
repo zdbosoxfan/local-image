@@ -863,7 +863,7 @@ fn panel_menu(app: &mut PhotocraftApp, ui: &mut egui::Ui, s: &mut State, b: &Swa
         for ext in ["ase", "aco", "gpl", "kpl"] {
             if ui
                 .add_enabled(
-                    (app.services.pick_save.is_some() || (cfg!(not(target_arch = "wasm32")) && app.background_jobs)) && app.services.write.is_some(),
+                    (app.services.file_dialog.is_some() || (cfg!(not(target_arch = "wasm32")) && app.background_jobs)) && app.services.write.is_some(),
                     egui::Button::new(format!("{}…", ext.to_ascii_uppercase())),
                 )
                 .on_disabled_hover_text("File saving unavailable")
@@ -1246,27 +1246,16 @@ pub(crate) fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             Err(e) => s.error = Some(e),
         }
     }
-    if req.import
-        && let Some((name, bytes)) = pick_palette(app)
-    {
-        match bytes.and_then(|bytes| import(app, s.scope, &name, &bytes)) {
-            Ok(warnings) => {
-                s.error = None;
-                app.ui.status = warnings.join("; ");
-            }
+    if req.import {
+        match import_palette(app, s.scope) {
+            Ok(true) => s.error = None,
+            Ok(false) => {}
             Err(e) => s.error = Some(e),
         }
     }
     if let Some(ext) = req.export {
-        match export(app, s.scope, ext) {
-            Ok((bytes, warnings)) => {
-                if let Some(path) = pick_palette_save(app, ext) {
-                    match app.services.write.as_mut().ok_or("File writer unavailable".into()).and_then(|write| write(&path, &bytes)) {
-                        Ok(()) => app.ui.status = warnings.join("; "),
-                        Err(e) => s.error = Some(e),
-                    }
-                }
-            }
+        match export(app, s.scope, ext).and_then(|(bytes, warnings)| export_palette(app, ext, bytes, warnings)) {
+            Ok(()) => {}
             Err(e) => s.error = Some(e),
         }
     }
@@ -1385,32 +1374,60 @@ fn read_palette_drop(_: &egui::DroppedFileHandle) -> Result<Vec<u8>, String> {
     Err("Use Import Swatches on the web".into())
 }
 fn palette_picker_available(app: &PhotocraftApp) -> bool {
-    app.services.pick_open.is_some() || (cfg!(not(target_arch = "wasm32")) && app.background_jobs)
+    app.services.file_dialog.is_some() || (cfg!(not(target_arch = "wasm32")) && app.background_jobs)
 }
-fn pick_palette(app: &mut PhotocraftApp) -> Option<(String, Result<Vec<u8>, String>)> {
+/// Import Swatches: asks for a palette file and imports it into `scope`. `Ok(true)` once
+/// imported; `Ok(false)` when cancelled or while the file dialog is open (the import then
+/// reports to the status bar).
+fn import_palette(app: &mut PhotocraftApp, scope: Scope) -> Result<bool, String> {
+    let imported = |app: &mut PhotocraftApp, warnings: Vec<String>| app.ui.status = warnings.join("; ");
     // Desktop File > Open filters only image/document files. Use the existing
     // dedicated native-dialog API here; standalone/web hosts retain injection.
     #[cfg(not(target_arch = "wasm32"))]
     if app.background_jobs {
-        use crate::dialog_filter::FileDialogExt;
-        let path =
-            crate::dialog_filter::file_dialog().set_title("Import Swatches").add_filter_nocase("Swatch files", &["ase", "aco", "gpl", "kpl"]).pick_file()?;
-        return Some((path.to_string_lossy().into_owned(), read_palette_path(&path)));
+        let request = crate::FileDialogSpec::new(crate::Pick::File).title("Import Swatches").filter("Swatch files", &["ase", "aco", "gpl", "kpl"]);
+        let r = app.ask_file(crate::FileDialogRequest::Described(request), move |app, answer| {
+            let path = answer.into_path().ok_or(crate::file_dialog::CANCELLED)?;
+            let warnings = read_palette_path(std::path::Path::new(&path)).and_then(|bytes| import(app, scope, &path, &bytes))?;
+            imported(app, warnings);
+            Ok(serde_json::Value::Null)
+        });
+        return imported_now(r);
     }
-    app.services.pick_open.as_mut().and_then(|pick| pick())
+    let r = app.pick_file_bytes(move |app, name, bytes| {
+        let warnings = import(app, scope, &name, &bytes)?;
+        imported(app, warnings);
+        Ok(serde_json::Value::Null)
+    });
+    imported_now(r)
 }
-fn pick_palette_save(app: &mut PhotocraftApp, ext: &str) -> Option<String> {
-    #[cfg(not(target_arch = "wasm32"))]
-    if app.background_jobs {
-        use crate::dialog_filter::FileDialogExt;
-        let path = crate::dialog_filter::file_dialog()
-            .set_title("Export Swatches")
-            .add_filter_nocase("Swatch file", &[ext])
-            .set_file_name(format!("Palette.{ext}"))
-            .save_file()?;
-        return Some(path.to_string_lossy().into_owned());
+/// [`import_palette`]'s answer for `r`, the result of asking for the palette file.
+fn imported_now(r: Result<serde_json::Value, String>) -> Result<bool, String> {
+    match r {
+        Err(e) if e == crate::file_dialog::CANCELLED => Ok(false),
+        r => {
+            let done = !crate::file_dialog::waiting(&r);
+            r.map(|_| done)
+        }
     }
-    app.services.pick_save.as_mut().and_then(|pick| pick(&format!("Palette.{ext}")))
+}
+/// Export Swatches: asks where to write the `ext` palette `bytes`. Cancelling writes nothing.
+fn export_palette(app: &mut PhotocraftApp, ext: &str, bytes: Vec<u8>, warnings: Vec<String>) -> Result<(), String> {
+    let write = move |app: &mut PhotocraftApp, path: String| -> Result<serde_json::Value, String> {
+        app.services.write.as_mut().ok_or("File writer unavailable")?(&path, &bytes)?;
+        app.ui.status = warnings.join("; ");
+        Ok(serde_json::Value::Null)
+    };
+    let r = if cfg!(not(target_arch = "wasm32")) && app.background_jobs {
+        let request = crate::FileDialogSpec::new(crate::Pick::Save).title("Export Swatches").filter("Swatch file", &[ext]).file_name(format!("Palette.{ext}"));
+        app.ask_file(crate::FileDialogRequest::Described(request), move |app, answer| write(app, answer.into_path().ok_or(crate::file_dialog::CANCELLED)?))
+    } else {
+        app.pick_save(&format!("Palette.{ext}"), write)
+    };
+    match r {
+        Err(e) if e == crate::file_dialog::CANCELLED => Ok(()),
+        r => r.map(|_| ()),
+    }
 }
 #[cfg(test)]
 #[path = "swatches_panel_tests.rs"]

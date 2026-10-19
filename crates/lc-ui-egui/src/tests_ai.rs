@@ -320,7 +320,7 @@ fn ai_denoise_ui_clicks_model_preview_apply_and_drags_strength() {
     let path = std::env::temp_dir().join(format!("li-denoise-ui-{}.tiff", std::process::id()));
     let _ = std::fs::remove_file(&path);
     let selected = path.clone();
-    h.app.services.save_denoise_file = Some(Box::new(move |_| Some(selected.to_string_lossy().into())));
+    h.app.services.file_dialog = Some(crate::file_dialog::choosing(selected.to_string_lossy()));
     h.step();
     click(&mut h, "button:denoiseNewFile");
     assert!(h.step_until(JOB, |_| path.is_file()));

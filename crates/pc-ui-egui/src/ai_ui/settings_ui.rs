@@ -386,11 +386,17 @@ fn models(app: &mut PhotocraftApp, ui: &mut egui::Ui, settings: &mut AiSettings,
         if !settings.is_remote() {
             ui.label(settings.model_dir().display().to_string());
             #[cfg(not(target_arch = "wasm32"))]
-            if widgets::secondary_button(ui, tl!("Change…"), 0.0).clicked()
-                && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose the model folder")).pick_folder()
-            {
-                settings.model_directory = dir.display().to_string();
-                let _ = save_connection(settings);
+            if widgets::secondary_button(ui, tl!("Change…"), 0.0).clicked() {
+                let request = crate::FileDialogSpec::new(crate::Pick::Folder).title(tl!("Choose the model folder"));
+                crate::file_dialog::ask_later(ui.ctx(), crate::FileDialogRequest::Described(request), |_, answer| {
+                    if let Some(dir) = answer.into_path() {
+                        let mut settings = draft();
+                        settings.model_directory = dir;
+                        let _ = save_connection(&settings);
+                        dialogs_mut(|d| d.settings = Some(settings));
+                    }
+                    Ok(Value::Null)
+                });
             }
         }
         for (what, gb) in catalog::VRAM_GUIDE {

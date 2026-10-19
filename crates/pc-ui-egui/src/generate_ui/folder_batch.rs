@@ -7,8 +7,15 @@ use super::*;
 pub fn open_folder(app: &mut PhotocraftApp) -> Result<Value, String> {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(dir) = file_dialog().set_title(tl!("Open Folder")).pick_folder() else { return Ok(Value::Null) };
-        open_folder_path(app, &dir)
+        let request = crate::FileDialogSpec::new(crate::Pick::Folder).title(tl!("Open Folder"));
+        let r = app.ask_file(crate::FileDialogRequest::Described(request), |app, answer| match answer.into_path() {
+            Some(dir) => open_folder_path(app, std::path::Path::new(&dir)),
+            None => Ok(Value::Null),
+        });
+        match r {
+            Err(e) if e == crate::file_dialog::CANCELLED => Ok(Value::Null),
+            r => r,
+        }
     }
     #[cfg(target_arch = "wasm32")]
     {
@@ -60,6 +67,16 @@ pub(super) fn batch<R>(f: impl FnOnce(&mut Option<BatchState>) -> R) -> R {
     B.with(|b| f(&mut b.borrow_mut()))
 }
 
+/// Adds `files` to the batch, when its window is still open.
+fn add_to_batch(files: Vec<PathBuf>) -> Result<Value, String> {
+    batch(|b| {
+        if let Some(b) = b.as_mut() {
+            b.files.extend(files);
+        }
+    });
+    Ok(Value::Null)
+}
+
 pub fn open_batch() {
     batch(|b| {
         if b.is_none() {
@@ -88,19 +105,23 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                 ui.horizontal(|ui| {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
-                        if widgets::secondary_button(ui, tl!("Add Images…"), 0.0).clicked()
-                            && let Some(paths) = file_dialog().add_filter_nocase(tl!("Images"), &photocraft_codecs::readable_extensions()).pick_files()
-                        {
-                            b.files.extend(paths);
+                        if widgets::secondary_button(ui, tl!("Add Images…"), 0.0).clicked() {
+                            let request = crate::FileDialogSpec::new(crate::Pick::Files).filter(tl!("Images"), &photocraft_codecs::readable_extensions());
+                            crate::file_dialog::ask_later(ctx, crate::FileDialogRequest::Described(request), |_, answer| {
+                                add_to_batch(answer.into_paths().into_iter().map(PathBuf::from).collect())
+                            });
                         }
-                        if widgets::secondary_button(ui, tl!("Add Folder…"), 0.0).clicked()
-                            && let Some(dir) = file_dialog().pick_folder()
-                        {
-                            b.files.extend(
-                                folder_images(&dir)
-                                    .into_iter()
-                                    .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| photocraft_codecs::is_readable_extension(e, false))),
-                            );
+                        if widgets::secondary_button(ui, tl!("Add Folder…"), 0.0).clicked() {
+                            let request = crate::FileDialogSpec::new(crate::Pick::Folder);
+                            crate::file_dialog::ask_later(ctx, crate::FileDialogRequest::Described(request), |_, answer| {
+                                let Some(dir) = answer.into_path() else { return Ok(Value::Null) };
+                                add_to_batch(
+                                    folder_images(std::path::Path::new(&dir))
+                                        .into_iter()
+                                        .filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(|e| photocraft_codecs::is_readable_extension(e, false)))
+                                        .collect(),
+                                )
+                            });
                         }
                     }
                     ui.label(RichText::new(li_i18n::fmt(tl!("{n} images"), &[("n", &b.files.len().to_string())])).color(t.text_dim));
@@ -141,10 +162,18 @@ pub fn batch_window(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     let out = b.output.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| tl!("a “cutouts” folder beside each image").into());
                     ui.label(out);
                     #[cfg(not(target_arch = "wasm32"))]
-                    if widgets::secondary_button(ui, tl!("Choose…"), 0.0).clicked()
-                        && let Some(folder) = file_dialog().pick_folder()
-                    {
-                        b.output = Some(folder);
+                    if widgets::secondary_button(ui, tl!("Choose…"), 0.0).clicked() {
+                        let request = crate::FileDialogSpec::new(crate::Pick::Folder);
+                        crate::file_dialog::ask_later(ctx, crate::FileDialogRequest::Described(request), |_, answer| {
+                            if let Some(folder) = answer.into_path() {
+                                batch(|b| {
+                                    if let Some(b) = b.as_mut() {
+                                        b.output = Some(folder.into());
+                                    }
+                                });
+                            }
+                            Ok(Value::Null)
+                        });
                     }
                 });
                 ui.add_space(6.0);

@@ -312,32 +312,49 @@ pub fn save_and_next(app: &mut PhotocraftApp) -> bool {
     };
     if app.session.active().is_some_and(|d| d.is_dirty()) {
         let saved = match save_to(app).as_str() {
-            "original" => app.write_document(file.display().to_string(), &crate::ExportSettings::default()).map(|_| ()),
-            "saveAs" => app.save_as(None).map(|_| ()),
+            "original" => app.write_document(file.display().to_string(), &crate::ExportSettings::default()).map(|_| serde_json::Value::Null),
+            "saveAs" => app.save_as(None),
             _ => {
                 let to = edited_path(&file);
                 std::fs::create_dir_all(to.parent().unwrap_or(Path::new("")))
                     .map_err(|e| e.to_string())
-                    .and_then(|()| app.write_document(to.display().to_string(), &crate::ExportSettings::default()).map(|_| ()))
+                    .and_then(|()| app.write_document(to.display().to_string(), &crate::ExportSettings::default()).map(|_| serde_json::Value::Null))
             }
         };
-        if let Err(e) = saved {
-            if e != "cancelled" {
-                app.ui.status = li_i18n::fmt(tl!("Couldn't save: {error}"), &[("error", &e)]);
-                app.ui.status_error = true;
-            }
+        // Save As asks where first: the step waits for its answer.
+        if crate::file_dialog::waiting(&saved) {
+            let _ = app.after_file_dialog(saved, move |app, saved| {
+                step_after_save(app, saved, file);
+                Ok(serde_json::Value::Null)
+            });
             return false;
         }
-        if let Some(pending) = app.pending_save.as_mut() {
-            pending.next_file = Some(file);
-            return false;
-        }
-        if let Some(prompt) = app.tiff_options.as_mut() {
-            prompt.next_file = Some(file);
-            return false;
-        }
-        refresh(&file);
+        return step_after_save(app, saved, file);
     }
+    step_from(app, Some(&file), 1);
+    true
+}
+
+/// Save & Next once `file`'s edits are saved: steps to the next image, or leaves that to the save
+/// still running or the prompt it waits on. False when the save failed (reported), was cancelled
+/// or is still pending.
+fn step_after_save(app: &mut PhotocraftApp, saved: Result<serde_json::Value, String>, file: PathBuf) -> bool {
+    if let Err(e) = saved {
+        if e != crate::file_dialog::CANCELLED {
+            app.ui.status = li_i18n::fmt(tl!("Couldn't save: {error}"), &[("error", &e)]);
+            app.ui.status_error = true;
+        }
+        return false;
+    }
+    if let Some(pending) = app.pending_save.as_mut() {
+        pending.next_file = Some(file);
+        return false;
+    }
+    if let Some(prompt) = app.tiff_options.as_mut() {
+        prompt.next_file = Some(file);
+        return false;
+    }
+    refresh(&file);
     step_from(app, Some(&file), 1);
     true
 }
@@ -695,7 +712,7 @@ mod tests {
                 crate::Services {
                     export: Some(std::sync::Arc::new(|_, _, _| Ok((vec![1], vec![])))),
                     write: Some(Box::new(|_, _| Ok(()))),
-                    pick_save: Some(Box::new(|_| Some("/fixture/copy.tif".into()))),
+                    file_dialog: Some(crate::file_dialog::answering(|_| Some(crate::FileDialogAnswer::SaveTo("/fixture/copy.tif".into())))),
                     ..Default::default()
                 },
             );

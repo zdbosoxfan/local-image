@@ -422,7 +422,7 @@ pub(super) fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     app.ui.open_dialog(crate::state::DialogKind::NewDocument, fields);
                 }
                 if crate::widgets::secondary_button(ui, &open_label, bw).clicked() {
-                    app.open_dialog_file();
+                    let _ = app.open_dialog_file();
                 }
                 if crate::widgets::secondary_button(ui, tl!("Open Folder…"), bw).clicked() {
                     let ctx = ui.ctx().clone();

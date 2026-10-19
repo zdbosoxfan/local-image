@@ -4,8 +4,8 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::LightcraftApp;
 use crate::state::{BeforeAfter, Dialog, RightPanel, SpotOverlay, ViewMode, Zoom};
+use crate::{FileDialogRequest, LightcraftApp};
 
 use li_commands::UiCommand;
 
@@ -1125,9 +1125,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             crate::import::browse(app, path, p.get("subfolders").and_then(Value::as_bool))
         }
         "file.addPhotos" => {
-            let paths = match p.get("paths").and_then(Value::as_array) {
+            let paths: Vec<String> = match p.get("paths").and_then(Value::as_array) {
                 Some(a) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
-                None => app.services.pick_files.as_mut().map(|f| f()).unwrap_or_default(),
+                None => return Some(ask_paths(app, FileDialogRequest::Photos, id, p, "paths")),
             };
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
@@ -1145,11 +1145,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(Value::Null)
         }
         "file.findMissing" => {
-            let folder = match p.get("folder").and_then(Value::as_str) {
-                Some(f) => Some(f.to_string()),
-                None => app.services.choose_folder(if id == "file.addFolder" { "Choose Import Source" } else { "Choose Search Folder" }),
+            let Some(folder) = p.get("folder").and_then(Value::as_str).map(str::to_string) else {
+                return Some(ask_paths(app, FileDialogRequest::folder("Choose Search Folder"), id, p, "folder"));
             };
-            let Some(folder) = folder else { return Some(Ok(Value::Null)) };
             // the search (checking every photo's file, walking the folder) runs on a worker thread;
             // the relinking happens back here, as one undo step
             const LABEL: &str = "Find Missing Photos";
@@ -1187,11 +1185,9 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "photo.tagFromTracklog" => {
             // a GPX file → GPS for the selected photos by capture time (one undo step)
-            let path = match p.get("path").and_then(Value::as_str) {
-                Some(x) => Some(x.to_string()),
-                None => app.services.pick_tracklog.as_mut().and_then(|f| f().into_iter().next()),
+            let Some(path) = p.get("path").and_then(Value::as_str).map(str::to_string) else {
+                return Some(ask_paths(app, FileDialogRequest::Tracklog, id, p, "path"));
             };
-            let Some(path) = path else { return Some(Ok(Value::Null)) };
             let mut params = p.as_object().cloned().unwrap_or_default();
             params.insert("path".into(), json!(path));
             let ask_zone = !params.contains_key("offset");
@@ -1228,13 +1224,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "photo.locate" => {
             let Some(id) = app.session.active() else { return Some(Err("no photo selected".into())) };
-            let path = match p.get("path").and_then(Value::as_str) {
-                Some(x) => Some(x.to_string()),
-                None => app.services.pick_files.as_mut().and_then(|f| f().into_iter().next()),
-            };
-            match path {
+            match p.get("path").and_then(Value::as_str) {
                 Some(path) => app.run("photo.relink", json!({"id": id.0, "path": path})),
-                None => Ok(Value::Null),
+                // relinks the photo it was asked for, whichever is active once the user has chosen
+                None => app.ask_file(FileDialogRequest::Photos, move |app, answer| match answer.into_path() {
+                    Some(path) => app.run("photo.relink", json!({"id": id.0, "path": path})),
+                    None => Ok(Value::Null),
+                }),
             }
         }
         "file.addFromDevice" => {
@@ -1257,22 +1253,16 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "file.addFolder" => {
             // a folder (searched recursively) into the import review
-            let path = match p.get("path").and_then(Value::as_str) {
-                Some(x) => Some(x.to_string()),
-                None => app.services.choose_folder(if id == "file.addFolder" { "Choose Import Source" } else { "Choose Search Folder" }),
-            };
-            match path {
-                Some(path) => crate::import::open(app, vec![path]),
-                None => Ok(Value::Null),
+            match p.get("path").and_then(Value::as_str) {
+                Some(path) => crate::import::open(app, vec![path.to_string()]),
+                None => ask_paths(app, FileDialogRequest::folder("Choose Import Source"), id, p, "path"),
             }
         }
         "file.importPresets" => {
-            let paths = match p.get("paths").and_then(Value::as_array) {
+            let paths: Vec<String> = match p.get("paths").and_then(Value::as_array) {
                 Some(a) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
-                None => match app.services.pick_preset_files.as_mut() {
-                    Some(f) => f(),
-                    None => return Some(Err("no file dialog on this platform".into())),
-                },
+                None if app.services.file_dialog.is_none() => return Some(Err(NO_FILE_DIALOG.into())),
+                None => return Some(ask_paths(app, FileDialogRequest::Presets, id, p, "paths")),
             };
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
@@ -1340,17 +1330,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         }
         "file.exportPresets" => {
             let group = p.get("group").and_then(Value::as_str).map(str::to_string);
-            let path = match p.get("path").and_then(Value::as_str) {
-                Some(x) => Some(x.to_string()),
-                None => {
-                    let name = format!("{}.lcpreset", group.as_deref().unwrap_or("Local Image Presets"));
-                    match app.services.save_preset_file.as_mut() {
-                        Some(f) => f(&name),
-                        None => return Some(Err("no file dialog on this platform".into())),
-                    }
+            let Some(path) = p.get("path").and_then(Value::as_str) else {
+                if app.services.file_dialog.is_none() {
+                    return Some(Err(NO_FILE_DIALOG.into()));
                 }
+                let name = format!("{}.lcpreset", group.as_deref().unwrap_or("Local Image Presets"));
+                return Some(ask_paths(app, FileDialogRequest::SavePreset { name }, id, p, "path"));
             };
-            let Some(path) = path else { return Some(Ok(Value::Null)) };
             let mut params = json!({"path": path});
             if let Some(g) = group {
                 params["group"] = json!(g);
@@ -1367,10 +1353,8 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "file.importCurvePresets" => {
             let paths: Vec<String> = match p.get("paths").and_then(Value::as_array) {
                 Some(a) => a.iter().filter_map(Value::as_str).map(str::to_string).collect(),
-                None => match app.services.pick_curve_preset_files.as_mut() {
-                    Some(f) => f(),
-                    None => return Some(Err("no file dialog on this platform".into())),
-                },
+                None if app.services.file_dialog.is_none() => return Some(Err(NO_FILE_DIALOG.into())),
+                None => return Some(ask_paths(app, FileDialogRequest::CurvePresets, id, p, "paths")),
             };
             if paths.is_empty() {
                 return Some(Ok(Value::Null));
@@ -1388,14 +1372,13 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             return Some(r);
         }
         "file.exportCurvePresets" => {
-            let path = match p.get("path").and_then(Value::as_str) {
-                Some(x) => Some(x.to_string()),
-                None => match app.services.save_curve_preset_file.as_mut() {
-                    Some(f) => f("Point Curves.lccurve"),
-                    None => return Some(Err("no file dialog on this platform".into())),
-                },
+            let Some(path) = p.get("path").and_then(Value::as_str) else {
+                if app.services.file_dialog.is_none() {
+                    return Some(Err(NO_FILE_DIALOG.into()));
+                }
+                let request = FileDialogRequest::SaveCurvePresets { name: "Point Curves.lccurve".into() };
+                return Some(ask_paths(app, request, id, p, "path"));
             };
-            let Some(path) = path else { return Some(Ok(Value::Null)) };
             let mut params = json!({"path": path});
             if let Some(n) = p.get("names") {
                 params["names"] = n.clone();
@@ -1453,10 +1436,30 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
     Some(r)
 }
 
+const NO_FILE_DIALOG: &str = "no file dialog on this platform";
+
+/// Asks with `request` and, once the user has chosen, runs the command `id` again with `p` and
+/// the choice as `key`: every chosen path for "paths", the first one otherwise.
+fn ask_paths(app: &mut LightcraftApp, request: FileDialogRequest, id: &str, p: &Value, key: &'static str) -> Result<Value, String> {
+    let id = id.to_owned();
+    let mut params = p.as_object().cloned().unwrap_or_default();
+    app.ask_file(request, move |app, answer| {
+        let chosen = match key {
+            "paths" => json!(answer.into_paths()),
+            _ => match answer.into_path() {
+                Some(path) => json!(path),
+                None => return Ok(Value::Null),
+            },
+        };
+        params.insert(key.into(), chosen);
+        app.run(&id, Value::Object(params))
+    })
+}
+
 pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
     match id {
         "view.back" => can_go_back(app),
-        "file.addPhotos" => app.services.pick_files.is_some(),
+        "file.addPhotos" => app.services.file_dialog.is_some(),
         s if s.starts_with("panel.") || s.starts_with("tool.") || s.starts_with("section.") => app.session.active().is_some() || s == "panel.close",
         "dialog.proofSheet"
         | "app.export"
@@ -1470,7 +1473,7 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
                 && p.copy_of.is_none()
                 && p.kind != lightcraft_engine::catalog::MediaKind::Video
         }),
-        "photo.tagFromTracklog" => app.session.active().is_some() && app.services.pick_tracklog.is_some(),
+        "photo.tagFromTracklog" => app.session.active().is_some() && app.services.file_dialog.is_some(),
         "app.exportPrevious" => app.session.active().is_some() && app.session.last_export.is_some(),
         "dialog.syncSettings" => app.session.active().is_some() && app.session.selection.ids.len() > 1,
         "dialog.pasteSettings" => app.session.active().is_some() && app.session.clipboard.is_some(),

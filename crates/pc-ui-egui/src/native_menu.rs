@@ -340,7 +340,7 @@ mod tests {
         let ctx = egui::Context::default();
         let opens = Arc::new(AtomicUsize::new(0));
         let count = opens.clone();
-        app.services.pick_open = Some(Box::new(move || {
+        app.services.file_dialog = Some(crate::file_dialog::answering(move |_| {
             count.fetch_add(1, Ordering::SeqCst);
             None
         }));

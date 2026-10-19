@@ -9,6 +9,8 @@ struct Host {
     state: State,
     services: crate::Services,
     written: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// Whether the save dialog answers with a file (else it is cancelled).
+    pick: bool,
 }
 fn harness(pick: bool) -> Harness<'static, Host> {
     let mut doc = Document::new("Dialog", Size::new(256, 256), ColorMode::Rgb, SampleType::U8);
@@ -35,7 +37,6 @@ fn harness(pick: bool) -> Harness<'static, Host> {
     let written = Arc::new(Mutex::new(Vec::new()));
     let record = written.clone();
     let services = crate::Services {
-        pick_save: Some(Box::new(move |_| pick.then(|| "synthetic.pdf".into()))),
         write: Some(Box::new(move |_, bytes| {
             record.lock().unwrap().push(bytes.to_vec());
             Ok(())
@@ -47,7 +48,8 @@ fn harness(pick: bool) -> Harness<'static, Host> {
             if let Some(action) = controls(ui, &mut h.state, str::to_owned) {
                 match action {
                     Action::Export => {
-                        if let Err(error) = save(&mut h.state, &mut h.session, &mut h.services) {
+                        let pick = h.pick;
+                        if let Err(error) = save(&mut h.state, &mut h.session, &mut h.services, |_| pick.then(|| "synthetic.pdf".into())) {
                             h.state.error = Some(error.to_string());
                         }
                     }
@@ -55,7 +57,7 @@ fn harness(pick: bool) -> Harness<'static, Host> {
                 }
             }
         },
-        Host { session, state, services, written },
+        Host { session, state, services, written, pick },
     )
 }
 #[test]

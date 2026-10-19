@@ -10,6 +10,7 @@ mod color_icons;
 pub mod control;
 pub mod credits;
 pub mod export_task;
+pub mod file_dialog;
 pub mod headless;
 pub mod icons;
 pub mod import;
@@ -87,18 +88,13 @@ use lightcraft_engine::Session;
 use serde_json::Value;
 
 pub use control::{ControlRequest, ControlResponse};
+pub use file_dialog::{FileDialogAnswer, FileDialogFn, FileDialogReply, FileDialogRequest};
 pub use state::UiState;
 
-pub type PickFiles = Box<dyn FnMut() -> Vec<String>>;
-/// A save dialog: suggested file name → chosen path (`None` = cancelled).
-pub type SaveFile = Box<dyn FnMut(&str) -> Option<String>>;
 pub type WriteFn = Box<dyn FnMut(&str, &[u8]) -> Result<(), String>>;
 /// A writer other threads can use (background export).
 pub type SharedWrite = std::sync::Arc<dyn Fn(&str, &[u8]) -> Result<(), String> + Send + Sync>;
 pub type PngEncode = Box<dyn Fn(&li_raster::Rgba8) -> Vec<u8>>;
-/// A folder chooser (`None` = cancelled).
-pub type PickFolder = Box<dyn FnMut() -> Option<String>>;
-pub type PickFolderTitled = Box<dyn FnMut(&str) -> Option<String>>;
 /// Reveal a file in the system file manager (Finder / Explorer / the folder on Linux).
 pub type RevealFn = Box<dyn FnMut(&str) -> Result<(), String>>;
 /// Open a URL in the user's browser.
@@ -112,20 +108,9 @@ pub type HostAction = Box<dyn FnMut(&mut Session) -> Result<Value, String>>;
 /// Platform services injected by the host app (desktop or web).
 #[derive(Default)]
 pub struct Services {
-    /// Show an open dialog for photos; returns paths.
-    pub pick_files: Option<PickFiles>,
-    /// Open dialog for preset files (`.lcpreset`, `.xmp`, `.lrtemplate`, `.zip`, `.dng`, Luminar `.lmp` / `.mplumpack`).
-    pub pick_preset_files: Option<PickFiles>,
-    /// Open dialog for a GPS track log (`.gpx`; Photo ▸ Auto-Tag from Tracklog…).
-    pub pick_tracklog: Option<PickFiles>,
-    /// Save dialog for an exported `.lcpreset` file.
-    pub save_preset_file: Option<SaveFile>,
-    /// Save a denoised copy to a new DNG or TIFF file.
-    pub save_denoise_file: Option<SaveFile>,
-    /// Open dialog for point-curve preset files (`.lccurve`).
-    pub pick_curve_preset_files: Option<PickFiles>,
-    /// Save dialog for an exported `.lccurve` file.
-    pub save_curve_preset_file: Option<SaveFile>,
+    /// Show an open, save or folder dialog without waiting for it (see [`file_dialog`]): photos,
+    /// presets, track logs, export destinations and every folder picker (desktop only).
+    pub file_dialog: Option<FileDialogFn>,
     /// Move a source file into the recoverable system Trash.
     pub trash_file: Option<Box<dyn FnMut(&str) -> Result<(), String>>>,
     pub write: Option<WriteFn>,
@@ -135,9 +120,6 @@ pub struct Services {
     pub png: Option<PngEncode>,
     /// Show a file in the system file manager (desktop only).
     pub reveal: Option<RevealFn>,
-    /// Choose a folder (Settings → General → Open Library…; desktop only).
-    pub pick_folder: Option<PickFolder>,
-    pub pick_folder_titled: Option<PickFolderTitled>,
     /// Host bridge; UI stays independent of li-ai and its downloader.
     pub download_models: Option<Box<dyn Fn(&str, bool) -> Result<(), String>>>,
     pub model_download_status: Option<Box<dyn Fn(&str) -> ModelDownloadStatus>>,
@@ -295,6 +277,10 @@ pub struct LightcraftApp {
     pub host_composites: std::collections::HashMap<lightcraft_catalog::PhotoId, panels::host_composite::HostComposite>,
     /// local-image: "Open in Compositing" was clicked on such a photo: the host shows its document.
     pub host_composite_open: Option<lightcraft_catalog::PhotoId>,
+    /// The file dialog in progress, and the action waiting on it (see [`file_dialog`]).
+    pub(crate) file_dialog: Option<file_dialog::Pending>,
+    /// A path chosen for a widget: (its key, the path) (see [`LightcraftApp::ask_into`]).
+    pub(crate) chosen: Option<(String, String)>,
     // Rust drops fields in declaration order. Keep this last: renderer pools must stop and
     // join their workers before we wait for compilation/queue idle, including in headless tests.
     _gpu_exit: GpuExit,
@@ -380,6 +366,8 @@ impl LightcraftApp {
             host_session: None,
             host_composites: Default::default(),
             host_composite_open: None,
+            file_dialog: None,
+            chosen: None,
             _gpu_exit: GpuExit,
             #[cfg(test)]
             _gpu_test: gpu_test,
@@ -764,6 +752,7 @@ impl LightcraftApp {
             self.ui.dragging_layer = None;
             self.ui.describe = None;
         }
+        self.poll_file_dialog(ctx);
         if self.host_modal {
             self.background_tick(ctx);
             return;
@@ -1474,11 +1463,8 @@ impl LightcraftApp {
 }
 
 impl Services {
-    pub fn choose_folder(&mut self, title: &str) -> Option<String> {
-        if let Some(picker) = self.pick_folder_titled.as_mut() { picker(title) } else { self.pick_folder.as_mut().and_then(|picker| picker()) }
-    }
     pub fn has_folder_picker(&self) -> bool {
-        self.pick_folder_titled.is_some() || self.pick_folder.is_some()
+        self.file_dialog.is_some()
     }
 }
 

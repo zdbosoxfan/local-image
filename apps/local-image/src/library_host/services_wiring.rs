@@ -1,12 +1,34 @@
 use super::*;
+use lightcraft_ui_egui::FileDialogRequest;
+use photocraft_ui_egui::{FileDialogSpec, Pick};
+
+/// The title and file types of each Library dialog, which the editor's dialog service shows.
+pub(super) fn library_dialog(request: FileDialogRequest) -> FileDialogSpec {
+    match request {
+        FileDialogRequest::Photos => FileDialogSpec::new(Pick::Files).filter("Photos", &add_photos_extensions()),
+        FileDialogRequest::Presets => FileDialogSpec::new(Pick::Files)
+            .title("Import Presets")
+            .filter("Presets & Profiles", &["lcpreset", "xmp", "lrtemplate", "zip", "dng", "lmp", "mplumpack", "cube"]),
+        FileDialogRequest::Tracklog => FileDialogSpec::new(Pick::File).title("Auto-Tag from Tracklog").filter("GPS Track Log", &["gpx"]),
+        FileDialogRequest::CurvePresets => {
+            FileDialogSpec::new(Pick::Files).title("Import Point Curve Presets").filter("Point Curve Presets", &["lccurve", "json"])
+        }
+        FileDialogRequest::SavePreset { name } => FileDialogSpec::new(Pick::Save).title("Export Presets").filter("Preset", &["lcpreset"]).file_name(name),
+        FileDialogRequest::SaveCurvePresets { name } => {
+            FileDialogSpec::new(Pick::Save).title("Export Point Curve Presets").filter("Point Curve Presets", &["lccurve"]).file_name(name)
+        }
+        FileDialogRequest::SaveDenoised { name } => FileDialogSpec::new(Pick::Save).filter("Denoised image", &["tiff", "tif", "dng"]).file_name(name),
+        FileDialogRequest::Folder { title: Some(title) } => FileDialogSpec::new(Pick::Folder).title(li_i18n::library::t(&title)),
+        FileDialogRequest::Folder { title: None } => FileDialogSpec::new(Pick::Folder).title("Choose Folder"),
+    }
+}
 
 pub(super) fn services(opens: Opens) -> Services {
     Services {
         trash_file: li_ai::trash::available()
             .then(|| Box::new(|path: &str| li_ai::trash::move_to_trash(std::path::Path::new(path)).map(|_| ()).map_err(|e| e.to_string())) as _),
-        save_denoise_file: Some(Box::new(|name| {
-            crate::file_dialog_probe::explain_empty(file_dialog().set_file_name(name).add_filter_nocase("Denoised image", &["tiff", "tif", "dng"]).save_file())
-                .map(|p| p.to_string_lossy().into_owned())
+        file_dialog: Some(Box::new(|request, reply| {
+            crate::services::show_file_dialog(photocraft_ui_egui::FileDialogRequest::Described(library_dialog(request)), reply)
         })),
         download_models: Some(Box::new(|id, cancel| {
             let spec = li_seg::spec(id).ok_or("unknown model")?;
@@ -30,12 +52,6 @@ pub(super) fn services(opens: Opens) -> Services {
                 .get(&format!("seg:{id}"))
                 .map(|dl| lightcraft_ui_egui::ModelDownloadStatus { running: !dl.finished, done: dl.done, total: dl.total, error: dl.error.clone() })
                 .unwrap_or_default()
-        })),
-        pick_folder: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(file_dialog().set_title("Choose Folder").pick_folder()).map(|p| p.to_string_lossy().to_string())
-        })),
-        pick_folder_titled: Some(Box::new(|title| {
-            crate::file_dialog_probe::explain_empty(file_dialog().set_title(li_i18n::library::t(title)).pick_folder()).map(|p| p.to_string_lossy().to_string())
         })),
         open_with: Some(Box::new(move |path: &str, app: &str| {
             let app = app.trim();
@@ -63,51 +79,6 @@ pub(super) fn services(opens: Opens) -> Services {
             let p = std::path::Path::new(path);
             let target = if cfg!(target_os = "linux") { p.parent().unwrap_or(p) } else { p };
             open::that(target).map_err(|e| e.to_string())
-        })),
-        pick_files: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(file_dialog().add_filter_nocase("Photos", &add_photos_extensions()).pick_files())
-                .unwrap_or_default()
-                .into_iter()
-                .map(|p| p.to_string_lossy().to_string())
-                .collect()
-        })),
-        pick_preset_files: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(
-                file_dialog()
-                    .set_title("Import Presets")
-                    .add_filter_nocase("Presets & Profiles", &["lcpreset", "xmp", "lrtemplate", "zip", "dng", "lmp", "mplumpack", "cube"])
-                    .pick_files(),
-            )
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect()
-        })),
-        pick_tracklog: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(file_dialog().set_title("Auto-Tag from Tracklog").add_filter_nocase("GPS Track Log", &["gpx"]).pick_file())
-                .map(|p| vec![p.to_string_lossy().to_string()])
-                .unwrap_or_default()
-        })),
-        save_preset_file: Some(Box::new(|name: &str| {
-            crate::file_dialog_probe::explain_empty(
-                file_dialog().set_title("Export Presets").add_filter_nocase("Preset", &["lcpreset"]).set_file_name(name).save_file(),
-            )
-            .map(|p| p.to_string_lossy().to_string())
-        })),
-        pick_curve_preset_files: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(
-                file_dialog().set_title("Import Point Curve Presets").add_filter_nocase("Point Curve Presets", &["lccurve", "json"]).pick_files(),
-            )
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.to_string_lossy().to_string())
-            .collect()
-        })),
-        save_curve_preset_file: Some(Box::new(|name: &str| {
-            crate::file_dialog_probe::explain_empty(
-                file_dialog().set_title("Export Point Curve Presets").add_filter_nocase("Point Curve Presets", &["lccurve"]).set_file_name(name).save_file(),
-            )
-            .map(|p| p.to_string_lossy().to_string())
         })),
         write_shared: Some(Arc::new(lightcraft_engine::export::write_file)),
         write: Some(Box::new(lightcraft_engine::export::write_file)),

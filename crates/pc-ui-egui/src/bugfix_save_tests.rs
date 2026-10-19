@@ -74,8 +74,8 @@ fn bugfix_save_o008_flat_exports_keep_path_dirty_and_close_guard() {
 fn bugfix_save_o008_suggests_psd_beside_original_and_automation_keeps_dirty() {
     let (mut app, _) = app();
     app.session.active_mut().unwrap().path = Some("/photos/photo.jpg".into());
-    app.services.pick_save = Some(Box::new(|suggested| {
-        assert_eq!(suggested, "/photos/photo.psd");
+    app.services.file_dialog = Some(crate::file_dialog::answering(|request| {
+        assert_eq!(request, crate::FileDialogRequest::Save { suggested: "/photos/photo.psd".into() });
         None
     }));
     assert_eq!(app.save_as(None).unwrap_err(), "cancelled");
@@ -109,7 +109,7 @@ fn bugfix_save_o007_close_and_quit_wait_for_tiff_copy_or_layered_save() {
     for command in ["file.closeAll", "file.exit"] {
         for discard_layers in [false, true] {
             let (mut app, writes) = app();
-            app.services.pick_save = Some(Box::new(|_| Some("close.tif".into())));
+            app.services.file_dialog = Some(crate::file_dialog::answering(|_| Some(crate::FileDialogAnswer::SaveTo("close.tif".into()))));
             assert!(crate::discard_ui::intercept(&mut app, command, &json!({})));
             enter(&mut app, crate::discard_ui::show);
             assert!(!app.allow_close);
@@ -138,7 +138,7 @@ fn bugfix_save_o007_tiff_cancel_and_write_failure_keep_close_and_quit_protected(
     for command in ["file.closeAll", "file.exit"] {
         for cancel in [true, false] {
             let (mut app, writes) = app();
-            app.services.pick_save = Some(Box::new(|_| Some("close.tif".into())));
+            app.services.file_dialog = Some(crate::file_dialog::answering(|_| Some(crate::FileDialogAnswer::SaveTo("close.tif".into()))));
             assert!(crate::discard_ui::intercept(&mut app, command, &json!({})));
             enter(&mut app, crate::discard_ui::show);
             if cancel {
@@ -257,10 +257,10 @@ fn bugfix_save_o048_export_cancel_failure_and_retry_preserve_dialog_fields() {
     let (mut app, writes) = app();
     let id = crate::export_dialog::open(&mut app).unwrap();
     app.ui.dialog_mut(id).unwrap().fields.insert("quality".into(), json!(61));
-    app.services.pick_save = Some(Box::new(|_| None));
+    app.services.file_dialog = Some(crate::file_dialog::answering(|_| None));
     assert_eq!(crate::dialogs::confirm(&mut app, id).unwrap_err(), "cancelled");
     assert_eq!(app.ui.dialog_mut(id).unwrap().fields["quality"], 61);
-    app.services.pick_save = Some(Box::new(|_| Some("out.png".into())));
+    app.services.file_dialog = Some(crate::file_dialog::answering(|_| Some(crate::FileDialogAnswer::SaveTo("out.png".into()))));
     app.services.write = Some(Box::new(|_, _| Err("disk full".into())));
     enter(&mut app, crate::dialogs::show);
     assert!(app.ui.status_error);

@@ -96,9 +96,9 @@ fn library_ux_empty_startup_import_click_reviews_before_adding_and_cancel_preser
     let calls = Arc::new(AtomicUsize::new(0));
     let (pick, count, path) = (accept.clone(), calls.clone(), file.to_string_lossy().into_owned());
     let services = Services {
-        pick_files: Some(Box::new(move || {
+        file_dialog: Some(crate::file_dialog::answering(move |_| {
             count.fetch_add(1, Ordering::SeqCst);
-            if pick.load(Ordering::SeqCst) { vec![path.clone()] } else { vec![] }
+            pick.load(Ordering::SeqCst).then(|| crate::FileDialogAnswer::Paths(vec![path.clone()]))
         })),
         ..Default::default()
     };
@@ -290,7 +290,7 @@ fn library_ux_status_open_failure_reports_error_and_keeps_unsaved_library() {
     std::fs::create_dir(&temp.0).unwrap();
     let next = temp.0.join("must-not-open");
     let chosen = next.to_string_lossy().into_owned();
-    let services = Services { pick_folder: Some(Box::new(move || Some(chosen.clone()))), ..Default::default() };
+    let services = Services { file_dialog: Some(crate::file_dialog::choosing(chosen)), ..Default::default() };
     let mut h = headless(session, services, [1440., 900.]);
     click(&mut h, "icon:cloud");
     h.app.ui.toast = None;
@@ -312,7 +312,7 @@ fn library_ux_shortcut_help_matches_effective_import_dispatch() {
     let picks = Arc::new(AtomicUsize::new(0));
     let count = picks.clone();
     let services = Services {
-        pick_folder: Some(Box::new(move || {
+        file_dialog: Some(crate::file_dialog::answering(move |_| {
             count.fetch_add(1, Ordering::SeqCst);
             None
         })),
@@ -367,7 +367,12 @@ fn library_ux_persisted_detail_switches_to_empty_grid_but_cancel_keeps_current_l
     let choose = Arc::new(AtomicBool::new(false));
     let pick = choose.clone();
     let path = new.to_string_lossy().into_owned();
-    let services = Services { pick_folder: Some(Box::new(move || pick.load(Ordering::SeqCst).then(|| path.clone()))), ..Default::default() };
+    let services = Services {
+        file_dialog: Some(crate::file_dialog::answering(move |_| {
+            pick.load(Ordering::SeqCst).then(|| crate::FileDialogAnswer::Paths(vec![path.clone()]))
+        })),
+        ..Default::default()
+    };
     let mut app = LightcraftApp::new(session, services);
     let saved = serde_json::to_vec(&UiState { view: ViewMode::Detail, right: RightPanel::Edit, ..Default::default() }).unwrap();
     app.ui = serde_json::from_slice::<UiState>(&saved).unwrap().sanitized();

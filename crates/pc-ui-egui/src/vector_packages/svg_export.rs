@@ -145,14 +145,18 @@ pub fn controls(ui: &mut Ui, state: &mut State, text: impl Fn(&str) -> String) -
 #[path = "../../../pc-svg/tests/export/ui.rs"]
 mod tests;
 
-/// Invoked by the app modal action. Prepare bytes before the picker, then recheck the
-/// captured document/targets immediately before the existing write service publishes.
-/// Cancellation performs no write. Return one aggregated warning list for the app notice.
-pub fn save(state: &mut State, s: &mut Session, services: &mut crate::Services) -> Result<Option<Vec<photocraft_doc::vector_design::exchange::VectorWarning>>> {
+/// Invoked by the app modal action. Prepare bytes before `pick` names the file (`None`:
+/// cancelled), then recheck the captured document/targets immediately before the existing write
+/// service publishes. Cancellation performs no write. Return one aggregated warning list for the
+/// app notice.
+pub fn save(
+    state: &mut State,
+    s: &mut Session,
+    services: &mut crate::Services,
+    pick: impl FnOnce(&str) -> Option<String>,
+) -> Result<Option<Vec<photocraft_doc::vector_design::exchange::VectorWarning>>> {
     let (request, output) = state.export(s)?;
-    let picker = services.pick_save.as_mut().ok_or_else(|| EngineError::Other("file save picker service unavailable".into()))?;
-    let path = picker("drawing.svg");
-    let Some(path) = path else {
+    let Some(path) = pick("drawing.svg") else {
         state.cancel();
         return Ok(None);
     };
@@ -167,22 +171,22 @@ pub fn open_dialog(app: &mut crate::PhotocraftApp) -> std::result::Result<(), St
     crate::export_dialog::open_format(app, "svg").map(|_| ())
 }
 
-pub(crate) fn begin_embedded(app: &mut crate::PhotocraftApp, name: &str) -> std::result::Result<bool, String> {
-    let mut state = std::mem::take(&mut app.ui.svg_export);
-    let result = (|| {
-        let mut request = state.request.clone().ok_or("Export document changed; reopen Export As")?;
-        request.options = state.options.clone();
-        match super::vector_export::begin_named(app, super::vector_export::Request::Svg(request), Some(name))? {
-            Some(pending) => {
-                state.pending = Some(pending);
-                state.error = None;
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    })();
-    app.ui.svg_export = state;
-    result
+/// Export As to SVG: asks where (suggesting `name`), then runs the export with `preferences`
+/// remembered once it succeeds. `{"pending": true}` once started or while the dialog is open.
+pub(crate) fn begin_embedded(
+    app: &mut crate::PhotocraftApp,
+    name: &str,
+    preferences: Option<crate::export_dialog::Remembered>,
+) -> std::result::Result<serde_json::Value, String> {
+    let state = &app.ui.svg_export;
+    let mut request = state.request.clone().ok_or("Export document changed; reopen Export As")?;
+    request.options = state.options.clone();
+    super::vector_export::begin_named(app, super::vector_export::Request::Svg(request), Some(name), move |app, pending| {
+        let state = &mut app.ui.svg_export;
+        state.pending = Some(pending);
+        state.error = None;
+        state.preferences = preferences;
+    })
 }
 
 /// Interactive export runs projection, encoding and native staging on a worker.
@@ -238,19 +242,27 @@ pub fn frame(app: &mut crate::PhotocraftApp, ctx: &egui::Context) {
                     return;
                 };
                 request.options = state.options.clone();
-                match super::vector_export::begin(app, super::vector_export::Request::Svg(request)) {
-                    Ok(Some(pending)) => {
-                        state.pending = Some(pending);
-                        state.error = None;
-                        if let Ok(options) = serde_json::to_value(&state.options) {
-                            app.session.edit_prefs(|prefs| {
-                                prefs.dialogs.insert("vector.svg.exportOptions".into(), options);
-                            });
-                        }
+                let options = serde_json::to_value(&state.options).ok();
+                // The export continues from the save dialog's answer, which may come later.
+                app.ui.svg_export = state;
+                let started = super::vector_export::begin(app, super::vector_export::Request::Svg(request), move |app, pending| {
+                    app.ui.svg_export.pending = Some(pending);
+                    app.ui.svg_export.error = None;
+                    if let Some(options) = options {
+                        app.session.edit_prefs(|prefs| {
+                            prefs.dialogs.insert("vector.svg.exportOptions".into(), options);
+                        });
                     }
-                    Ok(None) => state.cancel(),
-                    Err(error) => state.error = Some(error),
-                }
+                });
+                let _ = app.after_file_dialog(started, |app, started| {
+                    match started {
+                        Err(e) if e == crate::file_dialog::CANCELLED => app.ui.svg_export.cancel(),
+                        Err(error) => app.ui.svg_export.error = Some(error),
+                        Ok(_) => {}
+                    }
+                    Ok(serde_json::Value::Null)
+                });
+                return;
             }
             Some(Action::Cancel) => state.cancel(),
             None if modal.should_close() => state.cancel(),

@@ -77,7 +77,7 @@ pub fn confirm(app: &mut PhotocraftApp, fields: &Map<String, Value>) -> Result<V
         return Err(tl!("No document").into());
     }
     let path = fields.get("path").and_then(Value::as_str).ok_or(tl!("No document"))?.to_string();
-    app.save_as(Some(path)).map(|(p, w)| crate::save_worker::response(app, p, w))
+    app.save_as(Some(path))
 }
 
 #[cfg(test)]

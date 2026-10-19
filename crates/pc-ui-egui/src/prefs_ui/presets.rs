@@ -39,7 +39,7 @@ pub(super) fn presets_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut M
         }
         // Load Photoshop brushes (.abr) into the library.
         if kind == "brushes" && ui.button(tl!("Load…")).on_hover_text(tl!("Import Photoshop brushes (.abr)")).clicked() {
-            app.open_dialog_file();
+            let _ = app.open_dialog_file();
         }
     });
     f.insert("kind".into(), json!(kind));

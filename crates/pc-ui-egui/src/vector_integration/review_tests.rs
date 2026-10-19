@@ -192,7 +192,7 @@ fn bugfix_vector_place_svg_uses_picker() {
     let picked = Arc::new(AtomicBool::new(false));
     let flag = picked.clone();
     let mut app = app();
-    app.services.pick_open = Some(Box::new(move || {
+    app.services.file_dialog = Some(crate::file_dialog::answering(move |_| {
         flag.store(true, Ordering::SeqCst);
         None
     }));
