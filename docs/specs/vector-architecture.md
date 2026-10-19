@@ -58,7 +58,7 @@ Never let an ordinary feature job upgrade the lock or resolve a new default feat
 | Raster/text | Existing pc-vector + pc-text (parley/harfrust/skrifa versions in our lock) | Existing attribution/license records. Do not take VC vello_cpu 0.2, skrifa 0.47 or harfrust 0.13. vello_cpu 0.1 already being transitive is not approval to upgrade. |
 | SVG | usvg/resvg **0.45.1**, svgtypes **0.15.3**, roxmltree **0.20.0**; resvg test oracle only | MIT OR Apache-2.0; locked source/feature graph and [usvg 0.45.1](https://docs.rs/usvg/0.45.1/usvg/). Current lock has no usvg fontdb/text graph; placeholder XML extraction through pc-text is mandatory. No upgrade to VC's usvg 0.48. |
 | PDF export | krilla **=0.8.2**, default-features=false, features=["raster-images"]; no `simple-text`, no `pdf` feature | MIT OR Apache-2.0; exact VC Cargo.lock pin and [krilla manifest](https://docs.rs/crate/krilla/0.8.2/source/Cargo.toml.orig). pc-text supplies positioned glyphs/font bytes; krilla/subsetter embeds them. The entire Image module is behind raster-images, including from_rgba8/custom, so this audited feature is required for full export/fallback. Avoid a second shaper. |
-| PDF import | hayro-syntax **=0.7.2**, hayro-interpret **=0.7.0**, embed-fonts + embed-cmaps | Apache-2.0 OR MIT; VC PDF manifest and [Device API](https://docs.rs/hayro-interpret/0.7.0/hayro_interpret/trait.Device.html). Use interpreter callbacks to build editable layers, not hayro's standalone renderer/vello stack. |
+| PDF import | hayro-syntax **=0.8.0**, hayro-interpret **=0.8.0**, embed-fonts + embed-cmaps | Apache-2.0 OR MIT; VC PDF manifest and [Device API](https://docs.rs/hayro-interpret/0.8.0/hayro_interpret/trait.Device.html). Use interpreter callbacks to build editable layers, not hayro's standalone renderer/vello stack. |
 | Affinity | Port VC `crates/affinity` at `d522c1d7…`; crc32fast, flate2 rust_backend, image, ruzstd **0.9.1** (RUSTSEC-2026-0344 block bounds) | MIT OR Apache-2.0. Read-only upstream container/stream/model/geometry/paint/text/raster/preview/access modules. Bounded best-effort import with warnings, not a claim of complete proprietary-format support. |
 | Vectorizer | Existing pc-trace ports; kurbo fitting; T2 VC centreline/recognize algorithms | vtracer/visioncortex MIT OR Apache-2.0, Potrace GPL-2.0-or-later compatible with GPL-3.0-or-later. No vtracer/visioncortex/flo_curves dependency addition. |
 | Paragraph composer | DesignCraft `crates/compose` at `66c7ce7e…`, optional V6c port onto pc-text | MIT OR Apache-2.0. Composer only, not its document tree or renderer. |
@@ -78,7 +78,7 @@ locked entry**, which both current and VC locks already contain. Do not delete/r
 or silently upgrade yoke to work around it. Owner-approved bootstrap requires no new
 permission question.
 
-Important distinction: hayro-interpret 0.7.0 unconditionally requests hayro-syntax's
+Important distinction: hayro-interpret 0.8.0 unconditionally requests hayro-syntax's
 `unsafe` feature, which enables pure Rust SIMD codecs. Disabling interpreter defaults does
 not remove it. The workspace `deny(unsafe_code)` applies to **our** crates, not upstream
 registry dependencies (the existing image/GPU stack already uses unsafe internally).

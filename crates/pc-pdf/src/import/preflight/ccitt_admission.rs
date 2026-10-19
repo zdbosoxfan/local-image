@@ -60,9 +60,9 @@ fn run(value: &Value, params: Option<&Value>, data: &[u8], options: &ImportOptio
     let width = value.get(b"Width").and_then(Value::number).ok_or_else(|| invalid("CCITT image width"))?;
     let height = value.get(b"Height").and_then(Value::number).ok_or_else(|| invalid("CCITT image height"))?;
     let columns = predictors::parameter(params, b"Columns", 1728)?;
-    // Missing Rows uses image height in hayro-syntax0.7.2. Explicit zero does
-    // not: Group3 would continue to EOF and Group4 would stop before any row.
-    // Never validate to one bound then let downstream decode to another.
+    // hayro-syntax 0.8.0 decodes and preallocates max(Rows, Height) rows. Requiring
+    // Rows to equal Height (or be absent) keeps admission and decoding on one bound;
+    // explicit zero is refused rather than normalized.
     let rows = predictors::parameter(params, b"Rows", height)?;
     if rows == 0 {
         return Err(ImportError::Unsupported("CCITT Rows=0 requires decoder normalization"));

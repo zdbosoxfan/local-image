@@ -136,7 +136,7 @@ pub(super) fn evaluate(p: &Paint<'_>, point: Point, triangles: &[hayro_interpret
                 return Ok([0.0; 4]);
             };
             let values = if let Some(f) = function { f.eval(&values).ok_or_else(|| ImportError::Invalid("mesh colour function".into()))? } else { values };
-            let mut c = s.shading.color_space.to_rgba(&values, s.opacity, false);
+            let mut c = s.shading.color_space.to_rgba(&values, s.opacity);
             if let Some(tf) = &s.transfer_function {
                 c = tf.apply(&c);
             }
@@ -145,7 +145,7 @@ pub(super) fn evaluate(p: &Paint<'_>, point: Point, triangles: &[hayro_interpret
     };
     let input = input.into_iter().collect();
     let values = function.eval(&input).ok_or_else(|| ImportError::Invalid("shading function".into()))?;
-    let mut color = s.shading.color_space.to_rgba(&values, s.opacity, false);
+    let mut color = s.shading.color_space.to_rgba(&values, s.opacity);
     if let Some(tf) = &s.transfer_function {
         color = tf.apply(&color);
     }
