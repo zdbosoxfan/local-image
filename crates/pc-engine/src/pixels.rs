@@ -140,10 +140,18 @@ pub fn remap_surface(s: &Surface, map: impl Fn(i32, i32) -> (i32, i32)) -> Surfa
 }
 
 /// Merge `upper` onto `lower` producing a raster layer (Layer → Merge Down).
-pub fn merge_down(doc: &Document, lower: &Layer, upper: &Layer) -> Layer {
+///
+/// Refuses, leaving everything unchanged, when the combined bounds exceed the render pixel limit
+/// (for example layers moved far apart), since the composite would otherwise come back empty.
+pub fn merge_down(doc: &Document, lower: &Layer, upper: &Layer) -> crate::Result<Layer> {
     let doc_bounds = doc.bounds();
     let format = doc.pixel_format();
     let area = [lower, upper].iter().map(|l| l.surface().map(|s| s.content_bounds()).unwrap_or(doc_bounds)).fold(Rect::EMPTY, |a, b| a.union(&b));
+    let (w, h) = (u64::from(area.width()), u64::from(area.height()));
+    if w.saturating_mul(h) > photocraft_compose::MAX_RENDER_PIXELS {
+        let detail = format!("the merged layer would be {w} x {h} px, more than the {} px limit", photocraft_compose::MAX_RENDER_PIXELS);
+        return Err(crate::allocation::error("merging down", &detail));
+    }
     let stack = vec![lower.clone(), upper.clone()];
     let mut tmp = Document::new("merge", doc_bounds.size(), format.mode, format.sample);
     tmp.layers = stack;
@@ -153,7 +161,7 @@ pub fn merge_down(doc: &Document, lower: &Layer, upper: &Layer) -> Layer {
     merged.id = lower.id;
     merged.blend = lower.blend;
     merged.opacity = 1.0;
-    merged
+    Ok(merged)
 }
 
 #[cfg(test)]
@@ -198,7 +206,7 @@ fn merging_normal_cmyk_layers_keeps_the_original_ink_separations() {
     lower.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.2, 0.4, 0.1, 0.8, 1.]);
     let mut upper = Layer::raster("upper", doc.pixel_format());
     upper.surface_mut().unwrap().write_pixel(1, 0, &[0.7, 0.2, 0.3, 0.6, 1.]);
-    let merged = merge_down(&doc, &lower, &upper);
+    let merged = merge_down(&doc, &lower, &upper).unwrap();
     assert_eq!(merged.surface().unwrap().pixel(0, 0), lower.surface().unwrap().pixel(0, 0));
     assert_eq!(merged.surface().unwrap().pixel(1, 0), upper.surface().unwrap().pixel(1, 0));
 }
