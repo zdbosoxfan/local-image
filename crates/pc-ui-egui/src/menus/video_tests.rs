@@ -9,7 +9,8 @@ fn video_folder_picker_cancels_without_running_and_explicit_paths_bypass_it() {
     let mut app = PhotocraftApp::new(
         photocraft_engine::Session::new(),
         crate::Services {
-            pick_folder: Some(Box::new(move || {
+            file_dialog: Some(crate::file_dialog::answering(move |request| {
+                assert_eq!(request, crate::FileDialogRequest::Folder);
                 count.set(count.get() + 1);
                 None
             })),
@@ -37,7 +38,10 @@ fn render_video_uses_the_selected_folder_and_preserves_options() {
     let path = dir.to_string_lossy().into_owned();
     let mut app = PhotocraftApp::new(
         photocraft_engine::Session::new(),
-        crate::Services { pick_folder: Some(Box::new(move || Some(path.clone()))), ..Default::default() },
+        crate::Services {
+            file_dialog: Some(crate::file_dialog::answering(move |_| Some(crate::FileDialogAnswer::Paths(vec![path.clone()])))),
+            ..Default::default()
+        },
     );
     app.run("file.new", json!({"width": 2, "height": 2})).unwrap();
     let result = invoke(&mut app, &egui::Context::default(), "file.export.renderVideo", json!({"format": "bmp"})).unwrap();

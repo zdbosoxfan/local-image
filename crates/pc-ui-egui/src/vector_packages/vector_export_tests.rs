@@ -29,7 +29,10 @@ fn fixture(pdf: bool) -> (PhotocraftApp, Arc<Stage>, Request) {
     let stage = Arc::new(Stage { destination: Mutex::new(b"existing destination".to_vec()), ..Default::default() });
     let worker = stage.clone();
     let services = Services {
-        pick_save: Some(Box::new(move |name| Some(name.to_owned()))),
+        file_dialog: Some(crate::file_dialog::answering(|request| match request {
+            crate::FileDialogRequest::Save { suggested } => Some(crate::FileDialogAnswer::SaveTo(suggested)),
+            _ => None,
+        })),
         stage_write: Some(Arc::new(move |_, bytes, interrupt| {
             let temp = Temp { stage: worker.clone(), committed: false };
             worker.entered.store(true, Ordering::SeqCst);
@@ -91,6 +94,13 @@ fn fixture(pdf: bool) -> (PhotocraftApp, Arc<Stage>, Request) {
     };
     (app, stage, request)
 }
+/// Starts exporting `request`, its save dialog answered at once.
+fn begin_now(app: &mut PhotocraftApp, request: Request) -> Pending {
+    let started = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let slot = started.clone();
+    assert_eq!(begin(app, request, move |_, pending| *slot.borrow_mut() = Some(pending)).unwrap(), serde_json::json!({"pending": true}));
+    started.take().expect("started")
+}
 fn ready(app: &mut PhotocraftApp, pending: &Pending) {
     let job = pending.job.unwrap();
     let receipt = app.session.wait_job(job).unwrap();
@@ -104,7 +114,7 @@ fn vector_export_stage_ready_cancel_stale_closed_and_failure_preserve_destinatio
             let (mut app, stage, request) = fixture(pdf);
             let source = app.session.active().unwrap().doc.clone();
             stage.release.store(true, Ordering::SeqCst);
-            let mut pending = begin(&mut app, request).unwrap().unwrap();
+            let mut pending = begin_now(&mut app, request);
             ready(&mut app, &pending);
             assert_eq!(*stage.destination.lock().unwrap(), b"existing destination");
             match disposition {
@@ -148,7 +158,7 @@ fn vector_export_stage_ready_cancel_stale_closed_and_failure_preserve_destinatio
         let (mut app, stage, request) = fixture(pdf);
         stage.release.store(true, Ordering::SeqCst);
         stage.fail_stage.store(true, Ordering::SeqCst);
-        let mut pending = begin(&mut app, request).unwrap().unwrap();
+        let mut pending = begin_now(&mut app, request);
         assert!(app.session.wait_job(pending.job.unwrap()).is_err());
         assert!(pending.poll(&mut app).unwrap_err().contains("injected stage failure"));
         assert_eq!(*stage.destination.lock().unwrap(), b"existing destination");
@@ -174,7 +184,7 @@ fn vector_export_automation_never_uses_ambient_stage_or_write_and_rechecks_autho
         let denied = Arc::new(AtomicBool::new(false));
         let gate = denied.clone();
         app.services.automation_command = Some(Box::new(move |_, _| if gate.load(Ordering::SeqCst) { Err("authority revoked".into()) } else { Ok(()) }));
-        let mut pending = begin(&mut app, request).unwrap().unwrap();
+        let mut pending = begin_now(&mut app, request);
         app.automation_input = false;
         ready(&mut app, &pending);
         denied.store(deny, Ordering::SeqCst);
@@ -293,7 +303,7 @@ fn vector_export_warning_success_keeps_full_path_and_one_warning_result() {
         Arc::make_mut(&mut app.session.active_mut().unwrap().doc).layers[0].effects.items.push(photocraft_doc::Effect::default_drop_shadow());
         let chosen = format!("/chosen/full/path/warning-export.{}", if pdf { "pdf" } else { "svg" });
         let picker_path = chosen.clone();
-        app.services.pick_save = Some(Box::new(move |_| Some(picker_path.clone())));
+        app.services.file_dialog = Some(crate::file_dialog::answering(move |_| Some(crate::FileDialogAnswer::SaveTo(picker_path.clone()))));
         stage.release.store(true, Ordering::SeqCst);
         open_dialog(&mut app, pdf);
         let mut h = dialog_harness(app, pdf);
@@ -319,7 +329,7 @@ fn vector_export_job_events_report_failure_once_and_global_cancel_quietly() {
             let (mut app, stage, _) = fixture(pdf);
             let chosen = format!("/chosen/full/path/failed destination.{}", if pdf { "pdf" } else { "svg" });
             let picked = chosen.clone();
-            app.services.pick_save = Some(Box::new(move |_| Some(picked.clone())));
+            app.services.file_dialog = Some(crate::file_dialog::answering(move |_| Some(crate::FileDialogAnswer::SaveTo(picked.clone()))));
             stage.fail_stage.store(!cancel, Ordering::SeqCst);
             stage.release.store(!cancel, Ordering::SeqCst);
             open_dialog(&mut app, pdf);

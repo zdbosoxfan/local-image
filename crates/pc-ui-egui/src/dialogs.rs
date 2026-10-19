@@ -429,11 +429,15 @@ pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
         && d.fields.contains_key("__export")
     {
         let fields = d.fields.clone();
-        let result = crate::export_dialog::confirm(app, &fields)?;
-        if result.get("pending").and_then(Value::as_bool) != Some(true) {
-            crate::export_dialog::complete(app);
-        }
-        return Ok(result);
+        let result = crate::export_dialog::confirm(app, &fields);
+        // Export As stays open behind its save dialog, and stays if that is cancelled.
+        return app.after_file_dialog(result, |app, result| {
+            let result = result?;
+            if result.get("pending").and_then(Value::as_bool) != Some(true) {
+                crate::export_dialog::complete(app);
+            }
+            Ok(result)
+        });
     }
     let d = app.ui.close_dialog(id).ok_or_else(|| format!("no dialog {id}"))?;
     match d.kind {

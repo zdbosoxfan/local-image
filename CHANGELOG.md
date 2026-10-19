@@ -16,6 +16,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Find Similar results with thousands of hits filter a large Library about 50 times faster.
 - Reading a TIFF-based raw's metadata no longer copies the whole file, twice per imported raw.
 - Opening a raw measures sensor clipping on all cores: about 8 times faster for a 24 MP sensor.
+- The editor's file dialogs (Open, Save As, Export, Place, imports and folder pickers) no longer freeze
+  the window on Linux or crash the app on macOS, where they now open as a sheet on the window.
 
 ## [2.0.0-alpha.1] - TBD
 

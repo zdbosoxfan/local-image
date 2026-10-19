@@ -7,7 +7,7 @@
 //! Add Photos, the preset and AI pickers) goes through [`FileDialogExt::add_filter_nocase`];
 //! tests check that nothing calls rfd's own `add_filter`.
 //!
-//! [`file_dialog`] starts every dialog parented to the app's window.
+//! [`file_dialog`] and [`async_file_dialog`] start every dialog parented to the app's window.
 //!
 //! Ported from LightCraft `apps/lightcraft/src/dialog_filter.rs` (e2d35de, MIT OR Apache-2.0)
 //! and PhotoCraft 9b4562f2 (the same fix for File › Open).
@@ -79,6 +79,23 @@ pub fn file_dialog() -> rfd::FileDialog {
     DIALOG_PARENT.get().cloned().unwrap_or_else(rfd::FileDialog::new)
 }
 
+/// The parent of the dialogs that don't block the event loop ([`set_async_dialog_parent`]).
+static ASYNC_DIALOG_PARENT: std::sync::OnceLock<rfd::AsyncFileDialog> = std::sync::OnceLock::new();
+
+/// Make `template` (an `AsyncFileDialog` with only `set_parent` applied) the start of every
+/// [`async_file_dialog`]. Set on every platform: on macOS the dialog is a sheet on the window
+/// (rfd makes it a sheet on the main window anyway), elsewhere a dialog the window owns.
+pub fn set_async_dialog_parent(template: rfd::AsyncFileDialog) {
+    let _ = ASYNC_DIALOG_PARENT.set(template);
+}
+
+/// A dialog that doesn't block the event loop, owned by the app's window (a plain one before the
+/// window exists). On macOS it must be shown from the main thread: its `pick_*` and `save_file`
+/// open the panel when called, and the returned future only waits for the answer.
+pub fn async_file_dialog() -> rfd::AsyncFileDialog {
+    ASYNC_DIALOG_PARENT.get().cloned().unwrap_or_else(rfd::AsyncFileDialog::new)
+}
+
 static UNAVAILABLE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// A file dialog came back empty because none can open on this system (on Linux: no desktop
@@ -101,6 +118,12 @@ pub trait FileDialogExt {
 }
 
 impl FileDialogExt for rfd::FileDialog {
+    fn add_filter_nocase(self, name: impl Into<String>, exts: &[&str]) -> Self {
+        self.add_filter(name, &dialog_extensions(exts))
+    }
+}
+
+impl FileDialogExt for rfd::AsyncFileDialog {
     fn add_filter_nocase(self, name: impl Into<String>, exts: &[&str]) -> Self {
         self.add_filter(name, &dialog_extensions(exts))
     }

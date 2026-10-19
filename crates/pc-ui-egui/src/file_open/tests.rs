@@ -1,9 +1,10 @@
 use super::*;
+use crate::file_dialog::{self, FileDialogAnswer, FileDialogRequest};
 use crate::{Services, menus, notices};
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::Document;
 use photocraft_geom::Size;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -12,7 +13,8 @@ type Written = Rc<RefCell<Vec<(String, Vec<u8>)>>>;
 
 /// An app whose importer names the document after the file (like `photocraft-io`) and reports a
 /// warning for names containing "warn", and fails for bytes "bad"; the exporter warns for ".png"
-/// and the writer records what it wrote.
+/// and the writer records what it wrote. The first Open dialog hands over `pick_open`'s file;
+/// Save dialogs answer `pick_save`.
 fn app_with(pick_open: Option<(String, Vec<u8>)>, pick_save: Option<String>) -> (PhotocraftApp, Written) {
     let written: Written = Rc::default();
     let w = written.clone();
@@ -29,8 +31,11 @@ fn app_with(pick_open: Option<(String, Vec<u8>)>, pick_save: Option<String>) -> 
             let warnings = if path.ends_with(".png") { vec!["Layers were flattened".to_string()] } else { Vec::new() };
             Ok((b"out".to_vec(), warnings))
         })),
-        pick_open: Some(Box::new(move || pick_open.take().map(|(name, bytes)| (name, Ok(bytes))))),
-        pick_save: Some(Box::new(move |_s: &str| pick_save.clone())),
+        file_dialog: Some(file_dialog::answering(move |request| match request {
+            FileDialogRequest::Open { .. } | FileDialogRequest::Read => pick_open.take().map(|(name, bytes)| FileDialogAnswer::File(name, Ok(bytes))),
+            FileDialogRequest::Save { .. } => pick_save.clone().map(FileDialogAnswer::SaveTo),
+            FileDialogRequest::Folder => None,
+        })),
         write: Some(Box::new(move |p: &str, b: &[u8]| {
             w.borrow_mut().push((p.to_string(), b.to_vec()));
             Ok(())
@@ -71,7 +76,7 @@ fn file_open_dialog_sets_path_so_save_writes_in_place() {
     assert_eq!(st.doc.name, "cat.psd");
     assert_eq!(st.path.as_deref(), Some("/pics/cat.psd"));
     assert_eq!(app.ui.recent_files.first().map(String::as_str), Some("/pics/cat.psd"));
-    // File › Save goes straight back to the file (pick_save would return None = cancelled).
+    // File › Save goes straight back to the file (a Save dialog would be cancelled).
     let r = menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
     assert_eq!(r["path"], "/pics/cat.psd");
     assert_eq!(written.borrow().last().map(|(p, _)| p.clone()).as_deref(), Some("/pics/cat.psd"));
@@ -88,7 +93,7 @@ fn file_open_dialog_opens_every_selected_path() {
     });
     let (mut app, _) = app_with(None, None);
     let selected = paths.to_vec();
-    app.services.pick_open_paths = Some(Box::new(move || Some(selected.clone())));
+    app.services.file_dialog = Some(file_dialog::answering(move |_| Some(FileDialogAnswer::Paths(selected.clone()))));
 
     menus::invoke(&mut app, &egui::Context::default(), "file.open", json!({})).unwrap();
 
@@ -102,13 +107,14 @@ fn file_open_dialog_opens_every_selected_path() {
 }
 
 #[test]
-fn cancelling_multi_file_open_does_not_fall_back_to_single_file_picker() {
-    let (mut app, _) = app_with(Some(("/pics/unexpected.psd".into(), b"x".to_vec())), None);
-    app.services.pick_open_paths = Some(Box::new(|| None));
+fn cancelling_file_open_opens_nothing_quietly() {
+    let (mut app, _) = app_with(None, None);
 
-    menus::invoke(&mut app, &egui::Context::default(), "file.open", json!({})).unwrap();
+    assert_eq!(menus::invoke(&mut app, &egui::Context::default(), "file.open", json!({})).unwrap(), Value::Null);
 
     assert!(app.session.documents().is_empty());
+    assert!(!app.ui.status_error, "Cancel is not an error");
+    assert!(!app.file_dialog_open());
 }
 
 #[test]
@@ -138,8 +144,10 @@ fn templates_open_as_new_untitled_documents() {
     // File › Save asks for a new name (cancelled here) rather than suggesting the template.
     let suggested: Rc<RefCell<Vec<String>>> = Rc::default();
     let rec = suggested.clone();
-    app.services.pick_save = Some(Box::new(move |s: &str| {
-        rec.borrow_mut().push(s.to_string());
+    app.services.file_dialog = Some(file_dialog::answering(move |request| {
+        if let FileDialogRequest::Save { suggested } = request {
+            rec.borrow_mut().push(suggested);
+        }
         None
     }));
     assert_eq!(menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap_err(), "cancelled");
@@ -203,18 +211,18 @@ fn open_failures_are_errors_and_leave_no_document() {
 #[test]
 fn a_picked_file_that_cannot_be_read_is_reported_like_any_open_failure() {
     let (mut app, _) = app_with(None, None);
-    let mut picked = Some(("C:/photos/big.psb".to_string(), Err("The parameter is incorrect. (os error 87)".to_string())));
-    app.services.pick_open = Some(Box::new(move || picked.take()));
-    app.open_dialog_file();
+    let mut picked = Some(FileDialogAnswer::File("C:/photos/big.psb".to_string(), Err("The parameter is incorrect. (os error 87)".to_string())));
+    app.services.file_dialog = Some(file_dialog::answering(move |_| picked.take()));
+    app.open_dialog_file().unwrap();
     assert!(app.session.documents().is_empty());
     assert!(app.ui.status_error);
     let notice = app.ui.notices.last().unwrap();
     assert!(notice.error && notice.title.contains("Couldn't open big.psb: The parameter is incorrect"), "{}", notice.title);
     // Commands that read a picked file (scripts, notes, Place) get the same message as an error.
-    app.services.pick_open = Some(Box::new(|| Some(("C:/photos/big.psb".to_string(), Err("denied".to_string())))));
-    assert_eq!(app.pick_file_bytes(), Some(Err("big.psb: denied".to_string())));
-    app.services.pick_open = Some(Box::new(|| None));
-    assert_eq!(app.pick_file_bytes(), None, "cancelled");
+    app.services.file_dialog = Some(file_dialog::answering(|_| Some(FileDialogAnswer::File("C:/photos/big.psb".to_string(), Err("denied".to_string())))));
+    assert_eq!(app.pick_file_bytes(|_, _, _| Ok(Value::Null)), Err("big.psb: denied".to_string()));
+    app.services.file_dialog = Some(file_dialog::answering(|_| None));
+    assert_eq!(app.pick_file_bytes(|_, _, _| Ok(Value::Null)), Err(file_dialog::CANCELLED.to_string()));
 }
 
 #[test]

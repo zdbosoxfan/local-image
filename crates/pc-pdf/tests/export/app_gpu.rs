@@ -23,12 +23,13 @@ fn pdf_export_app_real_gpu_preview_release_and_menu_dialog() {
     assert!(bytes.starts_with(b"%PDF-1.7"));
     let written = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
     let record = written.clone();
-    h.state_mut().services.pick_save = Some(Box::new(|_| Some("fixture.pdf".into())));
+    h.state_mut().services.file_dialog =
+        Some(photocraft_ui_egui::file_dialog::answering(|_| Some(photocraft_ui_egui::FileDialogAnswer::SaveTo("fixture.pdf".into()))));
     h.state_mut().services.write = Some(Box::new(move |_, bytes| {
         record.lock().unwrap().push(bytes.to_vec());
         Ok(())
     }));
-    // Export As is enabled where the app has its raster exporter; PDF itself goes through pick_save/write.
+    // Export As is enabled where the app has its raster exporter; PDF itself goes through the save dialog and write.
     h.state_mut().services.export = Some(std::sync::Arc::new(|_, _, _| Err("raster export is not used by this PDF test".into())));
     h.get_by_label("File").click();
     h.run_steps(2);

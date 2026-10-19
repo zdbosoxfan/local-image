@@ -1233,7 +1233,7 @@ mod tests {
         let mut pick = pick;
         let services = crate::Services {
             pdf_raster: Some(image_service()),
-            pick_open: Some(Box::new(move || pick.take().map(|(name, bytes)| (name, Ok(bytes))))),
+            file_dialog: Some(crate::file_dialog::answering(move |_| pick.take().map(|(name, bytes)| crate::FileDialogAnswer::File(name, Ok(bytes))))),
             ..Default::default()
         };
         let mut app = crate::PhotocraftApp::new(session, services);
@@ -1282,7 +1282,8 @@ mod tests {
                 assert_eq!(h.state().session.active().unwrap().selected_layers, selected);
                 assert_eq!(h.state().pdf_import.source, original);
                 assert!(!h.state().pdf_import.dialog_open);
-                h.state_mut().services.pick_open = Some(Box::new(move || Some((path.into(), Ok(unsupported_pdf())))));
+                h.state_mut().services.file_dialog =
+                    Some(crate::file_dialog::answering(move |_| Some(crate::FileDialogAnswer::File(path.into(), Ok(unsupported_pdf())))));
                 crate::menus::invoke(h.state_mut(), &Context::default(), "file.placeLinked", serde_json::json!({})).unwrap();
                 h.run_steps(2);
                 assert!(!h.state().pdf_import.placement.as_ref().unwrap().embedded_confirmed);

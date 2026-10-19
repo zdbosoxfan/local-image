@@ -139,6 +139,7 @@ pub mod dock;
 pub mod enable_rules;
 pub mod eraser_ui;
 pub mod export_dialog;
+pub mod file_dialog;
 pub mod file_open;
 pub mod file_ui;
 pub mod fill_ui;
@@ -255,6 +256,7 @@ use photocraft_engine::Session;
 use serde_json::Value;
 
 pub use control::{ControlRequest, ControlResponse};
+pub use file_dialog::{FileDialogAnswer, FileDialogFn, FileDialogReply, FileDialogRequest};
 pub use file_open::OsEvent;
 pub use state::{Tool, UiState};
 
@@ -297,12 +299,6 @@ pub struct PreparedSave {
 pub type PrepareSaveFn =
     std::sync::Arc<dyn Fn(std::sync::Arc<Document>, &str, &ExportSettings, &lightcraft_sysmem::Interrupt<'_>) -> Result<PreparedSave, String> + Send + Sync>;
 
-/// The picked file's name and its bytes, or why it could not be read (shown like any other open
-/// failure); `None` when the dialog was cancelled.
-pub type PickOpenFn = Box<dyn FnMut() -> Option<(String, Result<Vec<u8>, String>)>>;
-/// File › Open's multi-file picker: the selected paths, `None` when cancelled.
-pub type PickOpenPathsFn = Box<dyn FnMut() -> Option<Vec<String>>>;
-pub type PickSaveFn = Box<dyn FnMut(&str) -> Option<String>>;
 /// Encoding and source bytes are prepared before the editor allocates its history
 /// preservation plan. Only commit may copy to Trash and replace the file.
 pub struct PreparedOverwrite {
@@ -423,16 +419,9 @@ pub struct Services {
     /// Optional native snapshot encoding/staging service for ordinary interactive saves.
     pub prepare_save: Option<PrepareSaveFn>,
     pub overwrite_original: Option<OverwriteFn>,
-    /// Show a single-file picker for commands that import one file (Open As, presets, scripts).
-    pub pick_open: Option<PickOpenFn>,
-    /// Show File › Open's multi-file picker; returns the selected paths.
-    pub pick_open_paths: Option<PickOpenPathsFn>,
-    /// Single Place picker; returns a path so bounded import reads happen on a worker.
-    pub pick_place_path: Option<Box<dyn FnMut() -> Option<String>>>,
-    /// Show a "save file" dialog; returns a path/name to write.
-    pub pick_save: Option<PickSaveFn>,
-    /// Select an existing directory for frame import or an output directory for rendering.
-    pub pick_folder: Option<Box<dyn FnMut() -> Option<String>>>,
+    /// Show an Open, Save or folder dialog without waiting for it (see `file_dialog`): File ›
+    /// Open, Place, Save As, Export, the commands that read a file, and the folder pickers.
+    pub file_dialog: Option<FileDialogFn>,
     /// Write bytes to a path (native) or trigger a download (web).
     pub write: Option<WriteFn>,
     /// Size and modification time of a file (native); `None` on the web, where Save never
@@ -441,7 +430,7 @@ pub struct Services {
     /// Optional background staging with a small final publication step.
     pub stage_write: Option<StageWriteFn>,
     /// File access used only by control/MCP requests. Interactive dialogs keep
-    /// using `pick_open`, `pick_save` and `write` with the user's authority.
+    /// using `file_dialog` and `write` with the user's authority.
     pub automation_read: Option<AutomationReadFn>,
     pub automation_browse: Option<AutomationBrowseFn>,
     pub automation_write: Option<AutomationWriteFn>,
@@ -700,6 +689,8 @@ pub struct PhotocraftApp {
     pub(crate) prefs_rt: prefs_ui::Runtime,
     /// Close, Revert or Exit parked behind the unsaved-changes prompt (see `discard_ui`).
     pub(crate) discard: Option<discard_ui::Prompt>,
+    /// The Open or Save dialog in progress, and the action waiting on it (see `file_dialog`).
+    pub(crate) file_dialog: Option<file_dialog::Pending>,
     /// A Save As to a layered TIFF parked behind the TIFF Options prompt (see `tiff_options_ui`).
     pub(crate) tiff_options: Option<tiff_options_ui::Prompt>,
     pub(crate) pending_save: Option<save_worker::Pending>,
@@ -834,6 +825,7 @@ impl PhotocraftApp {
             discard: None,
             tiff_options: None,
             pending_save: None,
+            file_dialog: None,
             disk_stamps: HashMap::new(),
             overwrite_prompt: None,
             allow_close: false,
@@ -1205,39 +1197,21 @@ impl PhotocraftApp {
         Ok(warnings)
     }
 
-    /// File › Open: native platforms return all selected paths; the web delivers its pick through
-    /// the single-file service/inbox instead.
-    pub fn open_dialog_file(&mut self) {
-        if let Some(pick_paths) = self.services.pick_open_paths.as_mut() {
-            if let Some(paths) = pick_paths() {
-                self.open_paths(&paths);
-            }
-            return;
-        }
-        let Some((path, bytes)) = self.services.pick_open.as_mut().and_then(|f| f()) else { return };
-        if let Err(e) = bytes.and_then(|bytes| self.open_file(&path, &bytes)) {
-            self.open_failed(&file_open::display_name(&path), &e);
-        }
-    }
-
-    /// Show the open dialog for a file a command reads (a script, notes, a placed image, presets):
-    /// `None` when cancelled, else its name and bytes or the read error.
-    pub(crate) fn pick_file_bytes(&mut self) -> Option<Result<(String, Vec<u8>), String>> {
-        let (name, bytes) = self.services.pick_open.as_mut().and_then(|f| f())?;
-        Some(bytes.map(|b| (name.clone(), b)).map_err(|e| format!("{}: {e}", file_open::display_name(&name))))
-    }
-
-    /// Save the active document to `path` (or a path chosen in the save dialog); returns the path
-    /// and the export warnings (also shown to the user).
-    pub fn save_as(&mut self, path: Option<String>) -> Result<(String, Vec<String>), String> {
+    /// Save the active document to `path`, or to a path chosen in the save dialog (which
+    /// continues once it is answered, see `file_dialog`). Returns `{"path", "warnings"}` (the
+    /// export warnings are also shown to the user), with the job of a save still running.
+    pub fn save_as(&mut self, path: Option<String>) -> Result<Value, String> {
         photocraft_engine::float_cmds::drop_floating(&mut self.session).map_err(|e| e.to_string())?;
         // Edit Contents documents save back into their smart object.
         if path.is_none() && self.session.is_enabled("layer.smartObjects.saveContents") {
             self.run("layer.smartObjects.saveContents", serde_json::json!({}))?;
-            return Ok(("smart object".into(), Vec::new()));
+            return Ok(serde_json::json!({"path": "smart object", "warnings": []}));
         }
         if self.pending_save.is_some() {
             return Err("A save is already running; wait for it to finish or finish cancelling".into());
+        }
+        if let Some(path) = path {
+            return self.save_to(path);
         }
         let st = self.session.active().ok_or("no document")?;
         // Documents are named after their file ("cat.png"): suggest "cat.psd", not "cat.png.psd".
@@ -1252,17 +1226,23 @@ impl PhotocraftApp {
                 let name = st.path.as_deref().unwrap_or(&st.doc.name);
                 std::path::Path::new(name).with_extension("psd").to_string_lossy().into_owned()
             });
-        let path = match path {
-            Some(p) => p,
-            None => self.services.pick_save.as_mut().and_then(|f| f(&suggested)).ok_or("cancelled")?,
-        };
+        let doc = st.doc.id;
+        self.pick_save(&suggested, move |app, path| {
+            app.refocus(doc)?;
+            app.save_to(path)
+        })
+    }
+
+    /// [`Self::save_as`] once the path is known.
+    fn save_to(&mut self, path: String) -> Result<Value, String> {
         // A layered TIFF asks about its layers first (Preferences › File Handling); the save
         // continues from the prompt.
         if tiff_options_ui::wants_prompt(self, &path) {
             tiff_options_ui::park(self, path.clone());
-            return Ok((path, Vec::new()));
+            return Ok(serde_json::json!({"path": path, "warnings": []}));
         }
-        self.write_document(path, &ExportSettings::default())
+        let (path, warnings) = self.write_document(path, &ExportSettings::default())?;
+        Ok(save_worker::response(self, path, warnings))
     }
 
     /// Encodes the active document with `settings` and writes it to `path`. Formats that preserve
@@ -1528,6 +1508,8 @@ impl eframe::App for PhotocraftApp {
         if !self.pending_screenshots.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
+        // Control requests, native menus and shortcuts in this frame may have asked for a file.
+        self.poll_file_dialog(ctx);
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -1635,6 +1617,8 @@ impl eframe::App for PhotocraftApp {
         // A menu or dialog can start a filter after `jobs_ui::tick` ran in this frame. Keep
         // polling it even when the platform would otherwise put the event loop to sleep.
         jobs_ui::keep_polling(self, &ctx);
+        // Menus and buttons in this frame may have asked for a file dialog.
+        self.poll_file_dialog(&ctx);
     }
 }
 
@@ -1882,6 +1866,8 @@ impl PhotocraftApp {
         if !self.queued_screenshots.is_empty() || !self.pending_screenshots.is_empty() {
             ctx.request_repaint();
         }
+        // A save or export started from another module may be waiting on its file dialog.
+        self.poll_file_dialog(ctx);
     }
 
     /// local-image: whether any open document has unsaved changes.

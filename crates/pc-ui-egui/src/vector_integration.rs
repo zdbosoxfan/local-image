@@ -1693,10 +1693,16 @@ type AseResult = (
     Result<(photocraft_doc::vector_design::swatches::SwatchBook, Vec<photocraft_doc::vector_design::exchange::VectorWarning>), String>,
 );
 fn begin_ase(app: &mut PhotocraftApp, capture: photocraft_engine::vector_packages::colours::Capture) {
+    let _ = app.ask_file(crate::FileDialogRequest::Open { multiple: false }, move |app, answer| {
+        begin_ase_with(app, capture, answer);
+        Ok(serde_json::Value::Null)
+    });
+}
+fn begin_ase_with(app: &mut PhotocraftApp, capture: photocraft_engine::vector_packages::colours::Capture, answer: crate::FileDialogAnswer) {
     let (tx, rx) = std::sync::mpsc::channel();
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(pick) = &mut app.services.pick_open_paths {
-        let Some(path) = pick().and_then(|paths| paths.into_iter().next()) else { return };
+    if let crate::FileDialogAnswer::Paths(paths) = &answer {
+        let Some(path) = paths.first().cloned() else { return };
         std::thread::spawn(move || {
             use std::io::Read;
             let limits = photocraft_doc::vector_design::exchange::ImportLimits::default();
@@ -1714,8 +1720,7 @@ fn begin_ase(app: &mut PhotocraftApp, capture: photocraft_engine::vector_package
         app.vector_runtime.ase = Some(rx);
         return;
     }
-    let Some((_, bytes)) = app.services.pick_open.as_mut().and_then(|pick| pick()) else { return };
-    let result = bytes.and_then(|bytes| photocraft_doc::vector_design::swatches::import_ase(&bytes, Default::default()));
+    let result = crate::file_dialog::read_picked(answer).and_then(|(_, bytes)| photocraft_doc::vector_design::swatches::import_ase(&bytes, Default::default()));
     let _ = tx.send((capture, result));
     app.vector_runtime.ase = Some(rx);
 }

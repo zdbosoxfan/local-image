@@ -395,6 +395,8 @@ fn main() -> eframe::Result {
             // stray top-level hidden behind a fullscreen window (upstream LightCraft 9c2bad1).
             #[cfg(any(target_os = "linux", target_os = "freebsd"))]
             photocraft_ui_egui::dialog_filter::set_dialog_parent(rfd::FileDialog::new().set_parent(cc));
+            // The editor's dialogs don't block the event loop (see `services`): a sheet on macOS.
+            photocraft_ui_egui::dialog_filter::set_async_dialog_parent(rfd::AsyncFileDialog::new().set_parent(cc));
             let automation = control.as_ref().map(|(_, _, workspace)| workspace.clone());
             let mut services = services::native(automation);
             services.preset_store = presets;
