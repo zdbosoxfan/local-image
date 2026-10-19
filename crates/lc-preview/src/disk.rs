@@ -80,7 +80,9 @@ impl DiskCache {
             }
             None => {
                 log::warn!("preview cache: dropping unreadable {}", p.display());
-                let _ = std::fs::remove_file(&p);
+                if std::fs::remove_file(&p).is_ok() {
+                    self.adjust_total(0, bytes.len() as u64);
+                }
                 self.misses.fetch_add(1, Ordering::Relaxed);
                 None
             }
@@ -96,18 +98,28 @@ impl DiskCache {
         }
         // know the current total before adding (the first scan must not count this file twice)
         let _ = self.size();
+        // A rewrite replaces the old file, so only the size difference is new.
+        let replaced = std::fs::metadata(&p).ok().filter(|m| m.is_file()).map_or(0, |m| m.len());
         if li_fs::write_atomic_nosync(&p, &bytes).is_err() {
             return;
         }
         self.writes.fetch_add(1, Ordering::Relaxed);
-        let over = {
-            let mut t = self.total.lock().unwrap_or_else(|e| e.into_inner());
-            let total = t.get_or_insert(0);
-            *total += bytes.len() as u64;
-            *total > self.budget()
-        };
-        if over {
+        if self.adjust_total(bytes.len() as u64, replaced) > self.budget() {
             self.prune();
+        }
+    }
+
+    /// Apply a size change to the running total under its mutex (held only for the arithmetic,
+    /// so writes stay concurrent). Does nothing until the first scan has set the total; returns
+    /// the new total (0 while unknown).
+    fn adjust_total(&self, added: u64, removed: u64) -> u64 {
+        let mut t = self.total.lock().unwrap_or_else(|e| e.into_inner());
+        match t.as_mut() {
+            Some(total) => {
+                *total = total.saturating_add(added).saturating_sub(removed);
+                *total
+            }
+            None => 0,
         }
     }
 
@@ -261,6 +273,80 @@ mod j11_tests {
         assert!(!scratch.exists());
         assert!(foreign.exists());
         assert_eq!(std::fs::read_dir(dir.join(shard)).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod accounting_tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("preview-disk-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    fn image(seed: u8) -> Rgba8 {
+        let data = (0..256u32).map(|i| [(i as u8).wrapping_mul(seed), (i >> 2) as u8 ^ seed, seed, 255]).collect();
+        Rgba8 { width: 16, height: 16, data }
+    }
+
+    fn on_disk(cache: &DiskCache) -> u64 {
+        cache.scan().iter().map(|f| f.1).sum()
+    }
+
+    #[test]
+    fn rewriting_a_key_counts_only_the_size_difference() {
+        let dir = temp_dir("rewrite");
+        let cache = DiskCache::new(&dir, 1 << 30);
+        let key = crate::hash_bytes(b"rewrite");
+        cache.put(key, &image(3));
+        let first = cache.size();
+        assert_eq!(first, on_disk(&cache));
+        cache.put(key, &image(3));
+        assert_eq!(cache.size(), first);
+        cache.put(key, &Rgba8 { width: 64, height: 64, data: (0..4096u32).map(|i| [(i * 7) as u8, (i >> 3) as u8, i as u8, 255]).collect() });
+        assert_eq!(cache.size(), on_disk(&cache));
+        assert_ne!(cache.size(), first);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn dropping_a_corrupt_entry_subtracts_its_size() {
+        let dir = temp_dir("corrupt");
+        let cache = DiskCache::new(&dir, 1 << 30);
+        let (a, b) = (crate::hash_bytes(b"a"), crate::hash_bytes(b"b"));
+        cache.put(a, &image(5));
+        cache.put(b, &image(9));
+        let only_a = std::fs::metadata(cache.path(a)).unwrap().len();
+        let b_len = std::fs::metadata(cache.path(b)).unwrap().len() as usize;
+        std::fs::write(cache.path(b), vec![0u8; b_len]).unwrap();
+        assert!(cache.get(b).is_none());
+        assert!(!cache.path(b).exists());
+        assert_eq!(cache.size(), only_a);
+        assert_eq!(cache.size(), on_disk(&cache));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn concurrent_writes_of_different_keys_sum_correctly() {
+        let dir = temp_dir("concurrent");
+        let cache = DiskCache::new(&dir, 1 << 30);
+        let _ = cache.size();
+        std::thread::scope(|s| {
+            for t in 0..8u8 {
+                let cache = &cache;
+                s.spawn(move || {
+                    for i in 0..16u8 {
+                        cache.put(crate::hash_bytes(&[t, i]), &image(t * 16 + i + 1));
+                    }
+                });
+            }
+        });
+        assert_eq!(cache.writes.load(Ordering::Relaxed), 128);
+        assert_eq!(cache.scan().len(), 128);
+        assert_eq!(cache.size(), on_disk(&cache));
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
