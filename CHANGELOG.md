@@ -6,25 +6,7 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
-- Clicking a Layers-panel row while editing type commits the edit.
-- Match Color's live preview reads the chosen Source document, so it shows what OK applies.
-- Render Video and Video Frames to Layers ask for a folder instead of failing without one.
-- Wayland paste accepts JPEG, BMP and WebP clipboard images, not only PNG.
-- Keyboard Shortcuts refuses keys the system reserves and offers Accept and Go to Conflict or Undo Changes for a key another command holds.
-- Export As size estimates for large documents use the configured exporter on the preview worker.
-- Security hardening and cleanup — see PR
-- Find Similar results with thousands of hits filter a large Library about 50 times faster.
-- Reading a TIFF-based raw's metadata no longer copies the whole file, twice per imported raw.
-- Opening a raw measures sensor clipping on all cores: about 8 times faster for a 24 MP sensor.
-- PDF import uses hayro 0.8. Form XObjects, patterns and Type 3 glyphs with their own Resources no longer borrow names from the page's resources, as the PDF specification requires.
-- The editor's file dialogs (Open, Save As, Export, Place, imports and folder pickers) no longer freeze
-  the window on Linux or crash the app on macOS, where they now open as a sheet on the window.
-- So do the Library's (Add Photos, Import from Folder, Find Missing and Locate, export and import
-  destinations, backups, presets, track logs, Denoise to a new file and every folder picker), Swatches
-  import and export, and the AI and Generate pickers (ONNX models, ComfyUI workflows and folders,
-  reference images, Remove Backgrounds batches).
-
-## [2.0.0-alpha.1] - TBD
+## [2.0.0-alpha.1] - 2026-10-20
 
 This is the first Local Image 2 alpha. It combines the layered editor, the photo catalog and RAW
 pipeline, and local AI in one native application. Supported platforms: Linux x86_64 and Apple
@@ -54,6 +36,17 @@ refused and left unchanged. Create a new Library and import your photos again.
 - Linux x86_64 AppImage and tarball, and Apple Silicon macOS 13+ app, DMG and installer artifacts.
   Developer ID signing and notarization run when the repository secrets are configured.
 - Library and Develop translations.
+- Crash reports: a panic writes a local `crash-*.txt` to the log folder. Nothing is sent.
+  Release builds ship their debug symbols as separate downloads for symbolicating them.
+- Recently Deleted can empty itself: a Library preference removes photos deleted a chosen
+  number of days ago when the Library opens, as one undoable step. It is off by default, and
+  files on disk are never touched.
+- Automation: the MCP server marks every tool with accurate annotations. Irreversible commands
+  need `--allow-destructive`, and bridge mode starts cloud generation only with
+  `--allow-cloud-ai`.
+- TIFF reads and writes CIE L\*a\*b\* and writes EXIF and GPS as the file's own directories.
+  Composited CMYK documents export as CMYK TIFF and JPEG with their profile.
+- Preferences > Performance > GPU Memory sets how much video memory the compositor may use.
 
 ### Changed
 
@@ -64,6 +57,25 @@ refused and left unchanged. Create a new Library and import your photos again.
 - SAM 3 stays out of the default release packages. AI models are separate downloads.
 - The catalog has a format version. This build reads only its own format and refuses other
   versions without changing them.
+- One executable: `local-image-cli` is a link to the app, which runs the command line when
+  started under that name. The app is 177 MB instead of 445 MB.
+- Paid cloud runs confirm the provider, model and image count first, and an optional session
+  cap refuses runs past it. Rate limits, gateway errors and dropped connections are retried
+  with backoff; a request that may already have been billed is never repeated.
+- The cloud API keys in `preferences.json` are readable only by their owner.
+- Find Similar results with thousands of hits filter a large Library about 50 times faster.
+- Reading a TIFF-based raw's metadata no longer copies the whole file, twice per imported raw.
+- Opening a raw measures sensor clipping on all cores: about 8 times faster for a 24 MP sensor.
+- PDF import uses hayro 0.8. Form XObjects, patterns and Type 3 glyphs with their own Resources
+  no longer borrow names from the page's resources, as the PDF specification requires.
+- Keyboard Shortcuts refuses keys the system reserves and offers Accept and Go to Conflict or
+  Undo Changes for a key another command holds.
+- Layers panel: blend mode, Opacity, Fill and locks change every selected layer.
+- Adjustments, filters, brushes and transforms follow Photoshop more closely: Levels, Curves,
+  Brightness/Contrast, Hue/Saturation, Color Balance, Gradient Map, Threshold and Posterize
+  (including at 16 bits), Blur More, Find Edges, Polar Coordinates, the round brush tip, Dual
+  Brush, Color Range presets and bicubic Transform and Warp resampling.
+- Save for Web has no matte by default, and JPEG keeps 4:4:4 chroma above quality 50.
 
 ### Fixed
 
@@ -74,3 +86,31 @@ refused and left unchanged. Create a new Library and import your photos again.
 - Missing-model errors point to Edit > Preferences > Local AI.
 - AI settings download ownership is corrected, and the native GPU requirements are clarified.
 - 41 review findings across file safety, rendering and app integration are fixed.
+- The editor's file dialogs (Open, Save As, Export, Place, imports and folder pickers) no longer
+  freeze the window on Linux or crash the app on macOS, where they now open as a sheet on the
+  window. So do the Library's (Add Photos, Import from Folder, Find Missing and Locate, export
+  and import destinations, backups, presets, track logs, Denoise to a new file and every folder
+  picker), Swatches import and export, and the AI and Generate pickers (ONNX models, ComfyUI
+  workflows and folders, reference images, Remove Backgrounds batches).
+- Save asks before overwriting a file another app changed. Save As gives a chosen name the
+  extension of its file type. Autosave recovers committed bundles whose sidecar was never
+  written.
+- PSD: Backgrounds, 16- and 32-bit layer blocks, merged transparency, layer flags, smart-object
+  filter masks and pattern fills survive a round trip. Layered files with damaged merged data
+  open.
+- Untrusted files: PSD, EXR, PAM, Targa, PNG and brush imports check sizes and counts before
+  allocating, and large edits (Fill, Fade, Copy, Clear, Free Transform, Image Size, Liquify,
+  Warp, Offset) report allocation failures instead of aborting.
+- CSV import keeps UTF-8 text intact, and CSV export guards against formula injection.
+- A failed GPU start no longer forces CPU rendering on every later launch, and closing a
+  document frees what the GPU compositor held for it.
+- The window reopens where it was, a dialog no longer stops the title bar dragging, and the
+  bundled macOS app keeps its own Dock icon.
+- Clicking a Layers-panel row while editing type commits the edit.
+- Match Color's live preview reads the chosen Source document, so it shows what OK applies.
+- Render Video and Video Frames to Layers ask for a folder instead of failing without one.
+- Wayland paste accepts JPEG, BMP and WebP clipboard images, not only PNG.
+- Export As no longer freezes on large layered documents, and its size estimates use the
+  configured exporter.
+- Paragraph text breaks a word wider than the box at the box edge.
+- The unsaved-changes prompt gives its default answer keyboard focus.
