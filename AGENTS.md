@@ -101,7 +101,9 @@ to a local desktop app. These do:
   labels (AccessKit) work. User-facing strings go through `tl!` (`li-i18n`).
 
 **Release**
-- CI runs tests before packaging. Tag builds must be signed and notarized (macOS), never ad-hoc.
+- CI runs tests before packaging. Stable tag builds must be signed and notarized (macOS), never
+  ad-hoc. An alpha or beta tag may ship ad-hoc only when dispatched with `unsigned_prerelease`,
+  and its release notes must say so.
 - Update [CHANGELOG.md](CHANGELOG.md). Record architecture decisions in [docs/adr/](docs/adr/).
   Report security issues per [SECURITY.md](SECURITY.md).
 

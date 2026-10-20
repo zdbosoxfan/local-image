@@ -60,7 +60,12 @@ For a release, push the tag `v<version>` (for example `v2.0.0-alpha.1`, matching
 `[workspace.package] version` in `Cargo.toml`) and dispatch the workflow on that tag, not on a
 branch. Only a tag dispatch requires Developer ID signing and notarization; on a branch the macOS
 job falls back to an ad-hoc test build. A tag that does not match the workspace version fails
-before anything is built. Attach the artifacts and their `.sha256` files to the GitHub release
+before anything is built.
+
+An alpha or beta may ship without Developer ID credentials: dispatch on its tag with
+**unsigned_prerelease** checked. The macOS app, `.pkg` and `.dmg` are then ad-hoc signed and not
+notarized, and the release notes must tell testers how to open them (see the 2.0.0-alpha.1
+CHANGELOG entry). A stable tag refuses the option. Attach the artifacts and their `.sha256` files to the GitHub release
 by hand. Keep the existing macOS hardware workflow for broader Apple
 integration acceptance.
 

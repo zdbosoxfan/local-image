@@ -16,6 +16,11 @@ Important: Local Image 2 starts with a new Library. Catalogs, Library settings a
 earlier Local Image and LightCraft versions are not opened or migrated. An older catalog is
 refused and left unchanged. Create a new Library and import your photos again.
 
+The macOS app, disk image and installer of this alpha are not notarized, so macOS blocks them
+the first time. On macOS 15 or later, open the app (or installer) once, then choose System
+Settings > Privacy & Security > Open Anyway. On macOS 13 and 14, Control-click it and choose
+Open. Check the download against its `.sha256` file first.
+
 ### Added
 
 - Develop: a new colour and tone engine for raw processing, and raw quality improvements across
@@ -34,7 +39,8 @@ refused and left unchanged. Create a new Library and import your photos again.
   is downloaded automatically. A check at startup is an opt-in General preference, off by default.
 - Settings > Attributions lists the attribution for each sampled project.
 - Linux x86_64 AppImage and tarball, and Apple Silicon macOS 13+ app, DMG and installer artifacts.
-  Developer ID signing and notarization run when the repository secrets are configured.
+  The release workflow signs and notarizes the macOS packages when Developer ID credentials are
+  configured.
 - Library and Develop translations.
 - Crash reports: a panic writes a local `crash-*.txt` to the log folder. Nothing is sent.
   Release builds ship their debug symbols as separate downloads for symbolicating them.

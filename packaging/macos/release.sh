@@ -1,7 +1,8 @@
 #!/bin/bash
 # Secrets are consumed only by this manually dispatched release job.
-# The workflow sets RELEASE_REQUIRE_SIGNING on refs/tags/*: missing signing or notarization
-# secrets are then fatal instead of falling back to an ad-hoc development build.
+# The workflow sets RELEASE_REQUIRE_SIGNING on refs/tags/* unless an alpha or beta tag is
+# dispatched with unsigned_prerelease: missing signing or notarization secrets are then fatal
+# instead of falling back to an ad-hoc development build.
 set -euo pipefail
 [[ $(uname -m) == arm64 ]]
 keychain="$RUNNER_TEMP/local-image-signing.keychain-db"
