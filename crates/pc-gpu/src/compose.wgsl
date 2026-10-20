@@ -104,7 +104,7 @@ fn lut(row: i32, v: f32) -> f32 {
     return textureLoad(lut_tex, vec2(i, row), 0).r * (1.0 - f) + textureLoad(lut_tex, vec2(j, row), 0).r * f;
 }
 
-// ---- blend modes (photocraft_color::blend + compose::psblend) ------------------------------
+// Blend modes (photocraft_color::blend + compose::psblend)
 
 const M_NORMAL: i32 = 1;
 const M_DISSOLVE: i32 = 2;
@@ -472,7 +472,7 @@ fn fs_blend_if(in: VOut) -> @location(0) vec4<f32> {
     return vec4(clamp(mixed.rgb, vec3(0.0), vec3(1.0)), mixed.a);
 }
 
-// ---- adjustments (compose::adjust) ----------------------------------------------------------
+// Adjustments (compose::adjust)
 
 fn t_decode(v: f32, g: f32) -> f32 {
     if (g <= 0.0) { return srgb_to_linear(max(v, 0.0)); }
@@ -804,7 +804,7 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
     }
 }
 
-// ---- fills ----------------------------------------------------------------------------------
+// Fills
 
 fn gradient_t(d: vec2<i32>) -> f32 {
     // p0 = (angle°, scale, reverse, style), p1 = frame (x0, y0, w, h)
@@ -866,7 +866,7 @@ fn layer_texel(d: vec2<i32>) -> vec4<f32> {
     return op.color;
 }
 
-// ---- passes ---------------------------------------------------------------------------------
+// Passes
 
 // A layer's own pixels (raster / fill), times its mask.
 @fragment
@@ -966,7 +966,7 @@ fn fs_lerp(in: VOut) -> @location(0) vec4<f32> {
     return vec4((a.rgb * wa + b.rgb * wb) / alpha, alpha);
 }
 
-// ---- layer effects (compose::effects::composite_with_effects_prepared) ----------------------
+// Layer effects (compose::effects::composite_with_effects_prepared)
 
 const INSIDE_EPS: f32 = 0.5 / 255.0;
 
@@ -1186,7 +1186,7 @@ fn fs_fxmerge(in: VOut) -> @location(0) vec4<f32> {
     return o;
 }
 
-// ---- effect maps (compose::effects::build_maps_prepared) -------------------------------------
+// Effect maps (compose::effects::build_maps_prepared)
 //
 // Targets cover the effect region (`chunk` = region origin and size); reads outside it return 0,
 // like `Map::get`. Each kernel mirrors one step of the CPU map builders. The shape and its
