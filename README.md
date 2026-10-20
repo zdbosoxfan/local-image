@@ -396,7 +396,7 @@ Each file has a `.sha256` beside it; check it with `shasum -a 256 -c <file>.sha2
 
 Source and packaging instructions are available in [Development](docs/DEVELOPMENT.md) and [Release targets](docs/RELEASE.md).
 
-Mac packages enable HEIC/HEIF reading and keep optional SAM 3 support off by default. Installed core editing needs no Python, Homebrew or Rust. Selection and tagging models use native CPU inference. Native RAW and RGB AI denoise require a supported GPU; their CPU implementations are reference tests only. The native wgpu denoiser has no NPU dispatcher, and Core ML/Neural Engine execution is not implemented. Model compatibility depends on its backend. Tagged releases are Developer ID signed and notarized; development packages may be ad-hoc signed and trigger Gatekeeper. See [MACOS.md](docs/MACOS.md) for the signing steps.
+Mac packages enable HEIC/HEIF reading and keep optional SAM 3 support off by default. Installed core editing needs no Python, Homebrew or Rust. Selection and tagging models use native CPU inference. Native RAW and RGB AI denoise require a supported GPU; their CPU implementations are reference tests only. The native wgpu denoiser has no NPU dispatcher, and Core ML/Neural Engine execution is not implemented. Model compatibility depends on its backend. Stable releases will be Developer ID signed and notarized. The 2.0.0-alpha.1 Mac packages are not, so macOS blocks them the first time: on macOS 15 or later, open the app once, then choose **System Settings > Privacy & Security > Open Anyway**; on macOS 13 and 14, Control-click the app and choose **Open**. See [MACOS.md](docs/MACOS.md) for the signing steps.
 
 With Rust **1.98.1** and the [platform prerequisites](docs/DEVELOPMENT.md) installed:
 
