@@ -271,8 +271,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             if let Some(path) = params.get("path").and_then(Value::as_str) {
                 open_path(app, path)
             } else {
-                app.open_dialog_file();
-                Ok(Value::Null)
+                app.open_dialog_file()
             }
         }
         "file.save" => {
@@ -284,7 +283,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 .map(str::to_string)
                 .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
                 .or_else(|| crate::develop_layer::library_save_path(app));
-            app.save_as(path).map(|(p, w)| crate::save_worker::response(app, p, w))
+            app.save_as(path)
         }
         "file.exit" => {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -314,7 +313,7 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             crate::overwrite_original::request(app, doc, id == crate::overwrite_original::RETURN_ID)?;
             Ok(json!({"confirmation": app.overwrite_prompt.is_some()}))
         }
-        "file.saveAs" => app.save_as(params.get("path").and_then(Value::as_str).map(str::to_string)).map(|(p, w)| crate::save_worker::response(app, p, w)),
+        "file.saveAs" => app.save_as(params.get("path").and_then(Value::as_str).map(str::to_string)),
         "view.zoomIn" | "view.zoomOut" | "view.fitOnScreen" | "view.actualPixels" => {
             let i = app.session.active_index().ok_or("no document")?;
             let v = &mut app.ui.views[i];
@@ -525,12 +524,21 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
 
 /// Ask for a folder, then run `id` with it as `param`; cancelling the dialog runs nothing.
 fn run_in_picked_folder(app: &mut PhotocraftApp, id: &str, params: Value, param: &str) -> Result<Value, String> {
-    app.session.active().ok_or("no document")?;
-    let picker = app.services.pick_folder.as_mut().ok_or("no folder picker configured")?;
-    let Some(folder) = picker() else { return Ok(json!({"cancelled": true})) };
-    let mut params = params.as_object().cloned().unwrap_or_default();
-    params.insert(param.into(), json!(folder));
-    app.run(id, Value::Object(params))
+    let doc = app.active_doc_id()?;
+    if app.services.file_dialog.is_none() {
+        return Err("no folder picker configured".into());
+    }
+    let (id, param) = (id.to_string(), param.to_string());
+    let r = app.pick_folder(move |app, folder| {
+        app.refocus(doc)?;
+        let mut params = params.as_object().cloned().unwrap_or_default();
+        params.insert(param, json!(folder));
+        app.run(&id, Value::Object(params))
+    });
+    match r {
+        Err(e) if e == crate::file_dialog::CANCELLED => Ok(json!({"cancelled": true})),
+        r => r,
+    }
 }
 
 fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {

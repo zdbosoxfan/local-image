@@ -372,10 +372,7 @@ fn people_ui_headshots_seed_paste_and_clear_without_models() {
         std::fs::write(dir.join(format!("{name}.png")), bytes).unwrap();
     }
     let mut h = harness(s);
-    h.app.services.pick_folder = Some(Box::new({
-        let dir = dir.clone();
-        move || Some(dir.to_string_lossy().into_owned())
-    }));
+    h.app.services.file_dialog = Some(crate::file_dialog::choosing(dir.to_string_lossy()));
     click(&mut h, "smartSort:seedHeadshots");
     assert!(h.step_until(T, |h| h.app.people_task.is_none()));
     h.step();

@@ -16,6 +16,13 @@ All notable changes to Local Image are recorded here. The format follows
 - Find Similar results with thousands of hits filter a large Library about 50 times faster.
 - Reading a TIFF-based raw's metadata no longer copies the whole file, twice per imported raw.
 - Opening a raw measures sensor clipping on all cores: about 8 times faster for a 24 MP sensor.
+- PDF import uses hayro 0.8. Form XObjects, patterns and Type 3 glyphs with their own Resources no longer borrow names from the page's resources, as the PDF specification requires.
+- The editor's file dialogs (Open, Save As, Export, Place, imports and folder pickers) no longer freeze
+  the window on Linux or crash the app on macOS, where they now open as a sheet on the window.
+- So do the Library's (Add Photos, Import from Folder, Find Missing and Locate, export and import
+  destinations, backups, presets, track logs, Denoise to a new file and every folder picker), Swatches
+  import and export, and the AI and Generate pickers (ONNX models, ComfyUI workflows and folders,
+  reference images, Remove Backgrounds batches).
 
 ## [2.0.0-alpha.1] - TBD
 

@@ -2,14 +2,26 @@
 //! Callback/group/mask mapping adapted from VectorCraft pdf/import.rs/import_mask.rs at
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. Copyright (c) 2026 ArtCraft
 //! Team and the VectorCraft contributors. MIT OR Apache-2.0. pc-vector remains the only path rasterizer.
-use super::{ImportError, Result, cancelled, geometry, paint, preflight::groups, warn};
-use hayro_interpret::{CacheKey, ClipPath, Device, GlyphDrawMode, Image, ImageData, MaskType, Paint, PathDrawMode, SoftMask, font::Glyph, pattern::Pattern};
+use super::{ImportError, Result, cancelled, geometry, paint, preflight::groups, transfer, warn};
+use hayro_interpret::{
+    CacheKey, ClipPath, Device, DrawMode, DrawProps, Image, ImageData, ImageDrawProps, MaskType, Paint, SoftMask,
+    font::{Glyph, GlyphRun},
+    pattern::Pattern,
+};
 use kurbo::{Affine, BezPath, Point};
 use photocraft_doc::{
     BlendMode, Fill, GroupIsolation, Layer, LayerContent, LayerMask, Path, PixelFormat, Rect, ShapeLayer, Surface, VectorMask,
     vector_design::exchange::{ImportOptions, VectorWarning},
 };
-use std::{cell::RefCell, collections::HashMap, rc::Rc, sync::atomic::AtomicBool};
+use std::{
+    cell::{OnceCell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+    sync::atomic::AtomicBool,
+};
+type MaskKey = (u128, bool, [u32; 4], Option<[u8; 256]>);
+/// Glyph slice address, CTM and per-glyph text transforms identify one hayro glyph run.
+type GlyphRunKey = (usize, [u64; 6], Vec<[u64; 6]>);
 #[derive(Default)]
 struct Budget {
     objects: usize,
@@ -47,9 +59,20 @@ impl Frame {
         }
     }
 }
+/// Layers a Fill glyph run appended to the current frame. A Stroke run of the same glyphs that
+/// follows immediately (text render modes 2 and 6) is interleaved glyph by glyph, matching
+/// per-glyph fill-then-stroke painting.
+struct FillRun {
+    glyphs: GlyphRunKey,
+    frames: usize,
+    start: usize,
+    counts: Vec<usize>,
+}
 pub(super) struct Builder<'a> {
     options: &'a ImportOptions,
     cancel: &'a AtomicBool,
+    pdf: &'a hayro_syntax::Pdf,
+    transfers: Rc<OnceCell<transfer::Transfers>>,
     canvas: Rect,
     budget: Rc<RefCell<Budget>>,
     frames: Vec<Frame>,
@@ -58,16 +81,19 @@ pub(super) struct Builder<'a> {
     pattern_cell: bool,
     blend: BlendMode,
     mask: Option<LayerMask>,
-    masks: HashMap<(u128, bool, [u32; 4]), LayerMask>,
+    masks: HashMap<MaskKey, LayerMask>,
+    fill_run: Option<FillRun>,
     nested: usize,
     error: Option<ImportError>,
     pub warnings: Vec<VectorWarning>,
 }
 impl<'a> Builder<'a> {
-    pub fn new(options: &'a ImportOptions, cancel: &'a AtomicBool, canvas: Rect, groups: Rc<groups::Table>) -> Self {
+    pub fn new(options: &'a ImportOptions, cancel: &'a AtomicBool, pdf: &'a hayro_syntax::Pdf, canvas: Rect, groups: Rc<groups::Table>) -> Self {
         Self {
             options,
             cancel,
+            pdf,
+            transfers: Rc::default(),
             canvas,
             budget: Rc::default(),
             frames: vec![Frame::root()],
@@ -77,6 +103,7 @@ impl<'a> Builder<'a> {
             blend: BlendMode::Normal,
             mask: None,
             masks: HashMap::new(),
+            fill_run: None,
             nested: 0,
             error: None,
             warnings: vec![],
@@ -86,8 +113,9 @@ impl<'a> Builder<'a> {
         if self.nested + self.frames.len() >= self.options.limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH).saturating_sub(2) {
             return Err(ImportError::Limit("nested mask/pattern/glyph"));
         }
-        let mut b = Self::new(self.options, self.cancel, canvas, self.groups.clone());
+        let mut b = Self::new(self.options, self.cancel, self.pdf, canvas, self.groups.clone());
         b.budget = self.budget.clone();
+        b.transfers = self.transfers.clone();
         b.nested = self.nested + 1;
         b.pattern_cell = self.pattern_cell;
         Ok(b)
@@ -95,6 +123,7 @@ impl<'a> Builder<'a> {
     pub fn begin_page(&mut self) {
         self.frames = vec![Frame::root()];
         self.markers.clear();
+        self.fill_run = None;
         self.mask = None;
         self.blend = BlendMode::Normal;
     }
@@ -112,6 +141,7 @@ impl<'a> Builder<'a> {
         Ok(self.frames.pop().map(|f| f.children).unwrap_or_default())
     }
     fn run(&mut self, f: impl FnOnce(&mut Self) -> Result<()>) {
+        self.fill_run = None;
         if self.error.is_none()
             && let Err(e) = cancelled(self.cancel).and_then(|()| f(self))
         {
@@ -220,14 +250,27 @@ impl<'a> Builder<'a> {
         Ok(())
     }
     fn soft_mask(&mut self, mask: &SoftMask<'_>) -> Result<LayerMask> {
-        // hayro 0.7.0 hashes only source ID/transform. Mode, background and transfer
-        // also affect the result. A transfer has no stable public identity: do not cache it.
+        // hayro hashes only source ID/transform. Mode, background and transfer also affect
+        // the result. The transfer's 8-bit table selects the exact function evaluated below.
         let background = mask.background_color().to_rgba().components();
-        let key = (mask.cache_key(), matches!(mask.mask_type(), MaskType::Alpha), background.map(f32::to_bits));
-        let cacheable = mask.transfer_function().is_none();
-        if cacheable && let Some(m) = self.masks.get(&key) {
+        let transfer = mask.transfer_function().map(|f| {
+            let mut table: [u8; 256] = std::array::from_fn(|i| i as u8);
+            f.apply_to(&mut table);
+            table
+        });
+        let key = (mask.cache_key(), matches!(mask.mask_type(), MaskType::Alpha), background.map(f32::to_bits), transfer);
+        if let Some(m) = self.masks.get(&key) {
             return Ok(m.clone());
         }
+        let exact = match &transfer {
+            Some(table) => {
+                if self.transfers.get().is_none() {
+                    let _ = self.transfers.set(transfer::Transfers::scan(self.pdf, self.cancel)?);
+                }
+                self.transfers.get().and_then(|t| t.find(mask, table)).cloned()
+            }
+            None => None,
+        };
         let mut b = self.child(self.canvas)?;
         mask.interpret(&mut b);
         let children = b.end_page()?;
@@ -264,29 +307,37 @@ impl<'a> Builder<'a> {
                             0.3 * rgb[0] + 0.59 * rgb[1] + 0.11 * rgb[2]
                         }
                     };
-                    mask.transfer_function().map_or(v, |f| f.apply(v)).clamp(0.0, 1.0)
+                    match (&exact, &transfer) {
+                        (Some(f), _) => transfer::apply(f, v),
+                        (None, Some(table)) => f32::from(table[(v.clamp(0.0, 1.0) * 255.0 + 0.5) as usize]) / 255.0,
+                        (None, None) => v,
+                    }
+                    .clamp(0.0, 1.0)
                 })
                 .collect();
             out.surface.write_region(band, &values);
         }
-        if cacheable {
-            self.masks.insert(key, out.clone());
-        }
+        self.masks.insert(key, out.clone());
         warn(&mut self.warnings, "soft-mask", None, "The PDF soft mask was converted to a pixel mask; its original vector objects are not editable.");
         Ok(out)
     }
-    fn draw(&mut self, p: &BezPath, m: Affine, paint: &Paint<'_>, mode: &PathDrawMode, name: &str) -> Result<()> {
+    fn draw(&mut self, p: &BezPath, m: Affine, paint: &Paint<'_>, mode: &DrawMode, name: &str) -> Result<()> {
+        if let DrawMode::FillAndStroke(rule, stroke) = mode {
+            self.draw(p, m, paint, &DrawMode::Fill(*rule), name)?;
+            return self.draw(p, m, paint, &DrawMode::Stroke(stroke.clone()), name);
+        }
         geometry::transform(m)?;
         let mut shape = ShapeLayer::default();
         let name = if matches!(paint, Paint::Pattern(_)) { "PDF shading" } else { name };
         let solid = paint::solid(paint);
         let placeholder = solid.clone().unwrap_or(Fill::Solid(photocraft_doc::Color::BLACK));
         match mode {
-            PathDrawMode::Fill(rule) => {
+            DrawMode::FillAndStroke(..) | DrawMode::Invisible => return Ok(()),
+            DrawMode::Fill(rule) => {
                 shape.path = self.path(p, m, *rule)?;
                 shape.fill = Some(placeholder);
             }
-            PathDrawMode::Stroke(props) => {
+            DrawMode::Stroke(props) => {
                 let scale = if props.line_width == 0.0 && props.dash_array.is_empty() { Some(1.0) } else { paint::isotropic(m).filter(|s| *s > 1e-12) };
                 if let Some(scale) = scale {
                     shape.path = self.path(p, m, hayro_interpret::FillRule::NonZero)?;
@@ -379,7 +430,7 @@ impl<'a> Builder<'a> {
             }
             let mut child = self.child(local)?;
             child.pattern_cell = true;
-            t.interpret(&mut child, Affine::IDENTITY, matches!(mode, PathDrawMode::Stroke(_))).ok_or_else(|| ImportError::Invalid("pattern content".into()))?;
+            t.interpret(&mut child, Affine::IDENTITY, matches!(mode, DrawMode::Stroke(_))).ok_or_else(|| ImportError::Invalid("pattern content".into()))?;
             let children = child.end_page()?;
             self.warnings.extend(child.warnings);
             self.charge(local)?;
@@ -541,19 +592,83 @@ impl<'a> Builder<'a> {
         );
         self.push(Layer::new("PDF image", LayerContent::Raster(surface)), true)
     }
+    /// Applies one draw call's soft mask and blend mode to the layers it pushes.
+    fn props(&mut self, mask: Option<&SoftMask<'_>>, blend: hayro_interpret::BlendMode) -> Result<()> {
+        self.mask = mask.map(|m| self.soft_mask(m)).transpose()?;
+        self.blend = paint::blend(blend);
+        Ok(())
+    }
+    fn children(&self) -> usize {
+        self.frames.last().map_or(0, |f| f.children.len())
+    }
+    fn glyph<'p>(&mut self, g: &Glyph<'p>, m: Affine, gm: Affine, paint: &Paint<'p>, draw: &DrawMode) -> Result<()> {
+        match g {
+            Glyph::Outline(o) => {
+                if matches!(draw, DrawMode::Stroke(_)) {
+                    let mut outline = o.outline();
+                    outline.apply_affine(gm);
+                    self.draw(&outline, m, paint, draw, "PDF glyph")?;
+                } else {
+                    self.draw(&o.outline(), m * gm, paint, draw, "PDF glyph")?;
+                }
+                warn(
+                    &mut self.warnings,
+                    "glyph-outlines",
+                    Some("PDF glyph"),
+                    "PDF glyphs were converted to editable curves using their embedded font or bundled standard substitute; text editing is unavailable.",
+                );
+            }
+            Glyph::Type3(t) => {
+                let mut child = self.child(self.canvas)?;
+                t.interpret(&mut child, m, gm, paint);
+                let layers = child.end_page()?;
+                self.warnings.extend(child.warnings);
+                self.push(Layer::group("PDF Type 3 glyph", layers), true)?;
+                warn(&mut self.warnings, "type3-glyph", Some("PDF Type 3 glyph"), "Type 3 glyph artwork was converted to an editable group.");
+            }
+        }
+        Ok(())
+    }
+    fn glyph_run<'p>(&mut self, run: &GlyphRun<'_, 'p>, props: &DrawProps<'p>, mode: &DrawMode, fill: Option<FillRun>) -> Result<()> {
+        if matches!(mode, DrawMode::Invisible) {
+            return Ok(());
+        }
+        self.props(props.soft_mask.as_ref(), props.blend_mode)?;
+        let m = props.transform;
+        let bits = |a: Affine| a.as_coeffs().map(f64::to_bits);
+        let glyphs = (run.glyphs().as_ptr().addr(), bits(m), run.glyphs().iter().map(|g| bits(g.transform())).collect());
+        let (frames, start) = (self.frames.len(), self.children());
+        let mut counts = Vec::with_capacity(run.glyphs().len());
+        for g in run.glyphs() {
+            let before = self.children();
+            self.glyph(g, m, g.transform(), &props.paint, mode)?;
+            counts.push(self.children() - before);
+        }
+        match mode {
+            DrawMode::Fill(_) => self.fill_run = Some(FillRun { glyphs, frames, start, counts }),
+            DrawMode::Stroke(_) => {
+                let Some(fill) = fill.filter(|f| f.glyphs == glyphs && f.frames == frames && f.start + f.counts.iter().sum::<usize>() == start) else {
+                    return Ok(());
+                };
+                let children = &mut self.frames.last_mut().ok_or_else(|| ImportError::Invalid("missing drawing frame".into()))?.children;
+                let mut strokes = children.split_off(start).into_iter();
+                let mut fills = children.split_off(fill.start).into_iter();
+                for (f, s) in fill.counts.into_iter().zip(counts) {
+                    children.extend(fills.by_ref().take(f));
+                    children.extend(strokes.by_ref().take(s));
+                }
+            }
+            DrawMode::FillAndStroke(..) | DrawMode::Invisible => {}
+        }
+        Ok(())
+    }
 }
 impl<'pdf> Device<'pdf> for Builder<'_> {
-    fn set_soft_mask(&mut self, m: Option<SoftMask<'pdf>>) {
+    fn draw_path(&mut self, p: &BezPath, props: DrawProps<'pdf>, mode: &DrawMode) {
         self.run(|b| {
-            b.mask = m.as_ref().map(|m| b.soft_mask(m)).transpose()?;
-            Ok(())
+            b.props(props.soft_mask.as_ref(), props.blend_mode)?;
+            b.draw(p, props.transform, &props.paint, mode, "PDF path")
         });
-    }
-    fn set_blend_mode(&mut self, m: hayro_interpret::BlendMode) {
-        self.blend = paint::blend(m);
-    }
-    fn draw_path(&mut self, p: &BezPath, m: Affine, paint: &Paint<'pdf>, mode: &PathDrawMode) {
-        self.run(|b| b.draw(p, m, paint, mode, "PDF path"));
     }
     fn push_clip_path(&mut self, c: &ClipPath) {
         self.run(|b| {
@@ -561,7 +676,7 @@ impl<'pdf> Device<'pdf> for Builder<'_> {
             b.frame(Frame { kind: FrameKind::Clip, clip: Some(p), blend: BlendMode::PassThrough, ..Frame::root() })
         });
     }
-    fn pop_clip_path(&mut self) {
+    fn pop_clip(&mut self) {
         self.run(|b| {
             if b.frames.last().is_none_or(|f| f.kind != FrameKind::Clip) {
                 return Err(ImportError::Invalid("PDF clip stack".into()));
@@ -631,42 +746,14 @@ impl<'pdf> Device<'pdf> for Builder<'_> {
             Ok(())
         });
     }
-    fn draw_glyph(&mut self, g: &Glyph<'pdf>, m: Affine, gm: Affine, paint: &Paint<'pdf>, mode: &GlyphDrawMode) {
-        self.run(|b| {
-            let draw = match mode {
-                GlyphDrawMode::Invisible => return Ok(()),
-                GlyphDrawMode::Fill => PathDrawMode::Fill(hayro_interpret::FillRule::NonZero),
-                GlyphDrawMode::Stroke(s) => PathDrawMode::Stroke(s.clone()),
-            };
-            match g {
-                Glyph::Outline(o) => {
-                    if matches!(draw, PathDrawMode::Stroke(_)) {
-                        let mut outline = o.outline();
-                        outline.apply_affine(gm);
-                        b.draw(&outline, m, paint, &draw, "PDF glyph")?;
-                    } else {
-                        b.draw(&o.outline(), m * gm, paint, &draw, "PDF glyph")?;
-                    }
-                    warn(
-                        &mut b.warnings,
-                        "glyph-outlines",
-                        Some("PDF glyph"),
-                        "PDF glyphs were converted to editable curves using their embedded font or bundled standard substitute; text editing is unavailable.",
-                    );
-                }
-                Glyph::Type3(t) => {
-                    let mut child = b.child(b.canvas)?;
-                    t.interpret(&mut child, m, gm, paint);
-                    let layers = child.end_page()?;
-                    b.warnings.extend(child.warnings);
-                    b.push(Layer::group("PDF Type 3 glyph", layers), true)?;
-                    warn(&mut b.warnings, "type3-glyph", Some("PDF Type 3 glyph"), "Type 3 glyph artwork was converted to an editable group.");
-                }
-            }
-            Ok(())
-        });
+    fn draw_glyph_run(&mut self, run: &GlyphRun<'_, 'pdf>, props: DrawProps<'pdf>, mode: &DrawMode) {
+        let fill = self.fill_run.take();
+        self.run(|b| b.glyph_run(run, &props, mode, fill));
     }
-    fn draw_image(&mut self, i: Image<'pdf, '_>, m: Affine) {
-        self.run(|b| b.image(i, m));
+    fn draw_image(&mut self, i: Image<'pdf, '_>, props: ImageDrawProps<'pdf>) {
+        self.run(|b| {
+            b.props(props.soft_mask.as_ref(), props.blend_mode)?;
+            b.image(i, props.transform)
+        });
     }
 }

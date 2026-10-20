@@ -169,12 +169,16 @@ fn advance(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 /// Saves `doc` in place; false when it is gone, the save failed or its file dialog was cancelled.
+/// A save that waits on its file dialog, a prompt or the save worker parks the question until it
+/// is done (see [`show`]).
 fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
     let Some(i) = index_of(app, doc) else { return false };
     app.session.set_active(i);
-    match crate::menus::invoke_unguarded(app, ctx, "file.save", json!({})) {
+    let saved = crate::menus::invoke_unguarded(app, ctx, "file.save", json!({}));
+    let asking = crate::file_dialog::waiting(&saved);
+    match saved {
         Ok(_) => {
-            if app.tiff_options.as_ref().is_some_and(|p| p.doc == doc) || crate::save_worker::pending(app, doc) {
+            if asking || app.tiff_options.as_ref().is_some_and(|p| p.doc == doc) || crate::save_worker::pending(app, doc) {
                 if let Some(p) = app.discard.as_mut() {
                     p.waiting = Some(doc);
                     p.save_succeeded = None;
@@ -184,7 +188,7 @@ fn save(app: &mut PhotocraftApp, ctx: &egui::Context, doc: DocId) -> bool {
             app.session.documents().get(i).is_some_and(|st| !st.is_dirty())
         }
         // Backing out of the file dialog is the user's choice, not an error.
-        Err(e) if e == "cancelled" => false,
+        Err(e) if e == crate::file_dialog::CANCELLED => false,
         Err(e) => {
             app.ui.status = format!("Couldn't save: {e}");
             app.ui.status_error = true;
@@ -199,7 +203,7 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
         if let Some(p) = app.discard.as_mut() {
             p.focused = None;
         }
-        if app.tiff_options.is_some() || crate::save_worker::pending(app, doc) {
+        if app.file_dialog_open() || app.tiff_options.is_some() || crate::save_worker::pending(app, doc) {
             return;
         }
         if app.session.active().is_some_and(|state| state.doc.id == doc) && crate::save_worker::has_live_input(app) {
@@ -440,17 +444,29 @@ mod tests {
 
     type Prompted = egui_kittest::Harness<'static, PhotocraftApp>;
 
+    /// The unsaved-changes prompt for `command` over `app`'s dirty documents, as `os` draws it
+    /// (with file dialog answers acted on at the end of each frame, as the app does).
+    fn prompt_for(app: PhotocraftApp, command: &str, os: egui::os::OperatingSystem) -> Prompted {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(
+            |ui, app| {
+                show(app, ui.ctx());
+                app.poll_file_dialog(ui.ctx());
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        h.ctx.set_os(os);
+        assert!(intercept(h.state_mut(), command, &Value::Null));
+        h.run_steps(2);
+        h
+    }
+
     /// The unsaved-changes prompt for Close All over two dirty documents, as `os` draws it.
     fn prompt_on(os: egui::os::OperatingSystem) -> Prompted {
         let mut app = app_with_docs(2);
         make_dirty(&mut app, 0);
         make_dirty(&mut app, 1);
-        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(800.0, 600.0)).build_ui_state(|ui, app| show(app, ui.ctx()), app);
-        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
-        h.ctx.set_os(os);
-        assert!(intercept(h.state_mut(), "file.closeAll", &Value::Null));
-        h.run_steps(2);
-        h
+        prompt_for(app, "file.closeAll", os)
     }
 
     /// The buttons named `labels`, sorted by where they are drawn, left to right.
@@ -551,7 +567,7 @@ mod tests {
         let asked = Rc::new(Cell::new(false));
         let seen = asked.clone();
         // Backing out of the save dialog keeps the prompt.
-        h.state_mut().services.pick_save = Some(Box::new(move |_| {
+        h.state_mut().services.file_dialog = Some(crate::file_dialog::answering(move |_| {
             seen.set(true);
             None
         }));
@@ -567,6 +583,46 @@ mod tests {
         h.run_steps(2);
         assert!(!asked.get());
         assert_eq!(docs_left(&h), Some(1), "Enter pressed the focused No");
+    }
+
+    #[test]
+    fn saving_from_the_prompt_waits_for_the_save_dialog_then_closes() {
+        use crate::{FileDialogAnswer, FileDialogReply};
+        use egui_kittest::kittest::Queryable;
+        use std::{cell::RefCell, rc::Rc};
+        let written: Rc<RefCell<Vec<String>>> = Rc::default();
+        let (w, waiting): (_, Rc<RefCell<Option<FileDialogReply>>>) = (written.clone(), Rc::default());
+        let held = waiting.clone();
+        let mut app = app_with_docs(1);
+        make_dirty(&mut app, 0);
+        app.services.export = Some(std::sync::Arc::new(|_: &photocraft_doc::Document, _: &str, _: &crate::ExportSettings| Ok((b"out".to_vec(), Vec::new()))));
+        app.services.write = Some(Box::new(move |p: &str, _: &[u8]| {
+            w.borrow_mut().push(p.to_string());
+            Ok(())
+        }));
+        // A dialog the user takes their time with.
+        app.services.file_dialog = Some(Box::new(move |_, reply| *held.borrow_mut() = Some(reply)));
+        let mut h = prompt_for(app, "file.close", egui::os::OperatingSystem::Windows);
+        let answer = |h: &mut Prompted, a: Option<FileDialogAnswer>| {
+            waiting.borrow_mut().take().expect("the save dialog is open").send(a);
+            h.run_steps(3);
+        };
+        // Cancelling the save dialog brings the prompt back.
+        h.key_press(Key::Y);
+        h.run_steps(3);
+        assert!(h.state().file_dialog_open());
+        assert!(h.query_by_label("(Y)es").is_none(), "the prompt waits behind the dialog");
+        answer(&mut h, None);
+        assert_eq!(docs_left(&h), Some(1));
+        assert!(h.query_by_label("(Y)es").is_some());
+        // Saving closes the document.
+        h.key_press(Key::Y);
+        h.run_steps(3);
+        assert_eq!(h.state().session.documents().len(), 1, "still open while the dialog is");
+        answer(&mut h, Some(FileDialogAnswer::SaveTo("/pics/kept.psd".into())));
+        assert_eq!(*written.borrow(), ["/pics/kept.psd"]);
+        assert!(h.state().discard.is_none());
+        assert!(h.state().session.documents().is_empty());
     }
 
     /// One frame with the window's close button pressed; whether the guard cancelled the close.

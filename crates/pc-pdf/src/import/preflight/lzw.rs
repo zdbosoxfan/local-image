@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     #[test]
     fn lzw_known_answer_covers_dictionary_special_case() {
-        // Pinned hayro-syntax0.7.2 known-answer vector (filter/lzw_flate.rs).
+        // Pinned hayro-syntax 0.8.0 known-answer vector (filter/lzw_flate.rs).
         let encoded = [0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01];
         let (bytes, cost) = decode(&encoded, true, 1 << 20, 1000, &AtomicBool::new(false)).unwrap();
         assert_eq!(bytes, b"-----A---B");

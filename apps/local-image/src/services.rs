@@ -8,13 +8,16 @@ mod pdf_raster;
 mod portal_save;
 mod save_dialog;
 
+use crate::file_dialog_probe::explain_empty;
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Image};
 use photocraft_doc::Document;
 use photocraft_format::RecoveryStore;
-use photocraft_ui_egui::dialog_filter::{FileDialogExt as _, file_dialog};
-use photocraft_ui_egui::{Recovered, Services};
+use photocraft_ui_egui::dialog_filter::{FileDialogExt as _, async_file_dialog};
+use photocraft_ui_egui::{FileDialogAnswer, FileDialogReply, FileDialogRequest, FileDialogSpec, Pick, Recovered, Services};
 use std::cell::RefCell;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -31,8 +34,8 @@ fn open_extensions() -> Vec<&'static str> {
 
 /// The File › Open dialog with its filters. On Linux each extension also matches upper and mixed
 /// case (`IMG_0001.JPG`, `DSC_0001.NEF`): see [`photocraft_ui_egui::dialog_filter`].
-fn open_dialog() -> rfd::FileDialog {
-    file_dialog().add_filter_nocase("All Formats", &open_extensions()).add_filter_nocase("Local Image", &["pcraft"])
+fn open_dialog() -> rfd::AsyncFileDialog {
+    async_file_dialog().add_filter_nocase("All Formats", &open_extensions()).add_filter_nocase("Local Image", &["pcraft"])
 }
 
 /// File › Save As formats: (filter name, extensions). The filter matching the suggested name's
@@ -72,6 +75,158 @@ fn save_filters(suggested: &str) -> Vec<(String, Vec<String>)> {
         None => {}
     }
     v
+}
+
+/// What a file dialog will answer, once the user is done with it.
+type Answer = Pin<Box<dyn Future<Output = Option<FileDialogAnswer>> + Send>>;
+
+/// Shows an Open, Save or folder dialog without blocking the event loop (upstream PhotoCraft
+/// b97a72ac): rfd's async dialog opens here, on the main thread, as a sheet on macOS and a dialog
+/// owned by the window elsewhere, and a helper thread waits for it and hands the answer to the
+/// app. An empty answer with no dialog backend on the system is explained, not taken for Cancel
+/// (see `file_dialog_probe`). The editor's and the Library's dialogs all open here.
+pub(crate) fn show_file_dialog(request: FileDialogRequest, reply: FileDialogReply) {
+    let answer: Answer = match request {
+        FileDialogRequest::Open { multiple: true } => {
+            let picked = open_dialog().pick_files();
+            Box::pin(async move { explain_empty(picked.await).map(|files| FileDialogAnswer::Paths(files.iter().map(path_of).collect())) })
+        }
+        FileDialogRequest::Open { multiple: false } => {
+            let picked = open_dialog().pick_file();
+            Box::pin(async move { explain_empty(picked.await).map(|file| FileDialogAnswer::Paths(vec![path_of(&file)])) })
+        }
+        FileDialogRequest::Read => {
+            let picked = open_dialog().pick_file();
+            Box::pin(async move {
+                let file = explain_empty(picked.await)?;
+                // A read failure goes back to the app, which reports it like any other open failure.
+                let bytes = photocraft_format::read_file(file.path()).map_err(|e| e.to_string());
+                Some(FileDialogAnswer::File(path_of(&file), bytes))
+            })
+        }
+        FileDialogRequest::Folder => {
+            let picked = async_file_dialog().pick_folder();
+            Box::pin(async move { explain_empty(picked.await).map(|dir| FileDialogAnswer::Paths(vec![path_of(&dir)])) })
+        }
+        FileDialogRequest::Save { suggested } => save_as_dialog(suggested),
+        FileDialogRequest::Described(spec) => described_dialog(spec),
+    };
+    // Without the thread the reply is dropped unanswered, which the app takes as Cancel.
+    if let Err(e) = std::thread::Builder::new().name("file dialog".into()).spawn(move || reply.send(block_on(answer))) {
+        log::error!("couldn't wait for the file dialog: {e}");
+    }
+}
+
+/// rfd's dialog for `spec` (the Library's, the AI and Swatches pickers), which opens when this is
+/// called.
+fn described_dialog(spec: FileDialogSpec) -> Answer {
+    let mut d = async_file_dialog();
+    if let Some(title) = spec.title {
+        d = d.set_title(title);
+    }
+    for (name, exts) in spec.filters {
+        let exts: Vec<&str> = exts.iter().map(String::as_str).collect();
+        d = d.add_filter_nocase(name, &exts);
+    }
+    if let Some(name) = spec.file_name {
+        d = d.set_file_name(name);
+    }
+    match spec.pick {
+        Pick::File => {
+            let picked = d.pick_file();
+            Box::pin(async move { explain_empty(picked.await).map(|file| FileDialogAnswer::Paths(vec![path_of(&file)])) })
+        }
+        Pick::Files => {
+            let picked = d.pick_files();
+            Box::pin(async move { explain_empty(picked.await).map(|files| FileDialogAnswer::Paths(files.iter().map(path_of).collect())) })
+        }
+        Pick::Folder => {
+            let picked = d.pick_folder();
+            Box::pin(async move { explain_empty(picked.await).map(|dir| FileDialogAnswer::Paths(vec![path_of(&dir)])) })
+        }
+        Pick::Save => {
+            let picked = d.save_file();
+            Box::pin(async move { explain_empty(picked.await).map(|file| FileDialogAnswer::SaveTo(path_of(&file))) })
+        }
+    }
+}
+
+/// Save As for `suggested`. On Linux the portal's own dialog, which reports the file type picked,
+/// and rfd's if the portal can't show it (see `save_dialog`); both wait on the helper thread.
+fn save_as_dialog(suggested: String) -> Answer {
+    #[cfg(target_os = "linux")]
+    {
+        Box::pin(async move {
+            let req = save_dialog::SaveRequest {
+                name: save_dialog::dialog_file_name(&suggested),
+                suggested: Path::new(&suggested).file_name().map(|n| n.to_string_lossy().into_owned()),
+                folder: save_folder(&suggested),
+                filters: save_filters(&suggested),
+                current: Some(0),
+            };
+            let portal = zbus::blocking::Connection::session()
+                .map_err(|e| e.to_string())
+                .and_then(|conn| save_dialog::save_as(|r| portal_save::save_file(&conn, r), req));
+            match portal {
+                Ok(path) => return path.map(|p| FileDialogAnswer::SaveTo(p.to_string_lossy().into_owned())),
+                Err(e) => log::info!("portal save dialog unavailable ({e}), using rfd"),
+            }
+            rfd_save_dialog(suggested).await
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    Box::pin(rfd_save_dialog(suggested))
+}
+
+/// The folder a save dialog for `suggested` opens in: a suggestion with a folder (a photo from the
+/// Library: beside its original) opens there.
+fn save_folder(suggested: &str) -> Option<PathBuf> {
+    Path::new(suggested).parent().filter(|d| d.is_absolute() && d.is_dir()).map(Path::to_path_buf)
+}
+
+/// rfd's Save dialog for `suggested`, which opens when this is called (on macOS it must be called
+/// on the main thread).
+fn rfd_save_dialog(suggested: String) -> impl Future<Output = Option<FileDialogAnswer>> + Send {
+    let mut d = async_file_dialog();
+    for (name, exts) in save_filters(&suggested) {
+        let exts: Vec<&str> = exts.iter().map(String::as_str).collect();
+        d = d.add_filter_nocase(name, &exts);
+    }
+    if let Some(dir) = save_folder(&suggested) {
+        d = d.set_directory(dir);
+    }
+    if let Some(name) = Path::new(&suggested).file_name() {
+        d = d.set_file_name(name.to_string_lossy());
+    }
+    let picked = d.save_file();
+    async move {
+        let chosen = path_of(&explain_empty(picked.await)?);
+        Some(FileDialogAnswer::SaveTo(save_dialog::with_suggested_extension(chosen, &suggested)))
+    }
+}
+
+fn path_of(file: &rfd::FileHandle) -> String {
+    file.path().to_string_lossy().into_owned()
+}
+
+/// Runs `future` to completion on this thread, sleeping until it is woken.
+fn block_on<T>(future: impl Future<Output = T>) -> T {
+    struct Unpark(std::thread::Thread);
+    impl std::task::Wake for Unpark {
+        fn wake(self: Arc<Self>) {
+            self.0.unpark();
+        }
+    }
+    let waker = std::task::Waker::from(Arc::new(Unpark(std::thread::current())));
+    let mut cx = std::task::Context::from_waker(&waker);
+    let mut future = std::pin::pin!(future);
+    loop {
+        if let std::task::Poll::Ready(value) = future.as_mut().poll(&mut cx) {
+            return value;
+        }
+        // Spurious wake-ups just poll again.
+        std::thread::park();
+    }
 }
 
 /// Per-user settings directory: `LOCAL_IMAGE_CONFIG_DIR`, else `<exe dir>/LocalImageData` in
@@ -575,55 +730,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Box::new(|doc: &Document, path: &str, quality: u8| overwrite_original(doc, Path::new(path), quality, li_ai::trash::copy_to_trash))
                 as photocraft_ui_egui::OverwriteFn
         }),
-        pick_folder: Some(Box::new(|| crate::file_dialog_probe::explain_empty(file_dialog().pick_folder()).map(|path| path.to_string_lossy().into_owned()))),
-        pick_open: Some(Box::new(|| {
-            let path = crate::file_dialog_probe::explain_empty(open_dialog().pick_file())?;
-            // A read failure goes back to the app, which reports it like any other open failure.
-            let bytes = photocraft_format::read_file(&path).map_err(|e| e.to_string());
-            Some((path.to_string_lossy().to_string(), bytes))
-        })),
-        pick_place_path: Some(Box::new(|| crate::file_dialog_probe::explain_empty(open_dialog().pick_file()).map(|path| path.to_string_lossy().into_owned()))),
-        pick_open_paths: Some(Box::new(|| {
-            crate::file_dialog_probe::explain_empty(open_dialog().pick_files())
-                .map(|paths| paths.into_iter().map(|path| path.to_string_lossy().into_owned()).collect())
-        })),
-        pick_save: Some(Box::new(|suggested: &str| {
-            let p = std::path::Path::new(suggested);
-            let folder = p.parent().filter(|d| d.is_absolute() && d.is_dir());
-            // On Linux the portal's own dialog, which reports the file type picked; rfd if the
-            // portal can't show it (see save_dialog).
-            #[cfg(target_os = "linux")]
-            {
-                let req = save_dialog::SaveRequest {
-                    name: save_dialog::dialog_file_name(suggested),
-                    suggested: p.file_name().map(|n| n.to_string_lossy().into_owned()),
-                    folder: folder.map(Path::to_path_buf),
-                    filters: save_filters(suggested),
-                    current: Some(0),
-                };
-                let portal = zbus::blocking::Connection::session()
-                    .map_err(|e| e.to_string())
-                    .and_then(|conn| save_dialog::save_as(|r| portal_save::save_file(&conn, r), req));
-                match portal {
-                    Ok(path) => return path.map(|p| p.to_string_lossy().into_owned()),
-                    Err(e) => log::info!("portal save dialog unavailable ({e}), using rfd"),
-                }
-            }
-            let mut d = file_dialog();
-            for (name, exts) in save_filters(suggested) {
-                let exts: Vec<&str> = exts.iter().map(String::as_str).collect();
-                d = d.add_filter_nocase(name, &exts);
-            }
-            // A suggestion with a folder (a photo from the Library: beside its original) opens there.
-            if let Some(dir) = folder {
-                d = d.set_directory(dir);
-            }
-            if let Some(name) = p.file_name() {
-                d = d.set_file_name(name.to_string_lossy());
-            }
-            let chosen = crate::file_dialog_probe::explain_empty(d.save_file())?.to_string_lossy().into_owned();
-            Some(save_dialog::with_suggested_extension(chosen, suggested))
-        })),
+        file_dialog: Some(Box::new(show_file_dialog)),
         write: Some(Box::new(|path: &str, bytes: &[u8]| write_atomic(Path::new(path), bytes))),
         file_stamp: Some(Box::new(|path: &str| {
             // Follows a symlink, as Save writes through it to the file it points at.
@@ -747,15 +854,64 @@ mod tests {
         assert_eq!(dialog_extensions_for(OPEN_EXTS, false), OPEN_EXTS);
     }
 
-    /// Every native dialog of the app goes through the case-insensitive helper.
-    #[test]
-    fn no_app_dialog_bypasses_the_nocase_filter_helper() {
-        for (file, src) in [("services.rs", include_str!("services.rs")), ("library_host/services_wiring.rs", include_str!("library_host/services_wiring.rs"))]
-        {
-            assert!(!src.contains(concat!(".add_filter", "(")), "{file} calls rfd's add_filter; use add_filter_nocase");
-            assert!(src.contains(".add_filter_nocase("), "{file}");
-            assert!(!src.contains(concat!("rfd::FileDialog::", "new()")), "{file} opens an unparented dialog; use file_dialog()");
+    /// Every `.rs` file under `dir`, skipping build output.
+    fn rust_sources(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().is_some_and(|n| n != "target") {
+                    rust_sources(&path, out);
+                }
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
         }
+    }
+
+    /// No file dialog blocks the event loop: rfd's blocking `FileDialog` froze the window on Linux
+    /// and aborted the app on macOS. Every dialog is an `AsyncFileDialog` parented to the window
+    /// (only the parent template is made without one), and every filter matches any letter case.
+    #[test]
+    fn every_file_dialog_is_asynchronous_parented_and_case_insensitive() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut files = Vec::new();
+        for dir in ["crates", "apps"] {
+            rust_sources(&root.join(dir), &mut files);
+        }
+        assert!(files.len() > 100, "found {} sources", files.len());
+        let blocking = concat!("rfd::", "FileDialog");
+        let unparented = concat!("rfd::AsyncFileDialog::", "new()");
+        for file in files {
+            let src = std::fs::read_to_string(&file).unwrap();
+            let name = file.strip_prefix(&root).unwrap_or(&file).display().to_string();
+            assert!(!src.contains(blocking), "{name} uses rfd's blocking FileDialog; ask through the app's file_dialog service");
+            let (any, asynchronous) = (concat!("FileDialog::", "new()"), concat!("AsyncFileDialog::", "new()"));
+            assert_eq!(src.matches(any).count(), src.matches(asynchronous).count(), "{name} uses a blocking FileDialog");
+            if src.contains(unparented) {
+                assert!(name.ends_with("dialog_filter.rs") || name.ends_with("main.rs"), "{name} opens an unparented dialog; use async_file_dialog()");
+            }
+            if !name.ends_with("dialog_filter.rs") {
+                assert!(!src.contains(concat!(".add_filter", "(")), "{name} calls rfd's add_filter; use add_filter_nocase");
+            }
+        }
+        assert!(include_str!("services.rs").contains(".add_filter_nocase("));
+    }
+
+    #[test]
+    fn block_on_waits_for_a_wake_from_another_thread() {
+        let (tx, rx) = std::sync::mpsc::channel::<std::task::Waker>();
+        let mut woken = false;
+        let ready = std::future::poll_fn(move |cx| {
+            if woken {
+                return std::task::Poll::Ready(7);
+            }
+            woken = true;
+            let _ = tx.send(cx.waker().clone());
+            std::task::Poll::Pending
+        });
+        let waker = std::thread::spawn(move || rx.recv().unwrap().wake());
+        assert_eq!(block_on(ready), 7);
+        waker.join().unwrap();
     }
 
     #[test]

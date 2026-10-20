@@ -342,9 +342,10 @@ pub fn show(app: &mut LightcraftApp, ui: &mut Ui, scope: &[PhotoId], mut folder:
     }
 
     ui.horizontal(|ui| {
-        if button(ui, "smartSort:seedHeadshots", "Add People from Photos…").clicked()
-            && let Some(pick) = &mut app.services.pick_folder
-            && let Some(dir) = pick()
+        if button(ui, "smartSort:seedHeadshots", "Add People from Photos…").clicked() {
+            app.ask_into(crate::FileDialogRequest::Folder { title: None }, "smartSort:seedHeadshots");
+        }
+        if let Some(dir) = app.take_chosen("smartSort:seedHeadshots")
             && let Err(e) = crate::people_task::start(app, &[], Some(dir))
         {
             s.error = e;

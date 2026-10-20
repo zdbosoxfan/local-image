@@ -51,9 +51,10 @@ pub fn body(app: &mut LightcraftApp, ui: &mut egui::Ui, opts: &mut ProofOptions,
     ui.label(li_i18n::library::t("Watermark (optional)"));
     widgets::text_field(ui, "proofWatermark", &mut opts.watermark, "Watermark (optional)");
     ui.label(li_i18n::library::t("Output folder"));
-    if widgets::field_with_action(ui, "proofFolder", folder, "Output folder", "Choose…", app.services.has_folder_picker())
-        && let Some(path) = app.services.choose_folder("Choose Proof Sheet Folder")
-    {
+    if widgets::field_with_action(ui, "proofFolder", folder, "Output folder", "Choose…", app.services.has_folder_picker()) {
+        app.choose_folder("Choose Proof Sheet Folder", "proofFolder");
+    }
+    if let Some(path) = app.take_chosen("proofFolder") {
         *folder = path;
     }
     ui.label(li_i18n::library::t("PDF filename"));

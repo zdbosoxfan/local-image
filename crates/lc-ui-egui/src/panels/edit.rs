@@ -1506,12 +1506,11 @@ fn curve_footer(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopSettings,
                     );
                     ui.close();
                 }
-                if ui.add_enabled(app.services.pick_curve_preset_files.is_some(), egui::Button::new(li_i18n::library::t("Import Presets…"))).clicked()
-                {
+                if ui.add_enabled(app.services.file_dialog.is_some(), egui::Button::new(li_i18n::library::t("Import Presets…"))).clicked() {
                     let _ = app.run("file.importCurvePresets", json!({}));
                     ui.close();
                 }
-                let can_export = app.services.save_curve_preset_file.is_some() && !app.session.curve_presets.is_empty();
+                let can_export = app.services.file_dialog.is_some() && !app.session.curve_presets.is_empty();
                 if ui.add_enabled(can_export, egui::Button::new(li_i18n::library::t("Export Presets…"))).clicked() {
                     let _ = app.run("file.exportCurvePresets", json!({}));
                     ui.close();

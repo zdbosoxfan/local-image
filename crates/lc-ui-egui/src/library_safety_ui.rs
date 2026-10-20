@@ -29,9 +29,10 @@ pub fn settings(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
             ui.label(if prefs.folder.is_empty() { li_i18n::library::t("Library Backups folder") } else { &prefs.folder });
             ui.add_enabled_ui(app.services.has_folder_picker(), |ui| {
-                if widgets::text_button(ui, "backupFolder", "Choose…", false).clicked()
-                    && let Some(folder) = app.services.choose_folder("Choose Catalog Backup Folder")
-                {
+                if widgets::text_button(ui, "backupFolder", "Choose…", false).clicked() {
+                    app.choose_folder("Choose Catalog Backup Folder", "backupFolder");
+                }
+                if let Some(folder) = app.take_chosen("backupFolder") {
                     prefs.folder = folder;
                     changed = true;
                 }

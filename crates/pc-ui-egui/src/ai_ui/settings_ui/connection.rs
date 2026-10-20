@@ -51,15 +51,22 @@ pub(super) fn draw(ui: &mut egui::Ui, settings: &mut AiSettings, st: &EngineStat
                 });
             }
             #[cfg(not(target_arch = "wasm32"))]
-            if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked()
-                && let Some(dir) = crate::dialog_filter::file_dialog().set_title(tl!("Choose your ComfyUI folder")).pick_folder()
-            {
-                if li_ai::setup::installation(&dir, None).is_some() {
-                    settings.comfy_directory = dir.display().to_string();
-                    dialogs_mut(|d| d.message = tl!("ComfyUI installation found.").into());
-                } else {
-                    dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
-                }
+            if widgets::secondary_button(ui, tl!("Choose Folder…"), 0.0).clicked() {
+                let request = crate::FileDialogSpec::new(crate::Pick::Folder).title(tl!("Choose your ComfyUI folder"));
+                crate::file_dialog::ask_later(ui.ctx(), crate::FileDialogRequest::Described(request), |_, answer| {
+                    let Some(dir) = answer.into_path() else { return Ok(Value::Null) };
+                    if li_ai::setup::installation(std::path::Path::new(&dir), None).is_some() {
+                        let mut settings = draft();
+                        settings.comfy_directory = dir;
+                        dialogs_mut(|d| {
+                            d.settings = Some(settings);
+                            d.message = tl!("ComfyUI installation found.").into();
+                        });
+                    } else {
+                        dialogs_mut(|d| d.message = tl!("That folder has no ComfyUI (main.py and a Python environment).").into());
+                    }
+                    Ok(Value::Null)
+                });
             }
             let running_ours = CHILD.is_running().unwrap_or(true);
             if !st.connected && !st.starting && widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {

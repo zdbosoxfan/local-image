@@ -9,6 +9,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_BUILD_JOBS: 4
+  CARGO_INCREMENTAL: 0
   RUST_TEST_THREADS: 2
   CRAFT_FONTS_REQUIRED: 1
   CRAFT_FONTS_DIR: ${{ github.workspace }}/.cache/craft-fonts
@@ -16,10 +17,53 @@ concurrency:
   group: fast-ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    # Decides whether the build/test lanes are needed. Only pull requests whose every changed
+    # path is prose that no build, test or xtask gate reads can skip them; pushes, manual runs,
+    # and any doubt (API failure, empty list) run everything.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -u
+          if [ "$EVENT" != pull_request ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Renames list the old path too: moving a source file to a .md name must still run CI.
+          if ! files="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[] | .filename, (.previous_filename // empty)')"; then
+            echo "Could not list changed files; running the full lanes."
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$files"
+          # Markdown at the repo root and under docs/, minus the files that code or gates read:
+          # docs/whats-new.md (include_str!), docs/PORTS.md (xtask assets/attributions),
+          # docs/BACKLOG.md (dev-queue dashboard). docs/upstream/ never matches the prose pattern.
+          prose='^([A-Za-z0-9_-]+\.md|docs/([A-Za-z0-9_-]+|adr/.+|specs/.+|design/.+)\.md)$'
+          read_by_code='^docs/(whats-new|PORTS|BACKLOG)\.md$'
+          if printf '%s\n' "$files" | grep -vE "$prose" | grep -q . || printf '%s\n' "$files" | grep -qE "$read_by_code" || ! printf '%s' "$files" | grep -q .; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Documentation-only change: skipping the build and test lanes."
+            echo "code=false" >> "$GITHUB_OUTPUT"
+          fi
   deny:
     # Advisories, licenses, bans and sources per deny.toml. The action's pinned image runs
     # cargo-deny 0.20.2 (the version deny.toml was validated with); it needs Linux.
     runs-on: ubuntu-22.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -30,6 +74,9 @@ jobs:
           command: check
           arguments: --locked
   fast:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +98,14 @@ jobs:
         with:
           toolchain: 1.98.1
           components: rustfmt, clippy
+      # One cache per OS, written only by main pushes (PR runs restore main's and never save,
+      # so a stream of PRs cannot evict it from the repository's 10 GB cache quota).
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: fast-lane
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+          cache-bin: false
       - name: Linux prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -61,8 +115,7 @@ jobs:
         run: cargo +1.98.1 fetch --locked
       - name: Format
         run: cargo +1.98.1 fmt --all -- --check
-      - name: Fast portable lane
-        run: cargo +1.98.1 xtask test-fast
+      # The cheap gates run before the long compile so a failure surfaces in minutes.
       - name: Portable development queue tests
         if: runner.os == 'Linux'
         run: |
@@ -78,3 +131,21 @@ jobs:
         run: |
           cargo +1.98.1 xtask assets
           cargo +1.98.1 xtask deps-pure
+      - name: Fast portable lane
+        run: cargo +1.98.1 xtask test-fast
+  result:
+    # Stable single check for branch protection: green when the lanes passed or were skipped
+    # for a documentation-only change, red if any of them failed or was cancelled.
+    if: always()
+    needs: [changes, deny, fast]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every lane to have passed or been skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Lane results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

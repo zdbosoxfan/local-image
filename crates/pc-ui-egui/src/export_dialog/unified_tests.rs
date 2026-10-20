@@ -28,9 +28,10 @@ fn fixture(output: &Arc<Output>) -> PhotocraftApp {
     let encoder = output.clone();
     let stage = output.clone();
     let services = crate::Services {
-        pick_save: Some(Box::new(move |name| {
-            picker.names.lock().unwrap().push(name.into());
-            picker.pick.load(Ordering::SeqCst).then(|| format!("/exports/{name}"))
+        file_dialog: Some(crate::file_dialog::answering(move |request| {
+            let crate::FileDialogRequest::Save { suggested: name } = request else { return None };
+            picker.names.lock().unwrap().push(name.clone());
+            picker.pick.load(Ordering::SeqCst).then(|| crate::FileDialogAnswer::SaveTo(format!("/exports/{name}")))
         })),
         export: Some(std::sync::Arc::new(move |_, _, settings| {
             encoder.settings.lock().unwrap().push(settings.clone());

@@ -52,7 +52,18 @@ fn open(app: &mut LightcraftApp, path: Option<String>) {
         Some(p) => json!({"path": p}),
         None => json!({}),
     };
-    match app.run("app.openLibrary", params) {
+    let r = app.run("app.openLibrary", params);
+    // Choose Another Library… goes on once the user has chosen in the folder dialog.
+    let _ = app.after_file_dialog(r, move |app, r| {
+        opened(app, path, r);
+        Ok(serde_json::Value::Null)
+    });
+}
+
+/// What follows `app.openLibrary`'s result `r` for the library at `path` (`None`: chosen in a
+/// dialog).
+fn opened(app: &mut LightcraftApp, path: Option<String>, r: Result<serde_json::Value, String>) {
+    match r {
         Ok(serde_json::Value::Null) => {} // folder dialog cancelled
         Ok(_) => {
             let files = app.library_problem.take().map(|p| p.pending_import).unwrap_or_default();

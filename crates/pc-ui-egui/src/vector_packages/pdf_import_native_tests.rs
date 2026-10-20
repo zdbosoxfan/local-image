@@ -86,7 +86,7 @@ fn pdf_raster_native_dialog_open_place_drop_and_missing_renderer() {
             let mut picker = Some((path.to_string_lossy().into_owned(), bytes.clone()));
             let services = Services {
                 pdf_raster: Some(Arc::new(run)),
-                pick_place_path: Some(Box::new(move || picker.take().map(|(name, _)| name))),
+                file_dialog: Some(crate::file_dialog::answering(move |_| picker.take().map(|(name, _)| crate::FileDialogAnswer::Paths(vec![name])))),
                 ..Default::default()
             };
             let mut app = PhotocraftApp::new(Session::new(), services);

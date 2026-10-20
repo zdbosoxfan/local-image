@@ -1070,10 +1070,10 @@ fn export(app: &mut LightcraftApp, ui: &mut Ui, s: &mut SmartSortDialog) {
         if response.lost_focus() && !s.dest.trim().is_empty() {
             app.ui.smart_sort_destination = s.dest.clone();
         }
-        if button(ui, "smartSort:chooseDest", "Choose…").clicked()
-            && let Some(pick) = &mut app.services.pick_folder
-            && let Some(dir) = pick()
-        {
+        if button(ui, "smartSort:chooseDest", "Choose…").clicked() {
+            app.ask_into(crate::FileDialogRequest::Folder { title: None }, "smartSort:chooseDest");
+        }
+        if let Some(dir) = app.take_chosen("smartSort:chooseDest") {
             app.ui.smart_sort_destination = dir.clone();
             s.dest = dir;
         }

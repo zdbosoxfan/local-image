@@ -116,18 +116,36 @@ fn authority(app: &PhotocraftApp, request: &Request, automation: bool) -> Result
     Ok(())
 }
 
-pub(super) fn begin(app: &mut PhotocraftApp, request: Request) -> Result<Option<Pending>, String> {
-    begin_named(app, request, None)
+/// Asks where to export `request`, then starts it and hands the job to `started`. Returns
+/// `{"pending": true}` once started, or while the save dialog is open; `Err` ("cancelled") when
+/// the dialog was cancelled.
+pub(super) fn begin(app: &mut PhotocraftApp, request: Request, started: impl FnOnce(&mut PhotocraftApp, Pending) + 'static) -> Result<Value, String> {
+    begin_named(app, request, None, started)
 }
-pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_name: Option<&str>) -> Result<Option<Pending>, String> {
+pub(super) fn begin_named(
+    app: &mut PhotocraftApp,
+    request: Request,
+    suggested_name: Option<&str>,
+    started: impl FnOnce(&mut PhotocraftApp, Pending) + 'static,
+) -> Result<Value, String> {
     request.preflight(&app.session)?;
     let automation = app.automation_input;
     authority(app, &request, automation)?;
     let capture = request.capture(&app.session)?;
     let name = std::path::Path::new(&capture.snapshot.name).file_stem().and_then(|s| s.to_str()).filter(|s| !s.is_empty()).unwrap_or("drawing");
     let suggested = suggested_name.map(str::to_owned).unwrap_or_else(|| format!("{name}.{}", request.extension()));
-    let picker = app.services.pick_save.as_mut().ok_or("file save picker service unavailable")?;
-    let Some(path) = picker(&suggested) else { return Ok(None) };
+    if app.services.file_dialog.is_none() {
+        return Err("file save picker service unavailable".into());
+    }
+    app.pick_save(&suggested, move |app, path| {
+        let pending = start(app, request, capture, automation, path)?;
+        started(app, pending);
+        Ok(serde_json::json!({"pending": true}))
+    })
+}
+
+/// [`begin_named`] once the path is known: the document must still be as it was when asked.
+fn start(app: &mut PhotocraftApp, request: Request, capture: Capture, automation: bool, path: String) -> Result<Pending, String> {
     capture.check(&app.session).map_err(|e| e.to_string())?;
     authority(app, &request, automation)?;
     let stage = (!automation).then(|| app.services.stage_write.clone()).flatten();
@@ -165,7 +183,7 @@ pub(super) fn begin_named(app: &mut PhotocraftApp, request: Request, suggested_n
         Started::Job(id) => Some(id),
         Started::Done(_) => None,
     };
-    Ok(Some(Pending { job, receiver: result.1, cancelled, capture, request, path, automation, terminal: None }))
+    Ok(Pending { job, receiver: result.1, cancelled, capture, request, path, automation, terminal: None })
 }
 impl Pending {
     /// One compact file failure, retaining the full destination and reason in details.

@@ -271,12 +271,19 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
                 .photo(id)
                 .map(|p| format!("{}-Denoised.tiff", p.file_name.rsplit_once('.').map_or(p.file_name.as_str(), |(s, _)| s)))
                 .unwrap_or_else(|| "Denoised.tiff".into());
-            if app.services.save_denoise_file.is_none() {
+            if app.services.file_dialog.is_none() {
                 app.toast(ui.ctx(), "Saving a denoised file is unavailable in this host.");
             }
-            if let Some(path) = app.services.save_denoise_file.as_mut().and_then(|f| f(&name))
-                && let Err(e) = app.run("enhance.denoise", json!({"path":path}))
-            {
+            let ctx = ui.ctx().clone();
+            let r = app.ask_file(crate::FileDialogRequest::SaveDenoised { name }, move |app, answer| {
+                if let Some(path) = answer.into_path()
+                    && let Err(e) = app.run("enhance.denoise", json!({"path":path}))
+                {
+                    app.toast_error(&ctx, e);
+                }
+                Ok(serde_json::Value::Null)
+            });
+            if let Err(e) = r {
                 app.toast_error(ui.ctx(), e);
             }
         }

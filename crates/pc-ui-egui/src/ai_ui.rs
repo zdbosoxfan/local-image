@@ -457,16 +457,28 @@ thread_local! {
     pub(crate) static TEST_PICK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
-/// The native file dialog for an `.onnx` model (tests inject the pick instead of opening it).
+/// The file dialog for an `.onnx` model.
+pub(crate) fn onnx_request() -> crate::FileDialogRequest {
+    crate::FileDialogRequest::Described(crate::FileDialogSpec::new(crate::Pick::File).title(tl!("Choose an ONNX model")).filter(tl!("ONNX model"), &["onnx"]))
+}
+
+/// Asks for an `.onnx` model; `then` gets it once chosen (tests inject the pick instead of opening
+/// a dialog).
 #[cfg(not(test))]
-pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
-    use crate::dialog_filter::FileDialogExt as _;
-    crate::dialog_filter::file_dialog().set_title(tl!("Choose an ONNX model")).add_filter_nocase(tl!("ONNX model"), &["onnx"]).pick_file()
+fn pick_onnx(ctx: &egui::Context, then: impl FnOnce(std::path::PathBuf) + 'static) {
+    crate::file_dialog::ask_later(ctx, onnx_request(), move |_, answer| {
+        if let Some(path) = answer.into_path() {
+            then(path.into());
+        }
+        Ok(Value::Null)
+    });
 }
 
 #[cfg(test)]
-pub(crate) fn pick_onnx() -> Option<std::path::PathBuf> {
-    TEST_PICK.with(|p| p.borrow_mut().take())
+fn pick_onnx(_: &egui::Context, then: impl FnOnce(std::path::PathBuf) + 'static) {
+    if let Some(path) = TEST_PICK.with(|p| p.borrow_mut().take()) {
+        then(path);
+    }
 }
 
 /// Translates a custom-model validation error into a one-line reason.
@@ -737,12 +749,13 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                 ui.spinner();
                 ui.label(RichText::new(tl!("Testing the model…")).color(t.text_dim).size(11.5));
             });
-        } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked()
-            && let Some(src) = pick_onnx()
-        {
-            set_custom_job(dir, group, None);
-            job = None;
-            start_custom(dir.to_path_buf(), group, src, o.options());
+        } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked() {
+            let (models, options) = (dir.to_path_buf(), o.options());
+            pick_onnx(ui.ctx(), move |src| {
+                set_custom_job(&models, group, None);
+                start_custom(models, group, src, options);
+            });
+            job = custom_job(dir, group);
         }
         if let Some(CustomJob::Failed(why)) = job {
             ui.label(RichText::new(li_i18n::fmt(tl!("That model can't be used: {error}"), &[("error", &why)])).color(t.danger).size(11.5));

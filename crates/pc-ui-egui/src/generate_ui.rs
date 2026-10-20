@@ -24,7 +24,6 @@ use serde_json::{Value, json};
 
 use crate::PhotocraftApp;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::dialog_filter::{FileDialogExt as _, file_dialog};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -987,19 +986,20 @@ fn save_preset(s: &mut GenerateState, name: &str) {
 pub fn import_workflow(app: &mut PhotocraftApp) {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let Some(path) = file_dialog().set_title(tl!("Import ComfyUI Workflow")).add_filter_nocase(tl!("ComfyUI workflow"), &["json"]).pick_file() else {
-            return;
-        };
-        match import_workflow_path(&path) {
-            Ok(name) => {
-                app.ui.ai.generate.model = format!("custom:{name}");
-                app.ui.status = li_i18n::fmt(tl!("Imported the workflow “{name}”."), &[("name", &name)]);
-                app.ui.status_error = false;
-            }
-            Err(e) => {
-                app.ui.status = e;
-                app.ui.status_error = true;
-            }
+        let request = crate::FileDialogSpec::new(crate::Pick::File).title(tl!("Import ComfyUI Workflow")).filter(tl!("ComfyUI workflow"), &["json"]);
+        let r = app.ask_file(crate::FileDialogRequest::Described(request), |app, answer| {
+            let Some(path) = answer.into_path() else { return Ok(Value::Null) };
+            let name = import_workflow_path(std::path::Path::new(&path))?;
+            app.ui.ai.generate.model = format!("custom:{name}");
+            app.ui.status = li_i18n::fmt(tl!("Imported the workflow “{name}”."), &[("name", &name)]);
+            app.ui.status_error = false;
+            Ok(Value::Null)
+        });
+        if let Err(e) = r
+            && e != crate::file_dialog::CANCELLED
+        {
+            app.ui.status = e;
+            app.ui.status_error = true;
         }
     }
     #[cfg(target_arch = "wasm32")]
@@ -1031,19 +1031,16 @@ fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_im
             let full = n >= max;
             ui.add_enabled_ui(!full, |ui| {
                 #[cfg(not(target_arch = "wasm32"))]
-                if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked()
-                    && let Some(path) = file_dialog().add_filter_nocase(tl!("Images"), &photocraft_codecs::readable_extensions()).pick_file()
-                {
-                    match photocraft_engine::ai_cmds::file_rgba_srgb(&path) {
-                        Ok(img) => {
-                            let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                            add_reference(ui.ctx(), name, img);
-                        }
-                        Err(e) => {
-                            app.ui.status = e.to_string();
-                            app.ui.status_error = true;
-                        }
-                    }
+                if crate::icons::button(ui, "folder-open", 22.0, false, tl!("Add an image file")).clicked() {
+                    let request = crate::FileDialogSpec::new(crate::Pick::File).filter(tl!("Images"), &photocraft_codecs::readable_extensions());
+                    let ctx = ui.ctx().clone();
+                    crate::file_dialog::ask_later(ui.ctx(), crate::FileDialogRequest::Described(request), move |_, answer| {
+                        let Some(path) = answer.into_path().map(PathBuf::from) else { return Ok(Value::Null) };
+                        let img = photocraft_engine::ai_cmds::file_rgba_srgb(&path).map_err(|e| e.to_string())?;
+                        let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        add_reference(&ctx, name, img);
+                        Ok(Value::Null)
+                    });
                 }
                 if app.session.active().is_some() && crate::icons::button(ui, "image", 22.0, false, tl!("Add the current image")).clicked() {
                     let d = app.session.active().map(|d| (d.doc.name.clone(), photocraft_engine::ai_cmds::flatten_rgba(&d.doc)));

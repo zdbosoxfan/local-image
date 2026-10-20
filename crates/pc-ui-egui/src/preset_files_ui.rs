@@ -122,12 +122,12 @@ mod brush_pack_ui_tests {
     fn brush_batch_import_button_and_drop_into_brushes_panel() {
         let mut picked = false;
         let services = crate::Services {
-            pick_open: Some(Box::new(move || {
+            file_dialog: Some(crate::file_dialog::answering(move |_| {
                 if picked {
                     None
                 } else {
                     picked = true;
-                    Some(("Artist.myb".into(), Ok(MYB.to_vec())))
+                    Some(crate::FileDialogAnswer::File("Artist.myb".into(), Ok(MYB.to_vec())))
                 }
             })),
             ..Default::default()

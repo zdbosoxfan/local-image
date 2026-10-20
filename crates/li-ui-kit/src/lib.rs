@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 pub mod color_icon_data;
 pub mod color_icons;
+pub mod file_dialog;
 pub mod fonts;
 pub mod icon_data;
 pub mod icons;

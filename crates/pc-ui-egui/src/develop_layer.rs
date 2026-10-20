@@ -180,21 +180,25 @@ pub fn save_and_return(app: &mut PhotocraftApp, params: &Value) -> Result<Value,
         .or_else(|| app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
         .or_else(|| library_save_path(app));
     let before = app.library_saves.len();
-    let (path, warnings) = app.save_as(path)?;
-    if let Some(pending) = app.pending_save.as_mut() {
-        pending.return_to_library = true;
-        return Ok(crate::save_worker::response(app, path, warnings));
-    }
-    if let Some(prompt) = app.tiff_options.as_mut() {
-        prompt.return_to_library = true;
-    }
-    match app.library_saves.get_mut(before..).and_then(<[LibrarySave]>::last_mut) {
-        Some(s) => s.show = true,
-        // A save that waits on a prompt (a layered TIFF's options) stays in Compositing.
-        None if app.tiff_options.is_none() && app.session.active().is_some_and(|d| !d.is_dirty()) => app.switch_module = Some(crate::Module::Library),
-        None => {}
-    }
-    Ok(json!({ "path": path, "warnings": warnings }))
+    // Save As asks where first: the return waits for its answer.
+    let saved = app.save_as(path);
+    app.after_file_dialog(saved, move |app, saved| {
+        let saved = saved?;
+        if let Some(pending) = app.pending_save.as_mut() {
+            pending.return_to_library = true;
+            return Ok(saved);
+        }
+        if let Some(prompt) = app.tiff_options.as_mut() {
+            prompt.return_to_library = true;
+        }
+        match app.library_saves.get_mut(before..).and_then(<[LibrarySave]>::last_mut) {
+            Some(s) => s.show = true,
+            // A save that waits on a prompt (a layered TIFF's options) stays in Compositing.
+            None if app.tiff_options.is_none() && app.session.active().is_some_and(|d| !d.is_dirty()) => app.switch_module = Some(crate::Module::Library),
+            None => {}
+        }
+        Ok(saved)
+    })
 }
 
 pub fn sync_in(app: &mut PhotocraftApp, library: &str, photo: u64, path: &str, settings: &Value) {
@@ -444,8 +448,10 @@ mod tests {
         // Save As suggests the same place (the dialog opens there)
         let suggested = std::rc::Rc::new(std::cell::RefCell::new(String::new()));
         let s = suggested.clone();
-        app.services.pick_save = Some(Box::new(move |sug: &str| {
-            *s.borrow_mut() = sug.to_string();
+        app.services.file_dialog = Some(crate::file_dialog::answering(move |request| {
+            if let crate::FileDialogRequest::Save { suggested } = request {
+                *s.borrow_mut() = suggested;
+            }
             None
         }));
         assert_eq!(app.save_as(None).unwrap_err(), "cancelled");
