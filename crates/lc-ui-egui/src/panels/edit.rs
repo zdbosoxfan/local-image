@@ -1825,7 +1825,7 @@ fn quick_develop(app: &mut LightcraftApp, ui: &mut egui::Ui, n: usize) {
 }
 
 #[cfg(test)]
-mod j22_tests {
+mod tests {
     use super::*;
     use crate::{
         Services,
@@ -1840,8 +1840,8 @@ mod j22_tests {
         h.step();
     }
     #[test]
-    fn j22_proof_controls_click_load_icc_and_fit_all_themes() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/j22");
+    fn proof_controls_click_load_icc_and_fit_all_themes() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/cmyk-proof");
         std::fs::create_dir_all(&dir).unwrap();
         let profile_path = dir.join("test-printer.icc");
         std::fs::write(&profile_path, include_bytes!("../../../pc-cms/profiles/photocraft-coated-cmyk.icc")).unwrap();
@@ -1916,7 +1916,7 @@ mod j22_tests {
     }
 
     #[test]
-    fn j22_proof_interactive_render_job_small_sample() {
+    fn proof_interactive_render_job_small_sample() {
         let mut session = lightcraft_engine::Session::with_demo();
         let id = session.active().unwrap_or(lightcraft_catalog::PhotoId(1));
         session.selection = lightcraft_engine::Selection::single(id);
@@ -1949,7 +1949,7 @@ mod j22_tests {
         edited.rendered.unwrap();
         let edit_ms = edit_start.elapsed().as_secs_f64() * 1000.0;
         println!(
-            "J22 real RenderJob (192x128 fit): ordinary preview {ordinary_ms:.3} ms; CPU CMYK proof cold {cold_ms:.3} ms; cached proof {warm_ms:.3} ms; exposure edit + draft {edit_ms:.3} ms; GPU adapter {:?}",
+            "real RenderJob (192x128 fit): ordinary preview {ordinary_ms:.3} ms; CPU CMYK proof cold {cold_ms:.3} ms; cached proof {warm_ms:.3} ms; exposure edit + draft {edit_ms:.3} ms; GPU adapter {:?}",
             lightcraft_engine::gpu::adapter_name()
         );
     }

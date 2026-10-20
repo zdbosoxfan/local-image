@@ -1,6 +1,6 @@
 # Simplified Chinese (zh-hans) Library & Develop format strings (`tr_format!`, Rust `format!` syntax). Columns, separated by a TAB:  context <TAB> source <TAB> translation
 # (the format of ../editor/ja.tsv; every entry here is a plain string, so `context` is empty).
-# Converted unchanged from lc-ui-egui/locales/zh-hans-formats.json when the two engines were merged (J29).
+# Converted unchanged from lc-ui-egui/locales/zh-hans-formats.json when the two engines were merged.
 
 	 · {skipped} skipped (file exists)	 · 已跳过 {skipped} 个（文件已存在）
 	 · {} duplicate{} skipped	 · 已跳过 {0} 个重复项{1:.0}

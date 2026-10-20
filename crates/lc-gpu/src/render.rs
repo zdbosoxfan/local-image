@@ -1909,7 +1909,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j14_shared_matte_host_dispatch_contract() {
+    fn shared_matte_host_dispatch_contract() {
         use lightcraft_develop::{Mask, MaskComponent, MaskOp, MaskShape, SegMask};
         let mut mask = Mask {
             refine: 100.0,
@@ -2727,7 +2727,7 @@ fn stack_skin_range(cx: &mut Cx<'_>, input: &Buf, skin: &lightcraft_develop::Ski
 
 #[cfg(test)]
 #[test]
-fn j01_final_gpu_gaussian_host_taps_match_cpu_policy() {
+fn final_gpu_gaussian_host_taps_match_cpu_policy() {
     // Check the existing conv_h/conv_v shader's centre/pair host layout without a device run.
     // Device acceptance is intentionally deferred to the owner's merged run.
     for sigma in [0.3, 0.5, 1.0, 2.0, 4.0] {

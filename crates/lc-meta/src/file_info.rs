@@ -116,11 +116,11 @@ pub fn copyright_xmp(xmp: &str, contact: bool) -> Result<Option<String>, XmpErro
 }
 
 #[cfg(test)]
-mod j03_tests {
+mod tests {
     use super::*;
 
     #[test]
-    fn j03_file_info_partial_edits_preserve_creators_locales_and_unknown_properties() {
+    fn file_info_partial_edits_preserve_creators_locales_and_unknown_properties() {
         let m = Metadata {
             artist: Some("Doe, Jane; Studio; Bob".into()),
             creators: vec!["Doe, Jane; Studio".into(), "Bob".into()],
@@ -152,7 +152,7 @@ mod j03_tests {
     }
 
     #[test]
-    fn j03_file_info_clears_fields_without_losing_developer_metadata_and_refuses_bad_xml() {
+    fn file_info_clears_fields_without_losing_developer_metadata_and_refuses_bad_xml() {
         let m = Metadata { title: Some("Title".into()), artist: Some("Author".into()), copyright_marked: Some(true), ..Default::default() };
         let old = write_xmp(&m, Some("opaque"));
         let new = try_write_file_info(Some(&old), &json!({"title":"", "author":null, "copyrightStatus":"unknown"})).unwrap();
@@ -165,7 +165,7 @@ mod j03_tests {
     }
 
     #[test]
-    fn j03_copyright_privacy_preserves_creator_lists_and_omits_private_fields() {
+    fn copyright_privacy_preserves_creator_lists_and_omits_private_fields() {
         let m = Metadata {
             artist: Some("A; B; C".into()),
             creators: vec!["A; B".into(), "C".into()],
@@ -189,7 +189,7 @@ mod j03_tests {
         assert_eq!(copyright_xmp(&write_xmp(&Metadata::default(), None), false).unwrap(), None);
     }
     #[test]
-    fn j03_file_info_foreign_namespace_collisions_survive_editing() {
+    fn file_info_foreign_namespace_collisions_survive_editing() {
         let packet = r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="urn:foreign" xmlns:d="http://purl.org/dc/elements/1.1/"><rdf:Description dc:title="foreign title" d:title="Actual"/></rdf:RDF>"#;
         assert_eq!(read_file_info(Some(packet))["title"], "Actual");
         let edited = try_write_file_info(Some(packet), &json!({"title":"Edited"})).unwrap();

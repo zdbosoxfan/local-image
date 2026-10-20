@@ -205,8 +205,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j11_generation_transaction_durable_golden_and_fault_cleanup() {
-        let dir = std::env::temp_dir().join(format!("j11-generation-{}", uuid::Uuid::new_v4()));
+    fn generation_transaction_durable_golden_and_fault_cleanup() {
+        let dir = std::env::temp_dir().join(format!("generation-{}", uuid::Uuid::new_v4()));
         let library = Library::open(&dir);
         let image = RgbaImage::from_pixel(8, 8, image::Rgba([12, 34, 56, 128]));
         {

@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_shared_histogram_lc_adapter_preview_parity() {
+    fn shared_histogram_lc_adapter_preview_parity() {
         let img = Rgba8::from_fn(256, 1, |x, _| [x as u8, (255 - x) as u8, (x * 73 % 256) as u8, (x % 2 * 255) as u8]);
         let h = Histogram::of_srgb8(&img);
         let mut expected_luma = vec![0; 256];
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_shared_histogram_luma_weights_primary_goldens() {
+    fn shared_histogram_luma_weights_primary_goldens() {
         let pixels = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0], [0.5, 0.5, 0.5, 1.0]];
         for (weights, bins) in [(LumaWeights::REC709, [54, 182, 18, 128]), (LumaWeights::REC2020, [67, 173, 15, 128])] {
             let h = RgbHistogram::from_rgba_with_weights(&pixels, weights);
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_shared_histogram_float_contract_and_stride_goldens() {
+    fn shared_histogram_float_contract_and_stride_goldens() {
         let pixels = [[0.0001, 0.9999, 0.5, 1.0], [-2.0, 4.0, 0.5, 1.0], [f32::NAN, 1.0, 1.0, 0.0], [0.0, f32::INFINITY, 1.0, 1.0], [0.5, 0.5, 0.5, f32::NAN]];
         let h = RgbHistogram::from_rgba(&pixels);
         assert_eq!((h.samples, h.transparent, h.invalid), (2, 1, 2));
@@ -332,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_shared_histogram_preview_byte_goldens() {
+    fn shared_histogram_preview_byte_goldens() {
         let pixels = [[255, 0, 0, 0], [0, 255, 0, 255], [0, 0, 255, 127], [128, 128, 128, 255], [255; 4]];
         let h = RgbHistogram::from_srgb8_preview(&pixels, 5, 1);
         let mut expected = [0; BINS];

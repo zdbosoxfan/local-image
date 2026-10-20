@@ -1958,8 +1958,8 @@ mod tests {
     }
 
     #[test]
-    fn j15_cancel_click_reaches_shared_registry_downloader_without_io() {
-        let dir = temp_dir("j15-cancel");
+    fn cancel_click_reaches_shared_registry_downloader_without_io() {
+        let dir = temp_dir("cancel");
         let draw_dir = dir.clone();
         let ctl = JobControl::new();
         let observed = ctl.clone();
@@ -2149,7 +2149,7 @@ mod tests {
     /// The status bar's AI controls: Eject and a red Stop (shown while AI jobs run) render, and
     /// Stop cancels the AI jobs only.
     #[test]
-    fn j17_stop_cancels_ai_jobs_and_shared_icons_render() {
+    fn stop_cancels_ai_jobs_and_shared_icons_render() {
         assert!(li_ui_kit::icons::exists("eject") && li_ui_kit::icons::exists("circle-stop"));
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let connected = EngineStatus { checked: true, connected: true, ..Default::default() };

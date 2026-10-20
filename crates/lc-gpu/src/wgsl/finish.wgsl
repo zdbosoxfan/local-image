@@ -441,7 +441,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let l_pre = log_l[i];
     let l0 = l_pre + ev;
 
-    // --- local (mask) contributions
+    // Local (mask) contributions
     var lt: array<f32, MASK_SUMS>;
     var tint_on = false;
     var tint_dir = vec2<f32>(0.0, 0.0);
@@ -467,7 +467,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let l_tint = lt[2];
     let l_noise = lt[14];
 
-    // --- local Moiré (and the colour part of Noise): chromaticity towards its blur
+    // Local Moiré (and the colour part of Noise): chromaticity towards its blur
     let mt = clamp(lt[15] + 0.5 * max(l_noise, 0.0), -1.0, 1.0);
     if (mt != 0.0 && fu(F_HAS_CHROMA) != 0u) {
         let y = lum2020(c);
@@ -476,7 +476,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let cb = vec3<f32>(masks[o], masks[o + 1u], masks[o + 2u]);
         c = max((ch0 + (cb - ch0) * mt) * y, vec3<f32>(0.0));
     }
-    // --- local Defringe: desaturate purple / green fringes along edges
+    // Local Defringe: desaturate purple / green fringes along edges
     let df = clamp(lt[16], 0.0, 1.0);
     if (df > 0.0 && fu(F_HAS_TEX) != 0u) {
         let yd = max(lum2020(c), 1e-6);
@@ -489,7 +489,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    // --- dehaze (scene linear)
+    // Dehaze (scene linear)
     let dz = ff(F_DEHAZE) + lt[10];
     if (dz != 0.0 && fu(F_HAS_DARK) != 0u) {
         let strength=clamp(dz,-1.0,1.0);
@@ -510,7 +510,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
                 var q=c;if(t!=1.0){q=(c-air)/t+air;}c=c+(q-c)*alpha;}
         }
     }
-    // --- local exposure / temp / tint
+    // Local exposure / temp / tint
     if (l_exp != 0.0) {
         c = c * exp2(l_exp);
     }
@@ -536,7 +536,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let gg=aux[off+j]+(aux[off+j+1u]-aux[off+j])*(t-f32(j));
         if(gg!=1.0){c*=gg;teq=true;}
     }
-    // --- local tone in log luminance
+    // Local tone in log luminance
     var l1 = l0;
     if (dz != 0.0 || l_exp != 0.0 || teq || layer_scene) {
         l1 = log_lum(c);
@@ -590,12 +590,12 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             if(ff(F_TEX)!=0.0 && fu(F_HAS_TEX)!=0u){let det=l_pre-tex[i];dl+=ff(F_TEX)*1.1*clamp(det,-1.0,1.0)*(1.0-0.6*sstep(0.4,1.6,abs(det)));}
             dl+=sharp_delta(ff(F_SHARP_A),l_pre,x,y);clear_context();if(dl!=0.0){c=c+(c*exp2(dl)-c)*alpha;}}
     }
-    // --- calibration (scene linear, before the tone map)
+    // Calibration (scene linear, before the tone map)
     if (fu(F_CALIB) != 0u || ff(F_SHADOW_TINT) != 0.0) {
         c = calibrate(c);
     }
 
-    // --- tone map on luminance, highlight desaturation
+    // Tone map on luminance, highlight desaturation
     d = tone_v2(c);
     if (fu(F_MODE) == 2u && ff(F_LAYER_CONTRAST) != 0.0) {
         let amount = ff(F_LAYER_CONTRAST)/100.0;
@@ -607,7 +607,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     for(var layer=0u;layer<P[F_NLAYER];layer++){
         let alpha=alpha_at(layer,i,n);if(alpha>0.0 && (descriptor(layer,2u)&4u)!=0u){layer_context(layer);let q=tone_v2(c);clear_context();d=d+(q-d)*alpha;}
     }
-    // --- colour
+    // Colour
     d = color_ops(d, lt[11], lt[12]);
     if (tint_on) {
         let lab = oklab(d);
@@ -637,7 +637,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         out[3u*i]=bitcast<u32>(d.x);out[3u*i+1u]=bitcast<u32>(d.y);out[3u*i+2u]=bitcast<u32>(d.z);
         return;
     }
-    // --- gamut map to the output space (desaturate towards luminance until in range)
+    // Gamut map to the output space (desaturate towards luminance until in range)
     let om = array<vec3<f32>, 3>(
         vec3<f32>(ff(F_OUT_M), ff(F_OUT_M + 1u), ff(F_OUT_M + 2u)),
         vec3<f32>(ff(F_OUT_M + 3u), ff(F_OUT_M + 4u), ff(F_OUT_M + 5u)),
@@ -659,7 +659,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         r = yy + (r - yy) * tg;
     }
 
-    // --- encode, curves, grain
+    // Encode, curves, grain
     var e = vec3<f32>(encode_srgb(r.x), encode_srgb(r.y), encode_srgb(r.z));
     e = apply_grain(e,x,y);
     for(var layer=0u;layer<P[F_NLAYER];layer++){
@@ -694,7 +694,7 @@ fn select_colour(@builtin(global_invocation_id) g: vec3<u32>) {
 
 fn apply_vignette(c0:vec3<f32>,x:u32,y:u32)->vec3<f32>{
     var d=c0;let w=fu(F_W);let h=fu(F_H);
-    // --- vignette (display linear, post-crop)
+    // Vignette (display linear, post-crop)
     if (fu(F_VIG) != 0u) {
         let fw = f32(w);
         let fh = f32(h);

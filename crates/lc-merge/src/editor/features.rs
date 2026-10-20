@@ -227,10 +227,10 @@ pub fn register(
 }
 
 #[cfg(test)]
-mod j19_tests {
+mod native_adapter_tests {
     use super::*;
     #[test]
-    fn j19_native_mops_adapter_keeps_float_descriptors_and_centres() {
+    fn native_mops_adapter_keeps_float_descriptors_and_centres() {
         let (w, h) = (128, 96);
         let img: Vec<_> =
             (0..w * h).map(|i| (((i % w / 7) * 37 + (i / w / 8) * 23 + (i % w / 13) * (i / w / 11) * 17) % 127) as f32 / 127.0).collect();
@@ -397,10 +397,10 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j19_parity {
+mod parity {
     use super::*;
     #[test]
-    fn j19_editor_fitter_parity_with_shared_native() {
+    fn editor_fitter_parity_with_shared_native() {
         let src = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [5.0, 3.0]];
         let truth = Homography([1.02, -0.03, 7.25, 0.03, 1.02, -4.5, 0.001, -0.0003, 1.0]);
         let dst: Vec<_> = src
@@ -420,7 +420,7 @@ mod j19_parity {
         assert!(fit(Model::Homography, &src, &dst[..4]).is_none());
     }
     #[test]
-    fn j19_editor_mask_excludes_full_descriptor_patch() {
+    fn editor_mask_excludes_full_descriptor_patch() {
         let (w, h) = (128, 96);
         let pixels: Vec<_> = (0..w * h).map(|i| ((i * 73 + i / w * 31) % 211) as f32 / 211.0).collect();
         let valid = vec![false; w * h];

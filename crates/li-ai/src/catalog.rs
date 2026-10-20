@@ -699,7 +699,7 @@ fn lama_on_device_catalog_borrows_existing_registry_and_pins() {
 }
 
 #[test]
-fn j15_registry_file_plans_preserve_all_runner_pins_and_golden_bundles() {
+fn registry_file_plans_preserve_all_runner_pins_and_golden_bundles() {
     let mut names = std::collections::BTreeSet::new();
     let mut members = 0;
     for spec in li_seg::MODELS {
@@ -748,11 +748,11 @@ fn j15_registry_file_plans_preserve_all_runner_pins_and_golden_bundles() {
     assert_eq!((&*lama.name, lama.bytes, &*lama.sha256), ("big-lama-fp32.onnx", 208044816, "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6"));
     assert_eq!(on_device_files("bsrgan-2x"), on_device_files("bsrgan-4x"));
     assert!(on_device_files("not-a-model").is_none());
-    eprintln!("J15 descriptor parity: {} models, {members} member references", names.len());
+    eprintln!("descriptor parity: {} models, {members} member references", names.len());
 }
 
 #[test]
-fn j15_registry_order_and_progress_match_legacy_ui_trace() {
+fn registry_order_and_progress_match_legacy_ui_trace() {
     let files = on_device_files("clip-b32-laion").unwrap();
     let calls = std::cell::RefCell::new(Vec::new());
     files

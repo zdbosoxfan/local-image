@@ -90,7 +90,7 @@ fn lama_patch_keeps_soft_coverage_for_existing_compositor() {
 
 /// The earlier 8-bit pipeline, verbatim apart from taking the fake model as a closure: the
 /// golden reference for the 8-bit adapters and the "before" of the precision measurements.
-mod pre_j28 {
+mod previous {
     use super::*;
     use image::imageops;
     pub fn prepare(rgb: &RgbImage, mask: &GrayImage) -> (RgbImage, GrayImage, [u32; 2], [u32; 2]) {
@@ -175,13 +175,13 @@ fn soft_mask(w: u32, h: u32, cx: f32, cy: f32, r: f32) -> GrayImage {
 }
 
 #[test]
-fn j28_lama_u8_adapters_match_the_pre_j28_path() {
+fn lama_u8_adapters_match_the_pre_j28_path() {
     let none = &|| Ok(());
     // Context crop at model size: no resampling, so the 8-bit adapters are byte-identical.
     let rgb = RgbImage::from_fn(300, 200, |x, y| Rgb([(x % 256) as u8, (y * 7 % 256) as u8, ((x ^ y) % 256) as u8]));
     let mask = soft_mask(300, 200, 150.0, 90.0, 40.0);
     for blend in [true, false] {
-        let old = pre_j28::run(&rgb, &mask, blend, &u8_model);
+        let old = previous::run(&rgb, &mask, blend, &u8_model);
         let new = if blend { float_model().run(&rgb, &mask, none, &|_, _| {}) } else { float_model().run_patch(&rgb, &mask, none, &|_, _| {}) }.unwrap();
         let diff = old.as_raw().iter().zip(new.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
         // Soft coverage blends before the single rounding (not round, blend, round).
@@ -194,7 +194,7 @@ fn j28_lama_u8_adapters_match_the_pre_j28_path() {
     // float Lanczos (li-raster), not image-rs on 8-bit samples.
     let rgb = RgbImage::from_fn(1400, 1000, |x, y| Rgb([(x / 6 % 256) as u8, (y / 4 % 256) as u8, 128]));
     let mask = soft_mask(1400, 1000, 700.0, 500.0, 300.0);
-    let old = pre_j28::run(&rgb, &mask, false, &u8_model);
+    let old = previous::run(&rgb, &mask, false, &u8_model);
     let new = float_model().run_patch(&rgb, &mask, none, &|_, _| {}).unwrap();
     let (mut max, mut sum, mut n) = (0u8, 0u64, 0u64);
     for ((a, b), m) in old.pixels().zip(new.pixels()).zip(mask.pixels()) {
@@ -209,12 +209,12 @@ fn j28_lama_u8_adapters_match_the_pre_j28_path() {
             n += 1;
         }
     }
-    eprintln!("j28 LaMa resampled patch vs pre-J28: max {max} levels, mean {:.4} levels", sum as f64 / n as f64);
+    eprintln!("LaMa resampled patch vs the previous blend: max {max} levels, mean {:.4} levels", sum as f64 / n as f64);
     assert!(max <= 2, "resampled patch within 2 levels of the previous path ({max})");
 }
 
 #[test]
-fn j28_lama_float_patch_has_no_8bit_step() {
+fn lama_float_patch_has_no_8bit_step() {
     let none = &|| Ok(());
     // A deep sky-like gradient (about six 8-bit levels across 400 px) under a soft hole.
     let truth = |x: usize, y: usize| -> [f32; 3] { [0.40 + 0.02 * x as f32 / 399.0, 0.55 + 0.01 * y as f32 / 299.0, 0.7] };
@@ -225,7 +225,7 @@ fn j28_lama_float_patch_has_no_8bit_step() {
         let frame = Frame::from_fn(w, h, |x, y| truth(x * 399 / (w - 1), y * 299 / (h - 1)));
         let mask = soft_mask(w as u32, h as u32, w as f32 / 2.0, h as f32 / 2.0, r);
         let new = identity.run_patch_frame(&frame, &mask, none, &|_, _| {}).unwrap();
-        let old = pre_j28::run(&frame.to_rgb8(), &mask, false, &identity_u8);
+        let old = previous::run(&frame.to_rgb8(), &mask, false, &identity_u8);
         let (mut e_new, mut e_old) = (0f32, 0f32);
         let mut levels_new = std::collections::BTreeSet::new();
         let mut levels_old = std::collections::BTreeSet::new();
@@ -244,7 +244,7 @@ fn j28_lama_float_patch_has_no_8bit_step() {
             levels_old.insert(b[0]);
         }
         eprintln!(
-            "j28 LaMa {w}x{h}: max error in 16-bit levels before {:.1}, after {:.2}; distinct red levels in the patch before {}, after {} (16-bit)",
+            "LaMa {w}x{h}: max error in 16-bit levels before {:.1}, after {:.2}; distinct red levels in the patch before {}, after {} (16-bit)",
             e_old * 65535.0,
             e_new * 65535.0,
             levels_old.len(),

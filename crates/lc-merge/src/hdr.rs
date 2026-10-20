@@ -490,11 +490,11 @@ fn dilate(p: &GrayFrame, r: usize) -> GrayFrame {
 }
 
 #[cfg(test)]
-mod j19_validation {
+mod validation {
     use super::*;
 
     #[test]
-    fn j19_hdr_rejects_empty_and_nonfinite_inputs() {
+    fn hdr_rejects_empty_and_nonfinite_inputs() {
         let f = Frame::from_linear_rec2020(RgbFrame::new(0, 0), Some(0.0));
         assert!(matches!(merge_hdr(vec![f.clone(), f], &HdrOptions::default(), &crate::no_progress), Err(MergeError::Mismatch(_))));
         let good = Frame::from_linear_rec2020(RgbFrame::from_fn(8, 8, |_, _| [0.2; 3]), Some(0.0));

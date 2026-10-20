@@ -324,10 +324,10 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j19_parity {
+mod parity {
     use super::*;
     #[test]
-    fn j19_layer_projection_scaling_semantics_parity() {
+    fn layer_projection_scaling_semantics_parity() {
         for projection in [Projection::Plane, Projection::Cylinder, Projection::Sphere] {
             let p = Placement {
                 projection,
@@ -347,7 +347,7 @@ mod j19_parity {
         }
     }
     #[test]
-    fn j19_mops_native_coordinate_and_pair_parity() {
+    fn mops_native_coordinate_and_pair_parity() {
         let (w, h) = (192, 128);
         let luma: Vec<_> = (0..w * h).map(|i| (((i % w / 8) * 37 + (i / w / 8) * 23 + (i % w / 13) * (i / w / 11) * 17) % 127) as f32 / 127.0).collect();
         let prepared = vec![(w, h, luma.clone(), None), (w, h, luma.clone(), None)];
@@ -371,10 +371,10 @@ mod j19_parity {
 }
 
 #[cfg(test)]
-mod j19_legacy_goldens {
+mod legacy_goldens {
     use super::*;
     #[test]
-    fn j19_layer_gain_seam_multiband_matches_legacy_numeric_goldens() {
+    fn layer_gain_seam_multiband_matches_legacy_numeric_goldens() {
         // Goldens harvested from the earlier, independently written implementation.
         let (w, h) = (16, 12);
         let px: Vec<f32> = (0..w * h).map(|i| 0.15 + (i % w) as f32 * 0.02 + (i / w) as f32 * 0.003).collect();
@@ -398,7 +398,7 @@ mod j19_legacy_goldens {
         assert_eq!(coverage, vec![1.0; w * h]);
     }
     #[test]
-    fn j19_layer_seam_does_not_split_moving_foreground() {
+    fn layer_seam_does_not_split_moving_foreground() {
         let (w, h) = (16, 12);
         let mut lum = vec![vec![0.5; w * h], vec![0.5; w * h]];
         for y in 0..h {
@@ -417,10 +417,10 @@ mod j19_legacy_goldens {
 }
 
 #[cfg(test)]
-mod j19_blender_models {
+mod blender_models {
     use super::*;
     #[test]
-    fn j19_shared_blender_preserves_odd_canvas_and_non_rgb_channels() {
+    fn shared_blender_preserves_odd_canvas_and_non_rgb_channels() {
         let (w, h, ch) = (17, 13, 2);
         let px = (0..w * h).flat_map(|_| [0.3, 0.8]).collect();
         let image = RoiImage { x0: 0, y0: 0, w, h, ch, px, alpha: vec![1.0; w * h] };
@@ -433,7 +433,7 @@ mod j19_blender_models {
         }
     }
     #[test]
-    fn j19_editor_roi_hole_fill_prevents_dark_blend_edges() {
+    fn editor_roi_hole_fill_prevents_dark_blend_edges() {
         let (w, h) = (31, 17);
         let imgs = [
             RoiImage { x0: -3, y0: -2, w: 18, h: 15, ch: 1, px: vec![0.4; 18 * 15], alpha: vec![1.0; 18 * 15] },

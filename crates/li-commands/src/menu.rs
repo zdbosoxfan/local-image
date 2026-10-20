@@ -578,7 +578,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_duplicate_command_presentations_keep_stable_positions() {
+    fn shared_menu_duplicate_command_presentations_keep_stable_positions() {
         let first = row("dialog.export", &["File"], Some("Cmd+E"));
         let second = MenuItem { label: "Custom…".into(), path: vec!["File".into(), "Presets".into()], shortcut: None, ..first.clone() };
         let mut bar = from_items(&["File"], &[first, second]);
@@ -599,7 +599,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_flat_tree_preserves_order_and_cleans_separators() {
+    fn shared_menu_flat_tree_preserves_order_and_cleans_separators() {
         let mut leading = row("separator", &["File"], None);
         leading.label = "---".into();
         let mut nested = leading.clone();
@@ -633,7 +633,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_mac_role_and_shortcut_golden() {
+    fn shared_menu_mac_role_and_shortcut_golden() {
         let source = tagged_bar();
         let layout = mac_layout(&source, str::to_string);
         assert_eq!(source.menus[0].children.len(), 3, "layout leaves its input unchanged");
@@ -664,7 +664,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_language_moves_after_settings_preserving_native_names() {
+    fn shared_menu_language_moves_after_settings_preserving_native_names() {
         let mut source = tagged_bar();
         let language = Node::Submenu {
             label: "Language".into(),
@@ -689,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_occupied_fallbacks_never_steal_accelerators() {
+    fn shared_menu_occupied_fallbacks_never_steal_accelerators() {
         let mut source = tagged_bar();
         source.menus[0].children.extend([
             Node::Item(Item { shortcut: Some("Ctrl+Cmd+H".into()), ..Item::new("other-hide", "Other hide") }),
@@ -707,7 +707,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_effective_role_shortcuts_preserve_unbound_and_custom() {
+    fn shared_menu_effective_role_shortcuts_preserve_unbound_and_custom() {
         let source = tagged_bar();
         let unbound = mac_layout_with_bindings(&source, str::to_string, []);
         assert_eq!(unbound.bar.find("settings").unwrap().shortcut, None);
@@ -736,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_hidden_effective_bindings_protect_system_and_fallback_keys() {
+    fn shared_menu_hidden_effective_bindings_protect_system_and_fallback_keys() {
         for occupy_fallbacks in [false, true] {
             let mut bindings = vec![
                 ("hidden-hide".into(), "Cmd+H".into()),
@@ -759,7 +759,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_full_bindings_remove_hide_others_collision() {
+    fn shared_menu_full_bindings_remove_hide_others_collision() {
         let mut source = tagged_bar();
         source.menus[0].children.push(Node::Item(Item { shortcut: Some("Cmd+Alt+H".into()), ..Item::new("custom-hide-others", "Custom action") }));
         let legacy = mac_layout(&source, str::to_string);
@@ -772,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_structure_identity_excludes_live_state() {
+    fn shared_menu_structure_identity_excludes_live_state() {
         let source = tagged_bar();
         let mut live = source.clone();
         if let Node::Item(item) = &mut live.menus[0].children[0] {
@@ -796,7 +796,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_menu_library_serialization_and_parameter_identity_golden() {
+    fn shared_menu_library_serialization_and_parameter_identity_golden() {
         let node = CommandMenuNode::Submenu {
             label: "Rating".into(),
             children: vec![

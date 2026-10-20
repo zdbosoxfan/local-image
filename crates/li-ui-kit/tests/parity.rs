@@ -112,7 +112,7 @@ fn font_snapshot(definitions: FontDefinitions) -> serde_json::Value {
 }
 
 #[test]
-fn j17_all_theme_and_font_goldens_match_previous_backends() {
+fn all_theme_and_font_goldens_match_previous_backends() {
     let golden: serde_json::Value = serde_json::from_str(include_str!("golden/previous_backends.json")).unwrap();
     for kind in theme::ThemeKind::ALL {
         let ctx = egui::Context::default();
@@ -150,7 +150,7 @@ fn previous_raster(bytes: &[u8], pixels: u32, interface: bool, colour: Color32, 
     image
 }
 #[test]
-fn j17_svg_pixels_match_every_replaced_icon_profile() {
+fn svg_pixels_match_every_replaced_icon_profile() {
     use li_ui_kit::{color_icons, icon_data, icons, library_icons, tool_icon_data, vector_icon_data};
     let interfaces = icon_data::ICONS.iter().copied().chain(library_icons::ALL.iter().map(|icon| ("library", library_icons::svg(*icon))));
     let tools = tool_icon_data::TOOL_ICONS.iter().copied().chain(vector_icon_data::ICONS.iter().map(|(_, name, bytes)| (*name, *bytes)));
@@ -179,10 +179,10 @@ fn j17_svg_pixels_match_every_replaced_icon_profile() {
             }
         }
     }
-    println!("J17 pixel parity: {cases} rasters, maximum RGBA difference 0; physical sizes 16/20/25/32/40/50/80");
+    println!("pixel parity: {cases} rasters, maximum RGBA difference 0; physical sizes 16/20/25/32/40/50/80");
 }
 #[test]
-fn j17_font_faces_share_original_storage_and_scaling_survives_install() {
+fn font_faces_share_original_storage_and_scaling_survives_install() {
     for profile in [fonts::Profile::Editor, fonts::Profile::Library] {
         let definitions = fonts::definitions(profile);
         for (name, bytes) in [
@@ -230,7 +230,7 @@ fn j17_font_faces_share_original_storage_and_scaling_survives_install() {
     assert!((lazy.tweak.scale - 1.2).abs() < 1e-6);
 }
 #[test]
-fn j17_theme_serialization_keeps_saved_names_and_defaults() {
+fn theme_serialization_keeps_saved_names_and_defaults() {
     for kind in theme::ThemeKind::ALL {
         let name = format!("\"{kind:?}\"");
         assert_eq!(serde_json::to_string(&kind).unwrap(), name);
@@ -240,7 +240,7 @@ fn j17_theme_serialization_keeps_saved_names_and_defaults() {
 }
 
 #[test]
-fn j17_registry_names_keep_previous_lookup_priority_and_white_geometry() {
+fn registry_names_keep_previous_lookup_priority_and_white_geometry() {
     use li_ui_kit::{icon_data, icons, mono_tool_icons, tool_icon_data, vector_icon_data};
     let ctx = egui::Context::default();
     let actual_bytes = |image: egui::Image<'static>| match image.source(&ctx) {

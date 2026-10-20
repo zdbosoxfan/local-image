@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn j22_proof_matches_shared_cms_presets_and_printer_exactly() {
+    fn proof_matches_shared_cms_presets_and_printer_exactly() {
         use photocraft_cms::{Builtin, Transform};
         let samples = [[0.0; 3], [0.18; 3], [1.0; 3], [0.8, 0.02, 0.04], [0.02, 0.8, 0.04], [0.01, 0.02, 0.9], [0.6, 0.3, 0.02]];
         let mut max_error = 0.0f32;
@@ -324,11 +324,11 @@ mod tests {
                 }
             }
         }
-        println!("J22 precise CMS parity: {count} samples, max device-channel error {max_error}");
+        println!("precise CMS parity: {count} samples, max device-channel error {max_error}");
     }
 
     #[test]
-    fn j22_proof_old_matrix_quality_comparison() {
+    fn proof_old_matrix_quality_comparison() {
         use photocraft_cms::{Builtin, Intent, Transform};
         let proof = Proof::default();
         let params = proof.params(OutputSpace::Srgb).unwrap();
@@ -362,11 +362,11 @@ mod tests {
             }
         }
         println!(
-            "J22 old matrix vs shared CMS reference: {count} chart patches, mean DeltaE76 {}, max {max_delta_e}; new exact-reference error 0",
+            "old matrix vs shared CMS reference: {count} chart patches, mean DeltaE76 {}, max {max_delta_e}; new exact-reference error 0",
             sum_delta_e / count as f32
         );
         println!(
-            "J22 64-patch scalar evaluation (not interactive): legacy matrix {} us; precise CMS {} us",
+            "64-patch scalar evaluation (not interactive): legacy matrix {} us; precise CMS {} us",
             old_time.as_secs_f64() * 1e6,
             cms_time.as_secs_f64() * 1e6
         );
@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn j22_proof_profiles_roundtrip_cache_and_keys() {
+    fn proof_profiles_roundtrip_cache_and_keys() {
         let old: Proof = serde_json::from_str(r#"{"space":"displayP3","destWarning":true}"#).unwrap();
         assert!(old.bpc && old.profile.is_none());
         let proof = Proof { profile: Some(custom(photocraft_cms::Builtin::CoatedCmyk)), ..old };
@@ -403,7 +403,7 @@ mod tests {
     }
 
     #[test]
-    fn j22_proof_incomplete_monitor_returns_error_without_substitution() {
+    fn proof_incomplete_monitor_returns_error_without_substitution() {
         use li_color::curve::Curve;
         use photocraft_cms::Builtin;
         use photocraft_cms::pipeline::Stage;
@@ -435,7 +435,7 @@ mod tests {
     }
 
     #[test]
-    fn j22_proof_warnings_match_shared_gamut_and_monitor() {
+    fn proof_warnings_match_shared_gamut_and_monitor() {
         use photocraft_cms::{Builtin, GamutCheck};
         let proof = Proof { space: OutputSpace::DisplayP3, dest_warning: true, display_warning: true, ..Default::default() };
         let p = proof.params(OutputSpace::Srgb).unwrap();

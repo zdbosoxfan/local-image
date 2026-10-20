@@ -974,11 +974,11 @@ mod overwrite_metadata_tests {
 }
 
 #[cfg(test)]
-mod j03_parity_tests {
+mod parity_tests {
     use super::*;
 
     #[test]
-    fn j03_psd_tiff_export_byte_goldens() {
+    fn psd_tiff_export_byte_goldens() {
         let mut doc = Document::new("Metadata parity", Size::new(3, 2), ColorMode::Rgb, SampleType::U8);
         let mut surface = Surface::new(doc.pixel_format());
         surface.write_region(

@@ -426,7 +426,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j20_tests {
+mod catalog_tests {
     use super::*;
 
     fn frame(app: &mut LightcraftApp, events: Vec<egui::Event>) -> egui::Context {
@@ -439,7 +439,7 @@ mod j20_tests {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
     }
     #[test]
-    fn j20_library_aliases_order_conflicts_and_modal_ownership() {
+    fn library_aliases_order_conflicts_and_modal_ownership() {
         let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         app.ui.right = crate::state::RightPanel::Edit;
         app.ui.view = crate::state::ViewMode::Detail;
@@ -470,7 +470,7 @@ mod j20_tests {
     }
 
     #[test]
-    fn j20_library_catalog_and_adapter_parity() {
+    fn library_catalog_and_adapter_parity() {
         let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         for parent in ["Lightroom", "Capture One"] {
             app.shortcut_overrides.insert("library::__profile".into(), parent.into());
@@ -487,7 +487,7 @@ mod j20_tests {
     }
 
     #[test]
-    fn j20_library_real_dispatch_sample() {
+    fn library_real_dispatch_sample() {
         let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
         app.ui.right = crate::state::RightPanel::Edit;
         app.ui.view = crate::state::ViewMode::Detail;
@@ -511,6 +511,6 @@ mod j20_tests {
             }
         }
         samples.sort();
-        eprintln!("J20 Library CPU key-event frame: median={:?}, min={:?}, max={:?}, n={}", samples[10], samples[0], samples[19], samples.len());
+        eprintln!("Library CPU key-event frame: median={:?}, min={:?}, max={:?}, n={}", samples[10], samples[0], samples[19], samples.len());
     }
 }

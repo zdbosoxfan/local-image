@@ -825,12 +825,12 @@ mod cr_float_recovery_tests {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[allow(clippy::unwrap_used)]
-mod j12_shared_tests {
+mod shared_tests {
     use super::*;
     use std::time::{Duration, Instant};
 
     #[test]
-    fn j12_window_handoff_render_parity_recovery_and_replacement() {
+    fn window_handoff_render_parity_recovery_and_replacement() {
         let _lock = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         assert!(shutdown(Duration::from_secs(120)));
         let shared = li_gpu::device::create_headless(wgpu::Backends::PRIMARY, false, li_gpu::DeviceHealth::new()).unwrap();
@@ -848,7 +848,7 @@ mod j12_shared_tests {
         assert_eq!(compute.device, shared.device, "Develop must use the window device");
         assert_eq!(compute.queue, shared.queue, "Develop must submit to the window queue");
         eprintln!(
-            "J12 shared adapter: {} ({:?}), storage buffers={}",
+            "shared adapter: {} ({:?}), storage buffers={}",
             compute.info.name,
             compute.info.backend,
             shared.device.limits().max_storage_buffers_per_shader_stage
@@ -886,7 +886,7 @@ mod j12_shared_tests {
         let expected = lightcraft_pipeline::render(&src, &info, &settings, &request);
         assert!(changed.image.data.iter().zip(&expected.image.data).all(|(a, b)| a[..3].iter().zip(&b[..3]).all(|(x, y)| x.abs_diff(*y) <= 3)));
         eprintln!(
-            "J12 production Develop 192x128: handoff delta=0; CPU mean={mean:.6} max={max} LSB; first cached render={initial_ms:.3} ms; exposure change={slider_ms:.3} ms"
+            "production Develop 192x128: handoff delta=0; CPU mean={mean:.6} max={max} LSB; first cached render={initial_ms:.3} ms; exposure change={slider_ms:.3} ms"
         );
         installed.health.operation_failed("test transient out of memory", 7);
         assert_eq!(installed.health.errors(), compute.health.errors());
@@ -915,7 +915,7 @@ mod j12_shared_tests {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn j12_failed_initialization_retries_after_backoff() {
+fn failed_initialization_retries_after_backoff() {
     let _lock = TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     assert!(shutdown(std::time::Duration::from_secs(120)));
     let health = li_gpu::DeviceHealth::new();

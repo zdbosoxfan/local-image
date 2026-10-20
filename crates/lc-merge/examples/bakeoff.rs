@@ -74,7 +74,7 @@ fn main() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn j10_float_dng_keeps_hdr_precision() -> Result<()> {
+    fn float_dng_keeps_hdr_precision() -> Result<()> {
         use lightcraft_merge::{DngSamples, write_linear_dng};
         let image = RgbFrame::from_fn(16, 8, |x, y| [2f32.powf(x as f32 - 10.0), y as f32 * 0.1234567, 0.000012345]);
         let f = Frame::from_linear_rec2020(image.clone(), Some(0.0));
@@ -93,7 +93,7 @@ mod tests {
     }
 
     #[test]
-    fn j10_lc_half_pixel_conjugation() {
+    fn lc_half_pixel_conjugation() {
         let h = Homography([1.1, -0.2, 7.0, 0.2, 1.1, -4.0, 0.0001, -0.0002, 1.0]);
         let to_centres = Homography([1.0, 0.0, 0.5, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0]);
         let to_indices = Homography([1.0, 0.0, -0.5, 0.0, 1.0, -0.5, 0.0, 0.0, 1.0]);

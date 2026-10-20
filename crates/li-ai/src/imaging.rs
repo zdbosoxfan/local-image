@@ -445,7 +445,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j01_shared_resize_cc0_cutout_preserves_colour_at_transparent_edges() {
+    fn shared_resize_cc0_cutout_preserves_colour_at_transparent_edges() {
         // Original synthetic cutout authored for this regression, dedicated to CC0-1.0.
         // The disc's visible colour is constant, so its exact composite at every alpha
         // is known. Hidden black deliberately reproduces the old dark-fringe failure.
@@ -570,11 +570,11 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j28_tests {
+mod poisson_tests {
     use super::*;
 
     /// The earlier 8-bit blend, verbatim: the golden reference for the adapter.
-    fn pre_j28_poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage) -> RgbImage {
+    fn previous_poisson_blend(original: &RgbImage, generated: &RgbImage, mask: &GrayImage) -> RgbImage {
         let (w, h) = original.dimensions();
         let inside = |x: u32, y: u32| mask.get_pixel(x, y)[0] > 0;
         let Some(b) = bbox(mask, 0) else { return original.clone() };
@@ -627,23 +627,23 @@ mod j28_tests {
     }
 
     #[test]
-    fn j28_poisson_u8_adapter_matches_the_pre_j28_blend() {
+    fn poisson_u8_adapter_matches_the_pre_j28_blend() {
         for (w, h) in [(48, 40), (160, 120), (6, 6)] {
             let (truth, generated, mask) = case(w, h);
             let original = truth.to_rgb8();
-            let old = pre_j28_poisson_blend(&original, &generated, &mask);
+            let old = previous_poisson_blend(&original, &generated, &mask);
             let new = poisson_blend(&original, &generated, &mask);
             let diff = old.as_raw().iter().zip(new.as_raw()).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
             assert!(diff <= 1, "{w}x{h}: max difference {diff}");
             let differing = old.as_raw().iter().zip(new.as_raw()).filter(|(a, b)| a != b).count();
-            eprintln!("j28 poisson {w}x{h}: adapter vs pre-J28 max {diff} level(s), {differing} of {} samples differ", old.as_raw().len());
+            eprintln!("poisson {w}x{h}: adapter vs the previous blend max {diff} level(s), {differing} of {} samples differ", old.as_raw().len());
         }
     }
 
     #[test]
-    fn j28_poisson_float_meets_the_unquantized_document() {
+    fn poisson_float_meets_the_unquantized_document() {
         let (truth, generated, mask) = case(160, 120);
-        let old = pre_j28_poisson_blend(&truth.to_rgb8(), &generated, &mask);
+        let old = previous_poisson_blend(&truth.to_rgb8(), &generated, &mask);
         let new = poisson_blend_frame(&truth, &RgbFrame::from_rgb8(&generated), &mask);
         // Seam: step between each selected edge pixel and its unselected neighbour, against the
         // document's own step there.
@@ -657,7 +657,7 @@ mod j28_tests {
                 }
             }
         }
-        eprintln!("j28 poisson seam vs 16-bit document: before {:.1}, after {:.1} 16-bit levels", seam_old * 65535.0, seam_new * 65535.0);
+        eprintln!("poisson seam vs 16-bit document: before {:.1}, after {:.1} 16-bit levels", seam_old * 65535.0, seam_new * 65535.0);
         assert!(seam_new < seam_old, "float blend must meet the document more closely ({seam_new} vs {seam_old})");
         for (i, m) in mask.as_raw().iter().enumerate() {
             if *m == 0 {

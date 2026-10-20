@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_slider_pointer_drag_clamps_and_commits_release() {
+    fn slider_pointer_drag_clamps_and_commits_release() {
         let ctx = egui::Context::default();
         let mut value = 50.0;
         let (track, _) = frame(&ctx, vec![], &mut value, false, true);
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_slider_shift_drag_retains_substep_motion_and_disabled_is_inert() {
+    fn slider_shift_drag_retains_substep_motion_and_disabled_is_inert() {
         let ctx = egui::Context::default();
         let mut value = 50.0;
         let (track, _) = frame(&ctx, vec![], &mut value, true, true);
@@ -323,7 +323,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_slider_scale_matches_develop_quantization_and_nudges() {
+    fn slider_scale_matches_develop_quantization_and_nudges() {
         for (min, max, step, unit) in [(-5.0, 5.0, 0.01, None), (-100.0, 100.0, 1.0, None), (2000.0, 50000.0, 1.0, Some(50.0))] {
             let scale = Scale { min, max, step: Some(step) };
             for value in [min, (min + max) / 2.0, max] {
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_slider_gradient_improves_sample_error_and_reduces_primitives() {
+    fn slider_gradient_improves_sample_error_and_reduces_primitives() {
         let track = Rect::from_min_size(Pos2::ZERO, vec2(200.0, 3.0));
         let mesh = gradient_mesh(track, &[Color32::BLACK, Color32::WHITE]);
         assert_eq!(mesh.vertices.len(), 4);
@@ -358,7 +358,7 @@ mod tests {
         assert_eq!(inherited_max, 5.0);
         assert_eq!(shared_max, 0.0);
         println!(
-            "J18 gradient: 97 edge/midpoint samples, maximum grayscale channel error {inherited_max} -> {shared_max}; Library gradient primitives 48 rectangles -> 1 mesh (2 triangles for two stops)"
+            "gradient: 97 edge/midpoint samples, maximum grayscale channel error {inherited_max} -> {shared_max}; Library gradient primitives 48 rectangles -> 1 mesh (2 triangles for two stops)"
         );
         for count in 2..=8 {
             let colors: Vec<_> = (0..count).map(|index| Color32::from_rgb(index as u8 * 30, 0, 0)).collect();

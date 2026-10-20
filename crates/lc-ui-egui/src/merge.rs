@@ -722,7 +722,7 @@ mod tests_batch {
     }
 
     #[test]
-    fn j19_hdr_batch_dialog_clicks_grouping_overlay_and_cancel_in_both_themes() {
+    fn hdr_batch_dialog_clicks_grouping_overlay_and_cancel_in_both_themes() {
         for dark in [true, false] {
             for panel_width in [250.0, 400.0] {
                 for pixel_ratio in [1.0, 1.5] {
@@ -787,7 +787,7 @@ mod tests_batch {
                     let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&rgba), &Default::default()).unwrap();
                     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system");
                     std::fs::create_dir_all(&dir).unwrap();
-                    std::fs::write(dir.join(format!("j19-hdr-batch-{}-{panel_width}-{pixel_ratio}.png", if dark { "dark" } else { "light" })), bytes)
+                    std::fs::write(dir.join(format!("hdr-batch-{}-{panel_width}-{pixel_ratio}.png", if dark { "dark" } else { "light" })), bytes)
                         .unwrap();
                 }
             }
@@ -795,7 +795,7 @@ mod tests_batch {
     }
 
     #[test]
-    fn j19_hdr_batch_old_dialog_settings_keep_single_merge_default() {
+    fn hdr_batch_old_dialog_settings_keep_single_merge_default() {
         let opts: MergeDialog = serde_json::from_value(json!({"command": "merge.hdr", "deghost": "high"})).unwrap();
         assert!(!opts.auto_brackets);
         assert!(opts.align);
@@ -803,7 +803,7 @@ mod tests_batch {
     }
 
     #[test]
-    fn j19_hdr_batch_poll_reports_partial_completion_and_rejects_old_library() {
+    fn hdr_batch_poll_reports_partial_completion_and_rejects_old_library() {
         let ctx = egui::Context::default();
         let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), crate::Services::default());
         let (task, tx) = batch_test_task();
@@ -826,9 +826,10 @@ mod tests_batch {
     }
 
     #[test]
-    fn j19_hdr_batch_rejected_prepared_files_are_removed_on_cancel_and_library_change() {
-        let dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/j19").join(format!("ui-prepared-cancel-{}", std::process::id()));
+    fn hdr_batch_rejected_prepared_files_are_removed_on_cancel_and_library_change() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/hdr-merge")
+            .join(format!("ui-prepared-cancel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         for changed_library in [false, true] {
             let mut app = LightcraftApp::new(lightcraft_engine::Session::new(), crate::Services::default());

@@ -270,10 +270,10 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j01_golden {
+mod golden {
     use super::*;
     #[test]
-    fn j01_resample_adapter_byte_goldens() {
+    fn resample_adapter_byte_goldens() {
         for (f, expected) in [
             Resample::Nearest,
             Resample::Bilinear,

@@ -94,7 +94,7 @@ fn shared_decode_heic_opens_in_library_and_matches_apple_reference() {
 #[cfg(feature = "jxl")]
 #[test]
 fn shared_decode_jxl_library_retains_color_alpha_precision_and_editor_agrees() {
-    let bytes = include_bytes!("../../pc-codecs/tests/fixtures/j06-jxl-conformance/alpha_premultiplied.jxl");
+    let bytes = include_bytes!("../../pc-codecs/tests/fixtures/jxl-conformance/alpha_premultiplied.jxl");
     let library = decode(bytes, DecodeOptions::default()).unwrap();
     let editor = photocraft_codecs::decode(bytes).unwrap();
     assert_eq!((library.width, library.height), editor.dimensions());

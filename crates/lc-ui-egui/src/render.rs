@@ -924,7 +924,7 @@ mod thumbnail_tests {
     }
 
     #[test]
-    fn j22_proof_monitor_pixels_skip_second_display_conversion() {
+    fn proof_monitor_pixels_skip_second_display_conversion() {
         let (mut app, _, _) = fixture();
         let mut color = photocraft_engine::color_cmds::ColorState::default();
         color.settings.monitor_profile = "display-p3".into();

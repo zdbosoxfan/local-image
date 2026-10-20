@@ -210,8 +210,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j11_settings_unknown_keys_durable_fault_and_shared_adapter_parity() {
-        let dir = std::env::temp_dir().join(format!("j11-settings-{}", uuid::Uuid::new_v4()));
+    fn settings_unknown_keys_durable_fault_and_shared_adapter_parity() {
+        let dir = std::env::temp_dir().join(format!("settings-{}", uuid::Uuid::new_v4()));
         let path = dir.join("nested/config.json");
         let original = AiSettings::from_value(serde_json::json!({"comfy_port":8190,"future":{"nested":[1,2]}}));
         let before = li_fs::syncs_on_this_thread();

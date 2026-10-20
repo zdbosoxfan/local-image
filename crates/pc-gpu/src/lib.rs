@@ -2410,7 +2410,7 @@ pub mod scaled_view;
 
 #[cfg(test)]
 #[test]
-fn j12_compositor_shared_shader_validates() -> Result<(), Box<dyn std::error::Error>> {
+fn compositor_shared_shader_validates() -> Result<(), Box<dyn std::error::Error>> {
     let source = shader_source();
     let module = wgpu::naga::front::wgsl::parse_str(source)?;
     wgpu::naga::valid::Validator::new(wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::empty()).validate(&module)?;

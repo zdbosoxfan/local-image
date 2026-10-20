@@ -199,7 +199,7 @@ pub fn release_window() {
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 #[test]
-fn j12_cpu_window_policy_does_not_create_private_compute_device() {
+fn cpu_window_policy_does_not_create_private_compute_device() {
     let _lock = crate::TEST_INIT_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     reserve_window_with_compute(false);
     assert!(!compute_allowed());

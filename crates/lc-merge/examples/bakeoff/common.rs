@@ -354,7 +354,7 @@ fn hdr_row<B: Backend>(name: &str, b: &Bracket, deghost: bool) -> Result<()> {
 
 pub fn run<B: Backend>(paths: &[String]) -> Result<()> {
     if paths.is_empty() || paths.len() > 4 {
-        return Err("pass 1..4 CC0 .hdr paths (e.g. target/j10/data/lebombo_1k.hdr target/j10/data/kiara_1_dawn_1k.hdr)".into());
+        return Err("pass 1..4 CC0 .hdr paths (e.g. target/hdr/lebombo_1k.hdr target/hdr/kiara_1_dawn_1k.hdr)".into());
     }
     println!(
         "registration,backend,source,case,w,h,features_a,features_b,matches,true_matches,precision,inliers,cells_4x4,residual_rms_px,truth_grid_rms_px,success,detect_ms,match_ms,fit_ms"
@@ -418,7 +418,7 @@ mod tests {
         v
     }
     #[test]
-    fn j10_rgbe_bounds_and_radiance() -> Result<()> {
+    fn rgbe_bounds_and_radiance() -> Result<()> {
         let v = rgbe();
         let p = decode(&v)?;
         assert_eq!((p.w, p.h), (8, 8));
@@ -433,7 +433,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn j10_wrong_consensus_cannot_pass() {
+    fn wrong_consensus_cannot_pass() {
         let p = Pair { w: 100, h: 100, a: vec![], b: vec![], truth: [1.0, 0.0, 7.25, 0.0, 1.0, -4.5, 0.0, 0.0, 1.0] };
         let matches = vec![([30.0, 30.0], [30.0, 30.0]), ([70.0, 70.0], [70.0, 70.0])];
         let r = Registration { matches, fit: Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]), inliers: vec![0, 1], ..Default::default() };
@@ -444,7 +444,7 @@ mod tests {
         assert!(match_quality(&p, &Registration::default()).grid.is_none());
     }
     #[test]
-    fn j10_subpixel_warp_and_hdr_reference() {
+    fn subpixel_warp_and_hdr_reference() {
         let image = Image { w: 128, h: 64, rgb: (0..128 * 64).map(|i| [(i % 128) as f32 / 128.0 + 0.01; 3]).collect() };
         let p = pair(&image, 7.25, -4.5, 0.0, 1.0, 1.0);
         let q = apply(&p.truth, [40.0, 20.0]);

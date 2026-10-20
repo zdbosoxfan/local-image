@@ -864,7 +864,7 @@ fn cancel_from_another_thread_ends_a_long_predict_promptly() {
 }
 
 #[test]
-fn j14_shared_matte_entrypoint_needs_no_model() {
+fn shared_matte_entrypoint_needs_no_model() {
     let mask = vec![0.2; 24];
     let params = li_matte::RefineParams::default();
     assert_eq!(li_matte::matting::refine_buffer(None, &mask, 6, 4, &params), mask);

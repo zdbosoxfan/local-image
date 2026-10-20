@@ -20,7 +20,7 @@ fn rendered(sw: usize, sh: usize, samples: DeepSamples) -> lightcraft_pipeline::
 /// Parity gate: Library export with a kernel gives the editor's Image Size result (same
 /// `li-raster` taps, same edge rule, same Preserve Details sharpening) for every choice.
 #[test]
-fn j27_library_kernel_resize_matches_editor_image_size() {
+fn library_kernel_resize_matches_editor_image_size() {
     use photocraft_doc::{ColorMode, PixelFormat, Rect, SampleType, Surface};
     let (sw, sh) = (61usize, 37usize);
     let src = pattern(sw, sh);
@@ -46,7 +46,7 @@ fn j27_library_kernel_resize_matches_editor_image_size() {
 /// 8-bit exports resize the 16-bit render (no 8-bit pre-quantisation) and drop `deep`; 16-bit
 /// exports keep it.
 #[test]
-fn j27_kernel_resize_depths() {
+fn kernel_resize_depths() {
     let (sw, sh) = (40usize, 30usize);
     let u16s: Vec<u16> = (0..sw * sh * 3).map(|i| [13107u16, 32768, 52428][i % 3]).collect();
     let mut r = rendered(sw, sh, DeepSamples::U16(u16s.clone()));
@@ -63,7 +63,7 @@ fn j27_kernel_resize_depths() {
 }
 
 #[test]
-fn j27_resample_param_round_trips_and_defaults_off() {
+fn resample_param_round_trips_and_defaults_off() {
     let d = ExportOptions::default();
     assert_eq!(d.resample, None);
     assert!(d.to_json().get("resample").is_none(), "default presets are unchanged");
@@ -78,7 +78,7 @@ fn j27_resample_param_round_trips_and_defaults_off() {
 /// End to end on a demo photo: a kernel export has the requested size and stays close to the
 /// renderer's own scaling (same develop, different resampler).
 #[test]
-fn j27_demo_export_with_kernel() {
+fn demo_export_with_kernel() {
     let mut session = crate::Session::with_demo();
     let id = session.catalog.photos().map(|p| p.id).next().expect("demo photo");
     let base = ExportOptions { format: ExportFormat::Png, resize: Some(Resize::long_edge(320)), ..Default::default() };
@@ -94,6 +94,6 @@ fn j27_demo_export_with_kernel() {
     let db = lightcraft_codecs::decode(&b.bytes, Default::default()).unwrap().to_srgb8();
     let n = (da.data.len() * 3) as f64;
     let mae: f64 = da.data.iter().zip(&db.data).map(|(p, q)| (0..3).map(|c| f64::from(p[c].abs_diff(q[c]))).sum::<f64>()).sum::<f64>() / n;
-    println!("j27 demo {}x{} (warm): renderer {renderer_ms:.1} ms, lanczos {kernel_ms:.1} ms, mean |diff| {mae:.3} levels", a.width, a.height);
+    println!("demo {}x{} (warm): renderer {renderer_ms:.1} ms, lanczos {kernel_ms:.1} ms, mean |diff| {mae:.3} levels", a.width, a.height);
     assert!(mae < 6.0, "same photo, different resampler: {mae}");
 }

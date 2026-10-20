@@ -33,7 +33,7 @@ fn enc(v: f32) -> f32 {
 }
 
 #[test]
-fn j26_lens_profile_is_develops_lensfun_query() {
+fn lens_profile_is_develops_lensfun_query() {
     let exif = camera_exif(6000, 4000, 1);
     let p = LensProfile::from_exif(&exif, 360, 240).expect("the bundled database knows the lens");
     // Develop's `lens_db::for_photo` query for a photo with this camera, lens and shot.
@@ -109,7 +109,7 @@ fn diff(a: &[[f32; 3]], b: &[[f32; 3]], w: usize, h: usize) -> (f32, f32) {
 }
 
 #[test]
-fn j26_lens_correction_matches_develops_render() {
+fn lens_correction_matches_develops_render() {
     let (w, h) = (360, 240);
     let frame = Rect::new(0, 0, w, h);
     let db = LensProfile::from_exif(&camera_exif(6000, 4000, 1), w as u32, h as u32).unwrap();
@@ -136,13 +136,13 @@ fn j26_lens_correction_matches_develops_render() {
     let lightcraft_pipeline::DeepSamples::F32(v) = out.samples else { panic!("float output") };
     let develop = v.as_chunks::<3>().0.to_vec();
     let (mean, worst) = diff(&rgb(&editor, frame), &develop, w as usize, h as usize);
-    eprintln!("J26 lens: editor vs Develop render: mean {:.3} max {:.3} levels/255; editor {editor_ms:.1} ms", mean * 255.0, worst * 255.0);
+    eprintln!("lens: editor vs Develop render: mean {:.3} max {:.3} levels/255; editor {editor_ms:.1} ms", mean * 255.0, worst * 255.0);
     assert!(mean < 0.75 / 255.0 && worst < 3.0 / 255.0, "editor vs Develop: mean {mean} max {worst}");
     // The old behaviour: "auto" on this EXIF used the editor's generic 24 mm-equivalent profile, for comparison.
     let generic = photocraft_algo::lens::LensCorrection { profile: Some(photocraft_algo::lens::generic_profile(24.0)), ..Default::default() };
     let old = photocraft_algo::lens::correct(&src, frame, &generic);
     let (old_mean, old_worst) = diff(&rgb(&old, frame), &develop, w as usize, h as usize);
-    eprintln!("J26 lens: old generic 'auto' vs Develop render: mean {:.3} max {:.3} levels/255", old_mean * 255.0, old_worst * 255.0);
+    eprintln!("lens: old generic 'auto' vs Develop render: mean {:.3} max {:.3} levels/255", old_mean * 255.0, old_worst * 255.0);
     assert!(old_mean > 4.0 * mean);
     // Every part can be switched off.
     let off = LensCorrection { correct_distortion: false, correct_ca: false, correct_vignette: false, ..Default::default() };
@@ -269,7 +269,7 @@ fn scenes() -> Vec<(&'static str, Scene, (f32, f32), f64)> {
 }
 
 #[test]
-fn j26_red_eye_through_develop_fixes_pupils_and_leaves_the_rest() {
+fn red_eye_through_develop_fixes_pupils_and_leaves_the_rest() {
     for (name, sc, click, radius) in scenes() {
         let before = paint(&sc);
         let t0 = std::time::Instant::now();
@@ -278,7 +278,7 @@ fn j26_red_eye_through_develop_fixes_pupils_and_leaves_the_rest() {
         let (red, lum, col_mean, col_max) = score(&sc, &before, &after);
         let (red0, lum0, ..) = score(&sc, &before, &before);
         eprintln!(
-            "J26 red eye {name}: pupil red {red0:.3}→{red:.3}, pupil level {lum0:.3}→{lum:.3}, outside change mean {col_mean:.4} max {col_max:.3}, {ms:.1} ms"
+            "red eye {name}: pupil red {red0:.3}→{red:.3}, pupil level {lum0:.3}→{lum:.3}, outside change mean {col_mean:.4} max {col_max:.3}, {ms:.1} ms"
         );
         assert!(red < 0.02, "{name}: red left {red}");
         assert!(lum < 0.2, "{name}: pupil not dark {lum}");
@@ -304,6 +304,6 @@ fn j26_red_eye_through_develop_fixes_pupils_and_leaves_the_rest() {
     let after = fix(&pet, (122.5, 81.5), 13.0, true).expect("pet eye glow found");
     let (_, lum, col_mean, _) = score(&pet, &before, &after);
     let (_, lum0, ..) = score(&pet, &before, &before);
-    eprintln!("J26 pet eye: pupil level {lum0:.3}→{lum:.3}, outside change mean {col_mean:.4}");
+    eprintln!("pet eye: pupil level {lum0:.3}→{lum:.3}, outside change mean {col_mean:.4}");
     assert!(lum < 0.2 && col_mean < 0.004, "pet: {lum} {col_mean}");
 }

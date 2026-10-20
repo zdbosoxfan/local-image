@@ -637,7 +637,7 @@ mod tests {
     /// Export As offers the shared kernel list; each choice exports exactly what Image Size gives
     /// with that `resample`, and no choice (old prefs, Quick Export) stays plain Bicubic.
     #[test]
-    fn j27_export_as_uses_the_chosen_shared_kernel() {
+    fn export_as_uses_the_chosen_shared_kernel() {
         let mut doc = Document::with_background(
             "x",
             photocraft_doc::Size::new(61, 37),

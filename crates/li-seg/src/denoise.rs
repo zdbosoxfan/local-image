@@ -470,7 +470,7 @@ pub fn shared(models_dir: &Path) -> Result<Denoiser> {
 mod tests {
 
     #[test]
-    fn j11_package_write_fault_keeps_old_model_and_cleans_staging() {
+    fn package_write_fault_keeps_old_model_and_cleans_staging() {
         let model = b"verified denoiser fixture";
         let zip = zip_of(&[("model.onnx", model, false)]);
         let leak = |s: String| -> &'static str { Box::leak(s.into_boxed_str()) };
@@ -481,7 +481,7 @@ mod tests {
             task: crate::Task::Denoise { inner: "model.onnx", inner_bytes: model.len() as u64, inner_sha256: leak(sha256_hex(model)), companion_inners: &[] },
             ..*crate::spec(DENOISE_ID).unwrap()
         };
-        let dir = std::env::temp_dir().join(format!("j11-denoise-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("denoise-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let pkg = dir.join("package.dtmodel");
         let dest = dir.join("model.onnx");

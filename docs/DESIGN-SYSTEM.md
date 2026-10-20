@@ -56,7 +56,7 @@ Source: PhotoCraft's `ui-design.md` (Themes, Rules) for the editor; LightCraft's
 view for existing struct literals, with lossless conversion and no independent palette values.
 Both style applicators live in the kit. The host's `library_palette` delegates to
 `lc-ui-egui::theme::host_palette`, which calls the kit's Library profile and contrast mapping.
-Continue using your UI crate's facade while widgets migrate in J18.
+Continue using your UI crate's facade while widgets migrate to the shared backend.
 
 **Themes.** `ThemeKind` (`pc theme.rs:17`): `Pro` (darkest), `ProMedium` (default, Photoshop mid-grey),
 `Studio`, `StudioLight`, `Classic` (bevelled, square). `Tokens::dark()` (`:328`) tells dark from light.
@@ -91,7 +91,7 @@ never `FontId::new(..)` by hand. Preferences > Interface > UI Font Size scales e
 **Add a token.** Add common/editor roles to `li-ui-kit::theme::Tokens` and its theme constructors.
 Library-only roles belong in `LibraryRoles`, layout in `Metrics`; update the shared Library profile
 mapping and the flattened compatibility conversions when a Library role is exposed to old callers.
-Use the role and check contrast in light and dark. The kit's frozen pre-J17 goldens guard every
+Use the role and check contrast in light and dark. The kit's frozen pre-merge goldens guard every
 existing value, style and font metric. Do not add a token for a one-off; first try an existing role.
 Debug builds still support `PHOTOCRAFT_THEME_FILE` through the editor facade.
 
@@ -183,7 +183,7 @@ Library also provides `checkbox(ui, id, value, label)`, `choice(ui, id, value, o
 proof-sheet dialogs use these shared controls. They inherit the active light/dark theme, expose
 accessible labels, register automation IDs, and text fields adapt to the available width. Fields with an action stack the button below at narrow widths.
 
-### Shared widget backend (J18)
+### Shared widget backend
 
 `li-ui-kit::widgets` owns the paired icon action, colour tile/swatch, choice shell, selection/tab,
 separator, heading, text button and checkbox controls, plus the automation registry and disabled
@@ -211,7 +211,7 @@ persistent Details / History. History never enters saved settings and dismissal 
 
 ## 4. Icons
 
-J17 backend: `li-ui-kit::icons` interns the existing registries by SVG content, prepares white SVGs
+Backend: `li-ui-kit::icons` interns the existing registries by SVG content, prepares white SVGs
 lazily, rasterizes through the existing egui_extras/resvg implementation, and shares one per-context
 texture cache across image widgets, Library painters and colour tools. The normal resident limits
 are 1024 entries and 8 MiB; textures used in the current frame remain alive until they can be retired.

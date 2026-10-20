@@ -493,11 +493,11 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j04_tests {
+mod detail_settings_tests {
     use super::*;
 
     #[test]
-    fn j04_full_settings_identity_and_profile_display_are_preserved() {
+    fn full_settings_identity_and_profile_display_are_preserved() {
         let area = PixelRect::new(0, 0, 16, 12);
         let mut source = Surface::new(photocraft_color::PixelFormat::RGBA32F);
         source.write_region(area, &[0.7, 0.2, 0.1, 0.75].repeat(16 * 12));

@@ -118,7 +118,7 @@ fn shapes(old: bool, profile: Profile, kind: theme::ThemeKind, width: f32) -> St
     out
 }
 #[test]
-fn j18_widget_frozen_painters_match_all_themes_and_widths() {
+fn widget_frozen_painters_match_all_themes_and_widths() {
     for kind in theme::ThemeKind::ALL {
         for width in [180.0, 270.0] {
             for profile in [Profile::Editor, Profile::Library] {
@@ -129,7 +129,7 @@ fn j18_widget_frozen_painters_match_all_themes_and_widths() {
 }
 
 #[test]
-fn j18_widget_checkbox_selection_and_menu_receive_real_clicks() {
+fn widget_checkbox_selection_and_menu_receive_real_clicks() {
     for profile in [Profile::Editor, Profile::Library] {
         let ctx = egui::Context::default();
         ctx.set_fonts(fonts::definitions(fonts::Profile::Editor));
@@ -185,7 +185,7 @@ fn j18_widget_checkbox_selection_and_menu_receive_real_clicks() {
 }
 
 #[test]
-fn j18_widget_header_enable_and_alpha_swatch_receive_real_clicks() {
+fn widget_header_enable_and_alpha_swatch_receive_real_clicks() {
     for kind in [theme::ThemeKind::ProMedium, theme::ThemeKind::StudioLight] {
         for width in [180.0, 270.0] {
             let ctx = egui::Context::default();

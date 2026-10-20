@@ -1,6 +1,6 @@
 # French (fr) Library & Develop catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
 # (the format of ../editor/ja.tsv; every entry here is a plain string, so `context` is empty).
-# Converted unchanged from lc-ui-egui/locales/fr.json when the two engines were merged (J29).
+# Converted unchanged from lc-ui-egui/locales/fr.json when the two engines were merged.
 
 	(no folder)	(aucun dossier)
 	(or the next free name), added to the library and stacked on top of the original.	(ou le prochain nom libre), ajouté à la bibliothèque et empilé au-dessus de l’original.

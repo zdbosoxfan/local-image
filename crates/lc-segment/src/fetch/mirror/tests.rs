@@ -163,7 +163,7 @@ fn only(dir: &Path, names: &[&str]) {
 }
 
 #[test]
-fn j08_falls_back_to_the_next_mirror_and_verifies() {
+fn falls_back_to_the_next_mirror_and_verifies() {
     let srv = server();
     let dir = tmp("fallback");
     let mirrors = vec![
@@ -187,7 +187,7 @@ fn j08_falls_back_to_the_next_mirror_and_verifies() {
 }
 
 #[test]
-fn j08_a_hash_mismatch_is_deleted_and_the_next_mirror_used() {
+fn a_hash_mismatch_is_deleted_and_the_next_mirror_used() {
     let srv = server();
     let dir = tmp("hash");
     let (r, _) = run(&[pinned()], &[format!("{}/wrong", srv.base)], &dir, &AtomicBool::new(false));
@@ -200,7 +200,7 @@ fn j08_a_hash_mismatch_is_deleted_and_the_next_mirror_used() {
 }
 
 #[test]
-fn j08_damaged_files_are_replaced() {
+fn damaged_files_are_replaced() {
     let srv = server();
     let dir = tmp("stale");
     std::fs::create_dir_all(&dir).unwrap();
@@ -213,7 +213,7 @@ fn j08_damaged_files_are_replaced() {
 }
 
 #[test]
-fn j08_chunked_bodies_and_unpinned_files() {
+fn chunked_bodies_and_unpinned_files() {
     let srv = server();
     let dir = tmp("chunked");
     run(&[pinned()], &[format!("{}/chunked", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap();
@@ -234,7 +234,7 @@ fn j08_chunked_bodies_and_unpinned_files() {
 }
 
 #[test]
-fn j08_a_server_sending_too_much_is_cut_off() {
+fn a_server_sending_too_much_is_cut_off() {
     let srv = server();
     let dir = tmp("toolong");
     let e = run(&[pinned()], &[format!("{}/toolong", srv.base)], &dir, &AtomicBool::new(false)).0.unwrap_err().to_string();
@@ -244,7 +244,7 @@ fn j08_a_server_sending_too_much_is_cut_off() {
 }
 
 #[test]
-fn j08_a_host_off_the_allow_list_is_refused() {
+fn a_host_off_the_allow_list_is_refused() {
     let dir = tmp("allow");
     let e = run(&[pinned()], &["https://mirror.invalid/sam3".to_string()], &dir, &AtomicBool::new(false)).0.unwrap_err().to_string();
     assert!(e.contains("unexpected host"), "{e}");
@@ -253,7 +253,7 @@ fn j08_a_host_off_the_allow_list_is_refused() {
 }
 
 #[test]
-fn j08_cancel_stops_quickly_and_leaves_nothing() {
+fn cancel_stops_quickly_and_leaves_nothing() {
     let srv = server();
     let dir = tmp("cancel");
     let cancel = Arc::new(AtomicBool::new(false));
@@ -274,7 +274,7 @@ fn j08_cancel_stops_quickly_and_leaves_nothing() {
 }
 
 #[test]
-fn j08_no_mirrors_is_a_clear_error_and_mirror_lists_are_parsed() {
+fn no_mirrors_is_a_clear_error_and_mirror_lists_are_parsed() {
     let dir = tmp("nomirror");
     let e = run(&[pinned()], &[], &dir, &AtomicBool::new(false)).0.unwrap_err();
     assert_eq!(e, DownloadError::NoMirrors);
@@ -294,7 +294,7 @@ fn j08_no_mirrors_is_a_clear_error_and_mirror_lists_are_parsed() {
 /// Upstream LightCraft 4b57d5d: a bearer token goes only to https and only when the caller names
 /// its variable (li-ai keeps it to the first host, never a redirect's).
 #[test]
-fn j08_a_token_is_sent_only_over_https() {
+fn a_token_is_sent_only_over_https() {
     assert_eq!(bearer(Some(" hf_abc \n"), "https://huggingface.co/x/model.bin"), Some("hf_abc"));
     assert_eq!(bearer(Some("hf_abc"), "http://huggingface.co/x"), None);
     assert_eq!(bearer(None, "https://huggingface.co/x"), None);

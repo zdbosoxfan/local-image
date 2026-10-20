@@ -31,7 +31,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_widget_screens_and_clipping_keyboard_parity() {
+    fn histogram_widget_screens_and_clipping_keyboard_parity() {
         let channels: [[u64; 256]; 3] = std::array::from_fn(|c| {
             std::array::from_fn(|i| {
                 let center = [85.0, 130.0, 180.0][c];
@@ -40,7 +40,7 @@ mod tests {
             })
         });
         let h = RgbHistogram { channels, luma: channels[1], samples: 100_000, ..Default::default() };
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/j18-histogram");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/histogram");
         std::fs::create_dir_all(&dir).unwrap();
         for kind in [ThemeKind::ProMedium, ThemeKind::StudioLight] {
             for width in [250.0, 400.0] {
@@ -76,10 +76,10 @@ mod tests {
         }
     }
     #[test]
-    fn j18_histogram_cpu_pixels_match_frozen_profiles() {
+    fn histogram_cpu_pixels_match_frozen_profiles() {
         let channels: [[u32; 256]; 3] = std::array::from_fn(|c| std::array::from_fn(|i| ((i * (c + 1) * 73 + c * 37) % 101) as u32));
         let wide = channels.map(|c| c.map(u64::from));
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/j18-histogram");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/histogram");
         std::fs::create_dir_all(&dir).unwrap();
         let mut checked_pixels = 0usize;
         for kind in [ThemeKind::ProMedium, ThemeKind::StudioLight] {

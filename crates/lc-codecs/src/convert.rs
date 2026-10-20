@@ -449,7 +449,7 @@ mod alpha_tests {
         Raw { width: buf.len() / (model.channels() + 1), height: 1, model, alpha: true, premultiplied: associated, buf, bit_depth: 32 }
     }
     #[test]
-    fn j6_limits_preserve_explicit_large_capture_budget_without_allocating_pixels() {
+    fn limits_preserve_explicit_large_capture_budget_without_allocating_pixels() {
         use photocraft_codecs::{ChannelLayout, SampleType};
         let options = DecodeOptions { max_pixels: 100_000_000, ..Default::default() };
         let limits = shared_limits(&options);

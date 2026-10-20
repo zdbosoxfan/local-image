@@ -207,7 +207,7 @@ mod tests {
         assert_eq!(alloc_zeroed(3).unwrap(), vec![0, 0, 0]);
     }
     #[test]
-    fn j03_shared_metadata_helpers_read_and_reset_orientation() {
+    fn shared_metadata_helpers_read_and_reset_orientation() {
         for value in 1..=8 {
             let exif = lightcraft_tiff::exif::minimal_exif(value);
             assert_eq!(lightcraft_tiff::exif::orientation(&exif), value);

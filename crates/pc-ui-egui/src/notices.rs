@@ -236,7 +236,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_editor_notice_shared_history_clicks_keep_file_warnings() {
+    fn editor_notice_shared_history_clicks_keep_file_warnings() {
         use egui_kittest::{Harness, kittest::Queryable};
         for kind in [crate::theme::ThemeKind::Pro, crate::theme::ThemeKind::StudioLight] {
             for width in [760.0, 1440.0] {

@@ -76,7 +76,7 @@ fn hashes_are_stable_and_distinct() {
 /// published test vectors), and streaming and parsing agree with the one-shot form. The SipHash
 /// cache key of the same bytes is unchanged (cache file names are derived from it).
 #[test]
-fn j24_content_identity_is_blake3() {
+fn content_identity_is_blake3() {
     // BLAKE3 reference vectors (empty input, "abc")
     assert_eq!(ContentId::of(b"").to_string(), "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262");
     assert_eq!(ContentId::of(b"abc").to_string(), "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85");

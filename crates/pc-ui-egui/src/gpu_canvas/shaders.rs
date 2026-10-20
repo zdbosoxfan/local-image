@@ -77,7 +77,7 @@ fn fs_shadow(in: VOut) -> @location(0) vec4<f32> {
     return vec4(0.0, 0.0, 0.0, a);
 }
 
-// --- document tiles ------------------------------------------------------------------------
+// Document tiles
 
 @vertex
 fn vs_tile(@builtin(vertex_index) vi: u32) -> VOut {

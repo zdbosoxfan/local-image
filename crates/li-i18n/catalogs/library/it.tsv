@@ -1,6 +1,6 @@
 # Italian (it) Library & Develop catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
 # (the format of ../editor/ja.tsv; every entry here is a plain string, so `context` is empty).
-# Converted unchanged from lc-ui-egui/locales/it.json when the two engines were merged (J29).
+# Converted unchanged from lc-ui-egui/locales/it.json when the two engines were merged.
 
 	(no folder)	(nessuna cartella)
 	(or the next free name), added to the library and stacked on top of the original.	(o il successivo nome libero), aggiunto alla libreria e impilato sopra l'originale.

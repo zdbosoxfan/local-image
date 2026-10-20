@@ -1600,8 +1600,8 @@ mod battery_executor_tests {
 
 #[cfg(test)]
 #[test]
-fn j11_custom_inventory_parity_write_fault_and_cleanup() {
-    let dir = std::env::temp_dir().join(format!("j11-custom-inventory-{}", std::process::id()));
+fn custom_inventory_parity_write_fault_and_cleanup() {
+    let dir = std::env::temp_dir().join(format!("custom-inventory-{}", std::process::id()));
     let model = Custom { group: Group::Subject, file: "fixture.onnx".into(), name: "Fixture".into(), size: 32, norm: Norm::IsNet, classes: 1, class: 0 };
     write_customs(&dir, &[model]).unwrap();
     let path = custom_list(&dir);

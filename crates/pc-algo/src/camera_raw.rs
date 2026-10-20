@@ -276,10 +276,10 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j04_tests {
+mod descriptor_tests {
     use super::*;
     #[test]
-    fn j04_descriptor_defaults_and_legacy_metadata_still_load() {
+    fn descriptor_defaults_and_legacy_metadata_still_load() {
         let value = serde_json::json!({"exposure":0.5,"pixelScale":0.25,"seed":42,"__acrDescriptor":{"old":true}});
         let descriptor: CameraRaw = serde_json::from_value(value).unwrap();
         assert_eq!(descriptor.exposure, 0.5);

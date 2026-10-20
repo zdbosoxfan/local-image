@@ -1,6 +1,6 @@
 # Korean (ko) Library & Develop format strings (`tr_format!`, Rust `format!` syntax). Columns, separated by a TAB:  context <TAB> source <TAB> translation
 # (the format of ../editor/ja.tsv; every entry here is a plain string, so `context` is empty).
-# Converted unchanged from lc-ui-egui/locales/ko-formats.json when the two engines were merged (J29).
+# Converted unchanged from lc-ui-egui/locales/ko-formats.json when the two engines were merged.
 
 	 ({} in Recently Deleted)	 (최근 삭제된 항목 {}개)
 	 · {skipped} skipped (file exists)	 · {skipped}개 건너뜀(파일이 이미 있음)

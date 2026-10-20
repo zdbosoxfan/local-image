@@ -681,7 +681,7 @@ mod tests {
     /// sources, brushed strokes and image edges. Heal/Remove have patch parity and a
     /// measured quality gate below instead of requiring frequency-separation pixels.
     #[test]
-    fn j13_clone_matches_reference_bit_exactly() {
+    fn clone_matches_reference_bit_exactly() {
         let (w, h) = (640usize, 420usize);
         let frame = Frame::new(w, h, &DevelopSettings::default(), true);
         let ppl = frame.px_per_long(w);
@@ -706,7 +706,7 @@ mod tests {
     }
 
     #[test]
-    fn j13_patch_backend_is_bit_exact_with_previous_local_heal() {
+    fn patch_backend_is_bit_exact_with_previous_local_heal() {
         let (w, h) = (48, 40);
         let pixels = synthetic(w, h).data;
         let cov: Vec<_> = (0..w * h).map(|i| if (i % w).abs_diff(24) < 4 && (i / w).abs_diff(20) < 4 { 1.0 } else { 0.0 }).collect();
@@ -716,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn j13_poisson_source_quality_beats_frequency_separation() {
+    fn poisson_source_quality_beats_frequency_separation() {
         let (w, h) = (96, 80);
         let truth = RgbFrame::from_fn(w, h, |x, y| {
             let tone = 0.1 + 0.003 * x as f32 + 0.002 * y as f32;
@@ -746,7 +746,7 @@ mod tests {
         let start = std::time::Instant::now();
         apply(&mut new, std::slice::from_ref(&sp), &frame, frame.px_per_long(w));
         let new_ms = start.elapsed().as_secs_f64() * 1000.0;
-        eprintln!("J13 single small source-heal CPU sample: previous {old_ms:.3} ms, shared Poisson {new_ms:.3} ms");
+        eprintln!("single small source-heal CPU sample: previous {old_ms:.3} ms, shared Poisson {new_ms:.3} ms");
         let rmse = |img: &RgbFrame| {
             let error: f32 = (32..48)
                 .flat_map(|y| (40..56).map(move |x| (x, y)))
@@ -755,7 +755,7 @@ mod tests {
             (error / (16 * 16 * 3) as f32).sqrt()
         };
         let (before, after) = (rmse(&old), rmse(&new));
-        eprintln!("J13 source-heal linear RGB RMSE: frequency separation {before:.8}, Poisson {after:.8}");
+        eprintln!("source-heal linear RGB RMSE: frequency separation {before:.8}, Poisson {after:.8}");
         assert!(after < before, "measured quality must improve: {before} -> {after}");
         assert_eq!(new.get(2, 2), damaged.get(2, 2));
         let mut remove = sp.clone();
@@ -766,7 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn j13_legacy_feather_opacity_and_zero_opacity_are_preserved() {
+    fn legacy_feather_opacity_and_zero_opacity_are_preserved() {
         let (w, h) = (48, 40);
         let base = synthetic(w, h);
         let frame = Frame::new(w, h, &DevelopSettings::default(), true);
@@ -799,7 +799,7 @@ mod tests {
     }
 
     #[test]
-    fn j13_patch_backend_cancellation_empty_and_edge_masks() {
+    fn patch_backend_cancellation_empty_and_edge_masks() {
         use lightcraft_sysmem::jobs::Interrupt;
         let pixels = vec![[0.2; 3]; 24 * 24];
         let mut cov = vec![0.0; 24 * 24];
@@ -813,7 +813,7 @@ mod tests {
         assert!(heal_patch(&pixels, 24, 24, &cov, 1, &Interrupt::cancel_only(&|| true)).is_err());
     }
     #[test]
-    fn j13_patch_feather_alpha_keeps_soft_coverage() {
+    fn patch_feather_alpha_keeps_soft_coverage() {
         let pixels = synthetic(24, 24).data;
         let mut cov = vec![0.0; 24 * 24];
         for y in 10..14 {

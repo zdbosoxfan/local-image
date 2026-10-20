@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_brackets_split_ev_cycles_time_and_scene() {
+    fn brackets_split_ev_cycles_time_and_scene() {
         let p = vec![
             probe(0.0, 0.0, true),
             probe(-2.0, 1.0, true),
@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_brackets_reject_unknown_flat_irregular_and_invalid_options() {
+    fn brackets_reject_unknown_flat_irregular_and_invalid_options() {
         let mut p = vec![probe(0.0, 0.0, true), probe(1.0, 1.0, true), probe(4.0, 2.0, true)];
         assert!(detect_groups(&p, &BracketOptions::default()).is_empty());
         p[1].capture_seconds = None;
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_brackets_sort_capture_order_and_keep_indices() {
+    fn brackets_sort_capture_order_and_keep_indices() {
         let p = vec![probe(2.0, 2.0, true), probe(-2.0, 0.0, true), probe(0.0, 1.0, true)];
         assert_eq!(detect_groups(&p, &BracketOptions::default()), vec![vec![1, 2, 0]]);
     }

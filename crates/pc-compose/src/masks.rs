@@ -290,7 +290,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j01_d2_compositing_half_pixel_feather_blurs() {
+fn d2_compositing_half_pixel_feather_blurs() {
     let mut mask = vec![0.0; 81];
     mask[40] = 1.0;
     gaussian(&mut mask, 9, 9, 0.5);

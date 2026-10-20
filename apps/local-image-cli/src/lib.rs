@@ -737,8 +737,8 @@ mod tests {
     /// The Library is reachable from the CLI — import into a library folder, develop, export
     /// and snapshot, by file and by id.
     #[test]
-    fn j05_library_subcommands_import_develop_export_snapshot() {
-        let base = std::env::temp_dir().join(format!("j05-cli-library-{}", std::process::id()));
+    fn library_subcommands_import_develop_export_snapshot() {
+        let base = std::env::temp_dir().join(format!("cli-library-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         std::fs::create_dir_all(base.join("card")).unwrap();
         photo(&base.join("card/a.png"), 100);

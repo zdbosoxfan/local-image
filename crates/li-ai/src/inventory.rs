@@ -489,7 +489,7 @@ fn publish_member(staged: &Path, dest: &Path, file: &crate::catalog::FileSpec) -
 }
 
 #[cfg(test)]
-mod j15_tests {
+mod package_tests {
     use super::*;
     use crate::comfy::JobControl;
     use std::cell::{Cell, RefCell};
@@ -497,7 +497,7 @@ mod j15_tests {
     struct Fixture(PathBuf);
     impl Fixture {
         fn new() -> Self {
-            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/j15-fixtures").join(uuid::Uuid::new_v4().to_string());
+            let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/fixtures").join(uuid::Uuid::new_v4().to_string());
             std::fs::create_dir_all(dir.join("segmentation")).unwrap();
             Self(dir)
         }
@@ -539,7 +539,7 @@ mod j15_tests {
     /// Migrated from the UI retry test, now using real pins and proving failed repairs retain
     /// the old file. Complete members are retained; successful repair still replaces invalid ones.
     #[test]
-    fn j15_bundle_retry_preserves_verified_members_and_repairs_after_fetch() {
+    fn bundle_retry_preserves_verified_members_and_repairs_after_fetch() {
         let dir = Fixture::new();
         let spec = bundle();
         std::fs::write(li_seg::model_path(&dir.0, &spec), b"x").unwrap();
@@ -579,7 +579,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_cancellation_after_fetch_never_publishes_or_deletes_old_members() {
+    fn cancellation_after_fetch_never_publishes_or_deletes_old_members() {
         let dir = Fixture::new();
         let spec = bundle();
         let dest = li_seg::model_path(&dir.0, &spec);
@@ -597,7 +597,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_invalid_descriptors_fail_before_filesystem_or_fetch() {
+    fn invalid_descriptors_fail_before_filesystem_or_fetch() {
         let dir = Fixture::new();
         let spec = bundle();
         for bad in [
@@ -611,7 +611,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_real_downloader_retains_completed_member_and_rejects_bad_companion() {
+    fn real_downloader_retains_completed_member_and_rejects_bad_companion() {
         let dir = Fixture::new();
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let host = server.server_addr().to_string();
@@ -676,7 +676,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_denoise_archive_and_member_pins_install_once_with_complete_cleanup() {
+    fn denoise_archive_and_member_pins_install_once_with_complete_cleanup() {
         let dir = Fixture::new();
         let zip = zip_of(&[("pkg/main.onnx", b"x"), ("pkg/text.onnx", b"xx")]);
         let spec = li_seg::ModelSpec {
@@ -722,7 +722,7 @@ mod j15_tests {
             assert_eq!(std::fs::read(li_seg::companion_path(&legacy.0, file.file)).unwrap(), std::fs::read(li_seg::companion_path(&dir.0, file.file)).unwrap());
         }
         eprintln!(
-            "J15 small package sample: {} bytes, initial+retry fetches {} -> {}, transferred bytes {} -> {}",
+            "small package sample: {} bytes, initial+retry fetches {} -> {}, transferred bytes {} -> {}",
             zip.len(),
             legacy_calls.get(),
             calls.get(),
@@ -747,7 +747,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_failed_publication_preserves_old_bytes_and_successful_repair_is_atomic() {
+    fn failed_publication_preserves_old_bytes_and_successful_repair_is_atomic() {
         let dir = Fixture::new();
         let spec = bundle();
         let file = &crate::catalog::OnDeviceFiles::from_spec(&spec).installed[0];
@@ -766,7 +766,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_overlapping_installs_isolate_staging_and_keep_matching_publication() {
+    fn overlapping_installs_isolate_staging_and_keep_matching_publication() {
         let dir = Fixture::new();
         let spec = li_seg::ModelSpec { companions: &[], ..bundle() };
         let ctl = JobControl::new();
@@ -789,7 +789,7 @@ mod j15_tests {
     }
 
     #[test]
-    fn j15_archive_cancel_after_fetch_cleans_up_without_installing() {
+    fn archive_cancel_after_fetch_cleans_up_without_installing() {
         let dir = Fixture::new();
         let spec = li_seg::Group::RawDenoise.official();
         let ctl = JobControl::new();

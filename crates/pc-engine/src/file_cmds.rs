@@ -1246,10 +1246,10 @@ mod file_worker_regressions {
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod j6_extension_tests {
+mod extension_tests {
     #[test]
-    fn j6_engine_folder_expansion_uses_shared_registry() -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let dir = std::env::temp_dir().join(format!("j6-engine-extension-registry-{}", std::process::id()));
+    fn engine_folder_expansion_uses_shared_registry() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let dir = std::env::temp_dir().join(format!("engine-extension-registry-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         for name in ["a.CRW", "b.QOI", "c.PSB", "d.pcraft", "unsupported.avif", "notes.txt"] {
             std::fs::write(dir.join(name), [])?;
@@ -1265,11 +1265,11 @@ mod j6_extension_tests {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod j03_tests {
+mod file_info_tests {
     use super::*;
 
     #[test]
-    fn j03_file_info_quality_sample() {
+    fn file_info_quality_sample() {
         let samples = [
             (
                 r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:dc="http://purl.org/dc/elements/1.1/"><rdf:Description><dc:title>Simple</dc:title></rdf:Description></rdf:RDF>"#,
@@ -1303,12 +1303,12 @@ mod j03_tests {
             ),
         ];
         let correct = samples.iter().filter(|(packet, key, want)| read_file_info(Some(packet)).get(key).and_then(Value::as_str) == Some(*want)).count();
-        println!("J03 File Info quality: {correct}/{} fields correct", samples.len());
+        println!("File Info quality: {correct}/{} fields correct", samples.len());
         assert_eq!(correct, samples.len());
     }
 
     #[test]
-    fn j03_file_info_command_sample() {
+    fn file_info_command_sample() {
         let mut session = Session::new();
         let doc = photocraft_doc::Document::new("Sample", photocraft_geom::Size::new(1, 1), ColorMode::Rgb, photocraft_color::SampleType::U8);
         session.add_document(doc, None);
@@ -1318,15 +1318,15 @@ mod j03_tests {
         for _ in 0..100 {
             assert_eq!(session.execute("file.fileInfo", json!({})).unwrap(), sample);
         }
-        println!("J03 File Info command read: {:.2} us/call (100 calls)", start.elapsed().as_secs_f64() * 1e4);
+        println!("File Info command read: {:.2} us/call (100 calls)", start.elapsed().as_secs_f64() * 1e4);
         let start = std::time::Instant::now();
         for i in 0..20 {
             session.execute("file.fileInfo", json!({"title":format!("Title {i}")})).unwrap();
         }
-        println!("J03 File Info command edit: {:.2} us/call (20 calls)", start.elapsed().as_secs_f64() * 5e4);
+        println!("File Info command edit: {:.2} us/call (20 calls)", start.elapsed().as_secs_f64() * 5e4);
     }
     #[test]
-    fn j03_library_editor_file_info_roundtrip_and_history() {
+    fn library_editor_file_info_roundtrip_and_history() {
         use lightcraft_meta::{Metadata, parse_xmp, write_xmp};
         let m = Metadata {
             title: Some("Library title".into()),
@@ -1390,7 +1390,7 @@ mod j03_tests {
     }
 
     #[test]
-    fn j03_file_info_command_rejects_malformed_xmp_without_mutation() {
+    fn file_info_command_rejects_malformed_xmp_without_mutation() {
         let old = "<rdf:RDF><rdf:Description><dc:title>bad</rdf:RDF>";
         let mut session = Session::new();
         let mut doc = photocraft_doc::Document::new("Bad XMP", photocraft_geom::Size::new(1, 1), ColorMode::Rgb, photocraft_color::SampleType::U8);
@@ -1401,7 +1401,7 @@ mod j03_tests {
     }
 
     #[test]
-    fn j03_web_metadata_choices_preserve_rights_without_private_fields() {
+    fn web_metadata_choices_preserve_rights_without_private_fields() {
         use crate::web_cmds::{WebMetadata, web_xmp};
         let m = lightcraft_meta::Metadata {
             artist: Some("A; B; C".into()),

@@ -136,7 +136,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j12_startup_environment_preserves_shell_priority_and_compute_off() {
+    fn startup_environment_preserves_shell_priority_and_compute_off() {
         assert_eq!(startup_environment(None, None), None);
         assert_eq!(startup_environment(Some("vulkan"), Some(" DX12 ")), Some("dx12".into()));
         assert_eq!(startup_environment(Some("vk,gl"), None), Some("vk,gl".into()));

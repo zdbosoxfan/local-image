@@ -91,8 +91,8 @@ pub fn uninstall(system: bool) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn j11_installer_keeps_complete_bytes_modes_and_cleans_failed_staging() {
-        let dir = std::env::temp_dir().join(format!("j11-install-{}", std::process::id()));
+    fn installer_keeps_complete_bytes_modes_and_cleans_failed_staging() {
+        let dir = std::env::temp_dir().join(format!("install-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("launcher");
         super::write(&path, b"original", true).unwrap();

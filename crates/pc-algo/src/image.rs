@@ -156,11 +156,11 @@ impl Image {
 }
 
 #[cfg(test)]
-mod j28_tests {
+mod tests {
     use super::*;
 
     #[test]
-    fn j28_shared_edge_matches_previous_editor_reads() {
+    fn shared_edge_matches_previous_editor_reads() {
         let rect = Rect::new(-2, 3, 3, 6);
         let img = Image { rect, ch: 2, data: (0..rect.width() * rect.height() * 2).map(|v| v as f32).collect() };
         let area = Rect::new(-1, 3, 2, 5);

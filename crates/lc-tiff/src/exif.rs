@@ -217,12 +217,12 @@ pub fn upright(exif: &[u8]) -> std::borrow::Cow<'_, [u8]> {
 }
 
 #[cfg(test)]
-mod j03_tests {
+mod tests {
     use super::*;
     use crate::{ByteOrder, IfdBuilder, TiffWriter, Value};
 
     #[test]
-    fn j03_orientation_patch_preserves_opaque_bytes_for_all_tiff_layouts() {
+    fn orientation_patch_preserves_opaque_bytes_for_all_tiff_layouts() {
         for order in [ByteOrder::Little, ByteOrder::Big] {
             for big in [false, true] {
                 for long in [false, true] {

@@ -901,7 +901,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j21_library_native_preserves_every_live_row_and_profile_shortcut() {
+    fn library_native_preserves_every_live_row_and_profile_shortcut() {
         fn rows(nodes: &[CommandMenuNode], out: &mut Vec<(String, String, Option<String>, bool, Option<bool>)>) {
             for node in nodes {
                 match node {
@@ -947,11 +947,11 @@ mod tests {
         assert_eq!(native.find(li_commands::menu::MINIMIZE).unwrap().shortcut.as_deref(), Some("Ctrl+Cmd+M"));
         app.shortcut_overrides.insert("library::app.settings".into(), "Cmd+Alt+K".into());
         assert_eq!(native_menu_bar(&app).find("app.settings").unwrap().shortcut.as_deref(), Some("Cmd+Alt+K"));
-        eprintln!("J21 Library parity: {} source rows retained", source.len());
+        eprintln!("Library parity: {} source rows retained", source.len());
     }
 
     #[test]
-    fn j21_library_native_rejects_stale_and_disabled_parameterized_rows() {
+    fn library_native_rejects_stale_and_disabled_parameterized_rows() {
         let mut app = app();
         let key = CommandMenuNode::key("photo.rate", &json!({"rating": 4}));
         let photo = app.session.active().unwrap();
@@ -964,7 +964,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_library_shared_row_is_clicked_in_the_real_menu() {
+    fn library_shared_row_is_clicked_in_the_real_menu() {
         use std::time::{Duration, Instant};
         let mut app = app();
         app.ui.settings.gpu = false;
@@ -979,10 +979,10 @@ mod tests {
             headless.step();
         }
         assert_eq!(headless.app.ui.filmstrip, !before);
-        eprintln!("J21 real Library menu open + click: {:?}", start.elapsed());
+        eprintln!("real Library menu open + click: {:?}", start.elapsed());
         let start = Instant::now();
         let bar = native_menu_bar(&headless.app);
-        eprintln!("J21 Library native model: {} items in {:?}", bar.items().len(), start.elapsed());
+        eprintln!("Library native model: {} items in {:?}", bar.items().len(), start.elapsed());
     }
 
     #[test]

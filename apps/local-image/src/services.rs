@@ -1638,17 +1638,17 @@ mod save_worker_native_tests {
 }
 
 #[cfg(test)]
-mod j16_tests {
+mod store_tests {
     use super::*;
     use serde_json::{Value, json};
     fn fixture(tag: &str) -> PathBuf {
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos();
-        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/j16-tests").join(format!("{tag}-{}-{stamp}", std::process::id()));
+        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/tests").join(format!("{tag}-{}-{stamp}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         directory
     }
     #[test]
-    fn j16_one_store_holds_library_and_ai_and_old_stores_are_not_read() {
+    fn one_store_holds_library_and_ai_and_old_stores_are_not_read() {
         let directory = fixture("one-store");
         let prefs = directory.join("preferences.json");
         // Files earlier versions kept beside the preferences are ignored.
@@ -1685,7 +1685,7 @@ mod j16_tests {
     }
 
     #[test]
-    fn j16_unreadable_library_section_blocks_catalog_substitution_and_keeps_exact_bytes() {
+    fn unreadable_library_section_blocks_catalog_substitution_and_keeps_exact_bytes() {
         let directory = fixture("invalid-section");
         let prefs = directory.join("preferences.json");
         std::fs::write(&prefs, br#"{"library":["bad section"],"ai":{"comfy_port":8190}}"#).unwrap();

@@ -528,7 +528,7 @@ fn remove_element(xmp: &str, name: &str) -> String {
 }
 
 #[cfg(test)]
-mod j06_tests {
+mod decode_tests {
     use super::*;
 
     fn jpeg(w: u16, h: u16) -> Vec<u8> {
@@ -546,7 +546,7 @@ mod j06_tests {
     }
 
     #[test]
-    fn j06_jpeg_scaled_keeps_source_dimensions_and_guards_source_pixels() {
+    fn jpeg_scaled_keeps_source_dimensions_and_guards_source_pixels() {
         assert_eq!(scaled_request(6000, 4000, 256, 256), (256, 171));
         let bytes = jpeg(96, 64);
         let (decoded, source) = decode_jpeg_scaled(&bytes, &Limits::default(), Some((24, 24))).unwrap();
@@ -560,7 +560,7 @@ mod j06_tests {
     }
 
     #[test]
-    fn j06_jpeg_embedded_exif_preview_preserves_main_orientation() {
+    fn jpeg_embedded_exif_preview_preserves_main_orientation() {
         let preview = jpeg(16, 12);
         // IFD0 carries orientation 6 and points to IFD1; IFD1 describes the embedded preview.
         let mut exif = b"II\x2a\0\x08\0\0\0".to_vec();
@@ -592,7 +592,7 @@ mod j06_tests {
     }
 
     #[test]
-    fn j06_jpeg_mpf_preview_selects_smallest_adequate_then_largest_fallback() {
+    fn jpeg_mpf_preview_selects_smallest_adequate_then_largest_fallback() {
         let primary = jpeg(96, 64);
         let previews = [jpeg(24, 16), jpeg(48, 32), jpeg(30, 30)];
         let count = previews.len() + 1;
@@ -629,7 +629,7 @@ mod j06_tests {
     }
 
     #[test]
-    fn j06_jpeg_scanner_ignores_embedded_end_markers_and_bad_icc_sets() {
+    fn jpeg_scanner_ignores_embedded_end_markers_and_bad_icc_sets() {
         let main = jpeg(16, 16);
         let mut bytes = main[..2].to_vec();
         segment(&mut bytes, 0xE1, &[EXIF_HEADER, &[0xFF, 0xD9]].concat());
@@ -644,7 +644,7 @@ mod j06_tests {
     }
 
     #[test]
-    fn j06_jpeg_cmyk_quality_matches_or_improves_previous_backend() {
+    fn jpeg_cmyk_quality_matches_or_improves_previous_backend() {
         let w = 40usize;
         let h = 32usize;
         let source: Vec<u8> = (0..w * h)
@@ -678,17 +678,17 @@ mod j06_tests {
             }
             let mse = |pixels: &[u8]| source.iter().zip(pixels).map(|(&a, &b)| (f64::from(a) - f64::from(b)).powi(2)).sum::<f64>() / source.len() as f64;
             let max_diff = shared.data().iter().zip(&old).map(|(&a, &b)| a.abs_diff(b)).max().unwrap();
-            eprintln!("J06 {color:?}: shared MSE={:.6}, previous MSE={:.6}, max sample difference={max_diff}", mse(shared.data()), mse(&old));
+            eprintln!("{color:?}: shared MSE={:.6}, previous MSE={:.6}, max sample difference={max_diff}", mse(shared.data()), mse(&old));
             assert_eq!(shared.data(), old, "full-resolution CMYK/YCCK must preserve the more accurate path");
             let mut dct = jpeg_decoder::Decoder::new(bytes.as_slice());
             let dct = dct.decode().unwrap();
-            eprintln!("J06 {color:?}: jpeg-decoder MSE={:.6}", mse(&dct));
+            eprintln!("{color:?}: jpeg-decoder MSE={:.6}", mse(&dct));
             assert!(mse(shared.data()) <= mse(&dct), "shared CMYK quality regressed");
         }
     }
 
     #[test]
-    fn j06_jpeg_lossless_12bit_expands_native_samples_to_normalized_u16() {
+    fn jpeg_lossless_12bit_expands_native_samples_to_normalized_u16() {
         // A valid SOF3 constant grayscale image. A zero difference reconstructs the initial
         // predictor 2^(precision-1), i.e. 2048 at 12 bits. ITU T.81 A.3.1 / H.1.2.1.
         let mut bytes = vec![0xFF, 0xD8];

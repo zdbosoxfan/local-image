@@ -266,7 +266,7 @@ mod proof_tests {
     use super::*;
     use serde_json::json;
     #[test]
-    fn j22_proof_thumbnail_adapter_does_not_reuse_or_poison_normal_cache() {
+    fn proof_thumbnail_adapter_does_not_reuse_or_poison_normal_cache() {
         use lightcraft_pipeline::{Proof, ProofProfile};
         let mut session = crate::Session::with_demo();
         let id = PhotoId(1);
@@ -290,7 +290,7 @@ mod proof_tests {
     }
 
     #[test]
-    fn j22_proof_patch_is_atomic_and_legacy_settings_load() {
+    fn proof_patch_is_atomic_and_legacy_settings_load() {
         let old: lightcraft_pipeline::Proof = serde_json::from_value(json!({"space":"adobeRgb", "destWarning":true})).unwrap();
         assert!(old.bpc);
         assert!(old.profile.is_none());

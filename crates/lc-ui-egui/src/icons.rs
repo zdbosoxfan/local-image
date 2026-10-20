@@ -230,7 +230,7 @@ fn write_ui_icon_review_sheet() {
 
 #[cfg(test)]
 #[test]
-fn j17_library_icon_controls_keep_palette_clicks_and_disabled_behavior() {
+fn library_icon_controls_keep_palette_clicks_and_disabled_behavior() {
     use crate::headless::HeadlessView;
     for kind in li_ui_kit::theme::ThemeKind::ALL {
         for scale in [1.0, 1.25, 2.0] {
@@ -246,7 +246,7 @@ fn j17_library_icon_controls_keep_palette_clicks_and_disabled_behavior() {
                         ui.horizontal(|ui| {
                             for (index, enabled) in [(0, true), (1, true), (2, false)] {
                                 let response = if index == 0 {
-                                    crate::widgets::icon_button(ui, "j17-nav", Icon::Back, vec2(40., 40.), false, enabled, "Back")
+                                    crate::widgets::icon_button(ui, "nav", Icon::Back, vec2(40., 40.), false, enabled, "Back")
                                 } else {
                                     crate::widgets::tool_button(ui, "crop", Icon::Crop, vec2(40., 40.), false, enabled, "Crop")
                                 };
@@ -267,7 +267,7 @@ fn j17_library_icon_controls_keep_palette_clicks_and_disabled_behavior() {
                         ];
                         view.run(HeadlessView::raw_input(vec2(240., 100.), scale, frame as f64 / 60., events), |ui| {
                             ui.horizontal(|ui| {
-                                let back = crate::widgets::icon_button(ui, "j17-nav", Icon::Back, vec2(40., 40.), false, true, "Back");
+                                let back = crate::widgets::icon_button(ui, "nav", Icon::Back, vec2(40., 40.), false, true, "Back");
                                 let crop = crate::widgets::tool_button(ui, "crop", Icon::Crop, vec2(40., 40.), false, true, "Crop");
                                 let disabled = crate::widgets::tool_button(ui, "crop", Icon::Crop, vec2(40., 40.), false, false, "Crop");
                                 for (i, response) in [back, crop, disabled].into_iter().enumerate() {

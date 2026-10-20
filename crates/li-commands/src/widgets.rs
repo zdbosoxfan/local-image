@@ -51,7 +51,7 @@ mod tests {
     use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
-    fn j21_shared_menu_row_clicks_and_disabled_accessible_checks() {
+    fn shared_menu_row_clicks_and_disabled_accessible_checks() {
         for dark in [false, true] {
             let mut h = Harness::builder().build_ui_state(
                 |ui, clicks: &mut usize| {

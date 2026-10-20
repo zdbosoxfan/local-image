@@ -379,7 +379,7 @@ fn ai_denoise_real_app_preview_and_strength_latency() {
 
 /// Actual headless app gestures exercise both automatic tools and patch opacity without an AI host.
 #[test]
-fn j13_heal_and_remove_ui_drag_use_one_local_patch_workflow() {
+fn heal_and_remove_ui_drag_use_one_local_patch_workflow() {
     use lightcraft_catalog::{Op, Photo, Source};
     use std::time::Instant;
     let mut session = lightcraft_engine::Session::new();
@@ -390,8 +390,8 @@ fn j13_heal_and_remove_ui_drag_use_one_local_patch_workflow() {
         Ok((img, lightcraft_pipeline::SourceInfo::default()))
     }));
     let id = session.catalog.alloc_photo_id();
-    let mut photo = Photo::new(id, Source::File { path: "/synthetic/j13-ui.tif".into() }, "j13-ui.tif", "TIFF", 64, 48, "2026-10-14");
-    photo.content_hash = Some("j13-ui-fixture".into());
+    let mut photo = Photo::new(id, Source::File { path: "/synthetic/ui.tif".into() }, "ui.tif", "TIFF", 64, 48, "2026-10-14");
+    photo.content_hash = Some("ui-fixture".into());
     session.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
     session.execute("library.select", &json!({"ids":[id.0]})).unwrap();
     let mut h = Headless::new(LightcraftApp::new(session, Services::default()), [1200., 800.], 1.);
@@ -435,7 +435,7 @@ fn j13_heal_and_remove_ui_drag_use_one_local_patch_workflow() {
         assert!(spots(&h)[index].opacity < 100.);
         assert_eq!(spots(&h)[index].patch, sp.patch, "opacity reuses the stored solution");
         eprintln!(
-            "J13 {mode}: brush gesture {gesture_ms:.2} ms, patch arrival {arrival_ms:.2} ms, opacity drag {opacity_ms:.2} ms, render adapter {:?}",
+            "{mode}: brush gesture {gesture_ms:.2} ms, patch arrival {arrival_ms:.2} ms, opacity drag {opacity_ms:.2} ms, render adapter {:?}",
             lightcraft_engine::gpu::adapter_name()
         );
         exec(&mut h, "spot.select", json!({"index":null}));

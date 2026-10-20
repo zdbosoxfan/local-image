@@ -245,14 +245,14 @@ pub fn decode_jpeg(bytes: &[u8]) -> Option<Rgba8> {
 }
 
 #[cfg(test)]
-mod j11_tests {
+mod disk_cache_tests {
     use super::*;
     #[test]
-    fn j11_disk_cache_golden_nosync_failure_and_owned_scratch_cleanup() {
-        let dir = std::env::temp_dir().join(format!("j11-preview-{}", std::process::id()));
+    fn disk_cache_golden_nosync_failure_and_owned_scratch_cleanup() {
+        let dir = std::env::temp_dir().join(format!("preview-{}", std::process::id()));
         let cache = DiskCache::new(&dir, 1 << 20);
         let image = Rgba8 { width: 8, height: 8, data: vec![[12, 34, 56, 255]; 64] };
-        let key = crate::hash_bytes(b"j11");
+        let key = crate::hash_bytes(b"preview");
         let golden = encode_jpeg(&image).unwrap();
         let before = li_fs::syncs_on_this_thread();
         cache.put(key, &image);

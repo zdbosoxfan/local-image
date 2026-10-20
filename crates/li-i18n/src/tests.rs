@@ -454,7 +454,7 @@ fn digest<'a>(pairs: impl IntoIterator<Item = (&'a str, &'a str)>) -> (usize, u6
 /// sorted pairs, computed from the JSON files before they were deleted). Regenerate (or delete
 /// this test) when the next translation pass edits `catalogs/library`.
 #[test]
-fn j29_library_catalogs_match_the_json_they_replaced() {
+fn library_catalogs_match_the_json_they_replaced() {
     const GOLDEN: &[(&str, usize, u64)] = &[
         ("cs", 1588, 0x164bdfce376302ac),
         ("cs-formats", 141, 0xfb56968e3228aa7f),
@@ -502,7 +502,7 @@ fn j29_library_catalogs_match_the_json_they_replaced() {
 /// (Japanese "Exposure" reads 露出 in Develop and 露光量 in Compositing, as before the merge), and
 /// a string only one half translates is not borrowed by the other (no new translations).
 #[test]
-fn j29_each_half_keeps_its_own_catalog() {
+fn each_half_keeps_its_own_catalog() {
     assert_eq!(library::tr(Lang::Ja, "Exposure"), "露出");
     assert_eq!(tr(Lang::Ja, "Exposure"), "露光量");
     let editor_only = catalog(Lang::Ja, Domain::Editor)
@@ -523,7 +523,7 @@ fn j29_each_half_keeps_its_own_catalog() {
 /// The one language registry keeps both old lookups' answers for every code and the tags
 /// each engine resolved, and the settings file still stores the code.
 #[test]
-fn j29_one_registry_resolves_both_engines_codes() {
+fn one_registry_resolves_both_engines_codes() {
     for language in Lang::ALL {
         assert_eq!(Lang::from_code(language.code()), Some(language));
         assert_eq!(Lang::from_code(&language.code().to_ascii_uppercase()), Some(language), "codes ignore ASCII case");

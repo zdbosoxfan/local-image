@@ -826,7 +826,7 @@ impl Session {
 }
 
 #[cfg(test)]
-mod j19_tests {
+mod tests {
     use super::*;
 
     fn batch_fixture() -> BatchMergeJob {
@@ -869,7 +869,7 @@ mod j19_tests {
     }
 
     #[test]
-    fn j19_batch_detects_and_streams_float_dngs() {
+    fn batch_detects_and_streams_float_dngs() {
         let batch = batch_fixture();
         let mut delivered = Vec::new();
         let progress = std::sync::Mutex::new(Vec::new());
@@ -898,7 +898,7 @@ mod j19_tests {
     }
 
     #[test]
-    fn j19_batch_cancels_before_delivering_and_checks_memory_overflow() {
+    fn batch_cancels_before_delivering_and_checks_memory_overflow() {
         let batch = batch_fixture();
         let mut delivered = false;
         let result = batch.run(&|fraction, _| fraction < 0.2, &mut |_, _| {
@@ -913,9 +913,9 @@ mod j19_tests {
     }
 
     #[test]
-    fn j19_library_hdr_command_roundtrip_float_precision_and_timing() {
+    fn library_hdr_command_roundtrip_float_precision_and_timing() {
         let fixture = batch_fixture();
-        let dir = std::env::current_dir().unwrap().join("target").join(format!("j19-library-command-{}", std::process::id()));
+        let dir = std::env::current_dir().unwrap().join("target").join(format!("library-command-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let paths: Vec<_> = fixture
             .source
@@ -934,7 +934,7 @@ mod j19_tests {
         let start = std::time::Instant::now();
         let result = session.execute("merge.hdr", &json!({"ids": ids, "align": false, "autoSettings": false})).unwrap();
         eprintln!(
-            "j19_library_hdr_command_cpu_ms={:.3} (48x32, three sources; command decode+merge+float DNG write+catalog import)",
+            "library_hdr_command_cpu_ms={:.3} (48x32, three sources; command decode+merge+float DNG write+catalog import)",
             start.elapsed().as_secs_f64() * 1000.0
         );
         let path = result["path"].as_str().unwrap();
@@ -945,9 +945,9 @@ mod j19_tests {
     }
 
     #[test]
-    fn j19_prepared_output_cleanup_and_catalog_attachment() {
+    fn prepared_output_cleanup_and_catalog_attachment() {
         let fixture = batch_fixture();
-        let dir = std::env::current_dir().unwrap().join("target").join(format!("j19-prepared-{}", std::process::id()));
+        let dir = std::env::current_dir().unwrap().join("target").join(format!("prepared-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut job = fixture.source;
         job.sources.truncate(3);
@@ -978,7 +978,7 @@ mod j19_tests {
         job.finish.auto_settings = true;
         let start = std::time::Instant::now();
         let accepted = job.prepare_output(output()).unwrap();
-        eprintln!("j19_prepare_output_cpu_ms={:.3} (48x32 float DNG write+probe+Auto)", start.elapsed().as_secs_f64() * 1000.0);
+        eprintln!("prepare_output_cpu_ms={:.3} (48x32 float DNG write+probe+Auto)", start.elapsed().as_secs_f64() * 1000.0);
         assert!(accepted.auto.is_some());
         assert!(accepted.probe.is_some());
         let mut session = Session::new().with_fs();
@@ -991,7 +991,7 @@ mod j19_tests {
     }
 
     #[test]
-    fn j19_raw_preview_fuses_full_sensor_then_resizes() {
+    fn raw_preview_fuses_full_sensor_then_resizes() {
         let mut job = batch_fixture().source;
         job.sources.truncate(3);
         job.preview = Some(24);

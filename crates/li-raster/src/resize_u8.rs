@@ -131,7 +131,7 @@ pub fn resize_gray8(source: &image::GrayImage, width: u32, height: u32, filter: 
 mod tests {
     use super::*;
     #[test]
-    fn j01_u8_filters_opaque_byte_goldens() {
+    fn u8_filters_opaque_byte_goldens() {
         // Independent established image-rs reference, all five current AI filters.
         let filters = [
             (Filter::Nearest, image::imageops::FilterType::Nearest),
@@ -152,7 +152,7 @@ mod tests {
         }
     }
     #[test]
-    fn j01_u8_empty_identity_and_colour_metadata() {
+    fn u8_empty_identity_and_colour_metadata() {
         let empty = image::RgbaImage::new(0, 3);
         assert_eq!(resize_rgba8(&empty, 7, 3, Filter::Lanczos3), image::RgbaImage::new(7, 3));
         let src = image::RgbaImage::from_fn(3, 2, |x, y| image::Rgba([x as u8, y as u8, 91, 0]));

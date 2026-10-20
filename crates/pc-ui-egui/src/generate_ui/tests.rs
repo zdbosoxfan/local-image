@@ -816,7 +816,7 @@ mod bg_batch_tests {
 
     #[test]
     fn folder_uses_shared_readable_registry() -> Result<(), Box<dyn std::error::Error>> {
-        let dir = std::env::temp_dir().join(format!("j6-generate-extension-registry-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("generate-extension-registry-{}", std::process::id()));
         std::fs::create_dir_all(&dir)?;
         for name in ["a.CRW", "b.QOI", "c.PSB", "d.pcraft", "unsupported.avif", "notes.txt"] {
             std::fs::write(dir.join(name), [])?;

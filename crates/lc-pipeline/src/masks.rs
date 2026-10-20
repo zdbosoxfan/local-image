@@ -551,7 +551,7 @@ mod tests {
     }
 
     #[test]
-    fn j14_ai_color_edge_quality_and_pipeline_timing() {
+    fn ai_color_edge_quality_and_pipeline_timing() {
         for (w, h) in [(96, 64), (384, 256)] {
             let scale = w as f32 / 96.0;
             let truth = GrayFrame::from_fn(w, h, |x, y| {
@@ -595,7 +595,7 @@ mod tests {
             let err = |p: &GrayFrame| p.data.iter().zip(&truth.data).map(|(a, b)| (a - b).abs()).sum::<f32>() / (w * h) as f32;
             let (before, after_err) = (err(&old), err(&after));
             println!(
-                "J14 app mask path {w}x{h}: old MAE={before:.8}, shared CF MAE={after_err:.8}; old evaluate+guided={old_ms:.3} ms, new evaluate_one={new_ms:.3} ms"
+                "app mask path {w}x{h}: old MAE={before:.8}, shared CF MAE={after_err:.8}; old evaluate+guided={old_ms:.3} ms, new evaluate_one={new_ms:.3} ms"
             );
             assert!(after_err < before * 0.6, "{after_err} vs {before}");
             assert_eq!(after.get(0, 0), raw.get(0, 0));
@@ -606,7 +606,7 @@ mod tests {
     }
 
     #[test]
-    fn j14_develop_edge_crop_detail_and_legacy_settings() {
+    fn develop_edge_crop_detail_and_legacy_settings() {
         let mut settings = DevelopSettings::default();
         settings.crop.geometry.rect = lightcraft_geom::Rect::from_center(Point::new(0.75, 0.5), 0.5, 1.0);
         let (w, h) = (80, 40);
@@ -647,12 +647,12 @@ mod tests {
     }
 
     #[test]
-    fn j14_develop_guided_golden() {
+    fn develop_guided_golden() {
         let (w, h) = (39, 23);
         let mask = GrayFrame::from_fn(w, h, |x, _| if x < 19 { 1.0 } else { 0.0 });
         // Freeze guide words so native log2 implementations cannot change the input.
         // The output was checked bit-for-bit against pre-li-matte Develop on Apple Silicon.
-        let bytes = include_bytes!("../tests/fixtures/j14-guided-log-guide.f32le");
+        let bytes = include_bytes!("../tests/fixtures/guided-log-guide.f32le");
         assert_eq!(bytes.len(), w * h * 4);
         let guide = GrayFrame { width: w, height: h, data: bytes.as_chunks::<4>().0.iter().map(|v| f32::from_le_bytes(*v)).collect() };
         let q = guided_cross(&guide, &mask, 2.7, 0.02);
