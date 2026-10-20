@@ -801,7 +801,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j01_d2_sparse_selection_transparent_edges() {
+fn d2_sparse_selection_transparent_edges() {
     let (w, h) = (13, 7);
     let src: Vec<f32> = (0..w * h).map(|i| if i % 7 == 0 { 1.0 } else { 0.0 }).collect();
     let actual = feather(&src, w, h, 1.0);

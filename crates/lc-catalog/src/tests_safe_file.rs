@@ -27,8 +27,8 @@ mod tests {
     }
 
     #[test]
-    fn j11_catalog_adapter_uses_shared_fault_and_sync_policies() {
-        let d = temp("j11-adapter");
+    fn catalog_adapter_uses_shared_fault_and_sync_policies() {
+        let d = temp("adapter");
         let p = d.join("catalog.json");
         let before = li_fs::syncs_on_this_thread();
         write_atomic(&p, b"original").unwrap();

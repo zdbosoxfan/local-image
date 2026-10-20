@@ -87,7 +87,7 @@ mod tests {
         }
     }
     #[test]
-    fn j03_shared_camera_reader_preserves_35mm_and_extended_iso_and_apex() {
+    fn shared_camera_reader_preserves_35mm_and_extended_iso_and_apex() {
         let info = CameraInfo { exposure_time: Some(6.0), f_number: Some(6.0), iso: Some(128000.0), focal_length_35mm: Some(52.0), ..Default::default() };
         let bytes = build(&info);
         let back = read(&bytes);
@@ -119,6 +119,6 @@ mod tests {
         assert_eq!(back.exposure_time, Some(1.0 / 64.0));
         assert_eq!(back.f_number, Some(8.0));
         assert_eq!(read(&[0; 8]), CameraInfo::default());
-        println!("J03 camera quality: ISO 128000, APEX shutter 1/64, aperture f/8, 35mm equivalent 52 all retained");
+        println!("camera quality: ISO 128000, APEX shutter 1/64, aperture f/8, 35mm equivalent 52 all retained");
     }
 }

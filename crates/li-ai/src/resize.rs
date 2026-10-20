@@ -9,7 +9,7 @@ pub fn lanczos3<P: Pixel<Subpixel = u8> + Send + Sync + 'static>(source: &ImageB
 mod tests {
     use super::*;
     #[test]
-    fn j01_shared_resize_parallel_lanczos_opaque_byte_identical_to_image_serial() {
+    fn shared_resize_parallel_lanczos_opaque_byte_identical_to_image_serial() {
         for (sw, sh) in [(1, 1), (1, 23), (37, 1), (65, 49), (19, 31)] {
             let source = RgbaImage::from_fn(sw, sh, |x, y| image::Rgba([(x * 19) as u8, (y * 31) as u8, ((x + y) * 7) as u8, 255]));
             for (w, h) in [(1, 1), (7, 3), (66, 97), (sw, sh)] {

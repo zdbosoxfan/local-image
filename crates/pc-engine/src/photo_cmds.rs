@@ -1080,7 +1080,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_hdr_alignment_keeps_uncovered_pixels_transparent() {
+    fn hdr_alignment_keeps_uncovered_pixels_transparent() {
         let pixels = vec![[0.3, 0.4, 0.5, 1.0]; 4 * 3];
         let shifted = shift_rgba(&pixels, 4, 3, 1, -1);
         assert_eq!(shifted[0], [0.0; 4]);
@@ -1089,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_shared_registration_retains_subpixel_layer_coordinates() {
+    fn shared_registration_retains_subpixel_layer_coordinates() {
         let (sw, sh) = (280usize, 220usize);
         let source = scene(sw, sh, 31);
         let (w, h) = (220usize, 160usize);
@@ -1122,7 +1122,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_hdr_background_job_cancellation_leaves_sources_untouched() {
+    fn hdr_background_job_cancellation_leaves_sources_untouched() {
         let mut session = Session::new();
         let pixels = scene(96, 64, 19);
         for ev in [-2.0f32, 0.0, 2.0] {

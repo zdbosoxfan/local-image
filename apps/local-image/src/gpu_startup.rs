@@ -1086,7 +1086,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j12_shell_local_image_override_configures_the_shared_instance() {
+fn shell_local_image_override_configures_the_shared_instance() {
     let enabled = wgpu::Instance::enabled_backend_features();
     let (expected, name) = [(wgpu::Backends::VULKAN, "vulkan"), (wgpu::Backends::METAL, "metal"), (wgpu::Backends::DX12, "dx12"), (wgpu::Backends::GL, "gl")]
         .into_iter()

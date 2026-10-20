@@ -272,7 +272,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j17_cursor_hotspot_artwork_remains_separate_from_tool_artwork() {
+    fn cursor_hotspot_artwork_remains_separate_from_tool_artwork() {
         let ctx = egui::Context::default();
         let cursor = image("cursor-pipette", 20.0, Color32::WHITE);
         let tool = monochrome_tool_image("pipette", 20.0, Color32::WHITE);
@@ -339,7 +339,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j17_editor_icon_controls_keep_accessible_clicks_and_disabled_behavior() {
+fn editor_icon_controls_keep_accessible_clicks_and_disabled_behavior() {
     use egui_kittest::kittest::Queryable;
     for kind in crate::theme::ThemeKind::ALL {
         for colored in [false, true] {

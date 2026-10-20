@@ -78,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn j12_startup_sentinel_retains_crash_text_and_clears_success() {
+    fn startup_sentinel_retains_crash_text_and_clears_success() {
         let path = marker_path("cycle");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
         let (previous, mut sentinel) = StartupSentinel::begin(&path).unwrap().unwrap();
@@ -97,7 +97,7 @@ mod tests {
     }
 
     #[test]
-    fn j12_startup_sentinel_bounds_previous_marker_reads() {
+    fn startup_sentinel_bounds_previous_marker_reads() {
         let path = marker_path("bounded");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, "x".repeat(MARKER_MAX_BYTES as usize + 1024)).unwrap();
@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    fn j12_startup_sentinel_preserves_damaged_marker_as_crash_evidence() {
+    fn startup_sentinel_preserves_damaged_marker_as_crash_evidence() {
         let path = marker_path("damaged");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, [0xff, 0xfe]).unwrap();

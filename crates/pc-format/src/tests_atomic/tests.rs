@@ -212,8 +212,8 @@ fn directory_target_or_bare_root_is_an_error_not_a_panic() {
 }
 
 #[test]
-fn j11_editor_adapter_uses_shared_staging_and_fault_cleanup() {
-    let d = TempDir::new("j11");
+fn editor_adapter_uses_shared_staging_and_fault_cleanup() {
+    let d = TempDir::new("atomic");
     let p = d.0.join("document.pcraft");
     atomic_write(&p, ORIGINAL).unwrap();
     {

@@ -630,12 +630,12 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j04_tests {
+mod smart_filter_tests {
     use super::*;
     use photocraft_color::{PixelFormat, SampleType};
 
     #[test]
-    fn j04_smart_filter_profile_and_depth_match_shared_commit() {
+    fn smart_filter_profile_and_depth_match_shared_commit() {
         let area = Rect::new(-3, 4, 21, 20);
         let cr = CameraRaw { exposure: 0.4, dehaze: 20.0, texture: 15.0, noise_color: 20.0, grain_amount: 30.0, seed: 27, ..Default::default() };
         let params = serde_json::to_value(&cr).unwrap();
@@ -667,7 +667,7 @@ mod j04_tests {
 }
 
 #[cfg(test)]
-mod j26_tests {
+mod lens_database_tests {
     use super::*;
 
     const CAMERA: (&str, &str) = ("Canon", "Canon EOS 5D Mark II");
@@ -687,7 +687,7 @@ mod j26_tests {
     }
 
     #[test]
-    fn j26_lens_correction_command_stores_the_database_profile() {
+    fn lens_correction_command_stores_the_database_profile() {
         let mut s = Session::new();
         s.execute("file.new", json!({"width": 120, "height": 80, "depth": 16})).unwrap();
         s.execute("layer.new.layer", json!({"name": "photo"})).unwrap();

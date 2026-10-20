@@ -141,7 +141,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j6_dialog_filters_use_shared_readable_and_raw_registry() {
+    fn dialog_filters_use_shared_readable_and_raw_registry() {
         let mut extensions = photocraft_codecs::readable_extensions();
         extensions.extend_from_slice(photocraft_codecs::RAW_EXTENSIONS);
         let patterns = dialog_extensions_for(&extensions, true);

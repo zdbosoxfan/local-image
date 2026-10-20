@@ -440,7 +440,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j01_final_burst_blur_keeps_sharpness_order() {
+fn final_burst_blur_keeps_sharpness_order() {
     let sharp = li_raster::Rgba8::from_fn(48, 32, |x, y| {
         let v = if (x / 4 + y / 4).is_multiple_of(2) { 235 } else { 20 };
         [v, v, v, 255]

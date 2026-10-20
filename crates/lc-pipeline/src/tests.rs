@@ -410,7 +410,7 @@ fn negative_conversion_renders() {
 }
 
 #[test]
-fn j22_proof_render_all_depths_matches_finished_float_edit() {
+fn proof_render_all_depths_matches_finished_float_edit() {
     use crate::{DeepSamples, OutputDepth, OutputSpace, Proof, ProofProfile};
     let src = RgbFrame::from_fn(24, 12, |x, y| [0.05 + x as f32 * 0.01, 0.1 + y as f32 * 0.01, 0.1 + (x + y) as f32 * 0.003]);
     let info = SourceInfo::default();
@@ -449,5 +449,5 @@ fn j22_proof_render_all_depths_matches_finished_float_edit() {
             }
         }
     }
-    println!("J22 complete float edit→CMYK proof: 288 pixels × 3 depths; max linear-float error {max_float_error}");
+    println!("complete float edit→CMYK proof: 288 pixels × 3 depths; max linear-float error {max_float_error}");
 }

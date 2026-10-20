@@ -238,7 +238,7 @@ impl TextureLoader for IconLoader {
 mod tests {
     use super::*;
     #[test]
-    fn j17_icon_textures_share_cache_without_alias_or_context_collisions() {
+    fn icon_textures_share_cache_without_alias_or_context_collisions() {
         let ctx = Context::default();
         install(&ctx);
         let crop = crate::library_icons::svg(crate::library_icons::Icon::Crop);
@@ -269,7 +269,7 @@ mod tests {
         assert_ne!(direct, handle(StrokeStyle::Interface, 20, Color32::WHITE, false));
     }
     #[test]
-    fn j17_icon_cache_retains_current_frame_and_evicts_old_sizes() {
+    fn icon_cache_retains_current_frame_and_evicts_old_sizes() {
         let ctx = Context::default();
         let crop = crate::library_icons::svg(crate::library_icons::Icon::Crop);
         let first = texture(&ctx, crop, StrokeStyle::Interface, 1, Color32::WHITE, false).unwrap();
@@ -287,7 +287,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j17_icon_cache_obeys_byte_budget_for_large_dpi_glyphs() {
+fn icon_cache_obeys_byte_budget_for_large_dpi_glyphs() {
     let ctx = Context::default();
     let crop = crate::library_icons::svg(crate::library_icons::Icon::Crop);
     for i in 0..33 {
@@ -305,7 +305,7 @@ fn j17_icon_cache_obeys_byte_budget_for_large_dpi_glyphs() {
 
 #[cfg(test)]
 #[test]
-fn j17_small_icon_frame_sample_removes_duplicate_rasters_and_uploads() {
+fn small_icon_frame_sample_removes_duplicate_rasters_and_uploads() {
     // Small CPU egui frame sample of the earlier image/painter paths versus the
     // shared paths. Timings are observations, not a hardware-specific acceptance threshold.
     fn sample(shared: bool) -> (usize, Vec<u128>) {
@@ -317,7 +317,7 @@ fn j17_small_icon_frame_sample_removes_duplicate_rasters_and_uploads() {
         let source = crate::library_icons::svg(crate::library_icons::Icon::Crop);
         let old_bytes: Arc<[u8]> =
             Arc::from(String::from_utf8_lossy(source).replace("currentColor", "#ffffff").replace("stroke-width=\"2\"", "stroke-width=\"1.75\"").into_bytes());
-        let old_image = Image::from_bytes("bytes://j17-baseline/crop.svg", egui::load::Bytes::Shared(old_bytes.clone())).fit_to_exact_size(Vec2::splat(20.0));
+        let old_image = Image::from_bytes("bytes://baseline/crop.svg", egui::load::Bytes::Shared(old_bytes.clone())).fit_to_exact_size(Vec2::splat(20.0));
         let mut old_painter = None;
         let mut uploads = 0;
         let mut times = Vec::new();
@@ -330,7 +330,7 @@ fn j17_small_icon_frame_sample_removes_duplicate_rasters_and_uploads() {
                     old_painter
                         .get_or_insert_with(|| {
                             let pixels = egui_extras::image::load_svg_bytes_with_size(&old_bytes, SizeHint::Width(20), &Default::default()).unwrap();
-                            ui.ctx().load_texture("j17-baseline/library/crop", pixels, TextureOptions::LINEAR)
+                            ui.ctx().load_texture("baseline/library/crop", pixels, TextureOptions::LINEAR)
                         })
                         .id()
                 };
@@ -364,7 +364,7 @@ fn j17_small_icon_frame_sample_removes_duplicate_rasters_and_uploads() {
         sorted[sorted.len() / 2]
     };
     println!(
-        "J17 small egui icon-path sample (13 CPU frames each): old/shared cold {} / {} us, warm median {} / {} us; raster uploads {} / {}; RGBA texture bytes {} / {}",
+        "small egui icon-path sample (13 CPU frames each): old/shared cold {} / {} us, warm median {} / {} us; raster uploads {} / {}; RGBA texture bytes {} / {}",
         old_times[0],
         new_times[0],
         median(&old_times),

@@ -1,6 +1,6 @@
 # Czech (cs) Library & Develop format strings (`tr_format!`, Rust `format!` syntax). Columns, separated by a TAB:  context <TAB> source <TAB> translation
 # (the format of ../editor/ja.tsv; every entry here is a plain string, so `context` is empty).
-# Converted unchanged from lc-ui-egui/locales/cs-formats.json when the two engines were merged (J29).
+# Converted unchanged from lc-ui-egui/locales/cs-formats.json when the two engines were merged.
 
 	 ({} in Recently Deleted)	 ({} ve složce Nedávno odstraněné)
 	 · {skipped} skipped (file exists)	 · {skipped} přeskočeno (soubor existuje)

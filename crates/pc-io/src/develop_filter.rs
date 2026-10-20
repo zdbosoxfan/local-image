@@ -1167,11 +1167,11 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j04_tests {
+mod settings_tests {
     use super::*;
 
     #[test]
-    fn j04_edits_preserve_unrepresented_and_precise_settings() {
+    fn edits_preserve_unrepresented_and_precise_settings() {
         let mut base = identity().clone();
         base.wb.mode = WbMode::Custom;
         base.wb.temp = 30000.123456789;
@@ -1195,7 +1195,7 @@ mod j04_tests {
     }
 
     #[test]
-    fn j04_proxy_scale_matches_pipeline_and_rejects_bad_sizes() {
+    fn proxy_scale_matches_pipeline_and_rejects_bad_sizes() {
         use lightcraft_pipeline::{DeepSamples, OutputDepth, OutputSpace, RenderRequest, SourceInfo};
         let (w, h) = (32, 24);
         let px: Vec<_> = (0..w * h).map(|i| [0.2 + (i % 7) as f32 * 0.08, 0.3, 0.6, 0.7]).collect();
@@ -1226,7 +1226,7 @@ mod j04_tests {
     }
 
     #[test]
-    fn j04_legacy_curves_render_with_shared_interpolation() {
+    fn legacy_curves_render_with_shared_interpolation() {
         let cr = CameraRaw { point_curve: vec![[255.0, 255.0], [128.0, 200.0], [128.0, 150.0], [0.0, 0.0]], exposure: 0.25, ..Default::default() };
         assert!(cr.validate().is_err());
         let lut = camera_raw_curve_lut(&cr, 256);
@@ -1241,5 +1241,5 @@ mod j04_tests {
 }
 
 #[cfg(test)]
-#[path = "develop_filter_j26_tests.rs"]
-mod j26_tests;
+#[path = "develop_filter_tests.rs"]
+mod retouch_tests;

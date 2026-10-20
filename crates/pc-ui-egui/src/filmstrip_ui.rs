@@ -636,7 +636,7 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
-    fn j23_shared_orientation_matches_all_legacy_golden_pixels() {
+    fn shared_orientation_matches_all_legacy_golden_pixels() {
         // Asymmetric labelled 3x2 pixels, including partial alpha. TIFF/EXIF's eight layouts.
         let expected = [
             vec![0, 1, 2, 3, 4, 5],
@@ -661,7 +661,7 @@ mod tests {
     }
 
     #[test]
-    fn j23_ui_click_refresh_hide_and_scroll_bound_preview_requests() {
+    fn ui_click_refresh_hide_and_scroll_bound_preview_requests() {
         use egui_kittest::kittest::Queryable;
         let (mut h, _, _, b) = modal_strip_harness();
         // Click the actual cell through accessibility, then verify navigation and host requests.
@@ -671,7 +671,7 @@ mod tests {
         let requests = take_preview_requests();
         assert_eq!(requests.len(), 2);
         let old = requests.iter().find(|r| r.original.ends_with("modal-strip-b.png")).unwrap().clone();
-        let tex = h.ctx.load_texture("j23", egui::ColorImage::filled([2, 2], Color32::GRAY), Default::default());
+        let tex = h.ctx.load_texture("filmstrip", egui::ColorImage::filled([2, 2], Color32::GRAY), Default::default());
         assert!(accept_preview(&h.ctx, &old, Some(tex.clone())));
         refresh(&old.original);
         assert!(!accept_preview(&h.ctx, &old, Some(tex.clone())), "late pre-save pixels must be rejected");
@@ -696,7 +696,7 @@ mod tests {
     }
 
     #[test]
-    fn j6_filmstrip_raw_copy_paths_use_complete_shared_registry() {
+    fn filmstrip_raw_copy_paths_use_complete_shared_registry() {
         for ext in photocraft_codecs::RAW_EXTENSIONS {
             let source = PathBuf::from(format!("/fixture/photo.{}", ext.to_ascii_uppercase()));
             assert_eq!(edited_path(&source), PathBuf::from("/fixture/Edited/photo.tif"));

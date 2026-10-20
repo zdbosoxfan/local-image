@@ -210,10 +210,10 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j19_parity {
+mod parity {
     use super::*;
     #[test]
-    fn j19_rendered_hdr_shared_backend_parity_and_progress() {
+    fn rendered_hdr_shared_backend_parity_and_progress() {
         let (w, h) = (12, 8);
         let images: Vec<Vec<[f32; 4]>> = [0.5, 1.0, 2.0]
             .iter()
@@ -257,7 +257,7 @@ mod j19_parity {
         assert_eq!(cancelled, "cancelled");
     }
     #[test]
-    fn j19_rendered_hdr_rejects_invalid_exposures_and_curves() {
+    fn rendered_hdr_rejects_invalid_exposures_and_curves() {
         let image = vec![[0.5, 0.5, 0.5, 1.0]; 4];
         let imgs = [image.as_slice()];
         let mut opts = MergeOptions { exposures: vec![f64::NAN], remove_ghosts: false, ghost_base: None, response: None };
@@ -269,10 +269,10 @@ mod j19_parity {
 }
 
 #[cfg(test)]
-mod j19_response_golden {
+mod response_golden {
     use super::*;
     #[test]
-    fn j19_rendered_response_matches_legacy_numeric_golden() {
+    fn rendered_response_matches_legacy_numeric_golden() {
         let response = response_curve(&[vec![12, 30, 80, 100, 180], vec![21, 53, 116, 145, 237]], &[0.0, std::f64::consts::LN_2], 40.0);
         let golden = [-4.224069419829905, -2.9735496780359574, -1.2379416971656003, -3.720555285230523e-15, 0.8528256965735144, 1.5984181879277115];
         for (i, expected) in [0, 16, 64, 128, 192, 255].into_iter().zip(golden) {
@@ -282,10 +282,10 @@ mod j19_response_golden {
 }
 
 #[cfg(test)]
-mod j19_alpha_coverage {
+mod alpha_coverage {
     use super::*;
     #[test]
-    fn j19_rendered_hdr_uncovered_warp_pixels_do_not_contaminate_radiance() {
+    fn rendered_hdr_uncovered_warp_pixels_do_not_contaminate_radiance() {
         let (w, h) = (16, 12);
         let reference = vec![[linear_to_srgb(0.2), linear_to_srgb(0.16), linear_to_srgb(0.12), 1.0]; w * h];
         let mut moving = vec![[linear_to_srgb(0.1), linear_to_srgb(0.08), linear_to_srgb(0.06), 1.0]; w * h];

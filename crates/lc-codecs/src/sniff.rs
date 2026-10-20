@@ -154,7 +154,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j6_sniff_adapter_and_shared_capabilities_agree() {
+    fn sniff_adapter_and_shared_capabilities_agree() {
         for shared in photocraft_codecs::Format::ALL {
             let adapter = Format::from(shared);
             assert_eq!(adapter.raster(), Some(shared));

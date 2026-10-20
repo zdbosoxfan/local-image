@@ -146,7 +146,7 @@ mod toast_tests {
     use std::collections::HashMap;
 
     #[test]
-    fn j18_shared_notice_library_expired_history_is_clickable_in_both_themes_and_widths() {
+    fn shared_notice_library_expired_history_is_clickable_in_both_themes_and_widths() {
         fn frame(view: &mut HeadlessView, app: &mut LightcraftApp, size: egui::Vec2, time: f64, events: Vec<egui::Event>) {
             view.run(HeadlessView::raw_input(size, 1.0, time, events), |ui| {
                 app.canvas_rect = Some(ui.max_rect());
@@ -159,7 +159,7 @@ mod toast_tests {
                     )
                 });
                 if let Some(text) = copied {
-                    ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new("j18-test-toast-copy"), text));
+                    ui.ctx().data_mut(|data| data.insert_temp(egui::Id::new("test-toast-copy"), text));
                 }
             });
         }
@@ -223,7 +223,7 @@ mod toast_tests {
                 click(&mut view, &mut app, size, 7.0, copy.center());
                 let copied = view
                     .ctx
-                    .data(|data| data.get_temp::<String>(egui::Id::new("j18-test-toast-copy")))
+                    .data(|data| data.get_temp::<String>(egui::Id::new("test-toast-copy")))
                     .expect("actual Copy details click emits a clipboard command");
                 assert!(copied.contains("Save failed: full diagnostic details"));
                 save(&view, "history");

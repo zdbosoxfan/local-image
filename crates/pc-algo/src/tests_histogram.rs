@@ -88,7 +88,7 @@ fn exposure_of_an_eight_bit_gradient_reproduces_the_quantization_comb() {
 }
 
 #[test]
-fn j01_shared_histogram_pc_adapter_luma_goldens() {
+fn shared_histogram_pc_adapter_luma_goldens() {
     let pixels = [[1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]];
     let h = RgbHistogram::from_rgba(&pixels);
     assert_eq!(h.samples, 3);

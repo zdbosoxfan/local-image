@@ -439,7 +439,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j28_frame_edges_match_the_editor_policy() {
+    fn frame_edges_match_the_editor_policy() {
         let f = Frame::from_fn(3, 2, |x, y| (y * 3 + x) as f32);
         assert_eq!(f.get_edge(-1, 0, Edge::Transparent), 0.0);
         assert_eq!(f.get_edge(-1, 5, Edge::Repeat), 3.0);
@@ -449,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn j28_frame_u8_u16_round_trips_are_exact() {
+    fn frame_u8_u16_round_trips_are_exact() {
         let rgba = image::RgbaImage::from_fn(17, 5, |x, y| image::Rgba([(x * 15) as u8, (y * 50) as u8, (x * y) as u8, 255 - x as u8]));
         assert_eq!(Frame::from_rgba8(&rgba).to_rgba8(), rgba);
         let rgb = image::DynamicImage::ImageRgba8(rgba.clone()).to_rgb8();
@@ -464,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn j28_frame_resize_crop_paste_and_over() {
+    fn frame_resize_crop_paste_and_over() {
         let f = Frame::from_fn(8, 6, |x, y| [x as f32 / 7.0, y as f32 / 5.0, 0.5, 1.0]);
         let r = f.resize(16, 12, Filter::Lanczos3);
         assert_eq!(r.dimensions(), (16, 12));
@@ -591,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_d2_gaussian_small_sigma_and_alpha() {
+    fn d2_gaussian_small_sigma_and_alpha() {
         let img = Frame::from_fn(3, 1, |x, _| if x == 0 { [1.0, 0.0, 0.0, 1.0] } else { [0.0, 0.0, 1.0, 0.0] });
         let actual = img.gaussian(0.5);
         assert!(actual.get(0, 0)[3] < 1.0);
@@ -631,7 +631,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_resample_adapter_byte_goldens() {
+    fn resample_adapter_byte_goldens() {
         for (f, expected) in [Filter::Box, Filter::Bilinear, Filter::Mitchell, Filter::Lanczos3].into_iter().zip([
             16937065032499866148,
             13728202162992833757,
@@ -649,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    fn j01_final_dense_alpha_half_nearest_and_empty() {
+    fn final_dense_alpha_half_nearest_and_empty() {
         let img = Frame::from_fn(3, 1, |x, _| if x == 0 { [1.0, 0.2, 0.0, 1.0] } else { [0.0, 0.0, 1.0, 0.0] });
         for got in [img.resize(7, 1, Filter::Bilinear), img.half()] {
             for p in got.data {

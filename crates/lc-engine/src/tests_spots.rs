@@ -57,7 +57,7 @@ fn spots_select_move_edit_refresh_and_delete() {
 }
 
 /// Small, deterministic file-backed photo with a blemish, and no AI host.
-fn j13_session() -> Session {
+fn spot_session() -> Session {
     use std::sync::Arc;
 
     use lightcraft_catalog::{Op, Photo, Source};
@@ -69,17 +69,17 @@ fn j13_session() -> Session {
     });
     s.media.file_loader = Some(Arc::new(move |_, _| Ok((img.clone(), lightcraft_pipeline::SourceInfo::default()))));
     let id = s.catalog.alloc_photo_id();
-    let mut p = Photo::new(id, Source::File { path: "/synthetic/j13-spots.tif".into() }, "j13-spots.tif", "TIFF", 64, 48, "2026-10-14");
-    p.content_hash = Some("j13-spots-fixture".into());
+    let mut p = Photo::new(id, Source::File { path: "/synthetic/spots.tif".into() }, "spots.tif", "TIFF", 64, 48, "2026-10-14");
+    p.content_hash = Some("spots-fixture".into());
     s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
     s.execute("library.select", &json!({"ids": [id.0]})).unwrap();
     s
 }
 
 #[test]
-fn j13_heal_and_remove_commands_create_local_patches_and_undo_regenerate() {
+fn heal_and_remove_commands_create_local_patches_and_undo_regenerate() {
     for mode in ["heal", "remove"] {
-        let mut s = j13_session();
+        let mut s = spot_session();
         let id = s.active().unwrap();
         let before = s.render_now(id, 64, 48).unwrap().image;
         let r = s.execute("spot.add", &json!({"mode": mode, "points": [[0.5, 0.5]], "size": 0.07, "feather": 20, "seed": 17, "wait": true})).unwrap();
@@ -121,8 +121,8 @@ fn j13_heal_and_remove_commands_create_local_patches_and_undo_regenerate() {
 }
 
 #[test]
-fn j13_default_remove_is_a_background_job_applied_once() {
-    let mut s = j13_session();
+fn default_remove_is_a_background_job_applied_once() {
+    let mut s = spot_session();
     let r = s.execute("spot.add", &json!({"points": [[0.5, 0.5]], "size": 0.07, "seed": 19})).unwrap();
     let id = r["job"].as_u64().expect("automatic remove starts a job");
     assert!(spots(&s).is_empty());
@@ -144,9 +144,9 @@ fn j13_default_remove_is_a_background_job_applied_once() {
 }
 
 #[test]
-fn j13_heal_command_matches_existing_local_engine_exactly() {
-    let mut regular = j13_session();
-    let mut explicit_local = j13_session();
+fn heal_command_matches_existing_local_engine_exactly() {
+    let mut regular = spot_session();
+    let mut explicit_local = spot_session();
     let mut params =
         json!({"mode": "heal", "points": [[0.5, 0.5], [0.52, 0.5]], "size": 0.07, "feather": 30, "opacity": 75, "seed": 21, "wait": true});
     regular.execute("spot.add", &params).unwrap();
@@ -160,11 +160,11 @@ fn j13_heal_command_matches_existing_local_engine_exactly() {
 }
 
 #[test]
-fn j13_explicit_sources_and_clone_keep_editable_inline_spots() {
+fn explicit_sources_and_clone_keep_editable_inline_spots() {
     use lightcraft_develop::SpotMode;
     use lightcraft_geom::Point;
 
-    let mut s = j13_session();
+    let mut s = spot_session();
     for (i, (mode, expected)) in [("heal", SpotMode::Heal), ("remove", SpotMode::Remove), ("clone", SpotMode::Clone)].into_iter().enumerate() {
         let r = s.execute("spot.add", &json!({"mode": mode, "points": [[0.5, 0.5]], "source": [0.2, 0.0]})).unwrap();
         assert_eq!(r["index"], i);
@@ -186,15 +186,15 @@ fn j13_explicit_sources_and_clone_keep_editable_inline_spots() {
 }
 
 #[test]
-fn j13_camera_raw_heal_stays_inline_and_survives_descriptor_roundtrip() {
-    let mut s = j13_session();
-    let dir = std::path::PathBuf::from("target/j13-tests").join(format!(
+fn camera_raw_heal_stays_inline_and_survives_descriptor_roundtrip() {
+    let mut s = spot_session();
+    let dir = std::path::PathBuf::from("target/tests").join(format!(
         "ephemeral-{}-{}",
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
     let src = s.source_now(s.active().unwrap(), crate::media::SourceLevel::Full).unwrap();
-    let photo = s.open_ephemeral(&dir, "J13 Filter", src.width, src.height, &src.data, &json!({})).unwrap();
+    let photo = s.open_ephemeral(&dir, "Filter", src.width, src.height, &src.data, &json!({})).unwrap();
     let before = s.render_now(photo, 64, 48).unwrap().image;
     for mode in ["heal", "remove"] {
         let r = s.execute("spot.add", &json!({"mode": mode, "points": [[0.5, 0.5]], "size": 0.07, "feather": 20})).unwrap();

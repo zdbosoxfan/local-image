@@ -576,7 +576,7 @@ mod tests {
 
 #[cfg(test)]
 #[test]
-fn j01_d2_streamed_blur_preserves_cancel_and_transparent_empty() {
+fn d2_streamed_blur_preserves_cancel_and_transparent_empty() {
     let rect = Rect::new(-3, -2, 7, 5);
     let cancel = || true;
     let ctl = Interrupt::cancel_only(&cancel);

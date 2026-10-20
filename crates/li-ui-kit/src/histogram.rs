@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_shared_scale_and_overlaps_are_exact_for_every_theme() {
+    fn histogram_shared_scale_and_overlaps_are_exact_for_every_theme() {
         let h = Fixture { channels: [[3; BINS], [2; BINS], [1; BINS]], ..Default::default() };
         let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(256.0, 110.0));
         for kind in ThemeKind::ALL {
@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_all_overlaps_and_curve_crossings_have_order_independent_colours() {
+    fn histogram_all_overlaps_and_curve_crossings_have_order_independent_colours() {
         let rect = Rect::from_min_max(pos2(0.0, 0.0), pos2(256.0, 100.0));
         let mut h = Fixture::default();
         for mask in 1..=7 {
@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_edge_spikes_do_not_flatten_or_bleed_into_interior_detail() {
+    fn histogram_edge_spikes_do_not_flatten_or_bleed_into_interior_detail() {
         let mut h = Fixture { channels: [[10; BINS]; 3], ..Default::default() };
         h.channels[0][0] = 1_000_000;
         h.channels[1][255] = 1_000_000;
@@ -388,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_empty_and_bad_rectangles_draw_no_ribbons() {
+    fn histogram_empty_and_bad_rectangles_draw_no_ribbons() {
         let t = Tokens::for_kind(ThemeKind::Pro);
         let h = Fixture::default();
         assert!(mesh(Rect::from_min_max(pos2(0.0, 0.0), pos2(256.0, 100.0)), &h, &t).is_empty());
@@ -399,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_periodic_quantization_gaps_do_not_make_a_sawtooth_contour() {
+    fn histogram_periodic_quantization_gaps_do_not_make_a_sawtooth_contour() {
         let mut h = Fixture::default();
         for channel in &mut h.channels {
             for i in (30..220).step_by(3) {
@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_isolated_quantization_gaps_do_not_cut_the_ribbon_into_bars() {
+    fn histogram_isolated_quantization_gaps_do_not_cut_the_ribbon_into_bars() {
         let mut h = Fixture::default();
         for channel in &mut h.channels {
             channel[119] = 100;
@@ -427,7 +427,7 @@ mod tests {
         assert_eq!(h, original, "display filtering must never change raw statistics");
     }
     #[test]
-    fn j18_histogram_frozen_editor_and_library_shape_parity() {
+    fn histogram_frozen_editor_and_library_shape_parity() {
         let ctx = egui::Context::default();
         let shapes = |paint: &dyn Fn(&egui::Painter)| {
             let mut output = ctx.run_ui(Default::default(), |ui| paint(ui.painter()));
@@ -476,7 +476,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_histogram_short_legacy_bins_are_zero_padded_without_panics() {
+    fn histogram_short_legacy_bins_are_zero_padded_without_panics() {
         let short = Histogram::u32([&[1, 2], &[], &[3]], Some(&[]));
         let padded = Histogram::u32([&[1, 2, 0, 0, 0], &[], &[3, 0, 0]], Some(&[]));
         for (a, b) in short.channels.into_iter().zip(padded.channels) {

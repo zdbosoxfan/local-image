@@ -355,7 +355,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_every_library_menu_shortcut_maps_to_a_key_equivalent() {
+    fn every_library_menu_shortcut_maps_to_a_key_equivalent() {
         let app = lightcraft_ui_egui::LightcraftApp::new(lightcraft_engine::Session::new(), lightcraft_ui_egui::Services::default());
         let bar = lightcraft_ui_egui::menubar::native_menu_bar(&app);
         let mut native = 0;

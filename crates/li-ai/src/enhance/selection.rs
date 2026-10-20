@@ -153,8 +153,8 @@ mod tests {
     }
 
     #[test]
-    fn j11_choices_durable_write_fault_preserves_previous_json_without_staging_leak() {
-        let dir = std::env::temp_dir().join(format!("j11-enhance-choices-{}", uuid::Uuid::new_v4()));
+    fn choices_durable_write_fault_preserves_previous_json_without_staging_leak() {
+        let dir = std::env::temp_dir().join(format!("enhance-choices-{}", uuid::Uuid::new_v4()));
         save(&dir, Method::Faithful, Some(default_choice(Method::Faithful))).unwrap();
         let path = dir.join("enhance-functions.json");
         let bytes = std::fs::read(&path).unwrap();

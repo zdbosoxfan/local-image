@@ -115,7 +115,7 @@ mod health_and_output_tests {
         let device = shared.device.clone();
         let ctx = egui::Context::default();
         let doc = photocraft_doc::Document::with_background(
-            "j12 CPU recovery white",
+            "CPU recovery white",
             photocraft_doc::Size::new(256, 16),
             photocraft_doc::ColorMode::Rgb,
             photocraft_doc::SampleType::U16,
@@ -127,7 +127,7 @@ mod health_and_output_tests {
         for frame in 1..=3 {
             app.frame = frame;
             gpu.begin_frame(frame);
-            gpu.health.operation_failed("j12 repeated recoverable allocation failure", 71);
+            gpu.health.operation_failed("repeated recoverable allocation failure", 71);
             crate::gpu_status::check(&mut app, &ctx);
             assert!(app.gpu_active(), "soft error at frame {frame} must retain the production canvas");
             assert_eq!(li_gpu::device::current().unwrap().device, device);
@@ -139,7 +139,7 @@ mod health_and_output_tests {
         assert!(!gpu.has(doc.id.0, [256, 16]), "failed-operation textures were invalidated");
         let refresh = gpu.refresh(doc.id.0, &doc, None, None);
         assert_eq!(refresh.kind, "full", "paused acceleration uses the CPU composite/upload path");
-        assert!(refresh.fallback.as_deref().is_some_and(|reason| reason.contains("j12 repeated recoverable allocation failure")));
+        assert!(refresh.fallback.as_deref().is_some_and(|reason| reason.contains("repeated recoverable allocation failure")));
         let (_, size, pixels) = app.read_canvas_texels(doc.id.0).expect("CPU fallback remains readable while the circuit is paused");
         assert_eq!(size, [256, 16]);
         assert!(pixels.iter().all(|pixel| *pixel == [1.0; 4]), "production CPU upload preserves white exactly");
@@ -169,7 +169,7 @@ mod health_and_output_tests {
         assert_eq!(li_gpu::device::current().unwrap().device, device, "retry reuses the same window device");
         assert!(shared.health.can_render(), "Develop/compositor observe the same successful retry");
         eprintln!(
-            "j12 soft circuit breaker {:?}/{:?}: 3 failed frames, live CPU white upload + 4096 exact callback pixels, retry on the same device",
+            "soft circuit breaker {:?}/{:?}: 3 failed frames, live CPU white upload + 4096 exact callback pixels, retry on the same device",
             info.name, info.backend
         );
         li_gpu::device::release_window();
@@ -194,7 +194,7 @@ mod health_and_output_tests {
     fn encode_ramp(gpu: &GpuCanvas, size: [u32; 2], ramp: &[[f32; 4]], previous: bool) {
         let (device, queue) = (&gpu.rs.device, &gpu.rs.queue);
         let source = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("j12 linear composite sample"),
+            label: Some("linear composite sample"),
             size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
@@ -218,11 +218,11 @@ mod health_and_output_tests {
         );
         let source_view = source.create_view(&Default::default());
         let offset =
-            init_buffer(device, "j12 encode offset", &[0_i32, 0, 1, 0].into_iter().flat_map(i32::to_le_bytes).collect::<Vec<_>>(), wgpu::BufferUsages::UNIFORM);
+            init_buffer(device, "encode offset", &[0_i32, 0, 1, 0].into_iter().flat_map(i32::to_le_bytes).collect::<Vec<_>>(), wgpu::BufferUsages::UNIFORM);
         let renderer = gpu.rs.renderer.read();
         let res = renderer.callback_resources.get::<Resources>().unwrap();
         let bindings = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("j12 production encode"),
+            label: Some("production encode"),
             layout: &res.encode_bgl,
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&source_view) },
@@ -240,21 +240,21 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
 "#
         );
         let previous_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("j12 original vector encode"),
+            label: Some("original vector encode"),
             source: wgpu::ShaderSource::Wgsl(previous_source.into()),
         });
         let previous_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("j12 original encode bindings"),
+            label: Some("original encode bindings"),
             bind_group_layouts: &[Some(&res.encode_bgl)],
             immediate_size: 0,
         });
-        let previous_pipeline = pipeline(device, "j12 original vector encode", &previous_layout, &previous_module, ("vs", "fs"), FORMAT_HIGH, None);
+        let previous_pipeline = pipeline(device, "original vector encode", &previous_layout, &previous_module, ("vs", "fs"), FORMAT_HIGH, None);
         let doc = res.docs.get(&1).unwrap();
         assert_eq!(doc.tiles.len(), 1);
         let mut encoder = device.create_command_encoder(&Default::default());
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("j12 production encode"),
+                label: Some("production encode"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &doc.tiles[0].levels[0],
                     resolve_target: None,
@@ -280,7 +280,7 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
         let rs = &gpu.rs;
         let size = cb.params.doc_size;
         let module = rs.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("j12 final float diagnostic"),
+            label: Some("final float diagnostic"),
             source: wgpu::ShaderSource::Wgsl(li_gpu::wgsl::source(body).into()),
         });
         let mut renderer = rs.renderer.write();
@@ -290,11 +290,11 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
             bind_group_layouts: &[Some(&res.view_bgl), Some(&res.tile_bgl), Some(&res.lut_bgl)],
             immediate_size: 0,
         });
-        let pipe = pipeline(&rs.device, "j12 float diagnostic", &layout, &module, ("vs_tile", "fs_tile"), wgpu::TextureFormat::Rgba32Float, None);
+        let pipe = pipeline(&rs.device, "float diagnostic", &layout, &module, ("vs_tile", "fs_tile"), wgpu::TextureFormat::Rgba32Float, None);
         let original = std::mem::replace(&mut res.tile_pipeline, pipe);
         let original_levels = std::mem::replace(&mut res.depth_levels, levels);
         let texture = rs.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("j12 final float diagnostic"),
+            label: Some("final float diagnostic"),
             size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
             mip_level_count: 1,
             sample_count: 1,
@@ -385,7 +385,7 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
         let shared = li_gpu::device::current().unwrap();
         assert_eq!(shared.device, base.device);
         let errors = first.health.errors();
-        first.health.operation_failed("j12 injected recoverable allocation failure", 17);
+        first.health.operation_failed("injected recoverable allocation failure", 17);
         for health in [&first.health, &second.health, &shared.health] {
             assert_eq!(health.errors(), errors + 1);
             assert_eq!(health.strikes(), 1);
@@ -443,7 +443,7 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
                 }
             }
             eprintln!(
-                "j12 encode white: before={}, after={} (exact mathematical endpoint); all 4080 nonwhite texels bit-exact",
+                "encode white: before={}, after={} (exact mathematical endpoint); all 4080 nonwhite texels bit-exact",
                 previous_encoded[255][0], encoded[255][0]
             );
             let mut worst_encode = 0.0_f32;
@@ -461,11 +461,11 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
                 assert!(ulps <= 1, "encode exceeds one adjacent half storage code: actual={actual:?}, expected={expected:?}");
             }
             eprintln!(
-                "j12 production encode nonwhite bit-exact and white exact, CPU maximum error={worst_encode:.9}, max half storage code difference={worst_storage_ulps}"
+                "production encode nonwhite bit-exact and white exact, CPU maximum error={worst_encode:.9}, max half storage code difference={worst_storage_ulps}"
             );
             let levels = if format == wgpu::TextureFormat::Rgb10a2Unorm { 1023 } else { 255 };
             let texture = rs.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("j12 final canvas"),
+                label: Some("final canvas"),
                 size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -476,7 +476,7 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
             });
             let target = texture.create_view(&Default::default());
             let read = rs.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("j12 final canvas readback"),
+                label: Some("final canvas readback"),
                 size: u64::from(size[0] * size[1] * 4),
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
@@ -501,20 +501,20 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
 "#,
             );
             let module = rs.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("j12 previous Bayer final pass"),
+                label: Some("previous Bayer final pass"),
                 source: wgpu::ShaderSource::Wgsl(li_gpu::wgsl::source(&before_body).into()),
             });
             let mut renderer = rs.renderer.write();
             let res = renderer.callback_resources.get_mut::<Resources>().unwrap();
             let layout = rs.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("j12 previous final-pass bindings"),
+                label: Some("previous final-pass bindings"),
                 bind_group_layouts: &[Some(&res.view_bgl), Some(&res.tile_bgl), Some(&res.lut_bgl)],
                 immediate_size: 0,
             });
             let current = res.tile_pipeline.clone();
             let previous = pipeline(
                 &rs.device,
-                "j12 previous Bayer",
+                "previous Bayer",
                 &layout,
                 &module,
                 ("vs_tile", "fs_tile"),
@@ -538,7 +538,7 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
             for before in [true, false] {
                 let final_float = float_capture(&gpu, &cb, if before { &before_body } else { CANVAS_WGSL }, levels as f32);
                 eprintln!(
-                    "j12 float diagnostic {format:?} before={before}, x4,y0: stored={}, sampled={}, final_float={} (code={}); x255,y0: stored={}, final_float={}",
+                    "float diagnostic {format:?} before={before}, x4,y0: stored={}, sampled={}, final_float={} (code={}); x255,y0: stored={}, final_float={}",
                     encoded[4][0],
                     sampled[4][0],
                     final_float[4][0],
@@ -568,7 +568,7 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
                     {
                         let mut pass = encoder
                             .begin_render_pass(&wgpu::RenderPassDescriptor {
-                                label: Some("j12 production final pass"),
+                                label: Some("production final pass"),
                                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                     view: &target,
                                     resolve_target: None,
@@ -679,12 +679,12 @@ fn srgb_encode(c: vec3<f32>) -> vec3<f32> {{
                 assert_eq!(gpu.health.errors(), errors + 1, "production shaders raised an error");
                 if before {
                     eprintln!(
-                        "j12 previous Bayer native conversion {format:?}: nearest-code mean absolute error={:.9}, max={baseline_error_max}; new TPDF requires exact nearest-code equality",
+                        "previous Bayer native conversion {format:?}: nearest-code mean absolute error={:.9}, max={baseline_error_max}; new TPDF requires exact nearest-code equality",
                         baseline_error_sum as f64 / baseline_count as f64
                     );
                 }
                 eprintln!(
-                    "j12 production final canvas {:?}/{:?} {format:?}, {} 256x16: 16384 RGB pixels, neutral exact (old adjacent native conversion / new exact CPU codes and endpoints); encode max={worst_encode:.9}; three warm frame+GPU-wait ms={render_ms:?}; separate copy+readback ms={readback_ms:?}",
+                    "production final canvas {:?}/{:?} {format:?}, {} 256x16: 16384 RGB pixels, neutral exact (old adjacent native conversion / new exact CPU codes and endpoints); encode max={worst_encode:.9}; three warm frame+GPU-wait ms={render_ms:?}; separate copy+readback ms={readback_ms:?}",
                     info.name,
                     info.backend,
                     if before { "before Bayer" } else { "after TPDF" }

@@ -676,7 +676,7 @@ mod d2_tests {
     }
 
     #[test]
-    fn j01_d2_exact_gaussian_byte_parity() {
+    fn d2_exact_gaussian_byte_parity() {
         let src: Vec<f32> = (0..17 * 9).map(|i| ((i * 37 + 19) % 101) as f32 / 100.0).collect();
         for sigma in [0.3, 0.5, 1.0, 2.0, 4.0] {
             let expected = legacy_exact(&src, 17, 9, sigma);
@@ -688,7 +688,7 @@ mod d2_tests {
     }
 
     #[test]
-    fn j01_d2_small_sigma_706_and_variance() {
+    fn d2_small_sigma_706_and_variance() {
         let mut src = vec![0.0; 41];
         src[20] = 1.0;
         let sampled = gaussian(&src, 41, 1, 0.5);
@@ -711,7 +711,7 @@ mod d2_tests {
     }
 
     #[test]
-    fn j01_d2_premultiplied_fringe_and_generic_parity() {
+    fn d2_premultiplied_fringe_and_generic_parity() {
         let src = [[1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 1.0, 0.0]];
         let mut flat = src.into_iter().flatten().collect::<Vec<_>>();
         gaussian_n(&mut flat, 3, 1, 4, 0.5, true);
@@ -730,7 +730,7 @@ mod d2_tests {
     }
 
     #[test]
-    fn j01_d2_box_clipped_and_extrema_boundaries() {
+    fn d2_box_clipped_and_extrema_boundaries() {
         let src = [1.0, 2.0, 4.0, 8.0, 16.0, 32.0];
         let clipped = box_mean(&src, 3, 2, 1);
         assert_eq!(clipped, vec![6.75, 10.5, 13.5, 6.75, 10.5, 13.5]);
@@ -743,7 +743,7 @@ mod d2_tests {
     }
 
     #[test]
-    fn j01_d2_large_gaussian_policy_parity() {
+    fn d2_large_gaussian_policy_parity() {
         // Independent previous fxutil three-box definition, preserving f64 running sums.
         fn old_pass(v: &mut [f32], w: usize, h: usize, r: usize, vertical: bool) {
             if r == 0 {
@@ -785,7 +785,7 @@ mod d2_tests {
 
 #[cfg(test)]
 #[test]
-fn j01_final_field_box_precision_against_direct_mean() {
+fn final_field_box_precision_against_direct_mean() {
     let (w, h, r) = (129, 7, 17usize);
     let src: Vec<f32> = (0..w * h).map(|i| ((i * 37 + 19) % 101) as f32 / 100.0).collect();
     let legacy = |input: &[f32], horizontal: bool| {

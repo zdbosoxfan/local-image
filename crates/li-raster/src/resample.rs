@@ -668,11 +668,11 @@ pub fn resize_interleaved<S: Sample>(data: &[S], width: usize, height: usize, ch
 }
 
 #[cfg(test)]
-mod j27_tests {
+mod lanczos_tests {
     use super::*;
 
     #[test]
-    fn j27_choice_keys_round_trip_and_resolve() {
+    fn choice_keys_round_trip_and_resolve() {
         for c in ResampleChoice::ALL {
             assert_eq!(ResampleChoice::from_key(c.key()), Some(c));
             assert_eq!(camel(c), c.key(), "serde camelCase name is the key");
@@ -691,7 +691,7 @@ mod j27_tests {
     }
 
     #[test]
-    fn j27_dense_resize_exact_size_and_flat_field() {
+    fn dense_resize_exact_size_and_flat_field() {
         let (w0, h0) = (37, 23);
         let data: Vec<u16> = (0..w0 * h0).flat_map(|_| [13107u16, 32768, 52428]).collect();
         for c in ResampleChoice::ALL {

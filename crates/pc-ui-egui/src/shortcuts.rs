@@ -609,11 +609,11 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j20_tests {
+mod catalog_tests {
     use super::*;
 
     #[test]
-    fn j20_editor_catalog_native_event_and_conflict_parity() {
+    fn editor_catalog_native_event_and_conflict_parity() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         for parent in ["Photoshop", "Affinity Photo"] {
             app.session.edit_prefs(|p| p.shortcut_profiles.editor.active = parent.into());
@@ -648,7 +648,7 @@ mod j20_tests {
     }
 
     #[test]
-    fn j20_editor_real_dispatch_sample() {
+    fn editor_real_dispatch_sample() {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         let ctx = egui::Context::default();
         crate::shortcut_dispatch::set_dry_run(&ctx, true);
@@ -670,6 +670,6 @@ mod j20_tests {
             }
         }
         samples.sort();
-        eprintln!("J20 editor CPU key-event frame: median={:?}, min={:?}, max={:?}, n={}", samples[10], samples[0], samples[19], samples.len());
+        eprintln!("editor CPU key-event frame: median={:?}, min={:?}, max={:?}, n={}", samples[10], samples[0], samples[19], samples.len());
     }
 }

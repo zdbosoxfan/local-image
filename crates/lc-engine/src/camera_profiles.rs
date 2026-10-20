@@ -249,8 +249,8 @@ mod tests {
     }
 
     #[test]
-    fn j11_camera_profile_golden_and_write_fault_preserve_previous_profile() {
-        let dir = std::env::temp_dir().join(format!("j11-profile-{}", std::process::id()));
+    fn camera_profile_golden_and_write_fault_preserve_previous_profile() {
+        let dir = std::env::temp_dir().join(format!("profile-{}", std::process::id()));
         let original = profile();
         let path = save(&original, &dir).unwrap();
         let golden = std::fs::read(&path).unwrap();
@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn profiles_are_read_from_the_one_profiles_folder_only() {
-        let root = std::env::temp_dir().join(format!("lc-j16-profiles-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("lc-profiles-{}", std::process::id()));
         let canonical = root.join("canonical/camera-profiles");
         // the override is exclusive; the old LightCraft variable name is not read
         let ours = canonical.clone().into_os_string();

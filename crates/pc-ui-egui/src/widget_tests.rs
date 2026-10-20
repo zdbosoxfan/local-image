@@ -51,7 +51,7 @@ fn gallery(ui: &mut egui::Ui, state: &mut Gallery) {
     let (tile, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
     editor::color_tile(ui, tile, Color32::from_rgba_unmultiplied(120, 60, 160, 160));
     let available = ui.available_width();
-    editor::dropdown(ui, "j18-choice", &mut state.choice, &[(0, "First choice"), (1, "Second choice")], available);
+    editor::dropdown(ui, "choice", &mut state.choice, &[(0, "First choice"), (1, "Second choice")], available);
     let response = editor::slider(ui, &mut state.value, 0.0..=100.0, None);
     response.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(state.value), "Editor slider"));
     state.bounds.push(("editor slider", response.rect));
@@ -78,7 +78,7 @@ fn gallery(ui: &mut egui::Ui, state: &mut Gallery) {
     let (tile, _) = ui.allocate_exact_size(Vec2::splat(28.0), Sense::hover());
     kit::color_tile(ui, tile, Color32::from_rgba_unmultiplied(120, 60, 160, 160), Profile::Library);
     let available = ui.available_width();
-    kit::choice_menu(ui, "j18-library-choice", if state.library_choice == 0 { "Library first" } else { "Library second" }, available, |ui| {
+    kit::choice_menu(ui, "library-choice", if state.library_choice == 0 { "Library first" } else { "Library second" }, available, |ui| {
         for (value, label) in [(0, "Library first"), (1, "Library second")] {
             if ui.selectable_label(state.library_choice == value, label).clicked() {
                 state.library_choice = value;
@@ -127,7 +127,7 @@ fn harness(kind: crate::theme::ThemeKind, width: f32) -> Harness<'static, Galler
 }
 
 #[test]
-fn j18_widget_facades_real_clicks_keyboard_and_cpu_gallery() {
+fn widget_facades_real_clicks_keyboard_and_cpu_gallery() {
     for kind in [crate::theme::ThemeKind::ProMedium, crate::theme::ThemeKind::StudioLight] {
         for width in [180.0, 270.0] {
             let mut h = harness(kind, width);
@@ -200,13 +200,13 @@ fn j18_widget_facades_real_clicks_keyboard_and_cpu_gallery() {
             let image = h.render().expect("CPU gallery render");
             let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
             println!(
-                "J18 real shared-widget pointer/keyboard sample {kind:?}/{width}: {elapsed_ms:.3} ms incl final CPU frame; {}x{} pixels",
+                "real shared-widget pointer/keyboard sample {kind:?}/{width}: {elapsed_ms:.3} ms incl final CPU frame; {}x{} pixels",
                 image.width(),
                 image.height()
             );
             assert_eq!(image.width(), width as u32);
             assert_eq!(image.height(), 650);
-            let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/j18-widgets");
+            let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/design-system/widgets");
             std::fs::create_dir_all(&target).unwrap();
             image.save(target.join(format!("{kind:?}-{}.png", width as u32))).unwrap();
         }

@@ -13,7 +13,7 @@ pub use lightcraft_pipeline::{DeepImage, DeepSamples, OutputDepth, OutputSpace};
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
-mod j27_tests;
+mod lanczos_tests;
 mod options;
 mod prepared;
 #[cfg(test)]

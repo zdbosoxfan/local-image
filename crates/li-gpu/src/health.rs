@@ -460,7 +460,7 @@ mod retry_tests {
     use super::*;
 
     #[test]
-    fn j12_device_consumers_share_error_strike_and_backoff_state() {
+    fn device_consumers_share_error_strike_and_backoff_state() {
         let develop = DeviceHealth::new();
         let compositor = develop.clone();
         let now = Instant::now();

@@ -408,7 +408,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_raw_same_phase_subpixel_is_affine_exact_and_colour_preserving() {
+    fn raw_same_phase_subpixel_is_affine_exact_and_colour_preserving() {
         let scene = |x: f32, y: f32| [0.10 + 0.0001 * x, 0.30 + 0.0002 * y, 0.60 + 0.0001 * (x + y)];
         let raw = capture(40, 32, 1.0, scene, (0.0, 0.0));
         let samples = raw.normalized_samples().unwrap();
@@ -474,13 +474,13 @@ mod tests {
     }
 
     #[test]
-    fn j19_raw_hdr_preserves_window_headroom_and_demosaic_first_cfa_parity() {
+    fn raw_hdr_preserves_window_headroom_and_demosaic_first_cfa_parity() {
         let raws: Vec<_> = [0.125, 1.0, 8.0].into_iter().map(|e| capture(192, 128, e, window_scene, (0.0, 0.0))).collect();
         let options = HdrOptions { align: false, deghost: Deghost::None };
         let merged = merge_raw_hdr(&raws, &options, &crate::no_progress).unwrap();
         let old = hdr::merge_hdr(old_frames(&raws), &options, &crate::no_progress).unwrap();
         let (new_rmse, old_rmse) = (cfa_rmse(&merged, window_scene, 8), cfa_rmse(&old, window_scene, 8));
-        eprintln!("j19 CFA window RMSE new={new_rmse:.9} old={old_rmse:.9}");
+        eprintln!("CFA window RMSE new={new_rmse:.9} old={old_rmse:.9}");
         assert_eq!(merged.reference, 1);
         assert!(merged.radiance.get(120, 60)[1] > 3.99);
         assert!(new_rmse < 2e-6, "CFA radiance error {new_rmse}");
@@ -493,7 +493,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_raw_hdr_motion_strengths_overlay_and_crop_match() {
+    fn raw_hdr_motion_strengths_overlay_and_crop_match() {
         let mut raws: Vec<_> = [0.25, 1.0, 4.0].into_iter().map(|e| capture(192, 128, e, |_, _| [0.18, 0.2, 0.16], (0.0, 0.0))).collect();
         raws[2] = capture(
             192,
@@ -521,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn j19_raw_hdr_handheld_pipeline_recovers_fractional_sensor_shift() {
+    fn raw_hdr_handheld_pipeline_recovers_fractional_sensor_shift() {
         let scene = lightcraft_scenes::demo_library().into_iter().find(|s| s.kind == lightcraft_scenes::Kind::OceanSunset).unwrap().render(384, 280);
         let mut levels: Vec<_> = scene.data.iter().map(|p| p[1]).collect();
         levels.sort_by(f32::total_cmp);
@@ -534,7 +534,7 @@ mod tests {
         let mut largest = 0.0f64;
         for i in [0, 2] {
             eprintln!(
-                "j19 handheld frame {i}: H={:?} model={} inliers={} rms={:.6}",
+                "handheld frame {i}: H={:?} model={} inliers={} rms={:.6}",
                 result.alignments[i].h.0, result.alignments[i].model, result.alignments[i].inliers, result.alignments[i].rms
             );
             assert_ne!(result.alignments[i].model, "identity", "registration must be measured");
@@ -545,12 +545,12 @@ mod tests {
                 largest = largest.max(warped.dist(want));
             }
         }
-        eprintln!("j19 handheld sensor alignment maximum error={largest:.6}px");
+        eprintln!("handheld sensor alignment maximum error={largest:.6}px");
         assert!(largest < 0.5, "fractional sensor alignment error={largest}");
     }
 
     #[test]
-    fn j19_raw_hdr_rejects_invalid_calibration_and_cancels() {
+    fn raw_hdr_rejects_invalid_calibration_and_cancels() {
         let mut raws = vec![capture(24, 20, 0.5, |_, _| [0.18; 3], (0.0, 0.0)), capture(24, 20, 1.0, |_, _| [0.18; 3], (0.0, 0.0))];
         assert!(matches!(merge_raw_hdr(&raws, &HdrOptions::default(), &|_, _| false), Err(MergeError::Cancelled)));
         raws[1].color.color_matrix[0] = None;
@@ -567,10 +567,10 @@ mod tests {
     /// quality measurement (there is no independent scene radiance ground truth).
     #[test]
     #[ignore = "local owner originals; set LOCAL_IMAGE_OWNER_SHOTS to the authorized session root"]
-    fn j19_owner_shots_raw_hdr_small_sensor_crop() {
+    fn owner_shots_raw_hdr_small_sensor_crop() {
         use std::io::Read;
         let Some(root) = std::env::var_os("LOCAL_IMAGE_OWNER_SHOTS") else {
-            eprintln!("j19 owner sample skipped: LOCAL_IMAGE_OWNER_SHOTS is unset");
+            eprintln!("owner sample skipped: LOCAL_IMAGE_OWNER_SHOTS is unset");
             return;
         };
         let root = std::path::PathBuf::from(root);
@@ -624,13 +624,7 @@ mod tests {
                     }
                 }
             }
-            eprintln!(
-                "j19 owner raw layout: cpp={} cfa={} source={}x{}",
-                normalized.cpp,
-                normalized.cfa.is_some(),
-                normalized.width,
-                normalized.height
-            );
+            eprintln!("owner raw layout: cpp={} cfa={} source={}x{}", normalized.cpp, normalized.cfa.is_some(), normalized.width, normalized.height);
             let color = match camera_color(&raw) {
                 FrameColor::Camera(color) => *color,
                 FrameColor::Linear { .. } => ColorData::default(),
@@ -678,7 +672,7 @@ mod tests {
         let difference = (difference / observations as f64).sqrt();
         let max_radiance = result.radiance.data.iter().flatten().copied().fold(f32::NEG_INFINITY, f32::max);
         eprintln!(
-            "j19 owner 3x128px sensor crop: fusion_ms={elapsed:.3} sensor_old_difference_RMSE={difference:.9} max_linear={max_radiance:.6} EV={:?}",
+            "owner 3x128px sensor crop: fusion_ms={elapsed:.3} sensor_old_difference_RMSE={difference:.9} max_linear={max_radiance:.6} EV={:?}",
             result.ev
         );
         assert!(max_radiance > 0.0);

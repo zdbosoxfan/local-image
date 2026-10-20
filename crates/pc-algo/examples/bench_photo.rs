@@ -197,10 +197,10 @@ fn srgb8(v: f32) -> f32 {
 }
 
 #[cfg(test)]
-mod j10_tests {
+mod tests {
     use super::*;
     #[test]
-    fn j10_rendered_inputs_are_srgb8() {
+    fn rendered_inputs_are_srgb8() {
         assert_eq!(srgb8(0.0), 0.0);
         assert_eq!(srgb8(1.0), 1.0);
         assert_eq!(srgb8(0.18), 118.0 / 255.0);

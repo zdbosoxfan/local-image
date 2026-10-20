@@ -118,8 +118,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j06_jxl_associated_fixture_preserves_raw_and_exposes_straight_samples() {
-        let bytes = include_bytes!("../../tests/fixtures/j06-jxl-conformance/alpha_premultiplied.jxl");
+    fn jxl_associated_fixture_preserves_raw_and_exposes_straight_samples() {
+        let bytes = include_bytes!("../../tests/fixtures/jxl-conformance/alpha_premultiplied.jxl");
         let raw = decode_for_color(bytes, &Limits::default()).unwrap();
         let straight = decode(bytes, &Limits::default()).unwrap();
         assert!(raw.associated_alpha);
@@ -145,14 +145,14 @@ mod tests {
     }
 
     #[test]
-    fn j06_jxl_unassociates_float_hdr_without_clipping() {
+    fn jxl_unassociates_float_hdr_without_clipping() {
         let mut samples = vec![0.5, 0.25, 1.5, 0.5, 0.3, 0.2, 0.1, 0.0];
         unassociate(&mut samples, ChannelLayout::Rgba);
         assert_eq!(samples, [1.0, 0.5, 3.0, 0.5, 0.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
-    fn j06_jxl_rejects_truncated_header_without_panicking() {
+    fn jxl_rejects_truncated_header_without_panicking() {
         for bytes in [&b"\xff\x0a"[..], &b"\0\0\0\x0cJXL \r\n\x87\n"[..]] {
             assert!(decode(bytes, &Limits::default()).is_err());
         }

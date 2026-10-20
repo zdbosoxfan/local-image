@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn j20_profile_json_golden_and_editing() {
+fn profile_json_golden_and_editing() {
     let mut profiles = ShortcutProfiles::default();
     profiles.set_override("edit.copy", Some("Cmd+F19"));
     profiles.set_override("library::tool.brush", Some(""));
@@ -35,7 +35,7 @@ fn j20_profile_json_golden_and_editing() {
 }
 
 #[test]
-fn j20_profile_tables_golden() {
+fn profile_tables_golden() {
     assert_eq!(
         keymaps::CAPTURE_ONE,
         &[("tool.brush", "B"), ("tool.erase", "E"), ("tool.linear", "G"), ("tool.radial", "T"), ("view.maskOverlay", "M"), ("view.lightsOut", "")]
@@ -59,7 +59,7 @@ fn j20_profile_tables_golden() {
 }
 
 #[test]
-fn j20_conflicts_cover_event_overlap_and_platform_modifiers() {
+fn conflicts_cover_event_overlap_and_platform_modifiers() {
     for (a, b) in [("Cmd+=", "Cmd++"), ("Shift+[", "Shift+{"), ("Shift+;", "Shift+:"), ("Delete", "Backspace")] {
         let conflicts = conflicts([("first", a), ("second", b), ("first", a)]);
         assert_eq!(conflicts.len(), 1, "{a} {b}");
@@ -88,7 +88,7 @@ mod egui_tests {
     }
 
     /// egui key names that the canonical spelling writes as the character itself. Snapshot of the
-    /// frozen pre-merge (J20) engine normalizer, which every other key name passed through unchanged.
+    /// frozen pre-merge engine normalizer, which every other key name passed through unchanged.
     const SYMBOL_NAMES: &[(&str, &str)] = &[
         ("Colon", ":"),
         ("Comma", ","),
@@ -108,7 +108,7 @@ mod egui_tests {
     ];
 
     #[test]
-    fn j20_parser_golden_for_every_key_and_modifier_set() {
+    fn parser_golden_for_every_key_and_modifier_set() {
         for key in Key::ALL {
             let canonical_key = SYMBOL_NAMES.iter().find(|(name, _)| *name == key.name()).map_or(key.name(), |(_, symbol)| symbol);
             for bits in 0..16 {
@@ -154,7 +154,7 @@ mod egui_tests {
     }
 
     /// Matches between different keys, or the same key with a different Shift state, when the
-    /// other modifiers agree: `(binding, key press)`. Snapshot of the frozen pre-merge (J20)
+    /// other modifiers agree: `(binding, key press)`. Snapshot of the frozen pre-merge
     /// Editor matcher's layout aliases (Photoshop-style), which the shared matcher keeps.
     const LAYOUT_ALIASES: &[(&str, &str)] = &[
         ("Backspace", "Delete"),
@@ -180,7 +180,7 @@ mod egui_tests {
     ];
 
     #[test]
-    fn j20_matching_golden_and_exact_mac_control() {
+    fn matching_golden_and_exact_mac_control() {
         for key in Key::ALL {
             for bits in 0..16 {
                 let sc = KeyboardShortcut::new(mods(bits), *key);
@@ -231,7 +231,7 @@ mod egui_tests {
     }
 
     #[test]
-    fn j20_core_and_egui_overlap_parity() {
+    fn core_and_egui_overlap_parity() {
         let keys = ["=", "+", ";", ":", "[", "{", "]", "}", "/", "?", "\\", "|", "1", "!", "Delete", "Backspace", "'", ",", "B", "F35"];
         let mut chords = Vec::new();
         for key in keys {
@@ -254,7 +254,7 @@ mod egui_tests {
 
 #[cfg(feature = "egui")]
 #[test]
-fn j20_dispatch_preserves_order_unmatched_keys_and_releases() {
+fn dispatch_preserves_order_unmatched_keys_and_releases() {
     use egui::{Key, Modifiers};
     let ctx = egui::Context::default();
     let key = |key, pressed| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: Modifiers::NONE };
@@ -271,7 +271,7 @@ fn j20_dispatch_preserves_order_unmatched_keys_and_releases() {
 
 #[cfg(feature = "egui")]
 #[test]
-fn j20_capture_platform_mapping_preserves_mac_control_command() {
+fn capture_platform_mapping_preserves_mac_control_command() {
     use egui::{Key, Modifiers};
     let physical = Modifiers { ctrl: true, command: true, mac_cmd: true, alt: true, shift: true };
     assert_eq!(input::shortcut_text_on(Key::M, physical, Platform::Mac).as_deref(), Some("Cmd+Ctrl+Alt+Shift+M"));

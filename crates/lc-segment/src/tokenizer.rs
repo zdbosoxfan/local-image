@@ -67,7 +67,7 @@ mod tests {
     /// the end token, then end-token padding; long prompts keep the end token at the last place;
     /// a token id 0 inside the prompt is a real token, not padding.
     #[test]
-    fn j08_shared_bpe_matches_sam3_padding_and_mask() {
+    fn shared_bpe_matches_sam3_padding_and_mask() {
         let vocab: HashMap<String, u32> =
             [("!</w>", 0), ("c", 1), ("a", 2), ("t</w>", 3), ("ca", 4), ("cat</w>", 5)].into_iter().map(|(k, v)| (k.to_string(), v)).collect();
         let t = Tokenizer::new(vocab, "#version: 0.2\nc a\nca t</w>\n");

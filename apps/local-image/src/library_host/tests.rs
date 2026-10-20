@@ -1,5 +1,5 @@
 #[test]
-fn j23_raw_standin_uses_shared_container_orientation_before_development() {
+fn raw_standin_uses_shared_container_orientation_before_development() {
     let mut jpeg = Vec::new();
     let rgb = image::RgbImage::from_fn(48, 32, |x, y| image::Rgb([(x * 5) as u8, (y * 7) as u8, 60]));
     image::codecs::jpeg::JpegEncoder::new(&mut jpeg).encode(rgb.as_raw(), 48, 32, image::ExtendedColorType::Rgb8).unwrap();
@@ -14,7 +14,7 @@ fn j23_raw_standin_uses_shared_container_orientation_before_development() {
     }
     bytes.extend_from_slice(&0u32.to_le_bytes());
     bytes.extend_from_slice(&jpeg);
-    let dir = PathBuf::from("target").join(format!("j23-raw-preview-{}", std::process::id()));
+    let dir = PathBuf::from("target").join(format!("raw-preview-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("synthetic.arw");
     std::fs::write(&path, &bytes).unwrap();
@@ -25,14 +25,14 @@ fn j23_raw_standin_uses_shared_container_orientation_before_development() {
     let source = lightcraft_codecs::decode(&jpeg, Default::default()).unwrap().to_srgb8();
     // Clockwise rotation: first output pixel is the old bottom-left pixel.
     assert_eq!(preview.data[0], source.data[31 * 48]);
-    eprintln!("J23 RAW orientation: old 48x32 landscape, shared 32x48 portrait, first oriented pixel exact");
+    eprintln!("RAW orientation: old 48x32 landscape, shared 32x48 portrait, first oriented pixel exact");
     std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
-fn j23_host_developed_thumbnail_is_library_texture_and_preserves_selection() {
+fn host_developed_thumbnail_is_library_texture_and_preserves_selection() {
     use photocraft_ui_egui::filmstrip_ui;
-    let (dir, path, mut lib, photo) = library_with_photo("j23-catalog");
+    let (dir, path, mut lib, photo) = library_with_photo("catalog");
     lib.run("develop.set", json!({"control":"light.exposure", "value":1.5})).unwrap();
     lib.run("crop.set", json!({"rect":[0.0,0.0,0.5,1.0]})).unwrap();
     lib.renderer.keep_pixels = true;
@@ -68,7 +68,7 @@ fn j23_host_developed_thumbnail_is_library_texture_and_preserves_selection() {
         / (actual.pixels.len() * 3) as f64;
     assert!(legacy_error > 5.0);
     eprintln!(
-        "J23 catalog golden: old dimensions {:?}, developed {:?}, old normalized-crop RGB MAE={legacy_error:.3}, new MAE=0, legacy decode {legacy_ms:.3} ms",
+        "catalog golden: old dimensions {:?}, developed {:?}, old normalized-crop RGB MAE={legacy_error:.3}, new MAE=0, legacy decode {legacy_ms:.3} ms",
         legacy.size, actual.size
     );
     assert!(h.host.filmstrip_previews.folder.is_none(), "catalog thumbnails start no extra workers/cache");
@@ -79,7 +79,7 @@ fn j23_host_developed_thumbnail_is_library_texture_and_preserves_selection() {
         h.step(vec![]);
     }
     eprintln!(
-        "J23 real headless host path: settled frame {:.3} ms, shared textures {}, folder workers 0",
+        "real headless host path: settled frame {:.3} ms, shared textures {}, folder workers 0",
         started.elapsed().as_secs_f64() * 200.0,
         h.host.library.as_ref().unwrap().renderer.thumb_textures()
     );
@@ -92,9 +92,9 @@ fn j23_host_developed_thumbnail_is_library_texture_and_preserves_selection() {
 }
 
 #[test]
-fn j23_folder_cache_warm_reopen_skips_decode_and_refreshes_same_size_save() {
+fn folder_cache_warm_reopen_skips_decode_and_refreshes_same_size_save() {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let dir = PathBuf::from("target").join(format!("j23-folder-cache-{}", std::process::id()));
+    let dir = PathBuf::from("target").join(format!("folder-cache-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("fixture.png");
     image::RgbaImage::from_fn(192, 128, |x, y| image::Rgba([(x * 255 / 191) as u8, (y * 255 / 127) as u8, 80, 255])).save(&path).unwrap();
@@ -129,7 +129,7 @@ fn j23_folder_cache_warm_reopen_skips_decode_and_refreshes_same_size_save() {
     let mae = delta.iter().map(|d| *d as f64).sum::<f64>() / delta.len() as f64;
     assert!(mae < 2.0, "small sample cache MAE {mae}");
     eprintln!(
-        "J23 folder sample: cold render {cold_ms:.3} ms, warm reopen including probe/hash {warm_ms:.3} ms, source decodes cold=1/warm=0, disk MAE={mae:.4}, max={}",
+        "folder sample: cold render {cold_ms:.3} ms, warm reopen including probe/hash {warm_ms:.3} ms, source decodes cold=1/warm=0, disk MAE={mae:.4}, max={}",
         delta.iter().max().unwrap()
     );
     // Equal-sized BMP pixel changes must get a new true content key despite the same name.
@@ -155,10 +155,10 @@ fn j23_folder_cache_warm_reopen_skips_decode_and_refreshes_same_size_save() {
 }
 
 #[test]
-fn j23_host_folder_service_deduplicates_limits_textures_and_preserves_catalog() {
+fn host_folder_service_deduplicates_limits_textures_and_preserves_catalog() {
     use lightcraft_ui_egui::render::Slot;
     use photocraft_ui_egui::filmstrip_ui::PreviewRequest;
-    let dir = PathBuf::from("target").join(format!("j23-service-{}", std::process::id()));
+    let dir = PathBuf::from("target").join(format!("service-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("plain.png");
     image::RgbaImage::from_pixel(48, 32, image::Rgba([60, 100, 180, 255])).save(&path).unwrap();
@@ -1039,7 +1039,7 @@ fn native_menu_keys_and_quit_click_reach_the_library_after_startup() {
 }
 
 #[test]
-fn j21_native_library_menu_tracks_active_module_parameters_and_modal_state() {
+fn native_library_menu_tracks_active_module_parameters_and_modal_state() {
     use li_commands::menu::{Backend, Event, MenuBar};
     use photocraft_ui_egui::native_menu::NativeMenu;
     struct Queue {
@@ -2093,9 +2093,9 @@ fn workflow_host(tag: &str) -> (PathBuf, Host) {
     (dir, host)
 }
 #[test]
-fn j17_host_theme_union_survives_real_module_switches() {
+fn host_theme_union_survives_real_module_switches() {
     use photocraft_ui_egui::theme::{ThemeKind, Tokens as EditorTokens};
-    let (dir, host) = workflow_host("j17-theme");
+    let (dir, host) = workflow_host("theme");
     let mut h = RoundTripUi::new(host);
     let size = egui::vec2(1200., 900.);
     for kind in [ThemeKind::ProMedium, ThemeKind::StudioLight] {
@@ -2112,7 +2112,7 @@ fn j17_host_theme_union_survives_real_module_switches() {
             } else {
                 assert_eq!(lightcraft_ui_egui::theme::Tokens::get(&h.view.ctx), library_palette(kind));
             }
-            println!("J17 real host CPU UI sample: {kind:?}/{mode:?}, switch + 3 frames {micros} us");
+            println!("real host CPU UI sample: {kind:?}/{mode:?}, switch + 3 frames {micros} us");
         }
     }
     let previews = h.host.library.as_ref().unwrap().session.media.rendered.clone();

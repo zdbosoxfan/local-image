@@ -162,11 +162,11 @@ pub fn upright_xmp(packet: &str) -> Cow<'_, str> {
 }
 
 #[cfg(test)]
-mod j03_tests {
+mod tests {
     use super::*;
 
     #[test]
-    fn j03_xmp_orientation_uses_namespaces_and_preserves_unrelated_bytes() {
+    fn xmp_orientation_uses_namespaces_and_preserves_unrelated_bytes() {
         let xmp = r#"<r:RDF xmlns:r="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns:o="http://ns.adobe.com/tiff/1.0/" xmlns:tiff="urn:foreign"><r:Description o:Orientation='6' tiff:Orientation="8"><o:Orientation><![CDATA[8]]></o:Orientation><tiff:Orientation>7</tiff:Orientation><!-- tiff:Orientation="6" --><other>tiff:Orientation="6"</other></r:Description></r:RDF>"#;
         let want = xmp.replace("o:Orientation='6'", "o:Orientation='1'").replace("<![CDATA[8]]>", "1");
         assert_eq!(upright_xmp(xmp), want);

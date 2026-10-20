@@ -1,6 +1,6 @@
 # Indonesian (id) Library & Develop catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
 # (the format of ../editor/ja.tsv; every entry here is a plain string, so `context` is empty).
-# Converted unchanged from lc-ui-egui/locales/id.json when the two engines were merged (J29).
+# Converted unchanged from lc-ui-egui/locales/id.json when the two engines were merged.
 
 	(no folder)	(tidak ada folder)
 	(or the next free name), added to the library and stacked on top of the original.	(atau nama kosong berikutnya), ditambahkan ke perpustakaan dan ditumpuk di atas foto asli.

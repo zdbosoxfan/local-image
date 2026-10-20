@@ -250,7 +250,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j18_shared_notice_parity_retains_warnings_and_persistent_guidance() {
+    fn shared_notice_parity_retains_warnings_and_persistent_guidance() {
         let mut active = vec![Notice { id: 1, dismiss_pref: Some("guidance".into()), ..Default::default() }];
         let mut history = Vec::new();
         let mut omitted = 0;
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_shared_notice_history_bounds_disclose_truncation_and_preserve_active() {
+    fn shared_notice_history_bounds_disclose_truncation_and_preserve_active() {
         let active = vec![Notice { id: 1, ..Default::default() }];
         let mut history = active.clone();
         let mut omitted = 0;
@@ -287,7 +287,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_shared_notice_toasts_retain_replaced_and_expired_diagnostics() {
+    fn shared_notice_toasts_retain_replaced_and_expired_diagnostics() {
         let mut state = ToastHistory::default();
         state.post("First import warning".into(), 1.4, false);
         state.post("Save failed".into(), 6.0, true);
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn j18_shared_notice_old_wire_shape_loads_with_defaults() {
+    fn shared_notice_old_wire_shape_loads_with_defaults() {
         let old = serde_json::json!({"id": 7, "title": "Old notice"});
         let notice: Notice = serde_json::from_value(old).unwrap();
         assert_eq!(notice.id, 7);

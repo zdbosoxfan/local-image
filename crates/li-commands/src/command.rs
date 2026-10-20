@@ -92,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_command_info_matches_legacy_json_golden() {
+    fn shared_command_info_matches_legacy_json_golden() {
         let session = Session { available: true, enablement_calls: Cell::new(0), value: Value::Null };
         let command = spec();
         let enabled = serde_json::to_value(command.info(&session)).unwrap();
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_shared_command_callbacks_keep_session_error_and_query_metadata() {
+    fn shared_command_callbacks_keep_session_error_and_query_metadata() {
         let mut session = Session { available: true, enablement_calls: Cell::new(0), value: Value::Null };
         let command = spec();
         assert_eq!((command.run)(&mut session, &json!({"value": 42})), Ok(json!({"value": 42})));

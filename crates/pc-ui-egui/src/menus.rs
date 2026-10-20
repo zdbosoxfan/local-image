@@ -1384,7 +1384,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j21_editor_shared_command_row_opens_the_new_dialog() {
+    fn editor_shared_command_row_opens_the_new_dialog() {
         use egui_kittest::{Harness, kittest::Queryable};
         let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 800.0)).build_ui_state(

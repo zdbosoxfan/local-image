@@ -2104,7 +2104,7 @@ mod shortcut_profile_tests {
 }
 
 #[cfg(test)]
-mod j16_tests {
+mod namespace_tests {
     use super::*;
     #[test]
     fn cloud_spend_preferences_default_safe_and_validate() {
@@ -2121,7 +2121,7 @@ mod j16_tests {
     }
 
     #[test]
-    fn j16_library_and_ai_namespaces_round_trip_and_old_preferences_default() {
+    fn library_and_ai_namespaces_round_trip_and_old_preferences_default() {
         let mut preferences = Preferences::default();
         preferences.set("library.settings.previewEdge", json!(3840)).unwrap();
         preferences.set("ai.comfy_host", json!("gpu.example")).unwrap();
@@ -2151,10 +2151,10 @@ mod battery_compatibility_tests {
 }
 
 #[cfg(test)]
-mod j20_tests {
+mod shortcut_tests {
     use super::*;
     #[test]
-    fn j20_settings_roundtrip_and_overlapping_transfer() {
+    fn settings_roundtrip_and_overlapping_transfer() {
         let mut session = Session::new();
         session.execute("edit.keyboardShortcuts", json!({"set": {"edit.copy": "ctrl+f19"}})).unwrap();
         session.execute("prefs.set", json!({"values": {"shortcuts.library::old": "Alt+FutureKey", "shortcuts.library::tool.brush": ""}})).unwrap_err();

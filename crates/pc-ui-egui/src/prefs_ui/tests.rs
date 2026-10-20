@@ -1086,7 +1086,7 @@ mod shifted_symbol_conflict_tests {
         app.ui.dialogs.clear();
         let mut h = Harness::builder().with_size(vec2(900., 760.)).with_max_steps(64).build_ui_state(
             |ui, (app, fields): &mut (PhotocraftApp, Map<String, Value>)| {
-                let ready = egui::Id::new("j20-fonts-ready");
+                let ready = egui::Id::new("fonts-ready");
                 if !ui.ctx().data(|d| d.get_temp::<bool>(ready)).unwrap_or(false) {
                     crate::theme::install_fonts(ui.ctx());
                     crate::theme::apply(ui.ctx(), crate::theme::ThemeKind::Pro);

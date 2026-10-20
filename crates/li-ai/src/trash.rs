@@ -382,8 +382,8 @@ fn ds2_copy_to_trash_keeps_dangling_symlinks() {
 
 #[cfg(test)]
 #[test]
-fn j11_trash_copy_is_verified_atomic_and_preserves_source_and_modes() {
-    let root = std::env::temp_dir().join(format!("j11-trash-{}", uuid::Uuid::new_v4()));
+fn trash_copy_is_verified_atomic_and_preserves_source_and_modes() {
+    let root = std::env::temp_dir().join(format!("trash-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("original.png");
     let bytes = vec![0x5a; (1 << 20) + 31];
@@ -416,8 +416,8 @@ fn j11_trash_copy_is_verified_atomic_and_preserves_source_and_modes() {
 
 #[cfg(test)]
 #[test]
-fn j11_published_cleanup_error_keeps_trash_recovery_record_with_its_complete_payload() {
-    let root = std::env::temp_dir().join(format!("j11-trash-published-{}", uuid::Uuid::new_v4()));
+fn published_cleanup_error_keeps_trash_recovery_record_with_its_complete_payload() {
+    let root = std::env::temp_dir().join(format!("trash-published-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).unwrap();
     let source = root.join("original.png");
     std::fs::write(&source, b"original photograph bytes").unwrap();

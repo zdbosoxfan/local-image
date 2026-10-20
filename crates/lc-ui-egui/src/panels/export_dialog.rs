@@ -1089,7 +1089,7 @@ mod tests {
     }
 
     #[test]
-    fn j27_resample_choice_round_trips_and_lists_the_shared_kernels() {
+    fn resample_choice_round_trips_and_lists_the_shared_kernels() {
         let keys: Vec<Option<ResampleChoice>> = resample_options().into_iter().map(|o| o.0).collect();
         let shared: Vec<Option<ResampleChoice>> = ResampleChoice::ALL.into_iter().map(Some).collect();
         assert_eq!(keys[0], None, "the renderer's own scaling stays the default");

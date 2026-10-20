@@ -542,8 +542,8 @@ mod tests {
     }
 
     #[test]
-    fn j11_capability_shared_writer_exclusive_staging_and_publication_failure_cleanup() {
-        let (inside, outside, workspace) = roots("j11-atomic");
+    fn capability_shared_writer_exclusive_staging_and_publication_failure_cleanup() {
+        let (inside, outside, workspace) = roots("atomic");
         let root = workspace.write.as_ref().unwrap();
         let fs = CapFs { dir: &root.dir };
         let reserved = Path::new("reserved.tmp");
@@ -566,9 +566,9 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn j11_capability_shared_writer_rejects_escape_and_uses_held_root_after_path_changes() {
+    fn capability_shared_writer_rejects_escape_and_uses_held_root_after_path_changes() {
         use std::os::unix::fs::{PermissionsExt, symlink};
-        let (inside, outside, workspace) = roots("j11-capability");
+        let (inside, outside, workspace) = roots("capability");
         let canary = outside.join("secret.txt");
         std::fs::write(&canary, b"outside canary").unwrap();
         symlink(&outside, inside.join("escape")).unwrap();

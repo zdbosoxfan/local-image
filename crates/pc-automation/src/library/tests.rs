@@ -17,7 +17,7 @@ fn demo() -> LibraryHeadless {
 }
 
 fn fresh_dir(tag: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("j05-library-{}-{tag}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("library-{}-{tag}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -50,7 +50,7 @@ fn mean_of(reply: &LibraryReply) -> (f64, u32, u32) {
 // Re-targeted lightcraft-mcp tests
 
 #[test]
-fn j05_tool_definitions_are_valid_mcp_tools() {
+fn tool_definitions_are_valid_mcp_tools() {
     let defs = tool_definitions();
     let names: Vec<&str> = defs.iter().map(|t| t["name"].as_str().unwrap()).collect();
     for n in [
@@ -86,7 +86,7 @@ fn j05_tool_definitions_are_valid_mcp_tools() {
 }
 
 #[test]
-fn j05_errors_are_tool_errors() {
+fn errors_are_tool_errors() {
     let mut lib = demo();
     assert!(call_tool(&mut lib, "library_nope", &json!({})).unwrap_err().contains("unknown Library tool"));
     let e = call_tool(&mut lib, "library_command_run", &json!({"command": "no.such"})).unwrap_err();
@@ -98,7 +98,7 @@ fn j05_errors_are_tool_errors() {
 }
 
 #[test]
-fn j05_command_run_rates_and_undoes() {
+fn command_run_rates_and_undoes() {
     let mut lib = demo();
     let first = lib.session.visible_cloned()[0];
     ok(call_tool(&mut lib, "library_command_run", &json!({"command": "library.select", "params": {"ids": [first.0]}})));
@@ -109,7 +109,7 @@ fn j05_command_run_rates_and_undoes() {
 }
 
 #[test]
-fn j05_set_develop_values_and_settings() {
+fn set_develop_values_and_settings() {
     let mut lib = demo();
     let first = lib.session.visible_cloned()[0];
     let r = json_of(call_tool(&mut lib, "library_set_develop", &json!({"id": first.0, "values": {"light.exposure": 1.25}})));
@@ -123,7 +123,7 @@ fn j05_set_develop_values_and_settings() {
 }
 
 #[test]
-fn j05_crop_needs_a_rect_angle_or_reset() {
+fn crop_needs_a_rect_angle_or_reset() {
     let mut lib = demo();
     let first = lib.session.visible_cloned()[0];
     // A guessed parameter must not succeed silently.
@@ -136,7 +136,7 @@ fn j05_crop_needs_a_rect_angle_or_reset() {
 /// M0.9 acceptance (was `lc-mcp/tests/e2e.rs`): set exposure through the tools and look at the
 /// rendered result.
 #[test]
-fn j05_set_exposure_and_render() {
+fn set_exposure_and_render() {
     let mut lib = demo();
     let q = json_of(call_tool(&mut lib, "library_query_photos", &json!({"limit": 1})));
     let id = q["photos"][0]["id"].as_u64().expect("a photo");
@@ -159,7 +159,7 @@ fn j05_set_exposure_and_render() {
 
 /// The `import` helper passes the copy options through: a folder template files the copy.
 #[test]
-fn j05_import_tool_copies_with_a_folder_template() {
+fn import_tool_copies_with_a_folder_template() {
     let base = fresh_dir("import-tpl");
     let (src, dest) = (base.join("card"), base.join("out"));
     std::fs::create_dir_all(&src).unwrap();
@@ -175,7 +175,7 @@ fn j05_import_tool_copies_with_a_folder_template() {
 
 /// The `import` helper moves: renamed into the folder template, the source removed.
 #[test]
-fn j05_import_tool_moves_with_a_folder_template() {
+fn import_tool_moves_with_a_folder_template() {
     let base = fresh_dir("import-move");
     let (src, dest) = (base.join("card"), base.join("out"));
     std::fs::create_dir_all(&src).unwrap();
@@ -193,7 +193,7 @@ fn j05_import_tool_moves_with_a_folder_template() {
 /// Issue #93: `render_photo`, `ui.render` and `app.export` with an exact `path` must not replace
 /// a photo's original.
 #[test]
-fn j05_path_writes_never_replace_an_original() {
+fn path_writes_never_replace_an_original() {
     let base = fresh_dir("guard");
     let bytes = png([90, 30, 9, 255], 8);
     let orig = base.join("a.png");
@@ -215,7 +215,7 @@ fn j05_path_writes_never_replace_an_original() {
 
 /// `app.export` without `ids` exports the selection (as the desktop app does), else the active photo.
 #[test]
-fn j05_export_follows_the_selection() {
+fn export_follows_the_selection() {
     let dir = fresh_dir("export-selection");
     let mut lib = demo();
     let ids: Vec<u64> = lib.session.visible_cloned().iter().take(3).map(|p| p.0).collect();
@@ -230,7 +230,7 @@ fn j05_export_follows_the_selection() {
 
 /// The export file-name template takes the Rename Photos tokens.
 #[test]
-fn j05_export_naming_tokens() {
+fn export_naming_tokens() {
     let dir = fresh_dir("export-naming");
     let mut lib = demo();
     let ids: Vec<u64> = lib.session.visible_cloned().iter().take(2).map(|p| p.0).collect();
@@ -247,7 +247,7 @@ fn j05_export_naming_tokens() {
 }
 
 #[test]
-fn j05_folder_expansion_uses_shared_registry() -> TestResult {
+fn folder_expansion_uses_shared_registry() -> TestResult {
     let dir = fresh_dir("extension-registry");
     for name in ["a.HEIC", "b.CRW", "c.PSB", "d.QOI", "unsupported.avif", "notes.txt"] {
         std::fs::write(dir.join(name), [])?;
@@ -287,7 +287,7 @@ fn no_host_paths(v: &Value, root: &Path) {
 }
 
 #[test]
-fn j05_workspace_import_develop_render_export_through_capabilities() {
+fn workspace_import_develop_render_export_through_capabilities() {
     let (root, mut lib) = workspace("ws-roundtrip");
     let r = json_of(call_tool(&mut lib, "library_import", &json!({"paths": ["shots"]})));
     assert_eq!(r["files"], 2, "folders keep photos only: {r}");
@@ -310,7 +310,7 @@ fn j05_workspace_import_develop_render_export_through_capabilities() {
 }
 
 #[test]
-fn j05_workspace_never_replaces_an_original_and_rejects_escapes() {
+fn workspace_never_replaces_an_original_and_rejects_escapes() {
     let (root, mut lib) = workspace("ws-guard");
     let original = std::fs::read(root.join("shots/a.png")).unwrap();
     ok(call_tool(&mut lib, "library_import", &json!({"paths": "shots/a.png"})));
@@ -319,7 +319,7 @@ fn j05_workspace_never_replaces_an_original_and_rejects_escapes() {
     assert!(e.contains("original"), "{e}");
     assert_eq!(std::fs::read(root.join("shots/a.png")).unwrap(), original);
     // Paths stay below the roots.
-    let outside = root.parent().unwrap().join(format!("j05-outside-{}.png", std::process::id()));
+    let outside = root.parent().unwrap().join(format!("outside-{}.png", std::process::id()));
     std::fs::write(&outside, png([1, 2, 3, 255], 8)).unwrap();
     for p in [outside.to_string_lossy().into_owned(), "../x.png".into(), "shots/../shots/a.png".into(), "C:/x.png".into()] {
         assert!(call_tool(&mut lib, "library_import", &json!({"paths": [p]})).is_err(), "{p}");
@@ -334,7 +334,7 @@ fn j05_workspace_never_replaces_an_original_and_rejects_escapes() {
 
 #[cfg(unix)]
 #[test]
-fn j05_workspace_reads_never_follow_a_link_out_of_the_root() {
+fn workspace_reads_never_follow_a_link_out_of_the_root() {
     let (root, mut lib) = workspace("ws-symlink");
     let outside = fresh_dir("ws-symlink-outside");
     std::fs::write(outside.join("secret.png"), png([5, 5, 5, 255], 8)).unwrap();
@@ -349,7 +349,7 @@ fn j05_workspace_reads_never_follow_a_link_out_of_the_root() {
 }
 
 #[test]
-fn j05_untrusted_library_commands_are_deny_by_default() {
+fn untrusted_library_commands_are_deny_by_default() {
     let (_root, mut lib) = workspace("ws-commands");
     for id in [
         "library.browse",
@@ -432,7 +432,7 @@ fn library_tool_definitions_carry_mcp_annotations() {
 }
 
 #[test]
-fn j05_no_roots_no_files() {
+fn no_roots_no_files() {
     let mut lib = LibraryHeadless::new();
     assert!(call_tool(&mut lib, "library_import", &json!({"paths": ["a.png"]})).unwrap_err().contains("not granted"));
     assert!(call_tool(&mut lib, "library_export", &json!({"path": "a.png"})).is_err());

@@ -288,8 +288,8 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn j11_restore_install_rejects_destination_symlink_without_modifying_referent() {
-        let dir = std::env::temp_dir().join(format!("j11-restoration-link-{}", std::process::id()));
+    fn restore_install_rejects_destination_symlink_without_modifying_referent() {
+        let dir = std::env::temp_dir().join(format!("restoration-link-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("source.onnx");
         let bytes = b"verified restoration fixture";
@@ -310,8 +310,8 @@ mod tests {
     }
 
     #[test]
-    fn j11_restore_cancellation_verification_and_write_fault_preserve_previous_model() {
-        let dir = std::env::temp_dir().join(format!("j11-restoration-{}", std::process::id()));
+    fn restore_cancellation_verification_and_write_fault_preserve_previous_model() {
+        let dir = std::env::temp_dir().join(format!("restoration-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("source.onnx");
         let bytes = b"verified restoration fixture";

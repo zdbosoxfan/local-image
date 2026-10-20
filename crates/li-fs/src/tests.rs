@@ -5,7 +5,7 @@ struct Dir(PathBuf);
 impl Dir {
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!("li-fs-j11-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        let path = std::env::temp_dir().join(format!("li-fs-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         fs::create_dir_all(&path).unwrap();
         Self(path)
     }
@@ -24,7 +24,7 @@ impl Drop for Dir {
 const OLD: &[u8] = b"original document";
 
 #[test]
-fn j11_golden_all_write_policies_and_stream_lengths() {
+fn golden_all_write_policies_and_stream_lengths() {
     let dir = Dir::new();
     // Empty, binary, multi-buffer: bytes must survive every adapter's shared operation.
     for bytes in [vec![], vec![0, 255, 128, 0], (0..2_100_001).map(|n| (n % 251) as u8).collect()] {
@@ -61,7 +61,7 @@ fn j11_golden_all_write_policies_and_stream_lengths() {
 }
 
 #[test]
-fn j11_faults_preserve_destination_and_cleanup_across_all_entry_points() {
+fn faults_preserve_destination_and_cleanup_across_all_entry_points() {
     let dir = Dir::new();
     let target = dir.target();
     fs::write(&target, OLD).unwrap();
@@ -80,7 +80,7 @@ fn j11_faults_preserve_destination_and_cleanup_across_all_entry_points() {
 }
 
 #[test]
-fn j11_stream_callback_errors_are_not_replayed_and_panic_cleans() {
+fn stream_callback_errors_are_not_replayed_and_panic_cleans() {
     let dir = Dir::new();
     let target = dir.target();
     fs::write(&target, OLD).unwrap();
@@ -106,7 +106,7 @@ fn j11_stream_callback_errors_are_not_replayed_and_panic_cleans() {
 }
 
 #[test]
-fn j11_cancel_before_during_and_final_progress_preserves_original() {
+fn cancel_before_during_and_final_progress_preserves_original() {
     let dir = Dir::new();
     let target = dir.target();
     fs::write(&target, OLD).unwrap();
@@ -127,7 +127,7 @@ fn j11_cancel_before_during_and_final_progress_preserves_original() {
 }
 
 #[test]
-fn j11_progress_panic_and_staged_drop_cleanup() {
+fn progress_panic_and_staged_drop_cleanup() {
     let dir = Dir::new();
     let target = dir.target();
     fs::write(&target, OLD).unwrap();
@@ -187,7 +187,7 @@ impl AtomicFs for FaultFs {
 }
 
 #[test]
-fn j11_retry_and_permanent_rename_failure_parity() {
+fn retry_and_permanent_rename_failure_parity() {
     let dir = Dir::new();
     let target = dir.target();
     let retry = RenameRetry { attempts: 3, first_delay_ms: 0 };
@@ -210,7 +210,7 @@ fn j11_retry_and_permanent_rename_failure_parity() {
 }
 
 #[test]
-fn j11_collisions_never_delete_an_unowned_temp() {
+fn collisions_never_delete_an_unowned_temp() {
     let dir = Dir::new();
     let target = dir.target();
     fs::write(&target, OLD).unwrap();
@@ -223,7 +223,7 @@ fn j11_collisions_never_delete_an_unowned_temp() {
 }
 
 #[test]
-fn j11_post_publication_sync_failure_never_claims_unchanged() {
+fn post_publication_sync_failure_never_claims_unchanged() {
     let dir = Dir::new();
     let target = dir.target();
     let fs = FaultFs { sync_error: true, ..Default::default() };
@@ -234,7 +234,7 @@ fn j11_post_publication_sync_failure_never_claims_unchanged() {
 }
 
 #[test]
-fn j11_new_files_never_replace_and_verified_unique_names() {
+fn new_files_never_replace_and_verified_unique_names() {
     let dir = Dir::new();
     let target = dir.target();
     fs::write(&target, OLD).unwrap();
@@ -255,7 +255,7 @@ fn j11_new_files_never_replace_and_verified_unique_names() {
 }
 
 #[test]
-fn j11_new_file_publication_never_falls_back_to_replacing_rename() {
+fn new_file_publication_never_falls_back_to_replacing_rename() {
     let dir = Dir::new();
     let tmp = dir.0.join("staging");
     fs::write(&tmp, b"complete new file").unwrap();
@@ -273,7 +273,7 @@ fn j11_new_file_publication_never_falls_back_to_replacing_rename() {
 }
 
 #[test]
-fn j11_invalid_paths_and_parent_creation_contract() {
+fn invalid_paths_and_parent_creation_contract() {
     let dir = Dir::new();
     for path in [Path::new(""), Path::new("/"), &dir.0] {
         assert!(atomic_write(path, b"new").is_err());
@@ -287,7 +287,7 @@ fn j11_invalid_paths_and_parent_creation_contract() {
 
 #[cfg(unix)]
 #[test]
-fn j11_symlinks_modes_identity_and_dangling_link_safety() {
+fn symlinks_modes_identity_and_dangling_link_safety() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let dir = Dir::new();
     let target = dir.target();
@@ -321,7 +321,7 @@ fn j11_symlinks_modes_identity_and_dangling_link_safety() {
 }
 
 #[test]
-fn j11_nested_fault_guards_restore_previous_limit() {
+fn nested_fault_guards_restore_previous_limit() {
     let dir = Dir::new();
     let outer = fail_writes_after(3);
     {
@@ -335,7 +335,7 @@ fn j11_nested_fault_guards_restore_previous_limit() {
 }
 
 #[test]
-fn j11_concurrent_replacement_never_mixes_bytes_and_new_file_has_one_winner() {
+fn concurrent_replacement_never_mixes_bytes_and_new_file_has_one_winner() {
     let dir = Dir::new();
     let target = dir.target();
     let writers: Vec<_> = (1..=4u8)
@@ -368,7 +368,7 @@ fn j11_concurrent_replacement_never_mixes_bytes_and_new_file_has_one_winner() {
 
 #[cfg(unix)]
 #[test]
-fn j11_write_only_mode_is_preserved_and_synced_through_owned_handle() {
+fn write_only_mode_is_preserved_and_synced_through_owned_handle() {
     use std::os::unix::fs::PermissionsExt;
     let dir = Dir::new();
     let target = dir.target();
@@ -383,7 +383,7 @@ fn j11_write_only_mode_is_preserved_and_synced_through_owned_handle() {
 
 #[cfg(windows)]
 #[test]
-fn j11_readonly_new_file_publication_cleans_staging_and_keeps_readonly_destination() {
+fn readonly_new_file_publication_cleans_staging_and_keeps_readonly_destination() {
     let dir = Dir::new();
     let target = dir.target();
     write_new_with(&target, &mut |out| out.write_all(b"complete"), &mut |tmp| {
@@ -402,7 +402,7 @@ fn j11_readonly_new_file_publication_cleans_staging_and_keeps_readonly_destinati
 }
 
 #[test]
-fn j11_published_cleanup_error_keeps_complete_new_file_and_marks_its_outcome() {
+fn published_cleanup_error_keeps_complete_new_file_and_marks_its_outcome() {
     let dir = Dir::new();
     let target = dir.target();
     let error = {
@@ -552,7 +552,7 @@ impl AtomicFs for VolumeFs {
 }
 
 #[test]
-fn j11_volumes_unsupported_rename_and_links_copy_verified_without_overwrite() {
+fn volumes_unsupported_rename_and_links_copy_verified_without_overwrite() {
     let dir = Dir::new();
     let source = dir.0.join("staged");
     let bytes: Vec<u8> = (0..65537).map(|n| (n % 251) as u8).collect();
@@ -572,7 +572,7 @@ fn j11_volumes_unsupported_rename_and_links_copy_verified_without_overwrite() {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
-fn j11_volumes_native_no_replace_rename_prefers_atomic_publication() {
+fn volumes_native_no_replace_rename_prefers_atomic_publication() {
     let dir = Dir::new();
     let source = dir.0.join("staged");
     let target = dir.target();
@@ -587,7 +587,7 @@ fn j11_volumes_native_no_replace_rename_prefers_atomic_publication() {
 }
 
 #[test]
-fn j11_volumes_concurrent_exclusive_publishers_have_exactly_one_winner() {
+fn volumes_concurrent_exclusive_publishers_have_exactly_one_winner() {
     let dir = Dir::new();
     let target = dir.target();
     let barrier = Arc::new(std::sync::Barrier::new(8));
@@ -612,7 +612,7 @@ fn j11_volumes_concurrent_exclusive_publishers_have_exactly_one_winner() {
 }
 
 #[test]
-fn j11_volumes_partial_copy_failure_cancellation_and_panic_remove_owned_destination() {
+fn volumes_partial_copy_failure_cancellation_and_panic_remove_owned_destination() {
     let dir = Dir::new();
     let source = dir.0.join("staged");
     let bytes = vec![0x5a; 3 << 20];
@@ -653,7 +653,7 @@ fn j11_volumes_partial_copy_failure_cancellation_and_panic_remove_owned_destinat
 }
 
 #[test]
-fn j11_volumes_readback_failure_and_final_cancellation_cleanup() {
+fn volumes_readback_failure_and_final_cancellation_cleanup() {
     let dir = Dir::new();
     let source = dir.0.join("staged");
     let bytes = vec![0x5a; 65537];
@@ -683,7 +683,7 @@ fn j11_volumes_readback_failure_and_final_cancellation_cleanup() {
 }
 
 #[test]
-fn j11_volumes_real_permission_error_does_not_trigger_fallback() {
+fn volumes_real_permission_error_does_not_trigger_fallback() {
     let dir = Dir::new();
     let source = dir.0.join("staged");
     fs::write(&source, b"complete").unwrap();
@@ -694,7 +694,7 @@ fn j11_volumes_real_permission_error_does_not_trigger_fallback() {
 }
 
 #[test]
-fn j11_volumes_fallback_empty_binary_readonly_and_private_modes_match_staging() {
+fn volumes_fallback_empty_binary_readonly_and_private_modes_match_staging() {
     let dir = Dir::new();
     let source = dir.0.join("staged");
     let target = dir.target();

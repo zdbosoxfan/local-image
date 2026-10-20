@@ -896,7 +896,7 @@ mod tests {
     /// The Library's tools are served by this one server, over the real protocol, under the
     /// workspace policy; a bridge says where they are instead of failing obscurely.
     #[tokio::test(flavor = "multi_thread")]
-    async fn j05_library_tools_over_mcp() {
+    async fn library_tools_over_mcp() {
         use rmcp::model::{CallToolRequestParams, ClientConfig};
         #[derive(Clone, Default)]
         struct Client;
@@ -905,7 +905,7 @@ mod tests {
                 ClientConfig::default()
             }
         }
-        let root = std::env::temp_dir().join(format!("j05-mcp-library-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("mcp-library-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("in")).unwrap();
         let img = photocraft_codecs::Image::from_u8(40, 30, photocraft_codecs::ChannelLayout::Rgba, vec![120; 40 * 30 * 4]).unwrap();

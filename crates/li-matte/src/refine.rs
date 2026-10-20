@@ -69,7 +69,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn j14_subject_wide_band_has_no_tile_seam_or_remote_hdr_dependency() {
+    fn subject_wide_band_has_no_tile_seam_or_remote_hdr_dependency() {
         let (w, h) = (768, 16);
         let truth: Vec<f32> = (0..w * h).map(|i| ((281.0 - (i % w) as f32) / 50.0).clamp(0.0, 1.0)).collect();
         let img = RgbImage::from_fn(w, h, |x, y| {
@@ -85,12 +85,12 @@ mod tests {
         assert!((row[255] - row[256]).abs() < 0.08, "tile seam: {} vs {}", row[255], row[256]);
         let mae = row.iter().zip(&truth[..w]).map(|(a, b)| (a - b).abs()).sum::<f32>() / w as f32;
         let hard_mae = mask[..w].iter().zip(&truth[..w]).map(|(a, b)| (a - b).abs()).sum::<f32>() / w as f32;
-        println!("J14 wide optical edge: hard MAE={hard_mae:.8}, shared MAE={mae:.8}, tile seam={:.8}", (row[255] - row[256]).abs());
+        println!("wide optical edge: hard MAE={hard_mae:.8}, shared MAE={mae:.8}, tile seam={:.8}", (row[255] - row[256]).abs());
         assert!(mae < 0.015 && mae < hard_mae * 0.6, "wide-band matte MAE {mae} vs hard {hard_mae}");
     }
 
     #[test]
-    fn j14_subject_refine_preserves_seedless_and_invalid_guides() {
+    fn subject_refine_preserves_seedless_and_invalid_guides() {
         let img = RgbImage::from_fn(32, 20, |x, _| [x as f32 / 32.0; 3]);
         for m in [vec![0.0; 640], vec![1.0; 640], vec![0.5; 640], vec![0.2; 640]] {
             assert_eq!(subject_alpha(&img, &m, 3.0), m);
@@ -109,7 +109,7 @@ mod tests {
     }
 
     #[test]
-    fn j14_subject_refine_bound_and_hdr_affine_invariance() {
+    fn subject_refine_bound_and_hdr_affine_invariance() {
         let (w, h) = (2051, 17); // odd, thin image, beyond the iterative solve limit
         let img = RgbImage::from_fn(w, h, |x, _| {
             let a = ((1030.0 - x as f32) / 10.0).clamp(0.0, 1.0);
@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn j14_edt_exact_small_and_invalid_parity() {
+    fn edt_exact_small_and_invalid_parity() {
         for (w, h) in [(1, 17), (19, 1), (31, 23)] {
             let seeds: Vec<bool> = (0..w * h).map(|i| i % 11 == 0).collect();
             let actual = crate::distance::edt(&seeds, w, h);

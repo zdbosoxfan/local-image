@@ -427,7 +427,7 @@ mod tests {
     }
 
     #[test]
-    fn j21_editor_native_adapter_retains_every_command_row() {
+    fn editor_native_adapter_retains_every_command_row() {
         let app = app(true);
         let source = crate::menus::menu_items(&app);
         let native = app_layout(&app).bar;
@@ -442,11 +442,11 @@ mod tests {
             count += 1;
         }
         assert!(count > 500, "{count} complete editor rows checked");
-        eprintln!("J21 editor parity: {count} command rows retained");
+        eprintln!("editor parity: {count} command rows retained");
     }
 
     #[test]
-    fn j21_native_external_sync_skips_unchanged_state_and_refreshes_checks() {
+    fn native_external_sync_skips_unchanged_state_and_refreshes_checks() {
         use std::cell::Cell;
         use std::rc::Rc;
         struct Counter(Rc<Cell<usize>>);

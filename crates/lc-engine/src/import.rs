@@ -1726,7 +1726,7 @@ fn probe_file(probe: &crate::media::FileProbe, path: &str) -> Result<ProbeInfo, 
 mod shared_decode_registry_tests {
     #[test]
     fn shared_decode_heic_imports_and_loads_through_real_library_path() {
-        let root = std::env::temp_dir().join(format!("j06-library-heic-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("library-heic-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         let path = root.join("checker.HIF");
         std::fs::write(&path, include_bytes!("../../lc-codecs/tests/fixtures/shared-decode-heic/checker-64.heic")).unwrap();
@@ -1739,7 +1739,7 @@ mod shared_decode_registry_tests {
         let source = session.source_now(id, crate::media::SourceLevel::Preview).unwrap();
         assert_eq!((source.width, source.height), (64, 64));
         assert!(source.data.iter().flatten().all(|v| v.is_finite()));
-        eprintln!("J06 real Library folder import + preview load,64x64 HEIC: {:?}", start.elapsed());
+        eprintln!("real Library folder import + preview load,64x64 HEIC: {:?}", start.elapsed());
         drop(session);
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1756,7 +1756,7 @@ mod shared_decode_registry_tests {
 
 /// One content identity (BLAKE3) for duplicates, Reload and Find Missing.
 #[cfg(test)]
-mod j24_identity_tests {
+mod identity_tests {
     use lightcraft_catalog::PhotoId;
     use lightcraft_preview::ContentId;
     use serde_json::json;
@@ -1765,7 +1765,7 @@ mod j24_identity_tests {
     use crate::media::{ProbeInfo, content_key, refreshed_hash};
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("lc-j24-{tag}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("lc-import-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
@@ -1783,7 +1783,7 @@ mod j24_identity_tests {
     }
 
     #[test]
-    fn j24_refresh_rules_keep_suffixes() {
+    fn refresh_rules_keep_suffixes() {
         let b3 = ContentId::of(b"bytes").to_string();
         let other = ContentId::of(b"other bytes").to_string();
         // unchanged: the probe's own string, or the same identity with a suffix
@@ -1802,7 +1802,7 @@ mod j24_identity_tests {
     /// identity and link key, Find Missing finds a renamed file by content, and a real change on
     /// disk gets a new identity.
     #[test]
-    fn j24_blake3_identity_finds_duplicates_reload_and_missing() {
+    fn blake3_identity_finds_duplicates_reload_and_missing() {
         let dir = temp_dir("blake3");
         let (a, bytes) = (dir.join("a.png"), png(1));
         std::fs::write(&a, &bytes).unwrap();

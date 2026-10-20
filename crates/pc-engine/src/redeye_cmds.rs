@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn j26_pet_eye_command_darkens_a_glow_in_one_step() {
+    fn pet_eye_command_darkens_a_glow_in_one_step() {
         let mut s = Session::new();
         s.execute("file.new", json!({"width": 80, "height": 80, "depth": 16})).unwrap();
         s.edit("paint", |doc, _| {

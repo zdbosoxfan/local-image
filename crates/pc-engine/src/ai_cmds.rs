@@ -1148,7 +1148,7 @@ fn lama_real_rtx5090_patch_undo_redo_parity() {
 }
 
 #[cfg(test)]
-mod j28_tests {
+mod deep_document_tests {
     use super::*;
 
     /// A 16-bit sRGB document holding a deep gradient: about six 8-bit levels across 512 px.
@@ -1163,7 +1163,7 @@ mod j28_tests {
     }
 
     #[test]
-    fn j28_ai_boundary_keeps_16bit_and_float_documents_out_of_8bit() {
+    fn ai_boundary_keeps_16bit_and_float_documents_out_of_8bit() {
         for (sample, fmt) in [(SampleType::U16, PixelFormat::RGBA16), (SampleType::F32, PixelFormat::RGBA32F)] {
             let doc = deep_document(sample, fmt);
             let rect = doc.bounds();
@@ -1174,7 +1174,7 @@ mod j28_tests {
             let err = |v: &[f32]| v.iter().zip(&source).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max) * 65535.0;
             let levels = |v: &[f32]| v.as_chunks::<4>().0.iter().map(|p| (p[0] * 65535.0).round() as u32).collect::<std::collections::BTreeSet<_>>().len();
             eprintln!(
-                "j28 editor AI boundary {sample:?}: max error before {:.1}, after {:.2} 16-bit levels; distinct red levels before {}, after {} (source {})",
+                "editor AI boundary {sample:?}: max error before {:.1}, after {:.2} 16-bit levels; distinct red levels before {}, after {} (source {})",
                 err(&before),
                 err(&after),
                 levels(&before),

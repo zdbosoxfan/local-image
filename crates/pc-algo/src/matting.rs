@@ -256,7 +256,7 @@ mod tests {
     use photocraft_color::SampleType;
 
     #[test]
-    fn j14_editor_settings_and_zero_copy_adapter_parity() {
+    fn editor_settings_and_zero_copy_adapter_parity() {
         let p: RefineParams = serde_json::from_str(r#"{"radius":6.0,"smartRadius":true,"feather":0.5,"shiftEdge":-25.0}"#).unwrap();
         assert_eq!(p.smooth, 0.0);
         assert_eq!(p.contrast, 0.0);
@@ -276,7 +276,7 @@ mod tests {
     }
 
     #[test]
-    fn j14_editor_buffer_goldens() {
+    fn editor_buffer_goldens() {
         let (w, h) = (39, 23);
         let img = RgbImage::from_fn(w, h, |x, y| [x as f32 / w as f32, y as f32 / h as f32, ((x * 13 + y * 7) % 31) as f32 / 31.0]);
         let m: Vec<f32> = (0..w * h).map(|i| if i % w < 19 { 1.0 } else { 0.0 }).collect();

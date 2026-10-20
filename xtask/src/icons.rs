@@ -161,7 +161,7 @@ mod tests {
     }
 
     #[test]
-    fn j17_icon_registries_live_only_in_li_ui_kit() {
+    fn icon_registries_live_only_in_li_ui_kit() {
         let root = crate::root();
         // the shells use li_ui_kit's registries directly: no per-shell copies or re-export modules
         for gone in [

@@ -442,7 +442,7 @@ mod registry_tests {
     use super::*;
 
     #[test]
-    fn j6_registry_keeps_open_and_export_capabilities_separate() {
+    fn registry_keeps_open_and_export_capabilities_separate() {
         let read = readable_extensions();
         let write = writable_extensions();
         for format in Format::ALL {
@@ -473,7 +473,7 @@ mod registry_tests {
     }
 
     #[test]
-    fn j6_shared_detection_handles_extended_bmff_and_malformed_sizes() {
+    fn shared_detection_handles_extended_bmff_and_malformed_sizes() {
         let mut bmff = vec![0; 84];
         bmff[..4].copy_from_slice(&84u32.to_be_bytes());
         bmff[4..8].copy_from_slice(b"ftyp");
@@ -492,7 +492,7 @@ mod registry_tests {
     }
 
     #[test]
-    fn j6_shared_detection_keeps_raw_routing_and_tiff_compatibility() {
+    fn shared_detection_keeps_raw_routing_and_tiff_compatibility() {
         let raw = b"II*\0\x10\0\0\0CR\x02\0";
         assert_eq!(identify(raw), Some(DetectedFormat::RawTiffLike));
         assert_eq!(detect(raw), Some(Format::Tiff));

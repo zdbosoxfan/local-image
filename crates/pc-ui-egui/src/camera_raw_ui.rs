@@ -970,12 +970,12 @@ mod tests {
 }
 
 #[cfg(test)]
-mod j04_tests {
+mod preview_tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
-    fn j04_preview_equals_commit_interactive() {
+    fn preview_equals_commit_interactive() {
         let mut h = Harness::builder().with_size(vec2(1200.0, 800.0)).build_eframe(|cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
@@ -1015,7 +1015,7 @@ mod j04_tests {
             let max = differences.iter().copied().fold(0.0f32, f32::max);
             let rmse = (differences.iter().map(|v| v * v).sum::<f32>() / differences.len() as f32).sqrt();
             println!(
-                "J04 dehaze={} texture={} nr={} grain={} preview_ms={:.3} max_error={max:.8} rmse={rmse:.8}",
+                "dehaze={} texture={} nr={} grain={} preview_ms={:.3} max_error={max:.8} rmse={rmse:.8}",
                 p.dehaze, p.texture, p.noise_luminance, p.grain_amount, d.render_ms
             );
             assert_eq!(max, 0.0, "native-size interactive preview must match shared commit pixels");
@@ -1057,12 +1057,12 @@ mod j04_tests {
 }
 
 #[cfg(test)]
-mod j04_develop_tests {
+mod develop_tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
 
     #[test]
-    fn j04_develop_dialog_drag_preserves_full_settings_and_commits_p3_pixels() {
+    fn develop_dialog_drag_preserves_full_settings_and_commits_p3_pixels() {
         let mut base = photocraft_io::develop_filter::identity().clone();
         base.wb.mode = serde_json::from_value(json!("custom")).unwrap();
         base.wb.temp = 30000.123456789;
@@ -1121,11 +1121,11 @@ mod j04_develop_tests {
 }
 
 #[cfg(test)]
-mod j04_proxy_tests {
+mod proxy_tests {
     use super::*;
 
     #[test]
-    fn j04_downsampled_proxy_equals_downsampled_commit_within_tolerance() {
+    fn downsampled_proxy_equals_downsampled_commit_within_tolerance() {
         let ctx = egui::Context::default();
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
         app.run("file.new", json!({"width":902,"height":24,"depth":32})).unwrap();
@@ -1161,7 +1161,7 @@ mod j04_proxy_tests {
             }
             assert_eq!(p[3], 1.0);
         }
-        println!("J04 downsampled proxy max RGB error={max:.8}");
+        println!("downsampled proxy max RGB error={max:.8}");
         // Two-pixel box filtering and the nonlinear document encoding need not commute;
         // allow far less than one 8-bit display level on this smooth, unclipped fixture.
         assert!(max < 1e-4, "proxy/commit resampling error={max}");
