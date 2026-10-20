@@ -54,7 +54,19 @@ made by portable CI.
 
 Manually dispatch `.github/workflows/release-artifacts.yml` on a reviewed branch. It only uploads
 Actions artifacts with SHA-256 files; it never pushes a tag, creates a GitHub release, or uploads
-an artifact to the releases API. Keep the existing macOS hardware workflow for broader Apple
+an artifact to the releases API.
+
+For a release, push the tag `v<version>` (for example `v2.0.0-alpha.1`, matching
+`[workspace.package] version` in `Cargo.toml`) and dispatch the workflow on that tag, not on a
+branch. Only a tag dispatch requires Developer ID signing and notarization; on a branch the macOS
+job falls back to an ad-hoc test build. A tag that does not match the workspace version fails
+before anything is built.
+
+An alpha or beta may ship without Developer ID credentials: dispatch on its tag with
+**unsigned_prerelease** checked. The macOS app, `.pkg` and `.dmg` are then ad-hoc signed and not
+notarized, and the release notes must tell testers how to open them (see the 2.0.0-alpha.1
+CHANGELOG entry). A stable tag refuses the option. Attach the artifacts and their `.sha256` files to the GitHub release
+by hand. Keep the existing macOS hardware workflow for broader Apple
 integration acceptance.
 
 Linux: `cargo +1.98.1 xtask package linux` builds the HEIF-enabled app with SAM off and creates
@@ -92,8 +104,9 @@ release and can trigger Gatekeeper. Secrets are read only by the manual release 
 Complete signing credentials enable nested-code signing with hardened runtime and timestamps.
 Complete notarization credentials additionally submit the bundle, installer and disk image via
 `notarytool --wait`, staple/validate tickets and assess the app/installer with `spctl`. Failure
-stops the job; it cannot fall back to unsigned output after a configured signing failure. Partial
-or absent secrets skip the corresponding stage clearly. The temporary certificate/keychain is
+stops the job; it cannot fall back to unsigned output after a configured signing failure. On a branch,
+partial or absent secrets skip the corresponding stage clearly; on a tag they fail the job before
+the build. The temporary certificate/keychain is
 removed on exit. Upload permission is read-only for repository contents, and no credentials are
 included in artifacts. Do not enable shell command tracing in this script.
 
