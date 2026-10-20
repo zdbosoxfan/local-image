@@ -4,7 +4,10 @@
 
 **Current version:** 2.0.0-alpha.1 · **Supported platforms:** Linux x86_64 and Apple Silicon macOS 13+
 
-[Features](#major-features) · [Tools](#tools-and-workflows) · [Under the hood](#how-the-pieces-fit-together) · [Interface](#interface) · [Install](#install-or-build)
+> [!IMPORTANT]
+> 2.0.0-alpha.1 is the first Local Image 2 alpha. It starts with a new Library: catalogs from Local Image 0.x and LightCraft are not opened or migrated, and an older catalog is refused and left unchanged. Keep your originals backed up and see the [changelog](CHANGELOG.md).
+
+[Download](#download) · [Features](#major-features) · [Tools](#tools-and-workflows) · [Under the hood](#how-the-pieces-fit-together) · [Interface](#interface) · [Install](#install-or-build)
 
 [Security](SECURITY.md) · [Privacy](PRIVACY.md) · [Changelog](CHANGELOG.md)
 
@@ -22,7 +25,7 @@ Develop camera RAW files with tone, colour, optics, detail and local-mask contro
 
 The Generate panel combines **Create, Edit, Fill, Refine and Upscale**, with model presets, image references, LoRAs, Draft → Refine and custom ComfyUI workflows. Open results as documents, place them as layers or reuse them as references. AI Remove, background removal, Generative Fill and background generation are available from the editing workflow.
 
-Connect a local or remote **ComfyUI** server; **Find on LAN** helps locate one. A remote GPU server is the practical option for large generative models on Apple Silicon. Optional OpenAI, Google, Black Forest Labs and Stability AI adapters use your own keys and provider billing. Requested remote/cloud operations send their inputs to the selected service.
+Connect a local or remote **ComfyUI** server; **Find on LAN** helps locate one. A remote GPU server is the practical option for large generative models on Apple Silicon. Optional OpenAI, Google, Black Forest Labs and Stability AI adapters use your own keys and provider billing. Each paid cloud run asks for confirmation (provider, model and count) and respects an optional session cap. Requested remote/cloud operations send their inputs to the selected service, re-encoded from pixels so EXIF and GPS metadata stay on the computer.
 
 ### Layered photo editing and compositing
 
@@ -36,7 +39,9 @@ Switch to the Vector persona for paths, nodes, shapes, corners, strokes, appeara
 
 Function-labelled model setup covers Subject & Background, Sky, Depth, Smart Sort, Faces, Raw Denoise, RGB Denoise and local AI Remove. Models are separate downloads with their own licences. Native RAW and RGB AI denoise require a supported GPU. Core editing needs no AI server or cloud account; supported on-device operations keep image processing on the computer.
 
-The bundled CLI handles conversions, commands, actions, batch jobs and Library workflows. MCP supports headless sessions and a bridge to the desktop app with explicit filesystem permissions.
+The bundled CLI handles conversions, commands, actions, batch jobs and Library workflows. MCP supports headless sessions and a bridge to the desktop app with explicit filesystem permissions; irreversible commands and cloud generation stay off unless explicitly allowed.
+
+**Help → Check for Updates…** looks for a newer GitHub release and links to its page; nothing is downloaded automatically, and the check at startup is off by default. There is no telemetry: see [PRIVACY.md](PRIVACY.md) for every network call the app can make.
 
 ### From a folder to a finished image
 
@@ -373,17 +378,25 @@ A nine-image demo collection in the Library grid.
 
 A closer view of the native Generate panel’s controls.
 
+## Download
+
+Builds are published on [GitHub Releases](https://github.com/zdbosoxfan/local-image/releases). The 2.0.0-alpha.1 downloads will be on the [v2.0.0-alpha.1 release page](https://github.com/zdbosoxfan/local-image/releases/tag/v2.0.0-alpha.1) once it is published; the 0.x releases listed there today are the earlier Local Image 1 previews.
+
+| Platform | File | Notes |
+| --- | --- | --- |
+| Apple Silicon macOS 13+ | `local-image-2.0.0-alpha.1-macos-arm64.dmg` | Drag **Local Image** to Applications. Metal accelerates rendering and supported processing. |
+| | `local-image-2.0.0-alpha.1-macos-arm64.pkg` | Installer for `/Applications/Local Image.app`, with the `local-image-cli` link inside the bundle. |
+| Linux x86_64 | `local-image-2.0.0-alpha.1-linux-x86_64.AppImage` | `chmod +x` and run. Vulkan graphics with CPU fallbacks; Ubuntu 22.04 sets the glibc baseline. |
+| | `local-image-2.0.0-alpha.1-linux-x86_64.tar.gz` | The app and CLI; run `local-image --install` to link them into your `bin` folder. |
+| Windows | none | Experimental: build from source. Windows releases are not validated. |
+
+Each file has a `.sha256` beside it; check it with `shasum -a 256 -c <file>.sha256` (macOS) or `sha256sum -c <file>.sha256` (Linux). Debug-symbol files (`.dSYM.zip`, `.debug`) are for symbolicating crash reports and are not needed to run the app. AI models are separate downloads from inside the app, each with its own licence.
+
 ## Install or build
 
-See [GitHub Releases](https://github.com/zdbosoxfan/local-image/releases) for published builds and their version labels. Source and packaging instructions are available in [Development](docs/DEVELOPMENT.md) and [Release targets](docs/RELEASE.md).
+Source and packaging instructions are available in [Development](docs/DEVELOPMENT.md) and [Release targets](docs/RELEASE.md).
 
-| Platform | Package and graphics |
-| --- | --- |
-| Apple Silicon macOS 13+ | Native ARM64 `.pkg` installs `/Applications/Local Image.app`. Metal accelerates rendering and supported processing. |
-| Linux x86_64 | Tarball and AppImage packaging; Vulkan graphics with CPU fallbacks. |
-| Windows | Experimental source and packaging support. |
-
-Mac packages enable HEIC/HEIF reading and keep optional SAM 3 support off by default. Installed core editing needs no Python, Homebrew or Rust. Selection and tagging models use native CPU inference. Native RAW and RGB AI denoise require a supported GPU; their CPU implementations are reference tests only. The native wgpu denoiser has no NPU dispatcher, and Core ML/Neural Engine execution is not implemented. Model compatibility depends on its backend. Development packages may be ad-hoc signed; a notarized public release requires the signing steps in [MACOS.md](docs/MACOS.md).
+Mac packages enable HEIC/HEIF reading and keep optional SAM 3 support off by default. Installed core editing needs no Python, Homebrew or Rust. Selection and tagging models use native CPU inference. Native RAW and RGB AI denoise require a supported GPU; their CPU implementations are reference tests only. The native wgpu denoiser has no NPU dispatcher, and Core ML/Neural Engine execution is not implemented. Model compatibility depends on its backend. Tagged releases are Developer ID signed and notarized; development packages may be ad-hoc signed and trigger Gatekeeper. See [MACOS.md](docs/MACOS.md) for the signing steps.
 
 With Rust **1.98.1** and the [platform prerequisites](docs/DEVELOPMENT.md) installed:
 
