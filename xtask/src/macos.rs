@@ -34,7 +34,7 @@ pub fn package(skip_build: bool) -> Result<()> {
     let source = target_dir().join("release").join("local-image");
     let exe = bin.join("local-image");
     std::fs::copy(&source, &exe).with_context(|| format!("{}: build the release binary first", source.display()))?;
-    run("verify arm64 executable", Command::new("lipo").arg("-verify_arch").arg("arm64").arg(&exe))?;
+    run("verify arm64 executable", Command::new("lipo").arg(&exe).args(["-verify_arch", "arm64"]))?;
     verify_libraries(&exe)?;
     // The release profile strips the executable and packs its line tables into a .dSYM beside it
     // (`split-debuginfo = "packed"`); the .dSYM ships next to the installer, not in the bundle.
