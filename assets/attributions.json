@@ -11607,7 +11607,7 @@
         },
         {
           "name": "rustls-webpki",
-          "version": "0.103.15",
+          "version": "0.103.16",
           "used_for": "Web PKI X.509 Certificate Verification.",
           "licence": "ISC",
           "url": "https://github.com/rustls/webpki"
@@ -12678,7 +12678,7 @@
         },
         {
           "name": "webpki-roots",
-          "version": "1.0.9",
+          "version": "1.0.10",
           "used_for": "Mozilla's CA root certificates for use with webpki",
           "licence": "CDLA-Permissive-2.0",
           "url": "https://github.com/rustls/webpki-roots"
