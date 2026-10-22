@@ -6,6 +6,15 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
+  wrapping; captured times that are not ASCII no longer crash the By Date panel; impossible times
+  such as 10:75 are refused instead of rolling over.
+- Compositing: a PSD PackBits row whose declared length overflows is refused instead of decoding
+  nothing.
+- Colour fields refuse values such as `#+f+f+f` instead of reading them as hex.
+
 ## [2.0.0-alpha.1] - 2026-10-20
 
 This is the first Local Image 2 alpha. It combines the layered editor, the photo catalog and RAW

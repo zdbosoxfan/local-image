@@ -330,3 +330,17 @@ fn failed_streamed_write_keeps_the_old_file() {
     assert_eq!(std::fs::read(dir.join(SNAPSHOT)).unwrap(), b"new");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn snapshot_with_an_out_of_range_seq_is_refused() {
+    let m = MemStore::default();
+    let line = format!(
+        "{{\"format\":\"lightcraft-catalog\",\"version\":{},\"seq\":{},\"catalog\":{}}}\n",
+        crate::journal::VERSION,
+        u64::MAX,
+        Catalog::new().to_snapshot()
+    );
+    m.set(SNAPSHOT, line.into_bytes());
+    let r = Journal::open(Box::new(m.clone()));
+    assert!(matches!(r, Err(CatalogError::Corrupt(_))), "{:?}", r.err());
+}

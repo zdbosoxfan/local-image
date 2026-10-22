@@ -861,3 +861,13 @@ Ported by OpenAI Codex (gpt-6-astra) and reviewed, corrected and verified by Cla
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`b97a72ac794b`](https://github.com/storytold/photocraft/commit/b97a72ac794b0ac6849b7b33f07eadd8e298615f) | File dialogs no longer freeze or crash the app (#673, #574) (#1071) | `apps/local-image/src/main.rs`<br>`apps/local-image/src/services.rs`<br>`crates/pc-ui-egui/src/file_dialog.rs`<br>`crates/pc-ui-egui/src/file_dialog/tests.rs`<br>`crates/pc-ui-egui/src/dialog_filter.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/menus.rs`<br>`crates/pc-ui-egui/src/discard_ui.rs`<br>`crates/pc-ui-egui/src/dialogs.rs`<br>`crates/pc-ui-egui/src/export_dialog.rs`<br>`crates/pc-ui-egui/src/file_ui.rs`<br>`crates/pc-ui-egui/src/view_cmds.rs`<br>+28 more | MIT OR Apache-2.0 |
+
+## PhotoCraft and LightCraft hardening fixes (2026-10-22)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`e3224000cac1`](https://github.com/storytold/photocraft/commit/e3224000cac1a30a19e239d67dcad110ccb7c8b2) | fix(psd): make packbits::decode_into crate-private and overflow-safe (#6950) | `crates/pc-psd/src/compression.rs` | MIT OR Apache-2.0 |
+| [`035d572ac81a`](https://github.com/storytold/lightcraft/commit/035d572ac81ae8bfa87817bb189fb014e7a6018c) | Refuse catalog snapshots with an out-of-range seq | `crates/lc-catalog/src/journal.rs`<br>`crates/lc-catalog/src/tests_journal.rs` | MIT OR Apache-2.0 |
+| [`14d321c107c6`](https://github.com/storytold/lightcraft/commit/14d321c107c690f1de7f2d97f880a9cd771adff2) | catalog: slice captured dates on char boundaries so non-ASCII dates don't panic | `crates/lc-catalog/src/query.rs`<br>`crates/lc-catalog/src/tests.rs` | MIT OR Apache-2.0 |
+| [`6e97193b00cb`](https://github.com/storytold/lightcraft/commit/6e97193b00cbe6af249336e6f4f93f8ff44d102a) | Reject impossible hour/minute/second in normalize_iso | `crates/lc-catalog/src/stacks.rs`<br>`crates/lc-catalog/src/dates.rs` | MIT OR Apache-2.0 |
+| [`80e439f6dc6d`](https://github.com/storytold/lightcraft/commit/80e439f6dc6d47c8eb9b646d93c0bc11f5ae5a12) | Reject signed hex digits in #rrggbb colour parsing | `crates/li-color/src/lib.rs` | MIT OR Apache-2.0 |

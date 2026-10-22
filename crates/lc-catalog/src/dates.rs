@@ -194,6 +194,15 @@ mod tests {
     use crate::{Op, Photo, Source};
 
     #[test]
+    fn impossible_times_are_rejected_not_rolled_over() {
+        for bad in ["2026-04-01T10:75:00", "2026-04-01 10:00:75", "2026-04-01T10:60", "2026-04-01T24:00:00", "2026-04-01T10:59:60"] {
+            assert_eq!(normalize_iso(bad), None, "{bad}");
+            assert_eq!(shift_iso(bad, 5), None, "{bad}");
+        }
+        assert_eq!(normalize_iso("2026-04-01T23:59:59").as_deref(), Some("2026-04-01T23:59:59"));
+    }
+
+    #[test]
     fn calendar() {
         assert_eq!(civil(0), "1970-01-01T00:00:00");
         assert_eq!(civil(951_782_400), "2000-02-29T00:00:00");
