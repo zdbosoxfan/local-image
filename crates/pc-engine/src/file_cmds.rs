@@ -90,7 +90,8 @@ pub(crate) fn read_file(path: &str) -> Result<Vec<u8>> {
 /// Every file the engine writes goes through here: crash-safe (temp file + fsync + rename, see
 /// [`li_fs`]), so a failed save never destroys the previous file.
 pub(crate) fn write_file(path: &str, bytes: &[u8]) -> Result<()> {
-    li_fs::atomic_write(std::path::Path::new(path), bytes).map_err(|e| EngineError::Other(e.to_string()))
+    let path = std::path::Path::new(path);
+    li_fs::refuse_read_only(path).and_then(|()| li_fs::atomic_write(path, bytes)).map_err(|e| EngineError::Other(e.to_string()))
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {

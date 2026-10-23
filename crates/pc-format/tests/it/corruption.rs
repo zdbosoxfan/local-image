@@ -439,3 +439,20 @@ fn pattern_sizes_from_the_file_are_checked() {
     assert!(matches!(empty, Err(FormatError::Corrupt(_))), "{empty:?}");
     assert!(load_from_bytes(&with_pattern_size(32, 24)).is_ok());
 }
+/// A number past f32's range would load as infinity, and every later save would then fail
+///: it is refused when the file is opened, naming the value.
+#[test]
+fn out_of_range_number_refused_on_open() {
+    let b = rebuild(&sample(), |n, d| {
+        Some(if n == "manifest.json" {
+            let mut v: serde_json::Value = serde_json::from_slice(&d).unwrap();
+            v["document"]["layers"][0]["opacity"] = serde_json::json!(1e39);
+            serde_json::to_vec(&v).unwrap()
+        } else {
+            d
+        })
+    });
+    let Err(e) = load_from_bytes(&b) else { panic!("a manifest with opacity 1e39 opened") };
+    assert!(matches!(e, FormatError::Corrupt(_)), "{e}");
+    assert!(e.to_string().contains("document.layers[0].opacity"), "{e}");
+}

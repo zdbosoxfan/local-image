@@ -368,6 +368,19 @@ fn prepare(fs: &dyn AtomicFs, path: &Path, bytes: &[u8], interrupt: &Interrupt<'
     }
     Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{}: could not create a temporary file", dir.display())))
 }
+/// Refuse to replace a file marked read-only (`chmod 444`, the Windows read-only attribute). A
+/// rename only needs the folder to be writable, so without this Linux and macOS would silently
+/// replace a file the user locked while Windows refuses. Document saves check this first; a
+/// missing file, or one behind a symlink to a writable file, is fine.
+pub fn refuse_read_only(path: &Path) -> io::Result<()> {
+    if fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().readonly()) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("cannot save {}: the file is read-only and was not changed; save a copy with Save As", path.display()),
+        ));
+    }
+    Ok(())
+}
 /// Editor-compatible writer, including automatic parent creation.
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     atomic_write_with(&RealFs, RenameRetry::platform(), path, bytes)

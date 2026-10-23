@@ -37,6 +37,11 @@ pub fn parse_tysh(data: &[u8]) -> Option<TySh> {
     for (i, v) in m.iter_mut().enumerate() {
         *v = f(2 + i * 8)?;
     }
+    // Pixel coordinates use i32 throughout the document: non-finite and unrepresentable affine
+    // terms never reach rendering or egui.
+    if !m.iter().all(|v| v.is_finite() && v.abs() <= f64::from(i32::MAX)) {
+        return None;
+    }
     let (text, used) = VersionedDescriptor::parse_prefix(data.get(52..)?).ok()?;
     let rest = data.get(52 + used..).unwrap_or(&[]);
     let (warp, wused) = match rest.get(2..).and_then(|r| VersionedDescriptor::parse_prefix(r).ok()) {
@@ -973,5 +978,24 @@ mod nonfinite_tests {
             TextLayer { text: "x".into(), runs: vec![TextRun { len: 1, style: CharStyle { size_pt: 12.0, ..Default::default() } }], ..Default::default() };
         let out = String::from_utf8_lossy(&crate::engine_data::write(&build_engine_data(&layer, None, f32::INFINITY))).into_owned();
         assert!(out.contains("/FontSize 12.0"), "{out}");
+    }
+}
+
+#[cfg(test)]
+mod transform_safety_tests {
+    use super::*;
+
+    #[test]
+    fn unsafe_affine_terms_are_not_editable_type() {
+        let mut t = TySh { transform: Affine::IDENTITY, text: Descriptor::new("TxLr"), warp: None, bounds: [0.0; 4] };
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1.315776645269349e62, 1.4759871577491642e307] {
+            for i in 0..6 {
+                t.transform = Affine::IDENTITY;
+                t.transform.m[i] = bad;
+                assert!(parse_tysh(&write_tysh(&t)).is_none(), "term {i}: {bad}");
+            }
+        }
+        t.transform = Affine { m: [0.0, -2.01242653341062, 2.286521576443544, 0.0, 586.63, 2452.60] };
+        assert_eq!(parse_tysh(&write_tysh(&t)).unwrap().transform, t.transform);
     }
 }

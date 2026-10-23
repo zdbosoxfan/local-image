@@ -916,3 +916,29 @@ Partial ports: `f753778f` ports only its test, since `li-raster`'s box radii alr
 sigma and compute the square in floating point. `389a2cdd` guards the readback and profiling
 polls through `DeviceHealth`; its lost-device regression tests need a real GPU and were not
 ported.
+
+## PhotoCraft editor file safety (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`4615a8bc26c7`](https://github.com/storytold/photocraft/commit/4615a8bc26c78805debbdacb6e8b92c5c3a3585c) | Survive a lost window GPU device: draw nothing, save unsaved work for recovery, close (#3438, #1215) | `crates/pc-format/src/autosave.rs`<br>`crates/pc-ui-egui/src/control.rs`<br>`crates/pc-ui-egui/src/gpu_status.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/li-gpu/src/health.rs`<br>`crates/pc-format/tests/it/autosave.rs`<br>`apps/local-image/src/main.rs`<br>`apps/local-image/src/services.rs` | MIT OR Apache-2.0 |
+| [`7bb7819b0050`](https://github.com/storytold/photocraft/commit/7bb7819b0050f485370aa5d6d92f6e0d2eadd1de) | Lost window device: close only once every unsaved document is saved for recovery, retrying every 2 s; also check the device on the screen-picker frame (#6464 review) | `crates/pc-format/src/autosave.rs`<br>`crates/pc-ui-egui/src/gpu_status.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-format/tests/it/autosave.rs` | MIT OR Apache-2.0 |
+| [`589941a536bf`](https://github.com/storytold/photocraft/commit/589941a536bff8bd7bdea6d4b9be765ab94644a3) | Save: refuse to replace a read-only file (#6600) (#6643) | `crates/li-fs/src/lib.rs`<br>`crates/li-fs/src/tests.rs`<br>`apps/local-image/src/services.rs`<br>`crates/pc-engine/src/file_cmds.rs` | MIT OR Apache-2.0 |
+| [`921637322cc6`](https://github.com/storytold/photocraft/commit/921637322cc623303d40dd902aaa6da11ebac3a0) | Native format: refuse a .pcraft with out-of-range numbers when it is opened (#6862) | `crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
+| [`0f0f58c2ab36`](https://github.com/storytold/photocraft/commit/0f0f58c2ab369a07241e0dcfb3d1cf6792829488) | PSD: layer_tree_max_depth hoists layers under unclosed dividers past the cap (#5758) (#5759) | `crates/pc-psd/src/tree.rs`<br>`crates/pc-psd/tests/it/tree.rs` | MIT OR Apache-2.0 |
+| [`205c9c173721`](https://github.com/storytold/photocraft/commit/205c9c173721fadceeeb3695794387eceabe8950) | History Brush: bound the stroke before its dense buffers (#4961) | `crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`3f216a0cd1b9`](https://github.com/storytold/photocraft/commit/3f216a0cd1b9549a3ec81db75f5d160badf14d89) | fix(engine): reject numeric overflow before document edits | `crates/pc-engine/src/adjust_cmds.rs`<br>`crates/pc-engine/src/analysis_cmds.rs`<br>`crates/pc-engine/src/artboard_cmds.rs`<br>`crates/pc-engine/src/channel_cmds.rs`<br>`crates/pc-engine/src/commands.rs`<br>`crates/pc-engine/src/extra_cmds.rs`<br>`crates/pc-engine/src/fill_cmds.rs`<br>`crates/pc-engine/src/layer_style.rs`<br>`crates/pc-engine/src/lens_cmds.rs`<br>`crates/pc-engine/src/notes_cmds.rs`<br>`crates/pc-engine/src/type_cmds.rs`<br>`crates/pc-engine/src/cutout_cmds.rs`<br>`crates/pc-engine/tests/it/finite_command_params.rs`<br>`crates/pc-engine/tests/it/main.rs` | MIT OR Apache-2.0 |
+| [`ec56c286ddf2`](https://github.com/storytold/photocraft/commit/ec56c286ddf21fe0b4b62ad491f31eeeed869213) | Fix mixed-order TIFF type transforms and reject unsafe geometry | `crates/pc-io/src/psd_import.rs`<br>`crates/pc-psd/src/tiff.rs`<br>`crates/pc-text/src/psd.rs`<br>`crates/pc-io/src/blocks.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `589941a5` adds `li_fs::refuse_read_only` at the document save points (Save, Save
+As, background save, engine writes) instead of inside the shared atomic writer, so Library
+sidecars and catalog files keep their behaviour. `205c9c17` guards the clone, healing, spot
+healing and history brushes, which all render dense coverage. `ec56c286` takes the TIFF type-block
+byte-order fix and the transform check; we have no retained foreign-order blocks to skip.
+
+Already covered or not applicable: `6cec0cab` (a test adjustment for 589941a5), `cc772ad9` (our
+`li-fs` refuses to save through a dangling symlink instead of writing through it, which is the
+safer choice), `713dbbed` (we have no ATN save), `bf321f0f` and `9c914a9f` (our Affinity importer
+already bounds compound expansion, rejects cycles and limits nested spot colours), `e86e6910` (our
+PSD writer has no `Txt2` style runs).
+

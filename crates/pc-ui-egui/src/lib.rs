@@ -465,6 +465,10 @@ pub struct Services {
     /// Write outcomes of queued autosaves. `None` for services whose `autosave` reports
     /// completion on return (tests, the web).
     pub autosave_results: Option<AutosaveResultsFn>,
+    /// Finish every queued crash-recovery autosave and wait for it, with outcomes like
+    /// `autosave_results`. For a session that ends without asking: the window's graphics device
+    /// was lost (see `gpu_status::check_window`).
+    pub flush_autosaves: Option<AutosaveResultsFn>,
     pub discard_autosave: Option<DiscardAutosaveFn>,
     /// At native shutdown, finish requested recovery deletion after any in-flight writer.
     /// Interactive closes remain asynchronous.
@@ -681,6 +685,14 @@ pub struct PhotocraftApp {
     /// GPU canvas renderer, when running on the wgpu backend (see [`Self::set_wgpu`]). Dropped
     /// for the rest of the session when the device is lost (see `gpu_status`).
     gpu: Option<gpu_canvas::GpuCanvas>,
+    /// The device the window itself draws with, and its health flag: the GPU canvas's, or one
+    /// watched for the CPU canvas (see `gpu_status::check_window`).
+    window_device: Option<(eframe::wgpu::Device, li_gpu::health::DeviceHealth)>,
+    /// That device was lost: frames draw nothing and the app closes once its work is saved.
+    window_lost: bool,
+    /// When (in `egui::InputState::time`) to try saving unsaved work for recovery again after a
+    /// failed attempt; the app closes only once it succeeded.
+    window_recovery_retry: Option<f64>,
     /// Run once the first frames have rendered (see [`Self::on_started`]).
     started: Option<gpu_status::StartedHook>,
     /// Frame and canvas-upload timings (exposed via `ui.inspect`).
@@ -818,6 +830,9 @@ impl PhotocraftApp {
             tone_hist: None,
             doc_hist: None,
             gpu: None,
+            window_device: None,
+            window_lost: false,
+            window_recovery_retry: None,
             started: None,
             perf: Default::default(),
             prefs_rt: Default::default(),
@@ -880,10 +895,12 @@ impl PhotocraftApp {
                 self.perf.gpu_info.canvas = "cpu".into();
                 self.perf.gpu_info.fallback = Some(detail.clone());
                 gpu_status::queue_fallback_notice(self, detail);
+                self.watch_window_device(&rs.device);
                 return;
             }
         };
         self.perf.gpu_info.canvas = "gpu".into();
+        self.window_device = Some((rs.device.clone(), gpu.health().clone()));
         self.gpu = Some(gpu);
         self.prefs_rt.gpu_style = None;
     }
@@ -902,6 +919,24 @@ impl PhotocraftApp {
     /// The GPU canvas's device health flag (tests inject faults through it).
     pub fn gpu_health(&self) -> Option<li_gpu::health::DeviceHealth> {
         self.gpu.as_ref().map(|g| g.health().clone())
+    }
+
+    /// Watch the device the window draws with when the GPU canvas doesn't (the CPU canvas), so
+    /// its loss is handled like the GPU canvas's (see `gpu_status::check_window`).
+    pub fn watch_window_device(&mut self, device: &eframe::wgpu::Device) {
+        self.window_device = Some((device.clone(), li_gpu::health::DeviceHealth::watch(device)));
+    }
+
+    /// Whether the window's graphics device was lost, so the app saves its documents for
+    /// recovery and closes once they are saved.
+    pub fn window_lost(&self) -> bool {
+        self.window_lost
+    }
+
+    /// Destroy the window's graphics device, as a driver reset does (`ui.gpu.simulateLoss`
+    /// with `destroy`, tests). Returns whether there was one.
+    pub fn destroy_window_device(&mut self) -> bool {
+        self.window_device.as_ref().map(|(device, _)| device.destroy()).is_some()
     }
 
     /// Cached Move viewport targets and view uniforms, for GPU resource diagnostics.
@@ -1619,6 +1654,8 @@ impl eframe::App for PhotocraftApp {
         jobs_ui::keep_polling(self, &ctx);
         // Menus and buttons in this frame may have asked for a file dialog.
         self.poll_file_dialog(&ctx);
+        // Last, after everything drawn this frame: a lost window device can't draw it.
+        gpu_status::check_window(self, &ctx);
     }
 }
 

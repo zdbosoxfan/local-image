@@ -116,7 +116,7 @@ fn map_pixels(s: &mut Session, label: &str, f: impl FnOnce(Rect, &mut [[f32; 4]]
 /// Edit › Stroke: a band along the selection edge (or the layer's opaque edge without a selection).
 fn stroke(s: &mut Session, p: &Value) -> Result<Value> {
     let width = p.get("width").and_then(Value::as_f64).unwrap_or(1.0).clamp(1.0, 250.0) as f32;
-    let mut color = color_param(p, "color", s.tools.foreground);
+    let mut color = color_param("edit.stroke", p, "color", s.tools.foreground)?;
     color[3] *= (p.get("opacity").and_then(Value::as_f64).unwrap_or(100.0) as f32 / 100.0).clamp(0.0, 1.0);
     let location = p.get("location").and_then(Value::as_str).unwrap_or("center").to_string();
     let id = layer_param(s, p)?;

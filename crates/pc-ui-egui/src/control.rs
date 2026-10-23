@@ -18,9 +18,11 @@
 //! - `ui.click {x, y, button?, count?}` / `ui.move {x, y}`: synthetic pointer input in screen points
 //! - `ui.key {key, command?, shift?, alt?, ctrl?}` / `ui.type {text}`: synthetic keyboard input
 //! - `ui.resize {width, height}`: resize the main window
-//! - `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or, with `error: true`,
-//!   reported an error): the app switches to the CPU renderer for the rest of the session, as on a
-//!   real loss. For testing the fallback; returns whether a GPU canvas was active
+//! - `ui.gpu.simulateLoss {error?, destroy?}`: act as if the wgpu device was lost (or, with
+//!   `error: true`, reported an error): the app switches to the CPU renderer for the rest of the
+//!   session, as on a real loss. For testing the fallback; returns whether a GPU canvas was active.
+//!   `destroy: true` destroys the window's real device instead, as a driver reset does: the app
+//!   saves its unsaved documents for recovery and closes; returns `destroyed`
 //! - `ui.screenshot {path?, focus?}`: capture the main window (PNG). Raises the window first (default)
 //!   because occluded macOS windows stop rendering
 //! - `ui.focus`: bring the main window to the front
@@ -560,6 +562,11 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             ok(Value::Null)
         }
         "ui.gpu.simulateLoss" => {
+            if p.get("destroy").and_then(Value::as_bool).unwrap_or(false) {
+                let destroyed = app.destroy_window_device();
+                ctx.request_repaint();
+                return ok(json!({"destroyed": destroyed}));
+            }
             let error = p.get("error").and_then(Value::as_bool).unwrap_or(false);
             let fault = if error {
                 li_gpu::health::Fault::Error("simulated error (ui.gpu.simulateLoss)".into())

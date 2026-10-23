@@ -49,7 +49,7 @@ impl BackgroundOutput {
                     if !valid {
                         return Err(bad("color must be #rrggbb[aa] or 3–4 numbers in 0..1"));
                     }
-                    Ok(Self::Color(crate::commands::color_param(p, "color", [1.0; 4])))
+                    Ok(Self::Color(crate::commands::color_param("cutout", p, "color", [1.0; 4]).map_err(|_| bad("color must be finite numbers"))?))
                 }
                 "blur" => {
                     let amount = match p.get("amount") {

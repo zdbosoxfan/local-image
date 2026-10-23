@@ -26,6 +26,13 @@ All notable changes to Local Image are recorded here. The format follows
   points and extreme `mask.move` deltas render or edit normally. Preset ZIPs are size-limited,
   preview caches refuse symlinked folders, imports skip symlink aliases, and GPX files and capture
   dates that cannot exist are refused.
+- Editor: when the graphics device the window draws with is lost (a driver reset, or after sleep),
+  every unsaved document is saved for crash recovery before the app closes, retrying until the
+  saves succeed, instead of crashing or freezing. Saving over a file marked read-only is refused
+  with a message instead of replacing it. A `.pcraft` file with numbers past the 32-bit range, and
+  commands with such numbers, are refused instead of storing infinity. Clone, healing and history
+  brush strokes too large to render are refused, PSD layers under unclosed groups past the depth
+  limit are kept, and TIFF type layers with mixed byte order or unsafe transforms open safely.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 
