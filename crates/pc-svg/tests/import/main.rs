@@ -832,3 +832,36 @@ fn svg_nested_fractional_text_opacity_preserves_grouped_overlap_and_hidden_runs(
     assert!(flat(&scene.layers).iter().any(|layer| matches!(layer.content, LayerContent::Text(_))));
     assert!(!scene.warnings.iter().any(|warning| warning.feature == "text-opacity-outlines"));
 }
+
+/// Hostile structure from VectorCraft's import fuzzing (MIT OR Apache-2.0): groups nested deep
+/// enough to overflow a recursive reader, and a descendant selector whose leftmost part never
+/// matches over a deep chain, which backtracks combinatorially without memoization. Both finish
+/// quickly, imported or refused.
+#[test]
+fn svg_deep_nesting_and_backtracking_selectors_finish_quickly() {
+    use photocraft_doc::vector_design::exchange::ImportOptions;
+    let start = std::time::Instant::now();
+    for n in [40, 100_000] {
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{}<rect width="5" height="5"/>{}</svg>"#,
+            "<g>".repeat(n),
+            "</g>".repeat(n)
+        );
+        let r = photocraft_svg::import(svg.as_bytes(), &ImportOptions::default());
+        assert_eq!(r.is_err(), n > 64, "{n} nested groups: {:?}", r.as_ref().err());
+    }
+    let unread = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><!--{0}--><![CDATA[{0}]]><rect width="5" height="5"/></svg>"#,
+        "<g>".repeat(100_000)
+    );
+    assert!(photocraft_svg::import(unread.as_bytes(), &ImportOptions::default()).is_ok(), "markup in comments and CDATA isn't nesting");
+    let chain = 60;
+    let selector = format!("x {} rect", "g ".repeat(30));
+    let svg = format!(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><style>{selector} {{ fill: red }}</style>{}<rect width="5" height="5"/>{}</svg>"#,
+        "<g>".repeat(chain),
+        "</g>".repeat(chain)
+    );
+    let _ = photocraft_svg::import(svg.as_bytes(), &ImportOptions::default());
+    assert!(start.elapsed().as_secs() < 20, "{:?}", start.elapsed());
+}

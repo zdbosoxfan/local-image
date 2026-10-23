@@ -446,6 +446,7 @@ mod encryption;
 mod inline;
 
 mod groups;
+mod hostile;
 
 #[test]
 fn pdf_fallback_real_codecs_keep_the_typed_editable_refusal() {

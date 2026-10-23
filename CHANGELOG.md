@@ -33,6 +33,8 @@ All notable changes to Local Image are recorded here. The format follows
   commands with such numbers, are refused instead of storing infinity. Clone, healing and history
   brush strokes too large to render are refused, PSD layers under unclosed groups past the depth
   limit are kept, and TIFF type layers with mixed byte order or unsafe transforms open safely.
+- SVG import: a file whose elements nest tens of thousands deep is refused with a message instead
+  of crashing the app.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

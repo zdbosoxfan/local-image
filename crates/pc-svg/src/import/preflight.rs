@@ -284,8 +284,62 @@ fn normalized_resources<'a>(
     Ok(walk.resources)
 }
 
+/// Do the elements of `xml` nest deeper than `max` (the root not counted)? Read from the text,
+/// without recursion: roxmltree reads elements by recursion, so a file nested deeply enough would
+/// overflow the stack (an abort, not an error) before the tree could be checked. Comments, CDATA,
+/// processing instructions and declarations are skipped; quoted `>` inside a tag doesn't end it.
+fn text_depth_exceeds(xml: &str, max: usize) -> bool {
+    let b = xml.as_bytes();
+    let find = |from: usize, what: &[u8]| b.get(from..).and_then(|rest| rest.windows(what.len()).position(|w| w == what)).map(|at| from + at + what.len());
+    // The end of the tag starting at `from` (past its `>`), and whether it closes itself.
+    let tag_end = |from: usize| {
+        let mut quote = None;
+        for (i, c) in b.iter().enumerate().skip(from) {
+            match (quote, c) {
+                (None, b'"' | b'\'') => quote = Some(*c),
+                (Some(q), c) if q == *c => quote = None,
+                (None, b'>') => return (i + 1, b.get(i.wrapping_sub(1)) == Some(&b'/')),
+                _ => {}
+            }
+        }
+        (b.len(), false)
+    };
+    let mut depth = 0usize;
+    let mut i = 0;
+    while let Some(at) = b.get(i..).and_then(|rest| rest.iter().position(|c| *c == b'<')).map(|at| i + at) {
+        let rest = b.get(at..).unwrap_or_default();
+        i = if rest.starts_with(b"<!--") {
+            find(at, b"-->").unwrap_or(b.len())
+        } else if rest.starts_with(b"<![CDATA[") {
+            find(at, b"]]>").unwrap_or(b.len())
+        } else if rest.starts_with(b"<?") {
+            find(at, b"?>").unwrap_or(b.len())
+        } else if rest.starts_with(b"<!") {
+            tag_end(at).0
+        } else if rest.starts_with(b"</") {
+            depth = depth.saturating_sub(1);
+            tag_end(at).0
+        } else {
+            let (end, empty) = tag_end(at);
+            if !empty {
+                depth += 1;
+                // Looser by a level or two than the tree check, which gives the exact answer.
+                if depth > max.saturating_add(1) {
+                    return true;
+                }
+            }
+            end
+        };
+    }
+    false
+}
+
 pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicBool) -> Result<roxmltree::Document<'a>> {
     let limits = options.limits;
+    let max_depth = limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH).saturating_sub(2);
+    if text_depth_exceeds(source, max_depth) {
+        return Err(ImportError::Limit("XML depth"));
+    }
     let xml = roxmltree::Document::parse_with_options(
         source,
         roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: limits.objects.saturating_mul(4).min(400_000) as u32, ..Default::default() },
@@ -302,7 +356,6 @@ pub(super) fn xml<'a>(source: &'a str, options: &ImportOptions, cancel: &AtomicB
     let mut segment_weights = HashMap::new();
     let mut embedded = 0u64;
     let mut use_ids = HashMap::new();
-    let max_depth = limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH).saturating_sub(2);
     for n in root.descendants() {
         cancelled(cancel)?;
         let node_depth = n.ancestors().take(max_depth.saturating_add(1)).count();

@@ -942,3 +942,23 @@ safer choice), `713dbbed` (we have no ATN save), `bf321f0f` and `9c914a9f` (our 
 already bounds compound expansion, rejects cycles and limits nested spot colours), `e86e6910` (our
 PSD writer has no `Txt2` style runs).
 
+
+## VectorCraft importer hardening (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`c10da25ce4fc`](https://github.com/storytold/vectorcraft/commit/c10da25ce4fca0b1c60e3c376f2af450f85d3307) | Importers: nesting is capped, so a deeply nested file can't overflow the stack | `crates/pc-svg/src/import/preflight.rs`<br>`crates/pc-svg/tests/import/main.rs` | MIT OR Apache-2.0 |
+| [`17d249361663`](https://github.com/storytold/vectorcraft/commit/17d2493616637925cc3ad8e53876b6522c0f0e52) | Importers: PDF nesting inside compressed streams no longer crashes (hayro 0.8) | `crates/pc-pdf/tests/import/hostile.rs`<br>`crates/pc-pdf/tests/import/main.rs` | MIT OR Apache-2.0 |
+| [`18f8a1bdcf5d`](https://github.com/storytold/vectorcraft/commit/18f8a1bdcf5d94f8586f52943c2ab7c3bbec4d1d) | PDF import: a damaged array is refused as damaged, not as functions built on one another | `crates/pc-pdf/tests/import/hostile.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `c10da25c` takes the text-level nesting scan that runs before any XML reader, at
+our existing XML depth limit (roxmltree reads elements by recursion, so a deeply nested SVG
+aborted the process before the tree check could refuse it). Reference depth is already bounded by
+our resource walk, so the reference-following part and the 16 MB import thread were not needed.
+`17d24934` and `18f8a1bd` port their hostile-file regression tests only: we are already on hayro
+0.8, refuse calculator functions and cap resource reference chains at 64 with cycle detection.
+
+Already covered or not applicable: `ad165a5a` (our CSS matcher already memoizes), `a2e2eba2`
+(`pc-trace` already validates the buffer length), `0ad92e46` (our Affinity importer already shares
+one pixel allowance), `95d27fe3`, `9e90464f`, `a69ddea9`, `991ce2c6`, `e01a65d8` (our PDF
+preflight has its own bounded reader) and `830cefca` (we don't read XMP from PDFs).
