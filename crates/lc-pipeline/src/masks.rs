@@ -420,6 +420,10 @@ pub struct BrushDabs {
     pub auto: bool,
 }
 
+/// Most dabs one stroke holds (32 MiB of centres). A crafted XMP, catalog or automation call can
+/// give a stroke huge or non-finite segments; past this the rest of the stroke lays nothing.
+pub const MAX_STROKE_DABS: usize = 2_000_000;
+
 /// The dabs of stroke `s` in a `w × h` output.
 pub fn brush_dabs(s: &BrushStroke, frame: &Frame, w: usize, h: usize) -> BrushDabs {
     let to_out = frame.norm_to_out(w, h);
@@ -430,10 +434,15 @@ pub fn brush_dabs(s: &BrushStroke, frame: &Frame, w: usize, h: usize) -> BrushDa
     let mut dabs: Vec<Point> = Vec::new();
     for (i, p) in s.points.iter().enumerate() {
         let q = to_out.apply(*p);
+        let room = MAX_STROKE_DABS.saturating_sub(dabs.len());
+        if room == 0 || !(q.x.is_finite() && q.y.is_finite()) {
+            continue;
+        }
         if i > 0 {
             let prev = to_out.apply(s.points[i - 1]);
-            let dist = prev.dist(q);
-            let n = (dist / (r / 4.0).max(0.5)).ceil() as usize;
+            let n = (prev.dist(q) / (r / 4.0).max(0.5)).ceil();
+            // a non-finite segment gets no in-between dabs; the rest fit the stroke's budget
+            let n = if n.is_finite() { n.clamp(0.0, room as f64) as usize } else { 0 };
             for k in 1..n {
                 dabs.push(prev.lerp(q, k as f64 / n as f64));
             }
@@ -548,6 +557,19 @@ mod tests {
 
     fn frame(w: usize, h: usize) -> Frame {
         Frame::new(w, h, &DevelopSettings::default(), true)
+    }
+
+    #[test]
+    fn hostile_stroke_segments_stay_within_the_dab_budget() {
+        let f = frame(100, 100);
+        let far = |x: f64| Point::new(x, 0.0);
+        let s = BrushStroke { points: vec![far(0.0), far(1e12), far(0.0), far(1e12), far(0.5)], ..Default::default() };
+        let d = brush_dabs(&s, &f, 100, 100);
+        assert!(d.dabs.len() <= MAX_STROKE_DABS, "{} dabs", d.dabs.len());
+        let s = BrushStroke { points: vec![far(0.0), far(f64::INFINITY), far(f64::NAN), far(0.5)], ..Default::default() };
+        let d = brush_dabs(&s, &f, 100, 100);
+        assert!(d.dabs.iter().all(|p| p.x.is_finite() && p.y.is_finite()), "non-finite points lay nothing");
+        assert!(d.dabs.len() <= 3, "{} dabs", d.dabs.len());
     }
 
     #[test]

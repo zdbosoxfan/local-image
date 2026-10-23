@@ -88,6 +88,10 @@ impl Default for Resize {
     }
 }
 
+/// The most pixels an export enlarged past its photo's own size can have: 512 megapixels, also
+/// Lightroom's ceiling. A full-size or smaller export is never held to it.
+pub const MAX_ENLARGED_PIXELS: f64 = 512e6;
+
 impl Resize {
     pub fn long_edge(px: u32) -> Self {
         Self { value: px as f32, ..Default::default() }
@@ -112,8 +116,12 @@ impl Resize {
             ResizeMode::Percent => v / 100.0,
         };
         let k = if self.dont_enlarge { k.min(1.0) } else { k };
-        // at least one pixel, at most the encoders' 65535 limit
-        k.clamp(1.0 / short, 65_535.0 / long)
+        // 20000 typed for 2000 with Don't Enlarge off asks for gigapixels, more memory than a
+        // computer has
+        let k = k.min((MAX_ENLARGED_PIXELS / (w * h)).sqrt().max(1.0));
+        // at least one pixel, at most the encoders' 65535 limit; the limit wins for a photo more
+        // than 65535 times as long as it is short (where `clamp` would panic: min above max)
+        k.max(1.0 / short).min(65_535.0 / long)
     }
 
     /// Output size for a `w × h` (cropped, full-resolution) photo.

@@ -18,6 +18,14 @@ All notable changes to Local Image are recorded here. The format follows
   allocating gigabytes or decoding padding as pixels. This covers short compressed streams, predictor
   overflow, wrapping maker-note crops, NaN or infinite float samples and black levels, two samples per
   pixel, missing strips and runaway TIFF entry counts.
+- Library and Develop: crashes and hangs from damaged or extreme input are fixed. An export enlarged
+  past 512 megapixels is capped, one that needs more memory than the computer has is refused with
+  a message, and very long strips no longer panic the size calculation. A panic in an export's
+  progress callback no longer leaves its worker threads hanging. Crops of no size, huge spot sizes,
+  brush strokes with huge or non-finite segments, out-of-range defringe amounts, close tone-curve
+  points and extreme `mask.move` deltas render or edit normally. Preset ZIPs are size-limited,
+  preview caches refuse symlinked folders, imports skip symlink aliases, and GPX files and capture
+  dates that cannot exist are refused.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

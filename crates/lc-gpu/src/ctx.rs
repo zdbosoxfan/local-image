@@ -828,8 +828,19 @@ impl Gpu {
         };
         // A lost device makes the wait fail and the map callback never run: checking both keeps
         // this from blocking forever (or handing back an unwritten buffer as the image).
-        if let Err(e) = self.device.poll(wgpu::PollType::Wait { submission_index: None, timeout: Some(READBACK_TIMEOUT) }) {
-            return failed(format!("{e}"));
+        // once a device is lost, wgpu panics in `poll` rather than returning an error: a lost
+        // device is not polled again, and a poll that panics marks it lost
+        if !self.health.can_present() {
+            return failed("the device is lost".into());
+        }
+        let wait = wgpu::PollType::Wait { submission_index: None, timeout: Some(READBACK_TIMEOUT) };
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.device.poll(wait))) {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => return failed(format!("{e}")),
+            Err(_) => {
+                self.health.mark(li_gpu::Fault::Lost("the device stopped responding".into()));
+                return failed("the device is lost (Device::poll failed)".into());
+            }
         }
         // another thread's poll may be the one that runs the callback: allow it a moment
         match rx.recv_timeout(std::time::Duration::from_secs(10)) {

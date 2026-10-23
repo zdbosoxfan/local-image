@@ -289,8 +289,11 @@ impl Frame<[f32; 3]> {
     /// Bilinear sample at continuous pixel coordinates (pixel centres at +0.5).
     #[inline]
     pub fn sample_bilinear(&self, x: f32, y: f32) -> [f32; 3] {
-        let fx = x - 0.5;
-        let fy = y - 0.5;
+        // a pixel past the edge reads the edge pixel, so a coordinate held a pixel outside gives
+        // the same sample; an infinite one (a crop of no size's inverse mapping) then reads the
+        // edge too, instead of a NaN weight and a neighbour index past isize::MAX
+        let fx = x.clamp(-1.0, self.width as f32 + 1.0) - 0.5;
+        let fy = y.clamp(-1.0, self.height as f32 + 1.0) - 0.5;
         let x0 = fx.floor();
         let y0 = fy.floor();
         let tx = fx - x0;
@@ -523,6 +526,15 @@ mod tests {
         assert_eq!(img.sample_bilinear(1.5, 2.5), [1.0, 2.0, 1.0]);
         let m = img.sample_bilinear(1.0, 1.5);
         assert!((m[0] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bilinear_samples_at_infinite_coordinates_read_the_edge() {
+        let img = RgbFrame::from_fn(3, 2, |x, y| [x as f32, y as f32, 1.0]);
+        assert_eq!(img.sample_bilinear(f32::INFINITY, f32::INFINITY), [2.0, 1.0, 1.0]);
+        assert_eq!(img.sample_bilinear(f32::MAX, 0.0), [2.0, 0.0, 1.0]);
+        assert_eq!(img.sample_bilinear(f32::NEG_INFINITY, f32::NEG_INFINITY), [0.0, 0.0, 1.0]);
+        assert_eq!(img.sample_bilinear(1.5, 0.5), [1.0, 0.0, 1.0], "an ordinary sample is as before");
     }
 
     #[test]

@@ -886,3 +886,33 @@ Ported by OpenAI Codex (gpt-6-astra) and reviewed, corrected and verified by Cla
 | [`8d96dab1afe5`](https://github.com/storytold/lightcraft/commit/8d96dab1afe5a6d8603b4daa190823d72a143074) | LR-IMP-FORMATS: checked sum of the sRAW slice widths (an overflowing or zero sum is an error, not a panic) | `crates/lc-raw/src/vendor/cr2.rs` | MIT OR Apache-2.0 |
 | [`3946688f49eb`](https://github.com/storytold/lightcraft/commit/3946688f49eb81ebf23888d998943231017948bf) | Reject RAW TIFFs with missing or undecodable image chunks (#1513) | `crates/lc-raw/src/tiffraw.rs` | MIT OR Apache-2.0 |
 | [`df914dca41a0`](https://github.com/storytold/lightcraft/commit/df914dca41a0b18dfe21b248fa90c81e7891908a) | Reject PEF streams that end before the pixels do instead of decoding zero padding (#1514) | `crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+
+## LightCraft Library and Develop crash fixes (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b43b7169aa2a`](https://github.com/storytold/lightcraft/commit/b43b7169aa2a85759aed3875e15d905c01803b78) | Never crash: Limit how much a preset zip can unpack | `crates/lc-engine/src/preset_import.rs` | MIT OR Apache-2.0 |
+| [`1f87328c6d08`](https://github.com/storytold/lightcraft/commit/1f87328c6d083f921969605d5846b412a1b56572) | Never crash: Write preview cache files from one bounded writer (#1522) | `crates/lc-preview/src/lib.rs`<br>`crates/lc-preview/src/tests.rs` | MIT OR Apache-2.0 |
+| [`935fabeb1828`](https://github.com/storytold/lightcraft/commit/935fabeb18286a1f4368196f2fb5151874ff87e5) | Preview disk cache: ignore symlinked shard directories (#1504) | `crates/lc-preview/src/disk.rs`<br>`crates/lc-preview/src/tests.rs` | MIT OR Apache-2.0 |
+| [`414764ef77fd`](https://github.com/storytold/lightcraft/commit/414764ef77fd230d6ac54a59321bfcb36752790f) | Stop export lanes when a panic unwinds the batch thread | `crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/export/tests.rs` | MIT OR Apache-2.0 |
+| [`27d1e9b04d7c`](https://github.com/storytold/lightcraft/commit/27d1e9b04d7c0415bcdb8130024d322da1e3ed98) | Never crash: Cap enlarged exports at 512 MP and check memory first | `crates/lc-engine/src/memory.rs`<br>`crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/export/prepared.rs`<br>`crates/lc-engine/src/export/tests.rs` | MIT OR Apache-2.0 |
+| [`337f02b4dc6a`](https://github.com/storytold/lightcraft/commit/337f02b4dc6ad9d82f0caf166849ba2975e2d65b) | Never crash: Fix export size panic for very long strips | `crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/export/tests.rs` | MIT OR Apache-2.0 |
+| [`f753778f450d`](https://github.com/storytold/lightcraft/commit/f753778f450d87a0d2f695d10b51ad1d9e4ab5f0) | Never crash: Fix blur overflow and hangs on sliver crops | `crates/lc-pipeline/src/tests.rs` | MIT OR Apache-2.0 |
+| [`4a07254e061f`](https://github.com/storytold/lightcraft/commit/4a07254e061fd6db5b18a8a779eb00bc541899ab) | Never crash: Read the edge pixel for bilinear samples outside the picture | `crates/lc-engine/src/tests.rs`<br>`crates/li-raster/src/frame.rs` | MIT OR Apache-2.0 |
+| [`57487875b541`](https://github.com/storytold/lightcraft/commit/57487875b54127fb663f879e2f49b2d7e1eca3db) | Never crash: Cap the spot radius so huge spot sizes render (#1519) | `crates/lc-engine/src/tests.rs`<br>`crates/lc-pipeline/src/spots.rs` | MIT OR Apache-2.0 |
+| [`307843b2adf9`](https://github.com/storytold/lightcraft/commit/307843b2adf98663e72639d9e20de5a3d922aa7f) | Never crash: Fix defringe radius overflow for amounts past the sliders | `crates/lc-pipeline/src/optics.rs` | MIT OR Apache-2.0 |
+| [`d770c5231377`](https://github.com/storytold/lightcraft/commit/d770c5231377ccc1fd8c5c046665b6274ee8b3df) | Masks: bound the total dabs of one brush stroke (#1520) | `crates/lc-pipeline/src/masks.rs` | MIT OR Apache-2.0 |
+| [`389a2cdd6581`](https://github.com/storytold/lightcraft/commit/389a2cdd6581bcf4157cfc5391bba8bc184c0a91) | GPU: a lost device is not polled again, and a poll that panics fails the render (#1858) | `crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/render.rs` | MIT OR Apache-2.0 |
+| [`fdccb413cd88`](https://github.com/storytold/lightcraft/commit/fdccb413cd8887fce4e848ea396c50bdbcab11ed) | fix(import): avoid scanning symlink aliases into the library | `crates/lc-engine/src/walk.rs` | MIT OR Apache-2.0 |
+| [`e4f92df78c6f`](https://github.com/storytold/lightcraft/commit/e4f92df78c6fcd2ca0810f0c60bc02eefbce9888) | fix(meta): reject incomplete and mismatched GPX documents | `crates/lc-meta/src/gpx.rs` | MIT OR Apache-2.0 |
+| [`a77b0cc472ab`](https://github.com/storytold/lightcraft/commit/a77b0cc472abf8a8b2c387bff8c78784d780768c) | fix(meta): reject impossible Gregorian capture dates | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`e1860067a688`](https://github.com/storytold/lightcraft/commit/e1860067a6889b9591758167b64654606f45d4c4) | Never crash: Render demo scenes at most at their own size | `crates/lc-scenes/src/lib.rs` | MIT OR Apache-2.0 |
+| [`911d7df32139`](https://github.com/storytold/lightcraft/commit/911d7df32139010230aed248e1326976dd2d7902) | Never crash: Fix panic dragging a tone curve point between close neighbours | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/crs.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/tests_curve.rs` | MIT OR Apache-2.0 |
+| [`e9d36451e6bc`](https://github.com/storytold/lightcraft/commit/e9d36451e6bc3eb6060789957c4159bda42ccab9) | Never crash: Fix overflow in mask.move with a huge delta | `crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`4c088c32846b`](https://github.com/storytold/lightcraft/commit/4c088c32846b989ce4b631d504dc135459533e89) | Never crash: Give the loupe a finite aspect for a zero-size crop | `crates/lc-pipeline/src/geometry.rs` | MIT OR Apache-2.0 |
+| [`c41b1e311d47`](https://github.com/storytold/lightcraft/commit/c41b1e311d4788c14aa52ebf157c01399e74dd9f) | fix(geom): reject non-finite affine and projective transforms | `crates/lc-geom/src/homography.rs`<br>`crates/lc-geom/src/lib.rs` | MIT OR Apache-2.0 |
+
+Partial ports: `f753778f` ports only its test, since `li-raster`'s box radii already cap the
+sigma and compute the square in floating point. `389a2cdd` guards the readback and profiling
+polls through `DeviceHealth`; its lost-device regression tests need a real GPU and were not
+ported.

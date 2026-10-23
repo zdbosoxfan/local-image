@@ -283,6 +283,48 @@ fn paste_selected_settings_pastes_only_chosen_copied_groups() {
     assert_eq!(s.develop_of(ids[1]).unwrap().color.vibrance, 30.0);
 }
 
+/// A crop of no size (or a hair wide), as `crop.set` or a sidecar can set it, made the render's
+/// samplers read at infinite coordinates and its blurs ask for sigmas of millions of pixels: with a
+/// healing spot and masks on, render workers panicked (an i32 square in the blur, a bilinear
+/// neighbour past isize::MAX). Such a photo renders, quickly.
+#[test]
+fn degenerate_crops_render_with_spots_and_masks() {
+    for rect in [[0.5, 0.5, 0.5, 0.5], [0.0, 0.0, 1e-9, 1.0]] {
+        let mut s = demo();
+        let id = s.active().unwrap();
+        s.execute("spot.add", &json!({"points": [[0.5, 0.5]], "size": 0.2, "mode": "heal"})).unwrap();
+        s.execute("mask.add", &json!({"kind": "radial", "rx": 0.3, "ry": 0.3})).unwrap();
+        s.execute("mask.add", &json!({"kind": "linear"})).unwrap();
+        s.execute("develop.set", &json!({"control": "effects.clarity", "value": 80})).unwrap();
+        s.execute("develop.set", &json!({"control": "effects.dehaze", "value": 50})).unwrap();
+        s.execute("crop.set", &json!({"rect": rect, "angle": 30})).unwrap();
+        let t = std::time::Instant::now();
+        let r = s.render_now(id, 700, 450).unwrap();
+        assert!(r.image.width >= 1 && r.image.height >= 1, "{rect:?}");
+        assert!(t.elapsed().as_secs_f64() < 60.0, "{rect:?}: {:?}", t.elapsed());
+    }
+}
+
+/// `mask.move` with a delta near `i64::MAX` overflowed `index + delta` (a panic wherever overflow
+/// checks are on); extreme deltas and indices now move the mask to the bottom or the top.
+#[test]
+fn mask_move_with_extreme_deltas() {
+    let mut s = demo();
+    for kind in ["linear", "radial", "brush"] {
+        s.execute("mask.add", &json!({"kind": kind})).unwrap();
+    }
+    let ids = |s: &Session| active_dev(s).masks.iter().map(|m| m.id).collect::<Vec<_>>();
+    let [a, b, c] = ids(&s)[..] else { panic!("{:?}", ids(&s)) };
+    s.execute("mask.move", &json!({"id": b, "delta": i64::MAX})).unwrap();
+    assert_eq!(ids(&s), [a, c, b], "to the bottom");
+    s.execute("mask.move", &json!({"id": b, "delta": i64::MIN})).unwrap();
+    assert_eq!(ids(&s), [b, a, c], "to the top");
+    s.execute("mask.move", &json!({"id": c, "to": i64::MIN})).unwrap();
+    assert_eq!(ids(&s), [c, b, a]);
+    s.execute("mask.move", &json!({"id": c, "to": i64::MAX})).unwrap();
+    assert_eq!(ids(&s), [b, a, c]);
+}
+
 #[test]
 fn masks_reorder_and_duplicate_and_invert() {
     let mut s = demo();
@@ -968,4 +1010,25 @@ fn bugfix_develop_settings_transfer_recomputes_photo_bound_masks() {
     d.masks[0].adjust.exposure = 1.;
     s.set_develop(a, d, "Mask edit").unwrap();
     check(&s);
+}
+
+/// A Heal or Remove spot whose size (from a sidecar, which isn't held to the slider's range) is far past the photo
+/// made the render's radius infinite: its heal blur and the source it reads went with it, overflowing the blur's box
+/// radii and the bilinear sampler. Such spots render, quickly, as a spot over the whole frame.
+#[test]
+fn oversized_spots_render() {
+    use lightcraft_develop::{Spot, SpotMode};
+    for size in [10.0, 1e30, f64::MAX, f64::INFINITY, f64::NAN] {
+        for mode in [SpotMode::Heal, SpotMode::Remove, SpotMode::Clone] {
+            let mut s = demo();
+            let id = s.active().unwrap();
+            let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
+            dd.spots.push(Spot { mode, points: vec![lightcraft_geom::Point::new(0.5, 0.5)], size, ..Default::default() });
+            s.set_develop(id, dd, "Remove").unwrap();
+            let t = std::time::Instant::now();
+            let r = s.render_now(id, 300, 200).unwrap();
+            assert!(r.image.width >= 1 && r.image.height >= 1, "{size} {mode:?}");
+            assert!(t.elapsed().as_secs_f64() < 60.0, "{size} {mode:?}: {:?}", t.elapsed());
+        }
+    }
 }
