@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Affine, Point, Rect, Vec2};
 
+/// The smallest crop side, as a fraction of the photo's shorter side: what a drag of the crop
+/// tool can make, and the least `crop.set` takes (below it an export comes out 1×1).
+pub const MIN_CROP_FRACTION: f64 = 0.02;
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CropGeometry {
     /// Normalized crop rectangle in the rotated frame (0..1 when angle = 0).

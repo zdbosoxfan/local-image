@@ -1056,8 +1056,6 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         match app.gesture.clone() {
             Some(Gesture::CropHandle { handle, start, angle }) => {
                 let n = to_straight(map.norm(q), angle, frame);
-                let o = resp.interact_pointer_pos().map(|q0| q0 - resp.drag_delta()).unwrap_or(q);
-                let _ = o;
                 let mut r = start;
                 let orig = ui.input(|i| i.pointer.press_origin()).map(|q0| to_straight(map.norm(q0), angle, frame)).unwrap_or(n);
                 let (dx, dy) = (n.x - orig.x, n.y - orig.y);
@@ -1088,7 +1086,7 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
                     }
                 }
                 let rr = lightcraft_geom::Rect::new(r.x0.min(r.x1), r.y0.min(r.y1), r.x0.max(r.x1), r.y0.max(r.y1));
-                if rr.width() > 0.02 && rr.height() > 0.02 {
+                if rr.width() > lightcraft_geom::MIN_CROP_FRACTION && rr.height() > lightcraft_geom::MIN_CROP_FRACTION {
                     let _ = app.run("crop.set", json!({"rect": [rr.x0, rr.y0, rr.x1, rr.y1]}));
                 }
             }

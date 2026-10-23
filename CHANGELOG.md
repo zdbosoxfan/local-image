@@ -35,6 +35,13 @@ All notable changes to Local Image are recorded here. The format follows
   limit are kept, and TIFF type layers with mixed byte order or unsafe transforms open safely.
 - SVG import: a file whose elements nest tens of thousands deep is refused with a message instead
   of crashing the app.
+- Commands and automation: a mistyped photo `id` or `ids` is refused instead of acting on the whole
+  selection, and negative or fractional indices are refused instead of targeting the first version,
+  sample or correction. `crop.set` refuses a crop smaller than the crop tool can make (it exported a
+  1×1 image). Save a Copy over the document's own file needs `overwrite`, a save quality outside
+  1 to 100 is refused instead of clamped, and out-of-range view zoom or centre values are refused.
+- Graphics: GL adapters weaker than WebGL2's defaults no longer fail device creation, and small mip
+  levels are redrawn whole, fixing canvas corruption on some AMD Vulkan drivers.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

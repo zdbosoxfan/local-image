@@ -1493,9 +1493,9 @@ pub fn ui_enabled(app: &LightcraftApp, id: &str) -> bool {
         "file.backupLibrary" => app.services.backup_library.is_some(),
         "file.restoreLibrary" => app.services.restore_library.is_some(),
         "compare.swap" | "compare.makeSelect" => app.ui.view == ViewMode::Compare,
-        "dialog.mergePixelShift" => matches!(app.session.targets(&serde_json::json!({})).len(), 1 | 4 | 16) && app.merge.final_task.is_none(),
+        "dialog.mergePixelShift" => matches!(app.session.selected().len(), 1 | 4 | 16) && app.merge.final_task.is_none(),
         s if s.starts_with("dialog.merge") || (s.starts_with("merge.") && s.ends_with("Last")) => {
-            app.session.targets(&serde_json::json!({})).len() >= 2 && app.merge.final_task.is_none()
+            app.session.selected().len() >= 2 && app.merge.final_task.is_none()
         }
         _ => true,
     }
@@ -1549,7 +1549,7 @@ pub(crate) fn menu_entries_with_bindings(app: &LightcraftApp, bindings: &[(crate
 
 /// Ask for every UI deletion, capturing targets so a later selection cannot retarget it.
 pub fn confirm_delete(app: &mut LightcraftApp) -> bool {
-    let ids: Vec<_> = app.session.targets(&json!({})).into_iter().map(|id| id.0).collect();
+    let ids: Vec<_> = app.session.selected().into_iter().map(|id| id.0).collect();
     if ids.is_empty() {
         return false;
     }

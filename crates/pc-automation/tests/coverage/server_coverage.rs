@@ -27,7 +27,7 @@ fn save_params_tiff_layers_rename_and_defaults() {
     assert!(p.tiff_layers);
     assert_eq!(p.index, Some(1));
 
-    // quality 0 is valid at deserialization (clamping happens later).
+    // quality 0 deserializes; doc_save refuses it.
     let p: SaveParams = serde_json::from_str(r#"{"quality":0}"#).unwrap();
     assert_eq!(p.quality, Some(0));
 }

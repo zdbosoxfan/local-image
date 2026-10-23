@@ -97,6 +97,11 @@ pub const UI_SET_FIELDS: [&str; 19] = [
 fn ok(v: Value) -> Outcome {
     Outcome::Done(json!({"ok": true, "result": v}))
 }
+/// A finite number that stays finite as `f32`.
+fn f32_range(n: f64) -> bool {
+    n.is_finite() && n.abs() <= f64::from(f32::MAX)
+}
+
 fn err(e: impl std::fmt::Display) -> Outcome {
     Outcome::Done(json!({"ok": false, "error": e.to_string()}))
 }
@@ -240,6 +245,23 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
             if let Some(field) = p.as_object().and_then(|o| o.keys().find(|k| !UI_SET_FIELDS.contains(&k.as_str()))) {
                 return err(format!("unknown field `{field}` (fields: {})", UI_SET_FIELDS.join(", ")));
             }
+            // The view stores these as `f32`: a finite f64 like 1e39 would become inf there and
+            // silently reset the zoom or center. Checked before anything changes.
+            let f32_field = |key: &str| match p.get(key) {
+                None | Some(Value::Null) => Ok(None),
+                Some(v) => v.as_f64().filter(|n| f32_range(*n)).map(|n| Some(n as f32)).ok_or(format!("{key} must be a finite number within f32 range")),
+            };
+            let (dock_width, zoom) = match (f32_field("dockWidth"), f32_field("zoom")) {
+                (Ok(w), Ok(z)) => (w, z),
+                (Err(e), _) | (_, Err(e)) => return err(e),
+            };
+            let center = match p.get("center") {
+                None | Some(Value::Null) => None,
+                Some(v) => match v.as_array().map(|a| a.iter().map(Value::as_f64).collect::<Vec<_>>()).as_deref() {
+                    Some(&[Some(x), Some(y)]) if f32_range(x) && f32_range(y) => Some([x as f32, y as f32]),
+                    _ => return err("center must be [x, y] of two finite numbers within f32 range"),
+                },
+            };
             let gradient_blend = if let Some(value) = p.get("gradientBlendMode") {
                 let Some(name) = value.as_str() else { return err("gradientBlendMode must be a blend mode name") };
                 let Some(mode) = photocraft_engine::commands::blend_from_str(name).filter(|m| photocraft_color::BlendMode::LAYER_MODES.contains(m)) else {
@@ -321,18 +343,16 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, req: &ControlRequest) 
                 }
             }
             // Right dock width in points (clamped to the dock's 250..=520 range), applied next frame.
-            if let Some(w) = p.get("dockWidth").and_then(Value::as_f64) {
-                crate::panels::request_dock_width(ctx, w as f32);
+            if let Some(w) = dock_width {
+                crate::panels::request_dock_width(ctx, w);
             }
             if let Some(i) = app.session.active_index() {
-                if let Some(z) = p.get("zoom").and_then(Value::as_f64) {
-                    app.ui.views[i].zoom = (z as f32).clamp(0.01, 64.0);
+                if let Some(z) = zoom {
+                    app.ui.views[i].zoom = z.clamp(0.01, 64.0);
                     app.ui.views[i].fit_pending = false;
                 }
-                if let Some(c) = p.get("center").and_then(Value::as_array)
-                    && c.len() == 2
-                {
-                    app.ui.views[i].center = [c[0].as_f64().unwrap_or(0.0) as f32, c[1].as_f64().unwrap_or(0.0) as f32];
+                if let Some(c) = center {
+                    app.ui.views[i].center = c;
                     app.ui.views[i].fit_pending = false;
                 }
                 if p.get("fit").and_then(Value::as_bool) == Some(true) {
@@ -806,6 +826,34 @@ mod tests {
             assert!(!r.to_string().contains("unknown field"), "{field}: {r}");
         }
         assert_eq!(call(&mut app, &ctx, "ui.set", Value::Null)["ok"], true);
+    }
+
+    #[test]
+    fn ui_set_rejects_view_numbers_beyond_f32_range() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let ctx = egui::Context::default();
+        app.run("file.new", json!({"width": 32, "height": 32})).unwrap();
+        app.sync_views();
+        let r = call(&mut app, &ctx, "ui.set", json!({"zoom": 2, "center": [3, 4]}));
+        assert_eq!(r["ok"], true, "{r}");
+        let (zoom, center) = (app.ui.views[0].zoom, app.ui.views[0].center);
+        // Finite in f64 but infinite as f32: an error, not a silent reset to 100% or the minimum dock width.
+        for params in [
+            json!({"zoom": 1e39}),
+            json!({"center": [1e39, 0]}),
+            json!({"center": [0, -1e39]}),
+            json!({"center": [1, 2, 3]}),
+            json!({"dockWidth": 1e39}),
+            json!({"zoom": 3, "dockWidth": "wide"}),
+        ] {
+            let r = call(&mut app, &ctx, "ui.set", params.clone());
+            assert_eq!(r["ok"], false, "{params}: {r}");
+            assert_eq!(app.ui.views[0].zoom, zoom, "{params}");
+            assert_eq!(app.ui.views[0].center, center, "{params}");
+        }
+        // Huge but representable still clamps to the top zoom level.
+        assert_eq!(call(&mut app, &ctx, "ui.set", json!({"zoom": 1e38}))["ok"], true);
+        assert_eq!(app.ui.views[0].zoom, 64.0);
     }
 
     #[test]

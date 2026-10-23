@@ -238,7 +238,7 @@ fn batch_preview(batch: &BatchMergeJob, progress: &lightcraft_engine::merge::Pro
 
 /// Open the merge dialog for the selection.
 pub fn open(app: &mut LightcraftApp, command: &str) -> Result<Value, String> {
-    let ids = app.session.targets(&json!({}));
+    let ids = app.session.selected();
     if command == "merge.pixelShift" {
         if !matches!(ids.len(), 1 | 4 | 16) {
             return Err("select one composed ARQ or all 4 or 16 original Pixel Shift shots".into());
@@ -276,7 +276,7 @@ pub fn start_final(app: &mut LightcraftApp, opts: &MergeDialog) -> Result<Value,
 /// Merge the selection without the dialog, with the options last used for `command` (the
 /// defaults the first time).
 pub fn start_last(app: &mut LightcraftApp, command: &str) -> Result<Value, String> {
-    let ids = app.session.targets(&json!({}));
+    let ids = app.session.selected();
     if ids.len() < 2 {
         return Err("select at least 2 photos to merge".into());
     }

@@ -15,6 +15,17 @@ fn gpu_budget_follows_memory_usage_and_ram() {
 }
 
 #[test]
+fn small_mip_levels_are_redrawn_whole() {
+    use resources::mip_damage;
+    // A 3 × 3 dab at (800, 500) of a 1791 × 1083 tile, at mip 1 (895 × 541): halved and padded.
+    assert_eq!(mip_damage([800, 500, 803, 503], 895, 541), [399, 249, 403, 253]);
+    // At most 128 px on either side: the whole level, wherever the damage is.
+    assert_eq!(mip_damage([100, 60, 102, 63], 111, 67), [0, 0, 111, 67]);
+    assert_eq!(mip_damage([0, 0, 1, 1], 128, 2), [0, 0, 128, 2]);
+    assert_eq!(mip_damage([0, 0, 1, 1], 129, 2), [0, 0, 2, 2]);
+}
+
+#[test]
 fn filter_modes() {
     let _gpu_gate = crate::gpu_test_support::lock();
     assert_eq!(filter_mode(0.25), (0.0, 2.0));

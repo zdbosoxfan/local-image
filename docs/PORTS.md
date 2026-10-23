@@ -962,3 +962,31 @@ Already covered or not applicable: `ad165a5a` (our CSS matcher already memoizes)
 (`pc-trace` already validates the buffer length), `0ad92e46` (our Affinity importer already shares
 one pixel allowance), `95d27fe3`, `9e90464f`, `a69ddea9`, `991ce2c6`, `e01a65d8` (our PDF
 preflight has its own bounded reader) and `830cefca` (we don't read XMP from PDFs).
+
+## PhotoCraft and LightCraft command and GPU fixes (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`436ca3569cb2`](https://github.com/storytold/photocraft/commit/436ca3569cb2305650de7fafc9e8e13d25ed1605) | fix(gpu): clamp device limits to adapter support (#5986) (#6050) | `crates/li-gpu/src/device.rs` | MIT OR Apache-2.0 |
+| [`80cd36846e51`](https://github.com/storytold/photocraft/commit/80cd36846e51e1cc44ebb04440490139141436af) | GPU canvas: redraw mip levels of 128 px or less whole; fixes AMD Vulkan corruption after partial updates (#6418) (#6438) | `crates/pc-ui-egui/src/gpu_canvas/resources.rs`<br>`crates/pc-ui-egui/src/gpu_canvas/tests.rs` | MIT OR Apache-2.0 |
+| [`c6ea59461f9e`](https://github.com/storytold/photocraft/commit/c6ea59461f9e7e89f422ae75b47bf1b2d64b96d9) | Automation: doc.save rejects a bad quality instead of ignoring or clamping it (#7023) | `crates/pc-automation/src/rpc.rs`<br>`crates/pc-automation/src/server.rs`<br>`crates/pc-automation/tests/it/mcp.rs`<br>`crates/pc-automation/tests/coverage/server_coverage.rs` | MIT OR Apache-2.0 |
+| [`502d055c6c8c`](https://github.com/storytold/photocraft/commit/502d055c6c8cb5d86850d02bee32a2ff1da1e400) | file.saveACopy refuses the document's own file without "overwrite" (#7437) (#7456) | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`8b61a8b18666`](https://github.com/storytold/photocraft/commit/8b61a8b18666a2018057b0a5ad6a52aeaf3ad12d) | Control: ui.set rejects zoom, rotation, center and dockWidth beyond f32 range (#6988) | `crates/pc-ui-egui/src/control.rs` | MIT OR Apache-2.0 |
+| [`ea826b11cc5b`](https://github.com/storytold/lightcraft/commit/ea826b11cc5bec456c2b71e6bc6ea59a4f91af45) | engine: refuse negative indices instead of targeting element 0 | `crates/lc-engine/src/cmd/color.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`de44200a8ddd`](https://github.com/storytold/lightcraft/commit/de44200a8dddfa2677f71a48ef978d1c8a616266) | Issue #2097: reject fractional command indices | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`1162c2a01832`](https://github.com/storytold/lightcraft/commit/1162c2a01832cd424704f17aa9405fd48ffed445) | crop.set refuses a crop smaller than the crop tool allows, instead of exporting 1×1 (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-geom/src/crop.rs`<br>`crates/lc-geom/src/lib.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`9ef40b98866c`](https://github.com/storytold/lightcraft/commit/9ef40b98866ca7270fa4621c83028357c7ed79b8) | Commands: Refuse malformed photo ids instead of using the selection (#1506) | `crates/lc-engine/src/cmd/browse.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/cmd/cull.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/keywords.rs`<br>`crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/cmd/manage.rs`<br>`crates/lc-engine/src/cmd/merge.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/cmd/organize.rs`<br>`crates/lc-engine/src/cmd/previews.rs`<br>`crates/lc-engine/src/cmd/xmp.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/lc-ui-egui/src/merge.rs`<br>`crates/lc-ui-egui/src/panels/dialogs.rs`<br>`crates/lc-ui-egui/src/panels/grid.rs`<br>`crates/lc-ui-egui/src/tasks.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `436ca356` applies the clamp in `li_gpu::device_limits`, where both editors take
+their limits; only the GL base can exceed a weak adapter there. `80cd3684` ports the redraw rule and
+its unit test; its GPU sweep test needs the upstream mip readback harness. `502d055c` uses
+`li_fs::same_file`; its Windows file-identity change does not apply. `8b61a8b1` checks `zoom`,
+`center` and `dockWidth` (our `ui.set` has no `rotation`) before anything changes. `de44200a` also
+moves our `history.restore` onto the checked index. `1162c2a0` adds `MIN_CROP_FRACTION` to
+`lc-geom`, shared by `crop.set` and the crop tool's drag.
+
+Not applicable or deferred: `e14db894` (our export options fall back to the format's own depth by
+design and have no strict parameter validator), VectorCraft `025ce255` and `32dbc4b6` (our PDF
+exporter writes no CMYK images or output intents). The DesignCraft breaker changes since
+`66c7ce7e` build on CJK composition structures `pc-text` doesn't have (mojikumi, kinsoku priority,
+locked advances), so the re-sync is left for a feature port.

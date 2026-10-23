@@ -148,7 +148,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let Some(k) = current_keywords(s).get(i as usize - 1).cloned() else {
                     return Ok(json!({"changed": 0}));
                 };
-                let ids = s.targets(p);
+                let ids = s.targets(p)?;
                 let all = !ids.is_empty()
                     && ids.iter().all(|id| s.catalog.photo(*id).is_some_and(|ph| ph.meta.keywords.iter().any(|x| x.eq_ignore_ascii_case(&k))));
                 let ids: Vec<u64> = ids.iter().map(|i| i.0).collect();
@@ -176,7 +176,7 @@ pub fn specs() -> Vec<CommandSpec> {
             always,
             |s, p| {
                 let mut current: Vec<String> = Vec::new();
-                for id in s.targets(p) {
+                for id in s.targets(p)? {
                     if let Some(ph) = s.catalog.photo(id) {
                         current.extend(ph.meta.keywords.iter().cloned());
                     }

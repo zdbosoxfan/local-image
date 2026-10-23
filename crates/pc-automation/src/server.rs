@@ -806,6 +806,9 @@ impl PhotocraftMcp {
     }
 
     async fn save_impl(&self, p: SaveParams) -> Result<CallToolResult, McpError> {
+        if let Some(q) = p.quality.filter(|q| !(1..=100).contains(q)) {
+            return Ok(fail(format!("`quality` must be a whole number from 1 to 100, got {q}")));
+        }
         if let Some(b) = self.bridge_client() {
             let Some(path) = p.path else {
                 return Ok(fail("bridge mode needs `path`"));
@@ -816,8 +819,8 @@ impl PhotocraftMcp {
             .headless_op(move |h| {
                 let mut opts = photocraft_io::ExportOptions { tiff_layers: p.tiff_layers, ..Default::default() };
                 if let Some(q) = p.quality {
-                    opts.encode.jpeg_quality = q.clamp(1, 100);
-                    opts.encode.webp_quality = q.clamp(1, 100);
+                    opts.encode.jpeg_quality = q;
+                    opts.encode.webp_quality = q;
                     opts.encode.webp_lossless = false;
                 }
                 let path = p.path.map(PathBuf::from);

@@ -9,7 +9,7 @@ mod crop;
 mod homography;
 mod real;
 
-pub use crop::{CropGeometry, crop_fit_angle, max_inscribed_scale};
+pub use crop::{CropGeometry, MIN_CROP_FRACTION, crop_fit_angle, max_inscribed_scale};
 pub use homography::Homography;
 pub use real::{Interval, Real};
 

@@ -113,12 +113,17 @@ pub fn install_window(instance: &wgpu::Instance, adapter: &wgpu::Adapter, device
 /// Request the union of the renderer/compute limits on hardware. GL retains egui's downlevel
 /// base (compute may be unavailable there), with large texture/buffer support as before.
 pub fn device_limits(adapter: &wgpu::Adapter) -> wgpu::Limits {
-    let available = adapter.limits();
-    if adapter.get_info().backend == wgpu::Backend::Gl {
+    limits_for(adapter.get_info().backend, adapter.limits())
+}
+
+/// The GL base is clamped to what the adapter supports: some GL drivers fall below WebGL2's
+/// defaults, and asking for more fails device creation.
+fn limits_for(backend: wgpu::Backend, available: wgpu::Limits) -> wgpu::Limits {
+    if backend == wgpu::Backend::Gl {
         wgpu::Limits {
             max_texture_dimension_2d: available.max_texture_dimension_2d,
             max_buffer_size: available.max_buffer_size,
-            ..wgpu::Limits::downlevel_webgl2_defaults()
+            ..wgpu::Limits::downlevel_webgl2_defaults().or_worse_values_from(&available)
         }
     } else {
         available
@@ -208,4 +213,40 @@ fn cpu_window_policy_does_not_create_private_compute_device() {
     assert!(current().is_none(), "a CPU window launch must not initialize another device");
     release_window();
     assert!(compute_allowed());
+}
+
+#[cfg(test)]
+mod limits_tests {
+    use super::limits_for;
+
+    #[test]
+    fn gl_limits_never_exceed_a_weak_adapter() {
+        let supported = wgpu::Limits {
+            max_texture_dimension_2d: 1024,
+            max_texture_dimension_3d: 128,
+            max_bind_groups: 2,
+            max_buffer_size: 128 << 20,
+            ..wgpu::Limits::downlevel_webgl2_defaults()
+        };
+        let requested = limits_for(wgpu::Backend::Gl, supported.clone());
+        assert!(requested.check_limits(&supported));
+        assert_eq!(requested, supported);
+    }
+
+    #[test]
+    fn gl_limits_keep_the_webgl2_base_on_a_capable_adapter() {
+        let supported = wgpu::Limits { max_texture_dimension_2d: 16_384, max_buffer_size: 1 << 30, ..wgpu::Limits::default() };
+        let requested = limits_for(wgpu::Backend::Gl, supported.clone());
+        assert!(requested.check_limits(&supported));
+        assert_eq!(requested, wgpu::Limits { max_texture_dimension_2d: 16_384, max_buffer_size: 1 << 30, ..wgpu::Limits::downlevel_webgl2_defaults() });
+    }
+
+    #[test]
+    fn gl_limits_take_an_adapters_larger_offset_alignments() {
+        let supported = wgpu::Limits { min_uniform_buffer_offset_alignment: 512, min_storage_buffer_offset_alignment: 1024, ..wgpu::Limits::default() };
+        let requested = limits_for(wgpu::Backend::Gl, supported.clone());
+        assert!(requested.check_limits(&supported));
+        assert_eq!(requested.min_uniform_buffer_offset_alignment, 512);
+        assert_eq!(requested.min_storage_buffer_offset_alignment, 1024);
+    }
 }
