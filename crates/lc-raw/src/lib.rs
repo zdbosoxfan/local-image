@@ -645,6 +645,10 @@ impl RawImage {
         if self.width == 0 || self.height == 0 || !(1..=4).contains(&self.cpp) {
             return Err(RawError::Corrupt("bad dimensions".into()));
         }
+        // two samples a pixel are neither one colour nor RGB: nothing downstream can develop them
+        if self.cpp == 2 {
+            return Err(RawError::Unsupported("2 samples per pixel".into()));
+        }
         if samples && self.data.len() != self.width * self.height * self.cpp {
             return Err(RawError::Corrupt("data length mismatch".into()));
         }
@@ -654,7 +658,10 @@ impl RawImage {
             return Err(RawError::Unsupported(format!("CFA pattern {}", c.name())));
         }
         let a = self.active_area;
-        if a.width == 0 || a.height == 0 || a.x + a.width > self.width || a.y + a.height > self.height {
+        // checked: a crop origin from a maker note can be `u64::MAX`, and `x + width` would wrap
+        // back inside the image here and again in `normalized`'s index arithmetic.
+        let fits = |x: usize, len: usize, limit: usize| x.checked_add(len).is_some_and(|end| end <= limit);
+        if a.width == 0 || a.height == 0 || !fits(a.x, a.width, self.width) || !fits(a.y, a.height, self.height) {
             return Err(RawError::Corrupt("active area outside image".into()));
         }
         Ok(())
@@ -740,7 +747,10 @@ impl RawImage {
                 for s in 0..cpp {
                     let v = src(base + x * cpp + s);
                     let b = self.black.at(x, y, s, cpp);
-                    row[x * cpp + s] = (v - b) * self.normalization_scale(x, y, s).unwrap_or(scale[s]);
+                    // a NaN or infinite sample (a float DNG's, or a black level a file got wrong)
+                    // reads as black, so the demosaic and every stage after it see numbers
+                    let n = (v - b) * self.normalization_scale(x, y, s).unwrap_or(scale[s]);
+                    row[x * cpp + s] = if n.is_finite() { n } else { 0.0 };
                 }
             }
         });
@@ -823,6 +833,38 @@ mod tests {
         assert_eq!(probe(b"FUJIFILMCCD-RAW 0201"), Some(RawFormat::Raf));
         assert!(decode(b"FUJIFILMCCD-RAW 0201").is_err());
         assert_eq!(decode(b"junk"), Err(RawError::NotRaw));
+    }
+
+    /// A maker-note crop (PEF AOC, ORF ImageProcessing) with an origin of `usize::MAX` used to
+    /// pass the bounds check (`x + width` wraps to 0) and then index out of bounds in
+    /// `normalized`. It is a `Corrupt` error at validate time instead.
+    #[test]
+    fn an_active_area_that_wraps_past_the_image_is_corrupt() {
+        let (w, h) = (12usize, 10usize);
+        let mut raw = RawImage {
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            data: RawData::U16(vec![100; w * h]),
+            cfa: Cfa::bayer("RGGB"),
+            bits: 12,
+            black: BlackLevel::uniform(64.0),
+            white: vec![1023.0],
+            active_area: Rect::new(usize::MAX, 0, 1, 1),
+            crop: Rect::default(),
+            orientation: Orientation::Normal,
+            color: ColorData::default(),
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: OpcodeLists::default(),
+            vendor_lens: None,
+            metadata: Metadata::default(),
+        };
+        assert!(raw.validate().is_err(), "`x + width` wrapped: the area is outside the image");
+        assert!(raw.normalized().is_err());
+        raw.active_area = Rect::new(0, 0, w + 1, h);
+        assert!(raw.validate().is_err(), "one past the last column is outside too");
     }
 }
 

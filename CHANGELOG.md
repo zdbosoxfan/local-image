@@ -14,6 +14,10 @@ All notable changes to Local Image are recorded here. The format follows
 - Compositing: a PSD PackBits row whose declared length overflows is refused instead of decoding
   nothing.
 - Colour fields refuse values such as `#+f+f+f` instead of reading them as hex.
+- RAW import: damaged PEF, NEF, ORF, CR2, DNG and TIFF files are refused instead of crashing,
+  allocating gigabytes or decoding padding as pixels. This covers short compressed streams, predictor
+  overflow, wrapping maker-note crops, NaN or infinite float samples and black levels, two samples per
+  pixel, missing strips and runaway TIFF entry counts.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

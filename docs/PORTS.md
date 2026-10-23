@@ -871,3 +871,18 @@ Ported by OpenAI Codex (gpt-6-astra) and reviewed, corrected and verified by Cla
 | [`14d321c107c6`](https://github.com/storytold/lightcraft/commit/14d321c107c690f1de7f2d97f880a9cd771adff2) | catalog: slice captured dates on char boundaries so non-ASCII dates don't panic | `crates/lc-catalog/src/query.rs`<br>`crates/lc-catalog/src/tests.rs` | MIT OR Apache-2.0 |
 | [`6e97193b00cb`](https://github.com/storytold/lightcraft/commit/6e97193b00cbe6af249336e6f4f93f8ff44d102a) | Reject impossible hour/minute/second in normalize_iso | `crates/lc-catalog/src/stacks.rs`<br>`crates/lc-catalog/src/dates.rs` | MIT OR Apache-2.0 |
 | [`80e439f6dc6d`](https://github.com/storytold/lightcraft/commit/80e439f6dc6d47c8eb9b646d93c0bc11f5ae5a12) | Reject signed hex digits in #rrggbb colour parsing | `crates/li-color/src/lib.rs` | MIT OR Apache-2.0 |
+
+## LightCraft RAW and TIFF hardening (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`6d080de44702`](https://github.com/storytold/lightcraft/commit/6d080de4470221e2289203c86d51023a9d0c7790) | Never crash: Check raw data size before allocating in PEF, TIFF tiles and ARW6 (#1512) | `crates/lc-raw/src/tiffraw.rs`<br>`crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+| [`b62b51378e38`](https://github.com/storytold/lightcraft/commit/b62b51378e380b65d31e2a57ae283f2e1ecc342c) | Never crash: Fix i32 overflow in the NEF and PEF Huffman predictors (#1515) | `crates/lc-raw/src/vendor/nefc.rs`<br>`crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+| [`3bb13afdead2`](https://github.com/storytold/lightcraft/commit/3bb13afdead2ceb4f97850726e1532e1f03353fb) | raw: check maker-note crop bounds with checked_add | `crates/lc-raw/src/lib.rs`<br>`crates/lc-raw/src/vendor/orf.rs`<br>`crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+| [`555eb4c9fd28`](https://github.com/storytold/lightcraft/commit/555eb4c9fd28b433b10a8fb162b532a66109079d) | tiff: bound total entries across a parse (#2136) | `crates/lc-tiff/src/reader.rs` | MIT OR Apache-2.0 |
+| [`cef6f2d4b8da`](https://github.com/storytold/lightcraft/commit/cef6f2d4b8da3c1c81c2351eea90f28f44940d32) | Never crash: Fix demosaic panic on a NaN black level | `crates/lc-raw/src/dng.rs`<br>`crates/lc-raw/src/lib.rs` | MIT OR Apache-2.0 |
+| [`89fa4e4b59d4`](https://github.com/storytold/lightcraft/commit/89fa4e4b59d43bf45410b31e4b93df7cd29aeb04) | LR-IMP-FORMATS: a float raw with NaN or infinite samples no longer panics the demosaic | `crates/lc-raw/src/demosaic/ahd.rs`<br>`crates/lc-raw/src/demosaic/mod.rs`<br>`crates/lc-raw/src/demosaic/ppg.rs`<br>`crates/lc-raw/src/dng.rs` | MIT OR Apache-2.0 |
+| [`3624a50423ae`](https://github.com/storytold/lightcraft/commit/3624a50423aefedcc09adc207d92e874c3f153ab) | Never crash: Refuse raw data with two samples per pixel (#1511) | `crates/lc-raw/src/demosaic/mod.rs`<br>`crates/lc-raw/src/dng.rs`<br>`crates/lc-raw/src/lib.rs` | MIT OR Apache-2.0 |
+| [`8d96dab1afe5`](https://github.com/storytold/lightcraft/commit/8d96dab1afe5a6d8603b4daa190823d72a143074) | LR-IMP-FORMATS: checked sum of the sRAW slice widths (an overflowing or zero sum is an error, not a panic) | `crates/lc-raw/src/vendor/cr2.rs` | MIT OR Apache-2.0 |
+| [`3946688f49eb`](https://github.com/storytold/lightcraft/commit/3946688f49eb81ebf23888d998943231017948bf) | Reject RAW TIFFs with missing or undecodable image chunks (#1513) | `crates/lc-raw/src/tiffraw.rs` | MIT OR Apache-2.0 |
+| [`df914dca41a0`](https://github.com/storytold/lightcraft/commit/df914dca41a0b18dfe21b248fa90c81e7891908a) | Reject PEF streams that end before the pixels do instead of decoding zero padding (#1514) | `crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |

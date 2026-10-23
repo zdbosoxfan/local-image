@@ -150,7 +150,8 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         }
         None => vec![fw * nc],
     };
-    let width: usize = widths.iter().sum();
+    // checked: slice widths come from the file, and a sum that wraps would divide the frame by garbage
+    let width = widths.iter().try_fold(0usize, |a, &w| a.checked_add(w)).ok_or(RawError::Limit("CR2 slice widths"))?;
     if width == 0 || total % width != 0 {
         return Err(RawError::Corrupt(format!("CR2 slices ({width}) do not divide the frame ({total} samples)")));
     }
