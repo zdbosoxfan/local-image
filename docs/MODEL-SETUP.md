@@ -94,6 +94,39 @@ A verification stays valid after a ComfyUI or template update when the recompile
 unchanged ("Still valid on ComfyUI …"); otherwise the model is marked for a quick re-check, and it
 keeps working with its last good recipe while the stored graph still validates.
 
+## Set Up Models
+
+**Window › Set Up Models…** (also the banner above Generate's model picker, the **Set up…** button
+next to a model that needs it, Preferences › AI › Models, and **Set up and test** after a template
+install in the Model Browser) shows the same results as the doctor, for the connected server:
+
+- **The list** groups the models: *New* (not tested yet), *Needs attention* (blocked, no template,
+  failed, broken after an update, or due a re-check), *Verified* and *Built-in*; text encoders and
+  VAEs and ignored files fold away below. Each row has a status icon whose shape and colour both
+  say the status, and a screen-reader label such as "FLUX.3 Klein · distilled · BF16, ready, not
+  tested". Up and Down move between rows, Enter opens Check, the context menu has Ignore and Show
+  again.
+- **Identify** says what the file is (kind, architecture and variant, how Local Image knows, the
+  precision and size), how it runs and through which templates; **Change template…** picks
+  another official template (a passing test is what makes it verified).
+- **Check** lists the problems first, each with its fixes, then what passed. Fixes run one at a
+  time and every one re-checks afterwards: **Download** (planned like a Model Browser install, its
+  size and SHA-256 from the publisher, and confirmed before anything downloads), **Use … instead**,
+  **Move to …/** (inside the model folder only, never over a file, with Undo for 30 seconds),
+  **Choose template…**, **Copy commands** (shown, never run), **Add token…**, **Try anyway** and
+  **Ignore**. **Check online…** opens ComfyUI's releases in the browser.
+- **Verify** runs the tests above for that model, shows each tool's result, time and the GPU
+  memory in use, and can be cancelled. **Verify all ready** tests every untested model one at a
+  time.
+- **Use** lists what the model can do and opens Generate on it.
+
+When the number of new models rises during a session, one notice says so. Generate's picker shows
+a chip on template models ("Not tested", "Re-check", "Works"); a model that can't run yet (no
+recipe, or its test failed) is listed under *Other installed models* with the reason and
+**Set up…**. A model whose template has a local prompt enhancer gets an **Enhance prompt** switch in
+Generate, off by default and remembered per model; it can be turned on once the enhancer's file is
+installed (Set Up Models offers its download).
+
 ## `local-image-cli ai doctor`
 
 ```

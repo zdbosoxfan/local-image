@@ -16,6 +16,15 @@ All notable changes to Local Image are recorded here. The format follows
   each problem with a fix; verification tests a model with small renders on request.
 - `local-image-cli ai doctor` lists every model on the connected ComfyUI, how it runs and what
   blocks it; `--verify` tests models one at a time; `--json` prints the report.
+- AI: Window › Set Up Models… shows every installed model, what it is, what it needs and why,
+  with one-click fixes (verified download of a missing file, use another installed file, move a
+  misplaced file, choose a template, ignore) and test renders with progress and Cancel. Generate's
+  picker marks template models "Not tested", "Re-check" or "Works", lists models that can't run
+  yet with the reason and a Set up… button, and a banner announces new models.
+- AI: an opt-in Enhance prompt switch for models whose official template has a local prompt
+  enhancer (off by default, remembered per model).
+- AI: Import Workflow… accepts a ComfyUI workflow without `li:` node titles; its prompt, negative,
+  seed and size are found by their roles (basic controls).
 
 ### Changed
 
@@ -23,6 +32,9 @@ All notable changes to Local Image are recorded here. The format follows
   model generation no profile describes is no longer filed under an older family.
 - AI: ComfyUI errors name the failing node's files and say what to do (update ComfyUI, the text
   encoder or VAE that doesn't fit, a file ComfyUI hasn't listed yet).
+- AI: the Model Browser checks a template against the connected ComfyUI before downloading its
+  files, badges templates that need a newer ComfyUI, and sets up an installed template's model to
+  run through that template (full controls) instead of adding a basic-controls custom workflow.
 
 ### Fixed
 

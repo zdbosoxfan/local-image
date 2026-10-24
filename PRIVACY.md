@@ -65,10 +65,18 @@ This project does not control their network behaviour.
 and GPU (`/system_stats`), its node list (`/object_info`), and its own official workflow templates
 (`/templates/index.json` and `/templates/<name>.json`), when the model list changes, when you open
 Set Up Models, or when you run `local-image-cli ai doctor`. These requests stay between this
-computer and that server; no third party is contacted. Verification runs only when you ask for it:
+computer and that server; no third party is contacted. The app's status check also reads the stored
+setup results (`state/ai-models.json`) to show new models; that is a local file. Verification runs
+only when you ask for it:
 it sends a fixed test prompt and a synthetic test picture (never one of your photos) to the
 server, reads `/system_stats` every half second during each render to record GPU memory in use, and
 asks the server to free its memory (`/free`) after each model.
+
+In Set Up Models, **Download** on a file a model needs is a model download (below): its size and
+SHA-256 come from the file list of its Hugging Face repository (`api/models/<repo>/tree`), or from a
+pinned public copy, and nothing downloads until you confirm. **Move** renames a file between
+ComfyUI's model folders on this computer only. **Check online** opens ComfyUI's release page in your
+browser; the app itself sends nothing.
 
 **Find on LAN** is a button you press. It reads the active private IPv4 networks of this computer
 (at most two networks, each limited to 256 addresses) and requests `/system_stats` from the
@@ -78,7 +86,7 @@ reads. It does not queue work or upload anything.
 ### Model downloads (when you ask for a download)
 
 Downloads start from a control you use, such as a Download button in Smart Sort or the People
-panel, or an install action in the model browser.
+panel, an install action in the model browser, or a Download fix in Set Up Models.
 
 Hosts that may be contacted, each limited to HTTPS and an allow-list of hosts:
 
@@ -109,7 +117,9 @@ Opening the model browser, or changing its search or filters, requests catalogue
 - the ComfyUI-Manager model list and the official workflow templates, from
   `raw.githubusercontent.com`.
 
-The responses are cached in a folder under the app's data directory.
+The responses are cached in a folder under the app's data directory. Installing a template card
+first reads the connected ComfyUI's `/system_stats` and `/object_info` to check that it can run the
+template.
 
 ### Model profile updates (when you press Update Model Profiles)
 
