@@ -357,7 +357,7 @@ pub(crate) fn prepare(
     );
     let base = base.unwrap_or_else(|| log_l.clone());
     let ev = s.light.exposure as f32;
-    let selection = selection.filter(|_| !s.masks.is_empty()).map(|src| {
+    let selection = selection.map(|src| {
         let log = Arc::new(src.map(log_lum));
         (src, log)
     });

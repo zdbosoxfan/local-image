@@ -626,3 +626,42 @@ fn colour_range_masks_keep_their_selection_after_global_colour_changes() {
     assert!(masked.get(32, 10)[1] >= base.get(32, 10)[1] + 20, "the picked sky lost its selection: {:?} {:?}", masked.get(32, 10), base.get(32, 10));
     assert!(masked.get(32, 40)[1].abs_diff(base.get(32, 40)[1]) <= 1, "the wall was selected");
 }
+
+#[test]
+fn hidden_masks_overlay_the_selection_they_make_when_shown() {
+    // A blue sky over a grey wall; Shadows runs the primary stage and Contrast, Whites and Blacks
+    // shape the tone colour selection compares under.
+    let src = RgbFrame::from_fn(64, 48, |x, y| if y < 24 { [0.05, 0.09, 0.3].map(|v| v * (0.3 + x as f32 / 32.)) } else { [0.12; 3] });
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(64, 48);
+    let mut s = DevelopSettings::default();
+    s.light.shadows = 60.;
+    s.light.contrast = 40.;
+    s.light.whites = 60.;
+    s.light.blacks = -40.;
+    let sample = color_range_sample(&src, &info, &s, &req, Point::new(0.5, 0.2)).unwrap();
+    s.masks.push(mask_of(
+        MaskShape::ColorRange { samples: vec![sample], refine: 30. },
+        lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
+    ));
+    let overlay = Overlay::Mask { id: 1, view: crate::visualize::MaskView::WhiteOnBlack, color: [255; 3], opacity: 100 };
+    let req = RenderRequest { overlay, ..req };
+    for stacked in [false, true] {
+        if stacked {
+            let light = lightcraft_develop::Light { exposure: 2., ..Default::default() };
+            s.masks.push(Mask {
+                id: 2,
+                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape: MaskShape::Full }],
+                tools: lightcraft_develop::LayerTools { light: Some(light), ..Default::default() },
+                ..Default::default()
+            });
+        }
+        s.masks[0].visible = true;
+        let shown = render(&src, &info, &s, &req).image;
+        assert!(shown.data.iter().any(|p| p[1] > 200) && shown.data.iter().any(|p| p[1] < 50), "the sample must select part of the sky");
+        s.masks[0].visible = false;
+        let hidden = render(&src, &info, &s, &req).image;
+        let worst = shown.data.iter().zip(&hidden.data).map(|(a, b)| a[1].abs_diff(b[1])).max().unwrap();
+        assert!(worst <= 1, "stacked {stacked}: the hidden mask's overlay differs from the shown one by {worst}");
+    }
+}

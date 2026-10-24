@@ -886,7 +886,8 @@ pub fn render(
         _ => Planes { key: planes_key, ..Default::default() },
     };
     let mut prep = prepare(&mut cx, &prepared_lin, &plan, req, &mut planes, info.sensor_scale);
-    if primary.is_some() && !s.masks.is_empty() {
+    // Masks, hidden ones included, select on the primary stage's input.
+    if primary.is_some() && !stack_settings.as_ref().unwrap_or(s).masks.is_empty() {
         let l = gpu.buffer(n);
         map(&mut cx, "log_lum_k", n, &[], [Some(&lin), None, None], &l);
         prep.selection = Some((lin.clone(), Arc::new(l)));
@@ -1101,7 +1102,8 @@ pub fn render(
             let (source, log) = prep.selection.as_ref().map_or((&prepared_lin, &prep.log_l), |(img, log)| (img, log));
             let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(source, w, h))).clone();
             let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(log, w, h))).clone();
-            lightcraft_pipeline::masks::evaluate_one(m, &plan.frame, w, h, &img, &l, s.light.exposure as f32)
+            let tone = lightcraft_pipeline::masks::selection_tone(s, info);
+            lightcraft_pipeline::masks::evaluate_one_tone(m, &plan.frame, w, h, &img, &l, s.light.exposure as f32, Some(&tone))
         }
     });
     lightcraft_pipeline::visualize::apply(&mut image, req.overlay, &plan, overlay_mask.as_ref());
@@ -2646,14 +2648,23 @@ fn render_stack(
     if overlay.is_none()
         && let Some(m) = req.overlay.mask(original).filter(|m| lightcraft_pipeline::masks::scalar_alpha(m).is_none())
     {
-        let mut settings = DevelopSettings::default();
         let mut mask = m.clone();
         mask.visible = true;
-        mask.tools = Default::default();
-        settings.masks.push(mask);
-        let mp = Plan { settings: std::borrow::Cow::Owned(settings), ..plan.clone() };
-        let p = prepare(cx, input, &mp, req, &mut Planes::default(), info.sensor_scale);
-        let (alpha, _) = masks_impl(cx, input, &p, &mp, &mut Host::default(), &SourceInfo::default(), true);
+        let (alpha, _) = if m.tools.is_empty() {
+            // A hidden Background mask: the Background's selection, as once shown.
+            let mut settings = plan.settings.clone().into_owned();
+            settings.masks = vec![mask];
+            let mp = Plan { settings: std::borrow::Cow::Owned(settings), ..plan.clone() };
+            masks(cx, prepared_lin, prep, &mp, &mut Host::default(), info)
+        } else {
+            // A hidden layer selects on the finished layers below it, approximated by the stack.
+            let mut settings = DevelopSettings::default();
+            mask.tools = Default::default();
+            settings.masks.push(mask);
+            let mp = Plan { settings: std::borrow::Cow::Owned(settings), ..plan.clone() };
+            let p = prepare(cx, input, &mp, req, &mut Planes::default(), info.sensor_scale);
+            masks_impl(cx, input, &p, &mp, &mut Host::default(), &SourceInfo::default(), true)
+        };
         overlay = alpha.map(Arc::new);
     }
     let op = Plan {

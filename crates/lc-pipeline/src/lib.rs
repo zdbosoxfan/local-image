@@ -311,7 +311,8 @@ pub(crate) struct Prepared {
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
     pub tone_eq: Option<Arc<GrayFrame>>,
     /// The image and log luminance range and brush masks select on when they are not `img`:
-    /// the primary stage's input, on which that stage evaluated the same masks.
+    /// the primary stage's input, on which that stage evaluated the same masks, or under a layer
+    /// stack the Background's image.
     pub selection: Option<(Arc<RgbFrame>, Arc<GrayFrame>)>,
     /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
     pub sharp: Option<(Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
@@ -796,7 +797,8 @@ fn render_impl(
         Some(p) if p.key == planes_key => p,
         _ => local::Planes { key: planes_key, ..Default::default() },
     };
-    let selection = primary.is_some().then(|| lin.clone());
+    // Masks, hidden ones included, select on the primary stage's input.
+    let selection = (primary.is_some() && !stack_settings.as_ref().unwrap_or(s).masks.is_empty()).then(|| lin.clone());
     let prep = local::prepare(prepared_lin, selection, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
     lap("prepare", &mut t);
     let result = if let Some(original) = &stack_settings {
@@ -806,6 +808,7 @@ fn render_impl(
             *c.stack_renders.lock().unwrap_or_else(|e| e.into_inner()) = (background, layers);
         }
         let mut p = prep.clone();
+        p.selection.get_or_insert_with(|| (prep.img.clone(), prep.log_l.clone()));
         p.img = image;
         p.masks = masks;
         p.masks.extend(prep.masks.clone());
@@ -838,12 +841,14 @@ fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Rende
             None
         } else if let Some(m) = req.overlay.mask(&plan.settings)
             && masks::scalar_alpha(m).is_none()
+            && !m.tools.is_empty()
             && !prep.masks.iter().any(|mask| mask.id == m.id)
         {
+            // A hidden layer selects on the finished layers below it, approximated by the stack.
             let log = prep.img.map(local::log_lum);
             Some(masks::evaluate_one_tone(m, &plan.frame, plan.w, plan.h, &prep.img, &log, 0.0, Some(&ToneMap::working_identity())))
         } else {
-            overlay_alpha(req.overlay, plan, prep)
+            overlay_alpha(req.overlay, plan, prep, info)
         };
         visualize::apply(&mut image, req.overlay, plan, diagnostic.or(mask.as_ref()));
     }
@@ -862,7 +867,7 @@ fn finish_prepared(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &Re
     let image = finish::finish(prep, s, frame, info, req.space, req.proof.clone());
     let histogram = Histogram::of_srgb8(&image);
     let mut image = image;
-    let mask = overlay_alpha(req.overlay, plan, prep);
+    let mask = overlay_alpha(req.overlay, plan, prep, info);
     visualize::apply(&mut image, req.overlay, plan, mask.as_ref());
     Rendered { image, histogram, deep: None }
 }
@@ -943,9 +948,10 @@ pub fn skin_reference_sample(
     Some([c[0] as f64, c[1] as f64, c[2].to_degrees().rem_euclid(360.) as f64])
 }
 
-/// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) a
-/// fresh evaluation. Full coverage is drawn scalarly and needs no diagnostic plane either.
-fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<GrayFrame> {
+/// The alpha plane a mask overlay shows: the one the render evaluated, or (for a hidden mask) the
+/// one it would select once shown. Full coverage is drawn scalarly and needs no diagnostic plane
+/// either.
+fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared, info: &SourceInfo) -> Option<GrayFrame> {
     if let Some(skin) = o.skin(&plan.settings).filter(|s| s.reference.is_some()) {
         return Some(visualize::skin_alpha(&prep.img, skin, (plan.settings.light.exposure as f32).exp2()));
     }
@@ -973,7 +979,7 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<GrayFra
     }
     let ev = plan.settings.light.exposure as f32;
     let (img, log) = prep.selection.as_ref().map_or((&prep.img, &prep.log_l), |(img, log)| (img, log));
-    Some(masks::evaluate_one(m, &plan.frame, plan.w, plan.h, img, log, ev))
+    Some(masks::evaluate_one_tone(m, &plan.frame, plan.w, plan.h, img, log, ev, Some(&masks::selection_tone(&plan.settings, info))))
 }
 
 /// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
@@ -1052,7 +1058,7 @@ fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
     let plan = plan(&src, &info, &s, &req);
     let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
     let prep = local::prepare(img, None, &s, &info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
-    assert!(overlay_alpha(req.overlay, &plan, &prep).is_none(), "Full diagnostics must not expand scalar coverage into a plane");
+    assert!(overlay_alpha(req.overlay, &plan, &prep, &info).is_none(), "Full diagnostics must not expand scalar coverage into a plane");
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
     s.masks[0].visible = false;
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
