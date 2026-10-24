@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "version": 2,
   "id": "qwen-image-21",
   "label": "Qwen Image 2.1",
@@ -198,5 +198,56 @@
         }
       ]
     }
-  ]
+  ],
+  "file_overrides": [
+    {
+      "patterns": [
+        "qwen_image_2.1*turbo",
+        "qwen-image-2.1*turbo",
+        "qwen_image_21*turbo"
+      ],
+      "variants": [
+        "turbo"
+      ],
+      "engine": "template"
+    }
+  ],
+  "detect": {
+    "refines": "qwen-image-21",
+    "variants": [
+      {
+        "id": "turbo",
+        "names": [
+          "*turbo*"
+        ]
+      }
+    ]
+  },
+  "template": {
+    "references_max": 10,
+    "inpaint": "instruction",
+    "variants": {
+      "turbo": {
+        "sampling": {
+          "steps": {
+            "default": 8,
+            "min": 8,
+            "max": 8
+          },
+          "cfg": {
+            "default": 1,
+            "min": 1,
+            "max": 1
+          },
+          "denoise": 0.35
+        },
+        "sizes": {
+          "native": 1024,
+          "multiple": 32,
+          "min": 256,
+          "max": 2048
+        }
+      }
+    }
+  }
 }

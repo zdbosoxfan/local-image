@@ -367,7 +367,7 @@ fn apply(id: &mut Identity, found: Option<crate::detect::Match>, reg: &Registry,
         id.evidence = if id.header_read { "no known layout".into() } else { "file name not recognised".into() };
         return;
     };
-    id.variant = m.variant.or_else(|| crate::detect::name_variant(reg, &m.id, name));
+    id.variant = m.variant.or_else(|| (id.kind != FileKind::Lora).then(|| crate::detect::name_variant(reg, &m.id, name)).flatten());
     id.family = reg.family(&m.id).filter(|f| f.buildable()).map(|f| f.id.clone());
     id.evidence = m.evidence;
     id.arch = Some(m.id);

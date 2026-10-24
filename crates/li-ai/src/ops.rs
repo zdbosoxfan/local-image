@@ -16,6 +16,28 @@ use crate::workflows::{self, LoraUse};
 #[path = "ops_review_tests.rs"]
 mod review_tests;
 
+/// What turns a request into a graph: a family's builder, or an official-template recipe.
+pub enum Engine<'a> {
+    Builder { family: &'a Family, files: &'a workflows::Files },
+    Template { recipe: &'a crate::template::TemplateRecipe, family: &'a Family },
+}
+
+impl Engine<'_> {
+    /// Sizes, inpaint method and prompt conventions.
+    pub fn family(&self) -> &Family {
+        match self {
+            Engine::Builder { family, .. } | Engine::Template { family, .. } => family,
+        }
+    }
+
+    pub fn build(&self, p: &Params, info: &ObjectInfo) -> Result<workflows::Built> {
+        match self {
+            Engine::Builder { family, files } => Ok(builders::build(family, files, p)),
+            Engine::Template { recipe, .. } => recipe.build(p, info),
+        }
+    }
+}
+
 /// A random 48-bit seed (what 0.7 used, so seeds stay interchangeable).
 pub fn new_seed() -> u64 {
     rand::random::<u64>() & ((1 << 48) - 1)
@@ -639,10 +661,15 @@ impl Ai {
         let m = req.model.info();
         let f = &m.resolved;
         let a = self.resolve(req.model, &req.variant, info)?;
+        // Resolved before the Qwen 2.1 branch: a template-engine Qwen file never takes it.
+        let engine = match &m.recipe {
+            Some(recipe) => Engine::Template { recipe, family: f },
+            None => Engine::Builder { family: f, files: &a.files },
+        };
         let loras = Self::validate_loras(info, &req.loras, f)?;
         let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
         let (source, refs) = req.source_and_refs();
-        if f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
+        if m.recipe.is_none() && f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
             return self.qwen21_generate(req, &a, &loras, info, ctl, false);
         }
         let sampler = req.sampler.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
@@ -661,13 +688,14 @@ impl Ai {
             sampler,
             variety: req.variety,
             init_denoise: req.denoise,
+            enhance: false,
         };
         match req.mode {
             GenerateMode::Create => {
                 let (w, h) = imaging::snap_size(req.width, req.height, f.sizes.multiple.max(8));
                 let refs = prepare_refs(f, refs, w, h)?;
                 let p = Params { width: w, height: h, references: refs.len(), ..base };
-                let out = self.run_built(builders::build(f, &a.files, &p), None, None, &refs, ctl)?;
+                let out = self.run_built(engine.build(&p, info)?, None, None, &refs, ctl)?;
                 Ok(imaging::over_white(&out))
             }
             GenerateMode::Edit if f.capabilities.edit => {
@@ -676,22 +704,22 @@ impl Ai {
                 let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
                 let refs = prepare_refs(f, refs, w, h)?;
                 let p = Params { task: Task::Edit, width: w, height: h, references: refs.len(), ..base };
-                let out = self.run_built(builders::build(f, &a.files, &p), Some(png), None, &refs, ctl)?;
+                let out = self.run_built(engine.build(&p, info)?, Some(png), None, &refs, ctl)?;
                 Ok(resize_to(&imaging::over_white(&out), src.width(), src.height()))
             }
             GenerateMode::Edit | GenerateMode::Refine => {
                 let src = source.context("Open an image first.")?;
                 let denoise = req.denoise;
-                self.refine_image(src, f, &a, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs, 1024, 1024)?, ctl)
+                self.refine_image(src, &engine, info, Params { task: Task::Refine { denoise }, ..base }, prepare_refs(f, refs, 1024, 1024)?, ctl)
             }
             GenerateMode::Inpaint => {
                 let src = source.context("Open an image first.")?;
                 let mask = req.mask.as_ref().context("Make a selection to fill.")?;
-                self.inpaint_image(src, mask, f, &a, base, req.denoise, refs, ctl)
+                self.inpaint_image(src, mask, &engine, info, base, req.denoise, refs, ctl)
             }
             GenerateMode::UpscaleRefine => {
                 let src = source.context("Open an image to enlarge.")?;
-                self.upscale_refine(src, req.scale, f, &a, Params { task: Task::Refine { denoise: req.denoise }, ..base }, ctl)
+                self.upscale_refine(src, req.scale, &engine, info, Params { task: Task::Refine { denoise: req.denoise }, ..base }, ctl)
             }
         }
     }
@@ -718,11 +746,12 @@ impl Ai {
     }
 
     /// img2img of the whole image at the family's working size; the result keeps `src`'s size.
-    fn refine_image(&self, src: &RgbaImage, f: &Family, a: &Availability, p: Params, refs: Vec<Vec<u8>>, ctl: &JobControl) -> Result<RgbaImage> {
+    fn refine_image(&self, src: &RgbaImage, engine: &Engine, info: &ObjectInfo, p: Params, refs: Vec<Vec<u8>>, ctl: &JobControl) -> Result<RgbaImage> {
+        let f = engine.family();
         let (w, h) = crate::inpaint::work_size(src.width(), src.height(), f.sizes.native, f.sizes.max, f.sizes.multiple);
         let png = imaging::encode_png(&li_raster::resize_rgba8(&imaging::over_white(src), w, h, li_raster::Filter::Lanczos3))?;
         let p = Params { width: w, height: h, references: refs.len(), ..p };
-        let out = self.run_built(builders::build(f, &a.files, &p), Some(png), None, &refs, ctl)?;
+        let out = self.run_built(engine.build(&p, info)?, Some(png), None, &refs, ctl)?;
         Ok(resize_to(&imaging::over_white(&out), src.width(), src.height()))
     }
 
@@ -733,14 +762,15 @@ impl Ai {
         &self,
         src: &RgbaImage,
         mask: &GrayImage,
-        f: &Family,
-        a: &Availability,
+        engine: &Engine,
+        info: &ObjectInfo,
         base: Params,
         denoise: f32,
         refs: &[RgbaImage],
         ctl: &JobControl,
     ) -> Result<RgbaImage> {
         use crate::inpaint;
+        let f = engine.family();
         let plan = inpaint::plan(mask).context("Make a selection to fill.")?;
         let rgb = image::DynamicImage::ImageRgba8(imaging::over_white(src)).to_rgb8();
         let crop = imageops::crop_imm(&rgb, plan.context.x0, plan.context.y0, plan.context.width(), plan.context.height()).to_image();
@@ -772,7 +802,7 @@ impl Ai {
         let mask_png = mask_png.map(|m| imaging::encode_png(&li_raster::resize_gray8(&m, w, h, li_raster::Filter::Triangle))).transpose()?;
         let p = Params { task, prompt: &prompt_owned, width: w, height: h, references: refs_png.len(), ..base };
         ctl.set_message("Filling the selection");
-        let out = self.run_built(builders::build(f, &a.files, &p), Some(source_png), mask_png, &refs_png, ctl)?;
+        let out = self.run_built(engine.build(&p, info)?, Some(source_png), mask_png, &refs_png, ctl)?;
         let out_rgb = image::DynamicImage::ImageRgba8(imaging::over_white(&out)).to_rgb8();
         let comp = inpaint::compositing_mask(mask, &plan);
         let merged = inpaint::composite(&rgb, &out_rgb, &plan, &comp);
@@ -785,7 +815,8 @@ impl Ai {
 
     /// Enlarges by `scale` (Lanczos), then refines in overlapping tiles at the family's native
     /// size, blended with feathered weights.
-    fn upscale_refine(&self, src: &RgbaImage, scale: f32, f: &Family, a: &Availability, p: Params, ctl: &JobControl) -> Result<RgbaImage> {
+    fn upscale_refine(&self, src: &RgbaImage, scale: f32, engine: &Engine, info: &ObjectInfo, p: Params, ctl: &JobControl) -> Result<RgbaImage> {
+        let f = engine.family();
         let scale = scale.clamp(1.0, 4.0);
         let (tw, th) = (((src.width() as f32 * scale) as u32).min(8192), ((src.height() as f32 * scale) as u32).min(8192));
         let big = li_raster::resize_rgba8(&imaging::over_white(src), tw, th, li_raster::Filter::Lanczos3);
@@ -813,7 +844,7 @@ impl Ai {
                 let (ww, wh) = imaging::snap_size(w, h, f.sizes.multiple.max(8));
                 let png = imaging::encode_png(&li_raster::resize_rgba8(&crop, ww, wh, li_raster::Filter::Lanczos3))?;
                 let tp = Params { prompt, width: ww, height: wh, ..p.clone() };
-                let out = self.run_built(builders::build(f, &a.files, &tp), Some(png), None, &[], ctl)?;
+                let out = self.run_built(engine.build(&tp, info)?, Some(png), None, &[], ctl)?;
                 let out = resize_to(&out, w, h);
                 for yy in 0..h {
                     for xx in 0..w {
@@ -881,8 +912,7 @@ impl Ai {
         if let crate::refine::Recipe::Family { profile, files, .. } = &recipe
             && u64::from(src.width()) * u64::from(src.height()) > u64::from(profile.sizes.max).pow(2)
         {
-            let availability = Availability { available: true, files: files.clone(), ..Default::default() };
-            return self.upscale_refine(&src, 1.0, profile, &availability, p, ctl);
+            return self.upscale_refine(&src, 1.0, &Engine::Builder { family: profile, files }, info, p, ctl);
         }
         recipe.run(&self.client, &src, &p, ctl)
     }

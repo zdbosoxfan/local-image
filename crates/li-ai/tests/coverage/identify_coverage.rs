@@ -117,15 +117,15 @@ const TABLE: &[(&str, FileKind, FileKind, Option<&str>, Option<&str>, &str)] = &
     ("Comfy-Org_Flux-2-Klein-4B__split_files~diffusion_models~flux-2-klein-base-4b", D, D, Some("flux2-klein"), Some("4b"), "bf16"),
     ("Comfy-Org_HiDream-O1-Image__checkpoints~hidream_o1_image_bf16", C, C, None, None, "bf16"),
     ("Comfy-Org_HiDream-O1-Image__checkpoints~hidream_o1_image_dev_fp8_scaled", C, C, None, None, "fp8_scaled"),
-    ("Comfy-Org_Krea-2__diffusion_models~krea2_raw_fp8_scaled", D, D, None, None, "fp8_scaled"),
-    ("Comfy-Org_Krea-2__diffusion_models~krea2_turbo_bf16", D, D, None, None, "bf16"),
-    ("Comfy-Org_Krea-2__diffusion_models~krea2_turbo_mxfp8", D, D, None, None, "mxfp8"),
-    ("Comfy-Org_Krea-2__diffusion_models~krea2_turbo_nvfp4", D, D, None, None, "nvfp4"),
-    ("Comfy-Org_MOSS-Image__diffusion_models~moss_image_base_bf16", D, D, None, None, "bf16"),
-    ("Comfy-Org_MOSS-Image__diffusion_models~moss_image_sft_int8_convrot", D, D, None, None, "int8_convrot"),
+    ("Comfy-Org_Krea-2__diffusion_models~krea2_raw_fp8_scaled", D, D, Some("krea2"), Some("raw"), "fp8_scaled"),
+    ("Comfy-Org_Krea-2__diffusion_models~krea2_turbo_bf16", D, D, Some("krea2"), Some("turbo"), "bf16"),
+    ("Comfy-Org_Krea-2__diffusion_models~krea2_turbo_mxfp8", D, D, Some("krea2"), Some("turbo"), "mxfp8"),
+    ("Comfy-Org_Krea-2__diffusion_models~krea2_turbo_nvfp4", D, D, Some("krea2"), Some("turbo"), "nvfp4"),
+    ("Comfy-Org_MOSS-Image__diffusion_models~moss_image_base_bf16", D, D, Some("moss-image"), Some("base"), "bf16"),
+    ("Comfy-Org_MOSS-Image__diffusion_models~moss_image_sft_int8_convrot", D, D, Some("moss-image"), Some("sft"), "int8_convrot"),
     ("Comfy-Org_Ming-Image__diffusion_models~ming_image_0.1_design_bf16", D, D, None, None, "bf16"),
-    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_bf16", D, D, Some("qwen-image-21"), None, "bf16"),
-    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_int8_convrot", D, D, Some("qwen-image-21"), None, "int8_convrot"),
+    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_bf16", D, D, Some("qwen-image-21"), Some("turbo"), "bf16"),
+    ("Comfy-Org_Qwen-Image-2.1__diffusion_models~qwen_image_2.1_turbo_int8_convrot", D, D, Some("qwen-image-21"), Some("turbo"), "int8_convrot"),
     ("Comfy-Org_Qwen-Image-2.1__model_patches~qwen_image_2.1_fun_controlnet_union_bf16", D, D, None, None, "bf16"),
     ("Comfy-Org_Z-Image__split_files~diffusion_models~z_image_bf16", D, D, Some("z-image"), None, "bf16"),
     ("Comfy-Org_Z-Image__split_files~diffusion_models~z_image_int8_convrot", D, D, Some("z-image"), None, "int8_convrot"),
@@ -137,15 +137,15 @@ const TABLE: &[(&str, FileKind, FileKind, Option<&str>, Option<&str>, &str)] = &
     ("local__diffusion_models~qwen_image_2.1_int8_convrot", D, D, Some("qwen-image-21"), None, "int8_convrot"),
     ("local__diffusion_models~seedvr2_7b_fp16", D, D, Some("seedvr2"), None, "fp16"),
     ("local__diffusion_models~z_image_turbo_bf16", D, D, Some("z-image"), None, "bf16"),
-    ("owner__diffusion_models~flux3-image-klein-bf16", D, D, None, None, "bf16"),
-    ("owner__diffusion_models~flux3-image-klein-base-bf16", D, D, None, None, "bf16"),
-    ("owner__diffusion_models~moss_image_sft_bf16", D, D, None, None, "bf16"),
-    ("realrebelai_FLUX-3-Image-Klein_GGUFs__BASE~flux3_image_klein-Q4_K_M.gguf", D, D, None, None, "gguf:Q4_K_M"),
-    ("realrebelai_FLUX-3-Image-Klein_GGUFs__BASE~flux3_image_klein_w4a8_convrot", D, D, None, None, "w4a8"),
-    ("realrebelai_FLUX-3-Image-Klein_GGUFs__DISTILLED~flux3_image_klein_sd-Q8_0.gguf", D, D, None, None, "gguf:Q8_0"),
-    ("realrebelai_FLUX-3-Image-Klein_GGUFs__DISTILLED~flux3_image_klein_sd_w4a8_convrot", D, D, None, None, "w4a8"),
+    ("owner__diffusion_models~flux3-image-klein-bf16", D, D, Some("flux3-klein"), Some("distilled"), "bf16"),
+    ("owner__diffusion_models~flux3-image-klein-base-bf16", D, D, Some("flux3-klein"), Some("base"), "bf16"),
+    ("owner__diffusion_models~moss_image_sft_bf16", D, D, Some("moss-image"), Some("sft"), "bf16"),
+    ("realrebelai_FLUX-3-Image-Klein_GGUFs__BASE~flux3_image_klein-Q4_K_M.gguf", D, D, Some("flux3-klein"), Some("base"), "gguf:Q4_K_M"),
+    ("realrebelai_FLUX-3-Image-Klein_GGUFs__BASE~flux3_image_klein_w4a8_convrot", D, D, Some("flux3-klein"), Some("base"), "w4a8"),
+    ("realrebelai_FLUX-3-Image-Klein_GGUFs__DISTILLED~flux3_image_klein_sd-Q8_0.gguf", D, D, Some("flux3-klein"), Some("distilled"), "gguf:Q8_0"),
+    ("realrebelai_FLUX-3-Image-Klein_GGUFs__DISTILLED~flux3_image_klein_sd_w4a8_convrot", D, D, Some("flux3-klein"), Some("distilled"), "w4a8"),
     ("unsloth_FLUX.2-klein-9B-GGUF__flux-2-klein-9b-Q4_K_M.gguf", D, D, Some("flux2-klein"), Some("9b"), "gguf:Q4_K_M"),
-    ("unsloth_flux-3-image-klein-GGUF__flux-3-image-klein-Q4_K_M.gguf", D, D, None, None, "gguf:Q4_K_M"),
+    ("unsloth_flux-3-image-klein-GGUF__flux-3-image-klein-Q4_K_M.gguf", D, D, Some("flux3-klein"), Some("distilled"), "gguf:Q4_K_M"),
     ("unsloth_Qwen-Image-2.1-GGUF__qwen-image-2.1-Q4_K_M.gguf", D, D, Some("qwen-image-21"), None, "gguf:Q4_K"),
     ("unsloth_Z-Image-Turbo-GGUF__z-image-turbo-Q4_K_M.gguf", D, D, Some("z-image"), None, "gguf:Q4_K_M"),
     ("Comfy-Org_Fibo-2.0__text_encoders~qwen3vl_4b_int8_convrot", T, T, None, None, "int8_convrot"),
@@ -185,6 +185,14 @@ const TABLE: &[(&str, FileKind, FileKind, Option<&str>, Option<&str>, &str)] = &
     ("prithivMLmods_Qwen-Image-2.1-Natural-Exposure-LoRA__Qwen-Image-2.1-Natural-Exposure-LoRA-4000", L, L, Some("qwen-image-21"), None, "bf16"),
     ("thedeoxen_refcontrol-FLUX.2-klein-9B-reference-depth-lora__flux2_klein_9b_refcontrol_depth", L, L, Some("flux2-klein"), None, "bf16"),
     ("WarmBloodAban_Qwen-Image-2.1-LoRAs__Qwen2.1_Anime_consistency", L, L, Some("qwen-image-21"), None, "bf16"),
+    ("Comfy-Org_Krea-2__loras~krea2_darkbrush", L, L, Some("krea2"), None, "fp32"),
+    ("Comfy-Org_Krea-2__loras~krea2_style_reference", L, L, Some("krea2"), None, "bf16"),
+    ("Comfy-Org_Krea-2__loras~krea2_turbo_lora_rank_64_bf16", L, L, Some("krea2"), None, "bf16"),
+    ("gokaygokay_Krea-2-Realism-LoRA__krea2_realism_lora", L, L, Some("krea2"), None, "fp32"),
+    ("lvladikov_Krea2-Turbo-Distill-4step-LoRA___archive~checkpoints~krea2_turbo_4step_rank_64_lora_chk00026000", L, L, Some("krea2"), None, "bf16"),
+    ("lvladikov_Krea2-Turbo-Distill-4step-LoRA___archive~checkpoints~krea2_turbo_4step_rank_64_lora_chk00026000_comfyui", L, L, Some("krea2"), None, "bf16"),
+    ("Comfy-Org_MOSS-Image__loras~moss_image_color_depth_control", L, L, Some("moss-image"), None, "bf16"),
+    ("darask0_MOSS-Image_4-step_adapter_lora__lora", L, L, Some("moss-image"), None, "fp32"),
 ];
 
 #[test]
@@ -207,16 +215,24 @@ fn every_header_fixture_identifies_as_expected() {
 fn every_fixture_is_in_the_table() {
     let listed: Vec<String> =
         std::fs::read_dir(dir()).unwrap().flatten().filter_map(|e| e.file_name().to_str()?.strip_suffix(".json").map(str::to_owned)).collect();
-    let krea_loras = ["Comfy-Org_Krea-2__loras~", "gokaygokay_", "lvladikov_", "darask0_", "Comfy-Org_MOSS-Image__loras~"];
     for name in listed {
-        let known = TABLE.iter().any(|(n, ..)| *n == name) || krea_loras.iter().any(|p| name.starts_with(p));
-        assert!(known, "{name} has no expectation");
+        assert!(TABLE.iter().any(|(n, ..)| *n == name), "{name} has no expectation");
     }
+}
+
+/// The registry without the template-only profiles (as a build before they existed saw it).
+fn without_new_profiles() -> Registry {
+    let raw: BTreeMap<String, Value> = family::EMBEDDED
+        .iter()
+        .filter(|(k, _)| !matches!(*k, "flux3-klein" | "krea2" | "moss-image"))
+        .map(|(k, t)| ((*k).to_owned(), serde_json::from_str(t).unwrap()))
+        .collect();
+    Registry { families: family::build(&raw).unwrap(), ..Default::default() }
 }
 
 #[test]
 fn loras_of_bases_nothing_describes_are_marked_foreign() {
-    let reg = embedded_registry();
+    let reg = without_new_profiles();
     for (name, base) in [
         ("Comfy-Org_Krea-2__loras~krea2_style_reference", "other:krea2"),
         ("gokaygokay_Krea-2-Realism-LoRA__krea2_realism_lora", "other:krea-2"),
@@ -263,15 +279,21 @@ fn newer_generations_never_fall_back_to_older_families() {
     assert_eq!(arch::guess_from_name("flux_3d_style_lora.safetensors", L).as_deref(), Some("flux1"));
     // A local header that matches no layout stays unknown whatever the name says.
     let unknown = arch::parse_safetensors_json(br#"{"new_architecture.weight": {"dtype": "BF16", "shape": [8, 8], "data_offsets": [0, 0]}}"#).unwrap();
-    let reg = embedded_registry();
+    let reg = without_new_profiles();
     for name in ["flux3-image-klein-bf16.safetensors", "flux2_dev.safetensors", "my_sdxl_model.safetensors"] {
         let id = identify::identify(name, D, Some(&unknown), &reg);
         assert_eq!(id.arch, None, "{name}");
     }
     assert_eq!(identify::identify("flux3-image-klein-bf16.safetensors", D, Some(&unknown), &reg).vetoed.as_deref(), Some("FLUX generation 3"));
-    // Remote files (no header) still use the name, through the veto.
+    // Remote files (no header) still use the name, through the veto; a profile's name rules
+    // know the new generation.
     assert_eq!(identify::identify("juggernautXL_v9.safetensors", C, None, &reg).arch.as_deref(), Some("sdxl"));
     assert_eq!(identify::identify("flux3-image-klein-bf16.safetensors", D, None, &reg).arch, None);
+    let with = embedded_registry();
+    let remote = identify::identify("flux3-image-klein-base-bf16.safetensors", D, None, &with);
+    assert_eq!((remote.arch.as_deref(), remote.variant.as_deref()), (Some("flux3-klein"), Some("base")));
+    let remote = identify::identify("moss_image_sft_int8_convrot.safetensors", D, None, &with);
+    assert_eq!((remote.arch.as_deref(), remote.variant.as_deref()), (Some("moss-image"), Some("sft")));
 }
 
 /// Finding 70: GGUF tensors decide before `general.architecture` (Klein vs dev).
@@ -300,7 +322,8 @@ fn gguf_files_are_decided_by_their_tensors() {
 /// override what the weights say.
 #[test]
 fn detection_rules_arrive_as_profile_data() {
-    let mut raw: BTreeMap<String, Value> = family::EMBEDDED.iter().map(|(k, t)| ((*k).to_owned(), serde_json::from_str(t).unwrap())).collect();
+    let mut raw: BTreeMap<String, Value> =
+        family::EMBEDDED.iter().filter(|(k, _)| *k != "flux3-klein").map(|(k, t)| ((*k).to_owned(), serde_json::from_str(t).unwrap())).collect();
     raw.insert(
         "flux3-test".into(),
         json!({"schema": 2, "id": "flux3-test", "label": "FLUX.3 test", "kind": "template",

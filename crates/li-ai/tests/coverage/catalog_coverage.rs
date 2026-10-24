@@ -296,24 +296,33 @@ fn klein_9b_files_get_the_8b_text_encoder() {
 /// is unavailable rather than run with an empty `clip_name` when none is installed.
 #[test]
 fn qwen_21_installed_files_need_their_text_encoder() {
-    let model = || vec![installed("unet:qwen_image_2.1_turbo_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_turbo_bf16.safetensors", None)];
+    let model = || vec![installed("unet:qwen_image_2.1_custom_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_custom_bf16.safetensors", None)];
     let with_te = info_with(&[
-        ("UNETLoader", "unet_name", &["qwen_image_2.1_turbo_bf16.safetensors"]),
+        ("UNETLoader", "unet_name", &["qwen_image_2.1_custom_bf16.safetensors"]),
         ("CLIPLoader", "clip_name", &["qwen3vl_8b_int8_convrot.safetensors"]),
         ("VAELoader", "vae_name", &["qwen_image_2.1_vae_bf16.safetensors"]),
     ]);
     let a =
-        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_turbo_bf16.safetensors").unwrap(), &with_te));
+        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_custom_bf16.safetensors").unwrap(), &with_te));
     assert!(a.available, "{a:?}");
     assert_eq!(a.files[&Role::Clip], "qwen3vl_8b_int8_convrot.safetensors");
     let without = info_with(&[
-        ("UNETLoader", "unet_name", &["qwen_image_2.1_turbo_bf16.safetensors"]),
+        ("UNETLoader", "unet_name", &["qwen_image_2.1_custom_bf16.safetensors"]),
         ("CLIPLoader", "clip_name", &["qwen_3_4b.safetensors"]),
         ("VAELoader", "vae_name", &["qwen_image_2.1_vae_bf16.safetensors"]),
     ]);
     let a =
-        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_turbo_bf16.safetensors").unwrap(), &without));
+        with_installed(model(), || availability(presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_custom_bf16.safetensors").unwrap(), &without));
     assert!(!a.available && a.reason.contains("qwen3vl_8b"), "{a:?}");
+    // Turbo runs its own template (ManualSigmas, cfg 1), never the 40-step builder.
+    let turbo =
+        vec![installed("unet:qwen_image_2.1_turbo_bf16.safetensors", "qwen-image-21", Role::Unet, "qwen_image_2.1_turbo_bf16.safetensors", Some("turbo"))];
+    let a = with_installed(turbo, || {
+        let p = presets().iter().find(|p| p.model.key() == "unet:qwen_image_2.1_turbo_bf16.safetensors").unwrap();
+        assert!(p.model.info().template_engine);
+        availability(p, &with_te)
+    });
+    assert!(!a.available && a.reason.contains("Set up"), "{a:?}");
 }
 
 /// Finding 72: `ae.safetensors` is matched by name or stem, never as a substring of another VAE.

@@ -1,5 +1,5 @@
 {
-  "schema": 1,
+  "schema": 2,
   "families": {
     "sd15": 1,
     "sdxl": 1,
@@ -20,6 +20,18 @@
     "seedvr2": 1,
     "realplksr": 1,
     "bsrgan": 1,
-    "restoration": 1
+    "restoration": 1,
+    "flux3-klein": 1,
+    "krea2": 1,
+    "moss-image": 1
+  },
+  "min_schema": {
+    "flux3-klein": 2,
+    "krea2": 2,
+    "moss-image": 2,
+    "qwen-image-21": 2
+  },
+  "data": {
+    "runtime": 1
   }
 }

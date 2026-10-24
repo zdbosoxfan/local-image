@@ -520,87 +520,18 @@ pub fn parse_manager(reg: &Registry, v: &Value) -> Vec<Item> {
         .collect()
 }
 
-/// One entry of the templates' `index.json`.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct TemplateEntry {
-    pub name: String,
-    pub title: String,
-    pub description: String,
-    pub tags: Vec<String>,
-    pub models: Vec<String>,
-    pub date: String,
-    pub size: u64,
-    pub custom_nodes: Vec<String>,
-}
+pub use crate::template::index::{TemplateEntry, parse_template_index, template_files};
 
-/// The image templates of `index.json` that run locally (open-source, no API nodes).
-pub fn parse_template_index(v: &Value) -> Vec<TemplateEntry> {
-    v.as_array()
-        .into_iter()
-        .flatten()
-        .filter(|c| c.get("type").and_then(Value::as_str).is_none_or(|t| t == "image"))
-        .flat_map(|c| c.get("templates").and_then(Value::as_array).cloned().unwrap_or_default())
-        .filter(|t| t.get("openSource").and_then(Value::as_bool) != Some(false))
-        .filter(|t| t.get("mediaType").and_then(Value::as_str).is_none_or(|m| m == "image"))
-        .filter_map(|t| {
-            let strs =
-                |k: &str| t.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
-            Some(TemplateEntry {
-                name: t.get("name")?.as_str()?.to_owned(),
-                title: t.get("title").and_then(Value::as_str).unwrap_or("").to_owned(),
-                description: t.get("description").and_then(Value::as_str).unwrap_or("").to_owned(),
-                tags: strs("tags"),
-                models: strs("models"),
-                date: t.get("date").and_then(Value::as_str).unwrap_or("").to_owned(),
-                size: t.get("size").and_then(Value::as_u64).unwrap_or(0),
-                custom_nodes: strs("requiresCustomNodes"),
-            })
-        })
-        .filter(|t| !t.tags.iter().any(|x| x == "API"))
-        .collect()
-}
-
-/// The model files a template declares: `properties.models` of every node, including the nodes
-/// of subgraph definitions (deduplicated by folder and name).
-pub fn template_files(template: &Value) -> Vec<CatalogFile> {
-    fn walk(nodes: &Value, out: &mut Vec<CatalogFile>) {
-        for n in nodes.as_array().into_iter().flatten() {
-            for m in n.get("properties").and_then(|p| p.get("models")).and_then(Value::as_array).into_iter().flatten() {
-                let (Some(name), Some(url), Some(dir)) =
-                    (m.get("name").and_then(Value::as_str), m.get("url").and_then(Value::as_str), m.get("directory").and_then(Value::as_str))
-                else {
-                    continue;
-                };
-                if out.iter().any(|f| f.name == name && f.folder == dir) {
-                    continue;
-                }
-                let sha = m
-                    .get("hash")
-                    .and_then(Value::as_str)
-                    .filter(|_| m.get("hash_type").and_then(Value::as_str).is_none_or(|t| t.eq_ignore_ascii_case("sha256")));
-                out.push(CatalogFile {
-                    name: name.to_owned(),
-                    folder: dir.to_owned(),
-                    url: url.to_owned(),
-                    sha256: sha.map(str::to_ascii_lowercase),
-                    bytes: m.get("size").or_else(|| m.get("bytes")).and_then(Value::as_u64),
-                    ..Default::default()
-                });
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(&template["nodes"], &mut out);
-    for sg in template.get("definitions").and_then(|d| d.get("subgraphs")).and_then(Value::as_array).into_iter().flatten() {
-        walk(&sg["nodes"], &mut out);
-    }
-    out
-}
-
-/// A card for a template: its family from the main model's file name (or none: basic controls).
+/// A card for a template: the builder family its main model file belongs to (by the profiles'
+/// name rules, then the built-in names through the generation veto), or none: the template runs
+/// as it is.
 pub fn template_item(reg: &Registry, e: &TemplateEntry, files: Vec<CatalogFile>, templates_base: &str) -> Item {
     let main = files.iter().find(|f| f.folder == "diffusion_models" || f.folder == "checkpoints" || f.folder == "unet");
-    let family = main.and_then(|f| crate::arch::guess_from_name(&f.name, crate::arch::FileKind::DiffusionModel)).filter(|f| reg.family(f).is_some());
+    let family = main
+        .and_then(|f| {
+            crate::detect::by_name(reg, &f.name).map(|m| m.id).or_else(|| crate::arch::guess_from_name(&f.name, crate::arch::FileKind::DiffusionModel))
+        })
+        .filter(|f| reg.family(f).is_some_and(crate::family::Family::buildable));
     let mut files = files;
     if e.size > 0 && files.iter().all(|f| f.size().is_none()) && !files.is_empty() {
         // The index's total, spread for display until the exact sizes are resolved.

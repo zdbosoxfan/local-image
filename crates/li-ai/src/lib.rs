@@ -8,6 +8,7 @@ pub mod builders;
 pub mod catalog;
 pub mod cloud;
 pub mod comfy;
+pub mod companions;
 pub mod custom;
 pub mod detect;
 pub mod discovery;

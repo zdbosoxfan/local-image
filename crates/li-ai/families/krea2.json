@@ -1,0 +1,94 @@
+{
+  "schema": 2,
+  "version": 1,
+  "id": "krea2",
+  "label": "Krea 2",
+  "group": "Krea",
+  "kind": "template",
+  "description": "Krea 2 (12B): stylised images in eight steps (Turbo) and style references from your own pictures.",
+  "detect": {
+    "priority": 100,
+    "tensors_all": [
+      "txtfusion.projector.weight"
+    ],
+    "names": [
+      "krea2*",
+      "krea_2*",
+      "krea-2*"
+    ],
+    "variants": [
+      {
+        "id": "turbo",
+        "names": [
+          "*turbo*"
+        ]
+      },
+      {
+        "id": "raw",
+        "names": [
+          "*raw*"
+        ]
+      }
+    ],
+    "lora": {
+      "tensors_any": [
+        "text_fusion.",
+        "txtfusion.",
+        ".attn.wq.lora",
+        ".attn.to_gate.lora"
+      ],
+      "kohya_prefixes": [
+        "krea2",
+        "krea_2",
+        "krea-2"
+      ]
+    }
+  },
+  "template": {
+    "stems": {
+      "turbo": [
+        "krea2turbo"
+      ],
+      "raw": [
+        "krea2raw"
+      ]
+    },
+    "references_max": 3,
+    "inpaint": "noise_mask",
+    "variants": {
+      "turbo": {
+        "sampling": {
+          "steps": {
+            "default": 8,
+            "min": 4,
+            "max": 16
+          },
+          "cfg": {
+            "default": 1,
+            "min": 1,
+            "max": 1
+          },
+          "denoise": 0.35
+        },
+        "sizes": {
+          "native": 1024,
+          "multiple": 16,
+          "min": 256,
+          "max": 2048
+        }
+      }
+    }
+  },
+  "lora": {
+    "loader": "LoraLoaderModelOnly",
+    "compatible": [
+      "krea2"
+    ],
+    "max": 3
+  },
+  "vram_gb": 24,
+  "license": "Krea 2 Community License",
+  "license_url": "https://huggingface.co/Comfy-Org/Krea-2",
+  "license_summary": "Commercial use only while yearly company revenue is under US$1M.",
+  "commercial": "limited"
+}

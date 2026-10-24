@@ -48,6 +48,8 @@ pub struct Params<'a> {
     pub variety: f32,
     /// Create with an InitImage reference: how much of the starting latent to re-noise.
     pub init_denoise: f32,
+    /// Template models: run the template's optional LLM prompt enhancer.
+    pub enhance: bool,
 }
 
 impl<'a> Params<'a> {
@@ -67,6 +69,7 @@ impl<'a> Params<'a> {
             sampler: None,
             variety: 0.0,
             init_denoise: 1.0,
+            enhance: false,
         }
     }
 }
