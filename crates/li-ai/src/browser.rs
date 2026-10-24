@@ -164,6 +164,9 @@ pub struct Item {
     /// The template this card runs through (official templates; basic controls when the family
     /// is unknown).
     pub template: Option<String>,
+    /// The template's `minComfyUIVersion`.
+    #[serde(default)]
+    pub min_comfyui: Option<String>,
 }
 
 impl Item {
@@ -449,6 +452,7 @@ pub fn parse_civitai(reg: &Registry, v: &Value) -> Vec<Item> {
                 gated: false,
                 nsfw: m.get("nsfw").and_then(Value::as_bool).unwrap_or(false),
                 template: None,
+                min_comfyui: None,
             })
         })
         .filter(|i| !i.nsfw && !i.files.is_empty())
@@ -555,6 +559,7 @@ pub fn template_item(reg: &Registry, e: &TemplateEntry, files: Vec<CatalogFile>,
         files,
         page_url: format!("https://github.com/Comfy-Org/workflow_templates/blob/main/templates/{}.json", e.name),
         template: Some(e.name.clone()),
+        min_comfyui: e.min_comfyui.map(|v| v.to_string()),
         ..Default::default()
     }
 }

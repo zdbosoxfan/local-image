@@ -12,7 +12,7 @@ use crate::builders::{Params, Task};
 use crate::companions::{Runtime, Why};
 use crate::family::{Commercial, Family};
 use crate::identify::Identity;
-use crate::template::index::Version;
+use crate::template::index::{TemplateEntry, Version};
 use crate::template::{TaskGraph, TemplateRecipe};
 
 /// What a model's capability check found.
@@ -151,11 +151,18 @@ pub fn check(m: &ModelCheck) -> Checked {
     let mut missing = false;
     for b in r.bindings() {
         match (b.used.as_deref(), b.why) {
-            (None, _) if b.optional => issues.push(Issue::new(
-                "UpsamplerAvailable",
-                key,
-                &[("file", b.declared.clone()), ("size", declared_size(m.runtime, &b.declared).map(size_text).unwrap_or_else(|| "size unknown".into()))],
-            )),
+            (None, _) if b.optional => {
+                let size = declared_size(m.runtime, &b.declared);
+                let mut i = Issue::new(
+                    "UpsamplerAvailable",
+                    key,
+                    &[("file", b.declared.clone()), ("size", size.map(size_text).unwrap_or_else(|| "size unknown".into()))],
+                );
+                if !s.remote && !b.url.is_empty() {
+                    i = i.fix(Fix::Download { files: vec![b.declared.clone()], folder: b.folder.clone(), bytes: size.unwrap_or(0), url: b.url.clone() });
+                }
+                issues.push(i);
+            }
             (Some(_), _) if b.optional => issues.push(Issue::new("UpsamplerInstalled", key, &[])),
             (None, _) => {
                 let in_main = main.is_some_and(|g| g.files.iter().any(|x| x.declared == b.declared && x.role == b.role));
@@ -326,6 +333,86 @@ pub fn check(m: &ModelCheck) -> Checked {
         None => issues.push(Issue::new("LicenceUnknown", key, &[])),
     }
     Checked { issues, capabilities: caps }
+}
+
+/// Whether this ComfyUI can run the official template `entry` (`body`) before any of its files
+/// is downloaded: the node classes and options it uses (its files aside) and its version gate.
+/// Blockers mean a download would not make it run.
+pub fn check_template(entry: &TemplateEntry, body: &serde_json::Value, s: &Snapshot, runtime: &Runtime) -> Vec<Issue> {
+    let have = s.version_label();
+    let label = if entry.title.is_empty() { entry.name.clone() } else { entry.title.clone() };
+    let unusable = |detail: String| Issue::new("TemplateUnusable", None, &[("template", label.clone()), ("detail", detail)]);
+    let mut problems = Vec::new();
+    let mut issues = Vec::new();
+    match crate::graph::ui::to_api(body, &s.info) {
+        Err(e) => issues.push(unusable(format!("{e:#}"))),
+        Ok(conv) if !conv.problems.is_empty() => issues.push(unusable(format!("node {}: {}", conv.problems[0].0, conv.problems[0].1))),
+        Ok(conv) => {
+            let zero: Vec<&str> = runtime.zero_classes.iter().map(String::as_str).collect();
+            let stem = crate::template::index::declared_files(&entry.name, body).into_iter().find(|d| d.is_main()).map(|d| d.stem);
+            let opts = crate::graph::canon::Options { info: &s.info, io_outputs: &entry.io_outputs, main_stem: stem.as_deref(), zero: &zero };
+            match crate::graph::canon::canonicalise(&conv, &opts) {
+                Err(why) => issues.push(unusable(why)),
+                Ok(modes) => {
+                    for c in &modes {
+                        problems.extend(
+                            crate::graph::validate::validate(&c.graph, &s.info)
+                                .into_iter()
+                                .filter(|p| !p.is_file() && !(p.class == "LoadImage" && p.input == "image")),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let need = entry.min_comfyui;
+    for p in &problems {
+        let issue = match &p.kind {
+            crate::graph::validate::ProblemKind::MissingClass => match runtime.pack_for(&p.class) {
+                Some(pack) => Issue::new(
+                    "CustomNodesMissing",
+                    None,
+                    &[("file", label.clone()), ("pack", pack.name.clone()), ("manager", pack.manager.clone()), ("repo", pack.repo.clone())],
+                )
+                .fix(Fix::OpenUrl { label: "Custom nodes".into(), url: pack.repo.clone() }),
+                None => Issue::new(
+                    "NodeMissing",
+                    None,
+                    &[("have", have.clone()), ("class", p.class.clone()), ("model", label.clone()), ("need_clause", need_clause(need))],
+                ),
+            },
+            crate::graph::validate::ProblemKind::NotOffered(value) => Issue::new(
+                "ValueNotOffered",
+                None,
+                &[
+                    ("have", have.clone()),
+                    ("class", p.class.clone()),
+                    ("input", p.input.clone()),
+                    ("value", value.clone()),
+                    ("model", label.clone()),
+                    ("need_clause", need_clause(need)),
+                ],
+            ),
+            _ => unusable(p.describe()),
+        };
+        if !issues.iter().any(|i: &Issue| i.code == issue.code && i.args == issue.args) {
+            issues.push(issue);
+        }
+    }
+    if let (Some(have_v), Some(need_v)) = (s.comfyui_version, need)
+        && have_v < need_v
+    {
+        if issues.is_empty() {
+            issues.push(Issue::new("ComfyMayBeTooOld", None, &[("template", label.clone()), ("need", need_v.to_string()), ("have", have.clone())]));
+        } else {
+            issues.insert(
+                0,
+                Issue::new("ComfyTooOld", None, &[("model", label.clone()), ("need", need_v.to_string()), ("have", have.clone()), ("how", update_how(s))])
+                    .fix(Fix::CopyCommand { label: "Update ComfyUI".into(), command: update_how(s) }),
+            );
+        }
+    }
+    issues
 }
 
 fn commercial_text(c: Commercial) -> &'static str {

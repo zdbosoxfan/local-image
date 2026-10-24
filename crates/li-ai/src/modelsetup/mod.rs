@@ -7,9 +7,11 @@
 //! Verification ([`verify`]) runs only when asked. Everything here is blocking.
 
 pub mod check;
+pub mod fixes;
 pub mod issue;
 pub mod report;
 pub mod state;
+pub mod summary;
 pub mod verify;
 
 use std::collections::BTreeMap;
@@ -71,6 +73,12 @@ pub struct Snapshot {
 pub fn is_local(host: &str) -> bool {
     let h = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
     matches!(h, "127.0.0.1" | "localhost" | "[::1]" | "::1") || h.starts_with("127.")
+}
+
+/// The ComfyUI version `/system_stats` reports, as setup stores it (`0.42.5`, or the text it gave).
+pub fn version_of(stats: &Value) -> String {
+    let text = stats["system"]["comfyui_version"].as_str().unwrap_or("");
+    Version::parse(text).map_or_else(|| text.to_owned(), |v| v.to_string())
 }
 
 impl Snapshot {
@@ -201,6 +209,13 @@ impl Options {
     }
 }
 
+/// An official image template a model can be set to run through.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TemplateChoice {
+    pub name: String,
+    pub title: String,
+}
+
 /// The result of a scan.
 #[derive(Clone, Debug, Default)]
 pub struct Scan {
@@ -209,6 +224,8 @@ pub struct Scan {
     pub issues: Vec<Issue>,
     pub loras: Vec<LoraReport>,
     pub other_files: Vec<FileReport>,
+    /// The server's official image templates, by title.
+    pub templates: Vec<TemplateChoice>,
 }
 
 fn file_stamp(path: &Path) -> Fingerprint {
@@ -574,7 +591,10 @@ pub fn scan_with(opts: &Options, reg: &Registry) -> Scan {
         })
         .collect();
     let other_files = other_files(&snapshot.info, &server);
-    Scan { snapshot: Some(snapshot), server, issues, loras, other_files }
+    let mut choices: Vec<TemplateChoice> =
+        templates.iter().flat_map(|t| &t.entries).map(|e| TemplateChoice { name: e.name.clone(), title: e.title.clone() }).collect();
+    choices.sort_by(|a, b| a.title.cmp(&b.title));
+    Scan { snapshot: Some(snapshot), server, issues, loras, other_files, templates: choices }
 }
 
 /// Text encoders and VAEs on the server, with the models that use them.

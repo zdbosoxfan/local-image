@@ -286,6 +286,11 @@ fn blackwell_only_precisions_are_blocked_on_older_gpus() {
     assert_eq!(m.status, Status::Ready, "{:?}", m.issues);
     let lora = m.issues.iter().find(|i| i.code == "CompanionMissing").unwrap();
     assert_eq!((lora.severity, lora.args["file"].as_str()), (modelsetup::issue::Severity::Warning, "krea2_style_reference.safetensors"));
+    assert!(
+        matches!(&lora.fixes[..], [modelsetup::issue::Fix::Download { url, folder, .. }] if url.ends_with("/krea2_style_reference.safetensors") && folder == "loras"),
+        "a missing file the template declares is offered as a download: {:?}",
+        lora.fixes
+    );
     assert!(m.capabilities.iter().any(|c| c.name == "style" && !c.ok));
 }
 
@@ -320,4 +325,84 @@ fn an_unreachable_server_reports_one_blocker() {
     assert!(scan.snapshot.is_none());
     assert_eq!(scan.issues.iter().map(|i| i.code.as_str()).collect::<Vec<_>>(), ["ServerUnreachable"]);
     assert!(scan.issues[0].english().starts_with("ComfyUI is not reachable at 127.0.0.1:9."));
+}
+
+#[test]
+fn the_persons_choices_apply_on_the_next_scan() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let ming = "unet:ming_image_0.1_design_bf16.safetensors";
+    let s = Setup::new(&[
+        ("diffusion_models/ming_image_0.1_design_bf16.safetensors", "Comfy-Org_Ming-Image__diffusion_models~ming_image_0.1_design_bf16"),
+        MOSS[0],
+        MOSS[1],
+        MOSS[2],
+    ]);
+    let scan = s.scan();
+    assert_eq!(scan.server.models[ming].status, Status::Unmatched, "{:?}", codes(&scan, ming));
+    assert!(scan.templates.iter().any(|t| t.name == "image_moss_image_t2i" && t.title == "MOSS-Image: Text to Image"));
+    let host = s.mock.host().to_owned();
+    let state = s.options().state_path;
+    modelsetup::fixes::choose(&state, &host, ming, modelsetup::fixes::Choice::Template(Some("image_moss_image_t2i".into()))).unwrap();
+    let scan = s.scan();
+    assert_eq!(scan.server.models[ming].templates.get("create").map(String::as_str), Some("image_moss_image_t2i"));
+    // Ignored models stay ignored and are not offered for generation.
+    modelsetup::fixes::choose(&state, &host, MOSS_KEY, modelsetup::fixes::Choice::Ignore(true)).unwrap();
+    let scan = s.scan();
+    assert_eq!(scan.server.models[MOSS_KEY].status, Status::Ignored);
+    assert!(ModelId::from_key(MOSS_KEY).is_none_or(|id| id.info().recipe.is_none()));
+    let summary = modelsetup::summary::summarise(scan.server.models.get(MOSS_KEY).map(|_| &scan.server), &li_ai::catalog::catalog().models, Some("0.42.5"));
+    assert_eq!(summary.status(MOSS_KEY), Some(Status::Ignored));
+    assert!(!summary.new.contains(&MOSS_KEY.to_owned()));
+}
+
+#[test]
+fn a_template_this_comfyui_cannot_run_is_refused_before_anything_downloads() {
+    struct Recording(Mutex<Vec<String>>);
+    impl li_ai::browser::Net for Recording {
+        fn get(&self, url: &str) -> anyhow::Result<Vec<u8>> {
+            self.0.lock().unwrap().push(url.to_owned());
+            let name = url.rsplit('/').next().unwrap_or_default();
+            std::fs::read(fixtures().join("comfy-0.42.5/templates").join(name)).map_err(Into::into)
+        }
+        fn head_size(&self, url: &str) -> anyhow::Result<Option<u64>> {
+            self.0.lock().unwrap().push(url.to_owned());
+            Ok(None)
+        }
+    }
+    let dir = model_dir(FLUX3);
+    let mut info = object_info(&dir.0);
+    let types = info["CLIPLoader"]["input"]["required"]["type"][0].as_array_mut().unwrap();
+    types.retain(|t| t != "flux3");
+    let old = modelsetup::Snapshot::from_parts(
+        "127.0.0.1:8189",
+        &system_stats("0.38.0", "NVIDIA GeForce RTX 5090"),
+        li_ai::comfy::ObjectInfo::from_bytes(&serde_json::to_vec(&info).unwrap()).unwrap(),
+    );
+    let item = li_ai::browser::Item {
+        id: "template:image_flux3_klein_distilled_t2i".into(),
+        title: "FLUX 3 Image Klein Distilled: Text to Image".into(),
+        template: Some("image_flux3_klein_distilled_t2i".into()),
+        min_comfyui: Some("0.41.0".into()),
+        ..Default::default()
+    };
+    let cfg = li_ai::browser::Config { templates: "http://templates.invalid/templates".into(), ..Default::default() };
+    let net = Recording(Mutex::new(Vec::new()));
+    let planned = modelsetup::fixes::plan_template(&item, &cfg, &net, &old).unwrap();
+    assert!(planned.plan.is_none());
+    let codes: Vec<&str> = planned.issues.iter().map(|i| i.code.as_str()).collect();
+    assert_eq!(codes.first(), Some(&"ComfyTooOld"), "{codes:?}");
+    assert!(codes.contains(&"ValueNotOffered"), "{codes:?}");
+    assert_eq!(*net.0.lock().unwrap(), ["http://templates.invalid/templates/image_flux3_klein_distilled_t2i.json"], "nothing but the template was fetched");
+    // The same template on ComfyUI 0.42.5 has nothing in the way.
+    let now = modelsetup::Snapshot::from_parts(
+        "127.0.0.1:8189",
+        &system_stats("0.42.5", "NVIDIA GeForce RTX 5090"),
+        li_ai::comfy::ObjectInfo::from_bytes(&serde_json::to_vec(&object_info(&dir.0)).unwrap()).unwrap(),
+    );
+    let entry = li_ai::template::index::TemplateEntry { name: "image_flux3_klein_distilled_t2i".into(), ..Default::default() };
+    assert!(modelsetup::check::check_template(&entry, &planned.ui, &now, li_ai::companions::runtime()).is_empty());
+    assert_eq!(
+        modelsetup::fixes::template_main(&planned.ui, "image_flux3_klein_distilled_t2i").map(|(k, _)| k).as_deref(),
+        Some("unet:flux3-image-klein-int8-convrot.safetensors")
+    );
 }
