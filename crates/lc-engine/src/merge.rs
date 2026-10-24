@@ -587,13 +587,14 @@ impl MergeJob {
     }
 }
 
-/// Raw bracket storage, decoder scratch, fused CFA, single demosaic, mask and DNG staging.
-/// This conservative estimate uses the sensor extent even when the requested result is a preview.
+/// Raw bracket storage, decoder scratch, fused CFA, single demosaic, mask, two CFA-tile
+/// registration planes and DNG staging. This conservative estimate uses the sensor extent even
+/// when the requested result is a preview.
 fn hdr_memory_bytes(width: usize, height: usize, shots: usize, cpp: usize) -> std::result::Result<u64, String> {
     if width < 2 || height < 2 || shots < 2 || !matches!(cpp, 1 | 3) {
         return Err("HDR needs at least two nonempty sensor frames".into());
     }
-    let per_pixel = (shots as u64).checked_mul(4 * cpp as u64).and_then(|n| n.checked_add(112)).ok_or("HDR memory estimate overflowed")?;
+    let per_pixel = (shots as u64).checked_mul(4 * cpp as u64).and_then(|n| n.checked_add(114)).ok_or("HDR memory estimate overflowed")?;
     (width as u64)
         .checked_mul(height as u64)
         .and_then(|n| n.checked_mul(per_pixel))
