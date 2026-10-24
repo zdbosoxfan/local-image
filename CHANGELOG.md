@@ -6,6 +6,21 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Develop: at 100% and closer the loupe renders the frame, after crop and rotation, from the
+  original at its native pixels on the GPU, so 1:1 shows the demosaicing, sharpening and noise
+  reduction a full-size export has, one screen pixel per photo pixel. Without a GPU, while soft
+  proofing, with a LUT profile, or for an original that is offline or can't be read, the loupe
+  keeps its preview render. Known limitation: Fit and Fill views still render from a preview
+  source at most 2560 pixels long, so a frame cropped to a small part of a high-resolution photo
+  looks soft at Fit until it is zoomed to 100%.
+- Develop: Paste, Sync, Auto Sync and presets that carry an automatic Upright mode analyse each
+  photo's own lines in the background, with progress and Cancel, instead of giving every photo the
+  first photo's correction or freezing the app while they solve.
+- Develop: Reset, a section's reset and double-clicking a slider return to the photo's own
+  defaults, such as a raw's camera defaults and As Shot white balance.
+
 ### Fixed
 
 - Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
