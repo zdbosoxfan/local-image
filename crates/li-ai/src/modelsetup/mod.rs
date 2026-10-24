@@ -267,11 +267,11 @@ pub fn recipe_sha256(r: &TemplateRecipe) -> String {
 
 /// `FLUX.3 Klein · distilled · BF16`.
 fn label_for(family: Option<&Family>, entry_model: Option<&str>, id: &Identity, file: &str) -> String {
-    let base = family
-        .map(|f| f.label.clone())
-        .filter(|l| !l.is_empty())
-        .or_else(|| entry_model.map(str::to_owned))
-        .unwrap_or_else(|| crate::inventory::label_for(file));
+    let base = family.map(|f| f.label.clone()).filter(|l| !l.is_empty()).or_else(|| entry_model.map(str::to_owned)).unwrap_or_else(|| {
+        // The name without its precision tokens: the precision follows as its own part.
+        let stem = crate::stem::stem_key(file).display;
+        if stem.is_empty() { crate::inventory::label_for(file) } else { stem.replace(['_', '-'], " ").split_whitespace().collect::<Vec<_>>().join(" ") }
+    });
     let mut parts = vec![base];
     if let Some(v) = &id.variant {
         parts.push(v.clone());
@@ -629,7 +629,9 @@ pub fn publish(server: &ServerState, info: &ObjectInfo) -> bool {
         let arch = m.identity.as_ref().and_then(|i| i.arch.clone());
         let profile = arch.as_deref().and_then(|a| reg.family(a));
         let id = arch.clone().unwrap_or_else(|| format!("template:{}", m.identity.as_ref().map(|i| i.stem.as_str()).unwrap_or("")));
-        let family = compile::family_for(recipe, profile, &id, &m.label);
+        let family_label =
+            profile.map(|p| p.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| m.label.split(" · ").next().unwrap_or_default().to_owned());
+        let family = compile::family_for(recipe, profile, &id, &family_label);
         map.insert(key.clone(), TemplateModel { recipe: Arc::new(recipe.clone()), family, label: m.label.clone() });
     }
     crate::catalog::set_templates(map)

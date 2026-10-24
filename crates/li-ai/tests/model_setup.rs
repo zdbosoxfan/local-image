@@ -170,6 +170,7 @@ fn a_model_no_profile_describes_runs_and_verifies_through_its_official_template(
     let model = ModelId::from_key(MOSS_KEY).expect("published to the catalogue");
     let info = model.info();
     assert!(info.recipe.is_some() && info.text_to_image && info.resolved.capabilities.inpaint);
+    assert_eq!(info.family_label, "MOSS-Image", "the picker's family column names the model, not its precision");
     // Verification renders through the app's generation path; ComfyUI's memory is freed once.
     let (w, h) = create_size(MOSS_KEY);
     let picture = li_ai::refine::test_image();
@@ -216,6 +217,7 @@ fn a_noise_render_fails_verification_and_names_the_vae() {
     assert_eq!(m.status, Status::Ready, "{:?}", m.issues);
     assert_eq!(m.identity.as_ref().unwrap().arch.as_deref(), Some("flux3-klein"));
     assert_eq!(m.templates.get("edit").map(String::as_str), Some("image_flux3_klein_distilled_image_edit"));
+    assert_eq!(ModelId::from_key(FLUX3_KEY).unwrap().info().family_label, li_ai::family::registry().family("flux3-klein").unwrap().label);
     let (w, h) = create_size(FLUX3_KEY);
     s.mock.queue_outputs([png(&noise(w, h))]);
     let done = modelsetup::verify_models(&s.options(), &scan, &[FLUX3_KEY.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
@@ -373,6 +375,7 @@ fn the_persons_choices_apply_on_the_next_scan() {
     ]);
     let scan = s.scan();
     assert_eq!(scan.server.models[ming].status, Status::Unmatched, "{:?}", codes(&scan, ming));
+    assert_eq!(scan.server.models[ming].label, "ming image 0.1 design · BF16", "the precision is named once");
     assert!(scan.templates.iter().any(|t| t.name == "image_moss_image_t2i" && t.title == "MOSS-Image: Text to Image"));
     let host = s.mock.host().to_owned();
     let state = s.options().state_path;
