@@ -8,7 +8,7 @@ use lightcraft_geom::Orientation;
 
 use crate::blur::GaussianPolicy;
 use crate::par_rows;
-use crate::resample::{Filter, Pixel, half_pixels, resize_pixels};
+use crate::resample::{Filter, Pixel, half_pixels, resize_antiring, resize_pixels};
 
 /// How samples outside a frame (or an area of it) are read.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -285,6 +285,11 @@ impl Frame<f32> {
 impl Frame<[f32; 3]> {
     pub fn clamp01(&mut self) {
         self.map_in_place(|p| p.map(|v| v.clamp(0.0, 1.0)));
+    }
+    /// Separable resample of scene-linear light through precomputed taps (`wx` per output column,
+    /// `wy` per output row), with ringing suppressed: [`crate::resample::resize_antiring`].
+    pub fn resample_antiring(&self, wx: &[(usize, Vec<f32>)], wy: &[(usize, Vec<f32>)]) -> Self {
+        Self { width: wx.len(), height: wy.len(), data: resize_antiring(&self.data, self.width, self.height, wx, wy) }
     }
     /// Bilinear sample at continuous pixel coordinates (pixel centres at +0.5).
     #[inline]

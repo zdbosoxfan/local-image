@@ -397,13 +397,12 @@ fn gaussian_box_passes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize
     if last == 0 { a } else { b }
 }
 
-/// Resample taps of `li_raster::resample::resize`, packed for the `resize_*` kernels.
-fn taps(src: usize, dst: usize, filter: Filter) -> Vec<u32> {
-    let w = li_raster::resample::weights(src, dst, filter);
-    let mut t = Vec::with_capacity(dst * 3);
+/// Resample taps (`li_raster::resample::weights` layout), packed for the `resize_*` kernels.
+fn taps(w: &[(usize, Vec<f32>)]) -> Vec<u32> {
+    let mut t = Vec::with_capacity(w.len() * 3);
     let mut weights = Vec::new();
-    let base = dst * 3;
-    for (lo, ws) in &w {
+    let base = w.len() * 3;
+    for (lo, ws) in w {
         t.extend_from_slice(&[*lo as u32, ws.len() as u32, (base + weights.len()) as u32]);
         weights.extend(ws.iter().map(|v| v.to_bits()));
     }
@@ -417,12 +416,37 @@ pub(crate) fn resize(cx: &mut Cx<'_>, src: &Buf, (sw, sh): (usize, usize), (dw, 
     if (sw, sh) == (dw, dh) {
         return cx.copy(src);
     }
-    let tx = cx.gpu.upload(&taps(sw, dw, filter));
+    let (wx, wy) = (li_raster::resample::weights(sw, dw, filter), li_raster::resample::weights(sh, dh, filter));
+    resize_with(cx, src, (sw, sh), (&wx, &wy), nc, false)
+}
+
+/// The separable resample through precomputed taps (`wx` per output column, `wy` per output row);
+/// with `antiring`, `li_raster::resample::resize_antiring` (RGB only).
+fn resize_with(
+    cx: &mut Cx<'_>,
+    src: &Buf,
+    (sw, sh): (usize, usize),
+    (wx, wy): (&[(usize, Vec<f32>)], &[(usize, Vec<f32>)]),
+    nc: usize,
+    antiring: bool,
+) -> Buf {
+    let (dw, dh) = (wx.len(), wy.len());
+    let tx = cx.gpu.upload(&taps(wx));
     let tmp = cx.gpu.buffer(dw * sh * nc);
-    cx.run("resize_h", &[sw as u32, sh as u32, dw as u32, nc as u32], &[Some(src), Some(&tx), Some(&tmp)], groups2(dw, sh, [16, 16]));
-    let ty = cx.gpu.upload(&taps(sh, dh, filter));
+    cx.run(
+        "resize_h",
+        &[sw as u32, sh as u32, dw as u32, nc as u32, antiring as u32],
+        &[Some(src), Some(&tx), Some(&tmp)],
+        groups2(dw, sh, [16, 16]),
+    );
+    let ty = cx.gpu.upload(&taps(wy));
     let out = cx.gpu.buffer(dw * dh * nc);
-    cx.run("resize_v", &[dw as u32, sh as u32, dh as u32, nc as u32], &[Some(&tmp), Some(&ty), Some(&out)], groups2(dw, dh, [16, 16]));
+    cx.run(
+        "resize_v",
+        &[dw as u32, sh as u32, dh as u32, nc as u32, antiring as u32],
+        &[Some(&tmp), Some(&ty), Some(&out)],
+        groups2(dw, dh, [16, 16]),
+    );
     out
 }
 
@@ -645,7 +669,10 @@ fn sample(cx: &mut Cx<'_>, src: &Arc<RgbFrame>, src_buf: Arc<Buf>, plan: &Plan<'
         Arc::new(out)
     };
     let (base, (bw, bh)) = match sp.prefilter {
-        Some(d) => (Arc::new(resize(cx, &oriented, (sp.ow, sp.oh), d, 3, Filter::Mitchell)), d),
+        Some(d) => {
+            let (wx, wy) = (li_raster::resample::weights(sp.ow, d.0, Filter::Mitchell), li_raster::resample::weights(sp.oh, d.1, Filter::Mitchell));
+            (Arc::new(resize_with(cx, &oriented, (sp.ow, sp.oh), (&wx, &wy), 3, true)), d)
+        }
         None => (oriented, (sp.ow, sp.oh)),
     };
     let mut affine = |xf: &lightcraft_geom::Affine| {
@@ -1903,6 +1930,10 @@ mod lensdb_tests;
 #[cfg(test)]
 #[path = "embedded_tests.rs"]
 mod embedded_tests;
+
+#[cfg(test)]
+#[path = "geometry_tests.rs"]
+mod geometry_tests;
 
 #[cfg(test)]
 mod tests {

@@ -5,7 +5,7 @@
 //! Normalized coordinates (masks, spots, crop) refer to the *transformed* image: the oriented source after
 //! lens correction and perspective, at the source's size. Everything is sampled in one resample.
 
-use li_raster::resample::Filter;
+use li_raster::resample::{Filter, weights};
 use li_raster::{RgbFrame, par_rows};
 use lightcraft_develop::{DevelopSettings, EmbeddedLens};
 use lightcraft_geom::{Affine, CropGeometry, Homography, Orientation, Point, Rect};
@@ -269,12 +269,16 @@ impl Frame {
 
     /// Sample the source into a `w × h` output buffer: orientation, crop, rotation, flips — one
     /// bilinear resample from a pre-filtered (area-downscaled) copy, so minification never aliases.
+    /// The prefilter suppresses ringing: a Mitchell reduction of scene-linear light would otherwise
+    /// outline every bright window or lamp in black.
     pub fn sample(&self, src: &RgbFrame, w: usize, h: usize) -> RgbFrame {
         let oriented = if self.orient == Orientation::Normal { None } else { Some(src.oriented(self.orient)) };
         let o = oriented.as_ref().unwrap_or(src);
         let plan = self.sample_plan(src.width, src.height, w, h);
         let base = match plan.prefilter {
-            Some((nw, nh)) => std::borrow::Cow::Owned(o.resize(nw, nh, Filter::Mitchell)),
+            Some((nw, nh)) => {
+                std::borrow::Cow::Owned(o.resample_antiring(&weights(o.width, nw, Filter::Mitchell), &weights(o.height, nh, Filter::Mitchell)))
+            }
             None => std::borrow::Cow::Borrowed(o),
         };
         let affine = |xf: Affine| {
@@ -313,7 +317,8 @@ pub struct SamplePlan {
     /// Oriented source size.
     pub ow: usize,
     pub oh: usize,
-    /// Size of the Mitchell prefilter (area downscale before the bilinear resample), if any.
+    /// Size of the Mitchell prefilter (area downscale with ringing suppressed, before the bilinear
+    /// resample), if any.
     pub prefilter: Option<(usize, usize)>,
     /// Oriented-source px → prefiltered px.
     pub sx: f64,
@@ -494,6 +499,31 @@ mod tests {
             assert!((f.aspect() - want).abs() < 1e-9, "{rect:?}: {}", f.aspect());
             let (w, h) = f.fit(1000, 1000);
             assert!((1..=1000).contains(&w) && (1..=1000).contains(&h), "{rect:?}: {w}×{h}");
+        }
+    }
+
+    /// A window eight stops over the wall beside it, rendered reduced (a fit view, a web export):
+    /// the scene-linear prefilter used to ring the wall next to the window below zero, a black
+    /// outline after tone mapping. Unrotated and straightened frames alike stay within the scene.
+    #[test]
+    fn reduced_renders_do_not_outline_bright_windows_in_black() {
+        let (wall, window) = (0.18f32, 0.18 * 256.0);
+        for edge in [600, 601, 602] {
+            let src = RgbFrame::from_fn(1200, 400, |x, _| if x < edge { [wall; 3] } else { [window; 3] });
+            for angle in [0.0, 2.0] {
+                let mut s = DevelopSettings::default();
+                s.crop.geometry.angle = angle;
+                let f = Frame::new(1200, 400, &s, true);
+                for (w, h) in [(400, 133), (533, 178)] {
+                    let out = f.sample(&src, w, h);
+                    for (i, p) in out.data.iter().enumerate() {
+                        assert!(
+                            p.iter().all(|v| *v >= wall * (1.0 - 1e-3) && *v <= window * (1.0 + 1e-3)),
+                            "edge {edge}, angle {angle}, {w}×{h}, pixel {i}: {p:?}"
+                        );
+                    }
+                }
+            }
         }
     }
 

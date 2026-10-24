@@ -215,6 +215,94 @@ pub fn weights(src: usize, dst: usize, filter: Filter) -> Vec<(usize, Vec<f32>)>
         .collect()
 }
 
+/// Ringing suppression for resampling scene-linear light: `v` is a weighted sum of samples, `core`
+/// the range of the samples with a positive weight and `all` the range of every sample read.
+///
+/// A cubic kernel's negative lobes over- and undershoot an edge by a fixed fraction of the step. In
+/// scene-linear light a window six stops over the wall beside it is a step of 60× the wall, so the
+/// undershoot turns the wall next to the window black. The result is pulled into `core` as the
+/// contrast `all.1 : all.0` rises from 1.5:1 (left alone, so low-contrast texture keeps the
+/// kernel's full response) to 4:1 (clamped), and always when the darkest sample is not positive.
+#[inline]
+pub fn antiring(v: f32, core: (f32, f32), all: (f32, f32)) -> f32 {
+    if core.0 > core.1 {
+        return v;
+    }
+    let gate = if all.0 > 0.0 { ((all.1 - 1.5 * all.0) / (2.5 * all.0)).clamp(0.0, 1.0) } else { 1.0 };
+    v + (v.max(core.0).min(core.1) - v) * gate
+}
+
+/// Running sum of weighted RGB samples with the ranges [`antiring`] needs, accumulated in tap order
+/// (the GPU kernels add in the same order).
+#[derive(Clone, Copy)]
+pub(crate) struct AntiringSum {
+    acc: [f32; 3],
+    core: [(f32, f32); 3],
+    all: [(f32, f32); 3],
+}
+
+impl AntiringSum {
+    pub(crate) const EMPTY: Self = Self { acc: [0.0; 3], core: [(f32::INFINITY, f32::NEG_INFINITY); 3], all: [(f32::INFINITY, f32::NEG_INFINITY); 3] };
+
+    /// Add `s·w`; `core` marks a sample inside the kernel's positive lobe.
+    #[inline]
+    pub(crate) fn add(&mut self, s: [f32; 3], w: f32, core: bool) {
+        for (c, v) in s.into_iter().enumerate() {
+            self.acc[c] += v * w;
+            self.all[c] = (self.all[c].0.min(v), self.all[c].1.max(v));
+            if core {
+                self.core[c] = (self.core[c].0.min(v), self.core[c].1.max(v));
+            }
+        }
+    }
+
+    #[inline]
+    pub(crate) fn finish(&self) -> [f32; 3] {
+        std::array::from_fn(|c| antiring(self.acc[c], self.core[c], self.all[c]))
+    }
+}
+
+/// Separable resample of scene-linear RGB through precomputed taps (`wx` per output column, `wy`
+/// per output row: [`weights`] or [`offset_weights`]), with ringing suppressed in each pass
+/// ([`antiring`]). Output is `wx.len() × wy.len()`.
+pub fn resize_antiring(data: &[[f32; 3]], width: usize, height: usize, wx: &[(usize, Vec<f32>)], wy: &[(usize, Vec<f32>)]) -> Vec<[f32; 3]> {
+    let (w, h) = (wx.len(), wy.len());
+    let mut out = vec![[0.0f32; 3]; w * h];
+    if width == 0 || height == 0 || w == 0 || data.len() < width * height {
+        return out;
+    }
+    const BAND: usize = 64;
+    par_rows(&mut out, w * BAND, |band, rows| {
+        let y0 = band * BAND;
+        let taps = &wy[y0..y0 + rows.len() / w];
+        let first = taps.iter().map(|t| t.0).min().unwrap_or(0).min(height - 1);
+        let last = taps.iter().map(|t| t.0 + t.1.len()).max().unwrap_or(first).clamp(first, height);
+        let mut horizontal = vec![[0.0f32; 3]; (last - first) * w];
+        for (sy, out) in (first..last).zip(horizontal.chunks_exact_mut(w)) {
+            let source = &data[sy * width..(sy + 1) * width];
+            for (p, (start, weights)) in out.iter_mut().zip(wx) {
+                let mut sum = AntiringSum::EMPTY;
+                for (s, &wt) in source.iter().skip(*start).zip(weights) {
+                    sum.add(*s, wt, wt > 0.0);
+                }
+                *p = sum.finish();
+            }
+        }
+        for (row, (start, weights)) in rows.chunks_exact_mut(w).zip(taps) {
+            for (x, p) in row.iter_mut().enumerate() {
+                let mut sum = AntiringSum::EMPTY;
+                for (k, &wt) in weights.iter().enumerate() {
+                    if let Some(s) = (start + k).checked_sub(first).and_then(|r| horizontal.get(r * w + x)) {
+                        sum.add(*s, wt, wt > 0.0);
+                    }
+                }
+                *p = sum.finish();
+            }
+        }
+    });
+    out
+}
+
 /// Pixel types that can be resampled (linear combination).
 pub trait Pixel: Copy + Default + Send + Sync {
     fn zero() -> Self;
@@ -705,5 +793,74 @@ mod lanczos_tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod antiring_tests {
+    use super::*;
+
+    /// A window six to eight stops over the wall beside it: the plain Mitchell reduction rings the
+    /// wall below zero (black after tone mapping); the anti-ringing resample keeps every pixel
+    /// within the source's range, in every channel.
+    #[test]
+    fn scene_linear_reduction_never_rings_past_a_high_contrast_edge() {
+        let (w0, h0) = (1203, 9);
+        let wall = [0.05f32, 0.04, 0.03];
+        let window = [0.18 * 256.0, 0.9 * 64.0, 1.2 * 100.0];
+        let mut plain_rings = false;
+        for edge in [600, 601, 602] {
+            let src: Vec<[f32; 3]> = (0..w0 * h0).map(|i| if i % w0 < edge { wall } else { window }).collect();
+            for w in [401, 300, 151, 960] {
+                let (wx, wy) = (weights(w0, w, Filter::Mitchell), weights(h0, 3, Filter::Mitchell));
+                plain_rings |= resize_pixels(&src, w0, h0, w, 3, Filter::Mitchell).iter().any(|p| p[0] < 0.0);
+                let out = resize_antiring(&src, w0, h0, &wx, &wy);
+                for p in &out {
+                    for c in 0..3 {
+                        assert!(p[c] >= wall[c] * (1.0 - 1e-5) && p[c] <= window[c] * (1.0 + 1e-5), "edge {edge}, width {w}: {p:?}");
+                    }
+                }
+            }
+        }
+        assert!(plain_rings, "the plain Mitchell reduction rings below zero");
+    }
+
+    /// Below 1.5:1 contrast the result is the plain weighted sum: fine texture keeps the kernel's
+    /// response, and a flat field stays exact.
+    #[test]
+    fn low_contrast_texture_resamples_like_the_plain_kernel() {
+        let (w0, h0) = (97, 41);
+        let src: Vec<[f32; 3]> = (0..w0 * h0)
+            .map(|i| {
+                let (x, y) = ((i % w0) as f32, (i / w0) as f32);
+                [0.2 + 0.03 * (x * 1.3).sin(), 0.3 + 0.05 * (y * 0.9 + x * 0.4).cos(), 0.25]
+            })
+            .collect();
+        for (w, h) in [(40, 17), (61, 29)] {
+            for f in [Filter::Mitchell, Filter::CatmullRom, Filter::Lanczos3] {
+                let plain = resize_pixels(&src, w0, h0, w, h, f);
+                let out = resize_antiring(&src, w0, h0, &weights(w0, w, f), &weights(h0, h, f));
+                for (a, b) in out.iter().zip(&plain) {
+                    for c in 0..3 {
+                        assert!((a[c] - b[c]).abs() < 1e-6, "{f:?} {w}x{h}: {a:?} vs {b:?}");
+                    }
+                }
+            }
+        }
+        let flat = vec![[0.42f32, 3.5, 0.0]; w0 * h0];
+        for p in resize_antiring(&flat, w0, h0, &weights(w0, 30, Filter::Mitchell), &weights(h0, 13, Filter::Mitchell)) {
+            assert!((p[0] - 0.42).abs() < 1e-6 && (p[1] - 3.5).abs() < 1e-5 && p[2] == 0.0, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn antiring_clamps_by_contrast() {
+        // 1.4:1 is left alone, 4:1 and a non-positive darkest sample are clamped, half way between
+        // is half clamped
+        assert_eq!(antiring(-0.1, (1.0, 1.0), (1.0, 1.4)), -0.1);
+        assert_eq!(antiring(-0.1, (1.0, 2.0), (1.0, 4.0)), 1.0);
+        assert_eq!(antiring(3.0, (0.0, 2.0), (-0.01, 0.5)), 2.0);
+        assert!((antiring(0.5, (1.0, 1.0), (1.0, 2.75)) - 0.75).abs() < 1e-6);
+        assert_eq!(antiring(0.7, (f32::INFINITY, f32::NEG_INFINITY), (f32::INFINITY, f32::NEG_INFINITY)), 0.7);
     }
 }
