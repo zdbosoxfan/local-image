@@ -456,7 +456,7 @@ mod tests {
             // exact unless a channel left the display gamut (clipped at 0, as engines take it)
             let clipped = encoded.contains(&0.0);
             exact += usize::from(!clipped);
-            let tolerance = if clipped { p.map(|v| v * 0.1 + 2e-3) } else { p.map(|v| v * 1e-4 + 1e-6) };
+            let tolerance = if clipped { p.map(|v| v * 0.04 + 2e-3) } else { p.map(|v| v * 1e-4 + 1e-6) };
             for c in 0..3 {
                 assert!((back[c] - p[c]).abs() < tolerance[c], "{p:?} → {back:?}");
             }
