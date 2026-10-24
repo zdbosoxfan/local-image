@@ -86,12 +86,9 @@ impl Flow {
 /// takes [`GPU_GATE`] (the decode before it does not), so batch items share the GPU one at a
 /// time while their decoding and the CPU work around it overlap.
 pub fn run_render_job(mut job: crate::media::RenderJob) -> crate::media::RenderResult {
-    // the same request-level conditions under which `lightcraft_gpu::render` declines; with
-    // no usable GPU (or GPU off) batch renders run side by side on the CPU
-    let gpu = job.cache.is_none()
-        && job.request.proof.is_none()
-        && job.request.depth != lightcraft_pipeline::OutputDepth::F32Linear
-        && lightcraft_gpu::available();
+    // the conditions under which `develop` keeps the render off the GPU; those renders, and
+    // all of them with no usable GPU (or GPU off), run side by side on the CPU
+    let gpu = job.cache.is_none() && crate::media::cpu_only(&job.settings, &job.request).is_none() && lightcraft_gpu::available();
     if !gpu {
         return job.run();
     }

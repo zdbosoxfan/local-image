@@ -681,12 +681,8 @@ impl RenderJob {
 /// `LIGHTCRAFT_GPU=0` or [`lightcraft_gpu::set_enabled`] forces the CPU.
 pub fn develop(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req: &RenderRequest, stages: Option<&StageCache>, gpu: bool) -> Rendered {
     if gpu {
-        let cpu_reason = if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
-            "the selected LUT profile requires CPU processing".to_string()
-        } else if s.masks.iter().any(|m| m.visible && m.refine > 0.0) {
-            "mask refinement requires CPU processing".to_string()
-        } else if req.proof.is_some() {
-            "soft proofing requires CPU processing".to_string()
+        let cpu_reason = if let Some(reason) = cpu_only(s, req) {
+            reason.to_string()
         } else if let Some(r) = lightcraft_gpu::render(src, info, s, req, stages) {
             log_develop_backend(&format!("GPU: {}", lightcraft_gpu::adapter_name().unwrap_or_default()));
             return r;
@@ -699,6 +695,17 @@ pub fn develop(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req:
         Some(st) => lightcraft_pipeline::render_cached(src, info, s, req, st),
         None => lightcraft_pipeline::render(src, info, s, req),
     })
+}
+
+/// Why [`develop`] renders `s` for `req` on the CPU even with a GPU (`None`: the GPU takes it).
+pub(crate) fn cpu_only(s: &DevelopSettings, req: &RenderRequest) -> Option<&'static str> {
+    if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
+        Some("the selected LUT profile requires CPU processing")
+    } else if req.proof.is_some() {
+        Some("soft proofing requires CPU processing")
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
