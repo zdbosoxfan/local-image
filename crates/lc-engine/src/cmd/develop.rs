@@ -70,6 +70,18 @@ fn edit_version(s: &mut Session, p: &Value, c: &str, label: &str, f: impl FnOnce
     ok()
 }
 
+/// What Reset returns photo `id` to: what import gave it (a raw's camera defaults, or its default
+/// preset's look), with As Shot labelled by the as-shot white balance the source reports now (a
+/// catalog made by an older inference may hold another).
+fn reset_base(s: &Session, id: PhotoId) -> Option<DevelopSettings> {
+    let mut base = s.catalog.photo(id)?.import_defaults();
+    if base.wb.mode == WbMode::AsShot {
+        let info = s.source_info(id);
+        (base.wb.temp, base.wb.tint) = (info.as_shot_temp, info.as_shot_tint);
+    }
+    Some(base)
+}
+
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         cmd!(
@@ -161,26 +173,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("develop.reset", "Reset Edits", ["Photo"], Some("Cmd+Shift+R"), "{ids?}", has_selection, |s, p| {
             let ids = s.targets(p)?;
-            let ops = ids
-                .iter()
-                .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
-                .filter_map(|(id, _d)| {
-                    // back to the photo's import defaults when a default preset gave it its look
-                    let look = s.catalog.photo(id).and_then(|p| p.import_look.clone());
-                    let fresh = match look {
-                        Some(l) => (*l).clone(),
-                        None => {
-                            let info = s.source_info(id);
-                            DevelopSettings {
-                                wb: lightcraft_develop::WhiteBalance { mode: WbMode::AsShot, temp: info.as_shot_temp, tint: info.as_shot_tint },
-                                look: s.catalog.photo(id).map(|p| p.look).unwrap_or_default(),
-                                ..Default::default()
-                            }
-                        }
-                    };
-                    s.develop_op(id, fresh, "Reset")
-                })
-                .collect();
+            let ops = ids.iter().filter_map(|id| reset_base(s, *id).and_then(|fresh| s.develop_op(*id, fresh, "Reset"))).collect();
             s.commit("Reset", Op::Batch { ops })?;
             ok()
         }),
@@ -228,8 +221,9 @@ pub fn specs() -> Vec<CommandSpec> {
             has_active,
             |s, p| {
                 let sec = section_param(p, "develop.resetSection")?;
+                let base = reset_base(s, active(s, "develop.resetSection")?).unwrap_or_default();
                 edit(s, "develop.resetSection", &format!("Reset {}", sec.label()), |d| {
-                    d.reset_section(sec);
+                    d.reset_section_to(sec, &base);
                     Ok(())
                 })
             }
@@ -237,8 +231,30 @@ pub fn specs() -> Vec<CommandSpec> {
         cmd!("develop.resetControl", "Reset Control", [], None, "{control}", has_active, |s, p| {
             let c = str_param(p, "control").ok_or_else(|| bad("develop.resetControl", "missing control"))?.to_string();
             let spec = controls::find(&c).ok_or_else(|| bad("develop.resetControl", "unknown control"))?;
+            let id = active(s, "develop.resetControl")?;
+            let (base, info) = (reset_base(s, id).unwrap_or_default(), s.source_info(id));
             edit(s, "develop.resetControl", spec.label, |d| {
-                controls::set(d, &c, spec.default);
+                let value = controls::get(&base, &c).unwrap_or(spec.default);
+                let other = match c.as_str() {
+                    "wb.temp" => "wb.tint",
+                    "wb.tint" => "wb.temp",
+                    _ => {
+                        controls::set(d, &c, value);
+                        return Ok(());
+                    }
+                };
+                // white balance: the photo's own balance comes back whole (As Shot, say) while it
+                // is still in its own mode or the other value is its own too; else a custom
+                // balance with only this value reset
+                if (d.wb.mode == base.wb.mode && base.wb.mode != WbMode::Custom) || controls::get(d, other) == controls::get(&base, other) {
+                    d.wb = base.wb;
+                } else {
+                    if d.wb.mode == WbMode::AsShot {
+                        (d.wb.temp, d.wb.tint) = (info.as_shot_temp, info.as_shot_tint);
+                    }
+                    controls::set(d, &c, value);
+                    d.wb.mode = WbMode::Custom;
+                }
                 Ok(())
             })
         }),

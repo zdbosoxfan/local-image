@@ -125,27 +125,30 @@ impl DevelopSettings {
 
     /// Reset every control in `section` to its default.
     pub fn reset_section(&mut self, section: Section) {
+        self.reset_section_to(section, &DevelopSettings::default());
+    }
+
+    /// Reset `section` to what it is in `base` (a photo's own defaults: a raw's sharpening and
+    /// colour noise reduction, its as-shot white balance, its default preset's look).
+    pub fn reset_section_to(&mut self, section: Section, base: &DevelopSettings) {
         for c in controls::in_section(section) {
-            controls::set(self, c.id, c.default);
+            controls::set(self, c.id, controls::get(base, c.id).unwrap_or(c.default));
         }
         match section {
-            Section::Curve => {
-                let d = ToneCurve::default();
-                self.curve = d;
-            }
-            Section::Color => self.wb.mode = WbMode::AsShot,
+            Section::Curve => self.curve = base.curve.clone(),
+            Section::Color => self.wb.mode = base.wb.mode,
             // the film stock too; whether the conversion is on stays as it was
-            Section::Negative => self.negative = Negative { enabled: self.negative.enabled, ..Negative::default() },
+            Section::Negative => self.negative = Negative { enabled: self.negative.enabled, ..base.negative },
             // the tools' other settings too; whether they are on stays as it was
             Section::Raw => {
                 let on = self.raw.capture.enabled;
-                self.raw = RawProcessing::default();
+                self.raw = base.raw;
                 self.raw.capture.enabled = on;
             }
-            Section::LensDb => self.lens_db = LensDb { enabled: self.lens_db.enabled, ..LensDb::default() },
-            Section::ToneEq => self.tone_eq = ToneEq { enabled: self.tone_eq.enabled, ..ToneEq::default() },
-            Section::SkinTone => self.skin_tone = SkinTone::default(),
-            Section::ColorCal => self.color_cal = ColorCal { enabled: self.color_cal.enabled, ..ColorCal::default() },
+            Section::LensDb => self.lens_db = LensDb { enabled: self.lens_db.enabled, ..base.lens_db.clone() },
+            Section::ToneEq => self.tone_eq = ToneEq { enabled: self.tone_eq.enabled, ..base.tone_eq },
+            Section::SkinTone => self.skin_tone = base.skin_tone,
+            Section::ColorCal => self.color_cal = ColorCal { enabled: self.color_cal.enabled, ..base.color_cal },
             _ => {}
         }
     }
@@ -163,6 +166,22 @@ mod tests_ai;
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn sections_reset_to_the_photos_own_defaults() {
+        let raw = DevelopSettings::for_raw(5200.0, 4.0);
+        let mut d = raw.clone();
+        d.detail.sharpen_amount = 90.0;
+        d.detail.nr_color = 0.0;
+        d.detail.nr_luminance = 30.0;
+        d.wb = WhiteBalance { mode: WbMode::Custom, temp: 3000.0, tint: 20.0 };
+        d.reset_section_to(Section::Detail, &raw);
+        assert_eq!((d.detail.sharpen_amount, d.detail.nr_color, d.detail.nr_luminance), (40.0, 25.0, 0.0));
+        d.reset_section_to(Section::Color, &raw);
+        assert_eq!(d.wb, raw.wb, "the as-shot white balance");
+        d.reset_section(Section::Detail);
+        assert_eq!((d.detail.sharpen_amount, d.detail.nr_color), (0.0, 0.0), "the generic defaults");
+    }
 
     #[test]
     fn lenscorr_old_embedded_records_load_and_radial_tables_roundtrip() {

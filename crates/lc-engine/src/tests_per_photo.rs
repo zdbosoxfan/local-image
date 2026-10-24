@@ -124,3 +124,71 @@ fn hover_previews_of_photos_with_equal_settings_are_told_apart() {
     assert_ne!(a, b, "the same hovered look on another photo is another render");
     assert_eq!(a, s.preview_job(A, 800, 600, true, &look).unwrap().key, "the same hover on the same photo reuses its render");
 }
+
+/// A raw as import leaves it: measured as-shot white balance 5200 K / +4, embedded lens
+/// corrections, the camera defaults (sharpening, colour noise reduction, lens profile on).
+fn imported_raw() -> (Session, PhotoId) {
+    let mut s = Session::new();
+    let id = PhotoId(7);
+    let mut p = Photo::new(id, Source::File { path: "a1.arw".into() }, "a1.arw", "ARW", 64, 48, "2026-01-01");
+    p.kind = lightcraft_catalog::MediaKind::Raw;
+    p.measured_wb = true;
+    p.as_shot_wb = Some((5200.0, 4.0));
+    p.embedded_lens = Some(lightcraft_develop::EmbeddedLens::default());
+    p.develop = Arc::new(p.camera_defaults());
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    s.execute("library.select", &json!({"ids": [id.0], "active": id.0})).unwrap();
+    (s, id)
+}
+
+#[test]
+fn reset_returns_a_raw_to_its_camera_defaults() {
+    let (mut s, id) = imported_raw();
+    s.execute("develop.set", &json!({"values": {"light.exposure": 1.0, "detail.sharpenAmount": 90.0, "detail.nrColor": 0.0}})).unwrap();
+    s.execute("develop.reset", &json!({})).unwrap();
+    let p = s.catalog.photo(id).unwrap();
+    assert_eq!(*p.develop, p.camera_defaults());
+    let d = &p.develop;
+    assert_eq!((d.detail.sharpen_amount, d.detail.nr_color, d.optics.lens_profile), (40.0, 25.0, true));
+    assert!(!p.is_edited(), "a reset photo reads as unedited");
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().light.exposure, 1.0, "Reset is one undo step");
+}
+
+#[test]
+fn resetting_a_control_uses_the_photos_own_default() {
+    let (mut s, id) = imported_raw();
+    s.execute("develop.set", &json!({"control": "detail.sharpenAmount", "value": 90})).unwrap();
+    s.execute("develop.resetControl", &json!({"control": "detail.sharpenAmount"})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().detail.sharpen_amount, 40.0);
+
+    s.execute("develop.set", &json!({"control": "wb.temp", "value": 3000})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().wb.mode, lightcraft_develop::WbMode::Custom);
+    s.execute("develop.resetControl", &json!({"control": "wb.temp"})).unwrap();
+    let wb = s.develop_of(id).unwrap().wb;
+    assert_eq!((wb.mode, wb.temp, wb.tint), (lightcraft_develop::WbMode::AsShot, 5200.0, 4.0), "back to As Shot");
+
+    s.execute("develop.set", &json!({"values": {"wb.temp": 3000, "wb.tint": 20}})).unwrap();
+    s.execute("develop.resetControl", &json!({"control": "wb.temp"})).unwrap();
+    let wb = s.develop_of(id).unwrap().wb;
+    assert_eq!((wb.mode, wb.temp, wb.tint), (lightcraft_develop::WbMode::Custom, 5200.0, 20.0), "only Temp returns");
+
+    s.execute("develop.set", &json!({"values": {"detail.sharpenAmount": 0, "detail.nrColor": 0, "detail.nrLuminance": 30}})).unwrap();
+    s.execute("develop.resetSection", &json!({"section": "detail"})).unwrap();
+    let d = s.develop_of(id).unwrap();
+    assert_eq!((d.detail.sharpen_amount, d.detail.nr_color, d.detail.nr_luminance), (40.0, 25.0, 0.0));
+}
+
+#[test]
+fn resetting_a_rendered_photo_keeps_the_generic_defaults() {
+    let mut s = Session::new();
+    let id = PhotoId(9);
+    let p = Photo::new(id, Source::File { path: "a.jpg".into() }, "a.jpg", "JPEG", 64, 48, "2026-01-01");
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    s.execute("library.select", &json!({"ids": [id.0], "active": id.0})).unwrap();
+    s.execute("develop.set", &json!({"values": {"detail.sharpenAmount": 60, "light.exposure": 0.5}})).unwrap();
+    s.execute("develop.resetControl", &json!({"control": "detail.sharpenAmount"})).unwrap();
+    assert_eq!(s.develop_of(id).unwrap().detail.sharpen_amount, 0.0);
+    s.execute("develop.reset", &json!({})).unwrap();
+    assert_eq!(*s.develop_of(id).unwrap(), lightcraft_develop::DevelopSettings::default());
+}

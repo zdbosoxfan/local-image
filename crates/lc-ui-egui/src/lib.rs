@@ -48,6 +48,8 @@ mod tests_develop_a;
 #[cfg(test)]
 mod tests_develop_c;
 #[cfg(test)]
+mod tests_develop_view;
+#[cfg(test)]
 mod tests_dialogs;
 #[cfg(test)]
 mod tests_doc_layers;
