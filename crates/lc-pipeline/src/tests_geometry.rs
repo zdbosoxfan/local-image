@@ -548,3 +548,73 @@ fn upright_uses_the_photos_focal_length() {
         assert!((aspect - 1.0).abs() < 0.01, "{mode:?}: corrected facade aspect {aspect:.4}");
     }
 }
+
+/// Segments of `n` lines through `(x, 0)` for `x` in `-half..=half`, converging to the vanishing
+/// point `v` (centred units), each spanning `y ∈ [-0.45, 0.45]`.
+fn converging_segments(v: Point, n: usize, half: f64) -> Vec<Segment> {
+    (0..n)
+        .map(|i| {
+            let x = -half + 2.0 * half * i as f64 / (n - 1) as f64;
+            let at = |y: f64| Point::new(x + (v.x - x) * y / v.y, y);
+            Segment { a: at(-0.45), b: at(0.45) }
+        })
+        .collect()
+}
+
+/// How far a corrected segment leans (x change over its run, centred units).
+fn lean(h: &lightcraft_geom::Homography, s: &Segment) -> f64 {
+    (h.apply(s.a).x - h.apply(s.b).x).abs()
+}
+
+/// A tall building from street level with a 16 mm lens tilted 26° up puts the verticals' vanishing
+/// point 1.8 half-long-edges above the centre, inside the cutoff that keeps sun rays and roads to
+/// the horizon from being "corrected": explicit Vertical and Full levelled only. They now take a
+/// steep vanishing point beyond the frame and near the vertical axis; Auto stays moderate.
+#[test]
+fn upright_vertical_and_full_correct_steep_tilts() {
+    use lightcraft_develop::Upright;
+    let f = 16.0 / 18.0;
+    let v = Point::new(0.0, -f / 26f64.to_radians().tan());
+    let mut segs = converging_segments(v, 9, 0.9);
+    segs.extend([-0.4, 0.0, 0.4].map(|y| Segment { a: Point::new(-0.8, y), b: Point::new(0.8, y) }));
+    let a = crate::upright::Analysis { extent: Some([1.0, 2.0 / 3.0]), focal: Some(f), ..crate::upright::analyze(&segs) };
+    assert!(a.vertical_vp.is_none() && a.vertical_vp_steep.is_some(), "{a:?}");
+    for mode in [Upright::Vertical, Upright::Full] {
+        let h = crate::upright::solve(mode, &a);
+        for s in &segs[..9] {
+            assert!(lean(&h, s) < 1e-6, "{mode:?}: {s:?} leans {}", lean(&h, s));
+        }
+    }
+    let auto = crate::upright::solve(Upright::Auto, &a);
+    assert!(lean(&auto, &segs[0]) > 0.1, "Auto keeps to moderate tilts");
+    // a portrait frame: the same tilt, the frame's half height is the long edge
+    let a = crate::upright::Analysis { extent: Some([2.0 / 3.0, 1.0]), ..a };
+    assert!(lean(&crate::upright::solve(Upright::Vertical, &a), &segs[0]) < 1e-6);
+    // converging inside the frame (sun rays): not a camera tilt, Vertical only levels
+    let rays = converging_segments(Point::new(0.0, -0.7), 9, 0.3);
+    let a = crate::upright::Analysis { extent: Some([1.0, 2.0 / 3.0]), ..crate::upright::analyze(&rays) };
+    assert!(a.vertical.len() == 9 && a.vertical_vp_steep.is_some(), "{a:?}");
+    let h = crate::upright::solve(Upright::Vertical, &a);
+    assert!(lean(&h, &rays[0]) > 0.3, "sun rays are left alone");
+}
+
+/// The same steep tilt found in a rendered facade, landscape and portrait: Vertical corrects it.
+#[test]
+fn upright_finds_steep_tilts_in_a_rendered_facade() {
+    use crate::transform::{recentre, rot_x, rotation_homography};
+    let f = 16.0 / 18.0;
+    for (w, h) in [(720usize, 480usize), (480, 720)] {
+        let shot = recentre(&rotation_homography(&rot_x(-26f64.to_radians()), f));
+        let src = keystoned_grid(w, h, shot, 48.0);
+        let to_source = shot.inverse().expect("invertible");
+        let info = SourceInfo { focal_35mm: Some(16.0), ..Default::default() };
+        let a = crate::upright::analyze_source(&src, &info, &DevelopSettings::default());
+        assert!(a.vertical_vp.is_none() && a.vertical_vp_steep.is_some(), "{w}×{h}: {:?} {:?}", a.vertical_vp, a.vertical_vp_steep);
+        let fix = crate::upright::solve(Upright::Vertical, &a);
+        let c = |x: f64, y: f64| fix.apply(to_source.apply(Point::new(x, y)));
+        for x in [-0.5, 0.0, 0.5] {
+            let lean = c(x, -0.4).x - c(x, 0.4).x;
+            assert!(lean.abs() < 0.01, "{w}×{h}: the facade line at {x} leans by {lean:.4}");
+        }
+    }
+}
