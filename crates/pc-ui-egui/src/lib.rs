@@ -179,6 +179,7 @@ pub mod menu_catalog;
 pub mod menu_nav;
 pub mod menus;
 pub mod model_browser;
+pub mod model_setup;
 pub mod monitor_status;
 mod move_fast;
 mod move_input;

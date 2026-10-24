@@ -111,6 +111,10 @@ pub struct EngineStatus {
     /// The sampler limits the connected ComfyUI reports (steps, guidance, denoise).
     pub limits: Option<li_ai::comfy::SamplerLimits>,
     pub object_info: Option<Arc<li_ai::comfy::ObjectInfo>>,
+    /// The version ComfyUI reports (`0.42.5`; empty when it doesn't say).
+    pub comfyui_version: String,
+    /// Model setup for this server: new models, models to re-check, each model's status.
+    pub setup: li_ai::modelsetup::summary::Summary,
 }
 
 impl EngineStatus {
@@ -233,6 +237,8 @@ fn poll_loop(s: Arc<Shared>) {
         let mut presets = s.status.lock().map(|x| x.presets.clone()).unwrap_or_default();
         let mut limits = s.status.lock().ok().and_then(|x| x.limits);
         let mut object_info = s.status.lock().ok().and_then(|x| x.object_info.clone());
+        let mut setup = s.status.lock().map(|x| x.setup.clone()).unwrap_or_default();
+        let comfyui_version = stats.as_ref().map(li_ai::modelsetup::version_of).unwrap_or_default();
         let mut error = String::new();
         if connected && (forced || !connected_before || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30))) {
             match ai.client.object_info() {
@@ -255,6 +261,7 @@ fn poll_loop(s: Arc<Shared>) {
                         })
                         .collect();
                     object_info = Some(Arc::new(info));
+                    setup = li_ai::modelsetup::summary::summary(&host, Some(&comfyui_version));
                     last_inventory = Some(Instant::now());
                 }
                 Err(e) => error = format!("{e:#}"),
@@ -264,6 +271,7 @@ fn poll_loop(s: Arc<Shared>) {
             presets.clear();
             limits = None;
             object_info = None;
+            setup = Default::default();
             last_inventory = None;
         }
         let child_alive = match CHILD.is_running() {
@@ -277,8 +285,21 @@ fn poll_loop(s: Arc<Shared>) {
         };
         let changed;
         if let Ok(mut st) = s.status.lock() {
-            let new = EngineStatus { checked: true, connected, host, gpu, presets, error, starting: child_alive && !connected, limits, object_info };
+            let new = EngineStatus {
+                checked: true,
+                connected,
+                host,
+                gpu,
+                presets,
+                error,
+                starting: child_alive && !connected,
+                limits,
+                object_info,
+                comfyui_version,
+                setup,
+            };
             changed = pressure_changed
+                || st.setup != new.setup
                 || st.host != new.host
                 || st.connected != new.connected
                 || st.presets != new.presets
@@ -1189,11 +1210,16 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     ui.painter().circle_filled(egui::pos2(r.left() + 10.0, r.center().y), 3.5, dot);
     ui.painter().galley(egui::pos2(r.left() + 18.0, r.center().y - galley.size().y / 2.0), galley, t.text_dim);
-    let resp = resp.on_hover_text(if st.connected {
+    let mut tip = if st.connected {
         li_i18n::fmt(tl!("ComfyUI at {host} — click for Local AI settings"), &[("host", &st.host)])
     } else {
         tl!("Local AI is off — click to set it up").into()
-    });
+    };
+    if st.connected && !st.setup.new.is_empty() {
+        tip.push('\n');
+        tip.push_str(&li_i18n::fmt(tl!("{n} new models found: Window › Set Up Models…"), &[("n", &st.setup.new.len().to_string())]));
+    }
+    let resp = resp.on_hover_text(tip);
     if resp.clicked() {
         open_local_ai(app);
     }
@@ -1321,6 +1347,7 @@ pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     crate::generate_ui::batch_window(app, ctx);
     crate::generate_ui::cloud_confirm_window(app, ctx);
     crate::model_browser::window(app, ctx);
+    crate::model_setup::window(app, ctx);
     remove_confirm(app, ctx);
 }
 
@@ -1572,6 +1599,7 @@ const IDS: &[&str] = &[
     "li.draftRefine",
     "li.localAi",
     "li.browseModels",
+    "li.modelSetup",
     crate::context_bar::TOGGLE_ID,
     "li.filmstrip",
     crate::develop_layer::DEVELOP_ID,
@@ -1640,6 +1668,8 @@ pub fn menu(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: &Val
             (Some("lora"), Some(f)) => crate::model_browser::open_loras(f),
             _ => crate::model_browser::open(),
         },
+        // `{"model": key}` opens it on that model.
+        "li.modelSetup" => crate::model_setup::open(params.get("model").and_then(Value::as_str)),
         _ => {}
     }
     Some(Ok(Value::Null))

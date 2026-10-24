@@ -241,6 +241,8 @@ const PENDING_AI_TRANSLATIONS: &[&str] = &[
 
 const PENDING_VECTOR_TRANSLATIONS: &[&str] = include!("i18n_pending_vector.rs");
 
+const PENDING_MODEL_SETUP_TRANSLATIONS: &[&str] = include!("i18n_pending_model_setup.rs");
+
 /// Languages that claim complete menus have an entry for every label and path segment.
 #[test]
 fn complete_languages_translate_every_menu_string() {
@@ -267,6 +269,7 @@ fn complete_languages_translate_every_menu_string() {
                     && !PENDING_AI_TRANSLATIONS.contains(s)
                     && !PENDING_OVERWRITE_TRANSLATIONS.contains(s)
                     && !PENDING_VECTOR_TRANSLATIONS.contains(s)
+                    && !PENDING_MODEL_SETUP_TRANSLATIONS.contains(s)
                     && cat.plain(s).is_none()
             })
             .collect();
@@ -391,6 +394,7 @@ fn every_tl_literal_is_translated() {
                     && !PENDING_AI_TRANSLATIONS.contains(&s.as_str())
                     && !PENDING_OVERWRITE_TRANSLATIONS.contains(&s.as_str())
                     && !PENDING_VECTOR_TRANSLATIONS.contains(&s.as_str())
+                    && !PENDING_MODEL_SETUP_TRANSLATIONS.contains(&s.as_str())
                     && cat.plain(s).is_none()
             })
             .collect();

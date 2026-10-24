@@ -982,6 +982,18 @@ fn save_preset(s: &mut GenerateState, name: &str) {
     s.preset = name.to_owned();
 }
 
+/// Opens the Generate panel on the model `key` (Set Up Models › Use in Generate).
+pub(crate) fn use_model(app: &mut PhotocraftApp, ctx: &egui::Context, key: &str) {
+    let _ = crate::menus::invoke(app, ctx, "li.panel.generate", json!({}));
+    if let Some(m) = ModelId::from_key(key).filter(|m| m.try_info().is_some()) {
+        let s = &mut app.ui.ai.generate;
+        if !fits_mode(m.info(), s.mode) {
+            s.mode = Mode::Create;
+        }
+        set_model(s, m);
+    }
+}
+
 /// Generate › Import Workflow…: a ComfyUI workflow (API or editor format) with `li:` titles.
 pub fn import_workflow(app: &mut PhotocraftApp) {
     #[cfg(not(target_arch = "wasm32"))]

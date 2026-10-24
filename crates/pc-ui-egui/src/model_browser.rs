@@ -172,7 +172,7 @@ pub fn is_open() -> bool {
 
 /// The sources' configuration: the AI settings' tokens, and the connected ComfyUI's own
 /// (version-matched) copy of the official templates.
-fn config() -> Config {
+pub(crate) fn config() -> Config {
     let mut cfg = Config::from_env(&AiSettings::load());
     let st = crate::ai_ui::status();
     if st.connected && std::env::var("LOCAL_IMAGE_TEMPLATES_BASE").is_err() {
