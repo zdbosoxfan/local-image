@@ -23,12 +23,12 @@ fn shape_from(kind: &str, p: &Value, c: &str) -> Result<MaskShape> {
             feather: f64_or(p, "feather", 50.0),
             invert: bool_or(p, "invert", false),
         },
-        "sky" => MaskShape::Sky { seg: None },
-        "subject" => MaskShape::Subject { seg: None },
-        "background" => MaskShape::Background { seg: None },
+        "sky" => MaskShape::Sky { seg: seg_param(p) },
+        "subject" => MaskShape::Subject { seg: seg_param(p) },
+        "background" => MaskShape::Background { seg: seg_param(p) },
         // local-image: near (0) … far (1) band of the depth model's distance map (`quick_segment`)
         "depth" | "depthRange" => {
-            MaskShape::DepthRange { lo: f64_or(p, "lo", 0.0), hi: f64_or(p, "hi", 0.45), feather: f64_or(p, "feather", 0.15), seg: None }
+            MaskShape::DepthRange { lo: f64_or(p, "lo", 0.0), hi: f64_or(p, "hi", 0.45), feather: f64_or(p, "feather", 0.15), seg: seg_param(p) }
         }
         "luminanceRange" => MaskShape::LuminanceRange {
             lo: f64_or(p, "lo", 0.6),
@@ -181,7 +181,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Create New Mask",
             [],
             None,
-            "{kind: full|empty|brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; object/prompt: seg? a stored segmentation, no model needed), name?} — AI kinds need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found",
+            "{kind: full|empty|brush|linear|radial|sky|subject|background|depth|luminanceRange|colorRange|object|prompt, ...shape params (start/end, center/rx/ry/angle/feather, lo/hi…; object: points/exclude [[x,y],…]; prompt: text; sky/subject/background/depth/object/prompt: seg? a stored segmentation, no model needed), name?} — object and prompt need the SAM 3 model; in the app a prompt returns {pending} and the mask appears when found. A new model-made mask gets Refine Edges 30",
             has_active,
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
@@ -217,11 +217,13 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Ok(json!({"pending": true}));
                 }
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
+                let refine = if crate::quickseg::is_model_mask(&shape) { crate::quickseg::MODEL_EDGE_REFINE } else { 0.0 };
                 let out = masks_edit(s, "mask.add", label, |masks, active| {
                     masks.push(Mask {
                         id: next,
                         name,
                         components: if kind == "empty" { vec![] } else { vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }] },
+                        refine,
                         ..Default::default()
                     });
                     *active = Some(next);
@@ -256,10 +258,15 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Ok(json!({"pending": true}));
                 }
                 let mut comp = 0;
+                let model_made = crate::quickseg::is_model_mask(&shape);
                 let out = masks_edit(s, "mask.addComponent", "Edit Mask", |masks, _| {
                     let i = find(masks, mid, "mask.addComponent")?;
                     masks[i].components.push(MaskComponent { name: None, op, invert: bool_or(p, "invert", false), shape });
                     comp = masks[i].components.len() - 1;
+                    // an empty layer's first model-made shape: refined as a new model mask would be
+                    if comp == 0 && model_made && masks[i].refine == 0.0 {
+                        masks[i].refine = crate::quickseg::MODEL_EDGE_REFINE;
+                    }
                     Ok(())
                 })?;
                 queue_later(s, later, mid, comp, out)
