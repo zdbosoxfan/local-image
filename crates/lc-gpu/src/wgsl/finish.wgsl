@@ -497,11 +497,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dz = ff(F_DEHAZE) + lt[10];
     if (dz != 0.0 && fu(F_HAS_DARK) != 0u) {
         let strength=clamp(dz,-1.0,1.0);
-        let at=i+select(0u,w*h,strength<0.0);
-        let d=dark[at];let air=haze_air();
-        let tmin=clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0);
-        let t=max(1.0-strength*d,tmin);
-        if(t!=1.0) {c=(c-air)/t+air;}
+        c=dehaze_finish(c,strength,dark[i+select(0u,w*h,strength<0.0)]);
     }
 
     var layer_scene=false;
@@ -509,9 +505,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let alpha=alpha_at(layer,i,n);
         if(alpha>0.0 && (descriptor(layer,2u)&1u)!=0u){
             layer_scene=true;layer_context(layer);let strength=clamp(ff(F_DEHAZE),-1.0,1.0);clear_context();
-            if(strength!=0.0 && fu(F_HAS_DARK)!=0u){let dd=dark[i+select(0u,n,strength<0.0)];
-                let air=haze_air();let t=max(1.0-strength*dd,clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0));
-                var q=c;if(t!=1.0){q=(c-air)/t+air;}c=c+(q-c)*alpha;}
+            if(strength!=0.0 && fu(F_HAS_DARK)!=0u){let q=dehaze_finish(c,strength,dark[i+select(0u,n,strength<0.0)]);c=c+(q-c)*alpha;}
         }
     }
     // Local exposure / temp / tint
@@ -788,3 +782,15 @@ fn sharp_delta(amount:f32,l_pre:f32,x:u32,y:u32)->f32 {
 
 fn haze_air()->vec3<f32>{let o=P[F_AIR_PLANE];return vec3<f32>(masks[o],masks[o+1u],masks[o+2u])*bitcast<f32>(P[F_GAIN]);}
 fn haze_distance()->f32{return masks[P[F_AIR_PLANE]+3u];}
+// `haze::dehaze_finish`: upstream's inversion; positive strength uses at most the pixel's own
+// dark value and darkens each channel by at most DEHAZE_FLOOR_EV*strength stops (tanh floor).
+fn dehaze_finish(c:vec3<f32>,strength:f32,dark_value:f32)->vec3<f32>{
+    let air=haze_air();var d=dark_value;
+    if(strength>0.0){d=min(d,max(min(min(c.x/max(air.x,1e-6),c.y/max(air.y,1e-6)),c.z/max(air.z,1e-6)),0.0));}
+    let t=max(1.0-strength*d,clamp(exp(-abs(strength)*haze_distance()),1.0/1024.0,1.0));
+    if(t==1.0){return c;}
+    var q=(c-air)/t+air;
+    if(strength>0.0){let lim=DEHAZE_FLOOR_EV*strength;
+        for(var k=0u;k<3u;k++){if(c[k]>0.0 && q[k]<c[k]){let ev=log2(max(q[k]/c[k],1e-6));let e=exp(2.0*ev/lim);q[k]=c[k]*exp2(-lim*(1.0-e)/(1.0+e));}}}
+    return q;
+}

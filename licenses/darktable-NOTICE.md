@@ -188,8 +188,12 @@ summation replaces upstream's parallel f32 sum. Tiny images use safe clamped tap
 colour-only output preserves Rec.2020 luminance, luminance-only preserves RGB ratios.
 
 Haze retains the modern percentile indices and 95% dark/brightness airlight selection,
-depth estimate, adaptive windows, normalized dark channel, transmission closing,
-RGB covariance/Cramer's solve, cropped Kahan boxes and scene-linear inversion.
+depth estimate, normalized dark channel, transmission closing, RGB covariance/Cramer's
+solve, cropped Kahan boxes and scene-linear inversion. Modified 2026-10-24: the window
+radii are upstream's full-size 6 and 9 px scaled with the output (upstream adapts them as
+2+⌈4s⌉ and 3+⌈6s⌉), and the finish stage bounds positive Dehaze: the dark value is capped
+at the pixel's own, and each channel darkens by at most 1.5·strength stops through a
+smooth floor.
 `Dehaze/100` maps to strength; its absolute value maps to distance. Both signs'
 dark-channel planes are cached. Linearity of RGB guidance lets the normalized
 plane be filtered before applying strength. Airlight summation uses f64; zero

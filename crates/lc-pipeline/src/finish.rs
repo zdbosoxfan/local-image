@@ -604,7 +604,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 if dz != 0.0
                     && let Some(hz) = &p.haze
                 {
-                    c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
+                    c = crate::detail::dehaze_finish(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
                 }
                 // layers: their dehaze, then (below) their white balance and exposure
                 let mut layer_scene = false;
@@ -617,7 +617,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     if l.dehaze != 0.0
                         && let Some(hz) = &p.haze
                     {
-                        c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
+                        c = mix3(c, crate::detail::dehaze_finish(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
                     }
                 }
 
@@ -1054,10 +1054,12 @@ mod colour_tone_tests {
         // transmission rounds to 1, dehaze must be an identity even on negative
         // resampling/profile channels, which the tone stage desaturates later.
         for c in [[-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7], [-0.1, 0.2, 0.3], [1.0, -0.2, 0.1]] {
-            for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
-                assert_eq!(crate::detail::dehaze_px(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+            for dehaze in [crate::detail::dehaze_px, crate::detail::dehaze_finish] {
+                for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
+                    assert_eq!(dehaze(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+                }
+                assert_eq!(dehaze(c, 0.4, 0.0, [1.0; 3], 1.0), c);
             }
-            assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.0, [1.0; 3], 1.0), c);
         }
         // Actual veil removal still follows the existing dehaze formula.
         let c = [-0.1, 0.2, 0.3];

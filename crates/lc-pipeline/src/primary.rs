@@ -88,6 +88,13 @@ pub fn smooth(a: f32, b: f32, x: f32) -> f32 {
     let t = ((x - a) / (b - a)).clamp(0., 1.);
     t * t * (3. - 2. * t)
 }
+/// `x` with slope 1 at 0, approaching `lo` (< 0) and `hi` (> 0) smoothly (tanh), monotone.
+/// The exponential form stays finite for any `x`, as on the GPU.
+pub fn soft_bound(x: f32, lo: f32, hi: f32) -> f32 {
+    let limit = if x < 0. { -lo } else { hi };
+    let e = (-2. * x.abs() / limit).exp();
+    (limit * (1. - e) / (1. + e)).copysign(x)
+}
 fn norm(c: [f32; 3]) -> f32 {
     ((c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) / 3.).sqrt()
 }

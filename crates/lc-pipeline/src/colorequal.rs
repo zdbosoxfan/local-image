@@ -67,18 +67,11 @@ pub fn luts(s: &DevelopSettings) -> [Vec<f32>; 4] {
 
 /// Brightness changes in stops of UCS brightness (luminance moves about 1.6 to 1.9 times as
 /// far): darktable's factor `1 + 8c` has slope `8/ln 2` stops at neutral. The exponential keeps
-/// every colour above black, and [`soft_bound`] holds the most saturated colours at ±100 to
+/// every colour above black, and [`crate::primary::soft_bound`] holds the most saturated colours at ±100 to
 /// about −2.5..+1.2 EV of luminance.
 pub const BRIGHTNESS_EV: f32 = 8. / std::f32::consts::LN_2;
 pub const BRIGHTNESS_MIN_EV: f32 = -1.5;
 pub const BRIGHTNESS_MAX_EV: f32 = 1.0;
-
-/// `x` with slope 1 at 0, approaching `lo` (< 0) and `hi` (> 0) smoothly (tanh), monotone.
-pub fn soft_bound(x: f32, lo: f32, hi: f32) -> f32 {
-    let limit = if x < 0. { -lo } else { hi };
-    let e = (-2. * x.abs() / limit).exp();
-    (limit * (1. - e) / (1. + e)).copysign(x)
-}
 
 fn satweight(s: f32) -> f32 {
     static W: OnceLock<Vec<f32>> = OnceLock::new();
@@ -232,7 +225,7 @@ pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
             h[0] += dh[i];
             h[1] = (h[1] * (1. + 2. * (corr[2 * i] - 1.) * satweight(saturation[i] - 0.1))).max(0.);
             let ev = BRIGHTNESS_EV * corr[2 * i + 1] * (1. - grad[i].clamp(0., 1.)) * satweight(saturation[i] - 0.1 - 0.01 * max_b);
-            h[2] = (h[2] * soft_bound(ev, BRIGHTNESS_MIN_EV, BRIGHTNESS_MAX_EV).exp2()).max(0.);
+            h[2] = (h[2] * crate::primary::soft_bound(ev, BRIGHTNESS_MIN_EV, BRIGHTNESS_MAX_EV).exp2()).max(0.);
             if crate::is_bw(s) {
                 let y = ucs::l_star_to_y((h[2] * lw).clamp(0., ucs::L_STAR_UPPER));
                 let gain = (ucs::lookup_gamut(&bw, h[0]) * 1.3).exp2();

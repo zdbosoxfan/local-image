@@ -920,6 +920,22 @@ fn clarity_on_textured_grey_matches_across_tones() {
     }
 }
 
+#[test]
+fn dehaze_beside_a_window_matches() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    let (w, h) = (480, 160);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let v = if x < w / 2 { 0.015 * (1.0 + 0.2 * (y as f32 / 9.0).sin()) } else { 0.9 };
+        [v, v * 0.95, v * 1.05]
+    }));
+    for dehaze in [25.0, 60.0, 100.0] {
+        let mut s = DevelopSettings::default();
+        s.effects.dehaze = dehaze;
+        check(&format!("dehaze {dehaze} window edge"), &src, &SourceInfo { raw: true, ..Default::default() }, &s, &RenderRequest::fit(w, h));
+    }
+}
+
 /// Exact black has no OkLab hue: colour ops must treat it as hue 0, as the CPU does, on every
 /// backend (WGSL leaves atan2(0, 0) undefined).
 #[test]

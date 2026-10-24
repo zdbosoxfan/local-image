@@ -455,6 +455,45 @@ fn dehaze_clears_haze_without_halos() {
     assert!(ground(&neg).abs() < ground(&plain).abs() + 1.0);
 }
 
+/// Linear green of the middle row of `src` rendered at `w` px wide with Dehaze `dz`.
+fn dehaze_row(src: &RgbFrame, dz: f64, w: usize) -> Vec<f32> {
+    let mut s = settings();
+    s.effects.dehaze = dz;
+    let req = RenderRequest { depth: crate::OutputDepth::F32Linear, space: crate::OutputSpace::Rec2020, ..RenderRequest::fit(w, w) };
+    let deep = render(src, &SourceInfo::default(), &s, &req).deep.expect("float output");
+    let crate::DeepSamples::F32(v) = deep.samples else { panic!("float samples") };
+    let y = deep.height / 2;
+    (0..deep.width).map(|x| v[(y * deep.width + x) * 3 + 1]).collect()
+}
+
+#[test]
+fn dehaze_keeps_shadows_beside_a_window_out_of_black() {
+    // A dark interior beside a bright window: no haze to remove, only shadows to keep.
+    let (w, h) = (960, 64);
+    let edge = w / 2;
+    let src = RgbFrame::from_fn(w, h, |x, _| [if x < edge { 0.015 } else { 0.9 }; 3]);
+    let neutral = dehaze_row(&src, 0.0, w);
+    let ev = |row: &[f32], x: usize| (row[x] / neutral[x]).log2();
+    let d50 = dehaze_row(&src, 50.0, w);
+    let far = ev(&d50, 100);
+    assert!(far > -1.0, "Dehaze +50 darkened the interior by {far} EV");
+    for x in 0..edge {
+        assert!(d50[x] > 0.0, "Dehaze +50 made x={x} black");
+    }
+    for x in edge - 16..edge {
+        assert!(ev(&d50, x) > far - 0.3, "Dehaze +50 left a dark fringe {} EV at x={x} (far interior {far})", ev(&d50, x));
+    }
+    let d100 = dehaze_row(&src, 100.0, w);
+    assert!(ev(&d100, 100) > -3.0, "Dehaze +100 took the interior to {} EV", ev(&d100, 100));
+    // A quarter-size preview shows the edge as the export does.
+    let (pn, p50) = (dehaze_row(&src, 0.0, w / 4), dehaze_row(&src, 50.0, w / 4));
+    for xp in edge / 4 - 8..edge / 4 {
+        let full = (4 * xp..4 * xp + 4).map(|x| d50[x]).sum::<f32>() / (4 * xp..4 * xp + 4).map(|x| neutral[x]).sum::<f32>();
+        let preview = p50[xp] / pn[xp];
+        assert!((preview.log2() - full.log2()).abs() < 0.2, "preview x={xp}: {} EV vs export {} EV", preview.log2(), full.log2());
+    }
+}
+
 #[test]
 fn previews_approximate_full_size() {
     let (clean, noisy) = texture_scene(240);

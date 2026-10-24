@@ -5,7 +5,7 @@
 
 pub mod haze;
 pub mod nr;
-pub use haze::{Haze, dehaze_px, haze_plane};
+pub use haze::{Haze, dehaze_finish, dehaze_px, haze_plane};
 pub use nr::{NrParams, denoise, nr_params};
 
 use li_raster::GrayFrame;
