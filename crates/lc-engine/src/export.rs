@@ -512,10 +512,11 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
 /// Resize a full-size export render to `size` with `kernel` — the editor's Image Size engine
 /// (`li-raster` f64 taps, edges repeated; Preserve Details' enlargement sharpening from
 /// `photocraft-algo`). Enlargements resize the render's own encoding (display-encoded for
-/// 8/16-bit, linear for 32-bit float), as the editor resizes a document of that depth. 8/16-bit
-/// reductions average in linear light, as the renderer's own scaling does ([`reduce_linear`]).
-/// 8-bit results are dithered like the Develop renderer's own 8-bit output; `deep` is kept only
-/// when the export wants it.
+/// 8/16-bit, linear for 32-bit float), as the editor resizes a document of that depth. Reductions
+/// average in linear light, as the renderer's own scaling does ([`reduce_linear`]; 32-bit float
+/// is linear already), with each sample held to its footprint ([`hold_to_footprint`]) so 16-bit
+/// and 32-bit exports agree beside bright windows. 8-bit results are dithered like the Develop
+/// renderer's own 8-bit output; `deep` is kept only when the export wants it.
 pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: ResampleChoice, size: (usize, usize), keep_deep: bool) {
     let (w, h) = (size.0.max(1), size.1.max(1));
     let (sw, sh) = r.deep.as_ref().map_or((r.image.width, r.image.height), |d| (d.width, d.height));
@@ -529,6 +530,11 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
     let mut out = match r.deep.as_mut().map(|d| (&mut d.samples, d.space)) {
         Some((DeepSamples::U16(v), space)) if !enlarging => reduce_linear(std::mem::take(v), (sw, sh), (w, h), filter, space),
         Some((DeepSamples::U16(v), _)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+        Some((DeepSamples::F32(v), _)) if !enlarging => {
+            let mut out = li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter);
+            hold_to_footprint(&mut out, |i| v[i], (sw, sh), (w, h));
+            out
+        }
         Some((DeepSamples::F32(v), _)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
         None => {
             let rgb: Vec<u8> = r.image.data.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();

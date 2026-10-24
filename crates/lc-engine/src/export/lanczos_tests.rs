@@ -17,10 +17,11 @@ fn rendered(sw: usize, sh: usize, samples: DeepSamples) -> lightcraft_pipeline::
     }
 }
 
-/// Parity gate: Library export with a kernel gives the editor's Image Size result (same
+/// Parity gate: a Library export enlarged with a kernel gives the editor's Image Size result (same
 /// `li-raster` taps, same edge rule, same Preserve Details sharpening) for every choice.
+/// Reductions differ on purpose: they hold each sample to its footprint.
 #[test]
-fn library_kernel_resize_matches_editor_image_size() {
+fn library_kernel_enlargement_matches_editor_image_size() {
     use photocraft_doc::{ColorMode, PixelFormat, Rect, SampleType, Surface};
     let (sw, sh) = (61usize, 37usize);
     let src = pattern(sw, sh);
@@ -28,7 +29,7 @@ fn library_kernel_resize_matches_editor_image_size() {
     let mut surface = Surface::new(PixelFormat::new(ColorMode::Rgb, SampleType::F32, false));
     surface.write_region(canvas, &src);
     for kernel in ResampleChoice::ALL {
-        for (w, h) in [(23usize, 14usize), (150, 91)] {
+        for (w, h) in [(150usize, 91usize), (62, 37)] {
             let mut r = rendered(sw, sh, DeepSamples::F32(src.clone()));
             resample_rendered(&mut r, kernel, (w, h), true);
             let deep = r.deep.expect("deep kept");
@@ -94,15 +95,24 @@ fn kernel_reductions_keep_the_light_of_fine_detail() {
     }
 }
 
-/// A dark interior beside a bright window: the reduction rings no darker than the interior.
+/// A dark interior beside a bright window: the reduction rings no darker than the interior, in
+/// 16-bit and in linear 32-bit float alike.
 #[test]
 fn kernel_reductions_add_no_dark_halos_beside_bright_windows() {
+    let window = |x: usize, _| if x < 52 { 0.01 } else { 1.0 };
     for kernel in [ResampleChoice::Lanczos, ResampleChoice::BicubicSharper, ResampleChoice::BicubicAutomatic] {
         for (w, h) in [(48, 24), (24, 12)] {
-            let mut r = encoded16(96, 48, OutputSpace::Srgb, |x, _| if x < 52 { 0.01 } else { 1.0 });
+            let mut r = encoded16(96, 48, OutputSpace::Srgb, window);
             resample_rendered(&mut r, kernel, (w, h), true);
             let darkest = linear16(&r).into_iter().fold(f32::INFINITY, f32::min);
             assert!(darkest > 0.0099, "{kernel:?} to {w}x{h}: halo down to {darkest}");
+            let mut r = rendered(96, 48, DeepSamples::F32((0..96 * 48).flat_map(|i| [window(i % 96, 0); 3]).collect()));
+            resample_rendered(&mut r, kernel, (w, h), true);
+            let Some(DeepImage { samples: DeepSamples::F32(v), .. }) = &r.deep else { panic!("f32 stays f32") };
+            let darkest = v.iter().copied().fold(f32::INFINITY, f32::min);
+            assert!(darkest > 0.0099, "{kernel:?} to {w}x{h}, float: halo down to {darkest}");
+            let mean = v.iter().sum::<f32>() / v.len() as f32;
+            assert!((mean - 0.46).abs() < 0.02, "{kernel:?} to {w}x{h}, float: mean light {mean}");
         }
     }
 }
