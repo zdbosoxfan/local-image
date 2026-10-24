@@ -27,9 +27,13 @@ the core nodes the graphs use so editor-format workflows convert in tests.
 
 **ComfyUI workflow templates** — <https://github.com/Comfy-Org/workflow_templates>
 Copyright (c) 2023-present Comfy Org. MIT License (`licenses/comfyui-workflow-templates-LICENSE`).
-Ten templates, their thumbnails and a trimmed `index.json` are test fixtures in
-`crates/li-ai/tests/fixtures/templates/`. At run time the Model Browser reads the templates from
-the connected ComfyUI (`/templates`) or this repository.
+Templates, their thumbnails and trimmed `index.json` files are test fixtures in
+`crates/li-ai/tests/fixtures/templates/` and `crates/li-ai/tests/fixtures/comfy-0.42.5/templates/`
+(minified: layout, notes and long prompt text removed). At run time the Model Browser and model
+setup read the templates from the connected ComfyUI (`/templates`) or this repository.
+`crates/li-ai/tests/fixtures/comfy-0.42.5/object_info.min.json` records the input interfaces
+(names, types, defaults, choices) of the node classes those templates use, as ComfyUI 0.42.5 reports
+them at `/object_info`, without descriptions or tooltips.
 
 ## Data read at run time (not included)
 

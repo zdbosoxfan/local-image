@@ -1,0 +1,465 @@
+[
+  {
+    "category": "Foundation",
+    "icon": "icon-[lucide--image]",
+    "moduleName": "default",
+    "templates": [
+      {
+        "date": "2026-06-24",
+        "description": "Generate images from text prompts using Krea 2, a foundation model built for aesthetic quality and creative control. It focuses on rendering expressive and artistic styles. Ideal for concept art exploration, visual brainstorming, and creating stylized imagery for design projects.",
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.24.1",
+        "models": [
+          "Krea 2"
+        ],
+        "name": "image_krea2_turbo_t2i",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 19112604467,
+        "tags": [
+          "Text to Image"
+        ],
+        "title": "Krea-2: Text to Image",
+        "usage": 9439,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-13",
+        "description": "Edit images with Qwen-Image-2.1 by feeding two reference images through a single checkpoint that handles both generation and editing, then comparing the result against the original. Ideal for character-consistent edits, product cutout compositing with real transparency, and style-transfer passes at native 2K",
+        "io": {
+          "inputs": [
+            {
+              "file": "ballet_dancer_photography_minimalist_architecture.png",
+              "mediaType": "image",
+              "nodeId": 470,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.39.0",
+        "models": [
+          "Qwen Image 2.1"
+        ],
+        "name": "image_qwen_image_2_1_turbo_image_edit",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 41016937677,
+        "tags": [
+          "Image Edit"
+        ],
+        "thumbnailVariant": "compareSlider",
+        "title": "Qwen Image 2.1 Turbo: Image edit",
+        "usage": 1560,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-13",
+        "description": "Generate images from text prompts with Qwen Image 2.1 Turbo, the 8-step accelerated checkpoint, producing a single 1024×1024 image in 8 sampling steps. Same model family with native 2K output, professional typography, and alpha-channel support, plus an optional Qwen 3.5 prompt enhancer. Ideal for poster and layout design, transparent asset creation, and rapid concept visualization.",
+        "io": {
+          "outputs": [
+            {
+              "file": "image_qwen_image_2_1_turbo_t2i.png",
+              "mediaType": "image",
+              "nodeId": 461,
+              "nodeType": "SaveImageAdvanced"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.39.0",
+        "models": [
+          "Qwen Image 2.1"
+        ],
+        "name": "image_qwen_image_2_1_turbo_t2i",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 40984448745,
+        "tags": [
+          "Int8",
+          "Text to Image",
+          "Turbo"
+        ],
+        "title": "Qwen Image 2.1 Turbo: Text to Image",
+        "usage": 642,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-17",
+        "description": "Generate an image from a text prompt with MOSS-Image, an open-weights model that reads a full scene caption and returns one finished image. A prompt upsampler expands a short request into that caption first, so a one-line description is enough. Ideal for editorial photography, product shots, and concept art.",
+        "io": {
+          "outputs": [
+            {
+              "file": "image_moss_image_t2i.png",
+              "mediaType": "image",
+              "nodeId": 9,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.41.3",
+        "models": [
+          "MOSS-Image"
+        ],
+        "name": "image_moss_image_t2i",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 22222122562,
+        "tags": [
+          "Text to Image"
+        ],
+        "title": "MOSS-Image: Text to Image",
+        "usage": 804,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-17",
+        "description": "Generate an image from a text prompt with the MOSS-Image base checkpoint, which reads a full scene caption and returns one finished image. The prompt upsampler expands a short request into that caption first. Use it for fine-tuning experiments and comparisons with the instruction-tuned checkpoint.",
+        "io": {
+          "outputs": [
+            {
+              "file": "image_moss_image_t2i_base.png",
+              "mediaType": "image",
+              "nodeId": 9,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.41.3",
+        "models": [
+          "MOSS-Image"
+        ],
+        "name": "image_moss_image_base_t2i",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 22226455757,
+        "tags": [
+          "Text to Image"
+        ],
+        "title": "MOSS-Image Base: Text to Image",
+        "usage": 258,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-15",
+        "description": "Edit an existing image with FLUX 3 Image Klein by supplying one input image and two text prompts, producing one refined output alongside a side-by-side comparison view. Ideal for targeted retouching, style adjustments, and detail corrections that preserve the original composition.",
+        "io": {
+          "inputs": [
+            {
+              "file": "fashion_portrait_blue_silk_gown_vis.png",
+              "mediaType": "image",
+              "nodeId": 54,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ],
+          "outputs": [
+            {
+              "file": "image_flux3_klein_image_edit.png",
+              "mediaType": "image",
+              "nodeId": 9,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.41.0",
+        "models": [
+          "FLUX 3 Image"
+        ],
+        "name": "image_flux3_klein_image_edit",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 21474836480,
+        "tags": [
+          "Image Edit"
+        ],
+        "thumbnailVariant": "compareSlider",
+        "title": "FLUX 3 Image Klein: Image Edit",
+        "usage": 1007,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-15",
+        "description": "Edit an existing image with FLUX 3 Image Klein by pairing one input image with one text prompt, producing a single edited result and a side-by-side comparison view. Ideal for targeted retouching, restyling a photo, or swapping details while keeping the rest of the scene intact.",
+        "io": {
+          "inputs": [
+            {
+              "file": "woman_gold_earring_teal_top_portrait.png",
+              "mediaType": "image",
+              "nodeId": 11,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.41.0",
+        "models": [
+          "FLUX 3 Image"
+        ],
+        "name": "image_flux3_klein_distilled_image_edit",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 21474836480,
+        "tags": [
+          "Image Edit"
+        ],
+        "thumbnailVariant": "compareSlider",
+        "title": "FLUX 3 Image Klein Distilled: Image Edit",
+        "usage": 695,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-15",
+        "description": "Generate images from text prompts using FLUX 3 Image Klein, producing a single saved image with no file inputs required. Ideal for concept art, marketing visuals, and rapid prototyping of scene ideas from written descriptions.",
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.41.0",
+        "models": [
+          "FLUX 3 Image"
+        ],
+        "name": "image_flux3_klein_t2i",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 21474836480,
+        "tags": [
+          "Text to Image"
+        ],
+        "title": "FLUX 3 Image Klein: Text to Image",
+        "usage": 1287,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-10-15",
+        "description": "Generate images from text prompts using the distilled FLUX 3 Image Klein model, which runs efficiently in 15 sampling steps with no classifier-free guidance. Just describe what you want and receive one finished image. Ideal for rapid concept art, marketing visuals, and everyday creative ideation where speed matters.",
+        "io": {
+          "outputs": [
+            {
+              "file": "image_flux3_klein_distilled_t2i.png",
+              "mediaType": "image",
+              "nodeId": 9,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.41.0",
+        "models": [
+          "FLUX 3 Image"
+        ],
+        "name": "image_flux3_klein_distilled_t2i",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 22226455757,
+        "tags": [
+          "Text to Image"
+        ],
+        "title": "FLUX 3 Image Klein Distilled: Text to Image",
+        "usage": 363,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-01-16",
+        "description": "BFL undistilled foundation model. Maximum flexibility and control. Great for fine-tuning.",
+        "io": {
+          "inputs": [
+            {
+              "file": "car_interior_white.jpeg",
+              "mediaType": "image",
+              "nodeId": 76,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            },
+            {
+              "file": "comfy_logo_blue.png",
+              "mediaType": "image",
+              "nodeId": 81,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.3.72",
+        "models": [
+          "FLUX",
+          "FLUX.2 Klein"
+        ],
+        "name": "image_flux2_klein_image_edit_9b_base",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 19327352832,
+        "tags": [
+          "Image",
+          "Text to Image"
+        ],
+        "title": "FLUX.2 [Klein] 9B: Image Edit",
+        "tutorialUrl": "https://docs.comfy.org/tutorials/flux/flux-2-klein",
+        "usage": 1116,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-07-08",
+        "description": "Generate images with the Krea-2 Turbo distilled text-to-image model using the high-performance Int8 Convrot format, which delivers better quality than FP8 while generally running faster across most GPUs. This workflow accepts no file inputs and produces a single image output, with optional style LoRA support for creative customization. Ideal for rapid concept art iteration, batch asset generation for games or marketing, and exploring the speed-quality sweet spot of the Convrot Int8 quantization.",
+        "io": {
+          "outputs": [
+            {
+              "file": "image_krea2_turbo_t2i_int8.png",
+              "mediaType": "image",
+              "nodeId": 29,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.24.1",
+        "models": [
+          "Krea 2"
+        ],
+        "name": "image_krea2_turbo_t2i_int8",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 19112604467,
+        "tags": [
+          "Text to Image",
+          "Int8"
+        ],
+        "title": "Krea-2 Int8: Text to Image",
+        "usage": 729,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-07-20",
+        "description": "Generate images with the Krea-2 Turbo model while referencing the style of 1–2 uploaded images, using the high-performance Int8 Convrot format for faster, higher-quality inference. This workflow accepts up to two reference image inputs and produces a single stylized output, with optional LoRA support for further creative control. Ideal for matching a specific artistic style in concept art, producing consistent brand visuals, and exploring rapid style transfer for iterative design.",
+        "io": {
+          "inputs": [
+            {
+              "file": "krea2_reference_image.png",
+              "mediaType": "image",
+              "nodeId": 69,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ],
+          "outputs": [
+            {
+              "file": "image_krea2_turbo_int8_image_style_reference.png",
+              "mediaType": "image",
+              "nodeId": 29,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.24.1",
+        "models": [
+          "Krea 2"
+        ],
+        "name": "image_krea2_turbo_int8_image_style_reference",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 19434727014,
+        "tags": [
+          "Style Reference",
+          "Image",
+          "Int8"
+        ],
+        "title": "Krea-2 Int8: Image Style Reference",
+        "usage": 459,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2026-05-14",
+        "description": "Input a text prompt and optionally upload reference images. Generate a high-resolution image up to 2048x2048 with text-to-image, editing, or subject-driven personalization.",
+        "io": {
+          "inputs": [
+            {
+              "file": "noir_portrait.png",
+              "mediaType": "image",
+              "nodeId": 213,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ],
+          "outputs": [
+            {
+              "file": "image_hidream_o1.png",
+              "mediaType": "image",
+              "nodeId": 227,
+              "nodeType": "SaveImage"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.21.1",
+        "models": [
+          "HiDream"
+        ],
+        "name": "image_hidream_o1",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 25447681229,
+        "tags": [
+          "Text to Image",
+          "Image Edit"
+        ],
+        "title": "HiDream O1 Full: Image generation",
+        "tutorialUrl": "https://docs.comfy.org/tutorials/image/hidream/hidream-o1",
+        "usage": 39,
+        "username": "ComfyUI"
+      },
+      {
+        "date": "2025-07-21",
+        "description": "Edit images with HiDream E1.1—superior image quality and editing accuracy compared to HiDream-E1-Full.",
+        "io": {
+          "inputs": [
+            {
+              "file": "hidream_e1_1_input_image.jpg",
+              "mediaType": "image",
+              "nodeId": 13,
+              "nodeType": "LoadImage",
+              "sourceRevision": "67984637eefcd4825dcf5c134e39034785be1682"
+            }
+          ]
+        },
+        "mediaSubtype": "webp",
+        "mediaType": "image",
+        "minComfyUIVersion": "0.3.45",
+        "models": [
+          "HiDream"
+        ],
+        "name": "hidream_e1_1",
+        "openSource": true,
+        "searchRank": 0,
+        "size": 50465865728,
+        "tags": [
+          "Image",
+          "Image Edit"
+        ],
+        "thumbnailVariant": "compareSlider",
+        "title": "HiDream E1.1 Image Editing",
+        "tutorialUrl": "https://docs.comfy.org/tutorials/image/hidream/hidream-e1",
+        "usage": 63,
+        "username": "ComfyUI"
+      }
+    ],
+    "title": "Image",
+    "type": "image"
+  }
+]

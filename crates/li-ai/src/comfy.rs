@@ -20,6 +20,9 @@ use sha2::{Digest, Sha256};
 pub const UPLOAD_SUBFOLDER: &str = "local-image";
 const DEADLINE: Duration = Duration::from_secs(20 * 60);
 
+mod order;
+pub use order::{ORDER_KEY, nested_order};
+
 #[cfg(test)]
 #[path = "comfy_review_tests.rs"]
 mod review_tests;
@@ -147,8 +150,66 @@ impl ObjectInfo {
         Some(SamplerLimits { steps: input("steps")?, cfg: input("cfg")?, denoise: input("denoise").unwrap_or((0.0, 1.0)) })
     }
 
+    /// An inventory from a raw `/object_info` body, with the nested dynamic-combo input order
+    /// ([`nested_order`]) under [`ORDER_KEY`].
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
+        let mut v: Value = serde_json::from_slice(bytes).context("ComfyUI returned an invalid node inventory")?;
+        if !v.is_object() {
+            bail!("ComfyUI returned an invalid node inventory");
+        }
+        match nested_order(bytes) {
+            Ok(order) => v[ORDER_KEY] = order,
+            Err(e) => log::warn!("node inventory: nested input order unreadable: {e}"),
+        }
+        Ok(ObjectInfo(v))
+    }
+
     pub fn has_node(&self, class: &str) -> bool {
-        self.0.get(class).is_some()
+        class != ORDER_KEY && self.0.get(class).is_some()
+    }
+
+    /// A node class's definition.
+    pub fn spec(&self, class: &str) -> Option<&Value> {
+        self.0.get(class).filter(|_| class != ORDER_KEY)
+    }
+
+    /// The spec (`[type, options]`) of a top-level input.
+    pub fn input_spec(&self, class: &str, input: &str) -> Option<&Value> {
+        let spec = self.spec(class)?.get("input")?;
+        ["required", "optional"].iter().find_map(|k| spec.get(*k).and_then(|s| s.get(input)))
+    }
+
+    /// The top-level inputs in definition order, `(required, optional)`.
+    pub fn input_names(&self, class: &str) -> (Vec<String>, Vec<String>) {
+        let Some(spec) = self.spec(class) else { return Default::default() };
+        let section = |k: &str| -> Vec<String> {
+            match spec.get("input_order").and_then(|o| o.get(k)).and_then(Value::as_array) {
+                Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
+                None => spec.get("input").and_then(|i| i.get(k)).and_then(Value::as_object).map(|o| o.keys().cloned().collect()).unwrap_or_default(),
+            }
+        };
+        (section("required"), section("optional"))
+    }
+
+    /// The inputs of dynamic-combo option `option` at `path` (`sampling_mode`, `format.save_mode`)
+    /// in document order, when the inventory recorded it.
+    pub fn nested_order(&self, class: &str, path: &str, option: &str) -> Option<(Vec<String>, Vec<String>)> {
+        let o = self.0.get(ORDER_KEY)?.get(class)?.get(path)?.get(option)?;
+        let names = |k: &str| o.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+        Some((names("required"), names("optional")))
+    }
+
+    /// The output types of a class (`["MODEL", "CLIP", "VAE"]`).
+    pub fn outputs(&self, class: &str) -> Vec<String> {
+        self.spec(class)
+            .and_then(|s| s.get("output"))
+            .and_then(Value::as_array)
+            .map(|a| a.iter().map(|v| v.as_str().unwrap_or("*").to_owned()).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn is_output_node(&self, class: &str) -> bool {
+        self.spec(class).and_then(|s| s.get("output_node")).and_then(Value::as_bool).unwrap_or(false)
     }
     /// Choices of a combo input, in both the legacy `[[options]]` and V3 `["COMBO", {options}]`
     /// shapes.
@@ -232,11 +293,11 @@ impl ComfyClient {
     }
 
     pub fn object_info(&self) -> Result<ObjectInfo> {
-        let v = self.get_json(&self.agent, "/object_info")?;
-        if !v.is_object() {
-            bail!("ComfyUI returned an invalid node inventory");
+        let mut r = self.agent.get(&self.url("/object_info")).call().with_context(|| format!("Cannot reach ComfyUI at {}", self.host))?;
+        if !r.status().is_success() {
+            bail!("ComfyUI answered {} for /object_info", r.status());
         }
-        Ok(ObjectInfo(v))
+        ObjectInfo::from_bytes(&r.body_mut().with_config().limit(64 << 20).read_to_vec()?)
     }
 
     pub fn system_stats(&self) -> Result<Value> {
