@@ -26,6 +26,8 @@ use serde_json::Value;
 use crate::comfy::ObjectInfo;
 use crate::family::{Family, Loader, Registry, Role};
 
+pub mod hf;
+
 #[cfg(test)]
 #[path = "browser_security_tests.rs"]
 mod security_tests;
@@ -287,7 +289,7 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
                 .into_iter()
                 .flatten()
                 .filter_map(|s| s.get("rfilename").and_then(Value::as_str))
-                .filter(|f| is_weights(f))
+                .filter(|f| is_weights(f) && !hf::not_comfy(f))
                 .collect();
             // A LoRA repo by its tags, its name ("flux-lora-collection"), or because every weights
             // file in it is named as a LoRA: none of those may install into a model folder.
@@ -318,18 +320,24 @@ pub fn parse_hf_list(reg: &Registry, hf_base: &str, v: &Value, kind: Kind) -> Ve
                 .map(str::to_owned)
                 .or_else(|| tags.iter().find_map(|t| t.strip_prefix("license:").map(str::to_owned)))
                 .unwrap_or_default();
-            let files = weights
-                .iter()
-                .map(|&f| {
-                    let file = f.rsplit('/').next().unwrap_or(f);
-                    // A LoRA shipped beside a model (a speed-up LoRA, say) goes to the LoRAs.
-                    let folder = if is_lora || looks_lora(f) { "loras" } else { model_folder(reg, family.as_deref(), f) };
-                    // Every LoRA shares one folder and many repos use generic names (adapter_model.safetensors,
-                    // pytorch_lora_weights.safetensors), so a LoRA file is named after its repo (and subfolder).
-                    let name = if folder == "loras" { lora_file_name(&id, f) } else { file.to_owned() };
-                    CatalogFile { name, folder: folder.into(), url: format!("{}/{id}/resolve/main/{f}", hf_base.trim_end_matches('/')), ..Default::default() }
-                })
-                .collect();
+            let mut files: Vec<CatalogFile> = Vec::new();
+            for &f in &weights {
+                let file = f.rsplit('/').next().unwrap_or(f);
+                // A LoRA shipped beside a model (a speed-up LoRA, say) goes to the LoRAs.
+                let folder = if is_lora || looks_lora(f) { "loras" } else { hf::file_folder(reg, family.as_deref(), f) };
+                // Every LoRA shares one folder and many repos use generic names (adapter_model.safetensors,
+                // pytorch_lora_weights.safetensors), so a LoRA file is named after its repo (and subfolder).
+                let name = if folder == "loras" { lora_file_name(&id, f) } else { file.to_owned() };
+                if files.iter().any(|x| x.folder == folder && x.name == name) {
+                    continue;
+                }
+                files.push(CatalogFile {
+                    name,
+                    folder: folder.into(),
+                    url: format!("{}/{id}/resolve/main/{f}", hf_base.trim_end_matches('/')),
+                    ..Default::default()
+                });
+            }
             Some(Item {
                 id: format!("hf:{id}"),
                 source: Some(Source::HuggingFace),
@@ -1073,7 +1081,10 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
     {
         let have = crate::inventory::resolve_components(f, info);
         for c in &f.components {
-            if have.iter().any(|(r, _)| *r == c.role) || want.iter().any(|w| c.names.iter().any(|n| n.eq_ignore_ascii_case(&w.name))) {
+            // A planned file stands in for a component only in the component's own folder.
+            if have.iter().any(|(r, _)| *r == c.role)
+                || want.iter().any(|w| w.folder == c.role.folder() && c.names.iter().any(|n| n.eq_ignore_ascii_case(&w.name)))
+            {
                 continue;
             }
             if let Some(d) = &c.download {

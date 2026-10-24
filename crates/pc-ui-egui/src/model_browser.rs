@@ -61,9 +61,30 @@ struct InstallRun {
 }
 
 struct Confirm {
+    /// The card as it installs (one precision of its model).
     item: Item,
     plan: Slot<Result<(Plan, Option<Value>), String>>,
     accept: bool,
+    /// The card with every file, when it offers several main files.
+    all: Item,
+    variant: Option<String>,
+}
+
+impl Confirm {
+    /// Installing `item`: its best precision for this GPU when it offers several.
+    fn new(item: Item) -> Self {
+        let blackwell = crate::ai_ui::status().gpu.is_some_and(|g| li_ai::companions::runtime().gpu_generation(&g.name) == Some("blackwell"));
+        let variant = browser::hf::default_variant(&item, blackwell);
+        let shown = variant.as_deref().map_or_else(|| item.clone(), |v| browser::hf::with_variant(&item, v));
+        Self { plan: start_plan(shown.clone()), item: shown, accept: false, all: item, variant }
+    }
+
+    /// Switches to another of the card's main files and plans it again.
+    fn choose(&mut self, main: &str) {
+        self.variant = Some(main.to_owned());
+        self.item = browser::hf::with_variant(&self.all, main);
+        self.plan = start_plan(self.item.clone());
+    }
 }
 
 struct State {
@@ -916,7 +937,7 @@ fn grid(ui: &mut egui::Ui, s: &mut State, t: &Tokens, loading: bool) {
         ui.add_space(gap);
     }
     if let Some(item) = action {
-        s.confirm = Some(Confirm { plan: start_plan(item.clone()), item, accept: false });
+        s.confirm = Some(Confirm::new(item));
     }
 }
 
@@ -1183,9 +1204,12 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
 
 /// The install confirmation: licence first, then the exact files.
 fn confirm_window(ctx: &egui::Context, t: &Tokens) {
-    let Some((item, plan, mut accept)) = with(|s| s.confirm.as_ref().map(|c| (c.item.clone(), c.plan.lock().ok().and_then(|p| p.clone()), c.accept))) else {
+    let Some((item, plan, mut accept, all, variant)) =
+        with(|s| s.confirm.as_ref().map(|c| (c.item.clone(), c.plan.lock().ok().and_then(|p| p.clone()), c.accept, c.all.clone(), c.variant.clone())))
+    else {
         return;
     };
+    let mut chosen = variant.clone();
     let mut close = false;
     let mut go: Option<(Plan, Option<Value>)> = None;
     use widgets::{ButtonRole, DialogButton};
@@ -1198,6 +1222,16 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
         ui.set_width(500.0);
         ui.label(RichText::new(li_i18n::fmt(tl!("Install {name}"), &[("name", &item.title)])).size(15.0).strong().color(t.text));
         ui.add_space(6.0);
+        let choices = browser::hf::variants(&all);
+        if let Some(current) = chosen.as_mut().filter(|_| !choices.is_empty()) {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tl!("Version")).color(t.text_dim))
+                    .on_hover_text(tl!("This repository has several files of the model (precisions or models); one is installed"));
+                let opts: Vec<(String, &str)> = choices.iter().map(|f| (f.name.clone(), f.name.as_str())).collect();
+                widgets::dropdown(ui, "browser-confirm-variant", current, &opts, ui.available_width().min(360.0));
+            });
+            ui.add_space(4.0);
+        }
         match &plan {
             None => {
                 ui.horizontal(|ui| {
@@ -1323,6 +1357,9 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
     with(|s| {
         if let Some(c) = s.confirm.as_mut() {
             c.accept = accept;
+            if let Some(v) = chosen.filter(|v| Some(v) != variant.as_ref()) {
+                c.choose(&v);
+            }
         }
         if let Some((p, template)) = go {
             if !p.files.is_empty() || template.is_some() {
@@ -1398,6 +1435,50 @@ mod ds_tests {
         h.run_steps(2);
         assert!(crate::model_setup::is_open());
         assert_eq!(crate::model_setup::selected().as_deref(), Some("unet:moss_image_sft_int8_convrot.safetensors"));
+    }
+
+    #[test]
+    fn a_card_with_several_precisions_installs_only_the_one_chosen() {
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let gpu = li_ai::setup::Gpu { name: "NVIDIA GeForce RTX 4090".into(), vram_total: 24_000_000_000, vram_used: None, utilization: None };
+        let st = crate::ai_ui::EngineStatus { connected: true, checked: true, gpu: Some(gpu), ..Default::default() };
+        crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+        let file = |name: &str, folder: &str| browser::CatalogFile { name: name.into(), folder: folder.into(), ..Default::default() };
+        let item = Item {
+            id: "hf:Comfy-Org/flux3".into(),
+            title: "flux3".into(),
+            files: vec![
+                file("flux3-image-klein-nvfp4.safetensors", "diffusion_models"),
+                file("flux3-image-klein-bf16.safetensors", "diffusion_models"),
+                file("flux3-image-klein-int8-convrot.safetensors", "diffusion_models"),
+                file("qwen3vl_4b_bf16.safetensors", "text_encoders"),
+                file("qwen3vl_4b_int8_convrot.safetensors", "text_encoders"),
+            ],
+            ..Default::default()
+        };
+        let names = || with(|s| s.confirm.as_ref().unwrap().item.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
+        let _plan = test_install_plan(Plan::default());
+        with(|s| s.confirm = Some(Confirm::new(item)));
+        assert_eq!(names(), ["flux3-image-klein-bf16.safetensors", "qwen3vl_4b_bf16.safetensors"], "the best precision this GPU runs");
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(700.0, 500.0)).build_ui(move |ui| {
+            if !initialized {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                initialized = true;
+                ui.ctx().request_repaint();
+                return;
+            }
+            confirm_window(ui.ctx(), &Tokens::get(ui.ctx()));
+        });
+        h.run_steps(3);
+        h.get_by_value("flux3-image-klein-bf16.safetensors").click();
+        h.run_steps(3);
+        let _plan = test_install_plan(Plan::default());
+        h.get_by_label("flux3-image-klein-int8-convrot.safetensors").click();
+        h.run_steps(3);
+        assert_eq!(names(), ["flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors"]);
+        with(|s| s.confirm = None);
     }
 
     #[test]

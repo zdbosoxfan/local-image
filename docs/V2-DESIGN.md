@@ -154,6 +154,11 @@ the PhotoCraft Pro theme (one dark window, no extra chrome).
   exact files, their folders and sizes, and asks to accept the licence; then downloads each file
   verified by size and SHA-256 into ComfyUI's folders, with progress and Stop, and refreshes ComfyUI.
   The model appears in Generate's picker straight away.
+* A Hugging Face card places each file in the folder its repository path names
+  (`split_files/text_encoders/…` → `text_encoders/`), leaves out diffusers layouts and shards, and,
+  when the repository holds several files of the model (precisions, GGUF quantisations), installs
+  one: a **Version** choice in the install dialog, defaulting to the highest precision this GPU
+  runs (never NVFP4 off Blackwell), with the text encoder and VAE precisions closest to it.
 * A template card is checked against the connected ComfyUI (version, nodes, options) before any
   file is planned; a template this ComfyUI can't run says why and downloads nothing. Cards whose
   template needs a newer ComfyUI carry a **Needs ComfyUI {version}** badge.

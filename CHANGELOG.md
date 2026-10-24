@@ -38,6 +38,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- AI: a Hugging Face model card no longer installs every file of its repository into one folder:
+  files go to the folder their repository path names, diffusers copies and shards are left out,
+  and a repository with several precisions installs the one chosen in the install dialog.
 - Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
   wrapping; captured times that are not ASCII no longer crash the By Date panel; impossible times
   such as 10:75 are refused instead of rolling over.
