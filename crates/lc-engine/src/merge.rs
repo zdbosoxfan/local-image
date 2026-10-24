@@ -477,7 +477,8 @@ impl MergeJob {
                     raws.push(raw);
                 }
                 let r = lightcraft_merge::merge_pixel_shift(raws, &sub(0.3, 0.88)).map_err(err)?;
-                let motion_pixels = r.motion.data.iter().filter(|v| **v > 0.0).count();
+                // Pixels mostly taken from the fallback, not the feathered edges around them.
+                let motion_pixels = r.motion.data.iter().filter(|v| **v >= 0.5).count();
                 let mut image = r.image;
                 // Reconstruction must see the original CFA sampling lattice even for
                 // previews. Resize the complete reconstruction, never its source mosaics.

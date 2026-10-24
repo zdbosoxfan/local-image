@@ -27,6 +27,7 @@ pub struct PixelShiftResult {
     pub orientation: Orientation,
     pub metadata: Metadata,
     pub baseline_exposure: f64,
+    /// Per output pixel, the weight of the single-shot fallback blended in for motion (0 = measured).
     pub motion: GrayFrame,
     pub shots: usize,
     /// Value at or above which the sensor was saturated ([`crate::Frame::clip`]).
@@ -396,6 +397,8 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         });
     }
     drop(samples);
+    let motion = if motion.data.iter().any(|v| *v > 0.0) { motion_weights(motion, factor) } else { motion };
+    // Isolated detections weigh nothing: no fallback to develop.
     if motion.data.iter().any(|v| *v > 0.0) {
         check(progress, 0.8, "Developing motion fallback")?;
         // Do not apply geometry before merge; the normal Develop lens pipeline owns it.
@@ -407,7 +410,6 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             .retain(|o| !matches!(o, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
         source.crop = Rect::new(0, 0, source.active_area.width, source.active_area.height);
         let fallback = source.develop(lightcraft_raw::Method::Auto).map_err(|e| MergeError::Decode(e.to_string()))?;
-        let motion = motion_weights(motion, factor);
         for (tile, (pixels, weights)) in image.data.chunks_mut(w * ROWS).zip(motion.data.chunks(w * ROWS)).enumerate() {
             check(progress, 0.8 + 0.2 * (tile * ROWS) as f32 / h as f32, "Replacing moving areas")?;
             pixels.par_chunks_mut(w).zip(weights.par_chunks(w)).enumerate().for_each(|(row, (pixels, weights))| {
@@ -657,8 +659,14 @@ mod tests {
         if let RawData::F32(data) = &mut raws[1].data {
             data[9 * 24 + 11] += 300.0;
         }
-        let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        let stages = std::sync::Mutex::new(Vec::new());
+        let result = merge_pixel_shift(raws, &|_, stage| {
+            stages.lock().unwrap().push(stage.to_owned());
+            true
+        })
+        .unwrap();
         assert!(result.motion.data.iter().all(|v| *v == 0.0), "a single outlying sample must not pull in the fallback");
+        assert!(!stages.lock().unwrap().iter().any(|s| s == "Developing motion fallback"), "nothing to blend, nothing to develop");
     }
 
     #[test]
