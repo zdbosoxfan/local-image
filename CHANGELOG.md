@@ -67,6 +67,12 @@ All notable changes to Local Image are recorded here. The format follows
 - Camera profiles: the tone curve of a DCP picked under Custom Camera Profiles (Adobe's Camera
   Matching profiles, a DCamProf `-t acr` variant) is used by the Camera look instead of being
   dropped in favour of the JPEG-fitted or maker curve. Soft Film and Sigmoid keep their own curves.
+- Develop white balance modes: Lightroom XMP sidecars and presets with Auto or a named white balance
+  keep Lightroom's Temperature and Tint, so Auto no longer renders As Shot. Pasting, syncing, Auto
+  Sync and presets measure Auto on each photo and give a named mode each photo's own values instead
+  of copying the first photo's numbers. Choosing a white balance mode that matches one of the
+  camera's own presets renders the camera's values the sliders show, instead of jumping on the first
+  nudge.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

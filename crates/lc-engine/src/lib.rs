@@ -58,6 +58,34 @@ use serde_json::Value;
 pub use view::{Browse, FilterChip, LibrarySource, Selection, filter_chips, update_soft_proof};
 pub use {lightcraft_catalog as catalog, lightcraft_develop as develop, lightcraft_gpu as gpu, lightcraft_pipeline as pipeline};
 
+impl Session {
+    /// A white balance mode that a paste, sync or preset brings to photo `id`, resolved for that
+    /// photo: Auto is measured on its own source and a named mode takes its values, instead of
+    /// keeping the numbers of the photo the settings came from. A photo whose source can't be read
+    /// keeps them.
+    pub(crate) fn resolve_transferred_wb(&mut self, id: lightcraft_catalog::PhotoId, partial: &Value, settings: &mut DevelopSettings) {
+        use lightcraft_develop::WbMode;
+        if partial.get("wb").and_then(|w| w.get("mode")).is_none() {
+            return;
+        }
+        let resolved = match settings.wb.mode {
+            WbMode::Custom => None,
+            WbMode::Auto => match self.source_now(id, SourceLevel::Thumb) {
+                Ok(src) => Some(lightcraft_pipeline::auto::auto_wb(&src, &self.source_info(id))),
+                Err(e) => {
+                    log::warn!("Auto white balance kept the copied values for photo {}: {e}", id.0);
+                    None
+                }
+            },
+            mode => lightcraft_pipeline::local::mode_wb(&self.source_info(id), mode),
+        };
+        if let Some((temp, tint)) = resolved {
+            settings.wb.temp = temp;
+            settings.wb.tint = tint;
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     #[error("unknown command `{0}`")]

@@ -62,6 +62,7 @@ impl Session {
             lightcraft_develop::presets::strip_photo_bound(object);
         }
         let mut settings = lightcraft_develop::apply_partial(current, &partial, 1.0);
+        self.resolve_transferred_wb(id, &partial, &mut settings);
         if partial.get("masks").is_some() {
             self.refresh_transferred_masks(id, &mut settings, 0);
         }

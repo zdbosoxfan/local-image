@@ -114,6 +114,16 @@ fn wb_gain(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings, gain: f32
     });
 }
 
+/// The temperature and tint mode `mode` stands for on a source with `info`: the as-shot white, or
+/// a preset's (Lightroom's values on raws, the same shift from daylight on rendered files). `None`
+/// for Auto and Custom, which carry their own numbers.
+pub fn mode_wb(info: &SourceInfo, mode: lightcraft_develop::WbMode) -> Option<(f64, f64)> {
+    match mode {
+        lightcraft_develop::WbMode::AsShot => Some((info.as_shot_temp, info.as_shot_tint)),
+        m => m.preset().map(|(t, tint)| if info.raw && !info.relative_wb { (t, tint) } else { (6500.0 * t / 5500.0, tint) }),
+    }
+}
+
 /// The white balance actually in effect (presets resolve to their Kelvin values for raw files).
 pub fn effective_wb(info: &SourceInfo, s: &DevelopSettings) -> (f64, f64) {
     use lightcraft_develop::WbMode;

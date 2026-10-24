@@ -307,18 +307,11 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 let info = s.source_info(id);
                 let (mut t, mut tint) = match mode {
-                    WbMode::AsShot => (info.as_shot_temp, info.as_shot_tint),
                     WbMode::Auto => {
                         let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wb", e))?;
                         lightcraft_pipeline::auto::auto_wb(&src, &info)
                     }
-                    m => m
-                        .preset()
-                        .map(|(t, ti)| {
-                            // presets are relative to daylight for rendered files
-                            if info.raw && !info.relative_wb { (t, ti) } else { (6500.0 * t / 5500.0, ti) }
-                        })
-                        .unwrap_or((info.as_shot_temp, info.as_shot_tint)),
+                    m => lightcraft_pipeline::local::mode_wb(&info, m).unwrap_or((info.as_shot_temp, info.as_shot_tint)),
                 };
                 if let Some(name) = str_param(p, "preset") {
                     let preset = info
@@ -328,17 +321,23 @@ pub fn specs() -> Vec<CommandSpec> {
                         .ok_or_else(|| bad("develop.wb", format!("unknown camera WB preset `{name}`")))?;
                     (t, tint) = (preset.temp, preset.tint);
                     mode = WbMode::Custom;
-                } else if let Some(preset) = info.camera_wb_presets.iter().find(|v| {
+                } else if let Some(preset) = info.camera_wb_presets.iter().filter(|_| mode.preset().is_some()).find(|v| {
                     v.name.eq_ignore_ascii_case(mode.label())
                         || (mode == WbMode::Tungsten && v.name == "Incandescent")
                         || (mode == WbMode::Daylight && v.name == "Direct Sunlight")
                 }) {
+                    // the camera's own preset is a custom white: a named mode renders Lightroom's
+                    // values, which XMP sidecars and presets mean by it
                     (t, tint) = (preset.temp, preset.tint);
+                    mode = WbMode::Custom;
+                }
+                if p.get("temp").is_some() || p.get("tint").is_some() {
+                    mode = WbMode::Custom;
                 }
                 t = f64_or(p, "temp", t);
                 tint = f64_or(p, "tint", tint);
-                // The resolved temperature/tint is stored, so rendering never depends on the mode; the
-                // mode is kept for the UI's WB dropdown.
+                // The stored temperature/tint is what renders; the mode is kept for the UI's WB
+                // dropdown.
                 edit(s, "develop.wb", "White Balance", |d| {
                     d.wb.mode = mode;
                     d.wb.temp = t.clamp(2000.0, 50000.0);
@@ -840,6 +839,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 .filter_map(|id| {
                     let d = s.develop_of(*id)?;
                     let mut settings = preset.apply(&d, amount);
+                    s.resolve_transferred_wb(*id, &preset.settings, &mut settings);
                     s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
                     s.develop_op(*id, settings, &format!("Preset: {}", preset.name))
                 })
