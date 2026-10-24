@@ -655,6 +655,26 @@ fn enhance_samples_keep_source_profile_float_encoding() {
 }
 
 #[test]
+fn enlarged_eight_bit_output_is_dithered_into_other_spaces_and_untouched_in_srgb() {
+    // a neutral sRGB ramp from the model, 256 pixels of every level
+    let model = Rgba8::from_fn(256, 256, |x, _| [x as u8, x as u8, x as u8, 255]);
+    let eight_bit = |space| ExportOptions { color_space: space, bit_depth: Some(8), ..Default::default() };
+    let mut srgb = model.clone();
+    assert!(enhanced_samples(&mut srgb, &eight_bit(OutputSpace::Srgb)).is_none());
+    assert_eq!(srgb.data, model.data, "sRGB output is the model's own pixels");
+    let mut adobe = model.clone();
+    enhanced_samples(&mut adobe, &eight_bit(OutputSpace::AdobeRgb));
+    // each level keeps its exact mean in Adobe RGB codes (rounding alone is off by up to half a
+    // code and merges neighbouring levels)
+    let trc = OutputSpace::AdobeRgb.trc();
+    for level in 0..=255u8 {
+        let exact = trc.encode(li_color::transfer::decode_srgb8(level)) * 255.0;
+        let mean = (0..256).map(|y| f32::from(adobe.get(usize::from(level), y)[0])).sum::<f32>() / 256.0;
+        assert!((mean - exact).abs() < 0.2, "level {level}: mean {mean}, exact {exact}");
+    }
+}
+
+#[test]
 fn source_profile_encoding_converts_pixels_and_stays_out_of_presets() {
     let profile = icc::write_matrix_trc(&li_color::DISPLAY_P3, &lightcraft_codecs::Trc::Gamma(2.0));
     let Some(icc::IccInfo { kind: icc::IccKind::MatrixTrc { to_xyz_d50, trc }, .. }) = icc::parse(&profile) else { panic!("matrix profile") };

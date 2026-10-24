@@ -509,8 +509,6 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
     if durable { write_atomic(p, bytes) } else { write_atomic_nosync(p, bytes) }.map_err(|e| format!("{path}: {e}"))
 }
 
-/// The model emits sRGB8; preserve the requested output primaries, curve and container depth.
-/// Restoration has 8-bit source precision even in 16/32-bit exports.
 /// Resize a full-size export render to `size` with `kernel` — the editor's Image Size engine
 /// (`li-raster` f64 taps, edges repeated; Preserve Details' enlargement sharpening from
 /// `photocraft-algo`), in the render's own encoding: display-encoded for 8/16-bit, linear for
@@ -576,6 +574,10 @@ fn preserve_details(rgb: Vec<f32>, from: (usize, usize), to: (usize, usize)) -> 
     photocraft_algo::resample::preserve_details_sharpen(&s, sx, sy, rect).read_region(rect)
 }
 
+/// The model's sRGB8 output in the export's primaries, curve and container depth (restoration has
+/// 8-bit source precision even in 16/32-bit exports). 8-bit results in another space are dithered
+/// like the renderer's own 8-bit output, as a second rounding through another curve would merge
+/// and skip levels; sRGB 8-bit stays exactly what the model returned.
 fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage> {
     let (space, depth) = if opts.source_encoding.is_some() {
         (OutputSpace::Rec2020, OutputDepth::F32Linear)
@@ -586,12 +588,15 @@ fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage
     let trc = space.trc();
     let mut values = Vec::with_capacity(image.data.len() * 3);
     let linear = depth == OutputDepth::F32Linear;
-    for pixel in &mut image.data {
+    let width = image.width.max(1);
+    for (i, pixel) in image.data.iter_mut().enumerate() {
         let rgb = matrix.apply([pixel[0], pixel[1], pixel[2]].map(|v| li_color::transfer::decode_srgb8(v) as f64));
         for c in 0..3 {
             let encoded = trc.encode(rgb[c] as f32).clamp(0.0, 1.0);
             values.push(if linear { rgb[c] as f32 } else { encoded });
-            pixel[c] = (encoded * 255.0).round() as u8;
+            if space != OutputSpace::Srgb {
+                pixel[c] = lightcraft_pipeline::finish::dither8(encoded, i % width, i / width, c);
+            }
         }
     }
     let samples = match depth {
