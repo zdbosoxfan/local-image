@@ -83,6 +83,8 @@ struct Planes {
     sharp: Option<(u32, Arc<Buf>, Arc<Buf>)>,
     chroma: Option<(u32, Arc<Buf>)>,
     tone_eq: Option<(u64, Arc<Buf>)>,
+    /// Log luminance of the primary stage's input, which masks select on (`key` identifies it).
+    selection_log: Option<Arc<Buf>>,
 }
 
 impl GpuStages {
@@ -204,6 +206,7 @@ impl GpuStages {
             });
             p.chroma.iter().for_each(|(_, b)| add(b));
             p.tone_eq.iter().for_each(|(_, b)| add(b));
+            p.selection_log.iter().for_each(&mut add);
         }
         if let Some(s) = &*self.source.lock().unwrap_or_else(|e| e.into_inner()) {
             add(&s.uploaded);
@@ -888,9 +891,15 @@ pub fn render(
     let mut prep = prepare(&mut cx, &prepared_lin, &plan, req, &mut planes, info.sensor_scale);
     // Masks, hidden ones included, select on the primary stage's input.
     if primary.is_some() && !stack_settings.as_ref().unwrap_or(s).masks.is_empty() {
-        let l = gpu.buffer(n);
-        map(&mut cx, "log_lum_k", n, &[], [Some(&lin), None, None], &l);
-        prep.selection = Some((lin.clone(), Arc::new(l)));
+        let l = planes
+            .selection_log
+            .get_or_insert_with(|| {
+                let l = gpu.buffer(n);
+                map(&mut cx, "log_lum_k", n, &[], [Some(&lin), None, None], &l);
+                Arc::new(l)
+            })
+            .clone();
+        prep.selection = Some((lin.clone(), l));
     }
     lap("planes", &mut t, &mut cx);
     if let Some(original) = &stack_settings {

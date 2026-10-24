@@ -234,6 +234,9 @@ pub(crate) struct Planes {
     /// The tone equalizer's mask (pre-exposure zones, see [`crate::toneeq::mask_plane`]) by the
     /// key of its radius and epsilon.
     pub tone_eq: Option<(u64, Arc<GrayFrame>)>,
+    /// Log luminance of the image masks select on when it is not this one: the primary stage's
+    /// input, which `key` identifies as well.
+    pub selection_log: Option<Arc<GrayFrame>>,
 }
 
 /// Reuse `slot` if it was computed at `sigma`, else compute and store it.
@@ -358,7 +361,7 @@ pub(crate) fn prepare(
     let base = base.unwrap_or_else(|| log_l.clone());
     let ev = s.light.exposure as f32;
     let selection = selection.map(|src| {
-        let log = Arc::new(src.map(log_lum));
+        let log = planes.selection_log.get_or_insert_with(|| Arc::new(timed("selection log", || src.map(log_lum)))).clone();
         (src, log)
     });
     let (sel_img, sel_log) = selection.as_ref().map_or((&img, &log_l), |(img, log)| (img, log));

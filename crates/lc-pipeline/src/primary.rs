@@ -660,13 +660,18 @@ pub fn key(plan: &Plan<'_>, info: &SourceInfo) -> u64 {
 }
 pub fn key_for(plan: &Plan<'_>, info: &SourceInfo, method: HsMethod) -> u64 {
     let s = &*plan.settings;
+    let mut light = s.light;
+    if !layers_active(s) {
+        // Contrast, Whites and Blacks reach this stage only through its masks' selection tone.
+        (light.contrast, light.whites, light.blacks) = (0., 0., 0.);
+    }
     crate::hash_of((
         method,
         plan.lin_key,
         format!(
             "{:?}",
             (
-                &s.light,
+                light,
                 &s.color,
                 &s.mixer,
                 &s.grading,

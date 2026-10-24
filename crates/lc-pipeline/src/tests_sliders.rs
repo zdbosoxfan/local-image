@@ -665,3 +665,31 @@ fn hidden_masks_overlay_the_selection_they_make_when_shown() {
         assert!(worst <= 1, "stacked {stacked}: the hidden mask's overlay differs from the shown one by {worst}");
     }
 }
+
+#[test]
+fn whites_blacks_and_contrast_reach_the_primary_stage_only_through_mask_selection() {
+    let src = Arc::new(RgbFrame::from_fn(48, 32, |x, y| [0.01 + x as f32 / 40., 0.02 + y as f32 / 60., 0.05]));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(48, 32);
+    let key = |s: &DevelopSettings| primary::key(&crate::plan(&src, &info, s, &req), &info);
+    let mut s = DevelopSettings::default();
+    s.light.shadows = 40.;
+    s.masks.push(mask_of(
+        MaskShape::ColorRange { samples: vec![[0.5, 0.0, -0.05]], refine: 50. },
+        lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
+    ));
+    let mut dragged = s.clone();
+    dragged.light.whites = 60.;
+    dragged.light.blacks = -30.;
+    dragged.light.contrast = 20.;
+    assert_eq!(key(&s), key(&dragged), "a Whites, Blacks or Contrast drag re-ran the primary stage");
+    let cache = crate::StageCache::default();
+    crate::render_cached(&src, &info, &s, &req, &cache);
+    let warm = crate::render_cached(&src, &info, &dragged, &req, &cache).image;
+    assert_eq!(warm, render(&src, &info, &dragged, &req).image, "the reused primary stage changed the render");
+    // A mask with local Shadows selects in this stage, under the tone those sliders shape.
+    for m in [&mut s.masks[0], &mut dragged.masks[0]] {
+        m.adjust.shadows = 30.;
+    }
+    assert_ne!(key(&s), key(&dragged));
+}

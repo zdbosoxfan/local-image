@@ -445,7 +445,7 @@ impl StageCache {
                 add(Arc::as_ptr(image) as usize, size(image));
             }
             let pl = &e.planes;
-            let planes = pl.log_l.iter().chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
+            let planes = pl.log_l.iter().chain(&pl.selection_log).chain(pl.base.iter().map(|x| &x.1)).chain(pl.clarity.iter().map(|x| &x.1));
             for p in planes.chain(pl.texture.iter().map(|x| &x.1)) {
                 add(Arc::as_ptr(p) as usize, size(p));
             }
