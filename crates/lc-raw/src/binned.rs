@@ -29,17 +29,40 @@ impl RawImage {
 
     /// Like [`RawImage::develop`] at `1/k` of the size (camera RGB, white = 1.0, default crop applied,
     /// not oriented). `None` when the data cannot be binned ([`RawImage::can_bin`]) or carries an
-    /// `OpcodeList3` (whose operations are defined at full resolution); callers then demosaic.
+    /// `OpcodeList3` (see [`Self::develop_binned_with_highlights`]); callers then demosaic.
     pub fn develop_binned(&self, k: usize, clip: f32) -> Result<Option<RgbFrame>> {
         self.validate()?;
         if !self.can_bin(k) || !self.opcodes.list3.is_empty() {
             return Ok(None);
         }
-        let Some(cfa) = &self.cfa else { return Ok(None) };
+        let Some((region, _)) = self.bin_region(k) else { return Ok(None) };
+        self.bin_rows(k, clip, region)
+    }
+
+    /// The part of the active area to bin by `k`, and the default crop to take of the binned image
+    /// afterwards. An `OpcodeList3` is defined on the whole active area, so with one the area is
+    /// binned whole (from its origin, in whole blocks) and cropped once the list has run; without,
+    /// only the default crop is binned.
+    fn bin_region(&self, k: usize) -> Option<(crate::Rect, Option<crate::Rect>)> {
         let a = self.active_area;
-        // bin the default crop (relative to the active area) only
         let c = self.crop.clipped(a.width, a.height);
         let c = if c.width < k || c.height < k { crate::Rect::new(0, 0, a.width, a.height) } else { c };
+        if self.opcodes.list3.is_empty() {
+            return (c.width >= k && c.height >= k).then_some((c, None));
+        }
+        let (bw, bh) = (a.width / k, a.height / k);
+        if bw == 0 || bh == 0 {
+            return None;
+        }
+        let (x, y) = ((c.x / k).min(bw - 1), (c.y / k).min(bh - 1));
+        let after = crate::Rect::new(x, y, (c.width / k).clamp(1, bw - x), (c.height / k).clamp(1, bh - y));
+        Some((crate::Rect::new(0, 0, bw * k, bh * k), Some(after)))
+    }
+
+    /// Bin `c` (relative to the active area) straight from the samples, row by row.
+    fn bin_rows(&self, k: usize, clip: f32, c: crate::Rect) -> Result<Option<RgbFrame>> {
+        let Some(cfa) = &self.cfa else { return Ok(None) };
+        let a = self.active_area;
         let (bw, bh) = (c.width / k, c.height / k);
         if bw == 0 || bh == 0 {
             return Ok(None);
@@ -105,23 +128,40 @@ impl RawImage {
         Ok(Some(out))
     }
 
-    /// Binned development with highlight handling `h`: segmentation works on the reduced mosaic
-    /// ([`Self::develop_binned_with`]), the other modes on the binned RGB, whose clipped channels
-    /// keep their block maximum. `None` where [`Self::develop_binned`] has none.
+    /// Binned development with highlight handling `h`, run on the sensor data before
+    /// `OpcodeList3`: segmentation on the reduced mosaic ([`Self::develop_binned_with`]), the other
+    /// modes on the binned RGB, whose clipped channels keep their block maximum. Unlike
+    /// [`Self::develop_binned`] this also bins raws whose `OpcodeList3` holds only operations
+    /// defined in relative coordinates ([`crate::opcodes::list3_binnable`]: the warps, vignette and
+    /// gain maps of DJI and Hasselblad drone DNGs), evaluating them at the binned size.
     pub fn develop_binned_with_highlights(&self, k: usize, h: &crate::highlight::Highlights) -> Result<Option<RgbFrame>> {
-        if h.mode == crate::highlight::Mode::Segmentation {
-            let img = self.develop_binned_with(k, h.clip, |n, scale| {
+        self.validate()?;
+        if !self.can_bin(k) || !crate::opcodes::list3_binnable(&self.opcodes.list3) {
+            return Ok(None);
+        }
+        let Some((region, after)) = self.bin_region(k) else { return Ok(None) };
+        let img = if h.mode == crate::highlight::Mode::Segmentation {
+            self.bin_mosaic(k, h.clip, region, |n, scale| {
                 h.mosaic(n, scale);
-            })?;
-            return Ok(img.map(|mut img| {
+            })?
+            .map(|mut img| {
                 h.binned(&mut img);
                 img
-            }));
+            })
+        } else {
+            self.bin_rows(k, h.clip, region)?.map(|mut img| {
+                h.rgb(&mut img);
+                img
+            })
+        };
+        match (img, after) {
+            (Some(mut img), Some(c)) => {
+                crate::opcodes::apply_list3_binned(&self.opcodes.list3, &mut img, k);
+                let (cw, ch) = (c.width.min(img.width - c.x), c.height.min(img.height - c.y));
+                Ok(Some(img.into_crop(c.x, c.y, cw, ch)))
+            }
+            (img, _) => Ok(img),
         }
-        Ok(self.develop_binned(k, h.clip)?.map(|mut img| {
-            h.rgb(&mut img);
-            img
-        }))
     }
 
     /// Binned development with a pre-demosaic CFA operation. Bayer blocks are reduced to
@@ -133,12 +173,17 @@ impl RawImage {
         if !self.can_bin(k) || !self.opcodes.list3.is_empty() {
             return Ok(None);
         }
+        let Some((region, _)) = self.bin_region(k) else { return Ok(None) };
+        self.bin_mosaic(k, clip, region, hook)
+    }
+
+    /// Bin `c` (relative to the active area) after `hook` ran on the mosaic, reduced as
+    /// [`Self::develop_binned_with`] describes.
+    fn bin_mosaic(&self, k: usize, clip: f32, c: crate::Rect, hook: impl FnOnce(&mut Normalized, usize)) -> Result<Option<RgbFrame>> {
         let n = self.normalized_samples()?;
         let Some(cfa) = n.cfa.clone() else {
             return Ok(None);
         };
-        let c = self.crop.clipped(n.width, n.height);
-        let c = if c.width < k || c.height < k { crate::Rect::new(0, 0, n.width, n.height) } else { c };
         if c.width < k || c.height < k {
             return Ok(None);
         }
@@ -257,6 +302,59 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// DJI and Hasselblad drone DNGs keep their warp, vignette and gain map in OpcodeList3. Those
+    /// are defined in relative coordinates, so previews bin the sensor and run them at the binned
+    /// size instead of demosaicing and warping 100 MP, and match the full development.
+    #[test]
+    fn drone_lens_opcodes_run_at_the_binned_size() {
+        let (w, h) = (192usize, 144usize);
+        let img = RgbFrame::from_fn(w, h, |x, y| {
+            let (fx, fy) = (x as f32 / w as f32, y as f32 / h as f32);
+            [0.2 + 0.25 * fx, 0.3 + 0.2 * fy * fx, 0.25 + 0.15 * (1.0 - fy)]
+        });
+        let mut raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), 256.0, 16383.0);
+        raw.crop = Rect::new(8, 12, 168, 120);
+        let area = crate::opcodes::Area { bottom: h as u32, right: w as u32 - 16, planes: 3, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        raw.opcodes.list3 = vec![
+            Opcode::FixVignetteRadial { k: [0.6, 0.0, 0.0, 0.0, 0.0], center: [0.5, 0.5] },
+            Opcode::WarpRectilinear {
+                planes: vec![[0.97, 0.02, 0.0, 0.0, 0.0, 0.0], [0.97, 0.03, 0.0, 0.0, 0.0, 0.0], [0.975, 0.02, 0.0, 0.0, 0.0, 0.0]],
+                center: [0.48, 0.52],
+            },
+            Opcode::GainMap {
+                area,
+                points_v: 2,
+                points_h: 2,
+                spacing: [1.0, 1.0],
+                origin: [0.0, 0.0],
+                map_planes: 1,
+                gains: vec![1.0, 1.3, 1.1, 1.5],
+            },
+        ];
+        let highlights = crate::highlight::Highlights { mode: crate::highlight::Mode::Reconstruct, wb: [1.0; 3], clip: 0.99 };
+        assert!(raw.develop_binned(2, 0.99).unwrap().is_none(), "the plain binner still refuses OpcodeList3");
+        let full = raw.develop_with_highlights(Method::Bilinear, &Default::default(), &highlights).unwrap();
+        assert_eq!((full.width, full.height), (168, 120));
+        for k in [2, 4] {
+            let binned = raw.develop_binned_with_highlights(k, &highlights).unwrap().unwrap();
+            assert_eq!((binned.width, binned.height), (168 / k, 120 / k));
+            let (mut err, mut n) = (0.0f64, 0);
+            for by in 2..binned.height - 2 {
+                for bx in 2..binned.width - 2 {
+                    for c in 0..3 {
+                        let mean = (0..k * k).map(|i| full.get(bx * k + i % k, by * k + i / k)[c]).sum::<f32>() / (k * k) as f32;
+                        err += ((binned.get(bx, by)[c] - mean) / mean).abs() as f64;
+                        n += 1;
+                    }
+                }
+            }
+            assert!(err / (n as f64) < 0.01, "k = {k}: mean relative error {}", err / n as f64);
+        }
+        // a pixel-indexed opcode still needs the full development
+        raw.opcodes.list3.push(Opcode::DeltaPerRow { area, deltas: vec![0.01; h] });
+        assert!(raw.develop_binned_with_highlights(2, &highlights).unwrap().is_none());
     }
 
     #[test]
