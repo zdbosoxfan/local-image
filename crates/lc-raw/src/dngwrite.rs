@@ -122,6 +122,9 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
             ifd.set(0x7035, prefixed(2 * n, &ca));
         }
     }
+    // Capture settings and lens let other raw editors match lens profiles and ISO-adaptive
+    // defaults. Location stays in the XMP packet, which honours "Remove Location Info".
+    ifd.set_child(t::EXIF_IFD, lightcraft_meta::exif_ifd(&raw.metadata));
     let xmp = opts.xmp.clone().unwrap_or_else(|| lightcraft_meta::write_xmp(&raw.metadata, None));
     ifd.set(t::XMP, Value::Byte(xmp.into_bytes()));
 
@@ -452,6 +455,40 @@ mod float_compression_tests {
         assert_eq!(parsed.ifds[0].u16(t::COMPRESSION), Some(compression::NONE));
         assert!(parsed.ifds[0].u32(t::ROWS_PER_STRIP).is_some_and(|rows| rows < 512), "one strip per image");
         assert_eq!(crate::decode(&bytes).unwrap().data, raw.data);
+    }
+}
+
+#[cfg(test)]
+mod exif_tests {
+    use super::*;
+
+    #[test]
+    fn dngs_carry_capture_settings_and_lens_in_exif() {
+        let metadata = lightcraft_meta::Metadata {
+            make: Some("SONY".into()),
+            model: Some("ILCE-1".into()),
+            exposure_time: Some(1.0 / 125.0),
+            f_number: Some(8.0),
+            iso: Some(100),
+            focal_length: Some(16.0),
+            focal_length_35mm: Some(16.0),
+            lens_model: Some("FE 16-35mm F2.8 GM II".into()),
+            gps: Some(lightcraft_meta::Gps { latitude: 43.79, longitude: -71.07, altitude: None }),
+            ..Default::default()
+        };
+        let raw = RawImage { metadata, ..float_compression_tests::float_raw() };
+        // An export packet without location, as "Remove Location Info" writes it.
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { rating: Some(3), ..Default::default() }, None);
+        let bytes = write_dng(&raw, &DngWriteOptions { xmp: Some(packet), ..Default::default() }).unwrap();
+        let back = lightcraft_meta::extract(&bytes);
+        assert_eq!(back.exposure_time, Some(1.0 / 125.0));
+        assert_eq!(back.f_number, Some(8.0));
+        assert_eq!(back.iso, Some(100));
+        assert_eq!(back.focal_length, Some(16.0));
+        assert_eq!(back.focal_length_35mm, Some(16.0));
+        assert_eq!(back.lens_model.as_deref(), Some("FE 16-35mm F2.8 GM II"));
+        assert_eq!(back.rating, Some(3));
+        assert!(back.gps.is_none(), "location is written only through the packet");
     }
 }
 

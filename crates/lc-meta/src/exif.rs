@@ -272,7 +272,7 @@ pub(crate) mod tests {
 /// `Exif\0\0` prefix): IFD0 (make, model, software, artist, copyright, description, orientation,
 /// date), the Exif IFD (capture settings, lens) and, when present, the GPS IFD.
 pub fn write_exif(meta: &Metadata) -> Vec<u8> {
-    use lightcraft_tiff::writer::{rational, srational};
+    use lightcraft_tiff::writer::rational;
     use lightcraft_tiff::{ByteOrder, IfdBuilder, TiffWriter, Value};
     let ascii = |s: &Option<String>| s.as_ref().filter(|v| !v.is_empty()).map(|v| Value::Ascii(v.clone()));
     let mut ifd0 = IfdBuilder::new();
@@ -290,6 +290,36 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
             ifd0.set(tag, v);
         }
     }
+    ifd0.set_child(t::EXIF_IFD, exif_ifd(meta));
+    if let Some(g) = meta.gps {
+        let dms = |v: f64| {
+            let v = v.abs();
+            let d = v.floor();
+            let m = ((v - d) * 60.0).floor();
+            let s = (v - d - m / 60.0) * 3600.0;
+            Value::Rational(vec![(d as u32, 1), (m as u32, 1), ((s * 1000.0).round() as u32, 1000)])
+        };
+        let mut gps = IfdBuilder::new();
+        gps.set(t::GPS_VERSION_ID, Value::Byte(vec![2, 3, 0, 0]));
+        gps.set(t::GPS_LATITUDE_REF, Value::Ascii(if g.latitude < 0.0 { "S" } else { "N" }.into()));
+        gps.set(t::GPS_LATITUDE, dms(g.latitude));
+        gps.set(t::GPS_LONGITUDE_REF, Value::Ascii(if g.longitude < 0.0 { "W" } else { "E" }.into()));
+        gps.set(t::GPS_LONGITUDE, dms(g.longitude));
+        if let Some(a) = g.altitude {
+            gps.set(t::GPS_ALTITUDE_REF, Value::Byte(vec![u8::from(a < 0.0)]));
+            gps.set(t::GPS_ALTITUDE, Value::Rational(vec![rational(a.abs())]));
+        }
+        ifd0.set_child(t::GPS_IFD, gps);
+    }
+    TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap_or_default()
+}
+
+/// The Exif IFD of [`write_exif`] (capture settings, lens and capture time; no serial numbers and
+/// no location), for writers that build their own IFD0 such as DNG.
+pub fn exif_ifd(meta: &Metadata) -> lightcraft_tiff::IfdBuilder {
+    use lightcraft_tiff::writer::{rational, srational};
+    use lightcraft_tiff::{IfdBuilder, Value};
+    let ascii = |s: &Option<String>| s.as_ref().filter(|v| !v.is_empty()).map(|v| Value::Ascii(v.clone()));
     let mut ex = IfdBuilder::new();
     ex.set(t::EXIF_VERSION, Value::Undefined(b"0232".to_vec()));
     let r = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| Value::Rational(vec![rational(v)]));
@@ -316,28 +346,7 @@ pub fn write_exif(meta: &Metadata) -> Vec<u8> {
         ex.set(t::SENSITIVITY_TYPE, Value::Short(vec![3]));
         ex.set(t::ISO_SPEED_RATINGS_EXT, Value::Long(vec![iso]));
     }
-    ifd0.set_child(t::EXIF_IFD, ex);
-    if let Some(g) = meta.gps {
-        let dms = |v: f64| {
-            let v = v.abs();
-            let d = v.floor();
-            let m = ((v - d) * 60.0).floor();
-            let s = (v - d - m / 60.0) * 3600.0;
-            Value::Rational(vec![(d as u32, 1), (m as u32, 1), ((s * 1000.0).round() as u32, 1000)])
-        };
-        let mut gps = IfdBuilder::new();
-        gps.set(t::GPS_VERSION_ID, Value::Byte(vec![2, 3, 0, 0]));
-        gps.set(t::GPS_LATITUDE_REF, Value::Ascii(if g.latitude < 0.0 { "S" } else { "N" }.into()));
-        gps.set(t::GPS_LATITUDE, dms(g.latitude));
-        gps.set(t::GPS_LONGITUDE_REF, Value::Ascii(if g.longitude < 0.0 { "W" } else { "E" }.into()));
-        gps.set(t::GPS_LONGITUDE, dms(g.longitude));
-        if let Some(a) = g.altitude {
-            gps.set(t::GPS_ALTITUDE_REF, Value::Byte(vec![u8::from(a < 0.0)]));
-            gps.set(t::GPS_ALTITUDE, Value::Rational(vec![rational(a.abs())]));
-        }
-        ifd0.set_child(t::GPS_IFD, gps);
-    }
-    TiffWriter::new(ByteOrder::Little, false).write(&[ifd0]).unwrap_or_default()
+    ex
 }
 
 #[cfg(test)]

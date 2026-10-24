@@ -358,6 +358,53 @@ mod tests {
     use super::*;
     use lightcraft_catalog::{Photo, PhotoId, Source};
 
+    /// The converted DNG keeps the capture settings and lens of the original, though the develop
+    /// settings packet written into it carries none, so other raw editors can match lens profiles.
+    #[test]
+    fn converted_dng_keeps_capture_settings_and_lens() {
+        let (w, h) = (64, 48);
+        let raw = lightcraft_raw::RawImage {
+            format: lightcraft_raw::RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            data: lightcraft_raw::RawData::U16((0..w * h).map(|i| 600 + (i % 97) as u16 * 30).collect()),
+            cfa: lightcraft_raw::Cfa::bayer("RGGB"),
+            bits: 14,
+            black: lightcraft_raw::BlackLevel::uniform(512.0),
+            white: vec![16383.0],
+            active_area: lightcraft_raw::Rect::new(0, 0, w, h),
+            crop: lightcraft_raw::Rect::new(0, 0, w, h),
+            orientation: lightcraft_geom::Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: lightcraft_meta::Metadata {
+                make: Some("SONY".into()),
+                model: Some("ILCE-1".into()),
+                exposure_time: Some(1.0 / 125.0),
+                f_number: Some(8.0),
+                iso: Some(100),
+                focal_length: Some(16.0),
+                lens_model: Some("FE 16-35mm F2.8 GM II".into()),
+                ..Default::default()
+            },
+        };
+        let dir = std::env::current_dir().unwrap().join("target").join(format!("convert-exif-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.dng");
+        std::fs::write(&source, lightcraft_raw::write_dng(&raw, &lightcraft_raw::DngWriteOptions::default()).unwrap()).unwrap();
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { rating: Some(4), ..Default::default() }, None);
+        let out = write_dng_with(None, &source.to_string_lossy(), packet).unwrap();
+        let back = lightcraft_meta::extract(&std::fs::read(&out).unwrap());
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!((back.exposure_time, back.f_number, back.iso, back.focal_length), (Some(1.0 / 125.0), Some(8.0), Some(100), Some(16.0)));
+        assert_eq!(back.lens_model.as_deref(), Some("FE 16-35mm F2.8 GM II"));
+        assert_eq!(back.rating, Some(4));
+    }
+
     /// Reload fills camera fields a photo lacks (a CR3 imported before CR3 metadata was read) and keeps
     /// everything already set.
     #[test]
