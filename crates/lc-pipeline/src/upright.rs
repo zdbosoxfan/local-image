@@ -552,9 +552,14 @@ pub fn analyze_source(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) ->
     }
     let frame = crate::frame_for(src, info, &base, false);
     let (w, h) = frame.fit(ANALYSIS_LONG, ANALYSIS_LONG);
-    let img = frame.sample(src, w, h);
+    // A source smaller than the analysis size is measured at its own size and its luminance
+    // interpolated linearly: upsampling adds no lines, and the detector's accuracy must not depend
+    // on the renderer's reconstruction kernel.
+    let (nw, nh) = frame.native_size();
+    let (sw, sh) = ((nw.round() as usize).clamp(1, w), (nh.round() as usize).clamp(1, h));
+    let lum = frame.sample(src, sw, sh).luminance();
+    let lum = if (sw, sh) == (w, h) { lum } else { lum.resize(w, h, li_raster::resample::Filter::Bilinear) };
     // perceptual lightness, normalized to the image's bright end
-    let lum = img.luminance();
     let mut v: Vec<f32> = lum.data.iter().copied().filter(|x| x.is_finite()).collect();
     v.sort_by(f32::total_cmp);
     let white = v.get(v.len() * 99 / 100).copied().unwrap_or(1.0).max(1e-4);

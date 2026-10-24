@@ -66,39 +66,15 @@ fn oklab_inv(lab: vec3<f32>) -> vec3<f32> {
     return mul3(OK_FROM_LMS, l * l * l);
 }
 
-// Ranges `antiring` reads: the samples inside the kernel's positive lobe and every sample read.
-struct Ring {
-    core_lo: f32,
-    core_hi: f32,
-    lo: f32,
-    hi: f32,
-}
-
-fn ring_empty() -> Ring {
-    return Ring(3.0e38, -3.0e38, 3.0e38, -3.0e38);
-}
-
-fn ring_add(r: Ring, s: f32, core: bool) -> Ring {
-    var o = Ring(r.core_lo, r.core_hi, min(r.lo, s), max(r.hi, s));
-    if (core) {
-        o.core_lo = min(o.core_lo, s);
-        o.core_hi = max(o.core_hi, s);
-    }
-    return o;
-}
-
-fn ring_merge(a: Ring, b: Ring) -> Ring {
-    return Ring(min(a.core_lo, b.core_lo), max(a.core_hi, b.core_hi), min(a.lo, b.lo), max(a.hi, b.hi));
-}
-
-// `li_raster::resample::antiring`.
-fn antiring(v: f32, r: Ring) -> f32 {
-    if (r.core_lo > r.core_hi) {
+// `li_raster::resample::antiring`: `v` clamped to [lo, hi] widened by `slack` of each bound.
+fn antiring(v: f32, lo: f32, hi: f32, slack: f32) -> f32 {
+    if (!(lo <= hi)) {
         return v;
     }
-    var gate = 1.0;
-    if (r.lo > 0.0) {
-        gate = clamp((r.hi - 1.5 * r.lo) / (2.5 * r.lo), 0.0, 1.0);
-    }
-    return v + (min(max(v, r.core_lo), r.core_hi) - v) * gate;
+    return min(max(v, lo - slack * abs(lo)), hi + slack * abs(hi));
+}
+
+// `li_raster::resample::antiring_taper`.
+fn antiring_taper(w: f32, w_max: f32) -> f32 {
+    return clamp(w * 10.0 / w_max, 0.0, 1.0);
 }

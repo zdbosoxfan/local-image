@@ -24,8 +24,7 @@ fn sampled(cx: &mut Cx<'_>, src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopS
 
 /// A window six to eight stops over the wall, rendered reduced: neither renderer's prefilter rings
 /// the wall beside the window (it went below zero: a black outline), unrotated, straightened,
-/// cropped and flipped. Across a diagonal edge the second pass sees the first pass's moderate
-/// contrast and keeps a little of the kernel's overshoot, a percent or two at most.
+/// cropped and flipped.
 #[test]
 fn reduced_renders_do_not_ring_bright_windows_on_the_device() {
     let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
@@ -45,11 +44,66 @@ fn reduced_renders_do_not_ring_bright_windows_on_the_device() {
         }
         for req in [RenderRequest::fit(401, 401), RenderRequest::fit(250, 250)] {
             let (out, _) = sampled(&mut cx, &src, &info, &s, &req, 1e-2);
+            // the separable path's two passes may each use the slack across a diagonal edge
+            let slack = 2.0 * li_raster::resample::ANTIRING_SLACK + 1e-3;
             for (i, p) in out.data.iter().enumerate() {
                 for c in 0..3 {
-                    assert!(p[c] >= wall[c] * 0.98 && p[c] <= window[c] * 1.02, "angle {angle}, crop {crop}, pixel {i}: {p:?}");
+                    assert!(p[c] >= wall[c] * (1.0 - slack) && p[c] <= window[c] * (1.0 + slack), "angle {angle}, crop {crop}, pixel {i}: {p:?}");
                 }
             }
+        }
+    }
+    assert!(errors.pop().is_none());
+    assert!(!crate::ctx::failed());
+}
+
+/// The device resample matches the CPU on every path: separable crops and flips, straighten, and
+/// the warp (perspective, lens profile, camera-plane CA, vignetting) including the widened kernel
+/// where the perspective minifies, at reduced and full size.
+#[test]
+fn every_resample_path_matches_the_cpu() {
+    let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
+    let gpu = &*gpu_device;
+    let _scope = crate::ctx::RenderScope::new(gpu);
+    let errors = crate::ctx::ErrorScopes::push(gpu);
+    let mut cx = Cx::new(gpu);
+    let src = Arc::new(RgbFrame::from_fn(613, 409, |x, y| {
+        let (u, v) = (x as f32, y as f32);
+        [0.1 + 0.08 * (u * 0.9).sin() * (v * 0.7).cos(), 0.2 + 0.1 * ((u + v) * 0.45).sin(), if (x / 37 + y / 23) % 2 == 0 { 0.02 } else { 1.5 }]
+    }));
+    let forward = li_color::Mat3([[0.8, 0.15, 0.05], [0.1, 0.8, 0.1], [0.05, 0.2, 0.75]]);
+    let mut radial = lightcraft_develop::EmbeddedRadial {
+        count: 2,
+        vig_count: 2,
+        center: lightcraft_geom::Point::new(0.5, 0.5),
+        radius: 0.8,
+        ..Default::default()
+    };
+    radial.knots[1] = 1.0;
+    radial.scales[0][..2].copy_from_slice(&[1.004, 1.003]);
+    radial.scales[1][..2].fill(1.0);
+    radial.scales[2][..2].copy_from_slice(&[0.997, 0.996]);
+    radial.vig_knots[1] = 1.0;
+    radial.attenuation[..2].copy_from_slice(&[1.0, 0.6]);
+    let lens = lightcraft_develop::EmbeddedLens { radial: Some(radial), ..Default::default() };
+    let info = SourceInfo { raw: true, lens: Some(lens), lens_camera_to_working: Some(forward), ..Default::default() };
+    let mut cases: Vec<(&str, DevelopSettings)> = Vec::new();
+    let mut s = DevelopSettings::default();
+    s.crop.geometry.rect = lightcraft_geom::Rect::new(0.1013, 0.07, 0.8817, 0.93);
+    s.crop.flip_v = true;
+    cases.push(("separable crop + flip", s.clone()));
+    s.crop.geometry.angle = 2.5;
+    cases.push(("straightened", s));
+    let mut s = DevelopSettings { orientation: Orientation::Rotate90, ..Default::default() };
+    s.geometry.vertical = -80.0;
+    s.geometry.horizontal = 25.0;
+    s.optics.lens_profile = true;
+    s.optics.ca_blue = 40.0;
+    cases.push(("perspective + lens + CA", s));
+    for (name, s) in &cases {
+        for req in [RenderRequest::fit(613, 613), RenderRequest::fit(400, 400), RenderRequest::fit(250, 250)] {
+            let (gpu_out, cpu_out) = sampled(&mut cx, &src, &info, s, &req, 2e-4);
+            assert_eq!((gpu_out.width, gpu_out.height), (cpu_out.width, cpu_out.height), "{name}");
         }
     }
     assert!(errors.pop().is_none());

@@ -174,7 +174,7 @@ fn embedded_dng_fisheye_gpu_matches_independent_mapping() {
                     let [k0, k1, k2, k3, _, _] = *coefficients;
                     let scale = if r == 0.0 { k0 } else { theta / r * (k0 + k1 * t2 + k2 * t2.powi(2) + k3 * t2.powi(3)) };
                     let scale = 1.0 + strength * (scale - 1.0);
-                    truth[ch] = camera.sample_bilinear((centre.x + dx * scale) as f32, (centre.y + dy * scale) as f32)[ch];
+                    truth[ch] = camera.sample_cubic((centre.x + dx * scale) as f32, (centre.y + dy * scale) as f32, [1.0; 2], 0.0)[ch];
                 }
                 let truth = forward.apply_f32(truth);
                 for (ch, expected) in truth.into_iter().enumerate() {
