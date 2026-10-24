@@ -49,6 +49,11 @@ All notable changes to Local Image are recorded here. The format follows
   (daylight frames about +10). Custom tints saved by earlier builds now render with the opposite tint,
   and the As Shot tint shown for raws imported before this change keeps the old sign until the photo
   is imported again.
+- Develop white balance selector and Auto WB on raws: the clicked grey (or Auto's average) is solved
+  through the same camera model the render applies, so it renders neutral instead of keeping a 2-8%
+  cast in mixed light. The selector samples the spot that was clicked after lens corrections, Upright
+  and perspective, reads a sharper preview, and a layer's pick neutralises on top of the photo's own
+  white balance. Clicking on black shows a message instead of resetting to As Shot.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

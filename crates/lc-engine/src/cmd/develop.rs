@@ -356,13 +356,17 @@ pub fn specs() -> Vec<CommandSpec> {
             "{x, y, mask?: layerId} normalized image coords of a neutral point",
             has_active,
             |s, p| {
+                use lightcraft_pipeline::auto::{WbTarget, wb_pick};
                 let (x, y) = (f64_req(p, "x", "develop.wbPick")?, f64_req(p, "y", "develop.wbPick")?);
                 let id = active(s, "develop.wbPick")?;
-                let src = s.source_now(id, SourceLevel::Thumb).map_err(|e| bad("develop.wbPick", e))?;
+                let src = s.source_now(id, SourceLevel::Preview).map_err(|e| bad("develop.wbPick", e))?;
                 let info = s.source_info(id);
                 let d = s.develop_of(id).unwrap_or_default();
-                let (t, tint) = crate::sample_white_balance(&src, &info, d.orientation, x, y);
-                if let Some(mid) = p.get("mask").and_then(Value::as_u64) {
+                let mask = p.get("mask").and_then(Value::as_u64);
+                let target = if mask.is_some() { WbTarget::Mask } else { WbTarget::Global };
+                let (t, tint) = wb_pick(&src, &info, &d, Point::new(x, y), target)
+                    .ok_or_else(|| bad("develop.wbPick", "pick a point inside the photo that is not black"))?;
+                if let Some(mid) = mask {
                     s.execute(
                         "mask.setTools",
                         &json!({"id": mid, "tools": {"wb": {"mode":"custom", "temp": t, "tint": tint}}, "label":"White Balance"}),

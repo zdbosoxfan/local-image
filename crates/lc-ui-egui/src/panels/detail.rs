@@ -835,15 +835,21 @@ fn general_interaction(
                 && !app.tasks.is_running("White Balance Picker")
                 && let Some(photo) = app.session.catalog.photo(id).cloned()
             {
-                let source = app.session.media.source_ref(&photo, lightcraft_engine::media::SourceLevel::Thumb);
-                let info = app.session.source_info(id);
-                let orientation = photo.develop.orientation;
+                use lightcraft_engine::pipeline::auto::{WbTarget, wb_pick};
+                let source = app.session.media.source_ref(&photo, lightcraft_engine::media::SourceLevel::Preview);
+                let header = app.session.source_info(id);
+                let develop = photo.develop.clone();
                 let mask = app.session.active_mask;
+                let target = if mask.is_some() { WbTarget::Mask } else { WbTarget::Global };
                 app.ui.status = "Picking white balance…".into();
                 let _ = crate::tasks::spawn(
                     app,
                     "White Balance Picker",
-                    move || source.load_source().map(|loaded| lightcraft_engine::sample_white_balance(&loaded.image, &info, orientation, n.x, n.y)),
+                    move || {
+                        let loaded = source.load_source()?;
+                        wb_pick(&loaded.image, &loaded.info_or(header), &develop, n, target)
+                            .ok_or_else(|| li_i18n::library::t("Pick a point inside the photo that is not black").to_string())
+                    },
                     move |app, ctx, result| {
                         app.ui.status.clear();
                         if app.session.active() != Some(id) {

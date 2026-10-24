@@ -58,30 +58,6 @@ use serde_json::Value;
 pub use view::{Browse, FilterChip, LibrarySource, Selection, filter_chips, update_soft_proof};
 pub use {lightcraft_catalog as catalog, lightcraft_develop as develop, lightcraft_gpu as gpu, lightcraft_pipeline as pipeline};
 
-/// The existing neutral-patch WB calculation, shared by commands and the UI picker worker.
-pub fn sample_white_balance(
-    src: &li_raster::RgbFrame,
-    info: &lightcraft_pipeline::SourceInfo,
-    orientation: lightcraft_geom::Orientation,
-    x: f64,
-    y: f64,
-) -> (f64, f64) {
-    // Sample a small neighbourhood in the oriented source.
-    let o = src.oriented(orientation);
-    let (cx, cy) = ((x.clamp(0.0, 1.0) * o.width as f64) as isize, (y.clamp(0.0, 1.0) * o.height as f64) as isize);
-    let mut acc = [0.0f32; 3];
-    for dy in -2..=2 {
-        for dx in -2..=2 {
-            let c = o.get_clamped(cx + dx, cy + dy);
-            for i in 0..3 {
-                acc[i] += c[i] / 25.0;
-            }
-        }
-    }
-    let patch = li_raster::RgbFrame::filled(4, 4, acc);
-    lightcraft_pipeline::auto::auto_wb(&patch, info)
-}
-
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     #[error("unknown command `{0}`")]

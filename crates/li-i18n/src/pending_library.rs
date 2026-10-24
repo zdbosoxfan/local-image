@@ -63,6 +63,7 @@ pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
     "No embedded lens corrections. Use the lens database for a fallback profile.",
     "Enable Lens Corrections to apply the lens database profile.",
     "Embedded lens corrections take priority; lens database amounts are inactive.",
+    "Pick a point inside the photo that is not black",
     "Loupe",
     "Develop",
     "Lights Out",
