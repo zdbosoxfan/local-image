@@ -106,14 +106,16 @@ pub fn resolve_components(f: &Family, info: &ObjectInfo) -> Vec<(Role, String)> 
 type IdentityCache = BTreeMap<(PathBuf, FileKind), (u64, std::time::SystemTime, u64, Identity)>;
 static CACHE: Mutex<IdentityCache> = Mutex::new(BTreeMap::new());
 
-/// Identifies a local file a loader of kind `listed` lists, reading only its header (cached).
-/// `None` when the header can't be read.
+/// Identifies a local file a loader of kind `listed` lists, reading only its header (cached
+/// for the live registry). `None` when the header can't be read.
 pub fn identify_file(path: &Path, listed: FileKind, reg: &Registry) -> Option<Identity> {
     let meta = std::fs::metadata(path).ok()?;
     let (len, mtime) = (meta.len(), meta.modified().ok()?);
     let generation = crate::family::generation();
     let key = (path.to_owned(), listed);
-    if let Some((l, m, g, id)) = CACHE.lock().ok()?.get(&key)
+    let live = std::ptr::eq(reg, crate::family::registry());
+    if live
+        && let Some((l, m, g, id)) = CACHE.lock().ok()?.get(&key)
         && (*l, *m, *g) == (len, mtime, generation)
     {
         return Some(id.clone());
@@ -121,7 +123,7 @@ pub fn identify_file(path: &Path, listed: FileKind, reg: &Registry) -> Option<Id
     let h = arch::read_header(path).ok()?;
     let name = path.file_name()?.to_string_lossy().to_string();
     let id = crate::identify::identify(&name, listed, Some(&h), reg);
-    if let Ok(mut c) = CACHE.lock() {
+    if live && let Ok(mut c) = CACHE.lock() {
         c.insert(key, (len, mtime, generation, id.clone()));
     }
     Some(id)

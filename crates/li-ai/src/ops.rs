@@ -250,11 +250,24 @@ pub struct Generated {
 #[derive(Clone, Debug)]
 pub struct Ai {
     pub client: ComfyClient,
+    /// Submit only while ComfyUI's queue is empty (background verification never queues
+    /// behind, or ahead of, someone's work).
+    idle_only: bool,
 }
 
 impl Ai {
     pub fn new(host: impl Into<String>) -> Self {
-        Self { client: ComfyClient::new(host) }
+        Self { client: ComfyClient::new(host), idle_only: false }
+    }
+
+    /// The same service for background checks: every prompt waits for an idle queue
+    /// ([`ComfyClient::run_when_idle`]).
+    pub fn idle_only(host: impl Into<String>) -> Self {
+        Self { client: ComfyClient::new(host), idle_only: true }
+    }
+
+    fn run(&self, graph: serde_json::Value, images: &[(String, Vec<u8>)], ctl: &JobControl) -> Result<Vec<u8>> {
+        if self.idle_only { self.client.run_when_idle(graph, images, ctl) } else { self.client.run(graph, images, ctl) }
     }
 
     fn resolve(&self, model: ModelId, variant: &str, info: &ObjectInfo) -> Result<Availability> {
@@ -399,7 +412,7 @@ impl Ai {
             let highlighted = imaging::klein_highlight(&crop.to_rgb8(), in_crop);
             let built = workflows::klein_remove(&a.files, highlighted.width(), highlighted.height(), seed.wrapping_add(i as u64));
             let png = imaging::encode_png(&highlighted)?;
-            let bytes = self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?;
+            let bytes = self.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?;
             let out = imaging::decode_frame(&bytes)?.rgb();
             if (out.width as u32, out.height as u32) != highlighted.dimensions() {
                 bail!("The removal model returned an unexpected size.");
@@ -520,7 +533,7 @@ impl Ai {
         );
         set_qwen_sampler(&mut built, sampler);
         let images: Vec<(String, Vec<u8>)> = built.image_nodes.iter().cloned().zip(pngs).collect();
-        let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
+        let out = imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)?;
         Ok(if out.dimensions() != (ow, oh) { li_raster::resize_rgba8(&out, ow, oh, li_raster::Filter::Lanczos3) } else { out })
     }
 
@@ -755,7 +768,7 @@ impl Ai {
             };
             images.push((id.clone(), png.context("an image input of the graph has no picture")?));
         }
-        imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)
+        imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)
     }
 
     /// img2img of the whole image at the family's working size; the result keeps `src`'s size.
@@ -1001,7 +1014,7 @@ impl Ai {
         );
         set_qwen_sampler(&mut built, req.sampler.as_ref());
         let images: Vec<_> = built.image_nodes.iter().cloned().zip(pngs).collect();
-        let out = imaging::decode_rgba(&self.client.run(built.graph, &images, ctl)?)?;
+        let out = imaging::decode_rgba(&self.run(built.graph, &images, ctl)?)?;
         if background {
             return imaging::finish_background(&out);
         }
@@ -1057,7 +1070,7 @@ impl Ai {
             };
             uploads.push((node, png));
         }
-        imaging::decode_rgba(&self.client.run(graph, &uploads, ctl)?)
+        imaging::decode_rgba(&self.run(graph, &uploads, ctl)?)
     }
 
     /// SeedVR2 enhancement to `width × height` (same aspect, larger, even). Keeps the alpha.
@@ -1104,7 +1117,7 @@ impl Ai {
         let resized = li_raster::resize_rgba8(image, width, height, li_raster::Filter::Lanczos3);
         let png = imaging::encode_png(&imaging::over_white(&resized))?;
         let built = workflows::seedvr2(&files, seed);
-        let out = image::load_from_memory(&self.client.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?)?.to_rgba8();
+        let out = image::load_from_memory(&self.run(built.graph, &[(built.image_nodes[0].clone(), png)], ctl)?)?.to_rgba8();
         let out = if out.dimensions() != (width, height) { li_raster::resize_rgba8(&out, width, height, li_raster::Filter::Lanczos3) } else { out };
         // Restore transparency: blend by alpha⁴ so soft edges keep the source colour.
         Ok(RgbaImage::from_fn(width, height, |x, y| {

@@ -114,9 +114,23 @@ pub struct Defaults {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Recipe {
-    Family { profile: Box<Family>, files: Files, denoise: f32 },
-    Template { workflow: CustomWorkflow, defaults: Defaults },
-    Universal { checkpoint: String, defaults: Defaults },
+    Family {
+        profile: Box<Family>,
+        files: Files,
+        denoise: f32,
+    },
+    Template {
+        workflow: CustomWorkflow,
+        defaults: Defaults,
+    },
+    Universal {
+        checkpoint: String,
+        defaults: Defaults,
+    },
+    /// A model set up from its official templates (refine is derived from its create graph).
+    Compiled {
+        recipe: Box<crate::template::TemplateRecipe>,
+    },
 }
 
 impl Recipe {
@@ -125,6 +139,7 @@ impl Recipe {
             Self::Family { profile, .. } => format!("family:{}", profile.id),
             Self::Template { workflow, .. } => format!("template:{}", workflow.name),
             Self::Universal { .. } => "universal".into(),
+            Self::Compiled { recipe } => format!("template:{}", recipe.sources.first().map(|s| s.name.as_str()).unwrap_or("")),
         }
     }
     pub fn is_reference(&self) -> bool {
@@ -137,6 +152,7 @@ impl Recipe {
                 })
             }),
             Self::Universal { .. } => false,
+            Self::Compiled { recipe } => recipe.create.is_none(),
         }
     }
     pub fn defaults(&self) -> Defaults {
@@ -152,6 +168,19 @@ impl Recipe {
                 encoder_layer: None,
             },
             Self::Template { defaults, .. } | Self::Universal { defaults, .. } => defaults.clone(),
+            Self::Compiled { recipe } => {
+                let d = &recipe.defaults;
+                Defaults {
+                    steps: d.steps,
+                    cfg: d.cfg,
+                    denoise: d.denoise,
+                    sampler: d.sampler.clone(),
+                    scheduler: d.scheduler.clone(),
+                    grid: d.grid.max(8),
+                    resolution: Some((d.width, d.height)),
+                    encoder_layer: None,
+                }
+            }
         }
     }
     /// A recipe must explicitly support styles; nominal model families are insufficient.
@@ -180,9 +209,21 @@ impl Recipe {
         }
         Ok(())
     }
+    /// The graph for `p`; a compiled recipe also needs the server's node list (`info`).
+    pub fn graph_for(&self, p: &Params, info: Option<&ObjectInfo>) -> Result<(Value, Vec<String>)> {
+        match (self, info) {
+            (Self::Compiled { recipe }, Some(info)) => {
+                self.validate_loras(p.loras)?;
+                let b = recipe.build(p, info)?;
+                Ok((b.graph, b.image_nodes))
+            }
+            _ => self.graph(p),
+        }
+    }
     pub fn graph(&self, p: &Params) -> Result<(Value, Vec<String>)> {
         self.validate_loras(p.loras)?;
         match self {
+            Self::Compiled { .. } => bail!("A template model's graph needs ComfyUI's node list."),
             Self::Family { profile, files, .. } => {
                 let b = builders::build(profile, files, p);
                 Ok((b.graph, b.image_nodes))
@@ -291,7 +332,8 @@ impl Recipe {
         let png = crate::imaging::encode_png(&source)?;
         self.validate_loras(p.loras)?;
         let p = Params { width: w, height: h, references: 0, ..p.clone() };
-        let (graph, slots) = self.graph(&p)?;
+        let info = matches!(self, Self::Compiled { .. }).then(|| client.object_info()).transpose()?;
+        let (graph, slots) = self.graph_for(&p, info.as_ref())?;
         let uploads = slots.into_iter().map(|n| (n, png.clone())).collect::<Vec<_>>();
         let bytes = if idle_only { client.run_when_idle(graph, &uploads, ctl)? } else { client.run(graph, &uploads, ctl)? };
         let out = crate::imaging::decode_rgba(&bytes)?;
@@ -734,7 +776,7 @@ pub struct Checker {
 }
 
 // Across all checkers in this process, including manual commands and background UI requests.
-static TEST_JOB: Mutex<()> = Mutex::new(());
+pub(crate) static TEST_JOB: Mutex<()> = Mutex::new(());
 
 impl Checker {
     /// Construction does no disk I/O; first worker use loads the saved state.
@@ -983,6 +1025,7 @@ impl Checker {
                 if let Verdict::Verified { recipe, .. } = &mut v {
                     match recipe.as_mut() {
                         Recipe::Universal { checkpoint, .. } => *checkpoint = name.into(),
+                        Recipe::Compiled { .. } => {}
                         Recipe::Family { files, .. } => {
                             files.insert(role, name.into());
                         }
@@ -1073,6 +1116,11 @@ impl Checker {
                 return Ok(None);
             }
         }
+        if model.try_info().is_some_and(|m| m.recipe.is_some()) {
+            let v = Verdict::Failed { reason: failures.join("; ") };
+            save(&v)?;
+            return Ok(Some(v));
+        }
         let mut cfg = crate::browser::Config::from_env(&settings);
         // The connected installation ships version-matched Comfy-Org templates.
         if std::env::var_os("LOCAL_IMAGE_TEMPLATES_BASE").is_none() {
@@ -1117,13 +1165,19 @@ impl Checker {
         Ok(Some(v))
     }
     pub fn test_recipe(&self, client: &ComfyClient, recipe: &Recipe, ctl: &JobControl) -> Result<f64> {
-        let source = test_image();
-        let src = image::DynamicImage::ImageRgb8(source.clone()).to_rgba8();
-        let d = recipe.defaults();
-        let p = Params { task: Task::Refine { denoise: d.denoise }, ..Params::create(PROMPT, 512, 288, 42, d.steps, d.cfg) };
-        let out = recipe.run_with_admission(client, &src, &p, ctl, true)?;
-        Ok(mean_abs_difference(&source, &image::DynamicImage::ImageRgba8(out).to_rgb8()))
+        preservation(client, recipe, 42, ctl).map(|(d, _)| d)
     }
+}
+
+/// Refines the test picture with `recipe` at its default strength (only on an idle queue) and
+/// returns how much it changed ([`mean_abs_difference`]; [`PASS_LIMIT`] passes) and the result.
+pub fn preservation(client: &ComfyClient, recipe: &Recipe, seed: u64, ctl: &JobControl) -> Result<(f64, RgbaImage)> {
+    let source = test_image();
+    let src = image::DynamicImage::ImageRgb8(source.clone()).to_rgba8();
+    let d = recipe.defaults();
+    let p = Params { task: Task::Refine { denoise: d.denoise }, ..Params::create(PROMPT, 512, 288, seed, d.steps, d.cfg) };
+    let out = recipe.run_with_admission(client, &src, &p, ctl, true)?;
+    Ok((mean_abs_difference(&source, &image::DynamicImage::ImageRgba8(out.clone()).to_rgb8()), out))
 }
 
 fn main_file(target: &InstalledModel) -> Result<(Role, &str)> {
@@ -1150,6 +1204,9 @@ pub fn target(model: ModelId, variant: &str, info: &ObjectInfo) -> Result<Instal
 
 pub fn family_recipe(model: ModelId, variant: &str, target: &InstalledModel, info: &ObjectInfo) -> Option<Recipe> {
     let m = model.try_info()?;
+    if let Some(recipe) = &m.recipe {
+        return Some(Recipe::Compiled { recipe: Box::new((**recipe).clone()) });
+    }
     let mut profile = if m.tool {
         crate::family::registry().family(&target.family)?.resolved_for_file(main_file(target).ok()?.1, None)
     } else {

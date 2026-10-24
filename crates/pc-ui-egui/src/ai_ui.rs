@@ -241,6 +241,8 @@ fn poll_loop(s: Arc<Shared>) {
                     let settings = AiSettings::load();
                     let model_dir = settings.model_dir();
                     li_ai::inventory::refresh(&info, (!settings.is_remote() && model_dir.is_dir()).then_some(model_dir.as_path()));
+                    // Models set up from official templates (Set Up Models, `ai doctor`) join it too.
+                    li_ai::modelsetup::publish_stored(ai.client.host(), &info);
                     li_ai::refine::checker().invalidate_changed_files();
                     limits = info.sampler_limits();
                     presets = catalog::presets()

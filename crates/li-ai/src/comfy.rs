@@ -306,6 +306,15 @@ impl ComfyClient {
         self.get_json(&agent(Duration::from_secs(3)), "/system_stats")
     }
 
+    /// A file of the server's template package (`index.json`, `<template>.json`), at most 16 MiB.
+    pub fn template_file(&self, file: &str) -> Result<Vec<u8>> {
+        let mut r = self.agent.get(&self.url(&format!("/templates/{}", enc(file)))).call().with_context(|| format!("Cannot reach ComfyUI at {}", self.host))?;
+        if !r.status().is_success() {
+            bail!("ComfyUI answered {} for /templates/{file}", r.status());
+        }
+        Ok(r.body_mut().with_config().limit(16 << 20).read_to_vec()?)
+    }
+
     pub fn queue_state(&self) -> Result<Value> {
         self.get_json(&self.quick, "/queue")
     }

@@ -196,6 +196,21 @@ pub enum InpaintWay {
     Instruction,
 }
 
+/// A matched template this ComfyUI cannot run, and why.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Unusable {
+    pub template: String,
+    pub capability: String,
+    pub detail: String,
+    /// Node classes this ComfyUI lacks.
+    pub missing_classes: Vec<String>,
+    /// `(class, input, value)` options this ComfyUI doesn't offer.
+    pub not_offered: Vec<(String, String, String)>,
+    /// The template's `minComfyUIVersion`.
+    pub min_comfyui: Option<String>,
+}
+
 /// Everything needed to run an installed model through official templates.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -213,6 +228,8 @@ pub struct TemplateRecipe {
     /// The family id whose `template` polish was applied.
     pub polish: Option<String>,
     pub recipe_version: u32,
+    /// Matched templates this ComfyUI cannot run (their capability is off).
+    pub skipped: Vec<Unusable>,
 }
 
 impl TemplateRecipe {

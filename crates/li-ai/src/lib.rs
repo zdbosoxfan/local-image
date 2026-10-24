@@ -23,6 +23,7 @@ pub mod inventory;
 pub mod library;
 pub mod mock;
 pub mod mock_hub;
+pub mod modelsetup;
 pub mod ops;
 pub mod presets;
 pub mod refine;

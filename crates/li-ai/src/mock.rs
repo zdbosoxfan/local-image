@@ -32,6 +32,16 @@ struct State {
     running: Vec<String>,
     /// `POST /interrupt` calls.
     interrupts: u32,
+    /// `/system_stats`, `/object_info` and the template folder in place of the built-in ones.
+    system_stats: Option<Value>,
+    object_info: Option<Value>,
+    templates_dir: Option<std::path::PathBuf>,
+    /// Results for the next prompts, in order (else the drawn stand-in).
+    queued_outputs: std::collections::VecDeque<Vec<u8>>,
+    /// `execution_error` payloads for the next prompts, in order.
+    queued_errors: std::collections::VecDeque<Value>,
+    /// `POST /free` calls.
+    frees: u32,
 }
 
 /// A running mock server; stops when dropped.
@@ -96,6 +106,46 @@ impl MockComfy {
     /// Makes the next job end with an execution error (e.g. out of memory).
     pub fn fail_next(&self) {
         self.fail_next.store(true, Ordering::SeqCst);
+    }
+
+    /// Answers `/system_stats` with `stats` (a server version, GPU and template package).
+    pub fn set_system_stats(&self, stats: Value) {
+        if let Ok(mut s) = self.state.lock() {
+            s.system_stats = Some(stats);
+        }
+    }
+
+    /// Answers `/object_info` with `info` (another ComfyUI version's nodes and files).
+    pub fn set_object_info(&self, info: Value) {
+        if let Ok(mut s) = self.state.lock() {
+            s.object_info = Some(info);
+        }
+    }
+
+    /// Serves `/templates/<file>` from `dir`.
+    pub fn set_templates_dir(&self, dir: impl Into<std::path::PathBuf>) {
+        if let Ok(mut s) = self.state.lock() {
+            s.templates_dir = Some(dir.into());
+        }
+    }
+
+    /// Results (encoded images) for the next prompts, in order.
+    pub fn queue_outputs(&self, pngs: impl IntoIterator<Item = Vec<u8>>) {
+        if let Ok(mut s) = self.state.lock() {
+            s.queued_outputs.extend(pngs);
+        }
+    }
+
+    /// Makes the next prompt fail in node `node_type` with `message` (as ComfyUI reports it).
+    pub fn fail_next_with(&self, node_id: &str, node_type: &str, message: &str) {
+        if let Ok(mut s) = self.state.lock() {
+            s.queued_errors.push_back(json!({ "node_id": node_id, "node_type": node_type, "exception_type": "RuntimeError", "exception_message": message }));
+        }
+    }
+
+    /// How many times `/free` was called.
+    pub fn frees(&self) -> u32 {
+        self.state.lock().map(|s| s.frees).unwrap_or(0)
     }
 
     /// A synthetic encoded result for the next prompt, for production-path regressions.
@@ -436,14 +486,25 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
     let _ = req.as_reader().read_to_end(&mut body);
     match (req.method().as_str(), path.as_str()) {
         ("GET", "/object_info") => {
-            let dir = st.lock().ok().and_then(|s| s.model_dir.clone());
-            json_resp(req, 200, object_info_with(dir.as_deref()))
+            let (dir, custom) = st.lock().ok().map(|s| (s.model_dir.clone(), s.object_info.clone())).unwrap_or_default();
+            json_resp(req, 200, custom.unwrap_or_else(|| object_info_with(dir.as_deref())))
         }
-        ("GET", "/system_stats") => json_resp(
-            req,
-            200,
-            json!({ "system": { "comfyui_version": "mock" }, "devices": [{ "name": "cuda:0 Mock GPU 32 GB : cudaMallocAsync", "type": "cuda", "vram_total": 34359738368u64, "vram_free": 30064771072u64 }] }),
-        ),
+        ("GET", "/system_stats") => {
+            let custom = st.lock().ok().and_then(|s| s.system_stats.clone());
+            json_resp(
+                req,
+                200,
+                custom.unwrap_or_else(|| json!({ "system": { "comfyui_version": "mock" }, "devices": [{ "name": "cuda:0 Mock GPU 32 GB : cudaMallocAsync", "type": "cuda", "vram_total": 34359738368u64, "vram_free": 30064771072u64 }] })),
+            )
+        }
+        ("GET", p) if p.starts_with("/templates/") && st.lock().ok().is_some_and(|s| s.templates_dir.is_some()) => {
+            let dir = st.lock().ok().and_then(|s| s.templates_dir.clone()).unwrap_or_default();
+            let name = &p["/templates/".len()..];
+            match std::fs::read(dir.join(name)).ok().filter(|_| !name.contains("..") && !name.contains('/')) {
+                Some(b) => respond(req, 200, b, "application/json"),
+                None => respond(req, 404, b"not found".to_vec(), "text/plain"),
+            }
+        }
         ("GET", "/queue") => {
             let running: Vec<Value> = st.lock().map(|s| s.running.iter().enumerate().map(|(i, id)| json!([i, id, {}, {}, []])).collect()).unwrap_or_default();
             json_resp(req, 200, json!({ "queue_running": running, "queue_pending": [] }))
@@ -461,6 +522,9 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             json_resp(req, 200, json!({}))
         }
         ("POST", "/free") => {
+            if let Ok(mut s) = st.lock() {
+                s.frees += 1;
+            }
             std::thread::sleep(Duration::from_millis(free_delay.load(Ordering::SeqCst)));
             json_resp(req, 200, json!({}));
         }
@@ -474,13 +538,14 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
         ("POST", "/prompt") => {
             let v: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
             let graph = v.get("prompt").cloned().unwrap_or(Value::Null);
-            let (id, output) = {
+            let (id, output, error) = {
                 let Ok(mut s) = st.lock() else { return };
                 s.next += 1;
                 s.prompts.push(graph.clone());
                 let id = format!("mock-{}", s.next);
                 s.running.push(id.clone());
-                (id, s.next_output.take())
+                let output = s.next_output.take().or_else(|| s.queued_outputs.pop_front());
+                (id, output, s.queued_errors.pop_front())
             };
             json_resp(req, 200, json!({ "prompt_id": id, "number": 1 }));
             let (st, ms, fail_now) = (st.clone(), delay.load(Ordering::SeqCst), fail.swap(false, Ordering::SeqCst));
@@ -490,8 +555,12 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
                 // Interrupted or cancelled meanwhile: that already wrote its history.
                 let Some(i) = s.running.iter().position(|r| *r == id) else { return };
                 s.running.remove(i);
-                if fail_now {
-                    s.history.insert(id.clone(), json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_error", { "exception_message": "CUDA out of memory. Tried to allocate 2.00 GiB" }]] }, "outputs": {} }));
+                if fail_now || error.is_some() {
+                    let payload = error.unwrap_or_else(|| json!({ "exception_message": "CUDA out of memory. Tried to allocate 2.00 GiB" }));
+                    s.history.insert(
+                        id.clone(),
+                        json!({ "status": { "status_str": "error", "completed": false, "messages": [["execution_error", payload]] }, "outputs": {} }),
+                    );
                     return;
                 }
                 let out = output.unwrap_or_else(|| render(&graph, &s.uploads));

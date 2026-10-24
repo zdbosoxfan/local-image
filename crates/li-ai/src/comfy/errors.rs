@@ -68,7 +68,7 @@ pub const OUT_OF_MEMORY: &str = "The GPU ran out of memory. Try a smaller size, 
 
 fn pattern_matches(p: &ErrorPattern, e: &ExecError, lower: &str) -> bool {
     p.contains.iter().any(|c| lower.contains(&c.to_ascii_lowercase()))
-        && (p.classes.is_empty() || e.node_type.is_empty() || p.classes.iter().any(|c| *c == e.node_type))
+        && (p.classes.is_empty() || e.node_type.is_empty() || p.classes.contains(&e.node_type))
         && p.file_input.is_none_or(|want| want == crate::graph::validate::is_file_slot(&e.input, &Value::String(e.value.clone())))
 }
 

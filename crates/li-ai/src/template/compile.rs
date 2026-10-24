@@ -45,11 +45,24 @@ pub struct Input<'a> {
     pub vae_channels: &'a dyn Fn(&str) -> Option<u32>,
 }
 
-/// Why a template could not become a recipe.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Unusable {
-    pub template: String,
-    pub detail: String,
+pub use super::Unusable;
+
+fn unusable(template: &str, capability: Capability, detail: String) -> Unusable {
+    Unusable { template: template.to_owned(), capability: capability.id().into(), detail, ..Default::default() }
+}
+
+/// An unusable template with the classes and options this ComfyUI lacks.
+fn unusable_from(template: &str, capability: Capability, problems: &[crate::graph::validate::Problem]) -> Unusable {
+    use crate::graph::validate::ProblemKind;
+    let mut u = unusable(template, capability, problems.iter().map(|p| p.describe()).collect::<Vec<_>>().join("; "));
+    for p in problems {
+        match &p.kind {
+            ProblemKind::MissingClass if !u.missing_classes.contains(&p.class) => u.missing_classes.push(p.class.clone()),
+            ProblemKind::NotOffered(v) => u.not_offered.push((p.class.clone(), p.input.clone(), v.clone())),
+            _ => {}
+        }
+    }
+    u
 }
 
 fn file_role(input: &str) -> &'static str {
@@ -325,11 +338,62 @@ fn sha256(v: &Value) -> String {
     hex::encode(Sha256::digest(graph::canonical_bytes(v)))
 }
 
-/// Compiles the matched templates (at most one per capability) into a recipe.
-pub fn compile(input: &Input, sources: &[Source]) -> Result<TemplateRecipe, Unusable> {
+/// One matched template as a task graph, its default negative and its source record.
+fn source_graph(
+    input: &Input,
+    s: &Source,
+    polish: Option<&crate::family::TemplatePolish>,
+) -> Result<(TaskGraph, Option<String>, TemplateSource), Box<Unusable>> {
+    let cap = s.matched.capability;
+    let fail = |detail: String| Box::new(unusable(&s.entry.name, cap, detail));
+    let zero: Vec<&str> = input.runtime.zero_classes.iter().map(String::as_str).collect();
+    let override_graph = polish.and_then(|p| p.graphs.get(cap.id()));
+    let conv = match override_graph {
+        Some(api) => ui::Converted { graph: api.as_object().cloned().unwrap_or_default(), ..Default::default() },
+        None => ui::to_api(s.body, input.info).map_err(|e| fail(format!("{e:#}")))?,
+    };
+    if let Some((id, why)) = conv.problems.first() {
+        return Err(fail(format!("node {id}: {why}")));
+    }
+    let opts = canon::Options { info: input.info, io_outputs: &s.entry.io_outputs, main_stem: Some(&s.matched.declared.stem), zero: &zero };
+    let modes = canon::canonicalise(&conv, &opts).map_err(fail)?;
+    let edit = cap == Capability::Edit;
+    let want = if edit { "edit" } else { "create" };
+    let c = modes.iter().find(|c| c.mode.as_deref().is_none_or(|m| m == want)).ok_or_else(|| fail(format!("no {want} mode")))?;
+    let problems: Vec<_> = crate::graph::validate::validate(&c.graph, input.info)
+        .into_iter()
+        .filter(|p| !p.is_file() && !(p.class == "LoadImage" && p.input == "image"))
+        .collect();
+    if !problems.is_empty() {
+        return Err(Box::new(unusable_from(&s.entry.name, cap, &problems)));
+    }
+    let name = match &c.mode {
+        Some(m) => format!("{}#{m}", s.entry.name),
+        None => s.entry.name.clone(),
+    };
+    let mut tg = task_graph(name, c, &s.matched.declared.stem, input, edit).map_err(fail)?;
+    if let Some(e) = &c.enhanced {
+        tg.enhanced = enhanced_graph(&tg, e, &s.matched.declared.stem, input, edit).map(Box::new);
+    }
+    let source = TemplateSource {
+        name: s.entry.name.clone(),
+        capability: cap.id().into(),
+        sha256: sha256(s.body),
+        templates_version: s.templates_version.to_owned(),
+        tags: s.entry.tags.clone(),
+        min_comfyui: s.entry.min_comfyui.map(|v| v.to_string()),
+        declared_main: s.matched.declared.name.clone(),
+        tier: format!("{:?}", s.matched.tier).to_ascii_lowercase(),
+    };
+    Ok((tg, c.negative_default.clone(), source))
+}
+
+/// Compiles the matched templates (at most one per capability) into a recipe. A template this
+/// ComfyUI cannot run is skipped (recorded in `skipped`); the error lists every template when
+/// none can run.
+pub fn compile(input: &Input, sources: &[Source]) -> Result<TemplateRecipe, Vec<Unusable>> {
     let polish = input.family.and_then(|f| f.template.as_ref());
     let variant = input.identity.variant.as_deref().and_then(|v| polish.and_then(|p| p.variants.get(v)));
-    let zero: Vec<&str> = input.runtime.zero_classes.iter().map(String::as_str).collect();
     let mut recipe = TemplateRecipe {
         model_key: input.key.to_owned(),
         main: super::FileRef { name: input.file.to_owned(), loader: String::new() },
@@ -339,50 +403,18 @@ pub fn compile(input: &Input, sources: &[Source]) -> Result<TemplateRecipe, Unus
     };
     let mut negative_default = None;
     for s in sources {
-        let fail = |detail: String| Unusable { template: s.entry.name.clone(), detail };
-        let override_graph = polish.and_then(|p| p.graphs.get(s.matched.capability.id()));
-        let conv = match override_graph {
-            Some(api) => ui::Converted { graph: api.as_object().cloned().unwrap_or_default(), ..Default::default() },
-            None => ui::to_api(s.body, input.info).map_err(|e| fail(format!("{e:#}")))?,
+        let (tg, negative, source) = match source_graph(input, s, polish) {
+            Ok(x) => x,
+            Err(u) => {
+                recipe.skipped.push(Unusable { min_comfyui: s.entry.min_comfyui.map(|v| v.to_string()), ..*u });
+                continue;
+            }
         };
-        if let Some((id, why)) = conv.problems.first() {
-            return Err(fail(format!("node {id}: {why}")));
-        }
-        let opts = canon::Options { info: input.info, io_outputs: &s.entry.io_outputs, main_stem: Some(&s.matched.declared.stem), zero: &zero };
-        let modes = canon::canonicalise(&conv, &opts).map_err(fail)?;
-        let edit = s.matched.capability == Capability::Edit;
-        let want = if edit { "edit" } else { "create" };
-        let c = modes.iter().find(|c| c.mode.as_deref().is_none_or(|m| m == want)).ok_or_else(|| fail(format!("no {want} mode")))?;
-        let problems: Vec<String> = crate::graph::validate::validate(&c.graph, input.info)
-            .into_iter()
-            .filter(|p| !p.is_file() && !(p.class == "LoadImage" && p.input == "image"))
-            .map(|p| p.describe())
-            .collect();
-        if let Some(p) = problems.first() {
-            return Err(fail(p.clone()));
-        }
-        let name = match &c.mode {
-            Some(m) => format!("{}#{m}", s.entry.name),
-            None => s.entry.name.clone(),
-        };
-        let mut tg = task_graph(name, c, &s.matched.declared.stem, input, edit).map_err(fail)?;
-        if let Some(e) = &c.enhanced {
-            tg.enhanced = enhanced_graph(&tg, e, &s.matched.declared.stem, input, edit).map(Box::new);
-        }
         if negative_default.is_none() {
-            negative_default = c.negative_default.clone();
+            negative_default = negative;
         }
         recipe.main.loader = class_of(&tg.graph, &tg.loader).to_owned();
-        recipe.sources.push(TemplateSource {
-            name: s.entry.name.clone(),
-            capability: s.matched.capability.id().into(),
-            sha256: sha256(s.body),
-            templates_version: s.templates_version.to_owned(),
-            tags: s.entry.tags.clone(),
-            min_comfyui: s.entry.min_comfyui.map(|v| v.to_string()),
-            declared_main: s.matched.declared.name.clone(),
-            tier: format!("{:?}", s.matched.tier).to_ascii_lowercase(),
-        });
+        recipe.sources.push(source);
         match s.matched.capability {
             Capability::Create => recipe.create = Some(tg),
             Capability::Edit => recipe.edit = Some(tg),
@@ -390,7 +422,7 @@ pub fn compile(input: &Input, sources: &[Source]) -> Result<TemplateRecipe, Unus
         }
     }
     if recipe.create.is_none() && recipe.edit.is_none() && recipe.style.is_none() {
-        return Err(Unusable { template: String::new(), detail: "no usable template".into() });
+        return Err(if recipe.skipped.is_empty() { vec![Unusable { detail: "no matching template".into(), ..Default::default() }] } else { recipe.skipped });
     }
     // Value fixes by role path (`edit.cfg`).
     for (path, value) in variant.map(|v| v.fix.clone()).unwrap_or_default() {
@@ -418,7 +450,7 @@ pub fn compile(input: &Input, sources: &[Source]) -> Result<TemplateRecipe, Unus
         }
     }
     let Some(main) = recipe.create.clone().or_else(|| recipe.edit.clone()).or_else(|| recipe.style.clone()) else {
-        return Err(Unusable { template: String::new(), detail: "no usable template".into() });
+        return Err(recipe.skipped);
     };
     let g = &main.graph;
     let steps = number(g, &main.slots.steps).map(|s| s as u32).or(main.fixed_steps).unwrap_or(20);
