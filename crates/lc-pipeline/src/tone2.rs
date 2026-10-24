@@ -365,8 +365,9 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     if tone.is_working_identity() {
         return c;
     }
-    // negative channels (out-of-gamut scene colours) desaturated to zero (darktable sigmoid)
-    let c = desaturate_negative(c);
+    // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
+    // desaturated to zero (darktable sigmoid)
+    let c = desaturate_negative(scene_gamut_knee(c));
     if v.luminance {
         let y = li_color::luminance_2020(c);
         if y <= 0.0 {
@@ -392,6 +393,19 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
         d = d.map(|x| o + (x - o) * k);
     }
     d
+}
+
+/// Where the scene knee starts: Rec. 2020 channel distances up to this stay as they are (every sRGB
+/// colour is inside it; sRGB blue reaches 0.988).
+pub const SCENE_GAMUT_KNEE: f32 = 0.99;
+/// The scene channel distance that lands on the Rec. 2020 edge: saturated light past the working
+/// gamut (LEDs, neon) keeps a gradation up to here instead of collapsing onto one surface.
+pub const SCENE_GAMUT_LIMIT: f32 = 1.5;
+
+/// Scene colours rolled off towards the Rec. 2020 gamut edge ([`crate::finish::soft_gamut`]).
+#[inline]
+pub fn scene_gamut_knee(c: [f32; 3]) -> [f32; 3] {
+    crate::finish::soft_gamut(c, SCENE_GAMUT_KNEE, [SCENE_GAMUT_LIMIT; 3])
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.
@@ -479,6 +493,32 @@ pub fn compress(d: [f32; 3], m: f32, white: f32, black: f32) -> [f32; 3] {
 mod tests {
     use super::*;
     use lightcraft_develop::ToneBase;
+
+    #[test]
+    fn colours_past_rec2020_keep_their_gradation() {
+        // one hue, the same mean, chroma growing past the Rec. 2020 edge (blue < 0 from k = 0.3)
+        let tone = ToneMap::scene(&BaseCurve::Adobe, ToneBase::Standard, 0.75, 0.0, 0.0, 0.0);
+        let v = tone.method();
+        let chroma = |k: f32| {
+            let d = tone_px_working(&tone, &v, [0.3 + k, 0.3, 0.3 - k]);
+            let (mx, mn) = (d[0].max(d[1]).max(d[2]), d[0].min(d[1]).min(d[2]));
+            (mx - mn) / mx
+        };
+        let mut previous = chroma(0.28);
+        for k in [0.31, 0.34, 0.37, 0.40, 0.44] {
+            let c = chroma(k);
+            assert!(c > previous, "k {k}: {c} after {previous}");
+            previous = c;
+        }
+        // in-gamut colours (the sRGB primaries in Rec. 2020) are untouched by the knee
+        let from_srgb = li_color::SRGB.to_space(&li_color::REC2020).to_f32();
+        for i in 0..3 {
+            let mut p = [0f32; 3];
+            p[i] = 0.5;
+            let c = std::array::from_fn(|r| (0..3).map(|j| from_srgb[r][j] * p[j]).sum());
+            assert_eq!(scene_gamut_knee(c), c);
+        }
+    }
 
     fn camera_curve() -> CameraTone {
         let knots: [[f32; 2]; 32] = std::array::from_fn(|i| {

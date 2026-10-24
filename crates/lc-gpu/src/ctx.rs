@@ -500,6 +500,9 @@ fn constants() -> String {
     use lightcraft_pipeline::masks::{AUTO_TOL_CHROMA, AUTO_TOL_EV};
     s += &format!("const AUTO_TOL_EV: f32 = {AUTO_TOL_EV:?};\nconst AUTO_TOL_CHROMA: f32 = {AUTO_TOL_CHROMA:?};\n");
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
+    s += &format!("const GAMUT_KNEE: f32 = {:?};\n", lightcraft_pipeline::finish::GAMUT_KNEE);
+    use lightcraft_pipeline::tone2::{SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT};
+    s += &format!("const SCENE_GAMUT_KNEE: f32 = {SCENE_GAMUT_KNEE:?};\nconst SCENE_GAMUT_LIMIT: f32 = {SCENE_GAMUT_LIMIT:?};\n");
     for (i, h) in GRAIN_HASH.iter().enumerate() {
         s += &format!("const GRAIN_H{i}: u32 = {h}u;\n");
     }

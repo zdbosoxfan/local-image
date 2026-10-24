@@ -60,14 +60,15 @@ fn gamut(r: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
 
 fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
     if (fu(F_MODE) == 2u) { return c0; }
-    // `desaturate_negative`
-    let avg = max((c0.x + c0.y + c0.z) / 3.0, 0.0);
-    let mn = min(c0.x, min(c0.y, c0.z));
+    // `scene_gamut_knee`, then `desaturate_negative`
+    let ck = soft_gamut(c0, SCENE_GAMUT_KNEE, vec3<f32>(SCENE_GAMUT_LIMIT));
+    let avg = max((ck.x + ck.y + ck.z) / 3.0, 0.0);
+    let mn = min(ck.x, min(ck.y, ck.z));
     var f = 1.0;
     if (mn < 0.0) {
         f = -avg / (mn - avg);
     }
-    var pix = array<f32, 3>(avg + f * (c0.x - avg), avg + f * (c0.y - avg), avg + f * (c0.z - avg));
+    var pix = array<f32, 3>(avg + f * (ck.x - avg), avg + f * (ck.y - avg), avg + f * (ck.z - avg));
     if (fu(F_TONE_LUM) != 0u) {
         let c = vec3<f32>(pix[0],pix[1],pix[2]);
         let yy = lum2020(c);
@@ -345,16 +346,17 @@ fn enc8(v: f32, x: u32, y: u32, channel: u32) -> u32 {
     return li_dither8(v, vec2(x, y));
 }
 
-fn soft_gamut(r: vec3<f32>) -> vec3<f32> {
+// `finish::soft_gamut`
+fn soft_gamut(r: vec3<f32>, threshold: f32, limits: vec3<f32>) -> vec3<f32> {
     let a = max(r.x, max(r.y, r.z));
     if (a <= 1e-9) { return r; }
-    let threshold = 0.8;
     let power = 1.2;
-    let scale = (1.3-threshold) / pow(pow((1.0-threshold)/(1.3-threshold), -power)-1.0, 1.0/power);
     var result = r;
     for (var i=0u; i<3u; i++) {
         let distance = (a-r[i])/a;
-        if (distance > threshold) {
+        let limit = limits[i];
+        if (distance > threshold && limit > 1.0) {
+            let scale = (limit-threshold) / pow(pow((1.0-threshold)/(limit-threshold), -power)-1.0, 1.0/power);
             let u = (distance-threshold)/scale;
             let compressed = threshold+scale*u/pow(1.0+pow(u,power), 1.0/power);
             result[i] = a*(1.0-compressed);
@@ -644,7 +646,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec3<f32>(ff(F_OUT_M + 6u), ff(F_OUT_M + 7u), ff(F_OUT_M + 8u)),
     );
     var r = mul3(om, d);
-    if (fu(F_SOFT_GAMUT) != 0u) { r = soft_gamut(r); }
+    if (fu(F_SOFT_GAMUT) != 0u) { r = soft_gamut(r, GAMUT_KNEE, vec3<f32>(ff(F_SOFT_GAMUT_LIM), ff(F_SOFT_GAMUT_LIM + 1u), ff(F_SOFT_GAMUT_LIM + 2u))); }
     let yy = clamp(ff(F_OUT_Y) * r.x + ff(F_OUT_Y + 1u) * r.y + ff(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
     var tg = 1.0;
     for (var k = 0u; k < 3u; k++) {

@@ -709,6 +709,35 @@ fn output_spaces_match() {
     }
 }
 
+/// The scene knee past the Rec. 2020 edge and each output space's knee, on colours from inside the
+/// output gamut out to well past the working gamut.
+#[test]
+fn gamut_knees_match_in_every_output_space() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    use lightcraft_pipeline::OutputSpace;
+    let src = Arc::new(RgbFrame::from_fn(256, 96, |x, y| {
+        let k = x as f32 / 255.0 * 0.7;
+        let c = match y / 16 {
+            0 => [0.3 + k, 0.3, 0.3 - k],
+            1 => [0.3 - k, 0.3 + k, 0.3],
+            2 => [0.3, 0.3 - k, 0.3 + k],
+            3 => [0.63, 0.07, 0.02 - 0.05 * k],
+            4 => [0.04, 0.01 - 0.05 * k, 0.9],
+            _ => [0.05 - 0.1 * k, 0.6, 0.12],
+        };
+        c.map(|v| v * 0.8)
+    }));
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    for space in OutputSpace::ALL {
+        let req = RenderRequest { space, ..RenderRequest::fit(256, 96) };
+        check(&format!("gamut knees {space:?}"), &src, &raw, &DevelopSettings::default(), &req);
+        let mut s = DevelopSettings::default();
+        saturated(&mut s);
+        check(&format!("gamut knees saturated {space:?}"), &src, &raw, &s, &req);
+    }
+}
+
 /// All combinations use the common uploaded tone tables and the per-channel hue kernel.
 #[test]
 fn colour_tone_looks_bases_hue_and_rolloff() {

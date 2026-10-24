@@ -54,6 +54,12 @@ All notable changes to Local Image are recorded here. The format follows
   cast in mixed light. The selector samples the spot that was clicked after lens corrections, Upright
   and perspective, reads a sharper preview, and a layer's pick neutralises on top of the photo's own
   white balance. Clicking on black shows a message instead of resetting to As Shot.
+- Develop colour on raws: colours inside the export's gamut keep their saturation. The output knee
+  used to start at 80% of the gamut distance, so saturated yellows, oranges and reds came out washed
+  out (ColorChecker yellow dE00 2.9 in sRGB) and differently in sRGB, Display P3, Adobe RGB and
+  ProPhoto exports; it now starts at 98% and only makes room for the working gamut that does not fit
+  the output space. Scene colours past Rec. 2020 (LED coves, neon) roll off towards its edge instead
+  of being clipped onto it.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

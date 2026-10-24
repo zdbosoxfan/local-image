@@ -97,11 +97,11 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
 /// correcting haze quantiles and numerical edge cases; historical JSON still round-trips.
 const GOLDEN: [(&str, u64); 6] = [
     ("default/rendered", 0x6dc2c87b1494a4a2),
-    ("default/raw", 0x61dfdd1c1479866c),
+    ("default/raw", 0xbe7089177ab4065d),
     ("global edits/rendered", 0x68c04cd1bef48ee0),
-    ("global edits/raw", 0x99fab47b3bc10952),
+    ("global edits/raw", 0xb9bf3125e194c02d),
     ("old masks/rendered", 0x98aae29e91bd32de),
-    ("old masks/raw", 0xc39dc3ced24cae2b),
+    ("old masks/raw", 0x195ebd33c8c7e6e2),
 ];
 
 #[test]
