@@ -840,7 +840,7 @@ fn general_interaction(
                 let header = app.session.source_info(id);
                 let develop = photo.develop.clone();
                 let mask = app.session.active_mask;
-                let target = if mask.is_some() { WbTarget::Mask } else { WbTarget::Global };
+                let target = mask.map_or(WbTarget::Global, WbTarget::Mask);
                 app.ui.status = "Picking white balance…".into();
                 let _ = crate::tasks::spawn(
                     app,

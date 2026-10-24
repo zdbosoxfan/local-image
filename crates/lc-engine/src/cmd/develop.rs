@@ -362,7 +362,10 @@ pub fn specs() -> Vec<CommandSpec> {
                 let info = s.source_info(id);
                 let d = s.develop_of(id).unwrap_or_default();
                 let mask = p.get("mask").and_then(Value::as_u64);
-                let target = if mask.is_some() { WbTarget::Mask } else { WbTarget::Global };
+                let target = match mask {
+                    Some(m) => WbTarget::Mask(u32::try_from(m).map_err(|_| bad("develop.wbPick", format!("unknown mask {m}")))?),
+                    None => WbTarget::Global,
+                };
                 let (t, tint) = wb_pick(&src, &info, &d, Point::new(x, y), target)
                     .ok_or_else(|| bad("develop.wbPick", "pick a point inside the photo that is not black"))?;
                 if let Some(mid) = mask {

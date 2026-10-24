@@ -26,6 +26,14 @@ pub fn scene_linear_pre(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettin
     }
 }
 
+/// The camera look's hue/saturation table that a raw's decoder leaves to the render
+/// ([`SourceInfo::source_hue_sat`]), in place: it comes before white balance.
+pub fn source_look(img: &mut RgbFrame, info: &SourceInfo) {
+    if let Some(look) = info.source_hue_sat.as_deref().and_then(crate::source_color::HueSat::new) {
+        img.map_in_place(|rgb| look.apply(rgb));
+    }
+}
+
 /// White balance only (exposure is applied by the per-pixel stage, see [`crate::Prepared`]).
 pub fn white_balance(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings) {
     wb_gain(img, info, s, 1.0);

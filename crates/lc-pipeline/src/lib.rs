@@ -598,11 +598,7 @@ pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
 /// the positive image.
 pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
-    if let Some(table) = info.source_hue_sat.as_ref()
-        && let Some(look) = source_color::HueSat::new(table)
-    {
-        img.map_in_place(|rgb| look.apply(rgb));
-    }
+    local::source_look(img, info);
     // AI removals first: their patches are in the source's own light (before white balance)
     patches::apply_spots(img, &s.spots, &p.frame);
     local::white_balance(img, info, s);

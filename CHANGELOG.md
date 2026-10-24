@@ -50,10 +50,13 @@ All notable changes to Local Image are recorded here. The format follows
   and the As Shot tint shown for raws imported before this change keeps the old sign until the photo
   is imported again.
 - Develop white balance selector and Auto WB on raws: the clicked grey (or Auto's average) is solved
-  through the same camera model the render applies, so it renders neutral instead of keeping a 2-8%
-  cast in mixed light. The selector samples the spot that was clicked after lens corrections, Upright
-  and perspective, reads a sharper preview, and a layer's pick neutralises on top of the photo's own
-  white balance. Clicking on black shows a message instead of resetting to As Shot.
+  through the same camera model and camera look the render applies, so it renders neutral instead of
+  keeping a 2-8% cast in mixed light. The selector samples the spot that was clicked after lens
+  corrections, Upright and perspective, and reads a sharper preview. A layer's pick neutralises the
+  spot as that layer sees it (the photo finished with its tone, colour and the layers below), instead
+  of leaving warm light 3-13% off neutral. Picked values keep two decimals, so strongly coloured
+  light is not left off neutral by rounding. Clicking on black shows a message instead of resetting
+  to As Shot.
 - Develop colour on raws: colours inside the export's gamut keep their saturation. The output knee
   used to start at 80% of the gamut distance, so saturated yellows, oranges and reds came out washed
   out (ColorChecker yellow dE00 2.9 in sRGB) and differently in sRGB, Display P3, Adobe RGB and

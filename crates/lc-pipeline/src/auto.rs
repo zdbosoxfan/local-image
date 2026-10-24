@@ -4,7 +4,7 @@
 use li_color::cct::{temp_tint_to_xy, xy_to_temp_tint};
 use li_color::{REC2020, Xy, bradford, luminance_2020};
 use li_raster::RgbFrame;
-use lightcraft_develop::DevelopSettings;
+use lightcraft_develop::{DevelopSettings, LayerTools};
 use lightcraft_geom::Point;
 use serde::Serialize;
 
@@ -107,7 +107,8 @@ pub fn auto_bw_mix(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> [f
 
 /// Grey-world white balance weighted towards mid-tone, low-chroma pixels. Returns (temp, tint).
 pub fn auto_wb(src: &RgbFrame, info: &SourceInfo) -> (f64, f64) {
-    let img = src.fit(256, 256, li_raster::resample::Filter::Box);
+    let mut img = src.fit(256, 256, li_raster::resample::Filter::Box);
+    crate::local::source_look(&mut img, info);
     let (mut acc, mut wsum) = ([0.0f64; 3], 0.0f64);
     for c in &img.data {
         let y = luminance_2020(*c);
@@ -134,20 +135,48 @@ pub fn auto_wb(src: &RgbFrame, info: &SourceInfo) -> (f64, f64) {
 pub enum WbTarget {
     /// The photo's white balance ([`crate::local::wb_matrix_for`]).
     Global,
-    /// A layer's white balance, applied on top of the photo's ([`crate::local::wb_change`]).
-    Mask,
+    /// The white balance of the layer with this mask id: a change from the photo's white
+    /// ([`crate::local::wb_change`]) applied to the finished image below the layer.
+    Mask(u32),
 }
 
 /// Long edge of the render a white-balance pick samples.
 const PICK_EDGE: usize = 1024;
 
 /// The white balance (K, tint) under which the patch around normalized image point `p` renders
-/// neutral, for `target`. The patch is 5 × 5 pixels of a 1024 px render of the source before any
-/// white balance, so lens corrections, Upright and the crop place it where it was clicked. `None`
-/// outside the photo or on black.
+/// neutral, for `target`. The patch is 5 × 5 pixels of a 1024 px render placed by the photo's
+/// geometry, so lens corrections, Upright and the crop sample what was clicked: for the photo,
+/// the source before any white balance; for a layer, the image the layer changes (the photo
+/// finished with the layers below it). `None` outside the photo or on black.
 pub fn wb_pick(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, p: Point, target: WbTarget) -> Option<(f64, f64)> {
-    let plan = crate::plan(src, info, s, &crate::RenderRequest::fit(PICK_EDGE, PICK_EDGE));
-    let img = plan.frame.sample(src, plan.w, plan.h);
+    let req = crate::RenderRequest::fit(PICK_EDGE, PICK_EDGE);
+    match target {
+        WbTarget::Global => {
+            let plan = crate::plan(src, info, s, &req);
+            let mut img = plan.frame.sample(src, plan.w, plan.h);
+            crate::local::source_look(&mut img, info);
+            patch(&img, &plan, p).map(|avg| neutral_wb(avg, info))
+        }
+        WbTarget::Mask(id) => {
+            let mut below = s.clone();
+            let top = below.masks.iter().position(|m| m.id == id).unwrap_or(below.masks.len());
+            for m in &mut below.masks[top..] {
+                m.tools = LayerTools::default();
+            }
+            let mut plan = crate::plan(src, info, &below, &req);
+            let img = layer_input(src, info, &mut plan, &req);
+            let avg = patch(&img, &plan, p)?;
+            // the layer adapts the photo's white to its own (Rec. 2020 Bradford)
+            let (t, tint) = crate::local::effective_wb(info, &plan.settings);
+            let seen = bradford(REC2020.white, temp_tint_to_xy(t, tint)).apply(REC2020.to_xyz().apply(avg));
+            Some(clamped(xy_to_temp_tint(Xy::from_xyz(seen))))
+        }
+    }
+}
+
+/// The mean of the 5 × 5 pixels of `img` (rendered for `plan`) around normalized image point `p`;
+/// `None` outside the photo or on black.
+fn patch(img: &RgbFrame, plan: &crate::Plan<'_>, p: Point) -> Option<[f64; 3]> {
     let o = plan.frame.norm_to_out(plan.w, plan.h).apply(p);
     let (cx, cy) = (o.x.floor() as i64, o.y.floor() as i64);
     if cx < 0 || cy < 0 || cx >= plan.w as i64 || cy >= plan.h as i64 {
@@ -164,27 +193,48 @@ pub fn wb_pick(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, p: Point,
         }
     }
     let avg = acc.map(|v| v / n);
-    let y = li_color::luminance_2020_f64(avg);
-    if y.is_nan() || y <= 1e-6 {
-        return None;
-    }
-    Some(match target {
-        WbTarget::Global => neutral_wb(avg, info),
-        WbTarget::Mask => {
-            // the layer changes the photo's white to its own (Rec. 2020 Bradford), on the photo's render
-            let s = &*plan.settings;
-            let g = crate::local::wb_matrix_for(info, s).map_or(avg, |m| std::array::from_fn(|i| (0..3).map(|j| m[i][j] as f64 * avg[j]).sum()));
-            let (t, tint) = crate::local::effective_wb(info, s);
-            let seen = bradford(REC2020.white, temp_tint_to_xy(t, tint)).apply(REC2020.to_xyz().apply(g));
-            clamped(xy_to_temp_tint(Xy::from_xyz(seen)))
-        }
-    })
+    (li_color::luminance_2020_f64(avg) > 1e-6).then_some(avg)
 }
 
-/// The photo white balance that renders source colour `avg` (linear Rec. 2020 at the as-shot white)
-/// neutral. A raw with a camera model is solved in camera space, as [`crate::local::wb_matrix_for`]
-/// re-derives the camera matrix at the chosen white (the DNG SDK's neutral-to-xy iteration); other
-/// sources adapt from the as-shot white in Rec. 2020, as their white balance is applied.
+/// The image the layers of `plan`'s settings hand on, uncached: the photo's working finish
+/// (unclipped linear Rec. 2020, [`crate::finish::FinishMode::Working`]) with every layer that has
+/// tools applied in order, as [`crate::render`] evaluates them before the output transform.
+fn layer_input(src: &RgbFrame, info: &SourceInfo, plan: &mut crate::Plan<'_>, req: &crate::RenderRequest) -> RgbFrame {
+    use std::borrow::Cow;
+    let stack = crate::layers::active(&plan.settings).then(|| plan.settings.clone().into_owned());
+    plan.settings = Cow::Owned(crate::layers::background(&plan.settings));
+    let mut img = plan.frame.sample(src, plan.w, plan.h);
+    crate::lin_cpu(&mut img, info, plan);
+    crate::local::denoise_source(&mut img, &plan.settings, plan.src_long, plan.px_per_long, info);
+    let method = crate::primary::DEFAULT_HS_METHOD;
+    if crate::primary::active(&plan.settings) {
+        let proxy = if crate::primary::needs_proxy(&plan.settings) { crate::primary::proxy_for(src, info, plan) } else { RgbFrame::new(0, 0) };
+        img = crate::primary::process(&img, &proxy, info, plan, method);
+        plan.settings = Cow::Owned(crate::visualize::remaining_for_overlay(req.overlay, &plan.settings));
+    }
+    let prep = crate::local::prepare(
+        std::sync::Arc::new(img),
+        &plan.settings,
+        info,
+        &plan.frame,
+        plan.px_per_long,
+        plan.src_long,
+        req.quality,
+        &mut Default::default(),
+    );
+    match &stack {
+        Some(original) => {
+            std::sync::Arc::unwrap_or_clone(crate::layers::stack(&prep, plan, original, info, req, method, 0, &mut Default::default()).image)
+        }
+        None => crate::finish::working(&prep, &plan.settings, plan, info, false, None),
+    }
+}
+
+/// The photo white balance that renders source colour `avg` (linear Rec. 2020 at the as-shot white,
+/// after the camera look's [`crate::local::source_look`]) neutral. A raw with a camera model is
+/// solved in camera space, as [`crate::local::wb_matrix_for`] re-derives the camera matrix at the
+/// chosen white (the DNG SDK's neutral-to-xy iteration); other sources adapt from the as-shot white
+/// in Rec. 2020, as their white balance is applied.
 fn neutral_wb(avg: [f64; 3], info: &SourceInfo) -> (f64, f64) {
     if let Some(camera) = info.camera_color {
         let neutral = camera.undo.apply(avg);
@@ -198,9 +248,11 @@ fn neutral_wb(avg: [f64; 3], info: &SourceInfo) -> (f64, f64) {
     clamped(xy_to_temp_tint(Xy::from_xyz(seen)))
 }
 
-/// Temperature and tint in the sliders' ranges and steps.
+/// Temperature and tint in the sliders' ranges, to a hundredth of a unit: whole units leave a
+/// strongly coloured patch visibly off neutral (its weakest channel is scaled up the most).
 fn clamped((t, tint): (f64, f64)) -> (f64, f64) {
-    (t.clamp(2000.0, 50000.0).round(), tint.clamp(-150.0, 150.0).round())
+    let hundredths = |v: f64| (v * 100.0).round() / 100.0;
+    (hundredths(t.clamp(2000.0, 50000.0)), hundredths(tint.clamp(-150.0, 150.0)))
 }
 
 #[cfg(test)]
@@ -309,18 +361,94 @@ mod pick_tests {
     }
 
     #[test]
-    fn mask_pick_neutralises_on_top_of_the_photo_white_balance() {
-        let (info, card) = raw_scene(ilce1(), (5500.0, 0.0), (2850.0, 0.0));
-        let src = RgbFrame::filled(64, 48, card);
-        for global in [DevelopSettings::default(), custom((4000.0, 5.0))] {
-            let wb = wb_pick(&src, &info, &global, Point::new(0.5, 0.5), WbTarget::Mask).expect("a grey card");
-            let mut img = RgbFrame::filled(2, 2, card);
-            crate::local::white_balance(&mut img, &info, &global);
-            let m = crate::local::wb_change(crate::local::effective_wb(&info, &global), wb).expect("the layer changes the white");
-            let c = img.get(0, 0);
-            let c = std::array::from_fn(|i| (0..3).map(|j| m[i][j] * c[j]).sum());
-            assert_neutral(c, &format!("global {:?} -> layer {wb:?}", global.wb));
+    fn mask_pick_renders_the_clicked_grey_neutral_through_the_layer() {
+        use crate::{DeepSamples, OutputDepth, OutputSpace, RenderRequest};
+        use lightcraft_develop::{Mask, MaskComponent, MaskShape};
+        let req = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(64, 48) };
+        for light in [(2850.0, 0.0), (8000.0, 0.0)] {
+            let (info, card) = raw_scene(ilce1(), (5500.0, 0.0), light);
+            let src = RgbFrame::filled(64, 48, card);
+            for photo in [DevelopSettings::default(), custom((4000.0, 5.0))] {
+                for saturation in [0.0, 30.0] {
+                    let mut s = photo.clone();
+                    s.color.saturation = saturation;
+                    s.masks.push(Mask {
+                        id: 7,
+                        components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }],
+                        ..Default::default()
+                    });
+                    let (temp, tint) = wb_pick(&src, &info, &s, Point::new(0.5, 0.5), WbTarget::Mask(7)).expect("a grey card");
+                    s.masks[0].tools.wb = Some(WhiteBalance { mode: WbMode::Custom, temp, tint });
+                    let Some(DeepSamples::F32(v)) = crate::render(&src, &info, &s, &req).deep.map(|d| d.samples) else {
+                        panic!("float render");
+                    };
+                    let c = v.as_chunks::<3>().0[24 * 64 + 32];
+                    assert_neutral(c, &format!("light {light:?}, photo {:?}, saturation {saturation} -> layer ({temp}, {tint})", photo.wb));
+                }
+            }
         }
+    }
+
+    #[test]
+    fn mask_pick_sees_the_layers_below_it_only() {
+        use crate::{DeepSamples, OutputDepth, OutputSpace, RenderRequest};
+        use lightcraft_develop::{Mask, MaskComponent, MaskShape};
+        // a grey card that renders neutral at the photo's own white
+        let (info, card) = raw_scene(ilce1(), (5500.0, 0.0), (5500.0, 0.0));
+        let src = RgbFrame::filled(64, 48, card);
+        let layers = |whites: &[(u32, Option<f64>)]| {
+            let mut s = DevelopSettings::default();
+            for &(id, temp) in whites {
+                let mut m = Mask {
+                    id,
+                    components: vec![MaskComponent { name: None, op: Default::default(), invert: false, shape: MaskShape::Full }],
+                    ..Default::default()
+                };
+                m.tools.wb = temp.map(|temp| WhiteBalance { mode: WbMode::Custom, temp, tint: 0.0 });
+                s.masks.push(m);
+            }
+            s
+        };
+        let pick = |s: &DevelopSettings| wb_pick(&src, &info, s, Point::new(0.5, 0.5), WbTarget::Mask(2)).expect("a grey card");
+        assert_eq!(pick(&layers(&[(2, None)])), (5500.0, 0.0));
+        // a layer below at 7500 K warms the grey, so neutralising it takes a lower white
+        let below = pick(&layers(&[(1, Some(7500.0)), (2, None)]));
+        assert!((4000.0..5000.0).contains(&below.0), "{below:?}");
+        // a layer above doesn't change what the picked layer sees
+        assert_eq!(pick(&layers(&[(1, Some(7500.0)), (2, None), (3, Some(3000.0))])), below);
+        let mut s = layers(&[(1, Some(7500.0)), (2, None)]);
+        s.masks[1].tools.wb = Some(WhiteBalance { mode: WbMode::Custom, temp: below.0, tint: below.1 });
+        let req = RenderRequest { space: OutputSpace::Rec2020, depth: OutputDepth::F32Linear, ..RenderRequest::fit(64, 48) };
+        let Some(DeepSamples::F32(v)) = crate::render(&src, &info, &s, &req).deep.map(|d| d.samples) else {
+            panic!("float render");
+        };
+        assert_neutral(v.as_chunks::<3>().0[24 * 64 + 32], &format!("{below:?}"));
+    }
+
+    #[test]
+    fn pick_and_auto_wb_see_the_camera_look() {
+        use li_color::profile::HsvTable;
+        // a fallback-matrix raw whose camera look shifts hue and raises saturation
+        let table =
+            HsvTable { hue_divisions: 1, sat_divisions: 2, val_divisions: 1, data: vec![[0.0, 1.0, 1.0], [12.0, 1.4, 1.0]], srgb_value: false };
+        let tungsten =
+            REC2020.from_xyz().apply(bradford(temp_tint_to_xy(5500.0, 0.0), temp_tint_to_xy(2850.0, 0.0)).apply(REC2020.to_xyz().apply([0.18; 3])));
+        let card = tungsten.map(|v| v as f32);
+        let info = SourceInfo {
+            raw: true,
+            as_shot_temp: 5500.0,
+            as_shot_tint: 0.0,
+            source_hue_sat: Some(std::sync::Arc::new(table)),
+            ..SourceInfo::default()
+        };
+        let src = RgbFrame::filled(64, 48, card);
+        let wb = wb_pick(&src, &info, &DevelopSettings::default(), Point::new(0.5, 0.5), WbTarget::Global).expect("a grey card");
+        assert_eq!(auto_wb(&src, &info), wb);
+        let s = custom(wb);
+        let plan = crate::plan(&src, &info, &s, &crate::RenderRequest::fit(8, 6));
+        let mut img = RgbFrame::filled(8, 6, card);
+        crate::lin_cpu(&mut img, &info, &plan);
+        assert_neutral(img.get(4, 3), &format!("{wb:?}"));
     }
 
     #[test]
