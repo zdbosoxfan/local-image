@@ -22,7 +22,7 @@ impl AiHost for Mock {
         vec![RemoveEngine { key: "mock".into(), label: "Mock Engine".into(), problem: None }]
     }
     fn remove(&self, req: &RemoveRequest, _: &JobCtl) -> Result<RemoveResult, String> {
-        let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [250, 0, 250] } else { *c }).collect();
+        let rgb = req.rgb.iter().zip(&req.mask).map(|(c, m)| if *m > 127 { [0.98, 0.0, 0.98] } else { *c }).collect();
         Ok(RemoveResult { rgb, alpha: req.mask.iter().map(|m| if *m > 127 { 255 } else { 0 }).collect() })
     }
 }

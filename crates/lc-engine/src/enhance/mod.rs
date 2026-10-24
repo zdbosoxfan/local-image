@@ -31,23 +31,23 @@ pub struct RemoveEngine {
     pub problem: Option<String>,
 }
 
-/// What an AI Remove engine gets: 8-bit sRGB pixels of the area around the removal and the mask
-/// (255 = remove), both `width × height`.
+/// What an AI Remove engine gets: the area around the removal as encoded sRGB (0–1, float, no
+/// 8-bit step) and the mask (255 = remove), both `width × height`.
 #[derive(Clone, Debug)]
 pub struct RemoveRequest {
     pub width: usize,
     pub height: usize,
-    pub rgb: Vec<[u8; 3]>,
+    pub rgb: Vec<[f32; 3]>,
     pub mask: Vec<u8>,
     pub engine: String,
     pub seed: u64,
 }
 
-/// What it returns: the repaired pixels and where they replace the original (coverage 0..255),
-/// both the request's size.
+/// What it returns: the repaired pixels (encoded sRGB, as the request) and where they replace the
+/// original (coverage 0..255), both the request's size.
 #[derive(Clone, Debug)]
 pub struct RemoveResult {
-    pub rgb: Vec<[u8; 3]>,
+    pub rgb: Vec<[f32; 3]>,
     pub alpha: Vec<u8>,
 }
 

@@ -280,8 +280,9 @@ fn invert3(m: &[[f32; 3]; 3]) -> Option<[[f32; 3]; 3]> {
 
 /// The reversible display encoding an AI engine works through: the photo's white balance, a
 /// gain that puts the area's bright end (99th percentile) just below white, Rec.2020 → sRGB
-/// primaries, the sRGB curve, 8 bits. [`AiView::decode`] undoes it exactly for anything below
-/// white (the engines' output always is).
+/// primaries and the sRGB curve, in float (0–1; brighter values are clipped to white, as engines
+/// take). [`AiView::decode`] undoes it for anything below white (the engines' output always is);
+/// only an engine's own 8-bit wire quantises.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AiView {
     fwd: [[f32; 3]; 3],
@@ -306,12 +307,12 @@ impl AiView {
         AiView { fwd, inv }
     }
 
-    pub fn encode(&self, v: [f32; 3]) -> [u8; 3] {
-        apply3(&self.fwd, v).map(li_color::transfer::encode_srgb8)
+    pub fn encode(&self, v: [f32; 3]) -> [f32; 3] {
+        apply3(&self.fwd, v).map(|x| li_color::transfer::linear_to_srgb(x.clamp(0.0, 1.0)))
     }
 
-    pub fn decode(&self, c: [u8; 3]) -> [f32; 3] {
-        apply3(&self.inv, c.map(li_color::transfer::decode_srgb8))
+    pub fn decode(&self, c: [f32; 3]) -> [f32; 3] {
+        apply3(&self.inv, c.map(li_color::transfer::srgb_to_linear))
     }
 }
 
@@ -448,15 +449,35 @@ mod tests {
         let wb = lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::Custom, temp: 4300.0, tint: 8.0 };
         let s = DevelopSettings { wb, ..Default::default() };
         let v = AiView::new(&region, &info, &s);
+        let mut exact = 0;
         for p in region.iter().take(390) {
-            let back = v.decode(v.encode(*p));
+            let encoded = v.encode(*p);
+            let back = v.decode(encoded);
+            // exact unless a channel left the display gamut (clipped at 0, as engines take it)
+            let clipped = encoded.contains(&0.0);
+            exact += usize::from(!clipped);
+            let tolerance = if clipped { p.map(|v| v * 0.1 + 2e-3) } else { p.map(|v| v * 1e-4 + 1e-6) };
             for c in 0..3 {
-                assert!((back[c] - p[c]).abs() < p[c] * 0.04 + 2e-3, "{p:?} → {back:?}");
+                assert!((back[c] - p[c]).abs() < tolerance[c], "{p:?} → {back:?}");
             }
         }
+        assert!(exact > 300, "{exact} of 390 in gamut");
         // the bright end sits just below white
         let top = v.encode(region[396]);
-        assert!(top.iter().any(|c| *c > 200), "{top:?}");
+        assert!(top.iter().any(|c| *c > 200.0 / 255.0) && top.iter().all(|c| *c <= 1.0), "{top:?}");
+    }
+
+    /// A dark wall next to a bright window in the same area: the wall's shades keep their
+    /// precision instead of collapsing onto a few 8-bit codes.
+    #[test]
+    fn the_ai_view_keeps_shadow_precision_beside_highlights() {
+        let mut region: Vec<[f32; 3]> = (0..1000).map(|i| [0.02 + i as f32 * 1e-5; 3]).collect();
+        region.extend(std::iter::repeat_n([8.0; 3], 30));
+        let v = AiView::new(&region, &SourceInfo::default(), &DevelopSettings::default());
+        for p in &region[..1000] {
+            let back = v.decode(v.encode(*p));
+            assert!((back[1] / p[1] - 1.0).abs() < 0.005, "{p:?} → {back:?}");
+        }
     }
 
     #[test]

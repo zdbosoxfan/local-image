@@ -1,7 +1,7 @@
 //! AI Remove (Lightroom's Remove tool with generative AI): a background job cuts the area around a
 //! brushed, lassoed or masked removal out of the photo as a render shows it before cropping and
 //! white balance ([`lightcraft_pipeline::patches::transformed`]), lets the host's AI engine repair
-//! it through a reversible 8-bit view ([`AiView`]), and stores the repaired pixels as a patch
+//! it through a reversible display view ([`AiView`]), and stores the repaired pixels as a patch
 //! ([`super::store`]) that the pipeline composites at the retouching stage. The develop settings
 //! only refer to the patch, so the removal stays editable (opacity, delete, regenerate, undo).
 //!
