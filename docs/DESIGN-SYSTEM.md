@@ -103,8 +103,8 @@ lazy system CJK source selection remain in their existing UI adapters.
 ## 3. Widget catalogue
 
 Editor widgets are PhotoCraft's (`widgets.rs`) except where marked new; library widgets are LightCraft's
-except where marked new. **New here** (not upstream): `icon_action`, `color_tile`, `color_swatch`,
-`range_strip`, `disclosure`, `image_badge`, `icon_button_as`.
+except where marked new. **New here** (not upstream): `icon_action`, `color_tile`, `status_chip`,
+`color_swatch`, `range_strip`, `disclosure`, `image_badge`, `icon_button_as`.
 
 Rule of thumb: reach for these before touching `egui::Button`, `ui.checkbox` or `Painter` directly. Editor
 file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/src/widgets.rs` (`lc`).
@@ -139,6 +139,7 @@ scrolling and saved menu tints stay with their established surfaces.
 | `menu_scroll` | Body of a context menu that scrolls instead of running off screen | 594 |
 | `swatch_popup` | Colour picker popup anchored to a swatch | 612 |
 | `icon_action` | Square footer/header icon button with accessible label and disabled-with-reason: `icon_action(ui, "plus", 24.0, "New Swatch", tip, None)` | 660 |
+| `status_chip` (new), `Tone` | Small status pill: shape icon plus text in the tone's colour (`Neutral`, `Good` accent, `Warning`, `Danger`), named for accessibility; Set Up Models and the Generate model picker: `status_chip(ui, "circle-dashed", "Not tested", Tone::Neutral)` | widgets.rs |
 | `color_control` | Named colour value; both the tile and label open the shared colour picker popup, with one combined anchor and accessibility labels | 699 |
 | `color_tile` | Paint a colour value (checkerboard under alpha, `radius_sm`, outline). Paint only; owner supplies click and name | 679 |
 | `checker` | Transparency checkerboard | 690 |
