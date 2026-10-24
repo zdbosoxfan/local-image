@@ -271,8 +271,8 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
                 .session
                 .catalog
                 .photo(id)
-                .map(|p| format!("{}-Denoised.tiff", p.file_name.rsplit_once('.').map_or(p.file_name.as_str(), |(s, _)| s)))
-                .unwrap_or_else(|| "Denoised.tiff".into());
+                .map(|p| format!("{}-Denoised.dng", p.file_name.rsplit_once('.').map_or(p.file_name.as_str(), |(s, _)| s)))
+                .unwrap_or_else(|| "Denoised.dng".into());
             if app.services.file_dialog.is_none() {
                 app.toast(ui.ctx(), "Saving a denoised file is unavailable in this host.");
             }

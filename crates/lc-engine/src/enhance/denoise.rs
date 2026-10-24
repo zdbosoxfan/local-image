@@ -291,7 +291,10 @@ impl Session {
                     )?
                 };
                 if variant == Variant::Rgb {
-                    from_display(&mut data);
+                    if data.len() != img.data.len() {
+                        return Err("the denoiser returned invalid pixels".into());
+                    }
+                    from_display_change(&img.data, &input, &mut data);
                 }
                 (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
             };
@@ -454,14 +457,32 @@ fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: RgbFrame
     }
     rgb.into_oriented(raw.orientation)
 }
+/// The display RGB models' input: sRGB-encoded sRGB primaries clamped to 0–1 (NIND's contract).
 fn to_display(img: &RgbFrame) -> Vec<[f32; 3]> {
     let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
     img.data.iter().map(|p| m.apply_f32(*p).map(|v| li_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
 }
-fn from_display(data: &mut [[f32; 3]]) {
-    let m = li_color::REC2020.from_xyz().mul(&li_color::SRGB.to_xyz());
-    for p in data {
-        *p = m.apply_f32(p.map(li_color::transfer::srgb_to_linear));
+/// A display RGB model's output `out` (for the clamped `input` of `original`) back in the source's
+/// scene-linear Rec.2020. Pixels the display view clipped keep what it cut off: highlights above
+/// white and colours outside sRGB come back whole, with the model's change faded out towards
+/// white (a clipped plateau gives it nothing to work on). Slightly negative shadow noise is
+/// denoised as the model returns it.
+fn from_display_change(original: &[[f32; 3]], input: &[[f32; 3]], out: &mut [[f32; 3]]) {
+    let to_linear = li_color::REC2020.from_xyz().mul(&li_color::SRGB.to_xyz());
+    let to_srgb = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
+    let lin = |p: [f32; 3]| to_linear.apply_f32(p.map(li_color::transfer::srgb_to_linear));
+    let smoothstep = |a: f32, b: f32, x: f32| {
+        let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    for ((o, c), y) in original.iter().zip(input).zip(out.iter_mut()) {
+        let srgb = to_srgb.apply_f32(*o);
+        let over = srgb.iter().any(|v| *v > 1.0);
+        let under = -srgb.iter().fold(0.0f32, |a, v| a.min(*v));
+        let keep = if over { 1.0 } else { smoothstep(0.01, 0.05, under) };
+        let change = 1.0 - smoothstep(0.95, 1.0, c.iter().fold(0.0f32, |a, v| a.max(*v)));
+        let (base, model) = (lin(*c), lin(*y));
+        *y = std::array::from_fn(|i| base[i] + (o[i] - base[i]) * keep + (model[i] - base[i]) * change);
     }
 }
 fn export_new(path: &std::path::Path, img: &RgbFrame, p: &lightcraft_catalog::Photo, ctl: &JobCtl) -> Result<(), String> {
@@ -473,12 +494,11 @@ fn export_new(path: &std::path::Path, img: &RgbFrame, p: &lightcraft_catalog::Ph
     metadata.height = Some(img.height as u32);
     metadata.orientation = Some(lightcraft_meta::Orientation::Normal);
     let bytes = if ext == "tif" || ext == "tiff" {
-        let display = to_display(img);
-        let icc = lightcraft_codecs::icc::write_named(lightcraft_codecs::NamedSpace::Srgb);
-        let samples: Vec<u16> = display.iter().flatten().map(|v| (v * 65535. + 0.5) as u16).collect();
+        // the source as it is: scene-linear Rec.2020 floats, highlights and gamut intact
+        let icc = lightcraft_codecs::icc::write_matrix_trc(&li_color::REC2020, &lightcraft_codecs::Trc::Linear);
         let exif = lightcraft_meta::write_exif(&metadata);
         lightcraft_codecs::encode::encode_tiff(
-            &EncodeImage::new(img.width as u32, img.height as u32, 3, Samples::U16(&samples)),
+            &EncodeImage::new(img.width as u32, img.height as u32, 3, Samples::F32(img.data.as_flattened())),
             TiffCompression::Deflate,
             &EncodeMeta { icc: Some(&icc), exif: Some(&exif), ..Default::default() },
         )
@@ -918,19 +938,43 @@ mod integration_tests {
         assert!(!s.develop_of(id).unwrap().enhance.ai.unwrap().preview);
     }
     #[test]
+    fn ai_denoise_rgb_models_keep_highlights_and_wide_gamut_colours() {
+        let original = RgbFrame { width: 4, height: 1, data: vec![[4.0, 4.0, 4.0], [0.05, 0.6, 0.02], [0.2, 0.2, 0.2], [-0.002, 0.003, 0.001]] };
+        let input = to_display(&original);
+        let mut same = input.clone();
+        from_display_change(&original.data, &input, &mut same);
+        for (got, want) in same.iter().zip(&original.data).take(3) {
+            for c in 0..3 {
+                assert!((got[c] - want[c]).abs() < 1e-4 * want[c].abs().max(1.0), "an identity model returns the source: {got:?} vs {want:?}");
+            }
+        }
+        // a model that flattens everything to mid grey: in-range pixels and shadow noise take its
+        // result, a clipped highlight keeps the source
+        let mut grey = vec![[0.5; 3]; 4];
+        from_display_change(&original.data, &input, &mut grey);
+        let mid = li_color::transfer::srgb_to_linear(0.5);
+        for p in [grey[2], grey[3]] {
+            assert!(p.iter().all(|v| (v - mid).abs() < 1e-3), "{p:?}");
+        }
+        assert!(grey[0].iter().all(|v| (v - 4.0).abs() < 1e-3), "{:?}", grey[0]);
+    }
+    #[test]
     fn ai_denoise_exports_new_tiff_and_dng_with_neutral_working_wb() {
         let s = Session::with_demo();
         let p = s.catalog.photo(s.active().unwrap()).unwrap();
         let img = RgbFrame { width: 8, height: 6, data: vec![[0.2; 3]; 48] };
+        let mut bright = img.clone();
+        bright.data[9] = [4.0, 2.0, 0.5];
         let ctl = JobCtl::default();
         let dir = std::env::temp_dir().join(format!("li-denoise-export-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        for ext in ["dng", "tiff"] {
+        // the TIFF keeps a highlight above white as it is
+        for (ext, img) in [("dng", &img), ("tiff", &bright)] {
             let path = dir.join(format!("new.{ext}"));
             let _ = std::fs::remove_file(&path);
-            export_new(&path, &img, p, &ctl).unwrap();
+            export_new(&path, img, p, &ctl).unwrap();
             let bytes = std::fs::read(&path).unwrap();
-            assert!(export_new(&path, &img, p, &ctl).is_err(), "never overwrite an existing file");
+            assert!(export_new(&path, img, p, &ctl).is_err(), "never overwrite an existing file");
             assert_eq!(std::fs::read(&path).unwrap(), bytes);
             if ext == "dng" {
                 let raw = lightcraft_raw::decode(&bytes).unwrap();
@@ -942,11 +986,11 @@ mod integration_tests {
                 for v in pixel {
                     assert!((v - 0.2).abs() < 2e-4, "{pixel:?}");
                 }
-                let (loaded, _) = crate::files::load_bytes(&bytes, usize::MAX).unwrap();
-                for p in loaded.data {
-                    for v in p {
-                        assert!((v - 0.2).abs() < 2e-4, "source reload {v}");
-                    }
+            }
+            let (loaded, _) = crate::files::load_bytes(&bytes, usize::MAX).unwrap();
+            for (got, want) in loaded.data.iter().zip(&img.data) {
+                for c in 0..3 {
+                    assert!((got[c] - want[c]).abs() < 2e-4 * want[c].max(1.0), "{ext} reload {got:?} vs {want:?}");
                 }
             }
         }
