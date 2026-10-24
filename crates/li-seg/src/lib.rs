@@ -637,8 +637,9 @@ fn in_f32(model: TypedModel) -> Result<TypedModel> {
 pub struct Segmenter {
     cfg: Config,
     run: Arc<Runner>,
-    /// The model takes any input size and keeps the photo's aspect ratio ([`depth_input`]).
-    flexible: bool,
+    /// The model takes any input size and keeps the photo's aspect ratio ([`depth_input`]): its
+    /// plans by input size.
+    flexible: Option<Arc<Plans>>,
 }
 
 /// Depth Anything V2's patch: its flexible export takes sides that are multiples of it.
@@ -653,8 +654,40 @@ fn depth_input(s: usize, w: usize, h: usize) -> (usize, usize) {
     if w >= h { (s, long) } else { (long, s) }
 }
 
-/// Plans of a flexible-input model by input size, the most recent first (a few at most).
-type Plans = std::sync::Mutex<Vec<((usize, usize), Arc<TypedRunnableModel>)>>;
+/// `model` planned for one `th × tw` input of type `input`.
+fn plan_at(model: InferenceModel, input: DatumType, th: usize, tw: usize) -> Result<Arc<TypedRunnableModel>> {
+    in_f32(model.with_input_fact(0, InferenceFact::dt_shape(input, tvec!(1, 3, th, tw)))?.into_typed()?)?.into_optimized()?.into_runnable()
+}
+
+/// A flexible-input model's plans, built for an input size when it is first needed (the most
+/// recently used first, a few at most).
+struct Plans {
+    model: InferenceModel,
+    input: DatumType,
+    built: std::sync::Mutex<Vec<((usize, usize), Arc<TypedRunnableModel>)>>,
+}
+
+impl Plans {
+    /// The plan for a `(height, width)` input. Planning takes seconds and runs outside the lock,
+    /// so a run at a size already planned is not held up.
+    fn at(&self, size: (usize, usize)) -> Result<Arc<TypedRunnableModel>> {
+        let built = || self.built.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        {
+            let mut plans = built();
+            if let Some(i) = plans.iter().position(|(at, _)| *at == size) {
+                let hit = plans.remove(i);
+                plans.insert(0, hit.clone());
+                return Ok(hit.1);
+            }
+        }
+        let plan = plan_at(self.model.clone(), self.input, size.0, size.1)?;
+        let mut plans = built();
+        plans.retain(|(at, _)| *at != size);
+        plans.insert(0, (size, plan.clone()));
+        plans.truncate(3);
+        Ok(plan)
+    }
+}
 
 impl std::fmt::Debug for Segmenter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -693,36 +726,22 @@ impl Segmenter {
         let fact = model.input_fact(0)?;
         let input = fact.datum_type.concretize().unwrap_or(DatumType::F32);
         let flexible = cfg.keeps_aspect && [2, 3].iter().all(|i| fact.shape.dim(*i).and_then(|d| d.concretize()).and_then(|d| d.to_i64().ok()).is_none());
-        let plan_at = move |model: InferenceModel, th: usize, tw: usize| -> Result<Arc<TypedRunnableModel>> {
-            in_f32(model.with_input_fact(0, InferenceFact::dt_shape(input, tvec!(1, 3, th, tw)))?.into_typed()?)?.into_optimized()?.into_runnable()
-        };
         if !flexible {
-            let plan = plan_at(model, s, s)?;
-            return Ok(Self { cfg, run: Arc::new(move |t: Tensor, stop: &dyn Fn() -> bool| run_checked(&plan, tvec!(t.into()), stop)), flexible });
+            let plan = plan_at(model, input, s, s)?;
+            return Ok(Self { cfg, run: Arc::new(move |t: Tensor, stop: &dyn Fn() -> bool| run_checked(&plan, tvec!(t.into()), stop)), flexible: None });
         }
-        let plans: Plans = std::sync::Mutex::new(vec![((s, s), plan_at(model.clone(), s, s)?)]);
+        let plans = Arc::new(Plans { model, input, built: Default::default() });
+        let at = plans.clone();
         let run = move |t: Tensor, stop: &dyn Fn() -> bool| {
             let size = (t.shape().get(2).copied().unwrap_or(s), t.shape().get(3).copied().unwrap_or(s));
-            let plan = {
-                let mut plans = plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                match plans.iter().position(|(at, _)| *at == size) {
-                    Some(i) => plans[i].1.clone(),
-                    None => {
-                        let plan = plan_at(model.clone(), size.0, size.1)?;
-                        plans.insert(0, (size, plan.clone()));
-                        plans.truncate(3);
-                        plan
-                    }
-                }
-            };
-            run_checked(&plan, tvec!(t.into()), stop)
+            run_checked(&at.at(size)?, tvec!(t.into()), stop)
         };
-        Ok(Self { cfg, run: Arc::new(run), flexible })
+        Ok(Self { cfg, run: Arc::new(run), flexible: Some(plans) })
     }
 
     /// The input (height, width) this model gets for a `w × h` photo.
     fn input_size(&self, w: usize, h: usize) -> (usize, usize) {
-        if self.flexible { depth_input(self.cfg.size, w, h) } else { (self.cfg.size, self.cfg.size) }
+        if self.flexible.is_some() { depth_input(self.cfg.size, w, h) } else { (self.cfg.size, self.cfg.size) }
     }
 
     /// The model's id (an official id, or `custom:<file>`).
@@ -855,8 +874,15 @@ impl Segmenter {
         }
         check(stop)?;
         let size = self.input_size(w, h);
+        let units = (size.0 * size.1) as u64;
+        // planned before the run: the CPU estimate calibrates on inference alone
+        if let Some(plans) = &self.flexible {
+            estimate::estimate(&self.cfg.id, units).check()?;
+            plans.at(size)?;
+            check(stop)?;
+        }
         let input = self.input_at(rgba, w, h, false, size)?;
-        let out = estimate::run(&self.cfg.id, (size.0 * size.1) as u64, || (self.run)(input.into(), stop))?;
+        let out = estimate::run(&self.cfg.id, units, || (self.run)(input.into(), stop))?;
         check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };

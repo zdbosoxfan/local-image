@@ -801,17 +801,23 @@ fn flexible_depth_models_keep_the_photos_aspect_ratio() {
     assert_eq!(depth_input(518, 4000, 3000), (518, 686));
     assert_eq!(depth_input(518, 800, 800), (518, 518));
     assert_eq!(depth_input(518, 9000, 1000), (518, 1036), "a panorama is capped at 2:1");
-    // the official depth model's flexible input: built once per shape, a fixed one stays square
+    // the official depth model's flexible input: planned for a shape when a photo of it comes,
+    // a fixed one stays square
     let dir = temp_models();
     let depth = ModelSpec { size: 28, ..*Group::Depth.official() };
     let flexible = Segmenter::load(&depth, &picked(&dir, "flex.onnx", None, Out::Map)).unwrap();
     let fixed = Segmenter::load(&depth, &picked(&dir, "fixed.onnx", Some((28, 28)), Out::Map)).unwrap();
+    let planned = || flexible.flexible.as_ref().unwrap().built.lock().unwrap().iter().map(|(at, _)| *at).collect::<Vec<_>>();
+    assert_eq!(planned(), [], "nothing is planned before a photo comes");
     let (w, h) = (90, 60);
     assert_eq!((flexible.input_size(w, h), fixed.input_size(w, h)), ((28, 42), (28, 28)));
     for seg in [&flexible, &fixed] {
         let d = seg.predict_depth(&synthetic(w, h), w, h).unwrap();
         assert_eq!(d.len(), w * h);
     }
+    flexible.predict_depth(&synthetic(h, w), h, w).unwrap();
+    flexible.predict_depth(&synthetic(w, h), w, h).unwrap();
+    assert_eq!(planned(), [(28, 42), (42, 28)], "one plan per shape, the most recently used first");
     let custom = add_custom(&dir, Group::Depth, &picked(&dir, "custom.onnx", None, Out::Map), CustomOptions::for_group(Group::Depth), &keep).unwrap();
     assert_eq!(shared_depth(&dir).unwrap().unwrap().input_size(w, h), (custom.size, custom.size), "a custom model's patch size is unknown: square");
     let _ = std::fs::remove_dir_all(dir);
