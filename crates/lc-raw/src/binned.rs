@@ -105,6 +105,21 @@ impl RawImage {
         Ok(Some(out))
     }
 
+    /// Binned development with highlight handling `h`: segmentation works on the reduced mosaic
+    /// ([`Self::develop_binned_with`]), the other modes on the binned RGB, whose clipped channels
+    /// keep their block maximum. `None` where [`Self::develop_binned`] has none.
+    pub fn develop_binned_with_highlights(&self, k: usize, h: &crate::highlight::Highlights) -> Result<Option<RgbFrame>> {
+        if h.mode == crate::highlight::Mode::Segmentation {
+            return self.develop_binned_with(k, h.clip, |n, scale| {
+                h.mosaic(n, scale);
+            });
+        }
+        Ok(self.develop_binned(k, h.clip)?.map(|mut img| {
+            h.rgb(&mut img);
+            img
+        }))
+    }
+
     /// Binned development with a pre-demosaic CFA operation. Bayer blocks are reduced to
     /// four separate CFA phases at twice the RGB output size, preserving a clipped phase's
     /// maximum. `hook` receives the reduced mosaic and its sensor sampling interval.
@@ -126,7 +141,7 @@ impl RawImage {
         if !cfa.is_bayer() {
             let mut n = self.normalized()?;
             hook(&mut n, 1);
-            return Ok(Some(bin_normalized(&n, &cfa, c, k, clip)));
+            return Ok(Some(crate::highlight::superpixels(&n, &cfa, c, k, clip)));
         }
         let scale = k / 2;
         let (w, h) = (2 * (c.width / k), 2 * (c.height / k));
@@ -149,7 +164,7 @@ impl RawImage {
         let reduced_cfa = cfa.shifted(c.x, c.y);
         let mut reduced = Normalized { width: w, height: h, cpp: 1, data, cfa: Some(reduced_cfa.clone()) };
         hook(&mut reduced, scale);
-        Ok(Some(bin_normalized(&reduced, &reduced_cfa, crate::Rect::new(0, 0, w, h), 2, clip)))
+        Ok(Some(crate::highlight::superpixels(&reduced, &reduced_cfa, crate::Rect::new(0, 0, w, h), 2, clip)))
     }
 }
 
@@ -165,24 +180,6 @@ fn block_layout(cfa: &crate::Cfa, i: usize, j: usize, k: usize) -> (Vec<u8>, [u3
         })
         .collect();
     (l, n)
-}
-
-/// Same clipping-aware channel reduction as the historical row-normalized binner.
-fn bin_normalized(n: &Normalized, cfa: &crate::Cfa, crop: crate::Rect, k: usize, clip: f32) -> RgbFrame {
-    RgbFrame::from_fn(crop.width / k, crop.height / k, |bx, by| {
-        let (mut sum, mut max, mut count) = ([0.0; 3], [f32::MIN; 3], [0usize; 3]);
-        for dy in 0..k {
-            for dx in 0..k {
-                let (x, y) = (crop.x + bx * k + dx, crop.y + by * k + dy);
-                let c = cfa.color_at(x, y) as usize;
-                let v = n.data[y * n.width + x];
-                sum[c] += v;
-                max[c] = max[c].max(v);
-                count[c] += 1;
-            }
-        }
-        std::array::from_fn(|c| if max[c] >= clip { max[c] } else { sum[c] / count[c].max(1) as f32 })
-    })
 }
 
 #[cfg(test)]

@@ -807,6 +807,14 @@ impl RawImage {
         Ok(img.into_crop(c.x, c.y, c.width, c.height))
     }
 
+    /// Full development with highlight handling `h` in the sensor domain: on the mosaic before
+    /// demosaic (or, for data without one, on camera RGB right after), always before
+    /// `OpcodeList3`. The mosaic is demosaiced balanced by `h.wb`.
+    pub fn develop_with_highlights(&self, method: Method, opts: &DemosaicOptions, h: &highlight::Highlights) -> Result<RgbFrame> {
+        let pending = std::cell::RefCell::new(highlight::Pending::Nothing);
+        self.develop_stages(method, opts, h.wb, |n| *pending.borrow_mut() = h.mosaic(n, 1), |img| h.demosaiced(img, pending.take()))
+    }
+
     /// As-shot white-balance multipliers (camera → balanced, green = 1): the balance the mosaic
     /// is demosaiced with when the caller has none of its own.
     pub fn as_shot_wb(&self) -> [f32; 3] {

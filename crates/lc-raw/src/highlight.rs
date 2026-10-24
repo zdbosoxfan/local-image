@@ -1,22 +1,104 @@
-//! Clip-aware highlight handling on demosaiced camera RGB (before white balance, white level = 1.0).
+//! Clip-aware highlight handling in the sensor domain: camera values before white balance, sensor
+//! white = 1.0, before `OpcodeList3`. [`Highlights`] reads the clipping from the mosaic before
+//! demosaic ([`Highlights::mosaic`], [`Highlights::demosaiced`]) or, for data without a mosaic and
+//! for binned previews (whose blocks keep a clipped channel's maximum, no interpolation), from
+//! camera RGB ([`Highlights::rgb`]).
 //!
 //! - [`segmentation`]: full segmentation/recovery on normalized CFA before demosaic.
-//! - [`clip_neutral`]: white-balance-aware clipping so that sensor-clipped areas render neutral instead of
-//!   magenta/cyan (each channel limited to the smallest white-balanced clip level).
-//! - [`reconstruct`]: where only some channels are clipped, rebuild them from the unclipped channels using the
-//!   local chromaticity of nearby unclipped pixels (diffused into the clipped region with a coarse-to-fine
-//!   normalised-convolution fill). Fully clipped pixels become neutral at the brightest plausible level.
-//! - [`opposed`]: darktable's "inpaint opposed" (see [`mod@opposed`]): a clipped channel becomes the
+//! - [`clip_neutral`] / [`clip_cfa`]: white-balance-aware clipping so that sensor-clipped areas render neutral
+//!   instead of magenta/cyan (each channel limited to the smallest white-balanced clip level).
+//! - [`reconstruct`] / [`reconstruct_masked`]: where only some channels are clipped, rebuild them from the unclipped
+//!   channels using the local chromaticity of nearby unclipped pixels (diffused into the clipped region with a
+//!   coarse-to-fine normalised-convolution fill). Fully clipped pixels become neutral at the brightest plausible level.
+//! - [`opposed`] / [`opposed_cfa`]: darktable's "inpaint opposed" (see [`mod@opposed`]): a clipped channel becomes the
 //!   cube-root mean of the two other channels plus a chrominance offset measured around clipped areas.
 
+mod cfa;
 mod opposed;
 mod segbased;
 mod segmentation;
+pub(crate) use cfa::superpixels;
+pub use cfa::{ClipMask, clip_cfa};
 pub use opposed::opposed;
-pub use segbased::{Recovery, SegmentationOptions, segmentation};
+pub use segbased::{Recovery, SegmentationOptions, opposed_cfa, segmentation};
 
+use crate::Normalized;
 use li_raster::RgbFrame;
 use rayon::prelude::*;
+
+/// How development treats clipped highlights.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Mode {
+    /// Clip every channel at the lowest white-balanced clip level ([`clip_neutral`]).
+    Clip,
+    /// Rebuild clipped channels from local chromaticity ([`reconstruct`]).
+    #[default]
+    Reconstruct,
+    /// darktable's "inpaint opposed" ([`opposed`]).
+    Opposed,
+    /// darktable's segmentation-based reconstruction ([`segmentation`]).
+    Segmentation,
+}
+
+/// A highlight mode with the white balance it renders for and the sensor clip level.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Highlights {
+    pub mode: Mode,
+    /// White-balance multipliers the image will get (camera → balanced).
+    pub wb: [f32; 3],
+    /// Sensor clip level, normalised (slightly below 1.0, e.g. 0.99).
+    pub clip: f32,
+}
+
+/// What [`Highlights::mosaic`] leaves for [`Highlights::demosaiced`].
+#[derive(Default)]
+pub enum Pending {
+    /// Done on the mosaic (or nothing was clipped).
+    #[default]
+    Nothing,
+    /// The data has no mosaic: the RGB variant of the mode ([`Highlights::rgb`]).
+    Rgb,
+    /// Reconstruct the clipped channels the mosaic's clip mask names.
+    Masked(ClipMask),
+}
+
+impl Highlights {
+    /// The part of the mode that runs on a normalised mosaic before demosaic; `scale` is the
+    /// sensor sampling interval of a reduced mosaic (1 at full size).
+    pub fn mosaic(&self, n: &mut Normalized, scale: usize) -> Pending {
+        if n.cpp != 1 || n.cfa.is_none() {
+            return Pending::Rgb;
+        }
+        match self.mode {
+            Mode::Clip => clip_cfa(n, self.wb, self.clip),
+            // the samples a demosaic spreads into each pixel: its 3×3 neighbourhood
+            Mode::Reconstruct => return ClipMask::of(n, self.clip, 1).map_or(Pending::Nothing, Pending::Masked),
+            Mode::Opposed => drop(opposed_cfa(n, self.wb, self.clip)),
+            Mode::Segmentation => drop(segmentation(n, self.wb, self.clip, &SegmentationOptions::default().at_scale(scale))),
+        }
+        Pending::Nothing
+    }
+
+    /// The rest of the mode, on the demosaic of the mosaic [`Self::mosaic`] saw.
+    pub fn demosaiced(&self, img: &mut RgbFrame, pending: Pending) {
+        match pending {
+            Pending::Nothing => {}
+            Pending::Rgb => self.rgb(img),
+            Pending::Masked(mask) => drop(reconstruct_masked(img, &mask, self.wb, self.clip)),
+        }
+    }
+
+    /// Run the mode on camera RGB that was not interpolated across clip boundaries: linear raw
+    /// data, monochrome data, binned previews. Segmentation needs a mosaic and falls back to
+    /// inpaint opposed here.
+    pub fn rgb(&self, img: &mut RgbFrame) {
+        match self.mode {
+            Mode::Clip => clip_neutral(img, self.wb, self.clip),
+            Mode::Reconstruct => drop(reconstruct(img, self.wb, self.clip)),
+            Mode::Opposed | Mode::Segmentation => drop(opposed(img, self.wb, self.clip)),
+        }
+    }
+}
 
 /// Clip every channel of `wb ⊙ img` at `min_c(wb_c) · clip` — i.e. at the lowest channel's clip level after WB —
 /// then divide the multipliers back out. `clip` is the sensor clip in normalised units (≈ 1.0).
@@ -104,12 +186,9 @@ fn upsample(cv: &[[f32; 3]], cw: usize, ch: usize, x: usize, y: usize) -> [f32; 
     v
 }
 
-/// White-balanced chromaticity of an unclipped pixel (`None`: clipped or too dark to tell).
+/// White-balanced chromaticity of a pixel (`None`: too dark to tell).
 #[inline]
-fn chroma_of(p: &[f32; 3], wb: [f32; 3], clip: f32) -> Option<[f32; 3]> {
-    if p[0] >= clip || p[1] >= clip || p[2] >= clip {
-        return None;
-    }
+fn chroma_of(p: &[f32; 3], wb: [f32; 3]) -> Option<[f32; 3]> {
     let q = [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
     let s = q[0] + q[1] + q[2];
     (s > 1e-4).then(|| q.map(|v| v.max(0.0) / s))
@@ -124,9 +203,23 @@ fn chroma_of(p: &[f32; 3], wb: [f32; 3], clip: f32) -> Option<[f32; 3]> {
 /// half-resolution level: we start the pyramid there, straight from the image, and never build
 /// the full-resolution field (same result, a quarter of the memory and far less work).
 pub fn reconstruct(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
+    rebuild(img, wb, clip, |_, p| [p[0] >= clip, p[1] >= clip, p[2] >= clip])
+}
+
+/// [`reconstruct`] on demosaiced data, with the clipped channels of each pixel taken from `mask`
+/// (built on the mosaic, see [`ClipMask`]) instead of thresholding interpolated values: a
+/// demosaic spreads clipped samples into neighbours that would otherwise pass as valid and keep a
+/// wrong colour.
+pub fn reconstruct_masked(img: &mut RgbFrame, mask: &ClipMask, wb: [f32; 3], clip: f32) -> usize {
+    if (mask.width, mask.height) != (img.width, img.height) {
+        return reconstruct(img, wb, clip);
+    }
+    rebuild(img, wb, clip, |i, _| mask.at(i))
+}
+
+fn rebuild(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: impl Fn(usize, &[f32; 3]) -> [bool; 3] + Sync) -> usize {
     let (w, h) = (img.width, img.height);
-    let is_clipped = |p: &[f32; 3]| p[0] >= clip || p[1] >= clip || p[2] >= clip;
-    let count = img.data.par_iter().filter(|p| is_clipped(p)).count();
+    let count = img.data.par_iter().enumerate().filter(|(i, p)| clipped(*i, p).contains(&true)).count();
     if count == 0 {
         return 0;
     }
@@ -136,7 +229,7 @@ pub fn reconstruct(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
     let mut cval = vec![false; cw * ch];
     {
         let data = &img.data;
-        downsample(w, h, &mut cv, &mut cval, |i| chroma_of(&data[i], wb, clip));
+        downsample(w, h, &mut cv, &mut cval, |i| if clipped(i, &data[i]).contains(&true) { None } else { chroma_of(&data[i], wb) });
     }
     if cw * ch < w * h {
         fill_invalid(cw, ch, &mut cv, &mut cval);
@@ -146,8 +239,8 @@ pub fn reconstruct(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
     img.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
         for (x, px) in row.iter_mut().enumerate() {
             let p = *px;
-            let cl = [p[0] >= clip, p[1] >= clip, p[2] >= clip];
-            if !cl.iter().any(|&b| b) {
+            let cl = clipped(y * w + x, &p);
+            if !cl.contains(&true) {
                 continue;
             }
             let r = if any_valid { upsample(&cv, cw, ch, x, y) } else { [1f32 / 3.0; 3] };
@@ -162,7 +255,9 @@ pub fn reconstruct(img: &mut RgbFrame, wb: [f32; 3], clip: f32) -> usize {
             }
             let mut out = q;
             if k == 0 {
-                let v = q.iter().cloned().fold(0.0f32, f32::max).max(max_level);
+                // only a pixel clipped in all its own channels is known to reach the clip level
+                let floor = if p.iter().all(|&v| v >= clip) { max_level } else { 0.0 };
+                let v = q.iter().cloned().fold(0.0f32, f32::max).max(floor);
                 out = [v; 3];
             } else {
                 let sum = sum / k as f32;
