@@ -105,7 +105,7 @@ fn ai_denoise_settings_roundtrip_and_copies_keep_only_controls() {
     let mut s = DevelopSettings::default();
     s.enhance.denoise = 67.0;
     s.enhance.denoise_model = DenoiseModel::Rgb;
-    s.enhance.ai = Some(DenoiseRef { key: AiKey(123), source: AiKey(456), model: DenoiseModel::Rgb, preview: true, raw: 0 });
+    s.enhance.ai = Some(DenoiseRef { key: AiKey(123), source: AiKey(456), model: DenoiseModel::Rgb, preview: true, raw: 0, region: None });
     assert_eq!(DevelopSettings::from_json(&s.to_json()).unwrap(), s);
     let copied = extract_groups(&s, &[SettingsGroup::Detail]);
     assert!(copied["enhance"].get("ai").is_none());

@@ -255,12 +255,16 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
         if d.enhance.ai.is_some_and(|a| !lightcraft_engine::enhance::denoise::matches_decoding(&a, d)) {
             dim(ui, "The Raw Processing or camera profile changed after AI Denoise ran: run it again to apply it.");
         } else if d.enhance.ai.is_some_and(|a| a.preview) {
-            dim(ui, "Preview result — run full resolution before exporting.");
+            dim(ui, "Preview: a 1024 px area at full resolution. Apply AI Denoise to the whole photo before exporting.");
         }
+        // the preview's area: where the zoomed-in view looks (when the view is the source as it is)
+        let untransformed = d.crop == Default::default() && d.geometry == Default::default() && d.orientation == Default::default();
+        let center = (untransformed && matches!(app.ui.zoom, crate::state::Zoom::Percent(_))).then_some([app.ui.pan.0, app.ui.pan.1]);
         ui.horizontal(|ui| {
             for (preview, key, label) in [(true, "denoisePreview", "Preview"), (false, "denoiseApply", "Apply AI Denoise")] {
                 if text_button(ui, key, label, false).clicked()
-                    && let Err(e) = app.run("enhance.denoise", json!({"preview":preview}))
+                    && let Err(e) =
+                        app.run("enhance.denoise", json!({"preview": preview, "center": if preview { json!(center) } else { json!(null) }}))
                 {
                     app.toast_error(ui.ctx(), e);
                 }

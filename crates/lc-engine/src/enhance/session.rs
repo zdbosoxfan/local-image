@@ -99,7 +99,8 @@ impl Session {
                     return Ok(false);
                 }
                 let first_result = d.enhance.ai.is_none();
-                d.enhance.ai = Some(lightcraft_develop::DenoiseRef { key, source, model: r.family, preview: r.preview, raw: r.raw });
+                d.enhance.ai =
+                    Some(lightcraft_develop::DenoiseRef { key, source, model: r.family, preview: r.preview, raw: r.raw, region: r.region });
                 if first_result && d.enhance.denoise == 0.0 {
                     d.enhance.denoise = 100.0;
                 }
@@ -208,6 +209,6 @@ pub fn for_render(src: &Arc<RgbFrame>, s: &Arc<DevelopSettings>, source: Option<
                 && super::denoise::matches_decoding(a, &settings)
                 && !settings.disabled_sections.iter().any(|s| s == "detail")
         })
-        .and_then(|a| super::denoise::denoised_source(src, &a.key.to_string(), settings.enhance.denoise));
+        .and_then(|a| super::denoise::denoised_source(src, &a.key.to_string(), settings.enhance.denoise, a.region));
     (mixed.unwrap_or_else(|| src.clone()), settings)
 }

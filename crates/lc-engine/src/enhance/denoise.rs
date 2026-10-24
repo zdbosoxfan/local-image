@@ -12,7 +12,10 @@ use lightcraft_preview::Hasher128;
 use std::sync::{Arc, Mutex, Weak};
 
 pub const PREVIEW_EDGE: usize = 2560;
-pub const INFERENCE_PREVIEW_EDGE: usize = 1024;
+/// Side of the area a Preview denoises, at the photo's full resolution.
+pub const PREVIEW_AREA: usize = 1024;
+/// Pixels around the preview area the model also sees (its tiles' context), cut off after.
+const PREVIEW_HALO: usize = 64;
 #[cfg(not(target_arch = "wasm32"))]
 type GpuSlot = Option<(std::path::PathBuf, Variant, (u64, Option<std::time::SystemTime>), lightcraft_gpu::denoise::Denoiser)>;
 #[cfg(not(target_arch = "wasm32"))]
@@ -35,6 +38,8 @@ pub struct DenoiseDone {
     pub preview: bool,
     /// [`source_options`] of the decoding it was made from.
     pub raw: u64,
+    /// A preview's area (normalized `[x0, y0, x1, y1]` of the decoded source).
+    pub region: Option<[f64; 4]>,
 }
 pub fn model_tag() -> String {
     format!("{}@df957efa", li_seg::denoise::DENOISE_ID)
@@ -154,12 +159,16 @@ impl Session {
         Ok((Arc::new(move |px, w, h, progress| infer(&dir, Variant::Linear, px.as_flattened(), w, h, true, progress)), model_tag()))
     }
     pub fn start_denoise(&mut self, id: PhotoId, wait: bool) -> Result<Arc<Job>, String> {
-        self.start_denoise_with(id, false, None, wait)
+        self.start_denoise_with(id, false, None, None, wait)
     }
+    /// AI Denoise of photo `id`: the whole photo, or (`preview`) a [`PREVIEW_AREA`] square at full
+    /// resolution around `center` (normalized in the decoded source; the photo's centre when
+    /// `None`), with the model Apply uses there; `destination`: a new file instead.
     pub fn start_denoise_with(
         &mut self,
         id: PhotoId,
         preview: bool,
+        center: Option<[f64; 2]>,
         destination: Option<std::path::PathBuf>,
         wait: bool,
     ) -> Result<Arc<Job>, String> {
@@ -196,7 +205,7 @@ impl Session {
         if preview && destination.is_some() {
             return Err("exports require full-resolution denoising".into());
         }
-        let src = self.media.source_ref(&p, if preview { SourceLevel::Preview } else { SourceLevel::Full });
+        let src = self.media.source_ref(&p, SourceLevel::Full);
         let to = self.ai_store_root();
         let exporting = destination.is_some();
         let work: super::Work = Box::new(move |ctl| {
@@ -208,6 +217,7 @@ impl Session {
             };
             let mut variant =
                 if family == DenoiseModel::Raw || custom.as_ref().is_some_and(|c| c.class == 1) { Variant::Linear } else { Variant::Rgb };
+            let mut region = None;
             let (original, mut full) = if override_fn.is_none() && custom.is_none() && !preview && family == DenoiseModel::Raw {
                 match &p.source {
                     Source::File { path } => {
@@ -270,11 +280,14 @@ impl Session {
                 }
             } else {
                 let img = src.load()?;
-                let img = if preview {
-                    let (w, h) = fit(img.width, img.height, INFERENCE_PREVIEW_EDGE);
-                    Arc::new(img.resize(w, h, Filter::Box))
+                let (img, inner) = if preview {
+                    let (area, halo) = preview_area(img.width, img.height, center);
+                    let (w, h) = (img.width as f64, img.height as f64);
+                    region = Some([area[0] as f64 / w, area[1] as f64 / h, area[2] as f64 / w, area[3] as f64 / h]);
+                    let crop = img.crop(halo[0], halo[1], halo[2] - halo[0], halo[3] - halo[1]);
+                    (Arc::new(crop), Some([area[0] - halo[0], area[1] - halo[1], area[2] - area[0], area[3] - area[1]]))
                 } else {
-                    img
+                    (img, None)
                 };
                 let input = if variant == Variant::Rgb { to_display(&img) } else { img.data.clone() };
                 let mut data = if let Some(f) = &override_fn {
@@ -297,7 +310,11 @@ impl Session {
                     }
                     from_display_change(&img.data, &input, &mut data);
                 }
-                (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
+                let out = RgbFrame { width: img.width, height: img.height, data };
+                match inner {
+                    Some([x, y, w, h]) => (None, out.into_crop(x, y, w, h)),
+                    None => (Some(img.clone()), out),
+                }
             };
             if full.data.len() != full.width * full.height || !full.data.iter().flatten().all(|v| v.is_finite()) {
                 return Err("the denoiser returned invalid pixels".into());
@@ -333,7 +350,10 @@ impl Session {
                 format!("{}:{variant:?}", if family == DenoiseModel::Raw { model_tag() } else { "denoise-nind-v1".into() })
             };
             let tag = if raw_key == 0 { tag } else { format!("{tag}:{raw_key:016x}") };
-            let model = if preview { format!("{tag}:preview") } else { tag };
+            let model = match region {
+                Some(r) => format!("{tag}:preview:{:.5}:{:.5}:{:.5}:{:.5}", r[0], r[1], r[2], r[3]),
+                None => tag,
+            };
             let key = result_key(&source, &model);
             store::put_rgb(Kind::Denoise, &key, &full, to.as_deref())?;
             let (pw, ph) = fit(full.width, full.height, PREVIEW_EDGE);
@@ -342,7 +362,7 @@ impl Session {
             }
             forget_levels(&key);
             ctl.report(1., "Done");
-            Ok(Outcome::Denoise(DenoiseDone { key, source, model, family, preview, raw: raw_key }))
+            Ok(Outcome::Denoise(DenoiseDone { key, source, model, family, preview, raw: raw_key, region }))
         });
         Ok(self.enhance.spawn(
             id,
@@ -546,6 +566,18 @@ fn export_new(path: &std::path::Path, img: &RgbFrame, p: &lightcraft_catalog::Ph
     Ok(())
 }
 
+/// A preview's area around `center` in a `w × h` source, and the area with the model's halo:
+/// `[x0, y0, x1, y1]` pixels each.
+fn preview_area(w: usize, h: usize, center: Option<[f64; 2]>) -> ([usize; 4], [usize; 4]) {
+    let [cx, cy] = center.unwrap_or([0.5, 0.5]).map(|v| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.5 });
+    let (sw, sh) = (PREVIEW_AREA.min(w), PREVIEW_AREA.min(h));
+    let x0 = ((cx * w as f64).round() as usize).saturating_sub(sw / 2).min(w - sw);
+    let y0 = ((cy * h as f64).round() as usize).saturating_sub(sh / 2).min(h - sh);
+    let area = [x0, y0, x0 + sw, y0 + sh];
+    let halo = [x0.saturating_sub(PREVIEW_HALO), y0.saturating_sub(PREVIEW_HALO), (x0 + sw + PREVIEW_HALO).min(w), (y0 + sh + PREVIEW_HALO).min(h)];
+    (area, halo)
+}
+
 fn fit(w: usize, h: usize, edge: usize) -> (usize, usize) {
     let long = w.max(h);
     if long <= edge {
@@ -598,9 +630,9 @@ fn level(key: &str, long: usize) -> Option<Arc<RgbFrame>> {
 }
 
 /// `src` (a decoded source of the photo, any level) with the Denoise result `key` mixed in by
-/// `amount` (0..100). `None` when there is nothing to mix (amount 0, or no stored result: render
-/// from `src` itself).
-pub fn denoised_source(src: &Arc<RgbFrame>, key: &str, amount: f64) -> Option<Arc<RgbFrame>> {
+/// `amount` (0..100), over the whole photo or (a preview) its `region`. `None` when there is
+/// nothing to mix (amount 0, or no stored result: render from `src` itself).
+pub fn denoised_source(src: &Arc<RgbFrame>, key: &str, amount: f64, region: Option<[f64; 4]>) -> Option<Arc<RgbFrame>> {
     let t = (amount / 100.0).clamp(0.0, 1.0) as f32;
     if t <= 0.0 || !result_exists(key) {
         return None;
@@ -613,12 +645,24 @@ pub fn denoised_source(src: &Arc<RgbFrame>, key: &str, amount: f64) -> Option<Ar
             return Some(e.out.clone());
         }
     }
-    let den = level(key, src.width.max(src.height))?;
-    let den = if (den.width, den.height) == (src.width, src.height) { den } else { Arc::new(den.resize(src.width, src.height, Filter::Mitchell)) };
+    let (sw, sh) = (src.width, src.height);
+    let [x0, y0, x1, y1] = match region {
+        Some(r) => [r[0] * sw as f64, r[1] * sh as f64, r[2] * sw as f64, r[3] * sh as f64].map(|v| v.round().max(0.0) as usize),
+        None => [0, 0, sw, sh],
+    };
+    let (x1, y1) = (x1.min(sw), y1.min(sh));
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let (rw, rh) = (x1 - x0, y1 - y0);
+    let den = level(key, sw.max(sh))?;
+    let den = if (den.width, den.height) == (rw, rh) { den } else { Arc::new(den.resize(rw, rh, Filter::Mitchell)) };
     let mut out = (**src).clone();
-    for (o, d) in out.data.iter_mut().zip(&den.data) {
-        for c in 0..3 {
-            o[c] += (d[c] - o[c]) * t;
+    for (row, d) in out.data.chunks_exact_mut(sw).skip(y0).take(rh).zip(den.data.chunks_exact(rw)) {
+        for (o, d) in row[x0..x1].iter_mut().zip(d) {
+            for c in 0..3 {
+                o[c] += (d[c] - o[c]) * t;
+            }
         }
     }
     let out = Arc::new(out);
@@ -782,6 +826,7 @@ mod tests {
             model: DenoiseModel::Raw,
             preview: false,
             raw: source_options(&d),
+            region: None,
         });
         let src = Arc::new(RgbFrame { width: 4, height: 4, data: vec![[0.1; 3]; 16] });
         let mixed = |d: &lightcraft_develop::DevelopSettings| super::super::for_render(&src, &Arc::new(d.clone()), Some(source)).0.data[0][0];
@@ -834,22 +879,22 @@ mod tests {
         assert!(result_exists(&done.key));
         // a preview-level source gets the result scaled to its size, mixed by the amount
         let src = s.source_now(id, SourceLevel::Thumb).unwrap();
-        let flat = denoised_source(&src, &done.key, 100.0).expect("mixed");
+        let flat = denoised_source(&src, &done.key, 100.0, done.region).expect("mixed");
         assert_eq!((flat.width, flat.height), (src.width, src.height));
         let spread = |img: &RgbFrame| {
             let (lo, hi) = img.data.iter().fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p[1]), b.max(p[1])));
             hi - lo
         };
         assert!(spread(&flat) < spread(&src) * 0.2, "{} vs {}", spread(&flat), spread(&src));
-        let half = denoised_source(&src, &done.key, 50.0).unwrap();
+        let half = denoised_source(&src, &done.key, 50.0, None).unwrap();
         let i = src.data.len() / 3;
         assert!((half.data[i][1] - (src.data[i][1] + flat.data[i][1]) / 2.0).abs() < 1e-4);
         // the same request gives the same buffer (stage caches stay warm)
-        assert!(Arc::ptr_eq(&half, &denoised_source(&src, &done.key, 50.0).unwrap()));
-        assert!(denoised_source(&src, &done.key, 0.0).is_none());
+        assert!(Arc::ptr_eq(&half, &denoised_source(&src, &done.key, 50.0, None).unwrap()));
+        assert!(denoised_source(&src, &done.key, 0.0, None).is_none());
         // the result gone: render from the source itself
         store::delete(Kind::Denoise, &done.key);
-        assert!(denoised_source(&src, &done.key, 50.0).is_none());
+        assert!(denoised_source(&src, &done.key, 50.0, None).is_none());
     }
 
     #[test]
@@ -871,6 +916,47 @@ mod tests {
         assert_eq!(s.enhance.jobs().len(), before, "refused before a job is spawned");
         assert!(s.denoiser().is_err());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn ai_denoise_preview_runs_at_full_resolution_on_an_area() {
+        let mut s = Session::with_demo();
+        let id = demo_raw(&mut s);
+        let preview = |s: &mut Session| {
+            s.start_denoise_with(id, true, Some([0.25, 0.75]), None, true).unwrap();
+            match s.enhance.take_finished().pop().map(|(_, r)| r) {
+                Some(Ok(Outcome::Denoise(d))) => d,
+                other => panic!("{other:?}"),
+            }
+        };
+        // a model that changes nothing: the area comes back as the full-resolution source
+        s.enhance.denoiser = Some(Arc::new(|px, _, _, _| Ok(px.to_vec())));
+        let done = preview(&mut s);
+        let full = s.source_now(id, SourceLevel::Full).unwrap();
+        let (w, h) = (full.width, full.height);
+        let r = done.region.expect("a preview covers an area");
+        let px = [r[0] * w as f64, r[1] * h as f64, r[2] * w as f64, r[3] * h as f64].map(|v| v.round() as usize);
+        assert_eq!((px[2] - px[0], px[3] - px[1]), (PREVIEW_AREA.min(w), PREVIEW_AREA.min(h)));
+        assert!(px[0] <= w / 4 && w / 4 <= px[2] && px[1] <= h * 3 / 4 && h * 3 / 4 <= px[3], "around the centre asked for: {px:?} in {w}x{h}");
+        let same = denoised_source(&full, &done.key, 100.0, done.region).unwrap();
+        for (a, b) in same.data.iter().zip(&full.data) {
+            for c in 0..3 {
+                assert!((a[c] - b[c]).abs() <= 1e-4 * b[c].abs().max(1.0), "full-resolution detail is kept: {a:?} vs {b:?}");
+            }
+        }
+        // a model that flattens: the area changes, the rest of the photo doesn't
+        s.enhance.denoiser = Some(flatten());
+        let done = preview(&mut s);
+        let flat = denoised_source(&full, &done.key, 100.0, done.region).unwrap();
+        let inside = |i: usize| (px[0]..px[2]).contains(&(i % w)) && (px[1]..px[3]).contains(&(i / w));
+        assert!(flat.data.iter().zip(&full.data).enumerate().all(|(i, (a, b))| inside(i) || a == b));
+        let changed = flat.data.iter().zip(&full.data).enumerate().filter(|(i, (a, b))| inside(*i) && a != b).count();
+        assert!(changed > (px[2] - px[0]) * (px[3] - px[1]) / 2, "{changed} pixels of the area changed");
+        // at the view's size the area scales with it
+        let small = s.source_now(id, SourceLevel::Thumb).unwrap();
+        let mixed = denoised_source(&small, &done.key, 100.0, done.region).unwrap();
+        assert_eq!((mixed.width, mixed.height), (small.width, small.height));
+        assert!(mixed.data != small.data);
     }
 
     #[test]
@@ -946,7 +1032,7 @@ mod integration_tests {
         let mut s = Session::with_demo();
         let id = s.active().unwrap();
         s.enhance.denoiser = Some(Arc::new(|p, _, _, _| Ok(vec![[0.1, 0.2, 0.3]; p.len()])));
-        let job = s.start_denoise_with(id, true, None, true).unwrap();
+        let job = s.start_denoise_with(id, true, None, None, true).unwrap();
         assert!(job.finished());
         assert!(s.enhance_poll().errors.is_empty());
         let d = s.develop_of(id).unwrap();
