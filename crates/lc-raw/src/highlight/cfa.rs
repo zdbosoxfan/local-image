@@ -33,7 +33,11 @@ pub(crate) fn superpixels(n: &Normalized, cfa: &Cfa, crop: crate::Rect, k: usize
 }
 
 /// For each pixel of a mosaic, the colours with a clipped sample within `radius` (Chebyshev) of it:
-/// the samples a demosaic interpolates that pixel's channels from. Bit `c` is colour `c`.
+/// the samples a demosaic interpolates that pixel's channels from. A pixel is clipped in every
+/// channel only when its own sample is: a dark pixel touching clipped samples of all three colours
+/// (along a diagonal edge, or on X-Trans) is not part of the blown area, and keeps its own
+/// channel, which the demosaic took from its sample, to rebuild the others from. Bit `c` is
+/// colour `c`.
 pub struct ClipMask {
     pub width: usize,
     pub height: usize,
@@ -70,9 +74,10 @@ impl ClipMask {
                 *o = row[x.saturating_sub(radius)..(x + radius + 1).min(w)].iter().fold(0, |a, b| a | b);
             }
         });
-        bits.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
-            for (x, o) in out.iter_mut().enumerate() {
-                *o = (y.saturating_sub(radius)..(y + radius + 1).min(h)).fold(0, |a, yy| a | wide[yy * w + x]);
+        bits.par_chunks_mut(w).zip(n.data.par_chunks(w)).enumerate().for_each(|(y, (out, row))| {
+            for (x, (o, &v)) in out.iter_mut().zip(row).enumerate() {
+                let near = (y.saturating_sub(radius)..(y + radius + 1).min(h)).fold(0, |a, yy| a | wide[yy * w + x]);
+                *o = if near == 0b111 && v < clip { near & !(1 << cfa.color_at(x, y).min(2)) } else { near };
             }
         });
         Some(ClipMask { width: w, height: h, bits })
@@ -269,6 +274,83 @@ mod tests {
         super::super::opposed(&mut a, wb, 0.99);
         highlights(Mode::Opposed, wb).rgb(&mut b);
         assert_eq!(a.data, b.data);
+    }
+
+    /// Dark wall against blown sky along a 45° edge (in both diagonal phases of the Bayer
+    /// pattern), a 2 px dark branch across blown sky, and an X-Trans vertical edge at each of its
+    /// six column phases. A dark pixel touching clipped samples of all three colours is not part
+    /// of the blown area: Reconstruct leaves it about as dark as the demosaic made it.
+    #[test]
+    fn dark_pixels_beside_blown_areas_stay_dark() {
+        use super::super::Mode;
+        use crate::Method;
+        let wb = [2.2, 1.0, 1.6];
+        let (w, h) = (64usize, 64usize);
+        let wall = [0.05 / wb[0], 0.05 / wb[1], 0.05 / wb[2]];
+        let lum = |p: [f32; 3]| (p[0] * wb[0] + p[1] * wb[1] + p[2] * wb[2]) / 3.0;
+        let check = |name: &str, cfa: &Cfa, method: Method, dark: &dyn Fn(usize, usize) -> bool| {
+            let img = RgbFrame::from_fn(w, h, |x, y| if dark(x, y) { wall } else { [1.0; 3] });
+            let raw = raw_of(&mosaic_from_rgb(&img, cfa), Default::default());
+            let plain = raw.develop_stages(method, &Default::default(), wb, |_| {}, |_| {}).unwrap();
+            let out = raw.develop_with_highlights(method, &Default::default(), &highlights(Mode::Reconstruct, wb)).unwrap();
+            for y in 2..h - 2 {
+                for x in 2..w - 2 {
+                    if dark(x, y) {
+                        // a demosaic can undershoot below the wall at a hard edge
+                        let (a, b) = (lum(out.get(x, y)), lum(plain.get(x, y)).max(0.05));
+                        assert!(a <= 2.0 * b + 0.01, "{name}, {method:?}, ({x}, {y}): {a} (without highlight handling {b})");
+                    }
+                }
+            }
+        };
+        let bayer = Cfa::bayer("RGGB").unwrap();
+        for method in [Method::Rcd, Method::Amaze] {
+            for edge in [64, 65] {
+                check(&format!("45° edge at x + y = {edge}"), &bayer, method, &|x, y| x + y < edge);
+            }
+            check("dark branch", &bayer, method, &|x, y| (63..65).contains(&(x + y)));
+        }
+        for edge in 30..36 {
+            check(&format!("X-Trans edge at x = {edge}"), &Cfa::xtrans(), Method::Markesteijn3, &|x, _| x < edge);
+        }
+    }
+
+    /// The neutral pass of the darktable modes changes only pixels clipped in every channel: a
+    /// sharp-edged blown patch on a dark wall gets no bright outline, everything outside it is
+    /// what the port alone makes of it.
+    #[test]
+    fn the_neutral_pass_leaves_everything_outside_a_blown_patch_to_the_port() {
+        use super::super::{Mode, SegmentationOptions, opposed, opposed_cfa, segmentation};
+        let wb = [2.2, 1.0, 1.6];
+        let inside = |x: usize, y: usize| (20..44).contains(&x) && (20..44).contains(&y);
+        let img = RgbFrame::from_fn(64, 64, |x, y| if inside(x, y) { [1.0; 3] } else { [0.05 / wb[0], 0.05 / wb[1], 0.05 / wb[2]] });
+        let raw = raw_of(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), Default::default());
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(a, b)| (a - b).abs() <= 1e-5 * b.abs().max(1.0));
+        let mut ported = img.clone();
+        opposed(&mut ported, wb, 0.99);
+        for mode in [Mode::Opposed, Mode::Segmentation] {
+            let mut rgb = img.clone();
+            highlights(mode, wb).rgb(&mut rgb);
+            let port = |n: &mut Normalized| {
+                if mode == Mode::Opposed {
+                    opposed_cfa(n, wb, 0.99);
+                } else {
+                    segmentation(n, wb, 0.99, &SegmentationOptions::default());
+                }
+            };
+            let ported_cfa = raw.develop_stages(crate::Method::Rcd, &Default::default(), wb, port, |_| {}).unwrap();
+            let out = raw.develop_with_highlights(crate::Method::Rcd, &Default::default(), &highlights(mode, wb)).unwrap();
+            for y in 0..64 {
+                for x in 0..64 {
+                    if !inside(x, y) {
+                        assert!(close(rgb.get(x, y), ported.get(x, y)), "{mode:?} on RGB ({x}, {y}): {:?} {:?}", rgb.get(x, y), ported.get(x, y));
+                        assert!(close(out.get(x, y), ported_cfa.get(x, y)), "{mode:?} ({x}, {y}): {:?} {:?}", out.get(x, y), ported_cfa.get(x, y));
+                    }
+                }
+            }
+            let centre = out.get(32, 32);
+            assert!((centre[0] * wb[0] - centre[1]).abs() < 0.02 * centre[1] && (centre[2] * wb[2] - centre[1]).abs() < 0.02 * centre[1]);
+        }
     }
 
     #[test]

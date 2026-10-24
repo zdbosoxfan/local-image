@@ -135,9 +135,10 @@ impl Highlights {
 /// darktable's inpaint opposed and segmentation fill a channel clipped together with both others
 /// from those two clipped values plus a chroma offset, so where all three clip the result is set
 /// by the white-balance multipliers, not the scene: peach or lilac windows, magenta suns. This
-/// pass blends such pixels to a neutral as bright as [`reconstruct`] makes them, weighted by how
-/// much of their 3×3 neighbourhood is clipped in every channel, so the partly clipped ring keeps
-/// its colour without a hard edge. The ports themselves stay bit-exact.
+/// pass blends such pixels, and only those, to a neutral as bright as [`reconstruct`] makes them,
+/// each weighted by how much of its 3×3 neighbourhood is clipped in every channel, so the area's
+/// rim eases into the partly clipped ring, which keeps the port's colour. The ports themselves
+/// stay bit-exact.
 pub fn neutralize_clipped(img: &mut RgbFrame, wb: [f32; 3], clip: f32) {
     neutralize(img, wb, clip, |_, p| p.iter().all(|&v| v >= clip));
 }
@@ -157,10 +158,10 @@ fn neutralize(img: &mut RgbFrame, wb: [f32; 3], clip: f32, all_clipped: impl Fn(
     let max_level = wb.iter().cloned().fold(0.0f32, f32::max) * clip;
     img.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
         for (x, px) in row.iter_mut().enumerate() {
-            let t = (y.saturating_sub(1)..(y + 2).min(h)).map(|yy| u32::from(rows[yy * w + x])).sum::<u32>() as f32 / 9.0;
-            if t <= 0.0 {
+            if full[y * w + x] == 0 {
                 continue;
             }
+            let t = (y.saturating_sub(1)..(y + 2).min(h)).map(|yy| u32::from(rows[yy * w + x])).sum::<u32>() as f32 / 9.0;
             let q = [px[0] * wb[0], px[1] * wb[1], px[2] * wb[2]];
             let n = q.iter().cloned().fold(max_level, f32::max);
             *px = std::array::from_fn(|c| (q[c] + (n - q[c]) * t) / wb[c]);

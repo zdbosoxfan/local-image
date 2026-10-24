@@ -241,11 +241,13 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
     (`lightcraft_raw::highlight::Highlights`). Clip, Inpaint Opposed (darktable's CFA
     variant) and `segmentation` run on normalized CFA after opcode lists 1/2, before
     demosaic; Reconstruct runs after demosaic on the channels a 3×3 clip mask of the
-    mosaic flags. Fully clipped cores: Reconstruct continues the surrounding ring, fading
-    to neutral; Opposed and Segmentation get a neutral pass. Binned previews use the
-    block maxima. Bayer previews reduce each of the four CFA phases separately,
-    preserving clipped maxima, before reconstruction with scaled morphology. X-Trans
-    reconstructs its full CFA before binning. RGB/monochrome raws use opposed as fallback.
+    mosaic flags (a pixel is clipped in every channel only when its own sample is).
+    Fully clipped cores: Reconstruct continues the surrounding ring, fading to neutral;
+    Opposed and Segmentation get a neutral pass on those pixels only. Binned previews use
+    the block maxima; for Opposed and Segmentation, Bayer previews reduce each of the four
+    CFA phases separately, preserving clipped maxima, before reconstruction with scaled
+    morphology. X-Trans reconstructs its full CFA before binning. RGB/monochrome raws use
+    opposed as fallback.
   * The mosaic is demosaiced white balanced with the as-shot multipliers (dual masks and
     Auto still read unbalanced data), and isolated hot or dead photosites are replaced
     first (`RawImage::suppress_hot_pixels`).
