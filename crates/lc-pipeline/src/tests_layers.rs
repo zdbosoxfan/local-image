@@ -532,13 +532,12 @@ fn layer_whites_and_blacks_respond_in_the_developed_display_range() {
 }
 
 #[test]
-fn dsfix_scene_finish_retains_background_range_overlay_after_stack() {
+fn background_range_overlay_shows_the_selection_before_the_stack() {
     use lightcraft_develop::{Mask, MaskComponent, MaskShape};
-    use std::sync::Arc;
     let src = RgbFrame::from_fn(32, 16, |x, _| [0.01 + x as f32 / 64.0; 3]);
     let info = SourceInfo::default();
     let mut settings = full_layer(json!({"light":{"exposure":3.0}}));
-    settings.masks.push(Mask {
+    let range = Mask {
         id: 42,
         components: vec![MaskComponent {
             shape: MaskShape::LuminanceRange { lo: 0.0, hi: 0.4, lo_feather: 0.01, hi_feather: 0.01 },
@@ -548,14 +547,21 @@ fn dsfix_scene_finish_retains_background_range_overlay_after_stack() {
         }],
         adjust: lightcraft_develop::LocalAdjustments { exposure: 0.5, ..Default::default() },
         ..Default::default()
-    });
+    };
+    settings.masks.push(range.clone());
     let req = RenderRequest {
         overlay: crate::Overlay::Mask { id: 42, view: crate::MaskView::WhiteOnBlack, color: [255, 0, 0], opacity: 100 },
         ..RenderRequest::fit(32, 16)
     };
     let plan = crate::plan(&src, &info, &settings, &req);
-    let sampled = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
-    let gpu_finish = crate::finish_scene_stage(sampled, &plan, &info, &req).image;
-    let cpu = crate::render(&src, &info, &settings, &req).image;
-    assert_eq!(gpu_finish, cpu, "the scene-stage finishing path must reuse the Background mask evaluated before the bright layer");
+    let mut lin = plan.frame.sample(&src, plan.w, plan.h);
+    crate::lin_cpu(&mut lin, &info, &plan);
+    let log = lin.map(crate::local::log_lum);
+    let expected = crate::masks::evaluate_one(&range, &plan.frame, plan.w, plan.h, &lin, &log, 0.0);
+    assert!(expected.data.iter().any(|a| *a > 0.9) && expected.data.iter().any(|a| *a < 0.1), "the range must split the ramp");
+    let shown = render(&src, &info, &settings, &req).image;
+    for (i, a) in expected.data.iter().enumerate() {
+        let a = (a * 255.0).round() as u8;
+        assert!(shown.data[i][1].abs_diff(a) <= 1, "pixel {i}: overlay {} differs from the selection before the +3 EV layer {a}", shown.data[i][1]);
+    }
 }

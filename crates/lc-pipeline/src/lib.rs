@@ -824,43 +824,6 @@ fn render_impl(
     result
 }
 
-/// A CPU finish stage inside the GPU renderer, for the faithful EIGF tone equalizer.
-/// Geometry, white balance, and noise reduction have already run on the device.
-pub fn finish_scene_stage(mut img: Arc<RgbFrame>, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest) -> Rendered {
-    if layers::active(&plan.settings) {
-        let original = &*plan.settings;
-        let mut background = Plan { settings: Cow::Owned(layers::background(original)), ..plan.clone() };
-        let key = layers::background_key(&background, info, req.quality, primary::DEFAULT_HS_METHOD);
-        let mut selection = None;
-        if primary::active(&background.settings) {
-            let proxy = if primary::needs_proxy(&background.settings) { (*img).clone() } else { RgbFrame::new(0, 0) };
-            let developed = Arc::new(primary::process(&img, &proxy, info, &background, primary::DEFAULT_HS_METHOD));
-            selection = Some(std::mem::replace(&mut img, developed));
-            background.settings = Cow::Owned(visualize::remaining_for_overlay(req.overlay, &background.settings));
-        }
-        let mut prep = local::prepare(
-            img,
-            selection,
-            &background.settings,
-            info,
-            &background.frame,
-            background.px_per_long,
-            background.src_long,
-            req.quality,
-            &mut local::Planes::default(),
-        );
-        let stacked = layers::stack(&prep, &background, original, info, req, primary::DEFAULT_HS_METHOD, key, &mut layers::Cache::default());
-        prep.img = stacked.image;
-        let background_masks = std::mem::take(&mut prep.masks);
-        prep.masks = stacked.masks;
-        prep.masks.extend(background_masks);
-        return finish_stack(&prep, plan, info, req, stacked.diagnostic.as_ref());
-    }
-    let prep =
-        local::prepare(img, None, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
-    finish_prepared(&prep, plan, info, req)
-}
-
 fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&GrayFrame>) -> Rendered {
     let neutral = DevelopSettings::default();
     let deep = (req.depth != OutputDepth::U8)

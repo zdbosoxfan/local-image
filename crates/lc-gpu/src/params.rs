@@ -87,9 +87,6 @@ const FIELDS: &[(&str, usize)] = &[
     ("GRAIN_SEED", 1),
     ("GRAIN_AFF", 6),
     ("REFINE_SAT", 1),
-    ("CALIB", 1),
-    ("CALIB_M", 9),
-    ("SHADOW_TINT", 1),
     ("OUT_M", 9),
     ("OUT_Y", 3),
     ("OUT_TRC", 1),
@@ -273,11 +270,6 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
             },
         );
     }
-    if let Some(m) = &fp.calib {
-        p.b("CALIB", true);
-        p.fs("CALIB_M", m.as_flattened());
-    }
-    p.f("SHADOW_TINT", fp.shadow_tint);
     p.f("TONE_HUE", fp.tone.method().hue);
     p.b("TONE_LUM", fp.tone.method().luminance);
     p.fs("OUT_M", fp.to_out.as_flattened());

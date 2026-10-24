@@ -267,9 +267,6 @@ pub struct FinishParams {
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
     pub ops: ColorOps,
-    /// Calibration: primaries matrix (row-major, linear Rec.2020) and shadows tint (−1..1).
-    pub calib: Option<[[f32; 3]; 3]>,
-    pub shadow_tint: f32,
     /// Tone curves (parametric ∘ point, per channel) on encoded values, 1024 entries each.
     pub curves: Option<CurveTables>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
@@ -329,12 +326,9 @@ impl FinishParams {
         let ev = s.light.exposure as f32;
         let gain = 2f32.powf(ev);
         let grain = if effects { grain(s, px_per_long) } else { None };
-        let calibration = s.section_enabled("calibration");
         FinishParams {
             mode: FinishMode::Display,
             layer_contrast: 0.0,
-            calib: if calibration { crate::colorops::calibration_matrix(&s.calibration) } else { None },
-            shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
             tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
             layers: crate::layers::resolve(s, info, px_per_long),
             tone_eq: crate::toneeq::of(s),
@@ -732,11 +726,6 @@ fn finish_with_mask<T: Copy + Default + Send>(
                         let g = dl.exp2();
                         c = mix3(c, c.map(|v| v * g), a);
                     }
-                }
-
-                // calibration (scene linear, before the tone map)
-                if fp.calib.is_some() || fp.shadow_tint != 0.0 {
-                    c = crate::colorops::calibrate(c, fp.calib.as_ref(), fp.shadow_tint);
                 }
 
                 // tone map on luminance, highlight desaturation
