@@ -163,6 +163,10 @@ impl Frame {
                     if inside(q) {
                         continue;
                     }
+                    // a position that can't be evaluated is outside and gives no move to correct it
+                    if !(q.x.is_finite() && q.y.is_finite()) {
+                        return None;
+                    }
                     let e = 1e-4;
                     let (qx, qy) = (map(Point::new(p.x + e, p.y)), map(Point::new(p.x, p.y + e)));
                     let jx = [(qx.x - q.x) / e, (qy.x - q.x) / e];
@@ -916,6 +920,19 @@ mod tests {
             let c = Point::new(got.center().x, got.center().y);
             assert!(fits(t * (1.0 - 1e-9), c), "the constrained crop shows no blank canvas");
         }
+    }
+
+    /// A source position that can't be evaluated (non-finite) is never inside the image: where the
+    /// warp maps the whole crop there, no part of it fits and Constrain Crop keeps only the
+    /// smallest crop rather than the whole one.
+    #[test]
+    fn constrain_crop_never_fits_positions_it_cannot_evaluate() {
+        let mut s = DevelopSettings::default();
+        s.geometry.vertical = -30.0;
+        let mut f = Frame::new(600, 400, &s, true);
+        f.warp.as_mut().expect("a perspective warp").k1 = f64::NAN;
+        f.constrain_to_image();
+        assert!(f.crop.rect.width() <= 0.05 && f.crop.rect.height() <= 0.05, "{:?}", f.crop.rect);
     }
 
     #[test]
