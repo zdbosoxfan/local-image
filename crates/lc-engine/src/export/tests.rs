@@ -357,8 +357,68 @@ fn sharpen_increases_edge_contrast() {
         let v = if i % 8 < 4 { 80 } else { 170 };
         *p = [v, v, v, 255];
     }
-    output_sharpen(&mut img, SharpenFor::Matte, SharpenAmount::High);
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Matte, SharpenAmount::High);
     assert!(img.data[3][0] < 80 && img.data[4][0] > 170);
+}
+
+/// An 8×8 image: `left` in the left half, `right` in the right half.
+fn edge(left: [u8; 3], right: [u8; 3]) -> Rgba8 {
+    Rgba8::from_fn(8, 8, |x, _| {
+        let c = if x < 4 { left } else { right };
+        [c[0], c[1], c[2], 255]
+    })
+}
+
+fn oklch_chroma(p: [u8; 4]) -> f32 {
+    let lab = li_color::srgb_perceptual::linear_srgb_to_oklab([0, 1, 2].map(|c| li_color::transfer::decode_srgb8(p[c])));
+    lab[1].hypot(lab[2])
+}
+
+#[test]
+fn output_sharpening_adds_no_coloured_fringes() {
+    // brick red against a neutral wall: the wall's halo stays neutral (per-channel sharpening
+    // turned it cyan, (175, 215, 218))
+    let mut img = edge([200, 40, 30], [180, 180, 180]);
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Glossy, SharpenAmount::High);
+    let halo = img.data[4];
+    assert!(halo[0] > 180, "the edge is still sharpened: {halo:?}");
+    assert!(halo[0].max(halo[1]).max(halo[2]) - halo[0].min(halo[1]).min(halo[2]) <= 2, "neutral halo: {halo:?}");
+    // red against blue: neither side's halo is more colourful than the flat colour (per-channel
+    // sharpening added about 20 %)
+    let flat = edge([200, 40, 30], [30, 60, 200]);
+    let mut img = flat.clone();
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Glossy, SharpenAmount::High);
+    for x in [3, 4] {
+        let (before, after) = (oklch_chroma(flat.data[8 + x]), oklch_chroma(img.data[8 + x]));
+        assert!(after <= before * 1.03, "x = {x}: chroma {before} -> {after}");
+    }
+    // a pixel already at the top keeps its hue rather than being clipped per channel
+    let mut img = edge([60, 60, 60], [255, 120, 20]);
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Matte, SharpenAmount::High);
+    assert_eq!(img.data[4], [255, 120, 20, 255]);
+    assert!(img.data[3][0] < 60 && img.data[3][0] == img.data[3][1] && img.data[3][1] == img.data[3][2], "{:?}", img.data[3]);
+}
+
+#[test]
+fn deep_output_sharpening_adds_no_coloured_fringes() {
+    let deep = |samples: DeepSamples| DeepImage { width: 8, height: 8, space: OutputSpace::AdobeRgb, samples };
+    let half = |left: [f32; 3], right: [f32; 3]| (0..64).flat_map(move |i| if i % 8 < 4 { left } else { right });
+    let mut img = deep(DeepSamples::U16(half([51400.0, 10280.0, 7710.0], [46260.0; 3]).map(|v| v as u16).collect()));
+    output_sharpen_deep(&mut img, SharpenFor::Glossy, SharpenAmount::High);
+    let DeepSamples::U16(v) = &img.samples else { unreachable!() };
+    let halo = [v[12], v[13], v[14]];
+    assert!(halo[0] > 46260 && halo.iter().max().unwrap() - halo.iter().min().unwrap() <= 2, "neutral 16-bit halo: {halo:?}");
+    // linear float: the halo keeps the chromaticity of its side, and black stays black
+    let mut img = deep(DeepSamples::F32(half([0.5, 0.03, 0.02], [0.4; 3]).collect()));
+    output_sharpen_deep(&mut img, SharpenFor::Matte, SharpenAmount::High);
+    let DeepSamples::F32(v) = &img.samples else { unreachable!() };
+    let (red, grey) = (&v[9..12], &v[12..15]);
+    assert!(grey[0] > 0.4 && (grey[0] - grey[1]).abs() < 1e-6 && (grey[1] - grey[2]).abs() < 1e-6, "{grey:?}");
+    assert!(red[0] < 0.5 && (red[1] / red[0] - 0.06).abs() < 1e-5 && (red[2] / red[0] - 0.04).abs() < 1e-5, "{red:?}");
+    let mut img = deep(DeepSamples::F32(half([0.0; 3], [1.0; 3]).collect()));
+    output_sharpen_deep(&mut img, SharpenFor::Matte, SharpenAmount::High);
+    let DeepSamples::F32(v) = &img.samples else { unreachable!() };
+    assert!(v.iter().all(|x| x.is_finite() && *x >= 0.0) && v[9] == 0.0 && v[12] > 1.0);
 }
 
 #[test]

@@ -24,43 +24,62 @@ pub use options::*;
 pub use prepared::*;
 pub use watermark::*;
 
-/// Unsharp mask on an 8-bit image (separable box-blur approximation of a small Gaussian).
-pub fn output_sharpen(img: &mut Rgba8, target: SharpenFor, amount: SharpenAmount) {
-    let src: Vec<[f32; 3]> = img.data.iter().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
-    if let Some(out) = unsharp(img.width, img.height, &src, target, amount) {
-        for (p, v) in img.data.iter_mut().zip(out) {
+/// Unsharp mask on an 8-bit image encoded in `space` (separable box-blur approximation of a small
+/// Gaussian). Only luma is sharpened, as Lightroom and Capture One do: sharpening each channel
+/// pushes the channels of a coloured edge apart and leaves coloured fringes on neutral surfaces.
+pub fn output_sharpen(img: &mut Rgba8, space: OutputSpace, target: SharpenFor, amount: SharpenAmount) {
+    let src: Vec<[f32; 3]> = img.data.iter().map(|p| [p[0], p[1], p[2]].map(f32::from)).collect();
+    if let Some(dy) = unsharp_luma(img.width, img.height, &src, space.luma(), target, amount) {
+        for ((p, s), d) in img.data.iter_mut().zip(&src).zip(dy) {
+            let d = shift_within(*s, d, 255.0);
             for c in 0..3 {
-                p[c] = v[c].round().clamp(0.0, 255.0) as u8;
+                p[c] = (s[c] + d).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
 }
 
-/// [`output_sharpen`] on a high-bit-depth image (float images are sharpened in linear light).
+/// [`output_sharpen`] on a high-bit-depth image. Float images are linear: their luminance is
+/// sharpened by scaling each pixel, which keeps its chromaticity exactly.
 pub fn output_sharpen_deep(img: &mut DeepImage, target: SharpenFor, amount: SharpenAmount) {
-    let (w, h) = (img.width, img.height);
+    let (w, h, luma) = (img.width, img.height, img.space.luma());
     match &mut img.samples {
         DeepSamples::U16(v) => {
-            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.iter().map(|c| [c[0] as f32, c[1] as f32, c[2] as f32]).collect();
-            if let Some(out) = unsharp(w, h, &src, target, amount) {
-                for (d, s) in v.iter_mut().zip(out.as_flattened()) {
-                    *d = s.round().clamp(0.0, 65535.0) as u16;
+            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.iter().map(|c| c.map(f32::from)).collect();
+            if let Some(dy) = unsharp_luma(w, h, &src, luma, target, amount) {
+                for ((p, s), d) in v.as_chunks_mut::<3>().0.iter_mut().zip(&src).zip(dy) {
+                    let d = shift_within(*s, d, 65535.0);
+                    *p = std::array::from_fn(|c| (s[c] + d).round().clamp(0.0, 65535.0) as u16);
                 }
             }
         }
         DeepSamples::F32(v) => {
-            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.iter().map(|c| [c[0], c[1], c[2]]).collect();
-            if let Some(out) = unsharp(w, h, &src, target, amount) {
-                for (d, s) in v.iter_mut().zip(out.as_flattened()) {
-                    *d = s.max(0.0);
+            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.to_vec();
+            if let Some(dy) = unsharp_luma(w, h, &src, luma, target, amount) {
+                for ((p, s), d) in v.as_chunks_mut::<3>().0.iter_mut().zip(&src).zip(dy) {
+                    let y = dot(luma, *s);
+                    let gain = (y + d).max(0.0) / y.max(1e-6);
+                    *p = s.map(|c| (c * gain).max(0.0));
                 }
             }
         }
     }
 }
 
-/// The sharpened values of `src` (`w × h`), or `None` when nothing is to be done.
-fn unsharp(w: usize, h: usize, src: &[[f32; 3]], target: SharpenFor, amount: SharpenAmount) -> Option<Vec<[f32; 3]>> {
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// `delta` limited so that adding it to every channel of `rgb` keeps them within `0..=max`: the
+/// channels move together, so hue and the differences between them survive the clamp.
+fn shift_within(rgb: [f32; 3], delta: f32, max: f32) -> f32 {
+    let (lo, hi) = (rgb[0].min(rgb[1]).min(rgb[2]), rgb[0].max(rgb[1]).max(rgb[2]));
+    delta.min(max - hi).max(-lo)
+}
+
+/// The unsharp mask's change to the luma (weights `luma`) of each pixel of `src` (`w × h`), or
+/// `None` when nothing is to be done.
+fn unsharp_luma(w: usize, h: usize, src: &[[f32; 3]], luma: [f32; 3], target: SharpenFor, amount: SharpenAmount) -> Option<Vec<f32>> {
     let (radius, base) = match target {
         SharpenFor::None => return None,
         SharpenFor::Screen => (1usize, 0.35f32),
@@ -77,28 +96,27 @@ fn unsharp(w: usize, h: usize, src: &[[f32; 3]], target: SharpenFor, amount: Sha
         return None;
     }
     let r = radius as isize;
-    let box_pass = |inp: &[[f32; 3]], horizontal: bool| -> Vec<[f32; 3]> {
-        let mut out = vec![[0.0; 3]; inp.len()];
+    let box_pass = |inp: &[f32], horizontal: bool| -> Vec<f32> {
+        let mut out = vec![0.0; inp.len()];
         for y in 0..h {
             for x in 0..w {
-                let mut acc = [0.0f32; 3];
+                let mut acc = 0.0f32;
                 for d in -r..=r {
                     let (sx, sy) = if horizontal {
                         ((x as isize + d).clamp(0, w as isize - 1) as usize, y)
                     } else {
                         (x, (y as isize + d).clamp(0, h as isize - 1) as usize)
                     };
-                    let p = inp[sy * w + sx];
-                    acc = [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]];
+                    acc += inp[sy * w + sx];
                 }
-                let n = (2 * r + 1) as f32;
-                out[y * w + x] = acc.map(|v| v / n);
+                out[y * w + x] = acc / (2 * r + 1) as f32;
             }
         }
         out
     };
-    let blur = box_pass(&box_pass(src, true), false);
-    Some(src.iter().zip(&blur).map(|(s, b)| std::array::from_fn(|c| s[c] + (s[c] - b[c]) * k)).collect())
+    let y: Vec<f32> = src.iter().map(|p| dot(luma, *p)).collect();
+    let blur = box_pass(&box_pass(&y, true), false);
+    Some(y.iter().zip(&blur).map(|(y, b)| (y - b) * k).collect())
 }
 
 /// Encode a rendered display-referred image according to `o` (its pixels must already be in
@@ -111,8 +129,8 @@ pub fn encode_image(img: &Rgba8, o: &ExportOptions) -> Result<Vec<u8>, String> {
 /// Like [`encode_image`], embedding `meta` (already filtered by the policy) as EXIF + XMP.
 pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
     let mut img = img.clone();
-    output_sharpen(&mut img, o.sharpen, o.sharpen_amount);
     let space = o.effective_space();
+    output_sharpen(&mut img, space, o.sharpen, o.sharpen_amount);
     if let Some(wm) = &o.watermark {
         let wm = Watermark { color: srgb8_in(space, wm.color), target: Some(space), ..wm.clone() };
         draw_watermark(&mut img, &wm);
