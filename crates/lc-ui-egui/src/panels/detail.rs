@@ -105,6 +105,27 @@ pub(crate) fn native_px(frame: &Frame) -> [usize; 2] {
     [w.round().max(1.0) as usize, h.round().max(1.0) as usize]
 }
 
+/// Long edge of the loupe's 1:1 render ([`Slot::Detail`]) for a photo shown in `target` at
+/// `zoom`: what the screen shows of it, at most its native pixels and the largest texture, when
+/// that is more than the loupe render (capped at `max_edge`) holds. `None` at Fit and Fill.
+pub(crate) fn detail_edge(zoom: Zoom, target: Rect, ppp: f32, native: [usize; 2], max_edge: f32, max_texture: usize) -> Option<usize> {
+    if !matches!(zoom, Zoom::Percent(_)) {
+        return None;
+    }
+    let shown = target.width().max(target.height()) * ppp;
+    let edge = shown.min(native[0].max(native[1]) as f32).min(max_texture as f32) as usize;
+    (edge > crate::render::view_edge(shown, max_edge, false)).then_some(edge)
+}
+
+/// A loupe job showing what the loupe shows: the overlay of the active tool, and the soft proof.
+fn loupe_look(app: &LightcraftApp, d: &DevelopSettings, job: lightcraft_engine::media::RenderJob) -> lightcraft_engine::media::RenderJob {
+    job.with_overlay(view_overlay(app, d)).with_proof(app.ui.soft_proof.then(|| {
+        let mut proof = app.ui.proof.clone();
+        proof.monitor = app.renderer.proof_monitor();
+        proof
+    }))
+}
+
 /// Where the photo goes in `area` at `zoom`; `img_px` is its [`native_px`].
 pub(crate) fn fit_rect(area: Rect, aspect: f32, zoom: Zoom, img_px: [usize; 2], ppp: f32, pan: (f32, f32)) -> Rect {
     let (aw, ah) = (area.width(), area.height());
@@ -219,13 +240,26 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let (rw, rh) = if aspect >= 1.0 { (want, (want as f32 / aspect) as usize) } else { ((want as f32 * aspect) as usize, want) };
     if let Some(job) = app.session.loupe_job(id, rw.max(8), rh.max(8), !crop_tool) {
         let job = if interacting { job.draft() } else { job };
-        let job = job.with_overlay(view_overlay(app, &d)).with_proof(app.ui.soft_proof.then(|| {
-            let mut proof = app.ui.proof.clone();
-            proof.monitor = app.renderer.proof_monitor();
-            proof
-        }));
+        let job = loupe_look(app, &d, job);
         app.renderer.request(Slot::Main, job, 100);
     }
+    // zoomed in past that render: the whole frame again at the zoom's own scale, so 100% shows
+    // the pixels a full-size export has (demosaic, capture sharpening, noise reduction)
+    if app.renderer.textures.get(&Slot::Detail).is_some_and(|t| t.photo != id) {
+        app.renderer.textures.remove(&Slot::Detail);
+    }
+    let detail_key = detail_edge(app.ui.zoom, target_rect, ppp, native, max_edge, ui.ctx().input(|i| i.max_texture_side))
+        .filter(|_| !split && !split_view && !composite)
+        .and_then(|e| {
+            let (dw, dh) = if aspect >= 1.0 { (e, (e as f32 / aspect) as usize) } else { ((e as f32 * aspect) as usize, e) };
+            let job = app.session.render_job(id, dw.max(8), dh.max(8), false, !crop_tool)?;
+            let job = loupe_look(app, &d, job);
+            let key = job.key;
+            if !interacting {
+                app.renderer.request(Slot::Detail, job, 95);
+            }
+            Some(key)
+        });
     // hovering a preset or profile: the photo with that look, shown instead of the loupe render
     // once it is ready (nothing is committed)
     let hover_key = match app.hover_preview.clone() {
@@ -322,7 +356,14 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         crate::widgets::image_badge(&p, img_rect.left_top() + vec2(8.0, 8.0), None, Some(label), img_rect.width() - 16.0);
         shown = "hover";
     } else {
-        shown = draw(Slot::Main, img_rect);
+        let main = draw(Slot::Main, img_rect);
+        shown = match app.renderer.textures.get(&Slot::Detail).filter(|t| !interacting && t.photo == id && Some(t.key) == detail_key) {
+            Some(tex) => {
+                p.image(tex.tex.id(), img_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                "detail"
+            }
+            None => main,
+        };
         if shown == "none" {
             match app.renderer.failure(Slot::Main) {
                 Some(e) => {

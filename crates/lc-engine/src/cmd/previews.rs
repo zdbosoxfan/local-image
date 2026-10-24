@@ -51,12 +51,20 @@ impl PreviewBuild {
     }
 }
 
+/// Long edge of `p`'s view preview at `edge` (`None` = 1:1: the photo's full size, up to the
+/// largest image the preview cache keeps, so the build is never thrown away or pushes the
+/// thumbnails out; zoomed in, the loupe renders true 1:1 from the original).
+fn view_edge(s: &Session, p: &lightcraft_catalog::Photo, edge: Option<usize>) -> usize {
+    let (long, short) = (p.width.max(p.height).max(1) as f64, p.width.min(p.height).max(1) as f64);
+    let kept = s.media.rendered.max_image_bytes() as f64 / 4.0;
+    edge.unwrap_or((kept * long / short).sqrt() as usize).min(long as usize).max(1)
+}
+
 /// The jobs that build `id`'s previews: the largest grid thumbnail, then the view render at
-/// `edge` (`None` = 1:1, the photo's full size).
+/// [`view_edge`].
 fn jobs_for(s: &mut Session, id: lightcraft_catalog::PhotoId, edge: Option<usize>) -> Vec<RenderJob> {
     let Some(p) = s.catalog.photo(id) else { return Vec::new() };
-    let full = p.width.max(p.height) as usize;
-    let e = edge.unwrap_or(full).min(full.max(1)).max(1);
+    let e = view_edge(s, p, edge);
     let mut v = Vec::new();
     v.extend(s.thumb_job(id, THUMB_SIZES[THUMB_SIZES.len() - 1]));
     v.extend(s.loupe_job(id, e, e, true));
@@ -150,7 +158,7 @@ fn build(s: &mut Session, p: &Value) -> Result<Value> {
     let jobs: Vec<(u64, Vec<RenderJob>)> = ids
         .iter()
         .map(|id| {
-            let cost = s.catalog.photo(*id).map_or(0, |p| preview_cost(p.width, p.height, edge.unwrap_or(usize::MAX)));
+            let cost = s.catalog.photo(*id).map_or(0, |p| preview_cost(p.width, p.height, view_edge(s, p, edge)));
             (cost, if edge == Some(0) { s.thumb_job(*id, THUMB_SIZES[THUMB_SIZES.len() - 1]).into_iter().collect() } else { jobs_for(s, *id, edge) })
         })
         .filter(|(_, j)| !j.is_empty())
@@ -445,7 +453,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Build Previews",
             [],
             None,
-            "{size?: standard (2048 px, or `edge`) | full (1:1), ids?, wait?: bool} — render the grid thumbnail and loupe view of the selected photos (else all in view) into the preview cache, in the background unless `wait` → {total, done, failed, running}",
+            "{size?: standard (2048 px, or `edge`) | full (1:1, up to the largest image the preview cache keeps), ids?, wait?: bool} — render the grid thumbnail and loupe view of the selected photos (else all in view) into the preview cache, in the background unless `wait` → {total, done, failed, running}",
             always,
             build
         ),
@@ -513,6 +521,31 @@ mod tests {
         let (seen, _) = bounded_run(40, &jobs, gb, Some(3));
         assert!((3..=4).contains(&seen.len()), "{}", seen.len());
         assert_eq!(jobs.in_flight(), (0, 0));
+    }
+
+    #[test]
+    fn one_to_one_previews_are_kept_without_evicting_thumbnails() {
+        use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+        let mut s = Session::new();
+        s.media.file_loader = Some(Arc::new(|_: &str, edge: usize| {
+            let w = edge.min(3000);
+            Ok((li_raster::RgbFrame::from_fn(w, w * 2 / 3, |x, y| [(x % 7) as f32 * 0.1, (y % 5) as f32 * 0.1, 0.3]), Default::default()))
+        }));
+        let id = PhotoId(1);
+        let p = Photo::new(id, Source::File { path: "a1.tif".into() }, "a1.tif", "TIFF", 9000, 6000, "2026-01-01");
+        s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+        let cache = s.media.rendered.clone();
+        let thumbs: Vec<_> = (0..6u64).map(|i| lightcraft_preview::Hasher128::new().u64(i).finish()).collect();
+        for k in &thumbs {
+            cache.put(*k, Arc::new(li_raster::Rgba8::new(512, 341)));
+        }
+        let r = s.execute("library.buildPreviews", &json!({"ids": [id.0], "size": "full", "wait": true})).unwrap();
+        assert_eq!((r["done"].as_u64(), r["failed"].as_u64()), (Some(1), Some(0)));
+        let q = s.quick_view_job(id, 1024, true).unwrap();
+        let view = q.cached[0].0.get(q.cached[0].1).expect("the 1:1 build is kept as the photo's view preview");
+        let long = view.width.max(view.height);
+        assert!(long > STANDARD_EDGE && view.width * view.height * 4 <= cache.max_image_bytes(), "{}x{}", view.width, view.height);
+        assert!(thumbs.iter().all(|k| cache.get(*k).is_some()), "no thumbnail was pushed out");
     }
 
     #[test]

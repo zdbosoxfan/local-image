@@ -105,7 +105,7 @@ impl PreviewCache {
             return Some(v.clone());
         }
         let img = Arc::new(self.disk.as_ref()?.get(key)?);
-        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img.clone(), cost(&img));
+        self.remember(key, img.clone());
         Some(img)
     }
 
@@ -121,8 +121,26 @@ impl PreviewCache {
         if let Some(d) = &self.disk {
             d.put(key, &img);
         }
+        self.remember(key, img);
+    }
+
+    /// Keep `img` in memory unless it alone would take more than [`Self::max_image_bytes`]: one
+    /// huge view must not push out every thumbnail (it stays on disk only).
+    fn remember(&self, key: Hash128, img: Arc<Rgba8>) {
         let c = cost(&img);
-        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img, c);
+        let mut mem = self.mem.lock().unwrap_or_else(|e| e.into_inner());
+        if c <= mem.budget() / 2 {
+            mem.insert(key, img, c);
+        }
+    }
+
+    /// Bytes of the largest image this cache keeps: half its memory budget, and what one deferred
+    /// disk write may queue.
+    pub fn max_image_bytes(&self) -> usize {
+        let mem = self.mem.lock().unwrap_or_else(|e| e.into_inner()).budget() / 2;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mem = mem.min(MAX_QUEUED_BYTES);
+        mem
     }
 
     /// Like [`Self::put`], but the disk write (a JPEG encode) happens on a background thread, so
@@ -137,7 +155,7 @@ impl PreviewCache {
             return;
         }
         let c = cost(&img);
-        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img.clone(), c);
+        self.remember(key, img.clone());
         drop(current);
         let Some(d) = &self.disk else { return };
         #[cfg(target_arch = "wasm32")]

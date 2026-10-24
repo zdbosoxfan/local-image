@@ -43,6 +43,10 @@ pub enum Slot {
     /// A thumbnail's stand-in (embedded preview of an unedited raw).
     ThumbQuick(PhotoId),
     Main,
+    /// The loupe zoomed in past what `Main` holds: the whole frame again at the zoom's own scale
+    /// (at most the photo's native pixels), drawn over `Main` while it is current. Never drafted:
+    /// drags show `Main`.
+    Detail,
     /// The loupe's stand-in until `Main` has the photo.
     Preview,
     Before,
@@ -98,6 +102,18 @@ struct DisplayResult {
     display_key: u64,
 }
 
+/// `result` with its image scaled down to fit a texture of at most `max_side` pixels a side
+/// (a stand-in from an old cache can be larger than the GPU takes).
+fn fit_texture(mut result: RenderResult, max_side: usize) -> RenderResult {
+    if let Ok(r) = &mut result.rendered
+        && r.image.width.max(r.image.height) > max_side
+    {
+        let f = r.image.map(|p| p.map(|v| f32::from(v) / 255.0));
+        r.image = f.fit(max_side, max_side, li_raster::resample::Filter::Mitchell).map(|p| p.map(li_raster::quantize_u8));
+    }
+    result
+}
+
 fn display_result(result: RenderResult, display: Option<&photocraft_engine::display_color::CanvasDisplay>) -> DisplayResult {
     let color = result.rendered.as_ref().ok().map(|r| {
         let img = &r.image;
@@ -151,6 +167,8 @@ pub struct Renderer {
     pending: HashMap<Slot, (u64, u32)>,
     pub textures: HashMap<Slot, Tex>,
     pub last_main_ms: f64,
+    /// The largest texture side the GPU takes (from egui, updated every poll).
+    max_texture_side: usize,
     /// Jobs finished since start (for inspect/perf).
     pub completed: u64,
     /// Keep a CPU copy of every texture so the UI can be rasterized headlessly (set when the app
@@ -213,6 +231,7 @@ impl Renderer {
             pending: HashMap::new(),
             textures: HashMap::new(),
             last_main_ms: 0.0,
+            max_texture_side: usize::MAX,
             completed: 0,
             keep_pixels: false,
             stages: HashMap::new(),
@@ -327,6 +346,7 @@ impl Renderer {
         }
         let key = job.key;
         let display = self.display.clone();
+        let max_side = self.max_texture_side;
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
         self.pool.submit(
             slot,
@@ -335,7 +355,7 @@ impl Renderer {
             Box::new(move || {
                 display_worker_priority();
                 let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
-                display_result(result, display.as_deref())
+                display_result(fit_texture(result, max_side), display.as_deref())
             }),
         );
     }
@@ -351,13 +371,14 @@ impl Renderer {
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
         let display = self.display.clone();
+        let max_side = self.max_texture_side;
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                display_result(job.run(), display.as_deref())
+                display_result(fit_texture(job.run(), max_side), display.as_deref())
             }),
         );
     }
@@ -531,6 +552,7 @@ impl Renderer {
         }
         self.preview_generation = Some((Arc::downgrade(cache), generation));
         self.catalog_rev = session.catalog.revision;
+        self.max_texture_side = ctx.input(|i| i.max_texture_side).max(1);
         self.frame += 1;
         // wasm: run one job per frame on this thread, timed with the host clock
         #[cfg(target_arch = "wasm32")]
@@ -552,7 +574,12 @@ impl Renderer {
             finished.push((done.slot, done.result, if done.ms > 0.0 { done.ms } else { inline_ms }));
         }
         if let Some(off) = self.offload.as_mut() {
-            finished.extend(off.finished().into_iter().map(|(slot, result, ms)| (slot, display_result(result, self.display.as_deref()), ms)));
+            let max_side = self.max_texture_side;
+            finished.extend(
+                off.finished()
+                    .into_iter()
+                    .map(|(slot, result, ms)| (slot, display_result(fit_texture(result, max_side), self.display.as_deref()), ms)),
+            );
         }
         self.dispatch();
         let mut changed = false;
@@ -921,6 +948,26 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert_eq!(app.renderer.queue.len(), 1);
+    }
+
+    #[test]
+    fn oversized_images_fit_the_largest_texture() {
+        let result = |image: li_raster::Rgba8| RenderResult {
+            request_id: 0,
+            source_key: None,
+            photo: PhotoId(1),
+            level: lightcraft_engine::media::SourceLevel::Thumb,
+            key: 0,
+            rendered: Ok(lightcraft_engine::pipeline::Rendered { histogram: Histogram::of_srgb8(&image), image, deep: None }),
+            loaded: None,
+            quick: None,
+            proof_monitor: None,
+        };
+        let fitted = fit_texture(result(li_raster::Rgba8::filled(9000, 300, [200, 100, 50, 255])), 4096).rendered.unwrap().image;
+        assert_eq!((fitted.width, fitted.height), (4096, 137));
+        assert_eq!(fitted.get(2000, 60), [200, 100, 50, 255]);
+        let small = fit_texture(result(li_raster::Rgba8::filled(300, 200, [1, 2, 3, 255])), 4096).rendered.unwrap().image;
+        assert_eq!((small.width, small.height), (300, 200));
     }
 
     #[test]
