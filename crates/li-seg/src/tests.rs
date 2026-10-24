@@ -32,10 +32,15 @@ fn bytes_of(f: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
 /// An ONNX `ValueInfoProto` (float tensor); `dims: None` leaves the shape unspecified, `None`
 /// entries are symbolic.
 fn value_info(name: &str, dims: Option<&[Option<u64>]>) -> Vec<u8> {
+    typed_value_info(name, dims, 1)
+}
+
+/// [`value_info`] of ONNX element type `elem` (1 = float, 10 = float16).
+fn typed_value_info(name: &str, dims: Option<&[Option<u64>]>, elem: u64) -> Vec<u8> {
     bytes_of(|o| {
         field_bytes(1, name.as_bytes(), o);
         let tensor = bytes_of(|t| {
-            field_varint(1, 1, t);
+            field_varint(1, elem, t);
             if let Some(dims) = dims {
                 let shape = bytes_of(|s| {
                     for (i, d) in dims.iter().enumerate() {
@@ -466,6 +471,115 @@ fn sky_models_are_read_as_the_probabilities_or_logits_they_output() {
     let c = add_custom(&dir, Group::Sky, &path, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class, c.activation), (4, 2, Activation::Probability));
     check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.9, 0.1);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The sigmoid of the channel mean (like [`Out::Map`]) with float16 input and output; with
+/// `keep_io_types` the graph takes and returns float32 and casts around its float16 body, as
+/// transformers.js `model_fp16.onnx` exports do.
+fn half_onnx(s: u64, keep_io_types: bool) -> Vec<u8> {
+    let cast = |input: &str, output: &str, to: u64| node("Cast", &[input], output, &[attr_int("to", to)]);
+    let mut nodes = Vec::new();
+    let (x, y) = if keep_io_types { ("xh", "yh") } else { ("x", "y") };
+    if keep_io_types {
+        nodes.push(cast("x", "xh", 10));
+    }
+    nodes.push(node("ReduceMean", &[x], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]));
+    nodes.push(node("Sigmoid", &["m"], y, &[]));
+    if keep_io_types {
+        nodes.push(cast("yh", "y", 1));
+    }
+    let io = if keep_io_types { 1 } else { 10 };
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"half", g);
+        field_bytes(11, &typed_value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)]), io), g);
+        field_bytes(12, &typed_value_info("y", None, io), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+#[test]
+fn half_precision_subject_models_run_in_f32() {
+    let dir = temp_models();
+    for keep_io_types in [false, true] {
+        let path = picked_bytes(&dir, &format!("half-{keep_io_types}.onnx"), &half_onnx(32, keep_io_types));
+        add_custom(&dir, Group::Subject, &path, CustomOptions::default(), &keep).unwrap_or_else(|e| panic!("keep_io_types {keep_io_types}: {e:#}"));
+        let (w, h) = (40, 30);
+        let p = shared(&dir).unwrap().predict(&synthetic(w, h), w, h).unwrap().expect("a subject");
+        assert!(p.len() == w * h && p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "keep_io_types {keep_io_types}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// [`constant_onnx`]'s map stored in the external file `location` (ONNX external data).
+fn external_onnx(s: u64, values: &[f32], location: &str) -> Vec<u8> {
+    let entry = |k: &str, v: &str| {
+        bytes_of(|e| {
+            field_bytes(1, k.as_bytes(), e);
+            field_bytes(2, v.as_bytes(), e);
+        })
+    };
+    let k = bytes_of(|t| {
+        for d in [1, 1, s, s] {
+            field_varint(1, d, t);
+        }
+        field_varint(2, 1, t);
+        field_bytes(8, b"k", t);
+        field_bytes(13, &entry("location", location), t);
+        field_bytes(13, &entry("offset", "0"), t);
+        field_bytes(13, &entry("length", &(values.len() * 4).to_string()), t);
+        field_varint(14, 1, t);
+    });
+    let nodes = [
+        node("ReduceMean", &["x"], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]),
+        node("Mul", &["m", "zero"], "z", &[]),
+        node("Add", &["z", "k"], "y", &[]),
+    ];
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"external", g);
+        field_bytes(5, &initializer("zero", &[1], &[0.0]), g);
+        field_bytes(5, &k, g);
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+#[test]
+fn a_model_with_external_weights_is_copied_as_one_file() {
+    let dir = temp_models();
+    let s = 32usize;
+    let values: Vec<f32> = (0..s * s).map(|i| if i % s < s / 2 { 0.9 } else { 0.1 }).collect();
+    let src = picked_bytes(&dir, "model.onnx", &external_onnx(s as u64, &values, "model.onnx_data"));
+    std::fs::write(dir.join("picked/model.onnx_data"), values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let c = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
+    // the picked folder can go: the copy has the weights
+    std::fs::remove_dir_all(dir.join("picked")).unwrap();
+    let seg = snapshot(Group::Subject, &dir).unwrap().segmenter().expect("the copied model loads");
+    let p = seg.predict(&synthetic(s, s), s, s).unwrap().expect("a subject");
+    assert!(p[s / 4] > 0.99 && p[s * 3 / 4] < 0.01, "{} {}", p[s / 4], p[s * 3 / 4]);
+    assert!(c.path(&dir).is_file() && std::fs::read_dir(custom_dir(&dir)).unwrap().count() == 2, "one model file and the list");
+    // weights outside the model's folder, or missing, are refused and nothing is kept
+    for location in ["../secret.bin", "/etc/passwd", "missing.bin"] {
+        let src = picked_bytes(&dir, "escape.onnx", &external_onnx(s as u64, &values, location));
+        let err = add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap_err();
+        assert!(custom(&dir, Group::Depth).is_none(), "{location}: {err:#}");
+    }
+    assert_eq!(std::fs::read_dir(custom_dir(&dir)).unwrap().count(), 2);
     let _ = std::fs::remove_dir_all(dir);
 }
 

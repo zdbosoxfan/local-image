@@ -26,6 +26,7 @@ use tract_onnx::tract_hir::infer::Factoid;
 pub mod denoise;
 pub mod enhance;
 pub mod estimate;
+mod external_data;
 pub mod faces;
 pub mod lama;
 pub mod restoration;
@@ -595,6 +596,17 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
+/// `model` computing in f32: half-precision exports (`model_fp16.onnx`) then take and return f32
+/// like every other model. Models without f16 tensors are left as they are.
+fn in_f32(model: TypedModel) -> Result<TypedModel> {
+    use tract_onnx::tract_core::transform::{NodeFilter, build_float_translator};
+    let half = model.nodes.iter().any(|n| n.outputs.iter().any(|o| o.fact.datum_type == DatumType::F16));
+    if !half {
+        return Ok(model);
+    }
+    build_float_translator(DatumType::F16, DatumType::F32, NodeFilter::default()).transform_into(model)
+}
+
 /// A loaded model, ready to run (cheap to clone).
 #[derive(Clone)]
 pub struct Segmenter {
@@ -631,14 +643,13 @@ impl Segmenter {
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
         // with the fixed input: let tract infer them
         let depth = cfg.task == Task::Depth;
-        let plan = tract_onnx::onnx()
+        let model = tract_onnx::onnx()
             .with_ignore_value_info(depth)
             .with_ignore_output_shapes(depth || cfg.task == Task::Subject)
             .model_for_path(path)
-            .with_context(|| format!("Could not read the segmentation model {}", path.display()))?
-            .with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, 3, s, s)))?
-            .into_optimized()?
-            .into_runnable()?;
+            .with_context(|| format!("Could not read the segmentation model {}", path.display()))?;
+        let input = model.input_fact(0)?.datum_type.concretize().unwrap_or(DatumType::F32);
+        let plan = in_f32(model.with_input_fact(0, InferenceFact::dt_shape(input, tvec!(1, 3, s, s)))?.into_typed()?)?.into_optimized()?.into_runnable()?;
         Ok(Self { cfg, run: Arc::new(move |t: Tensor, stop: &dyn Fn() -> bool| run_checked(&plan, tvec!(t.into()), stop)) })
     }
 
@@ -1094,7 +1105,7 @@ fn probe_outputs(cfg: Config, path: &Path, peak_scaled: bool) -> Result<(Vec<usi
     let seg = Segmenter::load_cfg(cfg, path).map_err(tract_error)?;
     let s = seg.cfg.size;
     let photo = synthetic(s, s);
-    let inverse: Vec<u8> = photo.chunks_exact(4).flat_map(|p| [255 - p[0], 255 - p[1], 255 - p[2], p[3]]).collect();
+    let inverse: Vec<u8> = photo.as_chunks::<4>().0.iter().flat_map(|p| [255 - p[0], 255 - p[1], 255 - p[2], p[3]]).collect();
     let (mut shape, mut values) = (Vec::new(), Vec::new());
     for img in [photo, inverse] {
         let input = seg.input(&img, s, s, peak_scaled).map_err(tract_error)?;
@@ -1205,14 +1216,15 @@ fn add_custom_with(
         c.classes = 3;
         c.class = usize::from(group == Group::RawDenoise || opts.denoise_linear);
     }
-    validate(&mut c, src, &opts)?;
+    let inlined = external_data::inlined(src).map_err(tract_error)?;
     std::fs::create_dir_all(custom_dir(models_dir))?;
     let mut all = read_customs(models_dir);
     let old = all.iter().find(|o| o.group == group).cloned();
     let original_dest = c.path(models_dir);
     // A replacement with the same basename must not overwrite the registered file
     // before its new metadata has been published.
-    let same_copy = src != original_dest
+    let same_copy = inlined.is_none()
+        && src != original_dest
         && original_dest.is_file()
         && old.as_ref().is_some_and(|old| old.path(models_dir) == original_dest)
         && identical_files(src, &original_dest)?;
@@ -1228,7 +1240,18 @@ fn add_custom_with(
     let dest = c.path(models_dir);
     let copied = src != dest && !same_copy;
     if copied {
-        std::fs::copy(src, &dest).with_context(|| format!("Could not copy the model into {}", dest.display()))?;
+        match &inlined {
+            Some(bytes) => li_fs::write_atomic(&dest, bytes).map(drop),
+            None => std::fs::copy(src, &dest).map(drop),
+        }
+        .with_context(|| format!("Could not copy the model into {}", dest.display()))?;
+    }
+    // the copy is what runs, so it is what gets tested
+    if let Err(error) = validate(&mut c, &dest, &opts) {
+        if copied {
+            let _ = std::fs::remove_file(&dest);
+        }
+        return Err(error.into());
     }
     all.retain(|o| o.group != group);
     all.push(c.clone());

@@ -4091,6 +4091,7 @@ dependencies = [
  "lightcraft-sysmem",
  "log",
  "miniz_oxide 0.8.9",
+ "prost",
  "rayon",
  "serde_json",
  "sha2",
