@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 
 use li_color::curve::Curve;
 use li_color::space::OutputSpace;
-use photocraft_cms::{Builtin, ColorSpace, Intent, Profile, Transform};
+use photocraft_cms::{Builtin, ColorSpace, Intent, Pcs, Profile, Transform};
 use photocraft_compose::Buffer;
 use photocraft_doc::Document;
 use photocraft_raster::Rgba8Image;
@@ -220,16 +220,26 @@ const VIEW_GAMUT_SLACK: f64 = 0.02;
 /// The narrowest built-in output space whose gamut holds `monitor`'s. Library and Develop render
 /// their views in it, gamut-mapped exactly as an export to that space, so colours the monitor can
 /// show are never clipped to sRGB on the way. sRGB when the monitor's primaries can't be read.
+///
+/// The primaries are read from the profile's own device-to-PCS model (the colorant matrix, or the
+/// AToB table) in float, never through an encoded Lab destination, whose a*/b* range stops short
+/// of greens beyond Adobe RGB.
 pub fn view_space(monitor: &Profile) -> OutputSpace {
-    let Ok(to_lab) = Transform::new(monitor, Builtin::LabD50.profile(), Intent::RelativeColorimetric, false) else {
+    if monitor.color_space != ColorSpace::Rgb {
+        return OutputSpace::Srgb;
+    }
+    let Ok((stages, pcs)) = monitor.device_to_pcs(Intent::RelativeColorimetric) else {
         return OutputSpace::Srgb;
     };
+    let to_pcs = photocraft_cms::pipeline::Pipeline::new(3, stages);
     let primaries = [[1.0f32, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]].map(|rgb| {
-        let mut lab = [0.0f32; 3];
-        to_lab.eval(&rgb, &mut lab);
-        // the Lab built-in's ICC encoding: L*/100, (a* + 128)/255, (b* + 128)/255
-        let lab = [f64::from(lab[0]) * 100.0, f64::from(lab[1]) * 255.0 - 128.0, f64::from(lab[2]) * 255.0 - 128.0];
-        li_color::cms_math::lab_to_xyz(lab, li_color::cms_math::D50)
+        let mut v = [0.0f32; 3];
+        to_pcs.eval(&rgb, &mut v);
+        let v = v.map(f64::from);
+        match pcs {
+            Pcs::Xyz => v,
+            Pcs::Lab => li_color::cms_math::lab_to_xyz(v, li_color::cms_math::D50),
+        }
     });
     VIEW_SPACES
         .into_iter()

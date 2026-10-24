@@ -467,6 +467,31 @@ fn monitor_profile(primaries: [[f64; 2]; 3]) -> Profile {
     p.with_encoded_bytes()
 }
 
+/// [`monitor_profile`] as an XYZ AToB table with no colorant matrix or curves (how profiling tools
+/// write LUT display profiles), read back from its ICC bytes.
+fn lut_monitor_profile(primaries: [[f64; 2]; 3]) -> Profile {
+    use photocraft_cms::Clut;
+    use photocraft_cms::pipeline::Stage;
+    use photocraft_cms::profile::{Lut, LutKind};
+    let mut p = monitor_profile(primaries);
+    let m = p.matrix.take().unwrap();
+    p.trc = None;
+    // PCS XYZ as the table stores it: u1Fixed15 over the 16-bit range
+    let clut = Clut::sample(vec![9; 3], 3, |rgb, out| {
+        let linear = [0, 1, 2].map(|c| f64::from(rgb[c]).powf(2.4));
+        for (o, row) in out.iter_mut().zip(m) {
+            *o = ((0..3).map(|c| row[c] * linear[c]).sum::<f64>() * 32768.0 / 65535.0) as f32;
+        }
+    });
+    let pass = || Stage::Curves(vec![li_color::curve::Curve::Table(vec![0.0, 1.0]); 3]);
+    let lut = Lut { kind: LutKind::Lut16, inputs: 3, outputs: 3, stages: vec![pass(), Stage::Clut(clut), pass()] };
+    p.a2b = [Some(lut.clone()), Some(lut.clone()), Some(lut)];
+    p.b2a = Default::default();
+    let p = Profile::parse(&p.with_encoded_bytes().to_bytes()).unwrap();
+    assert!(p.matrix.is_none() && p.a2b[1].is_some());
+    p
+}
+
 #[test]
 fn views_render_in_the_narrowest_builtin_space_holding_the_monitor() {
     use crate::display_color::view_space;
@@ -485,6 +510,12 @@ fn views_render_in_the_narrowest_builtin_space_holding_the_monitor() {
     assert_eq!(view_space(&monitor_profile([[0.645, 0.33], [0.3, 0.6], [0.15, 0.06]])), S::Srgb);
     assert_eq!(view_space(&monitor_profile([[0.68, 0.32], [0.265, 0.69], [0.15, 0.06]])), S::DisplayP3);
     assert_eq!(view_space(&monitor_profile([[0.68, 0.32], [0.21, 0.71], [0.15, 0.06]])), S::Rec2020);
+    // a green beyond Adobe RGB (a* below -128, past what an encoded Lab destination holds) is
+    // read in full from the matrix or the table
+    let wide = [[0.64, 0.33], [0.17, 0.75], [0.15, 0.06]];
+    assert_eq!(view_space(&monitor_profile(wide)), S::Rec2020);
+    assert_eq!(view_space(&lut_monitor_profile(wide)), S::Rec2020);
+    assert_eq!(view_space(&lut_monitor_profile([[0.68, 0.32], [0.265, 0.69], [0.15, 0.06]])), S::DisplayP3);
     let mut c = crate::color_cmds::ColorState::default();
     c.settings.monitor_profile = "display-p3".into();
     assert_eq!(view_space(&c.monitor()), S::DisplayP3);
