@@ -151,12 +151,14 @@ fn photo_tile(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, slot: Slo
     let Some(photo) = app.session.catalog.photo(id).cloned() else { return (area, resp) };
     let caption_h = 26.0;
     let img_area = Rect::from_min_max(area.min, pos2(area.right(), area.bottom() - caption_h));
-    let frame = lightcraft_pipeline::geometry::Frame::with_lens(
+    let lens_db = lightcraft_engine::lens_db::for_photo(&photo, &photo.develop);
+    let frame = lightcraft_pipeline::geometry::Frame::with_lenses(
         photo.width.max(1) as usize,
         photo.height.max(1) as usize,
         &photo.develop,
         true,
         photo.embedded_lens.as_ref(),
+        lens_db.as_ref(),
     );
     let aspect = frame.aspect() as f32;
     let img = super::detail::fit_rect(img_area, aspect, zoom, super::detail::native_px(&frame), ppp, app.ui.pan);

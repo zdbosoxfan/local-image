@@ -96,9 +96,11 @@ pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
     // a double-clicked photo control returns to the photo's own default (a raw's sharpening,
     // As Shot white balance), not the generic one
     let reset = out.reset && target == Target::Global;
-    apply_slider_out(app, spec, out, |app, v| match reset {
-        true => app.run("develop.resetControl", json!({"control": id})),
-        false => target.set(app, json!({id: v})),
+    apply_slider_out(app, spec, out, |app, v| {
+        if reset {
+            return app.run("develop.resetControl", json!({"control": id}));
+        }
+        target.set(app, json!({id: v}))
     });
     if id == "detail.sharpenMasking" && matches!(target, Target::Global) {
         let preview = app.ui.dragging_control.as_deref() == Some(id) && ui.input(|i| i.modifiers.alt);

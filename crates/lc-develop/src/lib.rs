@@ -123,11 +123,6 @@ impl DevelopSettings {
         }
     }
 
-    /// Reset every control in `section` to its default.
-    pub fn reset_section(&mut self, section: Section) {
-        self.reset_section_to(section, &DevelopSettings::default());
-    }
-
     /// Reset `section` to what it is in `base` (a photo's own defaults: a raw's sharpening and
     /// colour noise reduction, its as-shot white balance, its default preset's look).
     pub fn reset_section_to(&mut self, section: Section, base: &DevelopSettings) {
@@ -179,7 +174,7 @@ mod tests {
         assert_eq!((d.detail.sharpen_amount, d.detail.nr_color, d.detail.nr_luminance), (40.0, 25.0, 0.0));
         d.reset_section_to(Section::Color, &raw);
         assert_eq!(d.wb, raw.wb, "the as-shot white balance");
-        d.reset_section(Section::Detail);
+        d.reset_section_to(Section::Detail, &DevelopSettings::default());
         assert_eq!((d.detail.sharpen_amount, d.detail.nr_color), (0.0, 0.0), "the generic defaults");
     }
 
@@ -248,7 +243,7 @@ mod tests {
         s.light.exposure = 1.0;
         s.light.shadows = 30.0;
         assert!(!s.is_unedited());
-        s.reset_section(Section::Light);
+        s.reset_section_to(Section::Light, &DevelopSettings::default());
         assert!(s.is_unedited());
     }
 
@@ -323,9 +318,9 @@ mod tests {
         let copied = apply_partial(&DevelopSettings::default(), &extract_groups(&c, &SettingsGroup::default_copy()), 1.0);
         assert_eq!((copied.raw, copied.tone_eq, copied.color_cal), (c.raw, c.tone_eq, c.color_cal));
         assert_eq!(copied.lens_db, c.lens_db);
-        c.reset_section(Section::ToneEq);
+        c.reset_section_to(Section::ToneEq, &DevelopSettings::default());
         assert_eq!(c.tone_eq, ToneEq { enabled: true, ..Default::default() });
-        c.reset_section(Section::Raw);
+        c.reset_section_to(Section::Raw, &DevelopSettings::default());
         assert!(c.raw.capture.enabled && c.raw.demosaic == Demosaic::Auto);
         // pasting a photo without them turns them off
         let off = apply_partial(&c, &extract_groups(&DevelopSettings::default(), &SettingsGroup::default_copy()), 1.0);
@@ -356,7 +351,7 @@ mod tests {
         assert_eq!(c.negative.dmin.g, 0.5);
         assert_eq!(c.negative.wb_high.b, 2.0, "clamped to negadoctor's range");
         c.negative.film = FilmStock::Bw;
-        c.reset_section(Section::Negative);
+        c.reset_section_to(Section::Negative, &DevelopSettings::default());
         assert_eq!(c.negative, Negative { enabled: true, ..Negative::default() });
     }
 
