@@ -4,7 +4,8 @@
 //! https://github.com/agriggio/make_arq/blob/master/make_arq.py (GPL-3.0-or-later).
 //! Four consecutive shots provide R/G/G/B; sixteen shots add four half-pixel phases.
 //! We use measured CFA samples, not demosaiced frame averaging. Repeated green disagreement
-//! detects motion; a dilated mask uses only the first source, demosaiced with the normal noise-adaptive Auto method.
+//! detects motion; a feathered mask blends in the first source, demosaiced with the normal
+//! noise-adaptive Auto method. Shot brightness is equalized first (flicker, changing light).
 //! Noise-aware disagreement follows RawTherapee `rtengine/pixelshift.cc`'s `greenDiff`
 //! (GPL-3.0-or-later, pin 5f486d3678b34c74ba0c63571c17babe20935019), using
 //! the existing camera noise profiles and Auto CFA estimator in normalized sensor space.
@@ -34,6 +35,14 @@ pub struct PixelShiftResult {
 
 /// Output rows per parallel batch between cancellation checks.
 const ROWS: usize = 64;
+
+/// Photo-response non-uniformity between photosites, relative (RawTherapee `pixelshift.cc`
+/// default `pixelShiftPrnu`, 1 %).
+const PRNU: f32 = 0.01;
+
+/// Shot gains closer to 1 than this are left alone: Sony's own composition does not equalize, and
+/// the residual grid is invisible.
+const EQUALIZE_MIN: f32 = 0.002;
 
 // (y, x), indexed by the camera's 1-based shot_number minus one.
 const WHOLE: [(usize, usize); 4] = [(0, 1), (1, 1), (1, 0), (0, 0)];
@@ -65,6 +74,80 @@ fn saturation(raw: &RawImage) -> f32 {
         }
     }
     level
+}
+
+/// Per shot and CFA colour, the gain that matches the shot's brightness to the first shot's
+/// (RawTherapee `pixelshift.cc` equalBrightChannel). LED flicker, or window light changing during a
+/// multi-second capture, otherwise leaves a fixed 2×2 grid over the frame, or trips motion
+/// detection everywhere. The ratio of the medians of well-exposed samples: the shots see the same
+/// scene shifted by at most a pixel, which moves the median of a whole frame negligibly.
+fn shot_gains(samples: &[lightcraft_raw::NormalizedSamples<'_>], clip: f32) -> Vec<[f32; 3]> {
+    let medians: Vec<[Option<f32>; 3]> = samples.par_iter().map(|s| colour_medians(s, clip)).collect();
+    medians
+        .iter()
+        .map(|shot| {
+            std::array::from_fn(|c| match (medians[0][c], shot[c]) {
+                (Some(first), Some(this)) if this > 0.0 && (first / this - 1.0).abs() > EQUALIZE_MIN => first / this,
+                _ => 1.0,
+            })
+        })
+        .collect()
+}
+
+/// Median of each CFA colour's well-exposed samples (above deep shadow, below near-clipping) on a
+/// bounded sparse grid of whole CFA tiles; `None` without enough samples for a stable median.
+fn colour_medians(samples: &lightcraft_raw::NormalizedSamples<'_>, clip: f32) -> [Option<f32>; 3] {
+    const MIN_SAMPLES: usize = 4096;
+    let Some(cfa) = &samples.cfa else { return [None; 3] };
+    let (tiles_x, tiles_y) = (samples.width / 2, samples.height / 2);
+    let step = ((tiles_x * tiles_y) as f64 / 250_000.0).sqrt().ceil().max(1.0) as usize;
+    let mut values: [Vec<f32>; 3] = Default::default();
+    for ty in (0..tiles_y).step_by(step) {
+        for tx in (0..tiles_x).step_by(step) {
+            for (x, y) in [(2 * tx, 2 * ty), (2 * tx + 1, 2 * ty), (2 * tx, 2 * ty + 1), (2 * tx + 1, 2 * ty + 1)] {
+                let v = samples.get(x, y, 0);
+                if v > 0.02 && v < 0.9 * clip {
+                    values[cfa.color_at(x, y).min(2) as usize].push(v);
+                }
+            }
+        }
+    }
+    values.map(|mut v| {
+        let middle = v.len() / 2;
+        (v.len() >= MIN_SAMPLES).then(|| *v.select_nth_unstable_by(middle, f32::total_cmp).1)
+    })
+}
+
+/// Fallback weights from per-pixel motion detections, after RawTherapee's defaults (blurred motion
+/// map, isolated detections dropped, smooth transitions): a detection with fewer than three within
+/// the colour lattice's reach is noise; the rest grow by the sampling footprint and fade over a
+/// Gaussian edge, instead of switching abruptly between sharp measured colour and the softer
+/// single-shot fallback.
+fn motion_weights(hits: GrayFrame, factor: usize) -> GrayFrame {
+    let (w, h) = (hits.width, hits.height);
+    let reach = 2 * factor;
+    let mut rows = GrayFrame::new(w, h);
+    rows.data.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
+        let line = &hits.data[y * w..(y + 1) * w];
+        for (x, count) in out.iter_mut().enumerate() {
+            *count = line[x.saturating_sub(reach)..=(x + reach).min(w - 1)].iter().filter(|v| **v > 0.0).count() as f32;
+        }
+    });
+    let mut kept = GrayFrame::new(w, h);
+    kept.data.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
+        for (x, keep) in out.iter_mut().enumerate() {
+            if hits.data[y * w + x] > 0.0 {
+                let count: f32 = (y.saturating_sub(reach)..=(y + reach).min(h - 1)).map(|yy| rows.data[yy * w + x]).sum();
+                *keep = if count >= 3.0 { 1.0 } else { 0.0 };
+            }
+        }
+    });
+    drop((rows, hits));
+    let grown = kept.max_filter(factor);
+    drop(kept);
+    let mut weights = grown.gaussian(factor as f32);
+    weights.map_in_place(|v| (2.0 * v).min(1.0));
+    weights
 }
 
 struct MotionNoise {
@@ -153,8 +236,11 @@ impl MotionNoise {
     fn difference_limit(&self, channel: usize, a: f32, b: f32) -> f32 {
         // RawTherapee pixelshift.cc's greenDiff: compare disagreement to independent
         // shot/read noise, rather than a percent-of-white heuristic. Four sigma is
-        // conservative against false motion; variances of two observations add.
-        4.0 * (self.variance(channel, a) + self.variance(channel, b)).sqrt()
+        // conservative against false motion; variances of two observations add. The two
+        // observations come from different photosites, whose gains differ (PRNU, and the
+        // G1/G2 split for greens), so greenDiff's photo-response term is added too.
+        let prnu = PRNU * 0.5 * (a + b).max(0.0);
+        4.0 * (self.variance(channel, a) + self.variance(channel, b) + prnu * prnu).sqrt()
     }
 }
 
@@ -242,6 +328,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     let samples = raws.iter().map(|r| r.normalized_samples().map_err(|e| MergeError::Decode(e.to_string()))).collect::<Result<Vec<_>>>()?;
     let clip = raws.par_iter().map(saturation).reduce(|| 1.0, f32::min);
     let noise = MotionNoise::new(first, &samples[0]);
+    let gains = shot_gains(&samples, clip);
     let reconstruct = |x: usize, y: usize| -> ([f32; 3], bool) {
         let (sx, sy) = (origin_x + x / factor, origin_y + y / factor);
         let group = if factor == 1 { 0 } else { HALF.iter().position(|&(dy, dx)| dy == y % 2 && dx == x % 2).unwrap_or(0) };
@@ -249,10 +336,13 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         let mut greens = [0.0; 2];
         let mut ng = 0;
         for (i, &(dy, dx)) in WHOLE.iter().enumerate() {
-            let s = &samples[group * 4 + i];
+            let shot = group * 4 + i;
+            let s = &samples[shot];
             let (px, py) = (sx - dx, sy - dy);
             let channel = s.cfa.as_ref().map_or(0, |c| c.color_at(px, py)) as usize;
             let v = s.get(px, py, 0);
+            // Saturated samples stay saturated.
+            let v = if v < clip { v * gains[shot][channel] } else { v };
             if channel == 1 {
                 greens[ng] = v;
                 ng += 1;
@@ -317,47 +407,23 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             .retain(|o| !matches!(o, lightcraft_raw::Opcode::WarpRectilinear { .. } | lightcraft_raw::Opcode::FixVignetteRadial { .. }));
         source.crop = Rect::new(0, 0, source.active_area.width, source.active_area.height);
         let fallback = source.develop(lightcraft_raw::Method::Auto).map_err(|e| MergeError::Decode(e.to_string()))?;
-        let mut expanded = GrayFrame::new(w, h);
-        let radius = 2 * factor;
-        // Separable sliding-window dilation costs O(pixels), independent of camera
-        // resolution and mask radius. Retain the original first pass until it completes.
-        for y in 0..h {
-            let mut count = (0..=radius.min(w - 1)).filter(|&x| motion.data[y * w + x] > 0.0).count();
-            for x in 0..w {
-                expanded.data[y * w + x] = if count > 0 { 1.0 } else { 0.0 };
-                if x >= radius && motion.data[y * w + x - radius] > 0.0 {
-                    count -= 1;
+        let motion = motion_weights(motion, factor);
+        for (tile, (pixels, weights)) in image.data.chunks_mut(w * ROWS).zip(motion.data.chunks(w * ROWS)).enumerate() {
+            check(progress, 0.8 + 0.2 * (tile * ROWS) as f32 / h as f32, "Replacing moving areas")?;
+            pixels.par_chunks_mut(w).zip(weights.par_chunks(w)).enumerate().for_each(|(row, (pixels, weights))| {
+                let y = tile * ROWS + row;
+                for (x, (pixel, &weight)) in pixels.iter_mut().zip(weights).enumerate() {
+                    if weight > 0.0 {
+                        // First shot has (+1,0) displacement, plus the first half phase
+                        // (+0.5,0) in a sixteen-shot capture. Sample the uncropped fallback
+                        // so default crop margins remain available at the output edges.
+                        let px = origin_x as f32 - 1.0 + x as f32 / factor as f32 - if n == 16 { 0.5 } else { 0.0 };
+                        let py = origin_y as f32 + y as f32 / factor as f32;
+                        let single = fallback.sample_bilinear(px + 0.5, py + 0.5);
+                        *pixel = if weight >= 1.0 { single } else { std::array::from_fn(|c| pixel[c] + (single[c] - pixel[c]) * weight) };
+                    }
                 }
-                if x + radius + 1 < w && motion.data[y * w + x + radius + 1] > 0.0 {
-                    count += 1;
-                }
-            }
-        }
-        for x in 0..w {
-            let mut count = (0..=radius.min(h - 1)).filter(|&y| expanded.data[y * w + x] > 0.0).count();
-            for y in 0..h {
-                motion.data[y * w + x] = if count > 0 { 1.0 } else { 0.0 };
-                if y >= radius && expanded.data[(y - radius) * w + x] > 0.0 {
-                    count -= 1;
-                }
-                if y + radius + 1 < h && expanded.data[(y + radius + 1) * w + x] > 0.0 {
-                    count += 1;
-                }
-            }
-        }
-        drop(expanded);
-        for y in 0..h {
-            check(progress, 0.8 + 0.2 * y as f32 / h as f32, "Replacing moving areas")?;
-            for x in 0..w {
-                if motion.data[y * w + x] > 0.0 {
-                    // First shot has (+1,0) displacement, plus the first half phase
-                    // (+0.5,0) in a sixteen-shot capture. Sample the uncropped fallback
-                    // so default crop margins remain available at the output edges.
-                    let px = origin_x as f32 - 1.0 + x as f32 / factor as f32 - if n == 16 { 0.5 } else { 0.0 };
-                    let py = origin_y as f32 + y as f32 / factor as f32;
-                    image.data[y * w + x] = fallback.sample_bilinear(px + 0.5, py + 0.5);
-                }
-            }
+            });
         }
         return Ok(PixelShiftResult {
             image,
@@ -548,11 +614,51 @@ mod tests {
         let mut fallback_raw = raws[0].clone();
         fallback_raw.crop = Rect::new(0, 0, 24, 20);
         let fallback = fallback_raw.develop(lightcraft_raw::Method::Auto).unwrap();
+        let measured = merge_pixel_shift(sources(4), &crate::no_progress).unwrap();
         let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
         assert!(result.motion.data.iter().filter(|v| **v > 0.0).count() > 25);
         assert_eq!(result.motion.get(7, 7), 1.0);
         assert_eq!(result.image.get(7, 7), fallback.get(8, 9));
         assert_eq!(result.motion.get(17, 13), 0.0);
+        // The fallback fades in over the motion's edge.
+        let (i, weight) = result.motion.data.iter().copied().enumerate().find(|(_, v)| *v > 0.05 && *v < 0.95).expect("feathered edge");
+        let (x, y) = (i % result.image.width, i / result.image.width);
+        let single = fallback.sample_bilinear(x as f32 + 1.5, y as f32 + 2.5);
+        for c in 0..3 {
+            let want = measured.image.get(x, y)[c] + (single[c] - measured.image.get(x, y)[c]) * weight;
+            assert!((result.image.get(x, y)[c] - want).abs() < 1e-6, "({x},{y}) blends measured and fallback by {weight}");
+        }
+    }
+
+    #[test]
+    fn pixelshift_equalizes_shot_brightness() {
+        let gentle = |x: f32, y: f32| [0.3 + 0.0002 * x + 0.0001 * y, 0.35 + 0.0001 * x + 0.0002 * y, 0.4 + 0.0002 * x - 0.0001 * y];
+        let clean = merge_pixel_shift(sized_sources(4, 160, 128, gentle), &crate::no_progress).unwrap();
+        let mut raws = sized_sources(4, 160, 128, gentle);
+        // The third shot caught a 3 % brighter phase of the room's LED lighting.
+        if let RawData::F32(data) = &mut raws[2].data {
+            data.iter_mut().for_each(|v| *v = (*v - 64.0) * 1.03 + 64.0);
+        }
+        let flickered = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert!(flickered.motion.data.iter().all(|v| *v == 0.0));
+        let largest =
+            flickered.image.data.iter().zip(&clean.image.data).flat_map(|(a, b)| (0..3).map(move |c| (a[c] / b[c] - 1.0).abs())).fold(0.0, f32::max);
+        assert!(largest < 0.002, "relative difference from the steady capture {largest}");
+        let exact = clean.image.data.iter().enumerate().all(|(i, p)| {
+            let expected = gentle(2.0 + (i % clean.image.width) as f32, 2.0 + (i / clean.image.width) as f32);
+            (0..3).all(|c| (p[c] - expected[c]).abs() < 1e-6)
+        });
+        assert!(exact, "a steady capture is not equalized");
+    }
+
+    #[test]
+    fn pixelshift_isolated_detection_is_not_motion() {
+        let mut raws = sources(4);
+        if let RawData::F32(data) = &mut raws[1].data {
+            data[9 * 24 + 11] += 300.0;
+        }
+        let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert!(result.motion.data.iter().all(|v| *v == 0.0), "a single outlying sample must not pull in the fallback");
     }
 
     #[test]
@@ -585,8 +691,8 @@ mod tests {
     #[test]
     fn pixelshift_measured_noise_detects_subtle_green_motion() {
         let mut raws = sources(4);
-        // Independent noiseless integer sensor measurements. A five-DN temporal
-        // change is above quantization noise but below the former percentage limit.
+        // Independent noiseless integer sensor measurements. A 20-DN temporal change (6 %
+        // of the local green) is above quantization and the photosites' 1 % gain spread.
         for raw in &mut raws {
             let data = std::mem::replace(&mut raw.data, RawData::U16(Vec::new()));
             if let RawData::F32(values) = data {
@@ -597,7 +703,7 @@ mod tests {
             for y in 7..12 {
                 for x in 7..12 {
                     if (x + y) % 2 == 1 {
-                        data[y * 24 + x] += 5;
+                        data[y * 24 + x] += 20;
                     }
                 }
             }
