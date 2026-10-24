@@ -1370,7 +1370,13 @@ fn active(group: Group, models_dir: &Path) -> Option<ModelSnapshot> {
         let key = format!("custom:{}:{}:{}:{}:{}:{}:{len}", c.file, c.size, c.norm.key(), c.classes, c.class, c.activation.key());
         return ModelSnapshot::new(key, c.path(models_dir), c.config(), InUse::Custom(c));
     }
-    let spec = if group == Group::Subject && subject_quality(models_dir) { spec("inspyrenet").unwrap() } else { group.official() };
+    let spec = if group == Group::Subject {
+        // the chosen tier, else the other one when only it is installed
+        let tiers = if subject_quality(models_dir) { ["inspyrenet", "rmbg-1.4"] } else { ["rmbg-1.4", "inspyrenet"] };
+        tiers.into_iter().filter_map(spec).find(|s| installed_bytes(models_dir, s).is_some())?
+    } else {
+        group.official()
+    };
     let path = model_path(models_dir, spec);
     installed_bytes(models_dir, spec)?;
     ModelSnapshot::new(spec.id.to_owned(), path, Config::of_spec(spec), InUse::Official(spec))
@@ -1387,18 +1393,38 @@ pub fn shared_depth(models_dir: &Path) -> Option<Segmenter> {
 }
 
 /// The last CPU tier chosen in the shared cutout widget also serves Select Subject,
-/// Object Selection and Library subject masks. Fast is the startup default.
+/// Object Selection and Library subject masks. It is kept in the models folder
+/// (`segmentation/subject-tier.txt`); Fast until one is chosen.
 static SUBJECT_QUALITY: std::sync::Mutex<Vec<(PathBuf, bool)>> = std::sync::Mutex::new(Vec::new());
+
+fn subject_tier_file(models_dir: &Path) -> PathBuf {
+    models_dir.join("segmentation").join("subject-tier.txt")
+}
+
 pub fn set_subject_quality(models_dir: &Path, better: bool) {
     let mut choices = SUBJECT_QUALITY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if let Some((_, choice)) = choices.iter_mut().find(|(dir, _)| dir == models_dir) {
-        *choice = better;
-    } else {
-        choices.push((models_dir.to_owned(), better));
+    if choices.iter().any(|(dir, choice)| dir == models_dir && *choice == better) {
+        return;
+    }
+    choices.retain(|(dir, _)| dir != models_dir);
+    choices.push((models_dir.to_owned(), better));
+    let file = subject_tier_file(models_dir);
+    if file.parent().is_some_and(Path::is_dir)
+        && let Err(e) = li_fs::write_atomic(&file, if better { b"better" } else { b"fast" })
+    {
+        log::warn!("Could not save the subject model tier in {}: {e}", file.display());
     }
 }
-fn subject_quality(models_dir: &Path) -> bool {
-    SUBJECT_QUALITY.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().find(|(dir, _)| dir == models_dir).is_some_and(|(_, better)| *better)
+
+/// The subject tier chosen for `models_dir` (the saved one after a restart): `true` = Better Quality.
+pub fn subject_quality(models_dir: &Path) -> bool {
+    let mut choices = SUBJECT_QUALITY.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some((_, better)) = choices.iter().find(|(dir, _)| dir == models_dir) {
+        return *better;
+    }
+    let better = std::fs::read_to_string(subject_tier_file(models_dir)).is_ok_and(|t| t.trim() == "better");
+    choices.push((models_dir.to_owned(), better));
+    better
 }
 
 /// A process-wide cache of the loaded subject model (loading takes a moment).

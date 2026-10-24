@@ -148,7 +148,7 @@ impl Session {
             return Ok((d.clone(), "custom".into()));
         }
         let dir = self.quick_seg_dir.clone().ok_or("The AI Denoise model is not installed.")?;
-        if !li_seg::companion_path(&dir, Variant::Linear.file()).is_file() {
+        if li_seg::installed_bytes(&dir, Variant::Linear.spec()).is_none() {
             return Err("The AI Denoise model is not installed.".into());
         }
         Ok((Arc::new(move |px, w, h, progress| infer(&dir, Variant::Linear, px.as_flattened(), w, h, true, progress)), model_tag()))
@@ -184,10 +184,11 @@ impl Session {
         let dir = self.quick_seg_dir.clone();
         let group = if family == DenoiseModel::Raw { li_seg::Group::RawDenoise } else { li_seg::Group::RgbDenoise };
         let custom = dir.as_ref().and_then(|d| li_seg::custom(d, group));
+        // the whole bundle, as inference needs it (a size check: hashing waits for the worker)
         if custom.is_none()
             && override_fn.is_none()
             && dir.as_ref().is_none_or(|d| {
-                !li_seg::model_path(d, if family == DenoiseModel::Raw { Variant::Linear.spec() } else { Variant::Rgb.spec() }).is_file()
+                li_seg::installed_bytes(d, if family == DenoiseModel::Raw { Variant::Linear.spec() } else { Variant::Rgb.spec() }).is_none()
             })
         {
             return Err("The AI Denoise model is not installed. Download it in Settings › Local AI.".into());
@@ -849,6 +850,27 @@ mod tests {
         // the result gone: render from the source itself
         store::delete(Kind::Denoise, &done.key);
         assert!(denoised_source(&src, &done.key, 50.0).is_none());
+    }
+
+    #[test]
+    fn raw_denoise_needs_its_whole_bundle_before_a_job_starts() {
+        let mut s = Session::with_demo();
+        let id = demo_raw(&mut s);
+        let dir = std::env::temp_dir().join(format!("li-denoise-bundle-{}", std::process::id()));
+        let spec = Variant::Linear.spec();
+        let linear = spec.files().next().unwrap();
+        std::fs::create_dir_all(li_seg::companion_path(&dir, linear.file).parent().unwrap()).unwrap();
+        std::fs::File::create(li_seg::companion_path(&dir, linear.file)).unwrap().set_len(linear.bytes).unwrap();
+        s.quick_seg_dir = Some(dir.clone());
+        let mut d = (*s.develop_of(id).unwrap()).clone();
+        d.enhance.denoise_model = DenoiseModel::Raw;
+        s.set_develop(id, d, "model").unwrap();
+        let before = s.enhance.jobs().len();
+        let err = s.start_denoise(id, true).unwrap_err();
+        assert!(err.contains("not installed"), "{err}");
+        assert_eq!(s.enhance.jobs().len(), before, "refused before a job is spawned");
+        assert!(s.denoiser().is_err());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

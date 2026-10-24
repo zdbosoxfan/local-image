@@ -973,6 +973,33 @@ fn bg_subject_group_uses_chosen_tier_for_all_callers() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn the_subject_function_uses_whichever_tier_is_installed() {
+    let (fast, better) = (spec("rmbg-1.4").unwrap(), spec("inspyrenet").unwrap());
+    for (installed, chosen) in [(better, false), (fast, true)] {
+        let dir = temp_models();
+        std::fs::write(model_path(&dir, installed), b"installed").unwrap();
+        set_subject_quality(&dir, chosen);
+        assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(installed)), "chosen better: {chosen}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn the_subject_tier_choice_is_kept_in_the_models_folder() {
+    let dir = temp_models();
+    for model in ["rmbg-1.4", "inspyrenet"] {
+        std::fs::write(model_path(&dir, spec(model).unwrap()), b"installed").unwrap();
+    }
+    set_subject_quality(&dir, true);
+    assert_eq!(std::fs::read_to_string(dir.join("segmentation/subject-tier.txt")).unwrap(), "better");
+    // a later run (nothing remembered in memory) reads it back
+    SUBJECT_QUALITY.lock().unwrap().retain(|(d, _)| *d != dir);
+    assert!(subject_quality(&dir));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // threading: shared pool and cancel
 
 /// An ONNX `TensorProto` (float) initializer.

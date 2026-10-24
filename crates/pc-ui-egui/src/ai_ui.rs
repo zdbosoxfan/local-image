@@ -1302,6 +1302,10 @@ pub fn open_local_ai(app: &mut PhotocraftApp) {
 /// Floating windows: Local AI, Generate Background, Generative Fill, AI Enhance, batch.
 pub fn windows(app: &mut PhotocraftApp, ctx: &egui::Context) {
     li_seg::init_executor();
+    // the saved on-device subject tier, until one is picked in this session
+    if dialogs_mut(|d| d.subject_quality.is_none()) && app.ui.ai.cutout_engine == "fast" && li_seg::subject_quality(&photocraft_engine::seg::models_dir()) {
+        app.ui.ai.cutout_engine = "better".into();
+    }
     let changed = dialogs_mut(|d| subject_quality_changed(&mut d.subject_quality, &app.ui.ai.cutout_engine));
     if changed && matches!(app.ui.ai.cutout_engine.as_str(), "fast" | "better") {
         li_seg::set_subject_quality(&photocraft_engine::seg::models_dir(), app.ui.ai.cutout_engine == "better");
