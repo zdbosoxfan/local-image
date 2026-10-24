@@ -201,6 +201,7 @@ fn chunk_working_bytes(c: &Chunk, info: &ImageInfo, packing: Packing, cpp: usize
                     .checked_add(usize::try_from(c.len).ok()?.checked_mul(8)?)?
                     .checked_add(1 << 16)?
             }
+            comp::JPEG_XL => decoded.checked_add(jxl_working_bytes(samples)?)?.checked_add(usize::try_from(c.len).ok()?)?,
             _ => decoded.checked_add(rows)?,
         };
         (working <= MAX_CHUNK_WORKING_BYTES).then_some(working)
@@ -387,8 +388,62 @@ fn decode_chunk(data: &[u8], info: &ImageInfo, c: &Chunk, order: ByteOrder, pack
             let raw = inflate(src, row_bytes * ch)?;
             unpack_chunk(&raw, order, packing, cw, ch, cpp, bits, float, info.predictor)
         }
+        comp::JPEG_XL => {
+            let vw = cw.min(info.width.saturating_sub(c.x) as usize);
+            jpeg_xl(src, (cw, ch), (vw, vh), cpp, bits, float)
+        }
         other => Err(RawError::Unsupported(format!("TIFF compression {other}"))),
     }
+}
+
+/// Working memory of jxl-oxide for a chunk of `samples`: its f32 planes and render buffers.
+fn jxl_working_bytes(samples: usize) -> Option<usize> {
+    samples.checked_mul(4 * 4)?.checked_add(1 << 20)
+}
+
+/// One DNG 1.7 JPEG XL tile or strip. Integer samples come back as the code values the stream
+/// stores, floating-point samples as stored. The stream must cover the chunk's pixels inside the
+/// image; it is never allowed to be larger than the chunk.
+fn jpeg_xl(src: &[u8], (cw, ch): (usize, usize), (vw, vh): (usize, usize), cpp: usize, bits: u32, float: bool) -> Result<ChunkPx> {
+    use jxl_oxide::image::BitDepth;
+    let corrupt = |e: &dyn std::fmt::Display| RawError::Corrupt(format!("JPEG XL tile: {e}"));
+    let samples = cw.checked_mul(ch).and_then(|n| n.checked_mul(cpp)).ok_or(RawError::Limit("chunk too large"))?;
+    let limit = jxl_working_bytes(samples).ok_or(RawError::Limit("chunk too large"))?;
+    let image = jxl_oxide::JxlImage::builder().alloc_tracker(jxl_oxide::AllocTracker::with_limit(limit)).read(src).map_err(|e| corrupt(&e))?;
+    let (jw, jh) = (image.width() as usize, image.height() as usize);
+    if jw > cw || jh > ch || jw < vw || jh < vh {
+        return Err(RawError::Corrupt(format!("JPEG XL tile is {jw}×{jh}, the chunk {cw}×{ch}")));
+    }
+    // jxl-oxide renders integer samples scaled to [0, 1] of the stream's own bit depth: scaling
+    // back by that depth recovers the stored code values, whatever BitsPerSample says
+    let max = match (image.image_header().metadata.bit_depth, float) {
+        (BitDepth::IntegerSample { bits_per_sample }, false) if (1..=16).contains(&bits_per_sample) => Some(((1u32 << bits_per_sample) - 1) as f32),
+        (BitDepth::FloatSample { .. }, true) => None,
+        (depth, _) => {
+            let kind = if float { "floating-point" } else { "integer" };
+            return Err(RawError::Corrupt(format!("JPEG XL {depth:?} in a {bits}-bit {kind} DNG")));
+        }
+    };
+    if !image.is_loading_done() {
+        return Err(RawError::Corrupt("truncated JPEG XL tile".into()));
+    }
+    let render = image.render_frame(0).map_err(|e| corrupt(&e))?;
+    let mut stream = render.stream_no_alpha();
+    if stream.channels() as usize != cpp || (stream.width() as usize, stream.height() as usize) != (jw, jh) {
+        return Err(RawError::Corrupt(format!("JPEG XL tile has {} channels, the DNG {cpp}", stream.channels())));
+    }
+    let mut px = vec![0f32; jw * jh * cpp];
+    if stream.write_to_buffer(&mut px) != px.len() {
+        return Err(RawError::Corrupt("short JPEG XL tile".into()));
+    }
+    let mut out = vec![0f32; samples];
+    for (row, src) in out.chunks_mut(cw * cpp).zip(px.chunks(jw * cpp)) {
+        row[..jw * cpp].copy_from_slice(src);
+    }
+    Ok(match max {
+        Some(max) => ChunkPx::U16(out.into_iter().map(|v| (v * max).round().clamp(0.0, max) as u16).collect()),
+        None => ChunkPx::F32(out),
+    })
 }
 
 /// Decode one baseline JPEG chunk to 8-bit samples: (samples, width, height, channels).
