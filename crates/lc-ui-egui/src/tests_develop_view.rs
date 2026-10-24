@@ -1,17 +1,40 @@
-//! The Develop view: slider resets to the photo's own defaults.
+//! The Develop view: 100% zoom counts the pixels of the frame shown, and slider resets go to
+//! the photo's own defaults.
 
 use std::sync::Arc;
 use std::time::Duration;
 
+use egui::{Rect, pos2, vec2};
 use lightcraft_catalog::{Op, Photo, PhotoId, Source};
+use lightcraft_develop::DevelopSettings;
 use lightcraft_engine::media::{RenderJob, RenderResult};
+use lightcraft_pipeline::geometry::Frame;
 use serde_json::json;
 
 use crate::LightcraftApp;
 use crate::headless::Headless;
+use crate::panels::detail::{fit_rect, native_px};
 use crate::render::Slot;
+use crate::state::Zoom;
 
 const T: Duration = Duration::from_secs(40);
+
+#[test]
+fn percent_zoom_counts_the_pixels_of_the_cropped_and_rotated_frame() {
+    let area = Rect::from_min_size(pos2(0.0, 0.0), vec2(4000.0, 3000.0));
+    let at_100 = |s: &DevelopSettings| {
+        let frame = Frame::new(6000, 4000, s, true);
+        fit_rect(area, frame.aspect() as f32, Zoom::Percent(100), native_px(&frame), 1.0, (0.5, 0.5)).size()
+    };
+    assert_eq!(at_100(&DevelopSettings::default()), vec2(6000.0, 4000.0));
+    let mut cropped = DevelopSettings::default();
+    cropped.crop.geometry.rect = lightcraft_geom::Rect::new(0.0, 0.0, 0.5, 1.0);
+    assert_eq!(at_100(&cropped), vec2(3000.0, 4000.0), "the left half at its own pixels, not twice its size");
+    let rotated = DevelopSettings { orientation: lightcraft_geom::Orientation::Rotate90, ..Default::default() };
+    assert_eq!(at_100(&rotated), vec2(4000.0, 6000.0), "rotated: 4000 across, not 6000");
+    let frame = Frame::new(6000, 4000, &DevelopSettings::default(), true);
+    assert_eq!(fit_rect(area, 1.5, Zoom::Percent(200), native_px(&frame), 2.0, (0.5, 0.5)).size(), vec2(6000.0, 4000.0), "HiDPI: points, not pixels");
+}
 
 /// Collects the jobs the UI asks for without running them.
 #[derive(Clone, Default)]

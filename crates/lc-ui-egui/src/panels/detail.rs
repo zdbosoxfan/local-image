@@ -98,6 +98,14 @@ impl CanvasMap {
     }
 }
 
+/// Pixels of `frame`'s output at the source's own resolution (the crop, after the user's
+/// rotation): what 100% shows one screen pixel each.
+pub(crate) fn native_px(frame: &Frame) -> [usize; 2] {
+    let (w, h) = frame.native_size();
+    [w.round().max(1.0) as usize, h.round().max(1.0) as usize]
+}
+
+/// Where the photo goes in `area` at `zoom`; `img_px` is its [`native_px`].
 pub(crate) fn fit_rect(area: Rect, aspect: f32, zoom: Zoom, img_px: [usize; 2], ppp: f32, pan: (f32, f32)) -> Rect {
     let (aw, ah) = (area.width(), area.height());
     let (w, h) = match zoom {
@@ -116,7 +124,7 @@ pub(crate) fn fit_rect(area: Rect, aspect: f32, zoom: Zoom, img_px: [usize; 2], 
             }
         }
         Zoom::Percent(p) => {
-            // full-resolution pixels at p% (the photo's native width)
+            // the frame's native pixels at p%
             let w = img_px[0] as f32 * p as f32 / 100.0 / ppp;
             (w, w / aspect)
         }
@@ -176,7 +184,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         24.0
     });
     let max_edge = app.ui.settings.preview_edge.clamp(512, 8192) as f32;
-    let native = [photo.width.max(1) as usize, photo.height.max(1) as usize];
+    let native = native_px(&frame);
     // two views (before, after): side by side or stacked
     // A Library preview represents the whole layered document, regardless of remembered Develop
     // before/after or preset-hover state. Develop itself still renders the original photo.
@@ -238,9 +246,17 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             for (n, nid) in [next, prev].into_iter().enumerate() {
                 let Some(nid) = nid else { continue };
                 let Some(np) = app.session.catalog.photo(nid).cloned() else { continue };
-                let nf = Frame::with_lens(np.width.max(1) as usize, np.height.max(1) as usize, &np.develop, !crop_tool, np.embedded_lens.as_ref());
+                let nlens = lightcraft_engine::lens_db::for_photo(&np, &np.develop);
+                let nf = Frame::with_lenses(
+                    np.width.max(1) as usize,
+                    np.height.max(1) as usize,
+                    &np.develop,
+                    !crop_tool,
+                    np.embedded_lens.as_ref(),
+                    nlens.as_ref(),
+                );
                 let na = nf.aspect() as f32;
-                let nr = fit_rect(main_area, na, app.ui.zoom, [np.width.max(1) as usize, np.height.max(1) as usize], ppp, app.ui.pan);
+                let nr = fit_rect(main_area, na, app.ui.zoom, native_px(&nf), ppp, app.ui.pan);
                 let nw = (nr.width().max(nr.height()) * ppp).min(max_edge) as usize;
                 let (w, h) = if na >= 1.0 { (nw, (nw as f32 / na) as usize) } else { ((nw as f32 * na) as usize, nw) };
                 if let Some(job) = app.session.loupe_job(nid, w.max(8), h.max(8), !crop_tool) {
