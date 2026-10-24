@@ -8,7 +8,7 @@ pub const APP_PAGE: &str = "https://github.com/zdbosoxfan/local-image";
 /// This app's source repository.
 pub const GITHUB: &str = "https://github.com/zdbosoxfan/local-image";
 /// The user documentation (docs/ in the repository).
-pub const HELP: &str = "https://github.com/zdbosoxfan/local-image/tree/v2/docs";
+pub const HELP: &str = "https://github.com/zdbosoxfan/local-image/tree/main/docs";
 /// Where feedback and bug reports go.
 pub const FEEDBACK: &str = "https://github.com/zdbosoxfan/local-image/issues/new";
 

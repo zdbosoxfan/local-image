@@ -49,7 +49,7 @@ pub const EMBEDDED: &[(&str, &str)] = &[
 ];
 
 /// Where newer profiles are published (this repository's `crates/li-ai/families/`).
-pub const REMOTE_BASE: &str = "https://raw.githubusercontent.com/zdbosoxfan/local-image/v2/crates/li-ai/families";
+pub const REMOTE_BASE: &str = "https://raw.githubusercontent.com/zdbosoxfan/local-image/main/crates/li-ai/families";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Range {
