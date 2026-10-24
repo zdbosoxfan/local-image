@@ -345,7 +345,7 @@ fn native_nr_statistics_match_robust_model_and_reconstruction() {
         let slopes = g.buffer(16);
         cx.run("nr_median", &[], &[Some(&samples), None, None, Some(&slopes)], [16, 1, 1]);
         let p = NrParams { lum: 0.6, col: 0.5, detail: 0.4, contrast: 0.5, col_detail: 0.5, smoothness: 0.5, scale: 1.0 };
-        let (to, from) = conversion_matrices([1.0; 3]);
+        let (to, from) = working_matrices(&p);
         let mut block = vec![p.scale.to_bits(), p.lum.max(p.col).to_bits()];
         block.extend(to.into_iter().flatten().chain(from.into_iter().flatten()).map(f32::to_bits));
         let metadata = g.buffer(24);
