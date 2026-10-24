@@ -25,6 +25,7 @@ pub const CLARITY_GAIN: f32 = 0.38;
 /// Independent stage guards. Neutral controls never build a plane or run a pixel pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Stages {
+    pub calibration: bool,
     pub tone: bool,
     pub clarity: bool,
     pub texture: bool,
@@ -36,6 +37,7 @@ pub struct Stages {
 impl Stages {
     pub fn of(s: &DevelopSettings) -> Self {
         Self {
+            calibration: calibration(s).is_some(),
             tone: s.light.highlights != 0. || s.light.shadows != 0.,
             clarity: s.section_enabled("effects") && s.effects.clarity != 0.,
             texture: s.section_enabled("effects") && s.effects.texture != 0.,
@@ -46,11 +48,21 @@ impl Stages {
         }
     }
     pub fn any(self) -> bool {
-        self.tone || self.clarity || self.texture || self.structure || self.equalizer || self.balance || self.skin
+        self.calibration || self.tone || self.clarity || self.texture || self.structure || self.equalizer || self.balance || self.skin
     }
     pub fn proxy(self) -> bool {
         self.tone || self.clarity
     }
+}
+
+/// Camera Calibration's primaries matrix and shadows tint, when the section changes colours.
+pub fn calibration(s: &DevelopSettings) -> Option<(Option<[[f32; 3]; 3]>, f32)> {
+    if !s.section_enabled("calibration") {
+        return None;
+    }
+    let tint = (s.calibration.shadows_tint / 100.) as f32;
+    let m = crate::colorops::calibration_matrix(&s.calibration);
+    (m.is_some() || tint != 0.).then_some((m, tint))
 }
 
 pub fn needs_proxy(s: &DevelopSettings) -> bool {
@@ -334,6 +346,7 @@ fn clear(d: &mut DevelopSettings) {
         d.profile.id = "lc.neutral".into();
     }
     d.skin_tone = Default::default();
+    d.calibration = Default::default();
 }
 
 /// Fraction clipped, transformed with the same geometry. No scene-RGB clipping heuristic.
@@ -355,7 +368,15 @@ pub fn process(img: &RgbFrame, proxy: &RgbFrame, info: &SourceInfo, plan: &Plan<
     if gain != 1. {
         out.map_in_place(|p| p.map(|v| v * gain));
     }
-    let proxy = if gain == 1. { std::borrow::Cow::Borrowed(proxy) } else { std::borrow::Cow::Owned(proxy.map(|p| p.map(|v| v * gain))) };
+    let mut proxy = if gain == 1. { std::borrow::Cow::Borrowed(proxy) } else { std::borrow::Cow::Owned(proxy.map(|p| p.map(|v| v * gain))) };
+    // Calibration edits the camera's primaries, so every tool here (HSL bands, Skin Tone, B&W
+    // mix) sees calibrated colours, as with Lightroom's profile-stage calibration. The shadows
+    // tint weighs exposed luminance.
+    if let Some((m, tint)) = calibration(s) {
+        let calibrate = |c: [f32; 3]| crate::colorops::calibrate(c, m.as_ref(), tint);
+        out.map_in_place(calibrate);
+        proxy = std::borrow::Cow::Owned(proxy.map(calibrate));
+    }
     let masks = if layers_active(s) {
         let log = img.map(crate::local::log_lum);
         crate::masks::evaluate_with_tone(
@@ -637,6 +658,7 @@ pub fn key_for(plan: &Plan<'_>, info: &SourceInfo, method: HsMethod) -> u64 {
                 &s.grading,
                 &s.skin_tone,
                 &s.bw_mix,
+                &s.calibration,
                 crate::is_bw(s),
                 (s.effects.clarity, s.effects.texture, s.effects.structure, s.effects.clarity_mode),
                 (s.look, &s.look_options),

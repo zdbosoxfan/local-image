@@ -55,6 +55,7 @@ const MODULES: &[Module] = &[
             "p_transpose",
             "p_clip",
             "p_scale",
+            "p_calibrate",
             "p_stack_anchors",
             "p_log",
             "p_biased",

@@ -809,12 +809,21 @@ pub(crate) fn process(
         ),
     ));
     let mut img = if gain == 1. { lin } else { cache.get("exposed", base_key, || one(cx, "p_scale", n, &[f(gain)], &lin, n * 3)) };
-    let proxy = proxy.map(|(b, w, h)| {
+    let mut proxy = proxy.map(|(b, w, h)| {
         let exposed = if gain == 1. { b } else { cache.get("proxy-exposed", base_key, || one(cx, "p_scale", w * h, &[f(gain)], &b, w * h * 3)) };
         (exposed, w, h)
     });
+    let mut scene_key = base_key;
+    if let Some((m, tint)) = lightcraft_pipeline::primary::calibration(s) {
+        let mut words = vec![m.is_some() as u32];
+        words.extend(m.unwrap_or_default().iter().flatten().copied().map(f));
+        words.push(f(tint));
+        scene_key = key((base_key, &words));
+        img = cache.get("calibrated", scene_key, || one(cx, "p_calibrate", n, &words, &img, n * 3));
+        proxy = proxy.map(|(b, w, h)| (cache.get("proxy-calibrated", scene_key, || one(cx, "p_calibrate", w * h, &words, &b, w * h * 3)), w, h));
+    }
     let pp = proxy.as_ref().map(|(p, w, h)| (p, *w, *h));
-    let (next, ik) = tone_detail(cx, img, s, plan, info, pp, clip, method, cache, base_key, base_key, "global");
+    let (next, ik) = tone_detail(cx, img, s, plan, info, pp, clip, method, cache, scene_key, scene_key, "global");
     img = next;
     let (next, mut ik) = colour(cx, img, s, plan, cache, ik, "global");
     img = next;
@@ -843,7 +852,7 @@ pub(crate) fn process(
             qkey = key((ik, mat.map(|r| r.map(f))));
         }
         if wb.is_some() || flags.tone || flags.clarity || flags.texture || flags.structure {
-            let (q, k) = tone_detail(cx, q, &d, plan, info, pp, clip, method, cache, qkey, base_key, &scope);
+            let (q, k) = tone_detail(cx, q, &d, plan, info, pp, clip, method, cache, qkey, scene_key, &scope);
             if let Some(alpha) = alpha {
                 img = Arc::new(run(cx, "p_mix", n, &[layout[mi].0, layout[mi].1.to_bits()], [Some(&img), Some(&q), Some(alpha), None, None], n * 3));
                 ik = key((

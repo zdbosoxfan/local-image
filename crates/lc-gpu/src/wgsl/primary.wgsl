@@ -12,6 +12,16 @@ fn tg(v: f32) -> f32 {return 1.6*pf(1u)*sstep(0.0,4.0,v)+1.8*pf(2u)*(1.0-sstep(-
 fn p_scale(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} put_rgb(i,rgb_a(i)*pf(1u));
 }
+// `colorops::calibrate`: primaries matrix (P[1] set, P[2..11]), then the shadows tint P[11]
+// with luminance kept.
+@compute @workgroup_size(256)
+fn p_calibrate(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} var c=rgb_a(i);
+    if(pu(1u)!=0u) {c=max(vec3<f32>(pf(2u)*c.x+pf(3u)*c.y+pf(4u)*c.z,pf(5u)*c.x+pf(6u)*c.y+pf(7u)*c.z,pf(8u)*c.x+pf(9u)*c.y+pf(10u)*c.z),vec3<f32>(0.0));}
+    let st=pf(11u);
+    if(st!=0.0) {let y0=lum2020(c); let w=1.0-sstep(-5.0,-0.5,log2(max(y0,1e-7)/0.18)); c.y*=max(1.0-SHADOW_TINT_K*st*w,0.0); let y1=max(lum2020(c),1e-9); c=c*y0/y1;}
+    put_rgb(i,c);
+}
 @compute @workgroup_size(256)
 fn p_log(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} out[i]=primary_log(rgb_a(i));

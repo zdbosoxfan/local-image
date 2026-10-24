@@ -491,3 +491,56 @@ fn hue_band_curves_stay_between_their_nodes() {
         }
     }
 }
+
+#[test]
+fn calibration_precedes_the_colour_tools() {
+    let src = RgbFrame::filled(24, 16, [0.05, 0.08, 0.3]);
+    let info = SourceInfo::default();
+    let mut s = DevelopSettings::default();
+    s.calibration.blue_sat = 60.;
+    s.mixer.blue.sat = -60.;
+    let plan = crate::plan(&src, &info, &s, &RenderRequest::fit(24, 16));
+    let out = primary::process(&src, &src, &info, &plan, primary::DEFAULT_HS_METHOD);
+    let m = colorops::calibration_matrix(&s.calibration);
+    let mut expected = src.map(|c| colorops::calibrate(c, m.as_ref(), 0.));
+    colorequal::apply(&mut expected, &s, plan.px_per_long);
+    for (a, b) in out.data.iter().zip(&expected.data) {
+        for k in 0..3 {
+            assert!((a[k] - b[k]).abs() <= 1e-3 * b[k].abs().max(1e-3), "{a:?} != calibrated then HSL {b:?}");
+        }
+    }
+    // The finish stage must not calibrate a second time.
+    assert!(primary::remaining(&s).calibration == Default::default());
+}
+
+#[test]
+fn calibration_shapes_black_and_white_and_its_shadows_tint_stays_neutral() {
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(24, 16);
+    let mut s = DevelopSettings { treatment: lightcraft_develop::Treatment::Bw, ..Default::default() };
+    let blue = RgbFrame::filled(24, 16, [0.04, 0.06, 0.25]);
+    let grey = |s: &DevelopSettings, src: &RgbFrame| render(src, &info, s, &req).image.get(12, 8);
+    let plain = grey(&s, &blue);
+    s.calibration.blue_sat = 60.;
+    let calibrated = grey(&s, &blue);
+    assert!(plain[1].abs_diff(calibrated[1]) >= 2, "Blue Primary Saturation does not shape the B&W mix: {plain:?} {calibrated:?}");
+    s.calibration = Default::default();
+    s.calibration.shadows_tint = 100.;
+    let dark = grey(&s, &RgbFrame::filled(24, 16, [0.01; 3]));
+    assert!(dark[0].abs_diff(dark[1]) <= 1 && dark[2].abs_diff(dark[1]) <= 1, "B&W shadows picked up a tint: {dark:?}");
+}
+
+#[test]
+fn calibration_edits_reach_cached_renders() {
+    let src = Arc::new(RgbFrame::from_fn(40, 30, |x, y| [0.05 + 0.01 * x as f32, 0.1 + 0.005 * y as f32, 0.2]));
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(40, 30);
+    let cache = StageCache::default();
+    let mut s = DevelopSettings::default();
+    s.color.vibrance = 30.;
+    let before = render_cached(&src, &info, &s, &req, &cache).image;
+    s.calibration.red_hue = 60.;
+    let after = render_cached(&src, &info, &s, &req, &cache).image;
+    assert_ne!(before, after);
+    assert_eq!(after, render(&src, &info, &s, &req).image);
+}
