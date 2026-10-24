@@ -487,7 +487,7 @@ impl MergeJob {
                 let info = json!({"shots": r.shots, "motionPixels": motion_pixels, "motionCorrection": self.sources.len() > 1,
                     "motionFallback": if self.sources.len() > 1 { "firstShotAuto" } else { "alreadyComposed" }});
                 let ghost = (self.preview.is_some() && self.finish.show_overlay && motion_pixels > 0).then(|| r.motion.oriented(r.orientation));
-                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, r.clip, None, info, ghost)
+                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, Some(r.clip), None, info, ghost)
             }
             MergeKind::Hdr { hdr } => {
                 let (r, permit, raw_domain) = self.hdr_result(hdr, &sub(0.0, 0.9))?;
@@ -499,7 +499,9 @@ impl MergeJob {
                     "alignment": r.alignments.iter().map(|a| json!({"model": a.model, "inliers": a.inliers, "rmsPx": a.rms})).collect::<Vec<_>>(),
                 });
                 let ghost = (!r.ghost.data.is_empty()).then(|| r.ghost.oriented(r.orientation));
-                (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, r.clip, None, info, ghost)
+                // Only sensor data has a saturation level; rendered and float images keep their highlights.
+                let clip = r.raw.then_some(r.clip);
+                (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, clip, None, info, ghost)
             }
             MergeKind::Panorama { pano } => {
                 let frames = self.load(true, true, progress, (0.0, 0.25))?;
@@ -588,7 +590,7 @@ impl MergeJob {
             metadata.caption = Some(format!("Merged from {}", names.join(", ")));
         }
         metadata.software = Some("Local Image Photo Merge".into());
-        let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation, &metadata, baseline, samples, Some(clip)).map_err(err)?;
+        let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation, &metadata, baseline, samples, clip).map_err(err)?;
         info["width"] = json!(image.width);
         info["height"] = json!(image.height);
         let preview = match self.preview {
@@ -1176,6 +1178,46 @@ mod tests {
         }
         assert!(frame.image.get(68, 46).iter().all(|v| *v == frame.clip), "the window stays clipped: {:?}", frame.image.get(68, 46));
         assert!(frame.metadata.lens_corrections_baked);
+    }
+
+    #[test]
+    fn float_hdr_merges_keep_radiance_above_the_darkest_brackets_white_level() {
+        // Scene-linear float TIFF brackets whose windows exceed 1.0 even in the darkest frame.
+        let (w, h) = (64, 48);
+        let window = |x: usize, y: usize| (20..36).contains(&x) && (12..28).contains(&y);
+        let bracket = |k: f32, seconds: f64| {
+            let image = RgbFrame::from_fn(w, h, |x, y| {
+                let v = if window(x, y) { 12.0 + 0.1 * (x + y) as f32 } else { 0.2 + 0.004 * x as f32 };
+                [v * k; 3]
+            });
+            let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata {
+                exposure_time: Some(seconds),
+                f_number: Some(8.0),
+                iso: Some(100),
+                ..Default::default()
+            });
+            lightcraft_codecs::encode_tiff(
+                &lightcraft_codecs::EncodeImage::new(w as u32, h as u32, 3, lightcraft_codecs::Samples::F32(image.data.as_flattened())),
+                lightcraft_codecs::TiffCompression::Deflate,
+                &lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() },
+            )
+            .unwrap()
+        };
+        let files = [bracket(1.0, 1.0 / 25.0), bracket(0.25, 1.0 / 100.0)];
+        let job = MergeJob {
+            kind: MergeKind::Hdr { hdr: HdrOptions { align: false, deghost: Deghost::None } },
+            finish: MergeFinish::default(),
+            sources: vec![(PhotoId(1), "bright.tif".into()), (PhotoId(2), "dark.tif".into())],
+            preview: None,
+            read: Arc::new(move |path| Ok(files[usize::from(path.starts_with("dark"))].clone())),
+        };
+        let output = job.run(&|_, _| true).unwrap();
+        assert_eq!(output.info["rawDomain"], json!(false));
+        let merged = lightcraft_raw::decode(&output.dng).unwrap().develop(lightcraft_raw::Method::Bilinear).unwrap();
+        // Ratios to the background are independent of the writer's scale.
+        let (background, highlight) = (merged.get(4, 40)[1], merged.get(28, 20)[1]);
+        let want = (12.0 + 0.1 * 48.0) / (0.2 + 0.004 * 4.0);
+        assert!((highlight / background / want - 1.0).abs() < 0.02, "window {highlight}, background {background}, ratio wanted {want}");
     }
 
     #[test]

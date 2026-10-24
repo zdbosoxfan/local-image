@@ -79,9 +79,10 @@ pub struct PanoResult {
     pub metadata: lightcraft_meta::Metadata,
     pub raw: bool,
     pub baseline_exposure: f64,
-    /// The level every input's saturated values were moved to after exposure compensation, so
-    /// a clip in any frame reads as one clip in the panorama ([`Frame::clip`]).
-    pub clip: f32,
+    /// Raw inputs: the level every input's saturated values were moved to after exposure
+    /// compensation, so a clip in any frame reads as one clip in the panorama ([`Frame::clip`]).
+    /// `None` when an input is not a raw file: rendered and float images keep their values.
+    pub clip: Option<f32>,
 }
 
 /// Field of view (degrees) of the cameras' union, measured in the spherical projection.
@@ -319,10 +320,14 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         }
     }
     check(progress, 0.7, "Blending")?;
-    // Frames clip at different compensated levels; saturated values all take the highest, and
-    // the seam owner's saturated channels stay exactly there through blending.
-    let clip = used.iter().map(|&i| frames[i].clip * gains[i] as f32).fold(0.0f32, f32::max);
-    let mut saturated = vec![0u8; if clip.is_finite() { pw * ph } else { 0 }];
+    // Raw frames clip at different compensated levels; saturated values all take the highest,
+    // and the seam owner's saturated channels stay exactly there through blending.
+    let clip = used
+        .iter()
+        .all(|&i| frames[i].raw)
+        .then(|| used.iter().map(|&i| frames[i].clip * gains[i] as f32).fold(0.0f32, f32::max))
+        .filter(|c| c.is_finite());
+    let mut saturated = vec![0u8; if clip.is_some() { pw * ph } else { 0 }];
     let mut blender = Blender::new(pw, ph, levels);
     for (i, t) in tiles.into_iter().enumerate() {
         let Some(t) = t else { continue };
@@ -335,13 +340,14 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
                 let owned = label[(t.y0 + ty) * pw + t.x0 + tx] == i as u16;
                 if t.wgt[k] > 0.0 {
                     for c in 0..3 {
-                        let v = if clip.is_finite() && t.rgb[k][c] >= frames[i].clip {
-                            if owned {
-                                saturated[(t.y0 + ty) * pw + t.x0 + tx] |= 1 << c;
+                        let v = match clip {
+                            Some(clip) if t.rgb[k][c] >= frames[i].clip => {
+                                if owned {
+                                    saturated[(t.y0 + ty) * pw + t.x0 + tx] |= 1 << c;
+                                }
+                                clip
                             }
-                            clip
-                        } else {
-                            t.rgb[k][c] * g
+                            _ => t.rgb[k][c] * g,
                         };
                         vals.data[k * 3 + c] = v.max(1e-6).ln();
                     }
@@ -356,6 +362,8 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         check(progress, 0.7 + 0.2 * (i + 1) as f32 / n as f32, "Blending")?;
     }
     let out = blender.finish();
+    // Only raw panoramas pin samples (`saturated` is empty otherwise).
+    let pin = clip.unwrap_or_default();
     let mut image = RgbFrame::new(cw, ch);
     let mut alpha = GrayFrame::new(cw, ch);
     for y in 0..ch {
@@ -363,7 +371,7 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
             let k = y * pw + x;
             if label[k] != u16::MAX {
                 let pinned = saturated.get(k).copied().unwrap_or(0);
-                image.data[y * cw + x] = [0, 1, 2].map(|c| if pinned & (1 << c) != 0 { clip } else { out.data[k * 3 + c].exp() });
+                image.data[y * cw + x] = [0, 1, 2].map(|c| if pinned & (1 << c) != 0 { pin } else { out.data[k * 3 + c].exp() });
                 alpha.data[y * cw + x] = 1.0;
             }
         }
