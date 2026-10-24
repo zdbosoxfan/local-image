@@ -118,12 +118,13 @@ fn infer_selected(
     if gpu && lightcraft_gpu::enabled() {
         let mut cache = GPU_MODEL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if cache.as_ref().is_none_or(|(p, k, st, d)| p != &path || *k != kind || *st != stamp || !d.is_current()) {
-            match lightcraft_gpu::denoise::Denoiser::load_at(&path, kind, tile) {
+            *cache = None;
+            let shape = li_seg::restoration_graph::Shape { c: kind.channels(), h: tile, w: tile };
+            let graph = li_seg::restoration_graph::Graph::load(&path, shape)
+                .map_err(|e| format!("This AI Denoise model can't run: {e:#}. Choose another model, or Use default in Settings › Local AI."))?;
+            match lightcraft_gpu::denoise::Denoiser::from_graph(graph, kind) {
                 Ok(d) => *cache = Some((path.clone(), kind, stamp, d)),
-                Err(e) => {
-                    *cache = None;
-                    return Err(format!("AI Denoise GPU unavailable: {e}"));
-                }
+                Err(e) => return Err(format!("AI Denoise GPU unavailable: {e}")),
             }
         }
         if let Some((_, _, _, d)) = cache.as_ref() {

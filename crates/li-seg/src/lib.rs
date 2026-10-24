@@ -1026,6 +1026,8 @@ pub enum CustomModelError {
     NotSubjectModel,
     /// The depth model doesn't output a single depth map.
     NotDepthModel,
+    /// The GPU denoiser can't run this restoration model; why.
+    UnsupportedRestoration { reason: String },
     /// A tract load/optimise failure.
     Other(String),
 }
@@ -1048,6 +1050,7 @@ impl fmt::Display for CustomModelError {
             }
             CustomModelError::NotSubjectModel => f.write_str("Not a subject model: it must output one foreground map"),
             CustomModelError::NotDepthModel => f.write_str("Not a depth model: it must output one depth map"),
+            CustomModelError::UnsupportedRestoration { reason } => write!(f, "{RESTORATION_UNSUPPORTED} ({reason})"),
             CustomModelError::Other(msg) => f.write_str(msg),
         }
     }
@@ -1095,6 +1098,9 @@ fn synthetic(w: usize, h: usize) -> Vec<u8> {
     img
 }
 
+/// Why a restoration model can't be used, before the specific reason.
+pub const RESTORATION_UNSUPPORTED: &str = "Local Image's GPU denoiser can't run this model. It runs convolutions (not grouped or dilated), ReLU, LeakyReLU, sigmoid, max pooling, two-input channel concat and DepthToSpace, with float32 weights";
+
 fn tract_error(e: anyhow::Error) -> CustomModelError {
     CustomModelError::Other(format!("{e:#}"))
 }
@@ -1123,6 +1129,9 @@ fn probe_outputs(cfg: Config, path: &Path, peak_scaled: bool) -> Result<(Vec<usi
 fn validate(custom: &mut Custom, path: &Path, opts: &CustomOptions) -> Result<(), CustomModelError> {
     if matches!(custom.group, Group::RawDenoise | Group::RgbDenoise) {
         let kind = if custom.class == 1 { denoise::Variant::Linear } else { denoise::Variant::Rgb };
+        // the GPU graph is what runs the model; tract checks its numbers on the CPU
+        restoration_graph::Graph::load(path, restoration_graph::Shape { c: kind.channels(), h: custom.size, w: custom.size })
+            .map_err(|e| CustomModelError::UnsupportedRestoration { reason: format!("{e:#}") })?;
         let model = denoise::Denoiser::load_at(path, kind, custom.size).map_err(tract_error)?;
         let out = model.run_tile(&vec![0.1; 3 * custom.size * custom.size]).map_err(tract_error)?;
         if out.len() != 3 * custom.size * custom.size || !out.iter().all(|v| v.is_finite()) {

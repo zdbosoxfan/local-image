@@ -883,6 +883,36 @@ fn ai_denoise_custom_model_and_use_default() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A residual restoration graph (`y = x + x`): tract runs it, the GPU denoiser has no `Add`.
+fn residual_onnx(s: u64) -> Vec<u8> {
+    let graph = bytes_of(|g| {
+        field_bytes(1, &node("Add", &["x", "x"], "y", &[]), g);
+        field_bytes(2, b"residual", g);
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+#[test]
+fn custom_denoisers_are_checked_against_the_gpu_graph_that_runs_them() {
+    let dir = temp_models();
+    let residual = picked_bytes(&dir, "residual.onnx", &residual_onnx(32));
+    for group in [Group::RawDenoise, Group::RgbDenoise] {
+        let err = add_custom(&dir, group, &residual, CustomOptions::default(), &keep).unwrap_err();
+        match err.downcast_ref::<CustomModelError>() {
+            Some(CustomModelError::UnsupportedRestoration { reason }) => assert!(reason.contains("Add"), "{reason}"),
+            _ => panic!("{err:#}"),
+        }
+        assert!(custom(&dir, group).is_none(), "refused at import, not at Apply");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn bg_tier_tiny_smoke_preserves_probabilities_and_no_subject() {
     let dir = temp_models();

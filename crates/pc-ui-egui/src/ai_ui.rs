@@ -505,6 +505,7 @@ fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
         ),
         li_seg::CustomModelError::NotSubjectModel => tl!("Not a subject model: it must output one foreground map").to_owned(),
         li_seg::CustomModelError::NotDepthModel => tl!("Not a depth model: it must output one depth map").to_owned(),
+        li_seg::CustomModelError::UnsupportedRestoration { reason } => format!("{} ({reason})", tl!(li_seg::RESTORATION_UNSUPPORTED)),
         li_seg::CustomModelError::Other(msg) => msg.clone(),
     }
 }
