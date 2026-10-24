@@ -6,6 +6,7 @@ mod browser_oct9_coverage;
 mod catalog_coverage;
 mod cloud_coverage;
 mod comfy_coverage;
+mod curated_graphs_coverage;
 mod custom_coverage;
 mod download_coverage;
 mod download_trash_inventory_coverage;
