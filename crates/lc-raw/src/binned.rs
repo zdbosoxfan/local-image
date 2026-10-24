@@ -129,22 +129,20 @@ impl RawImage {
     }
 
     /// Binned development with highlight handling `h`, run on the sensor data before
-    /// `OpcodeList3`: segmentation on the reduced mosaic ([`Self::develop_binned_with`]), the other
-    /// modes on the binned RGB, whose clipped channels keep their block maximum. Unlike
-    /// [`Self::develop_binned`] this also bins raws whose `OpcodeList3` holds only operations
-    /// defined in relative coordinates ([`crate::opcodes::list3_binnable`]: the warps, vignette and
-    /// gain maps of DJI and Hasselblad drone DNGs), evaluating them at the binned size.
+    /// `OpcodeList3`: the darktable modes on the reduced mosaic ([`Self::develop_binned_with`]),
+    /// as at full size, Clip and Reconstruct on the binned RGB, whose clipped channels keep their
+    /// block maximum. Unlike [`Self::develop_binned`] this also bins raws whose `OpcodeList3`
+    /// holds only operations defined in relative coordinates ([`crate::opcodes::list3_binnable`]:
+    /// the warps, vignette and gain maps of DJI and Hasselblad drone DNGs), evaluating them at
+    /// the binned size.
     pub fn develop_binned_with_highlights(&self, k: usize, h: &crate::highlight::Highlights) -> Result<Option<RgbFrame>> {
         self.validate()?;
         if !self.can_bin(k) || !crate::opcodes::list3_binnable(&self.opcodes.list3) {
             return Ok(None);
         }
         let Some((region, after)) = self.bin_region(k) else { return Ok(None) };
-        let img = if h.mode == crate::highlight::Mode::Segmentation {
-            self.bin_mosaic(k, h.clip, region, |n, scale| {
-                h.mosaic(n, scale);
-            })?
-            .map(|mut img| {
+        let img = if matches!(h.mode, crate::highlight::Mode::Opposed | crate::highlight::Mode::Segmentation) {
+            self.bin_mosaic(k, h.clip, region, |n, scale| h.inpaint(n, scale))?.map(|mut img| {
                 h.binned(&mut img);
                 img
             })
@@ -355,6 +353,34 @@ mod tests {
         // a pixel-indexed opcode still needs the full development
         raw.opcodes.list3.push(Opcode::DeltaPerRow { area, deltas: vec![0.01; h] });
         assert!(raw.develop_binned_with_highlights(2, &highlights).unwrap().is_none());
+    }
+
+    /// Previews run the same sensor-domain inpaint opposed as the full-size development: the CFA
+    /// port on the reduced mosaic, then the neutral pass on the binned RGB.
+    #[test]
+    fn binned_inpaint_opposed_runs_on_the_mosaic() {
+        use crate::highlight::{Highlights, Mode, neutralize_clipped, opposed_cfa};
+        let wb = [2.2, 1.0, 1.6];
+        let img = RgbFrame::from_fn(64, 48, |x, y| {
+            let b = 0.4 + 1.6 * (-((x as f32 - 30.0).powi(2) + (y as f32 - 22.0).powi(2)) / 120.0).exp();
+            [(b * 0.9 / wb[0]).min(1.0), (b / wb[1]).min(1.0), (b * 0.7 / wb[2]).min(1.0)]
+        });
+        let raw = raw_from(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), 0.0, 4095.0);
+        let highlights = Highlights { mode: Mode::Opposed, wb, clip: 0.99 };
+        for k in [2, 4] {
+            let binned = raw.develop_binned_with_highlights(k, &highlights).unwrap().unwrap();
+            let mut expected = raw
+                .develop_binned_with(k, 0.99, |n, _| {
+                    opposed_cfa(n, wb, 0.99);
+                })
+                .unwrap()
+                .unwrap();
+            neutralize_clipped(&mut expected, wb, 0.99);
+            assert_eq!((binned.width, binned.height), (expected.width, expected.height));
+            for (a, b) in binned.data.iter().zip(&expected.data) {
+                assert!(a.iter().zip(b).all(|(a, b)| (a - b).abs() <= 1e-5 * b.abs().max(1.0)), "k = {k}: {a:?} {b:?}");
+            }
+        }
     }
 
     #[test]

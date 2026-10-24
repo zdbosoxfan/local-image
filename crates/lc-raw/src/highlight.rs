@@ -72,20 +72,27 @@ impl Highlights {
             return Pending::Rgb;
         }
         match self.mode {
-            Mode::Clip => clip_cfa(n, self.wb, self.clip),
+            Mode::Clip => {
+                clip_cfa(n, self.wb, self.clip);
+                Pending::Nothing
+            }
             // the samples a demosaic spreads into each pixel: its 3×3 neighbourhood
-            Mode::Reconstruct => return ClipMask::of(n, self.clip, 1).map_or(Pending::Nothing, Pending::Masked),
+            Mode::Reconstruct => ClipMask::of(n, self.clip, 1).map_or(Pending::Nothing, Pending::Masked),
             Mode::Opposed | Mode::Segmentation => {
                 let mask = ClipMask::of(n, self.clip, 1);
-                if self.mode == Mode::Opposed {
-                    opposed_cfa(n, self.wb, self.clip);
-                } else {
-                    segmentation(n, self.wb, self.clip, &SegmentationOptions::default().at_scale(scale));
-                }
-                return mask.map_or(Pending::Nothing, Pending::Neutralize);
+                self.inpaint(n, scale);
+                mask.map_or(Pending::Nothing, Pending::Neutralize)
             }
         }
-        Pending::Nothing
+    }
+
+    /// The darktable modes' fill of the clipped samples of a mosaic (nothing for the others).
+    pub(crate) fn inpaint(&self, n: &mut Normalized, scale: usize) {
+        match self.mode {
+            Mode::Opposed => drop(opposed_cfa(n, self.wb, self.clip)),
+            Mode::Segmentation => drop(segmentation(n, self.wb, self.clip, &SegmentationOptions::default().at_scale(scale))),
+            Mode::Clip | Mode::Reconstruct => {}
+        }
     }
 
     /// The rest of the mode, on the demosaic of the mosaic [`Self::mosaic`] saw.
