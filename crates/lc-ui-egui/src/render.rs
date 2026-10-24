@@ -352,7 +352,8 @@ impl Renderer {
     /// Like [`Self::request`], for a full-size render (the loupe's 1:1 view): before it decodes
     /// it waits for a heavy-job permit of `cost` bytes, so it never stacks with exports and
     /// preview builds, and while it waits a newer request for its slot (or [`Self::cancel`])
-    /// stops it.
+    /// stops it. Its develop takes the GPU in turn with theirs
+    /// ([`lightcraft_engine::export::pipeline::run_render_job`]).
     pub fn request_admitted(&mut self, slot: Slot, job: RenderJob, priority: u32, cost: u64) {
         self.submit(slot, job, priority, Some(cost));
     }
@@ -424,7 +425,14 @@ impl Renderer {
                     },
                     None => None,
                 };
-                let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
+                let result = if background {
+                    lightcraft_engine::memory::in_background(|| job.run())
+                } else if admit.is_some() {
+                    // full size: on the GPU one at a time with exports and preview builds
+                    lightcraft_engine::export::pipeline::run_render_job(job)
+                } else {
+                    job.run()
+                };
                 display_result(fit_texture(result, max_side), display.as_deref())
             }),
         );
@@ -1051,6 +1059,33 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.textures.get(&Slot::Detail).map(|t| t.key), Some(key), "runs once a permit is free");
         assert!(app.renderer.failure(Slot::Detail).is_none(), "the cancelled request left no failure behind");
+    }
+
+    /// A full-size render takes the GPU in turn with exports and preview builds (while one holds
+    /// it, the render waits), and hands back the original it decoded, kept for the next one.
+    #[test]
+    fn full_size_renders_take_their_turn_on_the_gpu() {
+        let mut s = Session::new();
+        s.media.file_loader = Some(Arc::new(|_, _| Ok((li_raster::RgbFrame::filled(8, 8, [0.3, 0.2, 0.1]), Default::default()))));
+        s.catalog.apply(Op::AddPhoto { photo: Box::new((*photo()).clone()) }).unwrap();
+        let mut app = crate::LightcraftApp::new(s, crate::Services::default());
+        assert!(lightcraft_engine::gpu::available(), "real GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
+        let ctx = egui::Context::default();
+        let export = lightcraft_engine::export::pipeline::GPU_GATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let job = app.session.detail_job(PhotoId(1), 64, 64, true).unwrap();
+        let key = job.key;
+        app.renderer.request_admitted(Slot::Detail, job, 95, 1 << 20);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        app.renderer.poll(&ctx, &mut app.session);
+        assert!(app.renderer.is_pending(Slot::Detail) && !app.renderer.textures.contains_key(&Slot::Detail), "waits while an export renders");
+        drop(export);
+        let t0 = std::time::Instant::now();
+        while !app.renderer.textures.contains_key(&Slot::Detail) && t0.elapsed() < std::time::Duration::from_secs(60) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.renderer.poll(&ctx, &mut app.session);
+        }
+        assert_eq!(app.renderer.textures.get(&Slot::Detail).map(|t| t.key), Some(key), "renders once the GPU is free");
+        assert_eq!(app.session.media.usage().2.count, 1, "the decoded original is kept");
     }
 
     #[test]

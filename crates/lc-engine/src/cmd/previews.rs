@@ -138,7 +138,9 @@ fn run_all(jobs: Vec<(u64, Vec<BuildJob>)>, state: &PreviewBuild, permits: &ligh
     for_each_bounded("lc-build-previews", jobs, permits, &|| state.cancel.load(Ordering::Relaxed), &|_, photo_jobs| {
         let ok = photo_jobs.into_iter().all(|(job, keep)| {
             let generation = job.cache_generation;
-            match (crate::export::pipeline::run_render_job(job).rendered, keep) {
+            // (bound first: the decoded original it hands back is freed before the write)
+            let rendered = crate::export::pipeline::run_render_job(job).rendered;
+            match (rendered, keep) {
                 // on disk only: building previews must not push what is on screen out of memory
                 (Ok(r), Some((cache, key))) => {
                     cache.put_ahead_at(generation, key, Arc::new(r.image));

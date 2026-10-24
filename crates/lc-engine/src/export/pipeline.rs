@@ -82,9 +82,12 @@ impl Flow {
     }
 }
 
-/// Run a batch's render job: decode first, then develop. When the develop may use the GPU it
-/// takes [`GPU_GATE`] (the decode before it does not), so batch items share the GPU one at a
-/// time while their decoding and the CPU work around it overlap.
+/// Run a full-size render job (a batch item, or the loupe's 1:1 view): decode first, then
+/// develop. When the develop may use the GPU it takes [`GPU_GATE`] (the decode before it does
+/// not), so these renders share the GPU one at a time while their decoding and the CPU work
+/// around it overlap. The result is [`RenderJob::run`]'s, with the source it decoded.
+///
+/// [`RenderJob::run`]: crate::media::RenderJob::run
 pub fn run_render_job(mut job: crate::media::RenderJob) -> crate::media::RenderResult {
     // the conditions under which `develop` keeps the render off the GPU; those renders, and
     // all of them with no usable GPU (or GPU off), run side by side on the CPU
@@ -92,15 +95,20 @@ pub fn run_render_job(mut job: crate::media::RenderJob) -> crate::media::RenderR
     if !gpu {
         return job.run();
     }
+    let mut decoded = None;
     if !matches!(job.source, crate::media::SourceRef::Loaded(_)) {
         match crate::guard::catch("Preview render", || job.source.load_source()) {
-            Ok(Ok(src)) => job.source = crate::media::SourceRef::Loaded(Box::new(src)),
+            Ok(Ok(src)) => {
+                decoded = Some(src.clone());
+                job.source = crate::media::SourceRef::Loaded(Box::new(src));
+            }
             // the job reports the failure as it always has
             _ => return job.run(),
         }
     }
     let _gpu = GPU_GATE.lock().unwrap_or_else(PoisonError::into_inner);
-    job.run()
+    let result = job.run();
+    crate::media::RenderResult { loaded: result.rendered.is_ok().then_some(decoded).flatten(), ..result }
 }
 
 /// A receiver shared by a stage's threads (dropped with the last of them, so the stage before
