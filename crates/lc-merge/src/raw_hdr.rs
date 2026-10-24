@@ -269,9 +269,10 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     if merged.data.iter().any(|v| !v.is_finite()) {
         return Err(MergeError::Mismatch("Raw HDR fusion produced non-finite sensor samples".into()));
     }
-    // AHD preserves scene-linear values above white, unlike algorithms whose
-    // absolute [0,1] intermediate clamps assume a single-exposure sensor mosaic.
-    result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Ahd);
+    // Develop's default method, so merges render detail like single raws. The mosaic stays in
+    // reference-exposure units: Auto's noise and dual-mask thresholds are absolute, and RCD,
+    // VNG, DCB and LMMSE keep values above white (only AMaZE clamps at 1.0).
+    result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Auto);
     drop(merged);
     let ref_raw = &raws[reference];
     // A sample clipped in every bracket keeps only the darkest frame's weight.
@@ -451,7 +452,7 @@ mod tests {
     fn old_frames(raws: &[RawImage]) -> Vec<Frame> {
         raws.iter()
             .map(|raw| Frame {
-                image: raw.develop(lightcraft_raw::Method::Ahd).unwrap(),
+                image: raw.develop(lightcraft_raw::Method::Auto).unwrap(),
                 clip: 1.0,
                 exposure: exif_exposure(&raw.metadata),
                 raw: true,
@@ -513,6 +514,15 @@ mod tests {
                 assert!(stored < 0.95 * gain && (stored - want).abs() <= want * 1e-5, "{x},{y}: {stored} vs {want}");
             }
         }
+    }
+
+    #[test]
+    fn raw_hdr_demosaics_like_a_single_raw() {
+        let raw = capture(192, 128, 1.0, window_scene, (0.0, 0.0));
+        let merged = merge_raw_hdr(&[raw.clone(), raw.clone()], &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        let single = raw.develop(lightcraft_raw::Method::Auto).unwrap();
+        let error = merged.radiance.data.iter().flatten().zip(single.data.iter().flatten()).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+        assert!(error < 1e-6, "merge of identical frames differs from Develop's default demosaic by {error}");
     }
 
     #[test]

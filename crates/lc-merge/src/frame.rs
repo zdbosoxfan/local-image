@@ -197,7 +197,7 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
         // Each panorama input must have its own ordered camera-RGB corrections
         // applied before registration. The final mosaic has no source lens frame.
         let small = max_edge.is_some_and(|m| m <= 1200);
-        let method = if small { lightcraft_raw::Method::Bilinear } else { lightcraft_raw::Method::Ahd };
+        let method = if small { lightcraft_raw::Method::Bilinear } else { lightcraft_raw::Method::Auto };
         let (mut image, clip) = develop_frame(&raw, method)?;
         for p in image.data.iter_mut() {
             *p = p.map(|v| v.max(0.0));
@@ -376,7 +376,7 @@ mod correction_regressions {
             },
             metadata: Metadata { make: Some("DJI".into()), model: Some("merge fixture".into()), ..Default::default() },
         };
-        let expected = raw.develop(lightcraft_raw::Method::Ahd).unwrap();
+        let expected = raw.develop(lightcraft_raw::Method::Auto).unwrap();
         let merged = crate::merge_raw_hdr(
             &[raw.clone(), raw.clone()],
             &crate::HdrOptions { align: false, deghost: crate::Deghost::None },
@@ -406,7 +406,7 @@ mod correction_regressions {
         assert!(reopened.opcodes.list3.is_empty(), "corrections already baked, never repeated");
         // The writer's scale travels in BaselineExposure.
         let gain = 2f32.powf((reopened.color.baseline_exposure - merged.baseline_exposure) as f32);
-        close(&reopened.develop(lightcraft_raw::Method::Ahd).unwrap().map(|p| p.map(|v| v * gain)), &expected);
+        close(&reopened.develop(lightcraft_raw::Method::Auto).unwrap().map(|p| p.map(|v| v * gain)), &expected);
         let input = lightcraft_raw::write_dng(
             &raw,
             &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Deflate { tile: 16, half: false }, ..Default::default() },
