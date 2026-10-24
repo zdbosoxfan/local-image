@@ -859,7 +859,7 @@ pub fn source_info(p: &Photo) -> SourceInfo {
 }
 
 /// The photo's 35 mm-equivalent focal length: as recorded, else its focal length times the camera's
-/// crop factor from the lens database (for photos imported before the recorded value was kept).
+/// crop factor from the lens database (catalog entries without the recorded value).
 fn focal_35mm(p: &Photo) -> Option<f64> {
     if let Some(f) = p.meta.focal_35mm.filter(|f| f.is_finite() && *f > 0.0) {
         return Some(f64::from(f));

@@ -1288,7 +1288,7 @@ mod tests {
     }
 
     /// Remove CA measures and corrects the sensor's planes too: measured on working planes the
-    /// scales came out 25 to 35 % off, and correcting working planes left 70 % more residual.
+    /// scales are 25 to 35 % off, and correcting working planes leaves 70 % more residual.
     #[test]
     fn remove_ca_measures_camera_planes() {
         let (w, h) = (600usize, 400usize);

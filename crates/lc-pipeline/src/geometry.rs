@@ -129,9 +129,9 @@ impl Frame {
     }
 
     /// "Constrain Crop": the largest crop of the same aspect inside the user's crop that contains no area
-    /// outside the warped source. Shrinking about the crop's centre alone wasted 5 to 11 % of the area on
-    /// the lopsided trapezoids Upright leaves (a vertical fix with a horizontal one or a roll), so the
-    /// shrunk crop also moves, within the room the shrink frees.
+    /// outside the warped source. Shrinking about the crop's centre alone loses area on the lopsided
+    /// trapezoids Upright leaves (a vertical fix with a horizontal one or a roll), so the shrunk crop
+    /// also moves, within the room the shrink frees.
     fn constrain_to_image(&mut self) {
         let Some(wp) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
         let a = self.crop.output_to_source(self.ow, self.oh, 1.0, 1.0);
@@ -712,8 +712,8 @@ mod tests {
     }
 
     /// A full-size render of an unrotated crop copies whole source pixels (the crop snaps to the
-    /// pixel grid, as in Lightroom); it was interpolated at the crop's sub-pixel phase, softening
-    /// every cropped export. Flipped crops copy mirrored pixels.
+    /// pixel grid, as in Lightroom), so a cropped export is as sharp as the source rather than
+    /// interpolated at the crop's sub-pixel phase. Flipped crops copy mirrored pixels.
     #[test]
     fn full_size_crops_copy_whole_source_pixels() {
         let src = noise(2000, 1000);
@@ -738,9 +738,8 @@ mod tests {
         }
     }
 
-    /// A crop no longer costs sharpness in a reduced render: it went through the prefilter and then
-    /// a second, bilinear resample at the crop's phase; now it is the same single pass as an
-    /// uncropped render.
+    /// A crop costs no sharpness in a reduced render: it is the same single pass as an uncropped
+    /// render, not a prefilter followed by a second resample at the crop's phase.
     #[test]
     fn crops_keep_reduced_renders_as_sharp_as_uncropped() {
         let src = noise(2400, 1600);
@@ -752,9 +751,9 @@ mod tests {
         assert!((cropped / whole - 1.0).abs() < 0.03, "cropped {cropped:.4} vs uncropped {whole:.4}");
     }
 
-    /// A reduction by up to 1.25× (no prefilter) used two bilinear taps per pixel: stripes just
-    /// under the source's Nyquist folded back at 41 % of their contrast. The widened Catmull-Rom
-    /// band-limits the reduction.
+    /// A reduction by up to 1.25× (no prefilter) band-limits with the widened Catmull-Rom: through
+    /// two bilinear taps per pixel, stripes just under the source's Nyquist fold back at 41 % of
+    /// their contrast.
     #[test]
     fn small_reductions_band_limit_fine_stripes() {
         let (fq, k) = (0.49f64, 1.25f64);
@@ -800,7 +799,7 @@ mod tests {
         res
     }
 
-    /// A straightened full-size render keeps fine texture everywhere: one bilinear tap passed a
+    /// A straightened full-size render keeps fine texture everywhere: a bilinear tap passes a
     /// 4-pixel grating at 71 % where the sample phase is half a pixel, in bands across the frame.
     #[test]
     fn straightened_renders_keep_fine_texture() {
@@ -835,8 +834,8 @@ mod tests {
     }
 
     /// Where a perspective correction squeezes the image (the foreground of a steeply tilted shot),
-    /// the kernel widens: fine stripes there aliased to coarse false stripes at about half their
-    /// contrast through bilinear taps.
+    /// the kernel widens: through bilinear taps, fine stripes there alias to coarse false stripes
+    /// at about half their contrast.
     #[test]
     fn warps_widen_the_kernel_where_they_minify() {
         let (w, h) = (1200, 800);
@@ -880,7 +879,8 @@ mod tests {
 
     /// Constrain Crop on the lopsided shapes Upright leaves (a vertical fix with a horizontal one, a
     /// strong portrait fix): moving the shrunk crop as well keeps nearly the largest crop that fits
-    /// inside the user's crop; shrinking about the centre alone lost up to a tenth of the area.
+    /// inside the user's crop, where shrinking about the centre alone loses up to a tenth of the
+    /// area.
     #[test]
     fn constrain_crop_keeps_nearly_the_largest_crop() {
         for (vertical, horizontal, (w, h)) in [(-30.0, 15.0, (600, 400)), (-60.0, 0.0, (400, 600)), (-25.0, -20.0, (400, 600))] {

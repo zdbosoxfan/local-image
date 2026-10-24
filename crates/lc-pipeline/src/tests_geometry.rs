@@ -521,8 +521,8 @@ fn bugfix_develop_rotation_preserves_manual_and_upright_perspective() {
 }
 
 /// A facade shot with a 16 mm lens (full frame) tilted 20° up: with the photo's focal length,
-/// Upright Vertical makes the verticals parallel and keeps the facade's proportions (the assumed
-/// 27 mm camera made it about 10 % too tall), and Auto corrects it instead of leaving it to Level.
+/// Upright Vertical makes the verticals parallel and keeps the facade's proportions (an assumed
+/// 27 mm camera makes it about 10 % too tall), and Auto corrects it rather than only levelling.
 #[test]
 fn upright_uses_the_photos_focal_length() {
     use crate::transform::{focal_from_35mm, recentre, rot_x, rotation_homography};
@@ -568,8 +568,8 @@ fn lean(h: &lightcraft_geom::Homography, s: &Segment) -> f64 {
 
 /// A tall building from street level with a 16 mm lens tilted 26° up puts the verticals' vanishing
 /// point 1.8 half-long-edges above the centre, inside the cutoff that keeps sun rays and roads to
-/// the horizon from being "corrected": explicit Vertical and Full levelled only. They now take a
-/// steep vanishing point beyond the frame and near the vertical axis; Auto stays moderate.
+/// the horizon from being "corrected". Explicit Vertical and Full still take a steep vanishing
+/// point beyond the frame and near the vertical axis; Auto stays moderate.
 #[test]
 fn upright_vertical_and_full_correct_steep_tilts() {
     use lightcraft_develop::Upright;
@@ -621,8 +621,9 @@ fn upright_finds_steep_tilts_in_a_rendered_facade() {
 
 /// A flat wall with the same sensor noise everywhere, darkened 2 stops in the corners by the lens
 /// and brightened back by the profile's vignetting correction before noise reduction. The noise
-/// model assumed one noise level per signal level, so the corners kept far more grain than the
-/// centre; with the gain divided out around the denoiser they match denoising before the gain.
+/// model assumes one noise level per signal level, which leaves the brightened corners far more
+/// grain than the centre; with the gain divided out around the denoiser they match denoising
+/// before the gain.
 #[test]
 fn noise_reduction_sees_the_raw_noise_under_vignetting_correction() {
     use lightcraft_develop::EmbeddedRadial;

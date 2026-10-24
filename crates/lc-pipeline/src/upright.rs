@@ -493,8 +493,8 @@ fn steep_tilt(v: [f64; 3], extent: [f64; 2]) -> bool {
 /// The Upright correction for `mode` from an analysis (lens-corrected → transformed, centred coordinates).
 pub fn solve(mode: Upright, a: &Analysis) -> Homography {
     // The virtual camera rotation needs the real focal length: with a wrong one the vanishing point
-    // still goes to infinity, but the solved angle and with it the corrected aspect are wrong (a
-    // 16 mm shot tilted 20° came out 10 % too tall at the default).
+    // still goes to infinity, but the solved angle and with it the corrected aspect are wrong (the
+    // default makes a 16 mm shot tilted 20° about 10 % too tall).
     let f0 = a.focal.unwrap_or(DEFAULT_FOCAL);
     let level = || level_angle(&a.vertical, &a.horizontal).map(rot_z_h).unwrap_or(Homography::IDENTITY);
     // Auto keeps to moderate tilts; an explicit Vertical or Full also takes a steep one.

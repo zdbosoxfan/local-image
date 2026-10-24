@@ -735,8 +735,8 @@ mod tests {
         assert!((mean - m3).abs() < 1e-5);
     }
 
-    /// A dark wall beside a window 9 stops brighter, reduced: no pixel rings below the wall (it went
-    /// negative through the plain Mitchell fit), and a small image is left as it is.
+    /// A dark wall beside a window 9 stops brighter, reduced: no pixel rings below the wall (the
+    /// plain Mitchell fit goes negative there), and a small image is left as it is.
     #[test]
     fn scene_linear_fit_keeps_the_dark_side() {
         let img = RgbFrame::from_fn(1000, 40, |x, _| if x < 503 { [0.002, 0.003, 0.004] } else { [1.0; 3] });

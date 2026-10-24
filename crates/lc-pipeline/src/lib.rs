@@ -614,9 +614,9 @@ pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
 
 /// Noise reduction of the resampled image ([`local::denoise_source`]). The lens warp has already
 /// brightened vignetted corners by up to a few stops, but the noise models assume one noise level
-/// per signal level across the frame, so the corners kept up to twice their share of grain. The
-/// gain is divided out around the denoiser (a per-pixel scale, it commutes with white balance and
-/// the colour matrices), so the corners are denoised as their raw noise is.
+/// per signal level across the frame, which would leave the corners up to twice their share of
+/// grain. The gain is divided out around the denoiser (a per-pixel scale, it commutes with white
+/// balance and the colour matrices), so the corners are denoised as their raw noise is.
 pub fn denoise_sampled(img: &mut RgbFrame, frame: &geometry::Frame, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
     let scale = detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
     let gain = detail::nr_params(s, scale).and_then(|_| frame.vignette_gain(img.width, img.height));
