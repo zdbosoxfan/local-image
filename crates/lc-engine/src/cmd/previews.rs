@@ -121,7 +121,7 @@ pub(crate) fn for_each_bounded<T: Send>(
 
 /// Working memory of one photo's preview build at long edge `edge`: its raw data
 /// (2 B/px of the original) plus a render at that size ([`crate::export::render_cost`]).
-fn preview_cost(width: u32, height: u32, edge: usize) -> u64 {
+pub(crate) fn preview_cost(width: u32, height: u32, edge: usize) -> u64 {
     let (w, h) = (width as usize, height as usize);
     let long = w.max(h).max(1);
     let scale = (edge as f64 / long as f64).min(1.0);

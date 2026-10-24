@@ -183,6 +183,7 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 app.ui.tool = if mode == Upright::Guided { "guidedUpright".into() } else { String::new() };
             }
         }
+        super::develop_tools::upright_progress(app, ui);
         let guided = d.geometry.upright == lightcraft_develop::Upright::Guided;
         ui.horizontal_wrapped(|ui| {
             if !guided

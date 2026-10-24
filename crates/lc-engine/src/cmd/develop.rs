@@ -850,7 +850,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     let mut settings = preset.apply(&d, amount);
                     s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
                     if preset.settings.get("geometry").is_some() {
-                        s.solve_upright(*id, &mut settings);
+                        s.queue_upright(*id, &settings);
                     }
                     s.develop_op(*id, settings, &format!("Preset: {}", preset.name))
                 })

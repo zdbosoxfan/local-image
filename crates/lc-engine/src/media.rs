@@ -523,6 +523,10 @@ pub struct RenderJob {
     pub stages: Option<Arc<StageCache>>,
     /// Keep a full-quality result here as the photo's view preview ([`crate::Session::loupe_job`]).
     pub view_cache: Option<(Arc<PreviewCache>, Hash128)>,
+    /// The photo's preview-level source, for a full-size render whose settings name an automatic
+    /// Upright mode without its transform: analysed from it, as the loupe's render and the Upright
+    /// command analyse it, so the keystone is the same at every size.
+    pub upright_source: Option<SourceRef>,
 }
 
 pub struct RenderResult {
@@ -662,6 +666,20 @@ impl RenderJob {
                 // local-image: exclude AI patches of other
                 // photos left out (see `enhance::for_render`)
                 let (src, settings) = crate::enhance::for_render(&source.image, &self.settings, self.source_key);
+                let settings = match &self.upright_source {
+                    Some(preview) if settings.upright_unsolved() => match upright_from(preview, &self.info, &settings) {
+                        Ok(h) => {
+                            let mut solved = (*settings).clone();
+                            solved.geometry.upright_transform = Some(h);
+                            Arc::new(solved)
+                        }
+                        Err(e) => {
+                            log::warn!("Upright analysis of photo {} from its preview source failed ({e}); solved from the original", self.photo.0);
+                            settings
+                        }
+                    },
+                    _ => settings,
+                };
                 // Thumbnails (many small jobs side by side) stay on the CPU; views and exports use
                 // the GPU when there is one.
                 let gpu = self.cache.is_none();
@@ -731,6 +749,15 @@ pub fn cpu_only(s: &DevelopSettings, req: &RenderRequest) -> Option<&'static str
     } else {
         None
     }
+}
+
+/// The automatic Upright transform `s` names, analysed from a photo's preview-level source
+/// `preview` against its header facts `header`: what the loupe's render, the Upright command and
+/// the background analysis after Paste or Sync all solve, whatever size is rendered.
+pub(crate) fn upright_from(preview: &SourceRef, header: &SourceInfo, s: &DevelopSettings) -> Result<Homography, String> {
+    let source = preview.load_source()?;
+    let info = source.info_or(header.clone());
+    Ok(lightcraft_pipeline::upright::auto_transform(&source.image, &info, s, s.geometry.upright))
 }
 
 /// Working memory of rendering a photo `size` pixels large from its original at `out` pixels: its
@@ -937,6 +964,7 @@ impl crate::Session {
         let level = SourceLevel::for_size(max_w.max(max_h));
         let source = self.media.source_ref(&p, level);
         let settings = if before { Arc::new(self.before_settings(&p)) } else { p.develop.clone() };
+        let upright_source = (level == SourceLevel::Full && settings.upright_unsolved()).then(|| self.media.source_ref(&p, SourceLevel::Preview));
         let request = RenderRequest { apply_crop, ..RenderRequest::fit(max_w, max_h) };
         let content_key = content_key(&p);
         let source_key = Hasher128::new().str(&content_key).finish();
@@ -969,6 +997,7 @@ impl crate::Session {
             cache,
             stages: None,
             view_cache: None,
+            upright_source,
         })
     }
 
@@ -1020,6 +1049,7 @@ impl crate::Session {
             cache: Some((self.media.rendered.clone(), ck)),
             stages: None,
             view_cache: None,
+            upright_source: None,
         })
     }
 
@@ -1065,6 +1095,7 @@ impl crate::Session {
             cache: Some((self.media.rendered.clone(), ck)),
             stages: None,
             view_cache: None,
+            upright_source: None,
         })
     }
 
@@ -1213,6 +1244,9 @@ impl crate::Session {
         job.source = self.media.source_ref(&photo, SourceLevel::Full);
         job.key ^= ((job.level as u64) ^ (SourceLevel::Full as u64)) << 60;
         job.level = SourceLevel::Full;
+        if job.upright_source.is_none() && job.settings.upright_unsolved() {
+            job.upright_source = Some(self.media.source_ref(&photo, SourceLevel::Preview));
+        }
     }
 
     /// Prefer decoder facts to header-only metadata for pixel-statistics commands.
@@ -1237,19 +1271,6 @@ impl crate::Session {
         let p = self.catalog.photo(id).ok_or("no such photo")?;
         let info = self.media.source_facts(id, job_info(p, settings));
         Ok(lightcraft_pipeline::upright::auto_transform(&src, &info, settings, mode))
-    }
-
-    /// Store the Upright transform `settings` names a mode for but doesn't carry (pasted, synced
-    /// or preset settings), solved from this photo's own lines. A source that can't be read
-    /// leaves it to the render, which solves it from the pixels it has.
-    pub(crate) fn solve_upright(&mut self, id: PhotoId, settings: &mut DevelopSettings) {
-        if !settings.upright_unsolved() {
-            return;
-        }
-        match self.upright_transform(id, settings, settings.geometry.upright) {
-            Ok(h) => settings.geometry.upright_transform = Some(h),
-            Err(e) => log::warn!("Upright analysis of photo {} deferred to its render: {e}", id.0),
-        }
     }
 }
 

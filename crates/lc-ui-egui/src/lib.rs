@@ -1007,6 +1007,7 @@ impl LightcraftApp {
             self.ai_mask_detail(&ctx);
         }
         panels::enhance::poll(self, &ctx);
+        panels::develop_tools::upright_poll(self, &ctx);
         // Completion/failure collection continues even while interactive windows are suspended.
         export_task::poll(self, &ctx);
         proof_sheet::poll(self, &ctx);

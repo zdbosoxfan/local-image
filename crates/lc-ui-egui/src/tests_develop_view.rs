@@ -297,3 +297,29 @@ fn double_clicking_a_slider_returns_it_to_the_photos_own_default() {
     let wb = develop(&h).wb;
     assert_eq!((wb.mode, wb.temp, wb.tint), (lightcraft_develop::WbMode::AsShot, 5200.0, 4.0), "As Shot, not 6500 K Custom");
 }
+
+/// Sync gives the other photos the Upright mode at once; the frame loop stores each one's own
+/// analysis when the background job is done, as one undo step with the Sync.
+#[test]
+fn the_frame_loop_stores_synced_upright_analyses() {
+    let mut session = lightcraft_engine::Session::new();
+    session.media.file_loader = Some(Arc::new(|_: &str, _| Ok((li_raster::RgbFrame::filled(96, 64, [0.2, 0.3, 0.4]), Default::default()))));
+    for id in [PhotoId(1), PhotoId(2)] {
+        let name = format!("p{}.tif", id.0);
+        let p = Photo::new(id, Source::File { path: name.clone() }, &name, "TIFF", 96, 64, "2026-10-24");
+        session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    }
+    session.execute("library.select", &json!({"ids": [1, 2], "active": 1})).unwrap();
+    let mut app = LightcraftApp::new(session, crate::Services { png: None, ..Default::default() });
+    app.ui.view = crate::state::ViewMode::Detail;
+    app.renderer.set_offload(Box::new(Capture::default()));
+    let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
+    h.step();
+    h.app.session.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    let steps = h.app.session.undo.len();
+    h.app.session.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    assert!(h.app.session.develop_of(PhotoId(2)).unwrap().upright_unsolved());
+    let stored = h.step_until(T, |h| h.app.session.develop_of(PhotoId(2)).unwrap().geometry.upright_transform.is_some());
+    assert!(stored, "the analysis is stored by the frame loop");
+    assert_eq!(h.app.session.undo.len(), steps + 1, "with the Sync, as one step");
+}

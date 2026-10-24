@@ -244,6 +244,8 @@ pub struct Session {
     pub import_probes: std::collections::HashMap<String, media::ProbeInfo>,
     /// The last (or running) Build Previews.
     pub preview_build: Option<std::sync::Arc<cmd::previews::PreviewBuild>>,
+    /// Automatic Upright analysed in the background after Paste, Sync and presets.
+    pub upright: cmd::upright::UprightQueue,
     /// Develop defaults applied on import (persisted in prefs.json).
     pub import_defaults: import::ImportDefaults,
     /// Disk budget of the library's thumbnail cache in MB (0 = default; persisted in prefs.json).
@@ -335,6 +337,7 @@ impl Session {
             before: Default::default(),
             import_probes: Default::default(),
             preview_build: None,
+            upright: Default::default(),
             import_defaults: import::ImportDefaults::default(),
             cache_mb: 0,
             smart_previews_dir: None,
@@ -406,6 +409,7 @@ impl Session {
             }
         }
         if self.depth == 0 {
+            self.start_upright();
             let skip = std::mem::take(&mut self.skip_auto_write);
             if r.is_ok() && !skip && self.xmp.auto_write && self.interaction.is_none() && self.pending_log.len() > log_start {
                 self.auto_write_sidecars(&self.pending_log[log_start..]);

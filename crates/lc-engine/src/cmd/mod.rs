@@ -32,6 +32,7 @@ mod query;
 pub mod save_over;
 mod smart_sort;
 mod smart_sort_people;
+pub mod upright;
 mod xmp;
 
 use serde_json::Value;
@@ -111,6 +112,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(metadata::specs());
         v.extend(filters::specs());
         v.extend(crate::enhance::cmds::specs());
+        v.extend(upright::specs());
         v
     })
 }

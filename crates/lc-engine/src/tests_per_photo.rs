@@ -1,6 +1,7 @@
 //! Settings that copy, sync, presets and resets must resolve for each photo on its own.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use li_raster::RgbFrame;
 use lightcraft_catalog::{Op, Photo, PhotoId, Source};
@@ -14,6 +15,7 @@ use crate::media::SourceLevel;
 
 const A: PhotoId = PhotoId(1);
 const B: PhotoId = PhotoId(2);
+const C: PhotoId = PhotoId(3);
 
 /// Dark grid lines on a light ground, rolled by `deg` about the centre: a building shot with the
 /// camera tilted sideways.
@@ -31,26 +33,42 @@ fn rolled_grid(w: usize, h: usize, deg: f64) -> RgbFrame {
     })
 }
 
-/// Photo A rolled +4 degrees and photo B rolled -6 degrees, both selected, A active.
-fn two_rolled_photos() -> Session {
+/// How far photo `path` is rolled.
+fn roll(path: &str) -> f64 {
+    match path.chars().next() {
+        Some('a') => 4.0,
+        Some('b') => -6.0,
+        _ => 9.0,
+    }
+}
+
+/// Photos A, B and C rolled +4, -6 and +9 degrees, all selected, A active.
+fn rolled_photos() -> Session {
     let mut s = Session::new();
-    s.media.file_loader = Some(Arc::new(|path: &str, _| {
-        let deg = if path.starts_with("a") { 4.0 } else { -6.0 };
-        Ok((rolled_grid(720, 480, deg), SourceInfo::default()))
-    }));
-    for (id, path) in [(A, "a.tif"), (B, "b.tif")] {
+    s.media.file_loader = Some(Arc::new(|path: &str, _| Ok((rolled_grid(720, 480, roll(path)), SourceInfo::default()))));
+    for (id, path) in [(A, "a.tif"), (B, "b.tif"), (C, "c.tif")] {
         let p = Photo::new(id, Source::File { path: path.into() }, path, "TIFF", 720, 480, "2026-01-01");
         s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
     }
-    s.execute("library.select", &json!({"ids": [A.0, B.0], "active": A.0})).unwrap();
+    s.execute("library.select", &json!({"ids": [A.0, B.0, C.0], "active": A.0})).unwrap();
     s
+}
+
+/// Wait for the background Upright analyses and store them; the photos changed.
+fn settle(s: &mut Session) -> usize {
+    let t0 = std::time::Instant::now();
+    while s.upright.busy() {
+        assert!(t0.elapsed() < Duration::from_secs(60), "the Upright analysis finishes");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    s.upright_poll()
 }
 
 fn transform_of(s: &Session, id: PhotoId) -> Option<Homography> {
     s.develop_of(id).unwrap().geometry.upright_transform
 }
 
-/// The transform B's own preview-level source gives for `mode`.
+/// The transform photo `id`'s own preview-level source gives for `mode`.
 fn own_transform(s: &mut Session, id: PhotoId, mode: Upright) -> Homography {
     let src = s.source_now(id, SourceLevel::Preview).unwrap();
     let info = s.source_info(id);
@@ -61,13 +79,22 @@ fn max_diff(a: &Homography, b: &Homography) -> f64 {
     a.0.iter().zip(b.0.iter()).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max)
 }
 
-fn assert_solved_for_itself(s: &mut Session, mode: Upright, how: &str) {
+/// `targets` got `mode` at once without a transform (the command never analyses them itself);
+/// once the background analysis is stored each carries the one from its own lines.
+fn assert_solved_for_itself(s: &mut Session, targets: &[PhotoId], mode: Upright, how: &str) {
+    for id in targets {
+        let d = s.develop_of(*id).unwrap();
+        assert_eq!(d.geometry.upright, mode, "{how}");
+        assert!(d.upright_unsolved(), "{how}: photo {} is analysed in the background, not by the command", id.0);
+    }
+    assert_eq!(settle(s), targets.len(), "{how}");
     let a = transform_of(s, A).expect("A's analysis is stored");
-    let b = transform_of(s, B).unwrap_or_else(|| panic!("{how}: B carries its own transform"));
-    assert_eq!(s.develop_of(B).unwrap().geometry.upright, mode, "{how}");
-    assert!(max_diff(&a, &b) > 0.05, "{how}: B must not get A's transform: {a:?} vs {b:?}");
-    let want = own_transform(s, B, mode);
-    assert!(max_diff(&b, &want) < 1e-6, "{how}: B's transform comes from B's lines: {b:?} vs {want:?}");
+    for id in targets {
+        let t = transform_of(s, *id).unwrap_or_else(|| panic!("{how}: photo {} carries its own transform", id.0));
+        assert!(max_diff(&a, &t) > 0.05, "{how}: photo {} must not get A's transform: {a:?} vs {t:?}", id.0);
+        let want = own_transform(s, *id, mode);
+        assert!(max_diff(&t, &want) < 1e-6, "{how}: photo {}'s transform comes from its own lines: {t:?} vs {want:?}", id.0);
+    }
 }
 
 fn clear_upright(s: &mut Session, id: PhotoId) {
@@ -78,44 +105,134 @@ fn clear_upright(s: &mut Session, id: PhotoId) {
 
 #[test]
 fn sync_paste_and_presets_solve_upright_for_each_photo() {
-    let mut s = two_rolled_photos();
+    let mut s = rolled_photos();
     s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
 
     s.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
-    assert_solved_for_itself(&mut s, Upright::Vertical, "Sync");
+    assert_solved_for_itself(&mut s, &[B, C], Upright::Vertical, "Sync");
 
     clear_upright(&mut s, B);
     s.execute("develop.copy", &json!({"groups": ["geometry"]})).unwrap();
     s.execute("develop.paste", &json!({"ids": [B.0]})).unwrap();
-    assert_solved_for_itself(&mut s, Upright::Vertical, "Paste");
+    assert_solved_for_itself(&mut s, &[B], Upright::Vertical, "Paste");
 
     clear_upright(&mut s, B);
     let preset = s.execute("preset.create", &json!({"name": "Upright", "groups": ["geometry"]})).unwrap();
     s.execute("preset.apply", &json!({"id": preset["id"], "ids": [B.0]})).unwrap();
-    assert_solved_for_itself(&mut s, Upright::Vertical, "Preset");
+    assert_solved_for_itself(&mut s, &[B], Upright::Vertical, "Preset");
 
     clear_upright(&mut s, B);
     s.execute("develop.autoSync", &json!({"on": true})).unwrap();
     s.execute("geometry.upright", &json!({"mode": "level"})).unwrap();
-    assert_solved_for_itself(&mut s, Upright::Level, "Auto Sync");
+    assert_solved_for_itself(&mut s, &[B, C], Upright::Level, "Auto Sync");
+}
+
+#[test]
+fn a_synced_upright_and_its_analysis_undo_as_one_step() {
+    let mut s = rolled_photos();
+    s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    let steps = s.undo.len();
+    s.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    assert_eq!(settle(&mut s), 2);
+    assert_eq!(s.undo.len(), steps + 1, "the analysis joins the Sync step");
+    assert_eq!(s.undo.last().unwrap().label, "Sync Settings");
+    s.execute("edit.undo", &json!({})).unwrap();
+    for id in [B, C] {
+        assert_eq!(s.develop_of(id).unwrap().geometry, Default::default(), "photo {} is as it was before the Sync", id.0);
+    }
+}
+
+#[test]
+fn an_analysis_skips_photos_changed_meanwhile_and_stays_its_own_step() {
+    let mut s = rolled_photos();
+    s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    s.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    // C's Upright is changed before the analysis is stored
+    s.execute("library.select", &json!({"ids": [C.0], "active": C.0})).unwrap();
+    s.execute("geometry.upright", &json!({"mode": "level"})).unwrap();
+    let c = transform_of(&s, C);
+    let steps = s.undo.len();
+    assert_eq!(settle(&mut s), 1, "only B is stored");
+    assert_eq!(s.undo.len(), steps + 1, "a step of its own after another edit");
+    assert_eq!(s.undo.last().unwrap().label, "Upright");
+    assert!(transform_of(&s, B).is_some());
+    assert_eq!(transform_of(&s, C), c, "C keeps what its own Upright command analysed");
+}
+
+#[test]
+fn a_cancelled_analysis_leaves_upright_to_the_renders() {
+    let mut s = rolled_photos();
+    s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    s.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    s.execute("develop.cancelUpright", &json!({})).unwrap();
+    assert_eq!(settle(&mut s), 0);
+    assert!(s.develop_of(B).unwrap().upright_unsolved());
+    assert_eq!(s.execute("develop.uprightProgress", &json!({})).unwrap()["running"], false);
 }
 
 #[test]
 fn an_unreadable_target_leaves_upright_to_its_render() {
-    let mut s = two_rolled_photos();
+    let mut s = rolled_photos();
     s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
     s.media.file_loader = Some(Arc::new(|_: &str, _| Err("offline".into())));
     s.media.forget(B);
+    s.media.forget(C);
     s.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    assert_eq!(settle(&mut s), 0);
     let b = s.develop_of(B).unwrap();
     assert_eq!(b.geometry.upright, Upright::Vertical);
     assert_eq!(b.geometry.upright_transform, None, "never A's transform");
     assert!(b.upright_unsolved());
 }
 
+/// A full-size render of a photo whose Upright is not stored yet (pasted, from XMP or an import
+/// preset) uses the analysis of its preview-level source, as the loupe's render does, not one of
+/// the original's own pixels: the keystone doesn't jump between the loupe and a 1:1 view or export.
+#[test]
+fn full_size_renders_analyse_upright_like_the_loupe() {
+    let mut s = rolled_photos();
+    // the original's pixels lean differently from the preview's, so the two analyses differ
+    s.media.file_loader = Some(Arc::new(|path: &str, edge| {
+        let full = if edge > SourceLevel::Preview.max_edge() { 5.0 } else { 0.0 };
+        Ok((rolled_grid(720, 480, roll(path) + full), SourceInfo::default()))
+    }));
+    s.execute("library.select", &json!({"ids": [B.0], "active": B.0})).unwrap();
+    let mut d = (*s.develop_of(B).unwrap()).clone();
+    d.geometry.upright = Upright::Level;
+    s.catalog.apply(Op::SetDevelop { id: B, settings: Arc::new(d.clone()), label: "xmp".into(), edited: None }).unwrap();
+
+    let full = s.detail_job(B, 720, 480, true).unwrap();
+    assert_eq!(full.level, SourceLevel::Full);
+    assert!(full.upright_source.is_some(), "an unsolved full-size render carries the preview-level source");
+    let unsolved = full.run().rendered.unwrap().image;
+
+    let solved_with = |s: &mut Session, h: Homography| {
+        let mut d = d.clone();
+        d.geometry.upright_transform = Some(h);
+        s.catalog.apply(Op::SetDevelop { id: B, settings: Arc::new(d), label: "t".into(), edited: None }).unwrap();
+        let job = s.detail_job(B, 720, 480, true).unwrap();
+        assert!(job.upright_source.is_none(), "a stored transform needs no analysis");
+        job.run().rendered.unwrap().image
+    };
+    let preview = own_transform(&mut s, B, Upright::Level);
+    let original = {
+        let src = s.source_now(B, SourceLevel::Full).unwrap();
+        lightcraft_pipeline::upright::auto_transform(&src, &s.source_info(B), &d, Upright::Level)
+    };
+    assert!(max_diff(&preview, &original) > 0.02, "the test needs analyses that differ: {preview:?} vs {original:?}");
+    let diff = |a: &li_raster::Rgba8, b: &li_raster::Rgba8| {
+        let sum: f64 = a.data.iter().zip(&b.data).flat_map(|(x, y)| (0..3).map(move |c| f64::from(x[c].abs_diff(y[c])))).sum();
+        sum / (a.data.len() * 3) as f64
+    };
+    let like_loupe = solved_with(&mut s, preview);
+    let like_original = solved_with(&mut s, original);
+    assert!(diff(&unsolved, &like_loupe) < 0.5, "the 1:1 render keeps the loupe's keystone");
+    assert!(diff(&unsolved, &like_original) > 2.0 * diff(&unsolved, &like_loupe).max(0.5), "not the original's own analysis");
+}
+
 #[test]
 fn hover_previews_of_photos_with_equal_settings_are_told_apart() {
-    let mut s = two_rolled_photos();
+    let mut s = rolled_photos();
     let mut look = (*s.develop_of(A).unwrap()).clone();
     look.light.exposure = 0.7;
     let a = s.preview_job(A, 800, 600, true, &look).unwrap().key;
