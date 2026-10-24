@@ -142,6 +142,12 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.mixer.orange.hue = 30.0;
             s.mixer.green.lum = 40.0;
         }),
+        ("colour mixer luminance extremes", |s| {
+            s.mixer.blue.lum = -100.0;
+            s.mixer.aqua.lum = 70.0;
+            s.mixer.orange.lum = -100.0;
+            s.mixer.red.sat = 100.0;
+        }),
         ("point color", |s| {
             use lightcraft_develop::PointColor;
             s.point_colors = vec![

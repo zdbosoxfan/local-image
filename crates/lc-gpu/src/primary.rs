@@ -4,7 +4,7 @@ use crate::ctx::{Buf, groups1, groups2};
 use crate::render::{Cx, gaussian};
 use lightcraft_develop::{ClarityMode, DevelopSettings};
 use lightcraft_pipeline::{
-    Plan, SourceInfo,
+    Plan, SourceInfo, colorequal,
     primary::{HsMethod, Stages},
     ucs,
 };
@@ -457,14 +457,8 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
     one(cx, "p_dt_crop", w * h, &[w as u32, pad as u32, f(24. * lightcraft_pipeline::primary::CLARITY_GAIN)], &out, w * h)
 }
 fn lut(cx: &mut Cx<'_>, s: &DevelopSettings) -> Buf {
-    use lightcraft_pipeline::colorequal::{hues, rbf};
-    use std::f32::consts::PI;
-    let bands = s.mixer.bands();
     let mut data = ucs::gamut_lut().to_vec();
-    data.extend(rbf(bands.map(|b| b.hue as f32 / 100. * 0.5), *hues(), PI, false));
-    data.extend(rbf(bands.map(|b| 1. + b.sat as f32 / 200.), *hues(), PI, true));
-    data.extend(rbf(bands.map(|b| 1. + b.lum as f32 / 200.), *hues(), PI, true));
-    data.extend(rbf(s.bw_mix.bands().map(|b| b as f32 / 100.), *hues(), PI, false));
+    data.extend(colorequal::luts(s).into_iter().flatten());
     data.extend((-4096..=4096).map(|i| (1. / (1. + (-60. * 0.5 * i as f64 / 4096.).exp())) as f32));
     cx.gpu.upload(&data.into_iter().map(f).collect::<Vec<_>>())
 }
@@ -546,7 +540,13 @@ fn equalizer(cx: &mut Cx<'_>, img: &Buf, s: &DevelopSettings, w: usize, h: usize
         cx,
         "p_equal_finish",
         n,
-        &[f(max_b), lightcraft_pipeline::is_bw(s) as u32],
+        &[
+            f(max_b),
+            lightcraft_pipeline::is_bw(s) as u32,
+            f(colorequal::BRIGHTNESS_EV),
+            f(colorequal::BRIGHTNESS_MIN_EV),
+            f(colorequal::BRIGHTNESS_MAX_EV),
+        ],
         [Some(&hsb), Some(&corr), Some(&sat), Some(&extra), Some(&tab)],
         n * 3,
     )

@@ -181,15 +181,5 @@ int main(){for(int i=0;i<41;i++){float v=exp2f(-12.f+i*.5f),x[4]={v*.95f,v,v*1.0
  printf("%d,%.9g,%.9g,%.9g,%.9g,%.9g,%.9g\n",i,j[0],j[1],j[2],b[0],b[1],b[2]);}}
 ''')
 
-rbf_c=header+'#define DT_OMP_PRAGMA(...)\n#define dt_print(...)\n#define LUT_ELEM 512\n#define NODES 8\n'
-rbf_c+='static double*dt_alloc_align_double(size_t n){return calloc(n,sizeof(double));}\n'
-rbf_c+=stripped('src/iop/choleski.h')
-# Substitute only the node-position adapter, to exercise the LR extension with exact C math.
-rbf_c+='static float _get_hue_node(int k,float shift){return -M_PI_F+k*DT_2PI_F/8.f+shift;}\n'
-rbf_c+=fn('src/iop/colorequal.c','_cosine_coeffs')+fn('src/iop/colorequal.c','_periodic_RBF_interpolate')
-run('colorequal-rbf',rbf_c+r"""
-int main(){for(int mode=0;mode<2;mode++){float n[8],l[512];for(int k=0;k<8;k++)n[k]=.2f*cosf(k*1.1f)+(mode?1.f:0.f);
-_periodic_RBF_interpolate(n,M_PI_F,l,0.f,mode);for(int i=0;i<512;i++)printf("%d,%d,%.9g\n",mode,i,l[i]);}}
-""")
 manifest={'darktable':'733bd69f32cac7ff5e41025115942772add1f088','compiler':'gcc -O0 -ffp-contract=off','fixtures':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in fixtures.glob('*.csv')}}
 (fixtures/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

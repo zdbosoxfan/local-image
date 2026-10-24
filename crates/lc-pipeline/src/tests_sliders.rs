@@ -228,17 +228,6 @@ fn extracted_c_jz_hdr_roundtrips_and_neutral_stability() {
 }
 
 #[test]
-fn extracted_c_colour_equalizer_periodic_rbf() {
-    let positions = std::array::from_fn(|i| -std::f32::consts::PI + i as f32 * std::f32::consts::TAU / 8.);
-    for mode in 0..2 {
-        let nodes = std::array::from_fn(|i| 0.2 * (i as f32 * 1.1).cos() + if mode == 1 { 1. } else { 0. });
-        let lut = colorequal::rbf(nodes, positions, std::f32::consts::PI, mode == 1);
-        let max = rows("colorequal-rbf.csv").iter().filter(|r| r[0] as usize == mode).map(|r| (lut[r[1] as usize] - r[2]).abs()).fold(0., f32::max);
-        assert!(max < 8e-6, "RBF {mode}: {max}");
-    }
-}
-
-#[test]
 fn clipping_metadata_compresses_losslessly_and_defaults_for_old_sources() {
     let info =
         SourceInfo { clip_confidence: Some(Arc::new(ClipConfidence { width: 512, height: 384, data: vec![0.; 512 * 384] })), ..Default::default() };
@@ -427,4 +416,78 @@ fn clarity_strength_is_even_across_tones() {
     }
     let (lo, hi) = excess.iter().fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
     assert!((hi - lo) / hi < 0.1, "Clarity strength varies with tone: {excess:?}");
+}
+
+/// Linear Rec.2020 of an 8-bit sRGB output pixel.
+fn decoded_2020(c: [u8; 4]) -> [f32; 3] {
+    let lin = [c[0], c[1], c[2]].map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.));
+    li_color::SRGB.to_space(&li_color::REC2020).apply_f32(lin)
+}
+
+#[test]
+fn hsl_luminance_darkens_saturated_blues_without_reaching_black() {
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let deep_blue = li_color::SRGB.to_space(&li_color::REC2020).apply_f32([40., 90., 200.].map(|v| li_color::transfer::srgb_to_linear(v / 255.)));
+    for patch in [[0.08, 0.14, 0.32], [0.03, 0.07, 0.30], deep_blue] {
+        let src = RgbFrame::filled(32, 24, patch);
+        let shot = |lum: f64| {
+            let mut s = DevelopSettings::default();
+            s.mixer.blue.lum = lum;
+            decoded_2020(render(&src, &info, &s, &RenderRequest::fit(32, 24)).image.get(16, 12))
+        };
+        let lab = |c: [f32; 3]| li_color::perceptual::oklab_from_2020(c);
+        let neutral = shot(0.);
+        let mut previous = li_color::luminance_2020(neutral);
+        for lum in [-30., -60., -100.] {
+            let c = shot(lum);
+            let y = li_color::luminance_2020(c);
+            assert!(y > 0. && y < previous, "{patch:?} Blue Luminance {lum}: Y {y} after {previous}");
+            let (a, b) = (lab(c), lab(neutral));
+            let dh = (a[2].atan2(a[1]) - b[2].atan2(b[1])).abs();
+            assert!(dh < 0.05, "{patch:?} Blue Luminance {lum} turned the hue by {dh} rad");
+            previous = y;
+        }
+        assert!(previous >= li_color::luminance_2020(neutral) * 2f32.powf(-2.5), "{patch:?} Blue Luminance -100 is darker than -2.5 EV");
+        let up = li_color::luminance_2020(shot(100.)) / li_color::luminance_2020(neutral);
+        assert!((1.5..=2f32.powf(1.5)).contains(&up), "{patch:?} Blue Luminance +100 gives {up}x luminance");
+    }
+}
+
+#[test]
+fn hue_band_curves_stay_between_their_nodes() {
+    let hues = colorequal::hues();
+    let at = |lut: &[f32], hue: f32| crate::ucs::lookup_gamut(lut, hue);
+    for band in 0..8 {
+        for value in [-100., 100.] {
+            let mut s = DevelopSettings::default();
+            let set: [&mut lightcraft_develop::Hsl; 8] = [
+                &mut s.mixer.red,
+                &mut s.mixer.orange,
+                &mut s.mixer.yellow,
+                &mut s.mixer.green,
+                &mut s.mixer.aqua,
+                &mut s.mixer.blue,
+                &mut s.mixer.purple,
+                &mut s.mixer.magenta,
+            ];
+            set.into_iter().nth(band).unwrap().lum = value;
+            let [_, _, bright, _] = colorequal::luts(&s);
+            let node = 1. + value as f32 / 200.;
+            assert!((at(&bright, hues[band]) - node).abs() < 2e-3, "band {band} {value}: its own hue misses the node");
+            let (lo, hi) = (node.min(1.), node.max(1.));
+            assert!(bright.iter().all(|v| (lo - 1e-6..=hi + 1e-6).contains(v)), "band {band} {value} overshoots its node");
+            // Beyond the neighbouring bands the curve is untouched.
+            let mut sorted: Vec<f32> = hues.to_vec();
+            sorted.sort_by(f32::total_cmp);
+            let k = sorted.iter().position(|h| *h == hues[band]).unwrap();
+            let (before, after) = (sorted[(k + 7) % 8], sorted[(k + 1) % 8]);
+            for i in 0..512 {
+                let hue = i as f32 * std::f32::consts::TAU / 512. - std::f32::consts::PI;
+                let inside = |a: f32, b: f32| (hue - a).rem_euclid(std::f32::consts::TAU) <= (b - a).rem_euclid(std::f32::consts::TAU);
+                if !inside(before, after) {
+                    assert!((bright[i] - 1.).abs() < 1e-6, "band {band} {value} changed hue {hue}");
+                }
+            }
+        }
+    }
 }

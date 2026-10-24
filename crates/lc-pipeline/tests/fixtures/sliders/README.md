@@ -23,13 +23,9 @@ not contribute to its three-lane stencil. Rust bounds that lane and tests every 
 | `llf.csv` | `locallaplacian.c`; complete 50×37 padded pyramid, identity, shadows/highlights, clarity | absolute <3e-6, all 5,550 samples |
 | `ucs.csv` | `colorspaces_inline_conversions.h`; JCH↔HSB↔xyY, 41 samples from −12 to +8 EV | absolute/relative 4e-5 |
 | `colorequal-filter.csv` | `colorequal.c`; complete UV prefilter and saturation/brightness guided correction with real Gaussian covariance filters | absolute <5e-6, 2,146 two-channel pixels |
-| `colorequal-rbf.csv` | `colorequal.c`, `choleski.h`; full periodic RBF LUT, signed and positive/clipped paths | absolute <8e-6, 1,024 samples |
 | `balance.csv` | complete unchanged `colorbalancergb.c` pixel body, D65 Rec.2020 host matrices, deterministic varying 512-bin gamut LUT, both UCS and Jz formulas, all masked chroma/saturation/brilliance parameters, hue rotation and grading | absolute/relative 4e-4, 82 RGB samples |
 | `jz.csv` | current stable `dt_XYZ_2_JzAzBz` and inverse, −12 to +8 EV | forward 6e-6; inverse absolute/relative 3e-4 |
 
-The RBF host replaces only `_get_hue_node` with evenly spaced positions; Rust's LR
-extension supports arbitrary UCS hue nodes. Rust solves the original matrix in f64
-with partial pivoting instead of squaring its condition number in normal equations.
 Jz forward PQ uses f64 direct evaluation; the upstream near-neutral difference-based
 implementation and HDR inverse are checked here. Slider-to-parameter mapping, log-EV
 LLF remapping, colour/B&W defaults and image-relative radii are product calibrations,

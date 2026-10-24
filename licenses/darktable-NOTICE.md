@@ -217,7 +217,7 @@ files at `733bd69f32cac7ff5e41025115942772add1f088`, GPL-3.0-or-later:
 | `lc-pipeline/src/llf.rs` | `common/locallaplacian.c/.h` | darktable developers; local Laplacian by Johannes Hanika |
 | `lc-pipeline/src/eigf.rs`, `toneeq.rs` | `common/eigf.h`, `common/fast_guided_filter.h`, `common/gaussian.c`, `common/luminance_mask.h` | darktable developers, including Copyright (C) 2019–2024 for EIGF |
 | `lc-pipeline/src/balance.rs` | `iop/colorbalancergb.c`, `common/math.h` | Copyright (C) 2020–2026 darktable developers |
-| `lc-pipeline/src/colorequal.rs` | `iop/colorequal.c`, `iop/choleski.h` | Copyright (C) 2022–2026 darktable developers |
+| `lc-pipeline/src/colorequal.rs` | `iop/colorequal.c` | Copyright (C) 2022–2026 darktable developers |
 
 Out-of-build C reference harnesses are generated in ignored `target/refvec/sliders/`.
 No C/C++ kernels or new dependencies enter the Rust workspace build. The separately

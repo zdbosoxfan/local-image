@@ -81,7 +81,9 @@ fn p_equal_corr(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgro
 fn p_equal_finish(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} var h=vec3<f32>(a[4u*i],a[4u*i+1u],a[4u*i+2u]); let sat=c[i]; h.x+=d[i];
     h.y=max(h.y*(1.0+2.0*(b[2u*i]-1.0)*satweight(sat-0.1)),0.0);
-    h.z=max(h.z*(1.0+8.0*b[2u*i+1u]*(1.0-clamp(d[pu(0u)+i],0.0,1.0))*satweight(sat-0.1-0.01*pf(1u))),0.0);
+    let ev=pf(3u)*b[2u*i+1u]*(1.0-clamp(d[pu(0u)+i],0.0,1.0))*satweight(sat-0.1-0.01*pf(1u));
+    var limit=pf(5u); if(ev<0.0) {limit=-pf(4u);} let e=exp(-2.0*abs(ev)/limit);
+    h.z=max(h.z*exp2(sign(ev)*limit*(1.0-e)/(1.0+e)),0.0);
     let lw=y_ls(1.0); if(pu(2u)!=0u) {let yy=ls_y(clamp(h.z*lw,0.0,LS_UPPER)); put_rgb(i,vec3<f32>(yy*exp2(lut_hue(2048u,h.x)*1.3)));}
     else {put_rgb(i,hsb_rgb(gamut_hsb(h,lw),lw));}
 }
