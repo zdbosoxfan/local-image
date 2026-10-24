@@ -245,3 +245,43 @@ fn unrelated_photos_do_not_stitch() {
     let frames: Vec<Frame> = a.iter().take(2).map(|s| Frame::from_linear_rec2020(s.render(400, 300), None)).collect();
     assert!(stitch(frames, &PanoOptions::default(), &no_progress).is_err());
 }
+
+#[test]
+fn highlights_clipped_at_different_exposures_share_one_level() {
+    // Windows far brighter than any frame holds, so every frame clips. The third frame was exposed
+    // 1.6× brighter, so its clipped samples compensate to a lower level than the others'.
+    let mut e = env().map(|p| p.map(|v| v * 0.35));
+    for (x0, x1) in [(780, 900), (1320, 1500)] {
+        for y in 360..480 {
+            for x in x0..x1 {
+                e.set(x, y, [3.0; 3]);
+            }
+        }
+    }
+    let shots = [
+        Shot { yaw: -22.0, pitch: 0.5, roll: 0.3, gain: 1.0 },
+        Shot { yaw: 0.0, pitch: -0.4, roll: 0.0, gain: 1.0 },
+        Shot { yaw: 21.0, pitch: 0.8, roll: -0.4, gain: 1.6 },
+    ];
+    let frames: Vec<Frame> = shots
+        .iter()
+        .map(|s| {
+            let mut frame = shoot(&e, &rot(s.yaw, s.pitch, s.roll), 800.0, 800, 600, s.gain);
+            frame.image = frame.image.map(|p| p.map(|v| v.min(1.0)));
+            frame.clip = lightcraft_merge::frame::detect_clip(&frame.image);
+            frame
+        })
+        .collect();
+    let res =
+        stitch(frames, &PanoOptions { projection: Projection::Perspective, max_megapixels: 100.0, ..Default::default() }, &no_progress).unwrap();
+    assert_eq!(res.used.len(), 3);
+    let g = &res.gains;
+    assert!((g[2] / g[1] - 1.0 / 1.6).abs() < 0.05, "gains {g:?}");
+    assert!(res.clip.is_finite() && res.clip > 0.0);
+    // Everything brighter than the scene is a window: it must sit at the panorama's clip level,
+    // not at the 1/1.6 level the third frame's clipped samples compensate to.
+    let window: Vec<_> = res.image.data.iter().zip(&res.alpha.data).filter(|(p, a)| **a >= 1.0 && p[1] > 0.5 * res.clip).map(|(p, _)| *p).collect();
+    let at_clip = window.iter().filter(|p| p.iter().all(|v| *v >= 0.99 * res.clip)).count();
+    assert!(window.len() > 5000, "window pixels {}", window.len());
+    assert!(at_clip as f64 > 0.95 * window.len() as f64, "{at_clip} of {} window pixels at the clip level", window.len());
+}

@@ -421,7 +421,7 @@ impl MergeJob {
         let sub = |a: f32, b: f32| move |f: f32, s: &str| progress(a + (b - a) * f, s);
         let mut pixelshift_permit = None;
         let mut hdr_permit = None;
-        let (image, color, orientation, metadata, baseline, samples, crop, mut info, ghost) = match &self.kind {
+        let (image, color, orientation, metadata, baseline, samples, clip, crop, mut info, ghost) = match &self.kind {
             MergeKind::PixelShift => {
                 let mut raws = Vec::with_capacity(self.sources.len());
                 let mut source_size = None;
@@ -475,7 +475,7 @@ impl MergeJob {
                 let info = json!({"shots": r.shots, "motionPixels": motion_pixels, "motionCorrection": self.sources.len() > 1,
                     "motionFallback": if self.sources.len() > 1 { "firstShotAuto" } else { "alreadyComposed" }});
                 let ghost = (self.preview.is_some() && self.finish.show_overlay && motion_pixels > 0).then(|| r.motion.oriented(r.orientation));
-                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, None, info, ghost)
+                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, r.clip, None, info, ghost)
             }
             MergeKind::Hdr { hdr } => {
                 let (r, permit, raw_domain) = self.hdr_result(hdr, &sub(0.0, 0.9))?;
@@ -487,7 +487,7 @@ impl MergeJob {
                     "alignment": r.alignments.iter().map(|a| json!({"model": a.model, "inliers": a.inliers, "rmsPx": a.rms})).collect::<Vec<_>>(),
                 });
                 let ghost = (!r.ghost.data.is_empty()).then(|| r.ghost.oriented(r.orientation));
-                (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, None, info, ghost)
+                (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, r.clip, None, info, ghost)
             }
             MergeKind::Panorama { pano } => {
                 let frames = self.load(true, progress, (0.0, 0.25))?;
@@ -501,6 +501,7 @@ impl MergeJob {
                     r.metadata,
                     r.baseline_exposure,
                     lightcraft_merge::DngSamples::U16,
+                    r.clip,
                     r.crop,
                     info,
                     None,
@@ -527,16 +528,7 @@ impl MergeJob {
                     let p = sub(0.2 + 0.4 * g as f32 / groups as f32, 0.2 + 0.4 * (g + 1) as f32 / groups as f32);
                     let (r, permit, raw_domain) = set.hdr_result(hdr, &p)?;
                     raw_domains.push(raw_domain);
-                    let mut f = Frame {
-                        image: r.radiance,
-                        clip: f32::INFINITY,
-                        exposure: None,
-                        raw: r.raw,
-                        color: r.color,
-                        orientation: r.orientation,
-                        metadata: r.metadata,
-                        baseline_exposure: r.baseline_exposure,
-                    };
+                    let mut f = r.into_frame();
                     f.orient();
                     merged.push(f);
                     drop(permit);
@@ -555,6 +547,7 @@ impl MergeJob {
                     r.metadata,
                     r.baseline_exposure,
                     lightcraft_merge::DngSamples::Float,
+                    r.clip,
                     r.crop,
                     info,
                     None,
@@ -571,7 +564,7 @@ impl MergeJob {
             metadata.caption = Some(format!("Merged from {}", names.join(", ")));
         }
         metadata.software = Some("Local Image Photo Merge".into());
-        let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation, &metadata, baseline, samples).map_err(err)?;
+        let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation, &metadata, baseline, samples, Some(clip)).map_err(err)?;
         info["width"] = json!(image.width);
         info["height"] = json!(image.height);
         let preview = match self.preview {
@@ -851,6 +844,7 @@ mod tests {
                 &metadata,
                 0.0,
                 lightcraft_merge::DngSamples::Float,
+                None,
             )
             .unwrap();
             bytes.insert(format!("frame{i}.dng"), dng);
@@ -962,6 +956,7 @@ mod tests {
             &lightcraft_meta::Metadata::default(),
             0.0,
             lightcraft_merge::DngSamples::Float,
+            None,
         )
         .unwrap();
         let output = || MergeOutput { dng: dng.clone(), preview: None, crop: None, info: json!({}) };
@@ -988,6 +983,34 @@ mod tests {
         assert!(std::path::Path::new(path).exists(), "accepted output must survive ownership guard drop");
         assert!(session.develop_of(PhotoId(result["id"].as_u64().unwrap())).is_some());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn merged_highlights_clipped_in_every_input_develop_neutral() {
+        // Camera RGB before white balance: a window clipped on the sensor in every input.
+        let window = |x: usize, y: usize| (16..32).contains(&x) && (8..24).contains(&y);
+        let image = RgbFrame::from_fn(48, 32, |x, y| if window(x, y) { [1.0; 3] } else { [0.1 + 0.004 * x as f32, 0.2, 0.15] });
+        let color = lightcraft_merge::FrameColor::Camera(Box::new(lightcraft_raw::ColorData {
+            illuminant: [21, 0],
+            color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+            as_shot_neutral: Some([0.5, 1.0, 2.0 / 3.0]),
+            ..Default::default()
+        }));
+        let dng = lightcraft_merge::write_linear_dng(
+            &image,
+            &color,
+            lightcraft_geom::Orientation::Normal,
+            &lightcraft_meta::Metadata::default(),
+            0.0,
+            lightcraft_merge::DngSamples::Float,
+            Some(1.0),
+        )
+        .unwrap();
+        let (source, _) = crate::files::load_bytes(&dng, 48).unwrap();
+        for (x, y) in [(20, 12), (24, 16), (28, 20)] {
+            let p = source.get(x, y);
+            assert!((p[0] - p[1]).abs() < 0.02 * p[1] && (p[2] - p[1]).abs() < 0.02 * p[1], "window at {x},{y} develops tinted: {p:?}");
+        }
     }
 
     #[test]

@@ -1243,8 +1243,8 @@ mod baked_merge_lens_regression {
             lens_model: Some("Original lens".into()),
             ..Default::default()
         };
-        let bytes =
-            lightcraft_merge::write_linear_dng(&image, &color, Orientation::Normal, &metadata, 0., lightcraft_merge::DngSamples::Float).unwrap();
+        let bytes = lightcraft_merge::write_linear_dng(&image, &color, Orientation::Normal, &metadata, 0., lightcraft_merge::DngSamples::Float, None)
+            .unwrap();
         let raw = lightcraft_raw::decode(&bytes).unwrap();
         assert!(raw.metadata.lens_corrections_baked);
         assert!(embedded_lens(&raw.info()).is_none());

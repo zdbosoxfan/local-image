@@ -56,8 +56,15 @@ fn main() -> common::Result<()> {
         let b = common::bracket(&scene, moving);
         let rgb = li_raster::RgbFrame::from_fn(b.truth.w, b.truth.h, |x, y| b.truth.rgb[y * b.truth.w + x]);
         let frame = Frame::from_linear_rec2020(rgb.clone(), Some(0.0));
-        let bytes =
-            lightcraft_merge::write_linear_dng(&rgb, &frame.color, frame.orientation, &frame.metadata, 0.0, lightcraft_merge::DngSamples::Float)?;
+        let bytes = lightcraft_merge::write_linear_dng(
+            &rgb,
+            &frame.color,
+            frame.orientation,
+            &frame.metadata,
+            0.0,
+            lightcraft_merge::DngSamples::Float,
+            None,
+        )?;
         let mut base = lightcraft_raw::decode(&bytes)?;
         // Restore scene units: the writer normalizes only its serialized output.
         base.color.baseline_exposure = 0.0;

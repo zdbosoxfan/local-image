@@ -15,6 +15,7 @@ use li_raster::{GrayFrame, RgbFrame};
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
 use lightcraft_raw::{RawImage, Rect};
+use rayon::prelude::*;
 
 use crate::frame::camera_color;
 use crate::{FrameColor, MergeError, Progress, Result, check};
@@ -27,6 +28,8 @@ pub struct PixelShiftResult {
     pub baseline_exposure: f64,
     pub motion: GrayFrame,
     pub shots: usize,
+    /// Value at or above which the sensor was saturated ([`crate::Frame::clip`]).
+    pub clip: f32,
 }
 
 // (y, x), indexed by the camera's 1-based shot_number minus one.
@@ -37,6 +40,28 @@ fn identity(raw: &RawImage) -> Result<&lightcraft_meta::SonyPixelShift> {
     raw.metadata.sony.as_ref().and_then(|s| s.pixel_shift.as_ref()).ok_or_else(|| {
         MergeError::Mismatch("Sony Pixel Shift capture information is missing; select the original Pixel Shift ARWs or one composed ARQ".into())
     })
+}
+
+/// The normalized value at which `raw`'s sensor saturates: the lowest colour plateau of
+/// [`RawImage::saturation_points`] (Pixel Shift decoding skips the white-level estimate that
+/// otherwise moves the white level onto it), else the white level.
+fn saturation(raw: &RawImage) -> f32 {
+    let points = raw.saturation_points();
+    let Some(cfa) = &raw.cfa else { return 1.0 };
+    let a = raw.active_area;
+    let mut level = 1.0f32;
+    for y in 0..cfa.height {
+        for x in 0..cfa.width {
+            if let Some(point) = points[cfa.color_at(a.x + x, a.y + y).min(2) as usize] {
+                let black = raw.black.at(x, y, 0, 1);
+                let range = raw.sensor_white(a.x + x, a.y + y, 0) - black;
+                if range > 0.0 {
+                    level = level.min((f32::from(point) - black) / range);
+                }
+            }
+        }
+    }
+    level
 }
 
 struct MotionNoise {
@@ -156,6 +181,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             metadata: raw.metadata.clone(),
             baseline_exposure: raw.color.baseline_exposure,
             shots: first_id.shot_count as usize,
+            clip: 1.0,
         });
     }
     if !matches!(n, 4 | 16) || first_id.shot_count as usize != n {
@@ -210,6 +236,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     }
     // Validate the sample storage before allocating any full-resolution output buffers.
     let samples = raws.iter().map(|r| r.normalized_samples().map_err(|e| MergeError::Decode(e.to_string()))).collect::<Result<Vec<_>>>()?;
+    let clip = raws.par_iter().map(saturation).reduce(|| 1.0, f32::min);
     let noise = MotionNoise::new(first, &samples[0]);
     let mut image = RgbFrame::new(w, h);
     let mut motion = GrayFrame::new(w, h);
@@ -328,6 +355,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             baseline_exposure: source.color.baseline_exposure,
             motion,
             shots: n,
+            clip,
         });
     }
     check(progress, 1.0, "Pixel Shift ready")?;
@@ -339,6 +367,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         baseline_exposure: first.color.baseline_exposure,
         motion,
         shots: n,
+        clip,
     })
 }
 
@@ -456,6 +485,7 @@ mod tests {
                 &result.metadata,
                 result.baseline_exposure,
                 crate::DngSamples::Float,
+                Some(result.clip),
             )
             .unwrap();
             let decoded = lightcraft_raw::decode(&dng).unwrap();
@@ -553,10 +583,69 @@ mod tests {
     fn pixelshift_float_dng_preserves_negative_and_fractional_sensor_samples() {
         let image = RgbFrame::from_fn(12, 10, |x, y| [-0.001953125 - x as f32 * 0.00000003, 0.1234567 + y as f32 * 0.000001, 0.6]);
         let color = FrameColor::Camera(Box::default());
-        let bytes = crate::write_linear_dng(&image, &color, Orientation::Normal, &Metadata::default(), 0.0, crate::DngSamples::Float).unwrap();
+        let bytes = crate::write_linear_dng(&image, &color, Orientation::Normal, &Metadata::default(), 0.0, crate::DngSamples::Float, None).unwrap();
         let decoded = lightcraft_raw::decode(&bytes).unwrap();
         let developed = decoded.develop(lightcraft_raw::Method::Auto).unwrap();
         assert_eq!(developed, image, "FP32 linear DNG preserves negative sensor noise and fractional samples bit for bit");
+    }
+
+    #[test]
+    fn pixelshift_clipped_samples_land_on_the_dng_white_level() {
+        let mut raws = sources(4);
+        for raw in &mut raws {
+            if let RawData::F32(data) = &mut raw.data {
+                for y in 6..14 {
+                    for x in 6..16 {
+                        data[y * 24 + x] = 1064.0;
+                    }
+                }
+            }
+        }
+        let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert_eq!(result.clip, 1.0);
+        let dng = crate::write_linear_dng(
+            &result.image,
+            &result.color,
+            result.orientation,
+            &result.metadata,
+            result.baseline_exposure,
+            crate::DngSamples::Float,
+            Some(result.clip),
+        )
+        .unwrap();
+        let reopened = lightcraft_raw::decode(&dng).unwrap().normalized().unwrap();
+        let at = |x: usize, y: usize| -> [f32; 3] { std::array::from_fn(|c| reopened.data[(y * reopened.width + x) * 3 + c]) };
+        // Output (x, y) reads sensor (x + 2, y + 2) and its shifted neighbours.
+        for y in 7..10 {
+            for x in 7..12 {
+                assert!(at(x, y).iter().all(|v| (0.99..=1.0).contains(v)), "clipped block at {x},{y}: {:?}", at(x, y));
+            }
+        }
+        // Measured values keep their scale below the white level.
+        let scene_value = scene(2.0, 2.0);
+        for c in 0..3 {
+            assert!((at(0, 0)[c] - scene_value[c]).abs() < 1e-5, "{:?} vs {scene_value:?}", at(0, 0));
+        }
+    }
+
+    #[test]
+    fn pixelshift_saturation_reads_the_sensor_plateau_in_normalized_units() {
+        let (w, h) = (64, 64);
+        let cfa = Cfa::bayer("RGGB").unwrap();
+        // Half the frame measured (64..900 DN), half piled up 64 DN below the stated white.
+        let data = (0..w * h).map(|p| if p % w < w / 2 { 64 + ((p % w) * 26 + p / w) as u16 } else { 1000 }).collect();
+        let raw = RawImage {
+            data: RawData::U16(data),
+            width: w,
+            height: h,
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            cfa: Some(cfa),
+            ..sources(4).remove(0)
+        };
+        assert!((saturation(&raw) - 936.0 / 1000.0).abs() < 1e-6, "{}", saturation(&raw));
+        let unclipped = RawImage { data: RawData::U16(vec![500; w * h]), ..raw };
+        assert_eq!(saturation(&unclipped), 1.0);
     }
 
     #[test]

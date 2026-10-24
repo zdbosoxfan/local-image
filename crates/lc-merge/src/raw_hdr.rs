@@ -274,10 +274,12 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Ahd);
     drop(merged);
     let ref_raw = &raws[reference];
+    // A sample clipped in every bracket keeps only the darkest frame's weight.
+    let saturation = gains[darkest].into_iter().fold(0.0f32, f32::max) / k[darkest];
     // The output has no source opcode list. Apply every operation in its declared
     // camera-RGB order after fusion, before cropping; splitting lens operations
     // out loses mandatory DJI corrections and changes mixed/per-plane lists.
-    lightcraft_raw::opcodes::apply_list3(&ref_raw.opcodes.list3, &mut result.radiance);
+    result.clip = crate::frame::apply_lens_opcodes(&ref_raw.opcodes.list3, &mut result.radiance, saturation * crate::frame::CLIP_MARGIN);
     result.ghost = if let Some((maps, ghost_factor)) = &ghosts {
         let mut ghost = GrayFrame::new(w, h);
         let scale = (factor * ghost_factor) as f32;
@@ -477,6 +479,39 @@ mod tests {
         assert!(matches!(&merged.color, FrameColor::Camera(_)));
         if let FrameColor::Camera(color) = &merged.color {
             assert_eq!(color.as_shot_neutral, Some([0.5, 1.0, 2.0 / 3.0]));
+        }
+    }
+
+    #[test]
+    fn raw_hdr_values_clipped_in_every_bracket_land_on_the_dng_white_level() {
+        let scene = |x: f32, y: f32| {
+            if (60.0..120.0).contains(&x) && (30.0..90.0).contains(&y) { [50.0; 3] } else { [0.02 + x * 0.0004, 0.03 + y * 0.0005, 0.025] }
+        };
+        let raws: Vec<_> = [0.125, 1.0, 8.0].into_iter().map(|e| capture(192, 128, e, scene, (0.0, 0.0))).collect();
+        let merged = merge_raw_hdr(&raws, &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        let dng = crate::write_linear_dng(
+            &merged.radiance,
+            &merged.color,
+            merged.orientation,
+            &merged.metadata,
+            merged.baseline_exposure,
+            crate::DngSamples::Float,
+            Some(merged.clip),
+        )
+        .unwrap();
+        let reopened = lightcraft_raw::decode(&dng).unwrap();
+        let gain = 2f32.powf((reopened.color.baseline_exposure - merged.baseline_exposure) as f32);
+        let reopened = reopened.normalized().unwrap();
+        let at = |x: usize, y: usize| -> [f32; 3] { std::array::from_fn(|c| reopened.data[(y * reopened.width + x) * 3 + c]) };
+        for (x, y) in [(66, 36), (90, 60), (113, 83)] {
+            assert!(at(x, y).iter().all(|v| (0.99..=1.0).contains(v)), "clipped patch at {x},{y}: {:?}", at(x, y));
+        }
+        // Measured radiance keeps its value through the scale carried in BaselineExposure.
+        for (x, y) in [(20, 20), (170, 110)] {
+            for c in 0..3 {
+                let (stored, want) = (at(x, y)[c] * gain, merged.radiance.get(x, y)[c]);
+                assert!(stored < 0.95 * gain && (stored - want).abs() <= want * 1e-5, "{x},{y}: {stored} vs {want}");
+            }
         }
     }
 
