@@ -339,15 +339,33 @@ mod pick_tests {
 
     #[test]
     fn raw_pick_renders_the_clicked_grey_neutral() {
-        for (shot, light) in [((5500.0, 0.0), (2850.0, 0.0)), ((3000.0, 0.0), (6500.0, 15.0)), ((5500.0, 0.0), (4000.0, 15.0))] {
-            let (info, card) = raw_scene(ilce1(), shot, light);
-            let src = RgbFrame::filled(64, 48, card);
-            let wb = wb_pick(&src, &info, &DevelopSettings::default(), Point::new(0.5, 0.5), WbTarget::Global).expect("a grey card");
-            let mut img = RgbFrame::filled(2, 2, card);
-            crate::local::white_balance(&mut img, &info, &custom(wb));
-            assert_neutral(img.get(0, 0), &format!("shot {shot:?}, light {light:?} -> {wb:?}"));
-            // Auto WB solves its grey-world average the same way
-            assert_eq!(auto_wb(&src, &info), wb);
+        // the ILCE-1's matrices, with forward matrices, and with a third (D50) calibration
+        let [x, _, z] = li_color::D50.to_xyz();
+        let forward = CameraColor {
+            forward_matrix: [
+                Some(Mat3([[0.8 * x, 0.1 * x, 0.1 * x], [0.2, 0.7, 0.1], [0.1 * z, 0.2 * z, 0.7 * z]])),
+                Some(Mat3([[0.7 * x, 0.2 * x, 0.1 * x], [0.1, 0.8, 0.1], [0.2 * z, 0.1 * z, 0.7 * z]])),
+            ],
+            ..ilce1()
+        };
+        let [a, d65] = ilce1().color_matrix.map(Option::unwrap);
+        let triple = CameraColor {
+            illuminant_3: 23,
+            color_matrix_3: Some(Mat3(std::array::from_fn(|i| std::array::from_fn(|j| (a.0[i][j] + d65.0[i][j]) / 2.0)))),
+            ..ilce1()
+        };
+        assert!(li_color::camera::triple_illuminant_whites(&triple).is_some());
+        for color in [ilce1(), forward, triple] {
+            for (shot, light) in [((5500.0, 0.0), (2850.0, 0.0)), ((3000.0, 0.0), (6500.0, 15.0)), ((5500.0, 0.0), (4000.0, 15.0))] {
+                let (info, card) = raw_scene(color, shot, light);
+                let src = RgbFrame::filled(64, 48, card);
+                let wb = wb_pick(&src, &info, &DevelopSettings::default(), Point::new(0.5, 0.5), WbTarget::Global).expect("a grey card");
+                let mut img = RgbFrame::filled(2, 2, card);
+                crate::local::white_balance(&mut img, &info, &custom(wb));
+                assert_neutral(img.get(0, 0), &format!("{color:?}: shot {shot:?}, light {light:?} -> {wb:?}"));
+                // Auto WB solves its grey-world average the same way
+                assert_eq!(auto_wb(&src, &info), wb);
+            }
         }
     }
 
