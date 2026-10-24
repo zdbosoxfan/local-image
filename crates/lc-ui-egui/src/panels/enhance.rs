@@ -257,16 +257,13 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
         } else if d.enhance.ai.is_some_and(|a| a.preview) {
             dim(ui, "Preview: a 1024 px area at full resolution. Apply AI Denoise to the whole photo before exporting.");
         }
-        // the preview's area: where the zoomed-in view looks (when the view is the source as it is)
-        let untransformed = d.crop == Default::default() && d.geometry == Default::default() && d.orientation == Default::default();
-        let center = (untransformed && matches!(app.ui.zoom, crate::state::Zoom::Percent(_))).then_some([app.ui.pan.0, app.ui.pan.1]);
         ui.horizontal(|ui| {
             for (preview, key, label) in [(true, "denoisePreview", "Preview"), (false, "denoiseApply", "Apply AI Denoise")] {
-                if text_button(ui, key, label, false).clicked()
-                    && let Err(e) =
-                        app.run("enhance.denoise", json!({"preview": preview, "center": if preview { json!(center) } else { json!(null) }}))
-                {
-                    app.toast_error(ui.ctx(), e);
+                if text_button(ui, key, label, false).clicked() {
+                    let center = if preview { preview_center(app, id, d) } else { None };
+                    if let Err(e) = app.run("enhance.denoise", json!({"preview": preview, "center": center})) {
+                        app.toast_error(ui.ctx(), e);
+                    }
                 }
             }
         });
@@ -302,6 +299,45 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
     });
 }
 
+/// Where a Preview denoises: the middle of what the loupe shows, in the photo's decoded source
+/// (normalized), through its crop, straightening, lens and perspective corrections and orientation.
+fn preview_center(app: &LightcraftApp, id: lightcraft_catalog::PhotoId, d: &DevelopSettings) -> Option<[f64; 2]> {
+    let p = app.session.catalog.photo(id)?;
+    let lens_db = lightcraft_engine::lens_db::for_photo(p, d);
+    let frame = lightcraft_pipeline::geometry::Frame::with_lenses(
+        p.width.max(1) as usize,
+        p.height.max(1) as usize,
+        d,
+        true,
+        p.embedded_lens.as_ref(),
+        lens_db.as_ref(),
+    );
+    Some(shown_to_source(&frame, view_center(app)))
+}
+
+/// The middle of the loupe's view, normalized in the developed photo as shown (its centre when the
+/// whole photo is in view).
+fn view_center(app: &LightcraftApp) -> [f64; 2] {
+    let (Some(img), Some(canvas)) = (app.image_rect, app.canvas_rect) else { return [0.5, 0.5] };
+    let shown = img.intersect(canvas);
+    if !shown.is_positive() {
+        return [0.5, 0.5];
+    }
+    let c = shown.center();
+    [f64::from((c.x - img.left()) / img.width()), f64::from((c.y - img.top()) / img.height())]
+}
+
+/// `out` (normalized in `frame`'s output) as a normalized point of the source `frame` samples.
+fn shown_to_source(frame: &lightcraft_pipeline::geometry::Frame, out: [f64; 2]) -> [f64; 2] {
+    use lightcraft_geom::Point;
+    let (w, h) = frame.native_size();
+    let (w, h) = (w.round().max(1.0) as usize, h.round().max(1.0) as usize);
+    let p = frame.out_to_oriented(w, h).apply(Point::new(out[0] * w as f64, out[1] * h as f64));
+    let p = frame.warp.as_ref().map_or(p, |warp| warp.to_source(p, 1));
+    let s = lightcraft_pipeline::redeye::oriented_to_source(frame.orient, Point::new(p.x / frame.ow, p.y / frame.oh));
+    [s.x, s.y]
+}
+
 pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, family: &str) {
     let status = app.services.model_download_status.as_ref().map(|f| f(family)).unwrap_or_default();
     let installed = app.services.model_installed.as_ref().is_some_and(|f| f(family));
@@ -333,5 +369,59 @@ pub(crate) fn denoise_download(app: &mut LightcraftApp, ui: &mut egui::Ui, famil
                 app.toast(ui.ctx(), "Model downloads are available in Settings › Local AI.");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use serde_json::json;
+
+    use crate::headless::Headless;
+    use crate::{LightcraftApp, Services};
+
+    /// A cropped, perspective-corrected, turned photo seen at 100 %: Preview denoises where the
+    /// view looks, not at the photo's centre.
+    #[test]
+    fn ai_denoise_preview_follows_the_view_through_crop_and_perspective() {
+        let mut session = lightcraft_engine::Session::with_demo();
+        session.enhance.denoiser = Some(Arc::new(|pixels, _, _, _| Ok(vec![[0.9, 0.02, 0.9]; pixels.len()])));
+        let id = session.active().unwrap();
+        let mut d = (*session.develop_of(id).unwrap()).clone();
+        d.crop.geometry.rect = lightcraft_geom::Rect::new(0.1, 0.15, 0.85, 0.9);
+        d.geometry.vertical = 30.0;
+        d.orientation = lightcraft_geom::Orientation::Rotate90;
+        session.set_develop(id, d, "Framing").unwrap();
+        let mut h = Headless::new(LightcraftApp::new(session, Services { png: None, ..Default::default() }), [1200., 1800.], 1.);
+        let t = Duration::from_secs(20);
+        assert_eq!(h.request("ui.set", json!({"view":"detail","right":"edit","leftPanel":false}), t)["ok"], true);
+        for key in ["light", "color", "effects", "optics", "raw", "geometry"] {
+            if h.app.ui.section_open(key) {
+                h.app.ui.toggle_section(key);
+            }
+        }
+        if !h.app.ui.section_open("detail") {
+            h.app.ui.toggle_section("detail");
+        }
+        let viewed = (0.2, 0.75);
+        h.app.ui.zoom = crate::state::Zoom::Percent(100);
+        h.app.ui.pan = viewed;
+        h.step();
+        h.step();
+        // (red + blue − 2 green) at a point of the developed photo: how magenta it is
+        let magenta = |h: &mut Headless, x: f32, y: f32| {
+            let out = h.app.session.render_now(id, 900, 900).unwrap().image;
+            let p = out.get((x * out.width as f32) as usize, (y * out.height as f32) as usize).map(i32::from);
+            p[0] + p[2] - 2 * p[1]
+        };
+        let away = (1.0 - viewed.0, 1.0 - viewed.1);
+        let before = [magenta(&mut h, viewed.0, viewed.1), magenta(&mut h, away.0, away.1)];
+        assert_eq!(h.request("ui.clickWidget", json!({"id": "button:denoisePreview"}), t)["ok"], true);
+        assert!(h.step_until(Duration::from_secs(300), |h| h.app.session.develop_of(id).unwrap().enhance.ai.is_some_and(|a| a.preview)));
+        let seen = magenta(&mut h, viewed.0, viewed.1);
+        assert!(seen > before[0] + 100, "the viewed point takes the preview: {seen} after {}", before[0]);
+        assert_eq!(magenta(&mut h, away.0, away.1), before[1], "only the area around it");
     }
 }
