@@ -85,6 +85,15 @@ impl RawImage {
         out
     }
 
+    /// Raw `value` of sample `sample` at active-area position (`x`, `y`) on the scale that
+    /// [`Self::normalized`] and [`crate::NormalizedSamples::get`] give that position: black
+    /// subtracted, 1.0 = white level. Puts a saturation point where the clipped samples read.
+    pub fn normalize_sample(&self, value: f32, x: usize, y: usize, sample: usize) -> f32 {
+        let range = self.white_at(sample) - self.black.mean();
+        let scale = self.normalization_scale(x, y, sample).unwrap_or(if range > 0.0 { 1.0 / range } else { 1.0 });
+        (value - self.black.at(x, y, sample, self.cpp)) * scale
+    }
+
     /// Raise samples at or above their colour's real saturation point ([`Self::saturation_points`]) to the
     /// stated white level, so highlight reconstruction recognises them as clipped. Returns how many
     /// samples changed (0: the data is untouched).

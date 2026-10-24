@@ -62,14 +62,14 @@ fn saturation(raw: &RawImage) -> f32 {
     let points = raw.saturation_points();
     let Some(cfa) = &raw.cfa else { return 1.0 };
     let a = raw.active_area;
+    let (rows, cols) = (cfa.height.max(raw.black.repeat_rows), cfa.width.max(raw.black.repeat_cols));
     let mut level = 1.0f32;
-    for y in 0..cfa.height {
-        for x in 0..cfa.width {
+    for y in 0..rows.min(a.height) {
+        for x in 0..cols.min(a.width) {
             if let Some(point) = points[cfa.color_at(a.x + x, a.y + y).min(2) as usize] {
-                let black = raw.black.at(x, y, 0, 1);
-                let range = raw.sensor_white(a.x + x, a.y + y, 0) - black;
-                if range > 0.0 {
-                    level = level.min((f32::from(point) - black) / range);
+                let normalized = raw.normalize_sample(f32::from(point), x, y, 0);
+                if normalized > 0.0 {
+                    level = level.min(normalized);
                 }
             }
         }
@@ -792,6 +792,32 @@ mod tests {
         assert!((saturation(&raw) - 936.0 / 1000.0).abs() < 1e-6, "{}", saturation(&raw));
         let unclipped = RawImage { data: RawData::U16(vec![500; w * h]), ..raw };
         assert_eq!(saturation(&unclipped), 1.0);
+    }
+
+    #[test]
+    fn pixelshift_clip_is_where_every_clipped_sample_reads() {
+        let (w, h) = (64, 64);
+        // One white level with a black level that differs per CFA position: samples normalize by
+        // the white level less the mean black, so a plateau's level differs per position.
+        let black = BlackLevel { repeat_rows: 2, repeat_cols: 2, values: vec![60.0, 64.0, 66.0, 70.0], ..Default::default() };
+        let data = (0..w * h).map(|p| if p % w < w / 2 { 80 + ((p % w) * 26 + p / w) as u16 } else { 1000 }).collect();
+        let raw = RawImage {
+            data: RawData::U16(data),
+            width: w,
+            height: h,
+            black,
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            ..sources(4).remove(0)
+        };
+        let clip = saturation(&raw);
+        assert!(clip < 0.95, "{clip}");
+        let samples = raw.normalized_samples().unwrap();
+        for y in 0..h {
+            for x in w / 2..w {
+                assert!(samples.get(x, y, 0) >= clip, "clipped sample at {x},{y} reads {} below the clip {clip}", samples.get(x, y, 0));
+            }
+        }
     }
 
     #[test]
