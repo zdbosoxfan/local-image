@@ -234,6 +234,9 @@ const PENDING_AI_TRANSLATIONS: &[&str] = &[
     "Selected layer",
     "Wheel to zoom; drag to pan",
     "−",
+    "Model input:",
+    "Model output:",
+    "Depth output:",
 ];
 
 const PENDING_VECTOR_TRANSLATIONS: &[&str] = include!("i18n_pending_vector.rs");

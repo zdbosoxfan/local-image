@@ -172,29 +172,39 @@ impl InUse {
     }
 }
 
-/// How a subject model wants its input normalised.
+/// How a model wants its input normalised.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Norm {
     /// IS-Net style: mean 0.5, std 1.
     IsNet,
-    /// U²-Net / ImageNet style: ImageNet mean and std.
+    /// U²-Net / ImageNet style: ImageNet mean and std (also Depth Anything, MiDaS, SegFormer).
     ImageNet,
+    /// DPT style: mean 0.5, std 0.5, the input in -1..1 (DPT, Depth Pro, PaddleSeg exports).
+    Half,
 }
 
 impl Norm {
-    pub const ALL: [Norm; 2] = [Norm::IsNet, Norm::ImageNet];
+    pub const ALL: [Norm; 3] = [Norm::IsNet, Norm::ImageNet, Norm::Half];
 
     pub fn label(self) -> &'static str {
         match self {
             Norm::IsNet => "IS-Net style",
             Norm::ImageNet => "U²-Net / ImageNet style",
+            Norm::Half => "DPT style (-1 to 1)",
         }
+    }
+
+    /// What a new custom model of `group` most likely expects: IS-Net style for subject models,
+    /// ImageNet style for sky and depth models (as the official ones).
+    pub fn default_for(group: Group) -> Norm {
+        if group == Group::Subject { Norm::IsNet } else { Norm::ImageNet }
     }
 
     fn key(self) -> &'static str {
         match self {
             Norm::IsNet => "isnet",
             Norm::ImageNet => "imagenet",
+            Norm::Half => "half",
         }
     }
 
@@ -206,6 +216,7 @@ impl Norm {
         match self {
             Norm::IsNet => ([0.5; 3], [1.0; 3]),
             Norm::ImageNet => ([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            Norm::Half => ([0.5; 3], [0.5; 3]),
         }
     }
 }
@@ -256,8 +267,8 @@ pub enum Task {
         class: usize,
         margin: f32,
     },
-    /// Monocular relative depth (Depth Anything V2): one map of relative inverse depth
-    /// (larger = nearer), ImageNet-normalised input.
+    /// Monocular depth: one map of relative inverse depth (larger = nearer; Depth Anything V2,
+    /// ImageNet-normalised input), or of metric depth (larger = farther) for a custom model set so.
     Depth,
     /// Paired image/text embedding models; kept separate from mask inference.
     ImageText,
@@ -576,6 +587,8 @@ struct Config {
     task: Task,
     post: Post,
     activation: Activation,
+    /// Depth models: the output is metric depth (larger = farther), not inverse depth.
+    metric: bool,
 }
 
 impl Config {
@@ -588,6 +601,7 @@ impl Config {
             task: spec.task,
             post: if tier { Post::Probability } else { Post::MinMax },
             activation: if matches!(spec.task, Task::Sky { .. }) { Activation::Logits } else { Activation::Probability },
+            metric: false,
         }
     }
 }
@@ -759,7 +773,8 @@ impl Segmenter {
 
     /// Relative nearness (0 = farthest, 1 = nearest in the photo) for an RGBA8 image, at the
     /// image's size (a depth model). The model sees the photo squeezed to its square input; its
-    /// relative inverse depth is min–max stretched (it has no absolute scale).
+    /// relative inverse depth (a metric model's depth inverted first; no depth reads as farthest)
+    /// is min–max stretched (it has no absolute scale).
     pub fn predict_depth(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
         if self.cfg.task != Task::Depth {
             bail!("not a depth model");
@@ -768,8 +783,14 @@ impl Segmenter {
         let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), &never))?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
-        let vals: Vec<f32> = map.iter().copied().collect();
-        let vals = &vals[..oh * ow];
+        let mut vals: Vec<f32> = map.iter().copied().collect();
+        if vals.len() < oh * ow || oh * ow == 0 {
+            bail!("unexpected depth model output");
+        }
+        vals.truncate(oh * ow);
+        if self.cfg.metric {
+            vals.iter_mut().for_each(|v| *v = if v.is_finite() && *v > 0.0 { 1.0 / v.max(1e-6) } else { 0.0 });
+        }
         let (lo, hi) = vals.iter().filter(|v| v.is_finite()).fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
         if hi <= lo {
             return Ok(vec![0.5; w * h]);
@@ -888,11 +909,12 @@ pub struct Custom {
     pub name: String,
     /// The square input size the model runs at.
     pub size: usize,
-    /// Subject models: how the input is normalised.
+    /// How the input is normalised.
     pub norm: Norm,
     /// Sky output channels; restoration models persist three RGB channels here.
     pub classes: usize,
-    /// Sky class index; restoration contract: 0 = display sRGB, 1 = linear Rec.2020.
+    /// Sky class index; depth output: 0 = inverse depth, 1 = metric depth; restoration
+    /// contract: 0 = display sRGB, 1 = linear Rec.2020.
     pub class: usize,
     /// Subject and sky maps: what the output values are.
     pub activation: Activation,
@@ -913,7 +935,15 @@ impl Custom {
             Group::Faces => Task::FaceEmbed,
             Group::RawDenoise | Group::RgbDenoise | Group::Remove => self.group.official().task,
         };
-        Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task, post: Post::MinMax, activation: self.activation }
+        Config {
+            id: format!("custom:{}", self.file),
+            size: self.size,
+            norm: self.norm,
+            task,
+            post: Post::MinMax,
+            activation: self.activation,
+            metric: self.group == Group::Depth && self.class == 1,
+        }
     }
 }
 
@@ -922,15 +952,24 @@ impl Custom {
 pub struct CustomOptions {
     /// RGB restoration: use linear Rec.2020 instead of display sRGB. Raw always uses linear.
     pub denoise_linear: bool,
-    /// Subject models: the input normalisation.
+    /// The input normalisation (subject, sky and depth models).
     pub norm: Norm,
     /// Sky models with class logits: the sky's class index (ADE20K: 2).
     pub sky_class: usize,
+    /// Depth models: the output is metric depth (larger = farther) instead of inverse depth.
+    pub depth_metric: bool,
 }
 
 impl Default for CustomOptions {
     fn default() -> Self {
-        Self { norm: Norm::IsNet, sky_class: 2, denoise_linear: false }
+        Self { norm: Norm::IsNet, sky_class: 2, denoise_linear: false, depth_metric: false }
+    }
+}
+
+impl CustomOptions {
+    /// The options a new custom model of `group` starts from.
+    pub fn for_group(group: Group) -> Self {
+        Self { norm: Norm::default_for(group), ..Self::default() }
     }
 }
 
@@ -1225,6 +1264,9 @@ fn add_custom_with(
         c.classes = 3;
         c.class = usize::from(group == Group::RawDenoise || opts.denoise_linear);
     }
+    if group == Group::Depth {
+        c.class = usize::from(opts.depth_metric);
+    }
     let inlined = external_data::inlined(src).map_err(tract_error)?;
     std::fs::create_dir_all(custom_dir(models_dir))?;
     let mut all = read_customs(models_dir);
@@ -1277,6 +1319,28 @@ fn add_custom_with(
     }
     forget_group(group);
     Ok(c)
+}
+
+/// Changes how the custom model of `group` is run (its input normalisation, a sky model's class,
+/// a depth model's output) without importing it again.
+pub fn set_custom_options(models_dir: &Path, group: Group, opts: CustomOptions) -> Result<Custom> {
+    let mut all = read_customs(models_dir);
+    let c = all.iter_mut().find(|c| c.group == group).context("This function has no custom model")?;
+    c.norm = opts.norm;
+    match group {
+        Group::Sky if c.classes > 1 => {
+            if opts.sky_class >= c.classes {
+                return Err(CustomModelError::SkyClassOutOfRange { class: opts.sky_class, classes: c.classes }.into());
+            }
+            c.class = opts.sky_class;
+        }
+        Group::Depth => c.class = usize::from(opts.depth_metric),
+        _ => {}
+    }
+    let changed = c.clone();
+    write_customs(models_dir, &all)?;
+    forget_group(group);
+    Ok(changed)
 }
 
 /// Goes back to the official model of `group`: forgets the custom one and `dispose`s of its copy

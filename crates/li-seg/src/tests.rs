@@ -584,6 +584,31 @@ fn a_model_with_external_weights_is_copied_as_one_file() {
 }
 
 #[test]
+fn custom_depth_models_get_their_normalisation_and_output_direction() {
+    let dir = temp_models();
+    let s = 32usize;
+    // metric depth: the left half 2 m away, the right half 10 m
+    let metres: Vec<f32> = (0..s * s).map(|i| if i % s < s / 2 { 2.0 } else { 10.0 }).collect();
+    let path = picked_bytes(&dir, "metric.onnx", &constant_onnx(s as u64, 1, &metres, None));
+    let c = add_custom(&dir, Group::Depth, &path, CustomOptions { depth_metric: true, ..CustomOptions::for_group(Group::Depth) }, &keep).unwrap();
+    assert_eq!((c.norm, c.class), (Norm::ImageNet, 1), "depth models start ImageNet-normalised");
+    let seg = shared_depth(&dir).unwrap();
+    // the model gets ImageNet-normalised input: mid grey is (0.5 - mean) / std
+    let grey: Vec<u8> = (0..s * s).flat_map(|_| [128, 128, 128, 255]).collect();
+    let input = seg.input(&grey, s, s, false).unwrap();
+    assert!((input[[0, 0, 0, 0]] - (128.0 / 255.0 - 0.485) / 0.229).abs() < 1e-4, "{}", input[[0, 0, 0, 0]]);
+    let near = seg.predict_depth(&grey, s, s).unwrap();
+    assert!(near[s / 4] > 0.99 && near[s * 3 / 4] < 0.01, "the 2 m side is the nearer: {} {}", near[s / 4], near[s * 3 / 4]);
+    // the same model read as inverse depth puts the 10 m side nearest; switching needs no new import
+    let c = set_custom_options(&dir, Group::Depth, CustomOptions { norm: Norm::Half, ..CustomOptions::default() }).unwrap();
+    assert_eq!((c.norm, c.class), (Norm::Half, 0));
+    assert_eq!(custom(&dir, Group::Depth), Some(c), "the list keeps the DPT style and the output");
+    let near = shared_depth(&dir).unwrap().predict_depth(&grey, s, s).unwrap();
+    assert!(near[s / 4] < 0.01 && near[s * 3 / 4] > 0.99);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn custom_lines_from_before_outputs_were_checked_keep_their_meaning() {
     let dir = temp_models();
     let src = picked(&dir, "m.onnx", Some((32, 32)), Out::Map);

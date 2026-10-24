@@ -435,19 +435,71 @@ fn set_custom_job(dir: &std::path::Path, group: li_seg::Group, job: Option<Custo
 struct SegOpts {
     denoise_linear: bool,
     open: bool,
-    /// Subject: U²-Net / ImageNet normalisation (else IS-Net style).
-    imagenet: bool,
+    /// Subject, sky and depth: the input normalisation (`None`: the function's usual one).
+    norm: Option<li_seg::Norm>,
     /// Sky: the class index of the sky for class-logit models (default 2, ADE20K).
     sky_class: Option<usize>,
+    /// Depth: the model outputs metric depth (farther = larger).
+    depth_metric: bool,
 }
 
 impl SegOpts {
-    fn options(&self) -> li_seg::CustomOptions {
+    fn options(&self, group: li_seg::Group) -> li_seg::CustomOptions {
         li_seg::CustomOptions {
-            norm: if self.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet },
+            norm: self.norm.unwrap_or(li_seg::Norm::default_for(group)),
             sky_class: self.sky_class.unwrap_or(2),
             denoise_linear: self.denoise_linear,
+            depth_metric: self.depth_metric,
         }
+    }
+}
+
+/// The depth output choices: (metric, label).
+const DEPTH_OUTPUTS: [(bool, &str); 2] = [(false, "Inverse depth (nearer = larger)"), (true, "Metric depth (farther = larger)")];
+
+/// An input-style picker; true when `norm` changed.
+fn norm_picker(ui: &mut egui::Ui, id: (&str, &str), norm: &mut li_seg::Norm) -> bool {
+    let before = *norm;
+    egui::ComboBox::from_id_salt(id).selected_text(tl!(norm.label())).show_ui(ui, |ui| {
+        for n in li_seg::Norm::ALL {
+            ui.selectable_value(norm, n, tl!(n.label()));
+        }
+    });
+    *norm != before
+}
+
+/// A depth-output picker; true when `metric` changed.
+fn depth_output_picker(ui: &mut egui::Ui, id: (&str, &str), metric: &mut bool) -> bool {
+    let before = *metric;
+    let shown = DEPTH_OUTPUTS.iter().find(|(m, _)| *m == *metric).map_or("", |(_, l)| *l);
+    egui::ComboBox::from_id_salt(id).selected_text(tl!(shown)).show_ui(ui, |ui| {
+        for (m, label) in DEPTH_OUTPUTS {
+            ui.selectable_value(metric, m, tl!(label));
+        }
+    });
+    *metric != before
+}
+
+/// How the function's custom model `c` runs (input style, depth output), changeable in place.
+fn custom_model_options(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: li_seg::Group, c: &li_seg::Custom) {
+    if !matches!(group, li_seg::Group::Subject | li_seg::Group::Sky | li_seg::Group::Depth) {
+        return;
+    }
+    let mut opts =
+        li_seg::CustomOptions { norm: c.norm, sky_class: c.class, depth_metric: group == li_seg::Group::Depth && c.class == 1, ..Default::default() };
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(tl!("Model input:")).color(t.text_dim).size(11.5));
+        changed |= norm_picker(ui, ("seg-custom-norm", group.key()), &mut opts.norm);
+    });
+    if group == li_seg::Group::Depth {
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(tl!("Model output:")).color(t.text_dim).size(11.5));
+            changed |= depth_output_picker(ui, ("seg-custom-depth", group.key()), &mut opts.depth_metric);
+        });
+    }
+    if changed && let Err(e) = li_seg::set_custom_options(dir, group, opts) {
+        set_custom_job(dir, group, Some(CustomJob::Failed(format!("{e:#}"))));
     }
 }
 
@@ -610,6 +662,7 @@ fn model_function_row(
                 .color(t.text_faint)
                 .size(11.0),
             );
+            custom_model_options(ui, t, dir, group, c);
             if matches!(group, li_seg::Group::RawDenoise | li_seg::Group::RgbDenoise) {
                 let size = c.path(dir).metadata().map(|m| li_ai::download::human_bytes(m.len())).unwrap_or_default();
                 ui.label(
@@ -714,16 +767,21 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                 .color(t.text_faint)
                 .size(11.0),
         );
+        if matches!(group, li_seg::Group::Subject | li_seg::Group::Sky | li_seg::Group::Depth) {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(tl!("Input style:")).color(t.text_dim).size(11.5));
+                let mut norm = o.norm.unwrap_or(li_seg::Norm::default_for(group));
+                if norm_picker(ui, ("seg-norm", group.key()), &mut norm) {
+                    o.norm = Some(norm);
+                }
+            });
+        }
         match group {
-            li_seg::Group::Subject => {
+            li_seg::Group::Subject => {}
+            li_seg::Group::Depth => {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(tl!("Input style:")).color(t.text_dim).size(11.5));
-                    let shown = if o.imagenet { li_seg::Norm::ImageNet } else { li_seg::Norm::IsNet };
-                    egui::ComboBox::from_id_salt(("seg-norm", group.key())).selected_text(tl!(shown.label())).show_ui(ui, |ui| {
-                        for n in li_seg::Norm::ALL {
-                            ui.selectable_value(&mut o.imagenet, n == li_seg::Norm::ImageNet, tl!(n.label()));
-                        }
-                    });
+                    ui.label(RichText::new(tl!("Depth output:")).color(t.text_dim).size(11.5));
+                    depth_output_picker(ui, ("seg-depth-output", group.key()), &mut o.depth_metric);
                 });
             }
             li_seg::Group::Sky => {
@@ -742,7 +800,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
             li_seg::Group::RawDenoise => {
                 ui.label(tl!("Custom Raw Denoise models use three-channel linear Rec.2020 input and output."));
             }
-            li_seg::Group::Depth | li_seg::Group::Tagging | li_seg::Group::Faces | li_seg::Group::Remove => {}
+            li_seg::Group::Tagging | li_seg::Group::Faces | li_seg::Group::Remove => {}
         }
         if job == Some(CustomJob::Testing) {
             ui.horizontal(|ui| {
@@ -750,7 +808,7 @@ fn custom_controls(ui: &mut egui::Ui, t: &Tokens, dir: &std::path::Path, group: 
                 ui.label(RichText::new(tl!("Testing the model…")).color(t.text_dim).size(11.5));
             });
         } else if widgets::secondary_button(ui, tl!("Choose an ONNX file…"), 0.0).clicked() {
-            let (models, options) = (dir.to_path_buf(), o.options());
+            let (models, options) = (dir.to_path_buf(), o.options(group));
             pick_onnx(ui.ctx(), move |src| {
                 set_custom_job(&models, group, None);
                 start_custom(models, group, src, options);
@@ -1925,15 +1983,19 @@ mod tests {
         let mut h = seg_harness(&dir, Some(li_seg::Group::Depth));
         h.get_by_label("Custom model…").click();
         h.run_steps(2);
-        assert!(h.query_by_label("Input style:").is_none() && h.query_by_label("Sky class:").is_none());
+        // depth models start ImageNet-normalised, as inverse depth
+        h.get_by_label("Input style:");
+        h.get_by_value("U²-Net / ImageNet style");
+        h.get_by_value("Inverse depth (nearer = larger)");
+        assert!(h.query_by_label("Sky class:").is_none());
         h.get_by_label("Choose an ONNX file…");
         let mut h = seg_harness(&dir, Some(li_seg::Group::Subject));
         h.get_by_label("Custom model…").click();
         h.run_steps(2);
         h.get_by_value("IS-Net style");
-        assert!(h.query_by_label("Sky class:").is_none());
+        assert!(h.query_by_label("Sky class:").is_none() && h.query_by_label("Depth output:").is_none());
         // the U²-Net / ImageNet choice is what gets stored
-        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Subject).unwrap().imagenet = true);
+        dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Subject).unwrap().norm = Some(li_seg::Norm::ImageNet));
         h.run_steps(2);
         h.get_by_value("U²-Net / ImageNet style");
         will_pick(Some(pick_file(&dir, "u2.onnx", MAP_32)));
@@ -1945,7 +2007,7 @@ mod tests {
         h.get_by_label("Custom model…").click();
         h.run_steps(2);
         h.get_by_label("Sky class:");
-        assert!(h.query_by_label("Input style:").is_none());
+        h.get_by_value("U²-Net / ImageNet style");
         dialogs_mut(|d| d.seg_opts.get_mut(&li_seg::Group::Sky).unwrap().sky_class = Some(7));
         will_pick(Some(pick_file(&dir, "sky.onnx", ECHO_32)));
         h.get_by_label("Choose an ONNX file…").click();
