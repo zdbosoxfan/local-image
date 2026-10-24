@@ -360,8 +360,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let p = ui.painter_at(canvas);
     // what a view slot shows: its own render of this photo, else the stand-ins (no blank frame
-    // between photos, and the full render replaces them in place)
-    let draw = |slot: Slot, r: Rect| -> &'static str {
+    // between photos, and the full render replaces them in place); and where its pixels went
+    let draw = |slot: Slot, r: Rect| -> (&'static str, Rect) {
         let mine = |s: Slot| app.renderer.textures.get(&s).filter(|t| t.photo == id);
         let (tex, what) = if let Some(t) = mine(slot) {
             (t, "render")
@@ -370,10 +370,11 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         } else if let Some(t) = app.renderer.thumb(id) {
             (t, "thumb")
         } else {
-            return "none";
+            return ("none", r);
         };
-        p.image(tex.tex.id(), pixel_rect(r, tex.size, ppp).unwrap_or(r), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-        what
+        let at = pixel_rect(r, tex.size, ppp).unwrap_or(r);
+        p.image(tex.tex.id(), at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        (what, at)
     };
     // soft proofing: a paper-white surround and the proof's name, as Lightroom shows it
     if app.ui.soft_proof && !fullscreen {
@@ -381,37 +382,35 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let label = li_i18n::tr_format!("Proof Preview · {}", app.ui.proof.label());
         p.text(pos2(canvas.right() - 16.0, canvas.top() + 14.0), Align2::RIGHT_CENTER, label, t.font(12.5), Color32::from_gray(60));
     }
-    let shown;
+    // (`drawn`: where the photo's pixels are, the overlays' frame; up to a pixel off `img_rect`
+    // where `pixel_rect` puts a render on the physical pixel grid)
+    let (shown, drawn);
     let mut composite_button = None;
     if let Some(button) = composite.then(|| super::host_composite::loupe(app, ui, id, main_area)).flatten() {
         composite_button = Some(button);
-        shown = "compositing";
+        (shown, drawn) = ("compositing", img_rect);
     } else if split {
         let br = fit_rect(areas[0], aspect, app.ui.zoom, native, ppp, app.ui.pan);
         draw(Slot::Before, br);
-        shown = draw(Slot::Main, img_rect);
+        (shown, drawn) = draw(Slot::Main, img_rect);
         p.text(pos2(br.left(), br.bottom() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("Before"), t.font(12.0), t.text_dim);
         p.text(pos2(img_rect.left(), img_rect.bottom() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("After"), t.font(12.0), t.text_dim);
     } else if show_before {
-        shown = draw(Slot::Before, img_rect);
+        (shown, drawn) = draw(Slot::Before, img_rect);
         p.text(pos2(img_rect.left() + 8.0, img_rect.top() + 14.0), Align2::LEFT_CENTER, li_i18n::library::t("Before"), t.font(12.0), t.text);
     } else if let Some((_key, label)) = &hover_key
         && let Some(tex) = app.renderer.textures.get(&Slot::Hover).filter(|t| t.photo == id)
     {
         p.image(tex.tex.id(), img_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         crate::widgets::image_badge(&p, img_rect.left_top() + vec2(8.0, 8.0), None, Some(label), img_rect.width() - 16.0);
-        shown = "hover";
+        (shown, drawn) = ("hover", img_rect);
     } else {
         let main = draw(Slot::Main, img_rect);
-        shown = match app.renderer.textures.get(&Slot::Detail).filter(|t| !interacting && t.photo == id && Some(t.key) == detail_key) {
+        (shown, drawn) = match app.renderer.textures.get(&Slot::Detail).filter(|t| !interacting && t.photo == id && Some(t.key) == detail_key) {
             Some(tex) => {
-                p.image(
-                    tex.tex.id(),
-                    pixel_rect(img_rect, tex.size, ppp).unwrap_or(img_rect),
-                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-                "detail"
+                let at = pixel_rect(img_rect, tex.size, ppp).unwrap_or(img_rect);
+                p.image(tex.tex.id(), at, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                ("detail", at)
             }
             None => main,
         };
@@ -435,26 +434,26 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     app.loupe_shown = Some((id, shown));
     if split_view && app.ui.before_after == BeforeAfter::Split {
-        let mid = img_rect.center().x;
+        let mid = drawn.center().x;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
-            let left = Rect::from_min_max(img_rect.min, pos2(mid, img_rect.bottom()));
+            let left = Rect::from_min_max(drawn.min, pos2(mid, drawn.bottom()));
             p.image(tex.tex.id(), left, Rect::from_min_max(pos2(0.0, 0.0), pos2(0.5, 1.0)), Color32::WHITE);
         }
-        p.line_segment([pos2(mid, img_rect.top()), pos2(mid, img_rect.bottom())], Stroke::new(1.5, Color32::WHITE));
+        p.line_segment([pos2(mid, drawn.top()), pos2(mid, drawn.bottom())], Stroke::new(1.5, Color32::WHITE));
     }
     if split_view && app.ui.before_after == BeforeAfter::SplitTopBottom {
-        let mid = img_rect.center().y;
+        let mid = drawn.center().y;
         if let Some(tex) = app.renderer.textures.get(&Slot::Before).filter(|t| t.photo == id) {
-            let top = Rect::from_min_max(img_rect.min, pos2(img_rect.right(), mid));
+            let top = Rect::from_min_max(drawn.min, pos2(drawn.right(), mid));
             p.image(tex.tex.id(), top, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 0.5)), Color32::WHITE);
         }
-        p.line_segment([pos2(img_rect.left(), mid), pos2(img_rect.right(), mid)], Stroke::new(1.5, Color32::WHITE));
+        p.line_segment([pos2(drawn.left(), mid), pos2(drawn.right(), mid)], Stroke::new(1.5, Color32::WHITE));
     }
     if app.ui.show_clipping && !show_before && !fullscreen {
-        clipping_overlay(app, &p, img_rect);
+        clipping_overlay(app, &p, drawn);
     }
-    register(ui.ctx(), "canvas:image", img_rect);
-    let map = CanvasMap::new(&frame, img_rect);
+    register(ui.ctx(), "canvas:image", drawn);
+    let map = CanvasMap::new(&frame, drawn);
     let resp = ui.interact(canvas, egui::Id::new("loupe"), Sense::click_and_drag());
     info_overlay(app, &p, canvas, &photo);
     if !fullscreen {

@@ -86,9 +86,14 @@ fn loupe_of(size: [u32; 2], source: [usize; 2], settings: DevelopSettings, zoom:
     let mut session = lightcraft_engine::Session::new();
     session.media.file_loader =
         Some(Arc::new(move |_: &str, _| Ok((li_raster::RgbFrame::filled(source[0], source[1], [0.2, 0.3, 0.4]), Default::default()))));
-    let id = PhotoId(1);
-    let mut p = Photo::new(id, Source::File { path: "a1.tif".into() }, "a1.tif", "TIFF", size[0], size[1], "2026-10-24");
+    let mut p = Photo::new(PhotoId(1), Source::File { path: "a1.tif".into() }, "a1.tif", "TIFF", size[0], size[1], "2026-10-24");
     p.develop = Arc::new(settings);
+    loupe_on(session, p, zoom, ppp)
+}
+
+/// A Develop loupe on photo `p`, added to `session`.
+fn loupe_on(mut session: lightcraft_engine::Session, p: Photo, zoom: Zoom, ppp: f32) -> (Headless, Capture) {
+    let id = p.id;
     session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
     session.selection = lightcraft_engine::Selection::single(id);
     let mut app = LightcraftApp::new(session, crate::Services { png: None, ..Default::default() });
@@ -220,21 +225,51 @@ fn the_1_to_1_render_is_drawn_pixel_for_pixel() {
         let (id, size) = (tex.tex.id(), tex.size);
         let meta = h.view.ctx.tex_manager().read().meta(id).map(|m| m.options);
         assert_eq!(meta.map(|o| o.magnification), Some(egui::TextureFilter::Nearest), "{case}: texels are not blended");
-        let drawn = h
-            .view
-            .shapes()
-            .iter()
-            .find_map(|c| match &c.shape {
-                egui::epaint::Shape::Mesh(m) if m.texture_id == id => {
-                    Some(m.vertices.iter().fold(Rect::NOTHING, |r, v| r.union(Rect::from_min_max(v.pos, v.pos))))
-                }
-                _ => None,
-            })
-            .expect("the 1:1 texture is drawn");
+        let drawn = drawn_rect(&h, id).expect("the 1:1 texture is drawn");
         let px = |v: f32| v * ppp;
         assert!([drawn.min.x, drawn.min.y].iter().all(|v| (px(*v) - px(*v).round()).abs() < 1e-3), "{case}: on the pixel grid: {drawn:?}");
         let want = [size[0] as f32 * scale, size[1] as f32 * scale];
         assert!((px(drawn.width()) - want[0]).abs() < 1e-2 && (px(drawn.height()) - want[1]).abs() < 1e-2, "{case}: {drawn:?} for {size:?}");
+    }
+}
+
+/// The bounds of what is drawn with texture `id` in the last frame.
+fn drawn_rect(h: &Headless, id: egui::TextureId) -> Option<Rect> {
+    h.view.shapes().iter().find_map(|c| match &c.shape {
+        egui::epaint::Shape::Mesh(m) if m.texture_id == id => {
+            Some(m.vertices.iter().fold(Rect::NOTHING, |r, v| r.union(Rect::from_min_max(v.pos, v.pos))))
+        }
+        _ => None,
+    })
+}
+
+/// The before/after wipe draws its Before half against the after view where that is drawn on the
+/// pixel grid, so the halves stay in register; the canvas the overlays and tools map to is the
+/// same rect.
+#[test]
+fn a_split_wipe_keeps_both_halves_and_the_overlays_in_register() {
+    for (before_after, half) in [(BeforeAfter::Split, 0), (BeforeAfter::SplitTopBottom, 1)] {
+        let (mut h, work) = loupe_of([3000, 2000], [3000, 2000], DevelopSettings::default(), Zoom::Percent(50), 1.0);
+        h.app.ui.settings.preview_edge = 1600;
+        h.app.ui.pan = (0.3701, 0.6103);
+        h.app.ui.before_after = before_after;
+        h.step();
+        work.finish(&mut h, Slot::Main, true);
+        work.finish(&mut h, Slot::Before, true);
+        let tex = |slot| h.app.renderer.textures.get(&slot).unwrap().tex.id();
+        let after = drawn_rect(&h, tex(Slot::Main)).expect("the after view is drawn");
+        let before = drawn_rect(&h, tex(Slot::Before)).expect("the before half is drawn");
+        let case = format!("{before_after:?}: after {after:?}, before {before:?}");
+        assert!((after.min.x - after.min.x.round()).abs() < 1e-3, "{case}: the after view is on the pixel grid");
+        assert!((before.min - after.min).length() < 1e-3, "{case}");
+        let mid = if half == 0 {
+            (before.max.x - after.center().x, before.max.y - after.max.y)
+        } else {
+            (before.max.x - after.max.x, before.max.y - after.center().y)
+        };
+        assert!(mid.0.abs() < 1e-3 && mid.1.abs() < 1e-3, "{case}: the before half ends at the after view's middle");
+        let canvas = h.app.widgets.iter().find(|(w, _)| w == "canvas:image").map(|(_, r)| *r);
+        assert!(canvas.is_some_and(|c| (c.min - after.min).length() < 1e-3 && (c.max - after.max).length() < 1e-3), "{case}: canvas {canvas:?}");
     }
 }
 
