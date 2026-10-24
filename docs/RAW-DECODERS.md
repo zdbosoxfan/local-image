@@ -53,6 +53,7 @@ serde defaults; old stored metadata needs Reload/Relink to populate new fields.
 
 DJI built-in DNG operations execute in their original order in camera RGB before
 colour conversion, including when the editable lens-profile checkbox is off.
+Previews evaluate them on the binned sensor, at the binned size.
 Mixed lists, multiple corrections and per-plane warps are not split across the
 raw/develop boundary. Uncompressed terminal strips with a wrong byte count are
 recovered only when the complete declared image exactly occupies the remaining

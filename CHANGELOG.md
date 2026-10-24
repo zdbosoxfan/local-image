@@ -6,6 +6,25 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
+  removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
+  railings, roof lines, brick), most visibly under tungsten light. 1:1 views and full-size exports
+  of every raw render slightly differently; previews and thumbnails are re-rendered.
+- RAW highlights are found on the sensor data, before demosaic and before a DNG's built-in lens
+  corrections. Blown windows no longer get cyan, blue or magenta outlines, and bright but unclipped
+  corners of DJI and Hasselblad drone DNGs keep their colour. With Reconstruct (the default) a blown
+  sun or sky continues the colour and brightness of its surroundings instead of becoming a grey
+  disc; with Inpaint Opposed and Segmentation areas clipped in every channel render white instead
+  of peach, lilac or magenta.
+- RAW development removes isolated hot and dead photosites (long exposures, ageing sensors) before
+  anything else reads the sensor, so they no longer show as coloured dots.
+- DJI and Hasselblad drone DNG previews and thumbnails are developed from a binned sensor with the
+  built-in lens corrections applied at that size, about three times faster on a 20 MP Mavic 3 file.
+  The built-in distortion correction resamples with a de-ringed cubic kernel instead of bilinear,
+  keeping more detail in full-size exports.
+
 ### Fixed
 
 - Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
@@ -42,6 +61,14 @@ All notable changes to Local Image are recorded here. The format follows
   1 to 100 is refused instead of clamped, and out-of-range view zoom or centre values are refused.
 - Graphics: GL adapters weaker than WebGL2's defaults no longer fail device creation, and small mip
   levels are redrawn whole, fixing canvas corruption on some AMD Vulkan drivers.
+- DNG: JPEG XL compressed DNGs (DNG 1.7) keep their exposure, colour profile, tone curve and
+  built-in lens corrections, and linear JPEG XL DNGs open. DNGs whose active area starts on an odd
+  row or column demosaic with the right colours, and DNGs written by Local Image from such cameras
+  open correctly in other apps (DNGs converted from those bodies by earlier builds change colour).
+  Negative DeltaPerRow and DeltaPerColumn corrections are applied instead of dropped, and choosing
+  another camera profile no longer adds the embedded profile's exposure offset to the new one's.
+- RAW: a file with a damaged or truncated tile, strip or uncompressed band is refused with an error
+  instead of developing with black blocks.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 
