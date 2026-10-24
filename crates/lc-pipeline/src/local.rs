@@ -453,6 +453,39 @@ mod tests {
     }
 
     #[test]
+    fn daylight_preset_neutralises_a_d55_grey() {
+        // A grey card under D55 in a frame balanced for D65: Lightroom's Daylight (5500 K, +10)
+        // is that light, so the card renders neutral.
+        let info = SourceInfo { raw: true, as_shot_temp: 6500.0, as_shot_tint: 0.0, ..SourceInfo::default() };
+        let shot = wb_matrix(&REC2020, temp_tint_to_xy(6500.0, 0.0));
+        let card = shot.apply(REC2020.from_xyz().apply(li_color::Xy::new(0.33242, 0.34743).to_xyz())).map(|v| (v * 0.18) as f32);
+        let mut s = DevelopSettings::default();
+        s.wb.mode = lightcraft_develop::WbMode::Daylight;
+        let mut img = RgbFrame::filled(2, 2, card);
+        white_balance(&mut img, &info, &s);
+        let c = img.get(0, 0);
+        let m = (c[0] + c[1] + c[2]) / 3.0;
+        assert!(c.iter().all(|v| (v / m - 1.0).abs() < 3e-3), "{c:?}");
+    }
+
+    #[test]
+    fn positive_tint_pushes_the_image_magenta() {
+        let info = SourceInfo { raw: true, as_shot_temp: 5000.0, as_shot_tint: 0.0, ..SourceInfo::default() };
+        let s = DevelopSettings {
+            wb: lightcraft_develop::WhiteBalance { mode: lightcraft_develop::WbMode::Custom, temp: 5000.0, tint: 30.0 },
+            ..DevelopSettings::default()
+        };
+        let mut img = RgbFrame::filled(2, 2, [0.2; 3]);
+        white_balance(&mut img, &info, &s);
+        let c = img.get(0, 0);
+        assert!(c[1] < c[0] && c[1] < c[2], "global {c:?}");
+        // a mask's tint goes through the same model
+        let m = wb_change((5000.0, 0.0), (5000.0, 30.0)).expect("tint changes the white");
+        let g = (0..3).map(|i| m[i].iter().sum::<f32>() * 0.2).collect::<Vec<_>>();
+        assert!(g[1] < g[0] && g[1] < g[2], "mask {g:?}");
+    }
+
+    #[test]
     fn exposure_doubles() {
         let mut s = DevelopSettings::default();
         s.light.exposure = 1.0;

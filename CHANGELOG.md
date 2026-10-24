@@ -42,6 +42,13 @@ All notable changes to Local Image are recorded here. The format follows
   1 to 100 is refused instead of clamped, and out-of-range view zoom or centre values are refused.
 - Graphics: GL adapters weaker than WebGL2's defaults no longer fail device creation, and small mip
   levels are redrawn whole, fixing canvas corruption on some AMD Vulkan drivers.
+- Develop white balance: Tint follows Lightroom's and the DNG SDK's sign (positive pushes the photo
+  towards magenta). The Daylight, Cloudy, Shade and Fluorescent presets and tints read from Lightroom
+  XMP sidecars and presets render as in Lightroom instead of with a green cast, the Tint slider moves
+  the photo the way its green-to-magenta track shows, and as-shot tints read like Lightroom's
+  (daylight frames about +10). Custom tints saved by earlier builds now render with the opposite tint,
+  and the As Shot tint shown for raws imported before this change keeps the old sign until the photo
+  is imported again.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

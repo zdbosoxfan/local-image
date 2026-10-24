@@ -2,7 +2,8 @@
 //!
 //! The Planckian locus uses the Kim et al. (2002) cubic approximation (1667–25000 K); outside that
 //! range it is extended linearly in mired space. Tint is a signed offset perpendicular to the locus in
-//! CIE 1960 (u, v): **positive tint = magenta** (below the locus), `Duv = −tint / TINT_SCALE`.
+//! CIE 1960 (u, v), with Adobe's (DNG SDK, Lightroom) sign: **positive tint = a green illuminant**
+//! (above the locus), so neutralising it pushes the image towards magenta; `Duv = tint / TINT_SCALE`.
 
 use crate::{Mat3, RgbSpace, Xy, bradford};
 
@@ -69,7 +70,7 @@ fn locus_normal(t: f64) -> (f64, f64) {
 pub fn temp_tint_to_xy(t: f64, tint: f64) -> Xy {
     let (u, v) = locus_uv(t);
     let (nu, nv) = locus_normal(t);
-    let duv = -tint / TINT_SCALE;
+    let duv = tint / TINT_SCALE;
     uv_to_xy(u + nu * duv, v + nv * duv)
 }
 
@@ -104,7 +105,7 @@ pub fn xy_to_temp_tint(p: Xy) -> (f64, f64) {
     let (lu, lv) = locus_uv(t);
     let (nu, nv) = locus_normal(t);
     let duv = (u - lu) * nu + (v - lv) * nv;
-    (t, -duv * TINT_SCALE)
+    (t, duv * TINT_SCALE)
 }
 
 /// Matrix (linear RGB in `space` → same space) that white-balances a scene lit by `src` so that it
@@ -141,10 +142,22 @@ mod tests {
         let warm = temp_tint_to_xy(3000.0, 0.0);
         let cool = temp_tint_to_xy(9000.0, 0.0);
         assert!(warm.x > cool.x);
-        // positive tint is magenta: lower v
+        // positive tint is a green illuminant: higher v
         let (_, v0) = xy_to_uv(temp_tint_to_xy(5000.0, 0.0));
         let (_, v1) = xy_to_uv(temp_tint_to_xy(5000.0, 50.0));
-        assert!(v1 < v0);
+        assert!(v1 > v0);
+    }
+
+    #[test]
+    fn d55_reads_as_lightroom_daylight() {
+        // Lightroom's Daylight preset (5500 K, +10) is the D55 white.
+        let (t, tint) = xy_to_temp_tint(Xy::new(0.33242, 0.34743));
+        assert!((t - 5500.0).abs() < 15.0, "{t}");
+        assert!((tint - 10.0).abs() < 1.0, "{tint}");
+        let p = temp_tint_to_xy(5500.0, 10.0);
+        let (u, v) = xy_to_uv(p);
+        let (u55, v55) = xy_to_uv(Xy::new(0.33242, 0.34743));
+        assert!((u - u55).hypot(v - v55) < 5e-4, "{p:?}");
     }
 
     #[test]
