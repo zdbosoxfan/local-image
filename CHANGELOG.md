@@ -60,6 +60,10 @@ All notable changes to Local Image are recorded here. The format follows
   ProPhoto exports; it now starts at 98% and only makes room for the working gamut that does not fit
   the output space. Scene colours past Rec. 2020 (LED coves, neon) roll off towards its edge instead
   of being clipped onto it.
+- LUT profiles (`.cube`, `.3dl`, `.look`) get sRGB / Rec. 709 display values in every export colour
+  space, so a look that is right in the preview exports the same to Display P3, Adobe RGB and
+  ProPhoto, a soft proof shows it, and adding an adjustment layer no longer changes it. Grain now
+  follows the LUT in every path.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

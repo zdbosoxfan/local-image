@@ -1,7 +1,8 @@
 //! 3D LUT profiles: `.cube` files (the plain-text Cube LUT format: `LUT_3D_SIZE`, optional
 //! `DOMAIN_MIN` / `DOMAIN_MAX`, then size³ "r g b" lines with red changing fastest), applied to
-//! the display-encoded output colour and blended by the profile amount. Profiles are registered
-//! here by id (`lut:…`) and found by the finishing stage; LUT profiles render on the CPU.
+//! sRGB / Rec. 709 display-encoded colour whatever the output space, and blended by the profile
+//! amount. Profiles are registered here by id (`lut:…`) and found by the finishing stage; LUT
+//! profiles render on the CPU.
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -138,5 +139,117 @@ mod tests {
             assert_eq!(parsed.data.as_flattened(), id.data.as_slice());
             assert_eq!(parsed.apply([0.25, 0.5, 0.75]), [0.25, 0.5, 0.75]);
         }
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use crate::{DeepSamples, OutputDepth, OutputSpace, Proof, RenderRequest, SourceInfo, render};
+    use li_raster::RgbFrame;
+    use lightcraft_develop::{DevelopSettings, LayerTools, Light, Mask, MaskComponent, MaskShape};
+
+    fn table(n: usize, f: impl Fn([f32; 3]) -> [f32; 3]) -> Lut3d {
+        let mut data = Vec::with_capacity(n * n * n);
+        for b in 0..n {
+            for g in 0..n {
+                for r in 0..n {
+                    data.push(f([r, g, b].map(|v| v as f32 / (n - 1) as f32)));
+                }
+            }
+        }
+        Lut3d { size: n, data, domain_min: [0.0; 3], domain_max: [1.0; 3], title: None }
+    }
+
+    /// Wood, sky, foliage and wall colours (sRGB display values) as linear Rec. 2020 patches.
+    fn scene() -> RgbFrame {
+        let to_2020 = li_color::SRGB.to_space(&li_color::REC2020);
+        let patches = [[0.75, 0.5, 0.3], [0.35, 0.55, 0.8], [0.3, 0.5, 0.25], [0.7, 0.66, 0.6]]
+            .map(|c: [f64; 3]| to_2020.apply(c.map(|v| li_color::transfer::srgb_to_linear(v as f32) as f64)).map(|v| v as f32));
+        RgbFrame::from_fn(32, 8, |x, _| patches[x / 8])
+    }
+
+    fn with_lut(id: &str) -> DevelopSettings {
+        let mut s = DevelopSettings::default();
+        s.profile.id = id.into();
+        s
+    }
+
+    /// The render's colours as linear Rec. 2020 (the space's own white adapted to D65).
+    fn colours(src: &RgbFrame, s: &DevelopSettings, space: OutputSpace, proof: Option<Proof>) -> Vec<[f64; 3]> {
+        let req = RenderRequest { space, depth: OutputDepth::F32Linear, proof, ..RenderRequest::fit(32, 8) };
+        let Some(DeepSamples::F32(v)) = render(src, &SourceInfo::default(), s, &req).deep.map(|d| d.samples) else {
+            panic!("float render");
+        };
+        let to_2020 = space.rgb_space().to_space(&li_color::REC2020);
+        v.as_chunks::<3>().0.iter().map(|p| to_2020.apply(p.map(f64::from))).collect()
+    }
+
+    fn assert_same(a: &[[f64; 3]], b: &[[f64; 3]], what: &str) {
+        let worst = a.iter().zip(b).flat_map(|(p, q)| (0..3).map(move |i| (p[i] - q[i]).abs())).fold(0.0, f64::max);
+        assert!(worst < 2e-3, "{what}: colours differ by {worst}");
+    }
+
+    #[test]
+    fn lut_look_is_the_same_in_every_output_space_and_proof() {
+        // a hue swap with a saturation boost: a look that depends on the primaries it is fed
+        register(
+            "lut:test-output-spaces",
+            table(17, |c| {
+                let m = (c[0] + c[1] + c[2]) / 3.0;
+                [c[2], c[1], c[0]].map(|v| (m + (v - m) * 1.3).clamp(0.0, 1.0))
+            }),
+        );
+        let src = scene();
+        let s = with_lut("lut:test-output-spaces");
+        let srgb = colours(&src, &s, OutputSpace::Srgb, None);
+        for space in [OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::ProPhoto, OutputSpace::Rec2020] {
+            assert_same(&srgb, &colours(&src, &s, space, None), space.label());
+        }
+        let proof = Proof { space: OutputSpace::Srgb, ..Proof::default() };
+        assert_same(&srgb, &colours(&src, &s, OutputSpace::Srgb, Some(proof)), "sRGB soft proof");
+        unregister("lut:test-output-spaces");
+    }
+
+    #[test]
+    fn srgb_preview_applies_the_lut_to_its_display_values() {
+        let look = |c: [f32; 3]| [c[0] * 0.8 + 0.1, c[1].powf(1.3), 1.0 - c[2] * 0.7];
+        register("lut:test-preview", table(17, look));
+        let src = scene();
+        let req = RenderRequest::fit(32, 8);
+        let plain = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &req).image;
+        let graded = render(&src, &SourceInfo::default(), &with_lut("lut:test-preview"), &req).image;
+        for (p, q) in plain.data.iter().zip(&graded.data) {
+            let want = look([p[0], p[1], p[2]].map(|v| v as f32 / 255.0)).map(|v| v * 255.0);
+            assert!((0..3).all(|i| (q[i] as f32 - want[i]).abs() <= 2.0), "{p:?} -> {q:?}, want {want:?}");
+        }
+        unregister("lut:test-preview");
+    }
+
+    #[test]
+    fn lut_look_is_unchanged_by_an_adjustment_layer_that_covers_nothing() {
+        register("lut:test-layers", table(9, |c| [c[1], c[2], c[0]]));
+        let src = scene();
+        let plain = with_lut("lut:test-layers");
+        let mut layered = plain.clone();
+        layered.masks.push(Mask {
+            id: 1,
+            components: vec![MaskComponent {
+                name: None,
+                op: Default::default(),
+                invert: false,
+                // selects only x < -1.1: no pixel of the photo
+                shape: MaskShape::Linear { start: lightcraft_geom::Point::new(-1.1, 0.5), end: lightcraft_geom::Point::new(-1.0, 0.5) },
+            }],
+            tools: LayerTools { light: Some(Light { exposure: 1.0, ..Default::default() }), ..Default::default() },
+            ..Default::default()
+        });
+        assert!(crate::layers::active(&layered));
+        let req = RenderRequest::fit(32, 8);
+
+        let (a, b) = (render(&src, &SourceInfo::default(), &plain, &req).image, render(&src, &SourceInfo::default(), &layered, &req).image);
+        let worst = a.data.iter().zip(&b.data).flat_map(|(p, q)| (0..3).map(move |i| p[i].abs_diff(q[i]))).max().unwrap_or(0);
+        assert!(worst <= 1, "{worst} LSB");
+        unregister("lut:test-layers");
     }
 }

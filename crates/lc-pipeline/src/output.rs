@@ -3,9 +3,10 @@
 //! 16-bit or linear float samples.
 //!
 //! The per-pixel stage works in scene-linear Rec.2020 and ends by converting to the target's
-//! primaries, gamut mapping into the *target* gamut, and encoding. Tone curves and grain operate on
-//! sRGB-curve-encoded values of the target primaries (identical to the sRGB path when the target is
-//! sRGB); afterwards the values are re-encoded with the target's own curve.
+//! primaries, gamut mapping into the *target* gamut, and encoding. Profile LUTs see sRGB display
+//! values in every target; grain operates on sRGB-curve-encoded values of the target primaries
+//! (identical to the sRGB path when the target is sRGB); afterwards the values are re-encoded with
+//! the target's own curve.
 
 pub use li_color::space::{OutputSpace, OutputTrc};
 use serde::{Deserialize, Serialize};

@@ -292,7 +292,8 @@ pub struct FinishParams {
     pub mode: FinishMode,
     /// Developed-image contrast, independent of the Background tone map.
     pub layer_contrast: f32,
-    /// A LUT profile and its amount (0..2), applied to the display-encoded colour.
+    /// A LUT profile and its amount (0..2), applied to sRGB display values in every mode and
+    /// output space.
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
     pub ops: ColorOps,
@@ -540,7 +541,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
     store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
-    let p_lut = fp.lut.clone();
+    let p_lut = fp.lut.clone().map(|(lut, amount)| (lut, amount, LutInput::new(fp.soft_gamut.is_some())));
     let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
     let (hl, sh, clar, tex, dehaze, gain, ev) = (*hl, *sh, *clar, *tex, *dehaze, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
@@ -826,17 +827,14 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
             }
+            if let Some((lut, amount, input)) = &p_lut {
+                d = input.apply(d, lut, *amount);
+            }
             if matches!(fp.mode, FinishMode::Working | FinishMode::Layer) {
-                // Grain and profile LUTs belong to this image/layer, before the next layer.
-                // Encode in working primaries without output clipping or quantization.
-                if grain.is_some() || p_lut.is_some() {
-                    let mut e = d.map(linear_to_srgb);
-                    if let Some(g) = *grain {
-                        e = grain_px(e, g, out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5)), fp, long);
-                    }
-                    if let Some((lut, k)) = &p_lut {
-                        e = mix3(e, lut.apply(e), *k);
-                    }
+                // Grain belongs to this image/layer, before the next layer. Encode in working
+                // primaries without output clipping or quantization.
+                if let Some(g) = *grain {
+                    let e = grain_px(d.map(linear_to_srgb), g, out_to_norm.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5)), fp, long);
                     d = e.map(li_color::transfer::srgb_to_linear);
                 }
                 *px = store(d, x, y);
@@ -872,13 +870,6 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     }
                 }
             }
-            let e = match &p_lut {
-                Some((l, k)) => {
-                    let m = l.apply(e.map(|v| v.clamp(0.0, 1.0)));
-                    [e[0] + (m[0] - e[0]) * k, e[1] + (m[1] - e[1]) * k, e[2] + (m[2] - e[2]) * k]
-                }
-                None => e,
-            };
             let e = fp.proof.as_ref().map_or(e, |proof| proof.finish(e.map(li_color::transfer::srgb_to_linear)));
             *px = store(e, x, y);
         }
@@ -887,6 +878,32 @@ fn finish_with_mask<T: Copy + Default + Send>(
 }
 
 use crate::layers::mix3;
+
+/// Profile LUTs (`.cube`, `.3dl`, `.look`) are authored for sRGB / Rec. 709 display values, so
+/// they get that input in every mode and output space: the colour in sRGB primaries, compressed and
+/// mapped into the sRGB gamut as the sRGB output maps it, sRGB-encoded. The blended result returns
+/// to linear Rec. 2020, so exports, soft proofs and develop layers show the same look.
+struct LutInput {
+    to_srgb: [[f32; 3]; 3],
+    from_srgb: [[f32; 3]; 3],
+    limits: Option<[f32; 3]>,
+}
+
+impl LutInput {
+    fn new(soft_gamut: bool) -> LutInput {
+        let to_srgb = OutputSpace::Srgb.from_working();
+        LutInput { to_srgb, from_srgb: li_color::SRGB.to_space(&li_color::REC2020).to_f32(), limits: soft_gamut.then(|| gamut_limits(&to_srgb)) }
+    }
+
+    fn apply(&self, d: [f32; 3], lut: &crate::lut::Lut3d, amount: f32) -> [f32; 3] {
+        let r = mul3(&self.to_srgb, d);
+        let r = gamut_map(self.limits.map_or(r, |limits| soft_gamut(r, GAMUT_KNEE, limits)), OutputSpace::Srgb.luma()).0;
+        let e = r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0)));
+        let m = lut.apply(e);
+        let e: [f32; 3] = std::array::from_fn(|i| e[i] + (m[i] - e[i]) * amount);
+        mul3(&self.from_srgb, e.map(li_color::transfer::srgb_to_linear))
+    }
+}
 
 /// The tone map on scene-linear `c`'s luminance, then the curve's chroma scale and highlight
 /// desaturation (display linear).
