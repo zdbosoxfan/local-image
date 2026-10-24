@@ -337,7 +337,10 @@ pub fn start_culling(app: &mut LightcraftApp, params: Value) -> Result<Value, St
     if app.tasks.is_running(CULLING) {
         return Err("Assisted Culling is already running".into());
     }
-    let work = lightcraft_engine::cmd::cull::prepare(&mut app.session, &params);
+    let work = lightcraft_engine::cmd::cull::prepare(&mut app.session, &params).map_err(|e| match e {
+        lightcraft_engine::EngineError::BadParams { msg, .. } => format!("invalid parameters for `photo.analyze`: {msg}"),
+        e => e.to_string(),
+    })?;
     spawn_job(
         app,
         CULLING,

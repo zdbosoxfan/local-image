@@ -685,9 +685,19 @@ pub(crate) fn run_batch_shaped(
     }
     let stop = AtomicBool::new(false);
     let stopped = || stop.load(Ordering::Relaxed) || ctl.is_cancelled();
+    // whatever ends the batch (done, cancelled, an error, a panic in `progress`): the other
+    // stages stop when this drops, before the scope joins them
+    struct StopOnDrop<'a>(&'a AtomicBool, &'a pipeline::Flow);
+    impl Drop for StopOnDrop<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Relaxed);
+            self.1.wake();
+        }
+    }
     std::thread::scope(|sc| {
         let outputs = pipeline::spawn(sc, work, shape, permits, &flow, &stopped, ctl);
-        let r = {
+        let _stop = StopOnDrop(&stop, &flow);
+        {
             // this photo's result, keeping those that finish before it (with their permits) until
             // their turn; `None` once the pipeline ended without it
             let mut early = std::collections::BTreeMap::new();
@@ -706,11 +716,7 @@ pub(crate) fn run_batch_shaped(
             write_stage(&mut next, &slots, &heads, o, to, single, write, exists, stop_on_error, progress, ctl, &flow, &join)
             // `next` goes here with the receiver and the results held back: an encoder waiting
             // to hand over a photo sees the channel closed
-        };
-        // whatever ended the batch (done, cancelled, an error): the other stages stop now
-        stop.store(true, Ordering::Relaxed);
-        flow.wake();
-        r
+        }
     })
 }
 

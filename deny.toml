@@ -24,6 +24,7 @@ ignore = [
     { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 URI name constraints; move off rustls-rustcrypto" },
     { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 wildcard name constraints; move off rustls-rustcrypto" },
     { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 CRL parsing panic; CRL checking is not used; move off rustls-rustcrypto" },
+    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.102.8 emSign intermediates; rustls-rustcrypto uses it only for alg_id constants, chains are built by rustls 0.23 on rustls-webpki >=0.103.16; move off rustls-rustcrypto" },
     # --- rsa 0.9.10 via rustls-rustcrypto (Marvin timing attack on private-key operations). No
     # upstream fix exists; li-ai is a TLS client and holds no RSA private key.
     { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack; no upstream fix; only reachable through rustls-rustcrypto client-side verification" },

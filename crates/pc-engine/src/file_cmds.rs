@@ -90,7 +90,8 @@ pub(crate) fn read_file(path: &str) -> Result<Vec<u8>> {
 /// Every file the engine writes goes through here: crash-safe (temp file + fsync + rename, see
 /// [`li_fs`]), so a failed save never destroys the previous file.
 pub(crate) fn write_file(path: &str, bytes: &[u8]) -> Result<()> {
-    li_fs::atomic_write(std::path::Path::new(path), bytes).map_err(|e| EngineError::Other(e.to_string()))
+    let path = std::path::Path::new(path);
+    li_fs::refuse_read_only(path).and_then(|()| li_fs::atomic_write(path, bytes)).map_err(|e| EngineError::Other(e.to_string()))
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn write_file(path: &str, _bytes: &[u8]) -> Result<()> {
@@ -316,6 +317,17 @@ fn revert(s: &mut Session) -> Result<Value> {
 fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let path = str_param(p, "path", "file.saveACopy")?.to_string();
     let d = s.active().ok_or(EngineError::NoDocument)?;
+    // A copy over the document's own file replaces it, and a flat or lossy format can't be
+    // undone, so it takes an explicit `overwrite`. The desktop dialog writes through the shell,
+    // after the OS has confirmed the replace.
+    if d.path.as_deref().is_some_and(|own| li_fs::same_file(std::path::Path::new(&path), std::path::Path::new(own)))
+        && p.get("overwrite").and_then(Value::as_bool) != Some(true)
+    {
+        return Err(EngineError::BadParams {
+            cmd: "file.saveACopy".into(),
+            msg: "`path` is the document's own file, so the copy would replace it: choose another path, or pass \"overwrite\": true".into(),
+        });
+    }
     let mut doc = (*d.doc).clone();
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
@@ -1090,7 +1102,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Save a Copy…",
             &["File"],
             Some("Cmd+Alt+S"),
-            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"tiffLayers":bool=false (TIFF: keep the layers; flat by default)}"##,
+            r##"{"path":str (format from the extension),"quality":0..12? (JPEG),"layers":bool=true,"overwrite":bool=false (replace the document's own file),"tiffLayers":bool=false (TIFF: keep the layers; flat by default)}"##,
             native_doc,
             save_a_copy
         ),

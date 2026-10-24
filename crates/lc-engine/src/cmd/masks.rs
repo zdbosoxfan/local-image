@@ -781,7 +781,8 @@ pub fn specs() -> Vec<CommandSpec> {
             let i = find(&mut masks, mid, "mask.move")?;
             let to = match (p.get("to").and_then(Value::as_i64), p.get("delta").and_then(Value::as_i64)) {
                 (Some(t), _) => t,
-                (None, Some(d)) => i as i64 + d,
+                // (an agent's delta can be anything: saturate rather than overflow)
+                (None, Some(d)) => (i as i64).saturating_add(d),
                 (None, None) => return Err(bad("mask.move", "give `to` (index) or `delta`")),
             }
             .clamp(0, masks.len() as i64 - 1) as usize;
@@ -1020,7 +1021,7 @@ pub fn specs() -> Vec<CommandSpec> {
             has_active,
             |s, p| {
                 let c = "redeye.catchlight";
-                let i = super::f64_req(p, "index", c)? as usize;
+                let i = super::index_req(p, "index", c)?;
                 let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
                 let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
                 let eye = dd.red_eye.get_mut(i).ok_or_else(|| bad(c, "no such eye"))?;
@@ -1035,7 +1036,7 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         cmd!("redeye.delete", "Delete Red Eye Correction", [], None, "{index}", has_active, |s, p| {
             let c = "redeye.delete";
-            let i = super::f64_req(p, "index", c)? as usize;
+            let i = super::index_req(p, "index", c)?;
             let id = s.active().ok_or_else(|| bad(c, "no active photo"))?;
             let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
             if i >= dd.red_eye.len() {

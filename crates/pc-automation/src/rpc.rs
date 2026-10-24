@@ -99,10 +99,19 @@ impl Headless {
             "doc.save" => {
                 let mut opts =
                     photocraft_io::ExportOptions { tiff_layers: p.get("tiffLayers").and_then(Value::as_bool).unwrap_or(false), ..Default::default() };
-                if let Some(q) = p.get("quality").and_then(Value::as_u64) {
-                    opts.encode.jpeg_quality = q.clamp(1, 100) as u8;
-                    opts.encode.webp_quality = q.clamp(1, 100) as u8;
-                    opts.encode.webp_lossless = false;
+                match p.get("quality") {
+                    None | Some(Value::Null) => {}
+                    Some(v) => {
+                        // Like the CLI's `--quality`: never ignore or clamp a bad value.
+                        let q = v
+                            .as_u64()
+                            .filter(|q| (1..=100).contains(q))
+                            .and_then(|q| u8::try_from(q).ok())
+                            .ok_or_else(|| bad(format!("`quality` must be a whole number from 1 to 100, got {v}")))?;
+                        opts.encode.jpeg_quality = q;
+                        opts.encode.webp_quality = q;
+                        opts.encode.webp_lossless = false;
+                    }
                 }
                 let path = str_of(&p, "path").map(PathBuf::from);
                 self.save(index_of(&p), path.as_deref(), str_of(&p, "format"), &opts)

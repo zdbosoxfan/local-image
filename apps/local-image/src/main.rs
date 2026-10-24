@@ -497,6 +497,10 @@ fn main() -> eframe::Result {
                     && app.session.prefs().performance.rendering_mode != photocraft_engine::prefs::RenderingMode::Cpu
                 {
                     app.set_wgpu(rs);
+                } else {
+                    // The window still draws with wgpu: record its errors instead of panicking,
+                    // and notice when the device is lost.
+                    app.watch_window_device(&rs.device);
                 }
             }
             let fallback_reason = startup_failure.clone().or_else(|| {

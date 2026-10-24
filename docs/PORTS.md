@@ -861,3 +861,132 @@ Ported by OpenAI Codex (gpt-6-astra) and reviewed, corrected and verified by Cla
 | Upstream commit | Subject | Our files | Licence |
 |---|---|---|---|
 | [`b97a72ac794b`](https://github.com/storytold/photocraft/commit/b97a72ac794b0ac6849b7b33f07eadd8e298615f) | File dialogs no longer freeze or crash the app (#673, #574) (#1071) | `apps/local-image/src/main.rs`<br>`apps/local-image/src/services.rs`<br>`crates/pc-ui-egui/src/file_dialog.rs`<br>`crates/pc-ui-egui/src/file_dialog/tests.rs`<br>`crates/pc-ui-egui/src/dialog_filter.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-ui-egui/src/menus.rs`<br>`crates/pc-ui-egui/src/discard_ui.rs`<br>`crates/pc-ui-egui/src/dialogs.rs`<br>`crates/pc-ui-egui/src/export_dialog.rs`<br>`crates/pc-ui-egui/src/file_ui.rs`<br>`crates/pc-ui-egui/src/view_cmds.rs`<br>+28 more | MIT OR Apache-2.0 |
+
+## PhotoCraft and LightCraft hardening fixes (2026-10-22)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`e3224000cac1`](https://github.com/storytold/photocraft/commit/e3224000cac1a30a19e239d67dcad110ccb7c8b2) | fix(psd): make packbits::decode_into crate-private and overflow-safe (#6950) | `crates/pc-psd/src/compression.rs` | MIT OR Apache-2.0 |
+| [`035d572ac81a`](https://github.com/storytold/lightcraft/commit/035d572ac81ae8bfa87817bb189fb014e7a6018c) | Refuse catalog snapshots with an out-of-range seq | `crates/lc-catalog/src/journal.rs`<br>`crates/lc-catalog/src/tests_journal.rs` | MIT OR Apache-2.0 |
+| [`14d321c107c6`](https://github.com/storytold/lightcraft/commit/14d321c107c690f1de7f2d97f880a9cd771adff2) | catalog: slice captured dates on char boundaries so non-ASCII dates don't panic | `crates/lc-catalog/src/query.rs`<br>`crates/lc-catalog/src/tests.rs` | MIT OR Apache-2.0 |
+| [`6e97193b00cb`](https://github.com/storytold/lightcraft/commit/6e97193b00cbe6af249336e6f4f93f8ff44d102a) | Reject impossible hour/minute/second in normalize_iso | `crates/lc-catalog/src/stacks.rs`<br>`crates/lc-catalog/src/dates.rs` | MIT OR Apache-2.0 |
+| [`80e439f6dc6d`](https://github.com/storytold/lightcraft/commit/80e439f6dc6d47c8eb9b646d93c0bc11f5ae5a12) | Reject signed hex digits in #rrggbb colour parsing | `crates/li-color/src/lib.rs` | MIT OR Apache-2.0 |
+
+## LightCraft RAW and TIFF hardening (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`6d080de44702`](https://github.com/storytold/lightcraft/commit/6d080de4470221e2289203c86d51023a9d0c7790) | Never crash: Check raw data size before allocating in PEF, TIFF tiles and ARW6 (#1512) | `crates/lc-raw/src/tiffraw.rs`<br>`crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+| [`b62b51378e38`](https://github.com/storytold/lightcraft/commit/b62b51378e380b65d31e2a57ae283f2e1ecc342c) | Never crash: Fix i32 overflow in the NEF and PEF Huffman predictors (#1515) | `crates/lc-raw/src/vendor/nefc.rs`<br>`crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+| [`3bb13afdead2`](https://github.com/storytold/lightcraft/commit/3bb13afdead2ceb4f97850726e1532e1f03353fb) | raw: check maker-note crop bounds with checked_add | `crates/lc-raw/src/lib.rs`<br>`crates/lc-raw/src/vendor/orf.rs`<br>`crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+| [`555eb4c9fd28`](https://github.com/storytold/lightcraft/commit/555eb4c9fd28b433b10a8fb162b532a66109079d) | tiff: bound total entries across a parse (#2136) | `crates/lc-tiff/src/reader.rs` | MIT OR Apache-2.0 |
+| [`cef6f2d4b8da`](https://github.com/storytold/lightcraft/commit/cef6f2d4b8da3c1c81c2351eea90f28f44940d32) | Never crash: Fix demosaic panic on a NaN black level | `crates/lc-raw/src/dng.rs`<br>`crates/lc-raw/src/lib.rs` | MIT OR Apache-2.0 |
+| [`89fa4e4b59d4`](https://github.com/storytold/lightcraft/commit/89fa4e4b59d43bf45410b31e4b93df7cd29aeb04) | LR-IMP-FORMATS: a float raw with NaN or infinite samples no longer panics the demosaic | `crates/lc-raw/src/demosaic/ahd.rs`<br>`crates/lc-raw/src/demosaic/mod.rs`<br>`crates/lc-raw/src/demosaic/ppg.rs`<br>`crates/lc-raw/src/dng.rs` | MIT OR Apache-2.0 |
+| [`3624a50423ae`](https://github.com/storytold/lightcraft/commit/3624a50423aefedcc09adc207d92e874c3f153ab) | Never crash: Refuse raw data with two samples per pixel (#1511) | `crates/lc-raw/src/demosaic/mod.rs`<br>`crates/lc-raw/src/dng.rs`<br>`crates/lc-raw/src/lib.rs` | MIT OR Apache-2.0 |
+| [`8d96dab1afe5`](https://github.com/storytold/lightcraft/commit/8d96dab1afe5a6d8603b4daa190823d72a143074) | LR-IMP-FORMATS: checked sum of the sRAW slice widths (an overflowing or zero sum is an error, not a panic) | `crates/lc-raw/src/vendor/cr2.rs` | MIT OR Apache-2.0 |
+| [`3946688f49eb`](https://github.com/storytold/lightcraft/commit/3946688f49eb81ebf23888d998943231017948bf) | Reject RAW TIFFs with missing or undecodable image chunks (#1513) | `crates/lc-raw/src/tiffraw.rs` | MIT OR Apache-2.0 |
+| [`df914dca41a0`](https://github.com/storytold/lightcraft/commit/df914dca41a0b18dfe21b248fa90c81e7891908a) | Reject PEF streams that end before the pixels do instead of decoding zero padding (#1514) | `crates/lc-raw/src/vendor/pef.rs` | MIT OR Apache-2.0 |
+
+## LightCraft Library and Develop crash fixes (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`b43b7169aa2a`](https://github.com/storytold/lightcraft/commit/b43b7169aa2a85759aed3875e15d905c01803b78) | Never crash: Limit how much a preset zip can unpack | `crates/lc-engine/src/preset_import.rs` | MIT OR Apache-2.0 |
+| [`1f87328c6d08`](https://github.com/storytold/lightcraft/commit/1f87328c6d083f921969605d5846b412a1b56572) | Never crash: Write preview cache files from one bounded writer (#1522) | `crates/lc-preview/src/lib.rs`<br>`crates/lc-preview/src/tests.rs` | MIT OR Apache-2.0 |
+| [`935fabeb1828`](https://github.com/storytold/lightcraft/commit/935fabeb18286a1f4368196f2fb5151874ff87e5) | Preview disk cache: ignore symlinked shard directories (#1504) | `crates/lc-preview/src/disk.rs`<br>`crates/lc-preview/src/tests.rs` | MIT OR Apache-2.0 |
+| [`414764ef77fd`](https://github.com/storytold/lightcraft/commit/414764ef77fd230d6ac54a59321bfcb36752790f) | Stop export lanes when a panic unwinds the batch thread | `crates/lc-engine/src/export.rs`<br>`crates/lc-engine/src/export/tests.rs` | MIT OR Apache-2.0 |
+| [`27d1e9b04d7c`](https://github.com/storytold/lightcraft/commit/27d1e9b04d7c0415bcdb8130024d322da1e3ed98) | Never crash: Cap enlarged exports at 512 MP and check memory first | `crates/lc-engine/src/memory.rs`<br>`crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/export/prepared.rs`<br>`crates/lc-engine/src/export/tests.rs` | MIT OR Apache-2.0 |
+| [`337f02b4dc6a`](https://github.com/storytold/lightcraft/commit/337f02b4dc6ad9d82f0caf166849ba2975e2d65b) | Never crash: Fix export size panic for very long strips | `crates/lc-engine/src/export/options.rs`<br>`crates/lc-engine/src/export/tests.rs` | MIT OR Apache-2.0 |
+| [`f753778f450d`](https://github.com/storytold/lightcraft/commit/f753778f450d87a0d2f695d10b51ad1d9e4ab5f0) | Never crash: Fix blur overflow and hangs on sliver crops | `crates/lc-pipeline/src/tests.rs` | MIT OR Apache-2.0 |
+| [`4a07254e061f`](https://github.com/storytold/lightcraft/commit/4a07254e061fd6db5b18a8a779eb00bc541899ab) | Never crash: Read the edge pixel for bilinear samples outside the picture | `crates/lc-engine/src/tests.rs`<br>`crates/li-raster/src/frame.rs` | MIT OR Apache-2.0 |
+| [`57487875b541`](https://github.com/storytold/lightcraft/commit/57487875b54127fb663f879e2f49b2d7e1eca3db) | Never crash: Cap the spot radius so huge spot sizes render (#1519) | `crates/lc-engine/src/tests.rs`<br>`crates/lc-pipeline/src/spots.rs` | MIT OR Apache-2.0 |
+| [`307843b2adf9`](https://github.com/storytold/lightcraft/commit/307843b2adf98663e72639d9e20de5a3d922aa7f) | Never crash: Fix defringe radius overflow for amounts past the sliders | `crates/lc-pipeline/src/optics.rs` | MIT OR Apache-2.0 |
+| [`d770c5231377`](https://github.com/storytold/lightcraft/commit/d770c5231377ccc1fd8c5c046665b6274ee8b3df) | Masks: bound the total dabs of one brush stroke (#1520) | `crates/lc-pipeline/src/masks.rs` | MIT OR Apache-2.0 |
+| [`389a2cdd6581`](https://github.com/storytold/lightcraft/commit/389a2cdd6581bcf4157cfc5391bba8bc184c0a91) | GPU: a lost device is not polled again, and a poll that panics fails the render (#1858) | `crates/lc-gpu/src/ctx.rs`<br>`crates/lc-gpu/src/render.rs` | MIT OR Apache-2.0 |
+| [`fdccb413cd88`](https://github.com/storytold/lightcraft/commit/fdccb413cd8887fce4e848ea396c50bdbcab11ed) | fix(import): avoid scanning symlink aliases into the library | `crates/lc-engine/src/walk.rs` | MIT OR Apache-2.0 |
+| [`e4f92df78c6f`](https://github.com/storytold/lightcraft/commit/e4f92df78c6fcd2ca0810f0c60bc02eefbce9888) | fix(meta): reject incomplete and mismatched GPX documents | `crates/lc-meta/src/gpx.rs` | MIT OR Apache-2.0 |
+| [`a77b0cc472ab`](https://github.com/storytold/lightcraft/commit/a77b0cc472abf8a8b2c387bff8c78784d780768c) | fix(meta): reject impossible Gregorian capture dates | `crates/lc-meta/src/datetime.rs` | MIT OR Apache-2.0 |
+| [`e1860067a688`](https://github.com/storytold/lightcraft/commit/e1860067a6889b9591758167b64654606f45d4c4) | Never crash: Render demo scenes at most at their own size | `crates/lc-scenes/src/lib.rs` | MIT OR Apache-2.0 |
+| [`911d7df32139`](https://github.com/storytold/lightcraft/commit/911d7df32139010230aed248e1326976dd2d7902) | Never crash: Fix panic dragging a tone curve point between close neighbours | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/crs.rs`<br>`crates/lc-ui-egui/src/panels/edit.rs`<br>`crates/lc-ui-egui/src/tests_curve.rs` | MIT OR Apache-2.0 |
+| [`e9d36451e6bc`](https://github.com/storytold/lightcraft/commit/e9d36451e6bc3eb6060789957c4159bda42ccab9) | Never crash: Fix overflow in mask.move with a huge delta | `crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`4c088c32846b`](https://github.com/storytold/lightcraft/commit/4c088c32846b989ce4b631d504dc135459533e89) | Never crash: Give the loupe a finite aspect for a zero-size crop | `crates/lc-pipeline/src/geometry.rs` | MIT OR Apache-2.0 |
+| [`c41b1e311d47`](https://github.com/storytold/lightcraft/commit/c41b1e311d4788c14aa52ebf157c01399e74dd9f) | fix(geom): reject non-finite affine and projective transforms | `crates/lc-geom/src/homography.rs`<br>`crates/lc-geom/src/lib.rs` | MIT OR Apache-2.0 |
+
+Partial ports: `f753778f` ports only its test, since `li-raster`'s box radii already cap the
+sigma and compute the square in floating point. `389a2cdd` guards the readback and profiling
+polls through `DeviceHealth`; its lost-device regression tests need a real GPU and were not
+ported.
+
+## PhotoCraft editor file safety (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`4615a8bc26c7`](https://github.com/storytold/photocraft/commit/4615a8bc26c78805debbdacb6e8b92c5c3a3585c) | Survive a lost window GPU device: draw nothing, save unsaved work for recovery, close (#3438, #1215) | `crates/pc-format/src/autosave.rs`<br>`crates/pc-ui-egui/src/control.rs`<br>`crates/pc-ui-egui/src/gpu_status.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/li-gpu/src/health.rs`<br>`crates/pc-format/tests/it/autosave.rs`<br>`apps/local-image/src/main.rs`<br>`apps/local-image/src/services.rs` | MIT OR Apache-2.0 |
+| [`7bb7819b0050`](https://github.com/storytold/photocraft/commit/7bb7819b0050f485370aa5d6d92f6e0d2eadd1de) | Lost window device: close only once every unsaved document is saved for recovery, retrying every 2 s; also check the device on the screen-picker frame (#6464 review) | `crates/pc-format/src/autosave.rs`<br>`crates/pc-ui-egui/src/gpu_status.rs`<br>`crates/pc-ui-egui/src/lib.rs`<br>`crates/pc-format/tests/it/autosave.rs` | MIT OR Apache-2.0 |
+| [`589941a536bf`](https://github.com/storytold/photocraft/commit/589941a536bff8bd7bdea6d4b9be765ab94644a3) | Save: refuse to replace a read-only file (#6600) (#6643) | `crates/li-fs/src/lib.rs`<br>`crates/li-fs/src/tests.rs`<br>`apps/local-image/src/services.rs`<br>`crates/pc-engine/src/file_cmds.rs` | MIT OR Apache-2.0 |
+| [`921637322cc6`](https://github.com/storytold/photocraft/commit/921637322cc623303d40dd902aaa6da11ebac3a0) | Native format: refuse a .pcraft with out-of-range numbers when it is opened (#6862) | `crates/pc-format/src/store.rs`<br>`crates/pc-format/tests/it/corruption.rs` | MIT OR Apache-2.0 |
+| [`0f0f58c2ab36`](https://github.com/storytold/photocraft/commit/0f0f58c2ab369a07241e0dcfb3d1cf6792829488) | PSD: layer_tree_max_depth hoists layers under unclosed dividers past the cap (#5758) (#5759) | `crates/pc-psd/src/tree.rs`<br>`crates/pc-psd/tests/it/tree.rs` | MIT OR Apache-2.0 |
+| [`205c9c173721`](https://github.com/storytold/photocraft/commit/205c9c173721fadceeeb3695794387eceabe8950) | History Brush: bound the stroke before its dense buffers (#4961) | `crates/pc-engine/src/retouch_cmds.rs`<br>`crates/pc-engine/src/retouch_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`3f216a0cd1b9`](https://github.com/storytold/photocraft/commit/3f216a0cd1b9549a3ec81db75f5d160badf14d89) | fix(engine): reject numeric overflow before document edits | `crates/pc-engine/src/adjust_cmds.rs`<br>`crates/pc-engine/src/analysis_cmds.rs`<br>`crates/pc-engine/src/artboard_cmds.rs`<br>`crates/pc-engine/src/channel_cmds.rs`<br>`crates/pc-engine/src/commands.rs`<br>`crates/pc-engine/src/extra_cmds.rs`<br>`crates/pc-engine/src/fill_cmds.rs`<br>`crates/pc-engine/src/layer_style.rs`<br>`crates/pc-engine/src/lens_cmds.rs`<br>`crates/pc-engine/src/notes_cmds.rs`<br>`crates/pc-engine/src/type_cmds.rs`<br>`crates/pc-engine/src/cutout_cmds.rs`<br>`crates/pc-engine/tests/it/finite_command_params.rs`<br>`crates/pc-engine/tests/it/main.rs` | MIT OR Apache-2.0 |
+| [`ec56c286ddf2`](https://github.com/storytold/photocraft/commit/ec56c286ddf21fe0b4b62ad491f31eeeed869213) | Fix mixed-order TIFF type transforms and reject unsafe geometry | `crates/pc-io/src/psd_import.rs`<br>`crates/pc-psd/src/tiff.rs`<br>`crates/pc-text/src/psd.rs`<br>`crates/pc-io/src/blocks.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `589941a5` adds `li_fs::refuse_read_only` at the document save points (Save, Save
+As, background save, engine writes) instead of inside the shared atomic writer, so Library
+sidecars and catalog files keep their behaviour. `205c9c17` guards the clone, healing, spot
+healing and history brushes, which all render dense coverage. `ec56c286` takes the TIFF type-block
+byte-order fix and the transform check; we have no retained foreign-order blocks to skip.
+
+Already covered or not applicable: `6cec0cab` (a test adjustment for 589941a5), `cc772ad9` (our
+`li-fs` refuses to save through a dangling symlink instead of writing through it, which is the
+safer choice), `713dbbed` (we have no ATN save), `bf321f0f` and `9c914a9f` (our Affinity importer
+already bounds compound expansion, rejects cycles and limits nested spot colours), `e86e6910` (our
+PSD writer has no `Txt2` style runs).
+
+
+## VectorCraft importer hardening (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`c10da25ce4fc`](https://github.com/storytold/vectorcraft/commit/c10da25ce4fca0b1c60e3c376f2af450f85d3307) | Importers: nesting is capped, so a deeply nested file can't overflow the stack | `crates/pc-svg/src/import/preflight.rs`<br>`crates/pc-svg/tests/import/main.rs` | MIT OR Apache-2.0 |
+| [`17d249361663`](https://github.com/storytold/vectorcraft/commit/17d2493616637925cc3ad8e53876b6522c0f0e52) | Importers: PDF nesting inside compressed streams no longer crashes (hayro 0.8) | `crates/pc-pdf/tests/import/hostile.rs`<br>`crates/pc-pdf/tests/import/main.rs` | MIT OR Apache-2.0 |
+| [`18f8a1bdcf5d`](https://github.com/storytold/vectorcraft/commit/18f8a1bdcf5d94f8586f52943c2ab7c3bbec4d1d) | PDF import: a damaged array is refused as damaged, not as functions built on one another | `crates/pc-pdf/tests/import/hostile.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `c10da25c` takes the text-level nesting scan that runs before any XML reader, at
+our existing XML depth limit (roxmltree reads elements by recursion, so a deeply nested SVG
+aborted the process before the tree check could refuse it). Reference depth is already bounded by
+our resource walk, so the reference-following part and the 16 MB import thread were not needed.
+`17d24934` and `18f8a1bd` port their hostile-file regression tests only: we are already on hayro
+0.8, refuse calculator functions and cap resource reference chains at 64 with cycle detection.
+
+Already covered or not applicable: `ad165a5a` (our CSS matcher already memoizes), `a2e2eba2`
+(`pc-trace` already validates the buffer length), `0ad92e46` (our Affinity importer already shares
+one pixel allowance), `95d27fe3`, `9e90464f`, `a69ddea9`, `991ce2c6`, `e01a65d8` (our PDF
+preflight has its own bounded reader) and `830cefca` (we don't read XMP from PDFs).
+
+## PhotoCraft and LightCraft command and GPU fixes (2026-10-23)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`436ca3569cb2`](https://github.com/storytold/photocraft/commit/436ca3569cb2305650de7fafc9e8e13d25ed1605) | fix(gpu): clamp device limits to adapter support (#5986) (#6050) | `crates/li-gpu/src/device.rs` | MIT OR Apache-2.0 |
+| [`80cd36846e51`](https://github.com/storytold/photocraft/commit/80cd36846e51e1cc44ebb04440490139141436af) | GPU canvas: redraw mip levels of 128 px or less whole; fixes AMD Vulkan corruption after partial updates (#6418) (#6438) | `crates/pc-ui-egui/src/gpu_canvas/resources.rs`<br>`crates/pc-ui-egui/src/gpu_canvas/tests.rs` | MIT OR Apache-2.0 |
+| [`c6ea59461f9e`](https://github.com/storytold/photocraft/commit/c6ea59461f9e7e89f422ae75b47bf1b2d64b96d9) | Automation: doc.save rejects a bad quality instead of ignoring or clamping it (#7023) | `crates/pc-automation/src/rpc.rs`<br>`crates/pc-automation/src/server.rs`<br>`crates/pc-automation/tests/it/mcp.rs`<br>`crates/pc-automation/tests/coverage/server_coverage.rs` | MIT OR Apache-2.0 |
+| [`502d055c6c8c`](https://github.com/storytold/photocraft/commit/502d055c6c8cb5d86850d02bee32a2ff1da1e400) | file.saveACopy refuses the document's own file without "overwrite" (#7437) (#7456) | `crates/pc-engine/src/file_cmds.rs`<br>`crates/pc-engine/src/file_cmds/tests.rs` | MIT OR Apache-2.0 |
+| [`8b61a8b18666`](https://github.com/storytold/photocraft/commit/8b61a8b18666a2018057b0a5ad6a52aeaf3ad12d) | Control: ui.set rejects zoom, rotation, center and dockWidth beyond f32 range (#6988) | `crates/pc-ui-egui/src/control.rs` | MIT OR Apache-2.0 |
+| [`ea826b11cc5b`](https://github.com/storytold/lightcraft/commit/ea826b11cc5bec456c2b71e6bc6ea59a4f91af45) | engine: refuse negative indices instead of targeting element 0 | `crates/lc-engine/src/cmd/color.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/masks.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`de44200a8ddd`](https://github.com/storytold/lightcraft/commit/de44200a8dddfa2677f71a48ef978d1c8a616266) | Issue #2097: reject fractional command indices | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/tests.rs` | MIT OR Apache-2.0 |
+| [`1162c2a01832`](https://github.com/storytold/lightcraft/commit/1162c2a01832cd424704f17aa9405fd48ffed445) | crop.set refuses a crop smaller than the crop tool allows, instead of exporting 1×1 (part of #1952) | `crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-geom/src/crop.rs`<br>`crates/lc-geom/src/lib.rs`<br>`crates/lc-ui-egui/src/panels/detail.rs` | MIT OR Apache-2.0 |
+| [`9ef40b98866c`](https://github.com/storytold/lightcraft/commit/9ef40b98866ca7270fa4621c83028357c7ed79b8) | Commands: Refuse malformed photo ids instead of using the selection (#1506) | `crates/lc-engine/src/cmd/browse.rs`<br>`crates/lc-engine/src/cmd/convert.rs`<br>`crates/lc-engine/src/cmd/cull.rs`<br>`crates/lc-engine/src/cmd/develop.rs`<br>`crates/lc-engine/src/cmd/keywords.rs`<br>`crates/lc-engine/src/cmd/library.rs`<br>`crates/lc-engine/src/cmd/manage.rs`<br>`crates/lc-engine/src/cmd/merge.rs`<br>`crates/lc-engine/src/cmd/mod.rs`<br>`crates/lc-engine/src/cmd/organize.rs`<br>`crates/lc-engine/src/cmd/previews.rs`<br>`crates/lc-engine/src/cmd/xmp.rs`<br>`crates/lc-engine/src/lib.rs`<br>`crates/lc-engine/src/tests.rs`<br>`crates/lc-ui-egui/src/menus.rs`<br>`crates/lc-ui-egui/src/merge.rs`<br>`crates/lc-ui-egui/src/panels/dialogs.rs`<br>`crates/lc-ui-egui/src/panels/grid.rs`<br>`crates/lc-ui-egui/src/tasks.rs` | MIT OR Apache-2.0 |
+
+Adapted ports: `436ca356` applies the clamp in `li_gpu::device_limits`, where both editors take
+their limits; only the GL base can exceed a weak adapter there. `80cd3684` ports the redraw rule and
+its unit test; its GPU sweep test needs the upstream mip readback harness. `502d055c` uses
+`li_fs::same_file`; its Windows file-identity change does not apply. `8b61a8b1` checks `zoom`,
+`center` and `dockWidth` (our `ui.set` has no `rotation`) before anything changes. `de44200a` also
+moves our `history.restore` onto the checked index. `1162c2a0` adds `MIN_CROP_FRACTION` to
+`lc-geom`, shared by `crop.set` and the crop tool's drag.
+
+Not applicable or deferred: `e14db894` (our export options fall back to the format's own depth by
+design and have no strict parameter validator), VectorCraft `025ce255` and `32dbc4b6` (our PDF
+exporter writes no CMYK images or output intents). The DesignCraft breaker changes since
+`66c7ce7e` build on CJK composition structures `pc-text` doesn't have (mojikumi, kinsoku priority,
+locked advances), so the re-sync is left for a feature port.

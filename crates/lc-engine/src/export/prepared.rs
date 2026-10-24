@@ -107,6 +107,9 @@ pub(crate) fn prepare_guarded(
             Some(_) => render_cost((p.width as usize, p.height as usize), native, render_depth) + pixels((w, h)) * 12,
             None => render_cost((p.width as usize, p.height as usize), (w, h), depth),
         };
+        if let Some(why) = too_big_for_memory((w, h), native.0.saturating_mul(native.1), cost, crate::memory::total_ram()) {
+            return Err(format!("{}: {why}", p.file_name));
+        }
         let job = if upscale.is_some() {
             session.export_job(id, native.0, native.1, OutputSpace::Srgb, OutputDepth::U8)?
         } else if resample.is_some() {
@@ -130,6 +133,26 @@ pub(crate) fn prepare_guarded(
         }
     };
     Ok(PreparedExport { photo: id, file_name, subfolder: None, work, guard, source_dir })
+}
+
+/// Why an export of `out` pixels, from a photo of `native_px` pixels at its own size, can't be made
+/// on a computer with `ram` bytes, given its working memory `cost`: an export enlarged past the
+/// photo's size that needs more memory than the computer has would fail to allocate, which ends
+/// the process rather than the export. Full-size and smaller exports, and computers whose memory
+/// isn't known, are never refused.
+pub(super) fn too_big_for_memory(out: (usize, usize), native_px: usize, cost: u64, ram: Option<usize>) -> Option<String> {
+    let ram = ram? as u64;
+    if out.0.saturating_mul(out.1) <= native_px || cost <= ram {
+        return None;
+    }
+    let gb = |b: u64| b as f64 / (1u64 << 30) as f64;
+    Some(format!(
+        "exporting at {} × {} needs about {:.0} GB of memory, more than this computer has ({:.0} GB); choose a smaller size",
+        out.0,
+        out.1,
+        gb(cost).ceil(),
+        gb(ram)
+    ))
 }
 
 /// One export after its render stage ([`PreparedExport::develop`]), before encoding.

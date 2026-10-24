@@ -193,6 +193,72 @@ fn versions_history_and_reset() {
     assert!(h["history"].as_array().unwrap().len() >= 3);
 }
 
+/// An `index` that is negative, fractional or past `usize` is an error on every indexed command,
+/// never element 0 (`-1.0 as usize` saturates to 0, `0.9 as usize` truncates to 0).
+#[test]
+fn invalid_command_indices_leave_the_catalog_unchanged() {
+    let mut s = demo();
+    for name in ["A", "B"] {
+        s.execute("version.create", &json!({"name": name})).unwrap();
+    }
+    s.execute("pointColor.pick", &json!({"x": 0.5, "y": 0.08})).unwrap();
+    s.execute("redeye.add", &json!({"center": [0.3, 0.4], "rx": 0.03, "ry": 0.02, "pet": true})).unwrap();
+    let before = s.catalog.to_snapshot();
+    // An integer beyond u64 is parsed as a float by serde_json; it must not saturate to usize::MAX.
+    let oversized: Value = serde_json::from_str("18446744073709551616").unwrap();
+    for command in [
+        "version.delete",
+        "version.rename",
+        "version.update",
+        "version.restore",
+        "pointColor.delete",
+        "redeye.delete",
+        "redeye.catchlight",
+        "history.restore",
+    ] {
+        for index in [json!(0.5), json!(0.9), json!(-1), json!(-0.5), json!("0"), json!(null), json!(u64::MAX), oversized.clone()] {
+            let result = s.execute(command, &json!({"index": index, "name": "Changed"}));
+            assert!(result.is_err(), "{command} accepted {index}: {result:?}");
+            assert_eq!(s.catalog.to_snapshot(), before, "{command} changed the catalog for {index}");
+        }
+    }
+    // Whole floating-point numbers stay valid for existing control and MCP callers.
+    s.execute("version.rename", &json!({"index": 1.0, "name": "Second"})).unwrap();
+    let id = s.active().unwrap();
+    assert_eq!(s.catalog.photo(id).unwrap().versions[1].name, "Second");
+}
+
+/// A call that names its photos with a malformed `id` or `ids` (a string, a mixed list) is refused
+/// and changes nothing, instead of acting on the selection or on the valid part of the list.
+/// Leaving the targets out still means the selection.
+#[test]
+fn malformed_photo_targets_are_refused_not_widened() {
+    use lightcraft_catalog::PhotoId;
+    let mut s = demo();
+    let ids: Vec<u64> = s.catalog.photos().take(3).map(|p| p.id.0).collect();
+    s.execute("library.select", &json!({"ids": [ids[0], ids[1]]})).unwrap();
+    let rating = |s: &Session, i: u64| s.catalog.photo(PhotoId(i)).unwrap().rating;
+    let before: Vec<u8> = ids.iter().map(|i| rating(&s, *i)).collect();
+    for bad in [
+        json!({"rating": 5, "id": "5"}),
+        json!({"rating": 5, "ids": [ids[2], "x"]}),
+        json!({"rating": 5, "ids": ids[2].to_string()}),
+        json!({"rating": 5, "id": -1}),
+    ] {
+        let err = s.execute("photo.rate", &bad).unwrap_err();
+        assert!(matches!(&err, crate::EngineError::BadParams { cmd, .. } if cmd == "photo.rate"), "{bad}: {err}");
+        assert_eq!(ids.iter().map(|i| rating(&s, *i)).collect::<Vec<_>>(), before, "{bad} changed a rating");
+    }
+    let snapshot = s.catalog.to_snapshot();
+    assert!(s.execute("photo.deletePermanently", &json!({"id": "5"})).is_err());
+    assert_eq!(s.catalog.to_snapshot(), snapshot, "nothing deleted");
+    s.execute("photo.rate", &json!({"rating": 4, "id": null})).unwrap();
+    assert_eq!((rating(&s, ids[0]), rating(&s, ids[1]), rating(&s, ids[2])), (4, 4, before[2]));
+    // A preset's id is not a photo target.
+    let preset = s.presets.first().unwrap().id.clone();
+    s.execute("preset.apply", &json!({"id": preset})).unwrap();
+}
+
 #[test]
 fn op_log_replay_reproduces_catalog() {
     let mut s = demo();
@@ -281,6 +347,74 @@ fn paste_selected_settings_pastes_only_chosen_copied_groups() {
     // without groups: everything copied
     s.execute("develop.paste", &json!({"ids": [ids[1].0]})).unwrap();
     assert_eq!(s.develop_of(ids[1]).unwrap().color.vibrance, 30.0);
+}
+
+/// Store a crop as a sidecar can, without `crop.set`'s minimum size, kept inside the turned photo.
+fn set_crop_unchecked(s: &mut Session, [x0, y0, x1, y1]: [f64; 4], angle: f64) {
+    let id = s.active().unwrap();
+    let p = s.catalog.photo(id).unwrap();
+    let (w, h) = (p.width as f64, p.height as f64);
+    let mut d = active_dev(s);
+    d.crop.geometry = lightcraft_geom::CropGeometry { rect: lightcraft_geom::Rect::new(x0, y0, x1, y1), angle }.constrained(w, h);
+    s.set_develop(id, d, "Crop").unwrap();
+}
+
+/// A crop of no size (or a hair wide), as a sidecar can set it, made the render's
+/// samplers read at infinite coordinates and its blurs ask for sigmas of millions of pixels: with a
+/// healing spot and masks on, render workers panicked (an i32 square in the blur, a bilinear
+/// neighbour past isize::MAX). Such a photo renders, quickly.
+#[test]
+fn degenerate_crops_render_with_spots_and_masks() {
+    for rect in [[0.5, 0.5, 0.5, 0.5], [0.0, 0.0, 1e-9, 1.0]] {
+        let mut s = demo();
+        let id = s.active().unwrap();
+        s.execute("spot.add", &json!({"points": [[0.5, 0.5]], "size": 0.2, "mode": "heal"})).unwrap();
+        s.execute("mask.add", &json!({"kind": "radial", "rx": 0.3, "ry": 0.3})).unwrap();
+        s.execute("mask.add", &json!({"kind": "linear"})).unwrap();
+        s.execute("develop.set", &json!({"control": "effects.clarity", "value": 80})).unwrap();
+        s.execute("develop.set", &json!({"control": "effects.dehaze", "value": 50})).unwrap();
+        set_crop_unchecked(&mut s, rect, 30.0);
+        let t = std::time::Instant::now();
+        let r = s.render_now(id, 700, 450).unwrap();
+        assert!(r.image.width >= 1 && r.image.height >= 1, "{rect:?}");
+        assert!(t.elapsed().as_secs_f64() < 60.0, "{rect:?}: {:?}", t.elapsed());
+    }
+}
+
+/// `crop.set` took a crop of no size (or a sliver), and the next export wrote a 1×1 image. It
+/// refuses a crop smaller than a drag of the crop tool can make, and keeps the one it had.
+#[test]
+fn crop_set_refuses_a_crop_smaller_than_the_tool_allows() {
+    let mut s = demo();
+    s.execute("crop.set", &json!({"rect": [0.1, 0.1, 0.9, 0.9]})).unwrap();
+    let before = active_dev(&s).crop.geometry;
+    for rect in [[0.5, 0.5, 0.5, 0.5], [0.2, 0.2, 0.2, 0.8], [0.2, 0.4, 0.8, 0.4], [0.0, 0.0, 1e-9, 1.0]] {
+        let e = s.execute("crop.set", &json!({"rect": rect})).unwrap_err();
+        assert!(e.to_string().contains("smaller"), "{rect:?}: {e}");
+        assert_eq!(active_dev(&s).crop.geometry, before, "{rect:?}");
+    }
+    s.execute("crop.set", &json!({"rect": [0.45, 0.45, 0.55, 0.55]})).unwrap();
+    assert_eq!(active_dev(&s).crop.geometry.rect, lightcraft_geom::Rect::new(0.45, 0.45, 0.55, 0.55));
+}
+
+/// `mask.move` with a delta near `i64::MAX` overflowed `index + delta` (a panic wherever overflow
+/// checks are on); extreme deltas and indices now move the mask to the bottom or the top.
+#[test]
+fn mask_move_with_extreme_deltas() {
+    let mut s = demo();
+    for kind in ["linear", "radial", "brush"] {
+        s.execute("mask.add", &json!({"kind": kind})).unwrap();
+    }
+    let ids = |s: &Session| active_dev(s).masks.iter().map(|m| m.id).collect::<Vec<_>>();
+    let [a, b, c] = ids(&s)[..] else { panic!("{:?}", ids(&s)) };
+    s.execute("mask.move", &json!({"id": b, "delta": i64::MAX})).unwrap();
+    assert_eq!(ids(&s), [a, c, b], "to the bottom");
+    s.execute("mask.move", &json!({"id": b, "delta": i64::MIN})).unwrap();
+    assert_eq!(ids(&s), [b, a, c], "to the top");
+    s.execute("mask.move", &json!({"id": c, "to": i64::MIN})).unwrap();
+    assert_eq!(ids(&s), [c, b, a]);
+    s.execute("mask.move", &json!({"id": c, "to": i64::MAX})).unwrap();
+    assert_eq!(ids(&s), [b, a, c]);
 }
 
 #[test]
@@ -968,4 +1102,25 @@ fn bugfix_develop_settings_transfer_recomputes_photo_bound_masks() {
     d.masks[0].adjust.exposure = 1.;
     s.set_develop(a, d, "Mask edit").unwrap();
     check(&s);
+}
+
+/// A Heal or Remove spot whose size (from a sidecar, which isn't held to the slider's range) is far past the photo
+/// made the render's radius infinite: its heal blur and the source it reads went with it, overflowing the blur's box
+/// radii and the bilinear sampler. Such spots render, quickly, as a spot over the whole frame.
+#[test]
+fn oversized_spots_render() {
+    use lightcraft_develop::{Spot, SpotMode};
+    for size in [10.0, 1e30, f64::MAX, f64::INFINITY, f64::NAN] {
+        for mode in [SpotMode::Heal, SpotMode::Remove, SpotMode::Clone] {
+            let mut s = demo();
+            let id = s.active().unwrap();
+            let mut dd = (*s.develop_of(id).unwrap_or_default()).clone();
+            dd.spots.push(Spot { mode, points: vec![lightcraft_geom::Point::new(0.5, 0.5)], size, ..Default::default() });
+            s.set_develop(id, dd, "Remove").unwrap();
+            let t = std::time::Instant::now();
+            let r = s.render_now(id, 300, 200).unwrap();
+            assert!(r.image.width >= 1 && r.image.height >= 1, "{size} {mode:?}");
+            assert!(t.elapsed().as_secs_f64() < 60.0, "{size} {mode:?}: {:?}", t.elapsed());
+        }
+    }
 }

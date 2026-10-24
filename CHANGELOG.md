@@ -6,6 +6,43 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
+  wrapping; captured times that are not ASCII no longer crash the By Date panel; impossible times
+  such as 10:75 are refused instead of rolling over.
+- Compositing: a PSD PackBits row whose declared length overflows is refused instead of decoding
+  nothing.
+- Colour fields refuse values such as `#+f+f+f` instead of reading them as hex.
+- RAW import: damaged PEF, NEF, ORF, CR2, DNG and TIFF files are refused instead of crashing,
+  allocating gigabytes or decoding padding as pixels. This covers short compressed streams, predictor
+  overflow, wrapping maker-note crops, NaN or infinite float samples and black levels, two samples per
+  pixel, missing strips and runaway TIFF entry counts.
+- Library and Develop: crashes and hangs from damaged or extreme input are fixed. An export enlarged
+  past 512 megapixels is capped, one that needs more memory than the computer has is refused with
+  a message, and very long strips no longer panic the size calculation. A panic in an export's
+  progress callback no longer leaves its worker threads hanging. Crops of no size, huge spot sizes,
+  brush strokes with huge or non-finite segments, out-of-range defringe amounts, close tone-curve
+  points and extreme `mask.move` deltas render or edit normally. Preset ZIPs are size-limited,
+  preview caches refuse symlinked folders, imports skip symlink aliases, and GPX files and capture
+  dates that cannot exist are refused.
+- Editor: when the graphics device the window draws with is lost (a driver reset, or after sleep),
+  every unsaved document is saved for crash recovery before the app closes, retrying until the
+  saves succeed, instead of crashing or freezing. Saving over a file marked read-only is refused
+  with a message instead of replacing it. A `.pcraft` file with numbers past the 32-bit range, and
+  commands with such numbers, are refused instead of storing infinity. Clone, healing and history
+  brush strokes too large to render are refused, PSD layers under unclosed groups past the depth
+  limit are kept, and TIFF type layers with mixed byte order or unsafe transforms open safely.
+- SVG import: a file whose elements nest tens of thousands deep is refused with a message instead
+  of crashing the app.
+- Commands and automation: a mistyped photo `id` or `ids` is refused instead of acting on the whole
+  selection, and negative or fractional indices are refused instead of targeting the first version,
+  sample or correction. `crop.set` refuses a crop smaller than the crop tool can make (it exported a
+  1×1 image). Save a Copy over the document's own file needs `overwrite`, a save quality outside
+  1 to 100 is refused instead of clamped, and out-of-range view zoom or centre values are refused.
+- Graphics: GL adapters weaker than WebGL2's defaults no longer fail device creation, and small mip
+  levels are redrawn whole, fixing canvas corruption on some AMD Vulkan drivers.
+
 ## [2.0.0-alpha.1] - 2026-10-20
 
 This is the first Local Image 2 alpha. It combines the layered editor, the photo catalog and RAW

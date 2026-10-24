@@ -179,6 +179,10 @@ pub(crate) fn read_manifest(src: &dyn Source, opts: &LoadOptions) -> Result<Mani
         m.document.symbols.push(s);
     }
     m.document.layers = layers_from_json(layers)?;
+    // A number past f32's range decodes as infinity, which no save could write back.
+    if let Err(crate::finite::Problem::NonFinite { path }) = crate::finite::check(&m) {
+        return Err(FormatError::corrupt(format!("`{path}` is out of range")));
+    }
     Ok(m)
 }
 

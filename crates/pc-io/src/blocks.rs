@@ -491,22 +491,6 @@ pub fn parse_placed_warp(key: &[u8; 4], data: &[u8]) -> Option<photocraft_geom::
     (!warp.is_identity()).then_some(warp)
 }
 
-/// Text content and transform from a `TySh` block (best effort).
-pub fn parse_tysh(data: &[u8]) -> Option<(String, Affine)> {
-    let f = |at: usize| data.get(at..at + 8).map(|b| f64::from_be_bytes(b.try_into().unwrap_or([0; 8])));
-    let mut m = [0.0; 6];
-    for (i, v) in m.iter_mut().enumerate() {
-        *v = f(2 + i * 8)?;
-    }
-    // text version (2) at 50, descriptor version (4) at 52, descriptor at 56.
-    let rest = data.get(52..)?;
-    let text = parse_prefix_versioned(rest).and_then(|d| match d.get("Txt ") {
-        Some(Value::Text(t)) => Some(t.to_string_lossy()),
-        _ => None,
-    });
-    Some((text.unwrap_or_default(), Affine { m }))
-}
-
 /// Parses a version-16 descriptor at the start of `data` (trailing bytes allowed).
 pub(crate) fn parse_prefix_versioned(data: &[u8]) -> Option<Descriptor> {
     VersionedDescriptor::parse_prefix(data).ok().map(|(v, _)| v.descriptor)
@@ -782,11 +766,6 @@ mod more_tests {
         lfx.extend(VersionedDescriptor::new(Descriptor::new("null").with("masterFXSwitch", Value::Boolean(false))).to_bytes());
         assert!(!effects_enabled(&lfx));
         assert!(effects_enabled(&[0, 0, 0, 0]));
-    }
-
-    #[test]
-    fn tysh_garbage_is_none() {
-        assert!(parse_tysh(&[0; 10]).is_none());
     }
 }
 

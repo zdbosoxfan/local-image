@@ -739,3 +739,23 @@ fn private_write_creates_and_tightens_to_owner_only() {
     assert_eq!((fs::read(&target).unwrap(), mode(&target)), (b"second".to_vec(), 0o600));
     dir.clean();
 }
+
+#[test]
+fn read_only_files_are_refused_and_left_alone() {
+    let dir = Dir::new();
+    let path = dir.target();
+    assert!(refuse_read_only(&path).is_ok(), "a missing file");
+    fs::write(&path, OLD).unwrap();
+    assert!(refuse_read_only(&path).is_ok(), "a writable file");
+    let mut perms = fs::metadata(&path).unwrap().permissions();
+    perms.set_readonly(true);
+    fs::set_permissions(&path, perms.clone()).unwrap();
+    let e = refuse_read_only(&path).unwrap_err();
+    #[allow(clippy::permissions_set_readonly_false)]
+    perms.set_readonly(false);
+    fs::set_permissions(&path, perms).unwrap();
+    assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+    assert!(e.to_string().contains("read-only") && e.to_string().contains("Save As"), "{e}");
+    assert_eq!(fs::read(&path).unwrap(), OLD);
+    dir.clean();
+}

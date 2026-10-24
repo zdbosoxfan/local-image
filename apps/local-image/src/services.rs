@@ -254,6 +254,7 @@ fn recovery_dir() -> Option<PathBuf> {
 /// [`li_fs`]). Every document write (Save, Save As, Export, Save for Web) and
 /// the preferences go through here, so a failed or interrupted save never destroys the old file.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    li_fs::refuse_read_only(path).map_err(|e| e.to_string())?;
     li_fs::atomic_write(path, bytes).map_err(|e| e.to_string())
 }
 
@@ -611,7 +612,7 @@ fn with_store<R>(store: &SharedRecovery, f: impl FnOnce(&mut RecoveryStore) -> R
 /// until a newer autosave replaces them or they're saved or closed (see [`RecoveryStore`]).
 fn recovery_services(dir: Option<PathBuf>) -> Services {
     let store: SharedRecovery = Rc::new(RefCell::new(dir.map(RecoveryStore::new)));
-    let (s1, s2, s3, s4) = (store.clone(), store.clone(), store.clone(), store.clone());
+    let (s1, s2, s3, s4, s5) = (store.clone(), store.clone(), store.clone(), store.clone(), store.clone());
     let cleanup: Rc<RefCell<Vec<photocraft_format::autosave::Discard>>> = Rc::default();
     let finish = cleanup.clone();
     Services {
@@ -620,6 +621,7 @@ fn recovery_services(dir: Option<PathBuf>) -> Services {
         })),
         // Background write outcomes reach the UI, so a failing autosave is reported and retried.
         autosave_results: Some(Box::new(move || with_store(&s4, |s| s.take_completed()).unwrap_or_default())),
+        flush_autosaves: Some(Box::new(move || with_store(&s5, RecoveryStore::flush).unwrap_or_default())),
         discard_autosave: Some(Box::new(move |id: u64| match with_store(&s2, |s| s.discard(id)) {
             Ok(Ok(receipt)) => {
                 let mut pending = cleanup.borrow_mut();
@@ -738,6 +740,7 @@ pub fn native(automation: Option<photocraft_automation::AuthorizedWorkspace>) ->
             Some(photocraft_ui_egui::FileStamp { len: meta.len(), modified: meta.modified().ok() })
         })),
         stage_write: Some(Arc::new(|path, bytes, interrupt| {
+            li_fs::refuse_read_only(Path::new(path)).map_err(|error| error.to_string())?;
             let staged = li_fs::stage_write(Path::new(path), bytes, interrupt).map_err(|error| error.to_string())?;
             Ok(photocraft_ui_egui::PreparedWrite { commit: Box::new(move || staged.commit().map_err(|error| error.to_string())) })
         })),
@@ -1496,6 +1499,7 @@ pub(crate) fn prepare_document_save(
     interrupt.check().map_err(|e| e.to_string())?;
     let progress = |fraction| interrupt.progress(0.8 + fraction * 0.19);
     let writing = lightcraft_sysmem::jobs::Interrupt::new(&cancel, &progress);
+    li_fs::refuse_read_only(&resolved).map_err(|e| e.to_string())?;
     let staged = li_fs::stage_write(&resolved, &output.bytes, &writing).map_err(|e| e.to_string())?;
     let path = path.to_owned();
     #[cfg(not(target_os = "linux"))]

@@ -203,7 +203,8 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     let storage_bits = info.bits() as u32;
     uncompressed_layout(bytes, &mut info, storage_bits)?;
     let (w, h, cpp) = (info.width as usize, info.height as usize, info.samples_per_pixel as usize);
-    if !(1..=4).contains(&cpp) {
+    // one sample (CFA or monochrome), RGB or four colours; two are neither and can't be developed
+    if !matches!(cpp, 1 | 3 | 4) {
         return Err(RawError::Unsupported(format!("{cpp} samples per pixel")));
     }
     if info.compression == t::compression::JPEG_XL {
@@ -227,18 +228,30 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
     if white.is_empty() {
         white = vec![default_white];
     }
+    // No sensor records NaN or infinity, so such a float sample is damage. Left in, it turns into NaN in demosaic
+    // arithmetic and spreads; NaN and −∞ read as black (0), +∞ as the white level (a clipped highlight). Finite
+    // samples, negative or above white included, are kept as stored.
+    if let RawData::F32(v) = &mut data {
+        for (i, s) in v.iter_mut().enumerate() {
+            if !s.is_finite() {
+                *s = if *s > 0.0 { white.get(i % cpp).or(white.first()).copied().unwrap_or(default_white) } else { 0.0 };
+            }
+        }
+    }
 
     let dim = raw.u64s(t::BLACK_LEVEL_REPEAT_DIM).unwrap_or_default();
     let (br, bc) = match dim.as_slice() {
         [r, c] if (1..=16).contains(r) && (1..=16).contains(c) => (*r as usize, *c as usize),
         _ => (1, 1),
     };
-    let mut values: Vec<f32> = raw.f64s(t::BLACK_LEVEL).unwrap_or_default().into_iter().map(|v| v as f32).collect();
+    // (a FLOAT / DOUBLE tag can hold NaN or infinity: such a level reads as 0, in its place)
+    let level = |v: f64| Some(v as f32).filter(|v| v.is_finite()).unwrap_or(0.0);
+    let mut values: Vec<f32> = raw.f64s(t::BLACK_LEVEL).unwrap_or_default().into_iter().map(level).collect();
     if values.len() != br * bc * cpp {
         values = vec![values.first().copied().unwrap_or(0.0)];
     }
     let (br, bc) = if values.len() == 1 { (1, 1) } else { (br, bc) };
-    let floats = |tag| raw.f64s(tag).unwrap_or_default().into_iter().map(|v| v as f32).collect::<Vec<f32>>();
+    let floats = |tag| raw.f64s(tag).unwrap_or_default().into_iter().map(level).collect::<Vec<f32>>();
     let black =
         BlackLevel { repeat_rows: br, repeat_cols: bc, values, delta_h: floats(t::BLACK_LEVEL_DELTA_H), delta_v: floats(t::BLACK_LEVEL_DELTA_V) };
 

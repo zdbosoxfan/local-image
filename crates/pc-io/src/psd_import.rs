@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use photocraft_color::{BlendMode, ColorMode, PixelFormat, SampleType};
-use photocraft_doc::{AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartObject, SmartSource, TextLayer};
+use photocraft_doc::{AlphaChannel, Document, Effects, FillCache, Group, Layer, LayerContent, LayerMask, ShapeLayer, SmartObject, SmartSource};
 use photocraft_geom::{Rect, Size, TILE_SIZE};
 use photocraft_psd::layer::{CHANNEL_REAL_USER_MASK, CHANNEL_TRANSPARENCY, CHANNEL_USER_MASK};
 use photocraft_psd::resources::ids;
@@ -327,19 +327,21 @@ impl Ctx<'_> {
                     _ => adjust_map::Channels::Other,
                 },
             ))
-        } else if rec.block(b"TySh").is_some() {
-            // Typed model from TySh/EngineData (photocraft-text); Photoshop's pixels stay the cache.
-            let data = rec.block(b"TySh").map(|b| b.data.clone()).unwrap_or_default();
-            let mut t = photocraft_text::psd::text_layer_from_tysh(&data, self.dpi).unwrap_or_else(|| {
-                let (text, transform) = blocks::parse_tysh(&data).unwrap_or_default();
-                TextLayer { text, transform, ..Default::default() }
-            });
-            if let Some(txt2) = &self.txt2 {
-                photocraft_text::psd::apply_txt2(&mut t, &data, txt2);
+        } else if let Some(block) = rec.block(b"TySh") {
+            // Typed model from TySh/EngineData (photocraft-text); Photoshop's pixels stay the
+            // cache. Only safely decoded type data becomes editable text: a transform that is not
+            // finite or past i32 keeps the layer as pixels.
+            if let Some(mut t) = photocraft_text::psd::text_layer_from_tysh(&block.data, self.dpi) {
+                if let Some(txt2) = &self.txt2 {
+                    photocraft_text::psd::apply_txt2(&mut t, &block.data, txt2);
+                }
+                t.cache = Some(self.record_surface(rec, &name));
+                t.psd_raw = principal(b"TySh");
+                LayerContent::Text(t)
+            } else {
+                self.warn(format!("layer \"{name}\": unreadable or unsafe type geometry; kept as pixels with its original type data"));
+                LayerContent::Raster(self.record_surface(rec, &name))
             }
-            t.cache = Some(self.record_surface(rec, &name));
-            t.psd_raw = principal(b"TySh");
-            LayerContent::Text(t)
         } else if let Some(k) = smart_key {
             let (id, transform) = rec.block(k).map(|b| blocks::parse_smart(k, &b.data)).unwrap_or_default();
             // Smart filters (`filterFX` in the placed-layer data) and their mask (`FEid`).

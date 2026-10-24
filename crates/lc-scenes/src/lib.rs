@@ -68,8 +68,11 @@ impl Scene {
         paint::render(self.kind, self.seed, w, h)
     }
 
-    /// Render fitting within `max_edge` on the long side.
+    /// Render fitting within `max_edge` on the long side (at most the scene's own size).
     pub fn render_fit(&self, max_edge: usize) -> RgbFrame {
+        // never past the scene's own size: that is a demo photo's full resolution, and a size
+        // from a damaged catalog (a width of 4294967295) asked for more memory than exists
+        let max_edge = max_edge.min(self.width.max(self.height).max(1) as usize);
         let a = self.aspect();
         let (w, h) = if a >= 1.0 { (max_edge, (max_edge as f32 / a).round() as usize) } else { ((max_edge as f32 * a).round() as usize, max_edge) };
         self.render(w.max(1), h.max(1))
@@ -177,6 +180,14 @@ pub fn demo_library() -> Vec<Scene> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fit_past_the_scenes_own_size_renders_at_its_own_size() {
+        let mut scene = demo_library().remove(0);
+        (scene.width, scene.height) = (12, 8);
+        let img = scene.render_fit(u32::MAX as usize);
+        assert_eq!((img.width, img.height), (12, 8));
+    }
 
     #[test]
     fn library_is_deterministic_and_varied() {

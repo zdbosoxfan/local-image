@@ -509,6 +509,35 @@ mod tests {
         assert!(matches!(e, Err(RawError::Unsupported(_))), "{e:?}");
     }
 
+    /// A long run of the largest difference drove a predictor past i32: a panic in builds with overflow checks,
+    /// wrapped values otherwise. Both the row and the column predictors now stop with an error.
+    #[test]
+    fn predictor_overflow_is_an_error_not_a_panic() {
+        let codes = LOSSLESS_14.codes();
+        let k = (0..codes.len()).rev().find(|&k| codes[k].1 > 0).unwrap();
+        let d = (1u32 << k) - 1;
+        let stream = |n: usize| {
+            let mut wr = Writer::default();
+            let (code, len) = codes[k];
+            for _ in 0..n {
+                wr.put(code as u32 >> (12 - len), len as u32);
+                wr.put(d, k as u32);
+            }
+            wr.finish()
+        };
+        // differences one predictor needs to pass i32::MAX
+        let steps = (i32::MAX as u32 / d) as usize + 2;
+        let table = DecodeTable { encoding: Encoding::Lossless, seeds: [[0; 2]; 2] };
+        // along a row: every other sample adds to the same predictor
+        let w = 2 * steps + 2;
+        let err = decode(&stream(w), w, 1, 14, &table).unwrap_err();
+        assert!(matches!(err, RawError::Corrupt(ref m) if m.contains("predictor")), "{err}");
+        // down two columns: each row adds to the seed of its parity
+        let h = 2 * steps + 2;
+        let err = decode(&stream(2 * h), 2, h, 14, &table).unwrap_err();
+        assert!(matches!(err, RawError::Corrupt(ref m) if m.contains("predictor")), "{err}");
+    }
+
     #[test]
     fn truncated_and_corrupted_streams_error_never_panic() {
         let (w, h) = (64, 16);

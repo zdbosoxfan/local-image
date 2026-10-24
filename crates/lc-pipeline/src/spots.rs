@@ -17,6 +17,19 @@ fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Most a spot's size counts for, in long edges: a size read from a sidecar isn't held to the
+/// slider's range, and one far past the picture (or infinite) made the radius, the blur it heals
+/// with and the patch it reads from unbounded. Two long edges cover the whole frame from anywhere
+/// in it.
+const MAX_SPOT_SIZE: f64 = 2.0;
+
+/// A spot's radius in output pixels, `ppl` output pixels to the long edge: at least a pixel (a
+/// size that is not a number too), at most [`MAX_SPOT_SIZE`] long edges.
+fn radius_px(size: f64, ppl: f64) -> f64 {
+    let size = if size.is_nan() { 0.0 } else { size.min(MAX_SPOT_SIZE) };
+    (size * ppl).max(1.0)
+}
+
 /// Samples of `img` on an annulus (24 angles x inner/mid/outer radius).
 fn ring_stats(img: &RgbFrame, c: (f32, f32), r0: f32, r1: f32) -> Option<Vec<[f32; 3]>> {
     let mut out = Vec::with_capacity(72);
@@ -103,7 +116,7 @@ pub fn pick_source(
     crate::patches::apply_spots(&mut img, &s.spots, &frame);
     let (to_out, to_norm) = (frame.norm_to_out(w, h), frame.out_to_norm(w, h));
     let t = to_out.apply(*spot.points.first()?);
-    let r = (spot.size * frame.px_per_long(w)).max(1.0) as f32;
+    let r = radius_px(spot.size, frame.px_per_long(w)) as f32;
     let avoid = avoid.map(|o| {
         let (a, b) = (to_out.apply(Point::new(0.0, 0.0)), to_out.apply(o));
         ((b.x - a.x) as f32, (b.y - a.y) as f32)
@@ -142,7 +155,7 @@ pub fn apply_timed(img: &mut RgbFrame, spots: &[Spot], frame: &Frame, ppl: f64, 
     let to_out = frame.norm_to_out(w, h);
     // (AI removals are composited from their stored patches: `crate::patches`)
     for spot in spots.iter().filter(|s| !s.is_ai() && s.opacity > 0.0) {
-        let r = (spot.size * ppl).max(1.0) as f32;
+        let r = radius_px(spot.size, ppl) as f32;
         let pts: Vec<(f32, f32)> = spot
             .points
             .iter()
@@ -522,7 +535,7 @@ mod reference {
         let to_out = frame.norm_to_out(w, h);
         // (AI removals are composited from their stored patches: `crate::patches`)
         for spot in spots.iter().filter(|s| !s.is_ai()) {
-            let r = (spot.size * ppl).max(1.0) as f32;
+            let r = radius_px(spot.size, ppl) as f32;
             let pts: Vec<(f32, f32)> = spot
                 .points
                 .iter()

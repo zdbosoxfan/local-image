@@ -420,6 +420,25 @@ pub(super) fn mip_count(w: u32, h: u32) -> u32 {
     32 - w.max(h).max(1).leading_zeros()
 }
 
+/// Mip levels no larger than this on either side are redrawn whole on every edit rather than just
+/// their damage (see [`mip_damage`]). Every corrupted level measured was at most 64 px; this
+/// leaves a factor of two.
+const WHOLE_MIP_SIDE: u32 = 128;
+
+/// The rect (x0, y0, x1, y1) of a `lw`×`lh` mip level to redraw when the given rect changed in the level
+/// above: that damage halved and padded by one texel for odd-size rounding, or the whole level
+/// when it is at most [`WHOLE_MIP_SIDE`] on either side. On AMD's Vulkan driver a pass that draws
+/// only part of a level of 64 px or less corrupts texels outside its scissor, at the level's
+/// top-left (RX 6900 XT, driver 26.8.1; DX12 on the same card is fine). Such a level costs next
+/// to nothing to redraw, so this holds for every adapter; the levels after it are smaller still,
+/// so the rest of the chain is redrawn whole too.
+pub(super) fn mip_damage([x0, y0, x1, y1]: [u32; 4], lw: u32, lh: u32) -> [u32; 4] {
+    if lw.max(lh) <= WHOLE_MIP_SIDE {
+        return [0, 0, lw, lh];
+    }
+    [(x0 / 2).saturating_sub(1), (y0 / 2).saturating_sub(1), (x1.div_ceil(2) + 1).min(lw), (y1.div_ceil(2) + 1).min(lh)]
+}
+
 /// A buffer holding `contents`, like `DeviceExt::create_buffer_init` but without its panic when
 /// the device was lost (an invalid buffer has no mapped range): the buffer is then just invalid.
 pub(super) fn init_buffer(device: &wgpu::Device, label: &str, contents: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
@@ -550,9 +569,7 @@ impl DocTextures {
             (x0, y0, x1, y1) = (x0 - tx, y0 - ty, x1 - tx, y1 - ty);
             for level in 1..t.levels.len() {
                 let (lw, lh) = ((tw >> level).max(1), (th >> level).max(1));
-                // Damage at this level, padded by one texel for odd-size rounding.
-                (x0, y0) = ((x0 / 2).saturating_sub(1), (y0 / 2).saturating_sub(1));
-                (x1, y1) = ((x1.div_ceil(2) + 1).min(lw), (y1.div_ceil(2) + 1).min(lh));
+                [x0, y0, x1, y1] = mip_damage([x0, y0, x1, y1], lw, lh);
                 let bg = &t.mip_groups[level - 1];
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("pc_mip"),

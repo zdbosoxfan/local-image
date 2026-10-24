@@ -596,3 +596,16 @@ fn long_only_lists_select_what_a_scan_selects() {
     assert_eq!(query(&only[..5]), scan(&only[..5]));
     assert!(query(&[PhotoId(999_999); 40]).is_empty());
 }
+
+/// A captured time that is not ASCII (another catalog's capture time is copied verbatim) is
+/// left out of the date groups instead of panicking on a char boundary.
+#[test]
+fn date_groups_ignores_a_non_ascii_captured() {
+    let mut c = Catalog::new();
+    photo(&mut c, "ok.jpg", "2026-05-01T10:00:00");
+    photo(&mut c, "bad.jpg", "日本語日本語");
+    let g = c.date_groups();
+    assert_eq!(g.len(), 1, "the one well-formed date still groups");
+    assert_eq!((g[0].year.as_str(), g[0].count), ("2026", 1));
+    assert_eq!(g[0].days.iter().map(|d| d.1).sum::<usize>(), 1);
+}

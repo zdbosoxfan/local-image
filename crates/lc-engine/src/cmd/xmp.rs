@@ -13,7 +13,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
     let mut backups = Vec::new();
     let mut failed = Vec::new();
     let owners = crate::sidecar::StemOwners::of(&s.catalog);
-    for id in s.targets(p) {
+    for id in s.targets(p)? {
         match s.save_sidecar_with(id, &owners) {
             Ok(r) => {
                 let path = r.path.display().to_string();
@@ -35,7 +35,7 @@ fn read(s: &mut Session, p: &Value) -> Result<Value> {
     let mut ops = Vec::new();
     let mut read = Vec::new();
     let mut failed = Vec::new();
-    for id in s.targets(p) {
+    for id in s.targets(p)? {
         match s.read_sidecar_op(id) {
             Ok(Some((op, from))) => {
                 ops.push(op);

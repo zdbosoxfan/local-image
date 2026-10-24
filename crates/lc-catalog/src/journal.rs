@@ -272,6 +272,9 @@ fn write_snapshot(store: &mut dyn Store, seq: u64, catalog: &Catalog) -> std::io
     Ok(SnapshotTiming { serialize_ms, write_sync_ms: (ms_since(t0) - serialize_ms).max(0.0), bytes, ..Default::default() })
 }
 
+/// The highest `seq` a snapshot may hold; beyond it the counter is treated as corrupt, far from overflow.
+const MAX_SEQ: u64 = u64::MAX / 2;
+
 /// Just the identification of `catalog.snap` (read before the catalog itself).
 #[derive(serde::Deserialize)]
 struct SnapHeader {
@@ -311,6 +314,10 @@ impl Journal {
                     return Err(older(format!("{SNAPSHOT} is catalog format v{}", h.version)));
                 }
                 let s: SnapFile = serde_json::from_slice(&bytes).map_err(|e| CatalogError::Corrupt(format!("{SNAPSHOT}: {e}")))?;
+                // real use never gets near this; the next record's seq would wrap
+                if s.seq > MAX_SEQ {
+                    return Err(CatalogError::Corrupt(format!("{SNAPSHOT}: seq {} is out of range", s.seq)));
+                }
                 (s.catalog, s.seq)
             }
             // the earliest builds kept a log without a snapshot; this build always writes one first
@@ -362,7 +369,7 @@ impl Journal {
                     let _ = op;
                     report.stale += 1;
                 }
-                Some((seq, op)) if seq == j.seq + 1 => {
+                Some((seq, op)) if j.seq.checked_add(1) == Some(seq) => {
                     if catalog.apply(op).is_err() {
                         report.failed += 1;
                     } else {
@@ -432,7 +439,7 @@ impl Journal {
         let mut buf = String::new();
         let mut seq = self.seq;
         for op in ops {
-            seq += 1;
+            seq = seq.checked_add(1).ok_or_else(|| CatalogError::Corrupt(format!("{LOG}: op counter overflow")))?;
             buf.push_str(&encode_record(seq, op));
             buf.push('\n');
         }
@@ -483,7 +490,7 @@ impl Journal {
             log::warn!("catalog: background snapshot failed ({e}); writing one now");
         }
         let t0 = web_time::Instant::now();
-        let seq = self.seq + unlogged;
+        let seq = self.seq.checked_add(unlogged).ok_or_else(|| CatalogError::Corrupt(format!("{SNAPSHOT}: op counter overflow")))?;
         let mut timing = match write_snapshot(self.store.as_mut(), seq, catalog) {
             Ok(t) => t,
             Err(e) => {

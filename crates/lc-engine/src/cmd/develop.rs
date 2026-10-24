@@ -2,10 +2,10 @@
 
 use lightcraft_catalog::{Op, PhotoId, Version};
 use lightcraft_develop::{DevelopSettings, Preset, Section, SettingsGroup, Treatment, Upright, WbMode, controls};
-use lightcraft_geom::{CropGeometry, Point, Rect, crop_fit_angle};
+use lightcraft_geom::{CropGeometry, MIN_CROP_FRACTION, Point, Rect, crop_fit_angle};
 use serde_json::{Value, json};
 
-use super::{CommandSpec, always, bad, bool_or, cmd, f64_or, f64_req, has_active, has_clipboard, has_selection, ok, str_param};
+use super::{CommandSpec, always, bad, bool_or, cmd, f64_or, f64_req, has_active, has_clipboard, has_selection, index_req, ok, str_param};
 use crate::{Result, Session, media::SourceLevel};
 
 pub(super) fn active(s: &Session, c: &str) -> Result<PhotoId> {
@@ -61,7 +61,7 @@ fn user_preset<'a>(s: &'a mut Session, p: &Value, c: &str) -> Result<&'a mut Pre
 /// Change version `p.index` of the active photo (`f` gets it and the current settings).
 fn edit_version(s: &mut Session, p: &Value, c: &str, label: &str, f: impl FnOnce(&mut Version, std::sync::Arc<DevelopSettings>)) -> Result<Value> {
     let id = active(s, c)?;
-    let i = f64_req(p, "index", c)? as usize;
+    let i = index_req(p, "index", c)?;
     let ph = s.catalog.photo(id).ok_or_else(|| bad(c, "no photo"))?;
     let mut versions = ph.versions.clone();
     let v = versions.get_mut(i).ok_or_else(|| bad(c, "no such version"))?;
@@ -160,7 +160,7 @@ pub fn specs() -> Vec<CommandSpec> {
             })
         }),
         cmd!("develop.reset", "Reset Edits", ["Photo"], Some("Cmd+Shift+R"), "{ids?}", has_selection, |s, p| {
-            let ids = s.targets(p);
+            let ids = s.targets(p)?;
             let ops = ids
                 .iter()
                 .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
@@ -197,7 +197,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let look =
                     lightcraft_develop::Look::from_id(name).ok_or_else(|| bad(C, format!("unknown look `{name}` (adobe, sigmoid, camera)")))?;
                 if p.get("ids").is_some() {
-                    let ids = s.targets(p);
+                    let ids = s.targets(p)?;
                     let ops: Vec<Op> = ids
                         .iter()
                         .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))
@@ -414,13 +414,15 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("develop.curve", "Set Point Curve", [], None, "{channel: master|red|green|blue, points: [[x,y],...] in 0..1}", has_active, |s, p| {
             let ch = str_param(p, "channel").unwrap_or("master").to_string();
-            let pts: Vec<Point> = p
+            let mut pts: Vec<Point> = p
                 .get("points")
                 .and_then(Value::as_array)
                 .ok_or_else(|| bad("develop.curve", "missing points"))?
                 .iter()
                 .filter_map(|q| Some(Point::new(q.get(0)?.as_f64()?.clamp(0.0, 1.0), q.get(1)?.as_f64()?.clamp(0.0, 1.0))))
                 .collect();
+            // stored in the order the curve runs, as the editor draws and drags them
+            pts.sort_by(|a, b| a.x.total_cmp(&b.x));
             edit(s, "develop.curve", "Tone Curve", |d| {
                 match ch.as_str() {
                     "master" | "rgb" => d.curve.master = pts,
@@ -442,7 +444,15 @@ pub fn specs() -> Vec<CommandSpec> {
                     if v.len() != 4 {
                         return Err(bad("crop.set", "rect needs 4 numbers"));
                     }
-                    d.crop.geometry.rect = Rect::new(v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3]));
+                    let r = Rect::new(v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3]));
+                    let min_side = MIN_CROP_FRACTION * w.min(h) * (1.0 - 1e-9);
+                    if !(r.width() * w >= min_side && r.height() * h >= min_side) {
+                        return Err(bad(
+                            "crop.set",
+                            format!("rect is smaller than the smallest crop ({} % of the shorter side)", MIN_CROP_FRACTION * 100.0),
+                        ));
+                    }
+                    d.crop.geometry.rect = r;
                 }
                 if let Some(a) = p.get("angle").and_then(Value::as_f64) {
                     d.crop.geometry.angle = a.clamp(-45.0, 45.0);
@@ -652,7 +662,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     s.previous_active.filter(|id| s.catalog.photo(*id).is_some_and(|ph| !ph.deleted)).ok_or_else(|| bad(c, "no previous photo"))?;
                 let groups = groups_param(p).unwrap_or_else(|| s.copy_groups.clone());
                 let partial = lightcraft_develop::extract_groups(&s.develop_of(prev).unwrap_or_default(), &groups);
-                let ids: Vec<PhotoId> = s.targets(p).into_iter().filter(|id| *id != prev).collect();
+                let ids: Vec<PhotoId> = s.targets(p)?.into_iter().filter(|id| *id != prev).collect();
                 let ops = ids
                     .iter()
                     .filter_map(|id| {
@@ -681,7 +691,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     let full = lightcraft_develop::apply_partial(&DevelopSettings::default(), &clip, 1.0);
                     clip = lightcraft_develop::extract_groups(&full, &only);
                 }
-                let ids = s.targets(p);
+                let ids = s.targets(p)?;
                 let ops = ids
                     .iter()
                     .filter_map(|id| {
@@ -734,7 +744,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let delta = f64_req(p, "delta", c)?;
                 let label = format!("Quick Develop: {}", spec.label);
                 let ops: Vec<Op> = s
-                    .targets(p)
+                    .targets(p)?
                     .into_iter()
                     .filter_map(|id| s.develop_of(id).map(|d| (id, d)))
                     .filter_map(|(id, d)| {
@@ -781,7 +791,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 };
                 let r_ev = gathered(s, reference).ok_or_else(|| bad(c, "the active photo has no shutter / aperture / ISO"))?;
                 let r_slider = s.develop_of(reference).map(|d| d.light.exposure).unwrap_or(0.0);
-                let ids: Vec<PhotoId> = s.targets(p).into_iter().filter(|x| *x != reference).collect();
+                let ids: Vec<PhotoId> = s.targets(p)?.into_iter().filter(|x| *x != reference).collect();
                 let (mut ops, mut skipped) = (Vec::new(), Vec::new());
                 for id in ids {
                     let (Some(ev), Some(d)) = (gathered(s, id), s.develop_of(id)) else {
@@ -819,7 +829,8 @@ pub fn specs() -> Vec<CommandSpec> {
                 lightcraft_develop::presets::strip_photo_bound(object);
             }
             let amount = f64_or(p, "amount", 100.0).clamp(0.0, 200.0) / 100.0;
-            let ids = s.targets(p);
+            // `id` names the preset here: the photos are `ids`, else the selection
+            let ids = s.targets(&json!({"ids": p.get("ids")}))?;
             let ops = ids
                 .iter()
                 .filter_map(|id| {
@@ -905,14 +916,14 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("version.restore", "Restore Version", [], None, "{index}", has_active, |s, p| {
             let id = active(s, "version.restore")?;
-            let i = f64_req(p, "index", "version.restore")? as usize;
+            let i = index_req(p, "index", "version.restore")?;
             let v = s.catalog.photo(id).and_then(|ph| ph.versions.get(i).cloned()).ok_or_else(|| bad("version.restore", "no such version"))?;
             s.set_develop(id, (*v.settings).clone(), &format!("Restore {}", v.name))?;
             ok()
         }),
         cmd!("version.delete", "Delete Version", [], None, "{index}", has_active, |s, p| {
             let id = active(s, "version.delete")?;
-            let i = f64_req(p, "index", "version.delete")? as usize;
+            let i = index_req(p, "index", "version.delete")?;
             let mut versions = s.catalog.photo(id).map(|ph| ph.versions.clone()).unwrap_or_default();
             if i >= versions.len() {
                 return Err(bad("version.delete", "no such version"));
@@ -938,7 +949,7 @@ pub fn specs() -> Vec<CommandSpec> {
         }),
         cmd!("history.restore", "Go to History Step", [], None, "{index}", has_active, |s, p| {
             let id = active(s, "history.restore")?;
-            let i = f64_req(p, "index", "history.restore")? as usize;
+            let i = index_req(p, "index", "history.restore")?;
             let st = s.catalog.photo(id).and_then(|ph| ph.history.get(i).cloned()).ok_or_else(|| bad("history.restore", "no such step"))?;
             s.set_develop(id, (*st.settings).clone(), &format!("History: {}", st.label))?;
             ok()

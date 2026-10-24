@@ -66,6 +66,39 @@ fn point(p: &Value, k: &str) -> Option<(f64, f64)> {
 
 /// Parse the shared brush params into a stroke on a layer (`None` when an alpha channel or the
 /// Quick Mask is targeted).
+/// A single stroke's accumulated coverage must stay at or under this many pixels (8192², so a
+/// stroke corner to corner across a 24–36 MP canvas fits). Larger footprints return an error
+/// instead of allocating.
+const MAX_STROKE_PIXELS: u64 = 67_108_864;
+
+/// Refuse a stroke whose footprint would not fit the coverage budget, from the points and brush
+/// size alone, before anything is allocated for it. The clone, healing, spot healing and history
+/// brushes render a dense coverage (and read a source region) over the stroke's whole box, so a
+/// thin stroke across a huge canvas would still ask for all of it.
+fn reject_huge_stroke(cmd: &str, stroke: &Stroke) -> Result<()> {
+    let pad = f64::from(stroke.brush.size.max(1.0)).mul_add(0.5, 4.0);
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for q in &stroke.points {
+        min_x = min_x.min(q.x);
+        min_y = min_y.min(q.y);
+        max_x = max_x.max(q.x);
+        max_y = max_y.max(q.y);
+    }
+    if !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
+        return Err(bad(cmd, "point coordinates must be finite"));
+    }
+    let w = (max_x - min_x + pad * 2.0).ceil().max(1.0);
+    let h = (max_y - min_y + pad * 2.0).ceil().max(1.0);
+    if !w.is_finite() || !h.is_finite() || w > 1.0e9 || h > 1.0e9 {
+        return Err(bad(cmd, format!("stroke too large (at most {MAX_STROKE_PIXELS} px)")));
+    }
+    let area = (w as u64).saturating_mul(h as u64);
+    if area > MAX_STROKE_PIXELS {
+        return Err(bad(cmd, format!("stroke too large ({w:.0}×{h:.0} px, at most {MAX_STROKE_PIXELS})")));
+    }
+    Ok(())
+}
+
 fn parse_brush(s: &Session, p: &Value, cmd: &str) -> Result<(Stroke, Option<LayerId>)> {
     let pts: Vec<StrokePoint> = p
         .get("points")
@@ -263,6 +296,7 @@ fn clamp_samples(fmt: &PixelFormat, data: &mut [f32]) {
 fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.cloneStamp";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let which = sample_layers(p, CMD)?;
     let mode = blend_param(p, CMD)?;
     let aligned = flag(p, "aligned", true);
@@ -359,6 +393,7 @@ pub(crate) fn mvc_region(fmt: &PixelFormat, src: &Region, dst: &Region, mask: &[
 fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.healingBrush";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let which = sample_layers(p, CMD)?;
     let mode = blend_param(p, CMD)?;
     let aligned = flag(p, "aligned", true);
@@ -382,6 +417,7 @@ fn healing_brush(s: &mut Session, p: &Value) -> Result<Value> {
 fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.historyBrush";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let mode = blend_param(p, CMD)?;
     let st = s.active().ok_or(EngineError::NoDocument)?;
     let explicit = p.get("state").and_then(Value::as_u64).map(|v| v as usize);
@@ -505,6 +541,7 @@ fn spot_heal_surface(surf: &mut Surface, pre: &Document, stroke: &Stroke, kind: 
 fn spot_healing(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.spotHealing";
     let (stroke, id) = parse_brush(s, p, CMD)?;
+    reject_huge_stroke(CMD, &stroke)?;
     let kind = match string(p, "type", "contentAware") {
         "contentAware" => SpotType::ContentAware,
         "createTexture" => SpotType::CreateTexture,

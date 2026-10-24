@@ -2,6 +2,7 @@
 mod brush_smoothing;
 mod camera_raw_noise_clamp;
 mod eraser_locked;
+mod finite_command_params;
 mod gallery_colours;
 mod gauss_small_sigma;
 mod guide_layout_limit;

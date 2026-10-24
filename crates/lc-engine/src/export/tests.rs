@@ -691,7 +691,8 @@ fn resize_modes() {
     assert_eq!(ExportOptions::from_json(&ExportOptions::resize_json(None)).resize, None);
     assert_eq!(ExportOptions::from_json(&json!({"ppi": 300})).ppi, 300);
     // never larger than the encoders' limit, never empty
-    assert_eq!(size(json!({"percent": 10000, "dontEnlarge": false}), 6000.0, 4000.0), Some((65535, 43690)));
+    assert_eq!(size(json!({"percent": 10000, "dontEnlarge": false}), 6000.0, 4000.0), Some((27713, 18475)), "512 MP at most");
+    assert_eq!(size(json!({"width": 70000, "dontEnlarge": false}), 60000.0, 100.0), Some((65535, 109)), "65535 px an edge");
     assert_eq!(size(json!({"width": 1}), 6000.0, 40.0).map(|s| s.1), Some(1));
 }
 
@@ -891,4 +892,94 @@ fn dsfix_original_export_rejects_embedded_places_without_gps() {
         assert!(original_embeds_location(&jpg), "field {field}");
     }
     assert!(!original_embeds_location(b"original without location"));
+}
+
+#[test]
+fn a_panic_in_progress_does_not_hang_the_lanes() {
+    let mut session = crate::Session::with_demo();
+    let o = ExportOptions::from_json(&json!({"format": "png", "width": 40, "height": 40}));
+    // more photos than the pipeline window, so the feeder is waiting for the writer to move on
+    let items = rendered_batch(&mut session, 3 * parallel().window, &o);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let to = Destination { dir: "/exports".into(), exact: None };
+        let mut calls = 0;
+        let r = crate::guard::catch("test batch", || {
+            run_batch_shaped(
+                items,
+                &o,
+                &to,
+                &mut |_, _| Ok(()),
+                &|_| false,
+                false,
+                &mut |_, _| {
+                    calls += 1;
+                    assert!(calls < 2, "progress panics on its second call");
+                    true
+                },
+                &lightcraft_sysmem::JobCtl::new(),
+                &wide_open(),
+                parallel(),
+            )
+        });
+        tx.send(r.and_then(|r| r)).ok();
+    });
+    let r = rx.recv_timeout(std::time::Duration::from_secs(60));
+    assert!(matches!(r, Ok(Err(_))), "the batch returns an error instead of hanging: {r:?}");
+}
+
+/// Typing 20000 for 2000 (or percent 10000) with Don't Enlarge off asked for gigapixels, whose
+/// first plane failed to allocate and aborted the process. An enlargement stops at 512
+/// megapixels; full-size and smaller exports of photos larger than that are untouched.
+#[test]
+fn enlargements_stop_at_512_megapixels() {
+    let size = |p: serde_json::Value, w: f64, h: f64| ExportOptions::from_json(&p).resize.map(|r| r.apply(w, h)).unwrap();
+    for p in [json!({"longEdge": 60000, "dontEnlarge": false}), json!({"megapixels": 5000}), json!({"percent": 10000, "dontEnlarge": false})] {
+        let (w, h) = size(p.clone(), 6000.0, 4000.0);
+        assert!((w * h) as f64 <= MAX_ENLARGED_PIXELS * 1.001, "{p}: {w}×{h}");
+        assert!((w as f64 / h as f64 - 1.5).abs() < 0.001, "{p}: keeps the shape");
+    }
+    assert_eq!(size(json!({"longEdge": 12000, "dontEnlarge": false}), 6000.0, 4000.0), (12000, 8000), "below the ceiling as asked");
+    assert_eq!(size(json!({"percent": 100, "dontEnlarge": false}), 30000.0, 20000.0), (30000, 20000), "a 600 MP panorama at full size");
+    assert_eq!(size(json!({"percent": 50}), 30000.0, 20000.0), (15000, 10000));
+    assert_eq!(size(json!({"percent": 200, "dontEnlarge": false}), 30000.0, 20000.0), (30000, 20000), "never enlarged");
+}
+
+/// An enlarged export that needs more memory than the computer has is refused with a message
+/// before it starts; everything else goes ahead.
+#[test]
+fn enlarged_exports_must_fit_the_computers_memory() {
+    let gb = 1u64 << 30;
+    let ram = |g: u64| Some((g * gb) as usize);
+    let why = prepared::too_big_for_memory((27713, 18475), 24_000_000, 20 * gb, ram(16)).unwrap();
+    assert!(why.contains("27713 × 18475") && why.contains("20 GB") && why.contains("16 GB") && why.contains("smaller size"), "{why}");
+    assert_eq!(prepared::too_big_for_memory((27713, 18475), 24_000_000, 20 * gb, ram(32)), None, "fits");
+    assert_eq!(prepared::too_big_for_memory((6000, 4000), 24_000_000, 20 * gb, ram(1)), None, "full size is never refused");
+    assert_eq!(prepared::too_big_for_memory((3000, 2000), 24_000_000, 20 * gb, ram(1)), None, "nor a smaller export");
+    assert_eq!(prepared::too_big_for_memory((27713, 18475), 24_000_000, 20 * gb, None), None, "unknown memory");
+}
+
+/// A photo more than 65535 times as long as it is short (a 70000 × 1 strip) made `scale` clamp
+/// with its lower bound above its upper one, which panics, in the export and in the Export
+/// dialog's preview on the UI thread. The encoders' limit wins, the short edge keeps a pixel.
+#[test]
+fn resize_survives_photos_too_long_for_the_encoders() {
+    let modes = [
+        json!({"longEdge": 2000}),
+        json!({"shortEdge": 1}),
+        json!({"width": 500, "height": 500}),
+        json!({"megapixels": 1}),
+        json!({"percent": 50}),
+        json!({"percent": 1000, "dontEnlarge": false}),
+    ];
+    for p in modes {
+        for (w, h) in [(70_000.0, 1.0), (1.0, 70_000.0), (1e9, 3.0), (65_536.0, 1.0)] {
+            let r = ExportOptions::from_json(&p).resize.unwrap();
+            let (ow, oh) = r.apply(w, h);
+            assert!((1..=65_535).contains(&ow) && (1..=65_535).contains(&oh), "{p} on {w}×{h}: {ow}×{oh}");
+            assert!(r.scale(w, h).is_finite());
+        }
+    }
+    assert_eq!(Resize::long_edge(2000).apply(70_000.0, 1.0), (65_535, 1));
+    assert_eq!(Resize::long_edge(2000).apply(1.0, 70_000.0), (1, 65_535));
 }

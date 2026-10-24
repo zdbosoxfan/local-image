@@ -164,7 +164,7 @@ fn mask_param(s: &Session, p: &Value, c: &str) -> Result<Option<usize>> {
 }
 
 fn index(p: &Value, c: &str) -> Result<usize> {
-    Ok(f64_req(p, "index", c)? as usize)
+    super::index_req(p, "index", c)
 }
 
 pub fn specs() -> Vec<CommandSpec> {

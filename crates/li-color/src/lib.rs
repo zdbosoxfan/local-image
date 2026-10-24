@@ -217,8 +217,8 @@ pub struct Rgb8(pub u8, pub u8, pub u8);
 
 impl Rgb8 {
     pub fn from_hex(s: &str) -> Option<Rgb8> {
-        let s = s.trim_start_matches('#');
-        if s.len() != 6 {
+        let s = s.strip_prefix('#').unwrap_or(s);
+        if s.len() != 6 || !s.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let v = u32::from_str_radix(s, 16).ok()?;
@@ -273,6 +273,14 @@ mod tests {
         assert_eq!(Rgb8::from_hex("#1e1e1e"), Some(Rgb8(30, 30, 30)));
         assert_eq!(Rgb8(1, 2, 255).to_hex(), "#0102ff");
         assert_eq!(Rgb8::from_hex("xyz"), None);
+    }
+
+    #[test]
+    fn hex_rejects_signs_and_extra_hashes() {
+        assert_eq!(Rgb8::from_hex("ff8000"), Some(Rgb8(255, 128, 0)));
+        for bad in ["+12345", "#+12345", "#+f+f+f", "-12345", "##123456", "#12345", ""] {
+            assert_eq!(Rgb8::from_hex(bad), None, "{bad}");
+        }
     }
 }
 

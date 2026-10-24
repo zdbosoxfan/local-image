@@ -864,7 +864,7 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
     if crate::vectorize_handoff::context_action(app, ui, id) {
         return;
     }
-    let targets = if app.session.selection.contains(id) { app.session.targets(&json!({})) } else { vec![id] };
+    let targets = if app.session.selection.contains(id) { app.session.selected() } else { vec![id] };
     let deleted = targets.iter().any(|id| app.session.catalog.photo(*id).is_some_and(|p| p.deleted));
     if ui.button(li_i18n::library::t("Open in Loupe")).clicked() {
         let _ = run_context(app, id, "view.detail", json!({}));

@@ -38,8 +38,8 @@ pub struct Measured {
     identities: Vec<(PhotoId, String, Flag)>,
 }
 
-pub fn prepare(s: &mut Session, p: &Value) -> Work {
-    let ids = if p.get("ids").is_some() || s.selection.ids.len() > 1 { s.targets(p) } else { s.visible_cloned() };
+pub fn prepare(s: &mut Session, p: &Value) -> Result<Work> {
+    let ids = if p.get("ids").is_some() || s.selection.ids.len() > 1 { s.targets(p)? } else { s.visible_cloned() };
     let inputs = ids
         .into_iter()
         .filter_map(|id| {
@@ -53,7 +53,7 @@ pub fn prepare(s: &mut Session, p: &Value) -> Work {
             })
         })
         .collect();
-    Work { generation: s.library_generation, inputs }
+    Ok(Work { generation: s.library_generation, inputs })
 }
 impl Work {
     pub fn len(&self) -> usize {
@@ -91,7 +91,7 @@ impl Work {
     }
 }
 fn analyze(s: &mut Session, p: &Value) -> Result<Value> {
-    let work = prepare(s, p);
+    let work = prepare(s, p)?;
     let measured = work.run_job(&lightcraft_sysmem::JobCtl::new());
     apply(s, measured, p)
 }
@@ -235,14 +235,14 @@ mod tests {
         let mut s = Session::new().with_fs();
         s.execute("library.import", &json!({"paths": [dir.to_string_lossy()]})).unwrap();
         let job = lightcraft_sysmem::JobCtl::new();
-        let measured = super::prepare(&mut s, &json!({})).run_job(&job);
+        let measured = super::prepare(&mut s, &json!({})).unwrap().run_job(&job);
         assert_eq!(measured.rows.len() + measured.failed.len(), 3);
         assert_eq!(job.status().step, Some((3, 3)));
         assert_eq!(job.fraction(), Some(1.0));
 
         let job = lightcraft_sysmem::JobCtl::new();
         job.cancel();
-        let measured = super::prepare(&mut s, &json!({})).run_job(&job);
+        let measured = super::prepare(&mut s, &json!({})).unwrap().run_job(&job);
         assert!(measured.rows.is_empty() && measured.failed.is_empty());
         assert_eq!(job.status().step, Some((0, 3)));
         let _ = std::fs::remove_dir_all(&dir);

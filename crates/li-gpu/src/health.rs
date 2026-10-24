@@ -80,6 +80,8 @@ struct Inner {
     strike_state: Mutex<(u64, u64, u64)>,
     last_error: Mutex<Option<String>>,
     retry: Mutex<Retry>,
+    /// wgpu itself reported the device lost (see [`DeviceHealth::device_lost`]).
+    device_lost: AtomicBool,
 }
 
 /// Shared health flag of one wgpu device. Cheap to clone; every clone sees the same state.
@@ -119,6 +121,7 @@ impl DeviceHealth {
                 (_, false) => message,
             };
             log::error!("wgpu device lost ({reason:?}): {detail}");
+            lost.0.device_lost.store(true, Ordering::Release);
             lost.mark(Fault::Lost(detail));
         });
         let errors = health.clone();
@@ -337,7 +340,7 @@ impl DeviceHealth {
         match poll {
             Ok(Ok(_)) => {}
             Ok(Err(e)) => log::warn!("wgpu poll: {e}"),
-            Err(_) => self.mark(Fault::Lost("the device stopped responding".into())),
+            Err(_) => self.lost_by_poll(),
         }
         self.can_present()
     }
@@ -348,8 +351,34 @@ impl DeviceHealth {
             return;
         }
         if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| device.poll(wgpu::PollType::Poll))).is_err() {
-            self.mark(Fault::Lost("the device stopped responding".into()));
+            self.lost_by_poll();
         }
+    }
+
+    /// Whether wgpu itself reported the device lost: its device-lost callback ran, or polling it
+    /// panicked. Unlike a fault recorded with [`mark`](Self::mark) (a simulated loss, or an
+    /// uncaptured error that names one), nothing drawn with the device reaches the screen any
+    /// more, the window's own frames included.
+    pub fn device_lost(&self) -> bool {
+        self.0.device_lost.load(Ordering::Acquire)
+    }
+
+    /// Non-blocking poll that runs even after a fault was recorded, so a device that is lost
+    /// later (a driver reset while the app sat idle or the PC slept) is noticed before the next
+    /// frame is drawn with it. Skipped once [`device_lost`](Self::device_lost).
+    pub fn probe(&self, device: &wgpu::Device) {
+        if self.device_lost() {
+            return;
+        }
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| device.poll(wgpu::PollType::Poll))).is_err() {
+            self.lost_by_poll();
+        }
+    }
+
+    /// `Device::poll` panicked: wgpu found the device lost.
+    fn lost_by_poll(&self) {
+        self.0.device_lost.store(true, Ordering::Release);
+        self.mark(Fault::Lost("the device stopped responding".into()));
     }
 }
 
@@ -380,6 +409,8 @@ mod tests {
         assert_eq!(h.fault(), Some(Fault::Lost("reset".into())));
         c.mark(Fault::Lost("later".into()));
         assert_eq!(h.fault().map(|f| f.to_string()).as_deref(), Some("GPU device lost: reset"));
+        // A recorded loss is not wgpu reporting the device lost.
+        assert!(!h.device_lost());
     }
 
     #[test]
