@@ -13,6 +13,7 @@ pub enum DngCompression {
     Uncompressed,
     /// Lossless JPEG tiles of `tile × tile` pixels (`tile` even). CFA tiles are encoded as two interleaved
     /// components of half the tile width (the common DNG layout), linear data with one component per sample.
+    /// Floating-point data, which lossless JPEG cannot hold, is written as 32-bit [`Self::Deflate`] tiles.
     Lj92 {
         tile: u32,
     },
@@ -262,7 +263,13 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
 
-    match (&raw.data, opts.compression) {
+    let compression = match (&raw.data, opts.compression) {
+        // Lossless JPEG codes integers only; float data stays bit-exact with Deflate and the
+        // floating-point predictor.
+        (RawData::F32(_), DngCompression::Lj92 { tile }) => DngCompression::Deflate { tile, half: false },
+        (_, compression) => compression,
+    };
+    match (&raw.data, compression) {
         (RawData::F32(v), DngCompression::Deflate { tile, half }) => {
             let tile = (tile.max(16) & !15) as usize;
             let bp = if half { 2 } else { 4 };
@@ -302,22 +309,22 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
             ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![32; cpp]));
             ifd.set(t::SAMPLE_FORMAT, Value::Short(vec![3; cpp]));
             ifd.set(t::COMPRESSION, Value::Short(vec![compression::NONE]));
-            let mut bytes = Vec::with_capacity(v.len() * 4);
-            for &x in v {
-                let mut tmp = Vec::with_capacity(4);
-                opts.order.put_u32(&mut tmp, x.to_bits());
-                bytes.extend_from_slice(&tmp);
-            }
-            ifd.set_image(ImageData::Strips { rows_per_strip: h as u32, strips: vec![bytes] });
+            let rows = (65536 / (w * cpp * 4)).clamp(1, h);
+            let strips = v
+                .chunks(rows * w * cpp)
+                .map(|s| {
+                    let mut b = Vec::with_capacity(s.len() * 4);
+                    s.iter().for_each(|&x| opts.order.put_u32(&mut b, x.to_bits()));
+                    b
+                })
+                .collect();
+            ifd.set_image(ImageData::Strips { rows_per_strip: rows as u32, strips });
         }
         (RawData::U16(v), _) => {
             let maxv = v.iter().copied().max().unwrap_or(0);
             let bits = (16 - maxv.leading_zeros()).max(raw.bits.min(16)).max(2) as u8;
-            ifd.set(
-                t::BITS_PER_SAMPLE,
-                Value::Short(vec![if matches!(opts.compression, DngCompression::Uncompressed) { 16 } else { bits as u16 }; cpp]),
-            );
-            match opts.compression {
+            ifd.set(t::BITS_PER_SAMPLE, Value::Short(vec![if matches!(compression, DngCompression::Uncompressed) { 16 } else { bits as u16 }; cpp]));
+            match compression {
                 DngCompression::Uncompressed => {
                     ifd.set(t::COMPRESSION, Value::Short(vec![compression::NONE]));
                     let rows = (65536 / (w * cpp * 2)).clamp(1, h);
@@ -395,6 +402,57 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
     Ok(TiffWriter::new(opts.order, false).write(&[ifd])?)
+}
+
+#[cfg(test)]
+mod float_compression_tests {
+    use super::*;
+
+    pub(super) fn float_raw() -> RawImage {
+        let (w, h) = (512, 512);
+        // Smooth signal with signed noise and headroom above white, as merges and denoised files hold.
+        let data = (0..w * h * 3).map(|i| (i % 3) as f32 * 0.2 + (i / 3 % w) as f32 * 0.003 - 0.01 + ((i * 7919) % 13) as f32 * 1e-4).collect();
+        RawImage {
+            vendor_lens: None,
+            format: crate::RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 3,
+            data: RawData::F32(data),
+            cfa: None,
+            bits: 32,
+            black: crate::BlackLevel::uniform(0.0),
+            white: vec![1.0],
+            active_area: crate::Rect::new(0, 0, w, h),
+            crop: crate::Rect::new(0, 0, w, h),
+            orientation: crate::Orientation::Normal,
+            color: Default::default(),
+            wb_multipliers: None,
+            linearized: false,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        }
+    }
+
+    #[test]
+    fn lossless_float_dngs_are_deflate_compressed_and_bit_exact() {
+        let raw = float_raw();
+        let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Lj92 { tile: 256 }, ..Default::default() }).unwrap();
+        let parsed = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        assert_eq!(parsed.ifds[0].u16(t::COMPRESSION), Some(compression::ADOBE_DEFLATE));
+        assert!(bytes.len() < 512 * 512 * 3 * 4 / 2, "{} bytes", bytes.len());
+        assert_eq!(crate::decode(&bytes).unwrap().data, raw.data);
+    }
+
+    #[test]
+    fn uncompressed_float_dngs_use_bounded_strips() {
+        let raw = float_raw();
+        let bytes = write_dng(&raw, &DngWriteOptions { compression: DngCompression::Uncompressed, ..Default::default() }).unwrap();
+        let parsed = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        assert_eq!(parsed.ifds[0].u16(t::COMPRESSION), Some(compression::NONE));
+        assert!(parsed.ifds[0].u32(t::ROWS_PER_STRIP).is_some_and(|rows| rows < 512), "one strip per image");
+        assert_eq!(crate::decode(&bytes).unwrap().data, raw.data);
+    }
 }
 
 #[cfg(test)]
