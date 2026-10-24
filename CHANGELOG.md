@@ -75,7 +75,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Develop white balance modes: Lightroom XMP sidecars and presets with Auto or a named white balance
   keep Lightroom's Temperature and Tint, so Auto no longer renders As Shot. Pasting, syncing, Auto
   Sync and presets measure Auto on each photo and give a named mode each photo's own values instead
-  of copying the first photo's numbers. Choosing a white balance mode that matches one of the
+  of copying the first photo's numbers. Photos that are not decoded yet are measured by a background
+  task (shown in the task panel, cancellable, one undo step) instead of freezing the app. Choosing a white balance mode that matches one of the
   camera's own presets renders the camera's values the sliders show, instead of jumping on the first
   nudge.
 - Camera profiles with a look table (Adobe Standard and Camera Matching DCPs, embedded DNG profiles)

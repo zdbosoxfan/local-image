@@ -169,8 +169,34 @@ pub fn poll(app: &mut LightcraftApp, ctx: &egui::Context) {
             }
         }
     }
+    start_auto_wb(app);
     if !app.tasks.is_empty() {
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
+
+/// Measure the Auto white balance that a paste, sync or preset left for photos whose source wasn't
+/// decoded ([`lightcraft_engine::auto_wb`]), one task at a time; the results are one undo step.
+/// Cancel leaves those photos with the numbers they were given.
+fn start_auto_wb(app: &mut LightcraftApp) {
+    use lightcraft_engine::auto_wb::AUTO_WB;
+    if app.tasks.is_running(AUTO_WB) {
+        return;
+    }
+    let Some(work) = app.session.take_auto_wb_work() else { return };
+    let started = spawn_job(
+        app,
+        AUTO_WB,
+        move |job| lightcraft_engine::guard::catch(AUTO_WB, || work.run_job(job)),
+        |app, ctx, result| {
+            let applied = result.and_then(|measured| app.session.execute_fn("develop.wb", |s| s.apply_auto_wb(measured)).map_err(|e| e.to_string()));
+            if let Err(e) = applied {
+                app.toast_error(ctx, e);
+            }
+        },
+    );
+    if let Err(e) = started {
+        log::warn!("{e}");
     }
 }
 
@@ -379,6 +405,34 @@ mod bugfix_develop_tests {
         output.textures_delta.clear();
         assert!(super::wait(&mut app, &ctx, std::time::Duration::from_secs(20)));
         assert_eq!(app.session.catalog.revision, revision);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod auto_wb_tests {
+    #[test]
+    fn pasted_auto_wb_is_measured_by_a_task() {
+        use lightcraft_engine::auto_wb::AUTO_WB;
+        use serde_json::json;
+        let mut app = crate::LightcraftApp::new(lightcraft_engine::Session::with_demo(), Default::default());
+        let ids = app.session.visible_cloned();
+        let (from, to) = (ids[0], ids[1]);
+        app.session.execute("library.select", &json!({"ids": [from.0], "active": from.0})).unwrap();
+        app.session.execute("develop.wb", &json!({"mode": "auto"})).unwrap();
+        let copied = app.session.develop_of(from).unwrap().wb;
+        app.session.execute("develop.copy", &json!({"groups": ["whiteBalance"]})).unwrap();
+        app.session.execute("develop.paste", &json!({"ids": [to.0]})).unwrap();
+        assert_eq!(app.session.develop_of(to).unwrap().wb, copied, "the paste leaves the measuring to the task");
+        let ctx = egui::Context::default();
+        super::poll(&mut app, &ctx);
+        assert!(app.tasks.is_running(AUTO_WB));
+        assert!(super::wait(&mut app, &ctx, std::time::Duration::from_secs(20)));
+        let src = app.session.source_now(to, lightcraft_engine::SourceLevel::Thumb).unwrap();
+        let measured = lightcraft_engine::pipeline::auto::auto_wb(&src, &app.session.source_info(to));
+        let wb = app.session.develop_of(to).unwrap().wb;
+        assert_eq!((wb.mode, wb.temp, wb.tint), (lightcraft_engine::develop::WbMode::Auto, measured.0, measured.1));
+        assert_ne!((wb.temp, wb.tint), (copied.temp, copied.tint));
+        assert_eq!(app.session.undo.last().unwrap().label, AUTO_WB);
     }
 }
 

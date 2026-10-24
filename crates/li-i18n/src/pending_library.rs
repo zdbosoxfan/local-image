@@ -64,6 +64,7 @@ pub const PENDING_DEVELOP_TRANSLATIONS: &[&str] = &[
     "Enable Lens Corrections to apply the lens database profile.",
     "Embedded lens corrections take priority; lens database amounts are inactive.",
     "Pick a point inside the photo that is not black",
+    "Auto White Balance",
     "Loupe",
     "Develop",
     "Lights Out",

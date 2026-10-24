@@ -234,3 +234,47 @@ fn camera_wb_preset_renders_the_values_it_shows() {
     let d = active_dev(&s);
     assert_eq!((d.wb.mode, effective_wb(&info, &d)), (WbMode::Custom, (6100.0, d.wb.tint)));
 }
+
+#[test]
+fn deferred_auto_wb_is_measured_off_the_command() {
+    use lightcraft_develop::WbMode;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let (mut reference, _, _) = two_lights(Vec::new());
+    let (mut s, warm, cool) = two_lights(Vec::new());
+    let cool_auto = auto_of(&mut reference, cool);
+    s.defer_auto_wb = true;
+    let decodes = Arc::new(AtomicUsize::new(0));
+    let (counter, load) = (decodes.clone(), s.media.file_loader.clone().unwrap());
+    s.media.file_loader = Some(Arc::new(move |path: &str, edge| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        load(path, edge)
+    }));
+    s.execute("library.select", &json!({"ids": [warm.0], "active": warm.0})).unwrap();
+    s.execute("develop.wb", &json!({"mode": "auto"})).unwrap();
+    let warm_auto = active_dev(&s).wb;
+    s.execute("develop.copy", &json!({"groups": ["whiteBalance"]})).unwrap();
+    let before = decodes.load(Ordering::SeqCst);
+    s.execute("develop.paste", &json!({"ids": [cool.0, warm.0]})).unwrap();
+    // the cool photo isn't decoded: it keeps the copied numbers until the task measures it
+    assert_eq!(decodes.load(Ordering::SeqCst), before, "paste decoded a source");
+    assert_eq!(s.develop_of(cool).unwrap().wb, warm_auto);
+    let work = s.take_auto_wb_work().expect("the cool photo waits");
+    assert_eq!(work.len(), 1, "the decoded warm photo was measured at once");
+    assert!(s.take_auto_wb_work().is_none());
+    let measured = work.run_job(&lightcraft_sysmem::JobCtl::new());
+    assert_eq!(decodes.load(Ordering::SeqCst), before + 1);
+    let undo = s.undo.len();
+    assert_eq!(s.apply_auto_wb(measured).unwrap()["changed"], 1);
+    let wb = s.develop_of(cool).unwrap().wb;
+    assert_eq!((wb.mode, wb.temp, wb.tint), (WbMode::Auto, cool_auto.0, cool_auto.1));
+    assert_eq!((s.undo.len(), s.undo.last().unwrap().label.as_str()), (undo + 1, crate::auto_wb::AUTO_WB));
+    // a photo set to another white balance before the measurement arrives keeps it
+    s.media.forget(cool);
+    s.execute("develop.paste", &json!({"ids": [cool.0]})).unwrap();
+    let work = s.take_auto_wb_work().expect("the cool photo waits again");
+    let custom = lightcraft_develop::apply_partial(&s.develop_of(cool).unwrap(), &json!({"wb": {"mode": "custom", "temp": 4100.0}}), 1.0);
+    s.set_develop(cool, custom, "custom").unwrap();
+    assert_eq!(s.apply_auto_wb(work.run_job(&lightcraft_sysmem::JobCtl::new())).unwrap()["changed"], 0);
+    assert_eq!(s.develop_of(cool).unwrap().wb.temp, 4100.0);
+}

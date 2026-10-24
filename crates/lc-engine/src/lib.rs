@@ -10,6 +10,7 @@
 //! run them off the UI thread.
 #![forbid(unsafe_code)]
 
+pub mod auto_wb;
 pub mod availability;
 mod camera_preview;
 pub mod camera_profiles;
@@ -57,34 +58,6 @@ pub use media::{RenderJob, SourceLevel};
 use serde_json::Value;
 pub use view::{Browse, FilterChip, LibrarySource, Selection, filter_chips, update_soft_proof};
 pub use {lightcraft_catalog as catalog, lightcraft_develop as develop, lightcraft_gpu as gpu, lightcraft_pipeline as pipeline};
-
-impl Session {
-    /// A white balance mode that a paste, sync or preset brings to photo `id`, resolved for that
-    /// photo: Auto is measured on its own source and a named mode takes its values, instead of
-    /// keeping the numbers of the photo the settings came from. A photo whose source can't be read
-    /// keeps them.
-    pub(crate) fn resolve_transferred_wb(&mut self, id: lightcraft_catalog::PhotoId, partial: &Value, settings: &mut DevelopSettings) {
-        use lightcraft_develop::WbMode;
-        if partial.get("wb").and_then(|w| w.get("mode")).is_none() {
-            return;
-        }
-        let resolved = match settings.wb.mode {
-            WbMode::Custom => None,
-            WbMode::Auto => match self.source_now(id, SourceLevel::Thumb) {
-                Ok(src) => Some(lightcraft_pipeline::auto::auto_wb(&src, &self.source_info(id))),
-                Err(e) => {
-                    log::warn!("Auto white balance kept the copied values for photo {}: {e}", id.0);
-                    None
-                }
-            },
-            mode => lightcraft_pipeline::local::mode_wb(&self.source_info(id), mode),
-        };
-        if let Some((temp, tint)) = resolved {
-            settings.wb.temp = temp;
-            settings.wb.tint = tint;
-        }
-    }
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -151,6 +124,12 @@ pub struct Session {
     /// Auto Sync: edits to the active photo also change the other selected photos (the settings
     /// that changed, nothing else).
     pub auto_sync: bool,
+    /// Auto white balance that a paste, sync, Auto Sync or preset brings to a photo whose source
+    /// isn't decoded is queued for a background task (the app's, see [`auto_wb`]) instead of being
+    /// measured inside the command. Off: measured at once.
+    pub defer_auto_wb: bool,
+    /// Photos waiting for that measurement, with the library generation they belong to.
+    pending_auto_wb: Vec<(u64, PhotoId)>,
     pub catalog: Catalog,
     pub source: LibrarySource,
     pub filter: Filter,
@@ -285,6 +264,8 @@ impl Session {
         let gpu_test = tests_gpu::gpu_state();
         Session {
             auto_sync: false,
+            defer_auto_wb: false,
+            pending_auto_wb: Vec::new(),
             #[cfg(test)]
             _gpu_test: gpu_test,
             catalog: Catalog::new(),
