@@ -797,7 +797,7 @@ fn sizing(ui: &mut Ui, dlg: &mut Dialog) {
             },
         );
         if opts.resample.is_some() {
-            dim(ui, "Develops at full size, then resizes exactly like the editor's Image Size (slower).");
+            dim(ui, "Develops at full size, then resizes with the editor's Image Size kernels, reducing in linear light (slower).");
         }
         if !resize.dont_enlarge {
             use lightcraft_engine::export::EnhanceMethod;

@@ -511,9 +511,11 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
 
 /// Resize a full-size export render to `size` with `kernel` — the editor's Image Size engine
 /// (`li-raster` f64 taps, edges repeated; Preserve Details' enlargement sharpening from
-/// `photocraft-algo`), in the render's own encoding: display-encoded for 8/16-bit, linear for
-/// 32-bit float, as the editor resizes a document of that depth. 8-bit results are dithered like
-/// the Develop renderer's own 8-bit output; `deep` is kept only when the export wants it.
+/// `photocraft-algo`). Enlargements resize the render's own encoding (display-encoded for
+/// 8/16-bit, linear for 32-bit float), as the editor resizes a document of that depth. 8/16-bit
+/// reductions average in linear light, as the renderer's own scaling does ([`reduce_linear`]).
+/// 8-bit results are dithered like the Develop renderer's own 8-bit output; `deep` is kept only
+/// when the export wants it.
 pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: ResampleChoice, size: (usize, usize), keep_deep: bool) {
     let (w, h) = (size.0.max(1), size.1.max(1));
     let (sw, sh) = r.deep.as_ref().map_or((r.image.width, r.image.height), |d| (d.width, d.height));
@@ -522,9 +524,12 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
     }
     let enlarging = w * h > sw * sh;
     let filter = kernel.resolve(enlarging);
-    let mut out = match r.deep.as_ref().map(|d| &d.samples) {
-        Some(DeepSamples::U16(v)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
-        Some(DeepSamples::F32(v)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+    let space = r.deep.as_ref().map(|d| d.space);
+    let linear = matches!(r.deep.as_ref().map(|d| &d.samples), Some(DeepSamples::F32(_)));
+    let mut out = match r.deep.as_mut().map(|d| (&mut d.samples, d.space)) {
+        Some((DeepSamples::U16(v), space)) if !enlarging => reduce_linear(std::mem::take(v), (sw, sh), (w, h), filter, space),
+        Some((DeepSamples::U16(v), _)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+        Some((DeepSamples::F32(v), _)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
         None => {
             let rgb: Vec<u8> = r.image.data.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
             li_raster::resample::resize_interleaved(&rgb, sw, sh, 3, false, w, h, filter)
@@ -533,8 +538,6 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
     if filter == li_raster::resample::Resample::PreserveDetails && enlarging {
         out = preserve_details(out, (sw, sh), (w, h));
     }
-    let space = r.deep.as_ref().map(|d| d.space);
-    let linear = matches!(r.deep.as_ref().map(|d| &d.samples), Some(DeepSamples::F32(_)));
     let deep = space.map(|space| DeepImage {
         width: w,
         height: h,
@@ -562,6 +565,79 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
         }
     };
     r.deep = deep.filter(|_| keep_deep);
+}
+
+/// A reduction of RGB samples `v` (`from`, display-encoded with `space`'s curve) to `to` in linear
+/// light, returned display-encoded: averaging encoded values would darken fine bright detail such
+/// as lit window grids at dusk. Each output sample is held within the range of the source pixels
+/// its output pixel covers, which keeps the mean of fine detail but stops the kernel's ringing
+/// from digging dark halos beside bright windows (unclamped, it does in linear light).
+fn reduce_linear(v: Vec<u16>, from: (usize, usize), to: (usize, usize), filter: li_raster::resample::Resample, space: OutputSpace) -> Vec<f32> {
+    fn run<const S: usize>(v: Vec<u16>, from: (usize, usize), to: (usize, usize), filter: li_raster::resample::Resample) -> Vec<f32> {
+        use li_raster::resample::Sample;
+        let src: Vec<Linear16<S>> = v.into_iter().map(Linear16).collect();
+        let mut out = li_raster::resample::resize_interleaved(&src, from.0, from.1, 3, false, to.0, to.1, filter);
+        hold_to_footprint(&mut out, |i| src[i].to_f32(), from, to);
+        out
+    }
+    let mut out = match OutputSpace::ALL.iter().position(|s| *s == space) {
+        Some(0) => run::<0>(v, from, to, filter),
+        Some(1) => run::<1>(v, from, to, filter),
+        Some(2) => run::<2>(v, from, to, filter),
+        Some(3) => run::<3>(v, from, to, filter),
+        _ => run::<4>(v, from, to, filter),
+    };
+    let trc = space.trc();
+    for o in &mut out {
+        *o = trc.encode(*o);
+    }
+    out
+}
+
+/// A 16-bit sample display-encoded with the curve of `OutputSpace::ALL[S]`, read in linear light.
+#[derive(Clone, Copy)]
+struct Linear16<const S: usize>(u16);
+
+impl<const S: usize> li_raster::resample::Sample for Linear16<S> {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        static LINEAR: [std::sync::OnceLock<Vec<f32>>; 5] = [const { std::sync::OnceLock::new() }; 5];
+        let lut = LINEAR[S].get_or_init(|| {
+            let trc = OutputSpace::ALL[S].trc();
+            (0..=u16::MAX).map(|v| trc.decode(f32::from(v) / 65535.0)).collect()
+        });
+        lut[usize::from(self.0)]
+    }
+}
+
+/// Hold each sample of `out` (`to`, RGB) within the range of the samples of `src` (`from`, RGB,
+/// read through `at`) of the source pixels its output pixel covers.
+fn hold_to_footprint(out: &mut [f32], at: impl Fn(usize) -> f32 + Sync, from: (usize, usize), to: (usize, usize)) {
+    use rayon::prelude::*;
+    let span = |o: usize, n_out: usize, n_in: usize| {
+        let lo = o * n_in / n_out;
+        lo..((o + 1) * n_in).div_ceil(n_out).clamp(lo + 1, n_in)
+    };
+    let cols: Vec<_> = (0..to.0).map(|x| span(x, to.0, from.0)).collect();
+    out.par_chunks_mut(to.0 * 3).enumerate().for_each(|(oy, row)| {
+        let mut range = vec![[(f32::INFINITY, f32::NEG_INFINITY); 3]; to.0];
+        for sy in span(oy, to.1, from.1) {
+            for (r, xs) in range.iter_mut().zip(&cols) {
+                for sx in xs.clone() {
+                    let i = (sy * from.0 + sx) * 3;
+                    for (c, r) in r.iter_mut().enumerate() {
+                        let v = at(i + c);
+                        *r = (r.0.min(v), r.1.max(v));
+                    }
+                }
+            }
+        }
+        for (px, r) in row.as_chunks_mut::<3>().0.iter_mut().zip(&range) {
+            for (v, (lo, hi)) in px.iter_mut().zip(r) {
+                *v = v.max(*lo).min(*hi);
+            }
+        }
+    });
 }
 
 /// Preserve Details' light sharpening of an enlargement (`photocraft-algo`, as Image Size does).

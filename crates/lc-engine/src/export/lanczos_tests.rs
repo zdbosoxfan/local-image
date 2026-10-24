@@ -62,6 +62,51 @@ fn kernel_resize_depths() {
     assert!(v.as_chunks::<3>().0.iter().all(|c| c[0].abs_diff(13107) <= 1 && c[1].abs_diff(32768) <= 1 && c[2].abs_diff(52428) <= 1));
 }
 
+/// A 16-bit render in `space` of `linear(x, y)` (the same in every channel).
+fn encoded16(sw: usize, sh: usize, space: OutputSpace, linear: impl Fn(usize, usize) -> f32) -> lightcraft_pipeline::Rendered {
+    let trc = space.trc();
+    let v = (0..sw * sh).flat_map(|i| [(trc.encode(linear(i % sw, i / sw)) * 65535.0).round() as u16; 3]).collect();
+    lightcraft_pipeline::Rendered {
+        deep: Some(DeepImage { width: sw, height: sh, space, samples: DeepSamples::U16(v) }),
+        ..rendered(sw, sh, DeepSamples::F32(vec![]))
+    }
+}
+
+/// The linear values of a resized 16-bit render's first channel.
+fn linear16(r: &lightcraft_pipeline::Rendered) -> Vec<f32> {
+    let deep = r.deep.as_ref().expect("16-bit kept");
+    let DeepSamples::U16(v) = &deep.samples else { panic!("u16 stays u16") };
+    v.iter().step_by(3).map(|s| deep.space.trc().decode(f32::from(*s) / 65535.0)).collect()
+}
+
+/// Reductions average light, not encoded values: fine bright-on-dark detail (lit window grids,
+/// mullions) keeps its brightness, in every space's own curve.
+#[test]
+fn kernel_reductions_keep_the_light_of_fine_detail() {
+    for space in [OutputSpace::Srgb, OutputSpace::AdobeRgb, OutputSpace::ProPhoto] {
+        for kernel in [ResampleChoice::Lanczos, ResampleChoice::BicubicSharper, ResampleChoice::Bilinear] {
+            let mut r = encoded16(64, 32, space, |x, _| if x % 2 == 0 { 0.2 } else { 0.8 });
+            resample_rendered(&mut r, kernel, (32, 16), true);
+            let v = linear16(&r);
+            let mean = v.iter().sum::<f32>() / v.len() as f32;
+            assert!((mean - 0.5).abs() < 0.02, "{space:?} {kernel:?}: mean light {mean} (0.5 in the source)");
+        }
+    }
+}
+
+/// A dark interior beside a bright window: the reduction rings no darker than the interior.
+#[test]
+fn kernel_reductions_add_no_dark_halos_beside_bright_windows() {
+    for kernel in [ResampleChoice::Lanczos, ResampleChoice::BicubicSharper, ResampleChoice::BicubicAutomatic] {
+        for (w, h) in [(48, 24), (24, 12)] {
+            let mut r = encoded16(96, 48, OutputSpace::Srgb, |x, _| if x < 52 { 0.01 } else { 1.0 });
+            resample_rendered(&mut r, kernel, (w, h), true);
+            let darkest = linear16(&r).into_iter().fold(f32::INFINITY, f32::min);
+            assert!(darkest > 0.0099, "{kernel:?} to {w}x{h}: halo down to {darkest}");
+        }
+    }
+}
+
 #[test]
 fn resample_param_round_trips_and_defaults_off() {
     let d = ExportOptions::default();
