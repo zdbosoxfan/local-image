@@ -389,3 +389,25 @@ fn one_huge_view_never_evicts_the_thumbnails() {
     assert_eq!(cache.max_image_bytes(), 64 << 20);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Previews built ahead go to disk only (a batch never pushes what is on screen out of memory),
+/// and are read back like any other; without a disk they are kept in memory.
+#[test]
+fn previews_built_ahead_skip_memory_when_there_is_a_disk() {
+    let dir = temp_dir("ahead");
+    let cache = PreviewCache::with_disk(128 << 20, &dir, 1 << 31);
+    let thumb = hash_bytes(b"thumb");
+    cache.put(thumb, Arc::new(gradient(512, 341, 1)));
+    let built = hash_bytes(b"built view");
+    cache.put_ahead_at(cache.generation(), built, Arc::new(gradient(2048, 1365, 2)));
+    assert_eq!(cache.mem_usage().0, 1, "only the thumbnail is in memory");
+    assert_eq!(cache.get(built).map(|i| (i.width, i.height)), Some((2048, 1365)), "the built view is read from disk");
+    let stale = cache.generation();
+    cache.clear();
+    cache.put_ahead_at(stale, built, Arc::new(gradient(64, 64, 3)));
+    assert!(cache.get(built).is_none(), "a build from before Discard Previews is not kept");
+    let memory = PreviewCache::memory(128 << 20);
+    memory.put_ahead_at(memory.generation(), built, Arc::new(gradient(64, 64, 3)));
+    assert!(memory.get(built).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}

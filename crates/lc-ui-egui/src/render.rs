@@ -23,6 +23,7 @@ use lightcraft_engine::media::{QuickJob, QuickSource, RenderJob, RenderResult};
 use lightcraft_engine::pipeline::StageCache;
 use lightcraft_preview::JobPool;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Bound interactive work independently of zoom, monitor resolution and the settled preview
 /// preference. In particular, a 100%/200% view must never decode a full RAW for each drag step.
@@ -87,6 +88,11 @@ pub trait RenderOffload {
     fn try_start(&mut self, slot: Slot, job: RenderJob) -> Option<RenderJob>;
     /// Finished jobs since the last call: (slot, result, run time in ms).
     fn finished(&mut self) -> Vec<(Slot, RenderResult, f64)>;
+    /// Whether these executors take the loupe's full-size renders ([`Slot::Detail`]; they need a
+    /// GPU, see [`Renderer::full_size_on_gpu`]).
+    fn full_size(&self) -> bool {
+        false
+    }
 }
 
 /// Existing native preview workers do the display conversion too. Browser inline/offload
@@ -112,6 +118,17 @@ fn fit_texture(mut result: RenderResult, max_side: usize) -> RenderResult {
         r.image = f.fit(max_side, max_side, li_raster::resample::Filter::Mitchell).map(|p| p.map(li_raster::quantize_u8));
     }
     result
+}
+
+/// How `slot`'s texture of `size` is sampled. The loupe's 1:1 render shows its pixels as they are
+/// when magnified (past 100% each one a square of screen pixels, as Lightroom and Capture One show
+/// them), unless it had to be capped at the largest texture and is resampled anyway.
+fn texture_options(slot: Slot, size: [usize; 2], max_side: usize) -> egui::TextureOptions {
+    if slot == Slot::Detail && size[0].max(size[1]) < max_side {
+        egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR }
+    } else {
+        egui::TextureOptions::LINEAR
+    }
 }
 
 fn display_result(result: RenderResult, display: Option<&photocraft_engine::display_color::CanvasDisplay>) -> DisplayResult {
@@ -165,6 +182,8 @@ pub struct Renderer {
     seq: u64,
     /// Slot → (key, priority) of the request in flight (queued or running).
     pending: HashMap<Slot, (u64, u32)>,
+    /// Slot → stop flag of its admitted render ([`Renderer::request_admitted`]) in flight.
+    admitted: HashMap<Slot, Arc<AtomicBool>>,
     pub textures: HashMap<Slot, Tex>,
     pub last_main_ms: f64,
     /// The largest texture side the GPU takes (from egui, updated every poll).
@@ -229,6 +248,7 @@ impl Renderer {
             queue: Vec::new(),
             seq: 0,
             pending: HashMap::new(),
+            admitted: HashMap::new(),
             textures: HashMap::new(),
             last_main_ms: 0.0,
             max_texture_side: usize::MAX,
@@ -325,9 +345,46 @@ impl Renderer {
     }
 
     /// Request a render for `slot` (no-op if already current or pending at the same priority).
-    pub fn request(&mut self, slot: Slot, mut job: RenderJob, priority: u32) {
+    pub fn request(&mut self, slot: Slot, job: RenderJob, priority: u32) {
+        self.submit(slot, job, priority, None);
+    }
+
+    /// Like [`Self::request`], for a full-size render (the loupe's 1:1 view): before it decodes
+    /// it waits for a heavy-job permit of `cost` bytes, so it never stacks with exports and
+    /// preview builds, and while it waits a newer request for its slot (or [`Self::cancel`])
+    /// stops it.
+    pub fn request_admitted(&mut self, slot: Slot, job: RenderJob, priority: u32, cost: u64) {
+        self.submit(slot, job, priority, Some(cost));
+    }
+
+    /// Whether the loupe's full-size renders may run: on the GPU only. On the CPU one needs
+    /// several GB and seconds per edit.
+    pub fn full_size_on_gpu(&self) -> bool {
+        match &self.offload {
+            Some(off) => off.full_size(),
+            None => lightcraft_engine::gpu::ready() && lightcraft_engine::gpu::available(),
+        }
+    }
+
+    /// Drop `slot`'s request in flight: a queued job is dropped, an admitted one still waiting for
+    /// its permit gives up, and a late result is ignored.
+    pub fn cancel(&mut self, slot: Slot) {
+        if let Some(stop) = self.admitted.remove(&slot) {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if self.pending.remove(&slot).is_some() {
+            self.request_ids.remove(&slot);
+            self.pool.reprioritize(|s, p| (*s != slot).then_some(p));
+            self.queue.retain(|q| q.slot != slot);
+        }
+    }
+
+    fn submit(&mut self, slot: Slot, mut job: RenderJob, priority: u32, admit: Option<u64>) {
         if !self.request_needed(slot, job.key, priority) {
             return;
+        }
+        if let Some(stop) = self.admitted.remove(&slot) {
+            stop.store(true, Ordering::Relaxed);
         }
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
@@ -348,12 +405,25 @@ impl Renderer {
         let display = self.display.clone();
         let max_side = self.max_texture_side;
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
+        let admit = admit.map(|cost| {
+            let stop = Arc::new(AtomicBool::new(false));
+            self.admitted.insert(slot, stop.clone());
+            (cost, stop)
+        });
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
+                let display_key = display.as_ref().map_or(0, |d| d.key);
+                let _permit = match &admit {
+                    Some((cost, stop)) => match lightcraft_sysmem::heavy_jobs().admit(*cost, &|| stop.load(Ordering::Relaxed)) {
+                        Some(permit) => Some(permit),
+                        None => return DisplayResult { result: job.cancelled(), color: None, display_key },
+                    },
+                    None => None,
+                };
                 let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
                 display_result(fit_texture(result, max_side), display.as_deref())
             }),
@@ -604,6 +674,7 @@ impl Renderer {
                 }
             } else {
                 self.request_ids.remove(&slot);
+                self.admitted.remove(&slot);
             }
             // Even an advancing superseded preview can supply the decoded source. Otherwise a
             // continuous drag that starts cold keeps decoding until the user finally releases.
@@ -646,9 +717,10 @@ impl Renderer {
             let Some(color) = color else { continue };
             let pixels = self.keep_pixels.then(|| color.clone());
             let name = format!("{slot:?}");
+            let options = texture_options(slot, [img.width, img.height], self.max_texture_side);
             match self.textures.get_mut(&slot) {
                 Some(t) => {
-                    t.tex.set(color, egui::TextureOptions::LINEAR);
+                    t.tex.set(color, options);
                     t.pixels = pixels;
                     t.key = r.key;
                     t.photo = r.photo;
@@ -658,7 +730,7 @@ impl Renderer {
                     t.quick = r.quick;
                 }
                 None => {
-                    let tex = ctx.load_texture(name, color, egui::TextureOptions::LINEAR);
+                    let tex = ctx.load_texture(name, color, options);
                     self.textures.insert(
                         slot,
                         Tex {
@@ -948,6 +1020,37 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert_eq!(app.renderer.queue.len(), 1);
+    }
+
+    /// A full-size render waits for a heavy-job permit while exports or preview builds hold them
+    /// all, and a cancel (the loupe left 100%, the photo was edited) stops it before it decodes.
+    #[test]
+    fn full_size_renders_wait_for_their_permit_and_stop_when_cancelled() {
+        let mut s = Session::new();
+        s.media.file_loader = Some(Arc::new(|_, _| Ok((li_raster::RgbFrame::filled(8, 8, [0.3, 0.2, 0.1]), Default::default()))));
+        s.catalog.apply(Op::AddPhoto { photo: Box::new((*photo()).clone()) }).unwrap();
+        let mut app = crate::LightcraftApp::new(s, crate::Services::default());
+        let ctx = egui::Context::default();
+        let permits = lightcraft_sysmem::heavy_jobs();
+        let held: Vec<_> = (0..permits.max_jobs()).filter_map(|_| permits.admit(1, &|| false)).collect();
+        let job = app.session.detail_job(PhotoId(1), 64, 64, true).unwrap();
+        app.renderer.request_admitted(Slot::Detail, job, 95, 1 << 20);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        app.renderer.poll(&ctx, &mut app.session);
+        assert!(app.renderer.is_pending(Slot::Detail) && !app.renderer.textures.contains_key(&Slot::Detail), "waits for a permit");
+        app.renderer.cancel(Slot::Detail);
+        assert!(!app.renderer.is_pending(Slot::Detail));
+        drop(held);
+        let job = app.session.detail_job(PhotoId(1), 64, 64, true).unwrap();
+        let key = job.key;
+        app.renderer.request_admitted(Slot::Detail, job, 95, 1 << 20);
+        let t0 = std::time::Instant::now();
+        while !app.renderer.textures.contains_key(&Slot::Detail) && t0.elapsed() < std::time::Duration::from_secs(60) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.renderer.poll(&ctx, &mut app.session);
+        }
+        assert_eq!(app.renderer.textures.get(&Slot::Detail).map(|t| t.key), Some(key), "runs once a permit is free");
+        assert!(app.renderer.failure(Slot::Detail).is_none(), "the cancelled request left no failure behind");
     }
 
     #[test]

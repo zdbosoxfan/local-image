@@ -4,6 +4,7 @@
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::{DevelopSettings, MaskShape};
+use lightcraft_engine::media::{SourceLevel, SourceRef};
 use lightcraft_geom::{Affine, Point};
 use lightcraft_pipeline::geometry::Frame;
 use serde_json::json;
@@ -105,16 +106,47 @@ pub(crate) fn native_px(frame: &Frame) -> [usize; 2] {
     [w.round().max(1.0) as usize, h.round().max(1.0) as usize]
 }
 
-/// Long edge of the loupe's 1:1 render ([`Slot::Detail`]) for a photo shown in `target` at
-/// `zoom`: what the screen shows of it, at most its native pixels and the largest texture, when
-/// that is more than the loupe render (capped at `max_edge`) holds. `None` at Fit and Fill.
-pub(crate) fn detail_edge(zoom: Zoom, target: Rect, ppp: f32, native: [usize; 2], max_edge: f32, max_texture: usize) -> Option<usize> {
+/// Long edge of the loupe's 1:1 render ([`Slot::Detail`]) of a photo `full_long` pixels long
+/// whose frame (`native`, its [`native_px`]) is shown in `target` at `zoom`: what the screen shows
+/// of it, at most its native pixels and the largest texture, when that is more than the loupe
+/// render holds across the frame. That render is capped at `max_edge`, and its source level has
+/// fewer pixels across a crop than the crop has (a 2560 px preview of an 8640 px frame puts 512
+/// across a fifth of it). `None` at Fit and Fill.
+pub(crate) fn detail_edge(
+    zoom: Zoom,
+    target: Rect,
+    ppp: f32,
+    native: [usize; 2],
+    full_long: usize,
+    max_edge: f32,
+    max_texture: usize,
+) -> Option<usize> {
     if !matches!(zoom, Zoom::Percent(_)) {
         return None;
     }
     let shown = target.width().max(target.height()) * ppp;
-    let edge = shown.min(native[0].max(native[1]) as f32).min(max_texture as f32) as usize;
-    (edge > crate::render::view_edge(shown, max_edge, false)).then_some(edge)
+    let native_long = native[0].max(native[1]).max(1) as f32;
+    let edge = shown.min(native_long).min(max_texture as f32) as usize;
+    let main = crate::render::view_edge(shown, max_edge, false);
+    let full_long = full_long.max(1);
+    let across = SourceLevel::for_size(main).max_edge().min(full_long) as f32 * native_long / full_long as f32;
+    (edge as f32 > (main as f32).min(across) + 0.5).then_some(edge)
+}
+
+/// Where to draw a texture `tex` pixels large showing the photo at `img`: when `img` gives each
+/// texel a whole number of physical pixels (a render at the zoom's own scale, native pixels at
+/// 200 %), the rect its own pixels span from a corner on the physical pixel grid, so the display
+/// adds no resampling of its own. `None`: the texture is scaled anyway (another size, a zoom
+/// animation).
+pub(crate) fn pixel_rect(img: Rect, tex: [usize; 2], ppp: f32) -> Option<Rect> {
+    let long = img.width().max(img.height()) * ppp;
+    let tex_long = tex[0].max(tex[1]).max(1) as f32;
+    let k = (long / tex_long).round().max(1.0);
+    // (render sizes are whole pixels, rounded down: up to a pixel short per texel)
+    ((long - k * tex_long).abs() <= 1.5 * k).then(|| {
+        let min = (img.min.to_vec2() * ppp).round() / ppp;
+        Rect::from_min_size(min.to_pos2(), vec2(tex[0] as f32, tex[1] as f32) * k / ppp)
+    })
 }
 
 /// A loupe job showing what the loupe shows: the overlay of the active tool, and the soft proof.
@@ -243,23 +275,39 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let job = loupe_look(app, &d, job);
         app.renderer.request(Slot::Main, job, 100);
     }
-    // zoomed in past that render: the whole frame again at the zoom's own scale, so 100% shows
-    // the pixels a full-size export has (demosaic, capture sharpening, noise reduction)
+    let show_before = app.ui.before_after == BeforeAfter::Original
+        || (!ui.ctx().egui_wants_keyboard_input() && app.ui.dialog.is_none() && crate::shortcuts::catalog::original_held(app, ui.ctx()));
+    // zoomed in past that render: the whole frame again at the zoom's own scale from the
+    // original, so 100% shows the pixels a full-size export has (demosaic, capture sharpening,
+    // noise reduction). Only on the GPU (on the CPU it needs several GB and seconds per edit),
+    // never from an offline original's smart preview, and once the loupe render of this photo is
+    // in (it must not hold up the first view).
     if app.renderer.textures.get(&Slot::Detail).is_some_and(|t| t.photo != id) {
         app.renderer.textures.remove(&Slot::Detail);
     }
-    let detail_key = detail_edge(app.ui.zoom, target_rect, ppp, native, max_edge, ui.ctx().input(|i| i.max_texture_side))
-        .filter(|_| !split && !split_view && !composite)
+    let full_long = photo.width.max(photo.height) as usize;
+    let max_texture = ui.ctx().input(|i| i.max_texture_side);
+    let detail_key = detail_edge(app.ui.zoom, target_rect, ppp, native, full_long, max_edge, max_texture)
+        .filter(|_| !split && !split_view && !composite && !show_before && app.renderer.full_size_on_gpu())
         .and_then(|e| {
             let (dw, dh) = if aspect >= 1.0 { (e, (e as f32 / aspect) as usize) } else { ((e as f32 * aspect) as usize, e) };
-            let job = app.session.render_job(id, dw.max(8), dh.max(8), false, !crop_tool)?;
+            let job = app.session.detail_job(id, dw.max(8), dh.max(8), !crop_tool)?;
             let job = loupe_look(app, &d, job);
+            if job.cpu_only().is_some() || matches!(job.source, SourceRef::Smart { .. }) {
+                return None;
+            }
             let key = job.key;
-            if !interacting {
-                app.renderer.request(Slot::Detail, job, 95);
+            let main_in = !app.renderer.is_pending(Slot::Main) && app.renderer.textures.get(&Slot::Main).is_some_and(|t| t.photo == id);
+            if !interacting && main_in {
+                let cost =
+                    lightcraft_engine::media::full_render_cost((photo.width as usize, photo.height as usize), (job.request.max_w, job.request.max_h));
+                app.renderer.request_admitted(Slot::Detail, job, 95, cost);
             }
             Some(key)
         });
+    if detail_key.is_none_or(|k| !app.renderer.is_current(Slot::Detail, k)) && app.renderer.is_pending(Slot::Detail) {
+        app.renderer.cancel(Slot::Detail);
+    }
     // hovering a preset or profile: the photo with that look, shown instead of the loupe render
     // once it is ready (nothing is committed)
     let hover_key = match app.hover_preview.clone() {
@@ -305,8 +353,6 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     {
         app.renderer.request_quick(Slot::Preview, q, 110);
     }
-    let show_before = app.ui.before_after == BeforeAfter::Original
-        || (!ui.ctx().egui_wants_keyboard_input() && app.ui.dialog.is_none() && crate::shortcuts::catalog::original_held(app, ui.ctx()));
     if (split || show_before || split_view)
         && let Some(job) = app.session.render_job(id, rw.max(8), rh.max(8), true, !crop_tool)
     {
@@ -326,7 +372,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         } else {
             return "none";
         };
-        p.image(tex.tex.id(), r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+        p.image(tex.tex.id(), pixel_rect(r, tex.size, ppp).unwrap_or(r), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
         what
     };
     // soft proofing: a paper-white surround and the proof's name, as Lightroom shows it
@@ -359,7 +405,12 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         let main = draw(Slot::Main, img_rect);
         shown = match app.renderer.textures.get(&Slot::Detail).filter(|t| !interacting && t.photo == id && Some(t.key) == detail_key) {
             Some(tex) => {
-                p.image(tex.tex.id(), img_rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                p.image(
+                    tex.tex.id(),
+                    pixel_rect(img_rect, tex.size, ppp).unwrap_or(img_rect),
+                    Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)),
+                    Color32::WHITE,
+                );
                 "detail"
             }
             None => main,

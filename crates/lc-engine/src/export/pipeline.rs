@@ -88,7 +88,7 @@ impl Flow {
 pub fn run_render_job(mut job: crate::media::RenderJob) -> crate::media::RenderResult {
     // the conditions under which `develop` keeps the render off the GPU; those renders, and
     // all of them with no usable GPU (or GPU off), run side by side on the CPU
-    let gpu = job.cache.is_none() && crate::media::cpu_only(&job.settings, &job.request).is_none() && lightcraft_gpu::available();
+    let gpu = job.cpu_only().is_none() && lightcraft_gpu::available();
     if !gpu {
         return job.run();
     }
