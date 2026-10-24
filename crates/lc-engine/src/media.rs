@@ -682,7 +682,7 @@ impl RenderJob {
                 // photos left out (see `enhance::for_render`)
                 let (src, settings) = crate::enhance::for_render(&source.image, &self.settings, self.source_key);
                 let settings = match &self.upright_source {
-                    Some(preview) if settings.upright_unsolved() => match upright_from(preview, &self.info, &settings) {
+                    Some(preview) if settings.upright_unsolved() => match upright_from(preview, &self.info, &settings, settings.geometry.upright) {
                         Ok(h) => {
                             let mut solved = (*settings).clone();
                             solved.geometry.upright_transform = Some(h);
@@ -766,13 +766,15 @@ pub fn cpu_only(s: &DevelopSettings, req: &RenderRequest) -> Option<&'static str
     }
 }
 
-/// The automatic Upright transform `s` names, analysed from a photo's preview-level source
-/// `preview` against its header facts `header`: what the loupe's render, the Upright command and
-/// the background analysis after Paste or Sync all solve, whatever size is rendered.
-pub(crate) fn upright_from(preview: &SourceRef, header: &SourceInfo, s: &DevelopSettings) -> Result<Homography, String> {
+/// The automatic Upright transform for `mode` of a photo with settings `s`, analysed from its
+/// preview-level source `preview` against its header facts `header`. The one analysis the Upright
+/// command, the background analysis after Paste or Sync, and every render of settings that name a
+/// mode without its transform (the loupe's, 1:1, exports) solve, so the keystone is the same at
+/// every size.
+pub(crate) fn upright_from(preview: &SourceRef, header: &SourceInfo, s: &DevelopSettings, mode: Upright) -> Result<Homography, String> {
     let source = preview.load_source()?;
     let info = source.info_or(header.clone());
-    Ok(lightcraft_pipeline::upright::auto_transform(&source.image, &info, s, s.geometry.upright))
+    Ok(lightcraft_pipeline::upright::auto_transform(&source.image, &info, s, mode))
 }
 
 /// Working memory of rendering a photo `size` pixels large from its original at `out` pixels: its
@@ -1284,13 +1286,13 @@ impl crate::Session {
         Ok(image)
     }
 
-    /// The automatic Upright transform for `mode`, analysed from photo `id`'s own preview-level
-    /// source under `settings` (its optics and orientation decide the lens-corrected image).
+    /// The automatic Upright transform for `mode` of photo `id` under `settings` ([`upright_from`]),
+    /// keeping its preview-level source decoded for the renders that follow.
     pub(crate) fn upright_transform(&mut self, id: PhotoId, settings: &DevelopSettings, mode: Upright) -> Result<Homography, String> {
-        let src = self.source_now(id, SourceLevel::Preview)?;
-        let p = self.catalog.photo(id).ok_or("no such photo")?;
-        let info = self.media.source_facts(id, job_info(p, settings));
-        Ok(lightcraft_pipeline::upright::auto_transform(&src, &info, settings, mode))
+        self.source_now(id, SourceLevel::Preview)?;
+        let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
+        let source = self.media.source_ref(&p, SourceLevel::Preview);
+        upright_from(&source, &job_info(&p, settings), settings, mode)
     }
 }
 

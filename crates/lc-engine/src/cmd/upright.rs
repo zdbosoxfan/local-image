@@ -105,7 +105,7 @@ struct Target {
 
 fn run(targets: Vec<(u64, Target)>, state: &UprightSolve, permits: &lightcraft_sysmem::HeavyJobs) {
     super::previews::for_each_bounded("lc-upright", targets, permits, &|| state.cancel.load(Ordering::Relaxed), &|_, t| {
-        match crate::media::upright_from(&t.source, &t.info, &t.settings) {
+        match crate::media::upright_from(&t.source, &t.info, &t.settings, t.settings.geometry.upright) {
             Ok(h) => state.solved.lock().unwrap_or_else(PoisonError::into_inner).push((t.id, t.key, h)),
             Err(e) => log::warn!("Upright analysis of photo {}: {e}; its renders solve it", t.id.0),
         }
