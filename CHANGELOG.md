@@ -56,6 +56,9 @@ All notable changes to Local Image are recorded here. The format follows
     texture, and Luminance NR reaches green-magenta luminance noise.
   - Range masks select the same pixels for every local tool, also after global Shadows, colour
     edits or B&W, and the mask overlay shows what is applied.
+  - Color Range masks and the colour picker compare colours under the photo's Whites and Blacks
+    as well as its Contrast. A saved Color Range mask on a photo with Whites or Blacks set
+    (including by Auto Tone) may select somewhat different pixels; re-sample it if it does.
   - Highlights and Shadows no longer change with unrelated content such as a dark corner, a crop
     or a single black pixel.
   - Camera Calibration applies before HSL, Color Grading, Skin Tone and B&W, as in Lightroom; in
