@@ -819,6 +819,22 @@ pub fn content_key(p: &Photo) -> String {
     }
 }
 
+/// Identity of a render of photo `id` (whose pixels hash to `content`) with settings hashing to
+/// `settings_hash`, fitting `max_w × max_h` from `level`. The photo and its content are part of
+/// it: two photos with the same settings and size must not share a result (a view slot showing
+/// photo A would otherwise look current for photo B), and a file changed on disk (Reload)
+/// renders afresh.
+fn job_key(settings_hash: u64, max_w: usize, max_h: usize, apply_crop: bool, level: SourceLevel, id: PhotoId, content: u64) -> u64 {
+    settings_hash
+        ^ ((max_w as u64) << 40)
+        ^ ((max_h as u64) << 20)
+        ^ (apply_crop as u64)
+        ^ (level as u64) << 60
+        ^ id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ content.rotate_left(17)
+        ^ crate::dcp_profiles::cache_key()
+}
+
 // content identity
 //
 // `Photo::content_hash` holds the file's BLAKE3 identity ([`lightcraft_preview::ContentId::of`],
@@ -890,22 +906,12 @@ impl crate::Session {
         let source = self.media.source_ref(&p, level);
         let settings = if before { Arc::new(self.before_settings(&p)) } else { p.develop.clone() };
         let request = RenderRequest { apply_crop, ..RenderRequest::fit(max_w, max_h) };
-        // the photo id is part of the key: two photos with the same settings and size must not
-        // share a result (a view slot showing photo A would otherwise look current for photo B)
-        // …and so is the file's content: a file changed on disk (Reload) renders afresh
         let content_key = content_key(&p);
         let source_key = Hasher128::new().str(&content_key).finish();
         let content = source_key.0 as u64;
         // Temporary "before" settings must not replace the photo's cached develop hash.
         let settings_hash = if before { settings.hash64() } else { self.media.settings_hashes.get(id, &settings) };
-        let key = settings_hash
-            ^ ((max_w as u64) << 40)
-            ^ ((max_h as u64) << 20)
-            ^ (apply_crop as u64)
-            ^ (level as u64) << 60
-            ^ id.0.wrapping_mul(0x9e37_79b9_7f4a_7c15)
-            ^ content.rotate_left(17)
-            ^ crate::dcp_profiles::cache_key();
+        let key = job_key(settings_hash, max_w, max_h, apply_crop, level, id, content);
         let cache = thumb_bucket.map(|b| {
             let k = Hasher128::new()
                 .str(&content_key)
@@ -939,7 +945,8 @@ impl crate::Session {
     pub fn preview_job(&mut self, id: PhotoId, max_w: usize, max_h: usize, apply_crop: bool, settings: &DevelopSettings) -> Option<RenderJob> {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
         job.settings = Arc::new(settings.clone());
-        job.key = settings.hash64() ^ ((max_w as u64) << 40) ^ ((max_h as u64) << 20) ^ (apply_crop as u64) ^ (job.level as u64) << 60;
+        let content = job.source_key.map_or(0, |k| k.0 as u64);
+        job.key = job_key(settings.hash64(), max_w, max_h, apply_crop, job.level, id, content);
         Some(job)
     }
 

@@ -112,3 +112,15 @@ fn an_unreadable_target_leaves_upright_to_its_render() {
     assert_eq!(b.geometry.upright_transform, None, "never A's transform");
     assert!(b.upright_unsolved());
 }
+
+#[test]
+fn hover_previews_of_photos_with_equal_settings_are_told_apart() {
+    let mut s = two_rolled_photos();
+    let mut look = (*s.develop_of(A).unwrap()).clone();
+    look.light.exposure = 0.7;
+    let a = s.preview_job(A, 800, 600, true, &look).unwrap().key;
+    let b = s.preview_job(B, 800, 600, true, &look).unwrap().key;
+    assert_eq!(s.develop_of(A), s.develop_of(B), "both photos hold the same settings");
+    assert_ne!(a, b, "the same hovered look on another photo is another render");
+    assert_eq!(a, s.preview_job(A, 800, 600, true, &look).unwrap().key, "the same hover on the same photo reuses its render");
+}
