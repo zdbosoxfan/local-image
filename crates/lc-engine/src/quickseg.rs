@@ -413,12 +413,8 @@ mod tests {
             };
             let before = error(to_segmask(&prob, mw, mh, false, GRID), 0.0);
             let (mae, worst) = error(to_segmask(&prob, mw, mh, false, side), MODEL_EDGE_REFINE);
-            eprintln!(
-                "soft {soft:?}, grid {side}: band error {mae:.4} (before {:.4}), contour off by up to {worst:.2} px (before {:.2})",
-                before.0, before.1
-            );
-            assert!(mae < before.0 * max_ratio, "band error {mae} vs {}", before.0);
-            assert!(worst < 3.0 && worst < before.1, "contour {worst} px vs {}", before.1);
+            assert!(mae < before.0 * max_ratio, "soft {soft:?}, grid {side}: band error {mae} vs {} before", before.0);
+            assert!(worst < 3.0 && worst < before.1, "soft {soft:?}, grid {side}: contour off by {worst} px vs {} before", before.1);
         }
     }
 
