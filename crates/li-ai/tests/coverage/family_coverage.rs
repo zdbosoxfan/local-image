@@ -568,3 +568,35 @@ fn published_profiles_download_and_build() {
     assert!(errors.values().all(|e| e.contains("newer Local Image")), "{errors:?}");
     assert!(families.len() >= EMBEDDED.len() - 1);
 }
+
+/// `runtime.json` rides the profile channel: a newer valid copy is written, one that would
+/// substitute files that must never stand in for each other is rejected, and a newer format is
+/// left for a newer app.
+#[test]
+fn runtime_data_updates_with_the_profiles() {
+    let builtin: serde_json::Value = serde_json::from_str(li_ai::companions::EMBEDDED_RUNTIME).unwrap();
+    let at = |version: u64, schema: u64| {
+        let mut r = builtin.clone();
+        r["version"] = json!(version);
+        r["schema"] = json!(schema);
+        r
+    };
+    let index = |v: u64| format!(r#"{{"families": {{}}, "data": {{"runtime": {v}}}}}"#).into_bytes();
+    let dir = unique_dir("update-runtime");
+    let fetch = serve(vec![("index.json", index(7)), ("runtime.json", serde_json::to_vec(&at(7, 1)).unwrap())]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!(report.updated, ["runtime"], "{report:?}");
+    assert_eq!(li_ai::companions::load(&dir).version, 7);
+    // Nothing newer: nothing fetched.
+    assert!(li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap().is_empty());
+    let mut bad = at(8, 1);
+    bad["equivalent"] = json!([{"folder": "vae", "stems": ["flux2-vae", "qwen_image_vae"]}]);
+    bad["never_substitute"] = json!([{"folder": "vae", "stems": ["flux2-vae", "qwen_image_vae"]}]);
+    let fetch = serve(vec![("index.json", index(8)), ("runtime.json", serde_json::to_vec(&bad).unwrap())]);
+    let report = li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
+    assert_eq!(report.rejected.iter().map(|(id, _)| id.as_str()).collect::<Vec<_>>(), ["runtime"], "{report:?}");
+    assert_eq!(li_ai::companions::load(&dir).version, 7, "the rejected copy is not written");
+    let fetch = serve(vec![("index.json", index(9)), ("runtime.json", serde_json::to_vec(&at(9, 2)).unwrap())]);
+    assert_eq!(li_ai::family::update_from(&fetch, "https://example.invalid/f", &dir).unwrap().needs_newer_app, ["runtime"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

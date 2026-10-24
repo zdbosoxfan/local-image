@@ -940,8 +940,9 @@ pub fn registry() -> &'static Registry {
     r
 }
 
-/// Reloads the profiles (after an update or a user edit).
+/// Reloads the profiles and model setup's runtime data (after an update or a user edit).
 pub fn reload() -> &'static Registry {
+    crate::companions::reload();
     let r: &'static Registry = Box::leak(Box::new(load(&cache_dir())));
     if let Ok(mut g) = REGISTRY.write() {
         *g = Some(r);
@@ -1038,6 +1039,21 @@ pub fn update_from(fetch: &dyn Fn(&str) -> Result<Vec<u8>>, base_url: &str, dir:
             report.kept_user.push(id);
         } else {
             report.updated.push(id);
+        }
+    }
+    // Model setup's shared data (`data.runtime` is its version).
+    if let Some(want) = index.get("data").and_then(|d| d.get("runtime")).and_then(Value::as_u64)
+        && want > u64::from(crate::companions::load(dir).version)
+    {
+        let parsed = fetch(&format!("{base_url}/runtime.json")).and_then(|b| crate::companions::parse_update(&b).map(|r| (r, b)));
+        match parsed {
+            Ok((r, bytes)) if u64::from(r.version) >= want => {
+                li_fs::atomic_write(&dir.join("runtime.json"), &bytes)?;
+                report.updated.push("runtime".into());
+            }
+            Ok((r, _)) => report.rejected.push(("runtime".into(), format!("version {} is older than the index says ({want})", r.version))),
+            Err(e) if format!("{e:#}").contains("needs a newer Local Image") => report.needs_newer_app.push("runtime".into()),
+            Err(e) => report.rejected.push(("runtime".into(), format!("{e:#}"))),
         }
     }
     Ok(report)
