@@ -589,6 +589,8 @@ struct Config {
     activation: Activation,
     /// Depth models: the output is metric depth (larger = farther), not inverse depth.
     metric: bool,
+    /// Depth Anything V2: a flexible-input export sees the photo with its own aspect ratio.
+    keeps_aspect: bool,
 }
 
 impl Config {
@@ -602,6 +604,7 @@ impl Config {
             post: if tier { Post::Probability } else { Post::MinMax },
             activation: if matches!(spec.task, Task::Sky { .. }) { Activation::Logits } else { Activation::Probability },
             metric: false,
+            keeps_aspect: spec.task == Task::Depth,
         }
     }
 }
@@ -626,7 +629,24 @@ fn in_f32(model: TypedModel) -> Result<TypedModel> {
 pub struct Segmenter {
     cfg: Config,
     run: Arc<Runner>,
+    /// The model takes any input size and keeps the photo's aspect ratio ([`depth_input`]).
+    flexible: bool,
 }
+
+/// Depth Anything V2's patch: its flexible export takes sides that are multiples of it.
+const DEPTH_PATCH: usize = 14;
+
+/// The input (height, width) a flexible depth model gets for a `w × h` photo, as the model's
+/// reference preprocessing sizes it: the short side at `s`, the long side keeping the aspect ratio
+/// (a multiple of the patch, at most twice the short side).
+fn depth_input(s: usize, w: usize, h: usize) -> (usize, usize) {
+    let aspect = (w.max(h) as f64 / w.min(h).max(1) as f64).min(2.0);
+    let long = (((s as f64 * aspect) / DEPTH_PATCH as f64).round() as usize * DEPTH_PATCH).max(s);
+    if w >= h { (s, long) } else { (long, s) }
+}
+
+/// Plans of a flexible-input model by input size, the most recent first (a few at most).
+type Plans = std::sync::Mutex<Vec<((usize, usize), Arc<TypedRunnableModel>)>>;
 
 impl std::fmt::Debug for Segmenter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -662,9 +682,39 @@ impl Segmenter {
             .with_ignore_output_shapes(depth || cfg.task == Task::Subject)
             .model_for_path(path)
             .with_context(|| format!("Could not read the segmentation model {}", path.display()))?;
-        let input = model.input_fact(0)?.datum_type.concretize().unwrap_or(DatumType::F32);
-        let plan = in_f32(model.with_input_fact(0, InferenceFact::dt_shape(input, tvec!(1, 3, s, s)))?.into_typed()?)?.into_optimized()?.into_runnable()?;
-        Ok(Self { cfg, run: Arc::new(move |t: Tensor, stop: &dyn Fn() -> bool| run_checked(&plan, tvec!(t.into()), stop)) })
+        let fact = model.input_fact(0)?;
+        let input = fact.datum_type.concretize().unwrap_or(DatumType::F32);
+        let flexible = cfg.keeps_aspect && [2, 3].iter().all(|i| fact.shape.dim(*i).and_then(|d| d.concretize()).and_then(|d| d.to_i64().ok()).is_none());
+        let plan_at = move |model: InferenceModel, th: usize, tw: usize| -> Result<Arc<TypedRunnableModel>> {
+            in_f32(model.with_input_fact(0, InferenceFact::dt_shape(input, tvec!(1, 3, th, tw)))?.into_typed()?)?.into_optimized()?.into_runnable()
+        };
+        if !flexible {
+            let plan = plan_at(model, s, s)?;
+            return Ok(Self { cfg, run: Arc::new(move |t: Tensor, stop: &dyn Fn() -> bool| run_checked(&plan, tvec!(t.into()), stop)), flexible });
+        }
+        let plans: Plans = std::sync::Mutex::new(vec![((s, s), plan_at(model.clone(), s, s)?)]);
+        let run = move |t: Tensor, stop: &dyn Fn() -> bool| {
+            let size = (t.shape().get(2).copied().unwrap_or(s), t.shape().get(3).copied().unwrap_or(s));
+            let plan = {
+                let mut plans = plans.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                match plans.iter().position(|(at, _)| *at == size) {
+                    Some(i) => plans[i].1.clone(),
+                    None => {
+                        let plan = plan_at(model.clone(), size.0, size.1)?;
+                        plans.insert(0, (size, plan.clone()));
+                        plans.truncate(3);
+                        plan
+                    }
+                }
+            };
+            run_checked(&plan, tvec!(t.into()), stop)
+        };
+        Ok(Self { cfg, run: Arc::new(run), flexible })
+    }
+
+    /// The input (height, width) this model gets for a `w × h` photo.
+    fn input_size(&self, w: usize, h: usize) -> (usize, usize) {
+        if self.flexible { depth_input(self.cfg.size, w, h) } else { (self.cfg.size, self.cfg.size) }
     }
 
     /// The model's id (an official id, or `custom:<file>`).
@@ -672,16 +722,21 @@ impl Segmenter {
         &self.cfg.id
     }
 
-    /// The model input for an RGBA8 image: premultiplied resize to the model size, normalised.
+    /// The model input for an RGBA8 image: premultiplied resize to the model's square size,
+    /// normalised.
     fn input(&self, rgba: &[u8], w: usize, h: usize, peak_scaled: bool) -> Result<tract_ndarray::Array4<f32>> {
+        self.input_at(rgba, w, h, peak_scaled, (self.cfg.size, self.cfg.size))
+    }
+
+    /// [`Segmenter::input`] at `th × tw`.
+    fn input_at(&self, rgba: &[u8], w: usize, h: usize, peak_scaled: bool, (th, tw): (usize, usize)) -> Result<tract_ndarray::Array4<f32>> {
         if rgba.len() != w * h * 4 || w == 0 || h == 0 {
             bail!("image buffer size mismatch");
         }
-        let s = self.cfg.size;
-        let small = resize_premultiplied(rgba, w, h, s, s);
+        let small = resize_premultiplied(rgba, w, h, tw, th);
         let peak = if peak_scaled { small.iter().flat_map(|p| [p[0], p[1], p[2]]).fold(1e-6f32, f32::max) } else { 1.0 };
         let (mean, std) = self.cfg.norm.mean_std();
-        Ok(tract_ndarray::Array4::from_shape_fn((1, 3, s, s), |(_, c, y, x)| (small[y * s + x][c] / peak - mean[c]) / std[c]))
+        Ok(tract_ndarray::Array4::from_shape_fn((1, 3, th, tw), |(_, c, y, x)| (small[y * tw + x][c] / peak - mean[c]) / std[c]))
     }
 
     /// Foreground probability (0–1) for an RGBA8 image, at the image's size. `None` when the model
@@ -772,15 +827,17 @@ impl Segmenter {
     }
 
     /// Relative nearness (0 = farthest, 1 = nearest in the photo) for an RGBA8 image, at the
-    /// image's size (a depth model). The model sees the photo squeezed to its square input; its
-    /// relative inverse depth (a metric model's depth inverted first; no depth reads as farthest)
-    /// is min–max stretched (it has no absolute scale).
+    /// image's size (a depth model). A flexible-input model sees the photo in its own aspect ratio,
+    /// a fixed one squeezed to its square input; its relative inverse depth (a metric model's
+    /// depth inverted first; no depth reads as farthest) is min–max stretched (it has no absolute
+    /// scale).
     pub fn predict_depth(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
         if self.cfg.task != Task::Depth {
             bail!("not a depth model");
         }
-        let input = self.input(rgba, w, h, false)?;
-        let out = estimate::run(&self.cfg.id, (self.cfg.size * self.cfg.size) as u64, || (self.run)(input.into(), &never))?;
+        let size = self.input_size(w, h);
+        let input = self.input_at(rgba, w, h, false, size)?;
+        let out = estimate::run(&self.cfg.id, (size.0 * size.1) as u64, || (self.run)(input.into(), &never))?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
         let mut vals: Vec<f32> = map.iter().copied().collect();
@@ -943,6 +1000,7 @@ impl Custom {
             post: Post::MinMax,
             activation: self.activation,
             metric: self.group == Group::Depth && self.class == 1,
+            keeps_aspect: false,
         }
     }
 }
