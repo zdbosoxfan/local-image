@@ -111,15 +111,14 @@ pub fn detect_clip(img: &RgbFrame) -> f32 {
 /// whose samples at or above `clip` are saturated, and return the clip level afterwards. Such
 /// corrections spread clipped samples over a range of values and can lift measured corners above
 /// them, so no single level would separate clipped from measured values; the clipped samples are
-/// therefore moved to one level, clear above every measured value. `correct` runs twice, on the
-/// image and on its clip mask.
+/// therefore moved to one level, clear above every measured value. `correct` runs on the image
+/// and, only when something is clipped, on a full-size clip mask.
 pub fn correct_with_clip(image: &mut RgbFrame, clip: f32, correct: impl Fn(&mut RgbFrame)) -> f32 {
-    let mut clipped = image.map(|p| p.map(|v| if v >= clip { 1.0f32 } else { 0.0 }));
-    let any = clipped.data.iter().flatten().any(|v| *v > 0.0);
+    let clipped = image.data.iter().flatten().any(|v| *v >= clip).then(|| image.map(|p| p.map(|v| if v >= clip { 1.0f32 } else { 0.0 })));
     correct(image);
     let peak = image.data.iter().flatten().copied().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
     let level = clip.max(peak / crate::output::UNCLIPPED_PEAK);
-    if any {
+    if let Some(mut clipped) = clipped {
         // Gains keep the moved mask well above one half.
         correct(&mut clipped);
         for (p, m) in image.data.iter_mut().zip(&clipped.data) {
@@ -337,6 +336,12 @@ mod tests {
         }
         let mut unclipped = RgbFrame::filled(16, 12, [0.4; 3]);
         assert_eq!(apply_lens_opcodes(&[], &mut unclipped, 0.995), 0.995);
+        let runs = std::cell::Cell::new(0);
+        let level = correct_with_clip(&mut unclipped, 0.995, |img| {
+            runs.set(runs.get() + 1);
+            lightcraft_raw::opcodes::apply_list3(&list3, img);
+        });
+        assert_eq!((runs.get(), level), (1, 0.995), "an unclipped frame needs no clip mask");
     }
 
     #[test]
