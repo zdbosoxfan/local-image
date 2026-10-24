@@ -893,6 +893,56 @@ fn clarity_on_textured_grey_matches_across_tones() {
     }
 }
 
+/// Exact black has no OkLab hue: colour ops must treat it as hue 0, as the CPU does, on every
+/// backend (WGSL leaves atan2(0, 0) undefined).
+#[test]
+fn exact_black_through_colour_ops_matches() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    let (w, h) = (320, 200);
+    let src =
+        Arc::new(RgbFrame::from_fn(
+            w,
+            h,
+            |x, y| if x < 96 { [0.0; 3] } else { [0.02 + 0.6 * x as f32 / w as f32, 0.1 + 0.2 * y as f32 / h as f32, 0.08] },
+        ));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let lift = |s: &mut DevelopSettings| {
+        s.curve.master = vec![Point::new(0.0, 0.06), Point::new(1.0, 1.0)];
+        s.grain.amount = 20.0;
+    };
+    let mut point = DevelopSettings::default();
+    lift(&mut point);
+    point.point_colors = vec![lightcraft_develop::PointColor {
+        lum: 0.4,
+        chroma: 0.05,
+        hue: 30.0,
+        hue_shift: 20.0,
+        sat_shift: -30.0,
+        range: 100.0,
+        ..Default::default()
+    }];
+    let mut masked = DevelopSettings::default();
+    lift(&mut masked);
+    masked.masks = vec![Mask {
+        components: vec![MaskComponent {
+            name: None,
+            op: MaskOp::Add,
+            invert: false,
+            shape: MaskShape::Linear { start: Point::new(0.0, 0.0), end: Point::new(1.0, 0.0) },
+        }],
+        adjust: lightcraft_develop::LocalAdjustments { saturation: -30.0, hue: 20.0, ..Default::default() },
+        ..Default::default()
+    }];
+    for (name, s) in [("black + point color", &point), ("black + masked hue/saturation", &masked)] {
+        check(name, &src, &info, s, &RenderRequest::fit(w, h));
+        let req = RenderRequest { depth: lightcraft_pipeline::OutputDepth::F32Linear, ..RenderRequest::fit(w, h) };
+        let deep = lightcraft_gpu::render(&src, &info, s, &req, None).expect("float GPU render").deep.expect("float output");
+        let lightcraft_pipeline::DeepSamples::F32(v) = deep.samples else { panic!("float samples") };
+        assert!(v.iter().all(|v| v.is_finite()), "{name}: non-finite float output");
+    }
+}
+
 #[test]
 fn eigf_tone_equalizer_matches_including_mask_preview() {
     let _gpu = crate::support::lock();

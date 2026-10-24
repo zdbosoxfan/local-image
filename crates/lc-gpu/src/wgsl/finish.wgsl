@@ -218,7 +218,11 @@ fn color_ops(rgb: vec3<f32>, local_sat: f32, local_hue: f32) -> vec3<f32> {
     let lab0 = oklab(rgb);
     var l = lab0.x;
     var c = sqrt(lab0.y * lab0.y + lab0.z * lab0.z);
-    var h = atan2(lab0.z, lab0.y);
+    // atan2(0,0) is undefined in WGSL (fast-math Metal may give NaN); CPU atan2 gives zero.
+    var h = 0.0;
+    if (c > 0.0) {
+        h = atan2(lab0.z, lab0.y);
+    }
     if (fu(F_MIXER) != 0u) {
         let w = band_weights(h);
         var dh = 0.0;
@@ -586,7 +590,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         let alpha=alpha_at(layer,i,n);
         if(alpha>0.0 && (descriptor(layer,2u)&2u)!=0u){layer_context(layer);var dl=0.0;
             let hh=ff(F_HL);let ss=ff(F_SH);let ws=1.0-sstep(-4.8,0.3,base);let wh=sstep(-1.0,2.8,base);dl+=ss*1.7*ws*sqrt(ws)+hh*1.7*wh;
-            if(ff(F_CLAR)!=0.0 && fu(F_HAS_CLAR)!=0u){let det=clamp(l_pre-clar[i],-2.5,2.5);let mid=exp(-pow(base/3.2,2.0));dl+=ff(F_CLAR)*0.85*det*(0.35+0.65*mid);}
+            if(ff(F_CLAR)!=0.0 && fu(F_HAS_CLAR)!=0u){let det=clamp(l_pre-clar[i],-2.5,2.5);let q=base/3.2;let mid=exp(-(q*q));dl+=ff(F_CLAR)*0.85*det*(0.35+0.65*mid);}
             if(ff(F_TEX)!=0.0 && fu(F_HAS_TEX)!=0u){let det=l_pre-tex[i];dl+=ff(F_TEX)*1.1*clamp(det,-1.0,1.0)*(1.0-0.6*sstep(0.4,1.6,abs(det)));}
             dl+=sharp_delta(ff(F_SHARP_A),l_pre,x,y);clear_context();if(dl!=0.0){c=c+(c*exp2(dl)-c)*alpha;}}
     }
