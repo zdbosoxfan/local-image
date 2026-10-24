@@ -7,7 +7,8 @@
 //!
 //! Pre-processing uses premultiplied square resize and the model's RGB mean/std. The new
 //! subject tiers use x/255 and clamped probabilities; custom IS-Net and U²-Net style
-//! models use peak scaling and min–max output. Maps are bilinearly resized to the photo.
+//! models use peak scaling and min–max output, after a sigmoid when they output logits (found
+//! when the model is added). Maps are bilinearly resized to the photo.
 
 pub mod bpe;
 pub mod clip;
@@ -208,13 +209,47 @@ impl Norm {
     }
 }
 
+/// What a custom model's output values are, found when it is added ([`add_custom`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Activation {
+    /// Probabilities: the graph ends in a sigmoid or softmax (values 0–1).
+    Probability,
+    /// Logits: the activation is left to the caller (BiRefNet, RMBG-2.0, class-logit scene
+    /// parsers).
+    Logits,
+}
+
+impl Activation {
+    fn key(self) -> &'static str {
+        match self {
+            Activation::Probability => "probability",
+            Activation::Logits => "logits",
+        }
+    }
+
+    fn from_key(k: &str) -> Option<Self> {
+        [Activation::Probability, Activation::Logits].into_iter().find(|a| a.key() == k)
+    }
+
+    /// What custom-model lines written before outputs were checked meant: subject maps were used
+    /// as they came, sky maps as logits.
+    fn legacy(group: Group) -> Self {
+        if group == Group::Sky { Activation::Logits } else { Activation::Probability }
+    }
+
+    /// Logits when any output value is clearly outside 0–1.
+    fn of_outputs(values: impl IntoIterator<Item = f32>) -> Self {
+        if values.into_iter().any(|v| v.is_finite() && !(-0.01..=1.01).contains(&v)) { Activation::Logits } else { Activation::Probability }
+    }
+}
+
 /// What a model finds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Task {
     /// The salient subject: one foreground map.
     Subject,
-    /// The sky. `classes` = 1: one logit map (sigmoid); otherwise ADE20K-style class logits where
-    /// `class` is the sky and `margin` how far it must lead every other class.
+    /// The sky. `classes` = 1: one map; otherwise ADE20K-style class maps where `class` is the
+    /// sky and `margin` how far its logit must lead every other class's.
     Sky {
         classes: usize,
         class: usize,
@@ -539,18 +574,25 @@ struct Config {
     norm: Norm,
     task: Task,
     post: Post,
+    activation: Activation,
 }
 
 impl Config {
     fn of_spec(spec: &ModelSpec) -> Self {
+        let tier = matches!(spec.id, "rmbg-1.4" | "inspyrenet");
         Self {
             id: spec.id.to_owned(),
             size: spec.size,
             norm: if spec.isnet { Norm::IsNet } else { Norm::ImageNet },
             task: spec.task,
-            post: if matches!(spec.id, "rmbg-1.4" | "inspyrenet") { Post::Probability } else { Post::MinMax },
+            post: if tier { Post::Probability } else { Post::MinMax },
+            activation: if matches!(spec.task, Task::Sky { .. }) { Activation::Logits } else { Activation::Probability },
         }
     }
+}
+
+fn sigmoid(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
 }
 
 /// A loaded model, ready to run (cheap to clone).
@@ -605,13 +647,6 @@ impl Segmenter {
         &self.cfg.id
     }
 
-    /// The shape of the model's first output for a blank input.
-    fn output_shape(&self) -> Result<Vec<usize>> {
-        let s = self.cfg.size;
-        let out = (self.run)(tract_ndarray::Array4::<f32>::zeros((1, 3, s, s)).into(), &never)?;
-        Ok(out[0].shape().to_vec())
-    }
-
     /// The model input for an RGBA8 image: premultiplied resize to the model size, normalised.
     fn input(&self, rgba: &[u8], w: usize, h: usize, peak_scaled: bool) -> Result<tract_ndarray::Array4<f32>> {
         if rgba.len() != w * h * 4 || w == 0 || h == 0 {
@@ -643,11 +678,14 @@ impl Segmenter {
         check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("The model's output {:?} isn't a single map", map.shape()) };
-        let vals: Vec<f32> = map.iter().copied().collect();
+        let mut vals: Vec<f32> = map.iter().copied().collect();
         if vals.len() < oh * ow || oh * ow == 0 {
             bail!("unexpected model output");
         }
-        let vals = &vals[..oh * ow];
+        vals.truncate(oh * ow);
+        if self.cfg.activation == Activation::Logits {
+            vals.iter_mut().for_each(|v| *v = sigmoid(*v));
+        }
         let (lo, hi) = vals.iter().fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(*v), b.max(*v)));
         if hi < 0.5 {
             return Ok(None);
@@ -691,14 +729,16 @@ impl Segmenter {
         };
         let vals: Vec<f32> = map.iter().copied().collect();
         let plane = oh * ow;
-        let sigmoid = |x: f32| 1.0 / (1.0 + (-x).exp());
+        let logits = self.cfg.activation == Activation::Logits;
         let prob: Vec<f32> = if classes == 1 {
-            vals[..plane].iter().map(|v| sigmoid(*v)).collect()
+            vals[..plane].iter().map(|v| if logits { sigmoid(*v) } else { v.clamp(0.0, 1.0) }).collect()
         } else {
+            // class probabilities lead each other by their log ratio, as logits do by their difference
+            let logit = |v: f32| if logits { v } else { v.max(1e-6).ln() };
             (0..plane)
                 .map(|i| {
-                    let sky = vals[class * plane + i];
-                    let other = (0..classes).filter(|c| *c != class).map(|c| vals[c * plane + i]).fold(f32::MIN, f32::max);
+                    let sky = logit(vals[class * plane + i]);
+                    let other = (0..classes).filter(|c| *c != class).map(|c| logit(vals[c * plane + i])).fold(f32::MIN, f32::max);
                     sigmoid(sky - other - margin)
                 })
                 .collect()
@@ -843,6 +883,8 @@ pub struct Custom {
     pub classes: usize,
     /// Sky class index; restoration contract: 0 = display sRGB, 1 = linear Rec.2020.
     pub class: usize,
+    /// Subject and sky maps: what the output values are.
+    pub activation: Activation,
 }
 
 impl Custom {
@@ -860,7 +902,7 @@ impl Custom {
             Group::Faces => Task::FaceEmbed,
             Group::RawDenoise | Group::RgbDenoise | Group::Remove => self.group.official().task,
         };
-        Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task, post: Post::MinMax }
+        Config { id: format!("custom:{}", self.file), size: self.size, norm: self.norm, task, post: Post::MinMax, activation: self.activation }
     }
 }
 
@@ -898,21 +940,30 @@ pub fn custom(models_dir: &Path, group: Group) -> Option<Custom> {
     read_customs(models_dir).into_iter().find(|c| c.group == group).filter(|c| c.path(models_dir).is_file())
 }
 
-/// One line per function: `key TAB file TAB name TAB size TAB norm TAB classes TAB class`.
+/// One line per function: `key TAB file TAB name TAB size TAB norm TAB classes TAB class TAB
+/// activation` (lines without the activation are read as [`Activation::legacy`]).
 fn read_customs(models_dir: &Path) -> Vec<Custom> {
     let Ok(text) = std::fs::read_to_string(custom_list(models_dir)) else { return Vec::new() };
     text.lines()
         .filter_map(|line| {
             let f: Vec<&str> = line.split('\t').collect();
-            let [key, file, name, size, norm, classes, class] = f.as_slice() else { return None };
+            let ([key, file, name, size, norm, classes, class], activation) = (f.get(..7)?, f.get(7)) else { return None };
+            if f.len() > 8 {
+                return None;
+            }
+            let group = Group::ALL.into_iter().find(|g| g.supports_custom() && g.key() == *key)?;
             let custom = Custom {
-                group: Group::ALL.into_iter().find(|g| g.supports_custom() && g.key() == *key)?,
+                group,
                 file: (*file).to_owned(),
                 name: (*name).to_owned(),
                 size: size.parse().ok().filter(|s| *s > 0)?,
                 norm: Norm::from_key(norm)?,
                 classes: classes.parse().ok().filter(|c| *c > 0)?,
                 class: class.parse().ok()?,
+                activation: match activation {
+                    Some(a) => Activation::from_key(a)?,
+                    None => Activation::legacy(group),
+                },
             };
             (custom.group != Group::Sky || custom.class < custom.classes).then_some(custom)
         })
@@ -920,8 +971,10 @@ fn read_customs(models_dir: &Path) -> Vec<Custom> {
 }
 
 fn write_customs(models_dir: &Path, customs: &[Custom]) -> Result<()> {
-    let text: String =
-        customs.iter().map(|c| format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\n", c.group.key(), c.file, c.name, c.size, c.norm.key(), c.classes, c.class)).collect();
+    let text: String = customs
+        .iter()
+        .map(|c| format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", c.group.key(), c.file, c.name, c.size, c.norm.key(), c.classes, c.class, c.activation.key()))
+        .collect();
     let path = custom_list(models_dir);
     if text.is_empty() {
         let _ = std::fs::remove_file(&path);
@@ -954,8 +1007,6 @@ pub enum CustomModelError {
     WrongChannels { channels: i64 },
     /// The model's input is not square.
     NonSquareInput { height: i64, width: i64 },
-    /// The model's output isn't what a sky model should produce.
-    NotSkyModel,
     /// The sky model's first output shape isn't a class map.
     NotSkyModelOutput { shape: Vec<usize> },
     /// The requested sky class index is out of range.
@@ -980,7 +1031,6 @@ impl fmt::Display for CustomModelError {
             CustomModelError::NonSquareInput { height, width } => {
                 write!(f, "The model's input is {height}×{width}; a square input (or a flexible size) is needed")
             }
-            CustomModelError::NotSkyModel => f.write_str("Not a sky model"),
             CustomModelError::NotSkyModelOutput { shape } => write!(f, "Not a sky model: its output {shape:?} should be 1 map or one map per class"),
             CustomModelError::SkyClassOutOfRange { class, classes } => {
                 write!(f, "The sky class {class} is out of range: this model has {classes} classes (0 to {})", classes - 1)
@@ -1016,7 +1066,6 @@ pub fn input_size(path: &Path) -> Result<Option<usize>, CustomModelError> {
 
 /// A small synthetic photo to test a model on: a sky-blue gradient over a green ground, with a
 /// red block in the middle.
-#[cfg(test)]
 fn synthetic(w: usize, h: usize) -> Vec<u8> {
     let mut img = vec![255u8; w * h * 4];
     for y in 0..h {
@@ -1035,40 +1084,64 @@ fn synthetic(w: usize, h: usize) -> Vec<u8> {
     img
 }
 
-/// Checks that `path` can serve `group` as configured by `custom` (loads it and checks its first
-/// output shape). Errors say what doesn't fit.
-fn validate(custom: &Custom, path: &Path) -> Result<(), CustomModelError> {
+fn tract_error(e: anyhow::Error) -> CustomModelError {
+    CustomModelError::Other(format!("{e:#}"))
+}
+
+/// The first output of a mask model run on the synthetic photo and on its inverse: its shape, and
+/// what its values are.
+fn probe_outputs(cfg: Config, path: &Path, peak_scaled: bool) -> Result<(Vec<usize>, Activation), CustomModelError> {
+    let seg = Segmenter::load_cfg(cfg, path).map_err(tract_error)?;
+    let s = seg.cfg.size;
+    let photo = synthetic(s, s);
+    let inverse: Vec<u8> = photo.chunks_exact(4).flat_map(|p| [255 - p[0], 255 - p[1], 255 - p[2], p[3]]).collect();
+    let (mut shape, mut values) = (Vec::new(), Vec::new());
+    for img in [photo, inverse] {
+        let input = seg.input(&img, s, s, peak_scaled).map_err(tract_error)?;
+        let out = (seg.run)(input.into(), &never).map_err(tract_error)?;
+        let map = out.first().ok_or_else(|| CustomModelError::Other("The model has no output".into()))?.to_plain_array_view::<f32>().map_err(tract_error)?;
+        shape = map.shape().to_vec();
+        values.extend(map.iter().copied());
+    }
+    Ok((shape, Activation::of_outputs(values)))
+}
+
+/// Checks that `path` can serve `custom.group` as `opts` configure it: a mask model runs on the
+/// synthetic photo (its sky classes and output activation are set in `custom`), a restoration
+/// model on a flat tile. Errors say what doesn't fit.
+fn validate(custom: &mut Custom, path: &Path, opts: &CustomOptions) -> Result<(), CustomModelError> {
     if matches!(custom.group, Group::RawDenoise | Group::RgbDenoise) {
         let kind = if custom.class == 1 { denoise::Variant::Linear } else { denoise::Variant::Rgb };
-        let model = denoise::Denoiser::load_at(path, kind, custom.size).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
-        let out = model.run_tile(&vec![0.1; 3 * custom.size * custom.size]).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
+        let model = denoise::Denoiser::load_at(path, kind, custom.size).map_err(tract_error)?;
+        let out = model.run_tile(&vec![0.1; 3 * custom.size * custom.size]).map_err(tract_error)?;
         if out.len() != 3 * custom.size * custom.size || !out.iter().all(|v| v.is_finite()) {
             return Err(CustomModelError::Other("Restoration output must be three finite channels at the input size".into()));
         }
         return Ok(());
     }
-    let seg = Segmenter::load_cfg(custom.config(), path).map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
-    let shape = seg.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
-    match custom.group {
-        Group::Tagging | Group::Faces | Group::RawDenoise | Group::RgbDenoise | Group::Remove => return Err(CustomModelError::UnsupportedFunction),
-        Group::Subject => {
-            if single_map(&shape).is_none() {
-                return Err(CustomModelError::NotSubjectModel);
-            }
-        }
-        Group::Sky => {
-            let classes = custom.classes;
-            match shape.as_slice() {
-                [_, c, _, _] if *c == classes => {}
-                _ => return Err(CustomModelError::NotSkyModel),
-            }
-        }
-        Group::Depth => {
-            if single_map(&shape).is_none() {
-                return Err(CustomModelError::NotDepthModel);
-            }
-        }
+    if matches!(custom.group, Group::Tagging | Group::Faces | Group::Remove) {
+        return Err(CustomModelError::UnsupportedFunction);
     }
+    let cfg =
+        Config { task: if custom.group == Group::Sky { Task::Sky { classes: 1, class: 0, margin: 0.0 } } else { custom.config().task }, ..custom.config() };
+    let (shape, activation) = probe_outputs(cfg, path, custom.group == Group::Subject)?;
+    match custom.group {
+        Group::Sky => {
+            let classes = match shape.as_slice() {
+                [_, ch, _, _] if *ch >= 1 => *ch,
+                other => return Err(CustomModelError::NotSkyModelOutput { shape: other.to_vec() }),
+            };
+            if classes > 1 && opts.sky_class >= classes {
+                return Err(CustomModelError::SkyClassOutOfRange { class: opts.sky_class, classes });
+            }
+            custom.classes = classes;
+            custom.class = if classes > 1 { opts.sky_class } else { 0 };
+        }
+        Group::Subject if single_map(&shape).is_none() => return Err(CustomModelError::NotSubjectModel),
+        Group::Depth if single_map(&shape).is_none() => return Err(CustomModelError::NotDepthModel),
+        _ => {}
+    }
+    custom.activation = activation;
     Ok(())
 }
 
@@ -1118,27 +1191,21 @@ fn add_custom_with(
         return Err(CustomModelError::NotOnnx.into());
     }
     let size = input_size(src)?.unwrap_or(group.official().size);
-    let mut c = Custom { group, file: format!("{}-{}", group.key(), safe_name(&name)), name, size, norm: opts.norm, classes: 1, class: 0 };
-    if group == Group::Sky {
-        // a sky model gives one sigmoid map, or one logit map per class
-        let probe = Segmenter::load_cfg(Config { task: Task::Sky { classes: 1, class: 0, margin: 0.0 }, ..c.config() }, src)
-            .map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
-        let shape = probe.output_shape().map_err(|e| CustomModelError::Other(format!("{e:#}")))?;
-        let classes = match shape.as_slice() {
-            [_, ch, _, _] if *ch >= 1 => *ch,
-            other => return Err(CustomModelError::NotSkyModelOutput { shape: other.to_vec() }.into()),
-        };
-        if classes > 1 && opts.sky_class >= classes {
-            return Err(CustomModelError::SkyClassOutOfRange { class: opts.sky_class, classes }.into());
-        }
-        c.classes = classes;
-        c.class = if classes > 1 { opts.sky_class } else { 0 };
-    }
+    let mut c = Custom {
+        group,
+        file: format!("{}-{}", group.key(), safe_name(&name)),
+        name,
+        size,
+        norm: opts.norm,
+        classes: 1,
+        class: 0,
+        activation: Activation::Probability,
+    };
     if matches!(group, Group::RawDenoise | Group::RgbDenoise) {
         c.classes = 3;
         c.class = usize::from(group == Group::RawDenoise || opts.denoise_linear);
     }
-    validate(&c, src)?;
+    validate(&mut c, src, &opts)?;
     std::fs::create_dir_all(custom_dir(models_dir))?;
     let mut all = read_customs(models_dir);
     let old = all.iter().find(|o| o.group == group).cloned();
@@ -1268,7 +1335,7 @@ pub fn snapshot(group: Group, models_dir: &Path) -> Option<ModelSnapshot> {
 fn active(group: Group, models_dir: &Path) -> Option<ModelSnapshot> {
     if let Some(c) = custom(models_dir, group) {
         let len = std::fs::metadata(c.path(models_dir)).map(|m| m.len()).unwrap_or(0);
-        let key = format!("custom:{}:{}:{}:{}:{}:{len}", c.file, c.size, c.norm.key(), c.classes, c.class);
+        let key = format!("custom:{}:{}:{}:{}:{}:{}:{len}", c.file, c.size, c.norm.key(), c.classes, c.class, c.activation.key());
         return ModelSnapshot::new(key, c.path(models_dir), c.config(), InUse::Custom(c));
     }
     let spec = if group == Group::Subject && subject_quality(models_dir) { spec("inspyrenet").unwrap() } else { group.official() };
@@ -1602,12 +1669,21 @@ mod battery_executor_tests {
 #[test]
 fn custom_inventory_parity_write_fault_and_cleanup() {
     let dir = std::env::temp_dir().join(format!("custom-inventory-{}", std::process::id()));
-    let model = Custom { group: Group::Subject, file: "fixture.onnx".into(), name: "Fixture".into(), size: 32, norm: Norm::IsNet, classes: 1, class: 0 };
+    let model = Custom {
+        group: Group::Subject,
+        file: "fixture.onnx".into(),
+        name: "Fixture".into(),
+        size: 32,
+        norm: Norm::IsNet,
+        classes: 1,
+        class: 0,
+        activation: Activation::Logits,
+    };
     write_customs(&dir, &[model]).unwrap();
     let path = custom_list(&dir);
     let bytes = std::fs::read(&path).unwrap();
-    assert_eq!(bytes, b"subject\tfixture.onnx\tFixture\t32\tisnet\t1\t0\n");
-    let changed = Custom { group: Group::Subject, file: "new.onnx".into(), name: "New".into(), size: 64, norm: Norm::ImageNet, classes: 1, class: 0 };
+    assert_eq!(bytes, b"subject\tfixture.onnx\tFixture\t32\tisnet\t1\t0\tlogits\n");
+    let changed = Custom { file: "new.onnx".into(), name: "New".into(), size: 64, norm: Norm::ImageNet, ..read_customs(&dir)[0].clone() };
     {
         let _fault = li_fs::fail_writes_after(2);
         assert!(write_customs(&dir, &[changed]).is_err());

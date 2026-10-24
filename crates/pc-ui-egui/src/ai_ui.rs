@@ -496,7 +496,6 @@ fn custom_model_reason(e: &li_seg::CustomModelError) -> String {
             tl!("The model's input is {height}×{width}; a square input (or a flexible size) is needed"),
             &[("height", &height.to_string()), ("width", &width.to_string())],
         ),
-        li_seg::CustomModelError::NotSkyModel => tl!("Not a sky model").to_owned(),
         li_seg::CustomModelError::NotSkyModelOutput { shape } => {
             li_i18n::fmt(tl!("Not a sky model: its output {shape} should be 1 map or one map per class"), &[("shape", &format!("{shape:?}"))])
         }

@@ -353,10 +353,14 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     let one = picked(&dir, "one.onnx", Some((32, 32)), Out::Map);
     let c = add_custom(&dir, Group::Sky, &one, CustomOptions { sky_class: 7, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class), (1, 0), "a single map ignores the class index");
+    assert_eq!(c.activation, Activation::Probability, "the map ends in a sigmoid");
     let seg = shared_sky(&dir).unwrap();
     let (w, h) = (30, 20);
     let p = seg.predict_sky(&synthetic(w, h), w, h).unwrap();
     assert_eq!(p.len(), w * h);
+    // the model's own sigmoid of the sky colour's mean (IS-Net input), not a second sigmoid on top
+    let mean = (90.0 + 150.0 + 230.0) / 255.0 / 3.0 - 0.5;
+    assert!((p[2 * w + 2] - 1.0 / (1.0 + (-mean as f32).exp())).abs() < 0.01, "{}", p[2 * w + 2]);
     // ADE20K-style class logits: the sky class is the one the user names
     let many = picked(&dir, "many.onnx", Some((32, 32)), Out::Classes(4));
     let c = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
@@ -366,6 +370,115 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     let err = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err();
     assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 4, classes: 4 })), "{err:#}");
     assert_eq!(custom(&dir, Group::Sky).unwrap().class, 2, "a refused model leaves the setting alone");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A model (opset 13) that ignores its `s × s` input's values and outputs the constant
+/// `[1, channels, s, s]` map `values`, through `last` (`Sigmoid`, or `Softmax` over the channels)
+/// when given.
+fn constant_onnx(s: u64, channels: u64, values: &[f32], last: Option<&str>) -> Vec<u8> {
+    let mut nodes = vec![
+        node("ReduceMean", &["x"], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]),
+        node("Mul", &["m", "zero"], "z", &[]),
+        node("Add", &["z", "k"], if last.is_some() { "a" } else { "y" }, &[]),
+    ];
+    if let Some(op) = last {
+        nodes.push(node(op, &["a"], "y", &if op == "Softmax" { vec![attr_int("axis", 1)] } else { vec![] }));
+    }
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"constant", g);
+        field_bytes(5, &initializer("zero", &[1], &[0.0]), g);
+        field_bytes(5, &initializer("k", &[1, channels, s, s], values), g);
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+fn picked_bytes(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let p = dir.join("picked").join(name);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, bytes).unwrap();
+    p
+}
+
+#[test]
+fn a_subject_model_that_outputs_logits_gets_its_sigmoid() {
+    let dir = temp_models();
+    let s = 32usize;
+    // BiRefNet-style logits: a background ramp from -15 to -5 around a subject at +10
+    let subject = |i: usize| (8..24).contains(&(i % s)) && (8..24).contains(&(i / s));
+    let logits: Vec<f32> = (0..s * s).map(|i| if subject(i) { 10.0 } else { -15.0 + 10.0 * (i % s) as f32 / (s - 1) as f32 }).collect();
+    let path = picked_bytes(&dir, "birefnet.onnx", &constant_onnx(s as u64, 1, &logits, None));
+    let c = add_custom(&dir, Group::Subject, &path, CustomOptions::default(), &keep).unwrap();
+    assert_eq!(c.activation, Activation::Logits);
+    assert_eq!(custom(&dir, Group::Subject).unwrap().activation, Activation::Logits, "remembered");
+    let p = shared(&dir).unwrap().predict(&synthetic(s, s), s, s).unwrap().expect("a clear subject");
+    for (i, v) in p.iter().enumerate() {
+        if subject(i) {
+            assert!(*v >= 0.99, "subject {v} at {i}");
+        } else {
+            assert!(*v <= 0.01, "background haze {v} at {i}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn sky_models_are_read_as_the_probabilities_or_logits_they_output() {
+    let dir = temp_models();
+    let s = 32usize;
+    let sky = |i: usize| i / s < s / 2;
+    let (w, h) = (s, s);
+    let photo = synthetic(w, h);
+    let check = |p: Vec<f32>, sky_at_least: f32, ground_at_most: f32| {
+        for (i, v) in p.iter().enumerate() {
+            if sky(i) {
+                assert!(*v >= sky_at_least, "sky {v} at {i}");
+            } else {
+                assert!(*v <= ground_at_most, "ground {v} at {i}");
+            }
+        }
+    };
+    // one map ending in a sigmoid: 2 % sky on the ground stays 2 %
+    let ground = (0.02f32 / 0.98).ln();
+    let map: Vec<f32> = (0..s * s).map(|i| if sky(i) { 4.0 } else { ground }).collect();
+    let path = picked_bytes(&dir, "sky-sigmoid.onnx", &constant_onnx(s as u64, 1, &map, Some("Sigmoid")));
+    let c = add_custom(&dir, Group::Sky, &path, CustomOptions::default(), &keep).unwrap();
+    assert_eq!((c.classes, c.activation), (1, Activation::Probability));
+    check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.95, 0.03);
+    // one map of logits (TinySkyNet style)
+    let map: Vec<f32> = (0..s * s).map(|i| if sky(i) { 6.0 } else { -6.0 }).collect();
+    let path = picked_bytes(&dir, "sky-logits.onnx", &constant_onnx(s as u64, 1, &map, None));
+    let c = add_custom(&dir, Group::Sky, &path, CustomOptions::default(), &keep).unwrap();
+    assert_eq!((c.classes, c.activation), (1, Activation::Logits));
+    check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.99, 0.01);
+    // four classes through a softmax, sky = class 2
+    let classes: Vec<f32> = (0..4).flat_map(|c| (0..s * s).map(move |i| if c == if sky(i) { 2 } else { 0 } { 8.0 } else { 0.0 })).collect();
+    let path = picked_bytes(&dir, "sky-softmax.onnx", &constant_onnx(s as u64, 4, &classes, Some("Softmax")));
+    let c = add_custom(&dir, Group::Sky, &path, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
+    assert_eq!((c.classes, c.class, c.activation), (4, 2, Activation::Probability));
+    check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.9, 0.1);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn custom_lines_from_before_outputs_were_checked_keep_their_meaning() {
+    let dir = temp_models();
+    let src = picked(&dir, "m.onnx", Some((32, 32)), Out::Map);
+    let subject = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
+    let sky = add_custom(&dir, Group::Sky, &src, CustomOptions::default(), &keep).unwrap();
+    std::fs::write(custom_list(&dir), format!("subject\t{}\tS\t32\tisnet\t1\t0\nsky\t{}\tK\t32\timagenet\t1\t0\n", subject.file, sky.file)).unwrap();
+    assert_eq!(custom(&dir, Group::Subject).unwrap().activation, Activation::Probability);
+    let sky = custom(&dir, Group::Sky).unwrap();
+    assert_eq!((sky.activation, sky.norm), (Activation::Logits, Norm::ImageNet));
     let _ = std::fs::remove_dir_all(dir);
 }
 
