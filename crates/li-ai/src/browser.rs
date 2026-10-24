@@ -1604,7 +1604,7 @@ mod tests {
         for f in &p.files {
             assert!(models.join(&f.folder).join(&f.name).exists(), "{}", f.name);
         }
-        let w = crate::custom::from_template("OmniGen2", &ui, &info()).unwrap();
+        let w = crate::custom::import("OmniGen2", &ui, Some(&info())).unwrap();
         assert!(w.basic && w.has(&crate::custom::FieldKind::Prompt));
         // Offline: the cached catalogue still answers.
         let q = Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![Source::HuggingFace] };

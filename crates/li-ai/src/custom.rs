@@ -174,7 +174,19 @@ pub fn from_api(name: &str, graph: Value) -> Result<CustomWorkflow> {
 }
 
 /// Reads a workflow file in either format (`info` is needed for the UI format).
+/// A workflow without `li:` titles gets basic controls: its prompt, negative, seed and size found
+/// by their roles ([`basic_fields`]).
 pub fn import(name: &str, json: &Value, info: Option<&ObjectInfo>) -> Result<CustomWorkflow> {
+    let mut w = read(name, json, info)?;
+    if w.fields.is_empty() {
+        w.fields = basic_fields(&w.graph);
+        w.basic = !w.fields.is_empty();
+    }
+    Ok(w)
+}
+
+/// [`import`] without the role fallback: only the `li:` titles.
+pub fn read(name: &str, json: &Value, info: Option<&ObjectInfo>) -> Result<CustomWorkflow> {
     if json.get("nodes").is_some_and(Value::is_array) {
         let info = info.context("start ComfyUI to import a workflow saved from its editor (or export it in API format)")?;
         return from_api(name, ui_to_api(json, info)?);
@@ -273,21 +285,6 @@ pub fn basic_fields(graph: &Value) -> Vec<Field> {
         fields.retain(|f| f.kind != FieldKind::Negative);
     }
     fields
-}
-
-/// An official template as a custom workflow with basic controls (its markers, if it has any,
-/// else [`basic_fields`]).
-pub fn from_template(name: &str, ui: &Value, info: &ObjectInfo) -> Result<CustomWorkflow> {
-    let graph = ui_to_api(ui, info)?;
-    let mut w = from_api(name, graph)?;
-    if w.fields.is_empty() {
-        w.fields = basic_fields(&w.graph);
-        w.basic = true;
-    }
-    if !w.has(&FieldKind::Prompt) {
-        bail!("Local Image couldn't find the prompt in this template");
-    }
-    Ok(w)
 }
 
 /// Sets the run's values and returns the graph plus the `LoadImage` node of each image field
@@ -452,7 +449,7 @@ mod tests {
                 continue;
             }
             let ui: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
-            let w = from_template(&name, &ui, &info).unwrap_or_else(|e| panic!("{name}: {e:#}"));
+            let w = import(&name, &ui, Some(&info)).unwrap_or_else(|e| panic!("{name}: {e:#}"));
             let g = w.graph.as_object().unwrap();
             for (id, n) in g {
                 for (k, v) in n["inputs"].as_object().unwrap() {
@@ -481,8 +478,8 @@ mod tests {
         assert_eq!(api["60"]["inputs"]["images"], json!(["76:8", 0]));
         assert!(api["76:3"]["inputs"]["seed"].as_u64().is_some());
         assert_eq!(api["76:3"]["inputs"]["sampler_name"], "euler");
-        let w = from_template("Qwen", &ui, &info).unwrap();
-        assert!(w.basic);
+        let w = import("Qwen", &ui, Some(&info)).unwrap();
+        assert!(w.basic, "an unmarked workflow gets basic controls by role");
         assert_eq!(w.fields.iter().find(|f| f.kind == FieldKind::Prompt).map(|f| f.node.as_str()), Some("76:6"));
         assert_eq!(w.fields.iter().find(|f| f.kind == FieldKind::Negative).map(|f| f.node.as_str()), Some("76:7"));
         assert!(w.fields.iter().any(|f| f.kind == FieldKind::Width && f.node == "76:58"));

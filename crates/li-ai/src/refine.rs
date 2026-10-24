@@ -551,7 +551,7 @@ fn activate_template_branch(template: &Value, installed: &InstalledModel) -> Val
 /// becomes img2img by replacing its empty latent with VAEEncode using its actual decoder VAE.
 pub fn template_recipe(name: &str, template: &Value, info: &ObjectInfo, installed: &InstalledModel) -> Result<Recipe> {
     let template = activate_template_branch(template, installed);
-    let mut w = custom::import(name, &template, Some(info))?;
+    let mut w = custom::read(name, &template, Some(info))?;
     select_template_output(&mut w, installed)?;
     let grid = if w.graph.as_object().is_some_and(|g| g.values().any(|n| n["class_type"] == "TextEncodeQwenImage21")) {
         32
