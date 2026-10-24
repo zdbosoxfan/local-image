@@ -233,6 +233,44 @@ mod tests {
         }
     }
 
+    /// darktable's opposed modes fill an area clipped in every channel from the white-balance
+    /// multipliers (a peach window under daylight multipliers, a blue one under tungsten); the
+    /// neutral pass makes it white, and leaves partly clipped areas to the ports.
+    #[test]
+    fn fully_clipped_areas_render_neutral_in_the_darktable_modes() {
+        use super::super::Mode;
+        let spread = |p: [f32; 3], wb: [f32; 3]| {
+            let q = [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
+            let (lo, hi) = (q.iter().cloned().fold(f32::MAX, f32::min), q.iter().cloned().fold(0.0, f32::max));
+            (hi - lo) / hi
+        };
+        for wb in [[2.2, 1.0, 1.6], [1.35, 1.0, 2.9]] {
+            // a neutral wall (0.3 white balanced) with a 30×30 patch clipped in every channel
+            let img = RgbFrame::from_fn(64, 64, |x, y| {
+                if (17..47).contains(&x) && (17..47).contains(&y) { [1.0; 3] } else { [0.3 / wb[0], 0.3 / wb[1], 0.3 / wb[2]] }
+            });
+            let mut ported = img.clone();
+            super::super::opposed(&mut ported, wb, 0.99);
+            assert!(spread(ported.get(32, 32), wb) > 0.1, "the port alone tints the patch: {:?}", ported.get(32, 32));
+            for mode in [Mode::Opposed, Mode::Segmentation] {
+                let mut rgb = img.clone();
+                highlights(mode, wb).rgb(&mut rgb);
+                assert!(spread(rgb.get(32, 32), wb) < 0.02, "{mode:?} {wb:?}: {:?}", rgb.get(32, 32));
+                assert_eq!(rgb.get(2, 2), img.get(2, 2), "the wall is untouched");
+                let raw = raw_of(&mosaic_from_rgb(&img, &Cfa::bayer("RGGB").unwrap()), Default::default());
+                let out = raw.develop_with_highlights(crate::Method::Rcd, &Default::default(), &highlights(mode, wb)).unwrap();
+                assert!(spread(out.get(32, 32), wb) < 0.02, "{mode:?} {wb:?} on the mosaic: {:?}", out.get(32, 32));
+            }
+        }
+        // only green clipped: nothing for the pass to do
+        let wb = [2.2, 1.0, 1.6];
+        let partly = RgbFrame::from_fn(64, 64, |x, _| [0.3, (0.6 + x as f32 * 0.02).min(1.0), 0.4]);
+        let (mut a, mut b) = (partly.clone(), partly);
+        super::super::opposed(&mut a, wb, 0.99);
+        highlights(Mode::Opposed, wb).rgb(&mut b);
+        assert_eq!(a.data, b.data);
+    }
+
     #[test]
     fn clip_cfa_limits_to_the_lowest_balanced_channel() {
         let wb = [2.0, 1.0, 1.5];

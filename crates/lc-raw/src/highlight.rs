@@ -60,6 +60,8 @@ pub enum Pending {
     Rgb,
     /// Reconstruct the clipped channels the mosaic's clip mask names.
     Masked(ClipMask),
+    /// Neutralise where the mosaic's clip mask has all three colours clipped.
+    Neutralize(ClipMask),
 }
 
 impl Highlights {
@@ -73,8 +75,15 @@ impl Highlights {
             Mode::Clip => clip_cfa(n, self.wb, self.clip),
             // the samples a demosaic spreads into each pixel: its 3×3 neighbourhood
             Mode::Reconstruct => return ClipMask::of(n, self.clip, 1).map_or(Pending::Nothing, Pending::Masked),
-            Mode::Opposed => drop(opposed_cfa(n, self.wb, self.clip)),
-            Mode::Segmentation => drop(segmentation(n, self.wb, self.clip, &SegmentationOptions::default().at_scale(scale))),
+            Mode::Opposed | Mode::Segmentation => {
+                let mask = ClipMask::of(n, self.clip, 1);
+                if self.mode == Mode::Opposed {
+                    opposed_cfa(n, self.wb, self.clip);
+                } else {
+                    segmentation(n, self.wb, self.clip, &SegmentationOptions::default().at_scale(scale));
+                }
+                return mask.map_or(Pending::Nothing, Pending::Neutralize);
+            }
         }
         Pending::Nothing
     }
@@ -85,6 +94,11 @@ impl Highlights {
             Pending::Nothing => {}
             Pending::Rgb => self.rgb(img),
             Pending::Masked(mask) => drop(reconstruct_masked(img, &mask, self.wb, self.clip)),
+            Pending::Neutralize(mask) => {
+                if (mask.width, mask.height) == (img.width, img.height) {
+                    neutralize(img, self.wb, self.clip, |i, _| mask.at(i) == [true; 3]);
+                }
+            }
         }
     }
 
@@ -95,9 +109,56 @@ impl Highlights {
         match self.mode {
             Mode::Clip => clip_neutral(img, self.wb, self.clip),
             Mode::Reconstruct => drop(reconstruct(img, self.wb, self.clip)),
-            Mode::Opposed | Mode::Segmentation => drop(opposed(img, self.wb, self.clip)),
+            Mode::Opposed | Mode::Segmentation => {
+                opposed(img, self.wb, self.clip);
+                neutralize_clipped(img, self.wb, self.clip);
+            }
         }
     }
+
+    /// What is left after the mode ran on a mosaic that was then binned (no interpolation, so a
+    /// clipped channel kept its maximum): the neutral pass of the darktable modes.
+    pub(crate) fn binned(&self, img: &mut RgbFrame) {
+        if matches!(self.mode, Mode::Opposed | Mode::Segmentation) {
+            neutralize_clipped(img, self.wb, self.clip);
+        }
+    }
+}
+
+/// darktable's inpaint opposed and segmentation fill a channel clipped together with both others
+/// from those two clipped values plus a chroma offset, so where all three clip the result is set
+/// by the white-balance multipliers, not the scene: peach or lilac windows, magenta suns. This
+/// pass blends such pixels to a neutral as bright as [`reconstruct`] makes them, weighted by how
+/// much of their 3×3 neighbourhood is clipped in every channel, so the partly clipped ring keeps
+/// its colour without a hard edge. The ports themselves stay bit-exact.
+pub fn neutralize_clipped(img: &mut RgbFrame, wb: [f32; 3], clip: f32) {
+    neutralize(img, wb, clip, |_, p| p.iter().all(|&v| v >= clip));
+}
+
+fn neutralize(img: &mut RgbFrame, wb: [f32; 3], clip: f32, all_clipped: impl Fn(usize, &[f32; 3]) -> bool + Sync) {
+    let (w, h) = (img.width, img.height);
+    let full: Vec<u8> = img.data.par_iter().enumerate().map(|(i, p)| u8::from(all_clipped(i, p))).collect();
+    if !full.contains(&1) {
+        return;
+    }
+    let mut rows = vec![0u8; w * h];
+    rows.par_chunks_mut(w).zip(full.par_chunks(w)).for_each(|(out, row)| {
+        for (x, o) in out.iter_mut().enumerate() {
+            *o = row[x.saturating_sub(1)..(x + 2).min(w)].iter().sum();
+        }
+    });
+    let max_level = wb.iter().cloned().fold(0.0f32, f32::max) * clip;
+    img.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        for (x, px) in row.iter_mut().enumerate() {
+            let t = (y.saturating_sub(1)..(y + 2).min(h)).map(|yy| u32::from(rows[yy * w + x])).sum::<u32>() as f32 / 9.0;
+            if t <= 0.0 {
+                continue;
+            }
+            let q = [px[0] * wb[0], px[1] * wb[1], px[2] * wb[2]];
+            let n = q.iter().cloned().fold(max_level, f32::max);
+            *px = std::array::from_fn(|c| (q[c] + (n - q[c]) * t) / wb[c]);
+        }
+    });
 }
 
 /// Clip every channel of `wb ⊙ img` at `min_c(wb_c) · clip` — i.e. at the lowest channel's clip level after WB —

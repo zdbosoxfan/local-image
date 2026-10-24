@@ -110,9 +110,13 @@ impl RawImage {
     /// keep their block maximum. `None` where [`Self::develop_binned`] has none.
     pub fn develop_binned_with_highlights(&self, k: usize, h: &crate::highlight::Highlights) -> Result<Option<RgbFrame>> {
         if h.mode == crate::highlight::Mode::Segmentation {
-            return self.develop_binned_with(k, h.clip, |n, scale| {
+            let img = self.develop_binned_with(k, h.clip, |n, scale| {
                 h.mosaic(n, scale);
-            });
+            })?;
+            return Ok(img.map(|mut img| {
+                h.binned(&mut img);
+                img
+            }));
         }
         Ok(self.develop_binned(k, h.clip)?.map(|mut img| {
             h.rgb(&mut img);
