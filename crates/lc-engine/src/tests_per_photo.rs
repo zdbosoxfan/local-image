@@ -243,6 +243,26 @@ fn hover_previews_of_photos_with_equal_settings_are_told_apart() {
     assert_eq!(a, s.preview_job(A, 800, 600, true, &look).unwrap().key, "the same hover on the same photo reuses its render");
 }
 
+/// A drag's end outside a command (`end_interaction`, as the menus call it) with Auto Sync on
+/// starts the synced photos' Upright analysis at once, and it undoes with the drag.
+#[test]
+fn an_auto_synced_drag_end_analyses_upright_within_its_own_step() {
+    let mut s = rolled_photos();
+    s.execute("develop.autoSync", &json!({"on": true})).unwrap();
+    let steps = s.undo.len();
+    s.begin_interaction("Upright Drag").unwrap();
+    s.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    s.end_interaction().unwrap();
+    assert_eq!(s.upright.jobs().len(), 1, "the analysis starts without waiting for another command");
+    assert_eq!(settle(&mut s), 2);
+    assert_eq!(s.undo.len(), steps + 1, "one step with the drag");
+    assert_eq!(s.undo.last().unwrap().label, "Upright Drag");
+    let a = transform_of(&s, A).unwrap();
+    for id in [B, C] {
+        assert!(transform_of(&s, id).is_some_and(|t| max_diff(&a, &t) > 0.05), "photo {} has its own analysis", id.0);
+    }
+}
+
 fn mean(img: &li_raster::Rgba8) -> f64 {
     img.data.iter().map(|p| f64::from(p[0])).sum::<f64>() / img.data.len() as f64
 }

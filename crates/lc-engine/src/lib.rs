@@ -694,7 +694,12 @@ impl Session {
         let mut ops = vec![self.develop_op(id, (*settings).clone(), label).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?];
         ops.extend(self.auto_sync_ops(id, &settings, label));
         let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch { ops } };
-        self.commit(label, op)
+        let r = self.commit(label, op);
+        if self.depth == 0 {
+            // outside a command (a drag ending): the Upright analyses Auto Sync queued join this step
+            self.start_upright();
+        }
+        r
     }
 
     /// With Auto Sync on, the ops that carry an edit of the active photo `id` (to `new`) over to the
