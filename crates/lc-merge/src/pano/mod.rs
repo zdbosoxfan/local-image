@@ -376,7 +376,13 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         focal: f_out,
         origin: (ox, oy),
         color: r.color.clone(),
-        metadata: r.metadata.clone(),
+        // The canvas's own 35 mm-equivalent focal length (by the diagonal, as EXIF; the projection's
+        // at its centre): the reference frame's describes a narrower view, and Upright takes this
+        // as the camera of the panorama.
+        metadata: lightcraft_meta::Metadata {
+            focal_length_35mm: Some(f_out * 36f64.hypot(24.0) / (cw as f64).hypot(ch as f64)),
+            ..r.metadata.clone()
+        },
         raw: r.raw,
         baseline_exposure: r.baseline_exposure,
     })

@@ -156,6 +156,9 @@ pub struct SourceInfo {
     /// Original Sony curves from the single lc-meta reader; converted only if no embedded map exists.
     pub sony_lens: Option<lightcraft_develop::SonyLensData>,
     pub source_orientation: lightcraft_geom::Orientation,
+    /// 35 mm-equivalent focal length (equivalent by the diagonal, as EXIF
+    /// FocalLengthIn35mmFormat), for Upright's camera model.
+    pub focal_35mm: Option<f64>,
     /// Linear camera -> working basis for calibrated per-plane CA.
     pub lens_camera_to_working: Option<li_color::Mat3>,
     /// Nonlinear fitted look is evaluated after lens geometry.
@@ -222,6 +225,7 @@ impl Default for SourceInfo {
             embedded_ca_baked: false,
             sony_lens: None,
             source_orientation: lightcraft_geom::Orientation::Normal,
+            focal_35mm: None,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,
@@ -347,16 +351,17 @@ pub fn frame_for(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_c
     let mut frame =
         geometry::Frame::with_lcp(src.width, src.height, &settings, apply_crop, embedded.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
     let profile_ca = frame.warp.as_ref().is_some_and(|w| w.profile_ca());
-    if let Some(warp) = frame.warp.as_mut().filter(|_| profile_ca)
-        && let Some(forward) = info.lens_camera_to_working
-        && let Some(undo) = forward.inverse()
-    {
-        warp.camera_basis = Some([undo, forward]);
-    }
+    // Lateral CA displaces the sensor's own colour planes, which the raw loader has already mixed
+    // into working RGB: calibrated, estimated and manual CA alike are measured and corrected on
+    // camera planes, or a shifted plane drags the other planes' share of it along.
+    let basis = info.lens_camera_to_working.and_then(|forward| forward.inverse().map(|undo| [undo, forward]));
     // The estimator sees the uncorrected source. Applying it on top of a
     // calibrated CA profile would correct the same displacement twice.
     if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
-        frame.add_lateral_ca(optics::estimate_lateral_ca(src));
+        frame.add_lateral_ca(optics::estimate_lateral_ca(src, basis.map(|[undo, _]| undo)));
+    }
+    if let Some(warp) = frame.warp.as_mut().filter(|w| w.per_channel()) {
+        warp.camera_basis = basis;
     }
     frame
 }
@@ -611,6 +616,31 @@ pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     redeye::apply(img, &p.eyes);
 }
 
+/// Noise reduction of the resampled image ([`local::denoise_source`]). The lens warp has already
+/// brightened vignetted corners by up to a few stops, but the noise models assume one noise level
+/// per signal level across the frame, which would leave the corners up to twice their share of
+/// grain. The gain is divided out around the denoiser (a per-pixel scale, it commutes with white
+/// balance and the colour matrices), so the corners are denoised as their raw noise is.
+pub fn denoise_sampled(img: &mut RgbFrame, frame: &geometry::Frame, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
+    let scale = detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
+    let gain = detail::nr_params(s, scale).and_then(|_| frame.vignette_gain(img.width, img.height));
+    let scale_by = |img: &mut RgbFrame, k: &li_raster::GrayFrame, divide: bool| {
+        let w = img.width;
+        li_raster::par_rows(&mut img.data, w, |y, row| {
+            for (p, k) in row.iter_mut().zip(k.row(y)) {
+                *p = p.map(|v| if divide { v / k } else { v * k });
+            }
+        });
+    };
+    if let Some(k) = &gain {
+        scale_by(img, k, true);
+    }
+    local::denoise_source(img, s, src_long, px_per_long, info);
+    if let Some(k) = &gain {
+        scale_by(img, k, false);
+    }
+}
+
 /// Capture sharpening of a source with `info` under `s` (see [`capture`]): `None` when it is off,
 /// the source isn't raw, or the blur at this source's scale is too small to matter.
 pub fn capture_params(info: &SourceInfo, s: &DevelopSettings) -> Option<capture::CaptureParams> {
@@ -769,7 +799,7 @@ fn render_impl(
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise_source(&mut img, s, src_long, px_per_long, info);
+            denoise_sampled(&mut img, &frame, s, src_long, px_per_long, info);
             Arc::new(img)
         }
     };

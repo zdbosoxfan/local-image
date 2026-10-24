@@ -48,6 +48,27 @@ impl CropGeometry {
         Affine::rotate_about(-self.angle.to_radians(), c) * to_rot
     }
 
+    /// The crop on whole pixels of a `w × h` image when it is unrotated, as Lightroom crops: a
+    /// full-size render then copies pixels instead of interpolating them at the crop's sub-pixel
+    /// phase. Position and size round separately, so moving a crop never changes its size. A
+    /// rotated crop is returned as is.
+    pub fn snapped(&self, w: f64, h: f64) -> CropGeometry {
+        if self.angle != 0.0 || !(w >= 1.0 && h >= 1.0) {
+            return *self;
+        }
+        let axis = |a: f64, b: f64, n: f64| {
+            if !(a.is_finite() && b.is_finite()) {
+                return (a, b);
+            }
+            let len = ((b - a) * n).round().clamp(0.0, n);
+            let lo = (a * n).round().clamp(0.0, n - len);
+            (lo / n, (lo + len) / n)
+        };
+        let (x0, x1) = axis(self.rect.x0, self.rect.x1, w);
+        let (y0, y1) = axis(self.rect.y0, self.rect.y1, h);
+        CropGeometry { rect: Rect::new(x0, y0, x1, y1), angle: self.angle }
+    }
+
     /// Whether every crop corner lies within the rotated image.
     pub fn is_within_image(&self, w: f64, h: f64) -> bool {
         let r = self.rect_px(w, h);
@@ -117,6 +138,26 @@ mod tests {
         let t = c.output_to_source(400.0, 300.0, 400.0, 300.0);
         let p = t.apply(Point::new(10.0, 20.0));
         assert!((p.x - 10.0).abs() < 1e-9 && (p.y - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn unrotated_crops_snap_to_whole_pixels() {
+        let snap = |r: Rect| CropGeometry { rect: r, angle: 0.0 }.snapped(2000.0, 1000.0).rect_px(2000.0, 1000.0);
+        let r = snap(Rect::new(0.4 / 2000.0, 0.2004, 1500.4 / 2000.0, 0.8));
+        for (v, want) in [(r.x0, 0.0), (r.x1, 1500.0), (r.y0, 200.0), (r.y1, 800.0)] {
+            assert!((v - want).abs() < 1e-9, "{r:?}");
+        }
+        // moving the crop by a fraction of a pixel never changes its size
+        for dx in [0.0, 0.3, 0.5, 0.7, 1.49] {
+            let r = snap(Rect::new((10.0 + dx) / 2000.0, 0.0, (1510.4 + dx) / 2000.0, 1.0));
+            assert!((r.width() - 1500.0).abs() < 1e-9 && (r.x0 - r.x0.round()).abs() < 1e-9, "{dx}: {r:?}");
+        }
+        // a crop hanging over the edge stays inside, the whole frame is untouched, a rotated crop is kept
+        let r = snap(Rect::new(0.9, -0.0004, 1.0002, 0.5));
+        assert!(r.x1 <= 2000.0 + 1e-9 && r.y0 >= 0.0 && (r.width() - 200.0).abs() < 1e-9, "{r:?}");
+        assert_eq!(CropGeometry::default().snapped(2000.0, 1000.0), CropGeometry::default());
+        let rotated = CropGeometry { rect: Rect::new(0.1003, 0.1, 0.9, 0.9), angle: 2.0 };
+        assert_eq!(rotated.snapped(2000.0, 1000.0), rotated);
     }
 
     #[test]

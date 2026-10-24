@@ -1064,7 +1064,8 @@ mod colour_tone_tests {
         // The resampled scene and masked adjustments from GPU equivalence's
         // "masks (cpu shapes, ops, amount)" failure. A small log-luminance change
         // models CPU/GPU rounding before the CPU-evaluated Sky/Background shapes.
-        let src = lightcraft_scenes::demo_library()[0].render(960, 640);
+        // Out-of-gamut blues give the scene negative channels.
+        let src = lightcraft_scenes::demo_library()[0].render(960, 640).map(|p| [p[0], p[1], p[2] - 0.01]);
         let info = SourceInfo { raw: true, ..Default::default() };
         let s = DevelopSettings {
             masks: vec![
@@ -1085,7 +1086,7 @@ mod colour_tone_tests {
         let req = crate::RenderRequest::fit(720, 720);
         let plan = crate::plan(&src, &info, &s, &req);
         let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
-        assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative resampling channels");
+        assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative scene channels");
         let mut prep = crate::local::prepare(
             img.clone(),
             None,

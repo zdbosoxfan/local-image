@@ -9,8 +9,19 @@
 use lightcraft_develop::Geometry;
 use lightcraft_geom::Homography;
 
-/// Assumed focal length in half-long-edge units (≈ 27 mm on a 36 mm-wide frame).
+/// Assumed focal length in half-long-edge units (≈ 27 mm on a 36 mm-wide frame), when the photo
+/// records none.
 pub const DEFAULT_FOCAL: f64 = 1.5;
+/// Diagonal of the 36 × 24 mm frame that 35 mm-equivalent focal lengths refer to.
+const FULL_FRAME_DIAGONAL: f64 = 43.266_615_305_567_87;
+
+/// The focal length in half-long-edge units of a `w × h` image for a 35 mm-equivalent focal length
+/// `f35` (equivalent by the diagonal, as EXIF FocalLengthIn35mmFormat): `F35/18` on a 3:2 frame,
+/// `F35/17.3` on 4:3. `None` outside 0.3 to 40 units (about 5 to 720 mm): no plausible lens.
+pub fn focal_from_35mm(f35: f64, w: f64, h: f64) -> Option<f64> {
+    let f = f35 * 2.0 * w.hypot(h) / (FULL_FRAME_DIAGONAL * w.max(h));
+    (f.is_finite() && (0.3..=40.0).contains(&f)).then_some(f)
+}
 /// Vertical/Horizontal ±100 → virtual camera rotation (radians).
 const KEYSTONE_MAX: f64 = 0.5;
 
@@ -86,4 +97,18 @@ pub fn manual(g: &Geometry) -> Homography {
         h = Homography([1.0, 0.0, g.offset_x / 100.0 * 0.5, 0.0, 1.0, -g.offset_y / 100.0 * 0.5, 0.0, 0.0, 1.0]).mul(&h);
     }
     h
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn focal_lengths_convert_by_the_diagonal() {
+        assert!((focal_from_35mm(16.0, 8640.0, 5760.0).unwrap() - 16.0 / 18.0).abs() < 1e-3, "3:2 full frame");
+        assert!((focal_from_35mm(16.0, 5760.0, 8640.0).unwrap() - 16.0 / 18.0).abs() < 1e-3, "portrait: the long edge");
+        assert!((focal_from_35mm(28.0, 5280.0, 3956.0).unwrap() - 28.0 / 17.31).abs() < 2e-3, "4:3 (DJI)");
+        assert_eq!(focal_from_35mm(1.0, 6000.0, 4000.0), None);
+        assert_eq!(focal_from_35mm(f64::NAN, 6000.0, 4000.0), None);
+    }
 }

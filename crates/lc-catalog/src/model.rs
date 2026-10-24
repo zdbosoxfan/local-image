@@ -165,6 +165,9 @@ pub struct Meta {
     pub camera: String,
     pub lens: String,
     pub focal_mm: Option<f32>,
+    /// EXIF FocalLengthIn35mmFormat (Upright's camera model on any sensor size).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub focal_35mm: Option<f32>,
     pub aperture: Option<f32>,
     pub shutter: String,
     pub iso: Option<u32>,

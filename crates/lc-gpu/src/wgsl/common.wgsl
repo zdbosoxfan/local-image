@@ -65,3 +65,16 @@ fn oklab_inv(lab: vec3<f32>) -> vec3<f32> {
     let l = mul3(OK_FROM_LAB, lab);
     return mul3(OK_FROM_LMS, l * l * l);
 }
+
+// `li_raster::resample::antiring`: `v` clamped to [lo, hi] widened by `slack` of each bound.
+fn antiring(v: f32, lo: f32, hi: f32, slack: f32) -> f32 {
+    if (!(lo <= hi)) {
+        return v;
+    }
+    return min(max(v, lo - slack * abs(lo)), hi + slack * abs(hi));
+}
+
+// `li_raster::resample::antiring_taper`.
+fn antiring_taper(w: f32, w_max: f32) -> f32 {
+    return clamp(w * 10.0 / w_max, 0.0, 1.0);
+}

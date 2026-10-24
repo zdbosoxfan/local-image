@@ -146,7 +146,7 @@ const MODULES: &[Module] = &[
     },
     Module {
         src: include_str!("wgsl/resize.wgsl"),
-        bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32")],
+        bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32"), ("exact", true, "f32")],
         entries: &["resize_h", "resize_v"],
     },
     Module {
@@ -201,7 +201,7 @@ const MODULES: &[Module] = &[
     Module {
         src: include_str!("wgsl/geom.wgsl"),
         bindings: &[("src", false, "f32"), ("dst", true, "f32"), ("coverage", false, "u32")],
-        entries: &["orient", "sample_affine", "sample_warp"],
+        entries: &["orient", "sample_affine", "sample_warp", "vignette_gain"],
     },
 ];
 
@@ -492,6 +492,11 @@ fn constants() -> String {
     }
     let b = lightcraft_pipeline::geometry::BLANK;
     s += &format!("const BLANK_R: f32 = {:?};\nconst BLANK_G: f32 = {:?};\nconst BLANK_B: f32 = {:?};\n", b[0], b[1], b[2]);
+    s += &format!(
+        "const CUBIC_MAX_STRETCH: f32 = {:?};\nconst CUBIC_TAPS: u32 = {}u;\n",
+        li_raster::frame::CUBIC_MAX_STRETCH,
+        li_raster::frame::CUBIC_TAPS
+    );
     s += &format!(
         "const SRGB_N: u32 = {SRGB_LUT_N}u;\nconst CURVE_N: u32 = {}u;\nconst MASK_TERMS: u32 = {MASK_TERMS}u;\nconst MASK_SUMS: u32 = {MASK_SUMS}u;\n",
         crate::params::CURVE_N

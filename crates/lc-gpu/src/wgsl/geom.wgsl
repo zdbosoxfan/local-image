@@ -1,6 +1,6 @@
-// Geometry (`lightcraft_pipeline::geometry::Frame::sample`): orientation, and the single bilinear
+// Geometry (`lightcraft_pipeline::geometry::Frame::sample`): orientation, and the single cubic
 // resample through the crop/straighten/flip affine or the full lens + perspective warp.
-// Bindings: src (rgb), dst (rgb).
+// Bindings: src (rgb), dst (rgb), coverage (the warp's tables, see `sample_warp`).
 
 fn src_px(w: u32, h: u32, x: i32, y: i32) -> vec3<f32> {
     let cx = u32(clamp(x, 0, i32(w) - 1));
@@ -9,23 +9,92 @@ fn src_px(w: u32, h: u32, x: i32, y: i32) -> vec3<f32> {
     return vec3<f32>(src[j], src[j + 1u], src[j + 2u]);
 }
 
-// `RgbFrame::sample_bilinear` (pixel centres at +0.5, clamped edges).
-fn bilinear(w: u32, h: u32, x: f32, y: f32) -> vec3<f32> {
-    let fx = x - 0.5;
-    let fy = y - 0.5;
-    let x0 = floor(fx);
-    let y0 = floor(fy);
-    let tx = fx - x0;
-    let ty = fy - y0;
-    let ix = i32(x0);
-    let iy = i32(y0);
-    let a = src_px(w, h, ix, iy);
-    let b = src_px(w, h, ix + 1, iy);
-    let c = src_px(w, h, ix, iy + 1);
-    let d = src_px(w, h, ix + 1, iy + 1);
-    let top = a + (b - a) * tx;
-    let bot = c + (d - c) * tx;
-    return top + (bot - top) * ty;
+// `li_raster::resample::Filter::CatmullRom`.
+fn catmull_rom(t: f32) -> f32 {
+    let x = abs(t);
+    if (x < 1.0) {
+        return 1.5 * x * x * x - 2.5 * x * x + 1.0;
+    }
+    if (x < 2.0) {
+        return -0.5 * x * x * x + 2.5 * x * x - 4.0 * x + 2.0;
+    }
+    return 0.0;
+}
+
+// One axis of `cubic` (`li_raster`'s `cubic_axis`): first source index, tap count, normalized
+// weights and their `antiring_taper`.
+struct CubicAxis {
+    j0: i32,
+    n: u32,
+    w: array<f32, CUBIC_TAPS>,
+    taper: array<f32, CUBIC_TAPS>,
+}
+
+fn cubic_axis(x: f32, n: u32, stretch: f32) -> CubicAxis {
+    let s = clamp(stretch, 1.0, CUBIC_MAX_STRETCH);
+    let f = clamp(x, -1.0, f32(n) + 1.0) - 0.5;
+    let j0 = floor(f - 2.0 * s) + 1.0;
+    var a: CubicAxis;
+    a.j0 = i32(j0);
+    a.n = min(u32(ceil(f + 2.0 * s) - 1.0 - j0) + 1u, CUBIC_TAPS);
+    var sum = 0.0;
+    for (var k = 0u; k < a.n; k++) {
+        a.w[k] = catmull_rom((j0 + f32(k) - f) / s);
+        sum = sum + a.w[k];
+    }
+    var w_max = 0.0;
+    for (var k = 0u; k < a.n; k++) {
+        a.w[k] = a.w[k] / sum;
+        w_max = max(w_max, a.w[k]);
+    }
+    for (var k = 0u; k < a.n; k++) {
+        a.taper[k] = antiring_taper(a.w[k], w_max);
+    }
+    return a;
+}
+
+// `RgbFrame::sample_cubic` (pixel centres at +0.5, clamped edges, ringing suppressed).
+fn cubic(w: u32, h: u32, x: f32, y: f32, stretch: vec2<f32>, slack: f32) -> vec3<f32> {
+    let ax = cubic_axis(x, w, stretch.x);
+    let ay = cubic_axis(y, h, stretch.y);
+    var acc = vec3<f32>(0.0);
+    var lobe = vec3<f32>(0.0);
+    var lobe_w = 0.0;
+    for (var ky = 0u; ky < ay.n; ky++) {
+        var row = vec3<f32>(0.0);
+        var lobe_row = vec3<f32>(0.0);
+        var lobe_row_w = 0.0;
+        for (var kx = 0u; kx < ax.n; kx++) {
+            let p = src_px(w, h, ax.j0 + i32(kx), ay.j0 + i32(ky));
+            let c = ax.w[kx] * ax.taper[kx];
+            row = row + p * ax.w[kx];
+            lobe_row = lobe_row + p * c;
+            lobe_row_w = lobe_row_w + c;
+        }
+        let c = ay.w[ky] * ay.taper[ky];
+        acc = acc + row * ay.w[ky];
+        lobe = lobe + lobe_row * c;
+        lobe_w = lobe_w + lobe_row_w * c;
+    }
+    if (!(lobe_w > 0.0)) {
+        return acc;
+    }
+    let mean = lobe / lobe_w;
+    var dlo = vec3<f32>(0.0);
+    var dhi = vec3<f32>(0.0);
+    for (var ky = 0u; ky < ay.n; ky++) {
+        for (var kx = 0u; kx < ax.n; kx++) {
+            let t = ax.taper[kx] * ay.taper[ky];
+            if (t > 0.0) {
+                let d = (src_px(w, h, ax.j0 + i32(kx), ay.j0 + i32(ky)) - mean) * t;
+                dlo = min(dlo, d);
+                dhi = max(dhi, d);
+            }
+        }
+    }
+    let rlo = mean + dlo;
+    let rhi = mean + dhi;
+    return vec3<f32>(antiring(acc.x, rlo.x, rhi.x, slack), antiring(acc.y, rlo.y, rhi.y, slack), antiring(acc.z, rlo.z, rhi.z, slack));
 }
 
 fn put(i: u32, v: vec3<f32>) {
@@ -53,7 +122,9 @@ fn orient(@builtin(global_invocation_id) g: vec3<u32>) {
     put(g.y * ow + g.x, vec3<f32>(src[j], src[j + 1u], src[j + 2u]));
 }
 
-// Bilinear resample through an affine (output px → base px). P: bw, bh, w, h, affine[6].
+
+// Cubic resample through an affine (output px → base px). P: bw, bh, w, h, affine[6], stretch[2]
+// (`geometry::affine_stretch`), anti-ringing slack.
 @compute @workgroup_size(16, 16)
 fn sample_affine(@builtin(global_invocation_id) g: vec3<u32>) {
     let w = pu(2u);
@@ -65,7 +136,7 @@ fn sample_affine(@builtin(global_invocation_id) g: vec3<u32>) {
     let py = f32(g.y) + 0.5;
     let x = pf(4u) * px + pf(6u) * py + pf(8u);
     let y = pf(5u) * px + pf(7u) * py + pf(9u);
-    put(g.y * w + g.x, bilinear(pu(0u), pu(1u), x, y));
+    put(g.y * w + g.x, cubic(pu(0u), pu(1u), x, y, vec2<f32>(pf(10u), pf(11u)), pf(12u)));
 }
 
 // The lens / perspective warp (`lightcraft_pipeline::optics::Warp`), in oriented-source px.
@@ -80,8 +151,11 @@ fn sample_affine(@builtin(global_invocation_id) g: vec3<u32>) {
 // 85 radial count, 86 attenuation count, 87..103 radial knots, 103..151 radial scales (3 × 16),
 // 151..167 attenuation knots, 167..183 attenuation, 183 radial centre x, 184 y, 185 radius.
 // 186 camera basis?, 187..196 working → camera matrix, 196..205 camera → working matrix (row-major).
-// 205 DNG fisheye? (the existing warp's first four coefficients).
-const WP_N: u32 = 206u;
+// 205 DNG fisheye? (the existing warp's first four coefficients), 206 stretch block size,
+// 207 anti-ringing slack.
+// The coverage binding holds the framing bit mask (rows of ceil(w / 32) words), then the kernel
+// widening per square block of P[206] output px (`geometry::warp_stretch`, f32 pairs, row-major).
+const WP_N: u32 = 208u;
 
 fn centre() -> vec2<f32> {
     return vec2<f32>(pf(12u) / 2.0, pf(13u) / 2.0);
@@ -270,6 +344,34 @@ fn camera_basis(v: vec3<f32>, offset: u32) -> vec3<f32> {
     );
 }
 
+// `Frame::vignette_gain` divided out of (P[208] set) or applied to an output-size image (around
+// noise reduction, `lightcraft_pipeline::denoise_sampled`). P as `sample_warp`; bindings: src (rgb),
+// dst (rgb), coverage: the framing bit mask, or with P[209] set the gain per pixel (f32 bits).
+@compute @workgroup_size(16, 16)
+fn vignette_gain(@builtin(global_invocation_id) g: vec3<u32>) {
+    let w = pu(2u);
+    let h = pu(3u);
+    if (g.x >= w || g.y >= h) {
+        return;
+    }
+    let i = g.y * w + g.x;
+    let v = vec3<f32>(src[3u * i], src[3u * i + 1u], src[3u * i + 2u]);
+    let word = g.y * ((w + 31u) / 32u) + g.x / 32u;
+    var k = 1.0;
+    if (pu(209u) != 0u) {
+        k = bitcast<f32>(coverage[i]);
+    } else if ((coverage[word] & (1u << (g.x % 32u))) != 0u) {
+        let px = f32(g.x) + 0.5;
+        let py = f32(g.y) + 0.5;
+        let t = vec2<f32>(pf(4u) * px + pf(6u) * py + pf(8u), pf(5u) * px + pf(7u) * py + pf(9u));
+        let gain = warp_gain(corrected_to_source(to_corrected(t), 1u));
+        if (gain > 0.0 && gain < 3.0e38) {
+            k = gain;
+        }
+    }
+    put(i, select(v * k, v / k, pu(208u) != 0u));
+}
+
 @compute @workgroup_size(16, 16)
 fn sample_warp(@builtin(global_invocation_id) g: vec3<u32>) {
     let w = pu(2u);
@@ -292,12 +394,15 @@ fn sample_warp(@builtin(global_invocation_id) g: vec3<u32>) {
         put(g.y * w + g.x, vec3<f32>(BLANK_R, BLANK_G, BLANK_B));
         return;
     }
-    var v = bilinear(bw, bh, s.x * sx, s.y * sy);
+    let blk = pu(206u);
+    let bi = h * ((w + 31u) / 32u) + 2u * ((g.y / blk) * ((w + blk - 1u) / blk) + g.x / blk);
+    let st = vec2<f32>(bitcast<f32>(coverage[bi]), bitcast<f32>(coverage[bi + 1u]));
+    var v = cubic(bw, bh, s.x * sx, s.y * sy, st, pf(207u));
     if (pu(63u) != 0u) {
         let qr = corrected_to_source(c, 0u);
         let qb = corrected_to_source(c, 2u);
-        let red = bilinear(bw, bh, qr.x * sx, qr.y * sy);
-        let blue = bilinear(bw, bh, qb.x * sx, qb.y * sy);
+        let red = cubic(bw, bh, qr.x * sx, qr.y * sy, st, pf(207u));
+        let blue = cubic(bw, bh, qb.x * sx, qb.y * sy, st, pf(207u));
         if (pu(186u) != 0u) {
             // Calibrated CA refers to camera planes. Undo the loader's linear
             // colour conversion before assembling independently sampled planes.

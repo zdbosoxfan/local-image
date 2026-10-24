@@ -400,13 +400,12 @@ fn gaussian_box_passes(cx: &mut Cx<'_>, src: &Buf, w: usize, h: usize, nc: usize
     if last == 0 { a } else { b }
 }
 
-/// Resample taps of `li_raster::resample::resize`, packed for the `resize_*` kernels.
-fn taps(src: usize, dst: usize, filter: Filter) -> Vec<u32> {
-    let w = li_raster::resample::weights(src, dst, filter);
-    let mut t = Vec::with_capacity(dst * 3);
+/// Resample taps (`li_raster::resample::weights` layout), packed for the `resize_*` kernels.
+fn taps(w: &[(usize, Vec<f32>)]) -> Vec<u32> {
+    let mut t = Vec::with_capacity(w.len() * 3);
     let mut weights = Vec::new();
-    let base = dst * 3;
-    for (lo, ws) in &w {
+    let base = w.len() * 3;
+    for (lo, ws) in w {
         t.extend_from_slice(&[*lo as u32, ws.len() as u32, (base + weights.len()) as u32]);
         weights.extend(ws.iter().map(|v| v.to_bits()));
     }
@@ -420,12 +419,31 @@ pub(crate) fn resize(cx: &mut Cx<'_>, src: &Buf, (sw, sh): (usize, usize), (dw, 
     if (sw, sh) == (dw, dh) {
         return cx.copy(src);
     }
-    let tx = cx.gpu.upload(&taps(sw, dw, filter));
+    let (wx, wy) = (li_raster::resample::weights(sw, dw, filter), li_raster::resample::weights(sh, dh, filter));
+    resize_with(cx, src, (sw, sh), (&wx, &wy), nc, None)
+}
+
+/// The separable resample through precomputed taps (`wx` per output column, `wy` per output row);
+/// with an anti-ringing slack, `li_raster::resample::resize_antiring` (RGB only).
+fn resize_with(
+    cx: &mut Cx<'_>,
+    src: &Buf,
+    (sw, sh): (usize, usize),
+    (wx, wy): (&[(usize, Vec<f32>)], &[(usize, Vec<f32>)]),
+    nc: usize,
+    antiring: Option<f32>,
+) -> Buf {
+    let (dw, dh) = (wx.len(), wy.len());
+    let slack = antiring.unwrap_or(0.0);
+    let p = |a: usize, b: usize, c: usize| [a as u32, b as u32, c as u32, nc as u32, antiring.is_some() as u32, slack.to_bits()];
+    let tx = cx.gpu.upload(&taps(wx));
     let tmp = cx.gpu.buffer(dw * sh * nc);
-    cx.run("resize_h", &[sw as u32, sh as u32, dw as u32, nc as u32], &[Some(src), Some(&tx), Some(&tmp)], groups2(dw, sh, [16, 16]));
-    let ty = cx.gpu.upload(&taps(sh, dh, filter));
+    // the horizontal outputs clamped without the slack, the vertical pass's range
+    let exact = (slack != 0.0).then(|| cx.gpu.buffer(dw * sh * nc));
+    cx.run("resize_h", &p(sw, sh, dw), &[Some(src), Some(&tx), Some(&tmp), exact.as_ref()], groups2(dw, sh, [16, 16]));
+    let ty = cx.gpu.upload(&taps(wy));
     let out = cx.gpu.buffer(dw * dh * nc);
-    cx.run("resize_v", &[dw as u32, sh as u32, dh as u32, nc as u32], &[Some(&tmp), Some(&ty), Some(&out)], groups2(dw, dh, [16, 16]));
+    cx.run("resize_v", &p(dw, sh, dh), &[Some(&tmp), Some(&ty), Some(&out), exact.as_ref()], groups2(dw, dh, [16, 16]));
     out
 }
 
@@ -524,6 +542,7 @@ fn warp_params(
     o2t: &lightcraft_geom::Affine,
     sx: f64,
     sy: f64,
+    slack: f32,
 ) -> Vec<u32> {
     let f = |v: f64| (v as f32).to_bits();
     let mut p = vec![base.0 as u32, base.1 as u32, out.0 as u32, out.1 as u32];
@@ -592,8 +611,18 @@ fn warp_params(
     p.extend(basis.iter().flat_map(|matrix| matrix.0.iter().flatten()).map(|v| f(*v)));
     debug_assert_eq!(p.len(), 205);
     p.push(w.fisheye as u32);
-    debug_assert_eq!(p.len(), 206);
+    p.push(lightcraft_pipeline::geometry::STRETCH_BLOCK as u32);
+    p.push(slack.to_bits());
+    debug_assert_eq!(p.len(), 208);
     p
+}
+
+/// The `sample_warp` kernel's per-pixel tables: the [`coverage_mask`], then the kernel widening per
+/// block ([`lightcraft_pipeline::geometry::warp_stretch`]).
+fn warp_tables(wp: &lightcraft_pipeline::optics::Warp, o2t: &lightcraft_geom::Affine, w: usize, h: usize, sx: f64, sy: f64) -> Vec<u32> {
+    let mut t = coverage_mask(wp, o2t, w, h);
+    t.extend(lightcraft_pipeline::geometry::warp_stretch(wp, o2t, sx, sy, w, h).iter().flatten().map(|v| v.to_bits()));
+    t
 }
 
 /// Output rows per block of [`coverage_mask`]; a block is one mask word (32 px) wide. 16 rows measured
@@ -648,27 +677,36 @@ fn sample(cx: &mut Cx<'_>, src: &Arc<RgbFrame>, src_buf: Arc<Buf>, plan: &Plan<'
         Arc::new(out)
     };
     let (base, (bw, bh)) = match sp.prefilter {
-        Some(d) => (Arc::new(resize(cx, &oriented, (sp.ow, sp.oh), d, 3, Filter::Mitchell)), d),
+        Some(d) => {
+            let (wx, wy) = (li_raster::resample::weights(sp.ow, d.0, Filter::Mitchell), li_raster::resample::weights(sp.oh, d.1, Filter::Mitchell));
+            (Arc::new(resize_with(cx, &oriented, (sp.ow, sp.oh), (&wx, &wy), 3, Some(0.0))), d)
+        }
         None => (oriented, (sp.ow, sp.oh)),
     };
     let mut affine = |xf: &lightcraft_geom::Affine| {
         let out = cx.gpu.buffer(w * h * 3);
         let mut p = vec![bw as u32, bh as u32, w as u32, h as u32];
         p.extend(affine_bits(xf));
+        p.extend(lightcraft_pipeline::geometry::affine_stretch(xf).map(f32::to_bits));
+        p.push(sp.slack.to_bits());
         cx.run("sample_affine", &p, &[Some(&base), Some(&out), None], groups2(w, h, [16, 16]));
         Arc::new(out)
     };
     match (&sp.mode, fr.warp.as_ref()) {
         (SampleMode::Copy, _) => base,
+        (SampleMode::Separable { x, y, filter }, _) => {
+            let (wx, wy) = lightcraft_pipeline::geometry::separable_taps(&sp, *x, *y, *filter, w, h);
+            Arc::new(resize_with(cx, &base, (sp.ow, sp.oh), (&wx, &wy), 3, Some(sp.slack)))
+        }
         (SampleMode::Affine(xf), _) => affine(xf),
         // `sample_plan` plans a warp only when there is one; without it the same mapping is affine
         (SampleMode::Warp(o2t), None) => affine(&(lightcraft_geom::Affine::scale(sp.sx, sp.sy) * *o2t)),
         (SampleMode::Warp(o2t), Some(wp)) => {
             let out = cx.gpu.buffer(w * h * 3);
-            let p = warp_params(wp, (bw, bh), (w, h), o2t, sp.sx, sp.sy);
+            let p = warp_params(wp, (bw, bh), (w, h), o2t, sp.sx, sp.sy, sp.slack);
             // f32 rounding can cross a source edge. Keep the reference f64
             // framing decision in a bit mask; color sampling stays on the GPU.
-            let coverage = cx.gpu.upload(&coverage_mask(wp, o2t, w, h));
+            let coverage = cx.gpu.upload(&warp_tables(wp, o2t, w, h, sp.sx, sp.sy));
             cx.run("sample_warp", &p, &[Some(&base), Some(&out), Some(&coverage)], groups2(w, h, [16, 16]));
             Arc::new(out)
         }
@@ -1201,7 +1239,35 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
             eyed
         }
     };
-    denoise(cx, img, plan, info)
+    denoise_sampled(cx, img, plan, info)
+}
+
+/// `lightcraft_pipeline::denoise_sampled`: noise reduction with the warp's vignetting gain divided
+/// out around it. The device evaluates the gain of every warp it samples itself; the others (an
+/// Adobe LCP profile) were sampled on the CPU, which also provides the gain.
+fn denoise_sampled(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, info: &SourceInfo) -> Buf {
+    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale);
+    let Some(wp) = plan.frame.warp.as_ref().filter(|wp| wp.has_gain() && lightcraft_pipeline::detail::nr::nr_params(&plan.settings, scale).is_some())
+    else {
+        return denoise(cx, img, plan, info);
+    };
+    let (w, h) = (plan.w, plan.h);
+    let o2t = plan.frame.out_to_oriented(w, h);
+    let host_gain = if plan.frame.gpu_samplable() { None } else { plan.frame.vignette_gain(w, h) };
+    let table = match &host_gain {
+        Some(k) => cx.gpu.upload(&k.data.iter().map(|v| v.to_bits()).collect::<Vec<u32>>()),
+        None => cx.gpu.upload(&coverage_mask(wp, &o2t, w, h)),
+    };
+    let by_gain = |cx: &mut Cx<'_>, img: &Buf, divide: bool| {
+        let mut p = warp_params(wp, (w, h), (w, h), &o2t, 1.0, 1.0, 0.0);
+        p.extend([divide as u32, host_gain.is_some() as u32]);
+        let out = cx.gpu.buffer(w * h * 3);
+        cx.run("vignette_gain", &p, &[Some(img), Some(&out), Some(&table)], groups2(w, h, [16, 16]));
+        out
+    };
+    let flat = by_gain(cx, &img, true);
+    let denoised = denoise(cx, flat, plan, info);
+    by_gain(cx, &denoised, false)
 }
 
 /// Native wavelet NR, including robust noise estimation and recursive band statistics.
@@ -1933,6 +1999,10 @@ mod lensdb_tests;
 #[cfg(test)]
 #[path = "embedded_tests.rs"]
 mod embedded_tests;
+
+#[cfg(test)]
+#[path = "geometry_tests.rs"]
+mod geometry_tests;
 
 #[cfg(test)]
 mod tests {

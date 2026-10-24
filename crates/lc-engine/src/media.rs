@@ -134,11 +134,13 @@ impl DecodedSource {
 
     /// What to render these pixels against: the decoder's facts, else `header` (the catalog's)
     /// with any stored camera tone curve. The lens database's correction always comes from
-    /// `header` (it follows the settings, not the file).
+    /// `header` (it follows the settings, not the file), and so does the catalog's focal length
+    /// when the decoder has none.
     pub fn info_or(&self, header: SourceInfo) -> SourceInfo {
         let mut i = self.info.clone().unwrap_or(SourceInfo { camera_tone: self.camera_tone.or(header.camera_tone), ..header });
         i.lens_db = header.lens_db;
         i.lcp = header.lcp;
+        i.focal_35mm = i.focal_35mm.or(header.focal_35mm);
         if let Some(lcp) = &mut i.lcp {
             lcp.exif_orientation = i.source_orientation;
         }
@@ -848,11 +850,34 @@ pub fn source_info(p: &Photo) -> SourceInfo {
             lens: p.embedded_lens,
             sony_lens: crate::files::sony_lens(p.meta.sony.as_ref()),
             relative_wb: p.relative_wb(),
+            focal_35mm: focal_35mm(p),
             ..Default::default()
         }
     } else {
-        SourceInfo::default()
+        SourceInfo { focal_35mm: focal_35mm(p), ..Default::default() }
     }
+}
+
+/// The photo's 35 mm-equivalent focal length: as recorded, else its focal length times the camera's
+/// crop factor from the lens database (catalog entries without the recorded value).
+fn focal_35mm(p: &Photo) -> Option<f64> {
+    if let Some(f) = p.meta.focal_35mm.filter(|f| f.is_finite() && *f > 0.0) {
+        return Some(f64::from(f));
+    }
+    let focal = f64::from(p.meta.focal_mm.filter(|f| f.is_finite() && *f > 0.0)?);
+    Some(focal * camera_crop_factor(&p.meta.camera)?)
+}
+
+/// The lens database's crop factor for an EXIF camera name, looked up once per camera.
+fn camera_crop_factor(camera: &str) -> Option<f64> {
+    static FACTORS: std::sync::Mutex<std::collections::BTreeMap<String, Option<f64>>> = std::sync::Mutex::new(std::collections::BTreeMap::new());
+    let mut known = FACTORS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(f) = known.get(camera) {
+        return *f;
+    }
+    let f = crate::lens_db::database().and_then(|db| crate::lens_db::find_camera(db, camera)).map(|c| f64::from(c.crop_factor)).filter(|c| *c > 0.0);
+    known.insert(camera.to_string(), f);
+    f
 }
 
 impl crate::Session {
@@ -1305,6 +1330,24 @@ mod tests {
         let info = source.info_or(SourceInfo { look_curve: Some(look), ..Default::default() });
         assert_eq!(info.camera_tone, Some(camera));
         assert_eq!(info.look_curve, Some(look));
+    }
+
+    /// Upright needs the lens's 35 mm-equivalent focal length: the recorded one, else the focal
+    /// length times the camera's crop factor; decoded sources keep the catalog's.
+    #[test]
+    fn source_info_carries_the_35mm_focal_length() {
+        let mut p = Photo::new(PhotoId(1), Source::File { path: "a.arw".into() }, "a.arw", "ARW", 8640, 5760, "2026-01-01");
+        p.kind = MediaKind::Raw;
+        p.meta.camera = "Sony ILCE-1".into();
+        p.meta.focal_mm = Some(16.0);
+        assert_eq!(source_info(&p).focal_35mm, Some(16.0), "full frame by the lens database");
+        p.meta.focal_35mm = Some(24.0);
+        assert_eq!(source_info(&p).focal_35mm, Some(24.0), "the recorded value wins (an APS-C crop mode)");
+        p.meta.focal_35mm = None;
+        p.meta.camera = "Nobody Camera 9000".into();
+        assert_eq!(source_info(&p).focal_35mm, None, "no crop factor: no guess");
+        let decoded = DecodedSource::new(Arc::new(RgbFrame::new(1, 1)), Some(SourceInfo { raw: true, ..Default::default() }));
+        assert_eq!(decoded.info_or(SourceInfo { focal_35mm: Some(28.0), ..Default::default() }).focal_35mm, Some(28.0));
     }
 
     #[test]
