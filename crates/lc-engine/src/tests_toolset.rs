@@ -67,7 +67,7 @@ pub(crate) fn hash_img(img: &RgbFrame) -> u64 {
 
 /// Loader output hashes at a binned preview size, a bilinear thumbnail size and full size
 /// (explicit legacy AHD), recorded on x86_64 Linux. The 200px colour/tone golden retains negative scene channels.
-const GOLDEN: [(usize, u64); 3] = [(200, 0x1ce5_8e40_d2f5_4b2d), (500, 0x1cc8_83f3_9dae_2c30), (usize::MAX, 0x96a3_63c6_ffd0_f874)];
+const GOLDEN: [(usize, u64); 3] = [(200, 0x1ce5_8e40_d2f5_4b2d), (500, 0x62a7_f62c_1304_4cf4), (usize::MAX, 0x13dd_97db_2e7a_d7d6)];
 
 #[test]
 fn legacy_ahd_raw_loading_matches_colour_tone_goldens() {

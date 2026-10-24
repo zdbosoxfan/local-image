@@ -3,7 +3,8 @@
 //! Ported from darktable `src/iop/demosaicing/dual.c` and `src/develop/masks/detail.c`
 //! (GPL-3.0-or-later; Ingo Weyrich for RawTherapee, adapted by Hanno Schwalm).
 //! See `docs/PORTS.md` and `licenses/darktable-NOTICE.md`.
-//! Masks use unbalanced camera RGB, equivalent to upstream undoing white balance.
+//! The demosaic runs on white-balanced data; the masks undo the balance (`wb`), as upstream's
+//! raw-detail mask does, so their thresholds keep their meaning.
 
 use super::Mosaic;
 use crate::RgbFrame;
@@ -23,11 +24,17 @@ fn scharr(p: &[f32], w: usize, x: usize, y: usize) -> f32 {
     gx.hypot(gy)
 }
 
+/// Gamma-encoded (sqrt) luminance of camera RGB, `img` divided by the multipliers `wb` it was
+/// balanced with. The gamma evens out the noise variance across the tonal range.
+fn mask_luminance(img: &RgbFrame, wb: [f32; 3]) -> Vec<f32> {
+    let inv = wb.map(|v| 1.0 / v);
+    img.data.iter().map(|p| ((p[0].max(0.0) * inv[0] + p[1].max(0.0) * inv[1] + p[2].max(0.0) * inv[2]) / 3.0).sqrt()).collect()
+}
+
 /// Where `img` has detail: 1 on edges and texture, 0 in flat areas, blurred (σ = 2 px).
-pub(crate) fn detail_mask(img: &RgbFrame, threshold: f32) -> GrayFrame {
+pub(crate) fn detail_mask(img: &RgbFrame, threshold: f32, wb: [f32; 3]) -> GrayFrame {
     let (w, h) = (img.width, img.height);
-    // a gamma (sqrt) evens out the noise variance across the tonal range
-    let y: Vec<f32> = img.data.iter().map(|p| ((p[0].max(0.0) + p[1].max(0.0) + p[2].max(0.0)) / 3.0).sqrt()).collect();
+    let y = mask_luminance(img, wb);
     let ithreshold = 16.0 / contrast_of(threshold).max(1e-7);
     let mut mask = GrayFrame::new(w, h);
     par_rows(&mut mask.data, w, |row, out| {
@@ -42,13 +49,13 @@ pub(crate) fn detail_mask(img: &RgbFrame, threshold: f32) -> GrayFrame {
 }
 
 /// Blend `high` (the detail demosaic) with a bilinear demosaic by [`detail_mask`].
-/// `threshold` 0..1 (0 = `high` everywhere).
-pub(crate) fn dual(m: &Mosaic, high: RgbFrame, threshold: f32) -> RgbFrame {
+/// `threshold` 0..1 (0 = `high` everywhere); `wb` the multipliers the mosaic was balanced with.
+pub(crate) fn dual(m: &Mosaic, high: RgbFrame, threshold: f32, wb: [f32; 3]) -> RgbFrame {
     let (w, h) = (m.w, m.h);
     if w < 16 || h < 16 || threshold <= 0.0 {
         return high;
     }
-    let mask = detail_mask(&high, threshold);
+    let mask = detail_mask(&high, threshold, wb);
     let low = super::bilinear::bilinear(m);
     let mut out = high;
     par_rows(&mut out.data, w, |y, row| {
@@ -63,11 +70,11 @@ pub(crate) fn dual(m: &Mosaic, high: RgbFrame, threshold: f32) -> RgbFrame {
 }
 
 /// darktable's VNG-linear + two colour-smoothing passes, using the upstream detail mask.
-pub(crate) fn dual_vng(m: &Mosaic, high: RgbFrame, threshold: f32) -> RgbFrame {
+pub(crate) fn dual_vng(m: &Mosaic, high: RgbFrame, threshold: f32, wb: [f32; 3]) -> RgbFrame {
     if m.w < 16 || m.h < 16 || threshold <= 0.0 {
         return high;
     }
-    let mask = upstream_detail_mask(&high, threshold);
+    let mask = upstream_detail_mask(&high, threshold, wb);
     let mut low = if m.cfa.is_bayer() { super::vng::vng(m, true) } else { super::markesteijn::linear(m) };
     super::vng::color_smoothing(&mut low, 2);
     let mut out = high;
@@ -80,11 +87,11 @@ pub(crate) fn dual_vng(m: &Mosaic, high: RgbFrame, threshold: f32) -> RgbFrame {
     out
 }
 
-/// Full upstream dual mask: Scharr, bit-approximate exponential and disc-truncated 9x9 blur.
-/// Data is unbalanced camera RGB, equivalent to darktable undoing WB for the mask.
-fn upstream_detail_mask(img: &RgbFrame, threshold: f32) -> GrayFrame {
+/// Full upstream dual mask: Scharr, bit-approximate exponential and disc-truncated 9x9 blur, on
+/// unbalanced camera RGB as darktable's raw-detail mask undoes white balance.
+fn upstream_detail_mask(img: &RgbFrame, threshold: f32, wb: [f32; 3]) -> GrayFrame {
     let (w, h) = (img.width, img.height);
-    let y: Vec<f32> = img.data.iter().map(|p| ((p[0].max(0.0) + p[1].max(0.0) + p[2].max(0.0)) / 3.0).sqrt()).collect();
+    let y = mask_luminance(img, wb);
     let ithreshold = 16.0 / contrast_of(threshold).max(1e-7);
     let mut mask = vec![0.0; w * h];
     par_rows(&mut mask, w, |row, out| {
@@ -109,8 +116,8 @@ mod refvec_tests {
             let m = Mosaic { w: n.width, h: n.height, data: &n.data, cfa: &cfa };
             for method in [crate::Method::Rcd, crate::Method::Amaze] {
                 let high = crate::demosaic(&n, method);
-                let linear = dual_vng(&m, high.clone(), 0.2);
-                let mask = upstream_detail_mask(&high, 0.2);
+                let linear = dual_vng(&m, high.clone(), 0.2, [1.0; 3]);
+                let mask = upstream_detail_mask(&high, 0.2, [1.0; 3]);
                 let mut low = super::super::vng::vng(&m, false);
                 super::super::vng::color_smoothing(&mut low, 2);
                 let full = RgbFrame::from_fn(n.width, n.height, |x, y| {
@@ -135,7 +142,7 @@ mod refvec_tests {
                 0.2 + 0.003 * x as f32 + 0.001 * y as f32 + 0.015 * crate::test_vectors::noise((y * 64 + x) * 3 + c) + if x > 31 { 0.08 } else { 0.0 }
             })
         });
-        crate::test_vectors::compare("dual/mask.f32", &upstream_detail_mask(&img, 0.2).data, 2e-7);
-        crate::test_vectors::compare("dual/mask.f32", &detail_mask(&img, 0.2).data, 1.0);
+        crate::test_vectors::compare("dual/mask.f32", &upstream_detail_mask(&img, 0.2, [1.0; 3]).data, 2e-7);
+        crate::test_vectors::compare("dual/mask.f32", &detail_mask(&img, 0.2, [1.0; 3]).data, 1.0);
     }
 }

@@ -512,12 +512,12 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             Some(img) => img,
             None => {
                 let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold };
-                raw.develop_with_cfa(opts.method(max_edge), &dopts, |n| {
+                let segmentation = |n: &mut lightcraft_raw::Normalized| {
                     if opts.highlights == lightcraft_develop::HighlightMode::Segmentation {
                         lightcraft_raw::highlight::segmentation(n, t.wb, HIGHLIGHT_CLIP, &lightcraft_raw::highlight::SegmentationOptions::default());
                     }
-                })
-                .map_err(|e| e.to_string())?
+                };
+                raw.develop_stages(opts.method(max_edge), &dopts, t.wb, segmentation, |_| {}).map_err(|e| e.to_string())?
             }
         };
         // the samples aren't needed any more (the colour model below reads only the tags)
