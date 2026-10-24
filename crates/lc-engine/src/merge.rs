@@ -128,12 +128,17 @@ impl BatchMergeJob {
                 .capture_time
                 .or_else(|| raw_info.as_ref().and_then(|info| info.metadata.capture_time))
                 .or_else(|| self.captured.get(i).and_then(|time| time.as_deref()).and_then(lightcraft_meta::DateTime::parse_iso));
+            let shutter = metadata
+                .exposure_time
+                .or_else(|| raw_info.as_ref().and_then(|info| info.metadata.exposure_time))
+                .filter(|t| t.is_finite() && *t > 0.0);
             // A full sensor decode cannot establish a missing EV or capture time; leave
             // those sources ungrouped without spending the demosaic memory/time.
             if exposure.is_none() || capture.is_none() {
                 probes.push(lightcraft_merge::brackets::BracketProbe {
                     exposure,
                     capture_seconds: capture.map(|time| time.unix_seconds() as f64 + time.millis as f64 / 1000.0),
+                    exposure_seconds: shutter,
                     width: 0,
                     height: 0,
                     camera: (metadata.make, metadata.model),
@@ -145,6 +150,7 @@ impl BatchMergeJob {
             let mut probe = lightcraft_merge::brackets::BracketProbe::from_frame(&frame);
             probe.exposure = exposure;
             probe.capture_seconds = capture.map(|time| time.unix_seconds() as f64 + time.millis as f64 / 1000.0);
+            probe.exposure_seconds = shutter;
             if let Some(info) = raw_info {
                 let (w, h) = info.developed_size();
                 (probe.width, probe.height) = if info.orientation.swaps_axes() { (h, w) } else { (w, h) };
