@@ -358,12 +358,10 @@ mod tests {
     use super::*;
     use lightcraft_catalog::{Photo, PhotoId, Source};
 
-    /// The converted DNG keeps the capture settings and lens of the original, though the develop
-    /// settings packet written into it carries none, so other raw editors can match lens profiles.
-    #[test]
-    fn converted_dng_keeps_capture_settings_and_lens() {
+    /// A small Bayer mosaic as a Sony A1 raw would decode, with `metadata`.
+    fn mosaic(metadata: lightcraft_meta::Metadata) -> lightcraft_raw::RawImage {
         let (w, h) = (64, 48);
-        let raw = lightcraft_raw::RawImage {
+        lightcraft_raw::RawImage {
             format: lightcraft_raw::RawFormat::Dng,
             width: w,
             height: h,
@@ -381,21 +379,33 @@ mod tests {
             linearized: false,
             vendor_lens: None,
             opcodes: Default::default(),
-            metadata: lightcraft_meta::Metadata {
-                make: Some("SONY".into()),
-                model: Some("ILCE-1".into()),
-                exposure_time: Some(1.0 / 125.0),
-                f_number: Some(8.0),
-                iso: Some(100),
-                focal_length: Some(16.0),
-                lens_model: Some("FE 16-35mm F2.8 GM II".into()),
-                ..Default::default()
-            },
-        };
-        let dir = std::env::current_dir().unwrap().join("target").join(format!("convert-exif-{}", std::process::id()));
+            metadata: lightcraft_meta::Metadata { make: Some("SONY".into()), model: Some("ILCE-1".into()), ..metadata },
+        }
+    }
+
+    /// `raw` written as `source.dng` in a fresh folder under `target/`.
+    fn source_file(tag: &str, raw: &lightcraft_raw::RawImage) -> (std::path::PathBuf, std::path::PathBuf) {
+        let dir = std::env::current_dir().unwrap().join("target").join(format!("convert-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("source.dng");
-        std::fs::write(&source, lightcraft_raw::write_dng(&raw, &lightcraft_raw::DngWriteOptions::default()).unwrap()).unwrap();
+        std::fs::write(&source, lightcraft_raw::write_dng(raw, &lightcraft_raw::DngWriteOptions::default()).unwrap()).unwrap();
+        (dir, source)
+    }
+
+    /// The converted DNG keeps the capture settings and lens of the original, though the develop
+    /// settings packet written into it carries none, so other raw editors can match lens profiles.
+    #[test]
+    fn converted_dng_keeps_capture_settings_and_lens() {
+        let raw = mosaic(lightcraft_meta::Metadata {
+            exposure_time: Some(1.0 / 125.0),
+            f_number: Some(8.0),
+            iso: Some(100),
+            focal_length: Some(16.0),
+            lens_model: Some("FE 16-35mm F2.8 GM II".into()),
+            ..Default::default()
+        });
+        let (dir, source) = source_file("exif", &raw);
         let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { rating: Some(4), ..Default::default() }, None);
         let out = write_dng_with(None, &source.to_string_lossy(), packet).unwrap();
         let back = lightcraft_meta::extract(&std::fs::read(&out).unwrap());
@@ -403,6 +413,32 @@ mod tests {
         assert_eq!((back.exposure_time, back.f_number, back.iso, back.focal_length), (Some(1.0 / 125.0), Some(8.0), Some(100), Some(16.0)));
         assert_eq!(back.lens_model.as_deref(), Some("FE 16-35mm F2.8 GM II"));
         assert_eq!(back.rating, Some(4));
+    }
+
+    /// DNG export and Convert to DNG write the library's capture time, as edited, into Exif as well
+    /// as XMP, so Exif-first readers (and a re-import) agree with the library.
+    #[test]
+    fn dngs_written_from_a_photo_carry_its_edited_capture_time() {
+        let camera = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:00.250-04:00");
+        let (dir, source) = source_file("time", &mosaic(lightcraft_meta::Metadata { capture_time: camera, ..Default::default() }));
+        let mut s = crate::Session::new().with_fs();
+        s.execute("library.import", &json!({"paths": [source.to_string_lossy()]})).unwrap();
+        let id = s.active().unwrap();
+        let captured = |s: &Session| s.catalog.photo(id).and_then(|p| p.captured.as_deref()).and_then(lightcraft_meta::DateTime::parse_iso);
+        assert_eq!(captured(&s), camera, "import keeps the offset and milliseconds");
+        s.execute("photo.setCaptureTime", &json!({"time": "2026-10-15T09:30:05"})).unwrap();
+        let edited = captured(&s);
+        assert!(edited.is_some() && edited != camera);
+
+        let options = crate::export::ExportOptions { format: crate::export::ExportFormat::Dng, ..Default::default() };
+        let exported = crate::export::export_photo(&mut s, id, &options, 1).unwrap();
+        assert_eq!(lightcraft_meta::extract(&exported.bytes).capture_time, edited, "DNG export");
+
+        let photo = s.catalog.photo(id).unwrap().clone();
+        let out = write_dng_with(None, &source.to_string_lossy(), crate::sidecar::sidecar_packet(&photo, &s.catalog)).unwrap();
+        let converted = std::fs::read(&out).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(lightcraft_meta::extract(&converted).capture_time, edited, "Convert to DNG");
     }
 
     /// Reload fills camera fields a photo lacks (a CR3 imported before CR3 metadata was read) and keeps

@@ -123,8 +123,16 @@ pub fn write_dng(raw: &RawImage, opts: &DngWriteOptions) -> Result<Vec<u8>> {
         }
     }
     // Capture settings and lens let other raw editors match lens profiles and ISO-adaptive
-    // defaults. Location stays in the XMP packet, which honours "Remove Location Info".
-    ifd.set_child(t::EXIF_IFD, lightcraft_meta::exif_ifd(&raw.metadata));
+    // defaults. Location stays in the XMP packet, which honours "Remove Location Info". A given
+    // packet's capture time (the library's, possibly edited) is the file's: Exif-first readers
+    // must see the same time.
+    let edited = opts
+        .xmp
+        .as_deref()
+        .and_then(|x| lightcraft_meta::parse_xmp(x).ok()?.metadata.capture_time)
+        .filter(|time| raw.metadata.capture_time != Some(*time))
+        .map(|time| lightcraft_meta::Metadata { capture_time: Some(time), ..raw.metadata.clone() });
+    ifd.set_child(t::EXIF_IFD, lightcraft_meta::exif_ifd(edited.as_ref().unwrap_or(&raw.metadata)));
     let xmp = opts.xmp.clone().unwrap_or_else(|| lightcraft_meta::write_xmp(&raw.metadata, None));
     ifd.set(t::XMP, Value::Byte(xmp.into_bytes()));
 
@@ -489,6 +497,29 @@ mod exif_tests {
         assert_eq!(back.lens_model.as_deref(), Some("FE 16-35mm F2.8 GM II"));
         assert_eq!(back.rating, Some(3));
         assert!(back.gps.is_none(), "location is written only through the packet");
+    }
+
+    #[test]
+    fn dng_capture_time_keeps_its_offset_and_milliseconds() {
+        let capture_time = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:00.250-04:00");
+        let raw = RawImage { metadata: lightcraft_meta::Metadata { capture_time, ..Default::default() }, ..float_compression_tests::float_raw() };
+        let bytes = write_dng(&raw, &DngWriteOptions::default()).unwrap();
+        assert_eq!(lightcraft_meta::extract(&bytes).capture_time, capture_time);
+    }
+
+    #[test]
+    fn dng_exif_capture_time_follows_the_embedded_packet() {
+        let camera = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:00.250-04:00");
+        let edited = lightcraft_meta::DateTime::parse_iso("2026-10-15T09:30:05-04:00");
+        let raw =
+            RawImage { metadata: lightcraft_meta::Metadata { capture_time: camera, ..Default::default() }, ..float_compression_tests::float_raw() };
+        let packet = lightcraft_meta::write_xmp(&lightcraft_meta::Metadata { capture_time: edited, ..Default::default() }, None);
+        let bytes = write_dng(&raw, &DngWriteOptions { xmp: Some(packet), ..Default::default() }).unwrap();
+        let tiff = lightcraft_tiff::Tiff::parse(&bytes).unwrap();
+        let exif = tiff.exif().unwrap();
+        assert_eq!(exif.string(t::DATE_TIME_ORIGINAL).as_deref().map(str::trim), Some("2026:10:15 09:30:05"));
+        assert_eq!(exif.string(t::OFFSET_TIME_ORIGINAL).as_deref().map(str::trim), Some("-04:00"));
+        assert_eq!(lightcraft_meta::extract(&bytes).capture_time, edited);
     }
 }
 

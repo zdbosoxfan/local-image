@@ -1181,6 +1181,45 @@ mod tests {
     }
 
     #[test]
+    fn merged_dngs_keep_the_sources_capture_offset_and_milliseconds() {
+        let captured = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:01.250-04:00");
+        let files: Vec<Vec<u8>> = [-1.0f32, 1.0]
+            .into_iter()
+            .map(|ev| {
+                let image = RgbFrame::from_fn(48, 32, |x, y| [(0.05 + 0.003 * x as f32 + 0.001 * y as f32) * 2f32.powf(ev); 3]);
+                let metadata = lightcraft_meta::Metadata {
+                    exposure_time: Some(2f64.powf(f64::from(ev)) / 125.0),
+                    f_number: Some(8.0),
+                    iso: Some(100),
+                    capture_time: captured,
+                    ..Default::default()
+                };
+                let color = Frame::from_linear_rec2020(image.clone(), None).color;
+                lightcraft_merge::write_linear_dng(
+                    &image,
+                    &color,
+                    lightcraft_geom::Orientation::Normal,
+                    &metadata,
+                    0.0,
+                    lightcraft_merge::DngSamples::Float,
+                    None,
+                )
+                .unwrap()
+            })
+            .collect();
+        let job = MergeJob {
+            kind: MergeKind::Hdr { hdr: HdrOptions { align: false, deghost: Deghost::None } },
+            finish: MergeFinish::default(),
+            sources: vec![(PhotoId(1), "dark.dng".into()), (PhotoId(2), "bright.dng".into())],
+            preview: None,
+            read: Arc::new(move |path| Ok(files[usize::from(path.starts_with("bright"))].clone())),
+        };
+        let output = job.run(&|_, _| true).unwrap();
+        let probe = crate::files::probe_bytes("merged.dng", &output.dng).unwrap();
+        assert_eq!(probe.captured.as_deref(), Some("2026-10-14T12:00:01.250-04:00"));
+    }
+
+    #[test]
     fn float_hdr_merges_keep_radiance_above_the_darkest_brackets_white_level() {
         // Scene-linear float TIFF brackets whose windows exceed 1.0 even in the darkest frame.
         let (w, h) = (64, 48);

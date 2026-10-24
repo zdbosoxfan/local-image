@@ -325,6 +325,8 @@ pub fn exif_ifd(meta: &Metadata) -> lightcraft_tiff::IfdBuilder {
     let r = |v: Option<f64>| v.filter(|v| v.is_finite() && *v > 0.0).map(|v| Value::Rational(vec![rational(v)]));
     for (tag, v) in [
         (t::DATE_TIME_ORIGINAL, meta.capture_time.map(|d| Value::Ascii(d.to_exif()))),
+        (t::OFFSET_TIME_ORIGINAL, meta.capture_time.and_then(|d| d.offset()).map(Value::Ascii)),
+        (t::SUBSEC_TIME_ORIGINAL, meta.capture_time.filter(|d| d.millis != 0).map(|d| Value::Ascii(format!("{:03}", d.millis)))),
         (t::EXPOSURE_TIME, r(meta.exposure_time)),
         (t::F_NUMBER, r(meta.f_number)),
         (t::FOCAL_LENGTH, r(meta.focal_length)),
@@ -381,5 +383,15 @@ mod write_tests {
         assert_eq!(back.lens_model, m.lens_model);
         let g = back.gps.unwrap();
         assert!((g.latitude - 43.7904).abs() < 1e-5 && (g.longitude + 110.6818).abs() < 1e-5, "{g:?}");
+    }
+
+    #[test]
+    fn capture_time_keeps_its_offset_and_milliseconds() {
+        for iso in ["2026-10-14T12:00:00.250-04:00", "2026-10-14T12:00:00.005+05:30", "2026-10-14T12:00:00"] {
+            let m = Metadata { capture_time: DateTime::parse_iso(iso), ..Default::default() };
+            let back = read_exif(&write_exif(&m)).capture_time;
+            assert_eq!(back, m.capture_time, "{iso}");
+            assert_eq!(back.map(|d| d.to_iso()).as_deref(), Some(iso));
+        }
     }
 }
