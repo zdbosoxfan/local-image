@@ -263,7 +263,7 @@ fn run(s: &mut State, a: Action) {
             Ok(Done::Scanned(Box::new(modelsetup::scan(&opts))))
         }),
         Action::Move { file, to_folder } => start(s, tl!("Moving the file…"), Vec::new(), move |_| {
-            let dir = opts.model_dir.clone().ok_or_else(|| anyhow::anyhow!("The model folder is on another computer; move the file there."))?;
+            let dir = opts.model_dir.clone().ok_or_else(|| anyhow::anyhow!("{}", tl!("The model folder is on another computer; move the file there.")))?;
             let moved = modelsetup::fixes::move_file(&dir, &file, &to_folder)?;
             Ok(Done::Moved(moved, Box::new(modelsetup::scan(&opts))))
         }),
@@ -282,7 +282,7 @@ fn run(s: &mut State, a: Action) {
             Ok(Done::Planned(modelsetup::fixes::download_plan(&fix, &info, &cfg, &net)?))
         }),
         Action::Download(plan) => start(s, tl!("Downloading…"), Vec::new(), move |t| {
-            let dir = opts.model_dir.clone().ok_or_else(|| anyhow::anyhow!("The model folder is on another computer; install the file there."))?;
+            let dir = opts.model_dir.clone().ok_or_else(|| anyhow::anyhow!("{}", tl!("The model folder is on another computer; install the file there.")))?;
             let ctl = t.lock().map(|x| x.ctl.clone()).unwrap_or_default();
             let progress = |done: u64, total: u64, _: &str| {
                 if let Ok(mut x) = t.lock() {
