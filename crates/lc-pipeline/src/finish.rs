@@ -292,8 +292,9 @@ pub struct FinishParams {
     pub mode: FinishMode,
     /// Developed-image contrast, independent of the Background tone map.
     pub layer_contrast: f32,
-    /// A LUT profile and its amount (0..2), applied to sRGB display values in every mode and
-    /// output space.
+    /// A LUT profile and its amount (0..2, `None` at 0), applied to sRGB display values in every
+    /// mode but [`FinishMode::Output`] and in every output space. Its result is inside sRGB, so the
+    /// output knee is left out after it (in the Output pass of a layered render too).
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
     pub ops: ColorOps,
@@ -369,7 +370,7 @@ impl FinishParams {
             tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
             layers: crate::layers::resolve(s, info, px_per_long),
             tone_eq: crate::toneeq::of(s),
-            lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)),
+            lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)).filter(|(_, amount)| *amount > 0.0),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
             soft_gamut: info.raw.then(|| gamut_limits(&space.from_working())),
@@ -541,7 +542,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
     store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
-    let p_lut = fp.lut.clone().map(|(lut, amount)| (lut, amount, LutInput::new(fp.soft_gamut.is_some())));
+    let p_lut = fp.lut.clone().filter(|_| fp.mode != FinishMode::Output).map(|(lut, amount)| (lut, amount, LutInput::new(fp.soft_gamut.is_some())));
     let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
     let (hl, sh, clar, tex, dehaze, gain, ev) = (*hl, *sh, *clar, *tex, *dehaze, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
@@ -847,7 +848,8 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 d
             } else {
                 let r = mul3(to_out, d);
-                gamut_map(fp.soft_gamut.map_or(r, |limits| soft_gamut(r, GAMUT_KNEE, limits)), *out_luma).0
+                let knee = fp.soft_gamut.filter(|_| fp.lut.is_none());
+                gamut_map(knee.map_or(r, |limits| soft_gamut(r, GAMUT_KNEE, limits)), *out_luma).0
             };
 
             // encode, curves, grain

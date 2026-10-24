@@ -855,7 +855,8 @@ pub fn finish_scene_stage(mut img: Arc<RgbFrame>, plan: &Plan<'_>, info: &Source
 }
 
 fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&GrayFrame>) -> Rendered {
-    let neutral = DevelopSettings::default();
+    // the photo's LUT profile: the Output pass doesn't apply it again, but leaves out the output knee
+    let neutral = DevelopSettings { profile: plan.settings.profile.clone(), ..DevelopSettings::default() };
     let deep = (req.depth != OutputDepth::U8)
         .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof.clone(), finish::FinishMode::Output));
     let mut image = deep.as_ref().map_or_else(

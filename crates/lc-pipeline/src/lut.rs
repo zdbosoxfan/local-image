@@ -175,10 +175,26 @@ mod render_tests {
         s
     }
 
+    /// A rendered file and a raw.
+    fn sources() -> [SourceInfo; 2] {
+        [SourceInfo::default(), SourceInfo { raw: true, ..SourceInfo::default() }]
+    }
+
+    /// A saturation boost that reaches the sRGB gamut edge on the scene's colours.
+    fn saturate(c: [f32; 3]) -> [f32; 3] {
+        let m = (c[0] + c[1] + c[2]) / 3.0;
+        c.map(|v| (m + (v - m) * 1.3).clamp(0.0, 1.0))
+    }
+
+    /// A look that puts every colour at one saturated orange on the sRGB edge.
+    fn orange(_: [f32; 3]) -> [f32; 3] {
+        [1.0, 0.78, 0.08]
+    }
+
     /// The render's colours as linear Rec. 2020 (the space's own white adapted to D65).
-    fn colours(src: &RgbFrame, s: &DevelopSettings, space: OutputSpace, proof: Option<Proof>) -> Vec<[f64; 3]> {
+    fn colours(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, space: OutputSpace, proof: Option<Proof>) -> Vec<[f64; 3]> {
         let req = RenderRequest { space, depth: OutputDepth::F32Linear, proof, ..RenderRequest::fit(32, 8) };
-        let Some(DeepSamples::F32(v)) = render(src, &SourceInfo::default(), s, &req).deep.map(|d| d.samples) else {
+        let Some(DeepSamples::F32(v)) = render(src, info, s, &req).deep.map(|d| d.samples) else {
             panic!("float render");
         };
         let to_2020 = space.rgb_space().to_space(&li_color::REC2020);
@@ -192,64 +208,96 @@ mod render_tests {
 
     #[test]
     fn lut_look_is_the_same_in_every_output_space_and_proof() {
-        // a hue swap with a saturation boost: a look that depends on the primaries it is fed
-        register(
-            "lut:test-output-spaces",
-            table(17, |c| {
-                let m = (c[0] + c[1] + c[2]) / 3.0;
-                [c[2], c[1], c[0]].map(|v| (m + (v - m) * 1.3).clamp(0.0, 1.0))
-            }),
-        );
+        let swap = |c: [f32; 3]| saturate([c[2], c[1], c[0]]);
+        let looks: [(&str, fn([f32; 3]) -> [f32; 3]); 3] =
+            [("lut:test-spaces-swap", swap), ("lut:test-spaces-saturate", saturate), ("lut:test-spaces-orange", orange)];
         let src = scene();
-        let s = with_lut("lut:test-output-spaces");
-        let srgb = colours(&src, &s, OutputSpace::Srgb, None);
-        for space in [OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::ProPhoto, OutputSpace::Rec2020] {
-            assert_same(&srgb, &colours(&src, &s, space, None), space.label());
+        for (id, look) in looks {
+            register(id, table(17, look));
+            for info in sources() {
+                let s = with_lut(id);
+                let srgb = colours(&src, &info, &s, OutputSpace::Srgb, None);
+                for space in [OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::ProPhoto, OutputSpace::Rec2020] {
+                    assert_same(&srgb, &colours(&src, &info, &s, space, None), &format!("{id}, raw {}: {}", info.raw, space.label()));
+                }
+                let proof = Proof { space: OutputSpace::Srgb, ..Proof::default() };
+                assert_same(&srgb, &colours(&src, &info, &s, OutputSpace::Srgb, Some(proof)), &format!("{id}, raw {}: sRGB soft proof", info.raw));
+            }
+            unregister(id);
         }
-        let proof = Proof { space: OutputSpace::Srgb, ..Proof::default() };
-        assert_same(&srgb, &colours(&src, &s, OutputSpace::Srgb, Some(proof)), "sRGB soft proof");
-        unregister("lut:test-output-spaces");
     }
 
     #[test]
     fn srgb_preview_applies_the_lut_to_its_display_values() {
-        let look = |c: [f32; 3]| [c[0] * 0.8 + 0.1, c[1].powf(1.3), 1.0 - c[2] * 0.7];
-        register("lut:test-preview", table(17, look));
+        let grade = |c: [f32; 3]| [c[0] * 0.8 + 0.1, c[1].powf(1.3), 1.0 - c[2] * 0.7];
+        let looks: [(&str, fn([f32; 3]) -> [f32; 3]); 3] =
+            [("lut:test-preview-grade", grade), ("lut:test-preview-saturate", saturate), ("lut:test-preview-orange", orange)];
         let src = scene();
         let req = RenderRequest::fit(32, 8);
-        let plain = render(&src, &SourceInfo::default(), &DevelopSettings::default(), &req).image;
-        let graded = render(&src, &SourceInfo::default(), &with_lut("lut:test-preview"), &req).image;
-        for (p, q) in plain.data.iter().zip(&graded.data) {
-            let want = look([p[0], p[1], p[2]].map(|v| v as f32 / 255.0)).map(|v| v * 255.0);
-            assert!((0..3).all(|i| (q[i] as f32 - want[i]).abs() <= 2.0), "{p:?} -> {q:?}, want {want:?}");
+        for (id, look) in looks {
+            let lut = table(17, look);
+            register(id, lut.clone());
+            for info in sources() {
+                let plain = render(&src, &info, &DevelopSettings::default(), &req).image;
+                let graded = render(&src, &info, &with_lut(id), &req).image;
+                for (p, q) in plain.data.iter().zip(&graded.data) {
+                    let want = lut.apply([p[0], p[1], p[2]].map(|v| v as f32 / 255.0)).map(|v| v * 255.0);
+                    assert!((0..3).all(|i| (q[i] as f32 - want[i]).abs() <= 2.0), "{id}, raw {}: {p:?} -> {q:?}, want {want:?}", info.raw);
+                }
+            }
+            unregister(id);
         }
-        unregister("lut:test-preview");
+    }
+
+    #[test]
+    fn lut_at_zero_amount_leaves_the_photo_alone() {
+        register("lut:test-zero", table(9, orange));
+        // the scene's colours and a green outside sRGB, which a wide-gamut export keeps
+        let mut src = scene();
+        src.data[..4].fill([0.05, 0.4, 0.05]);
+        let mut s = with_lut("lut:test-zero");
+        s.profile.amount = 0.0;
+        for info in sources() {
+            for space in [OutputSpace::Srgb, OutputSpace::ProPhoto] {
+                assert_same(
+                    &colours(&src, &info, &DevelopSettings::default(), space, None),
+                    &colours(&src, &info, &s, space, None),
+                    &format!("raw {}: {}", info.raw, space.label()),
+                );
+            }
+        }
+        unregister("lut:test-zero");
     }
 
     #[test]
     fn lut_look_is_unchanged_by_an_adjustment_layer_that_covers_nothing() {
-        register("lut:test-layers", table(9, |c| [c[1], c[2], c[0]]));
         let src = scene();
-        let plain = with_lut("lut:test-layers");
-        let mut layered = plain.clone();
-        layered.masks.push(Mask {
-            id: 1,
-            components: vec![MaskComponent {
-                name: None,
-                op: Default::default(),
-                invert: false,
-                // selects only x < -1.1: no pixel of the photo
-                shape: MaskShape::Linear { start: lightcraft_geom::Point::new(-1.1, 0.5), end: lightcraft_geom::Point::new(-1.0, 0.5) },
-            }],
-            tools: LayerTools { light: Some(Light { exposure: 1.0, ..Default::default() }), ..Default::default() },
-            ..Default::default()
-        });
-        assert!(crate::layers::active(&layered));
-        let req = RenderRequest::fit(32, 8);
-
-        let (a, b) = (render(&src, &SourceInfo::default(), &plain, &req).image, render(&src, &SourceInfo::default(), &layered, &req).image);
-        let worst = a.data.iter().zip(&b.data).flat_map(|(p, q)| (0..3).map(move |i| p[i].abs_diff(q[i]))).max().unwrap_or(0);
-        assert!(worst <= 1, "{worst} LSB");
-        unregister("lut:test-layers");
+        for (id, look) in
+            [("lut:test-layers-rotate", (|c: [f32; 3]| [c[1], c[2], c[0]]) as fn([f32; 3]) -> [f32; 3]), ("lut:test-layers-orange", orange)]
+        {
+            register(id, table(9, look));
+            let plain = with_lut(id);
+            let mut layered = plain.clone();
+            layered.masks.push(Mask {
+                id: 1,
+                components: vec![MaskComponent {
+                    name: None,
+                    op: Default::default(),
+                    invert: false,
+                    // selects only x < -1.1: no pixel of the photo
+                    shape: MaskShape::Linear { start: lightcraft_geom::Point::new(-1.1, 0.5), end: lightcraft_geom::Point::new(-1.0, 0.5) },
+                }],
+                tools: LayerTools { light: Some(Light { exposure: 1.0, ..Default::default() }), ..Default::default() },
+                ..Default::default()
+            });
+            assert!(crate::layers::active(&layered));
+            let req = RenderRequest::fit(32, 8);
+            for info in sources() {
+                let (a, b) = (render(&src, &info, &plain, &req).image, render(&src, &info, &layered, &req).image);
+                let worst = a.data.iter().zip(&b.data).flat_map(|(p, q)| (0..3).map(move |i| p[i].abs_diff(q[i]))).max().unwrap_or(0);
+                assert!(worst <= 1, "{id}, raw {}: {worst} LSB", info.raw);
+            }
+            unregister(id);
+        }
     }
 }

@@ -65,8 +65,10 @@ All notable changes to Local Image are recorded here. The format follows
   of being clipped onto it.
 - LUT profiles (`.cube`, `.3dl`, `.look`) get sRGB / Rec. 709 display values in every export colour
   space, so a look that is right in the preview exports the same to Display P3, Adobe RGB and
-  ProPhoto, a soft proof shows it, and adding an adjustment layer no longer changes it. Grain now
-  follows the LUT in every path.
+  ProPhoto, a soft proof shows it, and adding an adjustment layer no longer changes it. On raws the
+  LUT's colours are no longer compressed a second time by the output gamut knee. Grain now follows
+  the LUT in every path. A LUT profile limits wide-gamut exports to sRGB colours, as the LUT itself
+  does; at Amount 0 it is off and changes nothing.
 - Camera profiles: the tone curve of a DCP picked under Custom Camera Profiles (Adobe's Camera
   Matching profiles, a DCamProf `-t acr` variant) is used by the Camera look instead of being
   dropped in favour of the JPEG-fitted or maker curve. Soft Film and Sigmoid keep their own curves.
