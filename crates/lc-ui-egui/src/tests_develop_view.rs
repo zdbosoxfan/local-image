@@ -273,6 +273,47 @@ fn a_split_wipe_keeps_both_halves_and_the_overlays_in_register() {
     }
 }
 
+/// A photo with a smart preview at `dir` (dark) whose original at `original` decodes nothing.
+fn behind_a_smart_preview(dir: &std::path::Path, original: &std::path::Path) -> (lightcraft_engine::Session, Photo) {
+    let mut session = lightcraft_engine::Session::new();
+    session.media.file_loader = Some(Arc::new(|_: &str, _| Err("the share is not responding".into())));
+    session.media.smart_dir = Some(dir.to_path_buf());
+    let p = Photo::new(PhotoId(1), Source::File { path: original.to_string_lossy().into() }, "a1.tif", "TIFF", 3000, 2000, "2026-10-24");
+    let dark = lightcraft_engine::media::DecodedSource::new(Arc::new(li_raster::RgbFrame::filled(600, 400, [0.05; 3])), None);
+    let proxy = lightcraft_engine::smart::encode_source(&dark).unwrap();
+    std::fs::write(dir.join(lightcraft_engine::smart::file_name(&p)), proxy).unwrap();
+    (session, p)
+}
+
+/// The loupe at 100% never shows a smart preview as the 1:1 view: no 1:1 render of an original
+/// known to be offline, and one whose original can't be read fails and leaves the loupe render.
+#[test]
+fn a_smart_preview_is_never_shown_as_the_1_to_1_view() {
+    let dir = std::env::temp_dir().join(format!("lc-ui-proxy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let (session, p) = behind_a_smart_preview(&dir, &dir.join("offline.tif"));
+    let (mut h, work) = loupe_on(session, p, Zoom::Percent(100), 1.0);
+    work.finish(&mut h, Slot::Main, false);
+    h.step();
+    assert!(work.last(Slot::Detail).is_none(), "an offline original gets no 1:1 render");
+    assert_eq!(h.app.loupe_shown, Some((PhotoId(1), "render")));
+
+    let unreadable = dir.join("unreadable.tif");
+    std::fs::write(&unreadable, b"").unwrap();
+    let (session, p) = behind_a_smart_preview(&dir, &unreadable);
+    let (mut h, work) = loupe_on(session, p, Zoom::Percent(100), 1.0);
+    work.finish(&mut h, Slot::Main, false);
+    assert_eq!(h.app.loupe_shown, Some((PhotoId(1), "render")), "the loupe shows the smart preview");
+    work.finish(&mut h, Slot::Detail, false);
+    h.step();
+    assert!(h.app.renderer.failure(Slot::Detail).is_some(), "the 1:1 render of an unreadable original fails");
+    assert_eq!(h.app.loupe_shown, Some((PhotoId(1), "render")), "and the loupe keeps its render");
+    assert_eq!(h.app.session.media.usage().2.count, 0, "nothing is kept as the original");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn pixel_rects_need_a_whole_number_of_pixels_per_texel() {
     let img = Rect::from_min_size(pos2(10.3, 20.6), vec2(1500.2, 1000.1));

@@ -126,11 +126,14 @@ pub struct DecodedSource {
     pub camera_tone: Option<lightcraft_pipeline::tone::CameraTone>,
     /// [`crate::files::RawOptions::key`] of the decoding (0 = the default decoding).
     pub raw_key: u64,
+    /// A smart preview standing in for an original that could not be read: at most
+    /// [`SourceLevel::Preview`] pixels, never the original's own.
+    pub proxy: bool,
 }
 
 impl DecodedSource {
     pub fn new(image: Arc<RgbFrame>, info: Option<SourceInfo>) -> Self {
-        DecodedSource { image, info, camera_tone: None, raw_key: 0 }
+        DecodedSource { image, info, camera_tone: None, raw_key: 0, proxy: false }
     }
 
     /// What to render these pixels against: the decoder's facts, else `header` (the catalog's)
@@ -177,6 +180,15 @@ pub enum SourceRef {
 }
 
 impl SourceRef {
+    /// Whether this is an offline original's smart preview rather than the original.
+    pub fn is_proxy(&self) -> bool {
+        match self {
+            SourceRef::Smart { .. } => true,
+            SourceRef::Loaded(s) => s.proxy,
+            _ => false,
+        }
+    }
+
     pub fn load(&self) -> Result<Arc<RgbFrame>, String> {
         self.load_source().map(|s| s.image)
     }
@@ -410,6 +422,9 @@ impl MediaCache {
                     self.previews.remove(oldest);
                 }
             }
+            // a proxy kept as the original would stand in for it in every later 1:1 render and
+            // export, even once the original can be read again
+            SourceLevel::Full if img.proxy => return,
             SourceLevel::Full => self.full = Some((id, img, tick)),
         }
         self.enforce_budget();
@@ -1230,10 +1245,15 @@ impl crate::Session {
 
     /// The loupe's 1:1 render of `id` fitting `max_w × max_h`: like [`Self::render_job`], always
     /// from the original at its native resolution (never a binned preview, whatever the size: a
-    /// crop at 100% needs the crop's own pixels) and never kept in the preview caches.
+    /// crop at 100% needs the crop's own pixels) and never kept in the preview caches. An original
+    /// that can't be read fails it rather than falling back to its smart preview: a proxy enlarged
+    /// to full size is no 1:1 view.
     pub fn detail_job(&mut self, id: PhotoId, max_w: usize, max_h: usize, apply_crop: bool) -> Option<RenderJob> {
         let mut job = self.render_job(id, max_w, max_h, false, apply_crop)?;
         self.at_full_level(&mut job);
+        if let SourceRef::File { fallback, .. } | SourceRef::RawFile { fallback, .. } = &mut job.source {
+            *fallback = None;
+        }
         Some(job)
     }
 

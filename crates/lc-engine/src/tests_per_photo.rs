@@ -1,13 +1,14 @@
 //! Settings that copy, sync, presets and resets must resolve for each photo on its own.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use li_raster::RgbFrame;
 use lightcraft_catalog::{Op, Photo, PhotoId, Source};
 use lightcraft_develop::Upright;
 use lightcraft_geom::Homography;
-use lightcraft_pipeline::SourceInfo;
+use lightcraft_pipeline::{OutputDepth, OutputSpace, SourceInfo};
 use serde_json::json;
 
 use crate::Session;
@@ -240,6 +241,53 @@ fn hover_previews_of_photos_with_equal_settings_are_told_apart() {
     assert_eq!(s.develop_of(A), s.develop_of(B), "both photos hold the same settings");
     assert_ne!(a, b, "the same hovered look on another photo is another render");
     assert_eq!(a, s.preview_job(A, 800, 600, true, &look).unwrap().key, "the same hover on the same photo reuses its render");
+}
+
+fn mean(img: &li_raster::Rgba8) -> f64 {
+    img.data.iter().map(|p| f64::from(p[0])).sum::<f64>() / img.data.len() as f64
+}
+
+/// A smart preview stands in for an original that can't be read (a NAS share dropped) only where
+/// a stand-in is wanted: never as the 1:1 view, and never kept as the original, so once the
+/// original reads again the 1:1 view and exports use its own pixels.
+#[test]
+fn a_smart_preview_never_stands_in_for_the_original_at_full_size() {
+    let dir = std::env::temp_dir().join(format!("lc-proxy-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("a.tif");
+    // the original is there (not known to be offline), but reading it fails
+    std::fs::write(&path, b"").unwrap();
+    let readable = Arc::new(AtomicBool::new(false));
+    let mut s = Session::new();
+    let r = readable.clone();
+    s.media.file_loader = Some(Arc::new(move |_: &str, _| match r.load(Ordering::Relaxed) {
+        true => Ok((RgbFrame::filled(720, 480, [0.6; 3]), SourceInfo::default())),
+        false => Err("the share is not responding".into()),
+    }));
+    let p = Photo::new(A, Source::File { path: path.to_string_lossy().into() }, "a.tif", "TIFF", 720, 480, "2026-01-01");
+    let proxy = crate::smart::encode(&RgbFrame::filled(360, 240, [0.05; 3]), None).unwrap();
+    std::fs::write(dir.join(crate::smart::file_name(&p)), proxy).unwrap();
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    s.media.smart_dir = Some(dir.clone());
+    let export = |s: &mut Session| s.export_job(A, 720, 480, OutputSpace::Srgb, OutputDepth::U8).unwrap();
+
+    let detail = s.detail_job(A, 720, 480, true).unwrap();
+    assert!(!detail.source.is_proxy());
+    let r = detail.run();
+    assert!(r.rendered.is_err(), "no 1:1 view from the smart preview");
+    s.accept(&r);
+    let r = export(&mut s).run();
+    let proxy = mean(&r.rendered.as_ref().expect("an export of an unreadable original uses its smart preview").image);
+    s.accept(&r);
+    assert!(!export(&mut s).source.is_proxy(), "the smart preview is not kept as the original");
+
+    readable.store(true, Ordering::Relaxed);
+    let exported = mean(&export(&mut s).run().rendered.unwrap().image);
+    let detail = mean(&s.detail_job(A, 720, 480, true).unwrap().run().rendered.unwrap().image);
+    assert!(exported > proxy + 60.0, "the export reads the original again: {exported} vs the proxy's {proxy}");
+    assert!((detail - exported).abs() < 1.0, "and so does the 1:1 view: {detail} vs {exported}");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// A raw as import leaves it: measured as-shot white balance 5200 K / +4, embedded lens

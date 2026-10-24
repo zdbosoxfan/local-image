@@ -4,7 +4,7 @@
 use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, pos2, vec2};
 use lightcraft_catalog::PhotoId;
 use lightcraft_develop::{DevelopSettings, MaskShape};
-use lightcraft_engine::media::{SourceLevel, SourceRef};
+use lightcraft_engine::media::SourceLevel;
 use lightcraft_geom::{Affine, Point};
 use lightcraft_pipeline::geometry::Frame;
 use serde_json::json;
@@ -280,8 +280,9 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     // zoomed in past that render: the whole frame again at the zoom's own scale from the
     // original, so 100% shows the pixels a full-size export has (demosaic, capture sharpening,
     // noise reduction). Only on the GPU (on the CPU it needs several GB and seconds per edit),
-    // never from an offline original's smart preview, and once the loupe render of this photo is
-    // in (it must not hold up the first view).
+    // never from an offline original's smart preview (nor from one standing in for an original
+    // that can't be read: that job fails, see `detail_job`), and once the loupe render of this
+    // photo is in (it must not hold up the first view).
     if app.renderer.textures.get(&Slot::Detail).is_some_and(|t| t.photo != id) {
         app.renderer.textures.remove(&Slot::Detail);
     }
@@ -293,7 +294,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
             let (dw, dh) = if aspect >= 1.0 { (e, (e as f32 / aspect) as usize) } else { ((e as f32 * aspect) as usize, e) };
             let job = app.session.detail_job(id, dw.max(8), dh.max(8), !crop_tool)?;
             let job = loupe_look(app, &d, job);
-            if job.cpu_only().is_some() || matches!(job.source, SourceRef::Smart { .. }) {
+            if job.cpu_only().is_some() || job.source.is_proxy() {
                 return None;
             }
             let key = job.key;
