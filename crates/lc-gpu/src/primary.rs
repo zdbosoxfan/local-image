@@ -4,7 +4,7 @@ use crate::ctx::{Buf, groups1, groups2};
 use crate::render::{Cx, gaussian};
 use lightcraft_develop::{ClarityMode, DevelopSettings};
 use lightcraft_pipeline::{
-    Plan, SourceInfo,
+    Plan, SourceInfo, colorequal,
     primary::{HsMethod, Stages},
     ucs,
 };
@@ -360,12 +360,14 @@ fn pyramid(cx: &mut Cx<'_>, first: Arc<Buf>, w: usize, h: usize, nc: usize) -> V
     }
     v
 }
-fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 4], cache: &mut Cache, pk: u64, scope: &str) -> Buf {
+fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 2], cache: &mut Cache, pk: u64, scope: &str) -> Buf {
     let slot = format!("{scope}/ll-basis");
     let basis = if let Some(b) = cache.find(&slot, pk) {
         b
     } else {
-        let limit = cache.get(format!("{scope}/ll-bounds"), pk, || bounds(cx, pl, w * h, 1, 1e30, -1e30));
+        use lightcraft_pipeline::primary::{TONE_GAMMA, TONE_HI, TONE_LO};
+        let ng = TONE_GAMMA as u32;
+        let step = (TONE_HI - TONE_LO) / (TONE_GAMMA - 1) as f32;
         let mut orig = vec![(w, h, pl.clone())];
         let (mut pw, mut ph) = (w, h);
         let mut lev = 1;
@@ -380,26 +382,26 @@ fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 4]
             ph = nh;
             lev += 1;
         }
-        let mut acc: Vec<_> = orig.iter().map(|(w, h, _)| cx.zeroed(w * h * 4)).collect();
-        for gam in 0..10 {
-            let remap = run(cx, "p_ll_remap", w * h, &[gam], [Some(pl), Some(&limit), None, None, None], w * h * 4);
-            let pyr = pyramid(cx, Arc::new(remap), w, h, 4);
+        let mut acc: Vec<_> = orig.iter().map(|(w, h, _)| cx.zeroed(w * h * 2)).collect();
+        for gam in 0..ng {
+            let remap = run(cx, "p_ll_remap", w * h, &[gam, f(TONE_LO), f(step)], [Some(pl), None, None, None, None], w * h * 2);
+            let pyr = pyramid(cx, Arc::new(remap), w, h, 2);
             for (lev, (pw, ph, original)) in orig.iter().enumerate() {
                 into(
                     cx,
                     "p_ll_acc",
                     pw * ph,
-                    &[*pw as u32, *ph as u32, gam, (lev + 1 < orig.len()) as u32],
-                    [Some(&pyr[lev].2), pyr.get(lev + 1).map(|v| &*v.2), Some(original), Some(&limit), None],
+                    &[*pw as u32, *ph as u32, gam, (lev + 1 < orig.len()) as u32, f(TONE_LO), f(step), ng],
+                    [Some(&pyr[lev].2), pyr.get(lev + 1).map(|v| &*v.2), Some(original), None, None],
                     &acc[lev],
                 );
             }
         }
-        let mut out = acc.pop().unwrap_or_else(|| cx.zeroed(w * h * 4));
+        let mut out = acc.pop().unwrap_or_else(|| cx.zeroed(w * h * 2));
         for ((pw, ph, _), fine) in orig.iter().zip(acc).rev() {
-            out = run(cx, "p_ll_assemble", pw * ph, &[*pw as u32, *ph as u32], [Some(&fine), Some(&out), None, None, None], pw * ph * 4);
+            out = run(cx, "p_ll_assemble", pw * ph, &[*pw as u32, *ph as u32], [Some(&fine), Some(&out), None, None, None], pw * ph * 2);
         }
-        let basis = run(cx, "p_ll_gain", w * h, &[], [Some(&out), Some(pl), None, None, None], w * h * 4);
+        let basis = run(cx, "p_ll_gain", w * h, &[], [Some(&out), Some(pl), None, None, None], w * h * 2);
         cache.put(slot, pk, basis)
     };
     one(cx, "p_ll_mix", w * h, &sliders.map(f), &basis, w * h)
@@ -425,8 +427,9 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
     }
     let center = (ppl as f32 * 0.015 * (w as f32 / full_w as f32)).max(1.).log2();
     let acc: Vec<_> = orig.iter().take(last).map(|(w, h, _)| cx.zeroed(w * h * 2)).collect();
-    for gam in 0..12 {
-        let first = one(cx, "p_dt_remap", pw * ph, &[gam], &orig[0].2, pw * ph * 2);
+    let ng = lightcraft_pipeline::primary::CLARITY_GAMMA as u32;
+    for gam in 0..ng {
+        let first = one(cx, "p_dt_remap", pw * ph, &[gam, ng], &orig[0].2, pw * ph * 2);
         let mut remap = vec![first];
         for lev in 1..=last {
             let (lw, lh, _) = &orig[lev - 1];
@@ -441,7 +444,7 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
                 cx,
                 "p_dt_acc",
                 lw * lh,
-                &[*lw as u32, *lh as u32, gam, f(wt)],
+                &[*lw as u32, *lh as u32, gam, f(wt), ng],
                 [Some(&remap[lev]), Some(&remap[lev + 1]), Some(guide), None, None],
                 &acc[lev],
             );
@@ -453,17 +456,11 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
         let (lw, lh, _) = &orig[lev];
         out = run(cx, "p_dt_assemble", lw * lh, &[*lw as u32, *lh as u32], [Some(&acc[lev]), Some(&out), None, None, None], lw * lh * 2);
     }
-    one(cx, "p_dt_crop", w * h, &[w as u32, pad as u32], &out, w * h)
+    one(cx, "p_dt_crop", w * h, &[w as u32, pad as u32, f(24. * lightcraft_pipeline::primary::CLARITY_GAIN)], &out, w * h)
 }
 fn lut(cx: &mut Cx<'_>, s: &DevelopSettings) -> Buf {
-    use lightcraft_pipeline::colorequal::{hues, rbf};
-    use std::f32::consts::PI;
-    let bands = s.mixer.bands();
     let mut data = ucs::gamut_lut().to_vec();
-    data.extend(rbf(bands.map(|b| b.hue as f32 / 100. * 0.5), *hues(), PI, false));
-    data.extend(rbf(bands.map(|b| 1. + b.sat as f32 / 200.), *hues(), PI, true));
-    data.extend(rbf(bands.map(|b| 1. + b.lum as f32 / 200.), *hues(), PI, true));
-    data.extend(rbf(s.bw_mix.bands().map(|b| b as f32 / 100.), *hues(), PI, false));
+    data.extend(colorequal::luts(s).into_iter().flatten());
     data.extend((-4096..=4096).map(|i| (1. / (1. + (-60. * 0.5 * i as f64 / 4096.).exp())) as f32));
     cx.gpu.upload(&data.into_iter().map(f).collect::<Vec<_>>())
 }
@@ -545,7 +542,13 @@ fn equalizer(cx: &mut Cx<'_>, img: &Buf, s: &DevelopSettings, w: usize, h: usize
         cx,
         "p_equal_finish",
         n,
-        &[f(max_b), lightcraft_pipeline::is_bw(s) as u32],
+        &[
+            f(max_b),
+            lightcraft_pipeline::is_bw(s) as u32,
+            f(colorequal::BRIGHTNESS_EV),
+            f(colorequal::BRIGHTNESS_MIN_EV),
+            f(colorequal::BRIGHTNESS_MAX_EV),
+        ],
         [Some(&hsb), Some(&corr), Some(&sat), Some(&extra), Some(&tab)],
         n * 3,
     )
@@ -605,7 +608,7 @@ fn tone_ab(
     pl: &Arc<Buf>,
     w: usize,
     h: usize,
-    sl: [f32; 4],
+    sl: [f32; 2],
     method: HsMethod,
     cache: &mut Cache,
     pk: u64,
@@ -617,7 +620,7 @@ fn tone_ab(
     if let Some(b) = cache.find(&slot, fk) {
         return b;
     }
-    if sl == [0.; 4] {
+    if sl == [0.; 2] {
         let zero = cx.zeroed(w * h * 2);
         return cache.put(slot, fk, zero);
     }
@@ -665,7 +668,7 @@ fn tone_detail(
         let l = cache.get("proxy-log", pk, || one(cx, "p_log", pw * ph, &[], p, pw * ph));
         (l, pw, ph)
     });
-    let sliders = [s.light.highlights, s.light.shadows, s.light.whites, s.light.blacks].map(|x| x as f32 / 100.);
+    let sliders = [s.light.highlights, s.light.shadows].map(|x| x as f32 / 100.);
     if flags.tone
         && let Some((pl, pw, ph)) = &pl
     {
@@ -797,23 +800,32 @@ pub(crate) fn process(
     let gain = (s.light.exposure as f32).exp2();
     let base_key = key((plan.lin_key, f(gain)));
     // Selection masks are evaluated on pre-primary pixels using the photo tone map.
-    // A contrast/look change therefore invalidates later layer fields even when their
-    // component geometry and primary sliders have not changed.
+    // A contrast/whites/blacks/look change therefore invalidates later layer fields even
+    // when their component geometry and primary sliders have not changed.
     let alpha_key = key((
         base_key,
-        s.light.contrast.to_bits(),
+        [s.light.contrast, s.light.whites, s.light.blacks].map(f64::to_bits),
         format!(
             "{:?}",
             (s.look, &s.look_options, lightcraft_pipeline::negative::converts(s), info.raw, info.camera_tone, info.look_curve, info.profile_curve)
         ),
     ));
     let mut img = if gain == 1. { lin } else { cache.get("exposed", base_key, || one(cx, "p_scale", n, &[f(gain)], &lin, n * 3)) };
-    let proxy = proxy.map(|(b, w, h)| {
+    let mut proxy = proxy.map(|(b, w, h)| {
         let exposed = if gain == 1. { b } else { cache.get("proxy-exposed", base_key, || one(cx, "p_scale", w * h, &[f(gain)], &b, w * h * 3)) };
         (exposed, w, h)
     });
+    let mut scene_key = base_key;
+    if let Some((m, tint)) = lightcraft_pipeline::primary::calibration(s) {
+        let mut words = vec![m.is_some() as u32];
+        words.extend(m.unwrap_or_default().iter().flatten().copied().map(f));
+        words.push(f(tint));
+        scene_key = key((base_key, &words));
+        img = cache.get("calibrated", scene_key, || one(cx, "p_calibrate", n, &words, &img, n * 3));
+        proxy = proxy.map(|(b, w, h)| (cache.get("proxy-calibrated", scene_key, || one(cx, "p_calibrate", w * h, &words, &b, w * h * 3)), w, h));
+    }
     let pp = proxy.as_ref().map(|(p, w, h)| (p, *w, *h));
-    let (next, ik) = tone_detail(cx, img, s, plan, info, pp, clip, method, cache, base_key, base_key, "global");
+    let (next, ik) = tone_detail(cx, img, s, plan, info, pp, clip, method, cache, scene_key, scene_key, "global");
     img = next;
     let (next, mut ik) = colour(cx, img, s, plan, cache, ik, "global");
     img = next;
@@ -842,7 +854,7 @@ pub(crate) fn process(
             qkey = key((ik, mat.map(|r| r.map(f))));
         }
         if wb.is_some() || flags.tone || flags.clarity || flags.texture || flags.structure {
-            let (q, k) = tone_detail(cx, q, &d, plan, info, pp, clip, method, cache, qkey, base_key, &scope);
+            let (q, k) = tone_detail(cx, q, &d, plan, info, pp, clip, method, cache, qkey, scene_key, &scope);
             if let Some(alpha) = alpha {
                 img = Arc::new(run(cx, "p_mix", n, &[layout[mi].0, layout[mi].1.to_bits()], [Some(&img), Some(&q), Some(alpha), None, None], n * 3));
                 ik = key((
@@ -1025,19 +1037,19 @@ pub(crate) mod tests {
         }
         let log = p.map(|v| (v / 0.18).log2());
         let lb = Arc::new(g.upload(&log.data.iter().copied().map(f).collect::<Vec<_>>()));
-        let sl = [-1., 1., 0.3, -0.2];
+        let sl = [-1., 1.];
         let out = li_tone(&mut cx, &lb, w, h, sl, &mut Cache::default(), 0, "test");
         let out: Vec<f32> = cx.read(&out, w * h);
-        let cpu = primary::li_tone(&log, sl[0], sl[1], sl[2], sl[3]);
+        let cpu = primary::li_tone(&log, sl[0], sl[1]);
         assert!(error(&out, &cpu.data) < 3e-5, "LI Tone {}", error(&out, &cpu.data));
         let mut cache = Cache::default();
         let first = li_tone(&mut cx, &lb, w, h, sl, &mut cache, 0, "drag");
         drop(first);
         let before = cx.primary_dispatches();
-        let second = li_tone(&mut cx, &lb, w, h, [-0.3, 0.4, -0.5, 0.6], &mut cache, 0, "drag");
-        assert_eq!(cx.primary_dispatches() - before, 1, "a cached LI Tone drag only combines its four response fields");
+        let second = li_tone(&mut cx, &lb, w, h, [-0.3, 0.4], &mut cache, 0, "drag");
+        assert_eq!(cx.primary_dispatches() - before, 1, "a cached LI Tone drag only combines its two response fields");
         let second: Vec<f32> = cx.read(&second, w * h);
-        let cpu = primary::li_tone(&log, -0.3, 0.4, -0.5, 0.6);
+        let cpu = primary::li_tone(&log, -0.3, 0.4);
         assert!(error(&second, &cpu.data) < 3e-5);
         let uv: Vec<f32> = (0..w * h)
             .flat_map(|i| [0.03 * (0.13 * (i % w) as f32).sin() + if i % w > 18 { 0.01 } else { 0. }, 0.04 * (0.17 * (i / w) as f32).cos()])
@@ -1261,6 +1273,7 @@ pub(crate) mod tests {
         });
         for edit in 0..4 {
             s.light.contrast = edit as f64 * 15.;
+            s.light.whites = 40. - edit as f64 * 25.;
             s.masks[0].invert = edit % 2 == 0;
             s.masks[0].refine = edit as f64 * 20.;
             s.light.highlights = -20. - edit as f64 * 20.;
@@ -1299,11 +1312,16 @@ pub(crate) mod tests {
         let identity = check_render(g, &src, &info, &s, &req, HsMethod::LiTone, &stages);
         assert_ne!(edited, identity);
         assert_eq!(stages.primary_dispatches(), 0);
-        let setters: [fn(&mut DevelopSettings, f64); 13] = [
+        let finish_only: [fn(&mut DevelopSettings, f64); 2] = [|s, v| s.light.whites = v, |s, v| s.light.blacks = v];
+        for set in finish_only {
+            set(&mut s, 60.);
+            assert_ne!(check_render(g, &src, &info, &s, &req, HsMethod::LiTone, &stages), identity);
+            assert_eq!(stages.primary_dispatches(), 0, "Whites and Blacks reshape the finish tone map");
+            set(&mut s, 0.);
+        }
+        let setters: [fn(&mut DevelopSettings, f64); 11] = [
             |s, v| s.light.highlights = v,
             |s, v| s.light.shadows = v,
-            |s, v| s.light.whites = v,
-            |s, v| s.light.blacks = v,
             |s, v| s.effects.clarity = v,
             |s, v| s.effects.texture = v,
             |s, v| s.effects.structure = v,

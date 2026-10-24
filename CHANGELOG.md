@@ -70,6 +70,29 @@ All notable changes to Local Image are recorded here. The format follows
   another camera profile no longer adds the embedded profile's exposure offset to the new one's.
 - RAW: a file with a damaged or truncated tile, strip or uncompressed band is refused with an error
   instead of developing with black blocks.
+- Develop tone and colour. Saved edits that use these tools render differently:
+  - Whites and Blacks work again: they reshape the global tone map instead of acting only above
+    sensor white and in the deepest noise. Auto Tone's Whites and Blacks now take effect.
+  - Clarity is equally strong at every tone instead of rising and falling every 2 EV (and weakening
+    contrast at middle grey).
+  - HSL Luminance can no longer turn saturated colours black: Blue Luminance -100 darkens a deep
+    blue sky by about 2.5 EV. The eight HSL and B&W mix bands no longer overshoot between bands,
+    and an untouched band changes nothing.
+  - Dehaze no longer takes shadows to black or leaves black fringes beside bright windows, and
+    previews show the same edge as exports.
+  - Luminance and Color noise reduction are independent: Color NR no longer smooths luminance
+    texture, and Luminance NR reaches green-magenta luminance noise.
+  - Range masks select the same pixels for every local tool, also after global Shadows, colour
+    edits or B&W, and the mask overlay shows what is applied.
+  - Color Range masks and the colour picker compare colours under the photo's Whites and Blacks
+    as well as its Contrast. A saved Color Range mask on a photo with Whites or Blacks set
+    (including by Auto Tone) may select somewhat different pixels; re-sample it if it does.
+  - Highlights and Shadows no longer change with unrelated content such as a dark corner, a crop
+    or a single black pixel.
+  - Camera Calibration applies before HSL, Color Grading, Skin Tone and B&W, as in Lightroom; in
+    B&W its primaries now shape the mix and Shadows Tint no longer tints the shadows.
+  - On Apple Silicon, exact-black pixels under Point Color or a masked hue or saturation change
+    no longer risk undefined colour.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

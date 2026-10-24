@@ -75,6 +75,12 @@ pub fn evaluate(masks: &[Mask], frame: &Frame, w: usize, h: usize, img: &RgbFram
         .collect()
 }
 
+/// The tone map Color Range masks and the colour picker compare colours under: the photo's
+/// global tone (contrast, whites, blacks), so a picked colour selects the same pixels everywhere.
+pub fn selection_tone(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInfo) -> crate::ToneMap {
+    crate::tone2::tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks)
+}
+
 /// Range colours measured after this photo's tone map, in perceptual OkLab.
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_with_tone(

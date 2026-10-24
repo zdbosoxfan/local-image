@@ -47,35 +47,35 @@ fn smooth_handles_reversed_bounds() {
 #[test]
 fn tone_gain_neutral_sliders_are_zero_everywhere() {
     for l in [-10.0, -5.0, -1.0, 0.0, 1.0, 5.0, 10.0] {
-        let v = primary::tone_gain(l as f32, 0.0, 0.0, 0.0, 0.0);
+        let v = primary::tone_gain(l as f32, 0.0, 0.0);
         assert_eq!(v, 0.0);
     }
 }
 
 #[test]
 fn tone_gain_is_zero_at_middle_grey() {
-    let v = primary::tone_gain(0.0, 0.4, 0.3, 0.5, 0.2);
+    let v = primary::tone_gain(0.0, 0.4, 0.3);
     assert!((v - 0.0).abs() < 1e-6);
 }
 
 #[test]
-fn tone_gain_extreme_low_combines_shadows_and_blacks() {
-    let v = primary::tone_gain(-100.0, 0.0, 0.25, 0.0, 0.25);
-    // 1.8 * shadows + 0.8 * blacks = 0.45 + 0.2
-    assert!((v - 0.65).abs() < 1e-5);
+fn tone_gain_extreme_low_is_the_full_shadows_gain() {
+    let v = primary::tone_gain(-100.0, 0.0, 0.25);
+    // 1.8 * shadows
+    assert!((v - 0.45).abs() < 1e-5);
 }
 
 #[test]
-fn tone_gain_extreme_high_combines_highlights_and_whites() {
-    let v = primary::tone_gain(100.0, 0.25, 0.0, 0.25, 0.0);
-    // 1.6 * highlights + 0.8 * whites = 0.4 + 0.2
-    assert!((v - 0.6).abs() < 1e-5);
+fn tone_gain_extreme_high_is_the_full_highlights_gain() {
+    let v = primary::tone_gain(100.0, 0.25, 0.0);
+    // 1.6 * highlights
+    assert!((v - 0.4).abs() < 1e-5);
 }
 
 #[test]
 fn tone_gain_is_bounded_for_typical_sliders() {
     for l in [-20.0, -5.0, 0.0, 3.0, 8.0, 20.0] {
-        let v = primary::tone_gain(l, 0.5, 0.5, 0.5, 0.5);
+        let v = primary::tone_gain(l, 0.5, 0.5);
         assert!(v.is_finite());
         assert!(v.abs() < 5.0);
     }
@@ -83,10 +83,10 @@ fn tone_gain_is_bounded_for_typical_sliders() {
 
 #[test]
 fn tone_gain_does_not_panic_on_nan_or_infinity() {
-    let _ = primary::tone_gain(f32::NAN, 0.5, 0.5, 0.5, 0.5);
-    let _ = primary::tone_gain(f32::INFINITY, 0.5, 0.5, 0.5, 0.5);
-    let _ = primary::tone_gain(0.0, f32::NAN, 0.5, 0.5, 0.5);
-    let _ = primary::tone_gain(0.0, 0.0, f32::INFINITY, 0.0, -f32::INFINITY);
+    let _ = primary::tone_gain(f32::NAN, 0.5, 0.5);
+    let _ = primary::tone_gain(f32::INFINITY, 0.5, 0.5);
+    let _ = primary::tone_gain(0.0, f32::NAN, 0.5);
+    let _ = primary::tone_gain(0.0, 0.0, f32::INFINITY);
 }
 
 #[test]

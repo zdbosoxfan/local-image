@@ -427,6 +427,7 @@ pub(crate) fn stack(
                 }
                 let p = crate::local::prepare(
                     Arc::new(tool_input),
+                    None,
                     &d,
                     &layer_info,
                     &plan.frame,

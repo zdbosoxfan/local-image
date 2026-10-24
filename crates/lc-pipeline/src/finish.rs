@@ -267,9 +267,6 @@ pub struct FinishParams {
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
     pub ops: ColorOps,
-    /// Calibration: primaries matrix (row-major, linear Rec.2020) and shadows tint (−1..1).
-    pub calib: Option<[[f32; 3]; 3]>,
-    pub shadow_tint: f32,
     /// Tone curves (parametric ∘ point, per channel) on encoded values, 1024 entries each.
     pub curves: Option<CurveTables>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
@@ -329,12 +326,9 @@ impl FinishParams {
         let ev = s.light.exposure as f32;
         let gain = 2f32.powf(ev);
         let grain = if effects { grain(s, px_per_long) } else { None };
-        let calibration = s.section_enabled("calibration");
         FinishParams {
             mode: FinishMode::Display,
             layer_contrast: 0.0,
-            calib: if calibration { crate::colorops::calibration_matrix(&s.calibration) } else { None },
-            shadow_tint: if calibration { (s.calibration.shadows_tint / 100.0) as f32 } else { 0.0 },
             tone: tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
             layers: crate::layers::resolve(s, info, px_per_long),
             tone_eq: crate::toneeq::of(s),
@@ -604,7 +598,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 if dz != 0.0
                     && let Some(hz) = &p.haze
                 {
-                    c = crate::detail::dehaze_px(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
+                    c = crate::detail::dehaze_finish(c, dz, hz.at(i, dz), haze_air, fp.haze_distance);
                 }
                 // layers: their dehaze, then (below) their white balance and exposure
                 let mut layer_scene = false;
@@ -617,7 +611,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
                     if l.dehaze != 0.0
                         && let Some(hz) = &p.haze
                     {
-                        c = mix3(c, crate::detail::dehaze_px(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
+                        c = mix3(c, crate::detail::dehaze_finish(c, l.dehaze, hz.at(i, l.dehaze), haze_air, fp.haze_distance), a);
                     }
                 }
 
@@ -732,11 +726,6 @@ fn finish_with_mask<T: Copy + Default + Send>(
                         let g = dl.exp2();
                         c = mix3(c, c.map(|v| v * g), a);
                     }
-                }
-
-                // calibration (scene linear, before the tone map)
-                if fp.calib.is_some() || fp.shadow_tint != 0.0 {
-                    c = crate::colorops::calibrate(c, fp.calib.as_ref(), fp.shadow_tint);
                 }
 
                 // tone map on luminance, highlight desaturation
@@ -1054,10 +1043,12 @@ mod colour_tone_tests {
         // transmission rounds to 1, dehaze must be an identity even on negative
         // resampling/profile channels, which the tone stage desaturates later.
         for c in [[-0.004_114_710_3, 0.001_321_920_3, 0.004_300_609_7], [-0.1, 0.2, 0.3], [1.0, -0.2, 0.1]] {
-            for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
-                assert_eq!(crate::detail::dehaze_px(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+            for dehaze in [crate::detail::dehaze_px, crate::detail::dehaze_finish] {
+                for dz in [0.0, f32::MIN_POSITIVE, 1e-14, 1e-8, f32::EPSILON / 4.0] {
+                    assert_eq!(dehaze(c, dz, 1.0, [1.0; 3], 1.0), c, "{c:?}, strength {dz}");
+                }
+                assert_eq!(dehaze(c, 0.4, 0.0, [1.0; 3], 1.0), c);
             }
-            assert_eq!(crate::detail::dehaze_px(c, 0.4, 0.0, [1.0; 3], 1.0), c);
         }
         // Actual veil removal still follows the existing dehaze formula.
         let c = [-0.1, 0.2, 0.3];
@@ -1097,6 +1088,7 @@ mod colour_tone_tests {
         assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative resampling channels");
         let mut prep = crate::local::prepare(
             img.clone(),
+            None,
             &s,
             &info,
             &plan.frame,
