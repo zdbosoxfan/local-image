@@ -330,15 +330,16 @@ impl ToneMap {
 }
 
 /// The base curve of `s`'s look on a source with `info` (global). The Camera look uses the tone
-/// curve (`ProfileToneCurve`) of a camera profile the user picked, else the camera's curve (fitted
-/// to its JPEG, else the maker's), else the DNG profile's. Soft Film and Sigmoid always use their
-/// own curves.
+/// curve (`ProfileToneCurve`) of a camera profile the user picked from their profiles, else the
+/// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's. Automatic,
+/// Matrix Only and the bundled profile (the one Automatic applies without a profile of the user's)
+/// render alike. Soft Film and Sigmoid always use their own curves.
 pub fn base_curve(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInfo) -> BaseCurve {
     use lightcraft_develop::Look;
     match s.look {
         Look::Sigmoid => BaseCurve::Sigmoid(Sigmoid::default_curve()),
         Look::Camera => {
-            let chosen = !matches!(s.camera_profile.as_str(), "" | "matrix");
+            let chosen = !matches!(s.camera_profile.as_str(), "" | "matrix" | "bundled");
             let picked = info.profile_curve.filter(|_| chosen);
             picked.or(info.look_curve).or(info.camera_tone).or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera)
         }
@@ -519,9 +520,9 @@ mod tests {
             tone_map(&s, &info, 0.0, 0.0, 0.0).apply(0.18)
         };
         assert!((mid("dcp:sony-ilce-7m4-standard") - 0.30).abs() < 0.01, "{}", mid("dcp:sony-ilce-7m4-standard"));
-        // automatic and matrix-only keep the camera's own curve
+        // automatic, matrix-only and the bundled profile keep the camera's own curve
         let own = maker.apply(0.18);
-        for automatic in ["", "matrix"] {
+        for automatic in ["", "matrix", "bundled"] {
             assert!((mid(automatic) - own).abs() < 0.01 && (own - 0.30).abs() > 0.02, "{automatic:?}: {} vs {own}", mid(automatic));
         }
         // Soft Film keeps its own curve with a picked profile

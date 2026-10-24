@@ -86,8 +86,10 @@ and [RawTherapee's profiling workflow](https://rawpedia.pixls.us/how_to_create_d
    nickname. Keep the JSONs, chart references, raw captures, spectrum and command
    log next to the profile. `-t linear` gives an accuracy-oriented starting point;
    create a separately named rendering variant with `-t acr` if you want a tone
-   curve. A picked profile's tone curve is used by the **Camera** look; Soft Film
-   and Sigmoid keep their own curves. Leave LUT smoothing at its defaults until validation shows a reason
+   curve. The tone curve of a profile picked under **Custom Camera Profiles** is
+   used by the **Camera** look; Automatic, the bundled profile and a picked
+   profile that is no longer in the folder keep the camera's own curve, and Soft
+   Film and Sigmoid keep their own curves. Leave LUT smoothing at its defaults until validation shows a reason
    to change it; a perfect fit to one chart can produce poor gradients elsewhere.
 6. Put the resulting DCP in your chosen **Camera profiles folder**, click
    **Reload Profiles**, and select its description under **Custom Camera
