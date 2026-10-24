@@ -1,4 +1,5 @@
 use super::*;
+use crate::custom::{add_custom_with, custom_list, synthetic};
 
 fn varint(mut v: u64, out: &mut Vec<u8>) {
     loop {
