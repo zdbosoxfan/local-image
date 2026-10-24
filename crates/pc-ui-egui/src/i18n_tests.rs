@@ -43,6 +43,9 @@ const PENDING_OVERWRITE_TRANSLATIONS: &[&str] = &[
 const PENDING_LRC_UX_TRANSLATIONS: &[&str] = &["Library & Develop", "Pet Eye", "Add Catchlight", "Click a pet's glowing pupil"];
 
 const PENDING_AI_TRANSLATIONS: &[&str] = &[
+    "Needs a newer Local Image: {names}",
+    "Not used (the previous copy stays): {names}",
+    "Your own profiles stay in use: {names}",
     "Cloud limit reached: {used} of {cap} images used this session, and this run needs {images}. Raise or clear the limit in Local AI › Cloud.",
     "Generate with {provider}?",
     "Provider: {provider}",
