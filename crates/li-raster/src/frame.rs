@@ -13,7 +13,7 @@ use crate::resample::{Filter, Pixel, antiring, antiring_taper, half_pixels, resi
 /// Widest kernel of [`Frame::sample_cubic`]: minification beyond this is a prefilter's job.
 pub const CUBIC_MAX_STRETCH: f32 = 4.0;
 /// Most taps per axis of [`Frame::sample_cubic`] (support ±2 at [`CUBIC_MAX_STRETCH`]).
-const CUBIC_TAPS: usize = 17;
+pub const CUBIC_TAPS: usize = 17;
 
 /// One axis of [`Frame::sample_cubic`] at continuous coordinate `x` (pixel centres at +0.5) over `n`
 /// pixels.

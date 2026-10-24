@@ -22,21 +22,21 @@ fn catmull_rom(t: f32) -> f32 {
 }
 
 // One axis of `cubic` (`li_raster`'s `cubic_axis`): first source index, tap count, normalized
-// weights and their `antiring_taper`; at most 17 taps, the kernel widened up to 4×.
+// weights and their `antiring_taper`.
 struct CubicAxis {
     j0: i32,
     n: u32,
-    w: array<f32, 17>,
-    taper: array<f32, 17>,
+    w: array<f32, CUBIC_TAPS>,
+    taper: array<f32, CUBIC_TAPS>,
 }
 
 fn cubic_axis(x: f32, n: u32, stretch: f32) -> CubicAxis {
-    let s = clamp(stretch, 1.0, 4.0);
+    let s = clamp(stretch, 1.0, CUBIC_MAX_STRETCH);
     let f = clamp(x, -1.0, f32(n) + 1.0) - 0.5;
     let j0 = floor(f - 2.0 * s) + 1.0;
     var a: CubicAxis;
     a.j0 = i32(j0);
-    a.n = min(u32(ceil(f + 2.0 * s) - 1.0 - j0) + 1u, 17u);
+    a.n = min(u32(ceil(f + 2.0 * s) - 1.0 - j0) + 1u, CUBIC_TAPS);
     var sum = 0.0;
     for (var k = 0u; k < a.n; k++) {
         a.w[k] = catmull_rom((j0 + f32(k) - f) / s);
