@@ -612,6 +612,31 @@ pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     redeye::apply(img, &p.eyes);
 }
 
+/// Noise reduction of the resampled image ([`local::denoise_source`]). The lens warp has already
+/// brightened vignetted corners by up to a few stops, but the noise models assume one noise level
+/// per signal level across the frame, so the corners kept up to twice their share of grain. The
+/// gain is divided out around the denoiser (a per-pixel scale, it commutes with white balance and
+/// the colour matrices), so the corners are denoised as their raw noise is.
+pub fn denoise_sampled(img: &mut RgbFrame, frame: &geometry::Frame, s: &DevelopSettings, src_long: usize, px_per_long: f64, info: &SourceInfo) {
+    let scale = detail::out_per_orig(px_per_long, src_long, info.sensor_scale);
+    let gain = detail::nr_params(s, scale).and_then(|_| frame.vignette_gain(img.width, img.height));
+    let scale_by = |img: &mut RgbFrame, k: &li_raster::GrayFrame, divide: bool| {
+        let w = img.width;
+        li_raster::par_rows(&mut img.data, w, |y, row| {
+            for (p, k) in row.iter_mut().zip(k.row(y)) {
+                *p = p.map(|v| if divide { v / k } else { v * k });
+            }
+        });
+    };
+    if let Some(k) = &gain {
+        scale_by(img, k, true);
+    }
+    local::denoise_source(img, s, src_long, px_per_long, info);
+    if let Some(k) = &gain {
+        scale_by(img, k, false);
+    }
+}
+
 /// Capture sharpening of a source with `info` under `s` (see [`capture`]): `None` when it is off,
 /// the source isn't raw, or the blur at this source's scale is too small to matter.
 pub fn capture_params(info: &SourceInfo, s: &DevelopSettings) -> Option<capture::CaptureParams> {
@@ -770,7 +795,7 @@ fn render_impl(
             // Without a cache the resampled buffer is ours: work on it in place.
             let mut img = if shared.is_some() { (*sampled).clone() } else { Arc::unwrap_or_clone(sampled.clone()) };
             lin_cpu(&mut img, info, &plan);
-            local::denoise_source(&mut img, s, src_long, px_per_long, info);
+            denoise_sampled(&mut img, &frame, s, src_long, px_per_long, info);
             Arc::new(img)
         }
     };

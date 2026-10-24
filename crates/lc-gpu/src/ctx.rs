@@ -200,7 +200,7 @@ const MODULES: &[Module] = &[
     Module {
         src: include_str!("wgsl/geom.wgsl"),
         bindings: &[("src", false, "f32"), ("dst", true, "f32"), ("coverage", false, "u32")],
-        entries: &["orient", "sample_affine", "sample_warp"],
+        entries: &["orient", "sample_affine", "sample_warp", "vignette_gain"],
     },
 ];
 

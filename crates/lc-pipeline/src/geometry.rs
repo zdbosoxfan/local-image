@@ -314,6 +314,20 @@ impl Frame {
         }
     }
 
+    /// The vignetting compensation [`Frame::sample`] applies to a `w × h` output, per pixel (1 on
+    /// blank canvas), when the warp has one.
+    pub fn vignette_gain(&self, w: usize, h: usize) -> Option<li_raster::GrayFrame> {
+        let wp = self.warp.as_ref().filter(|wp| wp.has_gain())?;
+        let o2t = self.out_to_oriented(w, h);
+        let mut out = li_raster::GrayFrame::new(w, h);
+        par_rows(&mut out.data, w, |y, row| {
+            for (x, k) in row.iter_mut().enumerate() {
+                *k = wp.frame(&o2t, x, y).map(|(_, g)| wp.gain(g)).filter(|k| k.is_finite() && *k > 0.0).unwrap_or(1.0);
+            }
+        });
+        Some(out)
+    }
+
     /// The crop rectangle as a quad in normalized oriented coordinates (for overlays).
     pub fn crop_quad_norm(&self) -> [Point; 4] {
         let r = self.crop.rect_px(self.ow, self.oh);

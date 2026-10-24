@@ -618,3 +618,53 @@ fn upright_finds_steep_tilts_in_a_rendered_facade() {
         }
     }
 }
+
+/// A flat wall with the same sensor noise everywhere, darkened 2 stops in the corners by the lens
+/// and brightened back by the profile's vignetting correction before noise reduction. The noise
+/// model assumed one noise level per signal level, so the corners kept far more grain than the
+/// centre; with the gain divided out around the denoiser they match denoising before the gain.
+#[test]
+fn noise_reduction_sees_the_raw_noise_under_vignetting_correction() {
+    use lightcraft_develop::EmbeddedRadial;
+    let (w, h) = (480usize, 320usize);
+    let mut radial = EmbeddedRadial { vig_count: 2, center: Point::new(0.5, 0.5), radius: 0.6, ..Default::default() };
+    radial.vig_knots[..2].copy_from_slice(&[0.0, 1.0]);
+    radial.attenuation[..2].copy_from_slice(&[1.0, 0.25]);
+    let info = SourceInfo { lens: Some(EmbeddedLens { radial: Some(radial), ..Default::default() }), ..Default::default() };
+    let mut s = DevelopSettings::default();
+    s.optics.lens_profile = true;
+    s.detail.nr_luminance = 60.0;
+    let attenuation = |x: usize, y: usize| {
+        let r = (x as f64 + 0.5 - w as f64 / 2.0).hypot(y as f64 + 0.5 - h as f64 / 2.0) / (0.6 * w as f64);
+        1.0 - 0.75 * r.min(1.0)
+    };
+    // the same noise everywhere on the sensor (a deterministic sum of uniforms)
+    let src = RgbFrame::from_fn(w, h, |x, y| {
+        let n: f64 = (0..4u64)
+            .map(|k| {
+                let mut v = (x as u64 * 7919 + y as u64 * 104_729 + k * 15_485_863).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+                v ^= v >> 31;
+                (v % 10_000) as f64 / 10_000.0 - 0.5
+            })
+            .sum();
+        [(0.18 * attenuation(x, y) + 0.01 * n) as f32; 3]
+    });
+    let frame = crate::frame_for(&src, &info, &s, true);
+    let gain = frame.vignette_gain(w, h).expect("the profile corrects vignetting");
+    let (src_long, ppl) = (w, w as f64);
+    let mut fixed = frame.sample(&src, w, h);
+    crate::denoise_sampled(&mut fixed, &frame, &s, src_long, ppl, &info);
+    let mut reference = src.clone();
+    crate::local::denoise_source(&mut reference, &s, src_long, ppl, &info);
+    let reference = reference.zip_map(&gain, |p, k| p.map(|v| v * k));
+    // residual noise in a corner box and in the centre (the signal there is flat after the gain)
+    let std = |img: &RgbFrame, x0: usize, y0: usize| {
+        let v: Vec<f64> = (y0..y0 + 30).flat_map(|y| (x0..x0 + 40).map(move |x| (x, y))).map(|(x, y)| f64::from(img.get(x, y)[1])).collect();
+        let m = v.iter().sum::<f64>() / v.len() as f64;
+        (v.iter().map(|a| (a - m).powi(2)).sum::<f64>() / v.len() as f64).sqrt()
+    };
+    for (x0, y0) in [(4, 4), (w - 44, h - 34)] {
+        let (got, want) = (std(&fixed, x0, y0), std(&reference, x0, y0));
+        assert!((got / want - 1.0).abs() < 0.15, "corner at {x0},{y0}: residual {got:.5}, denoised before the gain {want:.5}");
+    }
+}

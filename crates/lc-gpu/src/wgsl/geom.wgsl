@@ -344,6 +344,32 @@ fn camera_basis(v: vec3<f32>, offset: u32) -> vec3<f32> {
     );
 }
 
+// `Frame::vignette_gain` divided out of (P[208] set) or applied to an output-size image (around
+// noise reduction, `lightcraft_pipeline::denoise_sampled`). P as `sample_warp`; bindings: src (rgb),
+// dst (rgb), coverage (the framing bit mask).
+@compute @workgroup_size(16, 16)
+fn vignette_gain(@builtin(global_invocation_id) g: vec3<u32>) {
+    let w = pu(2u);
+    let h = pu(3u);
+    if (g.x >= w || g.y >= h) {
+        return;
+    }
+    let i = g.y * w + g.x;
+    let v = vec3<f32>(src[3u * i], src[3u * i + 1u], src[3u * i + 2u]);
+    let word = g.y * ((w + 31u) / 32u) + g.x / 32u;
+    var k = 1.0;
+    if ((coverage[word] & (1u << (g.x % 32u))) != 0u) {
+        let px = f32(g.x) + 0.5;
+        let py = f32(g.y) + 0.5;
+        let t = vec2<f32>(pf(4u) * px + pf(6u) * py + pf(8u), pf(5u) * px + pf(7u) * py + pf(9u));
+        let gain = warp_gain(corrected_to_source(to_corrected(t), 1u));
+        if (gain > 0.0 && gain < 3.0e38) {
+            k = gain;
+        }
+    }
+    put(i, select(v * k, v / k, pu(208u) != 0u));
+}
+
 @compute @workgroup_size(16, 16)
 fn sample_warp(@builtin(global_invocation_id) g: vec3<u32>) {
     let w = pu(2u);

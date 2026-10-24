@@ -115,3 +115,49 @@ fn every_resample_path_matches_the_cpu() {
     assert!(errors.pop().is_none());
     assert!(!crate::ctx::failed());
 }
+
+/// Noise reduction under the lens profile's vignetting correction: the device divides the gain out
+/// around its denoiser as the CPU does (main image and primary proxy), within the 8-bit bounds of
+/// the equivalence suite.
+#[test]
+fn vignetting_corrected_noise_reduction_matches_the_cpu() {
+    let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
+    let gpu = &*gpu_device;
+    let _scope = crate::ctx::RenderScope::new(gpu);
+    let errors = crate::ctx::ErrorScopes::push(gpu);
+    let (w, h) = (360usize, 240usize);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let r = (x as f32 - 180.0).hypot(y as f32 - 120.0) / 216.0;
+        let mut v = (x as u64 * 7919 + y as u64 * 104_729).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        v ^= v >> 29;
+        let n = (v % 1000) as f32 / 1000.0 - 0.5;
+        let a = 1.0 - 0.7 * r.min(1.0);
+        [(0.2 + 0.05 * (x as f32 * 0.05).sin()) * a + 0.02 * n, 0.18 * a + 0.02 * n, 0.15 * a + 0.015 * n]
+    }));
+    let mut radial =
+        lightcraft_develop::EmbeddedRadial { vig_count: 2, center: lightcraft_geom::Point::new(0.5, 0.5), radius: 0.6, ..Default::default() };
+    radial.vig_knots[1] = 1.0;
+    radial.attenuation[..2].copy_from_slice(&[1.0, 0.3]);
+    let info =
+        SourceInfo { raw: true, lens: Some(lightcraft_develop::EmbeddedLens { radial: Some(radial), ..Default::default() }), ..Default::default() };
+    let mut s = DevelopSettings::default();
+    s.optics.lens_profile = true;
+    s.detail.nr_luminance = 60.0;
+    s.detail.nr_color = 40.0;
+    for req in [RenderRequest::fit(w, h), RenderRequest::fit(200, 200)] {
+        let cpu = lightcraft_pipeline::render(&src, &info, &s, &req).image;
+        let device = render(gpu, &src, &info, &s, &req, None, None, lightcraft_pipeline::primary::DEFAULT_HS_METHOD).expect("gpu render").image;
+        let (mut sum, mut max) = (0u64, 0u8);
+        for (a, b) in cpu.data.iter().zip(&device.data) {
+            for c in 0..3 {
+                let d = a[c].abs_diff(b[c]);
+                sum += u64::from(d);
+                max = max.max(d);
+            }
+        }
+        let mean = sum as f64 / (cpu.data.len() * 3) as f64;
+        assert!(mean < 0.5 && max <= 3, "{}×{}: mean {mean:.3} LSB, max {max} LSB", cpu.width, cpu.height);
+    }
+    assert!(errors.pop().is_none());
+    assert!(!crate::ctx::failed());
+}

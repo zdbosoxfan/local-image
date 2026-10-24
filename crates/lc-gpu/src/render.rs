@@ -1209,7 +1209,30 @@ fn linear(cx: &mut Cx<'_>, sampled: &Buf, info: &SourceInfo, plan: &Plan<'_>, ho
             eyed
         }
     };
-    denoise(cx, img, plan, info)
+    denoise_sampled(cx, img, plan, info)
+}
+
+/// `lightcraft_pipeline::denoise_sampled`: noise reduction with the warp's vignetting gain divided
+/// out around it.
+fn denoise_sampled(cx: &mut Cx<'_>, img: Buf, plan: &Plan<'_>, info: &SourceInfo) -> Buf {
+    let scale = lightcraft_pipeline::detail::out_per_orig(plan.px_per_long, plan.src_long, info.sensor_scale);
+    let Some(wp) = plan.frame.warp.as_ref().filter(|wp| wp.has_gain() && lightcraft_pipeline::detail::nr::nr_params(&plan.settings, scale).is_some())
+    else {
+        return denoise(cx, img, plan, info);
+    };
+    let (w, h) = (plan.w, plan.h);
+    let o2t = plan.frame.out_to_oriented(w, h);
+    let coverage = cx.gpu.upload(&coverage_mask(wp, &o2t, w, h));
+    let by_gain = |cx: &mut Cx<'_>, img: &Buf, divide: bool| {
+        let mut p = warp_params(wp, (w, h), (w, h), &o2t, 1.0, 1.0, 0.0);
+        p.push(divide as u32);
+        let out = cx.gpu.buffer(w * h * 3);
+        cx.run("vignette_gain", &p, &[Some(img), Some(&out), Some(&coverage)], groups2(w, h, [16, 16]));
+        out
+    };
+    let flat = by_gain(cx, &img, true);
+    let denoised = denoise(cx, flat, plan, info);
+    by_gain(cx, &denoised, false)
 }
 
 /// Native wavelet NR, including robust noise estimation and recursive band statistics.
