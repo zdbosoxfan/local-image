@@ -314,24 +314,154 @@ fn rebuild(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: impl Fn(usize, 
                     k += 1;
                 }
             }
-            let mut out = q;
             if k == 0 {
-                // only a pixel clipped in all its own channels is known to reach the clip level
-                let floor = if p.iter().all(|&v| v >= clip) { max_level } else { 0.0 };
-                let v = q.iter().cloned().fold(0.0f32, f32::max).max(floor);
-                out = [v; 3];
-            } else {
-                let sum = sum / k as f32;
-                for c in 0..3 {
-                    if cl[c] {
-                        out[c] = q[c].max(sum * r[c]);
-                    }
+                // clipped in every channel: filled from the rebuilt ring below
+                continue;
+            }
+            let sum = sum / k as f32;
+            let mut out = q;
+            for c in 0..3 {
+                if cl[c] {
+                    // bounded: a nearly empty unclipped channel must not blow the estimate up
+                    out[c] = q[c].max((sum * r[c]).min(MAX_REBUILT * max_level));
                 }
             }
             *px = [out[0] / wb[0], out[1] / wb[1], out[2] / wb[2]];
         }
     });
+    fill_cores(img, wb, clip, &clipped);
     count
+}
+
+/// A rebuilt channel is at most this many times the brightest white-balanced clip level (2 EV).
+const MAX_REBUILT: f32 = 4.0;
+
+/// Pixels clipped in every channel have nothing left to rebuild from. A constant neutral there
+/// leaves a grey hole, darker and greyer than the rebuilt ring around it, in a blown sun or a sky
+/// seen through a window. Instead the white-balanced values of the ring (the pixels touching the
+/// core, partly clipped and rebuilt or not clipped at all) are diffused into the core, their colour
+/// fading to neutral with depth over about 1 % of the image, never below the neutral at the
+/// brightest plausible level (`max(wb) · clip`, what the core used to get).
+fn fill_cores(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: &(impl Fn(usize, &[f32; 3]) -> [bool; 3] + Sync)) {
+    let (w, h) = (img.width, img.height);
+    let is_core = |i: usize, p: &[f32; 3]| clipped(i, p) == [true; 3];
+    // the cores' bounding box, one pixel wider: depth (and core-ness) is only needed there
+    let bbox = img
+        .data
+        .par_chunks(w.max(1))
+        .enumerate()
+        .filter_map(|(y, row)| {
+            let core = |x: &usize| is_core(y * w + x, &row[*x]);
+            let first = (0..row.len()).find(core)?;
+            let last = (0..row.len()).rev().find(core).unwrap_or(first);
+            Some((first, last, y, y))
+        })
+        .reduce_with(|a, b| (a.0.min(b.0), a.1.max(b.1), a.2.min(b.2), a.3.max(b.3)));
+    let Some((x0, x1, y0, y1)) = bbox else { return };
+    let (bx, by) = (x0.saturating_sub(1), y0.saturating_sub(1));
+    let (bw, bh) = ((x1 + 2).min(w) - bx, (y1 + 2).min(h) - by);
+    let depth = core_depth(bw, bh, |x, y| {
+        let i = (by + y) * w + bx + x;
+        is_core(i, &img.data[i])
+    });
+    let core_at = |x: usize, y: usize| x >= bx && y >= by && x < bx + bw && y < by + bh && depth[(y - by) * bw + x - bx] > 0;
+    let balanced = |p: &[f32; 3]| [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
+    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    let mut sv = vec![[0f32; 3]; cw * ch];
+    let mut sval = vec![false; cw * ch];
+    {
+        let data = &img.data;
+        downsample(w, h, &mut sv, &mut sval, |i| {
+            let (x, y) = (i % w, i / w);
+            if core_at(x, y) {
+                return None;
+            }
+            let ring = (y.saturating_sub(1)..(y + 2).min(h)).any(|yy| (x.saturating_sub(1)..(x + 2).min(w)).any(|xx| core_at(xx, yy)));
+            ring.then(|| balanced(&data[i]))
+        });
+    }
+    let seeded = cw * ch < w * h && sval.contains(&true);
+    if seeded {
+        fill_invalid(cw, ch, &mut sv, &mut sval);
+    }
+    let max_level = wb.iter().cloned().fold(0.0f32, f32::max) * clip;
+    let fade = (0.01 * w.max(h) as f32).max(4.0);
+    img.data[by * w..(by + bh) * w].par_chunks_mut(w).enumerate().for_each(|(dy, row)| {
+        for dx in 0..bw {
+            let d = depth[dy * bw + dx];
+            if d == 0 {
+                continue;
+            }
+            let x = bx + dx;
+            let px = &mut row[x];
+            let q = balanced(px);
+            let v = q.iter().cloned().fold(max_level, f32::max);
+            let out = if seeded {
+                let ring = upsample(&sv, cw, ch, x, by + dy);
+                let mean = (ring[0] + ring[1] + ring[2]) / 3.0;
+                let s = (d as f32 / 3.0 / fade).min(1.0);
+                let t = s * s * (3.0 - 2.0 * s);
+                std::array::from_fn(|c| (ring[c] + (mean - ring[c]) * t).max(v))
+            } else {
+                [v; 3]
+            };
+            *px = [out[0] / wb[0], out[1] / wb[1], out[2] / wb[2]];
+        }
+    });
+}
+
+/// Chamfer (3-4) distance of each `core` pixel of a `w × h` box to the nearest pixel that is not a
+/// core one, in thirds of a pixel; 0 outside the cores. The box's border is never core-free
+/// territory: a core reaching it is measured from its other sides.
+fn core_depth(w: usize, h: usize, core: impl Fn(usize, usize) -> bool + Sync) -> Vec<u16> {
+    let mut d: Vec<u16> = vec![0; w * h];
+    d.par_chunks_mut(w.max(1)).enumerate().for_each(|(y, row)| {
+        for (x, v) in row.iter_mut().enumerate() {
+            *v = if core(x, y) { u16::MAX } else { 0 };
+        }
+    });
+    let relax = |d: &mut [u16], i: usize, j: usize, step: u16| d[i] = d[i].min(d[j].saturating_add(step));
+    for y in 0..h {
+        for x in 0..w {
+            let i = y * w + x;
+            if d[i] == 0 {
+                continue;
+            }
+            if x > 0 {
+                relax(&mut d, i, i - 1, 3);
+            }
+            if y > 0 {
+                relax(&mut d, i, i - w, 3);
+                if x > 0 {
+                    relax(&mut d, i, i - w - 1, 4);
+                }
+                if x + 1 < w {
+                    relax(&mut d, i, i - w + 1, 4);
+                }
+            }
+        }
+    }
+    for y in (0..h).rev() {
+        for x in (0..w).rev() {
+            let i = y * w + x;
+            if d[i] == 0 {
+                continue;
+            }
+            if x + 1 < w {
+                relax(&mut d, i, i + 1, 3);
+            }
+            if y + 1 < h {
+                relax(&mut d, i, i + w, 3);
+                if x + 1 < w {
+                    relax(&mut d, i, i + w + 1, 4);
+                }
+                if x > 0 {
+                    relax(&mut d, i, i + w - 1, 4);
+                }
+            }
+        }
+    }
+    d
 }
 
 #[cfg(test)]
@@ -442,20 +572,19 @@ mod tests {
                     k += 1;
                 }
             }
-            let mut out = q;
             if k == 0 {
-                let v = q.iter().cloned().fold(0.0f32, f32::max).max(max_level);
-                out = [v; 3];
-            } else {
-                let sum = sum / k as f32;
-                for c in 0..3 {
-                    if cl[c] {
-                        out[c] = q[c].max(sum * r[c]);
-                    }
+                return;
+            }
+            let sum = sum / k as f32;
+            let mut out = q;
+            for c in 0..3 {
+                if cl[c] {
+                    out[c] = q[c].max((sum * r[c]).min(MAX_REBUILT * max_level));
                 }
             }
             *px = [out[0] / wb[0], out[1] / wb[1], out[2] / wb[2]];
         });
+        fill_cores(img, wb, clip, &|_, p: &[f32; 3]| [p[0] >= clip, p[1] >= clip, p[2] >= clip]);
         count
     }
 
@@ -558,5 +687,47 @@ mod tests {
         assert_eq!(reconstruct(&mut img, [2.0, 1.0, 1.5], 0.99), 0);
         let mut empty = RgbFrame::new(0, 0);
         assert_eq!(reconstruct(&mut empty, [1.0; 3], 0.99), 0);
+    }
+
+    /// A blue sky brightening into the sun (camera RGB under daylight multipliers): the core that
+    /// clips in every channel continues the rebuilt ring around it, no darker and with no jump in
+    /// hue, instead of a grey disc inside a brighter blue halo.
+    #[test]
+    fn a_fully_clipped_core_continues_its_ring() {
+        let wb = [2.2, 1.0, 1.6];
+        let sky = [0.35, 0.6, 1.0];
+        let (w, h) = (128usize, 128usize);
+        let scene = |x: usize, y: usize| {
+            let r2 = (x as f32 - 64.0).powi(2) + (y as f32 - 64.0).powi(2);
+            let b = 0.5 + 12.0 * (-r2 / (2.0 * 14.0 * 14.0)).exp();
+            std::array::from_fn::<f32, 3, _>(|c| (b * sky[c] / wb[c]).min(1.0))
+        };
+        let mut img = RgbFrame::from_fn(w, h, scene);
+        reconstruct(&mut img, wb, 0.99);
+        let balanced = |p: [f32; 3]| [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
+        let (mut cores, mut rings) = (0, 0);
+        for x in 64..w - 1 {
+            let (a, b) = (scene(x, 64), scene(x + 1, 64));
+            if !a.iter().chain(&b).any(|&v| v >= 0.99) {
+                continue;
+            }
+            cores += usize::from(a.iter().all(|&v| v >= 0.99));
+            rings += usize::from(!a.iter().all(|&v| v >= 0.99));
+            let (p, q) = (balanced(img.get(x, 64)), balanced(img.get(x + 1, 64)));
+            let (lp, lq) = (p.iter().sum::<f32>() / 3.0, q.iter().sum::<f32>() / 3.0);
+            assert!(lq <= lp * 1.02, "brighter outward at x = {x}: {p:?} then {q:?}");
+            let chroma = |v: [f32; 3]| v.map(|c| c / (v[0] + v[1] + v[2]));
+            let step = (0..3).map(|c| (chroma(p)[c] - chroma(q)[c]).abs()).fold(0.0, f32::max);
+            assert!(step < 0.1, "hue jump {step} at x = {x}: {p:?} then {q:?}");
+        }
+        assert!(cores > 3 && rings > 3, "the scene has a core ({cores}) and a ring ({rings})");
+        // deep inside, the core fades to neutral
+        let c = balanced(img.get(64, 64));
+        assert!((c[0] - c[2]).abs() < 0.01 * c[1] && (c[1] - c[2]).abs() < 0.01 * c[1], "{c:?}");
+        // and a deep blue sky with almost no red never blows the rebuilt channels up
+        let mut deep = RgbFrame::from_fn(32, 32, |x, _| if x < 16 { [0.002, 0.4, 0.6] } else { [0.004, 1.0, 1.0] });
+        reconstruct(&mut deep, wb, 0.99);
+        let max_level = 2.2 * 0.99;
+        assert!(deep.data.iter().all(|p| balanced(*p).iter().all(|&v| v <= 4.0 * max_level + 1e-3)));
     }
 }
