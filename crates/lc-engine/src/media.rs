@@ -614,9 +614,9 @@ impl RenderJob {
         }
     }
 
-    /// Why this job renders on the CPU even with a GPU: [`cpu_only`] for its settings and request,
-    /// or a thumbnail (cached jobs run side by side on the CPU). `None`: the GPU takes it when there
-    /// is one.
+    /// Why this job renders on the CPU even with a GPU: its settings or request keep [`develop`] off
+    /// the GPU, or it is a thumbnail (cached jobs run side by side on the CPU). `None`: the GPU takes
+    /// it when there is one.
     pub fn cpu_only(&self) -> Option<&'static str> {
         if self.cache.is_some() {
             return Some("thumbnails render on the CPU");
@@ -756,7 +756,7 @@ pub fn develop(src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopSettings, req:
 }
 
 /// Why [`develop`] renders `s` for `req` on the CPU even with a GPU (`None`: the GPU takes it).
-pub fn cpu_only(s: &DevelopSettings, req: &RenderRequest) -> Option<&'static str> {
+pub(crate) fn cpu_only(s: &DevelopSettings, req: &RenderRequest) -> Option<&'static str> {
     if lightcraft_pipeline::lut::is_lut_profile(&s.profile.id) {
         Some("the selected LUT profile requires CPU processing")
     } else if req.proof.is_some() {
