@@ -102,7 +102,7 @@ fn reorient_lens_normal_returns_same() {
 fn estimate_lateral_ca_tiny_image_zero() {
     // 10x10 is below the 32px threshold; estimate should be exactly [0, 0].
     let img = RgbFrame::from_fn(10, 10, |x, y| [x as f32 / 10.0, y as f32 / 10.0, 0.5]);
-    let [r, b] = estimate_lateral_ca(&img);
+    let [r, b] = estimate_lateral_ca(&img, None);
     assert_eq!(r, 0.0);
     assert_eq!(b, 0.0);
 }
@@ -111,7 +111,7 @@ fn estimate_lateral_ca_tiny_image_zero() {
 fn estimate_lateral_ca_clean_image_zero() {
     // Uniform image has no edges; estimator should return zero.
     let img = RgbFrame::filled(600, 400, [0.5, 0.5, 0.5]);
-    let [r, b] = estimate_lateral_ca(&img);
+    let [r, b] = estimate_lateral_ca(&img, None);
     assert!(r.abs() < 1e-6 && b.abs() < 1e-6);
 }
 

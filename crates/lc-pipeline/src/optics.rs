@@ -573,16 +573,17 @@ impl LensReal for Interval {
 /// Estimate lateral chromatic aberration: the radial magnification of the red and blue planes relative to green
 /// (`[α_R, α_B]`, dimensionless; red edges sit at `r·(1 + α_R)`). Strong, radially oriented green edges are
 /// located in each plane with sub-pixel 1-D matching of normalized edge profiles; a weighted, outlier-trimmed
-/// least-squares fit of displacement = α·r gives the scale. Results are cached per image.
-pub fn estimate_lateral_ca(img: &RgbFrame) -> [f64; 2] {
+/// least-squares fit of displacement = α·r gives the scale. With `camera` (working → camera RGB) the planes
+/// measured are the sensor's, which the lens displaced. Results are cached per image.
+pub fn estimate_lateral_ca(img: &RgbFrame, camera: Option<li_color::Mat3>) -> [f64; 2] {
     static CACHE: Mutex<Vec<(u64, [f64; 2])>> = Mutex::new(Vec::new());
-    let key = fingerprint(img);
+    let key = camera.iter().flat_map(|m| m.0.iter().flatten()).fold(fingerprint(img), |h, v| (h ^ v.to_bits()).wrapping_mul(0x0100_0000_01b3));
     if let Ok(c) = CACHE.lock()
         && let Some((_, v)) = c.iter().find(|(k, _)| *k == key)
     {
         return *v;
     }
-    let v = estimate_lateral_ca_uncached(img);
+    let v = estimate_lateral_ca_uncached(img, camera);
     if let Ok(mut c) = CACHE.lock() {
         c.push((key, v));
         if c.len() > 16 {
@@ -606,12 +607,12 @@ pub(crate) fn fingerprint(img: &RgbFrame) -> u64 {
     h
 }
 
-fn estimate_lateral_ca_uncached(img: &RgbFrame) -> [f64; 2] {
+fn estimate_lateral_ca_uncached(img: &RgbFrame, camera: Option<li_color::Mat3>) -> [f64; 2] {
     let (w, h) = (img.width, img.height);
     if w < 32 || h < 32 {
         return [0.0; 2];
     }
-    let plane = |c: usize| -> GrayFrame { img.map(|p| p[c]) };
+    let plane = |c: usize| -> GrayFrame { img.map(|p| camera.map_or(p, |m| m.apply_f32(p))[c]) };
     let planes = [plane(0), plane(1), plane(2)];
     let g = &planes[1];
     let (cx, cy) = (w as f64 / 2.0, h as f64 / 2.0);
@@ -1245,12 +1246,79 @@ mod tests {
     #[test]
     fn ca_estimate_recovers_scale() {
         let img = ca_grid(600, 400, 0.004, -0.003);
-        let [r, b] = estimate_lateral_ca_uncached(&img);
+        let [r, b] = estimate_lateral_ca_uncached(&img, None);
         assert!((r - 0.004).abs() < 0.0008, "red {r}");
         assert!((b + 0.003).abs() < 0.0008, "blue {b}");
         let clean = ca_grid(600, 400, 0.0, 0.0);
-        let [r, b] = estimate_lateral_ca_uncached(&clean);
+        let [r, b] = estimate_lateral_ca_uncached(&clean, None);
         assert!(r.abs() < 0.0005 && b.abs() < 0.0005, "{r} {b}");
+    }
+
+    /// White-balanced camera RGB → working RGB of a Sony A1 (D65): large off-diagonal terms.
+    const A1_TO_WORKING: li_color::Mat3 = li_color::Mat3([[0.90, 0.28, -0.18], [-0.03, 1.40, -0.37], [0.0, -0.19, 1.20]]);
+
+    /// Manual CA without a lens profile corrects the sensor's planes: the loader has mixed them into
+    /// working RGB, and shifting a working plane dragged the other planes' share of it along.
+    #[test]
+    fn manual_ca_without_a_profile_corrects_camera_planes() {
+        let (w, h) = (301usize, 201usize);
+        let c = Point::new(w as f64 / 2.0, h as f64 / 2.0);
+        let mut s = DevelopSettings::default();
+        s.optics.ca_red = 100.0;
+        s.optics.ca_blue = -80.0;
+        let scales = [1.0 + CA_SCALE, 1.0, 1.0 - 0.8 * CA_SCALE];
+        let camera = |x: f64, y: f64| [(0.2 + 0.002 * x) as f32, (0.3 + 0.002 * y) as f32, (0.25 + 0.0015 * (x + y)) as f32];
+        let source = RgbFrame::from_fn(w, h, |x, y| {
+            let raw: [f32; 3] =
+                std::array::from_fn(|ch| camera(c.x + (x as f64 + 0.5 - c.x) / scales[ch], c.y + (y as f64 + 0.5 - c.y) / scales[ch])[ch]);
+            A1_TO_WORKING.apply_f32(raw)
+        });
+        let info = crate::SourceInfo { lens_camera_to_working: Some(A1_TO_WORKING), ..Default::default() };
+        let corrected = crate::frame_for(&source, &info, &s, false).sample(&source, w, h);
+        let mut max = 0.0f32;
+        for y in 4..h - 4 {
+            for x in 4..w - 4 {
+                let expected = A1_TO_WORKING.apply_f32(camera(x as f64 + 0.5, y as f64 + 0.5));
+                for ch in 0..3 {
+                    max = max.max((corrected.get(x, y)[ch] - expected[ch]).abs());
+                }
+            }
+        }
+        assert!(max < 5e-6, "camera-plane residual {max}");
+    }
+
+    /// Remove CA measures and corrects the sensor's planes too: measured on working planes the
+    /// scales came out 25 to 35 % off, and correcting working planes left 70 % more residual.
+    #[test]
+    fn remove_ca_measures_camera_planes() {
+        let (w, h) = (600usize, 400usize);
+        let camera = ca_grid(w, h, 0.004, -0.003);
+        let source = camera.map(|p| A1_TO_WORKING.apply_f32(p));
+        let undo = A1_TO_WORKING.inverse().expect("invertible");
+        let [r, b] = estimate_lateral_ca(&source, Some(undo));
+        assert!((r - 0.004).abs() < 0.0008 && (b + 0.003).abs() < 0.0008, "camera-plane estimate {r} {b}");
+        let mut s = DevelopSettings::default();
+        s.optics.remove_ca = true;
+        let info = crate::SourceInfo { lens_camera_to_working: Some(A1_TO_WORKING), ..Default::default() };
+        let corrected = crate::frame_for(&source, &info, &s, false).sample(&source, w, h);
+        let truth = ca_grid(w, h, 0.0, 0.0).map(|p| A1_TO_WORKING.apply_f32(p));
+        let rms = |img: &RgbFrame| {
+            let mut sum = 0.0f64;
+            let mut n = 0.0;
+            for y in 20..h - 20 {
+                for x in 20..w - 20 {
+                    for ch in 0..3 {
+                        sum += f64::from(img.get(x, y)[ch] - truth.get(x, y)[ch]).powi(2);
+                        n += 1.0;
+                    }
+                }
+            }
+            (sum / n).sqrt()
+        };
+        let mut working = crate::geometry::Frame::new(w, h, &DevelopSettings::default(), false);
+        working.add_lateral_ca(estimate_lateral_ca(&source, None));
+        let (now, before) = (rms(&corrected), rms(&working.sample(&source, w, h)));
+        assert!(now < 0.25 * rms(&source) && now < 0.7 * before, "residual {now}, on working planes {before}");
     }
 
     #[test]

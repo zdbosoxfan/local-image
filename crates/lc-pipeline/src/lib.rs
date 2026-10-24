@@ -347,16 +347,17 @@ pub fn frame_for(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings, apply_c
     let mut frame =
         geometry::Frame::with_lcp(src.width, src.height, &settings, apply_crop, embedded.as_ref(), info.lens_db.as_ref(), info.lcp.as_ref());
     let profile_ca = frame.warp.as_ref().is_some_and(|w| w.profile_ca());
-    if let Some(warp) = frame.warp.as_mut().filter(|_| profile_ca)
-        && let Some(forward) = info.lens_camera_to_working
-        && let Some(undo) = forward.inverse()
-    {
-        warp.camera_basis = Some([undo, forward]);
-    }
+    // Lateral CA displaces the sensor's own colour planes, which the raw loader has already mixed
+    // into working RGB: calibrated, estimated and manual CA alike are measured and corrected on
+    // camera planes, or a shifted plane drags the other planes' share of it along.
+    let basis = info.lens_camera_to_working.and_then(|forward| forward.inverse().map(|undo| [undo, forward]));
     // The estimator sees the uncorrected source. Applying it on top of a
     // calibrated CA profile would correct the same displacement twice.
     if s.optics.remove_ca && s.section_enabled("optics") && !profile_ca && !info.embedded_ca_baked {
-        frame.add_lateral_ca(optics::estimate_lateral_ca(src));
+        frame.add_lateral_ca(optics::estimate_lateral_ca(src, basis.map(|[undo, _]| undo)));
+    }
+    if let Some(warp) = frame.warp.as_mut().filter(|w| w.per_channel()) {
+        warp.camera_basis = basis;
     }
     frame
 }

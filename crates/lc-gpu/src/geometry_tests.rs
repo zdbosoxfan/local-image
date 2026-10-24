@@ -58,8 +58,9 @@ fn reduced_renders_do_not_ring_bright_windows_on_the_device() {
 }
 
 /// The device resample matches the CPU on every path: separable crops and flips, straighten, and
-/// the warp (perspective, lens profile, camera-plane CA, vignetting) including the widened kernel
-/// where the perspective minifies, at reduced and full size.
+/// the warp (perspective, lens profile, camera-plane CA from the profile or the sliders,
+/// vignetting) including the widened kernel where the perspective minifies, at reduced and full
+/// size.
 #[test]
 fn every_resample_path_matches_the_cpu() {
     let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
@@ -100,6 +101,11 @@ fn every_resample_path_matches_the_cpu() {
     s.optics.lens_profile = true;
     s.optics.ca_blue = 40.0;
     cases.push(("perspective + lens + CA", s));
+    let mut s = DevelopSettings::default();
+    s.optics.ca_red = 60.0;
+    s.optics.ca_blue = -40.0;
+    s.crop.geometry.angle = 1.0;
+    cases.push(("manual CA on camera planes", s));
     for (name, s) in &cases {
         for req in [RenderRequest::fit(613, 613), RenderRequest::fit(400, 400), RenderRequest::fit(250, 250)] {
             let (gpu_out, cpu_out) = sampled(&mut cx, &src, &info, s, &req, 2e-4);
