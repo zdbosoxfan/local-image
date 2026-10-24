@@ -257,7 +257,7 @@ pub struct RenderRequest {
     /// A diagnostic view drawn over the result (e.g. Point Color's "visualize range").
     pub overlay: Overlay,
     /// Colour space of the result: an export's, or for a view the narrowest one holding the
-    /// monitor's gamut (thumbnails and cached previews stay sRGB).
+    /// monitor's gamut (thumbnails stay sRGB).
     pub space: OutputSpace,
     /// Sample format: 8-bit only, or also a 16-bit / linear float [`Rendered::deep`] (exports).
     pub depth: OutputDepth,

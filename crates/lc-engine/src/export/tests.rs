@@ -404,15 +404,14 @@ fn oklch_chroma(p: [u8; 4]) -> f32 {
 
 #[test]
 fn output_sharpening_adds_no_coloured_fringes() {
-    // brick red against a neutral wall: the wall's halo stays neutral (per-channel sharpening
-    // turned it cyan, (175, 215, 218))
+    // brick red against a neutral wall: the wall's halo must stay neutral (sharpening channels
+    // separately tints it cyan)
     let mut img = edge([200, 40, 30], [180, 180, 180]);
     output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Glossy, SharpenAmount::High);
     let halo = img.data[4];
     assert!(halo[0] > 180, "the edge is still sharpened: {halo:?}");
     assert!(halo[0].max(halo[1]).max(halo[2]) - halo[0].min(halo[1]).min(halo[2]) <= 2, "neutral halo: {halo:?}");
-    // red against blue: neither side's halo is more colourful than the flat colour (per-channel
-    // sharpening added about 20 %)
+    // red against blue: neither halo may be more colourful than its flat side
     let flat = edge([200, 40, 30], [30, 60, 200]);
     let mut img = flat.clone();
     output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Glossy, SharpenAmount::High);
