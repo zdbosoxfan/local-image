@@ -235,7 +235,9 @@ fn parse_one(id: u32, flags: u32, params: &[u8]) -> Option<Opcode> {
             if n * 4 > r.remaining() {
                 return None;
             }
-            let v: Vec<f32> = (0..n).map(|_| r.f32().filter(|v| v.is_finite() && *v >= 0.0)).collect::<Option<_>>()?;
+            // deltas are signed offsets (row/column bias corrections); only scales must be non-negative
+            let valid = |v: &f32| v.is_finite() && (id <= 11 || *v >= 0.0);
+            let v: Vec<f32> = (0..n).map(|_| r.f32().filter(valid)).collect::<Option<_>>()?;
             match id {
                 10 => Opcode::DeltaPerRow { area, deltas: v },
                 11 => Opcode::DeltaPerColumn { area, deltas: v },
@@ -853,13 +855,35 @@ pub(crate) mod tests {
             Opcode::MapTable { area: a, table: vec![0, 100, 65535] },
             Opcode::MapPolynomial { area: a, coefficients: vec![0.0, 1.0, -0.1] },
             Opcode::GainMap { area: a, points_v: 2, points_h: 1, spacing: [1.0, 1.0], origin: [0.0, 0.0], map_planes: 1, gains: vec![1.0, 1.5] },
-            Opcode::DeltaPerRow { area: a, deltas: vec![0.1, 0.2] },
-            Opcode::DeltaPerColumn { area: a, deltas: vec![0.3] },
+            Opcode::DeltaPerRow { area: a, deltas: vec![0.1, -0.2] },
+            Opcode::DeltaPerColumn { area: a, deltas: vec![-0.3] },
             Opcode::ScalePerRow { area: a, scales: vec![1.1] },
             Opcode::ScalePerColumn { area: a, scales: vec![0.9, 1.0] },
             Opcode::Unknown { id: 77, flags: 1, params: vec![1, 2, 3] },
         ];
         assert_eq!(parse_list(&write_list(&list)), list);
+    }
+
+    /// Delta opcodes are signed offsets: a negative entry must not drop the whole correction.
+    #[test]
+    fn negative_deltas_parse_and_apply() {
+        let area = Area { bottom: 1, right: 2, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        let delta = Opcode::DeltaPerColumn { area, deltas: vec![-0.002, 0.001] };
+        let list = parse_list(&write_list(std::slice::from_ref(&delta)));
+        assert_eq!(list, vec![delta]);
+        assert!(list[0].is_applied());
+        let mut buf = vec![0.5f32; 2];
+        apply_list(&list, &mut buf, 2, 1, 1, None, 1.0);
+        assert!((buf[0] - 0.498).abs() < 1e-6 && (buf[1] - 0.501).abs() < 1e-6, "{buf:?}");
+        // list 1 runs on 16-bit values: the delta is in normalised units
+        let mut raw = vec![32767.5f32; 2];
+        apply_list(&list, &mut raw, 2, 1, 1, None, 65535.0);
+        assert!((raw[0] - (32767.5 - 0.002 * 65535.0)).abs() < 1e-2, "{raw:?}");
+        let row = Opcode::DeltaPerRow { area, deltas: vec![-0.01] };
+        assert_eq!(parse_list(&write_list(std::slice::from_ref(&row))), vec![row]);
+        // scales stay non-negative
+        let scale = Opcode::ScalePerColumn { area, scales: vec![-1.0, 1.0] };
+        assert!(matches!(parse_list(&write_list(&[scale]))[0], Opcode::Unknown { id: 13, .. }));
     }
 
     #[test]
