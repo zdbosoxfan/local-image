@@ -215,7 +215,7 @@ fn dt_curve(x: f32,gam: f32,clarity: f32) -> f32 {
 }
 @compute @workgroup_size(256)
 fn p_dt_remap(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let gam=(f32(pu(1u))+0.5)/12.0; out[2u*i]=dt_curve(a[i],gam,1.0); out[2u*i+1u]=dt_curve(a[i],gam,0.0);
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let gam=(f32(pu(1u))+0.5)/f32(pu(2u)); out[2u*i]=dt_curve(a[i],gam,1.0); out[2u*i+1u]=dt_curve(a[i],gam,0.0);
 }
 fn dt_vert(x: u32,y: u32,w: u32,nc: u32,ch: u32) -> f32 {
     let r0=a[(y*w+x)*nc+ch]+a[((y+4u)*w+x)*nc+ch];
@@ -244,9 +244,9 @@ fn dt_expand(x: u32,y: u32,w: u32,nc: u32,k: u32) -> f32 {
 }
 @compute @workgroup_size(256)
 fn p_dt_acc(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u); let v=c[i]; var hi=1u;
-    for(;hi<11u && (f32(hi)+0.5)/12.0<=v;hi++) {}
-    let low=(f32(hi)-0.5)/12.0; let high=(f32(hi)+0.5)/12.0; let t=clamp((v-low)/(high-low),0.0,1.0); var weight=0.0;
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u); let v=c[i]; let n=pu(5u); let nf=f32(n); var hi=1u;
+    for(;hi<n-1u && (f32(hi)+0.5)/nf<=v;hi++) {}
+    let low=(f32(hi)-0.5)/nf; let high=(f32(hi)+0.5)/nf; let t=clamp((v-low)/(high-low),0.0,1.0); var weight=0.0;
     if(pu(3u)==hi-1u) {weight=1.0-t;} else if(pu(3u)==hi) {weight=t;}
     let x=clamp(i%w,1u,((w-1u)&~1u)-1u); let y=clamp(i/w,1u,((h-1u)&~1u)-1u);
     for(var k=0u;k<2u;k++) {out[2u*i+k]=out[2u*i+k]+(a[2u*i+k]-dt_expand(x,y,w,2u,k))*weight*pf(4u);}
@@ -264,7 +264,7 @@ fn p_dt_top(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups)
 }
 @compute @workgroup_size(256)
 fn p_dt_crop(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let iw=pu(1u); let pad=pu(2u); let w=iw+2u*pad; let j=(i/iw+pad)*w+i%iw+pad; out[i]=(a[2u*j]-a[2u*j+1u])*24.0;
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let iw=pu(1u); let pad=pu(2u); let w=iw+2u*pad; let j=(i/iw+pad)*w+i%iw+pad; out[i]=(a[2u*j]-a[2u*j+1u])*pf(3u);
 }
 @compute @workgroup_size(256)
 fn p_detail_apply(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {

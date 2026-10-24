@@ -9,7 +9,8 @@
 //!
 //! Extensions, each off in the faithful entry point (documented in `licenses/darktable-NOTICE.md`):
 //! * the number of γ samples is a parameter (upstream: 6). On log luminance a finer grid is needed
-//!   for small σ; more samples only make the interpolation more accurate;
+//!   for small σ; more samples only make the interpolation more accurate. Samples bracketing no
+//!   value of the input are skipped, which leaves the result unchanged;
 //! * the γ loop accumulates each sample's Laplacians as it goes (upstream keeps every sample's
 //!   pyramid in memory): same sums in the same order, a fraction of the memory;
 //! * optional per-level weights (a band of scales: Clarity works on mid-size detail only);
@@ -305,7 +306,11 @@ pub fn local_laplacian_with(input: &GrayFrame, p: &Params) -> GrayFrame {
         (hi, ((v - gamma[lo]) / (gamma[hi] - gamma[lo])).clamp(0.0, 1.0))
     };
     let mut acc: Vec<Vec<f32>> = (0..=last).map(|l| vec![0.0f32; dl(w, l) * dl(h, l)]).collect();
-    for k in 0..ng {
+    // Every level lies within the input's range, so a γ that brackets neither end of it gets zero
+    // weight everywhere: skipping it leaves the sums unchanged.
+    let (lo, hi) = padded[0].iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &v| (a.min(v), b.max(v)));
+    let used = if lo <= hi { bracket(lo).0 - 1..=bracket(hi).0 } else { 0..=ng - 1 };
+    for k in used {
         // remapped image (inner part, then replicated borders) and its Gaussian pyramid
         let mut b0 = vec![0.0f32; w * h];
         let g = gamma[k];

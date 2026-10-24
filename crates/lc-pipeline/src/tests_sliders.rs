@@ -402,3 +402,29 @@ fn whites_and_blacks_move_the_white_and_black_points() {
     assert!(level(&shot(&rendered, 0., -100., 0.), 0.7) < level(&neutral, 0.7) - 2.);
     assert!(level(&shot(&rendered, 0., 0., -100.), 0.01) < level(&neutral, 0.01) - 2.);
 }
+
+#[test]
+fn clarity_strength_is_even_across_tones() {
+    let (w, h) = (1000, 48);
+    let mut s = DevelopSettings::default();
+    s.effects.clarity = 100.;
+    s.effects.clarity_mode = ClarityMode::Neutral;
+    let info = SourceInfo::default();
+    let amplitude = |img: &RgbFrame| {
+        let row = &img.data[(h / 2) * w + 200..(h / 2) * w + 800];
+        let l: Vec<f32> = row.iter().map(|c| c[1].log2()).collect();
+        l.iter().copied().fold(f32::MIN, f32::max) - l.iter().copied().fold(f32::MAX, f32::min)
+    };
+    let mut excess = Vec::new();
+    for k in -8..=8 {
+        let e = k as f32 * 0.25;
+        let src = RgbFrame::from_fn(w, h, |x, _| [0.18 * (e + 0.15 * (std::f32::consts::TAU * x as f32 / 48.).sin()).exp2(); 3]);
+        let plan = crate::plan(&src, &info, &s, &RenderRequest::fit(w, h));
+        let out = primary::process(&src, &src, &info, &plan, primary::DEFAULT_HS_METHOD);
+        let ratio = amplitude(&out) / amplitude(&src);
+        assert!(ratio > 1.08, "Clarity +100 at {e:+} EV: local contrast ratio {ratio}");
+        excess.push((ratio - 1.) / (-(e / 3.5).powi(2)).exp());
+    }
+    let (lo, hi) = excess.iter().fold((f32::MAX, f32::MIN), |(a, b), &v| (a.min(v), b.max(v)));
+    assert!((hi - lo) / hi < 0.1, "Clarity strength varies with tone: {excess:?}");
+}

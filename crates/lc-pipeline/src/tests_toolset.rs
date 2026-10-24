@@ -106,8 +106,8 @@ fn cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64, u64); 14] = [
     ("default/rendered", 0x9ab6df6ab933abe6, 0x97d20305a4beb718),
     ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
-    ("raw defaults + edits/rendered", 0x4bfe11ec176a3bfc, 0x15c51fec88c0f59f),
-    ("raw defaults + edits/raw", 0x92438b9c72e6a981, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/rendered", 0xc5ae93451993ddae, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/raw", 0x9cbd57734ce6dbf2, 0x15c51fec88c0f59f),
     ("optics + geometry + crop/rendered", 0x611da93f49c17e07, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
     ("profile look/rendered", 0x3f11f540c5f9b92b, 0x67aea33bdcc2fa0b),

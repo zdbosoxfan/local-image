@@ -872,6 +872,22 @@ fn primary_scene_stages_clip_clarity_colour_skin_and_layers() {
 }
 
 #[test]
+fn clarity_on_textured_grey_matches_across_tones() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    let (w, h) = (640, 360);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let e = -3.0 + 6.0 * y as f32 / h as f32 + 0.15 * (x as f32 / 7.0).sin() * (y as f32 / 5.0).cos();
+        [0.18 * e.exp2(); 3]
+    }));
+    for clarity in [100.0, -60.0] {
+        let mut s = DevelopSettings::default();
+        s.effects.clarity = clarity;
+        check(&format!("clarity {clarity} textured grey"), &src, &SourceInfo { raw: true, ..Default::default() }, &s, &RenderRequest::fit(w, h));
+    }
+}
+
+#[test]
 fn eigf_tone_equalizer_matches_including_mask_preview() {
     let _gpu = crate::support::lock();
     require_gpu();

@@ -425,8 +425,9 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
     }
     let center = (ppl as f32 * 0.015 * (w as f32 / full_w as f32)).max(1.).log2();
     let acc: Vec<_> = orig.iter().take(last).map(|(w, h, _)| cx.zeroed(w * h * 2)).collect();
-    for gam in 0..12 {
-        let first = one(cx, "p_dt_remap", pw * ph, &[gam], &orig[0].2, pw * ph * 2);
+    let ng = lightcraft_pipeline::primary::CLARITY_GAMMA as u32;
+    for gam in 0..ng {
+        let first = one(cx, "p_dt_remap", pw * ph, &[gam, ng], &orig[0].2, pw * ph * 2);
         let mut remap = vec![first];
         for lev in 1..=last {
             let (lw, lh, _) = &orig[lev - 1];
@@ -441,7 +442,7 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
                 cx,
                 "p_dt_acc",
                 lw * lh,
-                &[*lw as u32, *lh as u32, gam, f(wt)],
+                &[*lw as u32, *lh as u32, gam, f(wt), ng],
                 [Some(&remap[lev]), Some(&remap[lev + 1]), Some(guide), None, None],
                 &acc[lev],
             );
@@ -453,7 +454,7 @@ fn clarity(cx: &mut Cx<'_>, pl: &Buf, w: usize, h: usize, ppl: f64, full_w: usiz
         let (lw, lh, _) = &orig[lev];
         out = run(cx, "p_dt_assemble", lw * lh, &[*lw as u32, *lh as u32], [Some(&acc[lev]), Some(&out), None, None, None], lw * lh * 2);
     }
-    one(cx, "p_dt_crop", w * h, &[w as u32, pad as u32], &out, w * h)
+    one(cx, "p_dt_crop", w * h, &[w as u32, pad as u32, f(24. * lightcraft_pipeline::primary::CLARITY_GAIN)], &out, w * h)
 }
 fn lut(cx: &mut Cx<'_>, s: &DevelopSettings) -> Buf {
     use lightcraft_pipeline::colorequal::{hues, rbf};

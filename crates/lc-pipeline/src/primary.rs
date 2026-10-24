@@ -16,6 +16,11 @@ pub enum HsMethod {
 /// Owner's A/B choice: changing the default is one line; never persisted or exposed in UI.
 pub const DEFAULT_HS_METHOD: HsMethod = HsMethod::LiTone;
 pub const PROXY_PIXELS: usize = 2_000_000;
+/// Clarity's γ samples over its −12..+12 EV map: 0.5 EV apart, a third of its σ, so the
+/// interpolated detail gain (and Clarity's strength) is the same at every tone.
+pub const CLARITY_GAMMA: usize = 48;
+/// Scales Clarity's detail term: the overall strength of the slider.
+pub const CLARITY_GAIN: f32 = 0.38;
 
 /// Independent stage guards. Neutral controls never build a plane or run a pixel pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -468,13 +473,14 @@ fn apply_tone_detail(
         let weights = (0..levels).map(|i| (-((i as f32 - center) / 1.5).powi(2)).exp()).collect();
         let p = llf::Params {
             remap: llf::Remap::Darktable { sigma: 1.5 / range, shadows: 1., highlights: 1., clarity: 1. },
-            num_gamma: 12,
+            num_gamma: CLARITY_GAMMA,
             level_weights: Some(weights),
             remap_residual: false,
         };
         // Weighted identity is subtracted too; weights suppress the baseline Laplacians as well.
         let identity = llf::Params { remap: llf::Remap::Darktable { sigma: 1.5 / range, shadows: 1., highlights: 1., clarity: 0. }, ..p.clone() };
-        let detail = llf::local_laplacian_with(&mapped, &p).zip_map(&llf::local_laplacian_with(&mapped, &identity), |a, b| (a - b) * range);
+        let detail =
+            llf::local_laplacian_with(&mapped, &p).zip_map(&llf::local_laplacian_with(&mapped, &identity), |a, b| (a - b) * range * CLARITY_GAIN);
         field = upsample_gain(&pl, &detail, &l);
         for (v, &ll) in field.data.iter_mut().zip(&l.data) {
             *v *= cl * (-(ll / 3.5).powi(2)).exp();
