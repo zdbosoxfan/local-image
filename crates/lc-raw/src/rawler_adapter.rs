@@ -184,12 +184,14 @@ fn map_image(raw: rawler::RawImage, bytes: &[u8], format: RawFormat, mode: Mode)
     if b.width == 0 || b.height == 0 || b.width > 12 || b.height > 12 || b.cpp != 1 || b.levels.len() != b.width * b.height {
         return Err(corrupt("invalid black-level layout"));
     }
-    // rawler stores blacks at the sensor origin. Normalization in lc-raw starts at active (0,0).
+    // rawler stores blacks at the sensor origin, except a DNG's BlackLevel, which it keeps as the
+    // file states it: relative to the ActiveArea. Normalization in lc-raw starts at active (0,0).
     let levels = b.as_vec();
+    let origin = if format == RawFormat::Dng { (0, 0) } else { (active.x, active.y) };
     let values: Vec<_> = (0..b.height)
         .flat_map(|y| {
             let levels = &levels;
-            (0..b.width).map(move |x| levels[((y + active.y) % b.height) * b.width + (x + active.x) % b.width])
+            (0..b.width).map(move |x| levels[((y + origin.1) % b.height) * b.width + (x + origin.0) % b.width])
         })
         .collect();
     let black = BlackLevel { repeat_rows: b.height, repeat_cols: b.width, values, ..Default::default() };
