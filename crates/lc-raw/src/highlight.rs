@@ -337,6 +337,7 @@ fn rebuild(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: impl Fn(usize, 
             *px = [out[0] / wb[0], out[1] / wb[1], out[2] / wb[2]];
         }
     });
+    drop((cv, cval));
     fill_cores(img, wb, clip, &clipped);
     count
 }
@@ -374,21 +375,25 @@ fn fill_cores(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: &(impl Fn(us
     });
     let core_at = |x: usize, y: usize| x >= bx && y >= by && x < bx + bw && y < by + bh && depth[(y - by) * bw + x - bx] > 0;
     let balanced = |p: &[f32; 3]| [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]];
-    let (cw, ch) = (w.div_ceil(2), h.div_ceil(2));
+    // the ring lies in the box, so the seed pyramid covers only that (from an even corner, on
+    // the image's half-resolution grid)
+    let (sx, sy) = (bx & !1, by & !1);
+    let (sw, sh) = (bx + bw - sx, by + bh - sy);
+    let (cw, ch) = (sw.div_ceil(2), sh.div_ceil(2));
     let mut sv = vec![[0f32; 3]; cw * ch];
     let mut sval = vec![false; cw * ch];
     {
         let data = &img.data;
-        downsample(w, h, &mut sv, &mut sval, |i| {
-            let (x, y) = (i % w, i / w);
+        downsample(sw, sh, &mut sv, &mut sval, |i| {
+            let (x, y) = (sx + i % sw, sy + i / sw);
             if core_at(x, y) {
                 return None;
             }
             let ring = (y.saturating_sub(1)..(y + 2).min(h)).any(|yy| (x.saturating_sub(1)..(x + 2).min(w)).any(|xx| core_at(xx, yy)));
-            ring.then(|| balanced(&data[i]))
+            ring.then(|| balanced(&data[y * w + x]))
         });
     }
-    let seeded = cw * ch < w * h && sval.contains(&true);
+    let seeded = cw * ch < sw * sh && sval.contains(&true);
     if seeded {
         fill_invalid(cw, ch, &mut sv, &mut sval);
     }
@@ -405,7 +410,7 @@ fn fill_cores(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: &(impl Fn(us
             let q = balanced(px);
             let v = q.iter().cloned().fold(max_level, f32::max);
             let out = if seeded {
-                let ring = upsample(&sv, cw, ch, x, by + dy);
+                let ring = upsample(&sv, cw, ch, x - sx, by + dy - sy);
                 let mean = (ring[0] + ring[1] + ring[2]) / 3.0;
                 let s = (d as f32 / 3.0 / fade).min(1.0);
                 let t = s * s * (3.0 - 2.0 * s);
