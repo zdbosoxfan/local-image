@@ -64,6 +64,9 @@ All notable changes to Local Image are recorded here. The format follows
   space, so a look that is right in the preview exports the same to Display P3, Adobe RGB and
   ProPhoto, a soft proof shows it, and adding an adjustment layer no longer changes it. Grain now
   follows the LUT in every path.
+- Camera profiles: the tone curve of a DCP picked under Custom Camera Profiles (Adobe's Camera
+  Matching profiles, a DCamProf `-t acr` variant) is used by the Camera look instead of being
+  dropped in favour of the JPEG-fitted or maker curve. Soft Film and Sigmoid keep their own curves.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

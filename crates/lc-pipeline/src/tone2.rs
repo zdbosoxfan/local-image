@@ -329,14 +329,19 @@ impl ToneMap {
     }
 }
 
-/// The base curve of look `look` on a source with `info` (global): the Camera look uses the
-/// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's.
-/// The Soft Film look always uses our independently fitted curve.
-pub fn base_curve(look: lightcraft_develop::Look, info: &crate::SourceInfo) -> BaseCurve {
+/// The base curve of `s`'s look on a source with `info` (global). The Camera look uses the tone
+/// curve (`ProfileToneCurve`) of a camera profile the user picked, else the camera's curve (fitted
+/// to its JPEG, else the maker's), else the DNG profile's. Soft Film and Sigmoid always use their
+/// own curves.
+pub fn base_curve(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInfo) -> BaseCurve {
     use lightcraft_develop::Look;
-    match look {
+    match s.look {
         Look::Sigmoid => BaseCurve::Sigmoid(Sigmoid::default_curve()),
-        Look::Camera => info.look_curve.or(info.camera_tone).or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera),
+        Look::Camera => {
+            let chosen = !matches!(s.camera_profile.as_str(), "" | "matrix");
+            let picked = info.profile_curve.filter(|_| chosen);
+            picked.or(info.look_curve).or(info.camera_tone).or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera)
+        }
         Look::Adobe => BaseCurve::Adobe,
     }
 }
@@ -348,7 +353,7 @@ pub fn tone_map(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInf
     if crate::negative::converts(s) || !info.raw {
         return ToneMap::rendered(hue, contrast, whites, blacks);
     }
-    ToneMap::scene(&base_curve(s.look, info), s.look_options.base, hue, contrast, whites, blacks)
+    ToneMap::scene(&base_curve(s, info), s.look_options.base, hue, contrast, whites, blacks)
 }
 
 /// global tone of scene-linear `c` (see the module docs); display linear out, in 0..1.
@@ -493,6 +498,36 @@ pub fn compress(d: [f32; 3], m: f32, white: f32, black: f32) -> [f32; 3] {
 mod tests {
     use super::*;
     use lightcraft_develop::ToneBase;
+
+    #[test]
+    fn camera_look_uses_a_picked_profiles_tone_curve() {
+        // a DNG ProfileToneCurve through (0.18, 0.30), as the decoder hands it over
+        let g = 0.3f32.ln() / 0.18f32.ln();
+        let profile = CameraTone::new(std::array::from_fn(|i| {
+            let x = 2f32.powf(-12.0 + 12.0 * i as f32 / 31.0);
+            [x, x.powf(g).min(0.9995)]
+        }))
+        .expect("a monotone curve");
+        let maker = crate::basecurves::camera("SONY", "ILCE-7M4").expect("a maker curve");
+        let info = crate::SourceInfo { raw: true, look_curve: Some(maker), profile_curve: Some(profile), ..Default::default() };
+        let mid = |camera_profile: &str| {
+            let s = lightcraft_develop::DevelopSettings {
+                look: lightcraft_develop::Look::Camera,
+                camera_profile: camera_profile.into(),
+                ..Default::default()
+            };
+            tone_map(&s, &info, 0.0, 0.0, 0.0).apply(0.18)
+        };
+        assert!((mid("dcp:sony-ilce-7m4-standard") - 0.30).abs() < 0.01, "{}", mid("dcp:sony-ilce-7m4-standard"));
+        // automatic and matrix-only keep the camera's own curve
+        let own = maker.apply(0.18);
+        for automatic in ["", "matrix"] {
+            assert!((mid(automatic) - own).abs() < 0.01 && (own - 0.30).abs() > 0.02, "{automatic:?}: {} vs {own}", mid(automatic));
+        }
+        // Soft Film keeps its own curve with a picked profile
+        let soft = lightcraft_develop::DevelopSettings { camera_profile: "dcp:sony-ilce-7m4-standard".into(), ..Default::default() };
+        assert_eq!(tone_map(&soft, &info, 0.0, 0.0, 0.0).apply(0.18), ToneMap::new(0.0, 0.0, 0.0).apply(0.18));
+    }
 
     #[test]
     fn colours_past_rec2020_keep_their_gradation() {
