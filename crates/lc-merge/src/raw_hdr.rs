@@ -722,6 +722,40 @@ mod tests {
         assert_eq!(aligned.radiance, fixed.radiance);
     }
 
+    /// `raw` with shot and read noise (variance 0.5 DN per DN of signal plus 2 DN read noise),
+    /// saturating at its white level.
+    fn noisy(mut raw: RawImage, seed: u64) -> RawImage {
+        let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+        let mut unit = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        let (black, w) = (raw.black.clone(), raw.width);
+        if let RawData::F32(data) = &mut raw.data {
+            for (i, v) in data.iter_mut().enumerate() {
+                let b = black.at(i % w, i / w, 0, 1);
+                let signal = *v - b;
+                let gauss = ((-2.0 * unit().ln()).sqrt() * (std::f64::consts::TAU * unit()).cos()) as f32;
+                *v = b + (signal + (0.5 * signal.max(0.0) + 4.0).sqrt() * gauss).clamp(0.0, 4000.0);
+            }
+        }
+        raw
+    }
+
+    #[test]
+    fn raw_hdr_noisy_tripod_brackets_at_large_proxy_factors_are_not_resampled() {
+        // 4000 px needs a 1/4 registration proxy and CFA-tile refinement; sensor noise must not
+        // move a bracket shot from a tripod.
+        let scene = canyon(2200, 700, 2.0);
+        let raws: Vec<_> = [0.5, 1.0, 2.0].into_iter().zip(1..).map(|(e, seed)| noisy(capture(4000, 1200, e, &scene, (0.0, 0.0)), seed)).collect();
+        let aligned = merge_raw_hdr(&raws, &HdrOptions { align: true, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        assert!(aligned.alignments.iter().all(|a| a.h == Homography::IDENTITY), "{:?}", aligned.alignments);
+        let fixed = merge_raw_hdr(&raws, &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        assert!(aligned.radiance == fixed.radiance, "a tripod bracket merges exactly like an unaligned one");
+    }
+
     #[test]
     fn raw_hdr_handheld_registration_is_sensor_precise_at_large_proxy_factors() {
         // 4000 px needs a 1/4 registration proxy; its residual alone is several tenths of a pixel.
