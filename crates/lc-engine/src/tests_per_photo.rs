@@ -310,6 +310,34 @@ fn a_smart_preview_never_stands_in_for_the_original_at_full_size() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The loupe's 1:1 render has the full-size export's pixels: a 1-pixel checkerboard with capture
+/// and output sharpening comes out the same both ways, its 1-pixel detail intact.
+#[test]
+fn the_1_to_1_view_shows_the_exports_pixels() {
+    let mut s = Session::new();
+    s.media.file_loader = Some(Arc::new(|_: &str, _| {
+        let checker = RgbFrame::from_fn(600, 400, |x, y| [if (x + y) % 2 == 0 { 0.5 } else { 0.1 }; 3]);
+        Ok((checker, SourceInfo { raw: true, sensor_scale: 1.0, ..Default::default() }))
+    }));
+    let mut p = Photo::new(A, Source::File { path: "a.tif".into() }, "a.tif", "TIFF", 600, 400, "2026-01-01");
+    let mut d = lightcraft_develop::DevelopSettings::default();
+    (d.raw.capture.enabled, d.raw.capture.radius) = (true, 1.0);
+    d.detail.sharpen_amount = 40.0;
+    p.develop = Arc::new(d);
+    s.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+
+    let detail = s.detail_job(A, 600, 400, true).unwrap();
+    assert_eq!(detail.level, SourceLevel::Full);
+    let detail = detail.run().rendered.unwrap().image;
+    let export = s.export_job(A, 600, 400, OutputSpace::Srgb, OutputDepth::U8).unwrap().run().rendered.unwrap().image;
+    assert_eq!((detail.width, detail.height), (export.width, export.height));
+    let max = detail.data.iter().zip(&export.data).flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c]))).max().unwrap();
+    assert!(max <= 3, "1:1 and export differ by {max} levels");
+    let (x, y) = (300, 200);
+    let step = detail.get(x, y)[1].abs_diff(detail.get(x + 1, y)[1]);
+    assert!(step > 60, "neighbouring pixels keep the checkerboard: {step}");
+}
+
 /// A raw as import leaves it: measured as-shot white balance 5200 K / +4, embedded lens
 /// corrections, the camera defaults (sharpening, colour noise reduction, lens profile on).
 fn imported_raw() -> (Session, PhotoId) {
