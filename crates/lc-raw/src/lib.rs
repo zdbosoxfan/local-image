@@ -511,8 +511,12 @@ pub struct ColorData {
     pub analog_balance: Option<[f64; 3]>,
     pub as_shot_neutral: Option<[f64; 3]>,
     pub as_shot_white_xy: Option<Xy>,
-    /// EV to add for a "normal" rendering (`BaselineExposure` + `BaselineExposureOffset`).
+    /// EV to add for a "normal" rendering (`BaselineExposure` + the active profile's `BaselineExposureOffset`).
     pub baseline_exposure: f64,
+    /// The active camera profile's `BaselineExposureOffset`, already included in `baseline_exposure`.
+    /// Selecting another profile replaces this share of the total.
+    #[serde(default)]
+    pub baseline_exposure_offset: f64,
     /// The file's own camera-profile look (`ProfileHueSatMap*`, `ProfileLookTable*`,
     /// `ProfileToneCurve`), applied by [`color`]'s users at render time.
     #[serde(default)]

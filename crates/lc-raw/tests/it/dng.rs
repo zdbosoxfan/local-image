@@ -527,6 +527,20 @@ fn profile_look_tags_are_read_from_ifd0() {
     }
 }
 
+/// `BaselineExposureOffset` is part of the embedded camera profile: the decode keeps the total
+/// exposure and remembers the profile's share, so choosing another profile can replace it.
+#[test]
+fn baseline_exposure_offset_is_kept_as_the_profile_share() {
+    let bytes = profile_dng(ByteOrder::Little, |ifd0| {
+        ifd0.set(t::BASELINE_EXPOSURE, Value::SRational(vec![(1, 2)]));
+        ifd0.set(t::BASELINE_EXPOSURE_OFFSET, Value::SRational(vec![(3, 10)]));
+    });
+    let img = decode(&bytes).unwrap();
+    assert!((img.color.baseline_exposure - 0.8).abs() < 1e-9, "{}", img.color.baseline_exposure);
+    assert!((img.color.baseline_exposure_offset - 0.3).abs() < 1e-9, "{}", img.color.baseline_exposure_offset);
+    assert_eq!(lightcraft_raw::probe_info(&bytes).unwrap().color, img.color);
+}
+
 #[test]
 fn malformed_profile_look_tags_are_ignored() {
     let bytes = profile_dng(ByteOrder::Little, |ifd0| {

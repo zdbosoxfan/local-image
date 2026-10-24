@@ -97,6 +97,8 @@ pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd, order: ByteOrder) -> ColorData {
         let ifd = if raw.contains(tag) { raw } else { ifd0 };
         ifd.string(tag).unwrap_or_default()
     };
+    let first = |tag: u16| get(tag).and_then(|v| v.first().copied()).filter(|v| v.is_finite()).unwrap_or(0.0);
+    let offset = first(t::BASELINE_EXPOSURE_OFFSET);
     ColorData {
         illuminant: [geti(t::CALIBRATION_ILLUMINANT_1).unwrap_or(0), geti(t::CALIBRATION_ILLUMINANT_2).unwrap_or(0)],
         illuminant_3: geti(t::CALIBRATION_ILLUMINANT_3).unwrap_or(0),
@@ -113,8 +115,8 @@ pub(crate) fn color_data(ifd0: &Ifd, raw: &Ifd, order: ByteOrder) -> ColorData {
         analog_balance: vec3(get(t::ANALOG_BALANCE)),
         as_shot_neutral: vec3(get(t::AS_SHOT_NEUTRAL)),
         as_shot_white_xy: get(t::AS_SHOT_WHITE_XY).filter(|v| v.len() == 2 && v[0] > 0.0 && v[1] > 0.0).map(|v| Xy::new(v[0], v[1])),
-        baseline_exposure: get(t::BASELINE_EXPOSURE).and_then(|v| v.first().copied()).filter(|v| v.is_finite()).unwrap_or(0.0)
-            + get(t::BASELINE_EXPOSURE_OFFSET).and_then(|v| v.first().copied()).filter(|v| v.is_finite()).unwrap_or(0.0),
+        baseline_exposure: first(t::BASELINE_EXPOSURE) + offset,
+        baseline_exposure_offset: offset,
         profile: profile_look(ifd0, raw),
     }
 }
