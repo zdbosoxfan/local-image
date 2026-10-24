@@ -341,6 +341,34 @@ fn formats_have_magic() {
     }
 }
 
+/// The tags of a little-endian TIFF's first IFD.
+fn tiff_tags(b: &[u8]) -> Vec<u16> {
+    let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+    let ifd = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as usize;
+    (0..usize::from(u16_at(ifd))).map(|i| u16_at(ifd + 2 + 12 * i)).collect()
+}
+
+#[test]
+fn opaque_eight_bit_exports_carry_no_alpha_channel() {
+    let img = test_image();
+    let encode = |format, img: &Rgba8| encode_image(img, &ExportOptions { format, bit_depth: Some(8), ..Default::default() }).unwrap();
+    let tiff = encode(ExportFormat::Tiff, &img);
+    assert!(!tiff_tags(&tiff).contains(&338), "no ExtraSamples tag");
+    for (format, bytes) in
+        [(ExportFormat::Tiff, tiff), (ExportFormat::Png, encode(ExportFormat::Png, &img)), (ExportFormat::Webp, encode(ExportFormat::Webp, &img))]
+    {
+        let d = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+        assert!(!d.has_alpha && d.bit_depth == 8, "{format:?}");
+        let worst = d.to_srgb8().data.iter().zip(&img.data).flat_map(|(a, b)| (0..4).map(move |c| a[c].abs_diff(b[c]))).max();
+        assert!(worst <= Some(1), "{format:?}: the pixels survive packing ({worst:?})");
+    }
+    let mut clear = test_image();
+    clear.data[5][3] = 0;
+    for format in [ExportFormat::Tiff, ExportFormat::Png] {
+        assert!(lightcraft_codecs::decode(&encode(format, &clear), Default::default()).unwrap().has_alpha, "{format:?} keeps real transparency");
+    }
+}
+
 #[test]
 fn size_limit_respected() {
     let img = test_image();

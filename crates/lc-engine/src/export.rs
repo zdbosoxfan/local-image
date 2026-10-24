@@ -139,7 +139,9 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
     let exif = meta.map(lightcraft_meta::write_exif);
     let xmp = meta.map(|m| lightcraft_meta::write_xmp(m, None));
     let meta = EncodeMeta { icc: Some(&profile), exif: exif.as_deref(), xmp: xmp.as_deref(), ppi: Some(o.ppi) };
-    let e = EncodeImage::rgba8(&img);
+    let (width, height) = (img.width as u32, img.height as u32);
+    let (channels, samples) = packed_samples(img);
+    let e = EncodeImage::new(width, height, channels, Samples::U8(&samples));
     let r = match o.format {
         ExportFormat::Jpeg => {
             // 4:4:4 normally; 4:2:0 when targeting a file size (much smaller at equal visual quality).
@@ -175,6 +177,23 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
         f @ (ExportFormat::Original | ExportFormat::Dng) => return Err(format!("{f:?} export does not encode pixels")),
     };
     r.map_err(|e| e.to_string())
+}
+
+/// `img`'s samples for the encoder: RGB when every pixel is opaque (as every render is), so 8-bit
+/// TIFF, PNG and WebP files carry no alpha channel that print labs and preflight checks flag;
+/// RGBA otherwise. Packed in place, without a second copy of the image.
+fn packed_samples(img: Rgba8) -> (u8, Vec<u8>) {
+    let opaque = img.data.iter().all(|p| p[3] == 255);
+    let mut bytes = img.data.into_flattened();
+    if !opaque {
+        return (4, bytes);
+    }
+    let n = bytes.len() / 4;
+    for i in 0..n {
+        bytes.copy_within(4 * i..4 * i + 3, 3 * i);
+    }
+    bytes.truncate(3 * n);
+    (3, bytes)
 }
 
 /// The codecs' name of an output space (for its ICC profile).
