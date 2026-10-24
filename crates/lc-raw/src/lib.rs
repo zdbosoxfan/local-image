@@ -34,6 +34,7 @@ mod dng;
 pub mod dngwrite;
 pub mod embedded_lens;
 pub mod highlight;
+mod hotpixels;
 pub mod ljpeg;
 mod numerics;
 pub mod opcodes;

@@ -473,6 +473,11 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             }
             Err(e) => return Err(e.to_string()),
         };
+        // before anything reads the mosaic: previews, the camera look, clip confidence, demosaic
+        let hot = raw.suppress_hot_pixels();
+        if hot > 0 {
+            log::debug!("raw source: replaced {hot} hot or dead photosites");
+        }
         crate::dcp_profiles::apply_selected(&mut raw, opts.camera_profile);
         lightcraft_raw::camera_matrices::fill(
             &mut raw.color,
@@ -1143,6 +1148,54 @@ mod sony_dji_opcode_tests {
         for p in image.data {
             for ch in 0..3 {
                 assert!((p[ch] - expected[ch]).abs() < 1e-5);
+            }
+        }
+    }
+
+    /// A stuck photosite (common in long exposures) must not develop into a coloured dot, in the
+    /// full-size source or a binned preview.
+    #[test]
+    fn hot_photosites_do_not_develop_into_coloured_dots() {
+        let (w, h) = (64usize, 48usize);
+        let cfa = lightcraft_raw::Cfa::bayer("RGGB").unwrap();
+        let wall = |x: usize, y: usize| (2000.0 * [0.5, 1.0, 0.7][cfa.color_at(x, y) as usize]) as u16 + 512;
+        let raw = |hot: bool| lightcraft_raw::RawImage {
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            cfa: Some(cfa.clone()),
+            bits: 14,
+            data: lightcraft_raw::RawData::U16(
+                (0..w * h)
+                    .map(|i| if hot && [(20, 20), (33, 20), (21, 31)].contains(&(i % w, i / w)) { 16383 } else { wall(i % w, i / w) })
+                    .collect(),
+            ),
+            black: lightcraft_raw::BlackLevel::uniform(512.0),
+            white: vec![16383.0],
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            orientation: Orientation::Normal,
+            color: lightcraft_raw::ColorData {
+                color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+                illuminant: [21, 0],
+                as_shot_neutral: Some([0.5, 1.0, 0.7]),
+                ..Default::default()
+            },
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        };
+        let options = lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Uncompressed, ..Default::default() };
+        let (with, without) = (lightcraft_raw::write_dng(&raw(true), &options).unwrap(), lightcraft_raw::write_dng(&raw(false), &options).unwrap());
+        for edge in [usize::MAX, 32] {
+            let ((a, _), (b, _)) = (load_bytes(&with, edge).unwrap(), load_bytes(&without, edge).unwrap());
+            for (p, q) in a.data.iter().zip(&b.data) {
+                for c in 0..3 {
+                    assert!((p[c] - q[c]).abs() <= 0.02 * q[c].abs().max(0.01), "at {edge}: {p:?} vs {q:?}");
+                }
             }
         }
     }
