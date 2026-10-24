@@ -209,7 +209,6 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             || r.active_area != first.active_area
             || r.crop != first.crop
             || r.cfa != first.cfa
-            || r.orientation != first.orientation
             || r.metadata.make != first.metadata.make
             || r.metadata.model != first.metadata.model
             || r.metadata.exposure_time != first.metadata.exposure_time
@@ -218,10 +217,12 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
             || r.color != first.color
         {
             return Err(MergeError::Mismatch(
-                "Pixel Shift sources must have matching Bayer layout, camera, crop, orientation, exposure and colour calibration".into(),
+                "Pixel Shift sources must have matching Bayer layout, camera, crop, exposure and colour calibration".into(),
             ));
         }
     }
+    // The shift pattern is in sensor coordinates; a tag that changed mid-capture is ignored.
+    let orientation = crate::frame::common_orientation(&raws, 0);
     let crop = first.crop.clipped(first.active_area.width, first.active_area.height);
     let crop = if crop.width == 0 || crop.height == 0 { Rect::new(0, 0, first.active_area.width, first.active_area.height) } else { crop };
     if crop.width < 4 || crop.height < 4 {
@@ -350,7 +351,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         return Ok(PixelShiftResult {
             image,
             color: camera_color(&source),
-            orientation: source.orientation,
+            orientation,
             metadata: source.metadata,
             baseline_exposure: source.color.baseline_exposure,
             motion,
@@ -362,7 +363,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     Ok(PixelShiftResult {
         image,
         color: camera_color(first),
-        orientation: first.orientation,
+        orientation,
         metadata: first.metadata.clone(),
         baseline_exposure: first.color.baseline_exposure,
         motion,
@@ -646,6 +647,16 @@ mod tests {
         assert!((saturation(&raw) - 936.0 / 1000.0).abs() < 1e-6, "{}", saturation(&raw));
         let unclipped = RawImage { data: RawData::U16(vec![500; w * h]), ..raw };
         assert_eq!(saturation(&unclipped), 1.0);
+    }
+
+    #[test]
+    fn pixelshift_ignores_an_orientation_tag_that_changed_mid_capture() {
+        let mut raws = sources(4);
+        raws[2].orientation = Orientation::Rotate90;
+        let result = merge_pixel_shift(raws, &crate::no_progress).unwrap();
+        assert_eq!(result.orientation, Orientation::Normal);
+        assert_eq!((result.image.width, result.image.height), (20, 16));
+        assert!(result.motion.data.iter().all(|v| *v == 0.0));
     }
 
     #[test]

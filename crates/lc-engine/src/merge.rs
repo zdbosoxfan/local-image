@@ -146,14 +146,15 @@ impl BatchMergeJob {
                 });
                 continue;
             }
-            let frame = lightcraft_merge::load_frame(&bytes, Some(128), true).map_err(|e| format!("{path}: {e}"))?;
+            // Raw files of one bracket share a sensor geometry whatever their orientation tags say
+            // (the tag can flip when the camera points straight up or down), so compare them unrotated.
+            let frame = lightcraft_merge::load_frame(&bytes, Some(128), raw_info.is_none()).map_err(|e| format!("{path}: {e}"))?;
             let mut probe = lightcraft_merge::brackets::BracketProbe::from_frame(&frame);
             probe.exposure = exposure;
             probe.capture_seconds = capture.map(|time| time.unix_seconds() as f64 + time.millis as f64 / 1000.0);
             probe.exposure_seconds = shutter;
             if let Some(info) = raw_info {
-                let (w, h) = info.developed_size();
-                (probe.width, probe.height) = if info.orientation.swaps_axes() { (h, w) } else { (w, h) };
+                (probe.width, probe.height) = info.developed_size();
             }
             probes.push(probe);
         }
@@ -829,6 +830,10 @@ mod tests {
     use super::*;
 
     fn batch_fixture() -> BatchMergeJob {
+        oriented_batch_fixture(|_| lightcraft_geom::Orientation::Normal)
+    }
+
+    fn oriented_batch_fixture(orientation: impl Fn(usize) -> lightcraft_geom::Orientation) -> BatchMergeJob {
         let evs = [-2.0, 0.0, 2.0, -2.0, 0.0, 2.0, 0.0];
         let mut bytes = std::collections::HashMap::new();
         for (i, ev) in evs.into_iter().enumerate() {
@@ -846,7 +851,7 @@ mod tests {
             let dng = lightcraft_merge::write_linear_dng(
                 &image,
                 &color,
-                lightcraft_geom::Orientation::Normal,
+                orientation(i),
                 &metadata,
                 0.0,
                 lightcraft_merge::DngSamples::Float,
@@ -895,6 +900,17 @@ mod tests {
         let fractions = progress.lock().unwrap();
         assert!(fractions.windows(2).all(|pair| pair[0] <= pair[1]), "{fractions:?}");
         assert_eq!(fractions.last(), Some(&1.0));
+    }
+
+    #[test]
+    fn batch_groups_brackets_whose_orientation_tag_changed_mid_set() {
+        let batch = oriented_batch_fixture(|i| if i == 1 { lightcraft_geom::Orientation::Rotate90 } else { lightcraft_geom::Orientation::Normal });
+        let jobs = batch.detect(&|_, _| true).unwrap();
+        let groups: Vec<Vec<PhotoId>> = jobs.iter().map(|job| job.sources.iter().map(|(id, _)| *id).collect()).collect();
+        assert_eq!(groups, vec![vec![PhotoId(1), PhotoId(2), PhotoId(3)], vec![PhotoId(4), PhotoId(5), PhotoId(6)]]);
+        let output = jobs[0].run(&|_, _| true).unwrap();
+        let merged = lightcraft_raw::probe_info(&output.dng).unwrap();
+        assert_eq!((merged.developed_size(), merged.orientation), ((48, 32), lightcraft_geom::Orientation::Normal));
     }
 
     #[test]

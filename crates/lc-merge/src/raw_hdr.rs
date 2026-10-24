@@ -60,7 +60,8 @@ fn proxy(raw: &RawImage, samples: &NormalizedSamples<'_>, factor: usize, gain: [
         exposure: exif_exposure(&raw.metadata),
         raw: true,
         color: camera_color(raw),
-        orientation: raw.orientation,
+        // Registration works in sensor coordinates; orientation tags are not applied to proxies.
+        orientation: lightcraft_geom::Orientation::Normal,
         metadata: raw.metadata.clone(),
         baseline_exposure: raw.color.baseline_exposure,
     }
@@ -166,7 +167,6 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
             || raw.crop != first.crop
             || raw.cfa != first.cfa
             || raw.cpp != first.cpp
-            || raw.orientation != first.orientation
             || raw.metadata.make != first.metadata.make
             || raw.metadata.model != first.metadata.model
             || raw.color.color_matrix != first.color.color_matrix
@@ -174,7 +174,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
             || raw.color.camera_calibration != first.color.camera_calibration
             || raw.color.illuminant != first.color.illuminant
         {
-            return Err(MergeError::Mismatch("Raw HDR requires matching camera calibration, sensor layout, crop and orientation".into()));
+            return Err(MergeError::Mismatch("Raw HDR requires matching camera calibration, sensor layout and crop".into()));
         }
         if options.align && raw.cfa.as_ref().is_some_and(|c| !c.is_bayer()) {
             return Err(MergeError::Mismatch(
@@ -339,7 +339,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     }
     result.color = camera_color(ref_raw);
     result.raw = true;
-    result.orientation = ref_raw.orientation;
+    result.orientation = crate::frame::common_orientation(raws, reference);
     result.metadata = crate::frame::developed_metadata(ref_raw);
     result.baseline_exposure = ref_raw.color.baseline_exposure;
     check(progress, 1.0, "Raw HDR ready")?;
@@ -580,6 +580,23 @@ mod tests {
         }
         eprintln!("handheld sensor alignment maximum error={largest:.6}px");
         assert!(largest < 0.5, "fractional sensor alignment error={largest}");
+    }
+
+    #[test]
+    fn raw_hdr_ignores_an_orientation_tag_that_changed_mid_bracket() {
+        let scene = |x: f32, y: f32| window_scene(x * 0.9 + 7.0, y * 0.8 + 3.0);
+        for flipped in [lightcraft_geom::Orientation::Rotate90, lightcraft_geom::Orientation::Rotate180] {
+            let mut raws: Vec<_> = [0.25, 1.0, 4.0].into_iter().map(|e| capture(192, 128, e, scene, (0.0, 0.0))).collect();
+            raws[1].orientation = flipped;
+            let merged = merge_raw_hdr(&raws, &HdrOptions { align: true, deghost: Deghost::None }, &crate::no_progress).unwrap();
+            assert_eq!((merged.radiance.width, merged.radiance.height), (192, 128));
+            assert_eq!(merged.orientation, lightcraft_geom::Orientation::Normal, "most frames carry the Normal tag");
+            for alignment in &merged.alignments {
+                for corner in [Point::new(0.0, 0.0), Point::new(192.0, 128.0)] {
+                    assert!(alignment.h.apply(corner).dist(corner) < 0.5, "{flipped:?}: {:?}", alignment.h);
+                }
+            }
+        }
     }
 
     #[test]

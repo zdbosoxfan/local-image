@@ -166,6 +166,15 @@ pub(crate) fn camera_color(raw: &RawImage) -> FrameColor {
     FrameColor::Camera(Box::new(color))
 }
 
+/// The orientation tag most of a capture's raw files carry; ties go to `raws[preferred]`. All the
+/// files hold one sensor geometry whatever the tag says, and cameras pointed straight up or down
+/// can change the tag mid-burst.
+pub(crate) fn common_orientation(raws: &[RawImage], preferred: usize) -> Orientation {
+    let votes = |o: Orientation| raws.iter().filter(|r| r.orientation == o).count();
+    let preferred = raws.get(preferred).map_or(Orientation::Normal, |r| r.orientation);
+    raws.iter().map(|r| r.orientation).fold(preferred, |best, o| if votes(o) > votes(best) { o } else { best })
+}
+
 /// Metadata for pixels whose DNG lens operations have already been evaluated.
 /// Keep the camera/lens identification, but persist the fact that automatic lens
 /// corrections must not be inferred and applied again when the output is opened.
@@ -322,6 +331,34 @@ mod tests {
         }
         let mut unclipped = RgbFrame::filled(16, 12, [0.4; 3]);
         assert_eq!(apply_lens_opcodes(&[], &mut unclipped, 0.995), 0.995);
+    }
+
+    #[test]
+    fn common_orientation_takes_the_majority_and_breaks_ties_with_the_preferred_frame() {
+        let raw = |orientation| RawImage {
+            format: lightcraft_raw::RawFormat::Dng,
+            width: 2,
+            height: 2,
+            cpp: 3,
+            data: lightcraft_raw::RawData::F32(vec![0.0; 12]),
+            cfa: None,
+            bits: 32,
+            black: lightcraft_raw::BlackLevel::uniform(0.0),
+            white: vec![1.0],
+            active_area: Rect::new(0, 0, 2, 2),
+            crop: Rect::new(0, 0, 2, 2),
+            orientation,
+            color: ColorData::default(),
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: Metadata::default(),
+        };
+        let raws = [raw(Orientation::Rotate90), raw(Orientation::Normal), raw(Orientation::Rotate90)];
+        assert_eq!(common_orientation(&raws, 1), Orientation::Rotate90);
+        assert_eq!(common_orientation(&raws[..2], 1), Orientation::Normal);
+        assert_eq!(common_orientation(&raws[..2], 0), Orientation::Rotate90);
     }
 
     #[test]
