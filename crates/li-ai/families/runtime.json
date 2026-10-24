@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "upsampler": "optional",
   "equivalent": [
     {
@@ -71,7 +71,7 @@
   "error_patterns": [
     {"contains": ["could not detect model type"], "classes": ["UNETLoader", "UnetLoaderGGUF", "CheckpointLoaderSimple"], "code": "ComfyCantReadModel"},
     {"contains": ["out of memory", "allocation on device"], "code": "OutOfMemory"},
-    {"contains": ["mat1 and mat2 shapes cannot be multiplied", "size mismatch", "error(s) in loading state_dict"], "code": "ComponentMismatch"},
+    {"contains": ["mat1 and mat2 shapes cannot be multiplied", "channels, but got", "must match the size of tensor b", "size mismatch", "error(s) in loading state_dict"], "code": "ComponentMismatch"},
     {"contains": ["no kernel image is available", "requires sm_", "not supported on this gpu"], "code": "QuantUnsupported"},
     {"contains": ["safetensorerror", "invalid header", "unexpected eof", "headertoolarge", "incomplete metadata"], "code": "FileDamaged"},
     {"contains": ["value not in list"], "file_input": true, "code": "ComfyCantSeeFile"},

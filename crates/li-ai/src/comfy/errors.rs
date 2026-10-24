@@ -124,7 +124,7 @@ fn mismatch(e: &ExecError, ctx: &RunContext, lower: &str) -> (String, String) {
     let model = main_file(ctx.graph).unwrap_or_else(|| "this model".into());
     let te = text_encoders(ctx.graph);
     let vae = file_of(ctx.graph, &["VAELoader"], "vae_name");
-    let is_vae = e.node_type.starts_with("VAE");
+    let is_vae = e.node_type.starts_with("VAE") || lower.contains("channels, but got");
     let is_te = lower.contains("mat1 and mat2") || e.node_type.contains("CLIP") || e.node_type.contains("TextEncode");
     match (is_vae, is_te, ctx.declared.get("vae"), ctx.declared.get("clip"), &vae, te.first()) {
         (true, _, Some(declared), _, Some(vae), _) => {
@@ -280,6 +280,9 @@ mod tests {
         );
         let vae = translate(&exec("VAEDecode", "5", "Error(s) in loading state_dict for AutoencodingEngine: size mismatch"), &ctx);
         assert_eq!(vae.code, "ComponentMismatch:vae");
+        // A 16-channel VAE decoding a 128-channel latent (measured on ComfyUI 0.42.5).
+        let channels = "Given groups=1, weight of size [512, 16, 3, 3], expected input[1, 128, 64, 64] to have 16 channels, but got 128 channels instead";
+        assert_eq!(translate(&exec("VAEDecode", "5", channels), &ctx).code, "ComponentMismatch:vae");
         // A builder graph declares nothing: the generic sentence lists both companions.
         let plain = RunContext { graph: Some(&g), ..Default::default() };
         let generic = translate(&exec("SamplerCustomAdvanced", "4", "mat1 and mat2 shapes cannot be multiplied"), &plain);

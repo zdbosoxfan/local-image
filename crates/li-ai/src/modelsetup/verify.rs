@@ -4,11 +4,22 @@
 //! noise images, an edit that changes nothing, a refine that drifts). Runs only when asked, one
 //! model at a time, and frees ComfyUI's memory afterwards.
 //!
-//! Thresholds: `luma_mean < 8` black; `luma_mean > 247 && luma_std < 6` white; `luma_std < 6 ||
-//! top_bin_share > 0.90` flat; `noise_ratio > 0.65` noise (IID noise measures about 1.13, natural
-//! pictures under 0.4); refine difference over [`crate::refine::PASS_LIMIT`]; edit difference
-//! under 0.8; fill difference inside the mask under 8. Soft checks (warnings): Create
-//! `red_centre < 0.15 || ring_luma < 150`, Edit `blue_centre < 0.15 || ring_diff > 30`.
+//! Thresholds: `luma_mean < 8` black; `luma_mean > 247 && luma_std < 6` white; `luma_std < 6`
+//! flat; `noise_ratio > 0.65` noise (latent-scale noise measures about 1, natural pictures under
+//! 0.4); refine difference over [`crate::refine::PASS_LIMIT`]; edit difference under 0.8; fill
+//! difference inside the mask under 8. Soft checks (warnings): Create `red_centre < 0.15 ||
+//! ring_luma < 150`, Edit `blue_centre < 0.15 || ring_diff > 30`.
+//!
+//! Measured on 2026-10-24 (ComfyUI 0.42.5, RTX 5090; FLUX.3 Klein base and distilled, Krea 2
+//! Turbo and MOSS-Image SFT in BF16 through templates, FLUX.2 Klein 9B FP8 and Qwen Image 2.1 BF16
+//! through builders): Create luma mean 197-242, std 38-83, noise ratio 0.025-0.032, red centre
+//! 0.44-1.0, ring luma 239-255; Edit difference 13-50, blue centre 0.44-1.0, ring difference
+//! 0.4-2.7; Refine difference 3.4-14.6; Fill difference inside the mask 46-102, outside 0.04-2.3.
+//! The share of the most common colour (0.47-0.92: a product shot on white is mostly one colour)
+//! cannot tell a correct picture from a flat one with any margin, so it is recorded but not used.
+//! The live negative controls (a 16-channel VAE for MOSS-Image, a text-only encoder for FLUX.3)
+//! failed in ComfyUI before an image was made and are explained by the error patterns; the black,
+//! white, flat and noise checks are exercised by synthetic images only.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -35,7 +46,6 @@ pub const BUSY_WAIT: Duration = Duration::from_secs(120);
 const BLACK_LUMA: f64 = 8.0;
 const WHITE_LUMA: f64 = 247.0;
 const FLAT_STD: f64 = 6.0;
-const FLAT_TOP_BIN: f64 = 0.90;
 const NOISE_RATIO: f64 = 0.65;
 const EDIT_NOCHANGE: f64 = 0.8;
 const FILL_NOCHANGE: f64 = 8.0;
@@ -139,7 +149,7 @@ pub fn image_failure(m: &Metrics) -> Option<&'static str> {
         Some("black")
     } else if m.luma_mean > WHITE_LUMA && m.luma_std < FLAT_STD {
         Some("white")
-    } else if m.luma_std < FLAT_STD || m.top_bin_share > FLAT_TOP_BIN {
+    } else if m.luma_std < FLAT_STD {
         Some("flat")
     } else if m.noise_ratio > NOISE_RATIO {
         Some("noise")
@@ -444,7 +454,7 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
             Err(_) if ctl.is_cancelled() => bail!(lightcraft_sysmem::jobs::Cancelled),
             Err(e) => {
                 r.failure = Some("VerifyFailed:error".into());
-                r.message = Some(failure_message(&e));
+                r.message = Some(failure_message(&crate::ops::explain_with_recipe(e, info.recipe.as_deref())));
             }
         }
         let upscale = CapabilityResult { pass: r.failure.is_none(), via: Some("refine".into()), ..Default::default() };

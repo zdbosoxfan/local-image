@@ -454,7 +454,7 @@ fn prepare(ctx: &Ctx) -> BTreeMap<String, ModelState> {
         } else if builder {
             let preset = presets.iter().find(|p| p.installed && p.model.key() == im.key);
             let a = preset.map(|p| crate::catalog::availability(p, &ctx.snapshot.info));
-            m.label = label_for(family, None, &id, name);
+            m.label = im.label.clone();
             m.engine = "builder".into();
             m.status = if a.as_ref().is_none_or(|a| a.available) { Status::Builtin } else { Status::Blocked };
             m.capabilities = resolved.as_ref().map(builder_capabilities).unwrap_or_default();
@@ -581,7 +581,7 @@ pub fn scan_with(opts: &Options, reg: &Registry) -> Scan {
 fn other_files(info: &ObjectInfo, server: &ServerState) -> Vec<FileReport> {
     let mut out = Vec::new();
     for (class, input, kind) in [("CLIPLoader", "clip_name", "text encoder"), ("VAELoader", "vae_name", "VAE")] {
-        for f in info.choices(class, input) {
+        for f in info.choices(class, input).into_iter().filter(|f| f.contains('.')) {
             let used_by =
                 server.models.values().filter(|m| m.bindings.iter().any(|b| b.used.as_deref() == Some(f.as_str()))).map(|m| m.label.clone()).collect();
             out.push(FileReport { file: f, kind: kind.into(), used_by });

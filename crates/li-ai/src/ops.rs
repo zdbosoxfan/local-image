@@ -39,7 +39,7 @@ impl Engine<'_> {
 }
 
 /// A ComfyUI error of a template-model run, explained with the files its template declares.
-fn explain_with_recipe(e: anyhow::Error, recipe: Option<&crate::template::TemplateRecipe>) -> anyhow::Error {
+pub(crate) fn explain_with_recipe(e: anyhow::Error, recipe: Option<&crate::template::TemplateRecipe>) -> anyhow::Error {
     match (recipe, crate::comfy::friendly_of(&e)) {
         (Some(r), Some(f)) => {
             let declared =
