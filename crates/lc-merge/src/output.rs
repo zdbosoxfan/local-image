@@ -64,8 +64,8 @@ pub fn color_data(color: &FrameColor) -> ColorData {
 ///
 /// `clip` is the level at or above which the merge's inputs are saturated (for example the HDR
 /// radiance of a sample clipped in every bracket). It is written exactly at the white level and
-/// brighter values are clamped there. `None`, or a value that is not finite and positive, scales the brightest
-/// pixel just below the white level instead.
+/// brighter values are clamped there. `None`, or a value that is not finite and positive, scales
+/// the brightest pixel just below the white level instead.
 pub fn write_linear_dng(
     img: &RgbFrame,
     color: &FrameColor,
