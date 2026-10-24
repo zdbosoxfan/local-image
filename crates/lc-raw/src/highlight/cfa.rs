@@ -155,10 +155,10 @@ mod tests {
             let out = raw.develop_with_highlights(crate::Method::Bilinear, &Default::default(), &highlights(mode, wb)).unwrap();
             assert_eq!(out.data, plain.data, "{mode:?}: nothing on the sensor is clipped");
         }
-        // the old order (highlights on the gained RGB) neutralised and lifted those corners
-        let mut old = plain.clone();
-        assert!(super::super::reconstruct(&mut old, wb, 0.99) > 0);
-        let q = old.get(0, 0).map(|v| v);
+        // thresholding the gained RGB neutralises and lifts those corners
+        let mut gained = plain.clone();
+        assert!(super::super::reconstruct(&mut gained, wb, 0.99) > 0);
+        let q = gained.get(0, 0).map(|v| v);
         assert!((q[0] * wb[0] - q[1] * wb[1]).abs() < 1e-3, "neutralised: {q:?}");
         // a truly clipped patch is still reconstructed
         let mut clipped = mosaic_from_rgb(&RgbFrame::filled(64, 48, camera), &cfa);

@@ -350,7 +350,7 @@ const MAX_REBUILT: f32 = 4.0;
 /// seen through a window. Instead the white-balanced values of the ring (the pixels touching the
 /// core, partly clipped and rebuilt or not clipped at all) are diffused into the core, their colour
 /// fading to neutral with depth over about 1 % of the image, never below the neutral at the
-/// brightest plausible level (`max(wb) · clip`, what the core used to get).
+/// brightest plausible level (`max(wb) · clip`).
 fn fill_cores(img: &mut RgbFrame, wb: [f32; 3], clip: f32, clipped: &(impl Fn(usize, &[f32; 3]) -> [bool; 3] + Sync)) {
     let (w, h) = (img.width, img.height);
     let is_core = |i: usize, p: &[f32; 3]| clipped(i, p) == [true; 3];

@@ -560,9 +560,9 @@ fn malformed_profile_look_tags_are_ignored() {
     assert!(plain.color.profile.is_empty());
 }
 
-/// DNG 1.7 JPEG XL tiles decode natively, so every DNG tag (exposure, forward matrix, opcodes)
-/// is kept instead of being lost in a fallback decoder. The fixtures are lossless 16-bit JPEG XL
-/// streams of the sample patterns below (`magick -size 16x16 -depth 16 gray:… -quality 100`).
+/// DNG 1.7 JPEG XL tiles decode natively, with every DNG tag (exposure, forward matrix, opcodes)
+/// kept. The fixtures are lossless 16-bit JPEG XL streams of the sample patterns below
+/// (`magick -size 16x16 -depth 16 gray:… -quality 100`).
 #[test]
 fn jpeg_xl_tiles_keep_every_dng_tag() {
     let (w, h) = (16usize, 16usize);
