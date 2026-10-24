@@ -328,6 +328,40 @@ fn an_unreachable_server_reports_one_blocker() {
 }
 
 #[test]
+fn the_prompt_enhancer_runs_only_when_asked_for_and_installed() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let upsampler = ("text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "Comfy-Org_MOSS-Image__text_encoders~qwen3.5_9b_bf16");
+    let generate = |s: &Setup, enhance: bool| -> Value {
+        let model = ModelId::from_key(FLUX3_KEY).unwrap();
+        let (w, h) = create_size(FLUX3_KEY);
+        s.mock.queue_outputs([png(&ball(w, h, [230, 30, 30]))]);
+        let mut req = li_ai::ops::GenerateRequest::new(model, "a house by a lake");
+        (req.width, req.height, req.enhance) = (w, h, enhance);
+        li_ai::ops::Ai::new(s.mock.host()).generate(&req, &JobControl::new()).unwrap();
+        s.mock.prompts().pop().unwrap()
+    };
+    let uses_enhancer = |g: &Value| g.as_object().unwrap().values().any(|n| n["class_type"] == "TextGenerate");
+    // Not installed: offered as a download, and asking for it changes nothing.
+    let s = Setup::new(FLUX3);
+    let scan = s.scan();
+    let offer = scan.server.models[FLUX3_KEY].issues.iter().find(|i| i.code == "UpsamplerAvailable").unwrap();
+    assert!(
+        matches!(&offer.fixes[..], [modelsetup::issue::Fix::Download { files, folder, .. }] if files[0] == "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors" && folder == "text_encoders"),
+        "{offer:?}"
+    );
+    assert!(!uses_enhancer(&generate(&s, true)));
+    drop(s);
+    // Installed: off unless asked for.
+    let s = Setup::new(&[FLUX3, &[upsampler]].concat());
+    let scan = s.scan();
+    assert!(codes(&scan, FLUX3_KEY).contains(&"UpsamplerInstalled".to_owned()));
+    assert!(!uses_enhancer(&generate(&s, false)));
+    let enhanced = generate(&s, true);
+    assert!(uses_enhancer(&enhanced), "{enhanced}");
+    assert!(enhanced.to_string().contains("a house by a lake"));
+}
+
+#[test]
 fn the_persons_choices_apply_on_the_next_scan() {
     let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let ming = "unet:ming_image_0.1_design_bf16.safetensors";

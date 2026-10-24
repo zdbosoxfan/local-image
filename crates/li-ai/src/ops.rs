@@ -133,6 +133,8 @@ pub struct GenerateRequest {
     pub refine: Option<RefineStep>,
     /// Upscale-refine factor.
     pub scale: f32,
+    /// Template models: run the template's local prompt enhancer first (when its file is installed).
+    pub enhance: bool,
 }
 
 impl GenerateRequest {
@@ -160,6 +162,7 @@ impl GenerateRequest {
             sampler: None,
             refine: None,
             scale: 2.0,
+            enhance: false,
         }
     }
 
@@ -714,7 +717,7 @@ impl Ai {
             sampler,
             variety: req.variety,
             init_denoise: req.denoise,
-            enhance: false,
+            enhance: req.enhance && m.recipe.as_ref().is_some_and(|r| r.enhancer_ready()),
         };
         match req.mode {
             GenerateMode::Create => {
