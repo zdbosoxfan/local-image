@@ -65,6 +65,9 @@ impl Session {
         if partial.get("masks").is_some() {
             self.refresh_transferred_masks(id, &mut settings, 0);
         }
+        if partial.get("geometry").is_some() {
+            self.solve_upright(id, &mut settings);
+        }
         settings
     }
 

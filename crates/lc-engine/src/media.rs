@@ -21,7 +21,8 @@ use std::sync::{Arc, Weak};
 
 use li_raster::{Histogram, RgbFrame, Rgba8};
 use lightcraft_catalog::{MediaKind, Photo, PhotoId, Source};
-use lightcraft_develop::DevelopSettings;
+use lightcraft_develop::{DevelopSettings, Upright};
+use lightcraft_geom::Homography;
 use lightcraft_pipeline::{Quality, RenderRequest, Rendered, SourceInfo, StageCache};
 use lightcraft_preview::{Hash128, Hasher128, Lru, PreviewCache};
 use serde::{Deserialize, Serialize};
@@ -1153,6 +1154,28 @@ impl crate::Session {
         let image = r.image.clone();
         self.media.insert_source(id, level, r);
         Ok(image)
+    }
+
+    /// The automatic Upright transform for `mode`, analysed from photo `id`'s own preview-level
+    /// source under `settings` (its optics and orientation decide the lens-corrected image).
+    pub(crate) fn upright_transform(&mut self, id: PhotoId, settings: &DevelopSettings, mode: Upright) -> Result<Homography, String> {
+        let src = self.source_now(id, SourceLevel::Preview)?;
+        let p = self.catalog.photo(id).ok_or("no such photo")?;
+        let info = self.media.source_facts(id, job_info(p, settings));
+        Ok(lightcraft_pipeline::upright::auto_transform(&src, &info, settings, mode))
+    }
+
+    /// Store the Upright transform `settings` names a mode for but doesn't carry (pasted, synced
+    /// or preset settings), solved from this photo's own lines. A source that can't be read
+    /// leaves it to the render, which solves it from the pixels it has.
+    pub(crate) fn solve_upright(&mut self, id: PhotoId, settings: &mut DevelopSettings) {
+        if !settings.upright_unsolved() {
+            return;
+        }
+        match self.upright_transform(id, settings, settings.geometry.upright) {
+            Ok(h) => settings.geometry.upright_transform = Some(h),
+            Err(e) => log::warn!("Upright analysis of photo {} deferred to its render: {e}", id.0),
+        }
     }
 }
 

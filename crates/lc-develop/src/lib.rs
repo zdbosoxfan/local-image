@@ -108,6 +108,14 @@ impl DevelopSettings {
         !self.disabled_sections.iter().any(|s| s == section)
     }
 
+    /// An automatic Upright mode is in effect without the transform analysed from this photo's
+    /// own lines (settings pasted, synced or applied from a preset, or read from XMP).
+    pub fn upright_unsolved(&self) -> bool {
+        self.section_enabled("geometry")
+            && self.geometry.upright_transform.is_none()
+            && !matches!(self.geometry.upright, Upright::Off | Upright::Guided)
+    }
+
     pub fn set_section_enabled(&mut self, section: &str, on: bool) {
         self.disabled_sections.retain(|s| s != section);
         if !on {

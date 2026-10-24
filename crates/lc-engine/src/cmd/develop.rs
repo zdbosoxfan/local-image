@@ -586,11 +586,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 let d = s.develop_of(id).unwrap_or_default();
                 let transform = match mode {
                     Upright::Off | Upright::Guided => None,
-                    m => {
-                        let src = s.source_now(id, SourceLevel::Preview).map_err(|e| bad("geometry.upright", e))?;
-                        let info = s.source_info(id);
-                        Some(lightcraft_pipeline::upright::auto_transform(&src, &info, &d, m))
-                    }
+                    m => Some(s.upright_transform(id, &d, m).map_err(|e| bad("geometry.upright", e))?),
                 };
                 edit(s, "geometry.upright", "Upright", |d| {
                     d.geometry.upright = mode;
@@ -837,6 +833,9 @@ pub fn specs() -> Vec<CommandSpec> {
                     let d = s.develop_of(*id)?;
                     let mut settings = preset.apply(&d, amount);
                     s.refresh_transferred_masks(*id, &mut settings, d.masks.len());
+                    if preset.settings.get("geometry").is_some() {
+                        s.solve_upright(*id, &mut settings);
+                    }
                     s.develop_op(*id, settings, &format!("Preset: {}", preset.name))
                 })
                 .collect::<Vec<_>>();

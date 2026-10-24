@@ -928,6 +928,8 @@ mod tests_merge;
 #[cfg(test)]
 mod tests_organize;
 #[cfg(test)]
+mod tests_per_photo;
+#[cfg(test)]
 mod tests_persist;
 #[cfg(test)]
 mod tests_prefs;
