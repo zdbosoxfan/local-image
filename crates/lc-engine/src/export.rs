@@ -24,43 +24,62 @@ pub use options::*;
 pub use prepared::*;
 pub use watermark::*;
 
-/// Unsharp mask on an 8-bit image (separable box-blur approximation of a small Gaussian).
-pub fn output_sharpen(img: &mut Rgba8, target: SharpenFor, amount: SharpenAmount) {
-    let src: Vec<[f32; 3]> = img.data.iter().map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
-    if let Some(out) = unsharp(img.width, img.height, &src, target, amount) {
-        for (p, v) in img.data.iter_mut().zip(out) {
+/// Unsharp mask on an 8-bit image encoded in `space` (separable box-blur approximation of a small
+/// Gaussian). Only luma is sharpened, as Lightroom and Capture One do: sharpening each channel
+/// pushes the channels of a coloured edge apart and leaves coloured fringes on neutral surfaces.
+pub fn output_sharpen(img: &mut Rgba8, space: OutputSpace, target: SharpenFor, amount: SharpenAmount) {
+    let src: Vec<[f32; 3]> = img.data.iter().map(|p| [p[0], p[1], p[2]].map(f32::from)).collect();
+    if let Some(dy) = unsharp_luma(img.width, img.height, &src, space.luma(), target, amount) {
+        for ((p, s), d) in img.data.iter_mut().zip(&src).zip(dy) {
+            let d = shift_within(*s, d, 255.0);
             for c in 0..3 {
-                p[c] = v[c].round().clamp(0.0, 255.0) as u8;
+                p[c] = (s[c] + d).round().clamp(0.0, 255.0) as u8;
             }
         }
     }
 }
 
-/// [`output_sharpen`] on a high-bit-depth image (float images are sharpened in linear light).
+/// [`output_sharpen`] on a high-bit-depth image. Float images are linear: their luminance is
+/// sharpened by scaling each pixel, which keeps its chromaticity exactly.
 pub fn output_sharpen_deep(img: &mut DeepImage, target: SharpenFor, amount: SharpenAmount) {
-    let (w, h) = (img.width, img.height);
+    let (w, h, luma) = (img.width, img.height, img.space.luma());
     match &mut img.samples {
         DeepSamples::U16(v) => {
-            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.iter().map(|c| [c[0] as f32, c[1] as f32, c[2] as f32]).collect();
-            if let Some(out) = unsharp(w, h, &src, target, amount) {
-                for (d, s) in v.iter_mut().zip(out.as_flattened()) {
-                    *d = s.round().clamp(0.0, 65535.0) as u16;
+            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.iter().map(|c| c.map(f32::from)).collect();
+            if let Some(dy) = unsharp_luma(w, h, &src, luma, target, amount) {
+                for ((p, s), d) in v.as_chunks_mut::<3>().0.iter_mut().zip(&src).zip(dy) {
+                    let d = shift_within(*s, d, 65535.0);
+                    *p = std::array::from_fn(|c| (s[c] + d).round().clamp(0.0, 65535.0) as u16);
                 }
             }
         }
         DeepSamples::F32(v) => {
-            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.iter().map(|c| [c[0], c[1], c[2]]).collect();
-            if let Some(out) = unsharp(w, h, &src, target, amount) {
-                for (d, s) in v.iter_mut().zip(out.as_flattened()) {
-                    *d = s.max(0.0);
+            let src: Vec<[f32; 3]> = v.as_chunks::<3>().0.to_vec();
+            if let Some(dy) = unsharp_luma(w, h, &src, luma, target, amount) {
+                for ((p, s), d) in v.as_chunks_mut::<3>().0.iter_mut().zip(&src).zip(dy) {
+                    let y = dot(luma, *s);
+                    let gain = (y + d).max(0.0) / y.max(1e-6);
+                    *p = s.map(|c| (c * gain).max(0.0));
                 }
             }
         }
     }
 }
 
-/// The sharpened values of `src` (`w × h`), or `None` when nothing is to be done.
-fn unsharp(w: usize, h: usize, src: &[[f32; 3]], target: SharpenFor, amount: SharpenAmount) -> Option<Vec<[f32; 3]>> {
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// `delta` limited so that adding it to every channel of `rgb` keeps them within `0..=max`: the
+/// channels move together, so hue and the differences between them survive the clamp.
+fn shift_within(rgb: [f32; 3], delta: f32, max: f32) -> f32 {
+    let (lo, hi) = (rgb[0].min(rgb[1]).min(rgb[2]), rgb[0].max(rgb[1]).max(rgb[2]));
+    delta.min(max - hi).max(-lo)
+}
+
+/// The unsharp mask's change to the luma (weights `luma`) of each pixel of `src` (`w × h`), or
+/// `None` when nothing is to be done.
+fn unsharp_luma(w: usize, h: usize, src: &[[f32; 3]], luma: [f32; 3], target: SharpenFor, amount: SharpenAmount) -> Option<Vec<f32>> {
     let (radius, base) = match target {
         SharpenFor::None => return None,
         SharpenFor::Screen => (1usize, 0.35f32),
@@ -77,28 +96,27 @@ fn unsharp(w: usize, h: usize, src: &[[f32; 3]], target: SharpenFor, amount: Sha
         return None;
     }
     let r = radius as isize;
-    let box_pass = |inp: &[[f32; 3]], horizontal: bool| -> Vec<[f32; 3]> {
-        let mut out = vec![[0.0; 3]; inp.len()];
+    let box_pass = |inp: &[f32], horizontal: bool| -> Vec<f32> {
+        let mut out = vec![0.0; inp.len()];
         for y in 0..h {
             for x in 0..w {
-                let mut acc = [0.0f32; 3];
+                let mut acc = 0.0f32;
                 for d in -r..=r {
                     let (sx, sy) = if horizontal {
                         ((x as isize + d).clamp(0, w as isize - 1) as usize, y)
                     } else {
                         (x, (y as isize + d).clamp(0, h as isize - 1) as usize)
                     };
-                    let p = inp[sy * w + sx];
-                    acc = [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]];
+                    acc += inp[sy * w + sx];
                 }
-                let n = (2 * r + 1) as f32;
-                out[y * w + x] = acc.map(|v| v / n);
+                out[y * w + x] = acc / (2 * r + 1) as f32;
             }
         }
         out
     };
-    let blur = box_pass(&box_pass(src, true), false);
-    Some(src.iter().zip(&blur).map(|(s, b)| std::array::from_fn(|c| s[c] + (s[c] - b[c]) * k)).collect())
+    let y: Vec<f32> = src.iter().map(|p| dot(luma, *p)).collect();
+    let blur = box_pass(&box_pass(&y, true), false);
+    Some(y.iter().zip(&blur).map(|(y, b)| (y - b) * k).collect())
 }
 
 /// Encode a rendered display-referred image according to `o` (its pixels must already be in
@@ -111,8 +129,8 @@ pub fn encode_image(img: &Rgba8, o: &ExportOptions) -> Result<Vec<u8>, String> {
 /// Like [`encode_image`], embedding `meta` (already filtered by the policy) as EXIF + XMP.
 pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metadata>) -> Result<Vec<u8>, String> {
     let mut img = img.clone();
-    output_sharpen(&mut img, o.sharpen, o.sharpen_amount);
     let space = o.effective_space();
+    output_sharpen(&mut img, space, o.sharpen, o.sharpen_amount);
     if let Some(wm) = &o.watermark {
         let wm = Watermark { color: srgb8_in(space, wm.color), target: Some(space), ..wm.clone() };
         draw_watermark(&mut img, &wm);
@@ -121,7 +139,9 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
     let exif = meta.map(lightcraft_meta::write_exif);
     let xmp = meta.map(|m| lightcraft_meta::write_xmp(m, None));
     let meta = EncodeMeta { icc: Some(&profile), exif: exif.as_deref(), xmp: xmp.as_deref(), ppi: Some(o.ppi) };
-    let e = EncodeImage::rgba8(&img);
+    let (width, height) = (img.width as u32, img.height as u32);
+    let (channels, samples) = packed_samples(img);
+    let e = EncodeImage::new(width, height, channels, Samples::U8(&samples));
     let r = match o.format {
         ExportFormat::Jpeg => {
             // 4:4:4 normally; 4:2:0 when targeting a file size (much smaller at equal visual quality).
@@ -157,6 +177,23 @@ pub fn encode_with_metadata(img: &Rgba8, o: &ExportOptions, meta: Option<&Metada
         f @ (ExportFormat::Original | ExportFormat::Dng) => return Err(format!("{f:?} export does not encode pixels")),
     };
     r.map_err(|e| e.to_string())
+}
+
+/// `img`'s samples for the encoder: RGB when every pixel is opaque (as every render is), so 8-bit
+/// TIFF, PNG and WebP files carry no alpha channel that print labs and preflight checks flag;
+/// RGBA otherwise. Packed in place, without a second copy of the image.
+fn packed_samples(img: Rgba8) -> (u8, Vec<u8>) {
+    let opaque = img.data.iter().all(|p| p[3] == 255);
+    let mut bytes = img.data.into_flattened();
+    if !opaque {
+        return (4, bytes);
+    }
+    let n = bytes.len() / 4;
+    for i in 0..n {
+        bytes.copy_within(4 * i..4 * i + 3, 3 * i);
+    }
+    bytes.truncate(3 * n);
+    (3, bytes)
 }
 
 /// The codecs' name of an output space (for its ICC profile).
@@ -472,13 +509,14 @@ fn write_with(path: &str, bytes: &[u8], durable: bool) -> Result<(), String> {
     if durable { write_atomic(p, bytes) } else { write_atomic_nosync(p, bytes) }.map_err(|e| format!("{path}: {e}"))
 }
 
-/// The model emits sRGB8; preserve the requested output primaries, curve and container depth.
-/// Restoration has 8-bit source precision even in 16/32-bit exports.
 /// Resize a full-size export render to `size` with `kernel` — the editor's Image Size engine
 /// (`li-raster` f64 taps, edges repeated; Preserve Details' enlargement sharpening from
-/// `photocraft-algo`), in the render's own encoding: display-encoded for 8/16-bit, linear for
-/// 32-bit float, as the editor resizes a document of that depth. 8-bit results are dithered like
-/// the Develop renderer's own 8-bit output; `deep` is kept only when the export wants it.
+/// `photocraft-algo`). Enlargements resize the render's own encoding (display-encoded for
+/// 8/16-bit, linear for 32-bit float), as the editor resizes a document of that depth. Reductions
+/// average in linear light, as the renderer's own scaling does ([`reduce_linear`]; 32-bit float
+/// is linear already), with each sample held to its footprint ([`hold_to_footprint`]) so 16-bit
+/// and 32-bit exports agree beside bright windows. 8-bit results are dithered like the Develop
+/// renderer's own 8-bit output; `deep` is kept only when the export wants it.
 pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: ResampleChoice, size: (usize, usize), keep_deep: bool) {
     let (w, h) = (size.0.max(1), size.1.max(1));
     let (sw, sh) = r.deep.as_ref().map_or((r.image.width, r.image.height), |d| (d.width, d.height));
@@ -487,9 +525,17 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
     }
     let enlarging = w * h > sw * sh;
     let filter = kernel.resolve(enlarging);
-    let mut out = match r.deep.as_ref().map(|d| &d.samples) {
-        Some(DeepSamples::U16(v)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
-        Some(DeepSamples::F32(v)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+    let space = r.deep.as_ref().map(|d| d.space);
+    let linear = matches!(r.deep.as_ref().map(|d| &d.samples), Some(DeepSamples::F32(_)));
+    let mut out = match r.deep.as_mut().map(|d| (&mut d.samples, d.space)) {
+        Some((DeepSamples::U16(v), space)) if !enlarging => reduce_linear(std::mem::take(v), (sw, sh), (w, h), filter, space),
+        Some((DeepSamples::U16(v), _)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
+        Some((DeepSamples::F32(v), _)) if !enlarging => {
+            let mut out = li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter);
+            hold_to_footprint(&mut out, |i| v[i], (sw, sh), (w, h));
+            out
+        }
+        Some((DeepSamples::F32(v), _)) => li_raster::resample::resize_interleaved(v, sw, sh, 3, false, w, h, filter),
         None => {
             let rgb: Vec<u8> = r.image.data.iter().flat_map(|p| [p[0], p[1], p[2]]).collect();
             li_raster::resample::resize_interleaved(&rgb, sw, sh, 3, false, w, h, filter)
@@ -498,8 +544,6 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
     if filter == li_raster::resample::Resample::PreserveDetails && enlarging {
         out = preserve_details(out, (sw, sh), (w, h));
     }
-    let space = r.deep.as_ref().map(|d| d.space);
-    let linear = matches!(r.deep.as_ref().map(|d| &d.samples), Some(DeepSamples::F32(_)));
     let deep = space.map(|space| DeepImage {
         width: w,
         height: h,
@@ -529,6 +573,79 @@ pub(crate) fn resample_rendered(r: &mut lightcraft_pipeline::Rendered, kernel: R
     r.deep = deep.filter(|_| keep_deep);
 }
 
+/// A reduction of RGB samples `v` (`from`, display-encoded with `space`'s curve) to `to` in linear
+/// light, returned display-encoded: averaging encoded values would darken fine bright detail such
+/// as lit window grids at dusk. Each output sample is held within the range of the source pixels
+/// its output pixel covers, which keeps the mean of fine detail but stops the kernel's ringing
+/// from digging dark halos beside bright windows (unclamped, it does in linear light).
+fn reduce_linear(v: Vec<u16>, from: (usize, usize), to: (usize, usize), filter: li_raster::resample::Resample, space: OutputSpace) -> Vec<f32> {
+    fn run<const S: usize>(v: Vec<u16>, from: (usize, usize), to: (usize, usize), filter: li_raster::resample::Resample) -> Vec<f32> {
+        use li_raster::resample::Sample;
+        let src: Vec<Linear16<S>> = v.into_iter().map(Linear16).collect();
+        let mut out = li_raster::resample::resize_interleaved(&src, from.0, from.1, 3, false, to.0, to.1, filter);
+        hold_to_footprint(&mut out, |i| src[i].to_f32(), from, to);
+        out
+    }
+    let mut out = match OutputSpace::ALL.iter().position(|s| *s == space) {
+        Some(0) => run::<0>(v, from, to, filter),
+        Some(1) => run::<1>(v, from, to, filter),
+        Some(2) => run::<2>(v, from, to, filter),
+        Some(3) => run::<3>(v, from, to, filter),
+        _ => run::<4>(v, from, to, filter),
+    };
+    let trc = space.trc();
+    for o in &mut out {
+        *o = trc.encode(*o);
+    }
+    out
+}
+
+/// A 16-bit sample display-encoded with the curve of `OutputSpace::ALL[S]`, read in linear light.
+#[derive(Clone, Copy)]
+struct Linear16<const S: usize>(u16);
+
+impl<const S: usize> li_raster::resample::Sample for Linear16<S> {
+    #[inline]
+    fn to_f32(self) -> f32 {
+        static LINEAR: [std::sync::OnceLock<Vec<f32>>; 5] = [const { std::sync::OnceLock::new() }; 5];
+        let lut = LINEAR[S].get_or_init(|| {
+            let trc = OutputSpace::ALL[S].trc();
+            (0..=u16::MAX).map(|v| trc.decode(f32::from(v) / 65535.0)).collect()
+        });
+        lut[usize::from(self.0)]
+    }
+}
+
+/// Hold each sample of `out` (`to`, RGB) within the range of the samples of `src` (`from`, RGB,
+/// read through `at`) of the source pixels its output pixel covers.
+fn hold_to_footprint(out: &mut [f32], at: impl Fn(usize) -> f32 + Sync, from: (usize, usize), to: (usize, usize)) {
+    use rayon::prelude::*;
+    let span = |o: usize, n_out: usize, n_in: usize| {
+        let lo = o * n_in / n_out;
+        lo..((o + 1) * n_in).div_ceil(n_out).clamp(lo + 1, n_in)
+    };
+    let cols: Vec<_> = (0..to.0).map(|x| span(x, to.0, from.0)).collect();
+    out.par_chunks_mut(to.0 * 3).enumerate().for_each(|(oy, row)| {
+        let mut range = vec![[(f32::INFINITY, f32::NEG_INFINITY); 3]; to.0];
+        for sy in span(oy, to.1, from.1) {
+            for (r, xs) in range.iter_mut().zip(&cols) {
+                for sx in xs.clone() {
+                    let i = (sy * from.0 + sx) * 3;
+                    for (c, r) in r.iter_mut().enumerate() {
+                        let v = at(i + c);
+                        *r = (r.0.min(v), r.1.max(v));
+                    }
+                }
+            }
+        }
+        for (px, r) in row.as_chunks_mut::<3>().0.iter_mut().zip(&range) {
+            for (v, (lo, hi)) in px.iter_mut().zip(r) {
+                *v = v.max(*lo).min(*hi);
+            }
+        }
+    });
+}
+
 /// Preserve Details' light sharpening of an enlargement (`photocraft-algo`, as Image Size does).
 fn preserve_details(rgb: Vec<f32>, from: (usize, usize), to: (usize, usize)) -> Vec<f32> {
     use photocraft_doc::{ColorMode, PixelFormat, SampleType, Surface};
@@ -539,6 +656,10 @@ fn preserve_details(rgb: Vec<f32>, from: (usize, usize), to: (usize, usize)) -> 
     photocraft_algo::resample::preserve_details_sharpen(&s, sx, sy, rect).read_region(rect)
 }
 
+/// The model's sRGB8 output in the export's primaries, curve and container depth (restoration has
+/// 8-bit source precision even in 16/32-bit exports). 8-bit results in another space are dithered
+/// like the renderer's own 8-bit output, as a second rounding through another curve would merge
+/// and skip levels; sRGB 8-bit stays exactly what the model returned.
 fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage> {
     let (space, depth) = if opts.source_encoding.is_some() {
         (OutputSpace::Rec2020, OutputDepth::F32Linear)
@@ -549,12 +670,15 @@ fn enhanced_samples(image: &mut Rgba8, opts: &ExportOptions) -> Option<DeepImage
     let trc = space.trc();
     let mut values = Vec::with_capacity(image.data.len() * 3);
     let linear = depth == OutputDepth::F32Linear;
-    for pixel in &mut image.data {
+    let width = image.width.max(1);
+    for (i, pixel) in image.data.iter_mut().enumerate() {
         let rgb = matrix.apply([pixel[0], pixel[1], pixel[2]].map(|v| li_color::transfer::decode_srgb8(v) as f64));
         for c in 0..3 {
             let encoded = trc.encode(rgb[c] as f32).clamp(0.0, 1.0);
             values.push(if linear { rgb[c] as f32 } else { encoded });
-            pixel[c] = (encoded * 255.0).round() as u8;
+            if space != OutputSpace::Srgb {
+                pixel[c] = lightcraft_pipeline::finish::dither8(encoded, i % width, i / width, c);
+            }
         }
     }
     let samples = match depth {

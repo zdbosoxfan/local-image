@@ -441,8 +441,8 @@ fn preview_display_matches_editor_and_float_lut_keeps_sub_byte_values() {
     }
     let doc = rgb_doc(None, [0.5; 3], SampleType::U8);
     let editor = c.canvas_display(&doc).unwrap();
-    assert_eq!(preview.srgb8_to_display(8, &bytes), editor.to_rgba8(&buf).pixels);
-    assert_ne!(preview.srgb8_to_display(8, &bytes), bytes);
+    assert_eq!(preview.rgb8_to_display(8, &bytes), editor.to_rgba8(&buf).pixels);
+    assert_ne!(preview.rgb8_to_display(8, &bytes), bytes);
     let lut8 = c.gpu_canvas_lut_for(&doc, 9, None).unwrap().unwrap();
     let lut16 = c.gpu_canvas_lut16f_for(&doc, 9, None).unwrap().unwrap();
     assert_eq!(lut16.len(), lut8.len() * 2);
@@ -451,5 +451,96 @@ fn preview_display_matches_editor_and_float_lut_keeps_sub_byte_values() {
     assert_eq!(lut16, expected.to_rgba16f_bytes());
     assert!(expected.data.iter().any(|p| p[..3].iter().any(|v| (v * 255.0 - (v * 255.0).round()).abs() > 0.1)));
     c.settings.monitor_profile = "srgb".into();
-    assert_eq!(c.srgb_preview_display().unwrap().srgb8_to_display(8, &bytes), bytes);
+    assert_eq!(c.srgb_preview_display().unwrap().rgb8_to_display(8, &bytes), bytes);
+}
+
+/// A matrix/TRC monitor profile with these primaries (xy), D65 white and a gamma of 2.4 (unlike
+/// every built-in).
+fn monitor_profile(primaries: [[f64; 2]; 3]) -> Profile {
+    use li_color::{RgbSpace, Xy};
+    let [r, g, b] = primaries.map(|p| Xy::new(p[0], p[1]));
+    let space = RgbSpace { name: "test monitor", r, g, b, white: Xy::new(0.3127, 0.3290) };
+    let mut p = Builtin::Srgb.profile().clone();
+    p.description = "Test monitor".into();
+    p.matrix = Some(li_color::space::rgb_to_xyz_d50(&space).0);
+    p.trc = Some([li_color::curve::Curve::Gamma(2.4), li_color::curve::Curve::Gamma(2.4), li_color::curve::Curve::Gamma(2.4)]);
+    p.with_encoded_bytes()
+}
+
+/// [`monitor_profile`] as an XYZ AToB table with no colorant matrix or curves (how profiling tools
+/// write LUT display profiles), read back from its ICC bytes.
+fn lut_monitor_profile(primaries: [[f64; 2]; 3]) -> Profile {
+    use photocraft_cms::Clut;
+    use photocraft_cms::pipeline::Stage;
+    use photocraft_cms::profile::{Lut, LutKind};
+    let mut p = monitor_profile(primaries);
+    let m = p.matrix.take().unwrap();
+    p.trc = None;
+    // PCS XYZ as the table stores it: u1Fixed15 over the 16-bit range
+    let clut = Clut::sample(vec![9; 3], 3, |rgb, out| {
+        let linear = [0, 1, 2].map(|c| f64::from(rgb[c]).powf(2.4));
+        for (o, row) in out.iter_mut().zip(m) {
+            *o = ((0..3).map(|c| row[c] * linear[c]).sum::<f64>() * 32768.0 / 65535.0) as f32;
+        }
+    });
+    let pass = || Stage::Curves(vec![li_color::curve::Curve::Table(vec![0.0, 1.0]); 3]);
+    let lut = Lut { kind: LutKind::Lut16, inputs: 3, outputs: 3, stages: vec![pass(), Stage::Clut(clut), pass()] };
+    p.a2b = [Some(lut.clone()), Some(lut.clone()), Some(lut)];
+    p.b2a = Default::default();
+    let p = Profile::parse(&p.with_encoded_bytes().to_bytes()).unwrap();
+    assert!(p.matrix.is_none() && p.a2b[1].is_some());
+    p
+}
+
+#[test]
+fn views_render_in_the_narrowest_builtin_space_holding_the_monitor() {
+    use crate::display_color::view_space;
+    use li_color::space::OutputSpace as S;
+    for (monitor, space) in [
+        (Builtin::Srgb, S::Srgb),
+        (Builtin::DisplayP3, S::DisplayP3),
+        (Builtin::AdobeRgbCompat, S::AdobeRgb),
+        (Builtin::Rec2020, S::Rec2020),
+        (Builtin::ProPhotoCompat, S::ProPhoto),
+    ] {
+        assert_eq!(view_space(monitor.profile()), space, "{monitor:?}");
+    }
+    // a measured panel a hair outside sRGB keeps the sRGB path; a P3 panel with its own curve is
+    // P3; P3's red with Adobe RGB's green fits neither P3 nor Adobe RGB
+    assert_eq!(view_space(&monitor_profile([[0.645, 0.33], [0.3, 0.6], [0.15, 0.06]])), S::Srgb);
+    assert_eq!(view_space(&monitor_profile([[0.68, 0.32], [0.265, 0.69], [0.15, 0.06]])), S::DisplayP3);
+    assert_eq!(view_space(&monitor_profile([[0.68, 0.32], [0.21, 0.71], [0.15, 0.06]])), S::Rec2020);
+    // a green beyond Adobe RGB (a* below -128, past what an encoded Lab destination holds) is
+    // read in full from the matrix or the table
+    let wide = [[0.64, 0.33], [0.17, 0.75], [0.15, 0.06]];
+    assert_eq!(view_space(&monitor_profile(wide)), S::Rec2020);
+    assert_eq!(view_space(&lut_monitor_profile(wide)), S::Rec2020);
+    assert_eq!(view_space(&lut_monitor_profile([[0.68, 0.32], [0.265, 0.69], [0.15, 0.06]])), S::DisplayP3);
+    let mut c = crate::color_cmds::ColorState::default();
+    c.settings.monitor_profile = "display-p3".into();
+    assert_eq!(view_space(&c.monitor()), S::DisplayP3);
+}
+
+#[test]
+fn views_in_the_monitor_space_reach_it_unchanged_and_others_through_the_monitor_transform() {
+    use crate::display_color::rendered_display;
+    use li_color::space::OutputSpace as S;
+    let bytes: Vec<u8> = (0..64).flat_map(|i| [i * 4, 255 - i * 3, 40 + i, 255]).collect();
+    let p3 = Arc::new(Builtin::DisplayP3.profile().clone());
+    let same = rendered_display(S::DisplayP3, p3.clone()).unwrap();
+    assert!(same.is_identity());
+    assert_eq!(same.rgb8_to_display(8, &bytes), bytes);
+    assert_ne!(same.key, rendered_display(S::Srgb, p3).unwrap().key, "views and sRGB previews are told apart");
+    // a wide-gamut panel of its own: Adobe RGB primaries with another curve
+    let monitor = Arc::new(monitor_profile([[0.64, 0.33], [0.21, 0.71], [0.15, 0.06]]));
+    assert_eq!(crate::display_color::view_space(&monitor), S::AdobeRgb);
+    let d = rendered_display(S::AdobeRgb, monitor.clone()).unwrap();
+    let reference = Transform::new(Builtin::AdobeRgbCompat.profile(), &monitor, Intent::RelativeColorimetric, true).unwrap();
+    for (src, shown) in bytes.as_chunks::<4>().0.iter().zip(d.rgb8_to_display(8, &bytes).as_chunks::<4>().0) {
+        let mut want = [0.0f32; 3];
+        reference.eval(&[0, 1, 2].map(|c| f32::from(src[c]) / 255.0), &mut want);
+        for c in 0..3 {
+            assert!((f32::from(shown[c]) - want[c].clamp(0.0, 1.0) * 255.0).abs() <= 1.0, "{src:?} -> {shown:?}, want {want:?}");
+        }
+    }
 }

@@ -341,6 +341,34 @@ fn formats_have_magic() {
     }
 }
 
+/// The tags of a little-endian TIFF's first IFD.
+fn tiff_tags(b: &[u8]) -> Vec<u16> {
+    let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+    let ifd = u32::from_le_bytes([b[4], b[5], b[6], b[7]]) as usize;
+    (0..usize::from(u16_at(ifd))).map(|i| u16_at(ifd + 2 + 12 * i)).collect()
+}
+
+#[test]
+fn opaque_eight_bit_exports_carry_no_alpha_channel() {
+    let img = test_image();
+    let encode = |format, img: &Rgba8| encode_image(img, &ExportOptions { format, bit_depth: Some(8), ..Default::default() }).unwrap();
+    let tiff = encode(ExportFormat::Tiff, &img);
+    assert!(!tiff_tags(&tiff).contains(&338), "no ExtraSamples tag");
+    for (format, bytes) in
+        [(ExportFormat::Tiff, tiff), (ExportFormat::Png, encode(ExportFormat::Png, &img)), (ExportFormat::Webp, encode(ExportFormat::Webp, &img))]
+    {
+        let d = lightcraft_codecs::decode(&bytes, Default::default()).unwrap();
+        assert!(!d.has_alpha && d.bit_depth == 8, "{format:?}");
+        let worst = d.to_srgb8().data.iter().zip(&img.data).flat_map(|(a, b)| (0..4).map(move |c| a[c].abs_diff(b[c]))).max();
+        assert!(worst <= Some(1), "{format:?}: the pixels survive packing ({worst:?})");
+    }
+    let mut clear = test_image();
+    clear.data[5][3] = 0;
+    for format in [ExportFormat::Tiff, ExportFormat::Png] {
+        assert!(lightcraft_codecs::decode(&encode(format, &clear), Default::default()).unwrap().has_alpha, "{format:?} keeps real transparency");
+    }
+}
+
 #[test]
 fn size_limit_respected() {
     let img = test_image();
@@ -357,8 +385,67 @@ fn sharpen_increases_edge_contrast() {
         let v = if i % 8 < 4 { 80 } else { 170 };
         *p = [v, v, v, 255];
     }
-    output_sharpen(&mut img, SharpenFor::Matte, SharpenAmount::High);
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Matte, SharpenAmount::High);
     assert!(img.data[3][0] < 80 && img.data[4][0] > 170);
+}
+
+/// An 8×8 image: `left` in the left half, `right` in the right half.
+fn edge(left: [u8; 3], right: [u8; 3]) -> Rgba8 {
+    Rgba8::from_fn(8, 8, |x, _| {
+        let c = if x < 4 { left } else { right };
+        [c[0], c[1], c[2], 255]
+    })
+}
+
+fn oklch_chroma(p: [u8; 4]) -> f32 {
+    let lab = li_color::srgb_perceptual::linear_srgb_to_oklab([0, 1, 2].map(|c| li_color::transfer::decode_srgb8(p[c])));
+    lab[1].hypot(lab[2])
+}
+
+#[test]
+fn output_sharpening_adds_no_coloured_fringes() {
+    // brick red against a neutral wall: the wall's halo must stay neutral (sharpening channels
+    // separately tints it cyan)
+    let mut img = edge([200, 40, 30], [180, 180, 180]);
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Glossy, SharpenAmount::High);
+    let halo = img.data[4];
+    assert!(halo[0] > 180, "the edge is still sharpened: {halo:?}");
+    assert!(halo[0].max(halo[1]).max(halo[2]) - halo[0].min(halo[1]).min(halo[2]) <= 2, "neutral halo: {halo:?}");
+    // red against blue: neither halo may be more colourful than its flat side
+    let flat = edge([200, 40, 30], [30, 60, 200]);
+    let mut img = flat.clone();
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Glossy, SharpenAmount::High);
+    for x in [3, 4] {
+        let (before, after) = (oklch_chroma(flat.data[8 + x]), oklch_chroma(img.data[8 + x]));
+        assert!(after <= before * 1.03, "x = {x}: chroma {before} -> {after}");
+    }
+    // a pixel already at the top keeps its hue rather than being clipped per channel
+    let mut img = edge([60, 60, 60], [255, 120, 20]);
+    output_sharpen(&mut img, OutputSpace::Srgb, SharpenFor::Matte, SharpenAmount::High);
+    assert_eq!(img.data[4], [255, 120, 20, 255]);
+    assert!(img.data[3][0] < 60 && img.data[3][0] == img.data[3][1] && img.data[3][1] == img.data[3][2], "{:?}", img.data[3]);
+}
+
+#[test]
+fn deep_output_sharpening_adds_no_coloured_fringes() {
+    let deep = |samples: DeepSamples| DeepImage { width: 8, height: 8, space: OutputSpace::AdobeRgb, samples };
+    let half = |left: [f32; 3], right: [f32; 3]| (0..64).flat_map(move |i| if i % 8 < 4 { left } else { right });
+    let mut img = deep(DeepSamples::U16(half([51400.0, 10280.0, 7710.0], [46260.0; 3]).map(|v| v as u16).collect()));
+    output_sharpen_deep(&mut img, SharpenFor::Glossy, SharpenAmount::High);
+    let DeepSamples::U16(v) = &img.samples else { unreachable!() };
+    let halo = [v[12], v[13], v[14]];
+    assert!(halo[0] > 46260 && halo.iter().max().unwrap() - halo.iter().min().unwrap() <= 2, "neutral 16-bit halo: {halo:?}");
+    // linear float: the halo keeps the chromaticity of its side, and black stays black
+    let mut img = deep(DeepSamples::F32(half([0.5, 0.03, 0.02], [0.4; 3]).collect()));
+    output_sharpen_deep(&mut img, SharpenFor::Matte, SharpenAmount::High);
+    let DeepSamples::F32(v) = &img.samples else { unreachable!() };
+    let (red, grey) = (&v[9..12], &v[12..15]);
+    assert!(grey[0] > 0.4 && (grey[0] - grey[1]).abs() < 1e-6 && (grey[1] - grey[2]).abs() < 1e-6, "{grey:?}");
+    assert!(red[0] < 0.5 && (red[1] / red[0] - 0.06).abs() < 1e-5 && (red[2] / red[0] - 0.04).abs() < 1e-5, "{red:?}");
+    let mut img = deep(DeepSamples::F32(half([0.0; 3], [1.0; 3]).collect()));
+    output_sharpen_deep(&mut img, SharpenFor::Matte, SharpenAmount::High);
+    let DeepSamples::F32(v) = &img.samples else { unreachable!() };
+    assert!(v.iter().all(|x| x.is_finite() && *x >= 0.0) && v[9] == 0.0 && v[12] > 1.0);
 }
 
 #[test]
@@ -563,6 +650,26 @@ fn enhance_samples_keep_source_profile_float_encoding() {
     let expected = li_color::SRGB.to_space(&li_color::REC2020).apply([50, 120, 200].map(|v| li_color::transfer::decode_srgb8(v) as f64));
     for (actual, expected) in values.iter().zip(expected) {
         assert!((*actual as f64 - expected).abs() < 1e-6);
+    }
+}
+
+#[test]
+fn enlarged_eight_bit_output_is_dithered_into_other_spaces_and_untouched_in_srgb() {
+    // a neutral sRGB ramp from the model, 256 pixels of every level
+    let model = Rgba8::from_fn(256, 256, |x, _| [x as u8, x as u8, x as u8, 255]);
+    let eight_bit = |space| ExportOptions { color_space: space, bit_depth: Some(8), ..Default::default() };
+    let mut srgb = model.clone();
+    assert!(enhanced_samples(&mut srgb, &eight_bit(OutputSpace::Srgb)).is_none());
+    assert_eq!(srgb.data, model.data, "sRGB output is the model's own pixels");
+    let mut adobe = model.clone();
+    enhanced_samples(&mut adobe, &eight_bit(OutputSpace::AdobeRgb));
+    // each level keeps its exact mean in Adobe RGB codes (rounding alone is off by up to half a
+    // code and merges neighbouring levels)
+    let trc = OutputSpace::AdobeRgb.trc();
+    for level in 0..=255u8 {
+        let exact = trc.encode(li_color::transfer::decode_srgb8(level)) * 255.0;
+        let mean = (0..256).map(|y| f32::from(adobe.get(usize::from(level), y)[0])).sum::<f32>() / 256.0;
+        assert!((mean - exact).abs() < 0.2, "level {level}: mean {mean}, exact {exact}");
     }
 }
 

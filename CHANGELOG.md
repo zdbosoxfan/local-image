@@ -25,9 +25,28 @@ All notable changes to Local Image are recorded here. The format follows
   built-in lens corrections applied at that size, about three times faster on a 20 MP Mavic 3 file.
   The built-in distortion correction resamples with a de-ringed cubic kernel instead of bilinear,
   keeping more detail in full-size exports.
+- Develop: on a monitor wider than sRGB (Display P3 on a Mac, or a wide-gamut monitor profile),
+  the loupe, Before/After, compare and second-window views render in the narrowest of sRGB,
+  Display P3, Adobe RGB, Rec. 2020 and ProPhoto that holds the monitor's colours, instead of sRGB.
+  Saturated foliage, dusk skies and coloured light the monitor can show are no longer clipped to
+  sRGB, and a Display P3 monitor shows exactly what a Display P3 8-bit export contains. The
+  histogram and clipping warning then describe that space (Display P3 on a Mac), not sRGB; soft
+  proof to sRGB to check sRGB clipping. sRGB monitors are unchanged.
+- Export: output sharpening (Screen, Matte, Glossy) sharpens brightness only, so edges between a
+  colour and a neutral surface no longer get coloured fringes, such as a cyan halo on a white wall
+  beside brick.
+- Export: with a resize kernel chosen, reductions average light rather than encoded values at
+  every bit depth, so fine bright detail such as lit window grids keeps its brightness, and no
+  dark halo forms beside bright windows. Saved export presets with a resize kernel produce
+  slightly different files than before.
 
 ### Fixed
 
+- Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
+  Photoshop showed as transparency and print preflight checks could flag. Images with real
+  transparency keep it.
+- Export: AI-enlarged 8-bit exports in Adobe RGB, ProPhoto, Display P3 or Rec. 2020 are dithered
+  when converted from the model's sRGB output, so enlarged skies and smooth walls no longer band.
 - Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
   wrapping; captured times that are not ASCII no longer crash the By Date panel; impossible times
   such as 10:75 are refused instead of rolling over.
