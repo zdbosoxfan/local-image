@@ -1037,6 +1037,47 @@ mod tests {
     }
 
     #[test]
+    fn merged_dngs_measure_their_own_noise_instead_of_the_camera_table() {
+        let metadata = lightcraft_meta::Metadata { make: Some("SONY".into()), model: Some("ILCE-1".into()), iso: Some(100), ..Default::default() };
+        let color = lightcraft_raw::ColorData { illuminant: [21, 0], color_matrix: [Some(li_color::Mat3::IDENTITY), None], ..Default::default() };
+        let (w, h) = (64, 48);
+        let mosaic = lightcraft_raw::RawImage {
+            format: lightcraft_raw::RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            data: lightcraft_raw::RawData::U16((0..w * h).map(|i| 1000 + (i % w) as u16 * 40).collect()),
+            cfa: lightcraft_raw::Cfa::bayer("RGGB"),
+            bits: 14,
+            black: lightcraft_raw::BlackLevel::uniform(512.0),
+            white: vec![16383.0],
+            active_area: lightcraft_raw::Rect::new(0, 0, w, h),
+            crop: lightcraft_raw::Rect::new(0, 0, w, h),
+            orientation: lightcraft_geom::Orientation::Normal,
+            color: color.clone(),
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: metadata.clone(),
+        };
+        let sensor = lightcraft_raw::write_dng(&mosaic, &lightcraft_raw::DngWriteOptions::default()).unwrap();
+        assert!(crate::files::load_bytes(&sensor, 48).unwrap().1.camera_noise.is_some(), "the camera has a noise table");
+        let image = RgbFrame::from_fn(w, h, |x, _| [0.05 + 0.01 * x as f32; 3]);
+        let merged = lightcraft_merge::write_linear_dng(
+            &image,
+            &lightcraft_merge::FrameColor::Camera(Box::new(color)),
+            lightcraft_geom::Orientation::Normal,
+            &metadata,
+            0.0,
+            lightcraft_merge::DngSamples::Float,
+            Some(4.0),
+        )
+        .unwrap();
+        assert!(crate::files::load_bytes(&merged, 48).unwrap().1.camera_noise.is_none());
+    }
+
+    #[test]
     fn raw_preview_fuses_full_sensor_then_resizes() {
         let mut job = batch_fixture().source;
         job.sources.truncate(3);

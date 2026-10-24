@@ -580,6 +580,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         let (temp, tint) = if relative { (6500.0, 0.0) } else { (temp.round(), tint.round()) };
         let normalized_color = lightcraft_raw::color::normalized_color(&raw);
         let normalization_ratio = lightcraft_raw::color::normalization_ratios(&raw);
+        let linear_raw_dng = raw.format == lightcraft_raw::RawFormat::Dng && raw.cfa.is_none() && raw.cpp == 3;
         return Ok((
             img,
             SourceInfo {
@@ -614,7 +615,9 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                 lcp: None,
                 clip_confidence,
                 raw_clip_level: Some(HIGHLIGHT_CLIP),
-                camera_noise: if source_hue_sat.is_none() && raw.color.profile.is_empty() {
+                // Noise tables describe a camera's own mosaic; a LinearRaw DNG holds processed samples
+                // (a merge, a Pixel Shift composite, a denoised file), so NR measures it instead.
+                camera_noise: if source_hue_sat.is_none() && raw.color.profile.is_empty() && !linear_raw_dng {
                     lightcraft_raw::camera_data::noise_profile(
                         raw.metadata.make.as_deref().unwrap_or_default(),
                         raw.metadata.model.as_deref().unwrap_or_default(),
