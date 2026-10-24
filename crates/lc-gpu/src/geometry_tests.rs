@@ -117,7 +117,8 @@ fn every_resample_path_matches_the_cpu() {
 
 /// Noise reduction under the lens profile's vignetting correction: the device divides the gain out
 /// around its denoiser as the CPU does (main image and primary proxy), within the 8-bit bounds of
-/// the equivalence suite.
+/// the equivalence suite, for an embedded profile the device evaluates and for an Adobe LCP
+/// profile it does not.
 #[test]
 fn vignetting_corrected_noise_reduction_matches_the_cpu() {
     let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
@@ -137,15 +138,24 @@ fn vignetting_corrected_noise_reduction_matches_the_cpu() {
         lightcraft_develop::EmbeddedRadial { vig_count: 2, center: lightcraft_geom::Point::new(0.5, 0.5), radius: 0.6, ..Default::default() };
     radial.vig_knots[1] = 1.0;
     radial.attenuation[..2].copy_from_slice(&[1.0, 0.3]);
-    let info =
+    let embedded =
         SourceInfo { raw: true, lens: Some(lightcraft_develop::EmbeddedLens { radial: Some(radial), ..Default::default() }), ..Default::default() };
+    use lightcraft_pipeline::lcp::{LcpCorrection, LcpModel};
+    let model = LcpModel { focal: [0.8; 2], center: [0.5; 2], radial: [-0.02, 0.0, 0.0], tangential: [0.0; 2], scale: 1.0 };
+    let lcp = SourceInfo {
+        raw: true,
+        lcp: Some(LcpCorrection { distortion: Some(model), vignette: Some(LcpModel { radial: [-0.9, 0.2, 0.0], ..model }), ..Default::default() }),
+        ..Default::default()
+    };
     let mut s = DevelopSettings::default();
     s.optics.lens_profile = true;
     s.detail.nr_luminance = 60.0;
     s.detail.nr_color = 40.0;
-    for req in [RenderRequest::fit(w, h), RenderRequest::fit(200, 200)] {
-        let cpu = lightcraft_pipeline::render(&src, &info, &s, &req).image;
-        let device = render(gpu, &src, &info, &s, &req, None, None, lightcraft_pipeline::primary::DEFAULT_HS_METHOD).expect("gpu render").image;
+    for (info, req) in [embedded, lcp].iter().flat_map(|info| [RenderRequest::fit(w, h), RenderRequest::fit(200, 200)].map(|req| (info, req))) {
+        let plan = lightcraft_pipeline::plan(&src, info, &s, &req);
+        assert!(plan.frame.warp.as_ref().is_some_and(|wp| wp.has_gain()), "the profile corrects vignetting");
+        let cpu = lightcraft_pipeline::render(&src, info, &s, &req).image;
+        let device = render(gpu, &src, info, &s, &req, None, None, lightcraft_pipeline::primary::DEFAULT_HS_METHOD).expect("gpu render").image;
         let (mut sum, mut max) = (0u64, 0u8);
         for (a, b) in cpu.data.iter().zip(&device.data) {
             for c in 0..3 {
@@ -155,7 +165,7 @@ fn vignetting_corrected_noise_reduction_matches_the_cpu() {
             }
         }
         let mean = sum as f64 / (cpu.data.len() * 3) as f64;
-        assert!(mean < 0.5 && max <= 3, "{}×{}: mean {mean:.3} LSB, max {max} LSB", cpu.width, cpu.height);
+        assert!(mean < 0.5 && max <= 3, "{}×{}, LCP {}: mean {mean:.3} LSB, max {max} LSB", cpu.width, cpu.height, info.lcp.is_some());
     }
     assert!(errors.pop().is_none());
     assert!(!crate::ctx::failed());

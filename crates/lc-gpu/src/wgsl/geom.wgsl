@@ -346,7 +346,7 @@ fn camera_basis(v: vec3<f32>, offset: u32) -> vec3<f32> {
 
 // `Frame::vignette_gain` divided out of (P[208] set) or applied to an output-size image (around
 // noise reduction, `lightcraft_pipeline::denoise_sampled`). P as `sample_warp`; bindings: src (rgb),
-// dst (rgb), coverage (the framing bit mask).
+// dst (rgb), coverage: the framing bit mask, or with P[209] set the gain per pixel (f32 bits).
 @compute @workgroup_size(16, 16)
 fn vignette_gain(@builtin(global_invocation_id) g: vec3<u32>) {
     let w = pu(2u);
@@ -358,7 +358,9 @@ fn vignette_gain(@builtin(global_invocation_id) g: vec3<u32>) {
     let v = vec3<f32>(src[3u * i], src[3u * i + 1u], src[3u * i + 2u]);
     let word = g.y * ((w + 31u) / 32u) + g.x / 32u;
     var k = 1.0;
-    if ((coverage[word] & (1u << (g.x % 32u))) != 0u) {
+    if (pu(209u) != 0u) {
+        k = bitcast<f32>(coverage[i]);
+    } else if ((coverage[word] & (1u << (g.x % 32u))) != 0u) {
         let px = f32(g.x) + 0.5;
         let py = f32(g.y) + 0.5;
         let t = vec2<f32>(pf(4u) * px + pf(6u) * py + pf(8u), pf(5u) * px + pf(7u) * py + pf(9u));
