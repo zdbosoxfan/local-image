@@ -438,10 +438,11 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
     // Refine: the recipe the app's refine checker uses, on its test picture.
     if let Some(recipe) = refine_recipe(t.model, &client) {
         let (job, timed_out) = timed(ctl);
+        let sampler = VramSampler::start(host);
         let start = Instant::now();
         let res = crate::refine::preservation(&client, &recipe, seed.wrapping_add(2), &job);
         job.cancel();
-        let mut r = CapabilityResult { seconds: start.elapsed().as_secs_f64(), ..Default::default() };
+        let mut r = CapabilityResult { seconds: start.elapsed().as_secs_f64(), peak_vram_gb: sampler.finish(), ..Default::default() };
         match res {
             Ok((d, img)) => {
                 r.size = Some(img.dimensions());
