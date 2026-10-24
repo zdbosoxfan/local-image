@@ -173,10 +173,14 @@ No NLMeans, neural model or camera noise database is included.
 
 Host mapping: image-tile 2x2 diagonal high-pass MAD estimates the Poisson slope;
 read-noise intercept is zero, with generic a=1e-4 fallback. WB is unity after the
-pipeline's working-RGB conversion. Let L/C be Amount/100 and M=max(L,C).
-Strength is 0.4+1.6M, multiplied by upstream's 2.5 and preview scale.
-Y force is sqrt(L/M * band multiplier); U/V force is half sqrt(C/M * multiplier).
-The Y factor is calibrated for the amplified upstream Y0 row. Luminance Detail
+pipeline's working-RGB conversion. Let L/C be Amount/100. Modified 2026-10-24: the
+analysis rows are a Rec.2020 luminance row (in camera-profiled NR, the working
+luminance gradient in the stabilized camera channels) with upstream Y0's gain on
+neutral, and upstream's U0/V0 rows kept orthogonal to neutral; the inverse is solved
+exactly. The Y row's strength is 0.4+1.6L and the U/V rows' 0.4+1.6C, each multiplied
+by upstream's 2.5 and preview scale; the backtransform bias uses max(L,C). Y force is
+sqrt(band multiplier) and U/V force half sqrt(multiplier), each faded in over its
+slider's first 10 units. The Y factor is calibrated for the amplified upstream Y0 row. Luminance Detail
 sets the first two multipliers to 1.2-0.8D and 1.1-0.6D; Contrast sets remaining
 multipliers to 1-0.85K. Colour Detail similarly sets the first two chroma bands;
 Smoothness sets the remaining chroma bands to 0.5+1.5S. Preview scale shifts the

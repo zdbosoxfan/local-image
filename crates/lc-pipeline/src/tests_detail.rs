@@ -615,3 +615,50 @@ fn masking_preview_is_grey_even_when_sharpening_is_subpixel() {
     // Zero masking is an all-white mask, including when Amount is zero.
     assert!(image.data.iter().all(|p| *p == [255; 4]));
 }
+
+// Noise reduction: independent sliders
+
+fn grey_noise(w: usize, sigma: f32) -> RgbFrame {
+    RgbFrame::from_fn(w, w, |x, y| std::array::from_fn(|c| 0.2 + sigma * 1.7 * noise(x, y, c as u32 + 7)))
+}
+
+/// Standard deviation of Rec.2020 luminance.
+fn luma_noise(img: &RgbFrame) -> f32 {
+    let y: Vec<f32> = img.data.iter().map(|c| li_color::luminance_2020(*c)).collect();
+    let mean = y.iter().sum::<f32>() / y.len() as f32;
+    (y.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / y.len() as f32).sqrt()
+}
+
+fn denoised(src: &RgbFrame, lum: f64, col: f64) -> RgbFrame {
+    let mut s = settings();
+    s.detail.nr_luminance = lum;
+    s.detail.nr_color = col;
+    let mut img = src.clone();
+    if let Some(p) = crate::detail::nr_params(&s, 1.0) {
+        crate::detail::denoise(&mut img, &p);
+    }
+    img
+}
+
+#[test]
+fn luminance_nr_does_not_depend_on_colour_nr() {
+    let src = grey_noise(256, 0.012);
+    let input = luma_noise(&src);
+    let at = |lum, col| luma_noise(&denoised(&src, lum, col)) / input;
+    let (c0, c25, c100) = (at(30., 0.), at(30., 25.), at(30., 100.));
+    eprintln!("relative luminance noise at Luminance 30: Color 0 {c0:.3}, 25 {c25:.3}, 100 {c100:.3}; Luminance 100 {:.3}", at(100., 0.));
+    for (name, v) in [("Color 25", c25), ("Color 100", c100)] {
+        assert!((v / c0 - 1.).abs() < 0.15, "Luminance 30 with {name} leaves {v:.3} of the noise, {c0:.3} without");
+    }
+    assert!(at(100., 0.) < 0.2, "Luminance 100 alone leaves {:.3} of the luminance noise", at(100., 0.));
+    let (l0, l1) = (at(0., 25.), at(1., 25.));
+    assert!((l1 / l0 - 1.).abs() < 0.1, "Luminance 1 jumps from {l0:.3} to {l1:.3}");
+}
+
+#[test]
+fn colour_nr_leaves_neutral_edges_neutral() {
+    let src = RgbFrame::from_fn(128, 64, |x, _| [if x < 64 { 0.05 } else { 0.4 }; 3]);
+    let out = denoised(&src, 30., 100.);
+    let worst = out.data.iter().map(|c| (c[0] - c[1]).abs().max((c[2] - c[1]).abs()) / c[1].max(1e-6)).fold(0f32, f32::max);
+    assert!(worst < 1e-3, "Color NR tinted a neutral edge by {worst}");
+}

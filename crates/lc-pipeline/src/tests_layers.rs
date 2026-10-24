@@ -98,8 +98,8 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64); 6] = [
     ("default/rendered", 0x6dc2c87b1494a4a2),
     ("default/raw", 0x61dfdd1c1479866c),
-    ("global edits/rendered", 0x9b8a8f4d1f940585),
-    ("global edits/raw", 0xede9979cc421af17),
+    ("global edits/rendered", 0xb97d2da1c3b10083),
+    ("global edits/raw", 0x121368f000fef393),
     ("old masks/rendered", 0xb2b244a71c9895e6),
     ("old masks/raw", 0x0a26d2fc65ec2151),
 ];
@@ -196,7 +196,7 @@ fn tool_cases() -> Vec<(&'static str, Value)> {
         ("vignette", json!({"vignette": {"amount": -80.0}})),
         ("grain", json!({"grain": {"amount": 80.0}})),
         ("sharpening", json!({"detail": {"sharpen_amount": 150.0}})),
-        ("noise reduction", json!({"detail": {"nr_luminance": 90.0, "nr_color": 90.0}})),
+        ("noise reduction", json!({"detail": {"nr_luminance": 90.0, "nr_detail": 0.0, "nr_color": 90.0}})),
     ]
 }
 

@@ -5,10 +5,13 @@
 //!
 //! Calibrated camera profiles are supplied by SourceInfo; otherwise robust 2x2 high-pass MAD estimates a Poisson slope from image tiles, with
 //! darktable's generic a=1e-4 fallback. WB is unity (input is already WB/working RGB).
-//! Amount controls strength (0.4+1.6*max amounts); the smaller amount attenuates that channel's
-//! band force. Detail lowers fine-band force; Contrast lowers mid/coarse Y0 force; Smoothness
-//! increases coarse U0V0 force. U0V0 force is sqrt(multiplier)/2; Y0 force is sqrt(multiplier),
-//! calibrated for upstream's amplified Y0 row. Thresholds retain upstream's 4*force².
+//! The analysis rows are a luminance row (Rec.2020 Y, with upstream Y0's gain on neutral) and
+//! upstream's U0/V0 rows kept orthogonal to neutral, so luminance NR reaches all luminance noise and colour NR
+//! neither changes luminance nor tints neutral edges. Each slider sets only its own rows'
+//! strength (0.4+1.6*amount) and band force, fading in over its first 10 units.
+//! Detail lowers fine-band force; Contrast lowers mid/coarse Y force; Smoothness increases coarse
+//! U/V force. U/V force is sqrt(multiplier)/2; Y force is sqrt(multiplier), calibrated for
+//! upstream's amplified Y0 row. Thresholds retain upstream's 4*force².
 //! Scale selection, VST exponent/fulcrum, BayesShrink and 5x5 edge weights follow upstream.
 //! Host extensions: tiny images use safe clamped taps instead of upstream's copy-through;
 //! colour-only NR preserves Rec.2020 Y exactly, luminance-only NR preserves channel ratios;
@@ -135,6 +138,50 @@ pub fn conversion_matrices(wb: [f32; 3]) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
     (m, [[a / det, d / det, g / det], [b / det, e / det, h / det], [c / det, f / det, i / det]])
 }
 
+/// Upstream's unit U0 and V0 rows at unity WB, orthogonal to (1, 1, 1).
+const U0: [f32; 3] = [std::f32::consts::FRAC_1_SQRT_2, 0.0, -std::f32::consts::FRAC_1_SQRT_2];
+const V0: [f32; 3] = [0.408_248_3, -0.816_496_6, 0.408_248_3];
+/// Upstream's Y0 row at unity WB is 3√3·(1, 1, 1): a neutral change of 1 in every channel gives
+/// 9√3. The Y row keeps that gain on neutral, which the Y force is calibrated for.
+const Y0_NEUTRAL_GAIN: f32 = 15.588_457;
+
+fn dot(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+fn unit(v: [f32; 3]) -> [f32; 3] {
+    let n = dot(v, v).sqrt().max(1e-12);
+    v.map(|x| x / n)
+}
+fn without(v: [f32; 3], d: [f32; 3]) -> [f32; 3] {
+    let k = dot(v, d) / dot(d, d).max(1e-24);
+    std::array::from_fn(|i| v[i] - k * d[i])
+}
+
+/// The analysis rows for a variance-stabilized space whose luminance gradient is `luma` and whose
+/// neutral axis is `neutral`: a Y row along `luma` with upstream's gain on neutral, and U/V rows
+/// orthogonal to `neutral`. `None` when brightening neutral does not raise `luma`.
+pub fn luma_basis(luma: [f32; 3], neutral: [f32; 3]) -> Option<[[f32; 3]; 3]> {
+    let n = unit(neutral);
+    let along = dot(luma, n);
+    if along.is_nan() || along <= 1e-6 {
+        return None;
+    }
+    let u = unit(without(U0, n));
+    let v = unit(without(without(V0, n), u));
+    let gain = Y0_NEUTRAL_GAIN / 3f32.sqrt() / along;
+    Some([luma.map(|x| x * gain), u, v])
+}
+
+/// Strength per slider: `basis` with its Y row divided by Luminance's strength and its U/V rows by
+/// Color's, and the inverse.
+pub fn strength_matrices(basis: [[f32; 3]; 3], p: &NrParams) -> Option<([[f32; 3]; 3], [[f32; 3]; 3])> {
+    let strength = |amount: f32| (0.4 + 1.6 * amount) * 2.5 * p.scale;
+    let (y, c) = (strength(p.lum), strength(p.col));
+    let to = [basis[0].map(|v| v / y), basis[1].map(|v| v / c), basis[2].map(|v| v / c)];
+    let from = li_color::Mat3(to.map(|r| r.map(f64::from))).inverse()?.to_f32();
+    Some((to, from))
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Vst {
     pub a: f32,
@@ -153,17 +200,7 @@ impl Vst {
         // neutral bias avoids a spurious brightness shift from auto camera-profile inference.
         let bias = -0.5 * params.scale.ln();
         let wb = (0.4 + 1.6 * params.lum.max(params.col)) * 2.5 * params.scale;
-        let (mut to, mut from) = conversion_matrices([1.0; 3]);
-        for row in &mut to {
-            for v in row {
-                *v /= wb;
-            }
-        }
-        for row in &mut from {
-            for v in row {
-                *v *= wb;
-            }
-        }
+        let (to, from) = working_matrices(params);
         Self { a: model.a * 0.05 / 0.05f32.powf(shadows), b: model.b, p, bias, wb, to, from }
     }
     pub fn forward(&self, rgb: [f32; 3]) -> [f32; 3] {
@@ -180,6 +217,14 @@ impl Vst {
             z.powf(1.0 / (1.0 - self.p * 0.5)) - self.b
         })
     }
+}
+/// The strength-scaled analysis matrices of working-space (Rec.2020) NR.
+pub fn working_matrices(p: &NrParams) -> ([[f32; 3]; 3], [[f32; 3]; 3]) {
+    luma_basis(li_color::LUMA_2020, [1.0; 3]).and_then(|b| strength_matrices(b, p)).unwrap_or_else(|| conversion_matrices([1.0; 3]))
+}
+
+fn transpose(m: [[f32; 3]; 3]) -> [[f32; 3]; 3] {
+    std::array::from_fn(|r| std::array::from_fn(|c| m[c][r]))
 }
 fn mul(m: [[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
     m.map(|r| r[0] * v[0] + r[1] * v[1] + r[2] * v[2])
@@ -244,8 +289,9 @@ pub fn band_force(p: &NrParams, level: usize, _levels: usize) -> [f32; 3] {
         1 => 1.1 - 0.6 * p.col_detail,
         _ => 0.5 + 1.5 * p.smoothness,
     };
-    let max = p.lum.max(p.col).max(1e-6);
-    [(p.lum / max * fine).sqrt(), 0.5 * (p.col / max * chroma).sqrt(), 0.5 * (p.col / max * chroma).sqrt()]
+    let fade = |amount: f32| (amount / 0.1).min(1.0);
+    let uv = 0.5 * chroma.sqrt() * fade(p.col);
+    [fine.sqrt() * fade(p.lum), uv, uv]
 }
 
 /// Upstream variance_stabilizing_xform, Y0U0V0 branch (force is one value per channel).
@@ -291,6 +337,8 @@ pub struct ProfiledVst {
     channels: [Vst; 3],
     inverse: [[f32; 3]; 3],
     matrix: [[f32; 3]; 3],
+    to: [[f32; 3]; 3],
+    from: [[f32; 3]; 3],
 }
 impl ProfiledVst {
     pub fn new(img: &RgbFrame, p: &NrParams, calibration: &NoiseCalibration) -> Option<Self> {
@@ -305,8 +353,21 @@ impl ProfiledVst {
         let observed = estimate_noise(&img.map(|v| mul(inverse, v))).a;
         let nominal = calibration.a.iter().sum::<f32>() / 3.0;
         let amplitude = (observed / nominal).clamp(1.0 / 64.0, 64.0);
-        let channels = std::array::from_fn(|c| Vst::new(NoiseModel { a: calibration.a[c] * amplitude, b: calibration.b[c] }, p));
-        Some(Self { channels, inverse, matrix: calibration.camera_to_working })
+        let channels: [Vst; 3] = std::array::from_fn(|c| Vst::new(NoiseModel { a: calibration.a[c] * amplitude, b: calibration.b[c] }, p));
+        // The working neutral axis and luminance gradient, carried into the stabilized camera
+        // channels at middle grey (the transforms are per channel power laws).
+        let neutral = mul(inverse, [1.0; 3]);
+        let luma = mul(transpose(calibration.camera_to_working), li_color::LUMA_2020);
+        let (mut along, mut gradient) = ([0.0; 3], [0.0; 3]);
+        for c in 0..3 {
+            let v = channels[c];
+            let e = 1.0 - v.p * 0.5;
+            let slope = 2.0 / ((2.0 - v.p) * v.a.sqrt()) * e * (0.18 * neutral[c] + v.b).max(1e-6).powf(e - 1.0);
+            along[c] = slope * neutral[c];
+            gradient[c] = luma[c] / slope;
+        }
+        let (to, from) = luma_basis(gradient, along).and_then(|b| strength_matrices(b, p)).unwrap_or_else(|| working_matrices(p));
+        Some(Self { channels, inverse, matrix: calibration.camera_to_working, to, from })
     }
     pub fn forward(&self, rgb: [f32; 3]) -> [f32; 3] {
         let camera = mul(self.inverse, rgb);
@@ -314,10 +375,10 @@ impl ProfiledVst {
             let v = self.channels[c];
             (camera[c] + v.b).max(0.0).powf(1.0 - v.p * 0.5) * 2.0 / ((2.0 - v.p) * v.a.sqrt())
         });
-        mul(self.channels[1].to, v)
+        mul(self.to, v)
     }
     pub fn backward(&self, yuv: [f32; 3]) -> [f32; 3] {
-        let transformed = mul(self.channels[1].from, yuv);
+        let transformed = mul(self.from, yuv);
         let camera = std::array::from_fn(|c| {
             let v = self.channels[c];
             let x = transformed[c].max(0.0);
@@ -417,6 +478,13 @@ mod camera_tests {
         let mean_error = work.data.iter().zip(&original.data).flat_map(|(p, q)| (0..3).map(move |c| (p[c] - q[c]).abs() as f64)).sum::<f64>()
             / (work.data.len() * 3) as f64;
         assert!(mean_error < 0.01, "neutral/ramp drift {mean_error}");
+        // Colour NR must not tint a neutral (working-space) step edge seen through the camera.
+        let edge = RgbFrame::from_fn(96, 48, |x, _| [if x < 48 { 0.05 } else { 0.4 }; 3]);
+        let colour = NrParams { lum: 0.3, col: 1.0, ..params };
+        let mut out = edge.clone();
+        denoise_profiled(&mut out, &colour, &NoiseCalibration { camera_to_working: matrix, ..profile });
+        let tint = out.data.iter().map(|c| (c[0] - c[1]).abs().max((c[2] - c[1]).abs()) / c[1].max(1e-6)).fold(0f32, f32::max);
+        assert!(tint < 1e-3, "colour NR tinted a neutral edge by {tint}");
     }
     #[test]
     fn camdata_source_defaults_and_profile_cache_key() {

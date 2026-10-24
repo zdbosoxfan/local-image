@@ -1262,7 +1262,7 @@ fn denoise_native_with(
         let slopes = cx.gpu.buffer(16);
         cx.run("nr_median", &[], &[Some(&samples), None, None, Some(&slopes)], [16, 1, 1]);
         let native = cx.gpu.buffer(24);
-        let (to, from) = conversion_matrices([1.0; 3]);
+        let (to, from) = working_matrices(p);
         let mut metadata = vec![p.scale.to_bits(), p.lum.max(p.col).to_bits()];
         metadata.extend(to.into_iter().flatten().chain(from.into_iter().flatten()).map(f32::to_bits));
         map(cx, "nr_vst", 1, &metadata, [Some(&slopes), None, None], &native);
