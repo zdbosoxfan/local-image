@@ -454,20 +454,7 @@ pub fn apply_list(list: &[Opcode], buf: &mut [f32], w: usize, h: usize, cpp: usi
                     }
                 });
             }
-            Opcode::FixVignetteRadial { k, center } => {
-                use rayon::prelude::*;
-                let (cx, cy) = (center[0] * w as f64, center[1] * h as f64);
-                let m = max_radius(cx, cy, w as f64, h as f64);
-                buf.par_chunks_mut((w * cpp).max(1)).take(h).enumerate().for_each(|(y, row)| {
-                    for (x, px) in row.chunks_exact_mut(cpp.max(1)).enumerate() {
-                        let r2 = ((x as f64 + 0.5 - cx).powi(2) + (y as f64 + 0.5 - cy).powi(2)) / (m * m);
-                        let g = 1.0 + r2 * (k[0] + r2 * (k[1] + r2 * (k[2] + r2 * (k[3] + r2 * k[4]))));
-                        for v in px {
-                            *v *= g as f32;
-                        }
-                    }
-                });
-            }
+            Opcode::FixVignetteRadial { k, center } => vignette(buf, w, h, cpp, k, *center, Binning::none(w, h)),
             Opcode::FixBadPixelsConstant { constant, .. } => {
                 let c = (*constant as f64 / 65535.0 * scale as f64) as f32;
                 let bad: Vec<(usize, usize)> =
@@ -528,9 +515,57 @@ fn fix_pixels(buf: &mut [f32], w: usize, h: usize, cpp: usize, cfa: Option<&Cfa>
     }
 }
 
+/// `FixVignetteRadial` on an interleaved `w × h × cpp` buffer whose pixels stand for the sensor
+/// pixels `b` says.
+fn vignette(buf: &mut [f32], w: usize, h: usize, cpp: usize, k: &[f64; 5], center: [f64; 2], b: Binning) {
+    use rayon::prelude::*;
+    let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
+    let (cx, cy) = (center[0] * sw, center[1] * sh);
+    let m = max_radius(cx, cy, sw, sh);
+    buf.par_chunks_mut((w * cpp).max(1)).take(h).enumerate().for_each(|(y, row)| {
+        let dy = b.sensor_at(y as f64, 1) + 0.5 - cy;
+        for (x, px) in row.chunks_exact_mut(cpp.max(1)).enumerate() {
+            let r2 = ((b.sensor_at(x as f64, 0) + 0.5 - cx).powi(2) + dy.powi(2)) / (m * m);
+            let g = 1.0 + r2 * (k[0] + r2 * (k[1] + r2 * (k[2] + r2 * (k[3] + r2 * k[4]))));
+            for v in px {
+                *v *= g as f32;
+            }
+        }
+    });
+}
+
 /// Apply `OpcodeList3` (on the demosaiced RGB image, values normalised to [0, 1]).
 pub fn apply_list3(list: &[Opcode], img: &mut RgbFrame) {
-    apply_list3_binned(list, img, 1);
+    let b = Binning::none(img.width, img.height);
+    apply_list3_binned(list, img, b);
+}
+
+/// Where the pixels of an image binned from the active area sit on it: pixel `x` stands for the
+/// `k` sensor pixels from `origin[0] + k·x` (and likewise down). `OpcodeList3` is defined on the
+/// whole active area, `sensor` pixels wide and high.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Binning {
+    pub k: usize,
+    pub origin: [usize; 2],
+    pub sensor: [usize; 2],
+}
+
+impl Binning {
+    /// A `w × h` image that is the active area itself.
+    pub fn none(w: usize, h: usize) -> Binning {
+        Binning { k: 1, origin: [0, 0], sensor: [w, h] }
+    }
+
+    /// The sensor index (pixel centres at whole numbers) the binned index `i` stands for along
+    /// `axis` (0: x): the middle of its `k` pixels.
+    fn sensor_at(&self, i: f64, axis: usize) -> f64 {
+        i * self.k as f64 + self.origin[axis] as f64 + (self.k as f64 - 1.0) / 2.0
+    }
+
+    /// The binned index (continuous) of the sensor index `s` along `axis`.
+    fn binned_at(&self, s: f64, axis: usize) -> f64 {
+        (s - self.origin[axis] as f64 - (self.k as f64 - 1.0) / 2.0) / self.k as f64
+    }
 }
 
 /// Whether [`apply_list3_binned`] can evaluate every opcode of `list` on an image binned by any
@@ -549,31 +584,29 @@ pub fn list3_binnable(list: &[Opcode]) -> bool {
     })
 }
 
-/// [`apply_list3`] on the demosaic of a mosaic binned by `k` (`k × k` sensor pixels a pixel, as
-/// `RawImage::develop_binned` makes it): the warps evaluate the sensor positions the binned
-/// pixels stand for, and gain-map areas are scaled. Only meaningful when [`list3_binnable`].
-pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, k: usize) {
+/// [`apply_list3`] on the demosaic of a mosaic binned as `b` says (`RawImage::develop_binned`
+/// blocks): the warps, the vignette and the gain maps are evaluated at the sensor positions the
+/// binned pixels stand for. Only meaningful when [`list3_binnable`].
+pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
     let (w, h) = (img.width, img.height);
-    let k = k.max(1);
+    let b = Binning { k: b.k.max(1), ..b };
     for op in list {
         match op {
-            Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear_binned(img, planes, *center, k),
-            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye_binned(img, planes, *center, k),
+            Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear_binned(img, planes, *center, b),
+            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye_binned(img, planes, *center, b),
             Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
-            Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } if k > 1 => {
-                let k32 = k as u32;
-                let area =
-                    Area { top: area.top / k32, left: area.left / k32, bottom: area.bottom.div_ceil(k32), right: area.right.div_ceil(k32), ..*area };
-                let scaled = Opcode::GainMap {
-                    area,
-                    points_v: *points_v,
-                    points_h: *points_h,
-                    spacing: *spacing,
-                    origin: *origin,
-                    map_planes: *map_planes,
-                    gains: gains.clone(),
-                };
-                apply_list(std::slice::from_ref(&scaled), img.data.as_flattened_mut(), w, h, 3, None, 1.0);
+            Opcode::FixVignetteRadial { k, center } => vignette(img.data.as_flattened_mut(), w, h, 3, k, *center, b),
+            Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } if b.k > 1 => {
+                // the binned pixels whose centre lies in the area's sensor pixels
+                let edge = |e: u32, axis: usize| b.binned_at(e as f64 - 0.5, axis).ceil().clamp(0.0, u32::MAX as f64) as u32;
+                let binned =
+                    Area { top: edge(area.top, 1), left: edge(area.left, 0), bottom: edge(area.bottom, 1), right: edge(area.right, 0), ..*area };
+                let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
+                for_area(img.data.as_flattened_mut(), w, h, 3, &binned, |x, y, p, v| {
+                    let rv = (b.sensor_at(y as f64, 1) + 0.5) / sh;
+                    let rh = (b.sensor_at(x as f64, 0) + 0.5) / sw;
+                    *v *= gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
+                });
             }
             other => apply_list(std::slice::from_ref(other), img.data.as_flattened_mut(), w, h, 3, None, 1.0),
         }
@@ -617,17 +650,16 @@ fn sample_cubic(img: &RgbFrame, x: f64, y: f64, c: usize) -> f32 {
 /// DNG `WarpRectilinear`: for each output pixel, the source position is the radial + tangential model around the
 /// optical centre, with coordinates normalised by the distance to the farthest corner.
 pub fn warp_rectilinear(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2]) -> RgbFrame {
-    warp_rectilinear_binned(img, planes, center, 1)
+    warp_rectilinear_binned(img, planes, center, Binning::none(img.width, img.height))
 }
 
-/// [`warp_rectilinear`] evaluated at the sensor positions of an image binned by `k`: binned pixel
-/// `x` stands for sensor index `k·x + (k − 1)/2`.
-fn warp_rectilinear_binned(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2], k: usize) -> RgbFrame {
+/// [`warp_rectilinear`] evaluated at the sensor positions of an image binned as `b` says: binned
+/// pixel `x` stands for sensor index `origin + k·x + (k − 1)/2`.
+fn warp_rectilinear_binned(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2], b: Binning) -> RgbFrame {
     let (w, h) = (img.width, img.height);
-    let (k, half) = (k as f64, (k as f64 - 1.0) / 2.0);
     // Match Adobe dng_filter_warp: bounds are [0,w) × [0,h), while
     // the warp evaluates integer pixel indices (the sampler adds its half pixel).
-    let (sw, sh) = (w as f64 * k, h as f64 * k);
+    let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
     let (cx, cy) = (center[0] * sw, center[1] * sh);
     let m = max_radius(cx, cy, sw, sh);
     let mut out = RgbFrame::new(w, h);
@@ -636,13 +668,13 @@ fn warp_rectilinear_binned(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2]
         for (x, px) in row.iter_mut().enumerate() {
             for (c, v) in px.iter_mut().enumerate() {
                 let [kr0, kr1, kr2, kr3, kt0, kt1] = coef(c);
-                let dx = (x as f64 * k + half - cx) / m;
-                let dy = (y as f64 * k + half - cy) / m;
+                let dx = (b.sensor_at(x as f64, 0) - cx) / m;
+                let dy = (b.sensor_at(y as f64, 1) - cy) / m;
                 let r2 = dx * dx + dy * dy;
                 let f = kr0 + r2 * (kr1 + r2 * (kr2 + r2 * kr3));
                 let sx = dx * f + kt0 * 2.0 * dx * dy + kt1 * (r2 + 2.0 * dx * dx);
                 let sy = dy * f + kt1 * 2.0 * dx * dy + kt0 * (r2 + 2.0 * dy * dy);
-                let (fx, fy) = ((cx + m * sx - half) / k, (cy + m * sy - half) / k);
+                let (fx, fy) = (b.binned_at(cx + m * sx, 0), b.binned_at(cy + m * sy, 1));
                 *v = sample_cubic(img, fx + 0.5, fy + 0.5, c);
             }
         }
@@ -655,29 +687,28 @@ fn warp_rectilinear_binned(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2]
 /// per-plane odd polynomial in `theta`. Sampling uses the same pixel centres
 /// and kernel as [`warp_rectilinear`].
 pub fn warp_fisheye(img: &RgbFrame, planes: &[[f64; 4]], center: [f64; 2]) -> RgbFrame {
-    warp_fisheye_binned(img, planes, center, 1)
+    warp_fisheye_binned(img, planes, center, Binning::none(img.width, img.height))
 }
 
-/// [`warp_fisheye`] at the sensor positions of an image binned by `k` (see [`warp_rectilinear_binned`]).
-fn warp_fisheye_binned(img: &RgbFrame, planes: &[[f64; 4]], center: [f64; 2], k: usize) -> RgbFrame {
+/// [`warp_fisheye`] at the sensor positions of an image binned as `b` says (see [`warp_rectilinear_binned`]).
+fn warp_fisheye_binned(img: &RgbFrame, planes: &[[f64; 4]], center: [f64; 2], b: Binning) -> RgbFrame {
     if img.width == 0 || img.height == 0 || !matches!(planes.len(), 1 | 3) || !center.iter().chain(planes.iter().flatten()).all(|v| v.is_finite()) {
         return img.clone();
     }
     let (w, h) = (img.width, img.height);
-    let (k, half) = (k as f64, (k as f64 - 1.0) / 2.0);
-    let (sw, sh) = (w as f64 * k, h as f64 * k);
+    let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
     let (cx, cy) = (center[0] * (sw - 1.0), center[1] * (sh - 1.0));
     let m = max_radius(cx, cy, sw - 1.0, sh - 1.0);
     let mut out = RgbFrame::new(w, h);
     li_raster::par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
-            let dx = x as f64 * k + half - cx;
-            let dy = y as f64 * k + half - cy;
+            let dx = b.sensor_at(x as f64, 0) - cx;
+            let dy = b.sensor_at(y as f64, 1) - cy;
             let r = dx.hypot(dy) / m;
             for (c, value) in px.iter_mut().enumerate() {
                 let kc = planes[if planes.len() == 1 { 0 } else { c }];
                 let scale = fisheye_scale(kc, r);
-                let (sx, sy) = ((cx + dx * scale - half) / k, (cy + dy * scale - half) / k);
+                let (sx, sy) = (b.binned_at(cx + dx * scale, 0), b.binned_at(cy + dy * scale, 1));
                 *value = sample_cubic(img, sx + 0.5, sy + 0.5, c);
             }
         }
