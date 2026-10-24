@@ -224,78 +224,54 @@ impl Session {
             let mut variant =
                 if family == DenoiseModel::Raw || custom.as_ref().is_some_and(|c| c.class == 1) { Variant::Linear } else { Variant::Rgb };
             let mut region = None;
-            let (original, mut full) = if override_fn.is_none() && custom.is_none() && !preview && family == DenoiseModel::Raw {
-                match &p.source {
-                    Source::File { path } => {
-                        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-                        if lightcraft_raw::probe(&bytes).is_some() {
-                            let raw = crate::files::prepare_raw(&bytes, &raw_opts)?;
-                            if raw.cfa.as_ref().is_some_and(|c| c.is_bayer()) {
-                                variant = Variant::Bayer;
-                                let dir = dir.as_deref().ok_or("no models folder")?;
-                                let (img, source) = denoise_bayer(
-                                    &raw,
-                                    &bytes,
-                                    || src.load_source(),
-                                    |packed, w, h| infer_selected(dir, Variant::Bayer, None, packed, w, h, true, &progress),
-                                )?;
-                                (Some(source), img)
-                            } else {
-                                let img = src.load()?;
-                                let data = infer_selected(
-                                    dir.as_deref().ok_or("no models folder")?,
-                                    variant,
-                                    custom.as_ref(),
-                                    img.data.as_flattened(),
-                                    img.width,
-                                    img.height,
-                                    true,
-                                    &progress,
-                                )?;
-                                (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
-                            }
-                        } else {
-                            let img = src.load()?;
-                            let data = infer_selected(
-                                dir.as_deref().ok_or("no models folder")?,
-                                variant,
-                                custom.as_ref(),
-                                img.data.as_flattened(),
-                                img.width,
-                                img.height,
-                                true,
-                                &progress,
-                            )?;
-                            (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
+            // A Bayer raw goes to the model that sees its mosaic. A preview does too, on the sensor
+            // window behind its area, unless opcodes after demosaic must run over the whole frame.
+            let bayer = if override_fn.is_none()
+                && custom.is_none()
+                && family == DenoiseModel::Raw
+                && let Source::File { path } = &p.source
+            {
+                let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+                match lightcraft_raw::probe(&bytes) {
+                    Some(_) => {
+                        let raw = crate::files::prepare_raw(&bytes, &raw_opts)?;
+                        let mosaic = raw.cfa.as_ref().is_some_and(|c| c.is_bayer());
+                        let whole_frame = preview && !raw.opcodes.list3.is_empty();
+                        if mosaic && whole_frame {
+                            log::info!("AI Denoise Preview runs the linear model: this raw's corrections after demosaic need the whole frame");
                         }
+                        (mosaic && !whole_frame).then_some((bytes, raw))
                     }
-                    _ => {
-                        let img = src.load()?;
-                        let data = infer_selected(
-                            dir.as_deref().ok_or("no models folder")?,
-                            variant,
-                            custom.as_ref(),
-                            img.data.as_flattened(),
-                            img.width,
-                            img.height,
-                            true,
-                            &progress,
-                        )?;
-                        (Some(img.clone()), RgbFrame { width: img.width, height: img.height, data })
-                    }
+                    None => None,
+                }
+            } else {
+                None
+            };
+            let (original, mut full) = if let Some((bytes, raw)) = bayer {
+                variant = Variant::Bayer;
+                let dir = dir.as_deref().ok_or("no models folder")?;
+                let infer = |packed: &[f32], w, h| infer_selected(dir, Variant::Bayer, None, packed, w, h, true, &progress);
+                if preview {
+                    let source = src.load_source()?;
+                    let (w, h) = (source.image.width, source.image.height);
+                    let (area, halo) = preview_area(w, h, center);
+                    region = Some(normalized(area, w, h));
+                    (None, denoise_bayer_area(&raw, &bytes, &source, area, halo, infer)?)
+                } else {
+                    let (img, source) = denoise_bayer(&raw, &bytes, || src.load_source(), infer)?;
+                    (Some(source), img)
                 }
             } else {
                 let img = src.load()?;
                 let (img, inner) = if preview {
                     let (area, halo) = preview_area(img.width, img.height, center);
-                    let (w, h) = (img.width as f64, img.height as f64);
-                    region = Some([area[0] as f64 / w, area[1] as f64 / h, area[2] as f64 / w, area[3] as f64 / h]);
+                    region = Some(normalized(area, img.width, img.height));
                     let crop = img.crop(halo[0], halo[1], halo[2] - halo[0], halo[3] - halo[1]);
                     (Arc::new(crop), Some([area[0] - halo[0], area[1] - halo[1], area[2] - area[0], area[3] - area[1]]))
                 } else {
                     (img, None)
                 };
-                let input = if variant == Variant::Rgb { to_display(&img) } else { img.data.clone() };
+                let input = if variant == Variant::Rgb { std::borrow::Cow::Owned(to_display(&img)) } else { std::borrow::Cow::Borrowed(&img.data) };
                 let mut data = if let Some(f) = &override_fn {
                     f(&input, img.width, img.height, &progress)?
                 } else {
@@ -475,6 +451,75 @@ fn keep_clipped(img: &mut RgbFrame, source: &RgbFrame, clip: &lightcraft_pipelin
         }
     }
 }
+/// [`denoise_bayer`] of the area `area` of `source` (`[x0, y0, x1, y1]` pixels of the photo's normal
+/// decode) only: the model sees the sensor window behind `halo` (the area and its context), which
+/// starts on the colour filter's phase. Equal to the whole photo's result there, for a raw without
+/// opcodes after demosaic (they would run over the whole frame).
+fn denoise_bayer_area(
+    raw: &lightcraft_raw::RawImage,
+    bytes: &[u8],
+    source: &crate::media::DecodedSource,
+    area: [usize; 4],
+    halo: [usize; 4],
+    infer: impl FnOnce(&[f32], usize, usize) -> Result<Vec<[f32; 3]>, String>,
+) -> Result<RgbFrame, String> {
+    if !raw.opcodes.list3.is_empty() {
+        return Err("this raw's corrections after demosaic need the whole frame".into());
+    }
+    let n = raw.normalized().map_err(|e| e.to_string())?;
+    let c = raw.crop.clipped(n.width, n.height);
+    let c = if c.width > 0 && c.height > 0 { c } else { lightcraft_raw::Rect::new(0, 0, n.width, n.height) };
+    let o = raw.orientation;
+    let (sw, sh) = (source.image.width, source.image.height);
+    if (if o.swaps_axes() { (c.height, c.width) } else { (c.width, c.height) }) != (sw, sh) {
+        return Err("denoise source size mismatch".into());
+    }
+    // a rectangle of the decoded photo in the raw crop's pixels, and back
+    let map = |r: [usize; 4], o: lightcraft_geom::Orientation, from: (usize, usize), to: (usize, usize)| {
+        let (fw, fh) = (from.0 as f64, from.1 as f64);
+        let m = o.map_norm_rect(lightcraft_geom::Rect::new(r[0] as f64 / fw, r[1] as f64 / fh, r[2] as f64 / fw, r[3] as f64 / fh));
+        [m.x0 * to.0 as f64, m.y0 * to.1 as f64, m.x1 * to.0 as f64, m.y1 * to.1 as f64].map(|v| v.round().max(0.0) as usize)
+    };
+    let h = map(halo, o.inverse(), (sw, sh), (c.width, c.height));
+    let (x0, y0) = ((h[0] + c.x) & !1, (h[1] + c.y) & !1);
+    let (x1, y1) = ((h[2] + c.x).min(n.width), (h[3] + c.y).min(n.height));
+    if x1 <= x0 + 1 || y1 <= y0 + 1 {
+        return Err("the preview area is outside the photo".into());
+    }
+    let window = lightcraft_raw::Normalized {
+        width: x1 - x0,
+        height: y1 - y0,
+        cpp: 1,
+        data: n.data.chunks_exact(n.width).skip(y0).take(y1 - y0).flat_map(|row| row[x0..x1].iter().copied()).collect(),
+        cfa: n.cfa.clone(),
+    };
+    drop(n);
+    let (packed, pw, ph, offset) = pack_bayer(&window)?;
+    let out = infer(&packed, pw, ph)?;
+    drop(packed);
+    if out.len() != pw * ph * 4 {
+        return Err("the denoiser returned invalid pixels".into());
+    }
+    let mut rgb = unpack_camera(out, pw * 2, ph * 2, window.width, window.height, offset);
+    camera_rgb_to_working(raw, bytes, &mut rgb);
+    // the window's part inside the raw crop, turned like the photo: a rectangle of the decoded photo
+    let (cx0, cy0, cx1, cy1) = (x0.max(c.x), y0.max(c.y), x1.min(c.x + c.width), y1.min(c.y + c.height));
+    let mut img = rgb.into_crop(cx0 - x0, cy0 - y0, cx1 - cx0, cy1 - cy0).into_oriented(o);
+    let d = map([cx0 - c.x, cy0 - c.y, cx1 - c.x, cy1 - c.y], o, (c.width, c.height), (sw, sh));
+    if (img.width, img.height) != (d[2] - d[0], d[3] - d[1]) || area[0] < d[0] || area[1] < d[1] || area[2] > d[2] || area[3] > d[3] {
+        return Err("denoise source size mismatch".into());
+    }
+    if let Some(clip) = source.info.as_ref().and_then(|i| i.clip_confidence.as_ref()).filter(|k| (k.width, k.height) == (sw, sh)) {
+        let part = lightcraft_pipeline::ClipConfidence {
+            width: img.width,
+            height: img.height,
+            data: clip.data.chunks_exact(sw).skip(d[1]).take(img.height).flat_map(|row| row[d[0]..d[2]].iter().copied()).collect(),
+        };
+        let behind = source.image.crop(d[0], d[1], part.width, part.height);
+        keep_clipped(&mut img, &behind, &part);
+    }
+    Ok(img.into_crop(area[0] - d[0], area[1] - d[1], area[2] - area[0], area[3] - area[1]))
+}
 fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: RgbFrame) -> RgbFrame {
     lightcraft_raw::opcodes::apply_list3(&raw.opcodes.list3, &mut rgb);
     camera_rgb_to_working(raw, bytes, &mut rgb);
@@ -611,6 +656,12 @@ fn preview_area(w: usize, h: usize, center: Option<[f64; 2]>) -> ([usize; 4], [u
     let area = [x0, y0, x0 + sw, y0 + sh];
     let halo = [x0.saturating_sub(PREVIEW_HALO), y0.saturating_sub(PREVIEW_HALO), (x0 + sw + PREVIEW_HALO).min(w), (y0 + sh + PREVIEW_HALO).min(h)];
     (area, halo)
+}
+
+/// `[x0, y0, x1, y1]` pixels of a `w × h` image, normalized.
+fn normalized(r: [usize; 4], w: usize, h: usize) -> [f64; 4] {
+    let (w, h) = (w as f64, h as f64);
+    [r[0] as f64 / w, r[1] as f64 / h, r[2] as f64 / w, r[3] as f64 / h]
 }
 
 fn fit(w: usize, h: usize, edge: usize) -> (usize, usize) {
@@ -751,12 +802,12 @@ mod tests {
         assert_eq!(actual.data, expected.data);
     }
 
-    /// A grey RGGB scene under as-shot multipliers (2.4, 1, 1.6) with a block at the white level
-    /// (a blown window), cropped oddly and turned a quarter.
-    fn clipped_bayer_dng() -> Vec<u8> {
+    /// A grey scene behind a Bayer filter `pattern` under as-shot multipliers (2.4, 1, 1.6) with a
+    /// block at the white level (a blown window), cropped oddly and turned a quarter.
+    fn clipped_bayer_dng(pattern: &str) -> Vec<u8> {
         use lightcraft_raw::*;
         let (w, h) = (96usize, 64usize);
-        let cfa = Cfa::bayer("RGGB").unwrap();
+        let cfa = Cfa::bayer(pattern).unwrap();
         let (black, white) = (256.0, 16000.0);
         let data = (0..w * h)
             .map(|i| {
@@ -816,7 +867,7 @@ mod tests {
 
     #[test]
     fn ai_denoise_bayer_keeps_the_source_highlight_recovery_where_the_sensor_clipped() {
-        let bytes = clipped_bayer_dng();
+        let bytes = clipped_bayer_dng("RGGB");
         let opts = crate::files::RawOptions::default();
         let (reference, info) = crate::files::load_bytes_with(&bytes, usize::MAX, &opts).unwrap();
         let clip = info.clip_confidence.clone().expect("the raw has a clip map");
@@ -846,6 +897,30 @@ mod tests {
             }
         }
         assert!(inside > 100 && outside > 1000, "{inside} clipped, {outside} away from the clip");
+    }
+
+    #[test]
+    fn ai_denoise_bayer_preview_matches_apply_on_its_area_in_all_four_phases() {
+        for pattern in ["RGGB", "GRBG", "GBRG", "BGGR"] {
+            let bytes = clipped_bayer_dng(pattern);
+            let opts = crate::files::RawOptions::default();
+            let (reference, info) = crate::files::load_bytes_with(&bytes, usize::MAX, &opts).unwrap();
+            let raw = crate::files::prepare_raw(&bytes, &opts).unwrap();
+            let source = crate::media::DecodedSource::new(Arc::new(reference), Some(info));
+            let (whole, _) = denoise_bayer(&raw, &bytes, || Ok(source.clone()), bayer_stub(0.5)).unwrap();
+            // the decoded photo is 60 × 86 (an 86 × 60 crop turned); an area at odd pixels over the
+            // blown block's edge, with some context around it
+            let area = [11, 23, 37, 52];
+            let halo = [area[0] - 10, area[1] - 10, area[2] + 10, area[3] + 10];
+            let part = denoise_bayer_area(&raw, &bytes, &source, area, halo, bayer_stub(0.5)).unwrap();
+            assert_eq!((part.width, part.height), (area[2] - area[0], area[3] - area[1]));
+            for (i, got) in part.data.iter().enumerate() {
+                let want = whole.get(area[0] + i % part.width, area[1] + i / part.width);
+                for c in 0..3 {
+                    assert!((got[c] - want[c]).abs() <= 1e-5 * want[c].abs().max(1.0), "{pattern} pixel {i}: {got:?} vs {want:?}");
+                }
+            }
+        }
     }
 
     #[test]
