@@ -27,6 +27,8 @@ photocraft-engine = { workspace = true }
 photocraft-io = { workspace = true }
 photocraft-format = { path = "../../crates/pc-format" }
 photocraft-codecs = { workspace = true }
+# `ai doctor`: model setup against the connected ComfyUI.
+li-ai = { workspace = true }
 # The compute profile and the global compute pool (main.rs).
 lightcraft-sysmem = { workspace = true }
 serde_json = { workspace = true }

@@ -143,6 +143,34 @@ impl MockComfy {
         }
     }
 
+    /// Serves ComfyUI 0.42.5 on an RTX 5090: its nodes listing the files of `model_dir`, and its
+    /// official templates (`tests/fixtures/comfy-0.42.5`).
+    pub fn serve_comfy_0_42_5(&self, model_dir: &std::path::Path) {
+        let dir = std::path::Path::new(FIXTURES_0_42_5);
+        let read = |f: &str| -> Value { std::fs::read(dir.join(f)).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null) };
+        let mut info = read("object_info.min.json");
+        let list = |folder: &str| -> Vec<String> {
+            let mut v: Vec<String> =
+                std::fs::read_dir(model_dir.join(folder)).map(|r| r.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect()).unwrap_or_default();
+            v.sort();
+            v
+        };
+        for (class, input, folder) in [
+            ("UNETLoader", "unet_name", "diffusion_models"),
+            ("CLIPLoader", "clip_name", "text_encoders"),
+            ("VAELoader", "vae_name", "vae"),
+            ("LoraLoaderModelOnly", "lora_name", "loras"),
+            ("CheckpointLoaderSimple", "ckpt_name", "checkpoints"),
+        ] {
+            if info[class]["input"]["required"].get(input).is_some() {
+                info[class]["input"]["required"][input] = json!([list(folder)]);
+            }
+        }
+        self.set_object_info(info);
+        self.set_system_stats(read("system_stats.json"));
+        self.set_templates_dir(dir.join("templates"));
+    }
+
     /// How many times `/free` was called.
     pub fn frees(&self) -> u32 {
         self.state.lock().map(|s| s.frees).unwrap_or(0)
@@ -163,6 +191,34 @@ impl Drop for MockComfy {
             let _ = t.join();
         }
     }
+}
+
+const FIXTURES_0_42_5: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/comfy-0.42.5");
+
+/// A trimmed real weights header from `tests/fixtures/headers/<name>.json`.
+pub fn header_fixture(name: &str) -> Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/headers").join(format!("{name}.json"));
+    std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null)
+}
+
+/// Writes a safetensors file holding only `header`'s tensor names, dtypes and shapes (and its
+/// metadata), with no tensor data: what model setup reads, at a few kilobytes.
+pub fn write_header_only(path: &std::path::Path, header: &Value) -> std::io::Result<()> {
+    let mut o = serde_json::Map::new();
+    for (k, t) in header.as_object().into_iter().flatten() {
+        if k == "__metadata__" {
+            o.insert(k.clone(), t.clone());
+        } else if !k.starts_with("__") {
+            o.insert(k.clone(), json!({"dtype": t["dtype"], "shape": t["shape"], "data_offsets": [0, 0]}));
+        }
+    }
+    let json = serde_json::to_vec(&o)?;
+    let mut bytes = (json.len() as u64).to_le_bytes().to_vec();
+    bytes.extend(json);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(path, bytes)
 }
 
 /// Models the mock reports as installed beyond the catalogue's presets: one or more of every

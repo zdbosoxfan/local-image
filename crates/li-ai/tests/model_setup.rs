@@ -29,29 +29,11 @@ impl Drop for Dir {
     }
 }
 
-/// A weights file with the fixture's header and no tensor data (headers are all setup reads).
-fn write_header(path: &Path, fixture: &str) {
-    let v: Value = serde_json::from_slice(&std::fs::read(fixtures().join("headers").join(format!("{fixture}.json"))).unwrap()).unwrap();
-    let mut o = serde_json::Map::new();
-    for (k, t) in v.as_object().unwrap() {
-        if k == "__metadata__" {
-            o.insert(k.clone(), t.clone());
-        } else if !k.starts_with("__") {
-            o.insert(k.clone(), json!({"dtype": t["dtype"], "shape": t["shape"], "data_offsets": [0, 0]}));
-        }
-    }
-    let header = serde_json::to_vec(&o).unwrap();
-    let mut bytes = (header.len() as u64).to_le_bytes().to_vec();
-    bytes.extend(header);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, bytes).unwrap();
-}
-
 /// A model folder with these `folder/file` ← header fixture entries.
 fn model_dir(files: &[(&str, &str)]) -> Dir {
     let d = std::env::temp_dir().join(format!("li-setup-{}", uuid::Uuid::new_v4().simple()));
     for (file, fixture) in files {
-        write_header(&d.join(file), fixture);
+        li_ai::mock::write_header_only(&d.join(file), &li_ai::mock::header_fixture(fixture)).unwrap();
     }
     Dir(d)
 }
