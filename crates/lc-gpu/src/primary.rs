@@ -360,7 +360,7 @@ fn pyramid(cx: &mut Cx<'_>, first: Arc<Buf>, w: usize, h: usize, nc: usize) -> V
     }
     v
 }
-fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 4], cache: &mut Cache, pk: u64, scope: &str) -> Buf {
+fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 2], cache: &mut Cache, pk: u64, scope: &str) -> Buf {
     let slot = format!("{scope}/ll-basis");
     let basis = if let Some(b) = cache.find(&slot, pk) {
         b
@@ -380,10 +380,10 @@ fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 4]
             ph = nh;
             lev += 1;
         }
-        let mut acc: Vec<_> = orig.iter().map(|(w, h, _)| cx.zeroed(w * h * 4)).collect();
+        let mut acc: Vec<_> = orig.iter().map(|(w, h, _)| cx.zeroed(w * h * 2)).collect();
         for gam in 0..10 {
-            let remap = run(cx, "p_ll_remap", w * h, &[gam], [Some(pl), Some(&limit), None, None, None], w * h * 4);
-            let pyr = pyramid(cx, Arc::new(remap), w, h, 4);
+            let remap = run(cx, "p_ll_remap", w * h, &[gam], [Some(pl), Some(&limit), None, None, None], w * h * 2);
+            let pyr = pyramid(cx, Arc::new(remap), w, h, 2);
             for (lev, (pw, ph, original)) in orig.iter().enumerate() {
                 into(
                     cx,
@@ -395,11 +395,11 @@ fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 4]
                 );
             }
         }
-        let mut out = acc.pop().unwrap_or_else(|| cx.zeroed(w * h * 4));
+        let mut out = acc.pop().unwrap_or_else(|| cx.zeroed(w * h * 2));
         for ((pw, ph, _), fine) in orig.iter().zip(acc).rev() {
-            out = run(cx, "p_ll_assemble", pw * ph, &[*pw as u32, *ph as u32], [Some(&fine), Some(&out), None, None, None], pw * ph * 4);
+            out = run(cx, "p_ll_assemble", pw * ph, &[*pw as u32, *ph as u32], [Some(&fine), Some(&out), None, None, None], pw * ph * 2);
         }
-        let basis = run(cx, "p_ll_gain", w * h, &[], [Some(&out), Some(pl), None, None, None], w * h * 4);
+        let basis = run(cx, "p_ll_gain", w * h, &[], [Some(&out), Some(pl), None, None, None], w * h * 2);
         cache.put(slot, pk, basis)
     };
     one(cx, "p_ll_mix", w * h, &sliders.map(f), &basis, w * h)
@@ -605,7 +605,7 @@ fn tone_ab(
     pl: &Arc<Buf>,
     w: usize,
     h: usize,
-    sl: [f32; 4],
+    sl: [f32; 2],
     method: HsMethod,
     cache: &mut Cache,
     pk: u64,
@@ -617,7 +617,7 @@ fn tone_ab(
     if let Some(b) = cache.find(&slot, fk) {
         return b;
     }
-    if sl == [0.; 4] {
+    if sl == [0.; 2] {
         let zero = cx.zeroed(w * h * 2);
         return cache.put(slot, fk, zero);
     }
@@ -665,7 +665,7 @@ fn tone_detail(
         let l = cache.get("proxy-log", pk, || one(cx, "p_log", pw * ph, &[], p, pw * ph));
         (l, pw, ph)
     });
-    let sliders = [s.light.highlights, s.light.shadows, s.light.whites, s.light.blacks].map(|x| x as f32 / 100.);
+    let sliders = [s.light.highlights, s.light.shadows].map(|x| x as f32 / 100.);
     if flags.tone
         && let Some((pl, pw, ph)) = &pl
     {
@@ -797,11 +797,11 @@ pub(crate) fn process(
     let gain = (s.light.exposure as f32).exp2();
     let base_key = key((plan.lin_key, f(gain)));
     // Selection masks are evaluated on pre-primary pixels using the photo tone map.
-    // A contrast/look change therefore invalidates later layer fields even when their
-    // component geometry and primary sliders have not changed.
+    // A contrast/whites/blacks/look change therefore invalidates later layer fields even
+    // when their component geometry and primary sliders have not changed.
     let alpha_key = key((
         base_key,
-        s.light.contrast.to_bits(),
+        [s.light.contrast, s.light.whites, s.light.blacks].map(f64::to_bits),
         format!(
             "{:?}",
             (s.look, &s.look_options, lightcraft_pipeline::negative::converts(s), info.raw, info.camera_tone, info.look_curve, info.profile_curve)
@@ -1025,19 +1025,19 @@ pub(crate) mod tests {
         }
         let log = p.map(|v| (v / 0.18).log2());
         let lb = Arc::new(g.upload(&log.data.iter().copied().map(f).collect::<Vec<_>>()));
-        let sl = [-1., 1., 0.3, -0.2];
+        let sl = [-1., 1.];
         let out = li_tone(&mut cx, &lb, w, h, sl, &mut Cache::default(), 0, "test");
         let out: Vec<f32> = cx.read(&out, w * h);
-        let cpu = primary::li_tone(&log, sl[0], sl[1], sl[2], sl[3]);
+        let cpu = primary::li_tone(&log, sl[0], sl[1]);
         assert!(error(&out, &cpu.data) < 3e-5, "LI Tone {}", error(&out, &cpu.data));
         let mut cache = Cache::default();
         let first = li_tone(&mut cx, &lb, w, h, sl, &mut cache, 0, "drag");
         drop(first);
         let before = cx.primary_dispatches();
-        let second = li_tone(&mut cx, &lb, w, h, [-0.3, 0.4, -0.5, 0.6], &mut cache, 0, "drag");
-        assert_eq!(cx.primary_dispatches() - before, 1, "a cached LI Tone drag only combines its four response fields");
+        let second = li_tone(&mut cx, &lb, w, h, [-0.3, 0.4], &mut cache, 0, "drag");
+        assert_eq!(cx.primary_dispatches() - before, 1, "a cached LI Tone drag only combines its two response fields");
         let second: Vec<f32> = cx.read(&second, w * h);
-        let cpu = primary::li_tone(&log, -0.3, 0.4, -0.5, 0.6);
+        let cpu = primary::li_tone(&log, -0.3, 0.4);
         assert!(error(&second, &cpu.data) < 3e-5);
         let uv: Vec<f32> = (0..w * h)
             .flat_map(|i| [0.03 * (0.13 * (i % w) as f32).sin() + if i % w > 18 { 0.01 } else { 0. }, 0.04 * (0.17 * (i / w) as f32).cos()])
@@ -1261,6 +1261,7 @@ pub(crate) mod tests {
         });
         for edit in 0..4 {
             s.light.contrast = edit as f64 * 15.;
+            s.light.whites = 40. - edit as f64 * 25.;
             s.masks[0].invert = edit % 2 == 0;
             s.masks[0].refine = edit as f64 * 20.;
             s.light.highlights = -20. - edit as f64 * 20.;
@@ -1299,11 +1300,16 @@ pub(crate) mod tests {
         let identity = check_render(g, &src, &info, &s, &req, HsMethod::LiTone, &stages);
         assert_ne!(edited, identity);
         assert_eq!(stages.primary_dispatches(), 0);
-        let setters: [fn(&mut DevelopSettings, f64); 13] = [
+        let finish_only: [fn(&mut DevelopSettings, f64); 2] = [|s, v| s.light.whites = v, |s, v| s.light.blacks = v];
+        for set in finish_only {
+            set(&mut s, 60.);
+            assert_ne!(check_render(g, &src, &info, &s, &req, HsMethod::LiTone, &stages), identity);
+            assert_eq!(stages.primary_dispatches(), 0, "Whites and Blacks reshape the finish tone map");
+            set(&mut s, 0.);
+        }
+        let setters: [fn(&mut DevelopSettings, f64); 11] = [
             |s, v| s.light.highlights = v,
             |s, v| s.light.shadows = v,
-            |s, v| s.light.whites = v,
-            |s, v| s.light.blacks = v,
             |s, v| s.effects.clarity = v,
             |s, v| s.effects.texture = v,
             |s, v| s.effects.structure = v,

@@ -31,7 +31,7 @@ pub struct Stages {
 impl Stages {
     pub fn of(s: &DevelopSettings) -> Self {
         Self {
-            tone: s.light.highlights != 0. || s.light.shadows != 0. || s.light.whites != 0. || s.light.blacks != 0.,
+            tone: s.light.highlights != 0. || s.light.shadows != 0.,
             clarity: s.section_enabled("effects") && s.effects.clarity != 0.,
             texture: s.section_enabled("effects") && s.effects.texture != 0.,
             structure: s.section_enabled("effects") && s.effects.structure != 0.,
@@ -76,8 +76,9 @@ pub fn log_light(c: [f32; 3]) -> f32 {
     ((n + (mx - n) * t).max(1e-7) / 0.18).log2()
 }
 /// The slider remap has bounded slope, continuous first derivative and preserves ordering.
-pub fn tone_gain(l: f32, hl: f32, sh: f32, wh: f32, bl: f32) -> f32 {
-    1.6 * hl * smooth(0., 4., l) + 1.8 * sh * (1. - smooth(-6., 0., l)) + 0.8 * wh * smooth(3., 7., l) + 0.8 * bl * (1. - smooth(-10., -4., l))
+/// Whites and Blacks are not local: they reshape the global tone map in the finish stage.
+pub fn tone_gain(l: f32, hl: f32, sh: f32) -> f32 {
+    1.6 * hl * smooth(0., 4., l) + 1.8 * sh * (1. - smooth(-6., 0., l))
 }
 
 fn plane_from_fn(w: usize, h: usize, f: impl Fn(usize, usize) -> f32 + Sync + Send) -> GrayFrame {
@@ -137,8 +138,8 @@ fn pyramid(p: GrayFrame) -> Vec<GrayFrame> {
 }
 /// Log-EV extension of vkdt llap: interpolated remapped Laplacians, remapped residual.
 /// Detail's slope is one near gamma; large-scale beta is the derivative of the slider curve.
-pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame {
-    if hl == 0. && sh == 0. && wh == 0. && bl == 0. {
+pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32) -> GrayFrame {
+    if hl == 0. && sh == 0. {
         return GrayFrame::new(l.width, l.height);
     }
     let lo = l.data.iter().copied().fold(f32::INFINITY, f32::min).min(-6.);
@@ -154,7 +155,7 @@ pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame {
         let remap = |x: f32| {
             let d = x - g;
             let keep = (-1.5 * d * d / (sigma * sigma)).exp();
-            x + tone_gain(g, hl, sh, wh, bl) * keep + tone_gain(x, hl, sh, wh, bl) * (1. - keep)
+            x + tone_gain(g, hl, sh) * keep + tone_gain(x, hl, sh) * (1. - keep)
         };
         let remapped = pyramid(l.map(remap));
         for lev in 0..orig.len() {
@@ -184,8 +185,8 @@ pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame {
     out.zip_map(l, |a, b| (a - b).clamp(-3., 3.))
 }
 
-pub fn eigf_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame {
-    if hl == 0. && sh == 0. && wh == 0. && bl == 0. {
+pub fn eigf_tone(l: &GrayFrame, hl: f32, sh: f32) -> GrayFrame {
+    if hl == 0. && sh == 0. {
         return GrayFrame::new(l.width, l.height);
     }
     let lum = l.map(|v| (v * std::f32::consts::LN_2).exp() * 0.18);
@@ -196,7 +197,7 @@ pub fn eigf_tone(l: &GrayFrame, hl: f32, sh: f32, wh: f32, bl: f32) -> GrayFrame
         p.quantization = 0.5;
         let base = eigf::filter(&lum, p);
         for (o, &v) in out.data.iter_mut().zip(&base.data) {
-            *o += weight * tone_gain((v / 0.18).max(1e-7).log2(), hl, sh, wh, bl);
+            *o += weight * tone_gain((v / 0.18).max(1e-7).log2(), hl, sh);
         }
     }
     out
@@ -312,8 +313,6 @@ pub fn remaining(s: &DevelopSettings) -> DevelopSettings {
 fn clear(d: &mut DevelopSettings) {
     d.light.highlights = 0.;
     d.light.shadows = 0.;
-    d.light.whites = 0.;
-    d.light.blacks = 0.;
     d.effects.clarity = 0.;
     d.effects.texture = 0.;
     d.effects.structure = 0.;
@@ -362,7 +361,7 @@ pub fn process(img: &RgbFrame, proxy: &RgbFrame, info: &SourceInfo, plan: &Plan<
             img,
             &log,
             s.light.exposure as f32,
-            &crate::tone2::tone_map(s, info, s.light.contrast, 0., 0.),
+            &crate::masks::selection_tone(s, info),
         )
     } else {
         Vec::new()
@@ -436,12 +435,11 @@ fn apply_tone_detail(
     }
     let l = img.map(log_light);
     let pl = proxy.map(log_light);
-    let (hl, sh, wh, bl) =
-        (s.light.highlights as f32 / 100., s.light.shadows as f32 / 100., s.light.whites as f32 / 100., s.light.blacks as f32 / 100.);
-    if hl != 0. || sh != 0. || wh != 0. || bl != 0. {
+    let (hl, sh) = (s.light.highlights as f32 / 100., s.light.shadows as f32 / 100.);
+    if hl != 0. || sh != 0. {
         let field = |h| match method {
-            HsMethod::LiTone => li_tone(&pl, h, sh, wh, bl),
-            HsMethod::Eigf => eigf_tone(&pl, h, sh, wh, bl),
+            HsMethod::LiTone => li_tone(&pl, h, sh),
+            HsMethod::Eigf => eigf_tone(&pl, h, sh),
         };
         let g = upsample_gain(&pl, &field(hl), &l);
         let nohl = (hl < 0. && clip.is_some_and(|p| p.data.iter().any(|v| *v > 0.66))).then(|| upsample_gain(&pl, &field(0.), &l));

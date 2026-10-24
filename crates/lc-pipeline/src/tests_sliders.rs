@@ -303,11 +303,9 @@ fn every_neutral_primary_control_skips_its_stage() {
     s.skin_tone.hue_range = 30.;
     assert_eq!(primary::Stages::of(&s), primary::Stages::default());
     assert!(!primary::active(&s));
-    let controls: [fn(&mut DevelopSettings, f64); 13] = [
+    let controls: [fn(&mut DevelopSettings, f64); 11] = [
         |s, v| s.light.highlights = v,
         |s, v| s.light.shadows = v,
-        |s, v| s.light.whites = v,
-        |s, v| s.light.blacks = v,
         |s, v| s.effects.clarity = v,
         |s, v| s.effects.texture = v,
         |s, v| s.effects.structure = v,
@@ -325,6 +323,12 @@ fn every_neutral_primary_control_skips_its_stage() {
         assert_eq!(primary::Stages::of(&s), primary::Stages::default());
         assert!(!primary::active(&s));
     }
+    // Whites and Blacks reshape the global tone map in the finish stage, never this one.
+    s.light.whites = 30.;
+    s.light.blacks = -30.;
+    assert!(!primary::active(&s));
+    s.light.whites = 0.;
+    s.light.blacks = 0.;
     let src = RgbFrame::from_fn(19, 13, |x, y| [0.002 + (x as f32 / 18.).exp2(), 0.02 + y as f32 / 40., 0.1]);
     let info = SourceInfo::default();
     let req = RenderRequest::fit(19, 13);
@@ -354,4 +358,47 @@ fn every_neutral_primary_control_skips_its_stage() {
     s.masks[0].adjust.clarity = 70.;
     assert!(!primary::active(&s));
     assert!(!primary::needs_proxy(&s));
+}
+
+/// Mean 8-bit green level of column `x` (averages the dither over the rows).
+fn column_level(img: &Rgba8, x: usize) -> f32 {
+    (0..img.height).map(|y| img.get(x, y)[1] as f32).sum::<f32>() / img.height as f32
+}
+
+#[test]
+fn whites_and_blacks_move_the_white_and_black_points() {
+    let (w, h) = (512, 8);
+    let (lo, hi) = (0.003f32.ln(), 1.2f32.ln());
+    let src = RgbFrame::from_fn(w, h, |x, _| [(lo + (hi - lo) * x as f32 / (w - 1) as f32).exp(); 3]);
+    let column = |v: f32| ((v.ln() - lo) / (hi - lo) * (w - 1) as f32).round() as usize;
+    let shot = |info: &SourceInfo, highlights: f64, whites: f64, blacks: f64| {
+        let mut s = DevelopSettings::default();
+        s.light.highlights = highlights;
+        s.light.whites = whites;
+        s.light.blacks = blacks;
+        render(&src, info, &s, &RenderRequest::fit(w, h)).image
+    };
+    let level = |img: &Rgba8, v: f32| column_level(img, column(v));
+    let raw = SourceInfo { raw: true, ..Default::default() };
+    // With Highlights set too, the primary stage runs and must leave Whites to the finish.
+    for highlights in [0., -30.] {
+        let neutral = shot(&raw, highlights, 0., 0.);
+        let up = shot(&raw, highlights, 100., 0.);
+        let down = shot(&raw, highlights, -100., 0.);
+        for v in [0.7, 1.0] {
+            assert!(level(&up, v) - level(&neutral, v) >= 6., "Whites +100 at {v} (highlights {highlights})");
+            assert!(level(&neutral, v) - level(&down, v) >= 10., "Whites -100 at {v} (highlights {highlights})");
+        }
+        for img in [&up, &down] {
+            assert!((level(img, 0.05) - level(&neutral, 0.05)).abs() <= 1., "Whites moved the shadows (highlights {highlights})");
+        }
+        let crushed = shot(&raw, highlights, 0., -100.);
+        assert!(level(&neutral, 0.01) - level(&crushed, 0.01) >= 8., "Blacks -100 (highlights {highlights})");
+        assert!((level(&crushed, 0.7) - level(&neutral, 0.7)).abs() <= 1., "Blacks moved the highlights (highlights {highlights})");
+    }
+    let rendered = SourceInfo::default();
+    let neutral = shot(&rendered, 0., 0., 0.);
+    assert!(level(&shot(&rendered, 0., 100., 0.), 0.7) > level(&neutral, 0.7) + 2.);
+    assert!(level(&shot(&rendered, 0., -100., 0.), 0.7) < level(&neutral, 0.7) - 2.);
+    assert!(level(&shot(&rendered, 0., 0., -100.), 0.01) < level(&neutral, 0.01) - 2.);
 }

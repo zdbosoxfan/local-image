@@ -1560,7 +1560,7 @@ fn masks_impl(
                 MaskShape::ColorRange { samples, refine } => {
                     if selection.is_none() {
                         let mut fp = FinishParams::new(s, frame, info, w, h, plan.px_per_long, lightcraft_pipeline::OutputSpace::Srgb);
-                        fp.tone = lightcraft_pipeline::tone2::tone_map(s, info, s.light.contrast, 0., 0.);
+                        fp.tone = lightcraft_pipeline::masks::selection_tone(s, info);
                         if developed {
                             fp.mode = FinishMode::Layer;
                         }

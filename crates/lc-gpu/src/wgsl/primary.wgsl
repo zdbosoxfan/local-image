@@ -7,7 +7,7 @@ fn primary_log(v: vec3<f32>) -> f32 {
     let n=max(rms(v),1e-7); let mx=max(max(v.x,v.y),v.z); let t=sstep(0.0,3.0,log2(n/0.18));
     return log2(max(n+(mx-n)*t,1e-7)/0.18);
 }
-fn tg(v: f32) -> f32 {return 1.6*pf(1u)*sstep(0.0,4.0,v)+1.8*pf(2u)*(1.0-sstep(-6.0,0.0,v))+0.8*pf(3u)*sstep(3.0,7.0,v)+0.8*pf(4u)*(1.0-sstep(-10.0,-4.0,v));}
+fn tg(v: f32) -> f32 {return 1.6*pf(1u)*sstep(0.0,4.0,v)+1.8*pf(2u)*(1.0-sstep(-6.0,0.0,v));}
 @compute @workgroup_size(256)
 fn p_scale(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} put_rgb(i,rgb_a(i)*pf(1u));
@@ -171,33 +171,33 @@ fn p_ll_reduce(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgrou
         out[k*nc+ch]=sum;
     }
 }
-fn tone_basis(v: f32) -> vec4<f32> {return vec4<f32>(1.6*sstep(0.0,4.0,v),1.8*(1.0-sstep(-6.0,0.0,v)),0.8*sstep(3.0,7.0,v),0.8*(1.0-sstep(-10.0,-4.0,v)));}
+fn tone_basis(v: f32) -> vec2<f32> {return vec2<f32>(1.6*sstep(0.0,4.0,v),1.8*(1.0-sstep(-6.0,0.0,v)));}
 @compute @workgroup_size(256)
 fn p_ll_remap(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let lo=min(b[0],-6.0); let hi=max(b[4],4.0); let step=max(hi-lo,1.0)/9.0;
     let gam=lo+f32(pu(1u))*step; let sigma=max(step,1.0); let v=a[i]; let delta=v-gam; let keep=exp(-1.5*delta*delta/(sigma*sigma));
-    let remapped=vec4<f32>(v)+tone_basis(gam)*keep+tone_basis(v)*(1.0-keep);
-    for(var ch=0u;ch<4u;ch++) {out[4u*i+ch]=remapped[ch];}
+    let remapped=vec2<f32>(v)+tone_basis(gam)*keep+tone_basis(v)*(1.0-keep);
+    out[2u*i]=remapped.x; out[2u*i+1u]=remapped.y;
 }
 @compute @workgroup_size(256)
 fn p_ll_acc(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u); let lo=min(d[0],-6.0); let hi=max(d[4],4.0); let step=max(hi-lo,1.0)/9.0;
     let t=clamp((c[i]-lo)/step,0.0,9.0); let low=u32(min(floor(t),8.0)); let f=t-f32(low); let gam=pu(3u); var weight=0.0;
     if(gam==low) {weight=1.0-f;} else if(gam==low+1u) {weight=f;}
-    for(var ch=0u;ch<4u;ch++) {var ex=0.0; if(pu(4u)!=0u) {ex=expand_b(i%w,i/w,(w+1u)/2u,(h+1u)/2u,ch,4u);} out[4u*i+ch]=out[4u*i+ch]+weight*(a[4u*i+ch]-ex);}
+    for(var ch=0u;ch<2u;ch++) {var ex=0.0; if(pu(4u)!=0u) {ex=expand_b(i%w,i/w,(w+1u)/2u,(h+1u)/2u,ch,2u);} out[2u*i+ch]=out[2u*i+ch]+weight*(a[2u*i+ch]-ex);}
 }
 @compute @workgroup_size(256)
 fn p_ll_assemble(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
     let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u);
-    for(var ch=0u;ch<4u;ch++) {out[4u*i+ch]=a[4u*i+ch]+expand_b(i%w,i/w,(w+1u)/2u,(h+1u)/2u,ch,4u);}
+    for(var ch=0u;ch<2u;ch++) {out[2u*i+ch]=a[2u*i+ch]+expand_b(i%w,i/w,(w+1u)/2u,(h+1u)/2u,ch,2u);}
 }
 @compute @workgroup_size(256)
 fn p_ll_gain(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} for(var ch=0u;ch<4u;ch++) {out[4u*i+ch]=a[4u*i+ch]-b[i];}
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} for(var ch=0u;ch<2u;ch++) {out[2u*i+ch]=a[2u*i+ch]-b[i];}
 }
 @compute @workgroup_size(256)
 fn p_ll_mix(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} out[i]=clamp(a[4u*i]*pf(1u)+a[4u*i+1u]*pf(2u)+a[4u*i+2u]*pf(3u)+a[4u*i+3u]*pf(4u),-3.0,3.0);
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} out[i]=clamp(a[2u*i]*pf(1u)+a[2u*i+1u]*pf(2u),-3.0,3.0);
 }
 // darktable's padded pyramid (Clarity). Two channels retain both remappings' rounding.
 @compute @workgroup_size(256)

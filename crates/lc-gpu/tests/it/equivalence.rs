@@ -127,6 +127,12 @@ fn cases() -> Vec<(&'static str, Edit)> {
             s.light.whites = 30.0;
             s.light.blacks = -25.0;
         }),
+        ("whites/blacks with highlights/shadows", |s| {
+            s.light.highlights = -50.0;
+            s.light.shadows = 40.0;
+            s.light.whites = 60.0;
+            s.light.blacks = -45.0;
+        }),
         ("vibrance/saturation", |s| {
             s.color.vibrance = 40.0;
             s.color.saturation = -20.0;

@@ -355,18 +355,8 @@ pub(crate) fn prepare(
     );
     let base = base.unwrap_or_else(|| log_l.clone());
     let ev = s.light.exposure as f32;
-    let masks = timed("masks", || {
-        masks::evaluate_with_tone(
-            &s.masks,
-            frame,
-            img.width,
-            img.height,
-            &img,
-            &log_l,
-            ev,
-            &crate::tone2::tone_map(s, info, s.light.contrast, s.light.whites, s.light.blacks),
-        )
-    });
+    let masks =
+        timed("masks", || masks::evaluate_with_tone(&s.masks, frame, img.width, img.height, &img, &log_l, ev, &masks::selection_tone(s, info)));
     let mut layer_sharp = Vec::new();
     let mut wanted = Vec::new();
     for (mask, m) in s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).enumerate() {

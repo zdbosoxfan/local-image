@@ -915,7 +915,7 @@ pub fn color_range_sample(
         return None;
     }
     let gain = (s.light.exposure as f32).exp2();
-    let tone = tone2::tone_map(s, info, s.light.contrast, 0., 0.);
+    let tone = masks::selection_tone(s, info);
     let mut acc = [0f64; 3];
     let mut n = 0.0;
     for y in (cy - 1).max(0)..=(cy + 1).min(plan.h as i64 - 1) {
