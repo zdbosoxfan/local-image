@@ -310,6 +310,9 @@ pub(crate) struct Prepared {
     pub px_per_long: f64,
     /// The tone equalizer's mask (see [`toneeq`]) when the tool is on.
     pub tone_eq: Option<Arc<GrayFrame>>,
+    /// The image and log luminance range and brush masks select on when they are not `img`:
+    /// the primary stage's input, on which that stage evaluated the same masks.
+    pub selection: Option<(Arc<RgbFrame>, Arc<GrayFrame>)>,
     /// sharpening: `log_l` blurred once and twice, and the blur radius (output px).
     pub sharp: Option<(Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
     pub layer_sharp: Vec<(usize, Arc<GrayFrame>, Arc<GrayFrame>, f32)>,
@@ -793,7 +796,8 @@ fn render_impl(
         Some(p) if p.key == planes_key => p,
         _ => local::Planes { key: planes_key, ..Default::default() },
     };
-    let prep = local::prepare(prepared_lin, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
+    let selection = primary.is_some().then(|| lin.clone());
+    let prep = local::prepare(prepared_lin, selection, s, info, &frame, px_per_long, src_long, req.quality, &mut planes);
     lap("prepare", &mut t);
     let result = if let Some(original) = &stack_settings {
         let layers::Stacked { image, background_renders: background, layer_renders: layers, masks, diagnostic } =
@@ -827,13 +831,16 @@ pub fn finish_scene_stage(mut img: Arc<RgbFrame>, plan: &Plan<'_>, info: &Source
         let original = &*plan.settings;
         let mut background = Plan { settings: Cow::Owned(layers::background(original)), ..plan.clone() };
         let key = layers::background_key(&background, info, req.quality, primary::DEFAULT_HS_METHOD);
+        let mut selection = None;
         if primary::active(&background.settings) {
             let proxy = if primary::needs_proxy(&background.settings) { (*img).clone() } else { RgbFrame::new(0, 0) };
-            img = Arc::new(primary::process(&img, &proxy, info, &background, primary::DEFAULT_HS_METHOD));
+            let developed = Arc::new(primary::process(&img, &proxy, info, &background, primary::DEFAULT_HS_METHOD));
+            selection = Some(std::mem::replace(&mut img, developed));
             background.settings = Cow::Owned(visualize::remaining_for_overlay(req.overlay, &background.settings));
         }
         let mut prep = local::prepare(
             img,
+            selection,
             &background.settings,
             info,
             &background.frame,
@@ -849,7 +856,8 @@ pub fn finish_scene_stage(mut img: Arc<RgbFrame>, plan: &Plan<'_>, info: &Source
         prep.masks.extend(background_masks);
         return finish_stack(&prep, plan, info, req, stacked.diagnostic.as_ref());
     }
-    let prep = local::prepare(img, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
+    let prep =
+        local::prepare(img, None, &plan.settings, info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
     finish_prepared(&prep, plan, info, req)
 }
 
@@ -1001,7 +1009,8 @@ fn overlay_alpha(o: Overlay, plan: &Plan<'_>, prep: &Prepared) -> Option<GrayFra
         });
     }
     let ev = plan.settings.light.exposure as f32;
-    Some(masks::evaluate_one(m, &plan.frame, plan.w, plan.h, &prep.img, &prep.log_l, ev))
+    let (img, log) = prep.selection.as_ref().map_or((&prep.img, &prep.log_l), |(img, log)| (img, log));
+    Some(masks::evaluate_one(m, &plan.frame, plan.w, plan.h, img, log, ev))
 }
 
 /// Convenience: render a before/after pair side by side is up to the UI; this renders "before"
@@ -1079,7 +1088,7 @@ fn develop_c_full_overlay_keeps_scalar_alpha_even_when_hidden() {
     };
     let plan = plan(&src, &info, &s, &req);
     let img = Arc::new(plan.frame.sample(&src, plan.w, plan.h));
-    let prep = local::prepare(img, &s, &info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
+    let prep = local::prepare(img, None, &s, &info, &plan.frame, plan.px_per_long, plan.src_long, req.quality, &mut local::Planes::default());
     assert!(overlay_alpha(req.overlay, &plan, &prep).is_none(), "Full diagnostics must not expand scalar coverage into a plane");
     assert!(render(&src, &info, &s, &req).image.data.iter().all(|p| *p == [128, 128, 128, 255]));
     s.masks[0].visible = false;

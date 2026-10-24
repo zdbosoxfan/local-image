@@ -844,7 +844,17 @@ pub fn render(
                     let l = gpu.buffer(n);
                     map(&mut cx, "log_lum_k", n, &[], [Some(&lin), None, None], &l);
                     let l = Arc::new(l);
-                    let prep = Prep { log_l: l.clone(), base: l, clarity: None, texture: None, haze: None, sharp: None, chroma: None, tone_eq: None };
+                    let prep = Prep {
+                        log_l: l.clone(),
+                        base: l,
+                        clarity: None,
+                        texture: None,
+                        haze: None,
+                        sharp: None,
+                        chroma: None,
+                        tone_eq: None,
+                        selection: None,
+                    };
                     masks(&mut cx, &lin, &prep, &plan, &mut host, info).0
                 } else {
                     None
@@ -875,7 +885,12 @@ pub fn render(
         Some(p) if p.key == planes_key => p,
         _ => Planes { key: planes_key, ..Default::default() },
     };
-    let prep = prepare(&mut cx, &prepared_lin, &plan, req, &mut planes, info.sensor_scale);
+    let mut prep = prepare(&mut cx, &prepared_lin, &plan, req, &mut planes, info.sensor_scale);
+    if primary.is_some() && !s.masks.is_empty() {
+        let l = gpu.buffer(n);
+        map(&mut cx, "log_lum_k", n, &[], [Some(&lin), None, None], &l);
+        prep.selection = Some((lin.clone(), Arc::new(l)));
+    }
     lap("planes", &mut t, &mut cx);
     if let Some(original) = &stack_settings {
         let (result, stack, counts) =
@@ -1083,8 +1098,9 @@ pub fn render(
         // a hidden mask: evaluate it on the CPU
         Err(m) => {
             crate::record_cpu_stage("mask overlay");
-            let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(&prepared_lin, w, h))).clone();
-            let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(&prep.log_l, w, h))).clone();
+            let (source, log) = prep.selection.as_ref().map_or((&prepared_lin, &prep.log_l), |(img, log)| (img, log));
+            let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(source, w, h))).clone();
+            let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(log, w, h))).clone();
             lightcraft_pipeline::masks::evaluate_one(m, &plan.frame, w, h, &img, &l, s.light.exposure as f32)
         }
     });
@@ -1319,6 +1335,8 @@ struct Prep {
     /// Blurred chromaticity (local Moiré / Noise).
     chroma: Option<Arc<Buf>>,
     tone_eq: Option<Arc<Buf>>,
+    /// The image and log luminance masks select on when the primary stage ran: its input.
+    selection: Option<(Arc<Buf>, Arc<Buf>)>,
 }
 
 fn plane_at(slot: &mut Option<(u32, Arc<Buf>)>, sigma: f32, f: impl FnOnce() -> Buf) -> Arc<Buf> {
@@ -1397,7 +1415,7 @@ fn prepare(cx: &mut Cx<'_>, lin: &Buf, plan: &Plan<'_>, req: &RenderRequest, pla
         planes.tone_eq = Some((key, log.clone()));
         log
     });
-    Prep { log_l, base, clarity, texture, chroma, sharp, haze, tone_eq }
+    Prep { log_l, base, clarity, texture, chroma, sharp, haze, tone_eq, selection: None }
 }
 
 /// Most brush dabs the mask kernel evaluates per pixel (more: the CPU rasterizes the brush).
@@ -1478,6 +1496,7 @@ fn masks_impl(
 ) -> (Option<Buf>, Vec<[f32; MASK_TERMS]>) {
     use lightcraft_develop::{MaskOp, MaskShape};
     let s = &*plan.settings;
+    let (lin, log_l) = prep.selection.as_ref().map_or((lin, &*prep.log_l), |(img, log)| (&**img, &**log));
     let list: Vec<_> = s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).collect();
     if list.is_empty() {
         return (None, Vec::new());
@@ -1509,7 +1528,7 @@ fn masks_impl(
             // use host RGB/log-luminance; retain that cache and upload the finalized plane.
             crate::record_cpu_stage("mask matting");
             let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(lin, w, h))).clone();
-            let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(&prep.log_l, w, h))).clone();
+            let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(log_l, w, h))).clone();
             let v = lightcraft_pipeline::masks::evaluate_one_tone(
                 m,
                 frame,
@@ -1610,10 +1629,10 @@ fn masks_impl(
                             q[3] = 0;
                             q.push(1);
                             let aux = cx.gpu.upload(&brush_aux(&[d], false));
-                            cx.run("shape", &q, &[Some(lin), Some(&prep.log_l), Some(&aux), Some(&stroke), Some(&brush)], groups2(w, h, [16, 16]));
+                            cx.run("shape", &q, &[Some(lin), Some(log_l), Some(&aux), Some(&stroke), Some(&brush)], groups2(w, h, [16, 16]));
                             let refined = d.auto.then(|| {
                                 let (sigma, eps) = lightcraft_pipeline::masks::auto_refine(d.r);
-                                guided_cross_max(cx, &prep.log_l, &stroke, w, h, sigma, eps)
+                                guided_cross_max(cx, log_l, &stroke, w, h, sigma, eps)
                             });
                             let op = if d.erase { 2 } else { 1 };
                             cx.run(
@@ -1644,7 +1663,7 @@ fn masks_impl(
                     cx.run(
                         "shape",
                         &p,
-                        &[if k == 3 { selection.as_ref() } else { Some(lin) }, Some(&prep.log_l), aux.as_ref(), Some(&comp_plane), Some(&alpha)],
+                        &[if k == 3 { selection.as_ref() } else { Some(lin) }, Some(log_l), aux.as_ref(), Some(&comp_plane), Some(&alpha)],
                         groups2(w, h, [16, 16]),
                     );
                     None
@@ -1653,7 +1672,7 @@ fn masks_impl(
                     crate::record_cpu_stage("mask shape");
                     // no kernel: evaluate on the CPU
                     let img = host.lin.get_or_insert_with(|| Arc::new(cx.read_rgb(lin, w, h))).clone();
-                    let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(&prep.log_l, w, h))).clone();
+                    let l = host.log_l.get_or_insert_with(|| Arc::new(cx.read_plane(log_l, w, h))).clone();
                     let mut v = lightcraft_pipeline::masks::shape_alpha_tone(
                         &comp.shape,
                         frame,
@@ -1679,15 +1698,15 @@ fn masks_impl(
             let input = cx.slice(&alpha, offset as usize, n);
             let sigma = lightcraft_pipeline::masks::refine_sigma(frame, w, k);
             let (m0, m1) = (cx.gpu.buffer(n * 2), cx.gpu.buffer(n * 2));
-            map(cx, "xguided_pre", n, &[0], [Some(&prep.log_l), Some(&input), None], &m0);
-            map(cx, "xguided_pre", n, &[1], [Some(&prep.log_l), Some(&input), None], &m1);
+            map(cx, "xguided_pre", n, &[0], [Some(log_l), Some(&input), None], &m0);
+            map(cx, "xguided_pre", n, &[1], [Some(log_l), Some(&input), None], &m1);
             let b0 = gaussian(cx, &m0, w, h, 2, sigma);
             let b1 = gaussian(cx, &m1, w, h, 2, sigma);
             let ab = cx.gpu.buffer(n * 2);
             map(cx, "xguided_ab", n, &[0.02f32.to_bits()], [Some(&b0), Some(&b1), None], &ab);
             let ab = gaussian(cx, &ab, w, h, 2, sigma);
             let refined = cx.gpu.buffer(n);
-            map(cx, "xguided_refine", n, &[k.sqrt().to_bits()], [Some(&prep.log_l), Some(&ab), Some(&input)], &refined);
+            map(cx, "xguided_refine", n, &[k.sqrt().to_bits()], [Some(log_l), Some(&ab), Some(&input)], &refined);
             cx.copy_into(&refined, &alpha, offset as usize);
         }
         let amt = lightcraft_pipeline::masks::mask_scale(m);

@@ -322,6 +322,26 @@ fn cases() -> Vec<(&'static str, Edit)> {
                 },
             ];
         }),
+        ("range masks after primary tools", |s| {
+            s.light.shadows = 60.0;
+            s.color.saturation = 30.0;
+            s.treatment = Treatment::Bw;
+            let range = |shape, adjust| Mask {
+                components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+                adjust,
+                ..Default::default()
+            };
+            s.masks = vec![
+                range(
+                    MaskShape::LuminanceRange { lo: 0.2, hi: 0.5, lo_feather: 0.1, hi_feather: 0.1 },
+                    lightcraft_develop::LocalAdjustments { exposure: 0.5, shadows: 30.0, ..Default::default() },
+                ),
+                range(
+                    MaskShape::ColorRange { samples: vec![[0.6, -0.05, -0.08]], refine: 60.0 },
+                    lightcraft_develop::LocalAdjustments { exposure: -0.5, dehaze: 20.0, ..Default::default() },
+                ),
+            ];
+        }),
         ("masks (cpu shapes, ops, amount)", |s| {
             s.masks = vec![
                 Mask {

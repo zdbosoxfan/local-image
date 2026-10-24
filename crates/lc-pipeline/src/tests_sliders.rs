@@ -571,3 +571,58 @@ fn highlights_and_shadows_ignore_unrelated_dark_corners() {
         assert!(worst < bound, "a {patch:?} corner moved Highlights/Shadows elsewhere by {worst} EV");
     }
 }
+
+fn mask_of(shape: MaskShape, adjust: lightcraft_develop::LocalAdjustments) -> Mask {
+    Mask { id: 1, components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }], adjust, ..Default::default() }
+}
+
+#[test]
+fn range_masks_select_before_the_primary_stage_in_every_stage() {
+    // A dark interior beside a bright window; global Shadows lifts the interior out of the range.
+    let (w, h) = (96, 48);
+    let src = RgbFrame::from_fn(w, h, |x, _| [if x < w / 2 { 0.02 } else { 0.9 }; 3]);
+    let info = SourceInfo::default();
+    let req = RenderRequest::fit(w, h);
+    let mut s = DevelopSettings::default();
+    s.light.shadows = 80.;
+    let shape = MaskShape::LuminanceRange { lo: 0.3, hi: 0.45, lo_feather: 0.05, hi_feather: 0.05 };
+    s.masks.push(mask_of(shape, lightcraft_develop::LocalAdjustments { shadows: 50., exposure: 0.5, ..Default::default() }));
+    let plan = crate::plan(&src, &info, &s, &req);
+    let mut lin = plan.frame.sample(&src, plan.w, plan.h);
+    lin_cpu(&mut lin, &info, &plan);
+    let log = lin.map(local::log_lum);
+    let expected = masks::evaluate_with_tone(&s.masks, &plan.frame, plan.w, plan.h, &lin, &log, 0., &masks::selection_tone(&s, &info));
+    let overlay = Overlay::Mask { id: 1, view: crate::visualize::MaskView::WhiteOnBlack, color: [255; 3], opacity: 100 };
+    let shown = render(&src, &info, &s, &RenderRequest { overlay, ..req }).image;
+    for y in 0..h {
+        for x in 0..w {
+            let a = (expected[0].alpha.at(y * w + x) * 255.).round() as u8;
+            assert!(
+                shown.get(x, y)[1].abs_diff(a) <= 1,
+                "({x}, {y}): finish-stage alpha {} differs from the primary stage's {a}",
+                shown.get(x, y)[1]
+            );
+        }
+    }
+    assert_eq!(shown.get(10, 24)[1], 255, "the interior is selected");
+}
+
+#[test]
+fn colour_range_masks_keep_their_selection_after_global_colour_changes() {
+    // A blue sky above a grey wall; B&W and Saturation change colours in the primary stage.
+    let src = RgbFrame::from_fn(64, 48, |_, y| if y < 24 { [0.05, 0.09, 0.3] } else { [0.12; 3] });
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(64, 48);
+    let mut s = DevelopSettings::default();
+    let sample = color_range_sample(&src, &info, &s, &req, Point::new(0.5, 0.2)).unwrap();
+    s.treatment = Treatment::Bw;
+    s.color.saturation = 40.;
+    let base = render(&src, &info, &s, &req).image;
+    s.masks.push(mask_of(
+        MaskShape::ColorRange { samples: vec![sample], refine: 50. },
+        lightcraft_develop::LocalAdjustments { exposure: 1.0, ..Default::default() },
+    ));
+    let masked = render(&src, &info, &s, &req).image;
+    assert!(masked.get(32, 10)[1] >= base.get(32, 10)[1] + 20, "the picked sky lost its selection: {:?} {:?}", masked.get(32, 10), base.get(32, 10));
+    assert!(masked.get(32, 40)[1].abs_diff(base.get(32, 40)[1]) <= 1, "the wall was selected");
+}

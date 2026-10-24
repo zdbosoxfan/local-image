@@ -306,10 +306,12 @@ pub fn plane_sigmas(s: &DevelopSettings, px_per_long: f64, out_per_orig: f32, q:
 
 /// The spatial planes the per-pixel stage needs for `img` (white-balanced, before exposure),
 /// reusing whatever `planes` already holds for it. Missing planes are computed side by side (each
-/// one alone scales poorly: the guided filters work on small subsampled grids).
+/// one alone scales poorly: the guided filters work on small subsampled grids). Masks select on
+/// `selection` when given: the primary stage's input, so both stages apply the same alphas.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare(
     img: Arc<RgbFrame>,
+    selection: Option<Arc<RgbFrame>>,
     s: &DevelopSettings,
     info: &SourceInfo,
     frame: &Frame,
@@ -355,8 +357,13 @@ pub(crate) fn prepare(
     );
     let base = base.unwrap_or_else(|| log_l.clone());
     let ev = s.light.exposure as f32;
+    let selection = selection.filter(|_| !s.masks.is_empty()).map(|src| {
+        let log = Arc::new(src.map(log_lum));
+        (src, log)
+    });
+    let (sel_img, sel_log) = selection.as_ref().map_or((&img, &log_l), |(img, log)| (img, log));
     let masks =
-        timed("masks", || masks::evaluate_with_tone(&s.masks, frame, img.width, img.height, &img, &log_l, ev, &masks::selection_tone(s, info)));
+        timed("masks", || masks::evaluate_with_tone(&s.masks, frame, img.width, img.height, sel_img, sel_log, ev, &masks::selection_tone(s, info)));
     let mut layer_sharp = Vec::new();
     let mut wanted = Vec::new();
     for (mask, m) in s.masks.iter().filter(|m| m.visible && !m.components.is_empty()).enumerate() {
@@ -407,7 +414,7 @@ pub(crate) fn prepare(
             }
         }
     });
-    Prepared { img, log_l, base, clarity_blur, texture_blur, chroma_blur, masks, layer_nr, px_per_long, tone_eq, sharp, haze, layer_sharp }
+    Prepared { img, log_l, base, clarity_blur, texture_blur, chroma_blur, masks, layer_nr, px_per_long, tone_eq, selection, sharp, haze, layer_sharp }
 }
 
 #[cfg(test)]

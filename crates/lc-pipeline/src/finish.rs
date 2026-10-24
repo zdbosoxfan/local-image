@@ -1097,6 +1097,7 @@ mod colour_tone_tests {
         assert!(img.data.iter().any(|c| c.iter().any(|v| *v < 0.0)), "fixture must include negative resampling channels");
         let mut prep = crate::local::prepare(
             img.clone(),
+            None,
             &s,
             &info,
             &plan.frame,

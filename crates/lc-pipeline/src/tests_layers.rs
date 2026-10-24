@@ -100,8 +100,8 @@ const GOLDEN: [(&str, u64); 6] = [
     ("default/raw", 0x61dfdd1c1479866c),
     ("global edits/rendered", 0x039e22c635507038),
     ("global edits/raw", 0xa41e6d565fe234a8),
-    ("old masks/rendered", 0x41353d76d70b53f8),
-    ("old masks/raw", 0x98e053223664ee12),
+    ("old masks/rendered", 0x2c0106a0aa31423a),
+    ("old masks/raw", 0x2a4c4ffd517f961c),
 ];
 
 #[test]
