@@ -207,13 +207,20 @@ fn layer_input(src: &RgbFrame, info: &SourceInfo, plan: &mut crate::Plan<'_>, re
     crate::lin_cpu(&mut img, info, plan);
     crate::local::denoise_source(&mut img, &plan.settings, plan.src_long, plan.px_per_long, info);
     let method = crate::primary::DEFAULT_HS_METHOD;
-    if crate::primary::active(&plan.settings) {
+    let lin = std::sync::Arc::new(img);
+    let (prepared, selection) = if crate::primary::active(&plan.settings) {
         let proxy = if crate::primary::needs_proxy(&plan.settings) { crate::primary::proxy_for(src, info, plan) } else { RgbFrame::new(0, 0) };
-        img = crate::primary::process(&img, &proxy, info, plan, method);
+        let out = crate::primary::process(&lin, &proxy, info, plan, method);
         plan.settings = Cow::Owned(crate::visualize::remaining_for_overlay(req.overlay, &plan.settings));
-    }
+        // Masks select on the primary stage's input, as in `crate::render`.
+        let masks = !stack.as_ref().unwrap_or(&plan.settings).masks.is_empty();
+        (std::sync::Arc::new(out), masks.then(|| lin.clone()))
+    } else {
+        (lin, None)
+    };
     let prep = crate::local::prepare(
-        std::sync::Arc::new(img),
+        prepared,
+        selection,
         &plan.settings,
         info,
         &plan.frame,
