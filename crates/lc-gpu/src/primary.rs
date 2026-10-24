@@ -365,7 +365,9 @@ fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 2]
     let basis = if let Some(b) = cache.find(&slot, pk) {
         b
     } else {
-        let limit = cache.get(format!("{scope}/ll-bounds"), pk, || bounds(cx, pl, w * h, 1, 1e30, -1e30));
+        use lightcraft_pipeline::primary::{TONE_GAMMA, TONE_HI, TONE_LO};
+        let ng = TONE_GAMMA as u32;
+        let step = (TONE_HI - TONE_LO) / (TONE_GAMMA - 1) as f32;
         let mut orig = vec![(w, h, pl.clone())];
         let (mut pw, mut ph) = (w, h);
         let mut lev = 1;
@@ -381,16 +383,16 @@ fn li_tone(cx: &mut Cx<'_>, pl: &Arc<Buf>, w: usize, h: usize, sliders: [f32; 2]
             lev += 1;
         }
         let mut acc: Vec<_> = orig.iter().map(|(w, h, _)| cx.zeroed(w * h * 2)).collect();
-        for gam in 0..10 {
-            let remap = run(cx, "p_ll_remap", w * h, &[gam], [Some(pl), Some(&limit), None, None, None], w * h * 2);
+        for gam in 0..ng {
+            let remap = run(cx, "p_ll_remap", w * h, &[gam, f(TONE_LO), f(step)], [Some(pl), None, None, None, None], w * h * 2);
             let pyr = pyramid(cx, Arc::new(remap), w, h, 2);
             for (lev, (pw, ph, original)) in orig.iter().enumerate() {
                 into(
                     cx,
                     "p_ll_acc",
                     pw * ph,
-                    &[*pw as u32, *ph as u32, gam, (lev + 1 < orig.len()) as u32],
-                    [Some(&pyr[lev].2), pyr.get(lev + 1).map(|v| &*v.2), Some(original), Some(&limit), None],
+                    &[*pw as u32, *ph as u32, gam, (lev + 1 < orig.len()) as u32, f(TONE_LO), f(step), ng],
+                    [Some(&pyr[lev].2), pyr.get(lev + 1).map(|v| &*v.2), Some(original), None, None],
                     &acc[lev],
                 );
             }

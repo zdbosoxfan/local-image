@@ -544,3 +544,30 @@ fn calibration_edits_reach_cached_renders() {
     assert_ne!(before, after);
     assert_eq!(after, render(&src, &info, &s, &req).image);
 }
+
+#[test]
+fn highlights_and_shadows_ignore_unrelated_dark_corners() {
+    let (w, h) = (512, 256);
+    let scene = |patch: Option<(usize, f32)>| {
+        RgbFrame::from_fn(w, h, |x, y| match patch {
+            Some((size, v)) if x < size && y < size => [v; 3],
+            _ => [if x < w / 2 { 0.015 } else { 0.9 }; 3],
+        })
+    };
+    let mut s = DevelopSettings::default();
+    s.light.highlights = -100.;
+    s.light.shadows = 100.;
+    let info = SourceInfo::default();
+    let develop = |src: &RgbFrame| {
+        let plan = crate::plan(src, &info, &s, &RenderRequest::fit(w, h));
+        primary::process(src, src, &info, &plan, primary::DEFAULT_HS_METHOD)
+    };
+    let clean = develop(&scene(None));
+    // One black or blown pixel must not move the tone grid. A dark area only shifts the
+    // pyramid's global level in proportion to its share of the frame (0.05% here).
+    for (patch, bound) in [((1, 0.), 0.01), ((1, 1000.), 0.01), ((8, 2e-5), 0.04)] {
+        let out = develop(&scene(Some(patch)));
+        let worst = (0..w * h).filter(|i| i % w >= 32 || i / w >= 32).map(|i| (out.data[i][1] / clean.data[i][1]).log2().abs()).fold(0f32, f32::max);
+        assert!(worst < bound, "a {patch:?} corner moved Highlights/Shadows elsewhere by {worst} EV");
+    }
+}

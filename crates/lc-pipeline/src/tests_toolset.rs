@@ -106,8 +106,8 @@ fn cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64, u64); 14] = [
     ("default/rendered", 0x9ab6df6ab933abe6, 0x97d20305a4beb718),
     ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
-    ("raw defaults + edits/rendered", 0x43f94312bf01382c, 0x15c51fec88c0f59f),
-    ("raw defaults + edits/raw", 0x5cd7a6a52b992e3f, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/rendered", 0x5a68ed67c98c7e0b, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/raw", 0x9c92e38e1005c0d2, 0x15c51fec88c0f59f),
     ("optics + geometry + crop/rendered", 0x611da93f49c17e07, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
     ("profile look/rendered", 0x00ee8131abe439a1, 0x67aea33bdcc2fa0b),
@@ -118,8 +118,8 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("negative/raw", 0xd4e80f8f014fb4b0, 0xb00a5805f4d46110),
     // Layer renders apply sequential developed-image tools, so their hashes differ from the
     // no-layer renders; every settings hash above/below is independent of that.
-    ("layers/rendered", 0x2b8db6150bc87e19, 0x72a3db4f1a1900ec),
-    ("layers/raw", 0x0fa75a20cc053614, 0x72a3db4f1a1900ec),
+    ("layers/rendered", 0x98739d43cba77b92, 0x72a3db4f1a1900ec),
+    ("layers/raw", 0xd0a2acfff3f69797, 0x72a3db4f1a1900ec),
 ];
 
 #[test]

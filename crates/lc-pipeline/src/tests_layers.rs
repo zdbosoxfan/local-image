@@ -98,10 +98,10 @@ fn golden_cases() -> Vec<(&'static str, Value)> {
 const GOLDEN: [(&str, u64); 6] = [
     ("default/rendered", 0x6dc2c87b1494a4a2),
     ("default/raw", 0x61dfdd1c1479866c),
-    ("global edits/rendered", 0x31e95f10f75ac781),
-    ("global edits/raw", 0xc03090c7bfcd6f8a),
-    ("old masks/rendered", 0x391f1b6ffe02a961),
-    ("old masks/raw", 0xd9d3a39693a547f6),
+    ("global edits/rendered", 0x039e22c635507038),
+    ("global edits/raw", 0xa41e6d565fe234a8),
+    ("old masks/rendered", 0x41353d76d70b53f8),
+    ("old masks/raw", 0x98e053223664ee12),
 ];
 
 #[test]

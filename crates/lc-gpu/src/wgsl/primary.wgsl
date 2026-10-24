@@ -184,15 +184,15 @@ fn p_ll_reduce(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgrou
 fn tone_basis(v: f32) -> vec2<f32> {return vec2<f32>(1.6*sstep(0.0,4.0,v),1.8*(1.0-sstep(-6.0,0.0,v)));}
 @compute @workgroup_size(256)
 fn p_ll_remap(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let lo=min(b[0],-6.0); let hi=max(b[4],4.0); let step=max(hi-lo,1.0)/9.0;
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let lo=pf(2u); let step=pf(3u);
     let gam=lo+f32(pu(1u))*step; let sigma=max(step,1.0); let v=a[i]; let delta=v-gam; let keep=exp(-1.5*delta*delta/(sigma*sigma));
     let remapped=vec2<f32>(v)+tone_basis(gam)*keep+tone_basis(v)*(1.0-keep);
     out[2u*i]=remapped.x; out[2u*i+1u]=remapped.y;
 }
 @compute @workgroup_size(256)
 fn p_ll_acc(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {
-    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u); let lo=min(d[0],-6.0); let hi=max(d[4],4.0); let step=max(hi-lo,1.0)/9.0;
-    let t=clamp((c[i]-lo)/step,0.0,9.0); let low=u32(min(floor(t),8.0)); let f=t-f32(low); let gam=pu(3u); var weight=0.0;
+    let i=lin_index(g,ng); if(i>=pu(0u)) {return;} let w=pu(1u); let h=pu(2u); let lo=pf(5u); let step=pf(6u); let last=f32(pu(7u)-1u);
+    let t=clamp((c[i]-lo)/step,0.0,last); let low=u32(min(floor(t),last-1.0)); let f=t-f32(low); let gam=pu(3u); var weight=0.0;
     if(gam==low) {weight=1.0-f;} else if(gam==low+1u) {weight=f;}
     for(var ch=0u;ch<2u;ch++) {var ex=0.0; if(pu(4u)!=0u) {ex=expand_b(i%w,i/w,(w+1u)/2u,(h+1u)/2u,ch,2u);} out[2u*i+ch]=out[2u*i+ch]+weight*(a[2u*i+ch]-ex);}
 }

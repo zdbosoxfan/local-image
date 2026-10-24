@@ -1,6 +1,6 @@
 //! Primary Develop tools. Scene-linear, unclipped Rec.2020, after WB/reconstruction.
 //! LI Tone uses vkdt's local-Laplacian construction (BSD-2-Clause) with a smooth
-//! EV remap, ten levels of intensity sampling, and a pyramid reaching 1×1.
+//! EV remap, a fixed EV grid of intensity samples, and a pyramid reaching 1×1.
 //! B uses darktable's faithful EIGF at multiple scales. Both apply ratio-preserving gains.
 use crate::{Plan, SourceInfo, eigf, llf, ucs};
 use li_raster::resample::Filter;
@@ -16,6 +16,11 @@ pub enum HsMethod {
 /// Owner's A/B choice: changing the default is one line; never persisted or exposed in UI.
 pub const DEFAULT_HS_METHOD: HsMethod = HsMethod::LiTone;
 pub const PROXY_PIXELS: usize = 2_000_000;
+/// LI Tone's γ grid, fixed in EV so Highlights and Shadows never depend on unrelated content
+/// (a dark corner, a crop, a bright lamp); values beyond it use the end samples.
+pub const TONE_LO: f32 = -14.;
+pub const TONE_HI: f32 = 8.;
+pub const TONE_GAMMA: usize = 19;
 /// Clarity's γ samples over its −12..+12 EV map: 0.5 EV apart, a third of its σ, so the
 /// interpolated detail gain (and Clarity's strength) is the same at every tone.
 pub const CLARITY_GAMMA: usize = 48;
@@ -159,16 +164,18 @@ pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32) -> GrayFrame {
     if hl == 0. && sh == 0. {
         return GrayFrame::new(l.width, l.height);
     }
-    let lo = l.data.iter().copied().fold(f32::INFINITY, f32::min).min(-6.);
-    let hi = l.data.iter().copied().fold(f32::NEG_INFINITY, f32::max).max(4.);
-    let range = (hi - lo).max(1.);
-    let ng = 10;
+    let ng = TONE_GAMMA;
+    let step = (TONE_HI - TONE_LO) / (ng - 1) as f32;
+    let sigma = step.max(1.0);
+    let lower = |v: f32| ((v - TONE_LO) / step).clamp(0., (ng - 1) as f32).floor().min((ng - 2) as f32) as usize;
     let orig = pyramid(l.clone());
     let mut acc: Vec<_> = orig.iter().map(|p| GrayFrame::new(p.width, p.height)).collect();
-    let step = range / (ng - 1) as f32;
-    let sigma = step.max(1.0);
-    for k in 0..ng {
-        let g = lo + k as f32 * step;
+    // Every level lies within the input's range, so samples bracketing neither end of it get zero
+    // weight everywhere: skipping them leaves the sums unchanged.
+    let (min, max) = l.data.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), &v| (a.min(v), b.max(v)));
+    let used = if min <= max { lower(min)..=lower(max) + 1 } else { 0..=ng - 1 };
+    for k in used {
+        let g = TONE_LO + k as f32 * step;
         let remap = |x: f32| {
             let d = x - g;
             let keep = (-1.5 * d * d / (sigma * sigma)).exp();
@@ -179,8 +186,8 @@ pub fn li_tone(l: &GrayFrame, hl: f32, sh: f32) -> GrayFrame {
             let p = &orig[lev];
             let ex = if lev + 1 < orig.len() { Some(expand(&remapped[lev + 1], p.width, p.height)) } else { None };
             for i in 0..p.len() {
-                let t = ((p.data[i] - lo) / step).clamp(0., (ng - 1) as f32);
-                let a = t.floor().min((ng - 2) as f32) as usize;
+                let t = ((p.data[i] - TONE_LO) / step).clamp(0., (ng - 1) as f32);
+                let a = lower(p.data[i]);
                 let f = t - a as f32;
                 let weight = if k == a {
                     1. - f
