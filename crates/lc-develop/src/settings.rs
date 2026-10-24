@@ -1642,6 +1642,14 @@ pub struct DenoiseRef {
     pub key: AiKey,
     /// Content hash of the photo it was made from (never applied to another photo).
     pub source: AiKey,
+    /// Identifies the raw decoding the result was made from (0: the default decoding); a result
+    /// made under other raw settings is not applied.
+    #[serde(default, skip_serializing_if = "is_default_decoding")]
+    pub raw: u64,
+}
+
+fn is_default_decoding(raw: &u64) -> bool {
+    *raw == 0
 }
 
 impl DenoiseModel {
@@ -1671,7 +1679,8 @@ fn ds2_denoise_references_reject_invalid_non_null_values() {
         assert!(serde_json::from_value::<Enhance>(json!({"ai": ai})).is_err());
     }
     assert!(serde_json::from_value::<Enhance>(json!({"ai":null})).unwrap().ai.is_none());
-    let value = Enhance { ai: Some(DenoiseRef { model: DenoiseModel::Raw, preview: false, key: AiKey(7), source: AiKey(9) }), ..Default::default() };
+    let value =
+        Enhance { ai: Some(DenoiseRef { model: DenoiseModel::Raw, preview: false, key: AiKey(7), source: AiKey(9), raw: 5 }), ..Default::default() };
     assert_eq!(serde_json::from_value::<Enhance>(serde_json::to_value(value).unwrap()).unwrap(), value);
 }
 

@@ -252,7 +252,9 @@ pub fn denoise_controls(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
             }
             return;
         }
-        if d.enhance.ai.is_some_and(|a| a.preview) {
+        if d.enhance.ai.is_some_and(|a| !lightcraft_engine::enhance::denoise::matches_decoding(&a, d)) {
+            dim(ui, "The Raw Processing or camera profile changed after AI Denoise ran: run it again to apply it.");
+        } else if d.enhance.ai.is_some_and(|a| a.preview) {
             dim(ui, "Preview result — run full resolution before exporting.");
         }
         ui.horizontal(|ui| {

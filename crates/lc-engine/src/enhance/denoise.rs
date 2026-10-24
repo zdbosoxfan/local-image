@@ -33,6 +33,8 @@ pub struct DenoiseDone {
     pub model: String,
     pub family: DenoiseModel,
     pub preview: bool,
+    /// [`source_options`] of the decoding it was made from.
+    pub raw: u64,
 }
 pub fn model_tag() -> String {
     format!("{}@df957efa", li_seg::denoise::DENOISE_ID)
@@ -45,6 +47,16 @@ pub fn result_key(source: &str, model: &str) -> String {
 }
 pub fn preview_key(key: &str) -> String {
     format!("{key}-{PREVIEW_EDGE}")
+}
+/// What a result depends on besides the photo's content and the model: the raw decoding of the
+/// source it was made from (camera profile, highlight recovery, demosaic; 0 for the defaults).
+pub fn source_options(d: &lightcraft_develop::DevelopSettings) -> u64 {
+    crate::files::RawOptions { capture_radius: false, ..crate::files::RawOptions::of(d) }.key()
+}
+/// Whether `a` was made under `d`'s raw decoding (a result made under other settings isn't
+/// applied: AI Denoise has to run again).
+pub fn matches_decoding(a: &lightcraft_develop::DenoiseRef, d: &lightcraft_develop::DevelopSettings) -> bool {
+    a.raw == source_options(d)
 }
 pub fn can_denoise(s: &Session, id: PhotoId) -> Result<(), String> {
     let p = s.catalog.photo(id).ok_or("no such photo")?;
@@ -155,6 +167,8 @@ impl Session {
             return Err("AI Denoise is already running on this photo.".into());
         }
         let p = self.catalog.photo(id).ok_or("no such photo")?.clone();
+        let raw_key = source_options(&p.develop);
+        let raw_opts = if p.develops_raw() { crate::files::RawOptions::of(&p.develop) } else { Default::default() };
         let family = match p.develop.enhance.denoise_model {
             DenoiseModel::Auto => {
                 if crate::media::source_info(&p).raw {
@@ -197,24 +211,17 @@ impl Session {
                     Source::File { path } => {
                         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
                         if lightcraft_raw::probe(&bytes).is_some() {
-                            let raw = prepare_raw(&bytes)?;
+                            let raw = crate::files::prepare_raw(&bytes, &raw_opts)?;
                             if raw.cfa.as_ref().is_some_and(|c| c.is_bayer()) {
                                 variant = Variant::Bayer;
-                                let n = raw.normalized().map_err(|e| e.to_string())?;
-                                let (packed, w, h, offset) = pack_bayer(&n)?;
-                                let out = infer_selected(
-                                    dir.as_deref().ok_or("no models folder")?,
-                                    variant,
-                                    custom.as_ref(),
-                                    &packed,
-                                    w,
-                                    h,
-                                    true,
-                                    &progress,
+                                let dir = dir.as_deref().ok_or("no models folder")?;
+                                let (img, source) = denoise_bayer(
+                                    &raw,
+                                    &bytes,
+                                    || src.load_source(),
+                                    |packed, w, h| infer_selected(dir, Variant::Bayer, None, packed, w, h, true, &progress),
                                 )?;
-                                let camera = unpack_camera(out, w * 2, h * 2, n.width, n.height, offset);
-                                let img = camera_source(&raw, &bytes, camera);
-                                (None, img)
+                                (Some(source), img)
                             } else {
                                 let img = src.load()?;
                                 let data = infer_selected(
@@ -320,6 +327,7 @@ impl Session {
             } else {
                 format!("{}:{variant:?}", if family == DenoiseModel::Raw { model_tag() } else { "denoise-nind-v1".into() })
             };
+            let tag = if raw_key == 0 { tag } else { format!("{tag}:{raw_key:016x}") };
             let model = if preview { format!("{tag}:preview") } else { tag };
             let key = result_key(&source, &model);
             store::put_rgb(Kind::Denoise, &key, &full, to.as_deref())?;
@@ -329,7 +337,7 @@ impl Session {
             }
             forget_levels(&key);
             ctl.report(1., "Done");
-            Ok(Outcome::Denoise(DenoiseDone { key, source, model, family, preview }))
+            Ok(Outcome::Denoise(DenoiseDone { key, source, model, family, preview, raw: raw_key }))
         });
         Ok(self.enhance.spawn(
             id,
@@ -374,29 +382,67 @@ pub fn unpack_camera(data: Vec<[f32; 3]>, w: usize, h: usize, ow: usize, oh: usi
     }
     out
 }
-/// Decode with exactly the source loader's camera/DCP metadata, also used by paired evaluations.
-pub fn prepare_raw(bytes: &[u8]) -> Result<lightcraft_raw::RawImage, String> {
-    let mut raw = lightcraft_raw::decode(bytes).map_err(|e| e.to_string())?;
-    crate::dcp_profiles::apply(&mut raw);
-    lightcraft_raw::camera_matrices::fill(
-        &mut raw.color,
-        raw.metadata.make.as_deref().unwrap_or_default(),
-        raw.metadata.model.as_deref().unwrap_or_default(),
-    );
-    Ok(raw)
-}
-/// Apply the source camera transform to camera RGB, without changing crop or orientation.
+/// Apply the source camera transform to camera RGB, without changing crop or orientation. The
+/// camera look's nonlinear hue/saturation table stays with the pipeline, as for the source.
 pub fn camera_rgb_to_working(raw: &lightcraft_raw::RawImage, bytes: &[u8], rgb: &mut RgbFrame) {
     let t = lightcraft_raw::color::camera_transform(raw, lightcraft_raw::color::as_shot_white_xy(raw));
     let lens = crate::files::embedded_lens(&raw.info());
     let look = crate::camera_preview::fit_preview(raw, bytes, &t, lens.as_ref());
     let matrix = look.as_ref().map_or(t.matrix, |p| p.matrix.mul(&t.matrix));
-    let hue = look.as_ref().and_then(|p| p.hue_sat.as_ref()).and_then(crate::camera_preview::HueSat::new);
     let gain = 2f32.powf(t.baseline_exposure as f32);
-    rgb.map_in_place(|p| {
-        let rgb = matrix.apply_f32(std::array::from_fn(|c| p[c] * t.wb[c])).map(|v| v * gain);
-        hue.as_ref().map_or(rgb, |h| h.apply(rgb))
-    });
+    rgb.map_in_place(|p| matrix.apply_f32(std::array::from_fn(|c| p[c] * t.wb[c])).map(|v| v * gain));
+}
+/// How far around clipped photosites the source decode replaces the model, and the soft edge.
+const CLIP_GROW: usize = 4;
+const CLIP_FEATHER: usize = 2;
+/// AI Denoise of a Bayer raw's mosaic, prepared by [`crate::files::prepare_raw`]. `infer` turns
+/// the packed RGGB planes (`w × h`, four values per pixel) into camera RGB at twice their size.
+/// The result matches `source` (the photo's normal decode, loaded once the model has run): the
+/// same working space, crop and orientation. Where the sensor clipped it is `source` itself,
+/// whose highlight recovery the model can't do (and clipped photosites carry no noise).
+fn denoise_bayer(
+    raw: &lightcraft_raw::RawImage,
+    bytes: &[u8],
+    source: impl FnOnce() -> Result<crate::media::DecodedSource, String>,
+    infer: impl FnOnce(&[f32], usize, usize) -> Result<Vec<[f32; 3]>, String>,
+) -> Result<(RgbFrame, Arc<RgbFrame>), String> {
+    let n = raw.normalized().map_err(|e| e.to_string())?;
+    let (packed, w, h, offset) = pack_bayer(&n)?;
+    let out = infer(&packed, w, h)?;
+    drop(packed);
+    if out.len() != w * h * 4 {
+        return Err("the denoiser returned invalid pixels".into());
+    }
+    let camera = unpack_camera(out, w * 2, h * 2, n.width, n.height, offset);
+    drop(n);
+    let mut img = camera_source(raw, bytes, camera);
+    let source = source()?;
+    if (source.image.width, source.image.height) != (img.width, img.height) {
+        return Err("denoise source size mismatch".into());
+    }
+    if let Some(clip) = source.info.as_ref().and_then(|i| i.clip_confidence.as_ref()) {
+        keep_clipped(&mut img, &source.image, clip);
+    }
+    Ok((img, source.image))
+}
+/// `img` takes `source`'s pixels where the sensor clipped, [`CLIP_GROW`] pixels around them and a
+/// [`CLIP_FEATHER`] edge.
+fn keep_clipped(img: &mut RgbFrame, source: &RgbFrame, clip: &lightcraft_pipeline::ClipConfidence) {
+    if (clip.width, clip.height) != (img.width, img.height) || !clip.data.iter().any(|v| *v > 0.0) {
+        return;
+    }
+    let clipped =
+        li_raster::GrayFrame { width: clip.width, height: clip.height, data: clip.data.iter().map(|v| f32::from(u8::from(*v > 0.0))).collect() };
+    let mut weight = clipped.max_filter(CLIP_GROW).data;
+    li_raster::blur::box_blur_n(&mut weight, clip.width, clip.height, 1, CLIP_FEATHER);
+    for ((o, s), t) in img.data.iter_mut().zip(&source.data).zip(&weight) {
+        let t = t.clamp(0.0, 1.0);
+        if t > 0.0 {
+            for c in 0..3 {
+                o[c] += (s[c] - o[c]) * t;
+            }
+        }
+    }
 }
 fn camera_source(raw: &lightcraft_raw::RawImage, bytes: &[u8], mut rgb: RgbFrame) -> RgbFrame {
     lightcraft_raw::opcodes::apply_list3(&raw.opcodes.list3, &mut rgb);
@@ -602,6 +648,134 @@ mod tests {
         let expected = expected.into_oriented(raw.orientation);
         assert_eq!((actual.width, actual.height), (3, 4));
         assert_eq!(actual.data, expected.data);
+    }
+
+    /// A grey RGGB scene under as-shot multipliers (2.4, 1, 1.6) with a block at the white level
+    /// (a blown window), cropped oddly and turned a quarter.
+    fn clipped_bayer_dng() -> Vec<u8> {
+        use lightcraft_raw::*;
+        let (w, h) = (96usize, 64usize);
+        let cfa = Cfa::bayer("RGGB").unwrap();
+        let (black, white) = (256.0, 16000.0);
+        let data = (0..w * h)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                if (40..72).contains(&x) && (16..48).contains(&y) {
+                    return white as u16;
+                }
+                let grey = 0.25 + 0.1 * x as f32 / w as f32;
+                let v = grey / [2.4, 1.0, 1.6][cfa.color_at(x, y) as usize];
+                (black + v * (white - black)) as u16
+            })
+            .collect();
+        let raw = RawImage {
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            data: RawData::U16(data),
+            cfa: Some(cfa),
+            bits: 14,
+            black: BlackLevel::uniform(black),
+            white: vec![white],
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(3, 1, 89, 61),
+            orientation: lightcraft_geom::Orientation::Rotate90,
+            color: ColorData {
+                illuminant: [21, 0],
+                color_matrix: [Some(li_color::Mat3([[0.9, 0.2, -0.15], [-0.3, 1.25, 0.08], [0.02, -0.12, 0.85]])), None],
+                as_shot_neutral: Some([1.0 / 2.4, 1.0, 1.0 / 1.6]),
+                ..Default::default()
+            },
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        };
+        write_dng(&raw, &Default::default()).unwrap()
+    }
+
+    /// A stand-in Bayer model: each 2×2 block becomes [R, mean G, B] scaled by `gain`.
+    fn bayer_stub(gain: f32) -> impl FnOnce(&[f32], usize, usize) -> Result<Vec<[f32; 3]>, String> {
+        move |packed, w, h| {
+            let mut out = vec![[0.0; 3]; w * h * 4];
+            for y in 0..h {
+                for x in 0..w {
+                    let p = &packed[(y * w + x) * 4..][..4];
+                    let rgb = [p[0], (p[1] + p[2]) / 2.0, p[3]].map(|v| v * gain);
+                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        out[(2 * y + dy) * 2 * w + 2 * x + dx] = rgb;
+                    }
+                }
+            }
+            Ok(out)
+        }
+    }
+
+    #[test]
+    fn ai_denoise_bayer_keeps_the_source_highlight_recovery_where_the_sensor_clipped() {
+        let bytes = clipped_bayer_dng();
+        let opts = crate::files::RawOptions::default();
+        let (reference, info) = crate::files::load_bytes_with(&bytes, usize::MAX, &opts).unwrap();
+        let clip = info.clip_confidence.clone().expect("the raw has a clip map");
+        assert!(clip.data.iter().any(|v| *v >= 1.0), "the block is clipped");
+        let raw = crate::files::prepare_raw(&bytes, &opts).unwrap();
+        let reference = Arc::new(reference);
+        let decoded = crate::media::DecodedSource::new(reference.clone(), Some(info));
+        let (img, original) = denoise_bayer(&raw, &bytes, || Ok(decoded), bayer_stub(0.5)).unwrap();
+        assert!(Arc::ptr_eq(&original, &reference), "the normal decode is handed back for export");
+        assert_eq!((img.width, img.height), (reference.width, reference.height));
+        let near_clip =
+            li_raster::GrayFrame { width: clip.width, height: clip.height, data: clip.data.clone() }.max_filter(CLIP_GROW + CLIP_FEATHER + 2);
+        let (mut inside, mut outside) = (0, 0);
+        for (i, (d, r)) in img.data.iter().zip(reference.data.iter()).enumerate() {
+            if clip.data[i] >= 1.0 {
+                inside += 1;
+                // the source's reconstruction, not the camera's white turned magenta by white balance
+                for c in [0, 2] {
+                    let (got, want) = (d[c] / d[1], r[c] / r[1]);
+                    assert!((got / want - 1.0).abs() < 0.01, "pixel {i}: ratio {got} vs {want} ({d:?} vs {r:?})");
+                }
+            } else if near_clip.data[i] == 0.0 {
+                outside += 1;
+                for c in 0..3 {
+                    assert!((d[c] - 0.5 * r[c]).abs() < 0.02 * r[c].abs() + 1e-4, "pixel {i}: the model's result is kept: {d:?} vs {r:?}");
+                }
+            }
+        }
+        assert!(inside > 100 && outside > 1000, "{inside} clipped, {outside} away from the clip");
+    }
+
+    #[test]
+    fn ai_denoise_result_is_not_applied_after_the_raw_decoding_changes() {
+        let mut d = lightcraft_develop::DevelopSettings::default();
+        let key = result_key("0123", "raw-decoding-test");
+        store::put_rgb(Kind::Denoise, &key, &RgbFrame { width: 4, height: 4, data: vec![[0.5; 3]; 16] }, None).unwrap();
+        let source = lightcraft_preview::Hash128(0x5eed);
+        d.enhance.denoise = 100.0;
+        d.enhance.ai = Some(lightcraft_develop::DenoiseRef {
+            key: lightcraft_develop::AiKey::parse(&key).unwrap(),
+            source: lightcraft_develop::AiKey(source.0),
+            model: DenoiseModel::Raw,
+            preview: false,
+            raw: source_options(&d),
+        });
+        let src = Arc::new(RgbFrame { width: 4, height: 4, data: vec![[0.1; 3]; 16] });
+        let mixed = |d: &lightcraft_develop::DevelopSettings| super::super::for_render(&src, &Arc::new(d.clone()), Some(source)).0.data[0][0];
+        assert_eq!(mixed(&d), 0.5, "made under these settings: applied");
+        let mut highlights = d.clone();
+        highlights.raw.highlights = lightcraft_develop::HighlightMode::Clip;
+        let mut profile = d.clone();
+        profile.camera_profile = "matrix".into();
+        for changed in [&highlights, &profile] {
+            assert!(!matches_decoding(&changed.enhance.ai.unwrap(), changed));
+            assert_eq!(mixed(changed), 0.1, "made under other raw settings: not applied");
+        }
+        let mut capture = d.clone();
+        capture.raw.capture.enabled = !capture.raw.capture.enabled;
+        assert_eq!(mixed(&capture), 0.5, "capture sharpening doesn't change the decoded source");
+        store::delete(Kind::Denoise, &key);
     }
 
     /// A stand-in denoiser: every pixel becomes the image mean (noise gone, brightness kept).

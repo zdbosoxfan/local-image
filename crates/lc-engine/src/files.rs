@@ -450,12 +450,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             }
             Err(e) => return Err(e.to_string()),
         };
-        crate::dcp_profiles::apply_selected(&mut raw, opts.camera_profile);
-        lightcraft_raw::camera_matrices::fill(
-            &mut raw.color,
-            raw.metadata.make.as_deref().unwrap_or_default(),
-            raw.metadata.model.as_deref().unwrap_or_default(),
-        );
+        select_profile(&mut raw, opts);
         let xy = lightcraft_raw::color::as_shot_white_xy(&raw);
         let t = lightcraft_raw::color::camera_transform(&raw, xy);
         // Keep the actual source uncorrected. Only the private camera-look
@@ -672,6 +667,30 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         img.into_oriented(Orientation::from_exif(d.orientation)),
         SourceInfo { source_orientation: Orientation::from_exif(d.orientation), ..Default::default() },
     ))
+}
+
+/// The photo's camera profile and the fallback camera matrices, as every raw source decode
+/// applies them.
+fn select_profile(raw: &mut lightcraft_raw::RawImage, opts: &RawOptions) {
+    crate::dcp_profiles::apply_selected(raw, opts.camera_profile);
+    lightcraft_raw::camera_matrices::fill(
+        &mut raw.color,
+        raw.metadata.make.as_deref().unwrap_or_default(),
+        raw.metadata.model.as_deref().unwrap_or_default(),
+    );
+}
+
+/// A raw decoded and prepared as [`load_bytes_with`] prepares it for demosaic, for work on the
+/// mosaic outside this loader (AI Denoise): the selected camera profile and, when the file has an
+/// embedded lens profile, its lens opcodes removed (the pipeline's lens stage applies that profile).
+pub fn prepare_raw(bytes: &[u8], opts: &RawOptions) -> Result<lightcraft_raw::RawImage, String> {
+    let allowance = lightcraft_sysmem::heavy_jobs().headroom().min(usize::MAX as u64) as usize;
+    let mut raw = lightcraft_raw::decode_with_memory_budget(bytes, allowance).map_err(|e| e.to_string())?;
+    select_profile(&mut raw, opts);
+    if embedded_lens(&raw.info()).is_some() {
+        raw.opcodes.list3.retain(|op| !is_lens_opcode(op));
+    }
+    Ok(raw)
 }
 
 /// A DNG `ProfileToneCurve` (linear in, linear out, 1.0 = white after exposure compensation) as the
