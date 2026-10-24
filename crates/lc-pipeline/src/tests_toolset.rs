@@ -107,7 +107,7 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("default/rendered", 0x9ab6df6ab933abe6, 0x97d20305a4beb718),
     ("default/raw", 0xe4cadb152e11a72a, 0x97d20305a4beb718),
     ("raw defaults + edits/rendered", 0x42f4ffd444da80e2, 0x15c51fec88c0f59f),
-    ("raw defaults + edits/raw", 0x92621875f51e6c28, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/raw", 0xb37349091d26c1e9, 0x15c51fec88c0f59f),
     ("optics + geometry + crop/rendered", 0x611da93f49c17e07, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0xded90c5d0013a5d1, 0x0d608f6981034f4f),
     ("profile look/rendered", 0x00ee8131abe439a1, 0x67aea33bdcc2fa0b),

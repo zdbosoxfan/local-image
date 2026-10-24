@@ -506,16 +506,15 @@ fn apply_tone_detail(
         let levels = llf::num_levels(mapped.width, mapped.height);
         let center = (ppl as f32 * 0.015 * (proxy.width as f32 / img.width as f32)).max(1.).log2();
         let weights = (0..levels).map(|i| (-((i as f32 - center) / 1.5).powi(2)).exp()).collect();
+        // The change Clarity +1 makes to the remapping, in one pass (upstream's filter with and
+        // without it, differenced).
         let p = llf::Params {
-            remap: llf::Remap::Darktable { sigma: 1.5 / range, shadows: 1., highlights: 1., clarity: 1. },
+            remap: llf::Remap::Detail { sigma: 1.5 / range },
             num_gamma: CLARITY_GAMMA,
             level_weights: Some(weights),
             remap_residual: false,
         };
-        // Weighted identity is subtracted too; weights suppress the baseline Laplacians as well.
-        let identity = llf::Params { remap: llf::Remap::Darktable { sigma: 1.5 / range, shadows: 1., highlights: 1., clarity: 0. }, ..p.clone() };
-        let detail =
-            llf::local_laplacian_with(&mapped, &p).zip_map(&llf::local_laplacian_with(&mapped, &identity), |a, b| (a - b) * range * CLARITY_GAIN);
+        let detail = llf::local_laplacian_detail(&mapped, &p).map(|v| v * range * CLARITY_GAIN);
         field = upsample_gain(&pl, &detail, &l);
         for (v, &ll) in field.data.iter_mut().zip(&l.data) {
             *v *= cl * (-(ll / 3.5).powi(2)).exp();

@@ -119,7 +119,12 @@ fn candidate_step_order_detail_hue_and_clip_protection() {
 }
 #[test]
 fn modes_structure_skin_layers_and_cache_changes() {
-    let src = Arc::new(RgbFrame::from_fn(80, 60, |x, y| [0.3 + 0.02 * (x as f32 * 0.6).sin(), 0.15 + 0.007 * (y as f32 * 0.7).cos(), 0.08]));
+    // A bright, saturated, textured band (Natural restrains its saturation, Punch raises it with
+    // Clarity's detail) above a dim skin-like area.
+    let src = Arc::new(RgbFrame::from_fn(80, 60, |x, y| {
+        let t = 1. + 0.3 * (x as f32 * 0.6).sin();
+        if y < 20 { [2.4 * t, 0.35 * t, 0.12 * t] } else { [0.3 + 0.02 * (x as f32 * 0.6).sin(), 0.15 + 0.007 * (y as f32 * 0.7).cos(), 0.08] }
+    }));
     let info = SourceInfo::default();
     let req = RenderRequest::fit(80, 60);
     let cache = StageCache::default();

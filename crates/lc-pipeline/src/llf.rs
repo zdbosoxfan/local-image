@@ -14,6 +14,10 @@
 //! * the γ loop accumulates each sample's Laplacians as it goes (upstream keeps every sample's
 //!   pyramid in memory): same sums in the same order, a fraction of the memory;
 //! * optional per-level weights (a band of scales: Clarity works on mid-size detail only);
+//! * [`Remap::Detail`], upstream's midtone detail term on its own, and [`local_laplacian_detail`],
+//!   which assembles the remapped levels on a zero residual: Clarity's change to the image in one
+//!   pass instead of the difference of two filters (the pyramids are linear, so the result is the
+//!   same);
 //! * a second remapping, [`Remap::Tone`] (ours): a tone curve `f` (EV) applied with the value at the
 //!   neighbourhood's level γ near γ — so detail rides along unchanged — and with the pixel's own
 //!   value across edges, blended by a Gaussian of `x − γ`; with it the coarsest level is remapped
@@ -220,6 +224,9 @@ pub fn curve_at(lut: &[f32], ev: f32) -> f32 {
 pub enum Remap {
     /// darktable's `curve_scalar`.
     Darktable { sigma: f32, shadows: f32, highlights: f32, clarity: f32 },
+    /// `curve_scalar`'s midtone detail term alone, `(x − γ)·dt_fast_expf(−(x − γ)²/(2σ²/3))`: the
+    /// change one unit of `Darktable`'s `clarity` makes to its remapping.
+    Detail { sigma: f32 },
     /// A tone curve `lut` (EV → EV change) on a plane that maps EV `e` to `(e − lo) / range`: the
     /// remapped value is `x + (f(γ)·K + f(x)·(1 − K)) / range` with `K = exp(−1.5 (x − γ)² / σ²)`.
     Tone { sigma: f32, lut: Vec<f32>, lo: f32, range: f32 },
@@ -230,6 +237,10 @@ impl Remap {
     pub fn apply(&self, x: f32, g: f32) -> f32 {
         match self {
             Remap::Darktable { sigma, shadows, highlights, clarity } => curve_scalar(x, g, *sigma, *shadows, *highlights, *clarity),
+            Remap::Detail { sigma } => {
+                let c = x - g;
+                c * fast_expf(-c * c / (2.0 * sigma * sigma / 3.0))
+            }
             Remap::Tone { sigma, lut, lo, range } => {
                 let t = x - g;
                 let k = (-1.5 * t * t / (sigma * sigma)).exp();
@@ -270,9 +281,20 @@ pub fn local_laplacian(input: &GrayFrame, sigma: f32, shadows: f32, highlights: 
 
 /// [`local_laplacian`] with the extensions of [`Params`].
 pub fn local_laplacian_with(input: &GrayFrame, p: &Params) -> GrayFrame {
+    filter(input, p, true)
+}
+
+/// The remapped Laplacian levels of [`local_laplacian_with`] assembled on a zero residual instead
+/// of the input's (unless `remap_residual`): for a remapping that is itself a change, such as
+/// [`Remap::Detail`], the change it makes to the image.
+pub fn local_laplacian_detail(input: &GrayFrame, p: &Params) -> GrayFrame {
+    filter(input, p, false)
+}
+
+fn filter(input: &GrayFrame, p: &Params, input_residual: bool) -> GrayFrame {
     let (wd, ht) = (input.width, input.height);
     if wd < 4 || ht < 4 {
-        return input.clone();
+        return if input_residual { input.clone() } else { GrayFrame::new(wd, ht) };
     }
     let nl = num_levels(wd, ht).min(30);
     let last = nl - 1;
@@ -364,7 +386,13 @@ pub fn local_laplacian_with(input: &GrayFrame, p: &Params) -> GrayFrame {
         }
     }
     // assemble the output pyramid coarse to fine
-    let mut out = if p.remap_residual { std::mem::take(&mut acc[last]) } else { top_in };
+    let mut out = if p.remap_residual {
+        std::mem::take(&mut acc[last])
+    } else if input_residual {
+        top_in
+    } else {
+        vec![0.0; top_in.len()]
+    };
     for l in (0..last).rev() {
         let (pw, ph) = (dl(w, l), dl(h, l));
         let mut fine = gauss_expand(&out, pw, ph);
@@ -402,6 +430,27 @@ mod tests {
         let o = local_laplacian(&v, 0.2, 1.0, 1.0, 0.0);
         let err = v.data.iter().zip(&o.data).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
         assert!(err < 2e-4, "{err}");
+    }
+
+    #[test]
+    fn clarity_detail_in_one_pass_equals_the_difference_of_two_filters() {
+        let v = GrayFrame::from_fn(173, 119, |x, y| {
+            (0.25 + 0.5 * x as f32 / 173.0 + 0.04 * ((x as f32 * 0.4).sin() * (y as f32 * 0.3).cos()) + if y > 60 { 0.15 } else { 0.0 })
+                .clamp(0.0, 1.0)
+        });
+        let sigma = 1.5 / 24.0;
+        let levels = num_levels(v.width, v.height);
+        let weights: Vec<f32> = (0..levels).map(|i| (-((i as f32 - 2.0) / 1.5).powi(2)).exp()).collect();
+        let p = |remap| Params { remap, num_gamma: 48, level_weights: Some(weights.clone()), remap_residual: false };
+        let with = local_laplacian_with(&v, &p(Remap::Darktable { sigma, shadows: 1.0, highlights: 1.0, clarity: 1.0 }));
+        let without = local_laplacian_with(&v, &p(Remap::Darktable { sigma, shadows: 1.0, highlights: 1.0, clarity: 0.0 }));
+        let detail = local_laplacian_detail(&v, &p(Remap::Detail { sigma }));
+        let peak = detail.data.iter().fold(0.0f32, |m, d| m.max(d.abs()));
+        assert!(peak > 1e-3, "the fixture must have detail to boost: {peak}");
+        for i in 0..v.len() {
+            let expected = with.data[i] - without.data[i];
+            assert!((detail.data[i] - expected).abs() < 2e-6, "pixel {i}: {} vs {expected}", detail.data[i]);
+        }
     }
 
     #[test]
