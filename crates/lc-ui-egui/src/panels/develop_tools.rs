@@ -333,9 +333,17 @@ pub fn color_cal_section(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &Develop
     });
 }
 
-/// Each frame: store the finished background Upright analyses (after Paste, Sync, Auto Sync or a
-/// preset), and keep polling while they run.
+/// Each frame: announce a background Upright analysis of several photos (after Paste, Sync, Auto
+/// Sync or a preset) as it starts, store the finished ones, and keep polling while they run.
 pub fn upright_poll(app: &mut LightcraftApp, ctx: &egui::Context) {
+    if let Some(job) = app.session.upright.jobs().last().filter(|j| j.total > 1 && !j.finished()) {
+        let seen = std::sync::Arc::as_ptr(job) as usize;
+        if app.ui.upright_seen != Some(seen) {
+            app.ui.upright_seen = Some(seen);
+            let text = format!("{} 0/{}…", li_i18n::library::t("Upright"), job.total);
+            app.toast(ctx, text);
+        }
+    }
     let changed = app.session.upright_poll();
     if changed > 0 {
         ctx.request_repaint();
@@ -348,8 +356,8 @@ pub fn upright_poll(app: &mut LightcraftApp, ctx: &egui::Context) {
     }
 }
 
-/// The background Upright analysis's progress and its Cancel button (the photos keep the mode;
-/// each render solves it meanwhile).
+/// The background Upright analysis's progress and its Cancel button, atop the right panel whichever
+/// tool is open (the photos keep the mode; each render solves it meanwhile).
 pub fn upright_progress(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     use std::sync::atomic::Ordering;
     let running: Vec<_> = app.session.upright.jobs().iter().filter(|j| !j.finished()).collect();
@@ -358,13 +366,15 @@ pub fn upright_progress(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     }
     let total: usize = running.iter().map(|j| j.total).sum();
     let done: usize = running.iter().map(|j| j.done.load(Ordering::Relaxed)).sum();
-    ui.horizontal(|ui| {
-        let text = format!("{} {done}/{total}", li_i18n::library::t("Upright"));
-        let bar = ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).desired_width(150.0).text(text));
-        register(ui.ctx(), "progress:upright", bar.rect);
-        if crate::widgets::text_button(ui, "uprightCancel", li_i18n::library::t("Cancel"), false).clicked() {
-            let _ = app.run("develop.cancelUpright", json!({}));
-        }
+    pad(ui, |ui| {
+        ui.horizontal(|ui| {
+            let text = format!("{} {done}/{total}", li_i18n::library::t("Upright"));
+            let bar = ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).desired_width(150.0).text(text));
+            register(ui.ctx(), "progress:upright", bar.rect);
+            if crate::widgets::text_button(ui, "uprightCancel", li_i18n::library::t("Cancel"), false).clicked() {
+                let _ = app.run("develop.cancelUpright", json!({}));
+            }
+        });
     });
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
 }

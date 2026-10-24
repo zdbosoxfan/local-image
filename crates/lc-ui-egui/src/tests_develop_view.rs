@@ -374,6 +374,50 @@ fn double_clicking_a_slider_returns_it_to_the_photos_own_default() {
     assert_eq!((wb.mode, wb.temp, wb.tint), (lightcraft_develop::WbMode::AsShot, 5200.0, 4.0), "As Shot, not 6500 K Custom");
 }
 
+/// While the background Upright analysis of a Sync runs, its progress (and Cancel) is atop the
+/// right panel whichever tool is open, and a toast announces it as it starts.
+#[test]
+fn a_running_upright_analysis_shows_atop_any_panel() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let release = Arc::new(AtomicBool::new(false));
+    let held = release.clone();
+    let mut session = lightcraft_engine::Session::new();
+    session.media.file_loader = Some(Arc::new(move |path: &str, _| {
+        // the other photos' analysis waits until the test has looked
+        let t0 = std::time::Instant::now();
+        while path != "p1.tif" && !held.load(Ordering::Relaxed) && t0.elapsed() < Duration::from_secs(60) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Ok((li_raster::RgbFrame::filled(96, 64, [0.2, 0.3, 0.4]), Default::default()))
+    }));
+    for id in [PhotoId(1), PhotoId(2), PhotoId(3)] {
+        let name = format!("p{}.tif", id.0);
+        let p = Photo::new(id, Source::File { path: name.clone() }, &name, "TIFF", 96, 64, "2026-10-24");
+        session.catalog.apply(Op::AddPhoto { photo: Box::new(p) }).unwrap();
+    }
+    session.execute("library.select", &json!({"ids": [1, 2, 3], "active": 1})).unwrap();
+    let mut app = LightcraftApp::new(session, crate::Services { png: None, ..Default::default() });
+    app.ui.view = crate::state::ViewMode::Detail;
+    app.ui.right = crate::state::RightPanel::Edit;
+    app.renderer.set_offload(Box::new(Capture::default()));
+    let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
+    h.step();
+    h.app.session.execute("geometry.upright", &json!({"mode": "vertical"})).unwrap();
+    h.app.session.execute("develop.sync", &json!({"groups": ["geometry"]})).unwrap();
+    h.step();
+    h.step();
+    let toast = h.app.ui.toast.clone().map(|t| t.0).unwrap_or_default();
+    assert!(toast.starts_with("Upright 0/2"), "announced: {toast:?}");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "progress:upright"), "progress atop the Edit panel");
+    assert!(h.app.widgets.iter().any(|(w, _)| w == "button:uprightCancel"), "with its Cancel button");
+    release.store(true, Ordering::Relaxed);
+    let stored =
+        h.step_until(T, |h| [PhotoId(2), PhotoId(3)].iter().all(|id| h.app.session.develop_of(*id).unwrap().geometry.upright_transform.is_some()));
+    assert!(stored);
+    h.step();
+    assert!(!h.app.widgets.iter().any(|(w, _)| w == "progress:upright"), "gone once stored");
+}
+
 /// Sync gives the other photos the Upright mode at once; the frame loop stores each one's own
 /// analysis when the background job is done, as one undo step with the Sync.
 #[test]
