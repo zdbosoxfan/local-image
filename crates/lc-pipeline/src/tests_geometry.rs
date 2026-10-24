@@ -519,3 +519,32 @@ fn bugfix_develop_rotation_preserves_manual_and_upright_perspective() {
         }
     }
 }
+
+/// A facade shot with a 16 mm lens (full frame) tilted 20° up: with the photo's focal length,
+/// Upright Vertical makes the verticals parallel and keeps the facade's proportions (the assumed
+/// 27 mm camera made it about 10 % too tall), and Auto corrects it instead of leaving it to Level.
+#[test]
+fn upright_uses_the_photos_focal_length() {
+    use crate::transform::{focal_from_35mm, recentre, rot_x, rotation_homography};
+    let (w, h) = (720usize, 480usize);
+    let f = focal_from_35mm(16.0, w as f64, h as f64).expect("a plausible focal length");
+    // source (centred) → facade grid: the camera's pitch undone with its own focal length
+    let shot = recentre(&rotation_homography(&rot_x(-20f64.to_radians()), f));
+    let src = keystoned_grid(w, h, shot, 48.0);
+    let to_source = shot.inverse().expect("invertible");
+    let info = SourceInfo { focal_35mm: Some(16.0), ..Default::default() };
+    for mode in [Upright::Vertical, Upright::Auto] {
+        let fix = crate::upright::auto_transform(&src, &info, &DevelopSettings::default(), mode);
+        // facade → corrected image: a similarity when the correction is right
+        let c = |x: f64, y: f64| fix.apply(to_source.apply(Point::new(x, y)));
+        // within the analysis's precision (its vanishing point is a few percent off here; Auto at
+        // the assumed focal length left the lines leaning by 0.34)
+        for x in [-0.8, 0.0, 0.8] {
+            let lean = c(x, -0.5).x - c(x, 0.5).x;
+            assert!(lean.abs() < 0.012, "{mode:?}: the facade line at {x} leans by {lean:.4}");
+        }
+        let (o, e) = (c(0.0, 0.0), 1e-3);
+        let aspect = c(0.0, e).dist(o) / c(e, 0.0).dist(o);
+        assert!((aspect - 1.0).abs() < 0.01, "{mode:?}: corrected facade aspect {aspect:.4}");
+    }
+}

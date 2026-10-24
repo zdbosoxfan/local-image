@@ -156,6 +156,9 @@ pub struct SourceInfo {
     /// Original Sony curves from the single lc-meta reader; converted only if no embedded map exists.
     pub sony_lens: Option<lightcraft_develop::SonyLensData>,
     pub source_orientation: lightcraft_geom::Orientation,
+    /// 35 mm-equivalent focal length (equivalent by the diagonal, as EXIF
+    /// FocalLengthIn35mmFormat), for Upright's camera model.
+    pub focal_35mm: Option<f64>,
     /// Linear camera -> working basis for calibrated per-plane CA.
     pub lens_camera_to_working: Option<li_color::Mat3>,
     /// Nonlinear fitted look is evaluated after lens geometry.
@@ -222,6 +225,7 @@ impl Default for SourceInfo {
             embedded_ca_baked: false,
             sony_lens: None,
             source_orientation: lightcraft_geom::Orientation::Normal,
+            focal_35mm: None,
             relative_wb: false,
             camera_color: None,
             camera_profile: None,

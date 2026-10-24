@@ -7,10 +7,12 @@
 //!    segment pairs finds the point (possibly at infinity) most segments point at, refined by weighted least squares
 //!    (smallest eigenvector of `Σ w·l·lᵀ` over the inlier lines).
 //! 3. **Correction** — a virtual camera rotation `K·R·K⁻¹` that sends the vertical vanishing direction to the image
-//!    y axis (and, for Full, the horizontal one to the x axis, with the focal length estimated from their
-//!    orthogonality when possible); Level is a pure rotation.
+//!    y axis (and, for Full, the horizontal one to the x axis); Level is a pure rotation. `K` uses the photo's
+//!    focal length from its metadata, else (Full) one estimated from the two directions' orthogonality, else
+//!    [`DEFAULT_FOCAL`].
 //!
-//! Guided Upright solves the same problem from up to four user-drawn guides.
+//! Guided Upright solves the same problem from up to four user-drawn guides (it renders from settings alone, so
+//! it keeps [`DEFAULT_FOCAL`] unless both guide families give the focal length).
 //!
 //! Coordinates: centred, `(p − centre) / (long edge / 2)` of the lens-corrected image, so results are independent
 //! of the analysis resolution. Results map lens-corrected → transformed coordinates.
@@ -24,7 +26,7 @@ use lightcraft_geom::{Homography, Point};
 
 use crate::SourceInfo;
 
-use crate::transform::{DEFAULT_FOCAL, Mat3, recentre, rotation_homography};
+use crate::transform::{DEFAULT_FOCAL, Mat3, focal_from_35mm, recentre, rotation_homography};
 
 /// A detected (or user-drawn) line segment in centred coordinates.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -422,6 +424,9 @@ pub struct Analysis {
     pub horizontal: Vec<Segment>,
     pub vertical_vp: Option<[f64; 3]>,
     pub horizontal_vp: Option<[f64; 3]>,
+    /// The camera's focal length (half-long-edge units) from the photo's metadata;
+    /// [`DEFAULT_FOCAL`] when unknown.
+    pub focal: Option<f64>,
 }
 
 /// Whether a family's vanishing point is backed by real structure rather than one object: at least three
@@ -451,25 +456,29 @@ pub fn analyze(segs: &[Segment]) -> Analysis {
     let horizontal: Vec<Segment> = segs.iter().copied().filter(|s| s.tilt_from_vertical() > 60.0).collect();
     let vertical_vp = vanishing_point(&vertical).map(|v| v.0).filter(|v| reliable(&vertical, *v, true));
     let horizontal_vp = vanishing_point(&horizontal).map(|v| v.0).filter(|v| reliable(&horizontal, *v, false));
-    Analysis { vertical, horizontal, vertical_vp, horizontal_vp }
+    Analysis { vertical, horizontal, vertical_vp, horizontal_vp, focal: None }
 }
 
 /// The Upright correction for `mode` from an analysis (lens-corrected → transformed, centred coordinates).
 pub fn solve(mode: Upright, a: &Analysis) -> Homography {
+    // The virtual camera rotation needs the real focal length: with a wrong one the vanishing point
+    // still goes to infinity, but the solved angle and with it the corrected aspect are wrong (a
+    // 16 mm shot tilted 20° came out 10 % too tall at the default).
+    let f0 = a.focal.unwrap_or(DEFAULT_FOCAL);
     let level = || level_angle(&a.vertical, &a.horizontal).map(rot_z_h).unwrap_or(Homography::IDENTITY);
-    let vertical = || a.vertical_vp.map(|v| solve_vertical(v, DEFAULT_FOCAL));
+    let vertical = || a.vertical_vp.map(|v| solve_vertical(v, f0));
     let full = || {
         let (v, h) = (a.vertical_vp?, a.horizontal_vp?);
-        let f = focal_from_vps(v, h).unwrap_or(DEFAULT_FOCAL);
+        let f = a.focal.or_else(|| focal_from_vps(v, h)).unwrap_or(DEFAULT_FOCAL);
         Some((solve_full(v, h, f), f))
     };
     match mode {
         Upright::Off | Upright::Guided => Homography::IDENTITY,
         Upright::Level => level(),
-        Upright::Vertical => vertical().map(|r| recentre(&rotation_homography(&r, DEFAULT_FOCAL))).unwrap_or_else(level),
+        Upright::Vertical => vertical().map(|r| recentre(&rotation_homography(&r, f0))).unwrap_or_else(level),
         Upright::Full => match full() {
             Some((r, f)) => recentre(&rotation_homography(&r, f)),
-            None => vertical().map(|r| recentre(&rotation_homography(&r, DEFAULT_FOCAL))).unwrap_or_else(level),
+            None => vertical().map(|r| recentre(&rotation_homography(&r, f0))).unwrap_or_else(level),
         },
         Upright::Auto => {
             // A vertical family that implies a camera roll must be confirmed by the horizontals (a real roll tilts
@@ -488,7 +497,7 @@ pub fn solve(mode: Upright, a: &Analysis) -> Homography {
                 return recentre(&rotation_homography(&r, f));
             }
             match vertical().filter(|r| rotation_angle(r) < 25f64.to_radians()) {
-                Some(r) => recentre(&rotation_homography(&r, DEFAULT_FOCAL)),
+                Some(r) => recentre(&rotation_homography(&r, f0)),
                 // conservative: only small horizon fixes; bigger tilts are usually intentional or scene lines
                 None => level_angle(&a.vertical, &a.horizontal).filter(|d| d.abs() <= 5.0).map(rot_z_h).unwrap_or(Homography::IDENTITY),
             }
@@ -537,8 +546,16 @@ pub fn solve_guided(guides: &[Segment]) -> Homography {
 const ANALYSIS_LONG: usize = 1024;
 
 /// Analyse a source: the lens-corrected (optics applied, no perspective/crop) image at [`ANALYSIS_LONG`] px,
-/// segment detection and vanishing points. Cached per source + optics settings.
+/// segment detection and vanishing points (cached per source + optics settings), and the camera's focal
+/// length from `info`.
 pub fn analyze_source(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Analysis {
+    let (ow, oh) = if s.orientation.swaps_axes() { (src.height, src.width) } else { (src.width, src.height) };
+    let focal = info.focal_35mm.and_then(|f| focal_from_35mm(f, ow as f64, oh as f64));
+    Analysis { focal, ..analyze_lines(src, info, s) }
+}
+
+/// The lines and vanishing points of [`analyze_source`] (camera-independent, so cached).
+fn analyze_lines(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Analysis {
     static CACHE: Mutex<Vec<(u64, Analysis)>> = Mutex::new(Vec::new());
     let mut base = s.clone();
     base.geometry = Geometry::default();

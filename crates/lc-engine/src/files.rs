@@ -35,6 +35,7 @@ fn meta_of(m: &lightcraft_meta::Metadata) -> (Meta, Option<String>) {
         camera,
         lens: m.lens_model.clone().unwrap_or_default(),
         focal_mm: m.focal_length.map(|f| f as f32),
+        focal_35mm: m.focal_length_35mm.map(|f| f as f32),
         aperture: m.f_number.map(|f| f as f32),
         shutter,
         iso: m.iso,
@@ -609,6 +610,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
                     vec![]
                 },
                 source_orientation: raw.orientation,
+                focal_35mm: None,
                 embedded_lens_baked,
                 embedded_ca_baked,
                 lcp: None,
