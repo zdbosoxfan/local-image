@@ -561,7 +561,12 @@ pub fn plan<'a>(src: &RgbFrame, info: &SourceInfo, s: &'a DevelopSettings, req: 
             info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize),
             info.camera_noise.map(|n| (n.a.map(f32::to_bits), n.b.map(f32::to_bits), n.camera_to_working.map(|r| r.map(f32::to_bits)))),
         ),
-        (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
+        (
+            info.baseline_gain.to_bits(),
+            info.sensor_scale.to_bits(),
+            // a profile's look table sees the exposed values
+            info.camera_profile.as_ref().filter(|p| p.look_table.is_some()).map(|_| s.light.exposure.to_bits()),
+        ),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }

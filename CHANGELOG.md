@@ -73,6 +73,9 @@ All notable changes to Local Image are recorded here. The format follows
   of copying the first photo's numbers. Choosing a white balance mode that matches one of the
   camera's own presets renders the camera's values the sliders show, instead of jumping on the first
   nudge.
+- Camera profiles with a look table (Adobe Standard and Camera Matching DCPs, embedded DNG profiles)
+  apply it after the Exposure slider, as the DNG specification and Lightroom do, so exposure changes
+  keep the profile's colour response.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 

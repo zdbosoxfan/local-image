@@ -92,6 +92,10 @@ fn wb_gain(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings, gain: f32
         li_color::profile::ProfileTables::new_weighted(profile, weights)
     });
     let baseline = info.baseline_gain.max(1e-9);
+    // The look table comes after the user's exposure (DNG spec): it sees the exposed values,
+    // which are scaled back so exposure itself still applies later. A negative's exposure
+    // follows its conversion instead.
+    let ev = if crate::negative::params(s).is_none() { (s.light.exposure as f32).exp2() } else { 1.0 };
     let w = img.width;
     for_rows(&mut img.data, w, |_, row| {
         for p in row.iter_mut() {
@@ -104,7 +108,7 @@ fn wb_gain(img: &mut RgbFrame, info: &SourceInfo, s: &DevelopSettings, gain: f32
                 ];
             }
             if let Some(tables) = &tables {
-                c = tables.apply(c.map(|v| v / baseline), baseline);
+                c = tables.apply(c.map(|v| v / baseline), baseline * ev).map(|v| v / ev);
             }
             if let Some(cc) = &cc {
                 c = cc.apply(c);
@@ -493,6 +497,54 @@ mod tests {
         let m = wb_change((5000.0, 0.0), (5000.0, 30.0)).expect("tint changes the white");
         let g = (0..3).map(|i| m[i].iter().sum::<f32>() * 0.2).collect::<Vec<_>>();
         assert!(g[1] < g[0] && g[1] < g[2], "mask {g:?}");
+    }
+
+    /// A profile whose look table doubles saturation from value 0.5 up and keeps it below 0.25.
+    fn look_table_info() -> SourceInfo {
+        use li_color::profile::{HsvTable, ProfileLook};
+        let scale = [1.0, 1.0, 2.0, 2.0, 2.0];
+        let data = scale.iter().flat_map(|k| [[0.0, *k, 1.0]; 2]).collect();
+        let table = HsvTable { hue_divisions: 1, sat_divisions: 2, val_divisions: 5, data, srgb_value: false };
+        let look = ProfileLook { look_table: Some(table), ..Default::default() };
+        SourceInfo { raw: true, camera_profile: Some(Arc::new(look)), ..SourceInfo::default() }
+    }
+
+    /// Saturation (HSV, linear ProPhoto as the look table reads it) of linear Rec. 2020 `c`.
+    fn prophoto_saturation(c: [f32; 3]) -> f32 {
+        let to = li_color::PROPHOTO.from_xyz().mul(&li_color::bradford(li_color::D65, li_color::D50)).mul(&REC2020.to_xyz());
+        let p = to.apply(c.map(f64::from));
+        let (mx, mn) = (p[0].max(p[1]).max(p[2]), p[0].min(p[1]).min(p[2]));
+        ((mx - mn) / mx) as f32
+    }
+
+    #[test]
+    fn look_table_sees_the_exposed_value() {
+        // ProPhoto (0.25, 0.2, 0.2): value 0.25, saturation 0.2; +1 EV takes it to value 0.5
+        let to_prophoto = li_color::PROPHOTO.from_xyz().mul(&li_color::bradford(li_color::D65, li_color::D50)).mul(&REC2020.to_xyz());
+        let c = to_prophoto.inverse().expect("invertible").apply([0.25, 0.2, 0.2]).map(|v| v as f32);
+        let info = look_table_info();
+        let mut s = DevelopSettings::default();
+        for (ev, want) in [(0.0, 0.2), (1.0, 0.4)] {
+            s.light.exposure = ev;
+            let mut img = RgbFrame::filled(2, 2, c);
+            white_balance(&mut img, &info, &s);
+            let exposed = img.get(0, 0).map(|v| v * (ev as f32).exp2());
+            let sat = prophoto_saturation(exposed);
+            assert!((sat - want).abs() < 0.01, "{ev} EV: saturation {sat}, want {want}");
+            // the exposure itself is still applied later, once
+            let mut whole = RgbFrame::filled(2, 2, c);
+            scene_linear_pre(&mut whole, &info, &s);
+            let w = whole.get(0, 0);
+            assert!(exposed.iter().zip(w).all(|(a, b)| (a - b).abs() < 1e-5), "{exposed:?} vs {w:?}");
+        }
+        // the linear stage is re-keyed by exposure only when a look table needs it
+        let src = RgbFrame::filled(8, 8, c);
+        let key = |info: &SourceInfo, ev: f64| {
+            let s = DevelopSettings { light: lightcraft_develop::Light { exposure: ev, ..Default::default() }, ..DevelopSettings::default() };
+            crate::plan(&src, info, &s, &crate::RenderRequest::fit(8, 8)).lin_key
+        };
+        assert_ne!(key(&info, 0.0), key(&info, 1.0));
+        assert_eq!(key(&SourceInfo::default(), 0.0), key(&SourceInfo::default(), 1.0));
     }
 
     #[test]
