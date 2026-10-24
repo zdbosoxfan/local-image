@@ -669,7 +669,7 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
     let d = lightcraft_codecs::decode(&bytes, still_image_decode_options(max_edge)).map_err(|e| e.to_string())?;
     drop(bytes);
     let img = d.to_working();
-    let img = if img.width.max(img.height) > max_edge { img.fit(max_edge, max_edge, Filter::Mitchell) } else { img };
+    let img = if img.width.max(img.height) > max_edge { img.fit_antiring(max_edge, max_edge) } else { img };
     Ok((
         img.into_oriented(Orientation::from_exif(d.orientation)),
         SourceInfo { source_orientation: Orientation::from_exif(d.orientation), ..Default::default() },
@@ -711,7 +711,7 @@ pub fn load_embedded_preview(bytes: &[u8], max_edge: usize) -> Option<(RgbFrame,
     let jpeg = lightcraft_raw::embedded_preview(bytes)?;
     let d = lightcraft_codecs::decode(&jpeg, still_image_decode_options(max_edge)).ok()?;
     let img = d.to_working();
-    let img = if img.width.max(img.height) > max_edge { img.fit(max_edge, max_edge, Filter::Mitchell) } else { img };
+    let img = if img.width.max(img.height) > max_edge { img.fit_antiring(max_edge, max_edge) } else { img };
     Some((img.oriented(preview_orientation(bytes, d.orientation)), SourceInfo::default()))
 }
 
@@ -796,6 +796,24 @@ impl crate::Session {
 mod tests {
     use super::*;
     use lightcraft_codecs::{ChromaSubsampling, EncodeImage, EncodeMeta, Samples, encode_jpeg};
+
+    /// A rendered photo loaded reduced (a preview source): the linear-light reduction left a dark
+    /// outline (below zero) beside every bright edge.
+    #[test]
+    fn reduced_still_images_keep_the_dark_side_of_bright_edges() {
+        let (w, h) = (900u32, 60u32);
+        let samples: Vec<u8> = (0..w * h).flat_map(|i| if i % w < 451 { [6u8; 3] } else { [255u8; 3] }).collect();
+        let png = lightcraft_codecs::encode_png(&EncodeImage::new(w, h, 3, Samples::U8(&samples)), &EncodeMeta::default()).unwrap();
+        let (full, _) = load_bytes(&png, usize::MAX).unwrap();
+        let dark = full.get(10, 10);
+        let (img, _) = load_bytes(&png, 300).unwrap();
+        assert_eq!(img.width, 300);
+        for p in &img.data {
+            for c in 0..3 {
+                assert!(p[c] >= dark[c] * 0.999, "{p:?} below the dark side {dark:?}");
+            }
+        }
+    }
 
     #[test]
     fn high_resolution_jpeg_import_and_scaled_reference_loading() {

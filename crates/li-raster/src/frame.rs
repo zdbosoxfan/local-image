@@ -284,10 +284,12 @@ impl<T: Pixel> Frame<T> {
     }
     /// Fit within `max_w × max_h` preserving aspect (never upscales).
     pub fn fit(&self, max_w: usize, max_h: usize, filter: Filter) -> Self {
-        let s = (max_w as f64 / self.width as f64).min(max_h as f64 / self.height as f64).min(1.0);
-        let w = ((self.width as f64 * s).round() as usize).max(1);
-        let h = ((self.height as f64 * s).round() as usize).max(1);
+        let (w, h) = self.fit_size(max_w, max_h);
         self.resize(w, h, filter)
+    }
+    fn fit_size(&self, max_w: usize, max_h: usize) -> (usize, usize) {
+        let s = (max_w as f64 / self.width as f64).min(max_h as f64 / self.height as f64).min(1.0);
+        (((self.width as f64 * s).round() as usize).max(1), ((self.height as f64 * s).round() as usize).max(1))
     }
     /// 2× box reduction.
     pub fn half(&self) -> Self {
@@ -326,6 +328,15 @@ impl Frame<f32> {
 impl Frame<[f32; 3]> {
     pub fn clamp01(&mut self) {
         self.map_in_place(|p| p.map(|v| v.clamp(0.0, 1.0)));
+    }
+    /// [`Frame::fit`] for scene-linear light: Mitchell with ringing suppressed (no slack: the
+    /// result is a source that is resampled again), so a bright edge leaves no dark outline.
+    pub fn fit_antiring(&self, max_w: usize, max_h: usize) -> Self {
+        let (w, h) = self.fit_size(max_w, max_h);
+        if (w, h) == (self.width, self.height) {
+            return self.clone();
+        }
+        self.resample_antiring(&crate::resample::weights(self.width, w, Filter::Mitchell), &crate::resample::weights(self.height, h, Filter::Mitchell), 0.0)
     }
     /// Separable resample of scene-linear light through precomputed taps (`wx` per output column,
     /// `wy` per output row), with ringing suppressed: [`crate::resample::resize_antiring`].
@@ -722,6 +733,23 @@ mod tests {
         assert_eq!((hh.width, hh.height), (32, 32));
         let m3 = hh.data.iter().sum::<f32>() / hh.len() as f32;
         assert!((mean - m3).abs() < 1e-5);
+    }
+
+    /// A dark wall beside a window 9 stops brighter, reduced: no pixel rings below the wall (it went
+    /// negative through the plain Mitchell fit), and a small image is left as it is.
+    #[test]
+    fn scene_linear_fit_keeps_the_dark_side() {
+        let img = RgbFrame::from_fn(1000, 40, |x, _| if x < 503 { [0.002, 0.003, 0.004] } else { [1.0; 3] });
+        assert!(img.fit(300, 300, Filter::Mitchell).data.iter().any(|p| p[0] < 0.0));
+        let fit = img.fit_antiring(300, 300);
+        assert_eq!((fit.width, fit.height), (300, 12));
+        assert!(
+            fit.data.iter().all(|p| p[0] >= 0.002 * 0.999 && p[2] >= 0.004 * 0.999 && p[1] <= 1.0 + 1e-6),
+            "{:?}",
+            fit.data.iter().map(|p| p[0]).fold(f32::MAX, f32::min)
+        );
+        let small = RgbFrame::from_fn(5, 4, |x, y| [x as f32, y as f32, 0.5]);
+        assert_eq!(small.fit_antiring(300, 300), small);
     }
 
     #[test]
