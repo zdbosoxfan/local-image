@@ -19,7 +19,8 @@ All notable changes to Local Image are recorded here. The format follows
   disc; with Inpaint Opposed and Segmentation areas clipped in every channel render white instead
   of peach, lilac or magenta.
 - RAW development removes isolated hot and dead photosites (long exposures, ageing sensors) before
-  anything else reads the sensor, so they no longer show as coloured dots.
+  anything else reads the sensor, so they no longer show as coloured dots. Sharp point lights and
+  stars, whose light reaches the neighbouring photosites, stay.
 - DJI and Hasselblad drone DNG previews and thumbnails are developed from a binned sensor with the
   built-in lens corrections applied at that size, about three times faster on a 20 MP Mavic 3 file.
   The built-in distortion correction resamples with a de-ringed cubic kernel instead of bilinear,

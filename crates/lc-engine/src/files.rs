@@ -473,11 +473,6 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             }
             Err(e) => return Err(e.to_string()),
         };
-        // before anything reads the mosaic: previews, the camera look, clip confidence, demosaic
-        let hot = raw.suppress_hot_pixels();
-        if hot > 0 {
-            log::debug!("raw source: replaced {hot} hot or dead photosites");
-        }
         crate::dcp_profiles::apply_selected(&mut raw, opts.camera_profile);
         lightcraft_raw::camera_matrices::fill(
             &mut raw.color,
@@ -486,6 +481,11 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         );
         let xy = lightcraft_raw::color::as_shot_white_xy(&raw);
         let t = lightcraft_raw::color::camera_transform(&raw, xy);
+        // before anything reads the mosaic: previews, the camera look, clip confidence, demosaic
+        let hot = raw.suppress_hot_pixels(t.wb);
+        if hot > 0 {
+            log::debug!("raw source: replaced {hot} hot or dead photosites");
+        }
         // Keep the actual source uncorrected. Only the private camera-look
         // fitting proxy is corrected to match the camera's processed JPEG.
         let lens = embedded_lens(&raw.info());

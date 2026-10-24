@@ -9,7 +9,9 @@
 //! Optics never put light on one photosite alone: a lens and the anti-aliasing filter spread even
 //! a star or a chrome glint over its neighbours, whatever their colour. So a site is replaced only
 //! when its other-colour neighbours show nothing of it, which keeps point lights, window glints and
-//! fine texture, and only by a margin well above the image's noise.
+//! fine texture, and only by a margin well above the image's noise. The neighbours are compared
+//! white balanced: in camera units a green-centred spot puts only a few percent of its light on
+//! the less sensitive red and blue sites around it.
 
 use crate::{RawData, RawImage};
 use rayon::prelude::*;
@@ -20,24 +22,25 @@ const RATIO: f32 = 2.0;
 /// ...and by at least this much of the white level, or this many noise sigmas.
 const MIN_MARGIN: f32 = 0.04;
 const SIGMAS: f32 = 8.0;
-/// A neighbour that stands out from its own surroundings by this share of the outlier's excess
-/// carries the same light: the outlier is real.
-const SPREAD: f32 = 0.15;
+/// The four sites next to an outlier carry its light when, white balanced, together they stand
+/// out from their own surroundings by this share of its excess: a lens spot of Gaussian σ 0.35 px
+/// gives them about 0.36 of it, 0.4 px about 0.53. A hot site gives them noise.
+const SPREAD: f32 = 0.2;
 /// A dead site is only told from dark detail where its same-colour neighbours are this many
 /// margins above black.
 const DEAD_FLOOR: f32 = 4.0;
 
 /// The eight same-colour neighbours of any Bayer site, two pixels away.
 const RING: [(isize, isize); 8] = [(-2, -2), (0, -2), (2, -2), (-2, 0), (2, 0), (-2, 2), (0, 2), (2, 2)];
-/// The eight direct neighbours: the diagonal ones are green around a green site, else the other
-/// colour of red and blue.
-const NEAR: [(isize, isize); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+/// The four sites next to a site: green around red and blue, red and blue around green.
+const EDGE: [(isize, isize); 4] = [(0, -1), (-1, 0), (1, 0), (0, 1)];
 
 impl RawImage {
     /// Replace isolated hot and dead photosites of a Bayer mosaic with the median of their eight
-    /// same-colour neighbours (see the module docs). Other layouts and linear data are left alone.
-    /// Returns the number of sites replaced.
-    pub fn suppress_hot_pixels(&mut self) -> usize {
+    /// same-colour neighbours (see the module docs). `wb` are the white-balance multipliers
+    /// (camera → balanced, any scale). Other layouts and linear data are left alone. Returns the
+    /// number of sites replaced.
+    pub fn suppress_hot_pixels(&mut self, wb: [f32; 3]) -> usize {
         let Some(cfa) = &self.cfa else { return 0 };
         let a = self.active_area;
         if self.cpp != 1 || !cfa.is_bayer() || a.width < 8 || a.height < 8 || self.validate().is_err() {
@@ -58,6 +61,8 @@ impl RawImage {
             (raw - if uniform { black0 } else { b.at(x, y, 0, 1) }) * scale
         };
         let margin = (SIGMAS * noise_sigma(&at, a.width, a.height)).max(MIN_MARGIN);
+        let wb = wb.map(|v| if v.is_finite() && v > 0.0 { v } else { 1.0 });
+        let gain = |x: isize, y: isize| wb[cfa.color_at(a.x + x as usize, a.y + y as usize).min(2) as usize];
         let (w, h) = (a.width as isize, a.height as isize);
         let v = |x: isize, y: isize| at(x as usize, y as usize);
         let ring = |x: isize, y: isize| -> [f32; 8] { RING.map(|(dx, dy)| v(x + dx, y + dy)) };
@@ -88,13 +93,17 @@ impl RawImage {
                     }
                     // light spreads into the neighbouring sites; a hot site's does not
                     let fill = median(ring(x, y));
-                    let excess = (s - fill).abs();
-                    let lit = NEAR.iter().any(|&(dx, dy)| {
+                    let excess = (s - fill).abs() * gain(x, y);
+                    let (mut spread, mut gains) = (0.0, 0.0);
+                    for (dx, dy) in EDGE {
                         let (nx, ny) = (x + dx, y + dy);
                         let (n, own) = (v(nx, ny), median(ring(nx, ny)));
-                        let stands_out = if hot { n - own } else { own - n };
-                        stands_out > SPREAD * excess + margin / 8.0
-                    });
+                        let g = gain(nx, ny);
+                        spread += (if hot { n - own } else { own - n }) * g;
+                        gains += g;
+                    }
+                    // plus about one sigma of the sum's noise (a quarter margin), white balanced
+                    let lit = spread > SPREAD * excess + gains * margin / 16.0;
                     (!lit).then_some((x as usize, y as usize, fill))
                 })
             })
@@ -176,7 +185,7 @@ mod tests {
         }
         let truth = raw_of(&mosaic_from_rgb(&scene, &cfa));
         let mut raw = raw_of(&n);
-        assert_eq!(raw.suppress_hot_pixels(), 3);
+        assert_eq!(raw.suppress_hot_pixels(wb), 3);
         let fixed = raw.develop(Method::Rcd).unwrap();
         let clean = truth.develop(Method::Rcd).unwrap();
         for &(hx, hy) in &hot {
@@ -200,6 +209,59 @@ mod tests {
         }
     }
 
+    /// Sharp lens spots (Gaussian σ of 0.4 and 0.45 px, integrated over each photosite) on a dark
+    /// wall, centred on a red, both greens and a blue site, dim and bright: a green-centred spot
+    /// puts only a few percent of its light on its red and blue neighbours in camera units, but
+    /// as much as any other spot once white balanced. Every spot stays, the hot sites go.
+    #[test]
+    fn sharp_point_lights_on_every_colour_stay() {
+        let wb = [2.2, 1.0, 1.6];
+        let cfa = Cfa::bayer("RGGB").unwrap();
+        let (w, h) = (112usize, 56usize);
+        let spot = |x: usize, y: usize, cx: f32, cy: f32, sigma: f32| {
+            let mut v = 0.0;
+            for j in 0..8 {
+                for i in 0..8 {
+                    let (px, py) = (x as f32 + (i as f32 + 0.5) / 8.0, y as f32 + (j as f32 + 0.5) / 8.0);
+                    v += (-((px - cx).powi(2) + (py - cy).powi(2)) / (2.0 * sigma * sigma)).exp();
+                }
+            }
+            v / 64.0
+        };
+        // (site, σ, white-balanced level the light adds to its centre site)
+        let mut spots = Vec::new();
+        for (j, peak) in [0.3f32, 1.0].into_iter().enumerate() {
+            for (i, (sigma, (dx, dy))) in [0.4f32, 0.45].into_iter().flat_map(|s| [(0, 0), (1, 0), (0, 1), (1, 1)].map(|d| (s, d))).enumerate() {
+                spots.push(((10 + 12 * i + dx, 12 + 14 * j + dy), sigma, peak));
+            }
+        }
+        let scene = RgbFrame::from_fn(w, h, |x, y| {
+            let light: f32 = spots
+                .iter()
+                .map(|&((sx, sy), sigma, peak)| {
+                    let (cx, cy) = (sx as f32 + 0.5, sy as f32 + 0.5);
+                    peak * spot(x, y, cx, cy, sigma) / spot(sx, sy, cx, cy, sigma)
+                })
+                .sum();
+            std::array::from_fn(|c| (0.02 + light) / wb[c])
+        });
+        let mut n = mosaic_from_rgb(&scene, &cfa);
+        let hot = [(20usize, 44usize), (33, 44), (47, 45)];
+        for &(x, y) in &hot {
+            n.data[y * w + x] = 0.8;
+        }
+        let truth = raw_of(&mosaic_from_rgb(&scene, &cfa));
+        let mut raw = raw_of(&n);
+        assert_eq!(raw.suppress_hot_pixels(wb), hot.len());
+        let (RawData::U16(a), RawData::U16(b)) = (&raw.data, &truth.data) else { panic!("integer samples") };
+        for &((x, y), sigma, peak) in &spots {
+            assert_eq!(a[y * w + x], b[y * w + x], "a spot of σ {sigma} and level {peak} at ({x}, {y})");
+        }
+        for &(x, y) in &hot {
+            assert!((a[y * w + x] as f32 - b[y * w + x] as f32).abs() < 0.01 * 15871.0, "hot site ({x}, {y})");
+        }
+    }
+
     /// Noise alone (σ = 0.01 around 0.2) is not mistaken for hot sites, and a dead site in a bright
     /// area is filled.
     #[test]
@@ -213,11 +275,11 @@ mod tests {
             *v += 0.01 * u;
         }
         let mut raw = raw_of(&n);
-        assert!(raw.suppress_hot_pixels() < w * h / 10_000, "noise taken for hot sites");
+        assert!(raw.suppress_hot_pixels([2.2, 1.0, 1.6]) < w * h / 10_000, "noise taken for hot sites");
         let mut bright = mosaic_from_rgb(&RgbFrame::filled(64, 64, [0.5; 3]), &cfa);
         bright.data[30 * 64 + 30] = 0.0;
         let mut raw = raw_of(&bright);
-        assert_eq!(raw.suppress_hot_pixels(), 1);
+        assert_eq!(raw.suppress_hot_pixels([2.2, 1.0, 1.6]), 1);
         let RawData::U16(d) = &raw.data else { panic!("integer samples") };
         assert!((d[30 * 64 + 30] as f32 - (512.0 + 0.5 * 15871.0)).abs() < 2.0);
     }
