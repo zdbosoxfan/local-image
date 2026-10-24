@@ -61,6 +61,15 @@ If an installation folder is set and auto-start is on (the default), the app sta
 this computer. ComfyUI, its custom nodes and any models you load run under their own rules.
 This project does not control their network behaviour.
 
+**Model setup** (see `docs/MODEL-SETUP.md`) reads, from the same ComfyUI server only: its version
+and GPU (`/system_stats`), its node list (`/object_info`), and its own official workflow templates
+(`/templates/index.json` and `/templates/<name>.json`), when the model list changes, when you open
+Set Up Models, or when you run `local-image-cli ai doctor`. These requests stay between this
+computer and that server; no third party is contacted. Verification runs only when you ask for it:
+it sends a fixed test prompt and a synthetic test picture (never one of your photos) to the
+server, reads `/system_stats` every half second during each render to record GPU memory in use, and
+asks the server to free its memory (`/free`) after each model.
+
 **Find on LAN** is a button you press. It reads the active private IPv4 networks of this computer
 (at most two networks, each limited to 256 addresses) and requests `/system_stats` from the
 configured port and from port 8188 on every address in them. It stops after 30 seconds. It only
@@ -107,6 +116,9 @@ The responses are cached in a folder under the app's data directory.
 Fetches an index file and any newer model profile files from this project's GitHub repository
 (`raw.githubusercontent.com`). Each profile is checked before it is kept. The update changes the
 settings the app uses for a model family. It does not change your photos.
+
+The update also fetches `runtime.json` from the same place: the lists of interchangeable model
+files, GPU rules and error explanations that model setup uses. It is checked the same way.
 
 ### Update check (GitHub releases)
 
@@ -158,6 +170,8 @@ or an explicitly allowed test host.
 | Library catalog | `catalog.snap` and `catalog.log` in the library folder | Metadata, albums, edits and history. The photos stay where they are. |
 | Face data | `AI/` folder inside the library folder | Stored on this computer only. |
 | Model files | The model folder set in Local AI settings, or the default model folder | Installed only after the size and SHA-256 check. |
+| Model setup state | `state/ai-models.json` under the app's data folder | Per ComfyUI server: what each model file is, its compiled recipe, the issues found and the verification results (times, GPU memory, image measurements). No images. |
+| Template cache | `state/templates/<version>/` under the app's data folder | The ComfyUI server's official workflow templates, per template package version. |
 | Catalogue cache | `catalog-cache/` under the app's data folder (`~/Library/Application Support/Local Image/` on macOS, `$XDG_DATA_HOME/local-image/` on Linux) | Model browser responses. |
 | Log | `local-image.log` in the platform log folder (`~/Library/Logs/Local Image/` on macOS) | Diagnostic messages, kept for the last two runs. Not uploaded. |
 

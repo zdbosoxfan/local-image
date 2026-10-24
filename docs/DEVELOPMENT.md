@@ -110,6 +110,20 @@ Derived families set `base` and override only what differs. To add or change one
 2. `cargo test -p li-ai` checks every profile (files need a 64-hex SHA-256, a size, and a
    `.safetensors` or `.gguf` name) and builds every family's graphs against the mock.
 3. Once merged to `main`, apps pick it up with **Model Browser › Update Model Profiles**.
+   A profile with a newer `schema` than the released app reads is skipped by that app (it keeps
+   its built-in copy), so publish schema-2 profiles to `main` only after the app release that
+   reads them.
+
+A model that ComfyUI ships an official template for needs no profile to run (see
+[MODEL-SETUP.md](MODEL-SETUP.md)). A profile then adds polish: a `detect` block (tensor rules for
+a new architecture; a block that claims a built-in architecture's tensors must name it in
+`refines`), variants, LoRA rules and a `template` block (stems for renamed files, preferred
+templates, value fixes by role such as `"edit.cfg": 3.5`, the negative prompt and fill method).
+`families/runtime.json` holds the data model setup shares across models (equivalent files, VAE
+latent channels, pinned mirrors, precision and GPU rules, custom-node packs, error patterns); bump
+its `version` with each change. The template fixtures under
+`crates/li-ai/tests/fixtures/comfy-0.42.5/` are refreshed with `cargo test -p li-ai --test
+ai_fixtures -- --ignored` (see that test for its inputs) when a ComfyUI release changes templates.
 
 ## Packaging
 

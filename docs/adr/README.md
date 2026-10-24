@@ -9,6 +9,7 @@ the conditions under which it should be revisited.
 | Number | Title | Status |
 |---|---|---|
 | [0001](0001-journal-catalog.md) | Library catalog: in-memory maps with a JSON snapshot and an operation log | Accepted (recorded retroactively) |
+| [0002](0002-template-native-ai-runtime.md) | Official ComfyUI templates are the recipe for models without a builder | Accepted |
 
 ## Conventions
 

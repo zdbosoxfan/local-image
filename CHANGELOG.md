@@ -6,6 +6,24 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- AI: models without a Local Image profile run through the official workflow templates of the
+  connected ComfyUI (FLUX.3 Klein, MOSS-Image, Krea 2 and later releases), matched to the
+  installed file at any precision, with Create, Edit, Fill, Refine and Upscale derived from the
+  template. Model setup checks each model before anything runs (ComfyUI version, missing nodes or
+  options, missing companion files, GPU support for the precision, memory, licence) and explains
+  each problem with a fix; verification tests a model with small renders on request.
+- `local-image-cli ai doctor` lists every model on the connected ComfyUI, how it runs and what
+  blocks it; `--verify` tests models one at a time; `--json` prints the report.
+
+### Changed
+
+- AI: model files are identified by their weights before their names; a name that points at a
+  model generation no profile describes is no longer filed under an older family.
+- AI: ComfyUI errors name the failing node's files and say what to do (update ComfyUI, the text
+  encoder or VAE that doesn't fit, a file ComfyUI hasn't listed yet).
+
 ### Fixed
 
 - Library: a catalog snapshot with an out-of-range change counter is refused as damaged instead of
