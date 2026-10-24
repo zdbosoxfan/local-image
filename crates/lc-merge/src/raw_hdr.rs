@@ -15,25 +15,12 @@ use lightcraft_geom::{Homography, Point};
 use lightcraft_raw::{Normalized, NormalizedSamples, RawImage, Rect};
 use rayon::prelude::*;
 
-use crate::frame::{Frame, FrameColor, exif_exposure};
+use crate::frame::{Frame, camera_color, exif_exposure};
 use crate::hdr::{self, Deghost, HdrOptions, HdrResult, smoothstep};
 use crate::{MergeError, Progress, Result, align, check};
 
 fn decode_error(e: lightcraft_raw::RawError) -> MergeError {
     MergeError::Decode(e.to_string())
-}
-
-/// Camera metadata in the normalized sensor coordinates used by the output.
-fn camera_color(raw: &RawImage) -> FrameColor {
-    let mut color = lightcraft_raw::color::normalized_color(raw);
-    if color.as_shot_neutral.is_none()
-        && color.as_shot_white_xy.is_none()
-        && let Some(wb) = raw.wb_multipliers.filter(|w| w.iter().all(|v| v.is_finite() && *v > 0.0))
-    {
-        let ratios = lightcraft_raw::color::normalization_ratios(raw);
-        color.as_shot_neutral = Some(std::array::from_fn(|c| ratios[c] / f64::from(wb[c])));
-    }
-    FrameColor::Camera(Box::new(color))
 }
 
 /// Complete CFA tiles form an unbiased camera-RGB proxy without demosaicing the
@@ -360,6 +347,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::frame::FrameColor;
     use lightcraft_raw::{BlackLevel, Cfa, ColorData, RawData, RawFormat};
 
     fn capture(w: usize, h: usize, exposure: f32, scene: impl Fn(f32, f32) -> [f32; 3], shift: (f32, f32)) -> RawImage {

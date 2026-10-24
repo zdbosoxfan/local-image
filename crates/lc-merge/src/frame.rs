@@ -6,7 +6,7 @@ use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
-use lightcraft_raw::ColorData;
+use lightcraft_raw::{ColorData, RawImage};
 
 use crate::{MergeError, Result};
 
@@ -103,6 +103,22 @@ pub fn detect_clip(img: &RgbFrame) -> f32 {
     if maxv >= 1.0 || piled { level * 0.995 } else { 1.0 }
 }
 
+/// The colour model of `raw`'s developed pixels, which are black/white normalized: the file's
+/// colour tags in normalized sensor coordinates. Vendor raws keep their as-shot white balance as
+/// multipliers rather than DNG tags, so it becomes the equivalent `AsShotNeutral`; without it a
+/// merged DNG would open at D65.
+pub(crate) fn camera_color(raw: &RawImage) -> FrameColor {
+    let mut color = lightcraft_raw::color::normalized_color(raw);
+    if color.as_shot_neutral.is_none()
+        && color.as_shot_white_xy.is_none()
+        && let Some(wb) = raw.wb_multipliers.filter(|w| w.iter().all(|v| v.is_finite() && *v > 0.0))
+    {
+        let ratios = lightcraft_raw::color::normalization_ratios(raw);
+        color.as_shot_neutral = Some(std::array::from_fn(|c| ratios[c] / f64::from(wb[c])));
+    }
+    FrameColor::Camera(Box::new(color))
+}
+
 /// Metadata for pixels whose DNG lens operations have already been evaluated.
 /// Keep the camera/lens identification, but persist the fact that automatic lens
 /// corrections must not be inferred and applied again when the output is opened.
@@ -150,7 +166,7 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
             clip,
             exposure,
             raw: true,
-            color: FrameColor::Camera(Box::new(raw.color.clone())),
+            color: camera_color(&raw),
             orientation: raw.orientation,
             metadata: if raw.metadata == Metadata::default() { metadata } else { developed_metadata(&raw) },
             baseline_exposure: raw.color.baseline_exposure,
@@ -205,6 +221,29 @@ mod tests {
         let m2 = Metadata { exposure_time: Some(4.0 / 125.0), ..m.clone() };
         assert!((exif_exposure(&m2).unwrap() - e - 2.0).abs() < 1e-9);
         assert!(exif_exposure(&Metadata::default()).is_none());
+    }
+
+    #[test]
+    fn vendor_raw_frames_open_at_the_cameras_as_shot_white() {
+        let (w, h) = (40, 30);
+        let mosaic = lightcraft_raw::testgen::mosaic(&lightcraft_raw::testgen::scene(w, h), w, [0, 1, 1, 2], 128, 4095);
+        let bytes = lightcraft_raw::testgen::rw2(w, h, &mosaic, 12);
+        let source = lightcraft_raw::decode(&bytes).unwrap();
+        assert_eq!(source.wb_multipliers, Some([2.0, 1.0, 1.5]));
+        assert!(source.color.as_shot_neutral.is_none() && source.color.as_shot_white_xy.is_none());
+        let frame = load_frame(&bytes, None, true).unwrap();
+        let FrameColor::Camera(color) = &frame.color else { panic!("raw frames carry camera colour") };
+        let neutral = color.as_shot_neutral.unwrap();
+        for (a, b) in neutral.into_iter().zip([0.5, 1.0, 2.0 / 3.0]) {
+            assert!((a - b).abs() < 1e-9, "{neutral:?}");
+        }
+        let dng =
+            crate::write_linear_dng(&frame.image, &frame.color, frame.orientation, &frame.metadata, frame.baseline_exposure, crate::DngSamples::U16)
+                .unwrap();
+        let merged = lightcraft_raw::decode(&dng).unwrap();
+        let (want, got) = (lightcraft_raw::color::as_shot_white_xy(&source), lightcraft_raw::color::as_shot_white_xy(&merged));
+        assert!((want.x - got.x).abs() < 1e-3 && (want.y - got.y).abs() < 1e-3, "merged white {got:?}, camera white {want:?}");
+        assert!((got.x - li_color::D65.x).abs() > 0.01, "merged DNG fell back to D65");
     }
 
     #[test]

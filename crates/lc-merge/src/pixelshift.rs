@@ -16,6 +16,7 @@ use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
 use lightcraft_raw::{RawImage, Rect};
 
+use crate::frame::camera_color;
 use crate::{FrameColor, MergeError, Progress, Result, check};
 
 pub struct PixelShiftResult {
@@ -36,20 +37,6 @@ fn identity(raw: &RawImage) -> Result<&lightcraft_meta::SonyPixelShift> {
     raw.metadata.sony.as_ref().and_then(|s| s.pixel_shift.as_ref()).ok_or_else(|| {
         MergeError::Mismatch("Sony Pixel Shift capture information is missing; select the original Pixel Shift ARWs or one composed ARQ".into())
     })
-}
-
-/// Pixels have already been white-normalized, so carry the corresponding normalized
-/// camera matrices/balance and translate Sony's vendor WB multipliers into DNG neutral.
-fn merged_camera_color(raw: &RawImage) -> FrameColor {
-    let mut color = lightcraft_raw::color::normalized_color(raw);
-    if color.as_shot_neutral.is_none()
-        && color.as_shot_white_xy.is_none()
-        && let Some(wb) = raw.wb_multipliers.filter(|wb| wb.iter().all(|v| v.is_finite() && *v > 0.0))
-    {
-        let ratios = lightcraft_raw::color::normalization_ratios(raw);
-        color.as_shot_neutral = Some(std::array::from_fn(|c| ratios[c] / f64::from(wb[c])));
-    }
-    FrameColor::Camera(Box::new(color))
 }
 
 struct MotionNoise {
@@ -164,7 +151,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         return Ok(PixelShiftResult {
             motion: GrayFrame::new(image.width, image.height),
             image,
-            color: merged_camera_color(raw),
+            color: camera_color(raw),
             orientation: raw.orientation,
             metadata: raw.metadata.clone(),
             baseline_exposure: raw.color.baseline_exposure,
@@ -335,7 +322,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
         }
         return Ok(PixelShiftResult {
             image,
-            color: merged_camera_color(&source),
+            color: camera_color(&source),
             orientation: source.orientation,
             metadata: source.metadata,
             baseline_exposure: source.color.baseline_exposure,
@@ -346,7 +333,7 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     check(progress, 1.0, "Pixel Shift ready")?;
     Ok(PixelShiftResult {
         image,
-        color: merged_camera_color(first),
+        color: camera_color(first),
         orientation: first.orientation,
         metadata: first.metadata.clone(),
         baseline_exposure: first.color.baseline_exposure,
