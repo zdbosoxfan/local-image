@@ -185,6 +185,8 @@ pub struct GenerateState {
     /// Sampler / scheduler instead of the family's (empty = the family's).
     pub sampler: String,
     pub scheduler: String,
+    /// Per model key: run its template's local prompt enhancer first (off unless turned on).
+    pub enhance_prompt: std::collections::BTreeMap<String, bool>,
 }
 
 impl Default for GenerateState {
@@ -227,6 +229,7 @@ impl Default for GenerateState {
             enhance_backend: Default::default(),
             sampler: String::new(),
             scheduler: String::new(),
+            enhance_prompt: Default::default(),
         }
     }
 }
@@ -505,6 +508,7 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
         // Model.
         // Upscale offers the official upscalers; a diffusion model chosen earlier (saved
         // settings) keeps the full list.
+        setup_banner(ui, &st);
         let picked = model_picker(ui, "gen-model", (&s.model, &s.variant), s.mode, &st, true);
         if s.mode == Mode::Upscale {
             let any = upscale_any();
@@ -593,6 +597,9 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
         if wants_negative {
             ui.add(egui::TextEdit::singleline(&mut s.negative).hint_text(tl!("Avoid… (negative prompt)")).desired_width(f32::INFINITY));
         }
+        if custom.is_none() && cloud.is_none() && matches!(s.mode, Mode::Create | Mode::Edit) {
+            enhance_prompt_ui(ui, s, info);
+        }
         // Size (Create): shared aspect presets and linked model-grid dimensions.
         let custom_size = custom.as_ref().is_some_and(|w| w.has(&li_ai::custom::FieldKind::Width));
         if (s.mode == Mode::Create && custom.is_none()) || custom_size {
@@ -660,7 +667,8 @@ fn settings_ui_body(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> panel_control
             }
         };
         if ref_slots > 0 {
-            references_ui(app, ui, ref_slots, info.init_image && custom.is_none() && cloud.is_none());
+            let style = custom.is_none() && cloud.is_none() && info.recipe.as_ref().is_some_and(|r| r.style.is_some() && r.edit.is_none());
+            references_ui(app, ui, ref_slots, info.init_image && custom.is_none() && cloud.is_none(), style);
         }
         let s = &mut app.ui.ai.generate;
         // LoRAs.
@@ -982,6 +990,30 @@ fn save_preset(s: &mut GenerateState, name: &str) {
     s.preset = name.to_owned();
 }
 
+/// The "Enhance prompt" switch for a template model whose official template has a local prompt
+/// enhancer: remembered per model, off by default, and only usable once the enhancer's file is
+/// installed (else it says what to get, and Set Up Models offers the download).
+fn enhance_prompt_ui(ui: &mut egui::Ui, s: &mut GenerateState, info: &catalog::ModelInfo) {
+    let Some(recipe) = info.recipe.as_ref() else { return };
+    let Some(up) = recipe.upsampler.as_ref() else { return };
+    let ready = recipe.enhancer_ready();
+    let mut on = ready && s.enhance_prompt.get(&s.model).copied().unwrap_or(false);
+    ui.horizontal_wrapped(|ui| {
+        let r = ui.add_enabled_ui(ready, |ui| widgets::checkbox(ui, &mut on, tl!("Enhance prompt"))).inner;
+        if ready {
+            r.on_hover_text(tl!("ComfyUI rewrites your prompt with the template's local language model before generating (slower, more detail)"));
+        } else {
+            r.on_disabled_hover_text(li_i18n::fmt(tl!("Needs the prompt enhancer ({file}), which isn't installed."), &[("file", &up.declared_file)]));
+            if widgets::secondary_button(ui, tl!("Get the prompt enhancer…"), 0.0).clicked() {
+                crate::model_setup::open(Some(info.id.key()));
+            }
+        }
+    });
+    if ready {
+        s.enhance_prompt.insert(s.model.clone(), on);
+    }
+}
+
 /// Opens the Generate panel on the model `key` (Set Up Models › Use in Generate).
 pub(crate) fn use_model(app: &mut PhotocraftApp, ctx: &egui::Context, key: &str) {
     let _ = crate::menus::invoke(app, ctx, "li.panel.generate", json!({}));
@@ -1033,11 +1065,19 @@ pub fn import_workflow_path(path: &std::path::Path) -> Result<String, String> {
     Ok(w.name)
 }
 
-fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_image: bool) {
+/// The reference images: a starting image (Z-Image), style references (a template model whose
+/// references set the style, Krea 2) or semantic references.
+fn references_ui(app: &mut PhotocraftApp, ui: &mut egui::Ui, max: usize, init_image: bool, style: bool) {
     let t = Tokens::get(ui.ctx());
     let n = rt(|r| r.references.len());
     ui.horizontal(|ui| {
-        let heading = if init_image { tl!("Starting image · {n}/{max}") } else { tl!("References · {n}/{max}") };
+        let heading = if init_image {
+            tl!("Starting image · {n}/{max}")
+        } else if style {
+            tl!("Style references · {n}/{max}")
+        } else {
+            tl!("References · {n}/{max}")
+        };
         label(ui, &li_i18n::fmt(heading, &[("n", &n.to_string()), ("max", &max.to_string())]));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let full = n >= max;

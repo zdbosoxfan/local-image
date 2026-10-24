@@ -435,6 +435,72 @@ pub(super) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why:
     });
 }
 
+/// The model-setup banner above the picker while models are new, due a re-check after a ComfyUI
+/// update, or broken; its button opens Set Up Models.
+pub(super) fn setup_banner(ui: &mut egui::Ui, st: &crate::ai_ui::EngineStatus) {
+    let setup = &st.setup;
+    let n = setup.banner();
+    if !st.connected || n == 0 {
+        return;
+    }
+    let t = Tokens::get(ui.ctx());
+    let (text, action) = match &setup.updated {
+        Some((old, new)) if setup.new.is_empty() && setup.needs_reverify() > 0 => (
+            li_i18n::fmt(
+                tl!("ComfyUI was updated from {old} to {new}. {n} models need a quick re-check."),
+                &[("old", old), ("new", new), ("n", &setup.needs_reverify().to_string())],
+            ),
+            tl!("Re-check"),
+        ),
+        _ if !setup.new.is_empty() => (li_i18n::fmt(tl!("{n} new models found"), &[("n", &setup.new.len().to_string())]), tl!("Set up")),
+        _ => (li_i18n::fmt(tl!("{n} models need attention"), &[("n", &n.to_string())]), tl!("Set up")),
+    };
+    egui::Frame::new().fill(t.field).corner_radius(t.radius_sm).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal_wrapped(|ui| {
+            let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+            crate::icons::paint(ui, r, "sparkles", 12.0, t.accent);
+            ui.label(RichText::new(text).size(11.5).color(t.text));
+            if widgets::secondary_button(ui, action, 0.0).on_hover_text(tl!("Set Up Models checks and tests new models")).clicked() {
+                crate::model_setup::open(setup.new.first().map(String::as_str));
+            }
+        });
+    });
+}
+
+/// The setup chip a picker row shows, from the model's setup status.
+pub(super) fn setup_chip(status: Option<li_ai::modelsetup::state::Status>) -> Option<(&'static str, &'static str, widgets::Tone)> {
+    use li_ai::modelsetup::state::Status;
+    Some(match status? {
+        Status::Ready => ("circle-dashed", tl!("Not tested"), widgets::Tone::Neutral),
+        Status::NeedsReverify => ("refresh-cw", tl!("Re-check"), widgets::Tone::Warning),
+        Status::Verified => ("check", tl!("Works"), widgets::Tone::Good),
+        Status::PartiallyVerified => ("triangle-alert", tl!("Partly works"), widgets::Tone::Warning),
+        Status::New | Status::Identified | Status::Blocked | Status::Unmatched | Status::Failed | Status::Broken => {
+            ("triangle-alert", tl!("Needs setup"), widgets::Tone::Warning)
+        }
+        Status::Verifying | Status::Builtin | Status::Ignored | Status::Removed => return None,
+    })
+}
+
+/// Why an installed model can't be picked until Set Up Models has prepared it, if so: it runs only
+/// through a template recipe it doesn't have yet, or its test showed it doesn't work.
+pub(super) fn needs_setup(m: &catalog::ModelInfo, st: &crate::ai_ui::EngineStatus) -> Option<String> {
+    use li_ai::modelsetup::state::Status;
+    if m.origin != catalog::Origin::Installed {
+        return None;
+    }
+    let issue = st.setup.models.get(m.id.key()).and_then(|x| x.issue.as_ref()).map(crate::model_setup::sentence);
+    match st.setup.status(m.id.key()) {
+        Some(Status::Failed | Status::Broken) => Some(issue.unwrap_or_else(|| tl!("Its test failed. Open Set Up Models to see why.").into())),
+        Some(Status::Ignored) => None,
+        _ if m.template_engine && m.recipe.is_none() => {
+            Some(issue.unwrap_or_else(|| li_i18n::fmt(tl!("Set up {model} first: Window › Set Up Models…"), &[("model", &m.label)])))
+        }
+        _ => None,
+    }
+}
+
 /// The model picker: models grouped by family group, each with a readiness dot and its capability
 /// tags; custom workflows last; Browse Models… and Import Workflow… at the bottom. Returns the
 /// chosen key.
@@ -486,6 +552,10 @@ pub(super) fn model_picker(
         ui.set_min_width(width.max(300.0));
         let cat = catalog::catalog();
         for (g, models) in model_groups(&cat.models, mode) {
+            let models: Vec<&catalog::ModelInfo> = models.into_iter().filter(|m| needs_setup(m, st).is_none()).collect();
+            if models.is_empty() {
+                continue;
+            }
             ui.add_space(4.0);
             let heading = if mode == Mode::Refine { g.to_owned() } else { g.to_uppercase() };
             ui.label(RichText::new(heading).size(10.5).color(t.text_faint).strong());
@@ -522,6 +592,11 @@ pub(super) fn model_picker(
                         }
                     }
                     ui.label(RichText::new(&m.family_label).size(10.5).color(t.text_faint));
+                    if m.origin == catalog::Origin::Installed
+                        && let Some((icon, text, tone)) = setup_chip(st.setup.status(m.id.key()))
+                    {
+                        widgets::status_chip(ui, icon, text, tone);
+                    }
                     for tg in m.tags().iter().take(4) {
                         tag(ui, tg, &t);
                     }
@@ -551,6 +626,25 @@ pub(super) fn model_picker(
                 if row.inner.on_hover_text(tip).clicked() {
                     picked = Some(m.id.key().to_owned());
                 }
+            }
+        }
+        let waiting: Vec<(&catalog::ModelInfo, String)> =
+            if mode == Mode::Upscale && !upscale_any() { Vec::new() } else { cat.models.iter().filter_map(|m| Some((m, needs_setup(m, st)?))).collect() };
+        if !waiting.is_empty() {
+            ui.add_space(4.0);
+            ui.label(RichText::new(tl!("Other installed models").to_uppercase()).size(10.5).color(t.text_faint).strong());
+            for (m, why) in waiting {
+                ui.horizontal(|ui| {
+                    ui.add_space(14.0);
+                    ui.add_enabled(false, egui::Button::selectable(false, RichText::new(&m.label).color(t.text_dim))).on_disabled_hover_text(&why);
+                    if let Some((icon, text, tone)) = setup_chip(st.setup.status(m.id.key()).or(Some(li_ai::modelsetup::state::Status::New))) {
+                        widgets::status_chip(ui, icon, text, tone).on_hover_text(&why);
+                    }
+                    if widgets::secondary_button(ui, tl!("Set up…"), 0.0).on_hover_text(&why).clicked() {
+                        crate::model_setup::open(Some(m.id.key()));
+                        ui.close();
+                    }
+                });
             }
         }
         if allow_custom && mode != Mode::Refine {
