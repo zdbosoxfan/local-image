@@ -32,6 +32,9 @@ pub struct PixelShiftResult {
     pub clip: f32,
 }
 
+/// Output rows per parallel batch between cancellation checks.
+const ROWS: usize = 64;
+
 // (y, x), indexed by the camera's 1-based shot_number minus one.
 const WHOLE: [(usize, usize); 4] = [(0, 1), (1, 1), (1, 0), (0, 0)];
 const HALF: [(usize, usize); 4] = [(0, 1), (0, 0), (1, 0), (1, 1)];
@@ -239,60 +242,68 @@ pub fn merge_pixel_shift(mut raws: Vec<RawImage>, progress: &Progress) -> Result
     let samples = raws.iter().map(|r| r.normalized_samples().map_err(|e| MergeError::Decode(e.to_string()))).collect::<Result<Vec<_>>>()?;
     let clip = raws.par_iter().map(saturation).reduce(|| 1.0, f32::min);
     let noise = MotionNoise::new(first, &samples[0]);
-    let mut image = RgbFrame::new(w, h);
-    let mut motion = GrayFrame::new(w, h);
-    for y in 0..h {
-        check(progress, 0.1 + 0.65 * y as f32 / h as f32, "Reconstructing measured colour samples")?;
-        for x in 0..w {
-            let (sx, sy) = (origin_x + x / factor, origin_y + y / factor);
-            let group = if factor == 1 { 0 } else { HALF.iter().position(|&(dy, dx)| dy == y % 2 && dx == x % 2).unwrap_or(0) };
-            let mut values = [0.0; 3];
-            let mut greens = [0.0; 2];
-            let mut ng = 0;
-            for (i, &(dy, dx)) in WHOLE.iter().enumerate() {
-                let s = &samples[group * 4 + i];
-                let (px, py) = (sx - dx, sy - dy);
-                let channel = s.cfa.as_ref().map_or(0, |c| c.color_at(px, py)) as usize;
-                let v = s.get(px, py, 0);
-                if channel == 1 {
-                    greens[ng] = v;
-                    ng += 1;
-                    values[1] += v * 0.5;
-                } else {
-                    values[channel] = v;
-                }
-            }
-            image.data[y * w + x] = values;
-            // Read/shot noise tolerance. Disagreement is evaluated before WB: a neutral
-            // threshold must not be amplified by the red/blue white-balance multipliers.
-            let tolerance = noise.difference_limit(1, greens[0], greens[1]);
-            let reference = &samples[0];
-            // A second independent test catches motion with little green contrast.
-            // Use a neighbourhood interval, rather than demosaic residuals: a static
-            // high-contrast edge is allowed its local range without false colour ghosts.
-            let (rx, ry) = (sx - 1, sy);
-            let chromatic_motion = [0, 2].iter().any(|&channel| {
-                let mut lo = f32::INFINITY;
-                let mut hi = f32::NEG_INFINITY;
-                // A Bayer colour lies on a two-pixel lattice. A two-pixel
-                // radius brackets the first-shot half phase as well as whole shifts;
-                // a one-pixel radius can leave just one red/blue observation.
-                for yy in ry.saturating_sub(2)..=(ry + 2).min(reference.height - 1) {
-                    for xx in rx.saturating_sub(2)..=(rx + 2).min(reference.width - 1) {
-                        if reference.cfa.as_ref().is_some_and(|c| c.color_at(xx, yy) as usize == channel) {
-                            let v = reference.get(xx, yy, 0);
-                            lo = lo.min(v);
-                            hi = hi.max(v);
-                        }
-                    }
-                }
-                let tolerance = noise.difference_limit(channel, values[channel], (lo + hi) * 0.5);
-                !values[channel].is_finite() || values[channel] < lo - tolerance || values[channel] > hi + tolerance
-            });
-            if chromatic_motion || greens.iter().any(|v| !v.is_finite()) || (greens[0] - greens[1]).abs() > tolerance {
-                motion.data[y * w + x] = 1.0;
+    let reconstruct = |x: usize, y: usize| -> ([f32; 3], bool) {
+        let (sx, sy) = (origin_x + x / factor, origin_y + y / factor);
+        let group = if factor == 1 { 0 } else { HALF.iter().position(|&(dy, dx)| dy == y % 2 && dx == x % 2).unwrap_or(0) };
+        let mut values = [0.0; 3];
+        let mut greens = [0.0; 2];
+        let mut ng = 0;
+        for (i, &(dy, dx)) in WHOLE.iter().enumerate() {
+            let s = &samples[group * 4 + i];
+            let (px, py) = (sx - dx, sy - dy);
+            let channel = s.cfa.as_ref().map_or(0, |c| c.color_at(px, py)) as usize;
+            let v = s.get(px, py, 0);
+            if channel == 1 {
+                greens[ng] = v;
+                ng += 1;
+                values[1] += v * 0.5;
+            } else {
+                values[channel] = v;
             }
         }
+        // Read/shot noise tolerance. Disagreement is evaluated before WB: a neutral
+        // threshold must not be amplified by the red/blue white-balance multipliers.
+        let tolerance = noise.difference_limit(1, greens[0], greens[1]);
+        let reference = &samples[0];
+        // A second independent test catches motion with little green contrast.
+        // Use a neighbourhood interval, rather than demosaic residuals: a static
+        // high-contrast edge is allowed its local range without false colour ghosts.
+        let (rx, ry) = (sx - 1, sy);
+        let chromatic_motion = [0, 2].iter().any(|&channel| {
+            let mut lo = f32::INFINITY;
+            let mut hi = f32::NEG_INFINITY;
+            // A Bayer colour lies on a two-pixel lattice. A two-pixel
+            // radius brackets the first-shot half phase as well as whole shifts;
+            // a one-pixel radius can leave just one red/blue observation.
+            for yy in ry.saturating_sub(2)..=(ry + 2).min(reference.height - 1) {
+                for xx in rx.saturating_sub(2)..=(rx + 2).min(reference.width - 1) {
+                    if reference.cfa.as_ref().is_some_and(|c| c.color_at(xx, yy) as usize == channel) {
+                        let v = reference.get(xx, yy, 0);
+                        lo = lo.min(v);
+                        hi = hi.max(v);
+                    }
+                }
+            }
+            let tolerance = noise.difference_limit(channel, values[channel], (lo + hi) * 0.5);
+            !values[channel].is_finite() || values[channel] < lo - tolerance || values[channel] > hi + tolerance
+        });
+        (values, chromatic_motion || greens.iter().any(|v| !v.is_finite()) || (greens[0] - greens[1]).abs() > tolerance)
+    };
+    let mut image = RgbFrame::new(w, h);
+    let mut motion = GrayFrame::new(w, h);
+    // Row groups bound cancellation latency without invoking the callback from workers.
+    for (tile, (pixels, moved)) in image.data.chunks_mut(w * ROWS).zip(motion.data.chunks_mut(w * ROWS)).enumerate() {
+        check(progress, 0.1 + 0.65 * (tile * ROWS) as f32 / h as f32, "Reconstructing measured colour samples")?;
+        pixels.par_chunks_mut(w).zip(moved.par_chunks_mut(w)).enumerate().for_each(|(row, (pixels, moved))| {
+            let y = tile * ROWS + row;
+            for x in 0..w {
+                let (values, moving) = reconstruct(x, y);
+                pixels[x] = values;
+                if moving {
+                    moved[x] = 1.0;
+                }
+            }
+        });
     }
     drop(samples);
     if motion.data.iter().any(|v| *v > 0.0) {
@@ -386,6 +397,10 @@ mod tests {
     }
 
     fn sources(count: usize) -> Vec<RawImage> {
+        sized_sources(count, 24, 20, scene)
+    }
+
+    fn sized_sources(count: usize, width: usize, height: usize, scene: impl Fn(f32, f32) -> [f32; 3]) -> Vec<RawImage> {
         (0..count)
             .map(|i| {
                 let cfa = Cfa::bayer("RGGB").unwrap();
@@ -412,25 +427,25 @@ mod tests {
                     (0.5, 0.5),
                 ];
                 let (dy, dx) = if count == 16 { SIXTEEN_ABSOLUTE[i] } else { FOUR_ABSOLUTE[i] };
-                let data = (0..24 * 20)
+                let data = (0..width * height)
                     .map(|p| {
-                        let (x, y) = (p % 24, p / 24);
+                        let (x, y) = (p % width, p / width);
                         scene(x as f32 + dx, y as f32 + dy)[cfa.color_at(x, y) as usize] * 1000.0 + 64.0
                     })
                     .collect();
                 RawImage {
                     vendor_lens: None,
                     format: RawFormat::Arw,
-                    width: 24,
-                    height: 20,
+                    width,
+                    height,
                     cpp: 1,
                     data: RawData::F32(data),
                     cfa: Some(cfa),
                     bits: 14,
                     black: BlackLevel::uniform(64.0),
                     white: vec![1064.0],
-                    active_area: Rect::new(0, 0, 24, 20),
-                    crop: Rect::new(2, 2, 20, 16),
+                    active_area: Rect::new(0, 0, width, height),
+                    crop: Rect::new(2, 2, width - 4, height - 4),
                     orientation: Orientation::Normal,
                     color: ColorData {
                         illuminant: [21, 0],
@@ -502,6 +517,22 @@ mod tests {
             let developed = decoded.develop(lightcraft_raw::Method::Ahd).unwrap();
             assert_eq!(developed, result.image);
         }
+    }
+
+    #[test]
+    fn pixelshift_reconstruction_spans_row_batches_exactly() {
+        let result = merge_pixel_shift(sized_sources(16, 72, 100, scene), &crate::no_progress).unwrap();
+        assert_eq!((result.image.width, result.image.height), (136, 192));
+        let mut max_error = 0.0f32;
+        for y in 0..result.image.height {
+            for x in 0..result.image.width {
+                let expected = scene(2.0 + x as f32 / 2.0, 2.0 + y as f32 / 2.0);
+                for (a, b) in result.image.get(x, y).iter().zip(expected) {
+                    max_error = max_error.max((a - b).abs());
+                }
+            }
+        }
+        assert!(max_error < 1e-6, "maximum camera RGB error {max_error}");
     }
 
     #[test]
