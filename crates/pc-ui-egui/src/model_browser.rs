@@ -6,8 +6,9 @@
 //!
 //! Nothing goes online until the window is open; every catalogue is cached so the window still
 //! works offline. Installing shows the licence and the exact files first, then downloads them
-//! verified (size and SHA-256) into ComfyUI's folders and refreshes the engine. A template for a
-//! family Local Image doesn't know yet becomes a custom workflow with basic controls.
+//! verified (size and SHA-256) into ComfyUI's folders and refreshes the engine. A template card is
+//! checked against the connected ComfyUI before anything downloads; a template for a family Local
+//! Image has no builder for is set up to run through that template (Set Up Models tests it).
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -55,6 +56,8 @@ struct InstallRun {
     error: Option<String>,
     ctl: JobControl,
     note: Option<String>,
+    /// The installed template model, for "Set up and test".
+    setup: Option<String>,
 }
 
 struct Confirm {
@@ -437,14 +440,20 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
                 })?
             };
             let reg = li_ai::family::registry();
-            if let Some(name) = &item.template {
-                let (ui, files) = browser::fetch_template(&cfg, &net, name)?;
-                let mut plan = browser::plan(&item, &files, None, &info, &cfg, &net)?;
+            if item.template.is_some() {
+                let stats = li_ai::service().client.system_stats()?;
+                let server = li_ai::modelsetup::Snapshot::from_parts(li_ai::service().client.host(), &stats, info);
+                let checked = li_ai::modelsetup::fixes::plan_template(&item, &cfg, &net, &server)?;
+                let Some(mut plan) = checked.plan else {
+                    let why: Vec<String> =
+                        checked.issues.iter().filter(|i| i.severity == li_ai::modelsetup::issue::Severity::Blocker).map(crate::model_setup::sentence).collect();
+                    anyhow::bail!("{}", why.join("\n"));
+                };
                 if plan.license.is_empty() {
                     plan.license =
                         item.family.as_deref().and_then(|f| reg.family(f)).map(|f| f.license.clone()).unwrap_or_else(|| tl!("See each model's page").into());
                 }
-                return Ok((plan, Some(ui)));
+                return Ok((plan, Some(checked.ui)));
             }
             let fam = item.family.as_deref().and_then(|f| reg.family(f));
             Ok((browser::plan(&item, &item.files, fam, &info, &cfg, &net)?, None))
@@ -460,7 +469,9 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
 
 fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<InstallRun>> {
     let run = Arc::new(Mutex::new(InstallRun { total: plan.total(), ..Default::default() }));
-    if AiSettings::load().is_remote() {
+    // A template whose files the server already has needs no download, on any server.
+    let nothing_to_download = template.is_some() && plan.files.is_empty();
+    if AiSettings::load().is_remote() && !nothing_to_download {
         if let Ok(mut state) = run.lock() {
             state.finished = true;
             state.error = Some(tl!("Install generative models on the remote ComfyUI server, then check the connection again.").into());
@@ -483,21 +494,22 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
             }
             request_repaint();
         };
-        let result = browser::install(&plan, &dir, &cfg, &ctl, &progress).and_then(|()| {
-            // A template for a family Local Image doesn't know runs as a custom workflow.
-            if let (Some(ui), None) = (&template, &item.family) {
-                let info = li_ai::service().client.object_info()?;
-                let mut w = li_ai::custom::from_template(&item.title, ui, &info)?;
-                w.family = item.family.clone();
-                li_ai::custom::save(&w, &li_ai::custom::dir())?;
-                return Ok(Some(li_i18n::fmt(tl!("Added “{name}” to the model list (basic controls)"), &[("name", &item.title)])));
-            }
-            Ok(None)
+        let installed = if nothing_to_download { Ok(()) } else { browser::install(&plan, &dir, &cfg, &ctl, &progress) };
+        let result = installed.and_then(|()| {
+            // A template for a family without a builder runs through that template: its main file
+            // is set to it, and model setup prepares the recipe.
+            let (Some(ui), None, Some(name)) = (&template, &item.family, &item.template) else { return Ok(None) };
+            let host = li_ai::service().client.host().to_owned();
+            let model_dir = li_ai::modelsetup::is_local(&host).then(|| dir.clone());
+            li_ai::modelsetup::fixes::adopt_template(&li_ai::modelsetup::Options::for_host(&host, model_dir), ui, name)
         });
         if let Ok(mut x) = r.lock() {
             x.finished = true;
             match result {
-                Ok(note) => x.note = note,
+                Ok(setup) => {
+                    x.note = setup.is_some().then(|| li_i18n::fmt(tl!("Set up “{name}” to run through its official template"), &[("name", &item.title)]));
+                    x.setup = setup;
+                }
                 Err(e) => x.error = Some(first_line(&format!("{e:#}"))),
             }
         }
@@ -549,6 +561,14 @@ fn profile_report(r: &li_ai::family::UpdateReport) -> String {
     parts.join(" · ")
 }
 
+/// The template's minimum ComfyUI, when the connected server is older.
+fn needs_newer_comfy(item: &Item) -> Option<String> {
+    use li_ai::template::index::Version;
+    let need = Version::parse(item.min_comfyui.as_deref()?)?;
+    let have = Version::parse(&crate::ai_ui::status().comfyui_version)?;
+    (have < need).then(|| need.to_string())
+}
+
 fn human(n: u64) -> String {
     li_ai::download::human_bytes(n)
 }
@@ -559,6 +579,7 @@ fn pill(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) -> egui::Res
     let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 16.0), Sense::hover());
     ui.painter().rect_filled(r, 8.0, fill);
     ui.painter().galley(r.center() - galley.size() / 2.0, galley, ink);
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
     resp
 }
 
@@ -639,7 +660,7 @@ fn capability_tags(item: &Item) -> Vec<String> {
             }
         }
     } else if item.basic_controls() {
-        tags.push(tl!("Basic controls").into());
+        tags.push(tl!("Official template").into());
     } else if item.template.is_none() {
         tags.push(tl!("Unknown family").into());
     }
@@ -984,8 +1005,14 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
         pill(&mut badge_ui, tl!("Licence gate"), dark, Color32::from_rgb(255, 200, 90)).on_hover_text(tl!("Accept the licence on the publisher's page first"));
     }
     if item.basic_controls() {
-        pill(&mut badge_ui, tl!("Basic controls"), dark, Color32::WHITE)
-            .on_hover_text(tl!("Local Image doesn't know this family yet: it runs through the official template with prompt, seed and size only"));
+        pill(&mut badge_ui, tl!("Official template"), dark, Color32::WHITE)
+            .on_hover_text(tl!("Local Image runs it through ComfyUI's official template; Set Up Models checks and tests it"));
+    }
+    if let Some(need) = needs_newer_comfy(item) {
+        pill(&mut badge_ui, &li_i18n::fmt(tl!("Needs ComfyUI {need}"), &[("need", &need)]), dark, Color32::from_rgb(255, 200, 90)).on_hover_text(li_i18n::fmt(
+            tl!("This template was made for ComfyUI {need} or newer; this server runs {have}."),
+            &[("need", &need), ("have", &crate::ai_ui::status().comfyui_version)],
+        ));
     }
     // Text.
     let body = egui::Rect::from_min_max(egui::pos2(outer.left() + 10.0, pr.bottom() + 8.0), outer.max - vec2(10.0, 8.0));
@@ -1044,6 +1071,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     let ui = &mut a;
     let run = s.installs.get(&item.id).cloned();
     let installed = is_installed(item, names);
+    let setup = run.as_ref().and_then(|r| r.lock().ok().and_then(|r| r.setup.clone()));
     match run.as_ref().and_then(|r| r.lock().ok().map(|r| (r.finished, r.error.clone(), r.done, r.total, r.note.clone()))) {
         Some((false, _, done, total, _)) => {
             ui.add(
@@ -1070,6 +1098,11 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             let r = ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
             if let Some(n) = note {
                 r.on_hover_text(n);
+            }
+            if let Some(key) = setup
+                && widgets::secondary_button(ui, tl!("Set up and test"), 0.0).clicked()
+            {
+                crate::model_setup::open(Some(&key));
             }
         }
         None if installed => {
@@ -1203,7 +1236,12 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                         ui.label(RichText::new(tl!("The author doesn't allow commercial use.")).color(t.warning));
                     }
                     if p.gated {
-                        ui.label(RichText::new(tl!("The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings.")).color(t.warning));
+                        ui.label(
+                            RichText::new(tl!(
+                                "The publisher asks you to accept its licence on its page first; add a Hugging Face token in Local AI settings."
+                            ))
+                            .color(t.warning),
+                        );
                     }
                     if let Some(url) = &p.license_url
                         && ui.link(tl!("Read the licence")).clicked()
@@ -1227,29 +1265,51 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(&f.name).color(t.text));
                                 ui.label(RichText::new(format!("→ {}", f.folder)).size(11.0).color(t.text_faint));
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(RichText::new(human(f.bytes)).color(t.text_dim)));
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.label(RichText::new(human(f.bytes)).color(t.text_dim))
+                                });
                             });
                         }
                     });
                 }
                 if !p.present.is_empty() {
-                    ui.label(RichText::new(li_i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint));
+                    ui.label(
+                        RichText::new(li_i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint),
+                    );
                 }
                 let dir = AiSettings::load().model_dir();
                 if let Some(free) = li_ai::download::free_space(&dir)
                     && free < p.total() + (256 << 20)
                 {
-                    ui.label(RichText::new(li_i18n::fmt(tl!("Not enough space in {folder} ({free} free)."), &[("folder", &dir.display().to_string()), ("free", &human(free))])).color(t.danger));
+                    ui.label(
+                        RichText::new(li_i18n::fmt(
+                            tl!("Not enough space in {folder} ({free} free)."),
+                            &[("folder", &dir.display().to_string()), ("free", &human(free))],
+                        ))
+                        .color(t.danger),
+                    );
                 }
                 if template.is_some() && item.family.is_none() {
-                    ui.label(RichText::new(tl!("Local Image doesn't know this model family yet: it will appear in the model list as a custom workflow with basic controls (prompt, seed, size).")).size(11.5).color(t.text_dim));
+                    ui.label(
+                        RichText::new(tl!(
+                            "Local Image runs this model through its official template. After the install, Set Up Models checks it and can test it."
+                        ))
+                        .size(11.5)
+                        .color(t.text_dim),
+                    );
                 }
                 ui.add_space(8.0);
                 if !p.files.is_empty() {
                     widgets::checkbox(ui, &mut accept, tl!("I have read and accept the licence"));
                 }
                 let label = if p.files.is_empty() { tl!("Done") } else { tl!("Install") };
-                match buttons(ui, &[DialogButton::new(ButtonRole::Default, label, 80.0).enabled(accept || p.files.is_empty()), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]) {
+                match buttons(
+                    ui,
+                    &[
+                        DialogButton::new(ButtonRole::Default, label, 80.0).enabled(accept || p.files.is_empty()),
+                        DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0),
+                    ],
+                ) {
                     Some(ButtonRole::Default) => go = Some((p.clone(), template.clone())),
                     Some(_) => close = true,
                     None => {}
@@ -1291,6 +1351,55 @@ mod ds_tests {
         }
         with(|s| *s = State::default());
     }
+    fn card_harness(item: Item, run: Option<InstallRun>) -> egui_kittest::Harness<'static, State> {
+        let mut state = State::default();
+        if let Some(run) = run {
+            state.installs.insert(item.id.clone(), Arc::new(Mutex::new(run)));
+        }
+        let mut initialized = false;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(320.0, 420.0)).build_ui_state(
+            move |ui, s: &mut State| {
+                if !initialized {
+                    PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Studio);
+                    initialized = true;
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                card(ui, s, &Tokens::get(ui.ctx()), &item, 300.0, &HashSet::new());
+            },
+            state,
+        );
+        h.run_steps(3);
+        h
+    }
+
+    #[test]
+    fn template_cards_say_when_comfyui_is_too_old_and_offer_set_up_after_install() {
+        use egui_kittest::kittest::Queryable;
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::model_setup::record_actions();
+        let st = crate::ai_ui::EngineStatus { connected: true, checked: true, comfyui_version: "0.38.0".into(), ..Default::default() };
+        crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
+        let item = Item {
+            id: "template:image_moss_image_t2i".into(),
+            title: "MOSS-Image: Text to Image".into(),
+            template: Some("image_moss_image_t2i".into()),
+            min_comfyui: Some("0.41.3".into()),
+            ..Default::default()
+        };
+        let h = card_harness(item.clone(), None);
+        h.get_by_label("Needs ComfyUI 0.41.3");
+        assert!(h.get_all_by_label("Official template").count() > 0);
+        drop(h);
+        let done = InstallRun { finished: true, setup: Some("unet:moss_image_sft_int8_convrot.safetensors".into()), ..Default::default() };
+        let mut h = card_harness(Item { min_comfyui: None, ..item }, Some(done));
+        assert!(h.query_by_label("Needs ComfyUI 0.41.3").is_none());
+        h.get_by_label("Set up and test").click();
+        h.run_steps(2);
+        assert!(crate::model_setup::is_open());
+        assert_eq!(crate::model_setup::selected().as_deref(), Some("unet:moss_image_sft_int8_convrot.safetensors"));
+    }
+
     #[test]
     fn ds_finding_installed_names_are_cached_across_repaints() {
         let mut state = State::default();

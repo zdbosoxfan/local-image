@@ -174,6 +174,16 @@ pub fn template_main(ui: &serde_json::Value, name: &str) -> Option<(String, Stri
     Some((format!("{prefix}:{}", main.name), main.name))
 }
 
+/// After a template card's files are installed: runs the template's main file through that
+/// template (the person's choice, so matching never picks another) and scans, which publishes the
+/// model. Returns the model's key.
+pub fn adopt_template(opts: &super::Options, ui: &serde_json::Value, name: &str) -> Result<Option<String>> {
+    let Some((key, _)) = template_main(ui, name) else { return Ok(None) };
+    choose(&opts.state_path, &opts.host, &key, Choice::Template(Some(name.to_owned())))?;
+    super::scan(opts);
+    Ok(Some(key))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -443,3 +443,21 @@ fn a_template_this_comfyui_cannot_run_is_refused_before_anything_downloads() {
         Some("unet:flux3-image-klein-int8-convrot.safetensors")
     );
 }
+
+#[test]
+fn an_installed_template_runs_its_main_file_through_that_template() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(&[
+        ("diffusion_models/moss_image_sft_int8_convrot.safetensors", "Comfy-Org_MOSS-Image__diffusion_models~moss_image_sft_int8_convrot"),
+        MOSS[1],
+        MOSS[2],
+    ]);
+    let ui: Value = serde_json::from_slice(&std::fs::read(fixtures().join("comfy-0.42.5/templates/image_moss_image_t2i.json")).unwrap()).unwrap();
+    let key = modelsetup::fixes::adopt_template(&s.options(), &ui, "image_moss_image_t2i").unwrap().expect("the template declares a main file");
+    assert_eq!(key, "unet:moss_image_sft_int8_convrot.safetensors");
+    let stored = li_ai::modelsetup::state::SetupState::load(&s.options().state_path);
+    let m = &stored.server(s.mock.host()).unwrap().models[&key];
+    assert_eq!(m.user.template_choice.as_deref(), Some("image_moss_image_t2i"));
+    assert_eq!(m.templates.get("create").map(String::as_str), Some("image_moss_image_t2i"));
+    assert!(ModelId::from_key(&key).is_some_and(|id| id.info().recipe.is_some()), "published as a template model, not a custom workflow");
+}
