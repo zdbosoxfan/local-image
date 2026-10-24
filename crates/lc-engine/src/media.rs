@@ -579,18 +579,21 @@ impl RenderJob {
         self
     }
 
-    /// Render into `space` instead of sRGB (a view on a wide-gamut monitor). Gets its own result
-    /// key; the preview caches hold sRGB pixels, so a result in another space is never kept there.
+    /// Render a job built for sRGB into `space` instead (a view on a wide-gamut monitor). Gets its
+    /// own result key, and its view preview is kept under that space's view key
+    /// ([`QuickJob::with_space`] finds it); thumbnails are sRGB, so it never enters their cache.
     pub fn with_space(mut self, space: lightcraft_pipeline::OutputSpace) -> Self {
-        if self.request.space != space {
-            let k = |s: lightcraft_pipeline::OutputSpace| (s as u64 + 1).wrapping_mul(0xa076_1d64_78bd_642f);
-            self.key ^= k(self.request.space) ^ k(space);
-            self.request.space = space;
+        if self.request.space == space {
+            return self;
         }
-        if space != lightcraft_pipeline::OutputSpace::Srgb {
-            self.view_cache = None;
-            self.cache = None;
-        }
+        let k = |s: lightcraft_pipeline::OutputSpace| (s as u64 + 1).wrapping_mul(0xa076_1d64_78bd_642f);
+        self.key ^= k(self.request.space) ^ k(space);
+        self.view_cache = match self.view_cache.take() {
+            Some((cache, key)) if self.request.space == lightcraft_pipeline::OutputSpace::Srgb => Some((cache, view_key_in(key, space))),
+            _ => None,
+        };
+        self.request.space = space;
+        self.cache = None;
         self
     }
 
@@ -762,7 +765,25 @@ pub struct QuickJob {
     pub small: Option<Box<RenderJob>>,
 }
 
+/// The view-preview key of a render in `space`, from the photo's sRGB one (which sRGB keeps).
+fn view_key_in(key: Hash128, space: lightcraft_pipeline::OutputSpace) -> Hash128 {
+    match space {
+        lightcraft_pipeline::OutputSpace::Srgb => key,
+        _ => Hasher128::new().update(&key.0.to_le_bytes()).str("space").u64(space as u64).finish(),
+    }
+}
+
 impl QuickJob {
+    /// The stand-in of a view rendered in `space` ([`RenderJob::with_space`]): only the view
+    /// preview cached in that space counts as [`QuickSource::Cached`]; the embedded preview and
+    /// the thumbnail render stay sRGB.
+    pub fn with_space(mut self, space: lightcraft_pipeline::OutputSpace) -> Self {
+        for (_, key) in &mut self.cached {
+            *key = view_key_in(*key, space);
+        }
+        self
+    }
+
     pub fn run(self) -> RenderResult {
         let (request_id, photo, key) = (self.request_id, self.photo, self.key);
         match crate::guard::catch("Preview render", || self.run_inner()) {

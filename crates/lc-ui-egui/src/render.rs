@@ -40,8 +40,8 @@ fn interactive_slot(slot: Slot) -> bool {
 }
 
 /// Slots showing a photo large enough to judge its colour: rendered in the monitor's gamut
-/// ([`Renderer::set_display`]). Thumbnails, stand-ins and prefetches stay sRGB, as the preview
-/// caches hold them.
+/// ([`Renderer::set_display`]), as are the neighbours prefetched for them and the loupe stand-in
+/// taken from their cached render. Thumbnails stay sRGB.
 fn view_slot(slot: Slot) -> bool {
     interactive_slot(slot) || matches!(slot, Slot::Compare(_))
 }
@@ -387,10 +387,15 @@ impl Renderer {
     }
 
     /// Request a stand-in for `slot` (once per job key).
-    pub fn request_quick(&mut self, slot: Slot, mut job: QuickJob, priority: u32) {
+    pub fn request_quick(&mut self, slot: Slot, job: QuickJob, priority: u32) {
         if self.quick_tried.get(&slot) == Some(&job.key) {
             return;
         }
+        // the loupe's stand-in: its cached render in the view space, shown as the view will be
+        let (mut job, view) = match &self.view {
+            Some((space, view)) if slot == Slot::Preview => (job.with_space(*space), Some(view.clone())),
+            _ => (job, None),
+        };
         self.quick_tried.insert(slot, job.key);
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
@@ -403,14 +408,21 @@ impl Renderer {
             priority,
             Box::new(move || {
                 display_worker_priority();
-                display_result(job.run(), display.as_deref(), display_key)
+                let result = job.run();
+                let display = view.filter(|_| result.quick == Some(QuickSource::Cached)).or(display);
+                display_result(result, display.as_deref(), display_key)
             }),
         );
     }
 
     /// Prepare a photo in the background (a [`Slot::Prefetch`] job runs once per key; a newer one
-    /// replaces it while queued). Memory stays bounded by the engine's source caches.
-    pub fn prefetch(&mut self, slot: Slot, mut job: RenderJob, priority: u32) {
+    /// replaces it while queued). Memory stays bounded by the engine's source caches. Its view
+    /// render is cached in the views' space, so the loupe's stand-in for it is the view itself.
+    pub fn prefetch(&mut self, slot: Slot, job: RenderJob, priority: u32) {
+        let mut job = match &self.view {
+            Some((space, _)) => job.with_space(*space),
+            None => job,
+        };
         if self.prefetched.get(&slot) == Some(&job.key) {
             return;
         }
@@ -1023,19 +1035,19 @@ mod thumbnail_tests {
         let display = color.srgb_preview_display().unwrap();
         app.renderer.set_display(display.clone());
         let job = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap();
-        let srgb_key = job.key;
+        let (srgb_key, srgb_view) = (job.key, job.view_cache.as_ref().unwrap().1);
         app.renderer.request(Slot::Main, job, 100);
         let (slot, job) = take_job(&work);
         assert_eq!(job.request.space, OutputSpace::DisplayP3);
         assert_ne!(job.key, srgb_key, "a P3 view never passes for the sRGB render");
-        assert!(job.view_cache.is_none(), "P3 pixels never enter the sRGB view cache");
+        assert_ne!(job.view_cache.as_ref().unwrap().1, srgb_view, "P3 pixels never pass for the sRGB view preview");
         finish(&mut app, &work, &ctx, slot, job.run());
         let shown: Vec<u8> = app.renderer.textures[&Slot::Main].pixels.as_ref().unwrap().pixels.iter().flat_map(|p| p.to_array()).collect();
         let export = app.session.render_export(PhotoId(1), 8, 8, OutputSpace::DisplayP3, OutputDepth::U8).unwrap().image.as_bytes();
         assert_eq!(shown.len(), export.len());
         let worst = shown.iter().zip(&export).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
         assert!(worst <= 1, "the loupe shows the P3 export (worst difference {worst} codes)");
-        // what the loupe used to show: the sRGB render, clipped, then converted to the monitor
+        // the sRGB render clips this green; converted to the monitor it carries > 10 codes more red
         let srgb = app.session.render_job(PhotoId(1), 8, 8, false, true).unwrap().run().rendered.unwrap().image;
         let clipped = display.rgb8_to_display(srgb.width, &srgb.as_bytes());
         let red = |b: &[u8]| b.as_chunks::<4>().0.iter().map(|p| f32::from(p[0])).sum::<f32>() / (b.len() / 4) as f32;
@@ -1055,8 +1067,40 @@ mod thumbnail_tests {
         app.renderer.set_display(color.srgb_preview_display().unwrap());
         app.renderer.request(Slot::Main, app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap(), 100);
         let (_, job) = take_job(&work);
-        assert_eq!((job.request.space, job.key), (OutputSpace::Srgb, srgb_key));
-        assert!(job.view_cache.is_some());
+        assert_eq!((job.request.space, job.key, job.view_cache.unwrap().1), (OutputSpace::Srgb, srgb_key, srgb_view));
+    }
+
+    /// Poll until `done` holds (stand-ins and prefetches run on the renderer's own pool).
+    fn poll_until(app: &mut crate::LightcraftApp, ctx: &egui::Context, done: impl Fn(&Renderer) -> bool) {
+        let start = std::time::Instant::now();
+        while !done(&app.renderer) {
+            assert!(start.elapsed() < std::time::Duration::from_secs(60), "render pool timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            app.renderer.poll(ctx, &mut app.session);
+        }
+    }
+
+    #[test]
+    fn wide_gamut_loupe_stand_ins_show_the_view_they_stand_in_for() {
+        // stepping onto a prefetched neighbour on a P3 monitor: its stand-in is its cached view
+        // render, shown exactly as the view that replaces it (no colour shift when it lands)
+        let (mut app, work, ctx) = fixture_filled(Session::new(), (*photo()).clone(), [0.10, 0.45, 0.05]);
+        let mut color = photocraft_engine::color_cmds::ColorState::default();
+        color.settings.monitor_profile = "display-p3".into();
+        app.renderer.set_display(color.srgb_preview_display().unwrap());
+        app.renderer.prefetch(Slot::Prefetch(0), app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap(), 1);
+        poll_until(&mut app, &ctx, |r| !r.is_pending(Slot::Prefetch(0)));
+        app.renderer.request_quick(Slot::Preview, app.session.quick_view_job(PhotoId(1), 8, true).unwrap(), 110);
+        poll_until(&mut app, &ctx, |r| r.textures.contains_key(&Slot::Preview));
+        assert_eq!(app.renderer.textures[&Slot::Preview].quick, Some(QuickSource::Cached));
+        app.renderer.request(Slot::Main, app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap(), 100);
+        let (slot, job) = take_job(&work);
+        finish(&mut app, &work, &ctx, slot, job.run());
+        let bytes = |s: Slot| -> Vec<u8> { app.renderer.textures[&s].pixels.as_ref().unwrap().pixels.iter().flat_map(|p| p.to_array()).collect() };
+        let (stand_in, view) = (bytes(Slot::Preview), bytes(Slot::Main));
+        assert_eq!(stand_in.len(), view.len());
+        let worst = stand_in.iter().zip(&view).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+        assert!(worst <= 1, "the stand-in shows the view (worst difference {worst} codes)");
     }
 
     #[test]
