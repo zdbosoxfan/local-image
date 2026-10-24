@@ -42,6 +42,18 @@ All notable changes to Local Image are recorded here. The format follows
   1 to 100 is refused instead of clamped, and out-of-range view zoom or centre values are refused.
 - Graphics: GL adapters weaker than WebGL2's defaults no longer fail device creation, and small mip
   levels are redrawn whole, fixing canvas corruption on some AMD Vulkan drivers.
+- Develop resampling: reduced previews and exports no longer outline bright windows, lamps and
+  skylines in black (the linear-light reduction rang below zero beside high-contrast edges). Crops,
+  straighten, Upright and lens corrections resample with a clamped Catmull-Rom instead of one
+  bilinear tap, so straightened and corrected exports keep their fine detail evenly across the
+  frame; an unrotated crop snaps to whole pixels, so a full-size cropped export copies pixels; and
+  warps widen the kernel where they squeeze the image instead of aliasing.
+- Upright uses the photo's focal length (EXIF 35 mm equivalent, else the lens database's crop
+  factor): wide and telephoto shots keep their proportions, and Auto corrects steeper tilts. Explicit
+  Vertical and Full correct steep street-level and drone tilts instead of only levelling. Constrain
+  Crop also moves the crop, keeping more of the frame.
+- Lens corrections: Remove CA and the manual CA sliders correct the sensor's colour planes on raw
+  files, and noise reduction treats vignetting-corrected corners by their raw noise.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 
