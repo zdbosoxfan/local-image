@@ -145,7 +145,7 @@ const MODULES: &[Module] = &[
     },
     Module {
         src: include_str!("wgsl/resize.wgsl"),
-        bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32")],
+        bindings: &[("src", false, "f32"), ("table", false, "u32"), ("dst", true, "f32"), ("exact", true, "f32")],
         entries: &["resize_h", "resize_v"],
     },
     Module {

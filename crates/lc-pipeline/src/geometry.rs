@@ -661,14 +661,14 @@ mod tests {
     }
 
     /// A window eight stops over the wall beside it, rendered reduced (a fit view, a web export):
-    /// the scene-linear prefilter used to ring the wall next to the window below zero, a black
-    /// outline after tone mapping. Unrotated and straightened frames alike now stay within the
-    /// scene's range, give or take the anti-ringing slack.
+    /// a plain cubic rings the wall next to the window below zero, a black outline after tone
+    /// mapping. Unrotated and straightened frames, with upright and sloped window edges alike,
+    /// stay within the scene's range, give or take the anti-ringing slack.
     #[test]
     fn reduced_renders_do_not_outline_bright_windows_in_black() {
         let (wall, window) = (0.18f32, 0.18 * 256.0);
-        for edge in [600, 601, 602] {
-            let src = RgbFrame::from_fn(1200, 400, |x, _| if x < edge { [wall; 3] } else { [window; 3] });
+        for (edge, slope) in [(600, 0), (601, 0), (602, 0), (700, 1), (650, 2)] {
+            let src = RgbFrame::from_fn(1200, 400, |x, y| if x + slope * y / 2 < edge { [wall; 3] } else { [window; 3] });
             for angle in [0.0, 2.0] {
                 let mut s = DevelopSettings::default();
                 s.crop.geometry.angle = angle;
@@ -678,7 +678,7 @@ mod tests {
                     for (i, p) in out.data.iter().enumerate() {
                         assert!(
                             p.iter().all(|v| *v >= wall * (1.0 - ANTIRING_SLACK - 1e-4) && *v <= window * (1.0 + ANTIRING_SLACK + 1e-4)),
-                            "edge {edge}, angle {angle}, {w}×{h}, pixel {i}: {p:?}"
+                            "edge {edge}, slope {slope}, angle {angle}, {w}×{h}, pixel {i}: {p:?}"
                         );
                     }
                 }

@@ -431,13 +431,16 @@ fn resize_with(
     antiring: Option<f32>,
 ) -> Buf {
     let (dw, dh) = (wx.len(), wy.len());
-    let (ar, slack) = (antiring.is_some() as u32, antiring.unwrap_or(0.0).to_bits());
+    let slack = antiring.unwrap_or(0.0);
+    let p = |a: usize, b: usize, c: usize| [a as u32, b as u32, c as u32, nc as u32, antiring.is_some() as u32, slack.to_bits()];
     let tx = cx.gpu.upload(&taps(wx));
     let tmp = cx.gpu.buffer(dw * sh * nc);
-    cx.run("resize_h", &[sw as u32, sh as u32, dw as u32, nc as u32, ar, slack], &[Some(src), Some(&tx), Some(&tmp)], groups2(dw, sh, [16, 16]));
+    // the horizontal outputs clamped without the slack, the vertical pass's range
+    let exact = (slack != 0.0).then(|| cx.gpu.buffer(dw * sh * nc));
+    cx.run("resize_h", &p(sw, sh, dw), &[Some(src), Some(&tx), Some(&tmp), exact.as_ref()], groups2(dw, sh, [16, 16]));
     let ty = cx.gpu.upload(&taps(wy));
     let out = cx.gpu.buffer(dw * dh * nc);
-    cx.run("resize_v", &[dw as u32, sh as u32, dh as u32, nc as u32, ar, slack], &[Some(&tmp), Some(&ty), Some(&out)], groups2(dw, dh, [16, 16]));
+    cx.run("resize_v", &p(dw, sh, dh), &[Some(&tmp), Some(&ty), Some(&out), exact.as_ref()], groups2(dw, dh, [16, 16]));
     out
 }
 

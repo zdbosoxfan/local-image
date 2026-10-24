@@ -22,9 +22,9 @@ fn sampled(cx: &mut Cx<'_>, src: &Arc<RgbFrame>, info: &SourceInfo, s: &DevelopS
     (gpu, cpu)
 }
 
-/// A window six to eight stops over the wall, rendered reduced: neither renderer's prefilter rings
-/// the wall beside the window (it went below zero: a black outline), unrotated, straightened,
-/// cropped and flipped.
+/// A window six to eight stops over the wall, its edge sloped, rendered reduced: neither renderer
+/// rings the wall beside the window below the anti-ringing slack (a plain cubic takes it below
+/// zero: a black outline), unrotated, straightened, cropped and flipped.
 #[test]
 fn reduced_renders_do_not_ring_bright_windows_on_the_device() {
     let gpu_device = crate::test_device().unwrap_or_else(|| panic!("real GPU required: {:?}", crate::unavailable_reason()));
@@ -44,8 +44,7 @@ fn reduced_renders_do_not_ring_bright_windows_on_the_device() {
         }
         for req in [RenderRequest::fit(401, 401), RenderRequest::fit(250, 250)] {
             let (out, _) = sampled(&mut cx, &src, &info, &s, &req, 1e-2);
-            // the separable path's two passes may each use the slack across a diagonal edge
-            let slack = 2.0 * li_raster::resample::ANTIRING_SLACK + 1e-3;
+            let slack = li_raster::resample::ANTIRING_SLACK + 1e-4;
             for (i, p) in out.data.iter().enumerate() {
                 for c in 0..3 {
                     assert!(p[c] >= wall[c] * (1.0 - slack) && p[c] <= window[c] * (1.0 + slack), "angle {angle}, crop {crop}, pixel {i}: {p:?}");
