@@ -12,7 +12,7 @@ use li_ai::download::{
     verify_existing,
 };
 use li_ai::family::Role as FamilyRole;
-use li_ai::inventory::{detect_file, family_of, label_for, listed_as_model_but_lora, pattern_matches, resolve_components, scan};
+use li_ai::inventory::{family_of, identify_file, label_for, listed_as_model_but_lora, pattern_matches, resolve_components, scan};
 use li_ai::trash::{available, deletion_date, encode_path, home_trash, move_to_trash};
 
 struct TempDir(PathBuf);
@@ -405,15 +405,18 @@ fn resolve_components_finds_by_exact_then_shortest_pattern() {
 }
 
 #[test]
-fn detect_file_reads_local_headers_and_caches() {
+fn identify_file_reads_local_headers_and_caches() {
     let dir = temp_dir("detect");
     let p = write_safetensors(dir.path(), "checkpoints/mystery.safetensors", &sdxl_header());
-    let detected = detect_file(&p).unwrap();
+    let reg = li_ai::family::registry();
+    let detected = identify_file(&p, FileKind::Checkpoint, reg).unwrap();
+    assert_eq!(detected.arch.as_deref(), Some("sdxl"));
     assert_eq!(detected.family.as_deref(), Some("sdxl"));
     assert_eq!(detected.kind, FileKind::Checkpoint);
+    assert!(detected.header_read);
 
-    let detected2 = detect_file(&p).unwrap();
-    assert_eq!(detected2.family, detected.family);
+    let detected2 = identify_file(&p, FileKind::Checkpoint, reg).unwrap();
+    assert_eq!(detected2, detected);
 }
 
 #[test]

@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "id": "hidream",
   "label": "HiDream I1",
   "group": "HiDream",
@@ -107,10 +107,11 @@
       "names": [
         "ae.safetensors"
       ],
-      "patterns": [
-        "ae.safetensors"
-      ],
-      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/vae/ae.safetensors"
+      "patterns": [],
+      "source": "hf:Comfy-Org/HiDream-I1_ComfyUI/split_files/vae/ae.safetensors",
+      "stems": [
+        "ae"
+      ]
     }
   ],
   "vram_gb": 24,

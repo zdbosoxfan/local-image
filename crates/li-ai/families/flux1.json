@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 1,
+  "version": 2,
   "id": "flux1",
   "label": "FLUX.1",
   "group": "FLUX",
@@ -98,11 +98,13 @@
         "flux_vae.safetensors"
       ],
       "patterns": [
-        "ae.safetensors",
         "flux_vae",
         "flux-vae"
       ],
-      "source": "hf:Comfy-Org/Lumina_Image_2.0_Repackaged/split_files/vae/ae.safetensors"
+      "source": "hf:Comfy-Org/Lumina_Image_2.0_Repackaged/split_files/vae/ae.safetensors",
+      "stems": [
+        "ae"
+      ]
     }
   ],
   "vram_gb": 16,

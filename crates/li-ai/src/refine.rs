@@ -1145,13 +1145,13 @@ pub fn target(model: ModelId, variant: &str, info: &ObjectInfo) -> Result<Instal
             files.insert(f.role, found.with_context(|| format!("{} is not installed", f.name))?);
         }
     }
-    Ok(InstalledModel { key: model.key().into(), family: m.family.clone(), label: m.label.clone(), files })
+    Ok(InstalledModel { key: model.key().into(), family: m.family.clone(), label: m.label.clone(), files, ..Default::default() })
 }
 
 pub fn family_recipe(model: ModelId, variant: &str, target: &InstalledModel, info: &ObjectInfo) -> Option<Recipe> {
     let m = model.try_info()?;
     let mut profile = if m.tool {
-        crate::family::registry().family(&target.family)?.resolved_for_file(main_file(target).ok()?.1)
+        crate::family::registry().family(&target.family)?.resolved_for_file(main_file(target).ok()?.1, None)
     } else {
         if m.family == "unknown" {
             return None;

@@ -165,7 +165,7 @@ fn main() -> Result<()> {
         let mut cases = vec![("family default", family.clone())];
         for rule in &family.file_overrides {
             if let Some(pattern) = rule.patterns.first() {
-                cases.push((pattern, family.resolved_for_file(pattern)));
+                cases.push((pattern, family.resolved_for_file(pattern, None)));
             }
         }
         for (case, family) in cases {

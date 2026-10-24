@@ -6,7 +6,7 @@ use serde_json::json;
 
 use li_ai::arch::FileKind;
 use li_ai::comfy::ObjectInfo;
-use li_ai::inventory::{detect_file, family_of, label_for, listed_as_model_but_lora, loras, loras_for, pattern_matches, refresh, resolve_components};
+use li_ai::inventory::{family_of, identify_file, label_for, listed_as_model_but_lora, loras, loras_for, pattern_matches, refresh, resolve_components};
 
 static TEMP_COUNT: AtomicU64 = AtomicU64::new(0);
 static GLOBAL_LOCK: Mutex<()> = Mutex::new(());
@@ -93,17 +93,17 @@ fn resolve_components_empty_info_is_empty() {
 }
 
 #[test]
-fn detect_file_returns_none_for_missing_file() {
-    assert!(detect_file(Path::new("/definitely/not/here/model.safetensors")).is_none());
+fn identify_file_returns_none_for_missing_file() {
+    assert!(identify_file(Path::new("/definitely/not/here/model.safetensors"), FileKind::Checkpoint, li_ai::family::registry()).is_none());
 }
 
 #[test]
-fn detect_file_returns_none_for_empty_file() {
+fn identify_file_returns_none_for_empty_file() {
     let tmp = TempDir::new("empty");
     let p = tmp.path().join("empty.safetensors");
     std::fs::write(&p, b"").unwrap();
 
-    assert!(detect_file(&p).is_none());
+    assert!(identify_file(&p, FileKind::Checkpoint, li_ai::family::registry()).is_none());
 }
 
 #[test]

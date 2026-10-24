@@ -11,6 +11,7 @@ mod custom_coverage;
 mod download_coverage;
 mod download_trash_inventory_coverage;
 mod family_coverage;
+mod identify_coverage;
 mod inventory_coverage;
 mod mock_coverage;
 mod mock_hub_coverage;

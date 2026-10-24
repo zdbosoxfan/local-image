@@ -109,7 +109,7 @@ Derived families set `base` and override only what differs. To add or change one
 1. Edit or add the profile; bump its `version` and the matching entry in `index.json`.
 2. `cargo test -p li-ai` checks every profile (files need a 64-hex SHA-256, a size, and a
    `.safetensors` or `.gguf` name) and builds every family's graphs against the mock.
-3. Once merged to `v2`, apps pick it up with **Model Browser › Update Model Profiles**.
+3. Once merged to `main`, apps pick it up with **Model Browser › Update Model Profiles**.
 
 ## Packaging
 

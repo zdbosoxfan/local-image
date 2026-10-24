@@ -190,13 +190,19 @@ impl Preset {
 }
 
 /// A model found installed (built by [`crate::inventory`]).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InstalledModel {
     pub key: String,
+    /// The architecture's family id (a builder family, a template-only family, or empty).
     pub family: String,
     pub label: String,
     /// Role → ComfyUI file name (main weights, text encoders, VAE).
     pub files: BTreeMap<Role, String>,
+    /// The variant detection gave (`9b`, `turbo`, `distilled`).
+    pub variant: Option<String>,
+    pub quant: Option<crate::identify::QuantClass>,
+    /// The precision-independent name key ([`crate::stem::stem_key`]).
+    pub stem: String,
 }
 
 /// One snapshot of every model.
@@ -294,7 +300,7 @@ pub fn build(reg: &crate::family::Registry, installed: &[InstalledModel]) -> Cat
             continue;
         }
         let def = ModelDef { key: im.key.clone(), label: im.label.clone(), short: im.label.clone(), ..Default::default() };
-        let resolved = f.resolved_for_file(main.map(String::as_str).unwrap_or_default());
+        let resolved = f.resolved_for_file(main.map(String::as_str).unwrap_or_default(), im.variant.as_deref());
         let info = info_for(&resolved, &def, Origin::Installed);
         cat.presets.push(Preset {
             model: info.id,
@@ -492,7 +498,10 @@ pub struct Availability {
 pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
     let model = preset.model.try_info();
     let mut nodes: Vec<String> = preset.required_nodes.clone();
-    if let Some(m) = model {
+    // Models without a builder (unknown files, template-only families) are checked by their own
+    // recipe: the refine checker or the model setup's static check.
+    let built = model.filter(|m| m.family != "unknown" && m.resolved.buildable());
+    if let Some(m) = built {
         nodes.extend(crate::builders::required_nodes(&m.resolved));
     }
     nodes.sort();
@@ -501,7 +510,7 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
     if !missing_nodes.is_empty() {
         return Availability { reason: format!("Update ComfyUI: it is missing the nodes {}.", missing_nodes.join(", ")), ..Default::default() };
     }
-    let family_choices = model.map(|m| m.resolved.pipeline.required_choices.clone()).unwrap_or_default();
+    let family_choices = built.map(|m| m.resolved.pipeline.required_choices.clone()).unwrap_or_default();
     for (class, input, value) in preset.required_choices.iter().chain(family_choices.iter()) {
         if !info.choices(class, input).iter().any(|c| c == value) {
             return Availability { reason: format!("Update ComfyUI: {class} does not offer “{value}”."), ..Default::default() };
@@ -524,7 +533,7 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
         }
     }
     // Installed models: text encoders and VAE the family needs, found by its component rules.
-    if let Some(m) = model {
+    if let Some(m) = built {
         for (role, name) in crate::inventory::resolve_components(&m.resolved, info) {
             files.entry(role).or_insert(name);
         }
@@ -532,6 +541,16 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
             if !files.contains_key(&c.role) && preset.installed {
                 missing.push(c.names.first().map(String::as_str).unwrap_or("a text encoder or VAE"));
             }
+        }
+        // A graph is never built with an empty loader file: a separate text encoder or VAE the
+        // pipeline loads must have resolved.
+        let pl = &m.resolved.pipeline;
+        let needs_clip = matches!(pl.clip.node.as_str(), "CLIPLoader" | "DualCLIPLoader" | "TripleCLIPLoader" | "QuadrupleCLIPLoader");
+        if missing.is_empty() && needs_clip && !files.contains_key(&Role::Clip) {
+            missing.push("a text encoder");
+        }
+        if missing.is_empty() && pl.vae == "file" && !files.contains_key(&Role::Vae) {
+            missing.push("a VAE");
         }
     }
     if !missing.is_empty() {
@@ -624,6 +643,7 @@ mod tests {
             family: "sdxl".into(),
             label: "juggernautXL_v9".into(),
             files: [(Role::Checkpoint, "juggernautXL_v9.safetensors".to_owned())].into(),
+            ..Default::default()
         };
         let cat = build(reg, &[im]);
         let m = cat.models.iter().find(|m| m.id.key() == "ckpt:juggernautXL_v9.safetensors").unwrap();
@@ -646,7 +666,13 @@ mod tests {
             ("flux2-klein", "flux-2-klein-base-9b.safetensors", 20.0, 5.0),
         ];
         for (family, file, steps, cfg) in installed {
-            let im = InstalledModel { key: format!("unet:{file}"), family: family.into(), label: file.into(), files: [(Role::Unet, file.into())].into() };
+            let im = InstalledModel {
+                key: format!("unet:{file}"),
+                family: family.into(),
+                label: file.into(),
+                files: [(Role::Unet, file.into())].into(),
+                ..Default::default()
+            };
             let cat = build(crate::family::registry(), std::slice::from_ref(&im));
             let model = cat.models.iter().find(|m| m.id.key() == im.key).unwrap();
             assert_eq!(model.steps.default, steps);
@@ -655,7 +681,7 @@ mod tests {
         // Existing schema-1 profiles without the optional field retain their defaults.
         let sd15 = crate::family::registry().family("sd15").unwrap();
         assert!(sd15.file_overrides.is_empty());
-        assert_eq!(sd15.resolved_for_file("custom.safetensors"), sd15.clone());
+        assert_eq!(sd15.resolved_for_file("custom.safetensors", None), sd15.clone());
     }
 }
 
@@ -663,7 +689,13 @@ mod tests {
 #[test]
 fn final_review_realvis_lightning_uses_author_sampling_profile() {
     for file in ["realvisxlV50_v50LightningBakedvae.safetensors", "RealVisXL_V5.0_Lightning_fp16.safetensors"] {
-        let im = InstalledModel { key: format!("ckpt:{file}"), family: "sdxl".into(), label: file.into(), files: [(Role::Checkpoint, file.into())].into() };
+        let im = InstalledModel {
+            key: format!("ckpt:{file}"),
+            family: "sdxl".into(),
+            label: file.into(),
+            files: [(Role::Checkpoint, file.into())].into(),
+            ..Default::default()
+        };
         let key = im.key.clone();
         let cat = build(crate::family::registry(), &[im]);
         let f = &cat.models.iter().find(|m| m.id.key() == key).unwrap().resolved;
@@ -678,7 +710,7 @@ fn final_review_realvis_lightning_uses_author_sampling_profile() {
     }
     let generic = crate::family::registry().family("sdxl").unwrap();
     for file in ["realvisxlV50_v50Bakedvae.safetensors", "OtherXL_Lightning.safetensors"] {
-        assert_eq!(generic.resolved_for_file(file), generic.clone());
+        assert_eq!(generic.resolved_for_file(file, None), generic.clone());
     }
 }
 

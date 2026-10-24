@@ -76,7 +76,7 @@ struct State {
     previews: HashMap<String, Preview>,
     installs: HashMap<String, Arc<Mutex<InstallRun>>>,
     confirm: Option<Confirm>,
-    profiles: Option<Slot<Result<Vec<String>, String>>>,
+    profiles: Option<Slot<Result<li_ai::family::UpdateReport, String>>>,
     profiles_msg: String,
     installed: Option<(std::time::Instant, Arc<HashSet<String>>)>,
     installed_at: Option<std::time::Instant>,
@@ -508,14 +508,14 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
     run
 }
 
-fn start_profile_update() -> Slot<Result<Vec<String>, String>> {
+fn start_profile_update() -> Slot<Result<li_ai::family::UpdateReport, String>> {
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
     let _ = std::thread::Builder::new().name("family-update".into()).spawn(move || {
         let net = HttpNet::new(config());
         let base = std::env::var("LOCAL_IMAGE_FAMILIES_BASE").unwrap_or_else(|_| li_ai::family::REMOTE_BASE.to_owned());
         let r = li_ai::family::update_from(&|u| net.get(u), &base, &li_ai::family::cache_dir()).map_err(|e| first_line(&format!("{e:#}")));
-        if matches!(&r, Ok(v) if !v.is_empty()) {
+        if matches!(&r, Ok(v) if !v.updated.is_empty() || !v.kept_user.is_empty()) {
             li_ai::family::reload();
             crate::ai_ui::refresh();
         }
@@ -525,6 +525,28 @@ fn start_profile_update() -> Slot<Result<Vec<String>, String>> {
         request_repaint();
     });
     slot
+}
+
+/// One line per outcome of a profile update.
+fn profile_report(r: &li_ai::family::UpdateReport) -> String {
+    let mut parts = Vec::new();
+    let names = |v: &[String]| v.join(", ");
+    match r.updated.len() {
+        0 => {}
+        1 => parts.push(li_i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &names(&r.updated))])),
+        n => parts.push(li_i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &n.to_string()), ("names", &names(&r.updated))])),
+    }
+    if !r.kept_user.is_empty() {
+        parts.push(li_i18n::fmt(tl!("Your own profiles stay in use: {names}"), &[("names", &names(&r.kept_user))]));
+    }
+    if !r.needs_newer_app.is_empty() {
+        parts.push(li_i18n::fmt(tl!("Needs a newer Local Image: {names}"), &[("names", &names(&r.needs_newer_app))]));
+    }
+    if !r.rejected.is_empty() {
+        let ids: Vec<String> = r.rejected.iter().map(|(id, _)| id.clone()).collect();
+        parts.push(li_i18n::fmt(tl!("Not used (the previous copy stays): {names}"), &[("names", &names(&ids))]));
+    }
+    parts.join(" · ")
 }
 
 fn human(n: u64) -> String {
@@ -1094,8 +1116,7 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
         s.profiles = None;
         s.profiles_msg = match r {
             Ok(v) if v.is_empty() => tl!("Model profiles are up to date").into(),
-            Ok(v) if v.len() == 1 => li_i18n::fmt(tl!("Updated 1 model profile: {names}"), &[("names", &v.join(", "))]),
-            Ok(v) => li_i18n::fmt(tl!("Updated {n} model profiles: {names}"), &[("n", &v.len().to_string()), ("names", &v.join(", "))]),
+            Ok(v) => profile_report(&v),
             Err(e) => li_i18n::fmt(tl!("Couldn't update profiles: {error}"), &[("error", &e)]),
         };
     }

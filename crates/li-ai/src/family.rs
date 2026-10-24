@@ -21,8 +21,9 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// The profile format this build reads.
-pub const SCHEMA: u32 = 1;
+/// The profile format this build reads. Schema 2 adds `kind: template`, `engine`, `detect`,
+/// `template` and per-file `components`; a profile with a newer schema is left to a newer build.
+pub const SCHEMA: u32 = 2;
 
 /// Built-in profiles.
 pub const EMBEDDED: &[(&str, &str)] = &[
@@ -75,6 +76,31 @@ pub enum FamilyKind {
     Upscaler,
     /// Detected but only usable through an official template (no builder).
     Basic,
+    /// An image family that runs only through official ComfyUI templates; its profile carries
+    /// detection rules and template polish, not a pipeline.
+    Template,
+}
+
+/// Which graph source runs a model.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Engine {
+    /// The family's builder when it has one, else the official template.
+    #[default]
+    Auto,
+    Builder,
+    Template,
+}
+
+/// Whether outputs may be used commercially.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Commercial {
+    Yes,
+    Limited,
+    No,
+    #[default]
+    Unknown,
 }
 
 /// How the diffusion model is loaded.
@@ -255,12 +281,14 @@ pub struct PromptRules {
 }
 
 /// A component file the family needs (text encoder, VAE…), found among ComfyUI's files by exact
-/// name first, then by any of `patterns` (substrings of the lower-case name).
+/// name first, then by precision-independent stem (`stems`, [`crate::stem::stem_key`]), then by
+/// any of `patterns` ([`crate::inventory::pattern_matches`]).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Component {
     pub role: Role,
     pub names: Vec<String>,
+    pub stems: Vec<String>,
     pub patterns: Vec<String>,
     /// Where to get it: a pinned file (size and hash known), or `hf:{repo}/{path}` resolved live.
     pub download: Option<FileSpec>,
@@ -375,15 +403,120 @@ pub struct ModelDef {
     pub presets: Vec<PresetDef>,
 }
 
-/// Known weight variants within a family (e.g. HiDream Dev vs Full), resolved by installed
-/// filename. Patterns use the component rule's `*`-separated substrings; first matching rule wins.
+/// Known weight variants within a family (e.g. HiDream Dev vs Full, Klein base vs 9B), matched by
+/// installed file name (`patterns`, the component rule's `*`-separated parts) or by the variant
+/// detection gave (`variants`). Every matching rule applies, in file order, each over the last.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FileOverride {
     pub patterns: Vec<String>,
+    pub variants: Vec<String>,
     pub sampling: Option<Sampling>,
     pub pipeline: Option<Value>,
     pub capabilities: Option<Capabilities>,
+    /// Replace the family's components of the same role (a 9B file's larger text encoder).
+    pub components: Option<Vec<Component>>,
+    pub engine: Option<Engine>,
+}
+
+/// A tensor shape condition on logical shapes ([`crate::identify::logical_shape`]): `axis` is
+/// `"out"` (dimension 0), `"in"` (dimension 1) or an index.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShapeRule {
+    pub suffix: String,
+    pub axis: Value,
+    pub one_of: Vec<u64>,
+}
+
+/// A header metadata condition; `pointer` reads into a JSON-valued key.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MetaRule {
+    pub key: String,
+    pub equals: Option<String>,
+    pub prefix: Option<String>,
+    pub contains: Option<String>,
+    pub pointer: Option<String>,
+}
+
+/// A variant within a detected architecture; the first matching rule wins.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VariantRule {
+    pub id: String,
+    pub tensors_all: Vec<String>,
+    pub tensors_any: Vec<String>,
+    pub tensors_none: Vec<String>,
+    pub shapes: Vec<ShapeRule>,
+    pub names: Vec<String>,
+}
+
+/// How a LoRA for this family is recognised.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LoraDetect {
+    /// Substrings of the LoRA's module names.
+    pub tensors_any: Vec<String>,
+    /// Prefixes of `ss_base_model_version` or `base_model` (separators ignored).
+    pub kohya_prefixes: Vec<String>,
+    pub modelspec_prefixes: Vec<String>,
+}
+
+/// Detection rules ([`crate::detect`]).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Detect {
+    /// This block may only re-label a built-in result equal to this family id.
+    pub refines: Option<String>,
+    pub priority: i32,
+    /// Tensor name suffixes that must all exist.
+    pub tensors_all: Vec<String>,
+    /// Name parts of which at least one must occur.
+    pub tensors_any: Vec<String>,
+    /// Tensor name suffixes that must not exist.
+    pub tensors_none: Vec<String>,
+    pub shapes: Vec<ShapeRule>,
+    pub metadata: Vec<MetaRule>,
+    /// GGUF `general.architecture` values; narrows, never decides alone.
+    pub gguf_arch: Vec<String>,
+    pub modelspec_prefixes: Vec<String>,
+    pub kohya_prefixes: Vec<String>,
+    /// Name patterns for files whose header can't be read (`*` parts, `!token` negatives).
+    pub names: Vec<String>,
+    pub variants: Vec<VariantRule>,
+    pub lora: Option<LoraDetect>,
+}
+
+/// Per-variant corrections of what the templates say.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VariantPolish {
+    pub sampling: Option<Sampling>,
+    pub sizes: Option<Sizes>,
+    /// Template values by role path (`"edit.cfg": 3.5`).
+    pub fix: BTreeMap<String, Value>,
+}
+
+/// Polish for models that run through official templates: labels and licence come from the
+/// family; the graph, files and sampling come from the template.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TemplatePolish {
+    /// Variant → official stem keys (for renamed files and community quantisations).
+    pub stems: BTreeMap<String, Vec<String>>,
+    /// Capability → template names, preferred first.
+    pub templates: BTreeMap<String, Vec<String>>,
+    pub references_max: Option<u32>,
+    /// `show`, `hide` or `default_text`.
+    pub negative: Option<String>,
+    /// `noise_mask` or `instruction`.
+    pub inpaint: Option<String>,
+    pub variants: BTreeMap<String, VariantPolish>,
+    /// Role → `Class.input` or node title, when detection picks the wrong slot.
+    pub roles: BTreeMap<String, String>,
+    /// Capability → a pre-converted API graph, when the converter cannot read a template.
+    pub graphs: BTreeMap<String, Value>,
 }
 
 /// A model family profile.
@@ -415,17 +548,41 @@ pub struct Family {
     pub hf_tags: Vec<String>,
     pub models: Vec<ModelDef>,
     pub file_overrides: Vec<FileOverride>,
+    pub engine: Engine,
+    pub detect: Option<Detect>,
+    pub template: Option<TemplatePolish>,
+    pub license_summary: Option<String>,
+    pub commercial: Commercial,
 }
 
 impl Family {
-    /// Defaults for an installed main-weights file, before any curated model overrides.
-    pub fn resolved_for_file(&self, name: &str) -> Family {
+    /// Defaults for an installed main-weights file (with the variant detection gave), before any
+    /// curated model overrides. Every matching override applies in file order.
+    pub fn resolved_for_file(&self, name: &str, variant: Option<&str>) -> Family {
         let name = name.replace('\\', "/");
         let name = name.rsplit('/').next().unwrap_or(&name);
-        match self.file_overrides.iter().find(|r| r.patterns.iter().any(|p| crate::inventory::pattern_matches(p, name))) {
-            Some(r) => self.resolved_for(&ModelDef { sampling: r.sampling, pipeline: r.pipeline.clone(), capabilities: r.capabilities, ..Default::default() }),
-            None => self.clone(),
+        let mut f = self.clone();
+        for r in &self.file_overrides {
+            let by_name = r.patterns.iter().any(|p| crate::inventory::pattern_matches(p, name));
+            let by_variant = variant.is_some_and(|v| r.variants.iter().any(|x| x == v));
+            if !(by_name || by_variant) {
+                continue;
+            }
+            f = f.resolved_for(&ModelDef { sampling: r.sampling, pipeline: r.pipeline.clone(), capabilities: r.capabilities, ..Default::default() });
+            for c in r.components.iter().flatten() {
+                f.components.retain(|x| x.role != c.role);
+                f.components.push(c.clone());
+            }
+            if let Some(e) = r.engine {
+                f.engine = e;
+            }
         }
+        f
+    }
+
+    /// Whether the graph builders can run this family (an image pipeline, not template-only).
+    pub fn buildable(&self) -> bool {
+        self.kind == FamilyKind::Image && !self.pipeline.latent.is_empty() && self.engine != Engine::Template
     }
 
     /// The sampling, capabilities and pipeline `model` actually runs with.
@@ -478,6 +635,8 @@ pub struct Registry {
     pub families: Vec<Family>,
     /// Where each profile came from (`built-in`, `update`, a user file).
     pub sources: BTreeMap<String, String>,
+    /// Profiles that could not be used, with why (the built-in copy is used where there is one).
+    pub errors: BTreeMap<String, String>,
 }
 
 impl Registry {
@@ -504,44 +663,83 @@ impl Registry {
     }
 }
 
-/// Parses raw profiles (`id → JSON`), resolving `base` inheritance.
-pub fn build(raw: &BTreeMap<String, Value>) -> Result<Vec<Family>> {
-    fn resolve(id: &str, raw: &BTreeMap<String, Value>, depth: u32) -> Result<Value> {
-        if depth > 4 {
-            bail!("family {id}: base chain too deep");
-        }
-        let v = raw.get(id).with_context(|| format!("unknown family {id}"))?;
-        let Some(base) = v.get("base").and_then(Value::as_str) else { return Ok(v.clone()) };
-        let mut merged = resolve(base, raw, depth + 1)?;
-        // A derived family has its own models and identity; everything else is inherited.
-        if let Some(o) = merged.as_object_mut() {
-            for k in ["models", "version", "description", "civitai_base_models", "hf_tags"] {
-                o.remove(k);
-            }
-        }
-        merge(&mut merged, v);
-        Ok(merged)
+fn schema_of(v: &Value) -> u32 {
+    v.get("schema").and_then(Value::as_u64).unwrap_or(0) as u32
+}
+
+fn version_of(v: &Value) -> u64 {
+    v.get("version").and_then(Value::as_u64).unwrap_or(0)
+}
+
+fn resolve_raw(id: &str, raw: &BTreeMap<String, Value>, depth: u32) -> Result<Value> {
+    if depth > 4 {
+        bail!("family {id}: base chain too deep");
     }
-    let mut out = Vec::new();
-    for (id, v) in raw {
-        let schema = v.get("schema").and_then(Value::as_u64).unwrap_or(0) as u32;
-        if schema > SCHEMA {
-            log::warn!("family {id}: profile schema {schema} is newer than this build reads ({SCHEMA}); skipped");
-            continue;
+    let v = raw.get(id).with_context(|| format!("unknown family {id}"))?;
+    let Some(base) = v.get("base").and_then(Value::as_str) else { return Ok(v.clone()) };
+    let mut merged = resolve_raw(base, raw, depth + 1)?;
+    // A derived family has its own models and identity; everything else is inherited.
+    if let Some(o) = merged.as_object_mut() {
+        for k in ["models", "version", "description", "civitai_base_models", "hf_tags", "detect", "template", "schema"] {
+            o.remove(k);
         }
-        let merged = resolve(id, raw, 0)?;
-        let mut f: Family = serde_json::from_value(merged).with_context(|| format!("family {id}"))?;
-        f.id = id.clone();
-        validate(&f)?;
-        out.push(f);
     }
+    merge(&mut merged, v);
+    Ok(merged)
+}
+
+fn build_one(id: &str, raw: &BTreeMap<String, Value>) -> Result<Family> {
+    let merged = resolve_raw(id, raw, 0)?;
+    let mut f: Family = serde_json::from_value(merged).with_context(|| format!("family {id}"))?;
+    f.id = id.to_owned();
+    validate(&f)?;
+    Ok(f)
+}
+
+fn sort_families(out: &mut [Family]) {
     // Built-in order (the menus' order), then anything else by id.
     let order = |id: &str| EMBEDDED.iter().position(|(k, _)| *k == id).unwrap_or(usize::MAX);
     out.sort_by(|a, b| order(&a.id).cmp(&order(&b.id)).then(a.id.cmp(&b.id)));
-    Ok(out)
 }
 
-/// Rejects profiles a builder could not run.
+/// Parses raw profiles (`id → JSON`), resolving `base` inheritance. One bad profile drops only
+/// itself and the families based on it; the errors are returned by id. Profiles with a newer
+/// schema than [`SCHEMA`] are left out with a "needs a newer Local Image" error.
+pub fn build_tolerant(raw: &BTreeMap<String, Value>) -> (Vec<Family>, BTreeMap<String, String>) {
+    let mut out = Vec::new();
+    let mut errors = BTreeMap::new();
+    for (id, v) in raw {
+        let schema = schema_of(v);
+        if schema > SCHEMA {
+            errors.insert(id.clone(), format!("profile format {schema} needs a newer Local Image"));
+            continue;
+        }
+        match build_one(id, raw) {
+            Ok(f) => out.push(f),
+            Err(e) => {
+                errors.insert(id.clone(), format!("{e:#}"));
+            }
+        }
+    }
+    sort_families(&mut out);
+    (out, errors)
+}
+
+/// [`build_tolerant`] for validation: any rejected profile fails the whole set (newer-schema
+/// profiles are skipped, as a reader of this schema must).
+pub fn build(raw: &BTreeMap<String, Value>) -> Result<Vec<Family>> {
+    let (families, errors) = build_tolerant(raw);
+    if let Some((id, e)) = errors.iter().find(|(id, _)| raw.get(*id).is_none_or(|v| schema_of(v) <= SCHEMA)) {
+        bail!("family {id}: {e}");
+    }
+    Ok(families)
+}
+
+const FIX_CAPABILITIES: &[&str] = &["create", "edit", "style", "refine", "inpaint"];
+const FIX_ROLES: &[&str] = &["cfg", "steps", "sampler_name", "scheduler", "denoise", "width", "height", "negative"];
+
+/// Rejects profiles a builder could not run, and detection or template data that could
+/// mislabel files or break graphs.
 pub fn validate(f: &Family) -> Result<()> {
     if f.id == "restoration" && f != crate::restoration::policy() {
         bail!("Restoration profiles must match the immutable built-in policy");
@@ -559,6 +757,36 @@ pub fn validate(f: &Family) -> Result<()> {
         }
         if f.sampling.steps.max < f.sampling.steps.min || f.sampling.steps.max == 0.0 {
             bail!("family {}: bad step range", f.id);
+        }
+    }
+    if let Some(d) = &f.detect {
+        if !crate::detect::has_header_conditions(d) && d.refines.is_none() {
+            bail!("family {}: a detect block needs a tensor, shape or metadata condition, or `refines`", f.id);
+        }
+        if let Some(r) = &d.refines
+            && !EMBEDDED.iter().any(|(k, _)| k == r)
+        {
+            bail!("family {}: `refines` must name a built-in family ({r} is not one)", f.id);
+        }
+        let patterns = d.names.iter().chain(d.variants.iter().flat_map(|v| &v.names));
+        if let Some(p) = patterns.into_iter().find(|p| p.trim_start_matches('!').len() < 4) {
+            bail!("family {}: name pattern \"{p}\" is shorter than 4 characters", f.id);
+        }
+    }
+    if let Some(t) = &f.template {
+        for key in t.variants.values().flat_map(|v| v.fix.keys()) {
+            let ok = key.split_once('.').is_some_and(|(c, r)| FIX_CAPABILITIES.contains(&c) && FIX_ROLES.contains(&r));
+            if !ok {
+                bail!("family {}: template fix key \"{key}\" is not <capability>.<role>", f.id);
+            }
+        }
+        for (cap, g) in &t.graphs {
+            let nodes = g.as_object().with_context(|| format!("family {}: template graph {cap} is not an object", f.id))?;
+            if nodes.is_empty()
+                || nodes.values().any(|n| n.get("class_type").and_then(Value::as_str).is_none() || !n.get("inputs").is_some_and(Value::is_object))
+            {
+                bail!("family {}: template graph {cap} is not an API-format graph", f.id);
+            }
         }
     }
     for m in &f.models {
@@ -587,65 +815,112 @@ pub fn validate(f: &Family) -> Result<()> {
     Ok(())
 }
 
+/// Tensor-name parts the built-in rules key on; a downloaded detect block that claims them
+/// without `refines` would take files away from built-in families.
+const BUILTIN_MARKERS: &[&str] = &[
+    "input_blocks",
+    "label_emb",
+    "joint_blocks",
+    "double_stream_blocks",
+    "double_stream_modulation",
+    "single_stream_modulation.",
+    "txt_in.text_norm",
+    "double_blocks",
+    "img_mod",
+    "cap_embedder",
+    "noise_refiner",
+    "linear_fc2",
+    "distilled_guidance_layer",
+];
+
+fn claims_builtin(d: &Detect) -> Option<&str> {
+    d.tensors_all.iter().chain(&d.tensors_any).find(|t| BUILTIN_MARKERS.iter().any(|m| t.contains(m))).map(String::as_str)
+}
+
 /// Where downloaded profile updates are cached.
 pub fn cache_dir() -> PathBuf {
     crate::settings::data_root().join("families")
 }
 
-/// The built-in profiles, overridden by newer cached updates, plus the user's own (`*.json` in
-/// `<data>/families/user/`).
-pub fn load(dir: &Path) -> Registry {
-    let mut raw: BTreeMap<String, Value> = BTreeMap::new();
-    let mut sources = BTreeMap::new();
-    for (id, text) in EMBEDDED {
-        match serde_json::from_str::<Value>(text) {
-            Ok(v) => {
-                raw.insert((*id).to_owned(), v);
-                sources.insert((*id).to_owned(), "built-in".to_owned());
-            }
-            Err(e) => log::error!("built-in family {id}: {e}"),
+fn embedded_raw() -> BTreeMap<String, Value> {
+    EMBEDDED.iter().filter_map(|(k, t)| Some(((*k).to_owned(), serde_json::from_str(t).ok()?))).collect()
+}
+
+fn read_profiles(d: &Path) -> Vec<(String, Value)> {
+    let Ok(rd) = std::fs::read_dir(d) else { return Vec::new() };
+    let mut out = Vec::new();
+    for e in rd.flatten() {
+        let p = e.path();
+        if p.extension().and_then(|x| x.to_str()) != Some("json") || p.file_name().is_some_and(|n| n == "index.json" || n == "runtime.json") {
+            continue;
+        }
+        let Some(id) = p.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else { continue };
+        // Restoration pins and licensing policy are vetted in the binary, never widened by an
+        // editable profile or an online update.
+        if id == "restoration" {
+            continue;
+        }
+        match std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| Ok(serde_json::from_slice::<Value>(&b)?)) {
+            Ok(v) => out.push((id, v)),
+            Err(_) => log::warn!("family profile {} is unreadable; skipped", p.display()),
         }
     }
-    let version = |v: &Value| v.get("version").and_then(Value::as_u64).unwrap_or(0);
-    let mut read_dir = |d: &Path, label: &str| {
-        let Ok(rd) = std::fs::read_dir(d) else { return };
-        for e in rd.flatten() {
-            let p = e.path();
-            if p.extension().and_then(|x| x.to_str()) != Some("json") || p.file_name().is_some_and(|n| n == "index.json") {
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out
+}
+
+/// The raw profiles in use: built-in, newer cached updates (`dir`), then the user's own
+/// (`dir/user`). Profiles this build can't read (newer schema) never replace a readable one.
+fn load_raw(dir: &Path) -> (BTreeMap<String, Value>, BTreeMap<String, String>, BTreeMap<String, String>) {
+    let mut raw = embedded_raw();
+    let mut sources: BTreeMap<String, String> = raw.keys().map(|k| (k.clone(), "built-in".to_owned())).collect();
+    let mut errors = BTreeMap::new();
+    for (sub, label) in [(dir.to_path_buf(), "update"), (dir.join("user"), "user")] {
+        for (id, v) in read_profiles(&sub) {
+            if schema_of(&v) > SCHEMA {
+                errors.insert(id, format!("profile format {} needs a newer Local Image", schema_of(&v)));
                 continue;
             }
-            let Some(id) = p.file_stem().and_then(|s| s.to_str()).map(str::to_owned) else { continue };
-            // Restoration pins and licensing policy are vetted in the binary, never widened
-            // by an editable profile or an online update.
-            if id == "restoration" {
-                continue;
-            }
-            let Ok(v) = std::fs::read(&p).map_err(anyhow::Error::from).and_then(|b| Ok(serde_json::from_slice::<Value>(&b)?)) else {
-                log::warn!("family profile {} is unreadable; skipped", p.display());
-                continue;
-            };
-            let newer = raw.get(&id).is_none_or(|old| version(&v) > version(old) || label == "user");
+            let newer = raw.get(&id).is_none_or(|old| version_of(&v) > version_of(old) || label == "user");
             if newer {
                 raw.insert(id.clone(), v);
                 sources.insert(id, label.to_owned());
             }
         }
-    };
-    read_dir(dir, "update");
-    read_dir(&dir.join("user"), "user");
-    match build(&raw) {
-        Ok(families) => Registry { families, sources },
-        Err(e) => {
-            // A bad update must never take the built-in families down.
-            log::error!("family profiles: {e:#}; using the built-in ones");
-            let raw: BTreeMap<String, Value> = EMBEDDED.iter().filter_map(|(k, t)| Some(((*k).to_owned(), serde_json::from_str(t).ok()?))).collect();
-            let families = build(&raw).unwrap_or_default();
-            Registry { sources: families.iter().map(|f| (f.id.clone(), "built-in".to_owned())).collect(), families }
+    }
+    (raw, sources, errors)
+}
+
+/// The built-in profiles, overridden by newer cached updates, plus the user's own (`*.json` in
+/// `<data>/families/user/`). A profile that fails to build is replaced by its built-in copy (or
+/// dropped with the families based on it); the others stay in use.
+pub fn load(dir: &Path) -> Registry {
+    let (mut raw, mut sources, mut errors) = load_raw(dir);
+    let (_, first) = build_tolerant(&raw);
+    let embedded = embedded_raw();
+    for (id, e) in &first {
+        log::warn!("family profile {id} ({}): {e}", sources.get(id).map_or("?", String::as_str));
+        errors.insert(id.clone(), e.clone());
+        match embedded.get(id) {
+            Some(builtin) if raw.get(id) != Some(builtin) => {
+                raw.insert(id.clone(), builtin.clone());
+                sources.insert(id.clone(), "built-in".to_owned());
+            }
+            _ => {}
         }
     }
+    let (families, _) = build_tolerant(&raw);
+    sources.retain(|id, _| families.iter().any(|f| &f.id == id));
+    Registry { families, sources, errors }
 }
 
 static REGISTRY: RwLock<Option<&'static Registry>> = RwLock::new(None);
+static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Changes whenever the profiles are reloaded (detection caches are keyed by it).
+pub fn generation() -> u64 {
+    GENERATION.load(std::sync::atomic::Ordering::SeqCst)
+}
 
 /// The current registry (loaded on first use).
 pub fn registry() -> &'static Registry {
@@ -668,46 +943,101 @@ pub fn reload() -> &'static Registry {
     if let Ok(mut g) = REGISTRY.write() {
         *g = Some(r);
     }
+    GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     crate::catalog::invalidate();
     r
 }
 
-/// Fetches `index.json` (`{"families": {"id": version}}`) from [`REMOTE_BASE`] and downloads every
-/// profile newer than the one in use into `dir`. Returns the ids updated. Profiles are checked
-/// before they are kept; a bad one is skipped.
-pub fn update_from(fetch: &dyn Fn(&str) -> Result<Vec<u8>>, base_url: &str, dir: &Path) -> Result<Vec<String>> {
+/// What a profile update did.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UpdateReport {
+    /// Profiles downloaded and in use after a reload.
+    pub updated: Vec<String>,
+    /// Profiles that need a newer Local Image (not written).
+    pub needs_newer_app: Vec<String>,
+    /// Profiles rejected, with why (not written; the previous copy stays in use).
+    pub rejected: Vec<(String, String)>,
+    /// Profiles downloaded while the user's own copy of the same id stays in use.
+    pub kept_user: Vec<String>,
+}
+
+impl UpdateReport {
+    pub fn is_empty(&self) -> bool {
+        self.updated.is_empty() && self.needs_newer_app.is_empty() && self.rejected.is_empty() && self.kept_user.is_empty()
+    }
+}
+
+fn index_number(v: &Value) -> u64 {
+    v.as_u64().or_else(|| v.get("version").and_then(Value::as_u64)).unwrap_or(0)
+}
+
+/// Fetches `index.json` (`{"families": {"id": version}, "min_schema": {"id": schema}}`) from
+/// [`REMOTE_BASE`] and downloads every profile newer than the built-in or cached copy into `dir`.
+/// The whole batch is validated together (a new family may be based on another new one);
+/// profiles for a newer schema are reported, never written.
+pub fn update_from(fetch: &dyn Fn(&str) -> Result<Vec<u8>>, base_url: &str, dir: &Path) -> Result<UpdateReport> {
     let index: Value = serde_json::from_slice(&fetch(&format!("{base_url}/index.json"))?).context("the family index is not JSON")?;
     let entries = index.get("families").and_then(Value::as_object).context("the family index has no families")?;
-    let current = registry();
+    let min_schema = index.get("min_schema").and_then(Value::as_object);
     std::fs::create_dir_all(dir)?;
-    let mut updated = Vec::new();
+    let mut report = UpdateReport::default();
+    let mut known = embedded_raw();
+    for (id, v) in read_profiles(dir) {
+        if known.get(&id).is_none_or(|old| version_of(&v) > version_of(old)) {
+            known.insert(id, v);
+        }
+    }
+    let user: Vec<String> = read_profiles(&dir.join("user")).into_iter().map(|(id, _)| id).collect();
+    let mut batch: Vec<(String, Vec<u8>, Value)> = Vec::new();
     for (id, ver) in entries {
-        let ver = ver.as_u64().unwrap_or(0) as u32;
-        if !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') || id == "restoration" {
             continue;
         }
-        if current.family(id).is_some_and(|f| f.version >= ver) {
+        if known.get(id).is_some_and(|old| version_of(old) >= index_number(ver)) {
+            continue;
+        }
+        if min_schema.and_then(|m| m.get(id)).and_then(Value::as_u64).is_some_and(|s| s > u64::from(SCHEMA)) {
+            report.needs_newer_app.push(id.clone());
             continue;
         }
         let bytes = match fetch(&format!("{base_url}/{id}.json")) {
             Ok(b) => b,
             Err(e) => {
-                log::warn!("family {id}: {e:#}");
+                report.rejected.push((id.clone(), format!("{e:#}")));
                 continue;
             }
         };
-        // Check it parses and validates on top of what is loaded now.
-        let Ok(v) = serde_json::from_slice::<Value>(&bytes) else { continue };
-        let mut raw: BTreeMap<String, Value> = EMBEDDED.iter().filter_map(|(k, t)| Some(((*k).to_owned(), serde_json::from_str(t).ok()?))).collect();
-        raw.insert(id.clone(), v);
-        if let Err(e) = build(&raw) {
-            log::warn!("family {id} update rejected: {e:#}");
+        match serde_json::from_slice::<Value>(&bytes) {
+            Ok(v) if schema_of(&v) > SCHEMA => report.needs_newer_app.push(id.clone()),
+            Ok(v) => batch.push((id.clone(), bytes, v)),
+            Err(e) => report.rejected.push((id.clone(), format!("not JSON: {e}"))),
+        }
+    }
+    let mut raw = known;
+    for (id, _, v) in &batch {
+        raw.insert(id.clone(), v.clone());
+    }
+    let (_, errors) = build_tolerant(&raw);
+    for (id, bytes, v) in batch {
+        if let Some(e) = errors.get(&id) {
+            report.rejected.push((id, e.clone()));
+            continue;
+        }
+        if let Some(d) = v.get("detect").and_then(|d| serde_json::from_value::<Detect>(d.clone()).ok())
+            && d.refines.is_none()
+            && let Some(t) = claims_builtin(&d)
+        {
+            report.rejected.push((id, format!("its detect rule claims built-in tensors ({t}) without `refines`")));
             continue;
         }
         li_fs::atomic_write(&dir.join(format!("{id}.json")), &bytes)?;
-        updated.push(id.clone());
+        if user.contains(&id) {
+            report.kept_user.push(id);
+        } else {
+            report.updated.push(id);
+        }
     }
-    Ok(updated)
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -722,7 +1052,7 @@ mod tests {
     fn built_in_profiles_load_and_inherit() {
         let fams = build(&embedded()).unwrap();
         assert_eq!(fams.len(), EMBEDDED.len());
-        let reg = Registry { families: fams, sources: BTreeMap::new() };
+        let reg = Registry { families: fams, ..Default::default() };
         let pony = reg.family("pony").unwrap();
         let sdxl = reg.family("sdxl").unwrap();
         assert_eq!(pony.pipeline.loader, Loader::Checkpoint);
@@ -742,7 +1072,7 @@ mod tests {
 
     #[test]
     fn model_overrides_apply() {
-        let reg = Registry { families: build(&embedded()).unwrap(), sources: BTreeMap::new() };
+        let reg = Registry { families: build(&embedded()).unwrap(), ..Default::default() };
         let (f, m) = reg.model("klein-remove").unwrap();
         let r = f.resolved_for(m);
         assert_eq!(r.sampling.steps.default, 28.0);
@@ -777,7 +1107,7 @@ mod tests {
             }
         };
         let got = update_from(&fetch, "https://example.invalid/f", &dir).unwrap();
-        assert_eq!(got, vec!["sd15"]);
+        assert_eq!(got.updated, vec!["sd15"]);
         let reg = load(&dir);
         assert_eq!(reg.family("sd15").unwrap().label, "SD 1.5 (updated)");
         assert_eq!(reg.sources["sd15"], "update");

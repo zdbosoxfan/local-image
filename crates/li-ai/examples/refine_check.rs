@@ -49,7 +49,7 @@ fn recipe(installed: &InstalledModel, info: &ObjectInfo) -> Result<(Family, File
     let mut family = if model_info.tool {
         // The main base weights are being checked without the removal LoRA: use their
         // general edit recipe, not the tool's task-specific 28-step/CFG-4 overrides.
-        li_ai::family::registry().family(&installed.family).context("Missing installed family")?.resolved_for_file(main)
+        li_ai::family::registry().family(&installed.family).context("Missing installed family")?.resolved_for_file(main, installed.variant.as_deref())
     } else {
         model_info.resolved.clone()
     };

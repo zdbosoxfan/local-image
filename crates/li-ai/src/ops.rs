@@ -387,7 +387,8 @@ impl Ai {
         let instruction = "<image1> is the photograph to edit. <image2> is a black and white selection mask: white marks the unwanted object or area to remove and black marks the area to keep. Remove the selected object completely and reconstruct a natural empty continuation of the surrounding background in its place. Match the surrounding texture, perspective, lighting and color. Do not insert any new objects, people, text or symbols. Do not draw the mask in the result. Keep the original composition and all other areas unchanged. ";
         let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", variant, seed, 25, 1.0, 1.0, &[], info, ctl, None)?;
+        let a = self.resolve(ModelId::Qwen, variant, info)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], instruction, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], info, ctl, None)?;
         let edited = RgbFrame::from_rgb8(&image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8());
         // Match the surrounding colour while preserving generated gradients, as Klein does.
         let blended = imaging::poisson_blend_frame(image, &edited, mask);
@@ -427,7 +428,8 @@ impl Ai {
         );
         let rgba = image::DynamicImage::ImageRgb8(image.to_rgb8()).to_rgba8();
         let mask_rgba = image::DynamicImage::ImageLuma8(mask.clone()).to_rgba8();
-        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
+        let a = self.resolve(ModelId::Qwen, variant, &info)?;
+        let edited = self.qwen_edit(&[rgba, mask_rgba], &instruction, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
         let edited = image::DynamicImage::ImageRgba8(imaging::over_white(&edited)).to_rgb8();
         Ok(RgbFrame::from_fn(image.width, image.height, |x, y| {
             let p = edited.get_pixel(x as u32, y as u32);
@@ -435,14 +437,15 @@ impl Ai {
         }))
     }
 
-    /// Qwen "edit": the output follows reference 1 and is resized back to its size.
+    /// Qwen "edit" with the resolved files `a` of model `f` (a curated preset or an installed Qwen
+    /// Image 2.1 file): the output follows reference 1 and is resized back to its size.
     #[allow(clippy::too_many_arguments)]
     fn qwen_edit(
         &self,
         refs: &[RgbaImage],
         prompt: &str,
         negative: &str,
-        variant: &str,
+        (a, f): (&Availability, &Family),
         seed: u64,
         steps: u32,
         cfg: f32,
@@ -452,8 +455,8 @@ impl Ai {
         ctl: &JobControl,
         sampler: Option<&(String, String)>,
     ) -> Result<RgbaImage> {
-        let a = self.resolve(ModelId::Qwen, variant, info)?;
         let loras = Self::validate_lora_names(info, loras, "LoraLoaderModelOnly")?;
+        let qwen = &f.pipeline;
         let (ow, oh) = refs[0].dimensions();
         let pngs = refs
             .iter()
@@ -465,6 +468,8 @@ impl Ai {
         let mut built = workflows::qwen(
             &a.files,
             &workflows::QwenParams {
+                sampler_name: &qwen.sampler_name,
+                scheduler: &qwen.scheduler,
                 prompt,
                 negative,
                 width: 0,
@@ -498,7 +503,8 @@ impl Ai {
             "Remove the background from <image1> and preserve the subject exactly. Return an RGBA PNG with a transparent background and a real alpha channel. Keep the original subject position, scale, details and colors. {}",
             hint.trim()
         );
-        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", variant, seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
+        let a = self.resolve(ModelId::Qwen, variant, &info)?;
+        let out = self.qwen_edit(std::slice::from_ref(image), &prompt, "", (&a, &ModelId::Qwen.info().resolved), seed, 25, 1.0, 1.0, &[], &info, ctl, None)?;
         imaging::finish_cutout(&out)
     }
 
@@ -895,8 +901,20 @@ impl Ai {
         if req.mode == GenerateMode::Edit {
             let mut all = vec![source.context("Open an image to edit.")?.clone()];
             all.extend(refs.iter().cloned());
-            let out =
-                self.qwen_edit(&all, &req.prompt, &req.negative, &req.variant, req.seed, req.steps, req.guidance, 1.0, loras, info, ctl, req.sampler.as_ref())?;
+            let out = self.qwen_edit(
+                &all,
+                &req.prompt,
+                &req.negative,
+                (a, &req.model.info().resolved),
+                req.seed,
+                req.steps,
+                req.guidance,
+                1.0,
+                loras,
+                info,
+                ctl,
+                req.sampler.as_ref(),
+            )?;
             return Ok(imaging::over_white(&out));
         }
         let grid = if refs.is_empty() { 16 } else { 32 };
@@ -919,9 +937,12 @@ impl Ai {
                 }
             })
             .collect::<Result<Vec<_>>>()?;
+        let pipeline = &req.model.info().resolved.pipeline;
         let mut built = workflows::qwen(
             &a.files,
             &workflows::QwenParams {
+                sampler_name: &pipeline.sampler_name,
+                scheduler: &pipeline.scheduler,
                 prompt: &prompt,
                 negative: &req.negative,
                 width: w,

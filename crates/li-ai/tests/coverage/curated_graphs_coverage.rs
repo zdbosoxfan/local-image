@@ -53,7 +53,7 @@ fn graphs() -> Vec<(String, Value)> {
         let (f, files) = curated(&reg, key, variant);
         tasks(&format!("{key}-{variant}"), &f, &files);
     }
-    let sdxl = reg.family("sdxl").unwrap().resolved_for_file("juggernautXL_v9.safetensors");
+    let sdxl = reg.family("sdxl").unwrap().resolved_for_file("juggernautXL_v9.safetensors", None);
     tasks("sdxl-checkpoint", &sdxl, &[(Role::Checkpoint, "juggernautXL_v9.safetensors".to_owned())].into());
     let (_, remove) = curated(&reg, "klein-remove", "bf16");
     out.push(("klein-remove.remove".into(), workflows::klein_remove(&remove, 768, 512, 42).graph));
