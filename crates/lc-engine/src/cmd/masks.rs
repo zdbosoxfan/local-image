@@ -230,7 +230,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 if let Some(quick) = quick {
                     quick.report(&mut out);
                     if let (crate::quickseg::QuickStart::Later(run), Some(id)) = (quick, s.active()) {
-                        s.quick_segment_later(id, vec![(next, 0, *run)]);
+                        s.quick_segment_later(id, vec![(next, 0, *run)], true);
                     }
                 }
                 queue_later(s, later, next, 0, out)
@@ -275,7 +275,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 })?;
                 quick.report(&mut out);
                 if let crate::quickseg::QuickStart::Later(run) = quick {
-                    s.quick_segment_later(id, vec![(mid, comp, *run)]);
+                    s.quick_segment_later(id, vec![(mid, comp, *run)], true);
                 }
                 queue_later(s, later, mid, comp, out)
             }

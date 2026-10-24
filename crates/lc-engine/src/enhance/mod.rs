@@ -131,6 +131,9 @@ pub struct MaskFill {
     pub mask: u32,
     pub comp: usize,
     pub seg: Result<Option<lightcraft_develop::SegMask>, String>,
+    /// The mask was just added (not pasted, synced or applied from a preset): it takes the
+    /// default Refine Edges of a model mask.
+    pub new_mask: bool,
 }
 
 /// What a job does.

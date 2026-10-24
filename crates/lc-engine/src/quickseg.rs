@@ -183,7 +183,7 @@ impl Session {
                 }
             }
         }
-        self.quick_segment_later(id, later);
+        self.quick_segment_later(id, later, false);
     }
 
     pub(crate) fn transfer_settings(
@@ -256,7 +256,8 @@ impl Session {
 
     /// Runs `runs` (component `.1` of mask `.0` on photo `id`) as one background job, after any
     /// other quick-model job; the session fills the masks when it is done ([`QUICK_LABEL`]).
-    pub(crate) fn quick_segment_later(&mut self, id: PhotoId, runs: Vec<(u32, usize, QuickRun)>) {
+    /// `new_masks`: the masks were just added ([`crate::enhance::MaskFill::new_mask`]).
+    pub(crate) fn quick_segment_later(&mut self, id: PhotoId, runs: Vec<(u32, usize, QuickRun)>, new_masks: bool) {
         if runs.is_empty() {
             return;
         }
@@ -268,7 +269,7 @@ impl Session {
             for (i, (mask, comp, run)) in runs.into_iter().enumerate() {
                 ctl.check()?;
                 ctl.report(i as f32 / total as f32, "Finding the mask");
-                fills.push(crate::enhance::MaskFill { mask, comp, seg: run.run(ctl.cancel_flag()) });
+                fills.push(crate::enhance::MaskFill { mask, comp, seg: run.run(ctl.cancel_flag()), new_mask: new_masks });
             }
             Ok(crate::enhance::Outcome::Masks(fills))
         });
@@ -289,7 +290,7 @@ impl Session {
                     let Some(c) = m.components.get_mut(f.comp) else { continue };
                     if fill(&mut c.shape, seg) {
                         changed = true;
-                        if single && m.refine == 0.0 {
+                        if f.new_mask && single && m.refine == 0.0 {
                             m.refine = MODEL_EDGE_REFINE;
                         }
                     }
@@ -502,7 +503,7 @@ mod tests {
         }
         let ids: Vec<u32> = s.develop_of(id).unwrap().masks.iter().map(|m| m.id).collect();
         let seg = to_segmask(&[0.9; 64], 8, 8, false, GRID);
-        let fills = [ids[0], ids[1], ids[2], 999].map(|mask| MaskFill { mask, comp: 0, seg: Ok(Some(seg.clone())) }).to_vec();
+        let fills = [ids[0], ids[1], ids[2], 999].map(|mask| MaskFill { mask, comp: 0, seg: Ok(Some(seg.clone())), new_mask: true }).to_vec();
         let (changed, errors) = s.apply_mask_fills(id, fills);
         assert!(changed && errors.is_empty());
         let d = s.develop_of(id).unwrap();
@@ -512,8 +513,16 @@ mod tests {
         assert!(!is_model_mask(&d.masks[2].components[0].shape) && d.masks[2].refine == 0.0, "a radial mask is not a model's");
         // a mask that has its segmentation already (filled meanwhile) is left alone
         let other = to_segmask(&[0.1; 64], 8, 8, false, GRID);
-        let (changed, _) = s.apply_mask_fills(id, vec![MaskFill { mask: ids[0], comp: 0, seg: Ok(Some(other)) }]);
+        let (changed, _) = s.apply_mask_fills(id, vec![MaskFill { mask: ids[0], comp: 0, seg: Ok(Some(other)), new_mask: true }]);
         assert!(!changed);
-        assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: Some(seg) });
+        assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: Some(seg.clone()) });
+        // a mask pasted, synced or applied from a preset keeps its own Refine Edges
+        s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+        let pasted = s.develop_of(id).unwrap().masks.last().unwrap().id;
+        let (changed, _) = s.apply_mask_fills(id, vec![MaskFill { mask: pasted, comp: 0, seg: Ok(Some(seg)), new_mask: false }]);
+        assert!(changed);
+        let d = s.develop_of(id).unwrap();
+        let m = d.masks.last().unwrap();
+        assert!(is_model_mask(&m.components[0].shape) && m.refine == 0.0, "a transferred mask is filled but keeps refine {}", m.refine);
     }
 }
