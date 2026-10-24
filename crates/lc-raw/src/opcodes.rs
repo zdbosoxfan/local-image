@@ -235,7 +235,9 @@ fn parse_one(id: u32, flags: u32, params: &[u8]) -> Option<Opcode> {
             if n * 4 > r.remaining() {
                 return None;
             }
-            let v: Vec<f32> = (0..n).map(|_| r.f32().filter(|v| v.is_finite() && *v >= 0.0)).collect::<Option<_>>()?;
+            // deltas are signed offsets (row/column bias corrections); only scales must be non-negative
+            let valid = |v: &f32| v.is_finite() && (id <= 11 || *v >= 0.0);
+            let v: Vec<f32> = (0..n).map(|_| r.f32().filter(valid)).collect::<Option<_>>()?;
             match id {
                 10 => Opcode::DeltaPerRow { area, deltas: v },
                 11 => Opcode::DeltaPerColumn { area, deltas: v },
@@ -357,13 +359,26 @@ pub fn parse_list(d: &[u8]) -> Vec<Opcode> {
     out
 }
 
-fn area_iter(a: &Area, w: usize, h: usize, cpp: usize) -> impl Iterator<Item = (usize, usize, usize)> + '_ {
+/// Run `f(x, y, plane, sample)` on every sample `a` selects in an interleaved `w × h × cpp` buffer, rows
+/// in parallel (the area opcodes are pointwise).
+fn for_area(buf: &mut [f32], w: usize, h: usize, cpp: usize, a: &Area, f: impl Fn(usize, usize, usize, &mut f32) + Sync) {
+    use rayon::prelude::*;
     let (t, l) = (a.top as usize, a.left as usize);
     let (b, r) = ((a.bottom as usize).min(h), (a.right as usize).min(w));
-    let (p0, p1) = (a.plane as usize, (a.plane as usize + a.planes.max(1) as usize).min(cpp));
-    (t..b.max(t))
-        .step_by(a.row_pitch.max(1) as usize)
-        .flat_map(move |y| (l..r.max(l)).step_by(a.col_pitch.max(1) as usize).flat_map(move |x| (p0..p1.max(p0)).map(move |p| (x, y, p))))
+    let (p0, p1) = (a.plane as usize, (a.plane as usize).saturating_add(a.planes.max(1) as usize).min(cpp));
+    let (row_pitch, col_pitch) = (a.row_pitch.max(1) as usize, a.col_pitch.max(1) as usize);
+    if t >= b || l >= r || p0 >= p1 || w == 0 || cpp == 0 {
+        return;
+    }
+    buf.par_chunks_mut(w * cpp).enumerate().skip(t).take(b - t).filter(|(y, _)| (y - t).is_multiple_of(row_pitch)).for_each(|(y, row)| {
+        for x in (l..r).step_by(col_pitch) {
+            for p in p0..p1 {
+                if let Some(v) = row.get_mut(x * cpp + p) {
+                    f(x, y, p, v);
+                }
+            }
+        }
+    });
 }
 
 fn gain_at(points_v: u32, points_h: u32, spacing: [f64; 2], origin: [f64; 2], map_planes: u32, gains: &[f32], rv: f64, rh: f64, plane: usize) -> f32 {
@@ -399,62 +414,47 @@ pub fn apply_list(list: &[Opcode], buf: &mut [f32], w: usize, h: usize, cpp: usi
         match op {
             Opcode::MapTable { area, table } => {
                 let n = table.len();
-                for (x, y, p) in area_iter(area, w, h, cpp) {
-                    let v = &mut buf[(y * w + x) * cpp + p];
+                for_area(buf, w, h, cpp, area, |_, _, _, v| {
                     let idx = ((*v / scale * 65535.0).round().max(0.0) as usize).min(n - 1);
                     *v = table[idx] as f32 / 65535.0 * scale;
-                }
+                });
             }
             Opcode::MapPolynomial { area, coefficients } => {
-                for (x, y, p) in area_iter(area, w, h, cpp) {
-                    let v = &mut buf[(y * w + x) * cpp + p];
+                for_area(buf, w, h, cpp, area, |_, _, _, v| {
                     let t = (*v / scale) as f64;
                     let r = coefficients.iter().rev().fold(0.0, |acc, &c| acc * t + c);
                     *v = r as f32 * scale;
-                }
+                });
             }
             Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } => {
-                for (x, y, p) in area_iter(area, w, h, cpp) {
+                for_area(buf, w, h, cpp, area, |x, y, p, v| {
                     // Adobe dng_gain_map_interpolator evaluates pixel centres, not corners.
                     let rv = (y as f64 + 0.5) / h as f64;
                     let rh = (x as f64 + 0.5) / w as f64;
-                    let g = gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
-                    buf[(y * w + x) * cpp + p] *= g;
-                }
+                    *v *= gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
+                });
             }
             Opcode::DeltaPerRow { area, deltas } | Opcode::DeltaPerColumn { area, deltas } => {
                 let per_row = matches!(op, Opcode::DeltaPerRow { .. });
-                for (x, y, p) in area_iter(area, w, h, cpp) {
+                for_area(buf, w, h, cpp, area, |x, y, _, v| {
                     let i =
                         if per_row { (y - area.top as usize) / area.row_pitch as usize } else { (x - area.left as usize) / area.col_pitch as usize };
                     if let Some(d) = deltas.get(i) {
-                        buf[(y * w + x) * cpp + p] += d * scale;
+                        *v += d * scale;
                     }
-                }
+                });
             }
             Opcode::ScalePerRow { area, scales } | Opcode::ScalePerColumn { area, scales } => {
                 let per_row = matches!(op, Opcode::ScalePerRow { .. });
-                for (x, y, p) in area_iter(area, w, h, cpp) {
+                for_area(buf, w, h, cpp, area, |x, y, _, v| {
                     let i =
                         if per_row { (y - area.top as usize) / area.row_pitch as usize } else { (x - area.left as usize) / area.col_pitch as usize };
                     if let Some(s) = scales.get(i) {
-                        buf[(y * w + x) * cpp + p] *= s;
+                        *v *= s;
                     }
-                }
+                });
             }
-            Opcode::FixVignetteRadial { k, center } => {
-                let (cx, cy) = (center[0] * w as f64, center[1] * h as f64);
-                let m = max_radius(cx, cy, w as f64, h as f64);
-                for y in 0..h {
-                    for x in 0..w {
-                        let r2 = ((x as f64 + 0.5 - cx).powi(2) + (y as f64 + 0.5 - cy).powi(2)) / (m * m);
-                        let g = 1.0 + r2 * (k[0] + r2 * (k[1] + r2 * (k[2] + r2 * (k[3] + r2 * k[4]))));
-                        for p in 0..cpp {
-                            buf[(y * w + x) * cpp + p] *= g as f32;
-                        }
-                    }
-                }
-            }
+            Opcode::FixVignetteRadial { k, center } => vignette(buf, w, h, cpp, k, *center, Binning::none(w, h)),
             Opcode::FixBadPixelsConstant { constant, .. } => {
                 let c = (*constant as f64 / 65535.0 * scale as f64) as f32;
                 let bad: Vec<(usize, usize)> =
@@ -515,50 +515,167 @@ fn fix_pixels(buf: &mut [f32], w: usize, h: usize, cpp: usize, cfa: Option<&Cfa>
     }
 }
 
-/// Apply `OpcodeList3` (on the demosaiced RGB image, values normalised to [0, 1]).
-pub fn apply_list3(list: &[Opcode], img: &mut RgbFrame) {
-    if list.is_empty() {
-        return;
-    }
-    let (w, h) = (img.width, img.height);
-    for op in list {
-        match op {
-            Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear(img, planes, *center),
-            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye(img, planes, *center),
-            Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
-            other => {
-                let mut flat: Vec<f32> = img.data.iter().flat_map(|p| *p).collect();
-                apply_list(std::slice::from_ref(other), &mut flat, w, h, 3, None, 1.0);
-                for (d, c) in img.data.iter_mut().zip(flat.as_chunks::<3>().0) {
-                    *d = [c[0], c[1], c[2]];
-                }
+/// `FixVignetteRadial` on an interleaved `w × h × cpp` buffer whose pixels stand for the sensor
+/// pixels `b` says.
+fn vignette(buf: &mut [f32], w: usize, h: usize, cpp: usize, k: &[f64; 5], center: [f64; 2], b: Binning) {
+    use rayon::prelude::*;
+    let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
+    let (cx, cy) = (center[0] * sw, center[1] * sh);
+    let m = max_radius(cx, cy, sw, sh);
+    buf.par_chunks_mut((w * cpp).max(1)).take(h).enumerate().for_each(|(y, row)| {
+        let dy = b.sensor_at(y as f64, 1) + 0.5 - cy;
+        for (x, px) in row.chunks_exact_mut(cpp.max(1)).enumerate() {
+            let r2 = ((b.sensor_at(x as f64, 0) + 0.5 - cx).powi(2) + dy.powi(2)) / (m * m);
+            let g = 1.0 + r2 * (k[0] + r2 * (k[1] + r2 * (k[2] + r2 * (k[3] + r2 * k[4]))));
+            for v in px {
+                *v *= g as f32;
             }
         }
+    });
+}
+
+/// Apply `OpcodeList3` (on the demosaiced RGB image, values normalised to [0, 1]).
+pub fn apply_list3(list: &[Opcode], img: &mut RgbFrame) {
+    let b = Binning::none(img.width, img.height);
+    apply_list3_binned(list, img, b);
+}
+
+/// Where the pixels of an image binned from the active area sit on it: pixel `x` stands for the
+/// `k` sensor pixels from `origin[0] + k·x` (and likewise down). `OpcodeList3` is defined on the
+/// whole active area, `sensor` pixels wide and high.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Binning {
+    pub k: usize,
+    pub origin: [usize; 2],
+    pub sensor: [usize; 2],
+}
+
+impl Binning {
+    /// A `w × h` image that is the active area itself.
+    pub fn none(w: usize, h: usize) -> Binning {
+        Binning { k: 1, origin: [0, 0], sensor: [w, h] }
     }
+
+    /// The sensor index (pixel centres at whole numbers) the binned index `i` stands for along
+    /// `axis` (0: x): the middle of its `k` pixels.
+    fn sensor_at(&self, i: f64, axis: usize) -> f64 {
+        i * self.k as f64 + self.origin[axis] as f64 + (self.k as f64 - 1.0) / 2.0
+    }
+
+    /// The binned index (continuous) of the sensor index `s` along `axis`.
+    fn binned_at(&self, s: f64, axis: usize) -> f64 {
+        (s - self.origin[axis] as f64 - (self.k as f64 - 1.0) / 2.0) / self.k as f64
+    }
+}
+
+/// Whether [`apply_list3_binned`] can evaluate every opcode of `list` on an image binned by any
+/// factor: the warps, the vignette and the gain maps are defined in coordinates relative to the
+/// image (only a gain map's area is in pixels, and binning scales it); per-row, per-column and
+/// bad-pixel opcodes index single pixels.
+pub fn list3_binnable(list: &[Opcode]) -> bool {
+    list.iter().all(|op| match op {
+        Opcode::WarpRectilinear { .. }
+        | Opcode::WarpFisheye { .. }
+        | Opcode::FixVignetteRadial { .. }
+        | Opcode::TrimBounds { .. }
+        | Opcode::Unknown { .. } => true,
+        Opcode::GainMap { area, .. } => area.row_pitch <= 1 && area.col_pitch <= 1,
+        _ => false,
+    })
+}
+
+/// [`apply_list3`] on the demosaic of a mosaic binned as `b` says (`RawImage::develop_binned`
+/// blocks): the warps, the vignette and the gain maps are evaluated at the sensor positions the
+/// binned pixels stand for. Only meaningful when [`list3_binnable`].
+pub fn apply_list3_binned(list: &[Opcode], img: &mut RgbFrame, b: Binning) {
+    let (w, h) = (img.width, img.height);
+    let b = Binning { k: b.k.max(1), ..b };
+    for op in list {
+        match op {
+            Opcode::WarpRectilinear { planes, center } => *img = warp_rectilinear_binned(img, planes, *center, b),
+            Opcode::WarpFisheye { planes, center } => *img = warp_fisheye_binned(img, planes, *center, b),
+            Opcode::TrimBounds { .. } | Opcode::Unknown { .. } => {}
+            Opcode::FixVignetteRadial { k, center } => vignette(img.data.as_flattened_mut(), w, h, 3, k, *center, b),
+            Opcode::GainMap { area, points_v, points_h, spacing, origin, map_planes, gains } if b.k > 1 => {
+                // the binned pixels whose centre lies in the area's sensor pixels
+                let edge = |e: u32, axis: usize| b.binned_at(e as f64 - 0.5, axis).ceil().clamp(0.0, u32::MAX as f64) as u32;
+                let binned =
+                    Area { top: edge(area.top, 1), left: edge(area.left, 0), bottom: edge(area.bottom, 1), right: edge(area.right, 0), ..*area };
+                let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
+                for_area(img.data.as_flattened_mut(), w, h, 3, &binned, |x, y, p, v| {
+                    let rv = (b.sensor_at(y as f64, 1) + 0.5) / sh;
+                    let rh = (b.sensor_at(x as f64, 0) + 0.5) / sw;
+                    *v *= gain_at(*points_v, *points_h, *spacing, *origin, *map_planes, gains, rv, rh, p - area.plane as usize);
+                });
+            }
+            other => apply_list(std::slice::from_ref(other), img.data.as_flattened_mut(), w, h, 3, None, 1.0),
+        }
+    }
+}
+
+/// Catmull-Rom (Keys, a = −0.5) sample of channel `c` at continuous pixel coordinates (pixel
+/// centres at +0.5), clamped to the range of the four nearest pixels so a clipped highlight or a
+/// hard edge cannot ring. The warps resample the whole image once; bilinear would soften it
+/// unevenly (to 0.71 of the contrast at a quarter cycle a pixel, wherever the offset is half a pixel).
+/// Within a pixel of the border, where the outer taps would repeat the edge, it is bilinear.
+fn sample_cubic(img: &RgbFrame, x: f64, y: f64, c: usize) -> f32 {
+    let cubic = li_raster::resample::Resample::Bicubic;
+    let fx = x.clamp(-1.0, img.width as f64 + 1.0) - 0.5;
+    let fy = y.clamp(-1.0, img.height as f64 + 1.0) - 0.5;
+    let (x0, y0) = (fx.floor(), fy.floor());
+    let (tx, ty) = (fx - x0, fy - y0);
+    let (x0, y0) = (x0 as isize, y0 as isize);
+    if x0 < 1 || y0 < 1 || x0 + 2 >= img.width as isize || y0 + 2 >= img.height as isize {
+        return img.sample_bilinear(x as f32, y as f32)[c];
+    }
+    let wx: [f64; 4] = std::array::from_fn(|i| cubic.weight(tx - (i as f64 - 1.0)));
+    let wy: [f64; 4] = std::array::from_fn(|j| cubic.weight(ty - (j as f64 - 1.0)));
+    let (mut v, mut lo, mut hi) = (0.0f64, f32::MAX, f32::MIN);
+    for (j, wyj) in wy.iter().enumerate() {
+        let yy = y0 + j as isize - 1;
+        let mut row = 0.0f64;
+        for (i, wxi) in wx.iter().enumerate() {
+            let s = img.get_clamped(x0 + i as isize - 1, yy)[c];
+            if (1..=2).contains(&i) && (1..=2).contains(&j) {
+                lo = lo.min(s);
+                hi = hi.max(s);
+            }
+            row += wxi * s as f64;
+        }
+        v += wyj * row;
+    }
+    (v as f32).clamp(lo, hi)
 }
 
 /// DNG `WarpRectilinear`: for each output pixel, the source position is the radial + tangential model around the
 /// optical centre, with coordinates normalised by the distance to the farthest corner.
 pub fn warp_rectilinear(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2]) -> RgbFrame {
+    warp_rectilinear_binned(img, planes, center, Binning::none(img.width, img.height))
+}
+
+/// [`warp_rectilinear`] evaluated at the sensor positions of an image binned as `b` says: binned
+/// pixel `x` stands for sensor index `origin + k·x + (k − 1)/2`.
+fn warp_rectilinear_binned(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2], b: Binning) -> RgbFrame {
     let (w, h) = (img.width, img.height);
     // Match Adobe dng_filter_warp: bounds are [0,w) × [0,h), while
     // the warp evaluates integer pixel indices (the sampler adds its half pixel).
-    let (cx, cy) = (center[0] * w as f64, center[1] * h as f64);
-    let m = max_radius(cx, cy, w as f64, h as f64);
+    let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
+    let (cx, cy) = (center[0] * sw, center[1] * sh);
+    let m = max_radius(cx, cy, sw, sh);
     let mut out = RgbFrame::new(w, h);
     let coef = |p: usize| planes[p.min(planes.len() - 1)];
     li_raster::par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
             for (c, v) in px.iter_mut().enumerate() {
                 let [kr0, kr1, kr2, kr3, kt0, kt1] = coef(c);
-                let dx = (x as f64 - cx) / m;
-                let dy = (y as f64 - cy) / m;
+                let dx = (b.sensor_at(x as f64, 0) - cx) / m;
+                let dy = (b.sensor_at(y as f64, 1) - cy) / m;
                 let r2 = dx * dx + dy * dy;
                 let f = kr0 + r2 * (kr1 + r2 * (kr2 + r2 * kr3));
                 let sx = dx * f + kt0 * 2.0 * dx * dy + kt1 * (r2 + 2.0 * dx * dx);
                 let sy = dy * f + kt1 * 2.0 * dx * dy + kt0 * (r2 + 2.0 * dy * dy);
-                let (fx, fy) = (cx + m * sx, cy + m * sy);
-                *v = img.sample_bilinear(fx as f32 + 0.5, fy as f32 + 0.5)[c];
+                let (fx, fy) = (b.binned_at(cx + m * sx, 0), b.binned_at(cy + m * sy, 1));
+                *v = sample_cubic(img, fx + 0.5, fy + 0.5, c);
             }
         }
     });
@@ -568,25 +685,31 @@ pub fn warp_rectilinear(img: &RgbFrame, planes: &[[f64; 6]], center: [f64; 2]) -
 /// DNG 1.7.1 `WarpFisheye` (pp. 108–110): transform an output radius `r`,
 /// normalised to the farthest corner, to `theta = atan(r)` and evaluate the
 /// per-plane odd polynomial in `theta`. Sampling uses the same pixel centres
-/// and bilinear kernel as [`warp_rectilinear`].
+/// and kernel as [`warp_rectilinear`].
 pub fn warp_fisheye(img: &RgbFrame, planes: &[[f64; 4]], center: [f64; 2]) -> RgbFrame {
+    warp_fisheye_binned(img, planes, center, Binning::none(img.width, img.height))
+}
+
+/// [`warp_fisheye`] at the sensor positions of an image binned as `b` says (see [`warp_rectilinear_binned`]).
+fn warp_fisheye_binned(img: &RgbFrame, planes: &[[f64; 4]], center: [f64; 2], b: Binning) -> RgbFrame {
     if img.width == 0 || img.height == 0 || !matches!(planes.len(), 1 | 3) || !center.iter().chain(planes.iter().flatten()).all(|v| v.is_finite()) {
         return img.clone();
     }
     let (w, h) = (img.width, img.height);
-    let (cx, cy) = (center[0] * (w as f64 - 1.0), center[1] * (h as f64 - 1.0));
-    let m = max_radius(cx, cy, w as f64 - 1.0, h as f64 - 1.0);
+    let (sw, sh) = (b.sensor[0] as f64, b.sensor[1] as f64);
+    let (cx, cy) = (center[0] * (sw - 1.0), center[1] * (sh - 1.0));
+    let m = max_radius(cx, cy, sw - 1.0, sh - 1.0);
     let mut out = RgbFrame::new(w, h);
     li_raster::par_rows(&mut out.data, w, |y, row| {
         for (x, px) in row.iter_mut().enumerate() {
-            let dx = x as f64 - cx;
-            let dy = y as f64 - cy;
+            let dx = b.sensor_at(x as f64, 0) - cx;
+            let dy = b.sensor_at(y as f64, 1) - cy;
             let r = dx.hypot(dy) / m;
             for (c, value) in px.iter_mut().enumerate() {
-                let k = planes[if planes.len() == 1 { 0 } else { c }];
-                let scale = fisheye_scale(k, r);
-                let (sx, sy) = (cx + dx * scale, cy + dy * scale);
-                *value = img.sample_bilinear(sx as f32 + 0.5, sy as f32 + 0.5)[c];
+                let kc = planes[if planes.len() == 1 { 0 } else { c }];
+                let scale = fisheye_scale(kc, r);
+                let (sx, sy) = (b.binned_at(cx + dx * scale, 0), b.binned_at(cy + dy * scale, 1));
+                *value = sample_cubic(img, sx + 0.5, sy + 0.5, c);
             }
         }
     });
@@ -853,13 +976,58 @@ pub(crate) mod tests {
             Opcode::MapTable { area: a, table: vec![0, 100, 65535] },
             Opcode::MapPolynomial { area: a, coefficients: vec![0.0, 1.0, -0.1] },
             Opcode::GainMap { area: a, points_v: 2, points_h: 1, spacing: [1.0, 1.0], origin: [0.0, 0.0], map_planes: 1, gains: vec![1.0, 1.5] },
-            Opcode::DeltaPerRow { area: a, deltas: vec![0.1, 0.2] },
-            Opcode::DeltaPerColumn { area: a, deltas: vec![0.3] },
+            Opcode::DeltaPerRow { area: a, deltas: vec![0.1, -0.2] },
+            Opcode::DeltaPerColumn { area: a, deltas: vec![-0.3] },
             Opcode::ScalePerRow { area: a, scales: vec![1.1] },
             Opcode::ScalePerColumn { area: a, scales: vec![0.9, 1.0] },
             Opcode::Unknown { id: 77, flags: 1, params: vec![1, 2, 3] },
         ];
         assert_eq!(parse_list(&write_list(&list)), list);
+    }
+
+    /// Delta opcodes are signed offsets: a negative entry must not drop the whole correction.
+    #[test]
+    fn negative_deltas_parse_and_apply() {
+        let area = Area { bottom: 1, right: 2, planes: 1, row_pitch: 1, col_pitch: 1, ..Default::default() };
+        let delta = Opcode::DeltaPerColumn { area, deltas: vec![-0.002, 0.001] };
+        let list = parse_list(&write_list(std::slice::from_ref(&delta)));
+        assert_eq!(list, vec![delta]);
+        assert!(list[0].is_applied());
+        let mut buf = vec![0.5f32; 2];
+        apply_list(&list, &mut buf, 2, 1, 1, None, 1.0);
+        assert!((buf[0] - 0.498).abs() < 1e-6 && (buf[1] - 0.501).abs() < 1e-6, "{buf:?}");
+        // list 1 runs on 16-bit values: the delta is in normalised units
+        let mut raw = vec![32767.5f32; 2];
+        apply_list(&list, &mut raw, 2, 1, 1, None, 65535.0);
+        assert!((raw[0] - (32767.5 - 0.002 * 65535.0)).abs() < 1e-2, "{raw:?}");
+        let row = Opcode::DeltaPerRow { area, deltas: vec![-0.01] };
+        assert_eq!(parse_list(&write_list(std::slice::from_ref(&row))), vec![row]);
+        // scales stay non-negative
+        let scale = Opcode::ScalePerColumn { area, scales: vec![-1.0, 1.0] };
+        assert!(matches!(parse_list(&write_list(&[scale]))[0], Opcode::Unknown { id: 13, .. }));
+    }
+
+    /// The warps resample with a clamped Catmull-Rom kernel: detail at a quarter cycle per pixel,
+    /// sampled half a pixel off, keeps 0.88 of its contrast (bilinear: 0.71); a flat field stays
+    /// exact and a hard edge (a clipped window) gets no overshoot.
+    #[test]
+    fn warp_kernel_keeps_detail_without_ringing() {
+        let sine = RgbFrame::from_fn(64, 8, |x, _| [0.5 + 0.4 * (std::f32::consts::FRAC_PI_2 * x as f32).sin(); 3]);
+        let amplitude = |f: &dyn Fn(f64) -> f32| {
+            let v: Vec<f32> = (8..56).map(|x| f(x as f64 + 1.0)).collect();
+            (v.iter().cloned().fold(f32::MIN, f32::max) - v.iter().cloned().fold(f32::MAX, f32::min)) / 2.0
+        };
+        // half a pixel off the samples the sine's peaks fall between: its true amplitude there is 0.4 · sin(π/4)
+        let truth = 0.4 * std::f32::consts::FRAC_1_SQRT_2;
+        let cubic = amplitude(&|x| sample_cubic(&sine, x, 4.5, 1)) / truth;
+        let bilinear = amplitude(&|x| sine.sample_bilinear(x as f32, 4.5)[1]) / truth;
+        assert!(cubic > 0.85 && bilinear < 0.75, "cubic {cubic}, bilinear {bilinear}");
+        let flat = RgbFrame::filled(16, 16, [0.3, 0.6, 0.9]);
+        let warped = warp_rectilinear(&flat, &[[0.97, 0.03, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
+        assert!(warped.data.iter().all(|p| (p[0] - 0.3).abs() < 1e-6 && (p[2] - 0.9).abs() < 1e-6));
+        let step = RgbFrame::from_fn(32, 32, |x, _| if x < 16 { [0.1; 3] } else { [2.0; 3] });
+        let warped = warp_rectilinear(&step, &[[0.97, 0.03, 0.0, 0.0, 0.0, 0.0]], [0.5, 0.5]);
+        assert!(warped.data.iter().flatten().all(|&v| (0.1 - 1e-6..=2.0 + 1e-6).contains(&v)));
     }
 
     #[test]

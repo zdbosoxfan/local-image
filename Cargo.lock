@@ -4381,6 +4381,7 @@ version = "2.0.0-alpha.1"
 dependencies = [
  "half",
  "jpeg-encoder",
+ "jxl-oxide",
  "li-color",
  "li-raster",
  "lightcraft-geom",

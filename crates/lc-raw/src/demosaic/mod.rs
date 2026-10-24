@@ -128,6 +128,49 @@ pub fn demosaic(n: &Normalized, method: Method) -> RgbFrame {
 
 /// [`demosaic`] with the methods' parameters.
 pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> RgbFrame {
+    demosaic_mosaic(n, method, opts, [1.0; 3])
+}
+
+/// [`demosaic_with`] on the white-balanced mosaic, returning camera RGB again (the multipliers
+/// are divided back out, so every later stage sees what [`demosaic_with`] returns). The
+/// colour-difference methods (AMaZE, RCD, AHD, LMMSE, the dual blends) assume R−G and B−G vary
+/// smoothly; across a neutral edge that holds only once the mosaic is balanced, which is why
+/// darktable and RawTherapee demosaic balanced data too. `wb` are the multipliers the image
+/// will get (any scale, as-shot is close enough); [`Method::Auto`] is chosen on the unbalanced
+/// mosaic, where its noise crossover was measured.
+pub fn demosaic_balanced(mut n: Normalized, method: Method, opts: &DemosaicOptions, wb: [f32; 3]) -> RgbFrame {
+    let (Some(wb), Some(cfa)) = (mosaic_balance(&n, wb), n.cfa.clone()) else {
+        return demosaic_with(&n, method, opts);
+    };
+    let auto = method == Method::Auto && cfa.is_bayer() && n.width >= 4 && n.height >= 4;
+    let (method, opts) = if auto { (automatic_method(&n), DemosaicOptions::default()) } else { (method, *opts) };
+    use rayon::prelude::*;
+    let w = n.width;
+    n.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+        for (x, v) in row.iter_mut().enumerate() {
+            *v *= wb[cfa.color_at(x, y) as usize];
+        }
+    });
+    let mut rgb = demosaic_mosaic(&n, method, &opts, wb);
+    drop(n);
+    let inv = wb.map(|v| 1.0 / v);
+    rgb.data.par_iter_mut().for_each(|p| *p = [p[0] * inv[0], p[1] * inv[1], p[2] * inv[2]]);
+    rgb
+}
+
+/// Green-normalised multipliers to balance `n` with; `None` when there is nothing to balance (not a
+/// single-plane mosaic, unusable or neutral multipliers).
+fn mosaic_balance(n: &Normalized, wb: [f32; 3]) -> Option<[f32; 3]> {
+    if n.cpp != 1 || n.cfa.is_none() || !wb.iter().all(|v| v.is_finite() && *v > 0.0) {
+        return None;
+    }
+    let wb = wb.map(|v| (v / wb[1]).clamp(1.0 / 16.0, 16.0));
+    (wb != [1.0; 3]).then_some(wb)
+}
+
+/// The demosaic of a mosaic balanced by `wb` (green = 1; `[1; 3]` for raw camera data): the dual
+/// masks undo the balance, and AMaZE stops trusting interpolation at the lowest balanced clip.
+fn demosaic_mosaic(n: &Normalized, method: Method, opts: &DemosaicOptions, wb: [f32; 3]) -> RgbFrame {
     let (w, h) = (n.width, n.height);
     if w == 0 || h == 0 {
         return RgbFrame::new(w, h);
@@ -158,7 +201,7 @@ pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> 
                     _ if markesteijn::supported(&m) => {
                         let high = markesteijn::markesteijn(&m);
                         if matches!(method, Method::DualMarkesteijnVng | Method::DualRcd | Method::DualRcdVng | Method::DualAmazeVng) {
-                            dual::dual_vng(&m, high, opts.dual_threshold)
+                            dual::dual_vng(&m, high, opts.dual_threshold, wb)
                         } else {
                             high
                         }
@@ -173,20 +216,21 @@ pub fn demosaic_with(n: &Normalized, method: Method, opts: &DemosaicOptions) -> 
             let method = if auto { automatic_method(n) } else { method };
             let auto_opts = DemosaicOptions::default();
             let opts = if auto { &auto_opts } else { opts };
+            let clip_pt = wb.iter().copied().fold(1.0, f32::min);
             match method {
                 Method::Lmmse => lmmse::lmmse(&m),
                 Method::Dcb => dcb::dcb(&m),
                 Method::Markesteijn3 | Method::XtransDirectional => rcd::rcd(&m),
-                Method::DualMarkesteijnVng => dual::dual_vng(&m, rcd::rcd(&m), opts.dual_threshold),
+                Method::DualMarkesteijnVng => dual::dual_vng(&m, rcd::rcd(&m), opts.dual_threshold, wb),
                 Method::Bilinear => bilinear::bilinear(&m),
                 Method::Ppg => ppg::ppg(&m),
                 Method::Ahd => ahd::ahd(&m),
                 Method::Auto | Method::Rcd => rcd::rcd(&m),
-                Method::DualRcd => dual::dual(&m, rcd::rcd(&m), opts.dual_threshold),
+                Method::DualRcd => dual::dual(&m, rcd::rcd(&m), opts.dual_threshold, wb),
                 Method::Vng4 => vng::vng(&m, false),
-                Method::Amaze => amaze::amaze(&m),
-                Method::DualAmazeVng => dual::dual_vng(&m, amaze::amaze(&m), opts.dual_threshold),
-                Method::DualRcdVng => dual::dual_vng(&m, rcd::rcd(&m), opts.dual_threshold),
+                Method::Amaze => amaze::amaze(&m, clip_pt),
+                Method::DualAmazeVng => dual::dual_vng(&m, amaze::amaze(&m, clip_pt), opts.dual_threshold, wb),
+                Method::DualRcdVng => dual::dual_vng(&m, rcd::rcd(&m), opts.dual_threshold, wb),
             }
         }
     }
@@ -381,7 +425,7 @@ mod tests {
             let k = ((x * 7 + y * 13) % 5) as f32 * 0.0004;
             if x < 32 { [0.30 + k, 0.31 + k, 0.29 + k] } else { [0.8, 0.8, 0.8] }
         });
-        let mask = dual::detail_mask(&demosaic(&mosaic_from_rgb(&flat, &cfa), Method::Rcd), 0.2);
+        let mask = dual::detail_mask(&demosaic(&mosaic_from_rgb(&flat, &cfa), Method::Rcd), 0.2, [1.0; 3]);
         assert!(mask.get(31, 32) > 0.3 && mask.get(10, 32) < 0.05, "{} {}", mask.get(10, 32), mask.get(31, 32));
     }
 
@@ -458,6 +502,46 @@ mod tests {
         assert_eq!(reflect(6, 5), 2);
         assert_eq!(reflect(3, 1), 0);
         assert_eq!(reflect(-7, 2), 1);
+    }
+
+    /// Neutral bars slanted 11°, antialiased: window mullions, railings, roof lines.
+    fn slanted_bars(w: usize, h: usize) -> RgbFrame {
+        RgbFrame::from_fn(w, h, |x, y| {
+            let mut v = 0.0;
+            for s in 0..16 {
+                let (fx, fy) = (x as f32 + (s % 4) as f32 / 4.0 + 0.125, y as f32 + (s / 4) as f32 / 4.0 + 0.125);
+                v += if ((fx + 0.2 * fy) / 5.0).floor() as i32 % 2 == 0 { 0.75 } else { 0.12 };
+            }
+            [v / 16.0; 3]
+        })
+    }
+
+    /// A neutral scene's colour differences jump at every edge once the mosaic is unbalanced
+    /// (camera = truth / wb); demosaicing the balanced mosaic must recover it as well as the
+    /// same scene shot at wb = 1, for daylight and tungsten multipliers alike.
+    #[test]
+    fn neutral_edges_demosaic_as_well_under_any_white_balance() {
+        let cfa = Cfa::bayer("RGGB").unwrap();
+        let scenes = [("Siemens star", crate::quality_support::scene(1, 192, 192)), ("slanted bars", slanted_bars(192, 192))];
+        for (name, truth) in &scenes {
+            for method in [Method::Rcd, Method::Amaze, Method::Ahd, Method::Lmmse, Method::DualRcdVng] {
+                let reference = psnr(truth, &demosaic(&mosaic_from_rgb(truth, &cfa), method), 16);
+                for wb in [[2.2, 1.0, 1.6], [1.35, 1.0, 2.9]] {
+                    let camera = truth.map(|p| [p[0] / wb[0], p[1] / wb[1], p[2] / wb[2]]);
+                    let unbalanced = demosaic(&mosaic_from_rgb(&camera, &cfa), method).map(|p| [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]]);
+                    let out = demosaic_balanced(mosaic_from_rgb(&camera, &cfa), method, &DemosaicOptions::default(), wb)
+                        .map(|p| [p[0] * wb[0], p[1] * wb[1], p[2] * wb[2]]);
+                    let (balanced, before) = (psnr(truth, &out, 16), psnr(truth, &unbalanced, 16));
+                    assert!(
+                        balanced > reference - 0.5,
+                        "{name} {method:?} {wb:?}: {balanced:.1} dB (wb = 1: {reference:.1}, unbalanced: {before:.1})"
+                    );
+                }
+            }
+        }
+        // nothing to balance: the plain demosaic
+        let n = mosaic_from_rgb(&scenes[0].1, &cfa);
+        assert_eq!(demosaic_balanced(n.clone(), Method::Rcd, &DemosaicOptions::default(), [2.0, 2.0, 2.0]).data, demosaic(&n, Method::Rcd).data);
     }
 
     #[test]

@@ -336,6 +336,29 @@ pub fn bin_factor(raw: &lightcraft_raw::RawImage, max_edge: usize) -> Option<usi
     [8usize, 6, 4, 3, 2].into_iter().find(|&k| raw.can_bin(k) && (long / k >= need || (k == 3 && !raw.can_bin(2) && long / k >= need3)))
 }
 
+/// Camera RGB of a decoded raw no larger than about `max_edge` (binned when that is enough, else
+/// demosaiced at full size), with the photo's highlight handling done in the sensor domain:
+/// before `OpcodeList3`, white balance and the colour matrix. `wb` are the multipliers the image
+/// will be rendered with. The default crop is applied; the image is not oriented.
+pub(crate) fn develop_camera(raw: &lightcraft_raw::RawImage, opts: &RawOptions, max_edge: usize, wb: [f32; 3]) -> Result<RgbFrame, String> {
+    use lightcraft_develop::HighlightMode as H;
+    use lightcraft_raw::highlight::Mode;
+    let mode = match opts.highlights {
+        H::Clip => Mode::Clip,
+        H::Reconstruct => Mode::Reconstruct,
+        H::Opposed => Mode::Opposed,
+        H::Segmentation => Mode::Segmentation,
+    };
+    let highlights = lightcraft_raw::highlight::Highlights { mode, wb, clip: HIGHLIGHT_CLIP };
+    if let Some(k) = bin_factor(raw, max_edge)
+        && let Some(img) = raw.develop_binned_with_highlights(k, &highlights).map_err(|e| e.to_string())?
+    {
+        return Ok(img);
+    }
+    let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold };
+    raw.develop_with_highlights(opts.method(max_edge), &dopts, &highlights).map_err(|e| e.to_string())
+}
+
 /// How a raw file is decoded: the photo's Raw Processing settings that change decoding
 /// (demosaic, highlight reconstruction, measuring the capture-sharpening radius).
 /// Automatic chooses from measured sensor noise; explicit saved methods retain their meaning.
@@ -458,6 +481,11 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
         );
         let xy = lightcraft_raw::color::as_shot_white_xy(&raw);
         let t = lightcraft_raw::color::camera_transform(&raw, xy);
+        // before anything reads the mosaic: previews, the camera look, clip confidence, demosaic
+        let hot = raw.suppress_hot_pixels(t.wb);
+        if hot > 0 {
+            log::debug!("raw source: replaced {hot} hot or dead photosites");
+        }
         // Keep the actual source uncorrected. Only the private camera-look
         // fitting proxy is corrected to match the camera's processed JPEG.
         let lens = embedded_lens(&raw.info());
@@ -494,48 +522,10 @@ fn load_bytes_now(bytes: std::borrow::Cow<'_, [u8]>, max_edge: usize, opts: &Raw
             let c = raw.crop.clipped(raw.active_area.width, raw.active_area.height);
             if c.width > 1 && c.height > 1 { c.width.max(c.height) } else { raw.active_area.width.max(raw.active_area.height) }
         };
-        let binned = match bin_factor(&raw, max_edge) {
-            Some(k) if opts.highlights == lightcraft_develop::HighlightMode::Segmentation => raw
-                .develop_binned_with(k, HIGHLIGHT_CLIP, |n, scale| {
-                    lightcraft_raw::highlight::segmentation(
-                        n,
-                        t.wb,
-                        HIGHLIGHT_CLIP,
-                        &lightcraft_raw::highlight::SegmentationOptions::default().at_scale(scale),
-                    );
-                })
-                .map_err(|e| e.to_string())?,
-            Some(k) => raw.develop_binned(k, HIGHLIGHT_CLIP).map_err(|e| e.to_string())?,
-            None => None,
-        };
-        let mut img = match binned {
-            Some(img) => img,
-            None => {
-                let dopts = lightcraft_raw::DemosaicOptions { dual_threshold: opts.dual_threshold };
-                raw.develop_with_cfa(opts.method(max_edge), &dopts, |n| {
-                    if opts.highlights == lightcraft_develop::HighlightMode::Segmentation {
-                        lightcraft_raw::highlight::segmentation(n, t.wb, HIGHLIGHT_CLIP, &lightcraft_raw::highlight::SegmentationOptions::default());
-                    }
-                })
-                .map_err(|e| e.to_string())?
-            }
-        };
+        let mut img = develop_camera(&raw, opts, max_edge, t.wb)?;
         // the samples aren't needed any more (the colour model below reads only the tags)
         raw.data = lightcraft_raw::RawData::U16(Vec::new());
         let mut stages = vec![("develop", t0.elapsed())];
-        stages.push(("transform", t0.elapsed()));
-        match opts.highlights {
-            lightcraft_develop::HighlightMode::Reconstruct => drop(lightcraft_raw::highlight::reconstruct(&mut img, t.wb, HIGHLIGHT_CLIP)),
-            lightcraft_develop::HighlightMode::Opposed => drop(lightcraft_raw::highlight::opposed(&mut img, t.wb, HIGHLIGHT_CLIP)),
-            lightcraft_develop::HighlightMode::Segmentation => {
-                // Linear RGB / monochrome raws have no CFA to segment.
-                if raw.cpp != 1 || raw.cfa.is_none() {
-                    lightcraft_raw::highlight::opposed(&mut img, t.wb, HIGHLIGHT_CLIP);
-                }
-            }
-            lightcraft_develop::HighlightMode::Clip => lightcraft_raw::highlight::clip_neutral(&mut img, t.wb, HIGHLIGHT_CLIP),
-        }
-        stages.push(("highlights", t0.elapsed()));
         let m = camera_look.as_ref().map(|p| p.matrix.mul(&t.matrix)).unwrap_or(t.matrix).to_f32();
         // Nonlinear colour adjustments must follow camera-plane lens sampling.
         // Lensfun CA can be enabled later even when no embedded profile exists.
@@ -1158,6 +1148,127 @@ mod sony_dji_opcode_tests {
         for p in image.data {
             for ch in 0..3 {
                 assert!((p[ch] - expected[ch]).abs() < 1e-5);
+            }
+        }
+    }
+
+    /// A stuck photosite (common in long exposures) must not develop into a coloured dot, in the
+    /// full-size source or a binned preview.
+    #[test]
+    fn hot_photosites_do_not_develop_into_coloured_dots() {
+        let (w, h) = (64usize, 48usize);
+        let cfa = lightcraft_raw::Cfa::bayer("RGGB").unwrap();
+        let wall = |x: usize, y: usize| (2000.0 * [0.5, 1.0, 0.7][cfa.color_at(x, y) as usize]) as u16 + 512;
+        let raw = |hot: bool| lightcraft_raw::RawImage {
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            cfa: Some(cfa.clone()),
+            bits: 14,
+            data: lightcraft_raw::RawData::U16(
+                (0..w * h)
+                    .map(|i| if hot && [(20, 20), (33, 20), (21, 31)].contains(&(i % w, i / w)) { 16383 } else { wall(i % w, i / w) })
+                    .collect(),
+            ),
+            black: lightcraft_raw::BlackLevel::uniform(512.0),
+            white: vec![16383.0],
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            orientation: Orientation::Normal,
+            color: lightcraft_raw::ColorData {
+                color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+                illuminant: [21, 0],
+                as_shot_neutral: Some([0.5, 1.0, 0.7]),
+                ..Default::default()
+            },
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: Default::default(),
+        };
+        let options = lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Uncompressed, ..Default::default() };
+        let (with, without) = (lightcraft_raw::write_dng(&raw(true), &options).unwrap(), lightcraft_raw::write_dng(&raw(false), &options).unwrap());
+        for edge in [usize::MAX, 32] {
+            let ((a, _), (b, _)) = (load_bytes(&with, edge).unwrap(), load_bytes(&without, edge).unwrap());
+            for (p, q) in a.data.iter().zip(&b.data) {
+                for c in 0..3 {
+                    assert!((p[c] - q[c]).abs() <= 0.02 * q[c].abs().max(0.01), "at {edge}: {p:?} vs {q:?}");
+                }
+            }
+        }
+    }
+
+    /// DJI shading gains (OpcodeList3) lift bright but unclipped corners over the sensor's clip
+    /// level. Every highlight mode reads clipping from the sensor before those gains, so such a
+    /// frame develops exactly as gain × sensor value, in its own colour.
+    #[test]
+    fn dji_shading_gains_never_mark_unclipped_data_clipped() {
+        let (w, h) = (32usize, 24usize);
+        let cfa = lightcraft_raw::Cfa::bayer("RGGB").unwrap();
+        let camera = [0.45f32, 0.5, 0.4];
+        let raw = lightcraft_raw::RawImage {
+            format: RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            cfa: Some(cfa.clone()),
+            // float samples: an integer frame this uniform would read as a saturation plateau
+            bits: 32,
+            data: lightcraft_raw::RawData::F32((0..w * h).map(|i| camera[cfa.color_at(i % w, i / w) as usize]).collect()),
+            black: lightcraft_raw::BlackLevel::uniform(0.0),
+            white: vec![1.0],
+            active_area: Rect::new(0, 0, w, h),
+            crop: Rect::new(0, 0, w, h),
+            orientation: Orientation::Normal,
+            color: lightcraft_raw::ColorData {
+                color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+                illuminant: [21, 0],
+                as_shot_neutral: Some([0.5, 1.0, 0.7]),
+                ..Default::default()
+            },
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: OpcodeLists {
+                list3: vec![Opcode::GainMap {
+                    area: lightcraft_raw::opcodes::Area {
+                        bottom: h as u32,
+                        right: w as u32,
+                        planes: 3,
+                        row_pitch: 1,
+                        col_pitch: 1,
+                        ..Default::default()
+                    },
+                    points_v: 1,
+                    points_h: 1,
+                    spacing: [1.0; 2],
+                    origin: [0.0; 2],
+                    map_planes: 1,
+                    gains: vec![2.6],
+                }],
+                ..Default::default()
+            },
+            metadata: lightcraft_meta::Metadata { make: Some("DJI".into()), model: Some("FC4382".into()), ..Default::default() },
+        };
+        let bytes = lightcraft_raw::write_dng(
+            &raw,
+            &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Uncompressed, ..Default::default() },
+        )
+        .unwrap();
+        let decoded = lightcraft_raw::decode(&bytes).unwrap();
+        let t = lightcraft_raw::color::camera_transform(&decoded, lightcraft_raw::color::as_shot_white_xy(&decoded));
+        let expected = t.matrix.apply_f32(std::array::from_fn(|c| 2.6 * camera[c] * t.wb[c])).map(|v| v * 2f32.powf(t.baseline_exposure as f32));
+        use lightcraft_develop::HighlightMode as H;
+        for highlights in [H::Reconstruct, H::Opposed, H::Clip, H::Segmentation] {
+            for edge in [usize::MAX, 16] {
+                let (image, _) = load_bytes_with(&bytes, edge, &RawOptions { highlights, ..Default::default() }).unwrap();
+                for p in &image.data {
+                    for c in 0..3 {
+                        assert!((p[c] - expected[c]).abs() < 2e-3 * expected[c].abs().max(1.0), "{highlights:?} at {edge}: {p:?} vs {expected:?}");
+                    }
+                }
             }
         }
     }
