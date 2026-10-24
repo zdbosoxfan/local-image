@@ -379,6 +379,12 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         image = finish::fill_edges(&image, &alpha);
     }
     let r = &frames[used[0]];
+    // The projection has no source lens geometry: no lens model may be applied to the panorama.
+    let mut metadata = r.metadata.clone();
+    metadata.lens_corrections_baked = true;
+    if let Some(sony) = &mut metadata.sony {
+        sony.lens_correction = None;
+    }
     Ok(PanoResult {
         image,
         alpha,
@@ -393,7 +399,7 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         focal: f_out,
         origin: (ox, oy),
         color: r.color.clone(),
-        metadata: r.metadata.clone(),
+        metadata,
         raw: r.raw,
         baseline_exposure: r.baseline_exposure,
         clip,

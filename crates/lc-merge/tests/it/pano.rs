@@ -240,6 +240,29 @@ fn auto_projection_and_finishing() {
 }
 
 #[test]
+fn panoramas_carry_no_source_lens_model() {
+    let shots = [Shot { yaw: -12.0, pitch: 0.5, roll: 0.3, gain: 1.0 }, Shot { yaw: 12.0, pitch: -0.4, roll: 0.0, gain: 1.0 }];
+    let e = env();
+    let lens = lightcraft_meta::SonyLensCorrection {
+        distortion: vec![-100, 0, 417],
+        ca_red: vec![128, 256, 640],
+        ca_blue: vec![512, 0, -256],
+        vignetting: vec![0, 32, 6144],
+    };
+    let frames: Vec<Frame> = shots
+        .iter()
+        .map(|s| {
+            let mut frame = shoot(&e, &rot(s.yaw, s.pitch, s.roll), 800.0, 800, 600, s.gain);
+            frame.metadata.sony = Some(lightcraft_meta::SonyMetadata { lens_correction: Some(lens.clone()), ..Default::default() });
+            frame
+        })
+        .collect();
+    let res = stitch(frames, &PanoOptions { projection: Projection::Perspective, ..Default::default() }, &no_progress).unwrap();
+    assert!(res.metadata.lens_corrections_baked);
+    assert!(res.metadata.sony.is_some_and(|sony| sony.lens_correction.is_none()));
+}
+
+#[test]
 fn unrelated_photos_do_not_stitch() {
     let a = lightcraft_scenes::demo_library();
     let frames: Vec<Frame> = a.iter().take(2).map(|s| Frame::from_linear_rec2020(s.render(400, 300), None)).collect();

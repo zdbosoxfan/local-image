@@ -107,23 +107,21 @@ pub fn detect_clip(img: &RgbFrame) -> f32 {
     if maxv >= 1.0 || piled { level * CLIP_MARGIN } else { 1.0 }
 }
 
-/// Apply `OpcodeList3` to camera RGB developed from the sensor, whose samples at or above `clip`
-/// are saturated, and return the clip level afterwards. Lens gains (DJI vignette and gain maps)
-/// scale clipped samples by different amounts and can lift unclipped corners above them, so no
-/// single level would separate clipped from measured values. The clipped samples are therefore
-/// moved to one level, clear above every measured value.
-pub(crate) fn apply_lens_opcodes(list3: &[Opcode], image: &mut RgbFrame, clip: f32) -> f32 {
-    if list3.is_empty() {
-        return clip;
-    }
+/// Apply a correction that scales or moves samples unevenly (lens gains, distortion) to camera RGB
+/// whose samples at or above `clip` are saturated, and return the clip level afterwards. Such
+/// corrections spread clipped samples over a range of values and can lift measured corners above
+/// them, so no single level would separate clipped from measured values; the clipped samples are
+/// therefore moved to one level, clear above every measured value. `correct` runs twice, on the
+/// image and on its clip mask.
+pub fn correct_with_clip(image: &mut RgbFrame, clip: f32, correct: impl Fn(&mut RgbFrame)) -> f32 {
     let mut clipped = image.map(|p| p.map(|v| if v >= clip { 1.0f32 } else { 0.0 }));
     let any = clipped.data.iter().flatten().any(|v| *v > 0.0);
-    lightcraft_raw::opcodes::apply_list3(list3, image);
+    correct(image);
     let peak = image.data.iter().flatten().copied().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
     let level = clip.max(peak / crate::output::UNCLIPPED_PEAK);
     if any {
-        // The same opcodes move the mask with the samples; gains keep it well above one half.
-        lightcraft_raw::opcodes::apply_list3(list3, &mut clipped);
+        // Gains keep the moved mask well above one half.
+        correct(&mut clipped);
         for (p, m) in image.data.iter_mut().zip(&clipped.data) {
             for c in 0..3 {
                 if m[c] >= 0.5 {
@@ -133,6 +131,14 @@ pub(crate) fn apply_lens_opcodes(list3: &[Opcode], image: &mut RgbFrame, clip: f
         }
     }
     level
+}
+
+/// [`correct_with_clip`] for `OpcodeList3` (DJI vignette and gain maps, lens warps).
+pub(crate) fn apply_lens_opcodes(list3: &[Opcode], image: &mut RgbFrame, clip: f32) -> f32 {
+    if list3.is_empty() {
+        return clip;
+    }
+    correct_with_clip(image, clip, |img| lightcraft_raw::opcodes::apply_list3(list3, img))
 }
 
 /// Develop `raw` like [`RawImage::develop`] (normalize, demosaic, `OpcodeList3`, default crop),
