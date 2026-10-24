@@ -51,7 +51,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Upright uses the photo's focal length (EXIF 35 mm equivalent, else the lens database's crop
   factor): wide and telephoto shots keep their proportions, and Auto corrects steeper tilts. Explicit
   Vertical and Full correct steep street-level and drone tilts instead of only levelling. Constrain
-  Crop also moves the crop, keeping more of the frame.
+  Crop also moves the crop, keeping more of the frame. Panoramas record their own 35 mm-equivalent
+  focal length, so Upright treats a stitched panorama as the wide view it is.
 - Lens corrections: Remove CA and the manual CA sliders correct the sensor's colour planes on raw
   files, and noise reduction treats vignetting-corrected corners by their raw noise.
 

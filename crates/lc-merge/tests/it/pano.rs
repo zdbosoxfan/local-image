@@ -223,6 +223,11 @@ fn auto_projection_and_finishing() {
     let (med, p99, seam) = check(&res, &rs, &e, f);
     eprintln!("perspective: median {med:.4}, p99 {p99:.4}, seam step {seam:.4}");
     assert!(med < 0.02 && p99 < 0.1 && seam < 0.05);
+    // the recorded 35 mm-equivalent focal length is the panorama's own: over the canvas diagonal
+    // it is the shots' focal length (the canvas is at their resolution)
+    let f35 = res.metadata.focal_length_35mm.expect("a 35 mm-equivalent focal length");
+    let f_canvas = f35 * (res.image.width as f64).hypot(res.image.height as f64) / 36f64.hypot(24.0);
+    assert!((f_canvas / f - 1.0).abs() < 0.02, "{f35} mm equivalent is {f_canvas} px over the canvas, the shots' is {f} px");
     let c = res.crop.expect("auto crop");
     assert!(c[2] * c[3] > 0.6, "crop {c:?}");
     let (w, h) = (res.image.width as f64, res.image.height as f64);
