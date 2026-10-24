@@ -128,32 +128,104 @@ impl Frame {
         frame
     }
 
-    /// "Constrain Crop": shrink the crop about its centre until it contains no area outside the warped source.
+    /// "Constrain Crop": the largest crop of the same aspect inside the user's crop that contains no area
+    /// outside the warped source. Shrinking about the crop's centre alone wasted 5 to 11 % of the area on
+    /// the lopsided trapezoids Upright leaves (a vertical fix with a horizontal one or a roll), so the
+    /// shrunk crop also moves, within the room the shrink frees.
     fn constrain_to_image(&mut self) {
         let Some(wp) = self.warp.as_ref().filter(|w| w.moves_pixels()) else { return };
         let a = self.crop.output_to_source(self.ow, self.oh, 1.0, 1.0);
         let (w, h) = (self.ow, self.oh);
-        let fits = |t: f64| {
-            (0..=48).all(|i| {
+        // Crop coordinates (0..1 across the user's crop) → green-plane source position.
+        let map = |p: Point| wp.to_source(a.apply(p), 1);
+        let inside = |s: Point| s.x >= -1e-6 * w && s.y >= -1e-6 * h && s.x <= w * (1.0 + 1e-6) && s.y <= h * (1.0 + 1e-6);
+        let samples = |t: f64, c: Point| {
+            (0..=48).flat_map(move |i| {
                 let u = i as f64 / 48.0;
-                [(u, 0.0), (u, 1.0), (0.0, u), (1.0, u)].iter().all(|&(x, y)| {
-                    let p = Point::new(0.5 + t * (x - 0.5), 0.5 + t * (y - 0.5));
-                    let s = wp.to_source(a.apply(p), 1);
-                    s.x >= -1e-6 * w && s.y >= -1e-6 * h && s.x <= w * (1.0 + 1e-6) && s.y <= h * (1.0 + 1e-6)
-                })
+                [(u, 0.0), (u, 1.0), (0.0, u), (1.0, u)].map(|(x, y)| Point::new(c.x + t * (x - 0.5), c.y + t * (y - 0.5)))
             })
         };
-        if fits(1.0) {
+        let fits = |t: f64, c: Point| samples(t, c).all(|p| inside(map(p)));
+        let centre = Point::new(0.5, 0.5);
+        if fits(1.0, centre) {
             return;
         }
+        // A centre for the crop scaled by `t` that fits within the freed room, if one is found: each edge
+        // sample outside the source gives a linear constraint on the move (through the map's Jacobian
+        // there, so a slanted image edge lets a move along it help), met by alternating projections.
+        let place = |t: f64| -> Option<Point> {
+            let room = (1.0 - t) / 2.0;
+            let mut c = centre;
+            for _ in 0..6 {
+                let mut cons: Vec<([f64; 2], f64)> = Vec::new();
+                for p in samples(t, c) {
+                    let q = map(p);
+                    if inside(q) {
+                        continue;
+                    }
+                    let e = 1e-4;
+                    let (qx, qy) = (map(Point::new(p.x + e, p.y)), map(Point::new(p.x, p.y + e)));
+                    let jx = [(qx.x - q.x) / e, (qy.x - q.x) / e];
+                    let jy = [(qx.y - q.y) / e, (qy.y - q.y) / e];
+                    // keep a little inside: a hundredth of a source pixel
+                    let m = 0.01;
+                    if q.x < 0.0 {
+                        cons.push(([-jx[0], -jx[1]], q.x - m));
+                    }
+                    if q.x > w {
+                        cons.push((jx, w - q.x - m));
+                    }
+                    if q.y < 0.0 {
+                        cons.push(([-jy[0], -jy[1]], q.y - m));
+                    }
+                    if q.y > h {
+                        cons.push((jy, h - q.y - m));
+                    }
+                }
+                if cons.is_empty() {
+                    return Some(c);
+                }
+                let mut d = [0.0f64; 2];
+                for _ in 0..200 {
+                    let mut moved = false;
+                    for (n, limit) in &cons {
+                        let n2 = n[0] * n[0] + n[1] * n[1];
+                        let v = n[0] * d[0] + n[1] * d[1] - limit;
+                        if v > 0.0 && n2 > 1e-18 {
+                            d = [d[0] - v / n2 * n[0], d[1] - v / n2 * n[1]];
+                            moved = true;
+                        }
+                    }
+                    if !moved {
+                        break;
+                    }
+                }
+                let next = Point::new((c.x + d[0]).clamp(0.5 - room, 0.5 + room), (c.y + d[1]).clamp(0.5 - room, 0.5 + room));
+                if !(next.x.is_finite() && next.y.is_finite()) || next == c {
+                    return None;
+                }
+                c = next;
+            }
+            fits(t, c).then_some(c)
+        };
         let (mut lo, mut hi) = (0.0, 1.0);
         for _ in 0..30 {
             let m = (lo + hi) / 2.0;
-            if fits(m) { lo = m } else { hi = m }
+            if fits(m, centre) { lo = m } else { hi = m }
         }
-        let t = lo.max(0.02);
+        let mut best = (lo.max(0.02), centre);
+        let mut hi = 1.0;
+        for _ in 0..20 {
+            let m = (best.0 + hi) / 2.0;
+            match place(m) {
+                Some(c) => best = (m, c),
+                None => hi = m,
+            }
+        }
+        let (t, c) = best;
         let r = self.crop.rect;
-        self.crop.rect = Rect::from_center(r.center(), r.width() * t, r.height() * t);
+        let at = Point::new(r.x0 + c.x * r.width(), r.y0 + c.y * r.height());
+        self.crop.rect = Rect::from_center(at, r.width() * t, r.height() * t);
     }
 
     /// Whether the GPU's geometry kernel can sample this frame, including lens database models.
@@ -800,6 +872,50 @@ mod tests {
         }
         let amplitude = 2.0 * re.hypot(im) / norm / 0.05;
         assert!(amplitude < 0.2, "stripes alias at {:.0} % of their contrast where the warp minifies {local:.2}×", amplitude * 100.0);
+    }
+
+    /// Constrain Crop on the lopsided shapes Upright leaves (a vertical fix with a horizontal one, a
+    /// strong portrait fix): moving the shrunk crop as well keeps nearly the largest crop that fits
+    /// inside the user's crop; shrinking about the centre alone lost up to a tenth of the area.
+    #[test]
+    fn constrain_crop_keeps_nearly_the_largest_crop() {
+        for (vertical, horizontal, (w, h)) in [(-30.0, 15.0, (600, 400)), (-60.0, 0.0, (400, 600)), (-25.0, -20.0, (400, 600))] {
+            let mut s = DevelopSettings::default();
+            s.geometry.vertical = vertical;
+            s.geometry.horizontal = horizontal;
+            let free = Frame::new(w, h, &s, true);
+            let wp = free.warp.as_ref().expect("a perspective warp");
+            let a = free.crop.output_to_source(free.ow, free.oh, 1.0, 1.0);
+            let fits = |t: f64, c: Point| {
+                (0..=48).all(|i| {
+                    let u = i as f64 / 48.0;
+                    [(u, 0.0), (u, 1.0), (0.0, u), (1.0, u)].iter().all(|&(x, y)| {
+                        let q = wp.to_source(a.apply(Point::new(c.x + t * (x - 0.5), c.y + t * (y - 0.5))), 1);
+                        q.x >= -1e-6 * free.ow && q.y >= -1e-6 * free.oh && q.x <= free.ow * (1.0 + 1e-6) && q.y <= free.oh * (1.0 + 1e-6)
+                    })
+                })
+            };
+            // brute force over centres that keep the crop inside the user's
+            let mut best = 0.0f64;
+            for i in 0..=24 {
+                for j in 0..=24 {
+                    let c = Point::new(0.3 + 0.4 * i as f64 / 24.0, 0.3 + 0.4 * j as f64 / 24.0);
+                    let tmax = 1.0 - 2.0 * (c.x - 0.5).abs().max((c.y - 0.5).abs());
+                    let (mut lo, mut hi) = (0.0, tmax);
+                    for _ in 0..20 {
+                        let m = (lo + hi) / 2.0;
+                        if fits(m, c) { lo = m } else { hi = m }
+                    }
+                    best = best.max(lo);
+                }
+            }
+            s.geometry.constrain_crop = true;
+            let got = Frame::new(w, h, &s, true).crop.rect;
+            let t = got.width();
+            assert!(t * t >= 0.98 * best * best, "V{vertical} H{horizontal} {w}×{h}: area {:.3} of the best {:.3}", t * t, best * best);
+            let c = Point::new(got.center().x, got.center().y);
+            assert!(fits(t * (1.0 - 1e-9), c), "the constrained crop shows no blank canvas");
+        }
     }
 
     #[test]
