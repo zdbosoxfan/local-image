@@ -164,6 +164,14 @@ pub enum InUse {
     Custom(Custom),
 }
 impl InUse {
+    /// The model's name for messages.
+    pub fn label(&self) -> String {
+        match self {
+            Self::Official(spec) => spec.label.to_owned(),
+            Self::Custom(custom) => format!("custom “{}”", custom.name),
+        }
+    }
+
     pub fn cpu_estimate(&self) -> estimate::Estimate {
         match self {
             Self::Official(spec) => estimate::estimate(spec.id, (spec.size * spec.size) as u64),
@@ -826,18 +834,30 @@ impl Segmenter {
         Ok(upscale(&prob, ow, oh, w, h))
     }
 
+    /// [`Segmenter::predict_depth`] that stops within one model stage once `cancel` is set (see
+    /// [`Segmenter::predict_with_cancel`]).
+    pub fn predict_depth_with_cancel(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> Result<Vec<f32>> {
+        self.predict_depth_checked(rgba, w, h, &|| cancel.load(Ordering::Relaxed))
+    }
+
     /// Relative nearness (0 = farthest, 1 = nearest in the photo) for an RGBA8 image, at the
     /// image's size (a depth model). A flexible-input model sees the photo in its own aspect ratio,
     /// a fixed one squeezed to its square input; its relative inverse depth (a metric model's
     /// depth inverted first; no depth reads as farthest) is min–max stretched (it has no absolute
     /// scale).
     pub fn predict_depth(&self, rgba: &[u8], w: usize, h: usize) -> Result<Vec<f32>> {
+        self.predict_depth_checked(rgba, w, h, &never)
+    }
+
+    fn predict_depth_checked(&self, rgba: &[u8], w: usize, h: usize, stop: &dyn Fn() -> bool) -> Result<Vec<f32>> {
         if self.cfg.task != Task::Depth {
             bail!("not a depth model");
         }
+        check(stop)?;
         let size = self.input_size(w, h);
         let input = self.input_at(rgba, w, h, false, size)?;
-        let out = estimate::run(&self.cfg.id, (size.0 * size.1) as u64, || (self.run)(input.into(), &never))?;
+        let out = estimate::run(&self.cfg.id, (size.0 * size.1) as u64, || (self.run)(input.into(), stop))?;
+        check(stop)?;
         let map = out[0].to_plain_array_view::<f32>()?;
         let Some((oh, ow)) = single_map(map.shape()) else { bail!("unexpected depth model output {:?}", map.shape()) };
         let mut vals: Vec<f32> = map.iter().copied().collect();
@@ -1470,13 +1490,15 @@ impl ModelSnapshot {
         ArtifactIdentity::read(&self.path).is_ok_and(|identity| identity == self.artifact)
     }
 
-    pub fn segmenter(&self) -> Option<Segmenter> {
+    /// The loaded model. `Ok(None)`: the file changed since the snapshot; `Err`: it failed to
+    /// load or would take too long on this CPU.
+    pub fn segmenter(&self) -> Result<Option<Segmenter>> {
         let slot = match self.cfg.task {
             Task::Subject if self.cfg.id == "inspyrenet" => &BETTER,
             Task::Subject => &SUBJECT,
             Task::Sky { .. } => &SKY,
             Task::Depth => &DEPTH,
-            _ => return None,
+            _ => return Ok(None),
         };
         cached(self.clone(), slot)
     }
@@ -1510,8 +1532,9 @@ pub fn available(group: Group, models_dir: &Path) -> bool {
 }
 
 /// A process-wide cache of the loaded depth model.
-pub fn shared_depth(models_dir: &Path) -> Option<Segmenter> {
-    cached(active(Group::Depth, models_dir)?, &DEPTH)
+/// `Ok(None)`: no depth model is installed; `Err`: the one set failed to load.
+pub fn shared_depth(models_dir: &Path) -> Result<Option<Segmenter>> {
+    active(Group::Depth, models_dir).map_or(Ok(None), |a| cached(a, &DEPTH))
 }
 
 /// The last CPU tier chosen in the shared cutout widget also serves Select Subject,
@@ -1550,15 +1573,17 @@ pub fn subject_quality(models_dir: &Path) -> bool {
 }
 
 /// A process-wide cache of the loaded subject model (loading takes a moment).
-pub fn shared(models_dir: &Path) -> Option<Segmenter> {
-    let active = active(Group::Subject, models_dir)?;
+/// `Ok(None)`: no subject model is installed; `Err`: the one set failed to load.
+pub fn shared(models_dir: &Path) -> Result<Option<Segmenter>> {
+    let Some(active) = active(Group::Subject, models_dir) else { return Ok(None) };
     let slot = if active.cfg.id == "inspyrenet" { &BETTER } else { &SUBJECT };
     cached(active, slot)
 }
 
-/// A process-wide cache of the loaded sky model.
-pub fn shared_sky(models_dir: &Path) -> Option<Segmenter> {
-    cached(active(Group::Sky, models_dir)?, &SKY)
+/// A process-wide cache of the loaded sky model. `Ok(None)`: none is installed; `Err`: the one
+/// set failed to load.
+pub fn shared_sky(models_dir: &Path) -> Result<Option<Segmenter>> {
+    active(Group::Sky, models_dir).map_or(Ok(None), |a| cached(a, &SKY))
 }
 
 type FileStamp = (std::path::PathBuf, u64, Option<std::time::SystemTime>, &'static str);
@@ -1742,10 +1767,11 @@ pub fn shared_tier(models_dir: &Path, better: bool) -> Option<Segmenter> {
     if !spec.files().all(|file| file_installed(models_dir, file)) {
         return None;
     }
-    cached(
-        ModelSnapshot::new(spec.id.into(), model_path(models_dir, spec), Config::of_spec(spec), InUse::Official(spec))?,
-        if better { &BETTER } else { &SUBJECT },
-    )
+    let snapshot = ModelSnapshot::new(spec.id.into(), model_path(models_dir, spec), Config::of_spec(spec), InUse::Official(spec))?;
+    cached(snapshot, if better { &BETTER } else { &SUBJECT }).unwrap_or_else(|e| {
+        log::warn!("The {} subject model failed to load: {e:#}", spec.label);
+        None
+    })
 }
 static BETTER: Slot = std::sync::Mutex::new(None);
 
@@ -1768,23 +1794,23 @@ fn slot(group: Group) -> Option<&'static Slot> {
     }
 }
 
-fn cached(a: ModelSnapshot, slot: &Slot) -> Option<Segmenter> {
+fn cached(a: ModelSnapshot, slot: &Slot) -> Result<Option<Segmenter>> {
     if !a.is_current() {
-        return None;
+        return Ok(None);
     }
     let identity = CacheKey { model: a.key.clone(), artifact: a.artifact.clone() };
-    let mut g = slot.lock().ok()?;
+    let mut g = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Some((key, s)) = g.as_ref()
         && *key == identity
     {
-        return Some(s.clone());
+        return Ok(Some(s.clone()));
     }
-    let s = Segmenter::load_cfg(a.cfg.clone(), &a.path).ok()?;
+    let s = Segmenter::load_cfg(a.cfg.clone(), &a.path).with_context(|| format!("The {} model failed to load", a.in_use.label()))?;
     if !a.is_current() {
-        return None;
+        return Ok(None);
     }
     *g = Some((identity, s.clone()));
-    Some(s)
+    Ok(Some(s))
 }
 
 #[cfg(test)]

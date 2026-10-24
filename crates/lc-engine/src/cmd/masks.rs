@@ -186,10 +186,8 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| {
                 let kind = str_param(p, "kind").unwrap_or("radial").to_string();
                 let mut shape = shape_from(&kind, p, "mask.add")?;
-                // local-image: Subject / Background / Sky from the quick models when installed.
-                if let Some(id) = s.active() {
-                    s.quick_segment(id, &mut shape);
-                }
+                // local-image: Subject / Background / Sky / Depth from the quick models when installed.
+                let quick = s.active().map(|id| s.quick_start(id, &mut shape));
                 let later = resolve_ai(s, &mut shape, "mask.add")?;
                 let (prefix, label) = match kind.as_str() {
                     "full" => ("Filled Layer", "New Filled Layer"),
@@ -218,7 +216,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 let next = s.active().and_then(|id| s.develop_of(id)).map(|d| d.next_mask_id()).unwrap_or(1);
                 let refine = if crate::quickseg::is_model_mask(&shape) { crate::quickseg::MODEL_EDGE_REFINE } else { 0.0 };
-                let out = masks_edit(s, "mask.add", label, |masks, active| {
+                let mut out = masks_edit(s, "mask.add", label, |masks, active| {
                     masks.push(Mask {
                         id: next,
                         name,
@@ -229,6 +227,12 @@ pub fn specs() -> Vec<CommandSpec> {
                     *active = Some(next);
                     Ok(())
                 })?;
+                if let Some(quick) = quick {
+                    quick.report(&mut out);
+                    if let (crate::quickseg::QuickStart::Later(run), Some(id)) = (quick, s.active()) {
+                        s.quick_segment_later(id, vec![(next, 0, *run)]);
+                    }
+                }
                 queue_later(s, later, next, 0, out)
             }
         ),
@@ -250,7 +254,7 @@ pub fn specs() -> Vec<CommandSpec> {
                     return Err(bad("mask.addComponent", format!("no mask {mid}")));
                 }
                 let mut shape = shape_from(&kind, p, "mask.addComponent")?;
-                s.quick_segment(id, &mut shape);
+                let quick = s.quick_start(id, &mut shape);
                 let later = resolve_ai(s, &mut shape, "mask.addComponent")?;
                 if let Later::Text(text) = &later {
                     let op = p.get("op").and_then(Value::as_str).unwrap_or("add");
@@ -259,7 +263,7 @@ pub fn specs() -> Vec<CommandSpec> {
                 }
                 let mut comp = 0;
                 let model_made = crate::quickseg::is_model_mask(&shape);
-                let out = masks_edit(s, "mask.addComponent", "Edit Mask", |masks, _| {
+                let mut out = masks_edit(s, "mask.addComponent", "Edit Mask", |masks, _| {
                     let i = find(masks, mid, "mask.addComponent")?;
                     masks[i].components.push(MaskComponent { name: None, op, invert: bool_or(p, "invert", false), shape });
                     comp = masks[i].components.len() - 1;
@@ -269,6 +273,10 @@ pub fn specs() -> Vec<CommandSpec> {
                     }
                     Ok(())
                 })?;
+                quick.report(&mut out);
+                if let crate::quickseg::QuickStart::Later(run) = quick {
+                    s.quick_segment_later(id, vec![(mid, comp, *run)]);
+                }
                 queue_later(s, later, mid, comp, out)
             }
         ),

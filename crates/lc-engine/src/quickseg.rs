@@ -33,14 +33,131 @@ pub fn is_model_mask(shape: &MaskShape) -> bool {
     )
 }
 
+/// What a quick model made of a mask shape.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Quick {
+    /// Not a quick-model shape, or no model is installed: the classical estimate stays.
+    Nothing,
+    /// The shape holds the model's segmentation.
+    Filled,
+    /// The model failed or was refused (why); the classical estimate stays.
+    Failed(String),
+}
+
+/// The function a quick model serves.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Kind {
+    Subject,
+    Sky,
+    Depth,
+}
+
+impl Kind {
+    fn of(shape: &MaskShape) -> Option<Kind> {
+        match shape {
+            MaskShape::Subject { seg: None } | MaskShape::Background { seg: None } => Some(Kind::Subject),
+            MaskShape::Sky { seg: None } => Some(Kind::Sky),
+            MaskShape::DepthRange { seg: None, .. } => Some(Kind::Depth),
+            _ => None,
+        }
+    }
+
+    fn group(self) -> li_seg::Group {
+        match self {
+            Kind::Subject => li_seg::Group::Subject,
+            Kind::Sky => li_seg::Group::Sky,
+            Kind::Depth => li_seg::Group::Depth,
+        }
+    }
+}
+
+/// A quick-model run prepared on the session's thread; [`QuickRun::run`] does the work anywhere.
+pub(crate) struct QuickRun {
+    kind: Kind,
+    invert: bool,
+    dir: std::path::PathBuf,
+    render: crate::media::RenderJob,
+}
+
+/// Quick-model runs in the background take turns: each holds a model and a rendered photo.
+static QUICK_TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+impl QuickRun {
+    /// Renders the photo and runs the model: the shape's segmentation, `Ok(None)` when no model
+    /// serves the function any more. `cancel` stops the model at its next stage.
+    fn run(self, cancel: &std::sync::atomic::AtomicBool) -> Result<Option<SegMask>, String> {
+        let model = match self.kind {
+            Kind::Subject => li_seg::shared(&self.dir),
+            Kind::Sky => li_seg::shared_sky(&self.dir),
+            Kind::Depth => li_seg::shared_depth(&self.dir),
+        };
+        let Some(model) = model.map_err(|e| format!("{e:#}"))? else { return Ok(None) };
+        let img = self.render.run().rendered?.image;
+        let (w, h) = (img.width, img.height);
+        let rgba: Vec<u8> = img.data.iter().flatten().copied().collect();
+        let prob = match self.kind {
+            // stored as distance (0 = nearest), the scale the depth range reads
+            Kind::Depth => model.predict_depth_with_cancel(&rgba, w, h, cancel).map(|near| near.iter().map(|n| 1.0 - n).collect()),
+            Kind::Sky => model.predict_sky_with_cancel(&rgba, w, h, cancel),
+            // No clear subject: an empty subject (a full background).
+            Kind::Subject => model.predict_with_cancel(&rgba, w, h, cancel).map(|p| p.unwrap_or_else(|| vec![0.0; w * h])),
+        }
+        .map_err(|e| format!("{e:#}"))?;
+        Ok(Some(to_segmask(&prob, w, h, self.invert, if self.kind == Kind::Subject { SUBJECT_GRID } else { GRID })))
+    }
+}
+
+/// Fills `shape`'s segmentation with `seg`, when it is still the quick-model shape it was.
+fn fill(shape: &mut MaskShape, seg: SegMask) -> bool {
+    match shape {
+        MaskShape::Subject { seg: s @ None }
+        | MaskShape::Background { seg: s @ None }
+        | MaskShape::Sky { seg: s @ None }
+        | MaskShape::DepthRange { seg: s @ None, .. } => {
+            *s = Some(seg);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// The undo step that fills masks a quick model made in the background.
+pub const QUICK_LABEL: &str = "AI Mask";
+
+/// See [`Session::quick_start`].
+pub(crate) enum QuickStart {
+    Now(Quick),
+    Later(Box<QuickRun>),
+}
+
+impl QuickStart {
+    /// What the command reports about it (`aiWarning`: the model failed, the mask uses the
+    /// classical estimate; `aiPending`: the model runs in the background).
+    pub(crate) fn report(&self, out: &mut serde_json::Value) {
+        match self {
+            QuickStart::Now(Quick::Failed(why)) => out["aiWarning"] = serde_json::json!(format!("{why}; the mask uses its estimate")),
+            QuickStart::Later(_) => out["aiPending"] = serde_json::json!(true),
+            QuickStart::Now(_) => {}
+        }
+    }
+}
+
 impl Session {
     /// Recompute only incoming AI selections on this photo. Existing target masks stay intact.
+    /// In background mode the quick models run as one job and fill the masks when it is done.
     pub(crate) fn refresh_transferred_masks(&mut self, id: PhotoId, settings: &mut lightcraft_develop::DevelopSettings, first: usize) {
         let input_settings = settings.clone();
+        let mut later = Vec::new();
         for mask in settings.masks.iter_mut().skip(first) {
-            for component in &mut mask.components {
+            for (index, component) in mask.components.iter_mut().enumerate() {
                 let shape = &mut component.shape;
-                self.quick_segment_with_settings(id, shape, Some(&input_settings));
+                if self.segmenter.background {
+                    if let Some(run) = self.quick_run(id, shape, Some(&input_settings)) {
+                        later.push((mask.id, index, run));
+                    }
+                } else if let Quick::Failed(why) = self.quick_segment_with_settings(id, shape, Some(&input_settings)) {
+                    log::warn!("{QUICK_LABEL}: {why}");
+                }
                 match shape {
                     MaskShape::Object { hint, exclude, seg, detail, .. } => {
                         *seg = None;
@@ -66,6 +183,7 @@ impl Session {
                 }
             }
         }
+        self.quick_segment_later(id, later);
     }
 
     pub(crate) fn transfer_settings(
@@ -85,65 +203,107 @@ impl Session {
         settings
     }
 
-    /// Fills a Subject / Background / Sky shape's segmentation from the quick models when one is
-    /// installed (other shapes, or no model: unchanged). Returns whether it did.
-    pub fn quick_segment(&mut self, id: PhotoId, shape: &mut MaskShape) -> bool {
+    /// Fills a Subject / Background / Sky / Depth Range shape's segmentation from the quick
+    /// models when one is installed, here and now (other shapes, or no model: unchanged).
+    pub fn quick_segment(&mut self, id: PhotoId, shape: &mut MaskShape) -> Quick {
         let settings = self.segment_key(id).map(|(_, settings)| settings);
         self.quick_segment_with_settings(id, shape, settings.as_ref())
     }
+
     pub(crate) fn quick_segment_with_settings(
         &mut self,
         id: PhotoId,
         shape: &mut MaskShape,
         settings: Option<&lightcraft_develop::DevelopSettings>,
-    ) -> bool {
-        #[derive(PartialEq)]
-        enum K {
-            Subject,
-            Sky,
-            Depth,
-        }
-        let kind = match shape {
-            MaskShape::Subject { seg: None } | MaskShape::Background { seg: None } => K::Subject,
-            MaskShape::Sky { seg: None } => K::Sky,
-            MaskShape::DepthRange { seg: None, .. } => K::Depth,
-            _ => return false,
-        };
-        let sky = kind == K::Sky;
-        let Some(dir) = self.quick_seg_dir.clone() else { return false };
-        let model = match kind {
-            K::Subject => li_seg::shared(&dir),
-            K::Sky => li_seg::shared_sky(&dir),
-            K::Depth => li_seg::shared_depth(&dir),
-        };
-        let Some(model) = model else { return false };
-        let Some(settings) = settings else { return false };
-        let mut settings = settings.clone();
-        settings.masks.clear();
-        let Some(job) = self.preview_job(id, INPUT_EDGE, INPUT_EDGE, false, &settings) else { return false };
-        let Ok(r) = job.run().rendered else { return false };
-        let img = r.image;
-        let (w, h) = (img.width, img.height);
-        let rgba: Vec<u8> = img.data.iter().flatten().copied().collect();
-        let prob = if kind == K::Depth {
-            // stored as distance (0 = nearest), the scale the depth range reads
-            model.predict_depth(&rgba, w, h).ok().map(|near| near.iter().map(|n| 1.0 - n).collect())
-        } else if sky {
-            model.predict_sky(&rgba, w, h).ok()
-        } else {
-            // No clear subject: an empty subject (a full background).
-            model.predict(&rgba, w, h).ok().map(|p| p.unwrap_or_else(|| vec![0.0; w * h]))
-        };
-        let Some(prob) = prob else { return false };
-        let invert = matches!(shape, MaskShape::Background { .. });
-        let seg = Some(to_segmask(&prob, w, h, invert, if kind == K::Subject { SUBJECT_GRID } else { GRID }));
-        match shape {
-            MaskShape::Subject { seg: s } | MaskShape::Background { seg: s } | MaskShape::Sky { seg: s } | MaskShape::DepthRange { seg: s, .. } => {
-                *s = seg
+    ) -> Quick {
+        let Some(run) = self.quick_run(id, shape, settings) else { return Quick::Nothing };
+        match run.run(&std::sync::atomic::AtomicBool::new(false)) {
+            Ok(Some(seg)) => {
+                fill(shape, seg);
+                Quick::Filled
             }
-            _ => {}
+            Ok(None) => Quick::Nothing,
+            Err(why) => {
+                log::warn!("{QUICK_LABEL}: {why}");
+                Quick::Failed(why)
+            }
         }
-        true
+    }
+
+    /// How a new shape of `mask.add` / `mask.addComponent` gets its segmentation: here and now, or
+    /// (in background mode, as the app runs) later as a job, leaving the command's thread free.
+    pub(crate) fn quick_start(&mut self, id: PhotoId, shape: &mut MaskShape) -> QuickStart {
+        if !self.segmenter.background {
+            return QuickStart::Now(self.quick_segment(id, shape));
+        }
+        let settings = self.segment_key(id).map(|(_, settings)| settings);
+        self.quick_run(id, shape, settings.as_ref()).map_or(QuickStart::Now(Quick::Nothing), |run| QuickStart::Later(Box::new(run)))
+    }
+
+    /// The quick-model run that would fill `shape` (`None`: not such a shape, no model installed
+    /// for it, or the photo can't be rendered).
+    pub(crate) fn quick_run(&mut self, id: PhotoId, shape: &MaskShape, settings: Option<&lightcraft_develop::DevelopSettings>) -> Option<QuickRun> {
+        let kind = Kind::of(shape)?;
+        let dir = self.quick_seg_dir.clone()?;
+        if !li_seg::available(kind.group(), &dir) {
+            return None;
+        }
+        let mut settings = settings?.clone();
+        settings.masks.clear();
+        let render = self.preview_job(id, INPUT_EDGE, INPUT_EDGE, false, &settings)?;
+        Some(QuickRun { kind, invert: matches!(shape, MaskShape::Background { .. }), dir, render })
+    }
+
+    /// Runs `runs` (component `.1` of mask `.0` on photo `id`) as one background job, after any
+    /// other quick-model job; the session fills the masks when it is done ([`QUICK_LABEL`]).
+    pub(crate) fn quick_segment_later(&mut self, id: PhotoId, runs: Vec<(u32, usize, QuickRun)>) {
+        if runs.is_empty() {
+            return;
+        }
+        let work: crate::enhance::Work = Box::new(move |ctl| {
+            ctl.report(0.0, "Waiting for the AI model");
+            let _turn = QUICK_TURN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let total = runs.len();
+            let mut fills = Vec::with_capacity(total);
+            for (i, (mask, comp, run)) in runs.into_iter().enumerate() {
+                ctl.check()?;
+                ctl.report(i as f32 / total as f32, "Finding the mask");
+                fills.push(crate::enhance::MaskFill { mask, comp, seg: run.run(ctl.cancel_flag()) });
+            }
+            Ok(crate::enhance::Outcome::Masks(fills))
+        });
+        self.enhance.spawn(id, crate::enhance::JobKind::Masks, QUICK_LABEL, false, work);
+    }
+
+    /// Fills the masks of photo `id` that a background quick job made, on the masks as they are
+    /// now (a mask removed or changed meanwhile is left alone). The models' errors.
+    pub(crate) fn apply_mask_fills(&mut self, id: PhotoId, fills: Vec<crate::enhance::MaskFill>) -> (bool, Vec<String>) {
+        let Some(d) = self.develop_of(id) else { return (false, vec![]) };
+        let mut d = (*d).clone();
+        let (mut changed, mut errors) = (false, Vec::new());
+        for f in fills {
+            match f.seg {
+                Ok(Some(seg)) => {
+                    let Some(m) = d.masks.iter_mut().find(|m| m.id == f.mask) else { continue };
+                    let single = m.components.len() == 1;
+                    let Some(c) = m.components.get_mut(f.comp) else { continue };
+                    if fill(&mut c.shape, seg) {
+                        changed = true;
+                        if single && m.refine == 0.0 {
+                            m.refine = MODEL_EDGE_REFINE;
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(why) if why == crate::enhance::CANCELLED => {}
+                Err(why) => errors.push(format!("{why}; the mask keeps its estimate")),
+            }
+        }
+        if changed && let Err(e) = self.set_develop(id, d, QUICK_LABEL) {
+            errors.push(e.to_string());
+            changed = false;
+        }
+        (changed, errors)
     }
 }
 
@@ -291,7 +451,69 @@ mod tests {
     fn without_models_masks_keep_the_classical_estimate() {
         let mut s = Session::new();
         let mut shape = MaskShape::Subject { seg: None };
-        assert!(!s.quick_segment(PhotoId(1), &mut shape));
+        assert_eq!(s.quick_segment(PhotoId(1), &mut shape), Quick::Nothing);
         assert_eq!(shape, MaskShape::Subject { seg: None });
+    }
+
+    /// A models folder whose custom sky model is a broken file.
+    fn broken_sky_model() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("li-quickseg-broken-{}-{:?}", std::process::id(), std::thread::current().id()));
+        let custom = li_seg::custom_dir(&dir);
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::write(custom.join("sky-broken.onnx"), b"not a model").unwrap();
+        std::fs::write(custom.join("custom.txt"), "sky\tsky-broken.onnx\tbroken.onnx\t32\timagenet\t1\t0\tlogits\n").unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_failing_model_is_reported_and_the_mask_keeps_its_estimate() {
+        use serde_json::json;
+        let dir = broken_sky_model();
+        let mut s = Session::with_demo();
+        s.quick_seg_dir = Some(dir.clone());
+        let id = s.active().unwrap();
+        let out = s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+        let warning = out["aiWarning"].as_str().expect("the failure is reported");
+        assert!(warning.contains("broken.onnx") && warning.contains("estimate"), "{warning}");
+        let sky = |s: &Session| s.develop_of(id).unwrap().masks.last().unwrap().components[0].shape.clone();
+        assert_eq!(sky(&s), MaskShape::Sky { seg: None });
+        // in the app the model runs in the background: the mask is there at once, the failure follows
+        s.segmenter.background = true;
+        let out = s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+        assert_eq!(out["aiPending"], json!(true));
+        assert_eq!(sky(&s), MaskShape::Sky { seg: None });
+        while s.enhance.busy() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let polled = s.enhance_poll();
+        assert!(polled.errors.iter().any(|e| e.starts_with(QUICK_LABEL) && e.contains("broken.onnx")), "{:?}", polled.errors);
+        assert_eq!(sky(&s), MaskShape::Sky { seg: None });
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn background_masks_fill_only_the_shapes_they_were_made_for() {
+        use crate::enhance::MaskFill;
+        use serde_json::json;
+        let mut s = Session::with_demo();
+        let id = s.active().unwrap();
+        for kind in ["sky", "subject", "radial"] {
+            s.execute("mask.add", &json!({"kind": kind})).unwrap();
+        }
+        let ids: Vec<u32> = s.develop_of(id).unwrap().masks.iter().map(|m| m.id).collect();
+        let seg = to_segmask(&[0.9; 64], 8, 8, false, GRID);
+        let fills = [ids[0], ids[1], ids[2], 999].map(|mask| MaskFill { mask, comp: 0, seg: Ok(Some(seg.clone())) }).to_vec();
+        let (changed, errors) = s.apply_mask_fills(id, fills);
+        assert!(changed && errors.is_empty());
+        let d = s.develop_of(id).unwrap();
+        assert_eq!(d.masks[0].components[0].shape, MaskShape::Sky { seg: Some(seg.clone()) });
+        assert_eq!(d.masks[1].components[0].shape, MaskShape::Subject { seg: Some(seg.clone()) });
+        assert!(d.masks[..2].iter().all(|m| m.refine == MODEL_EDGE_REFINE), "filled model masks get edge refinement");
+        assert!(!is_model_mask(&d.masks[2].components[0].shape) && d.masks[2].refine == 0.0, "a radial mask is not a model's");
+        // a mask that has its segmentation already (filled meanwhile) is left alone
+        let other = to_segmask(&[0.1; 64], 8, 8, false, GRID);
+        let (changed, _) = s.apply_mask_fills(id, vec![MaskFill { mask: ids[0], comp: 0, seg: Ok(Some(other)) }]);
+        assert!(!changed);
+        assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: Some(seg) });
     }
 }

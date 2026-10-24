@@ -120,6 +120,17 @@ pub enum Outcome {
     Denoise(denoise::DenoiseDone),
     DenoiseExport(String),
     Remove(RemoveDone),
+    /// Quick-model masks made in the background ([`crate::quickseg`]).
+    Masks(Vec<MaskFill>),
+}
+
+/// A quick model's segmentation for component `comp` of mask `mask` (`Ok(None)`: no model serves
+/// it any more; `Err`: the model failed).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MaskFill {
+    pub mask: u32,
+    pub comp: usize,
+    pub seg: Result<Option<lightcraft_develop::SegMask>, String>,
 }
 
 /// What a job does.
@@ -136,6 +147,8 @@ pub enum JobKind {
     Regenerate {
         spot: usize,
     },
+    /// Masks the quick models fill in the background.
+    Masks,
 }
 
 /// A background AI job.

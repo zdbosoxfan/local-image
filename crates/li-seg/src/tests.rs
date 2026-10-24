@@ -239,7 +239,7 @@ fn a_custom_subject_model_is_validated_copied_and_used() {
     assert_eq!(custom(&dir, Group::Subject), Some(c.clone()));
     assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Custom(c.clone())));
     assert!(custom(&dir, Group::Sky).is_none());
-    let seg = shared(&dir).expect("the custom model loads");
+    let seg = shared(&dir).unwrap().expect("the custom model loads");
     assert!(seg.id().starts_with("custom:subject-"));
     let (w, h) = (80, 50);
     seg.predict(&synthetic(w, h), w, h).unwrap();
@@ -247,7 +247,7 @@ fn a_custom_subject_model_is_validated_copied_and_used() {
     let moved = dir.join("trash.onnx");
     let freed = clear_custom(&dir, Group::Subject, &|p| std::fs::rename(p, &moved)).unwrap();
     assert!(freed > 0 && moved.is_file());
-    assert!(custom(&dir, Group::Subject).is_none() && shared(&dir).is_none() && !custom_list(&dir).exists());
+    assert!(custom(&dir, Group::Subject).is_none() && shared(&dir).unwrap().is_none() && !custom_list(&dir).exists());
     assert_eq!(clear_custom(&dir, Group::Subject, &keep).unwrap(), 0);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -269,8 +269,8 @@ fn review_model_snapshot_distinguishes_equal_length_artifacts_and_roots() {
         let second = snapshot(group, &b).unwrap();
         assert_eq!(first.key, second.key, "same basename/config/length reproduces the previous collision");
         assert_ne!(first, second);
-        let old = first.segmenter().unwrap();
-        let new = second.segmenter().unwrap();
+        let old = first.segmenter().unwrap().unwrap();
+        let new = second.segmenter().unwrap().unwrap();
         assert!(!Arc::ptr_eq(&old.run, &new.run), "another root must load its own plan");
         if group == Group::Subject {
             let input = vec![255; 32 * 32 * 4];
@@ -278,14 +278,27 @@ fn review_model_snapshot_distinguishes_equal_length_artifacts_and_roots() {
             assert!(new.predict(&input, 32, 32).unwrap().is_none());
         }
         // Captured requests keep their original artifact when the selected root changes.
-        assert_eq!(first.segmenter().unwrap().id(), old.id());
+        assert_eq!(first.segmenter().unwrap().unwrap().id(), old.id());
         different.push(0);
         std::fs::write(&first.path, &different).unwrap();
         assert!(!first.is_current());
-        assert!(first.segmenter().is_none(), "a changed artifact cannot reuse the old plan");
+        assert!(first.segmenter().unwrap().is_none(), "a changed artifact cannot reuse the old plan");
         std::fs::remove_dir_all(a).unwrap();
         std::fs::remove_dir_all(b).unwrap();
     }
+}
+
+#[test]
+fn a_model_that_fails_to_load_is_reported_not_taken_for_no_model() {
+    let dir = temp_models();
+    assert!(shared_sky(&dir).unwrap().is_none(), "nothing installed: no model, no error");
+    let src = picked(&dir, "sky.onnx", Some((32, 32)), Out::Map);
+    let c = add_custom(&dir, Group::Sky, &src, CustomOptions::default(), &keep).unwrap();
+    std::fs::write(c.path(&dir), b"this is no longer a model").unwrap();
+    let err = shared_sky(&dir).unwrap_err();
+    assert!(format!("{err:#}").contains("custom “sky.onnx”"), "{err:#}");
+    assert!(snapshot(Group::Sky, &dir).unwrap().segmenter().is_err());
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -296,7 +309,7 @@ fn the_custom_model_beats_an_installed_official_one() {
     let src = picked(&dir, "d.onnx", Some((32, 32)), Out::Flat);
     add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap();
     assert!(matches!(Group::Depth.in_use(&dir), Some(InUse::Custom(_))));
-    let seg = shared_depth(&dir).unwrap();
+    let seg = shared_depth(&dir).unwrap().unwrap();
     let (w, h) = (40, 30);
     let d = seg.predict_depth(&synthetic(w, h), w, h).unwrap();
     assert_eq!(d.len(), w * h);
@@ -359,7 +372,7 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     let c = add_custom(&dir, Group::Sky, &one, CustomOptions { sky_class: 7, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class), (1, 0), "a single map ignores the class index");
     assert_eq!(c.activation, Activation::Probability, "the map ends in a sigmoid");
-    let seg = shared_sky(&dir).unwrap();
+    let seg = shared_sky(&dir).unwrap().unwrap();
     let (w, h) = (30, 20);
     let p = seg.predict_sky(&synthetic(w, h), w, h).unwrap();
     assert_eq!(p.len(), w * h);
@@ -371,7 +384,7 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     let c = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class), (4, 2));
     assert_eq!(custom(&dir, Group::Sky).unwrap().classes, 4, "replaced, not added");
-    assert!(shared_sky(&dir).unwrap().predict_sky(&synthetic(w, h), w, h).is_ok());
+    assert!(shared_sky(&dir).unwrap().unwrap().predict_sky(&synthetic(w, h), w, h).is_ok());
     let err = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err();
     assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 4, classes: 4 })), "{err:#}");
     assert_eq!(custom(&dir, Group::Sky).unwrap().class, 2, "a refused model leaves the setting alone");
@@ -425,7 +438,7 @@ fn a_subject_model_that_outputs_logits_gets_its_sigmoid() {
     let c = add_custom(&dir, Group::Subject, &path, CustomOptions::default(), &keep).unwrap();
     assert_eq!(c.activation, Activation::Logits);
     assert_eq!(custom(&dir, Group::Subject).unwrap().activation, Activation::Logits, "remembered");
-    let p = shared(&dir).unwrap().predict(&synthetic(s, s), s, s).unwrap().expect("a clear subject");
+    let p = shared(&dir).unwrap().unwrap().predict(&synthetic(s, s), s, s).unwrap().expect("a clear subject");
     for (i, v) in p.iter().enumerate() {
         if subject(i) {
             assert!(*v >= 0.99, "subject {v} at {i}");
@@ -458,19 +471,19 @@ fn sky_models_are_read_as_the_probabilities_or_logits_they_output() {
     let path = picked_bytes(&dir, "sky-sigmoid.onnx", &constant_onnx(s as u64, 1, &map, Some("Sigmoid")));
     let c = add_custom(&dir, Group::Sky, &path, CustomOptions::default(), &keep).unwrap();
     assert_eq!((c.classes, c.activation), (1, Activation::Probability));
-    check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.95, 0.03);
+    check(shared_sky(&dir).unwrap().unwrap().predict_sky(&photo, w, h).unwrap(), 0.95, 0.03);
     // one map of logits (TinySkyNet style)
     let map: Vec<f32> = (0..s * s).map(|i| if sky(i) { 6.0 } else { -6.0 }).collect();
     let path = picked_bytes(&dir, "sky-logits.onnx", &constant_onnx(s as u64, 1, &map, None));
     let c = add_custom(&dir, Group::Sky, &path, CustomOptions::default(), &keep).unwrap();
     assert_eq!((c.classes, c.activation), (1, Activation::Logits));
-    check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.99, 0.01);
+    check(shared_sky(&dir).unwrap().unwrap().predict_sky(&photo, w, h).unwrap(), 0.99, 0.01);
     // four classes through a softmax, sky = class 2
     let classes: Vec<f32> = (0..4).flat_map(|c| (0..s * s).map(move |i| if c == if sky(i) { 2 } else { 0 } { 8.0 } else { 0.0 })).collect();
     let path = picked_bytes(&dir, "sky-softmax.onnx", &constant_onnx(s as u64, 4, &classes, Some("Softmax")));
     let c = add_custom(&dir, Group::Sky, &path, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class, c.activation), (4, 2, Activation::Probability));
-    check(shared_sky(&dir).unwrap().predict_sky(&photo, w, h).unwrap(), 0.9, 0.1);
+    check(shared_sky(&dir).unwrap().unwrap().predict_sky(&photo, w, h).unwrap(), 0.9, 0.1);
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -512,7 +525,7 @@ fn half_precision_subject_models_run_in_f32() {
         let path = picked_bytes(&dir, &format!("half-{keep_io_types}.onnx"), &half_onnx(32, keep_io_types));
         add_custom(&dir, Group::Subject, &path, CustomOptions::default(), &keep).unwrap_or_else(|e| panic!("keep_io_types {keep_io_types}: {e:#}"));
         let (w, h) = (40, 30);
-        let p = shared(&dir).unwrap().predict(&synthetic(w, h), w, h).unwrap().expect("a subject");
+        let p = shared(&dir).unwrap().unwrap().predict(&synthetic(w, h), w, h).unwrap().expect("a subject");
         assert!(p.len() == w * h && p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "keep_io_types {keep_io_types}");
     }
     let _ = std::fs::remove_dir_all(dir);
@@ -569,7 +582,7 @@ fn a_model_with_external_weights_is_copied_as_one_file() {
     let c = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
     // the picked folder can go: the copy has the weights
     std::fs::remove_dir_all(dir.join("picked")).unwrap();
-    let seg = snapshot(Group::Subject, &dir).unwrap().segmenter().expect("the copied model loads");
+    let seg = snapshot(Group::Subject, &dir).unwrap().segmenter().unwrap().expect("the copied model loads");
     let p = seg.predict(&synthetic(s, s), s, s).unwrap().expect("a subject");
     assert!(p[s / 4] > 0.99 && p[s * 3 / 4] < 0.01, "{} {}", p[s / 4], p[s * 3 / 4]);
     assert!(c.path(&dir).is_file() && std::fs::read_dir(custom_dir(&dir)).unwrap().count() == 2, "one model file and the list");
@@ -592,7 +605,7 @@ fn custom_depth_models_get_their_normalisation_and_output_direction() {
     let path = picked_bytes(&dir, "metric.onnx", &constant_onnx(s as u64, 1, &metres, None));
     let c = add_custom(&dir, Group::Depth, &path, CustomOptions { depth_metric: true, ..CustomOptions::for_group(Group::Depth) }, &keep).unwrap();
     assert_eq!((c.norm, c.class), (Norm::ImageNet, 1), "depth models start ImageNet-normalised");
-    let seg = shared_depth(&dir).unwrap();
+    let seg = shared_depth(&dir).unwrap().unwrap();
     // the model gets ImageNet-normalised input: mid grey is (0.5 - mean) / std
     let grey: Vec<u8> = (0..s * s).flat_map(|_| [128, 128, 128, 255]).collect();
     let input = seg.input(&grey, s, s, false).unwrap();
@@ -603,7 +616,7 @@ fn custom_depth_models_get_their_normalisation_and_output_direction() {
     let c = set_custom_options(&dir, Group::Depth, CustomOptions { norm: Norm::Half, ..CustomOptions::default() }).unwrap();
     assert_eq!((c.norm, c.class), (Norm::Half, 0));
     assert_eq!(custom(&dir, Group::Depth), Some(c), "the list keeps the DPT style and the output");
-    let near = shared_depth(&dir).unwrap().predict_depth(&grey, s, s).unwrap();
+    let near = shared_depth(&dir).unwrap().unwrap().predict_depth(&grey, s, s).unwrap();
     assert!(near[s / 4] < 0.01 && near[s * 3 / 4] > 0.99);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -800,7 +813,7 @@ fn flexible_depth_models_keep_the_photos_aspect_ratio() {
         assert_eq!(d.len(), w * h);
     }
     let custom = add_custom(&dir, Group::Depth, &picked(&dir, "custom.onnx", None, Out::Map), CustomOptions::for_group(Group::Depth), &keep).unwrap();
-    assert_eq!(shared_depth(&dir).unwrap().input_size(w, h), (custom.size, custom.size), "a custom model's patch size is unknown: square");
+    assert_eq!(shared_depth(&dir).unwrap().unwrap().input_size(w, h), (custom.size, custom.size), "a custom model's patch size is unknown: square");
     let _ = std::fs::remove_dir_all(dir);
 }
 

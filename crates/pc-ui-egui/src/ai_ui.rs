@@ -571,14 +571,18 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
     set_custom_job(&dir, group, Some(CustomJob::Testing));
     // the drawing language is per thread: translate the reason in the UI's language
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
-        let job = match li_seg::add_custom(&dir, group, &src, opts, &dispose) {
-            Ok(_) => CustomJob::Done,
-            Err(e) => {
+    let job_dir = dir.clone();
+    let started = std::thread::Builder::new().name("seg-custom".into()).spawn(move || {
+        // a model file is untrusted: a panic while testing it fails the test, it doesn't hang it
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| li_seg::add_custom(&dir, group, &src, opts, &dispose)));
+        let job = match result {
+            Ok(Ok(_)) => CustomJob::Done,
+            Ok(Err(e)) => {
                 let reason =
                     li_i18n::with_language(lang, || e.downcast_ref::<li_seg::CustomModelError>().map(custom_model_reason)).unwrap_or_else(|| e.to_string());
                 CustomJob::Failed(reason)
             }
+            Err(_) => CustomJob::Failed(li_i18n::with_language(lang, || tl!("The model crashed while it was being tested.").to_owned())),
         };
         set_custom_job(&dir, group, Some(job));
         refresh();
@@ -586,6 +590,9 @@ fn start_custom(dir: std::path::PathBuf, group: li_seg::Group, src: std::path::P
             ctx.request_repaint();
         }
     });
+    if let Err(e) = started {
+        set_custom_job(&job_dir, group, Some(CustomJob::Failed(e.to_string())));
+    }
 }
 
 /// Settings › Local AI › On-device models: one row per function, including Smart Sort tagging.

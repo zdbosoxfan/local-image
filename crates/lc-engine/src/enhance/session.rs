@@ -46,10 +46,23 @@ impl Session {
                 }
             };
             let photo = job.photo;
+            if let Outcome::Masks(fills) = outcome {
+                if job.ctl.is_cancelled() {
+                    continue;
+                }
+                let (changed, errors) = self.apply_mask_fills(photo, fills);
+                polled.changed |= changed;
+                for e in errors {
+                    let error = format!("{}: {e}", job.label);
+                    polled.job_errors.push((job.id, error.clone()));
+                    polled.errors.push(error);
+                }
+                continue;
+            }
             let source_matches = match &outcome {
                 Outcome::Remove(r) => self.catalog.photo(photo).is_some_and(|p| super::source_hash(p) == r.source),
                 Outcome::Denoise(r) => self.catalog.photo(photo).is_some_and(|p| super::denoise::source_hash(p) == r.source),
-                Outcome::DenoiseExport(_) => true,
+                Outcome::DenoiseExport(_) | Outcome::Masks(_) => true,
             };
             if !source_matches || job.ctl.is_cancelled() {
                 continue;
@@ -92,7 +105,7 @@ impl Session {
                 }
                 self.set_develop(photo, d, label)?;
             }
-            Outcome::DenoiseExport(_) => return Ok(false),
+            Outcome::DenoiseExport(_) | Outcome::Masks(_) => return Ok(false),
             Outcome::Remove(r) => {
                 if self.catalog.photo(photo).is_none_or(|p| super::source_hash(p) != r.source) {
                     return Ok(false);

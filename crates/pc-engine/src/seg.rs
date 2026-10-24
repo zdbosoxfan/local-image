@@ -85,21 +85,30 @@ impl SubjectModel {
         li_seg::snapshot(li_seg::Group::Subject, &models_dir()).map(|snapshot| Self(ModelKind::Installed(Box::new(snapshot))))
     }
 
-    /// Foreground probability (0–1) at the image's size, or `None` (no clear subject, or the model
-    /// failed). `Err(Cancelled)` when `cancel` was set: the model stops at its next stage.
-    fn predict(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, lightcraft_sysmem::jobs::Cancelled> {
+    /// Foreground probability (0–1) at the image's size, or `Ok(None)` when the model sees no clear
+    /// subject. `Err` when `cancel` was set (the model stops at its next stage) or the model failed
+    /// to load or run (logged): neither is an answer to remember for these pixels.
+    fn predict(&self, rgba: &[u8], w: usize, h: usize, cancel: &AtomicBool) -> std::result::Result<Option<Vec<f32>>, NoAnswer> {
         match &self.0 {
             ModelKind::Installed(snapshot) => {
-                let Some(seg) = snapshot.segmenter() else { return Ok(None) };
-                match seg.predict_with_cancel(rgba, w, h, cancel) {
-                    Ok(map) => Ok(map),
-                    Err(e) if li_seg::is_cancelled(&e) => Err(lightcraft_sysmem::jobs::Cancelled),
-                    Err(_) => Ok(None),
-                }
+                let seg = match snapshot.segmenter() {
+                    Ok(Some(seg)) => seg,
+                    Ok(None) => return Err(NoAnswer),
+                    Err(e) => return Err(failed("subject", &e)),
+                };
+                seg.predict_with_cancel(rgba, w, h, cancel).map_err(|e| if li_seg::is_cancelled(&e) { NoAnswer } else { failed("subject", &e) })
             }
-            ModelKind::Mock(m) => m.predict(rgba, w, h, cancel),
+            ModelKind::Mock(m) => m.predict(rgba, w, h, cancel).map_err(|_| NoAnswer),
         }
     }
+}
+
+/// A model run that gave no answer: cancelled, or the model failed.
+struct NoAnswer;
+
+fn failed(what: &str, e: &anyhow::Error) -> NoAnswer {
+    log::warn!("The {what} model failed: {e:#}");
+    NoAnswer
 }
 
 /// Headless-test stand-in for the subject model: counts its runs and can hold each run until a
@@ -316,7 +325,16 @@ pub fn sky_probability_with(model: &SkyModel, doc: &Document, layer: Option<Laye
     let (w, h) = (area.width() as usize, area.height() as usize);
     let prob = match &model.0 {
         ModelKind::Mock(mock) => mock.predict(&rgba, w, h, cancel).ok()??,
-        ModelKind::Installed(snapshot) => snapshot.segmenter()?.predict_sky_with_cancel(&rgba, w, h, cancel).ok()?,
+        ModelKind::Installed(snapshot) => {
+            let seg = snapshot.segmenter().map_err(|e| failed("sky", &e)).ok()??;
+            seg.predict_sky_with_cancel(&rgba, w, h, cancel)
+                .map_err(|e| {
+                    if !li_seg::is_cancelled(&e) {
+                        failed("sky", &e);
+                    }
+                })
+                .ok()?
+        }
     };
     if !model.0.is_current() {
         return None;
