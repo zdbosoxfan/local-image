@@ -145,7 +145,7 @@ pub(crate) fn profile_look(ifd0: &Ifd, raw: &Ifd) -> ProfileLook {
 /// only that unambiguous layout; never consume trailing metadata as pixels or
 /// manufacture missing samples. LibRaw's packed DNG loader reads these full rows.
 fn uncompressed_layout(bytes: &[u8], info: &mut lightcraft_tiff::image::ImageInfo, bits: u32) -> Result<()> {
-    use lightcraft_tiff::image::{Layout, chunk_bytes};
+    use lightcraft_tiff::image::Layout;
     if info.compression != t::compression::NONE {
         return Ok(());
     }
@@ -166,33 +166,7 @@ fn uncompressed_layout(bytes: &[u8], info: &mut lightcraft_tiff::image::ImageInf
             info.byte_counts[0] = expected as u64;
         }
     }
-    // Edge padding outside the image may be omitted, but every covered pixel
-    // must exist. Short uncompressed input is corruption, not zero-filled detail.
-    let ccpp = if info.planar == 2 { 1 } else { cpp };
-    for c in info.chunks(bytes.len() as u64) {
-        if c.x >= info.width || c.y >= info.height {
-            continue;
-        }
-        let rows = c.height.min(info.height - c.y) as usize;
-        let cols = c.width.min(info.width - c.x) as usize;
-        let pitch = (c.width as usize)
-            .checked_mul(ccpp)
-            .and_then(|n| n.checked_mul(bits as usize))
-            .and_then(|n| n.checked_add(7))
-            .map(|n| n / 8)
-            .ok_or(RawError::Limit("DNG chunk row"))?;
-        let tail = cols
-            .checked_mul(ccpp)
-            .and_then(|n| n.checked_mul(bits as usize))
-            .and_then(|n| n.checked_add(7))
-            .map(|n| n / 8)
-            .ok_or(RawError::Limit("DNG chunk tail"))?;
-        let needed = rows.saturating_sub(1).checked_mul(pitch).and_then(|n| n.checked_add(tail)).ok_or(RawError::Limit("DNG chunk size"))?;
-        if chunk_bytes(bytes, &c).is_none_or(|src| src.len() < needed) {
-            return Err(RawError::Corrupt("truncated uncompressed DNG samples".into()));
-        }
-    }
-    Ok(())
+    crate::tiffraw::require_complete_uncompressed(bytes, info, bits)
 }
 
 pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {

@@ -32,7 +32,7 @@
 //! frames hold one 2×2 CFA cell per four-component sample ([`read_quad_tiles`]). Other lossless-JPEG layouts go
 //! through the generic TIFF path.
 
-use crate::tiffraw::{Packing, check_image, read_image_in};
+use crate::tiffraw::{Packing, check_image, read_image_in, require_complete_uncompressed};
 use crate::{BlackLevel, Cfa, ColorData, Mode, OpcodeLists, RawData, RawError, RawFormat, RawImage, Rect, Result, ljpeg};
 use lightcraft_geom::Orientation;
 use lightcraft_tiff::image::{Chunk, ImageInfo, Layout, chunk_bytes};
@@ -313,6 +313,13 @@ fn is_quad_tiled(bytes: &[u8], info: &ImageInfo) -> bool {
             .is_some_and(|(fw, fh, nc, _)| nc == 4 && fw * 2 == tile_width as usize && fh * 2 == tile_height as usize)
 }
 
+/// The first `len` bytes of a single-strip layout; a truncated strip is corrupt (its missing rows
+/// would otherwise develop as a black band).
+fn complete_strip<'a>(bytes: &'a [u8], strip: &Chunk, len: usize) -> Result<&'a [u8]> {
+    let src = chunk_bytes(bytes, strip).ok_or_else(|| RawError::Corrupt("raw strip outside file".into()))?;
+    src.get(..len).ok_or_else(|| RawError::Corrupt(format!("raw strip has {} of {len} bytes", src.len())))
+}
+
 /// Decode Sony's lossless-compressed raw data. Each tile is one LJ92 frame of half the tile's width and height whose
 /// four components are the tile's 2×2 CFA cells in raster order (top-left, top-right, bottom-left, bottom-right), so
 /// all four colour planes are predicted separately. Observed in the files' own frame headers (512×512 tiles holding
@@ -339,18 +346,13 @@ fn read_quad_tiles(bytes: &[u8], info: &ImageInfo) -> Result<Vec<u16>> {
             Ok((*c, f))
         })
         .collect();
+    // a tile that fails must fail the file: zero-filled, it would develop as a black block
+    let failed = decoded.iter().filter(|r| r.is_err()).count();
+    if let Some(Err(e)) = decoded.iter().find(|r| r.is_err()) {
+        return Err(RawError::Corrupt(format!("{failed} of {} lossless ARW tiles could not be decoded: {e}", decoded.len())));
+    }
     let mut out = vec![0u16; total];
-    let mut ok = 0usize;
-    let mut first_err = None;
-    for r in decoded {
-        let (c, f) = match r {
-            Ok(v) => v,
-            Err(e) => {
-                first_err.get_or_insert(e);
-                continue;
-            }
-        };
-        ok += 1;
+    for (c, f) in decoded.into_iter().flatten() {
         let (x0, y0) = (c.x as usize, c.y as usize);
         for fy in 0..f.height {
             for k in 0..4 {
@@ -366,9 +368,6 @@ fn read_quad_tiles(bytes: &[u8], info: &ImageInfo) -> Result<Vec<u16>> {
                 }
             }
         }
-    }
-    if ok == 0 {
-        return Err(first_err.unwrap_or_else(|| RawError::Corrupt("no decodable tiles".into())));
     }
     Ok(out)
 }
@@ -656,11 +655,11 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
         }
         7 if linear_rgb => (RawData::U16(read_ycbcr_tiles(bytes, &info, raw, mode)?), 14),
         32767 if one_byte_per_sample && mode == Mode::Header => {
-            chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("raw strip outside file".into()))?;
+            complete_strip(bytes, &chunks[0], w * h)?;
             (RawData::U16(Vec::new()), 14)
         }
         32767 if one_byte_per_sample => {
-            let src = chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("raw strip outside file".into()))?;
+            let src = complete_strip(bytes, &chunks[0], w * h)?;
             let curve = code_curve(&raw.u64s(TONE_CURVE).unwrap_or_else(|| vec![8000, 10400, 12900, 14100]));
             let mut data = vec![0u16; w * h];
             data.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
@@ -673,12 +672,12 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
             (RawData::U16(data), 14)
         }
         32767 if packed12 && mode == Mode::Header => {
-            chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("raw strip outside file".into()))?;
+            complete_strip(bytes, &chunks[0], h * (w / 2 * 3))?;
             (RawData::U16(Vec::new()), 12)
         }
         32767 if packed12 => {
-            let src = chunk_bytes(bytes, &chunks[0]).ok_or_else(|| RawError::Corrupt("raw strip outside file".into()))?;
             let row_bytes = w / 2 * 3;
+            let src = complete_strip(bytes, &chunks[0], h * row_bytes)?;
             let mut data = vec![0u16; w * h];
             data.par_chunks_mut(w).enumerate().for_each(|(y, out)| {
                 if let Some(row) = src.get(y * row_bytes..(y + 1) * row_bytes) {
@@ -695,11 +694,18 @@ pub(crate) fn decode(bytes: &[u8], mode: Mode) -> Result<RawImage> {
                 (RawData::U16(Vec::new()), bits)
             }
         },
-        1 if sr2_r1 => (read_image_in(mode, bytes, &info, lightcraft_tiff::ByteOrder::Big, Packing::Word16)?, 14),
-        1 if arq => (read_image_in(mode, bytes, &info, tiff.order, Packing::Word16)?, 14),
+        1 if sr2_r1 => {
+            require_complete_uncompressed(bytes, &info, 16)?;
+            (read_image_in(mode, bytes, &info, lightcraft_tiff::ByteOrder::Big, Packing::Word16)?, 14)
+        }
+        1 if arq => {
+            require_complete_uncompressed(bytes, &info, 16)?;
+            (read_image_in(mode, bytes, &info, tiff.order, Packing::Word16)?, 14)
+        }
         1 => {
-            let packing = if strip_len >= (w * h * 2) as u64 { Packing::Word16 } else { Packing::Msb };
-            (read_image_in(mode, bytes, &info, tiff.order, packing)?, bits)
+            let word16 = strip_len >= (w * h * 2) as u64;
+            require_complete_uncompressed(bytes, &info, if word16 { 16 } else { bits })?;
+            (read_image_in(mode, bytes, &info, tiff.order, if word16 { Packing::Word16 } else { Packing::Msb })?, bits)
         }
         _ => (read_image_in(mode, bytes, &info, tiff.order, Packing::Msb)?, bits),
     };
@@ -1608,5 +1614,41 @@ mod tests {
         };
         assert!(is_quad_tiled(&file, &info));
         assert_eq!(read_quad_tiles(&file, &info).unwrap(), mosaic);
+        // a file cut inside its last tile (an interrupted card copy) must not develop with a black tile
+        let cut = &file[..(info.offsets[3] + info.byte_counts[3] / 2) as usize];
+        assert!(matches!(read_quad_tiles(cut, &info), Err(RawError::Corrupt(_))));
+        // a tile whose data lies past the end of the file is refused at import (header) time too
+        let mut missing = info.clone();
+        missing.offsets[3] = file.len() as u64 + 64;
+        assert!(matches!(check_image(&file, &missing), Err(RawError::Corrupt(_))));
+        assert!(matches!(read_quad_tiles(&file, &missing), Err(RawError::Corrupt(_))));
+    }
+
+    /// Truncated uncompressed and ARW2 strips are corrupt, not black bands.
+    #[test]
+    fn truncated_strips_are_corrupt() {
+        let (w, h) = (8usize, 4usize);
+        let strip = |len: u64| ImageInfo {
+            width: w as u32,
+            height: h as u32,
+            bits_per_sample: vec![16],
+            samples_per_pixel: 1,
+            compression: 1,
+            photometric: photometric::CFA,
+            planar: 1,
+            predictor: 1,
+            sample_format: 1,
+            new_subfile_type: 0,
+            layout: Layout::Strips { rows_per_strip: h as u32 },
+            offsets: vec![0],
+            byte_counts: vec![len],
+        };
+        let info = strip((w * h * 2) as u64);
+        let full = vec![7u8; w * h * 2];
+        assert!(require_complete_uncompressed(&full, &info, 16).is_ok());
+        assert!(matches!(require_complete_uncompressed(&full[..w * h * 2 - 3], &info, 16), Err(RawError::Corrupt(_))));
+        let chunk = info.chunks(full.len() as u64)[0];
+        assert_eq!(complete_strip(&full, &chunk, w * h).unwrap().len(), w * h);
+        assert!(matches!(complete_strip(&full[..w * h - 1], &chunk, w * h), Err(RawError::Corrupt(_))));
     }
 }

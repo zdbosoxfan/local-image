@@ -77,6 +77,11 @@ pub fn check_image(data: &[u8], info: &ImageInfo) -> Result<usize> {
     if chunks.len() < expected {
         return Err(RawError::Corrupt(format!("{} image data chunks, expected {expected}", chunks.len())));
     }
+    // a chunk past the end of a truncated file would decode as a black tile or band
+    let missing = chunks.iter().filter(|c| covers_image(c, info) && chunk_bytes(data, c).is_none_or(<[u8]>::is_empty)).count();
+    if missing > 0 {
+        return Err(RawError::Corrupt(format!("{missing} of {} image tiles/strips are missing from the file", chunks.len())));
+    }
     // Plausibility bound before allocating: no supported coding stores more than ~2000 samples per byte
     // (Deflate of constant data is the extreme), so tiny files cannot trigger huge allocations.
     let available: u64 = chunks.iter().map(|c| chunk_bytes(data, c).map_or(0, |s| s.len() as u64)).sum();
@@ -84,6 +89,34 @@ pub fn check_image(data: &[u8], info: &ImageInfo) -> Result<usize> {
         return Err(RawError::Corrupt(format!("{available} bytes of image data cannot hold {total} samples")));
     }
     Ok(total)
+}
+
+fn covers_image(c: &Chunk, info: &ImageInfo) -> bool {
+    c.x < info.width && c.y < info.height
+}
+
+/// Every pixel an uncompressed chunk covers must be present in the file (edge padding outside the
+/// image may be omitted). `bits` is the stored width of one sample. Short uncompressed input is
+/// corruption, not zero-filled detail.
+pub(crate) fn require_complete_uncompressed(bytes: &[u8], info: &ImageInfo, bits: u32) -> Result<()> {
+    let cpp = info.samples_per_pixel as usize;
+    let ccpp = if info.planar == 2 { 1 } else { cpp };
+    let row_bytes =
+        |samples: usize| samples.checked_mul(ccpp).and_then(|n| n.checked_mul(bits as usize)).and_then(|n| n.checked_add(7)).map(|n| n / 8);
+    for c in info.chunks(bytes.len() as u64) {
+        if !covers_image(&c, info) {
+            continue;
+        }
+        let rows = c.height.min(info.height - c.y) as usize;
+        let cols = c.width.min(info.width - c.x) as usize;
+        let pitch = row_bytes(c.width as usize).ok_or(RawError::Limit("raw chunk row"))?;
+        let tail = row_bytes(cols).ok_or(RawError::Limit("raw chunk tail"))?;
+        let needed = rows.saturating_sub(1).checked_mul(pitch).and_then(|n| n.checked_add(tail)).ok_or(RawError::Limit("raw chunk size"))?;
+        if chunk_bytes(bytes, &c).is_none_or(|src| src.len() < needed) {
+            return Err(RawError::Corrupt("truncated uncompressed raw samples".into()));
+        }
+    }
+    Ok(())
 }
 
 /// Read the samples of `info` in `mode`: [`Mode::Header`] only checks them ([`check_image`]) and
@@ -215,6 +248,7 @@ pub fn read_image(data: &[u8], info: &ImageInfo, order: ByteOrder, packing: Pack
     let bits = info.bits() as u32;
     let float = info.sample_format == 3;
     let mut chunks = info.chunks(data.len() as u64);
+    chunks.retain(|c| covers_image(c, info));
     for c in &mut chunks {
         c.len = c.len.min((data.len() as u64).saturating_sub(c.offset));
     }
@@ -243,9 +277,6 @@ pub fn read_image(data: &[u8], info: &ImageInfo, order: ByteOrder, packing: Pack
             ok += 1;
             let (cw, ch) = (c.width as usize, c.height as usize);
             let (x0, y0) = (c.x as usize, c.y as usize);
-            if x0 >= w || y0 >= h {
-                continue;
-            }
             let copy_w = cw.min(w - x0);
             let copy_h = ch.min(h - y0);
             for y in 0..copy_h {
@@ -294,10 +325,15 @@ pub fn read_image(data: &[u8], info: &ImageInfo, order: ByteOrder, packing: Pack
             }
         }
     }
-    if ok == 0 {
-        return Err(first_err.unwrap_or_else(|| RawError::Corrupt("no decodable chunks".into())));
+    // A tile that fails to decode must never come back as a silent black block.
+    match first_err {
+        None if ok > 0 => Ok(if float { RawData::F32(out_f32) } else { RawData::U16(out_u16) }),
+        None => Err(RawError::Corrupt("no decodable chunks".into())),
+        // nothing decoded: the codec's own error (an unsupported variant falls back to another decoder)
+        Some(e) if ok == 0 => Err(e),
+        Some(e @ RawError::Limit(_)) => Err(e),
+        Some(e) => Err(RawError::Corrupt(format!("{} of {} image tiles/strips could not be decoded: {e}", chunks.len() - ok, chunks.len()))),
     }
-    Ok(if float { RawData::F32(out_f32) } else { RawData::U16(out_u16) })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -804,11 +840,11 @@ mod batch_tests {
     }
 
     #[test]
-    fn adaptive_batches_keep_partial_decode_errors_and_nested_scopes() {
+    fn adaptive_batches_keep_decode_errors_and_nested_scopes() {
         let mut info = tiled_info(3, 2, 2, false, false);
         info.compression = comp::NONE;
-        let file = vec![42u8; 24];
-        info.offsets = vec![0, 24]; // second tile is missing; the established partial decode remains usable.
+        let file: Vec<u8> = (0..48).collect();
+        info.offsets = vec![0, 24];
         info.byte_counts = vec![24, 24];
         let output = output_bytes(3 * 2 * 3, false).unwrap();
         let chunks = info.chunks(file.len() as u64);
@@ -824,9 +860,35 @@ mod batch_tests {
             assert_eq!(read().unwrap(), parallel);
         });
         assert_eq!(memory_budget(), old);
-        info.offsets = vec![24, 24];
+        info.offsets = vec![48, 48];
         let failure = with_memory_budget(output + working, || read_image(&file, &info, ByteOrder::Little, Packing::Msb));
         assert!(matches!(failure, Err(RawError::Corrupt(_))));
+    }
+
+    /// A damaged or truncated tile must fail the decode: a zero-filled tile renders as a black
+    /// block that nobody notices until delivery.
+    #[test]
+    fn a_tile_that_cannot_be_decoded_fails_the_image() {
+        let mut info = tiled_info(4, 2, 2, false, false);
+        info.compression = comp::JPEG;
+        let left: Vec<u16> = (0..12).map(|v| 1000 + 37 * v).collect();
+        let right: Vec<u16> = (0..12).map(|v| 9000 - 41 * v).collect();
+        let (a, b) = (ljpeg::encode(&left, 2, 2, 3, 16, 1, 0), ljpeg::encode(&right, 2, 2, 3, 16, 1, 0));
+        let file = [a.clone(), b.clone()].concat();
+        info.offsets = vec![0, a.len() as u64];
+        info.byte_counts = vec![a.len() as u64, b.len() as u64];
+        let read = |bytes: &[u8], info: &ImageInfo| read_image(bytes, info, ByteOrder::Little, Packing::Msb);
+        let RawData::U16(full) = read(&file, &info).unwrap() else { panic!("integer samples") };
+        assert_eq!(full[..6], left[..6]);
+        assert_eq!(full[6..12], right[..6]);
+        // cut inside the second tile's entropy-coded data
+        let cut = &file[..a.len() + b.len() / 2];
+        assert!(matches!(read(cut, &info), Err(RawError::Corrupt(_))), "{:?}", read(cut, &info));
+        // the second tile's offset past the end of the file: refused already by the header check
+        let mut missing = info.clone();
+        missing.offsets[1] = file.len() as u64 + 100;
+        assert!(matches!(check_image(&file, &missing), Err(RawError::Corrupt(_))));
+        assert!(matches!(read(&file, &missing), Err(RawError::Corrupt(_))));
     }
 
     #[test]
