@@ -20,7 +20,9 @@ use sha2::{Digest, Sha256};
 pub const UPLOAD_SUBFOLDER: &str = "local-image";
 const DEADLINE: Duration = Duration::from_secs(20 * 60);
 
+mod errors;
 mod order;
+pub use errors::{ExecError, FriendlyError, RunContext, from_history, from_rejection, translate};
 pub use order::{ORDER_KEY, nested_order};
 
 #[cfg(test)]
@@ -359,10 +361,11 @@ impl ComfyClient {
         let status = r.status();
         let v: Value = r.body_mut().read_json().unwrap_or(Value::Null);
         if !status.is_success() {
+            let rejected = rejection_error(&v, graph);
             if matches!(status.as_u16(), 400 | 401 | 403 | 404 | 405 | 422 | 429) {
-                return Err(anyhow!(PromptRejected(format!("ComfyUI rejected the workflow: {}", describe_prompt_error(&v)))));
+                return Err(anyhow!(PromptRejected(rejected)));
             }
-            bail!("ComfyUI rejected the workflow: {}", describe_prompt_error(&v));
+            return Err(anyhow!(rejected));
         }
         v.get("prompt_id").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| anyhow!("ComfyUI did not return a prompt id"))
     }
@@ -569,13 +572,16 @@ impl ComfyClient {
             match self.history(&prompt_id) {
                 Ok(Some(entry)) => {
                     unhealthy_since = None;
-                    if let Some(err) = history_error(&entry) {
+                    if let Some(err) = errors::from_history(&entry) {
                         ours.terminal = true;
                         if ctl.is_cancelled() {
                             ctl.set_stage(Stage::Cancelled);
                             return Err(anyhow!(Cancelled));
                         }
-                        bail!("{err}");
+                        let version = self.system_stats().ok().and_then(|s| s["system"]["comfyui_version"].as_str().map(str::to_owned));
+                        let friendly = translate(&err, &RunContext { graph: Some(&graph), comfyui_version: version, ..Default::default() });
+                        log::warn!("ComfyUI failed in node {} ({}): {}", err.node_id, err.node_type, err.message);
+                        return Err(anyhow!(friendly));
                     }
                     if let Some((file, sub, kind)) = first_output_image(&entry) {
                         ours.terminal = true;
@@ -781,14 +787,20 @@ fn cleanup_loop() {
     }
 }
 
+/// A `/prompt` ComfyUI refused; the run never started.
 #[derive(Debug)]
-struct PromptRejected(String);
+struct PromptRejected(FriendlyError);
 impl std::fmt::Display for PromptRejected {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        self.0.fmt(f)
     }
 }
 impl std::error::Error for PromptRejected {}
+
+/// The explained ComfyUI error inside `err` (a rejected prompt or a failed run), if it is one.
+pub fn friendly_of(err: &anyhow::Error) -> Option<&FriendlyError> {
+    err.downcast_ref::<FriendlyError>().or_else(|| err.downcast_ref::<PromptRejected>().map(|r| &r.0))
+}
 
 #[derive(Debug)]
 struct SubmissionNotSent(String);
@@ -869,7 +881,7 @@ fn find_submission(client: &ComfyClient, client_id: &str) -> Result<SubmissionOb
 }
 
 fn reconcile_prompt(client: &ComfyClient, id: &str) -> Result<bool> {
-    let terminal = |entry: &Value| history_error(entry).is_some() || first_output_image(entry).is_some() || entry["status"]["completed"] == true;
+    let terminal = |entry: &Value| errors::from_history(entry).is_some() || first_output_image(entry).is_some() || entry["status"]["completed"] == true;
     if let Ok(Some(entry)) = client.history(id)
         && terminal(&entry)
     {
@@ -930,27 +942,24 @@ fn describe_prompt_error(v: &Value) -> String {
     if parts.is_empty() { v.to_string() } else { parts.join("; ") }
 }
 
-fn history_error(entry: &Value) -> Option<String> {
-    let status = entry.get("status")?;
-    for m in status.get("messages").and_then(Value::as_array).into_iter().flatten() {
-        let kind = m.get(0).and_then(Value::as_str).unwrap_or("");
-        if kind == "execution_error" || kind == "execution_interrupted" {
-            let data = m.get(1).cloned().unwrap_or(Value::Null);
-            let msg = data.get("exception_message").and_then(Value::as_str).unwrap_or(kind).trim().to_owned();
-            return Some(friendly_error(&msg));
+/// A rejected prompt explained by its first recognised node error, else ComfyUI's own summary.
+fn rejection_error(v: &Value, graph: &Value) -> FriendlyError {
+    let ctx = RunContext { graph: Some(graph), ..Default::default() };
+    errors::from_rejection(v).iter().map(|e| translate(e, &ctx)).find(|f| f.code != "Fallback").unwrap_or_else(|| {
+        let detail = describe_prompt_error(v);
+        FriendlyError {
+            code: "Fallback".into(),
+            message: format!("ComfyUI rejected the workflow: {detail}"),
+            detail,
+            graph: graph.clone(),
+            ..Default::default()
         }
-    }
-    (status.get("status_str").and_then(Value::as_str) == Some("error")).then(|| "ComfyUI reported an error".to_owned())
+    })
 }
 
 /// Plain-language versions of the errors people actually hit.
 pub fn friendly_error(msg: &str) -> String {
-    let lower = msg.to_ascii_lowercase();
-    if lower.contains("out of memory") || lower.contains("allocation on device") {
-        "The GPU ran out of memory. Try a smaller size, the compact model, or close other GPU work.".into()
-    } else {
-        format!("ComfyUI could not finish: {msg}")
-    }
+    translate(&ExecError { message: msg.to_owned(), ..Default::default() }, &RunContext::default()).message
 }
 
 /// `(filename, subfolder, type)` of the first image in a history entry's outputs, preferring

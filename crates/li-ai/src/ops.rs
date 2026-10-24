@@ -38,6 +38,19 @@ impl Engine<'_> {
     }
 }
 
+/// A ComfyUI error of a template-model run, explained with the files its template declares.
+fn explain_with_recipe(e: anyhow::Error, recipe: Option<&crate::template::TemplateRecipe>) -> anyhow::Error {
+    match (recipe, crate::comfy::friendly_of(&e)) {
+        (Some(r), Some(f)) => {
+            let declared =
+                r.bindings().into_iter().filter(|b| matches!(b.role.as_str(), "clip" | "vae")).map(|b| (b.role.clone(), b.declared.clone())).collect();
+            let template = r.sources.first().map(|s| s.name.clone());
+            anyhow::anyhow!(f.with_recipe(declared, template))
+        }
+        _ => e,
+    }
+}
+
 /// A random 48-bit seed (what 0.7 used, so seeds stay interchangeable).
 pub fn new_seed() -> u64 {
     rand::random::<u64>() & ((1 << 48) - 1)
@@ -596,7 +609,7 @@ impl Ai {
         } else {
             None
         };
-        let out = self.generate_once(&req, &info, recipe.as_ref(), ctl)?;
+        let out = self.generate_once(&req, &info, recipe.as_ref(), ctl).map_err(|e| explain_with_recipe(e, req.model.info().recipe.as_deref()))?;
         let image = match (&req.refine, &second_recipe) {
             (Some(step), Some(recipe)) => {
                 ctl.set_message("Refining the draft");
