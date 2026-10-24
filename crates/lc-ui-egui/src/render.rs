@@ -21,7 +21,9 @@ use lightcraft_catalog::PhotoId;
 use lightcraft_engine::Session;
 use lightcraft_engine::media::{QuickJob, QuickSource, RenderJob, RenderResult};
 use lightcraft_engine::pipeline::StageCache;
+use lightcraft_pipeline::OutputSpace;
 use lightcraft_preview::JobPool;
+use photocraft_engine::display_color::{CanvasDisplay, rendered_display, view_space};
 use std::sync::Arc;
 
 /// Bound interactive work independently of zoom, monitor resolution and the settled preview
@@ -35,6 +37,13 @@ pub(crate) fn view_edge(display_edge: f32, max_edge: f32, interacting: bool) -> 
 
 fn interactive_slot(slot: Slot) -> bool {
     matches!(slot, Slot::Main | Slot::Before | Slot::Hover | Slot::Second)
+}
+
+/// Slots showing a photo large enough to judge its colour: rendered in the monitor's gamut
+/// ([`Renderer::set_display`]). Thumbnails, stand-ins and prefetches stay sRGB, as the preview
+/// caches hold them.
+fn view_slot(slot: Slot) -> bool {
+    interactive_slot(slot) || matches!(slot, Slot::Compare(_))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -98,18 +107,21 @@ struct DisplayResult {
     display_key: u64,
 }
 
-fn display_result(result: RenderResult, display: Option<&photocraft_engine::display_color::CanvasDisplay>) -> DisplayResult {
+/// The result's texture pixels: its 8-bit image (encoded in `display`'s source space) converted to
+/// the monitor, unless it is a soft proof already encoded for it. `display_key` is the key of the
+/// monitor setting the conversion belongs to.
+fn display_result(result: RenderResult, display: Option<&CanvasDisplay>, display_key: u64) -> DisplayResult {
     let color = result.rendered.as_ref().ok().map(|r| {
         let img = &r.image;
         let bytes = img.as_bytes();
         let bytes = if let Some(d) = display.filter(|d| !d.is_identity() && result.proof_monitor != Some(d.monitor.content_hash())) {
-            d.srgb8_to_display(img.width, &bytes)
+            d.rgb8_to_display(img.width, &bytes)
         } else {
             bytes
         };
         Arc::new(egui::ColorImage::from_rgba_unmultiplied([img.width, img.height], &bytes))
     });
-    DisplayResult { result, color, display_key: display.map_or(0, |d| d.key) }
+    DisplayResult { result, color, display_key }
 }
 
 struct Queued {
@@ -142,7 +154,10 @@ pub struct Renderer {
     /// (photo, size bucket, job key, whether the request went through an embedded stand-in)
     thumb_inputs: HashMap<PhotoId, (std::sync::Weak<lightcraft_catalog::Photo>, usize, u64, bool)>,
     pool: JobPool<Slot, DisplayResult>,
-    display: Option<Arc<photocraft_engine::display_color::CanvasDisplay>>,
+    display: Option<Arc<CanvasDisplay>>,
+    /// On a monitor wider than sRGB: the space views ([`view_slot`]) render in, and how their
+    /// pixels reach the monitor.
+    view: Option<(OutputSpace, Arc<CanvasDisplay>)>,
     /// Jobs run elsewhere (see [`RenderOffload`]); `queue` holds the ones not started yet.
     offload: Option<Box<dyn RenderOffload>>,
     queue: Vec<Queued>,
@@ -206,6 +221,7 @@ impl Renderer {
             preview_generation: None,
             pool: JobPool::new(threads),
             display: None,
+            view: None,
             thumb_inputs: HashMap::new(),
             offload: None,
             queue: Vec::new(),
@@ -237,14 +253,39 @@ impl Renderer {
 
     /// Change monitor transform and invalidate display textures, retaining processing stage caches.
     /// New uploads run on the existing bounded workers; old in-flight monitor results are discarded.
-    pub fn set_display(&mut self, display: Arc<photocraft_engine::display_color::CanvasDisplay>) {
+    /// Views render in the narrowest built-in space holding the monitor's gamut, so what the
+    /// monitor can show is gamut-mapped exactly as an export to that space instead of being
+    /// clipped to sRGB first.
+    pub fn set_display(&mut self, display: Arc<CanvasDisplay>) {
         if self.display.as_ref().is_some_and(|d| d.key == display.key) {
             return;
         }
         let stages = std::mem::take(&mut self.stages);
         self.forget_all();
         self.stages = stages;
+        self.view = match view_space(&display.monitor) {
+            OutputSpace::Srgb => None,
+            space => match rendered_display(space, display.monitor.clone()) {
+                Ok(view) => Some((space, view)),
+                Err(e) => {
+                    log::warn!("views stay sRGB: {e}");
+                    None
+                }
+            },
+        };
         self.display = Some(display);
+    }
+
+    /// How the pixels of `slot`'s renders reach the monitor.
+    fn display_for(&self, slot: Slot) -> Option<Arc<CanvasDisplay>> {
+        match &self.view {
+            Some((_, view)) if view_slot(slot) => Some(view.clone()),
+            _ => self.display.clone(),
+        }
+    }
+
+    fn display_key(&self) -> u64 {
+        self.display.as_ref().map_or(0, |d| d.key)
     }
 
     /// Would asking for this thumbnail again (at `priority`) change nothing?
@@ -306,7 +347,12 @@ impl Renderer {
     }
 
     /// Request a render for `slot` (no-op if already current or pending at the same priority).
-    pub fn request(&mut self, slot: Slot, mut job: RenderJob, priority: u32) {
+    pub fn request(&mut self, slot: Slot, job: RenderJob, priority: u32) {
+        // (a soft proof already renders straight to the monitor)
+        let mut job = match &self.view {
+            Some((space, _)) if view_slot(slot) && job.request.proof.is_none() => job.with_space(*space),
+            _ => job,
+        };
         if !self.request_needed(slot, job.key, priority) {
             return;
         }
@@ -326,7 +372,7 @@ impl Renderer {
             return;
         }
         let key = job.key;
-        let display = self.display.clone();
+        let (display, display_key) = (self.display_for(slot), self.display_key());
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
         self.pool.submit(
             slot,
@@ -335,7 +381,7 @@ impl Renderer {
             Box::new(move || {
                 display_worker_priority();
                 let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
-                display_result(result, display.as_deref())
+                display_result(result, display.as_deref(), display_key)
             }),
         );
     }
@@ -350,14 +396,14 @@ impl Renderer {
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
-        let display = self.display.clone();
+        let (display, display_key) = (self.display_for(slot), self.display_key());
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                display_result(job.run(), display.as_deref())
+                display_result(job.run(), display.as_deref(), display_key)
             }),
         );
     }
@@ -373,18 +419,14 @@ impl Renderer {
         job.request_id = lightcraft_preview::next_tick();
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
-        let display = self.display.clone();
+        let display_key = self.display_key();
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                DisplayResult {
-                    result: lightcraft_engine::memory::in_background(|| job.run()),
-                    color: None,
-                    display_key: display.as_ref().map_or(0, |d| d.key),
-                }
+                DisplayResult { result: lightcraft_engine::memory::in_background(|| job.run()), color: None, display_key }
             }),
         );
     }
@@ -551,13 +593,15 @@ impl Renderer {
         while let Some(done) = self.pool.try_recv() {
             finished.push((done.slot, done.result, if done.ms > 0.0 { done.ms } else { inline_ms }));
         }
-        if let Some(off) = self.offload.as_mut() {
-            finished.extend(off.finished().into_iter().map(|(slot, result, ms)| (slot, display_result(result, self.display.as_deref()), ms)));
-        }
+        let offloaded = self.offload.as_mut().map(|off| off.finished()).unwrap_or_default();
+        let display_key = self.display_key();
+        finished.extend(
+            offloaded.into_iter().map(|(slot, result, ms)| (slot, display_result(result, self.display_for(slot).as_deref(), display_key), ms)),
+        );
         self.dispatch();
         let mut changed = false;
         for (mut slot, done, ms) in finished {
-            if done.display_key != self.display.as_ref().map_or(0, |d| d.key) {
+            if done.display_key != self.display_key() {
                 continue;
             }
             let DisplayResult { result: r, color, .. } = done;
@@ -846,12 +890,11 @@ mod thumbnail_tests {
     fn fixture() -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
         fixture_with(Session::new(), (*photo()).clone())
     }
-    fn fixture_with(mut s: Session, photo: Photo) -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
-        s.media.file_loader = Some(Arc::new(|_, _| {
-            let mut image = li_raster::RgbFrame::new(8, 8);
-            image.data.fill([0.3, 0.2, 0.1]);
-            Ok((image, Default::default()))
-        }));
+    fn fixture_with(s: Session, photo: Photo) -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
+        fixture_filled(s, photo, [0.3, 0.2, 0.1])
+    }
+    fn fixture_filled(mut s: Session, photo: Photo, fill: [f32; 3]) -> (crate::LightcraftApp, std::rc::Rc<std::cell::RefCell<Work>>, egui::Context) {
+        s.media.file_loader = Some(Arc::new(move |_, _| Ok((li_raster::RgbFrame::filled(8, 8, fill), Default::default()))));
         s.catalog.apply(Op::AddPhoto { photo: Box::new(photo) }).unwrap();
         let mut app = crate::LightcraftApp::new(s, crate::Services::default());
         app.renderer.keep_pixels = true;
@@ -935,9 +978,9 @@ mod thumbnail_tests {
         let result = job.run();
         assert_eq!(result.proof_monitor, Some(display.monitor.content_hash()));
         let bytes = result.rendered.as_ref().unwrap().image.as_bytes();
-        let twice = display.srgb8_to_display(result.rendered.as_ref().unwrap().image.width, &bytes);
+        let twice = display.rgb8_to_display(result.rendered.as_ref().unwrap().image.width, &bytes);
         assert_ne!(bytes, twice, "sample detects a second monitor transform");
-        let converted = display_result(result, Some(&display));
+        let converted = display_result(result, Some(&display), display.key);
         assert_eq!(converted.color.unwrap().pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(), bytes);
     }
 
@@ -952,7 +995,7 @@ mod thumbnail_tests {
         let (slot, job) = take_job(&work);
         let result = job.run();
         let img = &result.rendered.as_ref().unwrap().image;
-        let expected = display.srgb8_to_display(img.width, &img.as_bytes());
+        let expected = display.rgb8_to_display(img.width, &img.as_bytes());
         finish(&mut app, &work, &ctx, slot, result);
         let pixels = app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap();
         assert_eq!(pixels.pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(), expected);
@@ -968,6 +1011,52 @@ mod thumbnail_tests {
             app.renderer.thumb(PhotoId(1)).unwrap().pixels.as_ref().unwrap().pixels.iter().flat_map(|p| p.to_array()).collect::<Vec<_>>(),
             original
         );
+    }
+
+    #[test]
+    fn wide_gamut_monitor_views_show_exactly_the_export_in_its_space() {
+        use lightcraft_pipeline::{OutputDepth, OutputSpace};
+        // scene-linear Rec.2020 green inside Display P3 and outside sRGB
+        let (mut app, work, ctx) = fixture_filled(Session::new(), (*photo()).clone(), [0.10, 0.45, 0.05]);
+        let mut color = photocraft_engine::color_cmds::ColorState::default();
+        color.settings.monitor_profile = "display-p3".into();
+        let display = color.srgb_preview_display().unwrap();
+        app.renderer.set_display(display.clone());
+        let job = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap();
+        let srgb_key = job.key;
+        app.renderer.request(Slot::Main, job, 100);
+        let (slot, job) = take_job(&work);
+        assert_eq!(job.request.space, OutputSpace::DisplayP3);
+        assert_ne!(job.key, srgb_key, "a P3 view never passes for the sRGB render");
+        assert!(job.view_cache.is_none(), "P3 pixels never enter the sRGB view cache");
+        finish(&mut app, &work, &ctx, slot, job.run());
+        let shown: Vec<u8> = app.renderer.textures[&Slot::Main].pixels.as_ref().unwrap().pixels.iter().flat_map(|p| p.to_array()).collect();
+        let export = app.session.render_export(PhotoId(1), 8, 8, OutputSpace::DisplayP3, OutputDepth::U8).unwrap().image.as_bytes();
+        assert_eq!(shown.len(), export.len());
+        let worst = shown.iter().zip(&export).map(|(a, b)| a.abs_diff(*b)).max().unwrap();
+        assert!(worst <= 1, "the loupe shows the P3 export (worst difference {worst} codes)");
+        // what the loupe used to show: the sRGB render, clipped, then converted to the monitor
+        let srgb = app.session.render_job(PhotoId(1), 8, 8, false, true).unwrap().run().rendered.unwrap().image;
+        let clipped = display.rgb8_to_display(srgb.width, &srgb.as_bytes());
+        let red = |b: &[u8]| b.as_chunks::<4>().0.iter().map(|p| f32::from(p[0])).sum::<f32>() / (b.len() / 4) as f32;
+        assert!(red(&clipped) - red(&export) > 10.0, "sRGB clipping added red: {} vs {}", red(&clipped), red(&export));
+        // the other views follow; thumbnails, stand-ins and soft proofs do not
+        let compare = app.session.render_job(PhotoId(1), 8, 8, false, true).unwrap();
+        app.renderer.request(Slot::Compare(0), compare, 60);
+        assert_eq!(take_job(&work).1.request.space, OutputSpace::DisplayP3);
+        app.renderer.request(Slot::Thumb(PhotoId(1)), app.session.thumb_job(PhotoId(1), 256).unwrap(), 10);
+        assert_eq!(take_job(&work).1.request.space, OutputSpace::Srgb);
+        let proof = lightcraft_pipeline::Proof { monitor: app.renderer.proof_monitor(), ..Default::default() };
+        let proofed = app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap().with_proof(Some(proof));
+        app.renderer.request(Slot::Main, proofed, 100);
+        assert_eq!(take_job(&work).1.request.space, OutputSpace::Srgb);
+        // an sRGB monitor keeps today's sRGB views and their cache
+        color.settings.monitor_profile = "srgb".into();
+        app.renderer.set_display(color.srgb_preview_display().unwrap());
+        app.renderer.request(Slot::Main, app.session.loupe_job(PhotoId(1), 8, 8, true).unwrap(), 100);
+        let (_, job) = take_job(&work);
+        assert_eq!((job.request.space, job.key), (OutputSpace::Srgb, srgb_key));
+        assert!(job.view_cache.is_some());
     }
 
     #[test]

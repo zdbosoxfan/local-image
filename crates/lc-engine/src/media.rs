@@ -579,6 +579,21 @@ impl RenderJob {
         self
     }
 
+    /// Render into `space` instead of sRGB (a view on a wide-gamut monitor). Gets its own result
+    /// key; the preview caches hold sRGB pixels, so a result in another space is never kept there.
+    pub fn with_space(mut self, space: lightcraft_pipeline::OutputSpace) -> Self {
+        if self.request.space != space {
+            let k = |s: lightcraft_pipeline::OutputSpace| (s as u64 + 1).wrapping_mul(0xa076_1d64_78bd_642f);
+            self.key ^= k(self.request.space) ^ k(space);
+            self.request.space = space;
+        }
+        if space != lightcraft_pipeline::OutputSpace::Srgb {
+            self.view_cache = None;
+            self.cache = None;
+        }
+        self
+    }
+
     /// Reuse `stages` across this view's renders.
     pub fn with_stages(mut self, stages: Arc<StageCache>) -> Self {
         self.stages = Some(stages);
