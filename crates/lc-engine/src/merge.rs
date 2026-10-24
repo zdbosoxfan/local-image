@@ -608,19 +608,17 @@ impl MergeJob {
 }
 
 /// Correct a panorama input for the lens model its raw file carries (Sony and other vendor
-/// distortion, lateral CA and vignetting curves) as Develop would, without rescaling. Frames then
-/// stitch on a pinhole model, and per-frame gains can match skies and ceilings that radial falloff
-/// otherwise leaves undulating. DNG lens opcodes were already applied when the raw developed.
+/// distortion, lateral CA and vignetting curves) as Develop would, without its crop rescaling.
+/// Frames then stitch on a pinhole model, and per-frame gains can match skies and ceilings that
+/// radial falloff otherwise leaves undulating. DNG lens opcodes were already applied when the raw
+/// developed. Vendor radial profiles are autoscaled when read (`finish_radial`, after darktable),
+/// so the correction reads only from inside the photo: every corrected pixel is image content.
 fn correct_panorama_lens(frame: &mut Frame, info: &lightcraft_raw::RawInfo) {
     use rayon::prelude::*;
-    let Some(lens) = crate::files::embedded_lens(info).filter(|lens| lens.warp.is_none() && lens.vignette.is_none()) else {
+    let w = frame.width();
+    let Some(warp) = panorama_lens_warp(info, w, frame.height()) else {
         return;
     };
-    let w = frame.width();
-    let mut warp = lightcraft_pipeline::optics::Warp::identity(w as f64, frame.height() as f64);
-    warp.lens = Some(lens);
-    warp.lens_dist = 1.0;
-    warp.lens_vig = 1.0;
     frame.clip = lightcraft_merge::frame::correct_with_clip(&mut frame.image, frame.clip, |image| {
         let source = image.clone();
         image.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
@@ -635,6 +633,16 @@ fn correct_panorama_lens(frame: &mut Frame, info: &lightcraft_raw::RawInfo) {
     });
     frame.metadata.lens_corrections_baked = true;
     frame.metadata.chromatic_aberration_baked = true;
+}
+
+/// The lens correction of [`correct_panorama_lens`] for a `w × h` frame of `info`'s raw.
+fn panorama_lens_warp(info: &lightcraft_raw::RawInfo, w: usize, h: usize) -> Option<lightcraft_pipeline::optics::Warp> {
+    let lens = crate::files::embedded_lens(info).filter(|lens| lens.warp.is_none() && lens.vignette.is_none())?;
+    let mut warp = lightcraft_pipeline::optics::Warp::identity(w as f64, h as f64);
+    warp.lens = Some(lens);
+    warp.lens_dist = 1.0;
+    warp.lens_vig = 1.0;
+    Some(warp)
 }
 
 /// Raw bracket storage, decoder scratch, fused CFA, single demosaic, mask, two CFA-tile
@@ -1179,6 +1187,59 @@ mod tests {
         }
         assert!(frame.image.get(68, 46).iter().all(|v| *v == frame.clip), "the window stays clipped: {:?}", frame.image.get(68, 46));
         assert!(frame.metadata.lens_corrections_baked);
+    }
+
+    #[test]
+    fn panorama_lens_corrections_read_only_from_inside_the_photo() {
+        // Pincushion (a tele zoom), barrel (a wide angle) and a moustache, with lateral CA: the
+        // corrected frame is stitched edge to edge, so no pixel may come from beyond the frame.
+        let (w, h) = (96, 64);
+        for distortion in [vec![0, 150, 600], vec![0, -150, -600], vec![0, -300, 200]] {
+            let metadata = lightcraft_meta::Metadata {
+                make: Some("SONY".into()),
+                model: Some("ILCE-1".into()),
+                sony: Some(lightcraft_meta::SonyMetadata {
+                    lens_correction: Some(lightcraft_meta::SonyLensCorrection {
+                        distortion: distortion.clone(),
+                        ca_red: vec![0, 2000, 6000],
+                        ca_blue: vec![0, -2000, -6000],
+                        vignetting: vec![0; 3],
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let color = lightcraft_merge::FrameColor::Camera(Box::new(lightcraft_raw::ColorData {
+                illuminant: [21, 0],
+                color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+                ..Default::default()
+            }));
+            let image = RgbFrame::filled(w, h, [0.4; 3]);
+            let bytes = lightcraft_merge::write_linear_dng(
+                &image,
+                &color,
+                lightcraft_geom::Orientation::Normal,
+                &metadata,
+                0.0,
+                lightcraft_merge::DngSamples::Float,
+                Some(1.0),
+            )
+            .unwrap();
+            let warp = panorama_lens_warp(&lightcraft_raw::probe_info(&bytes).unwrap(), w, h).unwrap();
+            let mut moved = 0.0f64;
+            for y in 0..h {
+                for x in 0..w {
+                    let at = lightcraft_geom::Point::new(x as f64 + 0.5, y as f64 + 0.5);
+                    for c in 0..3 {
+                        let from = warp.to_source(at, c);
+                        moved = moved.max(from.dist(at));
+                        let inside = (-0.01..=w as f64 + 0.01).contains(&from.x) && (-0.01..=h as f64 + 0.01).contains(&from.y);
+                        assert!(inside, "{distortion:?}: ({x},{y}) channel {c} reads {from:?}");
+                    }
+                }
+            }
+            assert!(moved > 0.5, "{distortion:?}: the fixture must correct something ({moved} px)");
+        }
     }
 
     #[test]
