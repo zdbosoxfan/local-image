@@ -304,6 +304,8 @@ impl LightcraftApp {
         let gpu_test = gpu_test_support::lock();
         // AI mask requests run on the model's worker; frames apply their results (never wait)
         session.segmenter.background = true;
+        // so does Auto white balance that a paste or sync brings to undecoded photos (`tasks`)
+        session.defer_auto_wb = true;
         Self {
             session,
             ui: UiState::default(),

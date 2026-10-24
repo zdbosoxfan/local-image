@@ -125,8 +125,9 @@ pub enum Look {
     Adobe,
     /// darktable's sigmoid: a neutral scene-referred log-logistic curve, hue preserving.
     Sigmoid,
-    /// The camera's own rendition: a curve fitted to the file's embedded JPEG (or the maker's
-    /// base curve when the file has no usable preview).
+    /// The camera's own rendition: the tone curve of a camera profile (DCP) the user picked, else
+    /// a curve fitted to the file's embedded JPEG (or the maker's base curve when the file has no
+    /// usable preview).
     Camera,
 }
 

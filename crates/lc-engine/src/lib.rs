@@ -10,6 +10,7 @@
 //! run them off the UI thread.
 #![forbid(unsafe_code)]
 
+pub mod auto_wb;
 pub mod availability;
 mod camera_preview;
 pub mod camera_profiles;
@@ -57,30 +58,6 @@ pub use media::{RenderJob, SourceLevel};
 use serde_json::Value;
 pub use view::{Browse, FilterChip, LibrarySource, Selection, filter_chips, update_soft_proof};
 pub use {lightcraft_catalog as catalog, lightcraft_develop as develop, lightcraft_gpu as gpu, lightcraft_pipeline as pipeline};
-
-/// The existing neutral-patch WB calculation, shared by commands and the UI picker worker.
-pub fn sample_white_balance(
-    src: &li_raster::RgbFrame,
-    info: &lightcraft_pipeline::SourceInfo,
-    orientation: lightcraft_geom::Orientation,
-    x: f64,
-    y: f64,
-) -> (f64, f64) {
-    // Sample a small neighbourhood in the oriented source.
-    let o = src.oriented(orientation);
-    let (cx, cy) = ((x.clamp(0.0, 1.0) * o.width as f64) as isize, (y.clamp(0.0, 1.0) * o.height as f64) as isize);
-    let mut acc = [0.0f32; 3];
-    for dy in -2..=2 {
-        for dx in -2..=2 {
-            let c = o.get_clamped(cx + dx, cy + dy);
-            for i in 0..3 {
-                acc[i] += c[i] / 25.0;
-            }
-        }
-    }
-    let patch = li_raster::RgbFrame::filled(4, 4, acc);
-    lightcraft_pipeline::auto::auto_wb(&patch, info)
-}
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -147,6 +124,12 @@ pub struct Session {
     /// Auto Sync: edits to the active photo also change the other selected photos (the settings
     /// that changed, nothing else).
     pub auto_sync: bool,
+    /// Auto white balance that a paste, sync, Auto Sync or preset brings to a photo whose source
+    /// isn't decoded is queued for a background task (the app's, see [`auto_wb`]) instead of being
+    /// measured inside the command. Off: measured at once.
+    pub defer_auto_wb: bool,
+    /// Photos waiting for that measurement, with the library generation they belong to.
+    pending_auto_wb: Vec<(u64, PhotoId)>,
     pub catalog: Catalog,
     pub source: LibrarySource,
     pub filter: Filter,
@@ -281,6 +264,8 @@ impl Session {
         let gpu_test = tests_gpu::gpu_state();
         Session {
             auto_sync: false,
+            defer_auto_wb: false,
+            pending_auto_wb: Vec::new(),
             #[cfg(test)]
             _gpu_test: gpu_test,
             catalog: Catalog::new(),

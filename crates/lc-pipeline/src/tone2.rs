@@ -329,14 +329,20 @@ impl ToneMap {
     }
 }
 
-/// The base curve of look `look` on a source with `info` (global): the Camera look uses the
-/// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's.
-/// The Soft Film look always uses our independently fitted curve.
-pub fn base_curve(look: lightcraft_develop::Look, info: &crate::SourceInfo) -> BaseCurve {
+/// The base curve of `s`'s look on a source with `info` (global). The Camera look uses the tone
+/// curve (`ProfileToneCurve`) of a camera profile the user picked from their profiles, else the
+/// camera's curve (fitted to its JPEG, else the maker's), else the DNG profile's. Automatic,
+/// Matrix Only and the bundled profile (the one Automatic applies without a profile of the user's)
+/// render alike. Soft Film and Sigmoid always use their own curves.
+pub fn base_curve(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInfo) -> BaseCurve {
     use lightcraft_develop::Look;
-    match look {
+    match s.look {
         Look::Sigmoid => BaseCurve::Sigmoid(Sigmoid::default_curve()),
-        Look::Camera => info.look_curve.or(info.camera_tone).or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera),
+        Look::Camera => {
+            let chosen = !matches!(s.camera_profile.as_str(), "" | "matrix" | "bundled");
+            let picked = info.profile_curve.filter(|_| chosen);
+            picked.or(info.look_curve).or(info.camera_tone).or(info.profile_curve).map_or(BaseCurve::Adobe, BaseCurve::Camera)
+        }
         Look::Adobe => BaseCurve::Adobe,
     }
 }
@@ -348,7 +354,7 @@ pub fn tone_map(s: &lightcraft_develop::DevelopSettings, info: &crate::SourceInf
     if crate::negative::converts(s) || !info.raw {
         return ToneMap::rendered(hue, contrast, whites, blacks);
     }
-    ToneMap::scene(&base_curve(s.look, info), s.look_options.base, hue, contrast, whites, blacks)
+    ToneMap::scene(&base_curve(s, info), s.look_options.base, hue, contrast, whites, blacks)
 }
 
 /// global tone of scene-linear `c` (see the module docs); display linear out, in 0..1.
@@ -365,8 +371,9 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     if tone.is_working_identity() {
         return c;
     }
-    // negative channels (out-of-gamut scene colours) desaturated to zero (darktable sigmoid)
-    let c = desaturate_negative(c);
+    // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
+    // desaturated to zero (darktable sigmoid)
+    let c = desaturate_negative(scene_gamut_knee(c));
     if v.luminance {
         let y = li_color::luminance_2020(c);
         if y <= 0.0 {
@@ -392,6 +399,19 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
         d = d.map(|x| o + (x - o) * k);
     }
     d
+}
+
+/// Where the scene knee starts: Rec. 2020 channel distances up to this stay as they are (every sRGB
+/// colour is inside it; sRGB blue reaches 0.988).
+pub const SCENE_GAMUT_KNEE: f32 = 0.99;
+/// The scene channel distance that lands on the Rec. 2020 edge: saturated light past the working
+/// gamut (LEDs, neon) keeps a gradation up to here instead of collapsing onto one surface.
+pub const SCENE_GAMUT_LIMIT: f32 = 1.5;
+
+/// Scene colours rolled off towards the Rec. 2020 gamut edge ([`crate::finish::soft_gamut`]).
+#[inline]
+pub fn scene_gamut_knee(c: [f32; 3]) -> [f32; 3] {
+    crate::finish::soft_gamut(c, SCENE_GAMUT_KNEE, [SCENE_GAMUT_LIMIT; 3])
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.
@@ -479,6 +499,62 @@ pub fn compress(d: [f32; 3], m: f32, white: f32, black: f32) -> [f32; 3] {
 mod tests {
     use super::*;
     use lightcraft_develop::ToneBase;
+
+    #[test]
+    fn camera_look_uses_a_picked_profiles_tone_curve() {
+        // a DNG ProfileToneCurve through (0.18, 0.30), as the decoder hands it over
+        let g = 0.3f32.ln() / 0.18f32.ln();
+        let profile = CameraTone::new(std::array::from_fn(|i| {
+            let x = 2f32.powf(-12.0 + 12.0 * i as f32 / 31.0);
+            [x, x.powf(g).min(0.9995)]
+        }))
+        .expect("a monotone curve");
+        let maker = crate::basecurves::camera("SONY", "ILCE-7M4").expect("a maker curve");
+        let info = crate::SourceInfo { raw: true, look_curve: Some(maker), profile_curve: Some(profile), ..Default::default() };
+        let mid = |camera_profile: &str| {
+            let s = lightcraft_develop::DevelopSettings {
+                look: lightcraft_develop::Look::Camera,
+                camera_profile: camera_profile.into(),
+                ..Default::default()
+            };
+            tone_map(&s, &info, 0.0, 0.0, 0.0).apply(0.18)
+        };
+        assert!((mid("dcp:sony-ilce-7m4-standard") - 0.30).abs() < 0.01, "{}", mid("dcp:sony-ilce-7m4-standard"));
+        // automatic, matrix-only and the bundled profile keep the camera's own curve
+        let own = maker.apply(0.18);
+        for automatic in ["", "matrix", "bundled"] {
+            assert!((mid(automatic) - own).abs() < 0.01 && (own - 0.30).abs() > 0.02, "{automatic:?}: {} vs {own}", mid(automatic));
+        }
+        // Soft Film keeps its own curve with a picked profile
+        let soft = lightcraft_develop::DevelopSettings { camera_profile: "dcp:sony-ilce-7m4-standard".into(), ..Default::default() };
+        assert_eq!(tone_map(&soft, &info, 0.0, 0.0, 0.0).apply(0.18), ToneMap::new(0.0, 0.0, 0.0).apply(0.18));
+    }
+
+    #[test]
+    fn colours_past_rec2020_keep_their_gradation() {
+        // one hue, the same mean, chroma growing past the Rec. 2020 edge (blue < 0 from k = 0.3)
+        let tone = ToneMap::scene(&BaseCurve::Adobe, ToneBase::Standard, 0.75, 0.0, 0.0, 0.0);
+        let v = tone.method();
+        let chroma = |k: f32| {
+            let d = tone_px_working(&tone, &v, [0.3 + k, 0.3, 0.3 - k]);
+            let (mx, mn) = (d[0].max(d[1]).max(d[2]), d[0].min(d[1]).min(d[2]));
+            (mx - mn) / mx
+        };
+        let mut previous = chroma(0.28);
+        for k in [0.31, 0.34, 0.37, 0.40, 0.44] {
+            let c = chroma(k);
+            assert!(c > previous, "k {k}: {c} after {previous}");
+            previous = c;
+        }
+        // in-gamut colours (the sRGB primaries in Rec. 2020) are untouched by the knee
+        let from_srgb = li_color::SRGB.to_space(&li_color::REC2020).to_f32();
+        for i in 0..3 {
+            let mut p = [0f32; 3];
+            p[i] = 0.5;
+            let c = std::array::from_fn(|r| (0..3).map(|j| from_srgb[r][j] * p[j]).sum());
+            assert_eq!(scene_gamut_knee(c), c);
+        }
+    }
 
     fn camera_curve() -> CameraTone {
         let knots: [[f32; 2]; 32] = std::array::from_fn(|i| {

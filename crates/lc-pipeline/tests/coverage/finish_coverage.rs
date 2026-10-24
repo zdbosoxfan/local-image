@@ -2,7 +2,8 @@ use lightcraft_develop::{DevelopSettings, LocalAdjustments};
 use lightcraft_pipeline::{
     OutputSpace, SourceInfo,
     finish::{
-        FinishParams, MASK_SUMS, MASK_TERMS, SRGB_LUT_N, defringe_weight, dither8, gamut_map, mask_terms, refine_saturation, soft_gamut, srgb_lut,
+        FinishParams, GAMUT_KNEE, MASK_SUMS, MASK_TERMS, SRGB_LUT_N, defringe_weight, dither8, gamut_limits, gamut_map, mask_terms,
+        refine_saturation, soft_gamut, srgb_lut,
     },
     geometry::Frame,
 };
@@ -36,7 +37,7 @@ fn zero_local_adjustments() -> LocalAdjustments {
 fn soft_gamut_outputs_are_finite_and_do_not_increase_max_channel() {
     let samples = [[1.0, 0.2, 0.8], [1.0, 1.0, 0.0], [1.5, -0.5, 2.0], [0.1, -0.2, 0.3], [10.0, -10.0, 5.0]];
     for c in samples {
-        let out = soft_gamut(c);
+        let out = soft_gamut(c, GAMUT_KNEE, gamut_limits(&OutputSpace::Srgb.from_working()));
         assert!(out.iter().all(|v| v.is_finite()), "non-finite for {c:?}: {out:?}");
         let orig_max = c.iter().fold(f32::NEG_INFINITY, |a, b| a.max(*b));
         let out_max = out.iter().fold(f32::NEG_INFINITY, |a, b| a.max(*b));

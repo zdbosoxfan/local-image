@@ -571,7 +571,12 @@ pub fn plan<'a>(src: &RgbFrame, info: &SourceInfo, s: &'a DevelopSettings, req: 
             info.source_hue_sat.as_ref().map(|p| Arc::as_ptr(p) as usize),
             info.camera_noise.map(|n| (n.a.map(f32::to_bits), n.b.map(f32::to_bits), n.camera_to_working.map(|r| r.map(f32::to_bits)))),
         ),
-        (info.baseline_gain.to_bits(), info.sensor_scale.to_bits()),
+        (
+            info.baseline_gain.to_bits(),
+            info.sensor_scale.to_bits(),
+            // a profile's look table sees the exposed values
+            info.camera_profile.as_ref().filter(|p| p.look_table.is_some()).map(|_| s.light.exposure.to_bits()),
+        ),
     ));
     Plan { settings, frame, w, h, px_per_long, src_long, geo, lin_key, eyes }
 }
@@ -603,11 +608,7 @@ pub fn layers_need_cpu(_s: &DevelopSettings) -> bool {
 /// the positive image.
 pub fn lin_cpu(img: &mut RgbFrame, info: &SourceInfo, p: &Plan<'_>) {
     let s = &*p.settings;
-    if let Some(table) = info.source_hue_sat.as_ref()
-        && let Some(look) = source_color::HueSat::new(table)
-    {
-        img.map_in_place(|rgb| look.apply(rgb));
-    }
+    local::source_look(img, info);
     // AI removals first: their patches are in the source's own light (before white balance)
     patches::apply_spots(img, &s.spots, &p.frame);
     local::white_balance(img, info, s);
@@ -859,7 +860,8 @@ fn render_impl(
 }
 
 fn finish_stack(prep: &Prepared, plan: &Plan<'_>, info: &SourceInfo, req: &RenderRequest, diagnostic: Option<&GrayFrame>) -> Rendered {
-    let neutral = DevelopSettings::default();
+    // the photo's LUT profile: the Output pass doesn't apply it again, but leaves out the output knee
+    let neutral = DevelopSettings { profile: plan.settings.profile.clone(), ..DevelopSettings::default() };
     let deep = (req.depth != OutputDepth::U8)
         .then(|| finish::finish_deep_mode(prep, &neutral, &plan.frame, info, req.space, req.depth, req.proof.clone(), finish::FinishMode::Output));
     let mut image = deep.as_ref().map_or_else(

@@ -125,6 +125,46 @@ All notable changes to Local Image are recorded here. The format follows
   focal length, so Upright treats a stitched panorama as the wide view it is.
 - Lens corrections: Remove CA and the manual CA sliders correct the sensor's colour planes on raw
   files, and noise reduction treats vignetting-corrected corners by their raw noise.
+- Develop white balance: Tint follows Lightroom's and the DNG SDK's sign (positive pushes the photo
+  towards magenta). The Daylight, Cloudy, Shade and Fluorescent presets and tints read from Lightroom
+  XMP sidecars and presets render as in Lightroom instead of with a green cast, the Tint slider moves
+  the photo the way its green-to-magenta track shows, and as-shot tints read like Lightroom's
+  (daylight frames about +10). Custom tints saved by earlier builds now render with the opposite tint,
+  and the As Shot tint shown for raws imported before this change keeps the old sign until the photo
+  is imported again.
+- Develop white balance selector and Auto WB on raws: the clicked grey (or Auto's average) is solved
+  through the same camera model and camera look the render applies, so it renders neutral instead of
+  keeping a 2-8% cast in mixed light. The selector samples the spot that was clicked after lens
+  corrections, Upright and perspective, and reads a sharper preview. A layer's pick neutralises the
+  spot as that layer sees it (the photo finished with its tone, colour and the layers below), instead
+  of leaving warm light 3-13% off neutral. Picked values keep two decimals, so strongly coloured
+  light is not left off neutral by rounding. Clicking on black shows a message instead of resetting
+  to As Shot.
+- Develop colour on raws: colours inside the export's gamut keep their saturation. The output knee
+  used to start at 80% of the gamut distance, so saturated yellows, oranges and reds came out washed
+  out (ColorChecker yellow dE00 2.9 in sRGB) and differently in sRGB, Display P3, Adobe RGB and
+  ProPhoto exports; it now starts at 98% and only makes room for the working gamut that does not fit
+  the output space. Scene colours past Rec. 2020 (LED coves, neon) roll off towards its edge instead
+  of being clipped onto it.
+- LUT profiles (`.cube`, `.3dl`, `.look`) get sRGB / Rec. 709 display values in every export colour
+  space, so a look that is right in the preview exports the same to Display P3, Adobe RGB and
+  ProPhoto, a soft proof shows it, and adding an adjustment layer no longer changes it. On raws the
+  LUT's colours are no longer compressed a second time by the output gamut knee. Grain now follows
+  the LUT in every path. A LUT profile limits wide-gamut exports to sRGB colours, as the LUT itself
+  does; at Amount 0 it is off and changes nothing.
+- Camera profiles: the tone curve of a DCP picked under Custom Camera Profiles (Adobe's Camera
+  Matching profiles, a DCamProf `-t acr` variant) is used by the Camera look instead of being
+  dropped in favour of the JPEG-fitted or maker curve. Soft Film and Sigmoid keep their own curves.
+- Develop white balance modes: Lightroom XMP sidecars and presets with Auto or a named white balance
+  keep Lightroom's Temperature and Tint, so Auto no longer renders As Shot. Pasting, syncing, Auto
+  Sync and presets measure Auto on each photo and give a named mode each photo's own values instead
+  of copying the first photo's numbers. Photos that are not decoded yet are measured by a background
+  task (shown in the task panel, cancellable, one undo step) instead of freezing the app. Choosing a white balance mode that matches one of the
+  camera's own presets renders the camera's values the sliders show, instead of jumping on the first
+  nudge.
+- Camera profiles with a look table (Adobe Standard and Camera Matching DCPs, embedded DNG profiles)
+  apply it after the Exposure slider, as the DNG specification and Lightroom do, so exposure changes
+  keep the profile's colour response.
 
 ## [2.0.0-alpha.1] - 2026-10-20
 
