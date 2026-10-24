@@ -56,7 +56,13 @@ pub fn preview_key(key: &str) -> String {
 /// What a result depends on besides the photo's content and the model: the raw decoding of the
 /// source it was made from (camera profile, highlight recovery, demosaic; 0 for the defaults).
 pub fn source_options(d: &lightcraft_develop::DevelopSettings) -> u64 {
-    crate::files::RawOptions { capture_radius: false, ..crate::files::RawOptions::of(d) }.key()
+    decoding_key(crate::files::RawOptions::of(d))
+}
+/// [`source_options`] of `o`. The profile registry's generation (every DCP installed on this
+/// computer) is left out: installing or updating a profile for another camera must not discard
+/// every result in the library. The selected profile itself is part of the key.
+fn decoding_key(o: crate::files::RawOptions) -> u64 {
+    crate::files::RawOptions { capture_radius: false, profile_generation: 0, ..o }.key()
 }
 /// Whether `a` was made under `d`'s raw decoding (a result made under other settings isn't
 /// applied: AI Denoise has to run again).
@@ -843,6 +849,20 @@ mod tests {
         capture.raw.capture.enabled = !capture.raw.capture.enabled;
         assert_eq!(mixed(&capture), 0.5, "capture sharpening doesn't change the decoded source");
         store::delete(Kind::Denoise, &key);
+    }
+
+    #[test]
+    fn ai_denoise_results_survive_installing_camera_profiles() {
+        let d = lightcraft_develop::DevelopSettings::default();
+        let installed = |generation: u64| crate::files::RawOptions { profile_generation: generation, ..crate::files::RawOptions::of(&d) };
+        // a result stored before decoding keys existed (0), and one made before a DCP for another
+        // camera was installed, both match the default decoding with profiles on this computer
+        assert_eq!(decoding_key(installed(0x5eed_0001)), 0);
+        assert_eq!(decoding_key(installed(0x5eed_0001)), decoding_key(installed(0x5eed_0002)));
+        // choosing a profile still asks for AI Denoise again
+        let chosen = lightcraft_develop::DevelopSettings { camera_profile: "dcp:0123456789abcdef".into(), ..Default::default() };
+        let chosen = crate::files::RawOptions { profile_generation: 0x5eed_0001, ..crate::files::RawOptions::of(&chosen) };
+        assert_ne!(decoding_key(chosen), 0);
     }
 
     /// A stand-in denoiser: every pixel becomes the image mean (noise gone, brightness kept).
