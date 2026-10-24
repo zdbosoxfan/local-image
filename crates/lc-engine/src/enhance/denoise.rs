@@ -314,7 +314,7 @@ impl Session {
                     if data.len() != img.data.len() {
                         return Err("the denoiser returned invalid pixels".into());
                     }
-                    from_display_change(&img.data, &input, &mut data);
+                    from_display_change(&img, &mut data);
                 }
                 let out = RgbFrame { width: img.width, height: img.height, data };
                 match inner {
@@ -489,28 +489,57 @@ fn to_display(img: &RgbFrame) -> Vec<[f32; 3]> {
     let m = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
     img.data.iter().map(|p| m.apply_f32(*p).map(|v| li_color::transfer::linear_to_srgb(v).clamp(0., 1.))).collect()
 }
-/// A display RGB model's output `out` (for the clamped `input` of `original`) back in the source's
-/// scene-linear Rec.2020. Pixels the display view clipped keep what it cut off: highlights above
-/// white and colours outside sRGB come back whole, with the model's change faded out towards
-/// white (a clipped plateau gives it nothing to work on). Slightly negative shadow noise is
-/// denoised as the model returns it.
-fn from_display_change(original: &[[f32; 3]], input: &[[f32; 3]], out: &mut [[f32; 3]]) {
+/// Radius of the neighbourhood whose mean decides what a clipped pixel is (noise barely moves it).
+const CLIP_AREA: usize = 2;
+/// A display RGB model's output `out` for [`to_display`] of `original`, back in the source's
+/// scene-linear Rec.2020. Pixels the display view didn't clip take the model's result. Where it
+/// clipped, the pixel's neighbourhood tells signal from noise: in an area above white the source
+/// comes back whole (a clipped plateau gives the model nothing to work on); in an area of colours
+/// outside sRGB what the view cut off is added back to the model's result; a noise excursion past
+/// white or below black is denoised away like the rest.
+fn from_display_change(original: &RgbFrame, out: &mut [[f32; 3]]) {
+    use rayon::prelude::*;
     let to_linear = li_color::REC2020.from_xyz().mul(&li_color::SRGB.to_xyz());
     let to_srgb = li_color::SRGB.from_xyz().mul(&li_color::REC2020.to_xyz());
-    let lin = |p: [f32; 3]| to_linear.apply_f32(p.map(li_color::transfer::srgb_to_linear));
     let smoothstep = |a: f32, b: f32, x: f32| {
         let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
         t * t * (3.0 - 2.0 * t)
     };
-    for ((o, c), y) in original.iter().zip(input).zip(out.iter_mut()) {
-        let srgb = to_srgb.apply_f32(*o);
-        let over = srgb.iter().any(|v| *v > 1.0);
-        let under = -srgb.iter().fold(0.0f32, |a, v| a.min(*v));
-        let keep = if over { 1.0 } else { smoothstep(0.01, 0.05, under) };
-        let change = 1.0 - smoothstep(0.95, 1.0, c.iter().fold(0.0f32, |a, v| a.max(*v)));
-        let (base, model) = (lin(*c), lin(*y));
-        *y = std::array::from_fn(|i| base[i] + (o[i] - base[i]) * keep + (model[i] - base[i]) * change);
-    }
+    let (w, h) = (original.width, original.height);
+    let area_mean = |x: usize, y: usize| {
+        let (x0, x1) = (x.saturating_sub(CLIP_AREA), (x + CLIP_AREA + 1).min(w));
+        let (y0, y1) = (y.saturating_sub(CLIP_AREA), (y + CLIP_AREA + 1).min(h));
+        let mut sum = [0.0f32; 3];
+        for row in original.data[y0 * w..y1 * w].chunks_exact(w) {
+            for p in &row[x0..x1] {
+                for c in 0..3 {
+                    sum[c] += p[c];
+                }
+            }
+        }
+        let n = ((x1 - x0) * (y1 - y0)) as f32;
+        to_srgb.apply_f32(sum.map(|v| v / n))
+    };
+    out.par_chunks_mut(w.max(1)).enumerate().for_each(|(y, row)| {
+        for (x, px) in row.iter_mut().enumerate() {
+            let o = original.data[y * w + x];
+            let v = to_srgb.apply_f32(o);
+            let model = to_linear.apply_f32(px.map(li_color::transfer::srgb_to_linear));
+            let over = v.iter().any(|v| *v > 1.0);
+            if !over && v.iter().all(|v| *v >= 0.0) {
+                *px = model;
+                continue;
+            }
+            let area = area_mean(x, y);
+            let gamut = smoothstep(0.01, 0.05, -area.iter().fold(0.0f32, |a, v| a.min(*v)));
+            let cut = to_linear.apply_f32(v.map(|v| v.min(0.0)));
+            let white = if over { smoothstep(0.95, 1.0, area.iter().fold(f32::MIN, |a, v| a.max(*v))) } else { 0.0 };
+            *px = std::array::from_fn(|i| {
+                let d = model[i] + cut[i] * gamut;
+                d + (o[i] - d) * white
+            });
+        }
+    });
 }
 fn export_new(path: &std::path::Path, img: &RgbFrame, p: &lightcraft_catalog::Photo, ctl: &JobCtl) -> Result<(), String> {
     use lightcraft_codecs::encode::{EncodeImage, EncodeMeta, Samples, TiffCompression};
@@ -1067,24 +1096,64 @@ mod integration_tests {
     }
     #[test]
     fn ai_denoise_rgb_models_keep_highlights_and_wide_gamut_colours() {
-        let original = RgbFrame { width: 4, height: 1, data: vec![[4.0, 4.0, 4.0], [0.05, 0.6, 0.02], [0.2, 0.2, 0.2], [-0.002, 0.003, 0.001]] };
-        let input = to_display(&original);
-        let mut same = input.clone();
-        from_display_change(&original.data, &input, &mut same);
-        for (got, want) in same.iter().zip(&original.data).take(3) {
+        // 8 × 8 patches side by side: a highlight above white, a Rec.2020 green outside sRGB, a grey
+        // and a near-black just below zero
+        let colours = [[4.0, 4.0, 4.0], [0.05, 0.6, 0.02], [0.2, 0.2, 0.2], [-0.002, 0.003, 0.001]];
+        let original = RgbFrame::from_fn(colours.len() * 8, 8, |x, _| colours[x / 8]);
+        let centre = |i: usize| 4 * original.width + 8 * i + 4;
+        let mut same = to_display(&original);
+        from_display_change(&original, &mut same);
+        for (i, want) in colours.iter().enumerate().take(3) {
+            let got = same[centre(i)];
             for c in 0..3 {
                 assert!((got[c] - want[c]).abs() < 1e-4 * want[c].abs().max(1.0), "an identity model returns the source: {got:?} vs {want:?}");
             }
         }
-        // a model that flattens everything to mid grey: in-range pixels and shadow noise take its
-        // result, a clipped highlight keeps the source
-        let mut grey = vec![[0.5; 3]; 4];
-        from_display_change(&original.data, &input, &mut grey);
+        // a model that flattens everything to mid grey: in-range pixels and the near-black take its
+        // result, the highlight keeps the source
+        let mut grey = vec![[0.5; 3]; original.data.len()];
+        from_display_change(&original, &mut grey);
         let mid = li_color::transfer::srgb_to_linear(0.5);
-        for p in [grey[2], grey[3]] {
+        for p in [grey[centre(2)], grey[centre(3)]] {
             assert!(p.iter().all(|v| (v - mid).abs() < 1e-3), "{p:?}");
         }
-        assert!(grey[0].iter().all(|v| (v - 4.0).abs() < 1e-3), "{:?}", grey[0]);
+        assert!(grey[centre(0)].iter().all(|v| (v - 4.0).abs() < 1e-3), "{:?}", grey[centre(0)]);
+    }
+    /// Noise of `sigma` around `mean` in every channel (linear, independent), the same each run.
+    fn noisy_field(mean: f32, sigma: f32) -> RgbFrame {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64;
+        let mut uniform = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            ((state >> 40) as f32 + 0.5) / (1u64 << 24) as f32
+        };
+        let data = (0..96 * 96)
+            .map(|_| std::array::from_fn(|_| mean + sigma * (-2.0 * uniform().ln()).sqrt() * (std::f32::consts::TAU * uniform()).cos()))
+            .collect();
+        RgbFrame { width: 96, height: 96, data }
+    }
+    #[test]
+    fn ai_denoise_rgb_models_denoise_bright_walls_and_shadows_fully() {
+        let stats = |px: &[[f32; 3]]| {
+            let n = px.len() as f64;
+            let mean = px.iter().map(|p| f64::from(p[1])).sum::<f64>() / n;
+            (mean, (px.iter().map(|p| (f64::from(p[1]) - mean).powi(2)).sum::<f64>() / n).sqrt())
+        };
+        // a bright wall at display 0.97 whose noise crosses white, and a shadow whose noise
+        // crosses black; a model that takes all the noise out (each channel's mean)
+        for (mean, bright) in [(li_color::transfer::srgb_to_linear(0.97), true), (0.004, false)] {
+            let field = noisy_field(mean, if bright { 0.02 } else { 0.01 });
+            let input = to_display(&field);
+            let flat = input.iter().fold([0.0f32; 3], |a, p| std::array::from_fn(|c| a[c] + p[c])).map(|v| v / input.len() as f32);
+            let mut out = vec![flat; input.len()];
+            from_display_change(&field, &mut out);
+            let ((m0, s0), (m1, s1)) = (stats(&field.data), stats(&out));
+            assert!(s1 <= 0.05 * s0, "noise left at {mean}: {s1} of {s0}");
+            if bright {
+                assert!((m1 / m0 - 1.0).abs() < 1e-3, "the wall's brightness is kept: {m1} vs {m0}");
+            }
+        }
     }
     #[test]
     fn ai_denoise_exports_new_tiff_and_dng_with_neutral_working_wb() {
