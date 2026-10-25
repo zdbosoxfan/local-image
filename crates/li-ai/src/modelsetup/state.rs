@@ -114,7 +114,7 @@ pub struct Verified {
     pub comfyui_version: String,
     pub templates_version: String,
     pub recipe_version: u32,
-    /// SHA-256 of the canonical create (or edit) graph that was tested.
+    /// SHA-256 of the tested executable recipe (all branches, bindings and derivation settings).
     pub recipe_sha256: String,
     pub gpu: String,
     pub capabilities: BTreeMap<String, CapabilityResult>,
@@ -147,6 +147,8 @@ pub struct ModelState {
     pub templates: BTreeMap<String, String>,
     pub bindings: Vec<Binding>,
     pub recipe: Option<TemplateRecipe>,
+    /// The explicit metadata-aware preservation recipe for an unmatched checkpoint.
+    pub universal_recipe: Option<crate::refine::Recipe>,
     /// The previous recipe, kept when a recompile after an update fails.
     pub last_good: Option<TemplateRecipe>,
     pub issues: Vec<Issue>,
@@ -221,8 +223,12 @@ impl SetupState {
     pub fn update(path: &Path, change: impl FnOnce(&mut SetupState)) -> Result<SetupState> {
         let _guard = WRITE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut s = Self::load(path);
+        let before = s.clone();
         change(&mut s);
         s.version = STATE_VERSION;
+        if s == before {
+            return Ok(s);
+        }
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
@@ -244,10 +250,11 @@ pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &Server
     }
     let Some(v) = old.verified.clone() else { return fresh };
     let file_changed = old.fingerprint.bytes != fresh.fingerprint.bytes
+        || old.fingerprint.mtime_ns != fresh.fingerprint.mtime_ns
         || old.fingerprint.header_sha256.is_some()
             && fresh.fingerprint.header_sha256.is_some()
             && old.fingerprint.header_sha256 != fresh.fingerprint.header_sha256;
-    let tested = fresh.recipe.as_ref().map(super::recipe_sha256).unwrap_or_default();
+    let tested = super::model_recipe_sha256(&fresh);
     let same_recipe = tested == v.recipe_sha256;
     let blocked = matches!(fresh.status, Status::Blocked | Status::Unmatched);
     fresh.verified = Some(v.clone());
@@ -412,5 +419,30 @@ mod tests {
         std::fs::write(&p, b"{not json").unwrap();
         assert_eq!(SetupState::load(&p), SetupState::default());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+    #[test]
+    fn a_same_shape_same_size_weight_replacement_needs_testing_again() {
+        let mut old = verified_model("", "0.42.5");
+        old.fingerprint.header_sha256 = Some("same tensor layout".into());
+        old.fingerprint.mtime_ns = 100;
+        let mut fresh = ModelState { status: Status::Builtin, fingerprint: old.fingerprint.clone(), ..Default::default() };
+        fresh.fingerprint.mtime_ns = 200;
+        let merged = merge(Some(&old), fresh, &ServerState::default(), "0.42.5");
+        assert_eq!(merged.status, Status::NeedsReverify);
+        assert!(merged.issues.iter().any(|i| i.code == "FileChanged"));
+    }
+
+    #[test]
+    fn unchanged_periodic_scans_do_not_rewrite_the_state_file() {
+        let dir = std::env::temp_dir().join(format!("li-state-noop-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("models.json");
+        SetupState::update(&path, |_| {}).unwrap();
+        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        let before = std::time::UNIX_EPOCH + std::time::Duration::from_secs(60);
+        file.set_modified(before).unwrap();
+        SetupState::update(&path, |_| {}).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().modified().unwrap(), before);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

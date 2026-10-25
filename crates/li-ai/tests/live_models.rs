@@ -192,6 +192,7 @@ fn verify_with(l: &Live, scan: &modelsetup::Scan, key: &str, role: &str, file: &
         te: String::new(),
         vae: String::new(),
         off: Vec::new(),
+        refine_recipe: None,
     };
     let v = modelsetup::verify::verify(&l.host, &target, 518_877_231, &JobControl::new(), &mut |s| {
         println!(

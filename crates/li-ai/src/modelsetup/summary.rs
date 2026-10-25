@@ -54,9 +54,9 @@ impl Summary {
         self.count(|s| matches!(s, Status::Blocked | Status::Unmatched | Status::Failed | Status::NeedsReverify | Status::PartiallyVerified))
     }
 
-    /// What the "new models" banner counts: new files and models to re-check.
+    /// Files awaiting setup, testing or a fix (the New and Needs attention groups).
     pub fn banner(&self) -> usize {
-        self.new.len() + self.count(|s| s == Status::NeedsReverify)
+        self.new.len() + self.attention()
     }
 }
 
@@ -92,6 +92,12 @@ pub fn summarise(server: Option<&ServerState>, models: &[ModelInfo], version: Op
             }
             out.models.insert(key.clone(), summary);
         }
+        out.updated = s
+            .models
+            .values()
+            .flat_map(|m| &m.issues)
+            .find(|i| i.code == "ReverifyNeeded")
+            .and_then(|i| Some((i.args.get("old")?.clone(), i.args.get("new")?.clone())));
         let known = |v: &str| !v.is_empty() && v != "unknown";
         if let Some(v) = version.filter(|v| known(v) && known(&s.comfyui_version) && *v != s.comfyui_version) {
             out.updated = Some((s.comfyui_version.clone(), v.to_owned()));
@@ -158,7 +164,7 @@ mod tests {
         assert_eq!(s.models["unet:a"].issue.as_ref().map(|i| i.code.as_str()), Some("NodeMissing"));
         assert_eq!(s.models["unet:b"].issue.as_ref().map(|i| i.code.as_str()), Some("QuantSlow"));
         assert_eq!(s.status("qwen-image-21"), Some(Status::Builtin), "curated models are found by their catalogue key");
-        assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (3, 1, 1));
+        assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (3, 1, 3));
         assert_eq!(s.updated, Some(("0.42.5".into(), "0.43.0".into())));
     }
 
@@ -184,5 +190,17 @@ mod tests {
         assert_eq!(s.new, ["unet:b"]);
         assert_eq!(s.status("unet:b"), Some(Status::Ready));
         assert_eq!(s.status_for("qwen", "bf16"), Some(Status::NeedsReverify));
+    }
+    #[test]
+    fn a_scanned_update_keeps_the_actionable_version_context() {
+        let issue = Issue::new("ReverifyNeeded", Some("unet:a"), &[("old", "0.42.5".into()), ("new", "0.43.0".into()), ("model", "A".into())]);
+        let server = ServerState {
+            comfyui_version: "0.43.0".into(),
+            models: [("unet:a".into(), stored(Status::NeedsReverify, vec![issue]))].into(),
+            ..Default::default()
+        };
+        let summary = summarise(Some(&server), &[], Some("0.43.0"));
+        assert_eq!(summary.updated, Some(("0.42.5".into(), "0.43.0".into())));
+        assert_eq!(summary.banner(), 1);
     }
 }

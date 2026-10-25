@@ -157,10 +157,11 @@ impl Templates {
         Self::from_reader(version, &index, &|f| std::fs::read(dir.join(f)).ok())
     }
 
-    /// The connected server's templates (`/templates/…`), cached per package version under
-    /// `cache` so a version is downloaded once.
+    /// The connected server's templates (`/templates/…`), cached per host and package version.
     pub fn fetch(client: &ComfyClient, version: &str, cache: Option<&Path>) -> Result<Self> {
-        let dir = cache.filter(|_| !version.is_empty() && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))).map(|c| c.join(version));
+        let dir = cache
+            .filter(|_| !version.is_empty() && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)))
+            .map(|c| c.join(hex::encode(Sha256::digest(client.host().trim_end_matches('/').as_bytes()))).join(version));
         let cached = |f: &str| dir.as_ref().and_then(|d| std::fs::read(d.join(f)).ok());
         let get = |f: &str| -> Option<Vec<u8>> {
             if let Some(b) = cached(f) {
@@ -259,10 +260,41 @@ fn vae_channels(model_dir: Option<&Path>, name: &str) -> Option<u32> {
     h.find_suffix("decoder.conv_in.weight").and_then(|t| t.shape.get(1)).map(|c| *c as u32)
 }
 
-/// SHA-256 of a recipe's tested graph (create, else edit, else style).
+/// Fingerprint every executable branch, resolved file binding and derivation setting.
+/// Source/package metadata alone does not change what a render executes.
 pub fn recipe_sha256(r: &TemplateRecipe) -> String {
-    let g = r.create.as_ref().or(r.edit.as_ref()).or(r.style.as_ref()).map(|g| Value::Object(g.graph.clone())).unwrap_or(Value::Null);
-    hex::encode(Sha256::digest(crate::graph::canonical_bytes(&g)))
+    fn executable(g: &mut crate::template::TaskGraph) {
+        g.template.clear();
+        for binding in &mut g.files {
+            binding.why = crate::companions::Why::default();
+            binding.url.clear();
+            binding.found_in = None;
+            binding.folder.clear();
+        }
+        if let Some(enhanced) = &mut g.enhanced {
+            executable(enhanced);
+        }
+    }
+    let mut normalized = r.clone();
+    normalized.sources.clear();
+    normalized.skipped.clear();
+    normalized.polish = None;
+    normalized.upsampler = None;
+    for graph in [&mut normalized.create, &mut normalized.edit, &mut normalized.style].into_iter().flatten() {
+        executable(graph);
+    }
+    let value = serde_json::to_value(normalized).unwrap_or(Value::Null);
+    hex::encode(Sha256::digest(crate::graph::canonical_bytes(&value)))
+}
+
+fn model_recipe_sha256(m: &ModelState) -> String {
+    if let Some(recipe) = &m.recipe {
+        return recipe_sha256(recipe);
+    }
+    m.universal_recipe
+        .as_ref()
+        .map(|r| hex::encode(Sha256::digest(crate::graph::canonical_bytes(&serde_json::to_value(r).unwrap_or(Value::Null)))))
+        .unwrap_or_default()
 }
 
 /// Display a variant as part of the name and precision once, after it.
@@ -324,11 +356,91 @@ fn main_role(key: &str) -> (Role, FileKind, &'static [&'static str]) {
 }
 
 /// The template model for one installed file (matching, compiling, checking).
+fn checked_recipe(ctx: &Ctx, key: &str, m: &ModelState, id: &Identity, recipe: &TemplateRecipe) -> check::Checked {
+    let local =
+        |folder: &str, file: &str| crate::inventory::local_path(ctx.model_dir, &[folder], file).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
+    check::check(&check::ModelCheck {
+        key,
+        label: &m.label,
+        file: &m.file,
+        bytes: (m.fingerprint.bytes > 0).then_some(m.fingerprint.bytes),
+        identity: id,
+        recipe,
+        family: id.arch.as_deref().and_then(|a| ctx.reg.family(a)),
+        server: ctx.snapshot,
+        runtime: ctx.runtime,
+        local_bytes: &local,
+        try_anyway: m.user.try_anyway,
+    })
+}
+
+fn universal_model(ctx: &Ctx, mut m: ModelState) -> ModelState {
+    m.engine = "universal".into();
+    let metadata = crate::inventory::local_path(ctx.model_dir, &["checkpoints"], &m.file)
+        .and_then(|p| crate::arch::read_header(&p).ok())
+        .map(|h| h.metadata)
+        .unwrap_or_default();
+    match crate::refine::universal(&m.file, &ctx.snapshot.info, &metadata) {
+        Ok(recipe) => {
+            m.universal_recipe = Some(recipe);
+            m.status = Status::Builtin;
+            m.capabilities = ["refine", "upscale"]
+                .into_iter()
+                .map(|name| check::CapabilityCheck {
+                    name: name.into(),
+                    ok: true,
+                    references: 0,
+                    detail: if name == "upscale" { "uses Refine".into() } else { String::new() },
+                })
+                .collect();
+        }
+        Err(e) => {
+            m.status = Status::Blocked;
+            m.issues.push(Issue::new("Unavailable", Some(&m.catalog_id), &[("reason", e.to_string())]));
+        }
+    }
+    m
+}
+
+fn restore_last_good(ctx: &Ctx, key: &str, m: &mut ModelState) {
+    if m.recipe.is_some() || m.user.ignored || matches!(m.engine.as_str(), "builtin" | "builder") {
+        return;
+    }
+    let Some(stored) = ctx.stored.and_then(|s| s.models.get(key)) else { return };
+    let Some(verified) = stored.verified.as_ref().filter(|v| v.capabilities.values().any(|c| c.pass) && !v.capabilities.get("create").is_some_and(|c| !c.pass))
+    else {
+        return;
+    };
+    let Some(old) = stored.recipe.as_ref().or(stored.last_good.as_ref()) else { return };
+    let Some(id) = m.identity.as_ref() else { return };
+    let checked = checked_recipe(ctx, key, m, id, old);
+    if checked.blocked() || !checked.capabilities.iter().any(|c| c.ok && matches!(c.name.as_str(), "create" | "edit" | "style")) {
+        return;
+    }
+    let reason = m.issues.first().map(Issue::english).unwrap_or_default();
+    m.issues = checked.issues;
+    m.issues.push(
+        Issue::new("UsingLastGood", Some(key), &[("old", verified.comfyui_version.clone()), ("reason", reason)]).fix(Fix::Verify { model: m.file.clone() }),
+    );
+    m.bindings = old.bindings().into_iter().cloned().collect();
+    m.capabilities = checked.capabilities;
+    m.templates = old.sources.iter().map(|source| (source.capability.clone(), source.name.clone())).collect();
+    m.last_good = Some(old.clone());
+    m.recipe = Some(old.clone());
+    m.universal_recipe = None;
+    m.engine = "template".into();
+    m.status = Status::NeedsReverify;
+}
+
 fn template_model(ctx: &Ctx, im: &InstalledModel, name: &str, id: &Identity, mut m: ModelState) -> ModelState {
     let key = im.key.as_str();
     let family = id.arch.as_deref().and_then(|a| ctx.reg.family(a));
     let polish = family.and_then(|f| f.template.as_ref());
+    m.label = label_for(family, None, id, name);
     let Some(templates) = ctx.templates else {
+        if im.files.contains_key(&Role::Checkpoint) {
+            return universal_model(ctx, m);
+        }
         m.status = Status::Unmatched;
         m.engine = "unsupported".into();
         m.issues.push(Issue::new("TemplateIndexUnavailable", Some(key), &[]).fix(Fix::CheckOnline));
@@ -365,9 +477,7 @@ fn template_model(ctx: &Ctx, im: &InstalledModel, name: &str, id: &Identity, mut
     m.label = label_for(family, entry_model.as_deref(), id, name);
     if best.is_empty() {
         if im.files.contains_key(&Role::Checkpoint) {
-            m.engine = "universal".into();
-            m.status = Status::Builtin;
-            return m;
+            return universal_model(ctx, m);
         }
         m.engine = "unsupported".into();
         m.status = Status::Unmatched;
@@ -400,20 +510,7 @@ fn template_model(ctx: &Ctx, im: &InstalledModel, name: &str, id: &Identity, mut
         Ok(r) => r,
         Err(unusable) => TemplateRecipe { model_key: key.to_owned(), skipped: unusable, ..Default::default() },
     };
-    let local = |folder: &str, file: &str| crate::inventory::local_path(dir, &[folder], file).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
-    let checked = check::check(&check::ModelCheck {
-        key,
-        label: &m.label,
-        file: name,
-        bytes: (m.fingerprint.bytes > 0).then_some(m.fingerprint.bytes),
-        identity: id,
-        recipe: &recipe,
-        family,
-        server: ctx.snapshot,
-        runtime: ctx.runtime,
-        local_bytes: &local,
-        try_anyway: m.user.try_anyway,
-    });
+    let checked = checked_recipe(ctx, key, &m, id, &recipe);
     m.bindings = recipe.bindings().into_iter().cloned().collect();
     m.issues.extend(checked.issues.iter().cloned());
     let usable = recipe.create.is_some() || recipe.edit.is_some() || recipe.style.is_some();
@@ -422,32 +519,6 @@ fn template_model(ctx: &Ctx, im: &InstalledModel, name: &str, id: &Identity, mut
         m.issues.push(Issue::new("NotVerified", Some(key), &[("model", m.label.clone())]).fix(Fix::Verify { model: name.to_owned() }));
     }
     m.capabilities = checked.capabilities;
-    // A recompile that fails after an update keeps the stored recipe while it still validates.
-    let stored = ctx.stored.and_then(|s| s.models.get(key));
-    if !usable
-        && let Some(old) = stored.and_then(|o| o.recipe.clone().or_else(|| o.last_good.clone()))
-        && old
-            .build(
-                &crate::builders::Params::create(
-                    "test",
-                    old.defaults.width.max(256),
-                    old.defaults.height.max(256),
-                    1,
-                    old.defaults.steps.max(1),
-                    old.defaults.cfg,
-                ),
-                &ctx.snapshot.info,
-            )
-            .is_ok()
-    {
-        let reason = recipe.skipped.first().map(|u| u.detail.clone()).unwrap_or_default();
-        let old_version = stored.and_then(|o| o.verified.as_ref()).map(|v| v.comfyui_version.clone()).unwrap_or_default();
-        m.issues.push(Issue::new("UsingLastGood", Some(key), &[("old", old_version), ("reason", reason)]).fix(Fix::Verify { model: name.to_owned() }));
-        m.last_good = Some(old.clone());
-        m.recipe = Some(old);
-        m.status = Status::NeedsReverify;
-        return m;
-    }
     m.recipe = usable.then_some(recipe);
     m
 }
@@ -480,7 +551,7 @@ fn prepare(ctx: &Ctx) -> BTreeMap<String, ModelState> {
         let family = ctx.reg.family(&im.family);
         let resolved = family.map(|f| f.resolved_for_file(name, im.variant.as_deref()));
         let builder = resolved.as_ref().is_some_and(|f| f.buildable());
-        let m = if let Some(p) = curated.filter(|p| p.model.try_info().is_some_and(|i| !i.template_engine)) {
+        let mut m = if let Some(p) = curated.filter(|p| p.model.try_info().is_some_and(|i| !i.template_engine)) {
             let a = crate::catalog::availability(p, &ctx.snapshot.info);
             m.catalog_id = p.model.key().to_owned();
             m.variant.clone_from(&p.variant);
@@ -507,6 +578,7 @@ fn prepare(ctx: &Ctx) -> BTreeMap<String, ModelState> {
         } else {
             template_model(ctx, im, name, &id, m)
         };
+        restore_last_good(ctx, &im.key, &mut m);
         out.insert(im.key.clone(), m);
     }
     out
@@ -552,6 +624,17 @@ pub fn scan_with(opts: &Options, reg: &Registry) -> Scan {
             };
         }
     };
+    scan_snapshot_with(opts, snapshot, reg)
+}
+
+/// Static setup from a snapshot already collected by the background inventory poller.
+/// This never submits a render, downloads a model or moves a file.
+pub fn scan_snapshot(opts: &Options, snapshot: Snapshot) -> Scan {
+    scan_snapshot_with(opts, snapshot, crate::family::registry())
+}
+
+fn scan_snapshot_with(opts: &Options, snapshot: Snapshot, reg: &Registry) -> Scan {
+    let client = ComfyClient::new(&opts.host);
     let model_dir = opts.model_dir.as_deref().filter(|d| d.is_dir());
     crate::inventory::refresh(&snapshot.info, model_dir);
     let mut issues = check::server_issues(&snapshot);
@@ -748,6 +831,7 @@ pub fn verify_models(
             te: file("clip", Role::Clip).unwrap_or_default(),
             vae: file("vae", Role::Vae).unwrap_or_default(),
             off: m.capabilities.iter().filter(|c| !c.ok).map(|c| c.name.clone()).collect(),
+            refine_recipe: m.universal_recipe.clone(),
         };
         let seed = u64::from(rand::random::<u32>());
         let result = verify::verify(&opts.host, &target, seed, ctl, &mut |step| progress(key, step));
@@ -760,7 +844,7 @@ pub fn verify_models(
                 v.comfyui_version = snapshot.version_label();
                 v.templates_version = snapshot.templates_version.clone();
                 v.recipe_version = crate::template::RECIPE_VERSION;
-                v.recipe_sha256 = m.recipe.as_ref().map(recipe_sha256).unwrap_or_default();
+                v.recipe_sha256 = model_recipe_sha256(m);
                 v.gpu = snapshot.gpu.as_ref().map(|g| g.name.clone()).unwrap_or_default();
                 let issues = verification_issues(key, m, &target, &v);
                 let (k, stored) = (key.clone(), v.clone());
@@ -935,7 +1019,16 @@ mod tests {
             capabilities: [("create".to_owned(), result(true, None)), ("inpaint".to_owned(), result(false, Some("VerifyFailed:inpaint_nochange")))].into(),
             ..Default::default()
         };
-        let t = verify::Target { model: ModelId::Qwen, variant: "", label: "M", quant: String::new(), te: String::new(), vae: String::new(), off: Vec::new() };
+        let t = verify::Target {
+            model: ModelId::Qwen,
+            variant: "",
+            label: "M",
+            quant: String::new(),
+            te: String::new(),
+            vae: String::new(),
+            off: Vec::new(),
+            refine_recipe: None,
+        };
         let sentences = |engine: &str| {
             let m = ModelState { engine: engine.into(), label: "M".into(), ..Default::default() };
             verification_issues("unet:m", &m, &t, &v).iter().map(Issue::english).collect::<Vec<_>>()
@@ -959,5 +1052,56 @@ mod tests {
             };
             assert_eq!(label_for(reg.family(family), None, &id, file), expected);
         }
+    }
+    #[test]
+    fn the_tested_signature_covers_every_executable_recipe_part() {
+        use crate::template::TaskGraph;
+        let graph = TaskGraph {
+            graph: serde_json::from_value(serde_json::json!({"sample": {"class_type": "KSampler", "inputs": {"cfg": 3.5}}})).unwrap(),
+            files: vec![crate::companions::Binding { role: "clip".into(), used: Some("encoder-a.safetensors".into()), ..Default::default() }],
+            ..Default::default()
+        };
+        let mut create = graph.clone();
+        create.enhanced = Some(Box::new(graph.clone()));
+        let recipe = TemplateRecipe { create: Some(create), edit: Some(graph.clone()), style: Some(graph), ..Default::default() };
+        let original = recipe_sha256(&recipe);
+        for part in ["edit", "style", "enhanced", "binding", "defaults", "fill"] {
+            let mut changed = recipe.clone();
+            match part {
+                "edit" => changed.edit.as_mut().unwrap().graph["sample"]["inputs"]["cfg"] = serde_json::json!(5.0),
+                "style" => changed.style.as_mut().unwrap().graph["sample"]["inputs"]["cfg"] = serde_json::json!(5.0),
+                "enhanced" => changed.create.as_mut().unwrap().enhanced.as_mut().unwrap().graph["sample"]["inputs"]["cfg"] = serde_json::json!(5.0),
+                "binding" => changed.create.as_mut().unwrap().files[0].used = Some("encoder-b.safetensors".into()),
+                "defaults" => changed.defaults.cfg = 8.0,
+                "fill" => changed.inpaint = crate::template::InpaintWay::Instruction,
+                _ => unreachable!(),
+            }
+            assert_ne!(recipe_sha256(&changed), original, "a changed {part} must be tested again");
+        }
+        let mut provenance = recipe;
+        provenance.sources.push(crate::template::TemplateSource {
+            templates_version: "new package".into(),
+            sha256: "different source JSON".into(),
+            ..Default::default()
+        });
+        provenance.create.as_mut().unwrap().files[0].why = crate::companions::Why::User;
+        assert_eq!(recipe_sha256(&provenance), original, "source metadata cannot invalidate identical execution");
+    }
+
+    #[test]
+    fn servers_with_the_same_package_version_keep_separate_template_caches() {
+        let root = std::env::temp_dir().join(format!("li-template-cache-{}", uuid::Uuid::new_v4()));
+        let one = crate::mock::MockComfy::start().unwrap();
+        let two = crate::mock::MockComfy::start().unwrap();
+        for (label, server) in [("one", &one), ("two", &two)] {
+            let dir = root.join(label);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("index.json"), br#"[{"templates":[{"name":"image_test"}]}]"#).unwrap();
+            std::fs::write(dir.join("image_test.json"), serde_json::to_vec(&serde_json::json!({"nodes":[], "origin":label})).unwrap()).unwrap();
+            server.set_templates_dir(dir);
+            let templates = Templates::fetch(&ComfyClient::new(server.host()), "same-version", Some(&root.join("cache"))).unwrap();
+            assert_eq!(templates.body("image_test").unwrap()["origin"], label);
+        }
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

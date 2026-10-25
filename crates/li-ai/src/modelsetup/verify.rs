@@ -491,6 +491,8 @@ pub struct Target<'a> {
     pub vae: String,
     /// Capabilities the static check turned off (a file only they need is missing): not rendered.
     pub off: Vec<String>,
+    /// A statically checked universal recipe, including checkpoint metadata/defaults.
+    pub refine_recipe: Option<crate::refine::Recipe>,
 }
 
 /// One finished capability, for progress output.
@@ -638,7 +640,9 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
         runner.run("prompt_enhancer", &request, &judge)?;
     }
     // Refine: the recipe the app's refine checker uses, on its test picture.
-    if let Some(recipe) = refine_recipe(t.model, variant, &client) {
+    if on("refine")
+        && let Some(recipe) = t.refine_recipe.clone().or_else(|| refine_recipe(t.model, variant, &client))
+    {
         let watch = Watch::start(ctl, host);
         let sampler = VramSampler::start(host);
         let start = Instant::now();

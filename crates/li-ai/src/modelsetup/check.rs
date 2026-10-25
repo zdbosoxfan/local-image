@@ -212,7 +212,7 @@ pub fn check(m: &ModelCheck) -> Checked {
                         ("file", used.to_owned()),
                         ("kind_label", role_label(&b.role, false)),
                         ("kind_label_plural", role_label(&b.role, true)),
-                        ("found", b.found_in.clone().map(|l| crate::companions::folder_of(&l, "").to_owned()).unwrap_or_default()),
+                        ("found", b.found_in.clone().unwrap_or_default()),
                         ("expected", b.folder.clone()),
                     ],
                 )

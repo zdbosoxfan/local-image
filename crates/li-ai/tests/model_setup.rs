@@ -697,3 +697,108 @@ fn verification_tests_an_installed_prompt_enhancer_separately() {
     let report = modelsetup::report(&s.options(), &s.scan());
     assert!(report.models.iter().find(|m| m.key == FLUX3_KEY).unwrap().capabilities.iter().any(|c| c.name == "prompt_enhancer" && c.state == "verified"));
 }
+
+#[test]
+fn an_unknown_checkpoint_is_verified_through_universal_refine() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(&[]);
+    let file = "future_checkpoint.safetensors";
+    li_ai::mock::write_header_only(&s.dir.0.join("checkpoints").join(file), &json!({"mystery.weight":{"dtype":"F16","shape":[1],"data_offsets":[0,2]}}))
+        .unwrap();
+    let mut info = object_info(&s.dir.0);
+    info["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"] = json!([[file]]);
+    s.mock.set_object_info(info);
+    let key = format!("ckpt:{file}");
+    let scan = s.scan();
+    let model = &scan.server.models[&key];
+    assert_eq!(model.engine, "universal");
+    assert!(model.capabilities.iter().any(|c| c.name == "refine" && c.ok), "{model:?}");
+    s.mock.queue_outputs([png(&li_ai::refine::test_image())]);
+    let done = modelsetup::verify_models(&s.options(), &scan, &[key.clone()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let verified = done[0].result.as_ref().unwrap();
+    assert!(verified.capabilities["refine"].pass, "{verified:?}");
+    assert_eq!(s.mock.prompts().len(), 1, "the preservation test must actually render");
+    assert!(s.mock.prompts()[0].to_string().contains(file));
+    assert_eq!(s.scan().server.models[&key].status, Status::Verified);
+}
+
+#[test]
+fn unavailable_templates_keep_a_valid_previously_tested_recipe() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(FLUX3);
+    let first = s.scan();
+    let recipe = first.server.models[FLUX3_KEY].recipe.clone().unwrap();
+    li_ai::modelsetup::state::SetupState::update(&s.options().state_path, |state| {
+        let model = state.servers.get_mut(s.mock.host()).unwrap().models.get_mut(FLUX3_KEY).unwrap();
+        model.status = Status::Verified;
+        model.verified = Some(li_ai::modelsetup::state::Verified {
+            comfyui_version: "0.42.5".into(),
+            recipe_sha256: modelsetup::recipe_sha256(&recipe),
+            capabilities: [("create".into(), li_ai::modelsetup::state::CapabilityResult { pass: true, ..Default::default() })].into(),
+            ..Default::default()
+        });
+    })
+    .unwrap();
+    let mut opts = s.options();
+    opts.cache_dir = None;
+    let empty = s.state.0.join("unavailable-templates");
+    s.mock.set_templates_dir(&empty);
+    for index_exists in [false, true] {
+        if index_exists {
+            std::fs::create_dir_all(&empty).unwrap();
+            std::fs::write(empty.join("index.json"), b"[]").unwrap();
+        }
+        let scan = modelsetup::scan(&opts);
+        let model = &scan.server.models[FLUX3_KEY];
+        assert_eq!(model.status, Status::NeedsReverify, "{model:?}");
+        assert_eq!(model.recipe.as_ref(), Some(&recipe));
+        assert!(model.issues.iter().any(|i| i.code == "UsingLastGood"));
+        assert!(model.capabilities.iter().any(|c| c.name == "create" && c.ok));
+        assert!(ModelId::from_key(FLUX3_KEY).unwrap().info().recipe.is_some());
+    }
+    let mut info = object_info(&s.dir.0);
+    info.as_object_mut().unwrap().remove("KSampler");
+    s.mock.set_object_info(info);
+    let scan = modelsetup::scan(&opts);
+    assert!(!scan.server.models[FLUX3_KEY].status.usable(), "a removed server node still blocks the stored recipe");
+}
+
+#[test]
+fn a_wrong_folder_issue_names_the_actual_folder() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut files = FLUX3.to_vec();
+    files[2].0 = "diffusion_models/flux2-vae.safetensors";
+    let s = Setup::new(&files);
+    let scan = s.scan();
+    let issue = scan.server.models[FLUX3_KEY].issues.iter().find(|i| i.code == "WrongFolder").expect("misplaced VAE");
+    assert_eq!(issue.args["found"], "diffusion_models");
+    assert!(issue.english().contains("diffusion_models/"), "{}", issue.english());
+}
+
+#[test]
+fn a_background_snapshot_rechecks_replaced_weights_without_rendering() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(FLUX3);
+    let first = s.scan();
+    let recipe = first.server.models[FLUX3_KEY].recipe.as_ref().unwrap();
+    li_ai::modelsetup::state::SetupState::update(&s.options().state_path, |state| {
+        let model = state.servers.get_mut(s.mock.host()).unwrap().models.get_mut(FLUX3_KEY).unwrap();
+        model.status = Status::Verified;
+        model.verified = Some(li_ai::modelsetup::state::Verified {
+            comfyui_version: "0.42.5".into(),
+            recipe_sha256: modelsetup::recipe_sha256(recipe),
+            capabilities: [("create".into(), li_ai::modelsetup::state::CapabilityResult { pass: true, ..Default::default() })].into(),
+            ..Default::default()
+        });
+    })
+    .unwrap();
+    let file = std::fs::OpenOptions::new().write(true).open(s.dir.0.join(FLUX3[0].0)).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
+    let info = li_ai::comfy::ObjectInfo::from_bytes(&serde_json::to_vec(&object_info(&s.dir.0)).unwrap()).unwrap();
+    let snapshot = modelsetup::Snapshot::from_parts(s.mock.host(), &system_stats("0.42.5", "NVIDIA GeForce RTX 5090"), info);
+    let scan = modelsetup::scan_snapshot(&s.options(), snapshot);
+    let summary = modelsetup::summary::summarise(Some(&scan.server), &li_ai::catalog::catalog().models, Some("0.42.5"));
+    assert_eq!(summary.status(FLUX3_KEY), Some(Status::NeedsReverify));
+    assert_eq!(summary.banner(), 1);
+    assert!(s.mock.prompts().is_empty(), "automatic scans never submit test renders");
+}
