@@ -574,3 +574,27 @@ fn save_for_web_has_no_default_matte_while_presets_and_quick_export_keep_white()
     assert!(pixel[0] > 40 && pixel[3] == 255, "Quick Export keeps its white matte: {pixel:?}");
     s.execute("prefs.reset", json!({"path": "export"})).unwrap();
 }
+
+#[test]
+fn quick_export_writes_the_format_its_path_names() {
+    let dir = tmp("quick_ext");
+    let mut s = session(8);
+    s.execute("file.export.exportPreferences", json!({"quickExportFormat": "png"})).unwrap();
+    for (name, format, magic) in [
+        ("a.jpeg", "jpg", &b"\xFF\xD8\xFF"[..]),
+        ("b.JPG", "jpg", b"\xFF\xD8\xFF"),
+        ("c.gif", "gif", b"GIF8"),
+        ("d.webp", "webp", b"RIFF"),
+        ("e", "png", b"\x89PNG"),
+    ] {
+        let path = format!("{dir}/{name}");
+        let r = s.execute("file.export.quickExport", json!({"path": path})).unwrap();
+        assert_eq!(r["format"], json!(format), "{name}");
+        assert!(std::fs::read(&path).unwrap().starts_with(magic), "{name} holds {format} data");
+    }
+    let tif = format!("{dir}/f.tif");
+    let e = s.execute("file.export.quickExport", json!({"path": tif})).unwrap_err().to_string();
+    assert!(e.contains("Export As"), "{e}");
+    assert!(!std::path::Path::new(&tif).exists());
+    s.execute("prefs.reset", json!({"path": "export"})).unwrap();
+}
