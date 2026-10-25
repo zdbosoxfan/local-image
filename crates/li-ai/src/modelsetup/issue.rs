@@ -75,7 +75,10 @@ impl Fix {
     /// One line for the CLI and the report.
     pub fn describe(&self) -> String {
         match self {
-            Self::Download { files, folder, bytes, .. } => format!("download {} ({}) into {folder}/", files.join(", "), size_text(*bytes)),
+            Self::Download { files, folder, bytes, .. } => {
+                let size = if *bytes > 0 { size_text(*bytes) } else { "size unknown".into() };
+                format!("download {} ({size}) into {folder}/", files.join(", "))
+            }
             Self::UseInstead { declared, installed } => format!("use {installed} instead of {declared}"),
             Self::Move { from, to_folder } => format!("move {from} to {to_folder}/"),
             Self::ChooseTemplate { candidates } => format!("choose a template: {}", candidates.join(", ")),
@@ -342,6 +345,9 @@ mod tests {
         assert_eq!(Issue::new("NotVerified", None, &[("model", "M".into())]).severity, Severity::Info);
         assert_eq!(fill("a {x} b {missing}.", &[("x".to_owned(), "1".to_owned())].into()), "a 1 b .");
         assert_eq!(size_text(512_000_000), "512 MB");
+        let download = |bytes| Fix::Download { files: vec!["x.safetensors".into()], folder: "text_encoders".into(), bytes, url: String::new() }.describe();
+        assert_eq!(download(0), "download x.safetensors (size unknown) into text_encoders/");
+        assert_eq!(download(9_350_798_360), "download x.safetensors (9.4 GB) into text_encoders/");
     }
 
     #[test]
