@@ -506,7 +506,7 @@ fn the_persons_choices_apply_on_the_next_scan() {
     ]);
     let scan = s.scan();
     assert_eq!(scan.server.models[ming].status, Status::Unmatched, "{:?}", codes(&scan, ming));
-    assert_eq!(scan.server.models[ming].label, "ming image 0.1 design · BF16", "the precision is named once");
+    assert_eq!(scan.server.models[ming].label, "Ming Image 0.1 Design · BF16", "the precision is named once");
     assert!(scan.templates.iter().any(|t| t.name == "image_moss_image_t2i" && t.title == "MOSS-Image: Text to Image"));
     let host = s.mock.host().to_owned();
     let state = s.options().state_path;

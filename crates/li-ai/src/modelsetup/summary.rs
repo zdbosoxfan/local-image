@@ -11,6 +11,8 @@ use crate::catalog::{ModelId, ModelInfo, Origin};
 /// One scanned model, as the picker shows it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ModelSummary {
+    /// Canonical scanned file key (catalogue and preset keys are lookup aliases).
+    pub file_key: String,
     pub status: Status,
     /// The first blocker (else warning) found, for a disabled row's tooltip.
     pub issue: Option<Issue>,
@@ -19,7 +21,7 @@ pub struct ModelSummary {
 /// Model setup for the connected server.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Summary {
-    /// Installed models no scan has looked at yet (catalogue keys).
+    /// Unscanned and ready, untested model files (the wizard's New group).
     pub new: Vec<String>,
     /// Scanned models by catalogue key.
     pub models: BTreeMap<String, ModelSummary>,
@@ -30,10 +32,7 @@ pub struct Summary {
 impl Summary {
     /// The model's setup status (`New` for a file no scan has seen).
     pub fn status(&self, key: &str) -> Option<Status> {
-        if self.new.iter().any(|k| k == key) {
-            return Some(Status::New);
-        }
-        self.models.get(key).map(|m| m.status)
+        self.models.get(key).map(|m| m.status).or_else(|| self.new.iter().any(|k| k == key).then_some(Status::New))
     }
 
     /// The status of one preset of a curated model (each precision is its own file), else the
@@ -43,7 +42,7 @@ impl Summary {
     }
 
     fn count(&self, f: impl Fn(Status) -> bool) -> usize {
-        self.models.values().filter(|m| f(m.status)).count()
+        self.models.values().filter(|m| f(m.status)).map(|m| &m.file_key).collect::<std::collections::BTreeSet<_>>().len()
     }
 
     pub fn needs_reverify(&self) -> usize {
@@ -77,7 +76,10 @@ pub fn summarise(server: Option<&ServerState>, models: &[ModelInfo], version: Op
     if let Some(s) = server {
         for (key, m) in &s.models {
             let issue = m.issues.iter().filter(|i| i.severity != Severity::Info).min_by_key(|i| i.severity).cloned();
-            let summary = ModelSummary { status: m.status, issue };
+            let summary = ModelSummary { file_key: key.clone(), status: m.status, issue };
+            if matches!(m.status, Status::New | Status::Ready) {
+                out.new.push(key.clone());
+            }
             if !m.catalog_id.is_empty() && m.catalog_id != *key {
                 if !m.variant.is_empty() {
                     out.models.insert(preset_key(&m.catalog_id, &m.variant), summary.clone());
@@ -95,7 +97,9 @@ pub fn summarise(server: Option<&ServerState>, models: &[ModelInfo], version: Op
             out.updated = Some((s.comfyui_version.clone(), v.to_owned()));
         }
     }
-    out.new = models.iter().filter(|m| needs_setup(m) && !out.models.contains_key(m.id.key())).map(|m| m.id.key().to_owned()).collect();
+    out.new.extend(models.iter().filter(|m| needs_setup(m) && !out.models.contains_key(m.id.key())).map(|m| m.id.key().to_owned()));
+    out.new.sort();
+    out.new.dedup();
     out
 }
 
@@ -168,5 +172,17 @@ mod tests {
         assert_eq!(s.status_for("qwen", "bf16"), Some(Status::Verified));
         assert_eq!(s.status_for("qwen", "int8"), Some(Status::Builtin));
         assert_eq!(s.status("qwen"), Some(Status::Builtin), "the model's key is its default preset, {}", crate::catalog::default_variant(ModelId::Qwen));
+    }
+    #[test]
+    fn file_counts_ignore_catalogue_and_precision_aliases() {
+        let mut server = ServerState::default();
+        for (key, status, variant) in [("unet:a", Status::NeedsReverify, "bf16"), ("unet:b", Status::Ready, "int8")] {
+            server.models.insert(key.into(), ModelState { status, catalog_id: "qwen".into(), variant: variant.into(), ..Default::default() });
+        }
+        let s = summarise(Some(&server), &[], None);
+        assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (1, 1, 2));
+        assert_eq!(s.new, ["unet:b"]);
+        assert_eq!(s.status("unet:b"), Some(Status::Ready));
+        assert_eq!(s.status_for("qwen", "bf16"), Some(Status::NeedsReverify));
     }
 }

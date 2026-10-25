@@ -265,21 +265,44 @@ pub fn recipe_sha256(r: &TemplateRecipe) -> String {
     hex::encode(Sha256::digest(crate::graph::canonical_bytes(&g)))
 }
 
-/// `FLUX.3 Klein · distilled · BF16`.
+/// Display a variant as part of the name and precision once, after it.
 fn label_for(family: Option<&Family>, entry_model: Option<&str>, id: &Identity, file: &str) -> String {
-    let base = family.map(|f| f.label.clone()).filter(|l| !l.is_empty()).or_else(|| entry_model.map(str::to_owned)).unwrap_or_else(|| {
-        // The name without its precision tokens: the precision follows as its own part.
+    let mut base = family.map(|f| f.label.clone()).filter(|l| !l.is_empty()).or_else(|| entry_model.map(str::to_owned)).unwrap_or_else(|| {
         let stem = crate::stem::stem_key(file).display;
-        if stem.is_empty() { crate::inventory::label_for(file) } else { stem.replace(['_', '-'], " ").split_whitespace().collect::<Vec<_>>().join(" ") }
+        display_words(&if stem.is_empty() { crate::inventory::label_for(file) } else { stem })
     });
-    let mut parts = vec![base];
-    if let Some(v) = &id.variant {
-        parts.push(v.clone());
+    if let Some(v) = id
+        .variant
+        .as_deref()
+        .filter(|v| !matches!(v.to_ascii_lowercase().as_str(), "bf16" | "fp16" | "fp32" | "fp8" | "int8" | "full precision" | "fp8_scaled" | "int8_convrot"))
+    {
+        let variant = display_words(v);
+        if !base.to_lowercase().ends_with(&variant.to_lowercase()) {
+            base.push(' ');
+            base.push_str(&variant);
+        }
     }
     if let Some(q) = &id.quant.class {
-        parts.push(q.label());
+        base.push_str(" · ");
+        base.push_str(&q.label());
     }
-    parts.join(" · ")
+    base
+}
+
+fn display_words(text: &str) -> String {
+    text.replace(['_', '-'], " ")
+        .split_whitespace()
+        .map(|w| match w.to_ascii_lowercase().as_str() {
+            "sft" => "SFT".into(),
+            "lora" => "LoRA".into(),
+            "vae" => "VAE".into(),
+            _ => {
+                let mut chars = w.chars();
+                chars.next().map(|c| c.to_uppercase().collect::<String>() + chars.as_str()).unwrap_or_default()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 struct Ctx<'a> {
@@ -461,7 +484,7 @@ fn prepare(ctx: &Ctx) -> BTreeMap<String, ModelState> {
             let a = crate::catalog::availability(p, &ctx.snapshot.info);
             m.catalog_id = p.model.key().to_owned();
             m.variant.clone_from(&p.variant);
-            m.label = format!("{} · {}", p.model.info().label, p.label);
+            m.label = label_for(None, Some(&p.model.info().label), &Identity { variant: None, ..id.clone() }, name);
             m.engine = "builtin".into();
             m.status = if a.available { Status::Builtin } else { Status::Blocked };
             m.capabilities = builder_capabilities(&p.model.info().resolved);
@@ -911,5 +934,22 @@ mod tests {
         };
         assert_eq!(sentences("template"), ["Fill didn't change the selected area in the test.", "Fill is turned off for this model until it passes its test."]);
         assert_eq!(sentences("builtin"), ["Fill didn't change the selected area in the test."], "a built-in model keeps its tools");
+    }
+    #[test]
+    fn display_names_join_variants_and_name_precision_once() {
+        let reg = crate::family::registry();
+        for (family, variant, file, expected) in [
+            ("flux3-klein", "distilled", "flux3-image-klein-bf16.safetensors", "FLUX.3 Klein Distilled · BF16"),
+            ("moss-image", "sft", "moss_image_sft_bf16.safetensors", "MOSS-Image SFT · BF16"),
+            ("qwen-image-21", "bf16", "qwen_image_2.1_bf16.safetensors", "Qwen Image 2.1 · BF16"),
+            ("", "", "ming_image_0.1_design_bf16.safetensors", "Ming Image 0.1 Design · BF16"),
+        ] {
+            let id = Identity {
+                variant: (!variant.is_empty()).then(|| variant.into()),
+                quant: crate::identify::Quant { class: Some(crate::identify::QuantClass::Bf16), ..Default::default() },
+                ..Default::default()
+            };
+            assert_eq!(label_for(reg.family(family), None, &id, file), expected);
+        }
     }
 }
