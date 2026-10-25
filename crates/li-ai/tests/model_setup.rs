@@ -400,7 +400,7 @@ fn blackwell_only_precisions_are_blocked_on_older_gpus() {
     assert!(!declared.contains("nvfp4"), "{declared}");
     assert!(
         matches!(&issue.fixes[..], [modelsetup::issue::Fix::Download { files, folder, url, .. }, modelsetup::issue::Fix::TryAnyway]
-            if files == &[declared.clone()] && folder == "diffusion_models" && url.ends_with(&format!("/{declared}"))),
+            if files == std::slice::from_ref(&declared) && folder == "diffusion_models" && url.ends_with(&format!("/{declared}"))),
         "the template's own precision is offered before Try anyway: {:?}",
         issue.fixes
     );
