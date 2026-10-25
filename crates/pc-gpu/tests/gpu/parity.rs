@@ -2547,3 +2547,19 @@ fn wide_strokes_and_blended_shadow_knockout_match_cpu() {
         fx_check(&mut g, &d, &format!("wide stroke and knockout {blend:?}"));
     }
 }
+
+#[test]
+fn hdr_hue_saturation_bright_colours() {
+    let mut g = gpu();
+    let mut d = Document::new("t", Size::new(4, 1), ColorMode::Rgb, SampleType::F32);
+    let mut bg = Layer::raster("bg", d.pixel_format());
+    let px = [2.0, 0.0, 0.0, 1.0, 0.25, -0.25, 0.0, 1.0, 1.1, 0.9, 1.0, 1.0, 0.55, 0.45, 0.5, 1.0];
+    bg.surface_mut().unwrap().write_region(Rect::from_xywh(0, 0, 4, 1), &px);
+    d.layers.push(bg);
+    for (hue, saturation) in [(40.0, 0.0), (0.0, 25.0), (0.0, -25.0), (40.0, 75.0)] {
+        let hs = Adjustment::HueSaturation { hue, saturation, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        d.layers.push(Layer::new("hs", LayerContent::Adjustment(hs)));
+        check(&mut g, &d, &format!("hue {hue} saturation {saturation} on bright colours"));
+        d.layers.pop();
+    }
+}

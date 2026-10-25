@@ -725,8 +725,6 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
         case 18: { return native_tone(c, true); }                           // CMYK Levels / Curves
         case 8: {                                                              // Hue/Saturation
             let hsl = rgb_to_hsl(c);
-            var hh: f32;
-            var ss: f32;
             // Range edits (LUT rows indexed by the original hue, at full strength).
             var dh = 0.0;
             var ds = 0.0;

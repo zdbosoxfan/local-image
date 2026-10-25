@@ -1608,6 +1608,7 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
         }
         Adjustment::HueSaturation { hue, saturation, lightness, colorize, ranges } => {
             p[0] = [*hue, saturation / 100.0, lightness / 100.0, if *colorize { 1.0 } else { 0.0 }];
+            p[1][1] = if depth == photocraft_color::SampleType::F32 { 1.0 } else { 0.0 };
             if !*colorize && ranges.iter().any(|r| !r.is_neutral()) {
                 // Range edits: hue-indexed rows (shift, saturation, lightness), as on the CPU.
                 p[1][0] = 1.0;

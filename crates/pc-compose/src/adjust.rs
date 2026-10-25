@@ -134,7 +134,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                     }
                     None => (0.0, 0.0, 0.0),
                 };
-                let out = hue_saturation(c, *hue + dh, (*saturation / 100.0 + ds).clamp(-1.0, 1.0), (*lightness / 100.0).clamp(-1.0, 1.0), *colorize);
+                let out = hue_saturation_in(c, *hue + dh, (*saturation / 100.0 + ds).clamp(-1.0, 1.0), (*lightness / 100.0).clamp(-1.0, 1.0), *colorize, depth);
                 range_lightness(out, dl)
             })
         }
@@ -397,6 +397,33 @@ pub fn hue_saturation(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool) -> 
         rgb = rgb.map(|v| v * (1.0 + l));
     }
     rgb
+}
+
+/// At 32 bits, scale chroma around lightness without clipping. HSL saturation is undefined at
+/// lightness 0 or 1 and negative above 1, so it cannot carry bright or negative-channel colours.
+pub fn hue_saturation_in(c: [f32; 3], hue: f32, s: f32, l: f32, colorize: bool, depth: Option<SampleType>) -> [f32; 3] {
+    if depth != Some(SampleType::F32) || colorize {
+        return hue_saturation(c, hue, s, l, colorize);
+    }
+    let lc = c.map(|v| if l > 0.0 { v + (1.0 - v) * l } else { v * (1.0 + l) });
+    let (h, _, lightness) = rgb_to_hsl(lc);
+    let h = (h + hue / 360.0).rem_euclid(1.0);
+    let chroma = (lc[0].max(lc[1]).max(lc[2]) - lc[0].min(lc[1]).min(lc[2])) * hdr_saturation_factor(s);
+    let lo = lightness - chroma / 2.0;
+    // Reuse the shared hue conversion on a unit-chroma colour, avoiding HSL's singular divisor.
+    hsl_to_rgb(h, 1.0, 0.5).map(|v| lo + chroma * v)
+}
+
+/// Photoshop's 32-bit saturation factor: lowering in 1/256 steps, raising in 254/255 steps,
+/// quantized to 1/256 and capped at 32767/256. The shader uses the same integer division.
+fn hdr_saturation_factor(s: f32) -> f32 {
+    // Keep master plus range sums on their step: -0.46 + 0.96 is 0.49999997 in f32.
+    let s = s.clamp(-1.0, 1.0);
+    if s <= 0.0 {
+        return 1.0 - (-s * 256.0 + 1e-4).floor() / 256.0;
+    }
+    let steps = (s * 254.0 + 1e-4).floor() as u32;
+    (65280 / 255u32.saturating_sub(steps).max(1)).min(32767) as f32 / 256.0
 }
 
 /// A colour range's Lightness, applied after the master edits. It moves each channel towards the
@@ -1233,6 +1260,60 @@ mod tone_tests {
         apply(&a, &mut b);
         let p = b.px[0];
         assert!((p[0] - p[1]).abs() < 1e-6 && (p[1] - p[2]).abs() < 1e-6 && (p[0] - (0.4 + 0.6 * 0.17)).abs() < 1e-4, "{p:?}");
+    }
+
+    fn hdr(adj: &Adjustment, c: [f32; 3]) -> [f32; 3] {
+        let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[c[0], c[1], c[2], 1.0]] };
+        apply_depth(adj, &mut b, Transfer::Srgb, Some(SampleType::F32));
+        [b.px[0][0], b.px[0][1], b.px[0][2]]
+    }
+
+    #[test]
+    fn thirty_two_bit_saturation_steps_match_photoshop() {
+        for (sat, want) in [
+            (10.0, 539.0 / 512.0),
+            (75.0, 2.4609375),
+            (90.0, 2673.0 / 512.0),
+            (99.0, 32.375),
+            (100.0, 33023.0 / 512.0),
+            (-10.0, 487.0 / 512.0),
+            (-25.0, 0.875),
+            (-50.0, 0.75),
+            (-100.0, 0.5),
+        ] {
+            let adj = Adjustment::HueSaturation { hue: 0.0, saturation: sat, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+            let got = hdr(&adj, [1.0, 0.0, 0.0])[0];
+            assert!((got - want).abs() < 1e-4, "saturation {sat}: {got}, Photoshop {want}");
+        }
+    }
+
+    #[test]
+    fn thirty_two_bit_hue_saturation_keeps_bright_colours() {
+        let pale = [280.0 / 255.0, 230.0 / 255.0, 256.0 / 255.0];
+        let near = |got: [f32; 3], want: [f32; 3]| got.iter().zip(want).all(|(g, w)| (g - w).abs() <= 1e-3 * w.abs().max(1.0));
+        for (hue, sat, c, want) in [
+            (40.0, 0.0, [2.0, 0.0, 0.0], [2.0, 1.33301, 0.0]),
+            (40.0, 0.0, pale, [1.09804, 0.930687, 0.901961]),
+            (0.0, 25.0, [2.0, 0.0, 0.0], [2.32812, -0.328125, -0.328125]),
+            (0.0, 25.0, pale, [1.13021, 0.869792, 1.00521]),
+            (0.0, -25.0, [2.0, 0.0, 0.0], [1.75, 0.25, 0.25]),
+            (0.0, 100.0, [140.0 / 255.0, 115.0 / 255.0, 128.0 / 255.0], [6.77432, -5.77432, 0.750976]),
+            (0.0, 100.0, [2.0, 0.0, 0.0], [128.996, -126.996, -126.996]),
+        ] {
+            let adj = Adjustment::HueSaturation { hue, saturation: sat, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+            let got = hdr(&adj, c);
+            assert!(near(got, want), "hue {hue}, saturation {sat}, {c:?}: {got:?}, Photoshop {want:?}");
+        }
+        // A master plus a range edit that add up to a whole step stay on it: Reds +96 over a master
+        // -46 scales red as much as a master +50 alone (in f32 the sum is 0.49999997).
+        let mut ranges = HueRange::defaults();
+        ranges[0].saturation = 96.0;
+        let summed = Adjustment::HueSaturation { hue: 0.0, saturation: -46.0, lightness: 0.0, colorize: false, ranges };
+        let single = Adjustment::HueSaturation { hue: 0.0, saturation: 50.0, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        assert_eq!(hdr(&summed, [1.0, 0.0, 0.0]), hdr(&single, [1.0, 0.0, 0.0]));
+        // Lightness 0 with a negative channel divides by zero the same way.
+        let adj = Adjustment::HueSaturation { hue: 40.0, saturation: 25.0, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        assert!(hdr(&adj, [0.25, -0.25, 0.0]).iter().all(|v| v.is_finite()));
     }
 }
 
