@@ -419,7 +419,7 @@ fn template_model(ctx: &Ctx, im: &InstalledModel, name: &str, id: &Identity, mut
     {
         let reason = recipe.skipped.first().map(|u| u.detail.clone()).unwrap_or_default();
         let old_version = stored.and_then(|o| o.verified.as_ref()).map(|v| v.comfyui_version.clone()).unwrap_or_default();
-        m.issues.push(Issue::new("UsingLastGood", Some(key), &[("old", old_version), ("reason", reason)]));
+        m.issues.push(Issue::new("UsingLastGood", Some(key), &[("old", old_version), ("reason", reason)]).fix(Fix::Verify { model: name.to_owned() }));
         m.last_good = Some(old.clone());
         m.recipe = Some(old);
         m.status = Status::NeedsReverify;

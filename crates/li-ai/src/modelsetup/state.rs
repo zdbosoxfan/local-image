@@ -241,7 +241,8 @@ impl SetupState {
 
 /// Merges a freshly prepared model into the stored one: the person's choices and the
 /// verification survive; a stored verification, and the failures and warnings it found, count
-/// only while the tested recipe and file are unchanged (else the model needs a re-check).
+/// only while the tested recipe and file are unchanged and the recipe compiled on this server
+/// (else the model needs a re-check).
 pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &ServerState, comfyui_version: &str) -> ModelState {
     let Some(old) = stored else { return fresh };
     fresh.user = old.user.clone();
@@ -284,6 +285,8 @@ pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &Server
             fresh.issues.push(issue.fix(Fix::Verify { model: fresh.file.clone() }));
             Status::NeedsReverify
         }
+        // The tested recipe, kept after a failed recompile, hasn't run on this server yet.
+        None if fresh.status == Status::NeedsReverify => Status::NeedsReverify,
         None => {
             // The stored test still applies, and so do the failures and warnings it found.
             fresh.issues.extend(old.issues.iter().filter(|i| i.code.starts_with("Verify")).cloned());
@@ -384,6 +387,22 @@ mod tests {
         let codes: Vec<&str> = m.issues.iter().map(|i| i.code.as_str()).collect();
         assert_eq!(codes, ["LicenceUnknown", "FileChanged"]);
         assert!(matches!(&m.issues[1].fixes[..], [Fix::Verify { model }] if model == "m.safetensors"));
+    }
+
+    #[test]
+    fn a_recipe_kept_after_a_failed_recompile_needs_a_re_check() {
+        let empty = super::super::recipe_sha256(&TemplateRecipe::default());
+        let kept = ModelState {
+            status: Status::NeedsReverify,
+            file: "m.safetensors".into(),
+            fingerprint: Fingerprint { bytes: 10, ..Default::default() },
+            recipe: Some(TemplateRecipe::default()),
+            issues: vec![Issue::new("UsingLastGood", None, &[("old", "0.42.5".into()), ("reason", "a node is missing".into())])],
+            ..Default::default()
+        };
+        let m = merge(Some(&verified_model(&empty, "0.42.5")), kept, &ServerState::default(), "0.43.0");
+        assert_eq!(m.status, Status::NeedsReverify);
+        assert_eq!(m.issues.iter().map(|i| i.code.as_str()).collect::<Vec<_>>(), ["UsingLastGood"], "not \"still valid\"");
     }
 
     #[test]
