@@ -190,7 +190,7 @@ pub fn check(m: &ModelCheck) -> Checked {
                 }
                 issues.push(i);
             }
-            (Some(used), Why::Equivalent) => issues.push(Issue::new(
+            (Some(used), Why::Equivalent) if b.role != "main" => issues.push(Issue::new(
                 "UsingEquivalent",
                 key,
                 &[("model", m.label.to_owned()), ("declared", b.declared.clone()), ("installed", used.to_owned())],

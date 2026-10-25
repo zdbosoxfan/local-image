@@ -10,7 +10,7 @@ use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
 use super::index::TemplateEntry;
-use super::matching::{Capability, Match};
+use super::matching::{Capability, Match, Tier};
 use super::roles::{self, NegativeSlot, Slot};
 use super::{
     Controls, ImageRole, ImageSlot, InpaintWay, LatentSpec, RefCapacity, Slots, TaskGraph, TemplateDefaults, TemplateRecipe, TemplateSource, UpsamplerInfo,
@@ -375,11 +375,21 @@ fn source_graph(
     if let Some(e) = &c.enhanced {
         tg.enhanced = enhanced_graph(&tg, e, &s.matched.declared.stem, input, edit).map(Box::new);
     }
-    // Each file the template declares carries its download URL (the fix for a missing one).
+    // Each file the template declares carries its download URL (the fix for a missing one); the
+    // main file was bound by how it matched.
     let declared = super::index::declared_files(&s.entry.name, s.body);
+    let main_why = match s.matched.tier {
+        Tier::Exact => Why::Exact,
+        Tier::Stem | Tier::Variant => Why::SameStem,
+        Tier::Signature => Why::Equivalent,
+        Tier::Manual => Why::User,
+    };
     for b in tg.files.iter_mut().chain(tg.enhanced.iter_mut().flat_map(|e| e.files.iter_mut())) {
         if let Some(d) = declared.iter().find(|d| crate::comfy::normalized_name(&d.name) == crate::comfy::normalized_name(&b.declared)) {
             b.url.clone_from(&d.url);
+        }
+        if b.role == "main" {
+            b.why = main_why;
         }
     }
     let source = TemplateSource {

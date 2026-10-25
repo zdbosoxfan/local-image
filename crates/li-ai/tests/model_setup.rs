@@ -232,6 +232,12 @@ fn a_noise_render_fails_verification_and_names_the_vae() {
     assert_eq!(m.status, Status::Ready, "{:?}", m.issues);
     assert_eq!(m.identity.as_ref().unwrap().arch.as_deref(), Some("flux3-klein"));
     assert_eq!(m.templates.get("edit").map(String::as_str), Some("image_flux3_klein_distilled_image_edit"));
+    let main = m.bindings.iter().find(|b| b.role == "main").unwrap();
+    assert_eq!(
+        (main.used.as_deref(), main.declared.as_str(), main.why),
+        (Some("flux3-image-klein-bf16.safetensors"), "flux3-image-klein-int8-convrot.safetensors", li_ai::companions::Why::SameStem),
+        "the main file matched the template's by its stem"
+    );
     assert_eq!(ModelId::from_key(FLUX3_KEY).unwrap().info().family_label, li_ai::family::registry().family("flux3-klein").unwrap().label);
     let (w, h) = create_size(FLUX3_KEY);
     s.mock.queue_outputs([png(&noise(w, h))]);
