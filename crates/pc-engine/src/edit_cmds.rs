@@ -387,7 +387,7 @@ fn auto_adjust(s: &mut Session, kind: &str) -> Result<Value> {
         let sel = doc.selection.clone();
         let mode = doc.mode;
         let surf = doc.layer_mut(id).and_then(|l| l.surface_mut()).ok_or(EngineError::NoLayer(id))?;
-        crate::pixels::adjust_surface(surf, &adj, sel.as_ref(), mode);
+        crate::pixels::adjust_surface(surf, &adj, sel.as_ref(), mode).map_err(EngineError::Other)?;
         Ok(())
     })?;
     Ok(Value::Null)
