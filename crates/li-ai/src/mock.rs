@@ -30,6 +30,9 @@ struct State {
     model_dir: Option<std::path::PathBuf>,
     /// Prompts still executing (reported as `queue_running`).
     running: Vec<String>,
+    /// Prompts waiting forever (reported as `queue_pending`) once the worker has stopped.
+    pending: Vec<String>,
+    worker_stopped: bool,
     /// `POST /interrupt` calls.
     interrupts: u32,
     /// `/system_stats`, `/object_info` and the template folder in place of the built-in ones.
@@ -101,6 +104,14 @@ impl MockComfy {
     /// How many times `/interrupt` was called.
     pub fn interrupts(&self) -> u32 {
         self.state.lock().map(|s| s.interrupts).unwrap_or(0)
+    }
+
+    /// Stops running prompts, as ComfyUI does when its prompt worker has crashed: new prompts are
+    /// accepted and stay pending.
+    pub fn stop_worker(&self) {
+        if let Ok(mut s) = self.state.lock() {
+            s.worker_stopped = true;
+        }
     }
 
     /// Makes the next job end with an execution error (e.g. out of memory).
@@ -562,8 +573,10 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             }
         }
         ("GET", "/queue") => {
-            let running: Vec<Value> = st.lock().map(|s| s.running.iter().enumerate().map(|(i, id)| json!([i, id, {}, {}, []])).collect()).unwrap_or_default();
-            json_resp(req, 200, json!({ "queue_running": running, "queue_pending": [] }))
+            let item = |(i, id): (usize, &String)| json!([i, id, {}, {}, []]);
+            let (running, pending): (Vec<Value>, Vec<Value>) =
+                st.lock().map(|s| (s.running.iter().enumerate().map(item).collect(), s.pending.iter().enumerate().map(item).collect())).unwrap_or_default();
+            json_resp(req, 200, json!({ "queue_running": running, "queue_pending": pending }))
         }
         ("POST", "/interrupt") => {
             if let Ok(mut s) = st.lock() {
@@ -599,6 +612,12 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
                 s.next += 1;
                 s.prompts.push(graph.clone());
                 let id = format!("mock-{}", s.next);
+                if s.worker_stopped {
+                    s.pending.push(id.clone());
+                    drop(s);
+                    json_resp(req, 200, json!({ "prompt_id": id, "number": 1 }));
+                    return;
+                }
                 s.running.push(id.clone());
                 let output = s.next_output.take().or_else(|| s.queued_outputs.pop_front());
                 (id, output, s.queued_errors.pop_front())
@@ -641,8 +660,13 @@ fn handle(mut req: tiny_http::Request, st: &Arc<Mutex<State>>, delay: &Arc<Atomi
             let id = p.trim_start_matches("/api/jobs/").trim_end_matches("/cancel").to_owned();
             let mut cancelled = false;
             if let Ok(mut s) = st.lock() {
-                cancelled = s.running.iter().any(|r| r == &id);
-                if cancelled {
+                if let Some(i) = s.pending.iter().position(|p| *p == id) {
+                    s.pending.remove(i);
+                    cancelled = true;
+                }
+                let running = s.running.iter().any(|r| r == &id);
+                cancelled |= running;
+                if running {
                     s.running.retain(|r| *r != id);
                     s.history.insert(
                         id,

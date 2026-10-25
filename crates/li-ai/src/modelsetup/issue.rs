@@ -192,6 +192,7 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     ("UpsamplerInstalled", Severity::Info, "Prompt enhancer: installed (off by default)."),
     ("NotVerified", Severity::Info, "{model} hasn't been tested on this computer yet."),
     ("Busy", Severity::Info, "ComfyUI is busy. Verification starts when its queue is empty."),
+    ("Stalled", Severity::Blocker, "ComfyUI stopped processing prompts: a test waited over a minute while nothing ran. Restart ComfyUI, then verify again."),
     ("VerifyFailed:no_image", Severity::Blocker, "The {capability} test render produced no image."),
     ("VerifyFailed:wrong_size", Severity::Blocker, "The {capability} test image came back {got} instead of {want}."),
     (

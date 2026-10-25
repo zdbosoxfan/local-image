@@ -87,9 +87,12 @@ means the text encoder doesn't fit). Create failing marks the model failed; anot
 turns only that tool off until the model is verified again. Time, the first-run flag and the GPU memory in use during the test are recorded, and
 ComfyUI's memory is freed after each model.
 
-If a test times out while ComfyUI's queue shows the prompt as pending and nothing running,
-ComfyUI's prompt worker has stopped; restart ComfyUI. This was seen on ComfyUI 0.42.5 when
-`/free` followed several failed runs (an `IndexError` in `unload_all_models` in ComfyUI's log).
+If a test prompt waits in ComfyUI's queue for over a minute while nothing runs, ComfyUI's prompt
+worker has stopped: verification withdraws the prompt, stops (later models are not tested) and
+asks you to restart ComfyUI. This was seen on ComfyUI 0.42.5 when `/free` followed several failed
+runs (an `IndexError` in `unload_all_models` in ComfyUI's log). One verification runs at a time
+across the app and the CLI (`state/ai-verify.lock`); a lock left by a process that has ended, or
+not refreshed for two minutes, is taken over.
 
 A verification stays valid after a ComfyUI or template update when the recompiled graph is
 unchanged ("Still valid on ComfyUI …"); otherwise the model is marked for a quick re-check, and it

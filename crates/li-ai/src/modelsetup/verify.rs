@@ -44,6 +44,12 @@ pub const MASK_BOX: (f32, f32, f32, f32) = (0.70, 0.12, 0.86, 0.34);
 pub const RENDER_TIMEOUT: Duration = Duration::from_secs(600);
 /// How long to wait for someone else's queue before giving up (nothing is recorded).
 pub const BUSY_WAIT: Duration = Duration::from_secs(120);
+/// How long a test prompt may wait in ComfyUI's queue while nothing runs before ComfyUI's prompt
+/// worker is taken to have stopped (seen on 0.42.5 after `/free` followed failed runs).
+pub const STALL_LIMIT: Duration = Duration::from_secs(60);
+/// A verification lock whose holder hasn't confirmed it for this long is taken over.
+const LOCK_STALE: Duration = Duration::from_secs(120);
+const LOCK_HEARTBEAT: Duration = Duration::from_secs(20);
 
 const BLACK_LUMA: f64 = 8.0;
 const WHITE_LUMA: f64 = 247.0;
@@ -277,27 +283,79 @@ impl VramSampler {
     }
 }
 
-/// A per-render job that is cancelled after [`RENDER_TIMEOUT`] or when `parent` is.
-fn timed(parent: &JobControl) -> (JobControl, Arc<AtomicBool>) {
-    let ctl = JobControl::new();
-    let timed_out = Arc::new(AtomicBool::new(false));
-    let (c, p, flag) = (ctl.clone(), parent.clone(), timed_out.clone());
-    let _ = std::thread::Builder::new().name("verify-timeout".into()).spawn(move || {
-        let start = Instant::now();
-        while !c.is_cancelled() {
-            if p.is_cancelled() {
-                c.cancel();
-                break;
+/// ComfyUI accepted a test prompt but stopped processing prompts; the batch stops here and
+/// nothing is recorded for the model.
+#[derive(Debug)]
+pub struct Stalled;
+
+impl std::fmt::Display for Stalled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let text = super::issue::CATALOGUE.iter().find(|(c, _, _)| *c == "Stalled").map(|(_, _, t)| *t);
+        f.write_str(text.unwrap_or("ComfyUI stopped processing prompts. Restart it, then verify again."))
+    }
+}
+
+impl std::error::Error for Stalled {}
+
+/// A per-render job, cancelled when `parent` is, after `timeout`, or when ComfyUI keeps a prompt
+/// pending with nothing running for `stall_limit`.
+struct Watch {
+    ctl: JobControl,
+    timed_out: Arc<AtomicBool>,
+    stalled: Arc<AtomicBool>,
+}
+
+impl Watch {
+    fn start(parent: &JobControl, host: &str) -> Self {
+        Self::with_limits(parent, host, RENDER_TIMEOUT, STALL_LIMIT)
+    }
+
+    fn with_limits(parent: &JobControl, host: &str, timeout: Duration, stall_limit: Duration) -> Self {
+        let w = Self { ctl: JobControl::new(), timed_out: Arc::new(AtomicBool::new(false)), stalled: Arc::new(AtomicBool::new(false)) };
+        let (c, p, timed_out, stalled, client) = (w.ctl.clone(), parent.clone(), w.timed_out.clone(), w.stalled.clone(), ComfyClient::new(host));
+        let _ = std::thread::Builder::new().name("verify-watch".into()).spawn(move || {
+            let start = Instant::now();
+            let mut polled = start.checked_sub(Duration::from_secs(1)).unwrap_or(start);
+            let mut pending_since: Option<Instant> = None;
+            while !c.is_cancelled() {
+                if p.is_cancelled() {
+                    c.cancel();
+                    break;
+                }
+                if start.elapsed() > timeout {
+                    timed_out.store(true, Ordering::SeqCst);
+                    c.cancel();
+                    break;
+                }
+                if polled.elapsed() >= Duration::from_secs(1) {
+                    polled = Instant::now();
+                    if let Ok(q) = client.queue_state() {
+                        let busy = |k: &str| q[k].as_array().is_some_and(|a| !a.is_empty());
+                        if busy("queue_pending") && !busy("queue_running") {
+                            pending_since.get_or_insert(polled);
+                        } else {
+                            pending_since = None;
+                        }
+                    }
+                    if pending_since.is_some_and(|t| t.elapsed() >= stall_limit) {
+                        stalled.store(true, Ordering::SeqCst);
+                        c.cancel();
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(100));
             }
-            if start.elapsed() > RENDER_TIMEOUT {
-                flag.store(true, Ordering::SeqCst);
-                c.cancel();
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(200));
-        }
-    });
-    (ctl, timed_out)
+        });
+        w
+    }
+
+    fn timed_out(&self) -> bool {
+        self.timed_out.load(Ordering::SeqCst)
+    }
+
+    fn stalled(&self) -> bool {
+        self.stalled.load(Ordering::SeqCst)
+    }
 }
 
 /// Waits for ComfyUI's queue to be empty (up to [`BUSY_WAIT`]).
@@ -315,16 +373,42 @@ pub fn wait_idle(client: &ComfyClient, ctl: &JobControl) -> Result<bool> {
     }
 }
 
-/// A cross-process verification lock (`<state>/ai-verify.lock`: pid and start time; stale after
-/// ten minutes).
-pub struct VerifyLock(std::path::PathBuf);
+fn unix_now() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
+}
+
+/// Whether process `pid` runs (where `/proc` lists processes; elsewhere it is assumed to).
+fn process_alive(pid: u32) -> bool {
+    let proc = std::path::Path::new("/proc");
+    !proc.join("self").exists() || proc.join(pid.to_string()).exists()
+}
+
+/// A lock file's holder and the last time it confirmed the lock.
+fn lock_holder(path: &std::path::Path) -> Option<(u32, u64)> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut parts = text.split_whitespace();
+    Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+}
+
+/// A cross-process verification lock (`<state>/ai-verify.lock`: the holder's pid and the last
+/// time it confirmed the lock, which a heartbeat refreshes while it is held). A lock whose process
+/// has ended, or that wasn't confirmed for two minutes, is taken over.
+pub struct VerifyLock {
+    path: std::path::PathBuf,
+    stop: Arc<AtomicBool>,
+    heartbeat: Option<std::thread::JoinHandle<()>>,
+}
 
 impl VerifyLock {
     pub fn acquire(path: &std::path::Path) -> Option<Self> {
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        if let Ok(text) = std::fs::read_to_string(path) {
-            let started = text.split_whitespace().nth(1).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-            if now.saturating_sub(started) < 600 {
+        Self::acquire_every(path, LOCK_HEARTBEAT)
+    }
+
+    fn acquire_every(path: &std::path::Path, heartbeat: Duration) -> Option<Self> {
+        let now = unix_now();
+        if path.exists() {
+            let held = lock_holder(path).is_some_and(|(pid, at)| pid != 0 && process_alive(pid) && now.saturating_sub(at) < LOCK_STALE.as_secs());
+            if held {
                 return None;
             }
             let _ = std::fs::remove_file(path);
@@ -334,14 +418,43 @@ impl VerifyLock {
         }
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(path).ok()?;
         use std::io::Write;
-        let _ = write!(f, "{} {now}", std::process::id());
-        Some(Self(path.to_owned()))
+        let pid = std::process::id();
+        let _ = write!(f, "{pid} {now}");
+        let stop = Arc::new(AtomicBool::new(false));
+        let (p, s) = (path.to_owned(), stop.clone());
+        let beat = std::thread::Builder::new()
+            .name("verify-lock".into())
+            .spawn(move || {
+                let mut last = Instant::now();
+                while !s.load(Ordering::SeqCst) {
+                    std::thread::sleep(heartbeat.min(Duration::from_millis(200)));
+                    if last.elapsed() < heartbeat {
+                        continue;
+                    }
+                    last = Instant::now();
+                    // Only our own lock: one taken over is someone else's now.
+                    if lock_holder(&p).map(|(holder, _)| holder) != Some(pid) {
+                        break;
+                    }
+                    if let Err(e) = li_fs::atomic_write(&p, format!("{pid} {}", unix_now()).as_bytes()) {
+                        log::warn!("verification lock not refreshed: {e:#}");
+                    }
+                }
+            })
+            .ok();
+        Some(Self { path: path.to_owned(), stop, heartbeat: beat })
     }
 }
 
 impl Drop for VerifyLock {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(t) = self.heartbeat.take() {
+            let _ = t.join();
+        }
+        if lock_holder(&self.path).map(|(pid, _)| pid) == Some(std::process::id()) {
+            let _ = std::fs::remove_file(&self.path);
+        }
     }
 }
 
@@ -389,12 +502,12 @@ impl Runner<'_> {
     }
 
     fn run(&mut self, name: &str, req: &GenerateRequest, judge: &dyn Fn(&RgbaImage, &mut CapabilityResult)) -> Result<Option<RgbaImage>> {
-        let (job, timed_out) = timed(self.ctl);
+        let watch = Watch::start(self.ctl, self.host);
         let sampler = VramSampler::start(self.host);
         let start = Instant::now();
-        let result = self.ai.generate(req, &job);
+        let result = self.ai.generate(req, &watch.ctl);
         let mut r = CapabilityResult { seconds: start.elapsed().as_secs_f64(), cold: self.cold, peak_vram_gb: sampler.finish(), ..Default::default() };
-        job.cancel();
+        watch.ctl.cancel();
         self.cold = false;
         let image = match result {
             Ok(img) => {
@@ -402,7 +515,8 @@ impl Runner<'_> {
                 judge(&img, &mut r);
                 Some(img)
             }
-            Err(_) if timed_out.load(Ordering::SeqCst) => {
+            Err(_) if watch.stalled() => bail!(Stalled),
+            Err(_) if watch.timed_out() => {
                 r.failure = Some("VerifyTimeout".into());
                 None
             }
@@ -477,11 +591,11 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
     }
     // Refine: the recipe the app's refine checker uses, on its test picture.
     if let Some(recipe) = refine_recipe(t.model, variant, &client) {
-        let (job, timed_out) = timed(ctl);
+        let watch = Watch::start(ctl, host);
         let sampler = VramSampler::start(host);
         let start = Instant::now();
-        let res = crate::refine::preservation(&client, &recipe, seed.wrapping_add(2), &job);
-        job.cancel();
+        let res = crate::refine::preservation(&client, &recipe, seed.wrapping_add(2), &watch.ctl);
+        watch.ctl.cancel();
         let mut r = CapabilityResult { seconds: start.elapsed().as_secs_f64(), peak_vram_gb: sampler.finish(), ..Default::default() };
         match res {
             Ok((d, img)) => {
@@ -491,7 +605,8 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
                     r.failure = Some("VerifyFailed:refine_drift".into());
                 }
             }
-            Err(_) if timed_out.load(Ordering::SeqCst) => r.failure = Some("VerifyTimeout".into()),
+            Err(_) if watch.stalled() => bail!(Stalled),
+            Err(_) if watch.timed_out() => r.failure = Some("VerifyTimeout".into()),
             Err(_) if ctl.is_cancelled() => bail!(lightcraft_sysmem::jobs::Cancelled),
             Err(e) => {
                 r.failure = Some("VerifyFailed:error".into());
@@ -571,6 +686,44 @@ mod tests {
         assert_eq!(create_warnings(&blue), ["VerifyWarning:prompt"]);
         let edited = metrics(&ball(30, 40, 230), Some(&ball(230, 30, 30)));
         assert!(edit_warnings(&edited).is_empty(), "{edited:?}");
+    }
+
+    #[test]
+    fn a_verification_lock_is_held_by_a_live_process_only() {
+        let dir = std::env::temp_dir().join(format!("li-verify-lock-{}", uuid::Uuid::new_v4().simple()));
+        let p = dir.join("ai-verify.lock");
+        let held = VerifyLock::acquire(&p).unwrap();
+        assert!(VerifyLock::acquire(&p).is_none(), "held by this live process");
+        drop(held);
+        assert!(!p.exists(), "released");
+        // A run killed mid-batch left its lock behind.
+        if std::path::Path::new("/proc/self").exists() {
+            std::fs::write(&p, format!("{} {}", u32::MAX - 1, unix_now())).unwrap();
+            assert!(VerifyLock::acquire(&p).is_some(), "its process is gone");
+        }
+        // A holder that stopped confirming the lock.
+        std::fs::write(&p, format!("{} {}", std::process::id(), unix_now() - LOCK_STALE.as_secs() - 1)).unwrap();
+        let taken = VerifyLock::acquire_every(&p, Duration::from_millis(50)).unwrap();
+        // The heartbeat keeps a long batch's lock confirmed.
+        std::fs::write(&p, format!("{} {}", std::process::id(), unix_now() - 3600)).unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(lock_holder(&p).is_some_and(|(_, at)| unix_now() - at < 5), "{:?}", lock_holder(&p));
+        drop(taken);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_prompt_left_pending_while_nothing_runs_stops_the_test() {
+        let mock = crate::mock::MockComfy::start().unwrap();
+        mock.stop_worker();
+        let watch = Watch::with_limits(&JobControl::new(), mock.host(), Duration::from_secs(60), Duration::from_millis(300));
+        let started = Instant::now();
+        let graph = serde_json::json!({ "1": { "class_type": "SaveImage", "inputs": {} } });
+        let result = ComfyClient::new(mock.host()).run_when_idle(graph, &[], &watch.ctl);
+        assert!(result.is_err());
+        assert!(watch.stalled() && !watch.timed_out());
+        assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+        assert!(ComfyClient::new(mock.host()).queue_state().unwrap()["queue_pending"].as_array().unwrap().is_empty(), "our prompt was withdrawn");
     }
 
     #[test]

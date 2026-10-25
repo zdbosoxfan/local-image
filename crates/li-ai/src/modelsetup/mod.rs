@@ -680,7 +680,8 @@ pub fn status_after(v: &state::Verified) -> Status {
 }
 
 /// Verifies the models `keys` one at a time (after [`scan`]), frees ComfyUI's memory after each,
-/// and stores the results. `progress` sees each finished capability.
+/// and stores the results. `progress` sees each finished capability. Stops at the first model
+/// whose test finds ComfyUI no longer processing prompts.
 pub fn verify_models(
     opts: &Options,
     scan: &Scan,
@@ -735,6 +736,11 @@ pub fn verify_models(
                 Ok(v)
             }
             Err(e) if e.is::<Busy>() => Err(Busy.to_string()),
+            Err(e) if e.is::<verify::Stalled>() => {
+                // Every later test would wait on the same stopped worker.
+                out.push(Verification { key: key.clone(), label: m.label.clone(), result: Err(e.to_string()) });
+                break;
+            }
             Err(e) => {
                 if ctl.is_cancelled() {
                     return Err(e);
