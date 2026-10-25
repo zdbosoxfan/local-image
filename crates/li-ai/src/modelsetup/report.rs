@@ -213,11 +213,11 @@ fn capability_label(c: &CapabilityReport) -> String {
         "upscale" => "Upscale",
         other => other,
     };
-    let detail = if c.detail.is_empty() || c.state == "ready" || c.state == "verified" { String::new() } else { format!(" ({})", c.state) };
+    let state = if matches!(c.state.as_str(), "ready" | "verified") { String::new() } else { format!(" ({})", c.state) };
     if matches!(c.name.as_str(), "references" | "style" | "edit") && c.detail.chars().all(|x| x.is_ascii_digit()) && !c.detail.is_empty() {
-        return format!("{name} {}{detail}", c.detail);
+        return format!("{name} {}{state}", c.detail);
     }
-    format!("{name}{detail}")
+    format!("{name}{state}")
 }
 
 /// The plain-text report.
@@ -299,8 +299,11 @@ pub fn render_text(r: &Report) -> String {
     }
     if !r.issues.is_empty() {
         o.push_str(&format!("\nISSUES ({})\n", r.issues.len()));
+        // An issue about a model names it, unless its sentence already does.
+        let label = |key: &str| r.models.iter().find(|m| m.key == key || m.file == key).map(|m| m.label.as_str());
         for (n, i) in r.issues.iter().enumerate() {
-            o.push_str(&format!("  {}. [{}] {}\n", n + 1, i.severity.label(), i.message));
+            let about = i.model.as_deref().and_then(label).filter(|l| !l.is_empty() && !i.message.contains(*l)).map(|l| format!("{l}: ")).unwrap_or_default();
+            o.push_str(&format!("  {}. [{}] {about}{}\n", n + 1, i.severity.label(), i.message));
             for f in &i.fixes {
                 o.push_str(&format!("     fix: {}\n", f.label));
             }
@@ -374,5 +377,18 @@ mod tests {
             vec![cap("create", "verified", ""), cap("style", "ready", "3"), cap("refine", "verified", ""), cap("upscale", "verified", "uses Refine")];
         let t = render_text(&r);
         assert!(t.contains("Create, Refine, Upscale - verified; not tested: Style references 3\n"), "{t}");
+        // A partly verified model marks the tool that failed, and the failure names the model.
+        r.models[0].status = "partially_verified".into();
+        r.models[0].capabilities = vec![cap("create", "verified", ""), cap("inpaint", "failed", ""), cap("style", "blocked", "3")];
+        r.issues = vec![IssueReport {
+            code: "VerifyFailed:black".into(),
+            severity: Severity::Blocker,
+            model: Some("unet:flux3.safetensors".into()),
+            message: "The Fill test image came out black.".into(),
+            ..Default::default()
+        }];
+        let t = render_text(&r);
+        assert!(t.contains("Create, Fill (failed), Style references 3 (blocked)\n"), "{t}");
+        assert!(t.contains("1. [blocker] FLUX.3 Klein · distilled · BF16: The Fill test image came out black.\n"), "{t}");
     }
 }
