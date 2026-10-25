@@ -128,6 +128,13 @@ pub enum Outcome {
 /// it any more; `Err`: the model failed).
 #[derive(Clone, Debug, PartialEq)]
 pub struct MaskFill {
+    /// The uncropped coordinate mapping the model read.
+    pub geometry: String,
+    /// Source pixels and raw decoding the model read.
+    pub source: String,
+    pub raw: u64,
+    /// The shape that requested this segmentation, before the worker filled it.
+    pub shape: lightcraft_develop::MaskShape,
     pub mask: u32,
     pub comp: usize,
     pub seg: Result<Option<lightcraft_develop::SegMask>, String>,

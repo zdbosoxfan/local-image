@@ -71,8 +71,34 @@ impl Kind {
     }
 }
 
+/// The uncropped coordinate system of a quick-model mask. A stored automatic Upright solve
+/// completes the same mapping; crop and tone edits do not move these mask coordinates.
+fn mask_geometry(s: &lightcraft_develop::DevelopSettings) -> String {
+    let mut geometry = s.geometry.clone();
+    if matches!(
+        geometry.upright,
+        lightcraft_develop::Upright::Auto
+            | lightcraft_develop::Upright::Level
+            | lightcraft_develop::Upright::Vertical
+            | lightcraft_develop::Upright::Full
+    ) {
+        geometry.upright_transform = None;
+    }
+    lightcraft_preview::Hasher128::new()
+        .str(&format!(
+            "{:?}",
+            (s.orientation, s.section_enabled("optics"), &s.optics, &s.lens_db, &s.lens_profile, s.section_enabled("geometry"), geometry)
+        ))
+        .finish()
+        .to_string()
+}
+
 /// A quick-model run prepared on the session's thread; [`QuickRun::run`] does the work anywhere.
 pub(crate) struct QuickRun {
+    geometry: String,
+    source: String,
+    raw: u64,
+    shape: MaskShape,
     kind: Kind,
     invert: bool,
     dir: std::path::PathBuf,
@@ -255,7 +281,16 @@ impl Session {
         let mut settings = settings?.clone();
         settings.masks.clear();
         let render = self.preview_job(id, INPUT_EDGE, INPUT_EDGE, false, &settings)?;
-        Some(QuickRun { kind, invert: matches!(shape, MaskShape::Background { .. }), dir, render })
+        Some(QuickRun {
+            geometry: mask_geometry(&settings),
+            source: crate::enhance::source_hash(self.catalog.photo(id)?),
+            raw: crate::enhance::denoise::source_options(&settings),
+            shape: shape.clone(),
+            kind,
+            invert: matches!(shape, MaskShape::Background { .. }),
+            dir,
+            render,
+        })
     }
 
     /// Runs `runs` (component `.1` of mask `.0` on photo `id`) as one background job, after any
@@ -273,7 +308,16 @@ impl Session {
             for (i, (mask, comp, run)) in runs.into_iter().enumerate() {
                 ctl.check()?;
                 ctl.report(i as f32 / total as f32, "Finding the mask");
-                fills.push(crate::enhance::MaskFill { mask, comp, seg: run.run(ctl.cancel_flag()), new_mask: new_masks });
+                fills.push(crate::enhance::MaskFill {
+                    geometry: run.geometry.clone(),
+                    source: run.source.clone(),
+                    raw: run.raw,
+                    shape: run.shape.clone(),
+                    mask,
+                    comp,
+                    seg: run.run(ctl.cancel_flag()),
+                    new_mask: new_masks,
+                });
             }
             Ok(crate::enhance::Outcome::Masks(fills))
         });
@@ -284,14 +328,25 @@ impl Session {
     /// now (a mask removed or changed meanwhile is left alone). The models' errors.
     pub(crate) fn apply_mask_fills(&mut self, id: PhotoId, fills: Vec<crate::enhance::MaskFill>) -> (bool, Vec<String>) {
         let Some(d) = self.develop_of(id) else { return (false, vec![]) };
+        let source = self.catalog.photo(id).map(|p| crate::enhance::source_hash(p));
+        let raw = crate::enhance::denoise::source_options(&d);
+        let geometry = mask_geometry(&d);
         let mut d = (*d).clone();
         let (mut changed, mut errors) = (false, Vec::new());
         for f in fills {
+            if source.as_ref() != Some(&f.source) || raw != f.raw || geometry != f.geometry {
+                continue;
+            }
+            let Some(m) = d.masks.iter_mut().find(|m| m.id == f.mask) else { continue };
+            let single = m.components.len() == 1;
+            let Some(c) = m.components.get_mut(f.comp) else { continue };
+            // A depth map is independent of its selected distance band.
+            let depth = matches!((&c.shape, &f.shape), (MaskShape::DepthRange { seg: None, .. }, MaskShape::DepthRange { seg: None, .. }));
+            if c.shape != f.shape && !depth {
+                continue;
+            }
             match f.seg {
                 Ok(Some(seg)) => {
-                    let Some(m) = d.masks.iter_mut().find(|m| m.id == f.mask) else { continue };
-                    let single = m.components.len() == 1;
-                    let Some(c) = m.components.get_mut(f.comp) else { continue };
                     if fill(&mut c.shape, seg) {
                         changed = true;
                         if f.new_mask && single && m.refine == 0.0 {
@@ -493,6 +548,147 @@ mod tests {
     }
 
     #[test]
+    fn background_mask_results_leave_changed_shapes_alone() {
+        use crate::enhance::MaskFill;
+        use serde_json::json;
+        let mut s = Session::with_demo();
+        let id = s.active().unwrap();
+        s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+        let mask = s.develop_of(id).unwrap().masks.last().unwrap().id;
+        let pending = MaskFill {
+            geometry: mask_geometry(&s.develop_of(id).unwrap()),
+            source: crate::enhance::source_hash(s.catalog.photo(id).unwrap()),
+            raw: crate::enhance::denoise::source_options(&s.develop_of(id).unwrap()),
+            shape: MaskShape::Sky { seg: None },
+            mask,
+            comp: 0,
+            seg: Ok(Some(to_segmask(&[0.9; 64], 8, 8, false, GRID))),
+            new_mask: true,
+        };
+        s.execute("mask.update", &json!({"id": mask, "shape": {"kind": "subject"}})).unwrap();
+        let (changed, errors) = s.apply_mask_fills(id, vec![pending]);
+        assert!(!changed && errors.is_empty(), "late sky coverage must not become subject coverage");
+        assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Subject { seg: None });
+    }
+
+    #[test]
+    fn background_mask_results_leave_replaced_sources_alone() {
+        use crate::enhance::MaskFill;
+        use lightcraft_catalog::Op;
+        use serde_json::json;
+        let mut s = Session::with_demo();
+        let id = s.active().unwrap();
+        s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+        let photo = s.catalog.photo(id).unwrap().clone();
+        let pending = MaskFill {
+            geometry: mask_geometry(&s.develop_of(id).unwrap()),
+            source: crate::enhance::source_hash(&photo),
+            raw: crate::enhance::denoise::source_options(&photo.develop),
+            shape: MaskShape::Sky { seg: None },
+            mask: photo.develop.masks.last().unwrap().id,
+            comp: 0,
+            seg: Ok(Some(to_segmask(&[0.9; 64], 8, 8, false, GRID))),
+            new_mask: true,
+        };
+        s.catalog
+            .apply(Op::SetContent {
+                id,
+                width: photo.width,
+                height: photo.height,
+                file_size: photo.file_size,
+                content_hash: Some("replacement".into()),
+                preview_only: None,
+            })
+            .unwrap();
+        let (changed, errors) = s.apply_mask_fills(id, vec![pending]);
+        assert!(!changed && errors.is_empty(), "late coverage belongs to the original source");
+        assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: None });
+    }
+
+    #[test]
+    fn background_mask_results_leave_changed_mapping_and_decoding_alone() {
+        use crate::enhance::MaskFill;
+        use serde_json::json;
+        for change in ["orientation", "geometry", "lens", "raw"] {
+            let mut s = Session::with_demo();
+            let id = s.active().unwrap();
+            s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
+            let original = s.develop_of(id).unwrap();
+            let pending = MaskFill {
+                geometry: mask_geometry(&original),
+                source: crate::enhance::source_hash(s.catalog.photo(id).unwrap()),
+                raw: crate::enhance::denoise::source_options(&original),
+                shape: MaskShape::Sky { seg: None },
+                mask: original.masks[0].id,
+                comp: 0,
+                seg: Ok(Some(to_segmask(&[0.9; 64], 8, 8, false, GRID))),
+                new_mask: true,
+            };
+            let mut edited = (*original).clone();
+            match change {
+                "orientation" => edited.orientation = lightcraft_geom::Orientation::Rotate90,
+                "geometry" => edited.geometry.vertical = 12.0,
+                "lens" => edited.optics.distortion = 20.0,
+                "raw" => edited.raw.demosaic = lightcraft_develop::Demosaic::Rcd,
+                _ => unreachable!(),
+            }
+            s.set_develop(id, edited, "Edit").unwrap();
+            let (changed, errors) = s.apply_mask_fills(id, vec![pending]);
+            assert!(!changed && errors.is_empty(), "late coverage must not survive changed {change}");
+            assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: None });
+        }
+    }
+
+    #[test]
+    fn background_mask_results_keep_crop_tone_depth_and_completed_upright_edits() {
+        use crate::enhance::MaskFill;
+        use serde_json::json;
+        for change in ["crop", "tone", "depth", "upright"] {
+            let mut s = Session::with_demo();
+            let id = s.active().unwrap();
+            s.execute("mask.add", &json!({"kind": if change == "depth" { "depth" } else { "sky" }})).unwrap();
+            let mut original = (*s.develop_of(id).unwrap()).clone();
+            if change == "upright" {
+                original.geometry.upright = lightcraft_develop::Upright::Auto;
+                s.set_develop(id, original.clone(), "Auto Upright").unwrap();
+            }
+            let seg = to_segmask(&[0.9; 64], 8, 8, false, GRID);
+            let pending = MaskFill {
+                geometry: mask_geometry(&original),
+                source: crate::enhance::source_hash(s.catalog.photo(id).unwrap()),
+                raw: crate::enhance::denoise::source_options(&original),
+                shape: original.masks[0].components[0].shape.clone(),
+                mask: original.masks[0].id,
+                comp: 0,
+                seg: Ok(Some(seg.clone())),
+                new_mask: true,
+            };
+            let mut edited = original;
+            match change {
+                "crop" => edited.crop.geometry.rect = lightcraft_geom::Rect::new(0.1, 0.1, 0.9, 0.9),
+                "tone" => {
+                    edited.light.exposure = 1.0;
+                    edited.masks[0].opacity = 40.0;
+                }
+                "depth" => {
+                    if let MaskShape::DepthRange { lo, hi, .. } = &mut edited.masks[0].components[0].shape {
+                        *lo = 0.2;
+                        *hi = 0.8;
+                    }
+                }
+                "upright" => edited.geometry.upright_transform = Some(lightcraft_geom::Homography::IDENTITY),
+                _ => unreachable!(),
+            }
+            s.set_develop(id, edited.clone(), "Edit").unwrap();
+            let (changed, errors) = s.apply_mask_fills(id, vec![pending]);
+            assert!(changed && errors.is_empty(), "a {change} edit does not invalidate coverage");
+            fill(&mut edited.masks[0].components[0].shape, seg);
+            edited.masks[0].refine = MODEL_EDGE_REFINE;
+            assert_eq!(*s.develop_of(id).unwrap(), edited, "the user's {change} edit must survive filling");
+        }
+    }
+
+    #[test]
     fn background_masks_fill_only_the_shapes_they_were_made_for() {
         use crate::enhance::MaskFill;
         use serde_json::json;
@@ -503,7 +699,27 @@ mod tests {
         }
         let ids: Vec<u32> = s.develop_of(id).unwrap().masks.iter().map(|m| m.id).collect();
         let seg = to_segmask(&[0.9; 64], 8, 8, false, GRID);
-        let fills = [ids[0], ids[1], ids[2], 999].map(|mask| MaskFill { mask, comp: 0, seg: Ok(Some(seg.clone())), new_mask: true }).to_vec();
+        let source = crate::enhance::source_hash(s.catalog.photo(id).unwrap());
+        let raw = crate::enhance::denoise::source_options(&s.develop_of(id).unwrap());
+        let fills = [ids[0], ids[1], ids[2], 999]
+            .map(|mask| MaskFill {
+                geometry: mask_geometry(&s.develop_of(id).unwrap()),
+                source: source.clone(),
+                raw,
+                shape: s
+                    .develop_of(id)
+                    .unwrap()
+                    .masks
+                    .iter()
+                    .find(|m| m.id == mask)
+                    .map(|m| m.components[0].shape.clone())
+                    .unwrap_or(MaskShape::Sky { seg: None }),
+                mask,
+                comp: 0,
+                seg: Ok(Some(seg.clone())),
+                new_mask: true,
+            })
+            .to_vec();
         let (changed, errors) = s.apply_mask_fills(id, fills);
         assert!(changed && errors.is_empty());
         let d = s.develop_of(id).unwrap();
@@ -513,13 +729,37 @@ mod tests {
         assert!(!is_model_mask(&d.masks[2].components[0].shape) && d.masks[2].refine == 0.0, "a radial mask is not a model's");
         // a mask that has its segmentation already (filled meanwhile) is left alone
         let other = to_segmask(&[0.1; 64], 8, 8, false, GRID);
-        let (changed, _) = s.apply_mask_fills(id, vec![MaskFill { mask: ids[0], comp: 0, seg: Ok(Some(other)), new_mask: true }]);
+        let (changed, _) = s.apply_mask_fills(
+            id,
+            vec![MaskFill {
+                geometry: mask_geometry(&s.develop_of(id).unwrap()),
+                source: source.clone(),
+                raw,
+                shape: MaskShape::Sky { seg: None },
+                mask: ids[0],
+                comp: 0,
+                seg: Ok(Some(other)),
+                new_mask: true,
+            }],
+        );
         assert!(!changed);
         assert_eq!(s.develop_of(id).unwrap().masks[0].components[0].shape, MaskShape::Sky { seg: Some(seg.clone()) });
         // a mask pasted, synced or applied from a preset keeps its own Refine Edges
         s.execute("mask.add", &json!({"kind": "sky"})).unwrap();
         let pasted = s.develop_of(id).unwrap().masks.last().unwrap().id;
-        let (changed, _) = s.apply_mask_fills(id, vec![MaskFill { mask: pasted, comp: 0, seg: Ok(Some(seg)), new_mask: false }]);
+        let (changed, _) = s.apply_mask_fills(
+            id,
+            vec![MaskFill {
+                geometry: mask_geometry(&s.develop_of(id).unwrap()),
+                source: source.clone(),
+                raw,
+                shape: MaskShape::Sky { seg: None },
+                mask: pasted,
+                comp: 0,
+                seg: Ok(Some(seg)),
+                new_mask: false,
+            }],
+        );
         assert!(changed);
         let d = s.develop_of(id).unwrap();
         let m = d.masks.last().unwrap();
