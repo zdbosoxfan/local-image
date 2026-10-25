@@ -101,6 +101,10 @@ pub fn move_file(model_dir: &Path, file: &str, to_folder: &str) -> Result<Moved>
         bail!("{} already exists", to.display());
     }
     let parent = to.parent().context("no target folder")?;
+    let existing = parent.ancestors().find(|p| p.exists()).context("no existing target ancestor")?;
+    if !existing.canonicalize()?.starts_with(&root) {
+        bail!("{} leaves the model folder", parent.display());
+    }
     std::fs::create_dir_all(parent)?;
     if !parent.canonicalize()?.starts_with(&root) {
         bail!("{} leaves the model folder", parent.display());
@@ -267,5 +271,18 @@ mod tests {
         assert_eq!(plan.files.len(), 1);
         assert_eq!((plan.files[0].url.as_str(), plan.files[0].bytes, plan.files[0].sha256.as_str()), (m.url.as_str(), m.bytes, m.sha256.as_str()));
         assert_eq!(plan.files[0].folder, "vae");
+    }
+    #[cfg(unix)]
+    #[test]
+    fn a_destination_symlink_cannot_create_directories_outside_the_model_folder() {
+        let models = dir();
+        let outside = dir();
+        std::fs::create_dir_all(models.0.join("diffusion_models/nested")).unwrap();
+        let source = models.0.join("diffusion_models/nested/model.safetensors");
+        std::fs::write(&source, b"model").unwrap();
+        std::os::unix::fs::symlink(&outside.0, models.0.join("vae")).unwrap();
+        assert!(move_file(&models.0, "nested/model.safetensors", "vae").is_err());
+        assert!(!outside.0.join("nested").exists(), "a refused move must leave the outside directory untouched");
+        assert_eq!(std::fs::read(source).unwrap(), b"model");
     }
 }
