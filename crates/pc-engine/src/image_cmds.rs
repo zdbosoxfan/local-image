@@ -235,6 +235,11 @@ fn translate_doc(doc: &mut Document, cmd: &str, dx: i32, dy: i32) -> Result<()> 
     };
     let mut ok = true;
     for_each_surface(&mut doc.layers, true, &mut |surf, _| ok = ok && fits(surf.content_bounds()));
+    for_each_layer(&mut doc.layers, &mut |l| {
+        if let Some(video) = &l.video {
+            ok = ok && video.frames.iter().all(|frame| fits(frame.content_bounds()));
+        }
+    });
     ok = ok
         && doc.channels.iter().chain(doc.quick_mask.as_ref()).all(|ch| fits(ch.surface.content_bounds()))
         && doc.selection.as_ref().is_none_or(|sel| fits(sel.content_bounds()));
@@ -242,6 +247,13 @@ fn translate_doc(doc: &mut Document, cmd: &str, dx: i32, dy: i32) -> Result<()> 
         return Err(bad(cmd, format!("moving the document by ({dx}, {dy}) would push its pixels outside the 32-bit coordinate range")));
     }
     for_each_surface(&mut doc.layers, true, &mut |surf, _| *surf = translate_surface(surf, dx, dy));
+    for_each_layer(&mut doc.layers, &mut |l| {
+        if let Some(video) = &mut l.video {
+            for frame in &mut video.frames {
+                *frame = translate_surface(frame, dx, dy);
+            }
+        }
+    });
     for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
         ch.surface = translate_surface(&ch.surface, dx, dy);
     }
@@ -259,13 +271,30 @@ pub(crate) fn crop_to(doc: &mut Document, r: Rect) -> Result<()> {
     crop_doc(doc, "image.perspectiveCrop", r, true)
 }
 
+/// Crops editable pixel data, preserving type and smart-object caches for later movement.
+fn delete_cropped_pixels(layers: &mut [Layer], r: Rect) {
+    for_each_layer(layers, &mut |l| {
+        if let Some(cache) = &mut l.fill_cache {
+            cache.surface = crop_surface(&cache.surface, r);
+        }
+        if let Some(video) = &mut l.video {
+            for frame in &mut video.frames {
+                *frame = crop_surface(frame, r);
+            }
+        }
+        if let LayerContent::Raster(surface) = &mut l.content {
+            *surface = crop_surface(surface, r);
+        }
+    });
+}
+
 fn crop_doc(doc: &mut Document, cmd: &str, r: Rect, delete_pixels: bool) -> Result<()> {
     // The origin moves to (0, 0); `-i32::MIN` has no i32 value (upstream 0c2c268c, #959).
     let (Some(dx), Some(dy)) = (r.x0.checked_neg(), r.y0.checked_neg()) else {
         return Err(bad(cmd, format!("the crop origin ({}, {}) can't be moved to (0, 0) within the 32-bit coordinate range", r.x0, r.y0)));
     };
     if delete_pixels {
-        for_each_surface(&mut doc.layers, false, &mut |surf, _| *surf = crop_surface(surf, r));
+        delete_cropped_pixels(&mut doc.layers, r);
     }
     translate_doc(doc, cmd, dx, dy)?;
     doc.size = Size::new(r.width(), r.height());
@@ -967,5 +996,51 @@ mod tests {
         assert_eq!(s.documents().len(), 2);
         assert_eq!(doc(&s).layers.len(), 1);
         assert!(doc(&s).name.ends_with("copy"));
+    }
+    #[test]
+    fn delete_cropped_pixels_crops_stored_video_frames() {
+        for delete in [false, true] {
+            let mut s = session();
+            s.edit("video", |doc, active| {
+                let l = doc.layer_mut(active.unwrap()).unwrap();
+                let red = l.surface().unwrap().clone();
+                let mut blue = red.clone();
+                blue.fill_rect(Rect::new(0, 0, 40, 20), &[0.0, 0.0, 1.0, 1.0]);
+                l.video = Some(photocraft_doc::VideoData::new(vec![red, blue], 24.0));
+                doc.timeline = Some(photocraft_doc::Timeline::new(2, 24.0));
+                Ok(())
+            })
+            .unwrap();
+            let before = doc(&s).layers[1].video.as_ref().unwrap().frames.clone();
+            s.execute("image.crop", json!({"x": 15, "y": 0, "width": 25, "height": 20, "deleteCroppedPixels": delete})).unwrap();
+            assert_eq!(doc(&s).size, Size::new(25, 20));
+            let v = doc(&s).layers[1].video.as_ref().unwrap();
+            assert_eq!(v.frames.len(), 2);
+            assert_eq!(v.frames[0].content_bounds(), Rect::new(if delete { 0 } else { -5 }, 5, 5, 15));
+            assert_eq!(v.frames[0].pixel(2, 10), vec![1.0, 0.0, 0.0, 1.0]);
+            let blue_bounds = Rect::new(if delete { 0 } else { -15 }, 0, 25, 20);
+            assert_eq!(v.frames[1].content_bounds(), blue_bounds);
+            assert_eq!(v.frames[1].pixel(24, 19), vec![0.0, 0.0, 1.0, 1.0]);
+            s.execute("timeline.setFrame", json!({"frame": 1})).unwrap();
+            assert_eq!(doc(&s).layers[1].surface().unwrap().content_bounds(), blue_bounds, "scrubbing preserves the crop");
+            assert!(s.undo());
+            let restored = &doc(&s).layers[1].video.as_ref().unwrap().frames;
+            for (got, want) in restored.iter().zip(&before) {
+                assert!(got == want, "undo restores the stored frame pixels");
+            }
+        }
+    }
+
+    #[test]
+    fn delete_cropped_pixels_keeps_type_and_smart_objects_whole() {
+        let mut s = session();
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        s.execute("type.create", json!({"x": 10, "y": 15, "text": "Hi", "size": 12})).unwrap();
+        let bounds = |s: &Session| -> Vec<Rect> { doc(s).layers[1..].iter().map(|l| l.surface().unwrap().content_bounds()).collect() };
+        let before = bounds(&s);
+        assert!(before.iter().all(|b| b.x0 < 15 && b.x1 > 15), "both cross the crop edge: {before:?}");
+        s.execute("image.crop", json!({"x": 15, "y": 0, "width": 25, "height": 20})).unwrap();
+        assert!(matches!(doc(&s).layers[1].content, LayerContent::Smart(_)) && matches!(doc(&s).layers[2].content, LayerContent::Text(_)));
+        assert_eq!(bounds(&s), before.iter().map(|b| b.translate(-15, 0)).collect::<Vec<_>>());
     }
 }
