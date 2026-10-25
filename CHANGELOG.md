@@ -44,6 +44,8 @@ All notable changes to Local Image are recorded here. The format follows
 
 - RAW capture sharpening leaves flat areas beyond the contrast mask's blur unchanged, keeping
   CPU and GPU previews consistent at high iteration counts.
+- Develop: the scene gamut knee preserves its colour response across exposure changes, including
+  very bright HDR values.
 
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real

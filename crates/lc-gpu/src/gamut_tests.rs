@@ -23,6 +23,11 @@ fn colours() -> Vec<[f32; 3]> {
             }
         }
     }
+    for c in [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [-0.1, 0.5, 0.2], [0.8, -0.02, 0.1]] {
+        for exposure in [1e-6, 0.01, 10.0, 1000.0, 1e6, 1e30] {
+            out.push(c.map(|v| v * exposure));
+        }
+    }
     let mut state = 0x9e37_79b9u32;
     for _ in 0..20_000 {
         out.push(std::array::from_fn(|_| {
@@ -55,6 +60,7 @@ fn gamut_knees_match_the_cpu() {
         for (d, q) in colours.iter().zip(gpu.as_chunks::<6>().0) {
             let cpu_out = gamut::output(*d, mul3(&to_out, *d), &lms, GAMUT_KNEE);
             let cpu_scene = gamut::scene(*d, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT);
+            assert!(q.iter().chain(&cpu_out).chain(&cpu_scene).all(|v| v.is_finite()), "{} at {d:?}: {q:?}", space.label());
             let scale = |c: [f32; 3]| c.iter().fold(1f32, |m, v| m.max(v.abs()));
             let e_out = (0..3).map(|k| (cpu_out[k] - q[k]).abs()).fold(0f32, f32::max) / scale(cpu_out);
             let e_scene = (0..3).map(|k| (cpu_scene[k] - q[3 + k]).abs()).fold(0f32, f32::max) / scale(cpu_scene);

@@ -245,8 +245,8 @@ impl Line {
     /// The gamut's extent along the line: the integral over `0..hi` of [`Line::depth`] across
     /// `zone`. Where the line leaves the gamut once, that is its edge, moved half the zone outwards
     /// or inwards; folds the line passes through shorten it by how deep they reach, so it moves
-    /// smoothly with the colour. Exact for the cubic depth within the zone (3-point Gauss–Legendre
-    /// between the points where a channel enters or leaves it).
+    /// smoothly with the colour. Uses 3-point Gauss–Legendre quadrature between the points where a
+    /// channel enters or leaves the zone; changes of the limiting face within a piece are approximate.
     fn extent(&self, m: &M3, upper: bool, zone: (f32, f32), hi: f32) -> f32 {
         let mut cuts = [0f32; 38];
         let mut n = 2;
@@ -290,10 +290,13 @@ impl Line {
     /// The scene knee on this line (Rec. 2020 without an upper bound); `None` inside the knee.
     fn scene(&self, knee: f32, limit: f32) -> Option<[f32; 3]> {
         let w = &mats().working;
-        if self.stays_inside(w, false, 0.0, 1.0 / knee) {
+        // The scene gamut is a cone: normalizing lightness keeps its boundary independent of
+        // exposure and the cubic coefficients small enough for HDR samples.
+        let normalized = Self { l: 1.0, c: self.c / self.l, d: self.d.map(|v| v / self.l) };
+        if normalized.stays_inside(w, false, 0.0, 1.0 / knee) {
             return None;
         }
-        let t = self.compressed(self.extent(w, false, (0.0, 0.0), self.reach()), knee, limit)?;
+        let t = normalized.compressed(normalized.extent(w, false, (0.0, 0.0), normalized.reach()), knee, limit)?;
         Some(self.at(w, t))
     }
 }
@@ -527,6 +530,22 @@ mod tests {
             }
         }
         assert_eq!(knee_curve(1.3, KNEE, 1.0), 1.3, "a limit inside the gamut compresses nothing");
+    }
+
+    #[test]
+    fn scene_compression_is_independent_of_exposure() {
+        for c in [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [-0.1, 0.5, 0.2], [0.8, -0.02, 0.1]] {
+            let reference = scene(c, 0.99, 2.5);
+            for exposure in [1e-6, 0.01, 10.0, 1000.0, 1e6, 1e30] {
+                let out = scene(c.map(|v| v * exposure), 0.99, 2.5).map(|v| v / exposure);
+                for i in 0..3 {
+                    assert!(
+                        out[i].is_finite() && (out[i] - reference[i]).abs() < 2e-5,
+                        "{c:?} at exposure {exposure}: {out:?}, expected {reference:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

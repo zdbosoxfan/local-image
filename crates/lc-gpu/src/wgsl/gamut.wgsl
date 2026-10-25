@@ -212,8 +212,9 @@ fn gamut_dir(lab: vec3<f32>) -> vec3<f32> {
 
 // `Line::scene`; `.w` is 0 inside the knee.
 fn gamut_scene_line(l: f32, c: f32, d: vec3<f32>, knee: f32, limit: f32) -> vec4<f32> {
-    if (gamut_stays_inside(OK_FROM_LMS, l, d, false, 0.0, 1.0 / knee)) { return vec4<f32>(0.0); }
-    let t = gamut_compressed(gamut_extent(OK_FROM_LMS, l, d, false, 0.0, 0.0, gamut_reach(l, c, d)), knee, limit);
+    let normalized = d / l;
+    if (gamut_stays_inside(OK_FROM_LMS, 1.0, normalized, false, 0.0, 1.0 / knee)) { return vec4<f32>(0.0); }
+    let t = gamut_compressed(gamut_extent(OK_FROM_LMS, 1.0, normalized, false, 0.0, 0.0, gamut_reach(1.0, c / l, normalized)), knee, limit);
     if (t < 0.0) { return vec4<f32>(0.0); }
     return vec4<f32>(gamut_at(OK_FROM_LMS, l, d, t), 1.0);
 }
