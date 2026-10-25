@@ -173,7 +173,35 @@ fn image_size(s: &mut Session, p: &Value) -> Result<Value> {
             *surf = resize_surface_in_canvas(surf, sx, sy, if is_mask { Resample::Bilinear } else { filter }, canvas);
         });
         let k = ((sx + sy) / 2.0) as f32;
-        for_each_layer(&mut doc.layers, &mut |l| scale_effects(&mut l.effects, k));
+        for_each_layer(&mut doc.layers, &mut |l| {
+            scale_effects(&mut l.effects, k);
+            // Image Size scales document pixels, independently of the vector edit preference.
+            if let LayerContent::Shape(sh) = &mut l.content
+                && let Some(stroke) = &mut sh.stroke
+            {
+                stroke.width *= k;
+            }
+            if let Some(appearance) = &mut l.vector.appearance {
+                for item in &mut appearance.items {
+                    if let photocraft_doc::vector_design::appearance::AppearanceItem::Stroke(stroke) = item {
+                        stroke.base.width *= k;
+                        if let Some(profile) = &mut stroke.profile {
+                            for point in &mut profile.points {
+                                point.left *= f64::from(k);
+                                point.right *= f64::from(k);
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(photocraft_doc::vector_design::live::LiveGroup::LivePaint(spec)) = &mut l.vector.live {
+                for edge in &mut spec.edges {
+                    if let Some(stroke) = &mut edge.stroke {
+                        stroke.width *= k;
+                    }
+                }
+            }
+        });
         for ch in doc.channels.iter_mut().chain(doc.quick_mask.as_mut()) {
             ch.surface = resize_surface_in_canvas(&ch.surface, sx, sy, Resample::Bilinear, canvas);
         }
