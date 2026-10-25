@@ -4,6 +4,8 @@
 //! people chose for themselves from `contributors/people.toml`. Nothing is read at run time. A
 //! missing or malformed file gives empty tables (or usernames only) and a warning, never a failed build.
 //! (The translated format strings are compiled by `li-i18n`'s build script.)
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::{env, fs, path::PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

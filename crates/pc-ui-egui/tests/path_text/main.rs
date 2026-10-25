@@ -1,4 +1,6 @@
 //! Real pointer/keyboard events in an isolated host; app GPU gates are separate.
+#![expect(clippy::allow_attributes_without_reason, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+
 macro_rules! tl {
     ($s:expr) => {
         li_i18n::t($s)

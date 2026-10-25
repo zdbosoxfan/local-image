@@ -1,5 +1,6 @@
 //! The plug-in ABI end to end: the example Invert plug-in, and hostile modules (infinite loops,
 //! memory bombs, out-of-bounds access, bad manifests…), which must all fail with an error, quickly.
+#![expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::{Duration, Instant};
 

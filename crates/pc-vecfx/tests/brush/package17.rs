@@ -3,6 +3,8 @@
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors. MIT OR Apache-2.0.
 //! See licenses/vectorcraft-{LICENSE-MIT,LICENSE-APACHE,NOTICE}.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 use photocraft_doc::vector_design::appearance::{StrokeItem, WidthPoint, WidthProfile};
 use photocraft_doc::{Path, ShapeStroke, Subpath};
 use photocraft_geom::Point;

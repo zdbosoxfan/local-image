@@ -10,6 +10,7 @@
 //! photos are Local browse records, the rest library photos with a few edits and history steps.
 //! Peak memory: run under `/usr/bin/time -l` (macOS) / `-v` (Linux) with one size;
 //! `PERSIST_BENCH_NO_LOAD=1` skips the final load, so the peak is building + compacting.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::sync::Arc;
 use std::time::Instant;

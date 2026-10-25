@@ -4,6 +4,7 @@
 //!
 //! `cargo run --release -p photocraft-io --example bench_abr`
 #![allow(clippy::unwrap_used)]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 

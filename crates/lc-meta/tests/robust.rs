@@ -1,3 +1,5 @@
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use lightcraft_meta::{MergeRules, Metadata, extract, merge_xmp, parse_iptc, parse_xmp, read_exif, write_xmp};
 use proptest::prelude::*;
 

@@ -11,6 +11,8 @@
 //! Every catalog must carry the same messages: a `tr_format!` call whose message is in no catalog
 //! does not compile, so a message missing from one language would otherwise go unnoticed until it
 //! shows English.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,

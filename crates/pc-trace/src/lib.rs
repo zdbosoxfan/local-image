@@ -2,6 +2,9 @@
 //! The T1 engine owns its adapter to photocraft-doc; it has no pc-pathops dependency.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed"))]
+
 pub mod adapter;
 pub mod cleanup;
 #[cfg(test)]

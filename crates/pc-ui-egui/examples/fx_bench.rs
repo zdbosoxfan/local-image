@@ -9,6 +9,7 @@
 //! refresh (cold and warm effect caches) and the incremental cases the canvas sees: an adjustment
 //! tweak (full refresh, maps cached), a brush dab on a plain layer and a brush dab on the effect
 //! layer (damage rect grown by the effect reach). `--psd` times a real file instead.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 

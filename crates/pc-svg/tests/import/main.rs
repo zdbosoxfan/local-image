@@ -1,5 +1,7 @@
 //! Independent native layer-tree, coverage, hostile-input and resvg corpus checks.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use photocraft_doc::{ColorMode, Document, Layer, LayerContent, SampleType, vector_design::exchange::ImportOptions};
 use std::{
     path::PathBuf,

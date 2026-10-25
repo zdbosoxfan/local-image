@@ -148,6 +148,12 @@ too_many_arguments = "allow"
 needless_range_loop = "allow"
 type_complexity = "allow"
 excessive_precision = "allow"
+# No-Slop policy (2026-10-25), phase 1. Gated as errors by clippy `-D warnings`.
+unimplemented = "warn"
+let_underscore_must_use = "warn"
+unused_result_ok = "warn"
+map_err_ignore = "warn"
+allow_attributes_without_reason = "warn"
 
 # Pixel code is unusably slow unoptimised.
 [profile.dev]

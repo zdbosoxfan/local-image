@@ -12,6 +12,7 @@
 //! its numbers are only comparable with other `--quick` runs. Every row records p50 / p95 / max
 //! over its samples, the peak resident memory measured in-process while it ran, and the GPU
 //! bytes the canvas holds for the document (texture + compositor) when there is a GPU.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 

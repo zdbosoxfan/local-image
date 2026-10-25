@@ -5,6 +5,7 @@
 //! Each writer converts [`Error`] into its own error type, which owns the user-facing text.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![cfg_attr(test, expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
 
 use photocraft_doc::vector_design::appearance::AppearanceItem;
 use photocraft_doc::vector_design::exchange::ExportScope;

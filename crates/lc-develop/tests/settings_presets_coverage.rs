@@ -1,3 +1,5 @@
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use lightcraft_develop::*;
 use serde_json::{Value, json};
 use std::sync::mpsc;

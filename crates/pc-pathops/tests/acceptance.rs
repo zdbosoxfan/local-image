@@ -1,3 +1,5 @@
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use photocraft_doc::{FillRule, Knot, LineCap, LineJoin, Path, PathOp, ShapeStroke, StrokeAlign, Subpath};
 use photocraft_geom::{Affine, Point, Rect};
 use photocraft_pathops as ops;

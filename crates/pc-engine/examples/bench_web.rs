@@ -2,6 +2,8 @@
 //! `cargo run --release -p photocraft-engine --example bench_web [width] [height]`
 //!
 //! Each line is one full command (flatten, sRGB, quantise/encode), estimate-only (no file).
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::time::Instant;
 
 use photocraft_engine::Session;

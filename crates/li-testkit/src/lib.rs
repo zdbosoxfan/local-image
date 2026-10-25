@@ -8,6 +8,8 @@
 //! - `gpu` feature: [`gpu`], the one strict real-GPU test prelude (Vulkan, or Metal on macOS;
 //!   never a software adapter) shared by the GPU parity gates.
 //! - [`constant_gray_jpeg`]: a tiny JPEG fixture of any declared size, for codec limit tests.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 pub mod softpaint;
 

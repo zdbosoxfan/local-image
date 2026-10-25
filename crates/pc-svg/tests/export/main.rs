@@ -1,4 +1,6 @@
 //! Synthetic GPL-3.0-or-later fixtures; see fixtures/export/SOURCES.md.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use base64::Engine as _;
 use photocraft_doc::vector_design::appearance::{Appearance, AppearanceItem, FillItem, StrokeItem};
 use photocraft_doc::vector_design::exchange::ExportScope;

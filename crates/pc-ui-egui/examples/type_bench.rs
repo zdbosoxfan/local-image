@@ -6,6 +6,7 @@
 //! ```sh
 //! cargo run --release -p photocraft-ui-egui --example type_bench -- [--size 6000x4000] [--layers 50] [--steps 30] [--effects] [--typing]
 //! ```
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 
