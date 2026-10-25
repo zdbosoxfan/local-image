@@ -93,7 +93,15 @@ pub(crate) fn control_t(app: &mut LightcraftApp, ui: &mut egui::Ui, d: &DevelopS
     let Some(spec) = controls::find(id) else { return };
     let v = controls::get(d, id).unwrap_or(spec.default);
     let out = crate::widgets::numeric_slider(ui, spec, v, enabled, None, crate::widgets::numeric_owner(app, (target.mask_id(), id)));
-    apply_slider_out(app, spec, out, |app, v| target.set(app, json!({id: v})));
+    // a double-clicked photo control returns to the photo's own default (a raw's sharpening,
+    // As Shot white balance), not the generic one
+    let reset = out.reset && target == Target::Global;
+    apply_slider_out(app, spec, out, |app, v| {
+        if reset {
+            return app.run("develop.resetControl", json!({"control": id}));
+        }
+        target.set(app, json!({id: v}))
+    });
     if id == "detail.sharpenMasking" && matches!(target, Target::Global) {
         let preview = app.ui.dragging_control.as_deref() == Some(id) && ui.input(|i| i.modifiers.alt);
         if app.ui.sharpen_mask_preview != preview {

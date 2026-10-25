@@ -25,6 +25,7 @@ use lightcraft_pipeline::OutputSpace;
 use lightcraft_preview::JobPool;
 use photocraft_engine::display_color::{CanvasDisplay, rendered_display, view_space};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Bound interactive work independently of zoom, monitor resolution and the settled preview
 /// preference. In particular, a 100%/200% view must never decode a full RAW for each drag step.
@@ -52,6 +53,10 @@ pub enum Slot {
     /// A thumbnail's stand-in (embedded preview of an unedited raw).
     ThumbQuick(PhotoId),
     Main,
+    /// The loupe zoomed in past what `Main` holds: the whole frame again at the zoom's own scale
+    /// (at most the photo's native pixels), drawn over `Main` while it is current. Never drafted:
+    /// drags show `Main`.
+    Detail,
     /// The loupe's stand-in until `Main` has the photo.
     Preview,
     Before,
@@ -92,6 +97,11 @@ pub trait RenderOffload {
     fn try_start(&mut self, slot: Slot, job: RenderJob) -> Option<RenderJob>;
     /// Finished jobs since the last call: (slot, result, run time in ms).
     fn finished(&mut self) -> Vec<(Slot, RenderResult, f64)>;
+    /// Whether these executors take the loupe's full-size renders ([`Slot::Detail`]; they need a
+    /// GPU, see [`Renderer::full_size_on_gpu`]).
+    fn full_size(&self) -> bool {
+        false
+    }
 }
 
 /// Existing native preview workers do the display conversion too. Browser inline/offload
@@ -105,6 +115,29 @@ struct DisplayResult {
     result: RenderResult,
     color: Option<Arc<egui::ColorImage>>,
     display_key: u64,
+}
+
+/// `result` with its image scaled down to fit a texture of at most `max_side` pixels a side
+/// (a stand-in from an old cache can be larger than the GPU takes).
+fn fit_texture(mut result: RenderResult, max_side: usize) -> RenderResult {
+    if let Ok(r) = &mut result.rendered
+        && r.image.width.max(r.image.height) > max_side
+    {
+        let f = r.image.map(|p| p.map(|v| f32::from(v) / 255.0));
+        r.image = f.fit(max_side, max_side, li_raster::resample::Filter::Mitchell).map(|p| p.map(li_raster::quantize_u8));
+    }
+    result
+}
+
+/// How `slot`'s texture of `size` is sampled. The loupe's 1:1 render shows its pixels as they are
+/// when magnified (past 100% each one a square of screen pixels, as Lightroom and Capture One show
+/// them), unless it had to be capped at the largest texture and is resampled anyway.
+fn texture_options(slot: Slot, size: [usize; 2], max_side: usize) -> egui::TextureOptions {
+    if slot == Slot::Detail && size[0].max(size[1]) < max_side {
+        egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR }
+    } else {
+        egui::TextureOptions::LINEAR
+    }
 }
 
 /// The result's texture pixels: its 8-bit image (encoded in `display`'s source space) converted to
@@ -164,8 +197,12 @@ pub struct Renderer {
     seq: u64,
     /// Slot → (key, priority) of the request in flight (queued or running).
     pending: HashMap<Slot, (u64, u32)>,
+    /// Slot → stop flag of its admitted render ([`Renderer::request_admitted`]) in flight.
+    admitted: HashMap<Slot, Arc<AtomicBool>>,
     pub textures: HashMap<Slot, Tex>,
     pub last_main_ms: f64,
+    /// The largest texture side the GPU takes (from egui, updated every poll).
+    max_texture_side: usize,
     /// Jobs finished since start (for inspect/perf).
     pub completed: u64,
     /// Keep a CPU copy of every texture so the UI can be rasterized headlessly (set when the app
@@ -227,8 +264,10 @@ impl Renderer {
             queue: Vec::new(),
             seq: 0,
             pending: HashMap::new(),
+            admitted: HashMap::new(),
             textures: HashMap::new(),
             last_main_ms: 0.0,
+            max_texture_side: usize::MAX,
             completed: 0,
             keep_pixels: false,
             stages: HashMap::new(),
@@ -348,6 +387,41 @@ impl Renderer {
 
     /// Request a render for `slot` (no-op if already current or pending at the same priority).
     pub fn request(&mut self, slot: Slot, job: RenderJob, priority: u32) {
+        self.submit(slot, job, priority, None);
+    }
+
+    /// Like [`Self::request`], for a full-size render (the loupe's 1:1 view): before it decodes
+    /// it waits for a heavy-job permit of `cost` bytes, so it never stacks with exports and
+    /// preview builds, and while it waits a newer request for its slot (or [`Self::cancel`])
+    /// stops it. Its develop takes the GPU in turn with theirs
+    /// ([`lightcraft_engine::export::pipeline::run_render_job`]).
+    pub fn request_admitted(&mut self, slot: Slot, job: RenderJob, priority: u32, cost: u64) {
+        self.submit(slot, job, priority, Some(cost));
+    }
+
+    /// Whether the loupe's full-size renders may run: on the GPU only. On the CPU one needs
+    /// several GB and seconds per edit.
+    pub fn full_size_on_gpu(&self) -> bool {
+        match &self.offload {
+            Some(off) => off.full_size(),
+            None => lightcraft_engine::gpu::ready() && lightcraft_engine::gpu::available(),
+        }
+    }
+
+    /// Drop `slot`'s request in flight: a queued job is dropped, an admitted one still waiting for
+    /// its permit gives up, and a late result is ignored.
+    pub fn cancel(&mut self, slot: Slot) {
+        if let Some(stop) = self.admitted.remove(&slot) {
+            stop.store(true, Ordering::Relaxed);
+        }
+        if self.pending.remove(&slot).is_some() {
+            self.request_ids.remove(&slot);
+            self.pool.reprioritize(|s, p| (*s != slot).then_some(p));
+            self.queue.retain(|q| q.slot != slot);
+        }
+    }
+
+    fn submit(&mut self, slot: Slot, job: RenderJob, priority: u32, admit: Option<u64>) {
         // (a soft proof already renders straight to the monitor)
         let mut job = match &self.view {
             Some((space, _)) if view_slot(slot) && job.request.proof.is_none() => job.with_space(*space),
@@ -355,6 +429,9 @@ impl Renderer {
         };
         if !self.request_needed(slot, job.key, priority) {
             return;
+        }
+        if let Some(stop) = self.admitted.remove(&slot) {
+            stop.store(true, Ordering::Relaxed);
         }
         self.pending.insert(slot, (job.key, priority));
         job.request_id = lightcraft_preview::next_tick();
@@ -373,15 +450,35 @@ impl Renderer {
         }
         let key = job.key;
         let (display, display_key) = (self.display_for(slot), self.display_key());
+        let max_side = self.max_texture_side;
         let background = matches!(slot, Slot::Thumb(_) | Slot::ThumbQuick(_) | Slot::Prefetch(_));
+        let admit = admit.map(|cost| {
+            let stop = Arc::new(AtomicBool::new(false));
+            self.admitted.insert(slot, stop.clone());
+            (cost, stop)
+        });
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                let result = if background { lightcraft_engine::memory::in_background(|| job.run()) } else { job.run() };
-                display_result(result, display.as_deref(), display_key)
+                let _permit = match &admit {
+                    Some((cost, stop)) => match lightcraft_sysmem::heavy_jobs().admit(*cost, &|| stop.load(Ordering::Relaxed)) {
+                        Some(permit) => Some(permit),
+                        None => return DisplayResult { result: job.cancelled(), color: None, display_key },
+                    },
+                    None => None,
+                };
+                let result = if background {
+                    lightcraft_engine::memory::in_background(|| job.run())
+                } else if admit.is_some() {
+                    // full size: on the GPU one at a time with exports and preview builds
+                    lightcraft_engine::export::pipeline::run_render_job(job)
+                } else {
+                    job.run()
+                };
+                display_result(fit_texture(result, max_side), display.as_deref(), display_key)
             }),
         );
     }
@@ -402,13 +499,14 @@ impl Renderer {
         self.request_ids.insert(slot, job.request_id);
         let key = job.key;
         let (display, display_key) = (self.display_for(slot), self.display_key());
+        let max_side = self.max_texture_side;
         self.pool.submit(
             slot,
             key,
             priority,
             Box::new(move || {
                 display_worker_priority();
-                let result = job.run();
+                let result = fit_texture(job.run(), max_side);
                 let display = view.filter(|_| result.quick == Some(QuickSource::Cached)).or(display);
                 display_result(result, display.as_deref(), display_key)
             }),
@@ -585,6 +683,7 @@ impl Renderer {
         }
         self.preview_generation = Some((Arc::downgrade(cache), generation));
         self.catalog_rev = session.catalog.revision;
+        self.max_texture_side = ctx.input(|i| i.max_texture_side).max(1);
         self.frame += 1;
         // wasm: run one job per frame on this thread, timed with the host clock
         #[cfg(target_arch = "wasm32")]
@@ -606,9 +705,11 @@ impl Renderer {
             finished.push((done.slot, done.result, if done.ms > 0.0 { done.ms } else { inline_ms }));
         }
         let offloaded = self.offload.as_mut().map(|off| off.finished()).unwrap_or_default();
-        let display_key = self.display_key();
+        let (display_key, max_side) = (self.display_key(), self.max_texture_side);
         finished.extend(
-            offloaded.into_iter().map(|(slot, result, ms)| (slot, display_result(result, self.display_for(slot).as_deref(), display_key), ms)),
+            offloaded
+                .into_iter()
+                .map(|(slot, result, ms)| (slot, display_result(fit_texture(result, max_side), self.display_for(slot).as_deref(), display_key), ms)),
         );
         self.dispatch();
         let mut changed = false;
@@ -633,6 +734,7 @@ impl Renderer {
                 }
             } else {
                 self.request_ids.remove(&slot);
+                self.admitted.remove(&slot);
             }
             // Even an advancing superseded preview can supply the decoded source. Otherwise a
             // continuous drag that starts cold keeps decoding until the user finally releases.
@@ -675,9 +777,10 @@ impl Renderer {
             let Some(color) = color else { continue };
             let pixels = self.keep_pixels.then(|| color.clone());
             let name = format!("{slot:?}");
+            let options = texture_options(slot, [img.width, img.height], self.max_texture_side);
             match self.textures.get_mut(&slot) {
                 Some(t) => {
-                    t.tex.set(color, egui::TextureOptions::LINEAR);
+                    t.tex.set(color, options);
                     t.pixels = pixels;
                     t.key = r.key;
                     t.photo = r.photo;
@@ -687,7 +790,7 @@ impl Renderer {
                     t.quick = r.quick;
                 }
                 None => {
-                    let tex = ctx.load_texture(name, color, egui::TextureOptions::LINEAR);
+                    let tex = ctx.load_texture(name, color, options);
                     self.textures.insert(
                         slot,
                         Tex {
@@ -976,6 +1079,84 @@ mod thumbnail_tests {
         }
         assert_eq!(app.renderer.thumb_jobs_built, 1);
         assert_eq!(app.renderer.queue.len(), 1);
+    }
+
+    /// A full-size render waits for a heavy-job permit while exports or preview builds hold them
+    /// all, and a cancel (the loupe left 100%, the photo was edited) stops it before it decodes.
+    #[test]
+    fn full_size_renders_wait_for_their_permit_and_stop_when_cancelled() {
+        let mut s = Session::new();
+        s.media.file_loader = Some(Arc::new(|_, _| Ok((li_raster::RgbFrame::filled(8, 8, [0.3, 0.2, 0.1]), Default::default()))));
+        s.catalog.apply(Op::AddPhoto { photo: Box::new((*photo()).clone()) }).unwrap();
+        let mut app = crate::LightcraftApp::new(s, crate::Services::default());
+        let ctx = egui::Context::default();
+        let permits = lightcraft_sysmem::heavy_jobs();
+        let held: Vec<_> = (0..permits.max_jobs()).filter_map(|_| permits.admit(1, &|| false)).collect();
+        let job = app.session.detail_job(PhotoId(1), 64, 64, true).unwrap();
+        app.renderer.request_admitted(Slot::Detail, job, 95, 1 << 20);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        app.renderer.poll(&ctx, &mut app.session);
+        assert!(app.renderer.is_pending(Slot::Detail) && !app.renderer.textures.contains_key(&Slot::Detail), "waits for a permit");
+        app.renderer.cancel(Slot::Detail);
+        assert!(!app.renderer.is_pending(Slot::Detail));
+        drop(held);
+        let job = app.session.detail_job(PhotoId(1), 64, 64, true).unwrap();
+        let key = job.key;
+        app.renderer.request_admitted(Slot::Detail, job, 95, 1 << 20);
+        let t0 = std::time::Instant::now();
+        while !app.renderer.textures.contains_key(&Slot::Detail) && t0.elapsed() < std::time::Duration::from_secs(60) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.renderer.poll(&ctx, &mut app.session);
+        }
+        assert_eq!(app.renderer.textures.get(&Slot::Detail).map(|t| t.key), Some(key), "runs once a permit is free");
+        assert!(app.renderer.failure(Slot::Detail).is_none(), "the cancelled request left no failure behind");
+    }
+
+    /// A full-size render takes the GPU in turn with exports and preview builds (while one holds
+    /// it, the render waits), and hands back the original it decoded, kept for the next one.
+    #[test]
+    fn full_size_renders_take_their_turn_on_the_gpu() {
+        let mut s = Session::new();
+        s.media.file_loader = Some(Arc::new(|_, _| Ok((li_raster::RgbFrame::filled(8, 8, [0.3, 0.2, 0.1]), Default::default()))));
+        s.catalog.apply(Op::AddPhoto { photo: Box::new((*photo()).clone()) }).unwrap();
+        let mut app = crate::LightcraftApp::new(s, crate::Services::default());
+        assert!(lightcraft_engine::gpu::available(), "real GPU required: {:?}", lightcraft_engine::gpu::unavailable_reason());
+        let ctx = egui::Context::default();
+        let export = lightcraft_engine::export::pipeline::GPU_GATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let job = app.session.detail_job(PhotoId(1), 64, 64, true).unwrap();
+        let key = job.key;
+        app.renderer.request_admitted(Slot::Detail, job, 95, 1 << 20);
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        app.renderer.poll(&ctx, &mut app.session);
+        assert!(app.renderer.is_pending(Slot::Detail) && !app.renderer.textures.contains_key(&Slot::Detail), "waits while an export renders");
+        drop(export);
+        let t0 = std::time::Instant::now();
+        while !app.renderer.textures.contains_key(&Slot::Detail) && t0.elapsed() < std::time::Duration::from_secs(60) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            app.renderer.poll(&ctx, &mut app.session);
+        }
+        assert_eq!(app.renderer.textures.get(&Slot::Detail).map(|t| t.key), Some(key), "renders once the GPU is free");
+        assert_eq!(app.session.media.usage().2.count, 1, "the decoded original is kept");
+    }
+
+    #[test]
+    fn oversized_images_fit_the_largest_texture() {
+        let result = |image: li_raster::Rgba8| RenderResult {
+            request_id: 0,
+            source_key: None,
+            photo: PhotoId(1),
+            level: lightcraft_engine::media::SourceLevel::Thumb,
+            key: 0,
+            rendered: Ok(lightcraft_engine::pipeline::Rendered { histogram: Histogram::of_srgb8(&image), image, deep: None }),
+            loaded: None,
+            quick: None,
+            proof_monitor: None,
+        };
+        let fitted = fit_texture(result(li_raster::Rgba8::filled(9000, 300, [200, 100, 50, 255])), 4096).rendered.unwrap().image;
+        assert_eq!((fitted.width, fitted.height), (4096, 137));
+        assert_eq!(fitted.get(2000, 60), [200, 100, 50, 255]);
+        let small = fit_texture(result(li_raster::Rgba8::filled(300, 200, [1, 2, 3, 255])), 4096).rendered.unwrap().image;
+        assert_eq!((small.width, small.height), (300, 200));
     }
 
     #[test]

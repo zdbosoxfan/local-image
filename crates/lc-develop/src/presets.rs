@@ -141,10 +141,18 @@ pub fn extract_groups(s: &DevelopSettings, groups: &[SettingsGroup]) -> Value {
 }
 
 /// local-image: drop what belongs to one photo's pixels — AI removals
-/// (generated from that photo) and cached AI mask selections — from settings copied to others (copy/paste, sync, presets).
+/// (generated from that photo), cached AI mask selections and the automatic Upright transform
+/// analysed from its lines — from settings copied to others (copy/paste, sync, presets).
 pub fn strip_photo_bound(out: &mut Map<String, Value>) {
     if let Some(Value::Object(e)) = out.get_mut("enhance") {
         e.remove("ai");
+    }
+    // An explicit null, so the receiving photo's own transform from an earlier mode is cleared
+    // too: it is solved again from that photo's lines for the mode it receives.
+    if let Some(Value::Object(g)) = out.get_mut("geometry")
+        && (g.contains_key("upright") || g.contains_key("upright_transform"))
+    {
+        g.insert("upright_transform".into(), Value::Null);
     }
     if let Some(Value::Array(masks)) = out.get_mut("masks") {
         for mask in masks {
@@ -334,6 +342,33 @@ mod tests {
             assert!(component["shape"].get("detail").is_none());
         }
         assert_eq!(patch["masks"][0]["components"][1]["shape"]["hint"], json!([[0.2, 0.3]]));
+    }
+
+    #[test]
+    fn copied_upright_mode_never_carries_the_source_photos_transform() {
+        let mut a = DevelopSettings::default();
+        a.geometry.upright = crate::Upright::Vertical;
+        a.geometry.upright_transform = Some(lightcraft_geom::Homography([1.0, 0.02, 0.0, -0.01, 1.0, 0.0, 0.03, 0.0, 1.0]));
+        a.geometry.vertical = 12.0;
+        let mut b = DevelopSettings::default();
+        b.geometry.upright = crate::Upright::Level;
+        b.geometry.upright_transform = Some(lightcraft_geom::Homography([1.0, -0.05, 0.0, 0.05, 1.0, 0.0, 0.0, 0.0, 1.0]));
+
+        let partial = extract_groups(&a, &[SettingsGroup::Geometry]);
+        assert_eq!(partial["geometry"]["upright_transform"], Value::Null);
+        for amount in [1.0, 0.75] {
+            let out = apply_partial(&b, &partial, amount);
+            assert_eq!(out.geometry.upright, crate::Upright::Vertical);
+            assert_eq!(out.geometry.upright_transform, None, "neither A's nor B's stale transform survives at {amount}");
+            assert!(out.upright_unsolved());
+        }
+        // a stored preset written with a transform in it is stripped when applied
+        let stale = Preset { settings: a.to_json_full(), ..Preset::from_settings("p", "P", "User", &a, &[SettingsGroup::Geometry]) };
+        assert_eq!(stale.apply(&b, 1.0).geometry.upright_transform, None);
+        // a change that leaves Upright alone keeps the photo's own transform
+        let mut sliders = json!({"geometry": {"vertical": 5.0}});
+        strip_photo_bound(sliders.as_object_mut().unwrap());
+        assert_eq!(apply_partial(&b, &sliders, 1.0).geometry.upright_transform, b.geometry.upright_transform);
     }
 
     #[test]

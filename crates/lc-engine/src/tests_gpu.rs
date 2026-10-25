@@ -260,6 +260,56 @@ fn lens_database_profiles_render_on_the_gpu() {
     }
 }
 
+#[test]
+fn edge_refined_masks_render_on_the_gpu() {
+    use lightcraft_develop::{LocalAdjustments, Mask, MaskComponent, MaskOp, MaskShape, SegMask};
+    use lightcraft_geom::Point;
+    let _gpu = gpu_state();
+    require_gpu();
+    let src = Arc::new(lightcraft_scenes::demo_library()[2].render(640, 427));
+    let info = SourceInfo { raw: true, ..Default::default() };
+    let req = RenderRequest::fit(640, 640);
+    let side = 32;
+    let logits: Vec<f32> = (0..side * side).map(|i| if (i % side) * 2 > side { 4.0 } else { -4.0 }).collect();
+    let shapes = [
+        ("linear", MaskShape::Linear { start: Point::new(0.3, 0.2), end: Point::new(0.7, 0.8) }),
+        ("subject", MaskShape::Subject { seg: Some(SegMask::from_logits(side, &logits)) }),
+    ];
+    for (name, shape) in shapes {
+        let mut s = lightcraft_develop::DevelopSettings::default();
+        s.masks.push(Mask {
+            refine: 50.0,
+            adjust: LocalAdjustments { exposure: 1.0, ..Default::default() },
+            components: vec![MaskComponent { name: None, op: MaskOp::Add, invert: false, shape }],
+            ..Default::default()
+        });
+        let cpu = lightcraft_pipeline::render(&src, &info, &s, &req).image;
+        let gpu = crate::media::develop(&src, &info, &s, &req, None, true).image;
+        assert!(crate::media::develop_used_gpu(), "{name}: an edge-refined mask stays on the GPU ({:?})", lightcraft_gpu::last_fallback());
+        assert_close(&format!("refined {name} mask"), &cpu, &gpu);
+    }
+}
+
+#[test]
+fn cpu_only_exports_do_not_wait_for_the_gpu_gate() {
+    let _gpu = gpu_state();
+    require_gpu();
+    let mut s = Session::with_demo();
+    let id = s.active().unwrap();
+    let mut d = (*s.develop_of(id).unwrap()).clone();
+    d.profile.id = "lut:missing.cube".into();
+    s.catalog.apply(lightcraft_catalog::Op::SetDevelop { id, settings: Arc::new(d), label: "LUT".into(), edited: None }).unwrap();
+    let job = s.export_job(id, 96, 96, lightcraft_pipeline::OutputSpace::Srgb, lightcraft_pipeline::OutputDepth::U8).unwrap();
+    let gate = crate::export::pipeline::GPU_GATE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(crate::export::pipeline::run_render_job(job).rendered.is_ok());
+    });
+    let done = rx.recv_timeout(std::time::Duration::from_secs(60));
+    drop(gate);
+    assert_eq!(done, Ok(true), "a LUT-profile export renders on the CPU while another export holds the GPU");
+}
+
 fn magenta(c: [u8; 4]) -> bool {
     c[0] as i32 > c[1] as i32 + 60 && c[2] as i32 > c[1] as i32 + 60
 }
