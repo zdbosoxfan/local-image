@@ -56,14 +56,21 @@ fn main() -> common::Result<()> {
         let b = common::bracket(&scene, moving);
         let rgb = li_raster::RgbFrame::from_fn(b.truth.w, b.truth.h, |x, y| b.truth.rgb[y * b.truth.w + x]);
         let frame = Frame::from_linear_rec2020(rgb.clone(), Some(0.0));
-        let bytes =
-            lightcraft_merge::write_linear_dng(&rgb, &frame.color, frame.orientation, &frame.metadata, 0.0, lightcraft_merge::DngSamples::Float)?;
+        let bytes = lightcraft_merge::write_linear_dng(
+            &rgb,
+            &frame.color,
+            frame.orientation,
+            &frame.metadata,
+            0.0,
+            lightcraft_merge::DngSamples::Float,
+            None,
+        )?;
         let mut base = lightcraft_raw::decode(&bytes)?;
         // Restore scene units: the writer normalizes only its serialized output.
         base.color.baseline_exposure = 0.0;
         base.white = vec![1.0];
         let noiseless = mosaic(&base, &b.truth.rgb, 1.0)?;
-        let truth = noiseless.develop(Method::Ahd)?;
+        let truth = noiseless.develop(Method::Auto)?;
         let raws: Vec<_> = b.frames.iter().zip(common::EXPOSURES).map(|(f, e)| mosaic(&base, f, e)).collect::<common::Result<_>>()?;
         for deghost in [Deghost::None, Deghost::High] {
             if !moving && deghost == Deghost::High {
@@ -74,7 +81,7 @@ fn main() -> common::Result<()> {
             let frames = raws
                 .iter()
                 .map(|raw| {
-                    let mut f = Frame::from_linear_rec2020(raw.develop(Method::Ahd)?, Some((raw.metadata.exposure_time.unwrap_or(1.0)).log2()));
+                    let mut f = Frame::from_linear_rec2020(raw.develop(Method::Auto)?, Some((raw.metadata.exposure_time.unwrap_or(1.0)).log2()));
                     f.raw = true;
                     f.clip = 1.0;
                     Ok(f)

@@ -15,25 +15,12 @@ use lightcraft_geom::{Homography, Point};
 use lightcraft_raw::{Normalized, NormalizedSamples, RawImage, Rect};
 use rayon::prelude::*;
 
-use crate::frame::{Frame, FrameColor, exif_exposure};
+use crate::frame::{Frame, camera_color, exif_exposure};
 use crate::hdr::{self, Deghost, HdrOptions, HdrResult, smoothstep};
 use crate::{MergeError, Progress, Result, align, check};
 
 fn decode_error(e: lightcraft_raw::RawError) -> MergeError {
     MergeError::Decode(e.to_string())
-}
-
-/// Camera metadata in the normalized sensor coordinates used by the output.
-fn camera_color(raw: &RawImage) -> FrameColor {
-    let mut color = lightcraft_raw::color::normalized_color(raw);
-    if color.as_shot_neutral.is_none()
-        && color.as_shot_white_xy.is_none()
-        && let Some(wb) = raw.wb_multipliers.filter(|w| w.iter().all(|v| v.is_finite() && *v > 0.0))
-    {
-        let ratios = lightcraft_raw::color::normalization_ratios(raw);
-        color.as_shot_neutral = Some(std::array::from_fn(|c| ratios[c] / f64::from(wb[c])));
-    }
-    FrameColor::Camera(Box::new(color))
 }
 
 /// Complete CFA tiles form an unbiased camera-RGB proxy without demosaicing the
@@ -73,10 +60,77 @@ fn proxy(raw: &RawImage, samples: &NormalizedSamples<'_>, factor: usize, gain: [
         exposure: exif_exposure(&raw.metadata),
         raw: true,
         color: camera_color(raw),
-        orientation: raw.orientation,
+        // Registration works in sensor coordinates; orientation tags are not applied to proxies.
+        orientation: lightcraft_geom::Orientation::Normal,
         metadata: raw.metadata.clone(),
         baseline_exposure: raw.color.baseline_exposure,
     }
+}
+
+/// Mean green of each complete 2×2 Bayer tile at reference exposure: the CFA-tile-resolution
+/// registration plane. Tiles with a sample near saturation read 0, which registration ignores,
+/// so clipped window edges cannot pull the fit.
+fn green_plane(samples: &NormalizedSamples<'_>, gain: f32) -> GrayFrame {
+    let (w, h) = (samples.width / 2, samples.height / 2);
+    let mut plane = GrayFrame::new(w, h);
+    let Some(cfa) = &samples.cfa else { return plane };
+    plane.data.par_chunks_mut(w.max(1)).enumerate().for_each(|(y, row)| {
+        for (x, value) in row.iter_mut().enumerate() {
+            let (mut green, mut peak) = (0.0f32, f32::NEG_INFINITY);
+            for (sx, sy) in [(2 * x, 2 * y), (2 * x + 1, 2 * y), (2 * x, 2 * y + 1), (2 * x + 1, 2 * y + 1)] {
+                let sample = samples.get(sx, sy, 0);
+                peak = peak.max(sample);
+                if cfa.color_at(sx, sy) == 1 {
+                    green += 0.5 * sample;
+                }
+            }
+            *value = if peak < 0.8 { green * gain } else { 0.0 };
+        }
+    });
+    plane
+}
+
+/// A green plane as direct registration reads it: perceptually encoded like the proxies,
+/// `(value · exposure)^(1/2.2)`, and band-limited, since CFA-tile sampling aliases fine texture
+/// and aliased detail moves differently from the scene, biasing sub-pixel shifts. Tiles near a
+/// saturated or black one read 0, which registration ignores.
+fn registration_plane(mut plane: GrayFrame, exposure: f32) -> GrayFrame {
+    plane.map_in_place(|v| if v > 0.0 { (v * exposure).clamp(0.0, 1.0).powf(1.0 / 2.2) } else { 0.0 });
+    let near_excluded = plane.min_filter(2);
+    let mut smooth = plane.gaussian(1.0);
+    for (v, m) in smooth.data.iter_mut().zip(&near_excluded.data) {
+        if *m <= 0.0 {
+            *v = 0.0;
+        }
+    }
+    smooth
+}
+
+/// Median of a plane's positive values (a sparse sample).
+fn plane_median(plane: &GrayFrame) -> f32 {
+    let step = (plane.data.len() / 100_000).max(1);
+    let mut values: Vec<f32> = plane.data.iter().step_by(step).copied().filter(|v| *v > 0.0 && v.is_finite()).collect();
+    if values.is_empty() {
+        return 1.0;
+    }
+    let middle = values.len() / 2;
+    *values.select_nth_unstable_by(middle, f32::total_cmp).1
+}
+
+/// Registration noise on a tripod (a few hundredths of a pixel) must not resample a bracket.
+/// A homography within this many sensor pixels of an even whole-pixel shift becomes that shift:
+/// identity, or a shift that keeps the CFA phase and reads measured samples exactly.
+const DEAD_BAND: f64 = 0.1;
+
+fn snap_to_lattice(h: &Homography, w: usize, ht: usize) -> Homography {
+    let corners = [Point::new(0.0, 0.0), Point::new(w as f64, 0.0), Point::new(0.0, ht as f64), Point::new(w as f64, ht as f64)];
+    let (dx, dy) = corners.iter().fold((0.0, 0.0), |(sx, sy), c| {
+        let moved = h.apply(*c);
+        (sx + (moved.x - c.x) / 4.0, sy + (moved.y - c.y) / 4.0)
+    });
+    let even = |v: f64| (v / 2.0).round() * 2.0;
+    let shift = Homography([1.0, 0.0, even(dx), 0.0, 1.0, even(dy), 0.0, 0.0, 1.0]);
+    if corners.iter().all(|c| h.apply(*c).dist(shift.apply(*c)) < DEAD_BAND) { shift } else { *h }
 }
 
 /// Linear interpolation on one phase's lattice. `sx/sy` are pixel-centre
@@ -179,7 +233,6 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
             || raw.crop != first.crop
             || raw.cfa != first.cfa
             || raw.cpp != first.cpp
-            || raw.orientation != first.orientation
             || raw.metadata.make != first.metadata.make
             || raw.metadata.model != first.metadata.model
             || raw.color.color_matrix != first.color.color_matrix
@@ -187,7 +240,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
             || raw.color.camera_calibration != first.color.camera_calibration
             || raw.color.illuminant != first.color.illuminant
         {
-            return Err(MergeError::Mismatch("Raw HDR requires matching camera calibration, sensor layout, crop and orientation".into()));
+            return Err(MergeError::Mismatch("Raw HDR requires matching camera calibration, sensor layout and crop".into()));
         }
         if options.align && raw.cfa.as_ref().is_some_and(|c| !c.is_bayer()) {
             return Err(MergeError::Mismatch(
@@ -216,31 +269,69 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
         .map(|(i, (r, n))| proxy(r, n, factor, std::array::from_fn(|c| (ratios[0][c] / ratios[i][c]) as f32)))
         .collect();
     check(progress, 0.10, "Preparing sensor registration")?;
-    let mut result = hdr::merge_hdr(work.clone(), &HdrOptions { align: options.align, deghost: Deghost::None }, &|fraction, stage| {
-        progress(0.10 + fraction * 0.32, stage)
+    let registration = hdr::merge_hdr(work.clone(), &HdrOptions { align: options.align, deghost: Deghost::None }, &|fraction, stage| {
+        progress(0.10 + fraction * 0.28, stage)
     })?;
-    let (n, reference) = (raws.len(), result.reference);
-    let k: Vec<f32> = result.ev.iter().map(|e| 2.0f64.powf(*e) as f32).collect();
-    if k.iter().any(|v| !v.is_finite() || *v <= 0.0) {
-        return Err(MergeError::Mismatch("Raw bracket exposure ratio is not finite".into()));
-    }
-    let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|&a, &b| k[a].total_cmp(&k[b]).then(a.cmp(&b)));
-    let mut valid = vec![None; n];
-    for i in 0..n {
-        if result.alignments[i].h != Homography::IDENTITY {
-            let (warped, mask) = align::warp(&work[i].image, &result.alignments[i].h);
-            work[i].image = warped;
-            valid[i] = Some(mask);
+    let (n, reference) = (raws.len(), registration.reference);
+    let finite = |ev: &[f64]| -> Result<Vec<f32>> {
+        let k: Vec<f32> = ev.iter().map(|e| 2.0f64.powf(*e) as f32).collect();
+        if k.iter().any(|v| !v.is_finite() || *v <= 0.0) {
+            return Err(MergeError::Mismatch("Raw bracket exposure ratio is not finite".into()));
         }
-    }
-    check(progress, 0.45, "Detecting sensor ghosts")?;
-    let ghosts = options.deghost.params().map(|(threshold, radius)| hdr::deghost_maps(&work, &valid, &k, &order, reference, threshold, radius));
-    for alignment in &mut result.alignments {
+        Ok(k)
+    };
+    let mut alignments = registration.alignments.clone();
+    for alignment in &mut alignments {
         alignment.h = align::scale_homography(&alignment.h, 1.0 / factor as f64);
         alignment.rms *= factor as f64;
     }
     let gains: Vec<[f32; 3]> = (0..n).map(|i| std::array::from_fn(|c| (ratios[reference][c] / ratios[i][c]) as f32)).collect();
+    if options.align && factor > 2 && cpp == 1 && samples[0].cfa.as_ref().is_some_and(|c| c.is_bayer()) {
+        // Proxy registration is only as precise as the proxy (a few tenths of a sensor pixel at
+        // factor 8): refine each moving frame at the resolution of the CFA tiles.
+        let k = finite(&registration.ev)?;
+        let gain = |i: usize| gains[i][1] / k[i];
+        let reference_plane = green_plane(&samples[reference], gain(reference));
+        let exposure = 0.18 / plane_median(&reference_plane).max(1e-6);
+        let reference_plane = registration_plane(reference_plane, exposure);
+        let moving: Vec<usize> = (0..n).filter(|&i| i != reference && alignments[i].h != Homography::IDENTITY).collect();
+        for i in moving {
+            check(progress, 0.38 + 0.04 * i as f32 / n as f32, "Refining sensor registration")?;
+            let moving = registration_plane(green_plane(&samples[i], gain(i)), exposure);
+            let refined = align::refine_registration(&reference_plane, &moving, &align::scale_homography(&alignments[i].h, 2.0));
+            alignments[i].h = align::scale_homography(&refined, 0.5);
+        }
+    }
+    for alignment in &mut alignments {
+        alignment.h = snap_to_lattice(&alignment.h, w, h);
+        if alignment.h == Homography::IDENTITY {
+            alignment.model = "identity";
+        }
+    }
+    // Exposure ratios and ghost maps follow the final registration. Proxies are resampled only for
+    // frames that still move, so a tripod bracket merges exactly like an unaligned one.
+    let mut valid = vec![None; n];
+    for i in 0..n {
+        if alignments[i].h != Homography::IDENTITY {
+            let (warped, mask) = align::warp(&work[i].image, &align::scale_homography(&alignments[i].h, factor as f64));
+            work[i].image = warped;
+            valid[i] = Some(mask);
+        }
+    }
+    let mut result = if options.align {
+        let exposures = hdr::merge_hdr(work.clone(), &HdrOptions { align: false, deghost: Deghost::None }, &|fraction, stage| {
+            progress(0.42 + fraction * 0.03, stage)
+        })?;
+        HdrResult { ev: if exposures.reference == reference { exposures.ev } else { registration.ev }, ..registration }
+    } else {
+        registration
+    };
+    result.alignments = alignments;
+    let k = finite(&result.ev)?;
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| k[a].total_cmp(&k[b]).then(a.cmp(&b)));
+    check(progress, 0.45, "Detecting sensor ghosts")?;
+    let ghosts = options.deghost.params().map(|(threshold, radius)| hdr::deghost_maps(&work, &valid, &k, &order, reference, threshold, radius));
     let mut merged = Normalized { width: w, height: h, cpp, cfa: samples[0].cfa.clone(), data: vec![0.0; w * h * cpp] };
     let darkest = order[0];
     // Row groups bound cancellation latency without invoking the callback from workers.
@@ -282,15 +373,18 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     if merged.data.iter().any(|v| !v.is_finite()) {
         return Err(MergeError::Mismatch("Raw HDR fusion produced non-finite sensor samples".into()));
     }
-    // AHD preserves scene-linear values above white, unlike algorithms whose
-    // absolute [0,1] intermediate clamps assume a single-exposure sensor mosaic.
-    result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Ahd);
+    // Develop's default method, so merges render detail like single raws. The mosaic stays in
+    // reference-exposure units: Auto's noise and dual-mask thresholds are absolute, and RCD,
+    // VNG, DCB and LMMSE keep values above white (only AMaZE clamps at 1.0).
+    result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Auto);
     drop(merged);
     let ref_raw = &raws[reference];
+    // A sample clipped in every bracket keeps only the darkest frame's weight.
+    let saturation = gains[darkest].into_iter().fold(0.0f32, f32::max) / k[darkest];
     // The output has no source opcode list. Apply every operation in its declared
     // camera-RGB order after fusion, before cropping; splitting lens operations
     // out loses mandatory DJI corrections and changes mixed/per-plane lists.
-    lightcraft_raw::opcodes::apply_list3(&ref_raw.opcodes.list3, &mut result.radiance);
+    result.clip = crate::frame::apply_lens_opcodes(&ref_raw.opcodes.list3, &mut result.radiance, saturation * crate::frame::CLIP_MARGIN);
     result.ghost = if let Some((maps, ghost_factor)) = &ghosts {
         let mut ghost = GrayFrame::new(w, h);
         let scale = (factor * ghost_factor) as f32;
@@ -349,7 +443,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     }
     result.color = camera_color(ref_raw);
     result.raw = true;
-    result.orientation = ref_raw.orientation;
+    result.orientation = crate::frame::common_orientation(raws, reference);
     result.metadata = crate::frame::developed_metadata(ref_raw);
     result.baseline_exposure = ref_raw.color.baseline_exposure;
     check(progress, 1.0, "Raw HDR ready")?;
@@ -360,6 +454,7 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::frame::FrameColor;
     use lightcraft_raw::{BlackLevel, Cfa, ColorData, RawData, RawFormat};
 
     fn capture(w: usize, h: usize, exposure: f32, scene: impl Fn(f32, f32) -> [f32; 3], shift: (f32, f32)) -> RawImage {
@@ -461,7 +556,7 @@ mod tests {
     fn old_frames(raws: &[RawImage]) -> Vec<Frame> {
         raws.iter()
             .map(|raw| Frame {
-                image: raw.develop(lightcraft_raw::Method::Ahd).unwrap(),
+                image: raw.develop(lightcraft_raw::Method::Auto).unwrap(),
                 clip: 1.0,
                 exposure: exif_exposure(&raw.metadata),
                 raw: true,
@@ -490,6 +585,48 @@ mod tests {
         if let FrameColor::Camera(color) = &merged.color {
             assert_eq!(color.as_shot_neutral, Some([0.5, 1.0, 2.0 / 3.0]));
         }
+    }
+
+    #[test]
+    fn raw_hdr_values_clipped_in_every_bracket_land_on_the_dng_white_level() {
+        let scene = |x: f32, y: f32| {
+            if (60.0..120.0).contains(&x) && (30.0..90.0).contains(&y) { [50.0; 3] } else { [0.02 + x * 0.0004, 0.03 + y * 0.0005, 0.025] }
+        };
+        let raws: Vec<_> = [0.125, 1.0, 8.0].into_iter().map(|e| capture(192, 128, e, scene, (0.0, 0.0))).collect();
+        let merged = merge_raw_hdr(&raws, &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        let dng = crate::write_linear_dng(
+            &merged.radiance,
+            &merged.color,
+            merged.orientation,
+            &merged.metadata,
+            merged.baseline_exposure,
+            crate::DngSamples::Float,
+            Some(merged.clip),
+        )
+        .unwrap();
+        let reopened = lightcraft_raw::decode(&dng).unwrap();
+        let gain = 2f32.powf((reopened.color.baseline_exposure - merged.baseline_exposure) as f32);
+        let reopened = reopened.normalized().unwrap();
+        let at = |x: usize, y: usize| -> [f32; 3] { std::array::from_fn(|c| reopened.data[(y * reopened.width + x) * 3 + c]) };
+        for (x, y) in [(66, 36), (90, 60), (113, 83)] {
+            assert!(at(x, y).iter().all(|v| (0.99..=1.0).contains(v)), "clipped patch at {x},{y}: {:?}", at(x, y));
+        }
+        // Measured radiance keeps its value through the scale carried in BaselineExposure.
+        for (x, y) in [(20, 20), (170, 110)] {
+            for c in 0..3 {
+                let (stored, want) = (at(x, y)[c] * gain, merged.radiance.get(x, y)[c]);
+                assert!(stored < 0.95 * gain && (stored - want).abs() <= want * 1e-5, "{x},{y}: {stored} vs {want}");
+            }
+        }
+    }
+
+    #[test]
+    fn raw_hdr_demosaics_like_a_single_raw() {
+        let raw = capture(192, 128, 1.0, window_scene, (0.0, 0.0));
+        let merged = merge_raw_hdr(&[raw.clone(), raw.clone()], &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        let single = raw.develop(lightcraft_raw::Method::Auto).unwrap();
+        let error = merged.radiance.data.iter().flatten().zip(single.data.iter().flatten()).map(|(a, b)| (a - b).abs()).fold(0f32, f32::max);
+        assert!(error < 1e-6, "merge of identical frames differs from Develop's default demosaic by {error}");
     }
 
     #[test]
@@ -547,6 +684,95 @@ mod tests {
         }
         eprintln!("handheld sensor alignment maximum error={largest:.6}px");
         assert!(largest < 0.5, "fractional sensor alignment error={largest}");
+    }
+
+    #[test]
+    fn raw_hdr_ignores_an_orientation_tag_that_changed_mid_bracket() {
+        let scene = |x: f32, y: f32| window_scene(x * 0.9 + 7.0, y * 0.8 + 3.0);
+        for flipped in [lightcraft_geom::Orientation::Rotate90, lightcraft_geom::Orientation::Rotate180] {
+            let mut raws: Vec<_> = [0.25, 1.0, 4.0].into_iter().map(|e| capture(192, 128, e, scene, (0.0, 0.0))).collect();
+            raws[1].orientation = flipped;
+            let merged = merge_raw_hdr(&raws, &HdrOptions { align: true, deghost: Deghost::None }, &crate::no_progress).unwrap();
+            assert_eq!((merged.radiance.width, merged.radiance.height), (192, 128));
+            assert_eq!(merged.orientation, lightcraft_geom::Orientation::Normal, "most frames carry the Normal tag");
+            for alignment in &merged.alignments {
+                for corner in [Point::new(0.0, 0.0), Point::new(192.0, 128.0)] {
+                    assert!(alignment.h.apply(corner).dist(corner) < 0.5, "{flipped:?}: {:?}", alignment.h);
+                }
+            }
+        }
+    }
+
+    /// A textured scene (rock strata) rendered at `w × h` and magnified `scale` times.
+    fn canyon(w: usize, h: usize, scale: f32) -> impl Fn(f32, f32) -> [f32; 3] {
+        let scene = lightcraft_scenes::demo_library().into_iter().find(|s| s.kind == lightcraft_scenes::Kind::Canyon).unwrap().render(w, h);
+        let mut levels: Vec<_> = scene.data.iter().map(|p| p[1]).collect();
+        levels.sort_by(f32::total_cmp);
+        let gain = 0.18 / levels[levels.len() / 2].max(1e-6);
+        move |x: f32, y: f32| scene.sample_bilinear(x / scale + 16.0, y / scale + 16.0).map(|v| v * gain)
+    }
+
+    #[test]
+    fn raw_hdr_tripod_brackets_are_not_resampled() {
+        let scene = canyon(400, 300, 1.0);
+        let raws: Vec<_> = [0.5, 1.0, 2.0].into_iter().map(|e| capture(352, 248, e, &scene, (0.0, 0.0))).collect();
+        let aligned = merge_raw_hdr(&raws, &HdrOptions { align: true, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        let fixed = merge_raw_hdr(&raws, &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        assert!(aligned.alignments.iter().all(|a| a.h == Homography::IDENTITY), "{:?}", aligned.alignments);
+        assert_eq!(aligned.radiance, fixed.radiance);
+    }
+
+    /// `raw` with shot and read noise (variance 0.5 DN per DN of signal plus 2 DN read noise),
+    /// saturating at its white level.
+    fn noisy(mut raw: RawImage, seed: u64) -> RawImage {
+        let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+        let mut unit = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            ((state >> 11) as f64 + 0.5) / (1u64 << 53) as f64
+        };
+        let (black, w) = (raw.black.clone(), raw.width);
+        if let RawData::F32(data) = &mut raw.data {
+            for (i, v) in data.iter_mut().enumerate() {
+                let b = black.at(i % w, i / w, 0, 1);
+                let signal = *v - b;
+                let gauss = ((-2.0 * unit().ln()).sqrt() * (std::f64::consts::TAU * unit()).cos()) as f32;
+                *v = b + (signal + (0.5 * signal.max(0.0) + 4.0).sqrt() * gauss).clamp(0.0, 4000.0);
+            }
+        }
+        raw
+    }
+
+    #[test]
+    fn raw_hdr_noisy_tripod_brackets_at_large_proxy_factors_are_not_resampled() {
+        // 4000 px needs a 1/4 registration proxy and CFA-tile refinement; sensor noise must not
+        // move a bracket shot from a tripod.
+        let scene = canyon(2200, 700, 2.0);
+        let raws: Vec<_> = [0.5, 1.0, 2.0].into_iter().zip(1..).map(|(e, seed)| noisy(capture(4000, 1200, e, &scene, (0.0, 0.0)), seed)).collect();
+        let aligned = merge_raw_hdr(&raws, &HdrOptions { align: true, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        assert!(aligned.alignments.iter().all(|a| a.h == Homography::IDENTITY), "{:?}", aligned.alignments);
+        let fixed = merge_raw_hdr(&raws, &HdrOptions { align: false, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        assert!(aligned.radiance == fixed.radiance, "a tripod bracket merges exactly like an unaligned one");
+    }
+
+    #[test]
+    fn raw_hdr_handheld_registration_is_sensor_precise_at_large_proxy_factors() {
+        // 4000 px needs a 1/4 registration proxy; its residual alone is several tenths of a pixel.
+        let scene = canyon(2200, 1400, 2.0);
+        let shifts = [(1.37, -0.62), (0.0, 0.0), (-2.41, 1.18)];
+        let raws: Vec<_> = [0.5, 1.0, 2.0].into_iter().zip(shifts).map(|(e, shift)| capture(4000, 2400, e, &scene, shift)).collect();
+        let result = merge_raw_hdr(&raws, &HdrOptions { align: true, deghost: Deghost::None }, &crate::no_progress).unwrap();
+        assert_eq!(result.reference, 1);
+        let mut largest = 0.0f64;
+        for i in [0, 2] {
+            for point in [Point::new(600.5, 500.5), Point::new(3400.5, 1900.5), Point::new(2000.5, 1200.5)] {
+                let want = Point::new(point.x - f64::from(shifts[i].0), point.y - f64::from(shifts[i].1));
+                largest = largest.max(result.alignments[i].h.apply(point).dist(want));
+            }
+        }
+        eprintln!("large-sensor handheld alignment maximum error={largest:.4}px");
+        assert!(largest < 0.15, "sensor alignment error {largest} px");
     }
 
     #[test]

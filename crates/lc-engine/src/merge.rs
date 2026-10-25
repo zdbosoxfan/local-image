@@ -128,12 +128,17 @@ impl BatchMergeJob {
                 .capture_time
                 .or_else(|| raw_info.as_ref().and_then(|info| info.metadata.capture_time))
                 .or_else(|| self.captured.get(i).and_then(|time| time.as_deref()).and_then(lightcraft_meta::DateTime::parse_iso));
+            let shutter = metadata
+                .exposure_time
+                .or_else(|| raw_info.as_ref().and_then(|info| info.metadata.exposure_time))
+                .filter(|t| t.is_finite() && *t > 0.0);
             // A full sensor decode cannot establish a missing EV or capture time; leave
             // those sources ungrouped without spending the demosaic memory/time.
             if exposure.is_none() || capture.is_none() {
                 probes.push(lightcraft_merge::brackets::BracketProbe {
                     exposure,
                     capture_seconds: capture.map(|time| time.unix_seconds() as f64 + time.millis as f64 / 1000.0),
+                    exposure_seconds: shutter,
                     width: 0,
                     height: 0,
                     camera: (metadata.make, metadata.model),
@@ -141,13 +146,15 @@ impl BatchMergeJob {
                 });
                 continue;
             }
-            let frame = lightcraft_merge::load_frame(&bytes, Some(128), true).map_err(|e| format!("{path}: {e}"))?;
+            // Raw files of one bracket share a sensor geometry whatever their orientation tags say
+            // (the tag can flip when the camera points straight up or down), so compare them unrotated.
+            let frame = lightcraft_merge::load_frame(&bytes, Some(128), raw_info.is_none()).map_err(|e| format!("{path}: {e}"))?;
             let mut probe = lightcraft_merge::brackets::BracketProbe::from_frame(&frame);
             probe.exposure = exposure;
             probe.capture_seconds = capture.map(|time| time.unix_seconds() as f64 + time.millis as f64 / 1000.0);
+            probe.exposure_seconds = shutter;
             if let Some(info) = raw_info {
-                let (w, h) = info.developed_size();
-                (probe.width, probe.height) = if info.orientation.swaps_axes() { (h, w) } else { (w, h) };
+                (probe.width, probe.height) = info.developed_size();
             }
             probes.push(probe);
         }
@@ -273,7 +280,8 @@ fn err(e: impl std::fmt::Display) -> String {
 }
 
 impl MergeJob {
-    fn load(&self, orient: bool, progress: &ProgressFn, span: (f32, f32)) -> std::result::Result<Vec<Frame>, String> {
+    /// `lens`: correct raw frames for their embedded vendor lens model ([`correct_panorama_lens`]).
+    fn load(&self, orient: bool, lens: bool, progress: &ProgressFn, span: (f32, f32)) -> std::result::Result<Vec<Frame>, String> {
         // Sensor decoders allocate full-size scratch even for small previews. Keep their
         // peak bounded by one decoder rather than the machine's logical CPU count.
         let n = self.sources.len();
@@ -285,7 +293,11 @@ impl MergeJob {
                     return Err("cancelled".into());
                 }
                 let bytes = (self.read)(path)?;
-                let frame = lightcraft_merge::load_frame(&bytes, self.preview, orient).map_err(|e| format!("{path}: {e}"))?;
+                let mut frame = lightcraft_merge::load_frame(&bytes, self.preview, orient).map_err(|e| format!("{path}: {e}"))?;
+                if lens && frame.raw {
+                    let info = lightcraft_raw::probe_info(&bytes).map_err(|e| format!("{path}: {e}"))?;
+                    correct_panorama_lens(&mut frame, &info);
+                }
                 if !progress(span.0 + (span.1 - span.0) * (i + 1) as f32 / n as f32, "Reading photos") {
                     return Err("cancelled".into());
                 }
@@ -314,7 +326,7 @@ impl MergeJob {
             if lightcraft_raw::probe(&bytes).is_none() {
                 drop(raws);
                 drop(permit);
-                let frames = self.load(false, progress, (0.0, 0.3))?;
+                let frames = self.load(false, false, progress, (0.0, 0.3))?;
                 return lightcraft_merge::merge_hdr(frames, options, &|f, stage| progress(0.3 + 0.7 * f, stage))
                     .map(|r| (r, None, false))
                     .map_err(err);
@@ -343,7 +355,7 @@ impl MergeJob {
                 // raw resampler to align, so they merge through the shared scene-linear
                 // demosaic path instead.
                 drop(raws);
-                let frames = self.load(false, progress, (0.0, 0.3))?;
+                let frames = self.load(false, false, progress, (0.0, 0.3))?;
                 return lightcraft_merge::merge_hdr(frames, options, &|f, stage| progress(0.3 + 0.7 * f, stage))
                     .map(|result| (result, permit, false))
                     .map_err(err);
@@ -421,7 +433,7 @@ impl MergeJob {
         let sub = |a: f32, b: f32| move |f: f32, s: &str| progress(a + (b - a) * f, s);
         let mut pixelshift_permit = None;
         let mut hdr_permit = None;
-        let (image, color, orientation, metadata, baseline, samples, crop, mut info, ghost) = match &self.kind {
+        let (image, color, orientation, metadata, baseline, samples, clip, crop, mut info, ghost) = match &self.kind {
             MergeKind::PixelShift => {
                 let mut raws = Vec::with_capacity(self.sources.len());
                 let mut source_size = None;
@@ -465,7 +477,8 @@ impl MergeJob {
                     raws.push(raw);
                 }
                 let r = lightcraft_merge::merge_pixel_shift(raws, &sub(0.3, 0.88)).map_err(err)?;
-                let motion_pixels = r.motion.data.iter().filter(|v| **v > 0.0).count();
+                // Pixels mostly taken from the fallback, not the feathered edges around them.
+                let motion_pixels = r.motion.data.iter().filter(|v| **v >= 0.5).count();
                 let mut image = r.image;
                 // Reconstruction must see the original CFA sampling lattice even for
                 // previews. Resize the complete reconstruction, never its source mosaics.
@@ -475,7 +488,7 @@ impl MergeJob {
                 let info = json!({"shots": r.shots, "motionPixels": motion_pixels, "motionCorrection": self.sources.len() > 1,
                     "motionFallback": if self.sources.len() > 1 { "firstShotAuto" } else { "alreadyComposed" }});
                 let ghost = (self.preview.is_some() && self.finish.show_overlay && motion_pixels > 0).then(|| r.motion.oriented(r.orientation));
-                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, None, info, ghost)
+                (image, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, Some(r.clip), None, info, ghost)
             }
             MergeKind::Hdr { hdr } => {
                 let (r, permit, raw_domain) = self.hdr_result(hdr, &sub(0.0, 0.9))?;
@@ -487,10 +500,12 @@ impl MergeJob {
                     "alignment": r.alignments.iter().map(|a| json!({"model": a.model, "inliers": a.inliers, "rmsPx": a.rms})).collect::<Vec<_>>(),
                 });
                 let ghost = (!r.ghost.data.is_empty()).then(|| r.ghost.oriented(r.orientation));
-                (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, None, info, ghost)
+                // Only sensor data has a saturation level; rendered and float images keep their highlights.
+                let clip = r.raw.then_some(r.clip);
+                (r.radiance, r.color, r.orientation, r.metadata, r.baseline_exposure, lightcraft_merge::DngSamples::Float, clip, None, info, ghost)
             }
             MergeKind::Panorama { pano } => {
-                let frames = self.load(true, progress, (0.0, 0.25))?;
+                let frames = self.load(true, true, progress, (0.0, 0.25))?;
                 let p = sub(0.25, 0.9);
                 let r = lightcraft_merge::stitch(frames, pano, &p).map_err(err)?;
                 let info = pano_info(&r, &self.sources);
@@ -501,6 +516,7 @@ impl MergeJob {
                     r.metadata,
                     r.baseline_exposure,
                     lightcraft_merge::DngSamples::U16,
+                    r.clip,
                     r.crop,
                     info,
                     None,
@@ -512,7 +528,7 @@ impl MergeJob {
                 } else {
                     let mut detection = self.clone();
                     detection.preview = Some(128);
-                    let frames = detection.load(false, progress, (0.0, 0.2))?;
+                    let frames = detection.load(false, false, progress, (0.0, 0.2))?;
                     detect_bracket(&frames).ok_or("could not detect the bracket size from EXIF; set it")?
                 };
                 if !self.sources.len().is_multiple_of(b) || self.sources.len() / b < 2 {
@@ -527,17 +543,20 @@ impl MergeJob {
                     let p = sub(0.2 + 0.4 * g as f32 / groups as f32, 0.2 + 0.4 * (g + 1) as f32 / groups as f32);
                     let (r, permit, raw_domain) = set.hdr_result(hdr, &p)?;
                     raw_domains.push(raw_domain);
-                    let mut f = Frame {
-                        image: r.radiance,
-                        clip: f32::INFINITY,
-                        exposure: None,
-                        raw: r.raw,
-                        color: r.color,
-                        orientation: r.orientation,
-                        metadata: r.metadata,
-                        baseline_exposure: r.baseline_exposure,
+                    let reference = &set.sources[r.reference].1;
+                    let info = if r.raw {
+                        Some(lightcraft_raw::probe_info(&(set.read)(reference)?).map_err(|e| format!("{reference}: {e}"))?)
+                    } else {
+                        None
                     };
+                    let orientation = r.orientation;
+                    let mut f = r.into_frame();
                     f.orient();
+                    if let Some(mut info) = info {
+                        // The merge's tag can differ from the reference file's (a tag flipped mid-bracket).
+                        info.orientation = orientation;
+                        correct_panorama_lens(&mut f, &info);
+                    }
                     merged.push(f);
                     drop(permit);
                 }
@@ -555,6 +574,7 @@ impl MergeJob {
                     r.metadata,
                     r.baseline_exposure,
                     lightcraft_merge::DngSamples::Float,
+                    r.clip,
                     r.crop,
                     info,
                     None,
@@ -571,7 +591,7 @@ impl MergeJob {
             metadata.caption = Some(format!("Merged from {}", names.join(", ")));
         }
         metadata.software = Some("Local Image Photo Merge".into());
-        let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation, &metadata, baseline, samples).map_err(err)?;
+        let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation, &metadata, baseline, samples, clip).map_err(err)?;
         info["width"] = json!(image.width);
         info["height"] = json!(image.height);
         let preview = match self.preview {
@@ -587,13 +607,52 @@ impl MergeJob {
     }
 }
 
-/// Raw bracket storage, decoder scratch, fused CFA, single demosaic, mask and DNG staging.
-/// This conservative estimate uses the sensor extent even when the requested result is a preview.
+/// Correct a panorama input for the lens model its raw file carries (Sony and other vendor
+/// distortion, lateral CA and vignetting curves) as Develop would, without its crop rescaling.
+/// Frames then stitch on a pinhole model, and per-frame gains can match skies and ceilings that
+/// radial falloff otherwise leaves undulating. DNG lens opcodes were already applied when the raw
+/// developed. Vendor radial profiles are autoscaled when read (`finish_radial`, after darktable),
+/// so the correction reads only from inside the photo: every corrected pixel is image content.
+fn correct_panorama_lens(frame: &mut Frame, info: &lightcraft_raw::RawInfo) {
+    use rayon::prelude::*;
+    let w = frame.width();
+    let Some(warp) = panorama_lens_warp(info, w, frame.height()) else {
+        return;
+    };
+    frame.clip = lightcraft_merge::frame::correct_with_clip(&mut frame.image, frame.clip, |image| {
+        let source = image.clone();
+        image.data.par_chunks_mut(w).enumerate().for_each(|(y, row)| {
+            for (x, pixel) in row.iter_mut().enumerate() {
+                let at = lightcraft_geom::Point::new(x as f64 + 0.5, y as f64 + 0.5);
+                *pixel = std::array::from_fn(|c| {
+                    let from = warp.to_source(at, c);
+                    source.sample_bilinear(from.x as f32, from.y as f32)[c] * warp.gain(from)
+                });
+            }
+        });
+    });
+    frame.metadata.lens_corrections_baked = true;
+    frame.metadata.chromatic_aberration_baked = true;
+}
+
+/// The lens correction of [`correct_panorama_lens`] for a `w × h` frame of `info`'s raw.
+fn panorama_lens_warp(info: &lightcraft_raw::RawInfo, w: usize, h: usize) -> Option<lightcraft_pipeline::optics::Warp> {
+    let lens = crate::files::embedded_lens(info).filter(|lens| lens.warp.is_none() && lens.vignette.is_none())?;
+    let mut warp = lightcraft_pipeline::optics::Warp::identity(w as f64, h as f64);
+    warp.lens = Some(lens);
+    warp.lens_dist = 1.0;
+    warp.lens_vig = 1.0;
+    Some(warp)
+}
+
+/// Raw bracket storage, decoder scratch, fused CFA, single demosaic, mask, two CFA-tile
+/// registration planes and DNG staging. This conservative estimate uses the sensor extent even
+/// when the requested result is a preview.
 fn hdr_memory_bytes(width: usize, height: usize, shots: usize, cpp: usize) -> std::result::Result<u64, String> {
     if width < 2 || height < 2 || shots < 2 || !matches!(cpp, 1 | 3) {
         return Err("HDR needs at least two nonempty sensor frames".into());
     }
-    let per_pixel = (shots as u64).checked_mul(4 * cpp as u64).and_then(|n| n.checked_add(112)).ok_or("HDR memory estimate overflowed")?;
+    let per_pixel = (shots as u64).checked_mul(4 * cpp as u64).and_then(|n| n.checked_add(114)).ok_or("HDR memory estimate overflowed")?;
     (width as u64)
         .checked_mul(height as u64)
         .and_then(|n| n.checked_mul(per_pixel))
@@ -830,6 +889,10 @@ mod tests {
     use super::*;
 
     fn batch_fixture() -> BatchMergeJob {
+        oriented_batch_fixture(|_| lightcraft_geom::Orientation::Normal)
+    }
+
+    fn oriented_batch_fixture(orientation: impl Fn(usize) -> lightcraft_geom::Orientation) -> BatchMergeJob {
         let evs = [-2.0, 0.0, 2.0, -2.0, 0.0, 2.0, 0.0];
         let mut bytes = std::collections::HashMap::new();
         for (i, ev) in evs.into_iter().enumerate() {
@@ -844,15 +907,8 @@ mod tests {
                 iso: Some(100),
                 ..Default::default()
             };
-            let dng = lightcraft_merge::write_linear_dng(
-                &image,
-                &color,
-                lightcraft_geom::Orientation::Normal,
-                &metadata,
-                0.0,
-                lightcraft_merge::DngSamples::Float,
-            )
-            .unwrap();
+            let dng = lightcraft_merge::write_linear_dng(&image, &color, orientation(i), &metadata, 0.0, lightcraft_merge::DngSamples::Float, None)
+                .unwrap();
             bytes.insert(format!("frame{i}.dng"), dng);
         }
         BatchMergeJob {
@@ -895,6 +951,17 @@ mod tests {
         let fractions = progress.lock().unwrap();
         assert!(fractions.windows(2).all(|pair| pair[0] <= pair[1]), "{fractions:?}");
         assert_eq!(fractions.last(), Some(&1.0));
+    }
+
+    #[test]
+    fn batch_groups_brackets_whose_orientation_tag_changed_mid_set() {
+        let batch = oriented_batch_fixture(|i| if i == 1 { lightcraft_geom::Orientation::Rotate90 } else { lightcraft_geom::Orientation::Normal });
+        let jobs = batch.detect(&|_, _| true).unwrap();
+        let groups: Vec<Vec<PhotoId>> = jobs.iter().map(|job| job.sources.iter().map(|(id, _)| *id).collect()).collect();
+        assert_eq!(groups, vec![vec![PhotoId(1), PhotoId(2), PhotoId(3)], vec![PhotoId(4), PhotoId(5), PhotoId(6)]]);
+        let output = jobs[0].run(&|_, _| true).unwrap();
+        let merged = lightcraft_raw::probe_info(&output.dng).unwrap();
+        assert_eq!((merged.developed_size(), merged.orientation), ((48, 32), lightcraft_geom::Orientation::Normal));
     }
 
     #[test]
@@ -962,6 +1029,7 @@ mod tests {
             &lightcraft_meta::Metadata::default(),
             0.0,
             lightcraft_merge::DngSamples::Float,
+            None,
         )
         .unwrap();
         let output = || MergeOutput { dng: dng.clone(), preview: None, crop: None, info: json!({}) };
@@ -988,6 +1056,269 @@ mod tests {
         assert!(std::path::Path::new(path).exists(), "accepted output must survive ownership guard drop");
         assert!(session.develop_of(PhotoId(result["id"].as_u64().unwrap())).is_some());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn merged_highlights_clipped_in_every_input_develop_neutral() {
+        // Camera RGB before white balance: a window clipped on the sensor in every input.
+        let window = |x: usize, y: usize| (16..32).contains(&x) && (8..24).contains(&y);
+        let image = RgbFrame::from_fn(48, 32, |x, y| if window(x, y) { [1.0; 3] } else { [0.1 + 0.004 * x as f32, 0.2, 0.15] });
+        let color = lightcraft_merge::FrameColor::Camera(Box::new(lightcraft_raw::ColorData {
+            illuminant: [21, 0],
+            color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+            as_shot_neutral: Some([0.5, 1.0, 2.0 / 3.0]),
+            ..Default::default()
+        }));
+        let dng = lightcraft_merge::write_linear_dng(
+            &image,
+            &color,
+            lightcraft_geom::Orientation::Normal,
+            &lightcraft_meta::Metadata::default(),
+            0.0,
+            lightcraft_merge::DngSamples::Float,
+            Some(1.0),
+        )
+        .unwrap();
+        let (source, _) = crate::files::load_bytes(&dng, 48).unwrap();
+        for (x, y) in [(20, 12), (24, 16), (28, 20)] {
+            let p = source.get(x, y);
+            assert!((p[0] - p[1]).abs() < 0.02 * p[1] && (p[2] - p[1]).abs() < 0.02 * p[1], "window at {x},{y} develops tinted: {p:?}");
+        }
+    }
+
+    #[test]
+    fn merged_dngs_measure_their_own_noise_instead_of_the_camera_table() {
+        let metadata = lightcraft_meta::Metadata { make: Some("SONY".into()), model: Some("ILCE-1".into()), iso: Some(100), ..Default::default() };
+        let color = lightcraft_raw::ColorData { illuminant: [21, 0], color_matrix: [Some(li_color::Mat3::IDENTITY), None], ..Default::default() };
+        let (w, h) = (64, 48);
+        let mosaic = lightcraft_raw::RawImage {
+            format: lightcraft_raw::RawFormat::Dng,
+            width: w,
+            height: h,
+            cpp: 1,
+            data: lightcraft_raw::RawData::U16((0..w * h).map(|i| 1000 + (i % w) as u16 * 40).collect()),
+            cfa: lightcraft_raw::Cfa::bayer("RGGB"),
+            bits: 14,
+            black: lightcraft_raw::BlackLevel::uniform(512.0),
+            white: vec![16383.0],
+            active_area: lightcraft_raw::Rect::new(0, 0, w, h),
+            crop: lightcraft_raw::Rect::new(0, 0, w, h),
+            orientation: lightcraft_geom::Orientation::Normal,
+            color: color.clone(),
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: metadata.clone(),
+        };
+        let sensor = lightcraft_raw::write_dng(&mosaic, &lightcraft_raw::DngWriteOptions::default()).unwrap();
+        assert!(crate::files::load_bytes(&sensor, 48).unwrap().1.camera_noise.is_some(), "the camera has a noise table");
+        let image = RgbFrame::from_fn(w, h, |x, _| [0.05 + 0.01 * x as f32; 3]);
+        let merged = lightcraft_merge::write_linear_dng(
+            &image,
+            &lightcraft_merge::FrameColor::Camera(Box::new(color)),
+            lightcraft_geom::Orientation::Normal,
+            &metadata,
+            0.0,
+            lightcraft_merge::DngSamples::Float,
+            Some(4.0),
+        )
+        .unwrap();
+        assert!(crate::files::load_bytes(&merged, 48).unwrap().1.camera_noise.is_none());
+    }
+
+    #[test]
+    fn panorama_inputs_are_corrected_for_their_embedded_vignetting() {
+        let metadata = lightcraft_meta::Metadata {
+            make: Some("SONY".into()),
+            model: Some("ILCE-1".into()),
+            sony: Some(lightcraft_meta::SonyMetadata {
+                lens_correction: Some(lightcraft_meta::SonyLensCorrection {
+                    distortion: vec![0; 3],
+                    ca_red: vec![0; 3],
+                    ca_blue: vec![0; 3],
+                    vignetting: vec![0, 32, 6144],
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let color = lightcraft_merge::FrameColor::Camera(Box::new(lightcraft_raw::ColorData {
+            illuminant: [21, 0],
+            color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+            ..Default::default()
+        }));
+        let (w, h) = (96, 64);
+        let write = |image: &RgbFrame| {
+            lightcraft_merge::write_linear_dng(
+                image,
+                &color,
+                lightcraft_geom::Orientation::Normal,
+                &metadata,
+                0.0,
+                lightcraft_merge::DngSamples::Float,
+                Some(1.0),
+            )
+            .unwrap()
+        };
+        let lens = crate::files::embedded_lens(&lightcraft_raw::probe_info(&write(&RgbFrame::filled(w, h, [0.4; 3]))).unwrap()).unwrap();
+        let mut warp = lightcraft_pipeline::optics::Warp::identity(w as f64, h as f64);
+        warp.lens = Some(lens);
+        warp.lens_vig = 1.0;
+        // A flat wall with a blown window, photographed through the lens: falloff as the embedded
+        // curve describes it.
+        let window = |x: usize, y: usize| (60..76).contains(&x) && (40..52).contains(&y);
+        let shot = RgbFrame::from_fn(w, h, |x, y| {
+            if window(x, y) { [1.0; 3] } else { [0.4 / warp.gain(lightcraft_geom::Point::new(x as f64 + 0.5, y as f64 + 0.5)); 3] }
+        });
+        assert!(shot.get(0, 0)[1] < 0.9 * shot.get(w / 2, h / 2)[1], "the fixture must vignette");
+        let bytes = write(&shot);
+        let job = MergeJob {
+            kind: MergeKind::Panorama { pano: PanoOptions::default() },
+            finish: MergeFinish::default(),
+            sources: vec![(PhotoId(1), "a.dng".into())],
+            preview: None,
+            read: Arc::new(move |_| Ok(bytes.clone())),
+        };
+        let frame = job.load(true, true, &|_, _| true, (0.0, 1.0)).unwrap().remove(0);
+        for (x, y) in [(0, 0), (w - 1, 0), (w / 2, h / 2), (10, h - 1)] {
+            let v = frame.image.get(x, y)[1];
+            assert!((v - 0.4).abs() < 0.004, "({x},{y}) = {v}");
+        }
+        assert!(frame.image.get(68, 46).iter().all(|v| *v == frame.clip), "the window stays clipped: {:?}", frame.image.get(68, 46));
+        assert!(frame.metadata.lens_corrections_baked);
+    }
+
+    #[test]
+    fn panorama_lens_corrections_read_only_from_inside_the_photo() {
+        // Pincushion (a tele zoom), barrel (a wide angle) and a moustache, with lateral CA: the
+        // corrected frame is stitched edge to edge, so no pixel may come from beyond the frame.
+        let (w, h) = (96, 64);
+        for distortion in [vec![0, 150, 600], vec![0, -150, -600], vec![0, -300, 200]] {
+            let metadata = lightcraft_meta::Metadata {
+                make: Some("SONY".into()),
+                model: Some("ILCE-1".into()),
+                sony: Some(lightcraft_meta::SonyMetadata {
+                    lens_correction: Some(lightcraft_meta::SonyLensCorrection {
+                        distortion: distortion.clone(),
+                        ca_red: vec![0, 2000, 6000],
+                        ca_blue: vec![0, -2000, -6000],
+                        vignetting: vec![0; 3],
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let color = lightcraft_merge::FrameColor::Camera(Box::new(lightcraft_raw::ColorData {
+                illuminant: [21, 0],
+                color_matrix: [Some(li_color::Mat3::IDENTITY), None],
+                ..Default::default()
+            }));
+            let image = RgbFrame::filled(w, h, [0.4; 3]);
+            let bytes = lightcraft_merge::write_linear_dng(
+                &image,
+                &color,
+                lightcraft_geom::Orientation::Normal,
+                &metadata,
+                0.0,
+                lightcraft_merge::DngSamples::Float,
+                Some(1.0),
+            )
+            .unwrap();
+            let warp = panorama_lens_warp(&lightcraft_raw::probe_info(&bytes).unwrap(), w, h).unwrap();
+            let mut moved = 0.0f64;
+            for y in 0..h {
+                for x in 0..w {
+                    let at = lightcraft_geom::Point::new(x as f64 + 0.5, y as f64 + 0.5);
+                    for c in 0..3 {
+                        let from = warp.to_source(at, c);
+                        moved = moved.max(from.dist(at));
+                        let inside = (-0.01..=w as f64 + 0.01).contains(&from.x) && (-0.01..=h as f64 + 0.01).contains(&from.y);
+                        assert!(inside, "{distortion:?}: ({x},{y}) channel {c} reads {from:?}");
+                    }
+                }
+            }
+            assert!(moved > 0.5, "{distortion:?}: the fixture must correct something ({moved} px)");
+        }
+    }
+
+    #[test]
+    fn merged_dngs_keep_the_sources_capture_offset_and_milliseconds() {
+        let captured = lightcraft_meta::DateTime::parse_iso("2026-10-14T12:00:01.250-04:00");
+        let files: Vec<Vec<u8>> = [-1.0f32, 1.0]
+            .into_iter()
+            .map(|ev| {
+                let image = RgbFrame::from_fn(48, 32, |x, y| [(0.05 + 0.003 * x as f32 + 0.001 * y as f32) * 2f32.powf(ev); 3]);
+                let metadata = lightcraft_meta::Metadata {
+                    exposure_time: Some(2f64.powf(f64::from(ev)) / 125.0),
+                    f_number: Some(8.0),
+                    iso: Some(100),
+                    capture_time: captured,
+                    ..Default::default()
+                };
+                let color = Frame::from_linear_rec2020(image.clone(), None).color;
+                lightcraft_merge::write_linear_dng(
+                    &image,
+                    &color,
+                    lightcraft_geom::Orientation::Normal,
+                    &metadata,
+                    0.0,
+                    lightcraft_merge::DngSamples::Float,
+                    None,
+                )
+                .unwrap()
+            })
+            .collect();
+        let job = MergeJob {
+            kind: MergeKind::Hdr { hdr: HdrOptions { align: false, deghost: Deghost::None } },
+            finish: MergeFinish::default(),
+            sources: vec![(PhotoId(1), "dark.dng".into()), (PhotoId(2), "bright.dng".into())],
+            preview: None,
+            read: Arc::new(move |path| Ok(files[usize::from(path.starts_with("bright"))].clone())),
+        };
+        let output = job.run(&|_, _| true).unwrap();
+        let probe = crate::files::probe_bytes("merged.dng", &output.dng).unwrap();
+        assert_eq!(probe.captured.as_deref(), Some("2026-10-14T12:00:01.250-04:00"));
+    }
+
+    #[test]
+    fn float_hdr_merges_keep_radiance_above_the_darkest_brackets_white_level() {
+        // Scene-linear float TIFF brackets whose windows exceed 1.0 even in the darkest frame.
+        let (w, h) = (64, 48);
+        let window = |x: usize, y: usize| (20..36).contains(&x) && (12..28).contains(&y);
+        let bracket = |k: f32, seconds: f64| {
+            let image = RgbFrame::from_fn(w, h, |x, y| {
+                let v = if window(x, y) { 12.0 + 0.1 * (x + y) as f32 } else { 0.2 + 0.004 * x as f32 };
+                [v * k; 3]
+            });
+            let exif = lightcraft_meta::write_exif(&lightcraft_meta::Metadata {
+                exposure_time: Some(seconds),
+                f_number: Some(8.0),
+                iso: Some(100),
+                ..Default::default()
+            });
+            lightcraft_codecs::encode_tiff(
+                &lightcraft_codecs::EncodeImage::new(w as u32, h as u32, 3, lightcraft_codecs::Samples::F32(image.data.as_flattened())),
+                lightcraft_codecs::TiffCompression::Deflate,
+                &lightcraft_codecs::EncodeMeta { exif: Some(&exif), ..Default::default() },
+            )
+            .unwrap()
+        };
+        let files = [bracket(1.0, 1.0 / 25.0), bracket(0.25, 1.0 / 100.0)];
+        let job = MergeJob {
+            kind: MergeKind::Hdr { hdr: HdrOptions { align: false, deghost: Deghost::None } },
+            finish: MergeFinish::default(),
+            sources: vec![(PhotoId(1), "bright.tif".into()), (PhotoId(2), "dark.tif".into())],
+            preview: None,
+            read: Arc::new(move |path| Ok(files[usize::from(path.starts_with("dark"))].clone())),
+        };
+        let output = job.run(&|_, _| true).unwrap();
+        assert_eq!(output.info["rawDomain"], json!(false));
+        let merged = lightcraft_raw::decode(&output.dng).unwrap().develop(lightcraft_raw::Method::Bilinear).unwrap();
+        // Ratios to the background are independent of the writer's scale.
+        let (background, highlight) = (merged.get(4, 40)[1], merged.get(28, 20)[1]);
+        let want = (12.0 + 0.1 * 48.0) / (0.2 + 0.004 * 4.0);
+        assert!((highlight / background / want - 1.0).abs() < 0.02, "window {highlight}, background {background}, ratio wanted {want}");
     }
 
     #[test]

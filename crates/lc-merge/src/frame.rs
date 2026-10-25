@@ -6,7 +6,7 @@ use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use lightcraft_geom::Orientation;
 use lightcraft_meta::Metadata;
-use lightcraft_raw::ColorData;
+use lightcraft_raw::{ColorData, Opcode, RawImage, Rect};
 
 use crate::{MergeError, Result};
 
@@ -81,6 +81,10 @@ pub fn exif_exposure(m: &Metadata) -> Option<f64> {
     Some((t * iso / (n * n)).log2())
 }
 
+/// Clip levels sit this far below the value saturated samples reach, so demosaic and fusion
+/// round-off on a clipped area still counts as clipped.
+pub(crate) const CLIP_MARGIN: f32 = 0.995;
+
 /// The saturation level of a frame: 1.0, or the (lower) level at which values pile up when the
 /// file's white level is optimistic. Returned slightly below the level.
 pub fn detect_clip(img: &RgbFrame) -> f32 {
@@ -93,14 +97,87 @@ pub fn detect_clip(img: &RgbFrame) -> f32 {
     let (mut near, mut below) = (0usize, 0usize);
     for p in &img.data {
         let m = p[0].max(p[1]).max(p[2]);
-        if m >= level * 0.995 {
+        if m >= level * CLIP_MARGIN {
             near += 1;
         } else if m >= level * 0.97 && m < level * 0.99 {
             below += 1;
         }
     }
     let piled = near as f64 > img.data.len() as f64 * 1e-4 && near >= 4 && near as f64 / 0.005 > 4.0 * below as f64 / 0.02;
-    if maxv >= 1.0 || piled { level * 0.995 } else { 1.0 }
+    if maxv >= 1.0 || piled { level * CLIP_MARGIN } else { 1.0 }
+}
+
+/// Apply a correction that scales or moves samples unevenly (lens gains, distortion) to camera RGB
+/// whose samples at or above `clip` are saturated, and return the clip level afterwards. Such
+/// corrections spread clipped samples over a range of values and can lift measured corners above
+/// them, so no single level would separate clipped from measured values; the clipped samples are
+/// therefore moved to one level, clear above every measured value. `correct` runs on the image
+/// and, only when something is clipped, on a full-size clip mask.
+pub fn correct_with_clip(image: &mut RgbFrame, clip: f32, correct: impl Fn(&mut RgbFrame)) -> f32 {
+    let clipped = image.data.iter().flatten().any(|v| *v >= clip).then(|| image.map(|p| p.map(|v| if v >= clip { 1.0f32 } else { 0.0 })));
+    correct(image);
+    let peak = image.data.iter().flatten().copied().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
+    let level = clip.max(peak / crate::output::UNCLIPPED_PEAK);
+    if let Some(mut clipped) = clipped {
+        // Gains keep the moved mask well above one half.
+        correct(&mut clipped);
+        for (p, m) in image.data.iter_mut().zip(&clipped.data) {
+            for c in 0..3 {
+                if m[c] >= 0.5 {
+                    p[c] = level;
+                }
+            }
+        }
+    }
+    level
+}
+
+/// [`correct_with_clip`] for `OpcodeList3` (DJI vignette and gain maps, lens warps).
+pub(crate) fn apply_lens_opcodes(list3: &[Opcode], image: &mut RgbFrame, clip: f32) -> f32 {
+    if list3.is_empty() {
+        return clip;
+    }
+    correct_with_clip(image, clip, |img| lightcraft_raw::opcodes::apply_list3(list3, img))
+}
+
+/// Develop `raw` like [`RawImage::develop`] (normalize, demosaic, `OpcodeList3`, default crop),
+/// returning camera RGB and its clip level ([`Frame::clip`]).
+fn develop_frame(raw: &RawImage, method: lightcraft_raw::Method) -> Result<(RgbFrame, f32)> {
+    let normalized = raw.normalized().map_err(|e| MergeError::Decode(e.to_string()))?;
+    let mut image = lightcraft_raw::demosaic(&normalized, method);
+    drop(normalized);
+    let sensor_clip = detect_clip(&image);
+    let clip = apply_lens_opcodes(&raw.opcodes.list3, &mut image, sensor_clip);
+    let crop = raw.crop.clipped(image.width, image.height);
+    if crop.width > 0 && crop.height > 0 && crop != Rect::new(0, 0, image.width, image.height) {
+        image = image.into_crop(crop.x, crop.y, crop.width, crop.height);
+    }
+    Ok((image, clip))
+}
+
+/// The colour model of `raw`'s developed pixels, which are black/white normalized: the file's
+/// colour tags in normalized sensor coordinates. Vendor raws keep their as-shot white balance as
+/// multipliers rather than DNG tags, so it becomes the equivalent `AsShotNeutral`; without it a
+/// merged DNG would open at D65.
+pub(crate) fn camera_color(raw: &RawImage) -> FrameColor {
+    let mut color = lightcraft_raw::color::normalized_color(raw);
+    if color.as_shot_neutral.is_none()
+        && color.as_shot_white_xy.is_none()
+        && let Some(wb) = raw.wb_multipliers.filter(|w| w.iter().all(|v| v.is_finite() && *v > 0.0))
+    {
+        let ratios = lightcraft_raw::color::normalization_ratios(raw);
+        color.as_shot_neutral = Some(std::array::from_fn(|c| ratios[c] / f64::from(wb[c])));
+    }
+    FrameColor::Camera(Box::new(color))
+}
+
+/// The orientation tag most of a capture's raw files carry; ties go to `raws[preferred]`. All the
+/// files hold one sensor geometry whatever the tag says, and cameras pointed straight up or down
+/// can change the tag mid-burst.
+pub(crate) fn common_orientation(raws: &[RawImage], preferred: usize) -> Orientation {
+    let votes = |o: Orientation| raws.iter().filter(|r| r.orientation == o).count();
+    let preferred = raws.get(preferred).map_or(Orientation::Normal, |r| r.orientation);
+    raws.iter().map(|r| r.orientation).fold(preferred, |best, o| if votes(o) > votes(best) { o } else { best })
 }
 
 /// Metadata for pixels whose DNG lens operations have already been evaluated.
@@ -134,12 +211,11 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
         // Each panorama input must have its own ordered camera-RGB corrections
         // applied before registration. The final mosaic has no source lens frame.
         let small = max_edge.is_some_and(|m| m <= 1200);
-        let method = if small { lightcraft_raw::Method::Bilinear } else { lightcraft_raw::Method::Ahd };
-        let mut image = raw.develop(method).map_err(|e| MergeError::Decode(e.to_string()))?;
+        let method = if small { lightcraft_raw::Method::Bilinear } else { lightcraft_raw::Method::Auto };
+        let (mut image, clip) = develop_frame(&raw, method)?;
         for p in image.data.iter_mut() {
             *p = p.map(|v| v.max(0.0));
         }
-        let clip = detect_clip(&image);
         if let Some(m) = max_edge
             && image.width.max(image.height) > m
         {
@@ -150,7 +226,7 @@ pub fn load_frame(bytes: &[u8], max_edge: Option<usize>, orient: bool) -> Result
             clip,
             exposure,
             raw: true,
-            color: FrameColor::Camera(Box::new(raw.color.clone())),
+            color: camera_color(&raw),
             orientation: raw.orientation,
             metadata: if raw.metadata == Metadata::default() { metadata } else { developed_metadata(&raw) },
             baseline_exposure: raw.color.baseline_exposure,
@@ -208,6 +284,95 @@ mod tests {
     }
 
     #[test]
+    fn vendor_raw_frames_open_at_the_cameras_as_shot_white() {
+        let (w, h) = (40, 30);
+        let mosaic = lightcraft_raw::testgen::mosaic(&lightcraft_raw::testgen::scene(w, h), w, [0, 1, 1, 2], 128, 4095);
+        let bytes = lightcraft_raw::testgen::rw2(w, h, &mosaic, 12);
+        let source = lightcraft_raw::decode(&bytes).unwrap();
+        assert_eq!(source.wb_multipliers, Some([2.0, 1.0, 1.5]));
+        assert!(source.color.as_shot_neutral.is_none() && source.color.as_shot_white_xy.is_none());
+        let frame = load_frame(&bytes, None, true).unwrap();
+        let FrameColor::Camera(color) = &frame.color else { panic!("raw frames carry camera colour") };
+        let neutral = color.as_shot_neutral.unwrap();
+        for (a, b) in neutral.into_iter().zip([0.5, 1.0, 2.0 / 3.0]) {
+            assert!((a - b).abs() < 1e-9, "{neutral:?}");
+        }
+        let dng = crate::write_linear_dng(
+            &frame.image,
+            &frame.color,
+            frame.orientation,
+            &frame.metadata,
+            frame.baseline_exposure,
+            crate::DngSamples::U16,
+            Some(frame.clip),
+        )
+        .unwrap();
+        let merged = lightcraft_raw::decode(&dng).unwrap();
+        let (want, got) = (lightcraft_raw::color::as_shot_white_xy(&source), lightcraft_raw::color::as_shot_white_xy(&merged));
+        assert!((want.x - got.x).abs() < 1e-3 && (want.y - got.y).abs() < 1e-3, "merged white {got:?}, camera white {want:?}");
+        assert!((got.x - li_color::D65.x).abs() > 0.01, "merged DNG fell back to D65");
+    }
+
+    #[test]
+    fn lens_gains_keep_clipped_samples_on_one_level_above_measured_corners() {
+        // A sensor clipped in the centre; the corners stay measured but a strong vignette gain
+        // (as in DJI DNGs) lifts them above the centre's clipped samples.
+        let mut image = RgbFrame::from_fn(64, 48, |x, y| {
+            let r2 = ((x as f32 - 31.5) / 40.0).powi(2) + ((y as f32 - 23.5) / 40.0).powi(2);
+            if r2 < 0.04 { [1.0, 1.0, 1.0] } else { [0.6, 0.7, 0.5].map(|v| v * (1.0 - 0.2 * r2)) }
+        });
+        let list3 = [Opcode::FixVignetteRadial { k: [1.5, 0.0, 0.0, 0.0, 0.0], center: [0.5, 0.5] }];
+        let mut reference = image.clone();
+        lightcraft_raw::opcodes::apply_list3(&list3, &mut reference);
+        let clip = apply_lens_opcodes(&list3, &mut image, 0.995);
+        let corner_peak = reference.data.iter().flatten().copied().fold(0.0f32, f32::max);
+        assert!(corner_peak > 1.0, "the fixture must lift measured corners above the sensor clip");
+        assert!(image.get(31, 23).iter().all(|v| *v == clip), "{:?} vs {clip}", image.get(31, 23));
+        for (got, want) in image.data.iter().zip(&reference.data) {
+            if got[0] < clip {
+                assert_eq!(got, want, "measured values are untouched");
+                assert!(got.iter().all(|v| *v <= clip * crate::output::UNCLIPPED_PEAK));
+            }
+        }
+        let mut unclipped = RgbFrame::filled(16, 12, [0.4; 3]);
+        assert_eq!(apply_lens_opcodes(&[], &mut unclipped, 0.995), 0.995);
+        let runs = std::cell::Cell::new(0);
+        let level = correct_with_clip(&mut unclipped, 0.995, |img| {
+            runs.set(runs.get() + 1);
+            lightcraft_raw::opcodes::apply_list3(&list3, img);
+        });
+        assert_eq!((runs.get(), level), (1, 0.995), "an unclipped frame needs no clip mask");
+    }
+
+    #[test]
+    fn common_orientation_takes_the_majority_and_breaks_ties_with_the_preferred_frame() {
+        let raw = |orientation| RawImage {
+            format: lightcraft_raw::RawFormat::Dng,
+            width: 2,
+            height: 2,
+            cpp: 3,
+            data: lightcraft_raw::RawData::F32(vec![0.0; 12]),
+            cfa: None,
+            bits: 32,
+            black: lightcraft_raw::BlackLevel::uniform(0.0),
+            white: vec![1.0],
+            active_area: Rect::new(0, 0, 2, 2),
+            crop: Rect::new(0, 0, 2, 2),
+            orientation,
+            color: ColorData::default(),
+            wb_multipliers: None,
+            linearized: false,
+            vendor_lens: None,
+            opcodes: Default::default(),
+            metadata: Metadata::default(),
+        };
+        let raws = [raw(Orientation::Rotate90), raw(Orientation::Normal), raw(Orientation::Rotate90)];
+        assert_eq!(common_orientation(&raws, 1), Orientation::Rotate90);
+        assert_eq!(common_orientation(&raws[..2], 1), Orientation::Normal);
+        assert_eq!(common_orientation(&raws[..2], 0), Orientation::Rotate90);
+    }
+
+    #[test]
     fn clip_detection() {
         let mut img = RgbFrame::from_fn(100, 100, |x, _| [x as f32 / 100.0; 3]);
         assert_eq!(detect_clip(&img), 1.0);
@@ -259,7 +424,7 @@ mod correction_regressions {
             },
             metadata: Metadata { make: Some("DJI".into()), model: Some("merge fixture".into()), ..Default::default() },
         };
-        let expected = raw.develop(lightcraft_raw::Method::Ahd).unwrap();
+        let expected = raw.develop(lightcraft_raw::Method::Auto).unwrap();
         let merged = crate::merge_raw_hdr(
             &[raw.clone(), raw.clone()],
             &crate::HdrOptions { align: false, deghost: crate::Deghost::None },
@@ -280,13 +445,16 @@ mod correction_regressions {
             &merged.metadata,
             merged.baseline_exposure,
             crate::DngSamples::Float,
+            Some(merged.clip),
         )
         .unwrap();
         let reopened = lightcraft_raw::decode(&bytes).unwrap();
         assert!(reopened.metadata.lens_corrections_baked);
         assert!(reopened.metadata.chromatic_aberration_baked);
         assert!(reopened.opcodes.list3.is_empty(), "corrections already baked, never repeated");
-        close(&reopened.develop(lightcraft_raw::Method::Ahd).unwrap(), &expected);
+        // The writer's scale travels in BaselineExposure.
+        let gain = 2f32.powf((reopened.color.baseline_exposure - merged.baseline_exposure) as f32);
+        close(&reopened.develop(lightcraft_raw::Method::Auto).unwrap().map(|p| p.map(|v| v * gain)), &expected);
         let input = lightcraft_raw::write_dng(
             &raw,
             &lightcraft_raw::DngWriteOptions { compression: lightcraft_raw::DngCompression::Deflate { tile: 16, half: false }, ..Default::default() },

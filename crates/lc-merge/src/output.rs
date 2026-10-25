@@ -1,8 +1,12 @@
 //! Merge results as linear DNGs (`PhotometricInterpretation = LinearRaw`, three samples per
 //! pixel), written with LightCraft's own TIFF/DNG writer.
 //!
-//! - Pixel values are scaled so the brightest pixel sits just below 1.0 (the white level); the
-//!   scale is carried in `BaselineExposure`, so a default rendering looks like the reference frame.
+//! - Merges of raw files place the value at which their inputs saturated exactly on the white
+//!   level (1.0), so samples clipped in every input read as clipped, like a clip in a single raw
+//!   (dcraw/darktable semantics), and highlight reconstruction in Develop or Adobe Camera Raw
+//!   recovers them instead of white-balancing clipped camera RGB into pink or cyan. Other merges
+//!   scale the brightest pixel just below the white level. Either scale is carried in
+//!   `BaselineExposure`, so a default rendering looks like the reference frame.
 //! - Raw sources: the reference frame's DNG colour tags (`ColorMatrix*`, `ForwardMatrix*`,
 //!   `CameraCalibration*`, `AsShotNeutral`, illuminants) are carried over unchanged — the data is
 //!   still camera RGB.
@@ -29,6 +33,10 @@ pub enum DngSamples {
     U16,
 }
 
+/// Where the brightest unclipped value sits relative to the white level, clear of the range
+/// highlight recovery treats as clipped.
+pub(crate) const UNCLIPPED_PEAK: f32 = 0.95;
+
 /// The DNG colour tags for frames of `color`.
 pub fn color_data(color: &FrameColor) -> ColorData {
     match color {
@@ -53,6 +61,11 @@ pub fn color_data(color: &FrameColor) -> ColorData {
 }
 
 /// Encode `img` (scene-linear, 1.0 = source white) as a LinearRaw DNG.
+///
+/// `clip` is the level at or above which the merge's inputs are saturated (for example the HDR
+/// radiance of a sample clipped in every bracket). It is written exactly at the white level and
+/// brighter values are clamped there. `None`, or a value that is not finite and positive, scales
+/// the brightest pixel just below the white level instead.
 pub fn write_linear_dng(
     img: &RgbFrame,
     color: &FrameColor,
@@ -60,21 +73,33 @@ pub fn write_linear_dng(
     metadata: &Metadata,
     baseline_exposure: f64,
     samples: DngSamples,
+    clip: Option<f32>,
 ) -> Result<Vec<u8>> {
     let (w, h) = (img.width, img.height);
     if w == 0 || h == 0 {
         return Err(MergeError::Output("empty image".into()));
     }
-    let peak = img.data.iter().flat_map(|p| p.iter()).copied().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
-    let target = 0.95f32;
-    // never brighten: values ≤ 1 keep their scale (so a plain panorama keeps its white level)
-    let scale = if peak > target { target / peak } else { 1.0 };
+    let (scale, ceiling) = match clip.filter(|c| c.is_finite() && *c > 0.0) {
+        Some(clip) => (1.0 / clip, 1.0),
+        None => {
+            let peak = img.data.iter().flat_map(|p| p.iter()).copied().filter(|v| v.is_finite()).fold(0.0f32, f32::max);
+            // never brighten: values ≤ 1 keep their scale (so a plain panorama keeps its white level)
+            (if peak > UNCLIPPED_PEAK { UNCLIPPED_PEAK / peak } else { 1.0 }, f32::INFINITY)
+        }
+    };
     let mut cd = color_data(color);
     cd.baseline_exposure = baseline_exposure + (1.0 / scale as f64).log2();
     // Float Pixel Shift output keeps black-subtracted negative noise and sub-DN
     // fractions. Clipping these before Develop biases shadows and colour averages.
     // Retain the established HDR half/integer range policy for other merge modes.
-    let clean = |v: f32| if v.is_finite() { if samples == DngSamples::Float { v * scale } else { (v * scale).max(0.0) } } else { 0.0 };
+    let clean = |v: f32| {
+        if v.is_finite() {
+            let v = (v * scale).min(ceiling);
+            if samples == DngSamples::Float { v } else { v.max(0.0) }
+        } else {
+            0.0
+        }
+    };
     let (data, bits, white) = match samples {
         DngSamples::Half | DngSamples::Float => {
             (RawData::F32(img.data.iter().flat_map(|p| p.map(clean)).collect()), if samples == DngSamples::Half { 16 } else { 32 }, 1.0)
@@ -119,7 +144,7 @@ mod tests {
     fn linear_dng_round_trips_through_the_raw_decoder() {
         let img = RgbFrame::from_fn(80, 60, |x, y| [x as f32 / 20.0, y as f32 / 30.0, 0.3]);
         let color = FrameColor::Linear { to_xyz_d50: bradford(D65, D50).mul(&li_color::SRGB.to_xyz()) };
-        let bytes = write_linear_dng(&img, &color, Orientation::Normal, &Metadata::default(), 0.0, DngSamples::Half).unwrap();
+        let bytes = write_linear_dng(&img, &color, Orientation::Normal, &Metadata::default(), 0.0, DngSamples::Half, None).unwrap();
         let raw = lightcraft_raw::decode(&bytes).unwrap();
         assert_eq!((raw.width, raw.height, raw.cpp), (80, 60, 3));
         let gain = 2f32.powf(raw.color.baseline_exposure as f32);
@@ -142,7 +167,7 @@ mod tests {
         for c in 0..3 {
             assert!((red[c] / k - want[c]).abs() < 5e-3, "{red:?} vs {want:?}");
         }
-        let u16 = write_linear_dng(&img, &color, Orientation::Normal, &Metadata::default(), 0.0, DngSamples::U16).unwrap();
+        let u16 = write_linear_dng(&img, &color, Orientation::Normal, &Metadata::default(), 0.0, DngSamples::U16, None).unwrap();
         assert!(lightcraft_raw::decode(&u16).is_ok());
     }
 }
