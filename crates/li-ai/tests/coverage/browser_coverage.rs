@@ -808,7 +808,7 @@ fn hf_cards_place_files_by_their_repository_folders_and_skip_diffusers_layouts()
     assert!(gguf.files.iter().all(|f| f.folder == "diffusion_models"));
     let choices: Vec<&str> = hf::variants(&gguf).iter().map(|f| f.name.as_str()).collect();
     assert_eq!(choices.first(), Some(&"flux1-dev-F16.gguf"), "{choices:?}");
-    let one = hf::with_variant(&gguf, "flux1-dev-Q8_0.gguf");
+    let one = hf::selection(&gguf, Some("flux1-dev-Q8_0.gguf"), &[]);
     assert_eq!(placed(&one), [("diffusion_models".into(), "flux1-dev-Q8_0.gguf".into())]);
 }
 

@@ -81,10 +81,12 @@ fn a_card_with_several_precisions_installs_only_the_one_chosen() {
             file("flux3-image-klein-int8-convrot.safetensors", "diffusion_models"),
             file("qwen3vl_4b_bf16.safetensors", "text_encoders"),
             file("qwen3vl_4b_int8_convrot.safetensors", "text_encoders"),
+            file("qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "text_encoders"),
         ],
         ..Default::default()
     };
-    let names = || with(|s| s.confirm.as_ref().unwrap().item.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>());
+    let planned = || with(|s| s.confirm.as_ref().unwrap().plan.lock().unwrap().clone().unwrap().unwrap());
+    let names = || planned().item.files.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
     let _plan = test_install_plan(Plan::default());
     with(|s| s.confirm = Some(Confirm::new(item)));
     assert_eq!(names(), ["flux3-image-klein-bf16.safetensors", "qwen3vl_4b_bf16.safetensors"], "the best precision this GPU runs");
@@ -104,7 +106,15 @@ fn a_card_with_several_precisions_installs_only_the_one_chosen() {
     let _plan = test_install_plan(Plan::default());
     h.get_by_label("flux3-image-klein-int8-convrot.safetensors").click();
     h.run_steps(3);
-    assert_eq!(names(), ["flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors"]);
+    assert_eq!(names(), ["flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors"], "no prompt enhancer unasked");
+    // The prompt enhancer installs once it is ticked.
+    let _plan = test_install_plan(Plan::default());
+    h.get_by_label("qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors").click();
+    h.run_steps(3);
+    assert_eq!(
+        names(),
+        ["flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors", "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"]
+    );
     with(|s| s.confirm = None);
 }
 

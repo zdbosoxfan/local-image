@@ -1,6 +1,6 @@
-//! Installing a card: the confirmation (the licence, then the exact files, and the precision of
-//! a card that offers several) and the download, which for a template ends by setting its model
-//! up to run through that template.
+//! Installing a card: the confirmation (the licence, then the exact files: the precision of a
+//! card that offers several, chosen to fit the GPU, and its optional files, ticked by hand) and the
+//! download, which for a template ends by setting its model up to run through that template.
 
 #[cfg(test)]
 use std::cell::RefCell;
@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use egui::{Color32, RichText};
-use li_ai::browser::{self, HttpNet, Item, Plan};
+use li_ai::browser::{self, CatalogFile, HttpNet, Item, Plan};
 use li_ai::comfy::JobControl;
 use li_ai::settings::AiSettings;
 use serde_json::Value;
@@ -32,30 +32,54 @@ pub(super) struct InstallRun {
     pub(super) setup: Option<String>,
 }
 
-pub(super) struct Confirm {
-    /// The card as it installs (one precision of its model).
+/// What installing a card downloads.
+#[derive(Clone)]
+pub(super) struct Planned {
+    /// The card as it installs: one precision of its model, and the optional files ticked.
     pub(super) item: Item,
-    pub(super) plan: Slot<Result<(Plan, Option<Value>), String>>,
-    pub(super) accept: bool,
-    /// The card with every file, when it offers several main files.
-    pub(super) all: Item,
+    /// The main file installed, when the card offers several.
     pub(super) variant: Option<String>,
+    pub(super) plan: Plan,
+    /// A template card's workflow.
+    pub(super) template: Option<Value>,
+    /// Files that install only when ticked (LoRAs, a prompt enhancer).
+    pub(super) optional: Vec<CatalogFile>,
+}
+
+pub(super) struct Confirm {
+    pub(super) plan: Slot<Result<Planned, String>>,
+    pub(super) accept: bool,
+    /// The card with every file.
+    pub(super) all: Item,
+    /// The main file picked in the Version list; until then the plan picks the largest that fits
+    /// this GPU.
+    pub(super) variant: Option<String>,
+    /// The optional files ticked.
+    pub(super) extras: Vec<String>,
 }
 
 impl Confirm {
-    /// Installing `item`: its best precision for this GPU when it offers several.
     pub(super) fn new(item: Item) -> Self {
-        let blackwell = crate::ai_ui::status().gpu.is_some_and(|g| li_ai::companions::runtime().gpu_generation(&g.name) == Some("blackwell"));
-        let variant = browser::hf::default_variant(&item, blackwell);
-        let shown = variant.as_deref().map_or_else(|| item.clone(), |v| browser::hf::with_variant(&item, v));
-        Self { plan: start_plan(shown.clone()), item: shown, accept: false, all: item, variant }
+        Self { plan: start_plan(item.clone(), None, Vec::new()), accept: false, all: item, variant: None, extras: Vec::new() }
+    }
+
+    fn replan(&mut self) {
+        self.plan = start_plan(self.all.clone(), self.variant.clone(), self.extras.clone());
     }
 
     /// Switches to another of the card's main files and plans it again.
     fn choose(&mut self, main: &str) {
         self.variant = Some(main.to_owned());
-        self.item = browser::hf::with_variant(&self.all, main);
-        self.plan = start_plan(self.item.clone());
+        self.replan();
+    }
+
+    /// Ticks or unticks an optional file and plans again.
+    fn tick(&mut self, name: &str, on: bool) {
+        self.extras.retain(|e| e != name);
+        if on {
+            self.extras.push(name.to_owned());
+        }
+        self.replan();
     }
 }
 
@@ -77,18 +101,26 @@ pub(crate) fn test_install_plan(plan: Plan) -> TestPlanGuard {
     TestPlanGuard
 }
 
-/// Resolves what installing `item` downloads (and, for a template, its workflow).
-fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
+/// Resolves what installing `item` downloads: its main file `variant` (by default the largest
+/// precision that fits this GPU, by the files' sizes), the optional files `extras` names, and for
+/// a template its workflow.
+fn start_plan(item: Item, variant: Option<String>, extras: Vec<String>) -> Slot<Result<Planned, String>> {
+    let gpu = crate::ai_ui::status().gpu;
+    let blackwell = gpu.as_ref().is_some_and(|g| li_ai::companions::runtime().gpu_generation(&g.name) == Some("blackwell"));
+    let vram = gpu.map(|g| g.vram_total).filter(|v| *v > 0);
     #[cfg(test)]
     if let Some(plan) = TEST_PLAN.with(|next| next.borrow_mut().take()) {
-        return Arc::new(Mutex::new(Some(Ok((plan, None)))));
+        let variant = variant.or_else(|| browser::hf::default_variant(&item, blackwell, vram));
+        let optional = browser::hf::optional_files(&item, variant.as_deref());
+        let item = browser::hf::selection(&item, variant.as_deref(), &extras);
+        return Arc::new(Mutex::new(Some(Ok(Planned { item, variant, plan, template: None, optional }))));
     }
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
     let lang = li_i18n::current();
     let _ = std::thread::Builder::new().name("model-plan".into()).spawn(move || {
         li_i18n::set_current(lang);
-        let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
+        let r = (|| -> anyhow::Result<Planned> {
             let cfg = config();
             let net = HttpNet::new(cfg.clone());
             let info = if item.family.as_deref() == Some("restoration") {
@@ -105,7 +137,7 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
             if item.template.is_some() {
                 let stats = li_ai::service().client.system_stats()?;
                 let server = li_ai::modelsetup::Snapshot::from_parts(li_ai::service().client.host(), &stats, info);
-                let checked = li_ai::modelsetup::fixes::plan_template(&item, &cfg, &net, &server)?;
+                let checked = li_ai::modelsetup::fixes::plan_template(&item, &cfg, &net, &server, &extras)?;
                 let Some(mut plan) = checked.plan else {
                     let why: Vec<String> =
                         checked.issues.iter().filter(|i| i.severity == li_ai::modelsetup::issue::Severity::Blocker).map(crate::model_setup::sentence).collect();
@@ -115,10 +147,18 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
                     plan.license =
                         item.family.as_deref().and_then(|f| reg.family(f)).map(|f| f.license.clone()).unwrap_or_else(|| tl!("See each model's page").into());
                 }
-                return Ok((plan, Some(checked.ui)));
+                return Ok(Planned { item, variant: None, plan, template: Some(checked.ui), optional: checked.optional });
             }
+            let variant = match variant {
+                Some(v) => Some(v),
+                None if browser::hf::variants(&item).is_empty() => None,
+                None => browser::hf::default_variant(&browser::hf::with_sizes(&item, &cfg, &net), blackwell, vram),
+            };
+            let optional = browser::hf::optional_files(&item, variant.as_deref());
+            let item = browser::hf::selection(&item, variant.as_deref(), &extras);
             let fam = item.family.as_deref().and_then(|f| reg.family(f));
-            Ok((browser::plan(&item, &item.files, fam, &info, &cfg, &net)?, None))
+            let plan = browser::plan(&item, &item.files, fam, &info, &cfg, &net)?;
+            Ok(Planned { item, variant, plan, template: None, optional })
         })()
         .map_err(|e| format!("{e:#}"));
         if let Ok(mut o) = out.lock() {
@@ -184,12 +224,18 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
 
 /// The install confirmation: licence first, then the exact files.
 pub(super) fn confirm_window(ctx: &egui::Context, t: &Tokens) {
-    let Some((item, plan, mut accept, all, variant)) =
-        with(|s| s.confirm.as_ref().map(|c| (c.item.clone(), c.plan.lock().ok().and_then(|p| p.clone()), c.accept, c.all.clone(), c.variant.clone())))
+    let Some((plan, mut accept, all, extras)) =
+        with(|s| s.confirm.as_ref().map(|c| (c.plan.lock().ok().and_then(|p| p.clone()), c.accept, c.all.clone(), c.extras.clone())))
     else {
         return;
     };
-    let mut chosen = variant.clone();
+    let item = match &plan {
+        Some(Ok(p)) => p.item.clone(),
+        _ => all.clone(),
+    };
+    let shown = with(|s| s.confirm.as_ref().and_then(|c| c.variant.clone())).or_else(|| plan.as_ref().and_then(|p| p.as_ref().ok()?.variant.clone()));
+    let mut chosen = shown.clone();
+    let mut ticked: Option<(String, bool)> = None;
     let mut close = false;
     let mut go: Option<(Plan, Option<Value>)> = None;
     use widgets::{ButtonRole, DialogButton};
@@ -240,7 +286,7 @@ pub(super) fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                     None => {}
                 }
             }
-            Some(Ok((p, template))) => {
+            Some(Ok(Planned { plan: p, template, optional, .. })) => {
                 // Licence.
                 egui::Frame::new().fill(t.field).corner_radius(t.radius_sm).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                     ui.set_width(ui.available_width());
@@ -291,6 +337,17 @@ pub(super) fn confirm_window(ctx: &egui::Context, t: &Tokens) {
                         RichText::new(li_i18n::fmt(tl!("Already installed: {names}"), &[("names", &p.present.join(", "))])).size(11.0).color(t.text_faint),
                     );
                 }
+                if !optional.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(RichText::new(tl!("Optional files, installed only when ticked:")).color(t.text_dim))
+                        .on_hover_text(tl!("LoRAs and a template's prompt enhancer (a language model that rewrites prompts) aren't needed to run the model"));
+                    for f in optional.iter() {
+                        let mut on = extras.contains(&f.name);
+                        if widgets::checkbox(ui, &mut on, &f.name).changed() {
+                            ticked = Some((f.name.clone(), on));
+                        }
+                    }
+                }
                 let dir = AiSettings::load().model_dir();
                 if let Some(free) = li_ai::download::free_space(&dir)
                     && free < p.total() + (256 << 20)
@@ -337,8 +394,11 @@ pub(super) fn confirm_window(ctx: &egui::Context, t: &Tokens) {
     with(|s| {
         if let Some(c) = s.confirm.as_mut() {
             c.accept = accept;
-            if let Some(v) = chosen.filter(|v| Some(v) != variant.as_ref()) {
+            if let Some(v) = chosen.filter(|v| Some(v) != shown.as_ref()) {
                 c.choose(&v);
+            }
+            if let Some((name, on)) = ticked {
+                c.tick(&name, on);
             }
         }
         if let Some((p, template)) = go {

@@ -145,13 +145,18 @@ pub struct TemplatePlan {
     pub plan: Option<browser::Plan>,
     /// What [`super::check::check_template`] found.
     pub issues: Vec<super::issue::Issue>,
+    /// The template's prompt enhancer: planned only when `extras` names it.
+    pub optional: Vec<CatalogFile>,
 }
 
 /// Fetches a template card's workflow and checks it against the connected ComfyUI before any
-/// file is planned: a template this ComfyUI can't run plans (and downloads) nothing.
-pub fn plan_template(item: &Item, cfg: &browser::Config, net: &dyn browser::Net, server: &super::Snapshot) -> Result<TemplatePlan> {
+/// file is planned: a template this ComfyUI can't run plans (and downloads) nothing. The
+/// template's prompt enhancer is planned only when `extras` names it.
+pub fn plan_template(item: &Item, cfg: &browser::Config, net: &dyn browser::Net, server: &super::Snapshot, extras: &[String]) -> Result<TemplatePlan> {
     let name = item.template.as_deref().context("not a template card")?;
-    let (ui, files) = browser::fetch_template(cfg, net, name)?;
+    let (ui, mut files) = browser::fetch_template(cfg, net, name)?;
+    let optional: Vec<CatalogFile> = files.iter().filter(|f| browser::hf::is_prompt_enhancer(&f.name)).cloned().collect();
+    files.retain(|f| !browser::hf::is_prompt_enhancer(&f.name) || extras.contains(&f.name));
     let entry = crate::template::index::TemplateEntry {
         name: name.to_owned(),
         title: item.title.clone(),
@@ -160,11 +165,11 @@ pub fn plan_template(item: &Item, cfg: &browser::Config, net: &dyn browser::Net,
     };
     let issues = super::check::check_template(&entry, &ui, server, crate::companions::runtime());
     if issues.iter().any(|i| i.severity == super::issue::Severity::Blocker) {
-        return Ok(TemplatePlan { ui, plan: None, issues });
+        return Ok(TemplatePlan { ui, plan: None, issues, optional });
     }
     let fam = item.family.as_deref().and_then(|f| crate::family::registry().family(f));
     let plan = browser::plan(item, &files, fam, &server.info, cfg, net)?;
-    Ok(TemplatePlan { ui, plan: Some(plan), issues })
+    Ok(TemplatePlan { ui, plan: Some(plan), issues, optional })
 }
 
 /// The main model file a template card installs (`unet:<name>` or `ckpt:<name>` and the name).

@@ -138,6 +138,12 @@ fn capabilities(r: &TemplateRecipe, s: &Snapshot) -> Vec<CapabilityCheck> {
     out
 }
 
+/// GPU memory, in bytes, a model needs: its weights with working overhead, or its largest
+/// companion if that is bigger, plus working memory for an image of `megapixels`.
+pub fn memory_need(model_bytes: u64, largest_companion: u64, megapixels: f64) -> f64 {
+    (model_bytes as f64 * 1.15).max(largest_companion as f64) + 1.5e9 * megapixels
+}
+
 /// Checks one template model.
 pub fn check(m: &ModelCheck) -> Checked {
     let key = Some(m.key);
@@ -320,7 +326,7 @@ pub fn check(m: &ModelCheck) -> Checked {
     {
         let companions = r.bindings().into_iter().filter(|b| !b.optional).filter_map(|b| (m.local_bytes)(&b.folder, b.used.as_deref()?)).max().unwrap_or(0);
         let mp = f64::from(r.defaults.width.max(512)) * f64::from(r.defaults.height.max(512)) / 1e6;
-        let need = (bytes as f64 * 1.15).max(companions as f64) + 1.5e9 * mp;
+        let need = memory_need(bytes, companions, mp);
         if need > 0.95 * g.vram_total as f64 {
             issues.push(Issue::new(
                 "VramLow",

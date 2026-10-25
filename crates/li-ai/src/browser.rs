@@ -1136,9 +1136,7 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
         let (mut bytes, mut sha) = (f.bytes, f.sha256.clone());
         if let Some((repo, path)) = f.hf_path(&cfg.hf) {
             if !trees.contains_key(&repo) {
-                let url = format!("{}/api/models/{repo}/tree/main?recursive=true", cfg.hf.trim_end_matches('/'));
-                let body = net.get(&url).with_context(|| format!("Could not read the file list of {repo}"))?;
-                trees.insert(repo.clone(), parse_hf_tree(&serde_json::from_slice(&body)?));
+                trees.insert(repo.clone(), hf_tree(cfg, net, &repo)?);
             }
             if let Some((size, hash)) = trees.get(&repo).and_then(|t| t.get(&path)) {
                 bytes = Some(*size);
@@ -1172,6 +1170,13 @@ pub fn plan(item: &Item, files: &[CatalogFile], fam: Option<&Family>, info: &Obj
         out.files.push(PlannedFile { name: f.name, folder: f.folder, url: f.url, bytes, sha256: sha.to_ascii_lowercase() });
     }
     Ok(out)
+}
+
+/// A Hugging Face repository's files: path → (size, SHA-256).
+fn hf_tree(cfg: &Config, net: &dyn Net, repo: &str) -> Result<BTreeMap<String, (u64, String)>> {
+    let url = format!("{}/api/models/{repo}/tree/main?recursive=true", cfg.hf.trim_end_matches('/'));
+    let body = net.get(&url).with_context(|| format!("Could not read the file list of {repo}"))?;
+    Ok(parse_hf_tree(&serde_json::from_slice(&body)?))
 }
 
 /// Downloads a plan into `model_dir/<folder>/<name>` (verified, atomic). Tokens go only to their

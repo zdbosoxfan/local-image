@@ -548,7 +548,7 @@ fn a_template_this_comfyui_cannot_run_is_refused_before_anything_downloads() {
     };
     let cfg = li_ai::browser::Config { templates: "http://templates.invalid/templates".into(), ..Default::default() };
     let net = Recording(Mutex::new(Vec::new()));
-    let planned = modelsetup::fixes::plan_template(&item, &cfg, &net, &old).unwrap();
+    let planned = modelsetup::fixes::plan_template(&item, &cfg, &net, &old, &[]).unwrap();
     assert!(planned.plan.is_none());
     let codes: Vec<&str> = planned.issues.iter().map(|i| i.code.as_str()).collect();
     assert_eq!(codes.first(), Some(&"ComfyTooOld"), "{codes:?}");
@@ -568,33 +568,50 @@ fn a_template_this_comfyui_cannot_run_is_refused_before_anything_downloads() {
     );
 }
 
+/// The fixture templates, and every Hugging Face file they and HiDream I1 name, listed with a
+/// size and a SHA-256.
+struct FixtureHub;
+
+impl li_ai::browser::Net for FixtureHub {
+    fn get(&self, url: &str) -> anyhow::Result<Vec<u8>> {
+        if url.contains("/api/models/") {
+            let paths = [
+                "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors",
+                "checkpoints/hidream_o1_image_bf16.safetensors",
+                "split_files/text_encoders/clip_l_hidream.safetensors",
+                "split_files/text_encoders/clip_g_hidream.safetensors",
+                "split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
+                "split_files/text_encoders/llama_3.1_8b_instruct_fp8_scaled.safetensors",
+                "split_files/vae/ae.safetensors",
+                "diffusion_models/flux3-image-klein-int8-convrot.safetensors",
+                "text_encoders/qwen3vl_4b_int8_convrot.safetensors",
+                "text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors",
+                "vae/flux2-vae.safetensors",
+            ];
+            let tree: Vec<Value> = paths.iter().map(|p| json!({ "type": "file", "path": p, "lfs": { "oid": "ab".repeat(32), "size": 1000 } })).collect();
+            return Ok(serde_json::to_vec(&tree)?);
+        }
+        let name = url.rsplit('/').next().unwrap_or_default();
+        std::fs::read(fixtures().join("comfy-0.42.5/templates").join(name)).map_err(Into::into)
+    }
+    fn head_size(&self, _: &str) -> anyhow::Result<Option<u64>> {
+        Ok(None)
+    }
+}
+
+/// ComfyUI 0.42.5 on an RTX 5090, with no model files.
+fn server_0_42_5() -> modelsetup::Snapshot {
+    let dir = model_dir(&[]);
+    modelsetup::Snapshot::from_parts(
+        "127.0.0.1:8189",
+        &system_stats("0.42.5", "NVIDIA GeForce RTX 5090"),
+        li_ai::comfy::ObjectInfo::from_bytes(&serde_json::to_vec(&object_info(&dir.0)).unwrap()).unwrap(),
+    )
+}
+
 #[test]
 fn a_hidream_o1_template_card_plans_only_its_own_files() {
     use li_ai::browser::{Kind, Query, Source, View};
-    /// The fixture templates, and every Hugging Face file listed with a size and a SHA-256.
-    struct Fixtures;
-    impl li_ai::browser::Net for Fixtures {
-        fn get(&self, url: &str) -> anyhow::Result<Vec<u8>> {
-            if url.contains("/api/models/") {
-                let paths = [
-                    "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors",
-                    "checkpoints/hidream_o1_image_bf16.safetensors",
-                    "split_files/text_encoders/clip_l_hidream.safetensors",
-                    "split_files/text_encoders/clip_g_hidream.safetensors",
-                    "split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
-                    "split_files/text_encoders/llama_3.1_8b_instruct_fp8_scaled.safetensors",
-                    "split_files/vae/ae.safetensors",
-                ];
-                let tree: Vec<Value> = paths.iter().map(|p| json!({ "type": "file", "path": p, "lfs": { "oid": "ab".repeat(32), "size": 1000 } })).collect();
-                return Ok(serde_json::to_vec(&tree)?);
-            }
-            let name = url.rsplit('/').next().unwrap_or_default();
-            std::fs::read(fixtures().join("comfy-0.42.5/templates").join(name)).map_err(Into::into)
-        }
-        fn head_size(&self, _: &str) -> anyhow::Result<Option<u64>> {
-            Ok(None)
-        }
-    }
     let index: Value = serde_json::from_slice(&std::fs::read(fixtures().join("comfy-0.42.5/templates/index.json")).unwrap()).unwrap();
     let cfg = li_ai::browser::Config { templates: "http://templates.invalid/templates".into(), ..Default::default() };
     let q = Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: Vec::new() };
@@ -603,17 +620,33 @@ fn a_hidream_o1_template_card_plans_only_its_own_files() {
     // The index labels both "HiDream"; only E1 is the HiDream family the builder runs.
     assert_eq!(card("image_hidream_o1").family, None);
     assert_eq!(card("hidream_e1_1").family.as_deref(), Some("hidream"));
-    let dir = model_dir(&[]);
-    let server = modelsetup::Snapshot::from_parts(
-        "127.0.0.1:8189",
-        &system_stats("0.42.5", "NVIDIA GeForce RTX 5090"),
-        li_ai::comfy::ObjectInfo::from_bytes(&serde_json::to_vec(&object_info(&dir.0)).unwrap()).unwrap(),
-    );
-    let planned = modelsetup::fixes::plan_template(&card("image_hidream_o1"), &cfg, &Fixtures, &server).unwrap();
+    let planned = modelsetup::fixes::plan_template(&card("image_hidream_o1"), &cfg, &FixtureHub, &server_0_42_5(), &[]).unwrap();
     let plan = planned.plan.unwrap_or_else(|| panic!("{:?}", planned.issues));
     let mut names: Vec<&str> = plan.files.iter().map(|f| f.name.as_str()).collect();
     names.sort_unstable();
     assert_eq!(names, ["gemma4_e4b_it_fp8_scaled.safetensors", "hidream_o1_image_bf16.safetensors"], "none of HiDream I1's encoders or VAE");
+}
+
+#[test]
+fn a_template_card_plans_its_prompt_enhancer_only_when_ticked() {
+    let cfg = li_ai::browser::Config { templates: "http://templates.invalid/templates".into(), ..Default::default() };
+    let item = li_ai::browser::Item {
+        id: "template:image_flux3_klein_distilled_t2i".into(),
+        title: "FLUX 3 Image Klein Distilled: Text to Image".into(),
+        template: Some("image_flux3_klein_distilled_t2i".into()),
+        ..Default::default()
+    };
+    let upsampler = "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors";
+    let names = |p: &modelsetup::fixes::TemplatePlan| {
+        let mut v: Vec<String> = p.plan.as_ref().unwrap().files.iter().map(|f| f.name.clone()).collect();
+        v.sort();
+        v
+    };
+    let planned = modelsetup::fixes::plan_template(&item, &cfg, &FixtureHub, &server_0_42_5(), &[]).unwrap();
+    assert_eq!(names(&planned), ["flux2-vae.safetensors", "flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors"]);
+    assert_eq!(planned.optional.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), [upsampler]);
+    let asked = modelsetup::fixes::plan_template(&item, &cfg, &FixtureHub, &server_0_42_5(), &[upsampler.to_owned()]).unwrap();
+    assert!(names(&asked).iter().any(|n| n == upsampler), "{:?}", names(&asked));
 }
 
 #[test]

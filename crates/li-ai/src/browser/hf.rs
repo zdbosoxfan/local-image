@@ -1,9 +1,12 @@
 //! Hugging Face repositories as installs: the ComfyUI folder each file belongs in (from its path
-//! in the repository), which files are not ComfyUI weights (diffusers layouts, shards), and the
-//! precisions of one model a card offers, so an install takes one precision into the right folders
-//! instead of every file into one.
+//! in the repository), which files are not ComfyUI weights (diffusers layouts, shards), the
+//! precisions of one model a card offers, and the optional files (LoRAs, a prompt enhancer), so an
+//! install takes one precision that fits the GPU into the right folders, and extras only when
+//! asked for, instead of every file into one.
 
-use super::{CatalogFile, Item};
+use std::collections::BTreeMap;
+
+use super::{CatalogFile, Config, Item, Kind, Net};
 use crate::family::Registry;
 use crate::identify::QuantClass;
 
@@ -105,33 +108,83 @@ pub fn variants(item: &Item) -> Vec<&CatalogFile> {
     v
 }
 
-/// The precision to offer first: the highest one, never a Blackwell-only one on another GPU.
-pub fn default_variant(item: &Item, blackwell: bool) -> Option<String> {
+/// The precision to offer first: the highest one that fits `vram` by model setup's memory estimate
+/// (a file of unknown size is taken to fit), never a Blackwell-only one on another GPU; when none
+/// fits, the smallest.
+pub fn default_variant(item: &Item, blackwell: bool, vram: Option<u64>) -> Option<String> {
     let v = variants(item);
-    v.iter().find(|f| blackwell || !blackwell_only(quant(&f.name).as_ref())).or(v.first()).map(|f| f.name.clone())
+    let runs: Vec<&CatalogFile> = v.iter().copied().filter(|f| blackwell || !blackwell_only(quant(&f.name).as_ref())).collect();
+    let fits = |f: &CatalogFile| match (vram, f.size()) {
+        (Some(total), Some(bytes)) => crate::modelsetup::check::memory_need(bytes, 0, 1.0) <= 0.95 * total as f64,
+        _ => true,
+    };
+    runs.iter().find(|f| fits(f)).or_else(|| runs.iter().min_by_key(|f| f.size().unwrap_or(u64::MAX))).or(v.first()).map(|f| f.name.clone())
 }
 
-/// The card installing only `main` of its main files, and of each text encoder or VAE it ships
-/// in several precisions the one closest to `main`'s.
-pub fn with_variant(item: &Item, main: &str) -> Item {
-    let want = rank(quant(main).as_ref());
-    let mut files: Vec<CatalogFile> = Vec::new();
-    for f in &item.files {
-        if is_main(f) {
-            if f.name == main {
-                files.push(f.clone());
-            }
-            continue;
-        }
+/// Whether a file is a template's prompt enhancer (an LLM that rewrites the prompt: an
+/// "upsampler", Qwen Image 2.1's `_pe_` models), which is never installed unless asked for.
+pub fn is_prompt_enhancer(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n.contains("upsampler") || n.contains("enhancer") || n.split(['_', '-', '.']).any(|t| t == "pe")
+}
+
+/// Whether a model card's file installs only when ticked: a LoRA or a prompt enhancer.
+pub fn optional(f: &CatalogFile) -> bool {
+    f.folder == "loras" || is_prompt_enhancer(&f.name)
+}
+
+/// Of each file that ships in several precisions (same folder and stem), the one closest to the
+/// precision rank `want`.
+fn closest<'a>(files: impl Iterator<Item = &'a CatalogFile>, want: u8) -> Vec<CatalogFile> {
+    let distance = |a: &CatalogFile| rank(quant(&a.name).as_ref()).abs_diff(want);
+    let mut out: Vec<CatalogFile> = Vec::new();
+    for f in files {
         let stem = crate::stem::stem_key(&f.name).key;
-        let closer = |a: &CatalogFile| rank(quant(&a.name).as_ref()).abs_diff(want);
-        match files.iter().position(|x| x.folder == f.folder && !is_main(x) && crate::stem::stem_key(&x.name).key == stem) {
-            Some(i) if closer(f) < closer(&files[i]) => files[i] = f.clone(),
+        match out.iter().position(|x| x.folder == f.folder && crate::stem::stem_key(&x.name).key == stem) {
+            Some(i) if distance(f) < distance(&out[i]) => out[i] = f.clone(),
             Some(_) => {}
-            None => files.push(f.clone()),
+            None => out.push(f.clone()),
         }
     }
+    out
+}
+
+/// A model card's main file `main` (its first when `None`) and that file's precision rank; `None`
+/// for a card without a main file (a LoRA or restoration card), which installs as listed.
+fn model_card<'a>(item: &'a Item, main: Option<&'a str>) -> Option<(Option<&'a str>, u8)> {
+    let first = item.files.iter().find(|f| is_main(f)).map(|f| f.name.as_str());
+    (item.kind != Some(Kind::Lora) && first.is_some()).then(|| (main, rank(quant(main.or(first).unwrap_or_default()).as_ref())))
+}
+
+/// What installing a card takes: of its main files `main` (every one when `None`), of each other
+/// file it ships in several precisions the one closest to the main file's, and of the optional
+/// files only those `extras` names.
+pub fn selection(item: &Item, main: Option<&str>, extras: &[String]) -> Item {
+    let Some((main, want)) = model_card(item, main) else { return item.clone() };
+    let mut files: Vec<CatalogFile> = item.files.iter().filter(|f| is_main(f) && main.is_none_or(|m| f.name == m)).cloned().collect();
+    files.extend(closest(item.files.iter().filter(|f| !is_main(f) && (!optional(f) || extras.contains(&f.name))), want));
     Item { files, ..item.clone() }
+}
+
+/// The optional files a card offers beside `main` (each in the precision closest to it).
+pub fn optional_files(item: &Item, main: Option<&str>) -> Vec<CatalogFile> {
+    let Some((_, want)) = model_card(item, main) else { return Vec::new() };
+    closest(item.files.iter().filter(|f| !is_main(f) && optional(f)), want)
+}
+
+/// The card with each Hugging Face file's size from its repository's listing (a repository that
+/// can't be listed leaves its files as they were).
+pub fn with_sizes(item: &Item, cfg: &Config, net: &dyn Net) -> Item {
+    let mut out = item.clone();
+    let mut trees = BTreeMap::new();
+    for f in &mut out.files {
+        let Some((repo, path)) = f.hf_path(&cfg.hf) else { continue };
+        let tree = trees.entry(repo.clone()).or_insert_with(|| super::hf_tree(cfg, net, &repo).ok());
+        if let Some((size, _)) = tree.as_ref().and_then(|t| t.get(&path)) {
+            f.approx_bytes = Some(*size);
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -169,27 +222,58 @@ mod tests {
                 file("flux3-image-klein-bf16.safetensors", "diffusion_models"),
                 file("qwen3vl_4b_bf16.safetensors", "text_encoders"),
                 file("qwen3vl_4b_int8_convrot.safetensors", "text_encoders"),
+                file("qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "text_encoders"),
                 file("flux2-vae.safetensors", "vae"),
+                file("flux3_klein_style.safetensors", "loras"),
             ],
             ..Default::default()
         };
         let names: Vec<&str> = variants(&item).iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["flux3-image-klein-bf16.safetensors", "flux3-image-klein-int8-convrot.safetensors", "flux3-image-klein-nvfp4.safetensors"]);
-        assert_eq!(default_variant(&item, false).as_deref(), Some("flux3-image-klein-bf16.safetensors"));
-        let int8 = with_variant(&item, "flux3-image-klein-int8-convrot.safetensors");
+        assert_eq!(default_variant(&item, false, None).as_deref(), Some("flux3-image-klein-bf16.safetensors"));
+        let int8 = selection(&item, Some("flux3-image-klein-int8-convrot.safetensors"), &[]);
         let names: Vec<&str> = int8.files.iter().map(|f| f.name.as_str()).collect();
-        assert_eq!(names, ["flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors", "flux2-vae.safetensors"]);
+        assert_eq!(
+            names,
+            ["flux3-image-klein-int8-convrot.safetensors", "qwen3vl_4b_int8_convrot.safetensors", "flux2-vae.safetensors"],
+            "no enhancer or LoRA unasked"
+        );
+        let optional: Vec<String> = optional_files(&item, Some("flux3-image-klein-int8-convrot.safetensors")).into_iter().map(|f| f.name).collect();
+        assert_eq!(optional, ["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", "flux3_klein_style.safetensors"]);
+        let asked = selection(&item, Some("flux3-image-klein-int8-convrot.safetensors"), &optional[..1]);
+        assert!(asked.files.iter().any(|f| f.name == optional[0]) && !asked.files.iter().any(|f| f.name == optional[1]));
         let nvfp4_only = Item {
             files: vec![file("krea2_turbo_nvfp4.safetensors", "diffusion_models"), file("krea2_turbo_bf16.safetensors", "diffusion_models")],
             ..Default::default()
         };
-        assert_eq!(default_variant(&nvfp4_only, false).as_deref(), Some("krea2_turbo_bf16.safetensors"));
+        assert_eq!(default_variant(&nvfp4_only, false, None).as_deref(), Some("krea2_turbo_bf16.safetensors"));
         let blackwell_first = Item {
             files: vec![file("krea2_turbo_nvfp4.safetensors", "diffusion_models"), file("krea2_turbo_int8.safetensors", "diffusion_models")],
             ..Default::default()
         };
-        assert_eq!(default_variant(&blackwell_first, false).as_deref(), Some("krea2_turbo_int8.safetensors"), "never NVFP4 off Blackwell");
-        assert_eq!(default_variant(&blackwell_first, true).as_deref(), Some("krea2_turbo_int8.safetensors"), "the higher precision first");
+        assert_eq!(default_variant(&blackwell_first, false, None).as_deref(), Some("krea2_turbo_int8.safetensors"), "never NVFP4 off Blackwell");
+        assert_eq!(default_variant(&blackwell_first, true, None).as_deref(), Some("krea2_turbo_int8.safetensors"), "the higher precision first");
         assert!(variants(&Item { files: vec![file("only.safetensors", "checkpoints")], ..Default::default() }).is_empty());
+        // A LoRA card installs as listed.
+        let lora = Item { kind: Some(Kind::Lora), files: vec![file("a.safetensors", "loras"), file("b.safetensors", "loras")], ..Default::default() };
+        assert_eq!(selection(&lora, None, &[]).files.len(), 2);
+    }
+
+    #[test]
+    fn the_default_precision_is_the_largest_that_fits_the_gpu() {
+        let sized = |name: &str, gb: u64| CatalogFile {
+            name: name.into(),
+            folder: "diffusion_models".into(),
+            approx_bytes: Some(gb * 1_000_000_000),
+            ..Default::default()
+        };
+        let item =
+            Item { files: vec![sized("qwen_image_2.1_bf16.safetensors", 28), sized("qwen_image_2.1_int8_convrot.safetensors", 14)], ..Default::default() };
+        let gb = |n: u64| Some(n * 1_000_000_000);
+        assert_eq!(default_variant(&item, true, gb(48)).as_deref(), Some("qwen_image_2.1_bf16.safetensors"));
+        assert_eq!(default_variant(&item, true, gb(24)).as_deref(), Some("qwen_image_2.1_int8_convrot.safetensors"));
+        assert_eq!(default_variant(&item, true, gb(8)).as_deref(), Some("qwen_image_2.1_int8_convrot.safetensors"), "the smallest when none fits");
+        assert!(is_prompt_enhancer("qwen3.5_9b_qwen_image_2.1_pe_t2i.int8_convrot.safetensors"));
+        assert!(!is_prompt_enhancer("qwen3.5_9b_bf16.safetensors") && !is_prompt_enhancer("qwen3vl_8b_int8_convrot.safetensors"));
     }
 }
