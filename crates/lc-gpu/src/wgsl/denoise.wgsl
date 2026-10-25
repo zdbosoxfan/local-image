@@ -23,15 +23,17 @@ fn denoise_weight(c: u32,k: u32) -> f32 {
     let ci=k/(P[6]*P[7]); let kernel=k%(P[6]*P[7]);
     return weights[(ci*P[3]+c)*P[6]*P[7]+kernel];
 }
+// Output positions run along x, then z (planes past one dispatch dimension); channels along y.
 @compute @workgroup_size(8,8,1)
-fn denoise_conv(@builtin(workgroup_id) group:vec3<u32>, @builtin(local_invocation_id) local:vec3<u32>) {
-    let pos=group.x*16u+local.x; let co=group.y*16u+local.y;
+fn denoise_conv(@builtin(workgroup_id) group:vec3<u32>, @builtin(local_invocation_id) local:vec3<u32>, @builtin(num_workgroups) groups:vec3<u32>) {
+    let first=(group.z*groups.x+group.x)*16u;
+    let pos=first+local.x; let co=group.y*16u+local.y;
     let lane=local.y*8u+local.x;
     var acc=vec4<f32>(0.0);
     let nk=P[0]*P[6]*P[7];
     for(var base=0u;base<nk;base+=16u) {
         for(var j=lane;j<256u;j+=64u) {
-            da[j]=denoise_sample(group.x*16u+j/16u,base+j%16u);
+            da[j]=denoise_sample(first+j/16u,base+j%16u);
             dw[j]=denoise_weight(group.y*16u+j/16u,base+j%16u);
         }
         workgroupBarrier();

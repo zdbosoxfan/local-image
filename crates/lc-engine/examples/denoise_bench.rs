@@ -3,7 +3,8 @@
 use li_raster::RgbFrame;
 use li_raster::resample::Filter;
 use li_seg::denoise::Variant;
-use lightcraft_engine::enhance::denoise::{infer, pack_bayer, prepare_raw};
+use lightcraft_engine::enhance::denoise::{infer, pack_bayer};
+use lightcraft_engine::files::prepare_raw;
 use std::{
     path::{Path, PathBuf},
     sync::Arc,
@@ -58,7 +59,7 @@ fn main() -> Result<(), String> {
         println!("{backend} wavelet full Develop path {:.3}s {}x{}", start.elapsed().as_secs_f64(), result.image.width, result.image.height);
         return Ok(());
     }
-    let raw = prepare_raw(&bytes)?;
+    let raw = prepare_raw(&bytes, &Default::default())?;
     let norm = raw.normalized().map_err(|e| e.to_string())?;
     let (mut packed, mut w, mut h, _) = pack_bayer(&norm)?;
     if megapixels > 0 {

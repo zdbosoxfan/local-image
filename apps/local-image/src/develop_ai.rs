@@ -1,6 +1,7 @@
-//! Develop's AI services, provided by the app: Compositing's AI Remove engines (FLUX.2 Klein and
-//! Qwen through ComfyUI, `li-ai`), handed to the Library's engine as
-//! its [`AiHost`] — so the `lc-*` crates depend on neither ComfyUI nor the editor.
+//! Develop's AI services, provided by the app: Compositing's AI Remove engines (on-device LaMa,
+//! FLUX.2 Klein and Qwen through ComfyUI, `li-ai`), handed to the Library's engine as its
+//! [`AiHost`] — so the `lc-*` crates depend on neither ComfyUI nor the editor. Removals stay in
+//! float; only a ComfyUI engine's PNG is 8-bit.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -106,7 +107,7 @@ impl AiHost for DevelopAi {
             return Err("image and mask sizes differ".into());
         }
         let (w, h) = (req.width as u32, req.height as u32);
-        let rgb = image::RgbImage::from_fn(w, h, |x, y| image::Rgb(req.rgb[(y * w + x) as usize]));
+        let rgb = li_raster::RgbFrame { width: req.width, height: req.height, data: req.rgb.clone() };
         let mask = image::GrayImage::from_fn(w, h, |x, y| image::Luma([req.mask[(y * w + x) as usize]]));
         // li-ai's progress and cancellation mirrored onto the Develop job
         let lctl = li_ai::JobControl::new();
@@ -128,17 +129,17 @@ impl AiHost for DevelopAi {
                 }
             });
             let _done = ProgressDone(&done);
-            let r = li_ai::service().remove_patch(&rgb, &mask, &engine(&req.engine), req.seed, &lctl);
+            let r = li_ai::service().remove_patch_frame(&rgb, &mask, &engine(&req.engine), req.seed, &lctl);
             done.store(true, Ordering::SeqCst);
             r
         });
         let out = out.map_err(|e| if e.is::<lightcraft_sysmem::Cancelled>() { lightcraft_engine::enhance::CANCELLED.to_owned() } else { format!("{e:#}") })?;
-        if out.dimensions() != (w, h) {
+        if out.dimensions() != (req.width, req.height) {
             return Err("The AI engine returned an unexpected size.".into());
         }
         // only the cleaned selection changed (what Compositing's AI Remove composites through)
         let alpha = li_ai::imaging::clean_selection_mask(&mask);
-        Ok(RemoveResult { rgb: out.pixels().map(|p| p.0).collect(), alpha: alpha.pixels().map(|p| p.0[0]).collect() })
+        Ok(RemoveResult { rgb: out.data, alpha: alpha.pixels().map(|p| p.0[0]).collect() })
     }
 }
 

@@ -107,7 +107,7 @@ impl Denoiser {
                     p[10] = pad[0] as u32;
                     p[11] = pad[1] as u32;
                     p[12] = u32::from(*transpose);
-                    ("denoise_conv", [(ho * wo).div_ceil(16) as u32, co.div_ceil(16) as u32, 1])
+                    ("denoise_conv", conv_groups(ho * wo, co))
                 }
                 Op::Activation { alpha, sigmoid } => {
                     p[13] = if *sigmoid { 2 } else { 1 };
@@ -180,6 +180,28 @@ impl Denoiser {
         .map_err(|e| format!("{e:#}"))?;
         match_variant_gain(&mut out, pixels, kind, w * kind.scale());
         Ok(out)
+    }
+}
+
+/// Workgroups of `denoise_conv` for an output plane of `positions` pixels and `channels` channels:
+/// 16 positions by 16 channels each. The positions spill from x into z, so a plane larger than one
+/// dispatch dimension allows (65535 groups, 1024² px) still runs.
+fn conv_groups(positions: usize, channels: usize) -> [u32; 3] {
+    let n = positions.div_ceil(16).max(1);
+    let x = n.min(32768);
+    [x as u32, channels.div_ceil(16) as u32, n.div_ceil(x) as u32]
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    #[test]
+    fn conv_dispatch_stays_within_the_device_limit_and_covers_every_position() {
+        for (positions, channels) in [(16, 3), (512 * 512, 64), (1024 * 1024, 32), (1024 * 1024 + 17, 3), (2048 * 2048, 16)] {
+            let [x, y, z] = super::conv_groups(positions, channels);
+            assert!(x <= 65535 && y <= 65535 && z <= 65535, "{positions}: {x} {y} {z}");
+            assert!(x as usize * z as usize * 16 >= positions && (x as usize * (z as usize - 1)) * 16 < positions, "{positions}");
+            assert!(y as usize * 16 >= channels);
+        }
     }
 }
 

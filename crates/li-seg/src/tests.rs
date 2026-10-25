@@ -1,4 +1,5 @@
 use super::*;
+use crate::custom::{add_custom_with, custom_list, synthetic};
 
 fn varint(mut v: u64, out: &mut Vec<u8>) {
     loop {
@@ -32,10 +33,15 @@ fn bytes_of(f: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
 /// An ONNX `ValueInfoProto` (float tensor); `dims: None` leaves the shape unspecified, `None`
 /// entries are symbolic.
 fn value_info(name: &str, dims: Option<&[Option<u64>]>) -> Vec<u8> {
+    typed_value_info(name, dims, 1)
+}
+
+/// [`value_info`] of ONNX element type `elem` (1 = float, 10 = float16).
+fn typed_value_info(name: &str, dims: Option<&[Option<u64>]>, elem: u64) -> Vec<u8> {
     bytes_of(|o| {
         field_bytes(1, name.as_bytes(), o);
         let tensor = bytes_of(|t| {
-            field_varint(1, 1, t);
+            field_varint(1, elem, t);
             if let Some(dims) = dims {
                 let shape = bytes_of(|s| {
                     for (i, d) in dims.iter().enumerate() {
@@ -234,7 +240,7 @@ fn a_custom_subject_model_is_validated_copied_and_used() {
     assert_eq!(custom(&dir, Group::Subject), Some(c.clone()));
     assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Custom(c.clone())));
     assert!(custom(&dir, Group::Sky).is_none());
-    let seg = shared(&dir).expect("the custom model loads");
+    let seg = shared(&dir).unwrap().expect("the custom model loads");
     assert!(seg.id().starts_with("custom:subject-"));
     let (w, h) = (80, 50);
     seg.predict(&synthetic(w, h), w, h).unwrap();
@@ -242,7 +248,7 @@ fn a_custom_subject_model_is_validated_copied_and_used() {
     let moved = dir.join("trash.onnx");
     let freed = clear_custom(&dir, Group::Subject, &|p| std::fs::rename(p, &moved)).unwrap();
     assert!(freed > 0 && moved.is_file());
-    assert!(custom(&dir, Group::Subject).is_none() && shared(&dir).is_none() && !custom_list(&dir).exists());
+    assert!(custom(&dir, Group::Subject).is_none() && shared(&dir).unwrap().is_none() && !custom_list(&dir).exists());
     assert_eq!(clear_custom(&dir, Group::Subject, &keep).unwrap(), 0);
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -264,8 +270,8 @@ fn review_model_snapshot_distinguishes_equal_length_artifacts_and_roots() {
         let second = snapshot(group, &b).unwrap();
         assert_eq!(first.key, second.key, "same basename/config/length reproduces the previous collision");
         assert_ne!(first, second);
-        let old = first.segmenter().unwrap();
-        let new = second.segmenter().unwrap();
+        let old = first.segmenter().unwrap().unwrap();
+        let new = second.segmenter().unwrap().unwrap();
         assert!(!Arc::ptr_eq(&old.run, &new.run), "another root must load its own plan");
         if group == Group::Subject {
             let input = vec![255; 32 * 32 * 4];
@@ -273,14 +279,27 @@ fn review_model_snapshot_distinguishes_equal_length_artifacts_and_roots() {
             assert!(new.predict(&input, 32, 32).unwrap().is_none());
         }
         // Captured requests keep their original artifact when the selected root changes.
-        assert_eq!(first.segmenter().unwrap().id(), old.id());
+        assert_eq!(first.segmenter().unwrap().unwrap().id(), old.id());
         different.push(0);
         std::fs::write(&first.path, &different).unwrap();
         assert!(!first.is_current());
-        assert!(first.segmenter().is_none(), "a changed artifact cannot reuse the old plan");
+        assert!(first.segmenter().unwrap().is_none(), "a changed artifact cannot reuse the old plan");
         std::fs::remove_dir_all(a).unwrap();
         std::fs::remove_dir_all(b).unwrap();
     }
+}
+
+#[test]
+fn a_model_that_fails_to_load_is_reported_not_taken_for_no_model() {
+    let dir = temp_models();
+    assert!(shared_sky(&dir).unwrap().is_none(), "nothing installed: no model, no error");
+    let src = picked(&dir, "sky.onnx", Some((32, 32)), Out::Map);
+    let c = add_custom(&dir, Group::Sky, &src, CustomOptions::default(), &keep).unwrap();
+    std::fs::write(c.path(&dir), b"this is no longer a model").unwrap();
+    let err = shared_sky(&dir).unwrap_err();
+    assert!(format!("{err:#}").contains("custom “sky.onnx”"), "{err:#}");
+    assert!(snapshot(Group::Sky, &dir).unwrap().segmenter().is_err());
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -291,7 +310,7 @@ fn the_custom_model_beats_an_installed_official_one() {
     let src = picked(&dir, "d.onnx", Some((32, 32)), Out::Flat);
     add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap();
     assert!(matches!(Group::Depth.in_use(&dir), Some(InUse::Custom(_))));
-    let seg = shared_depth(&dir).unwrap();
+    let seg = shared_depth(&dir).unwrap().unwrap();
     let (w, h) = (40, 30);
     let d = seg.predict_depth(&synthetic(w, h), w, h).unwrap();
     assert_eq!(d.len(), w * h);
@@ -353,19 +372,266 @@ fn sky_models_are_one_sigmoid_map_or_class_logits() {
     let one = picked(&dir, "one.onnx", Some((32, 32)), Out::Map);
     let c = add_custom(&dir, Group::Sky, &one, CustomOptions { sky_class: 7, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class), (1, 0), "a single map ignores the class index");
-    let seg = shared_sky(&dir).unwrap();
+    assert_eq!(c.activation, Activation::Probability, "the map ends in a sigmoid");
+    let seg = shared_sky(&dir).unwrap().unwrap();
     let (w, h) = (30, 20);
     let p = seg.predict_sky(&synthetic(w, h), w, h).unwrap();
     assert_eq!(p.len(), w * h);
+    // the model's own sigmoid of the sky colour's mean (IS-Net input), not a second sigmoid on top
+    let mean = (90.0 + 150.0 + 230.0) / 255.0 / 3.0 - 0.5;
+    assert!((p[2 * w + 2] - 1.0 / (1.0 + (-mean as f32).exp())).abs() < 0.01, "{}", p[2 * w + 2]);
     // ADE20K-style class logits: the sky class is the one the user names
     let many = picked(&dir, "many.onnx", Some((32, 32)), Out::Classes(4));
     let c = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
     assert_eq!((c.classes, c.class), (4, 2));
     assert_eq!(custom(&dir, Group::Sky).unwrap().classes, 4, "replaced, not added");
-    assert!(shared_sky(&dir).unwrap().predict_sky(&synthetic(w, h), w, h).is_ok());
+    assert!(shared_sky(&dir).unwrap().unwrap().predict_sky(&synthetic(w, h), w, h).is_ok());
     let err = add_custom(&dir, Group::Sky, &many, CustomOptions { sky_class: 4, ..Default::default() }, &keep).unwrap_err();
     assert!(matches!(err.downcast_ref::<CustomModelError>(), Some(CustomModelError::SkyClassOutOfRange { class: 4, classes: 4 })), "{err:#}");
     assert_eq!(custom(&dir, Group::Sky).unwrap().class, 2, "a refused model leaves the setting alone");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A model (opset 13) that ignores its `s × s` input's values and outputs the constant
+/// `[1, channels, s, s]` map `values`, through `last` (`Sigmoid`, or `Softmax` over the channels)
+/// when given.
+fn constant_onnx(s: u64, channels: u64, values: &[f32], last: Option<&str>) -> Vec<u8> {
+    let mut nodes = vec![
+        node("ReduceMean", &["x"], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]),
+        node("Mul", &["m", "zero"], "z", &[]),
+        node("Add", &["z", "k"], if last.is_some() { "a" } else { "y" }, &[]),
+    ];
+    if let Some(op) = last {
+        nodes.push(node(op, &["a"], "y", &if op == "Softmax" { vec![attr_int("axis", 1)] } else { vec![] }));
+    }
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"constant", g);
+        field_bytes(5, &initializer("zero", &[1], &[0.0]), g);
+        field_bytes(5, &initializer("k", &[1, channels, s, s], values), g);
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+fn picked_bytes(dir: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let p = dir.join("picked").join(name);
+    std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+    std::fs::write(&p, bytes).unwrap();
+    p
+}
+
+#[test]
+fn a_subject_model_that_outputs_logits_gets_its_sigmoid() {
+    let dir = temp_models();
+    let s = 32usize;
+    // BiRefNet-style logits: a background ramp from -15 to -5 around a subject at +10
+    let subject = |i: usize| (8..24).contains(&(i % s)) && (8..24).contains(&(i / s));
+    let logits: Vec<f32> = (0..s * s).map(|i| if subject(i) { 10.0 } else { -15.0 + 10.0 * (i % s) as f32 / (s - 1) as f32 }).collect();
+    let path = picked_bytes(&dir, "birefnet.onnx", &constant_onnx(s as u64, 1, &logits, None));
+    let c = add_custom(&dir, Group::Subject, &path, CustomOptions::default(), &keep).unwrap();
+    assert_eq!(c.activation, Activation::Logits);
+    assert_eq!(custom(&dir, Group::Subject).unwrap().activation, Activation::Logits, "remembered");
+    let p = shared(&dir).unwrap().unwrap().predict(&synthetic(s, s), s, s).unwrap().expect("a clear subject");
+    for (i, v) in p.iter().enumerate() {
+        if subject(i) {
+            assert!(*v >= 0.99, "subject {v} at {i}");
+        } else {
+            assert!(*v <= 0.01, "background haze {v} at {i}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn sky_models_are_read_as_the_probabilities_or_logits_they_output() {
+    let dir = temp_models();
+    let s = 32usize;
+    let sky = |i: usize| i / s < s / 2;
+    let (w, h) = (s, s);
+    let photo = synthetic(w, h);
+    let check = |p: Vec<f32>, sky_at_least: f32, ground_at_most: f32| {
+        for (i, v) in p.iter().enumerate() {
+            if sky(i) {
+                assert!(*v >= sky_at_least, "sky {v} at {i}");
+            } else {
+                assert!(*v <= ground_at_most, "ground {v} at {i}");
+            }
+        }
+    };
+    // one map ending in a sigmoid: 2 % sky on the ground stays 2 %
+    let ground = (0.02f32 / 0.98).ln();
+    let map: Vec<f32> = (0..s * s).map(|i| if sky(i) { 4.0 } else { ground }).collect();
+    let path = picked_bytes(&dir, "sky-sigmoid.onnx", &constant_onnx(s as u64, 1, &map, Some("Sigmoid")));
+    let c = add_custom(&dir, Group::Sky, &path, CustomOptions::default(), &keep).unwrap();
+    assert_eq!((c.classes, c.activation), (1, Activation::Probability));
+    check(shared_sky(&dir).unwrap().unwrap().predict_sky(&photo, w, h).unwrap(), 0.95, 0.03);
+    // one map of logits (TinySkyNet style)
+    let map: Vec<f32> = (0..s * s).map(|i| if sky(i) { 6.0 } else { -6.0 }).collect();
+    let path = picked_bytes(&dir, "sky-logits.onnx", &constant_onnx(s as u64, 1, &map, None));
+    let c = add_custom(&dir, Group::Sky, &path, CustomOptions::default(), &keep).unwrap();
+    assert_eq!((c.classes, c.activation), (1, Activation::Logits));
+    check(shared_sky(&dir).unwrap().unwrap().predict_sky(&photo, w, h).unwrap(), 0.99, 0.01);
+    // four classes through a softmax, sky = class 2
+    let classes: Vec<f32> = (0..4).flat_map(|c| (0..s * s).map(move |i| if c == if sky(i) { 2 } else { 0 } { 8.0 } else { 0.0 })).collect();
+    let path = picked_bytes(&dir, "sky-softmax.onnx", &constant_onnx(s as u64, 4, &classes, Some("Softmax")));
+    let c = add_custom(&dir, Group::Sky, &path, CustomOptions { sky_class: 2, ..Default::default() }, &keep).unwrap();
+    assert_eq!((c.classes, c.class, c.activation), (4, 2, Activation::Probability));
+    check(shared_sky(&dir).unwrap().unwrap().predict_sky(&photo, w, h).unwrap(), 0.9, 0.1);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// The sigmoid of the channel mean (like [`Out::Map`]) with float16 input and output; with
+/// `keep_io_types` the graph takes and returns float32 and casts around its float16 body, as
+/// transformers.js `model_fp16.onnx` exports do.
+fn half_onnx(s: u64, keep_io_types: bool) -> Vec<u8> {
+    let cast = |input: &str, output: &str, to: u64| node("Cast", &[input], output, &[attr_int("to", to)]);
+    let mut nodes = Vec::new();
+    let (x, y) = if keep_io_types { ("xh", "yh") } else { ("x", "y") };
+    if keep_io_types {
+        nodes.push(cast("x", "xh", 10));
+    }
+    nodes.push(node("ReduceMean", &[x], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]));
+    nodes.push(node("Sigmoid", &["m"], y, &[]));
+    if keep_io_types {
+        nodes.push(cast("yh", "y", 1));
+    }
+    let io = if keep_io_types { 1 } else { 10 };
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"half", g);
+        field_bytes(11, &typed_value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)]), io), g);
+        field_bytes(12, &typed_value_info("y", None, io), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+#[test]
+fn half_precision_subject_models_run_in_f32() {
+    let dir = temp_models();
+    for keep_io_types in [false, true] {
+        let path = picked_bytes(&dir, &format!("half-{keep_io_types}.onnx"), &half_onnx(32, keep_io_types));
+        add_custom(&dir, Group::Subject, &path, CustomOptions::default(), &keep).unwrap_or_else(|e| panic!("keep_io_types {keep_io_types}: {e:#}"));
+        let (w, h) = (40, 30);
+        let p = shared(&dir).unwrap().unwrap().predict(&synthetic(w, h), w, h).unwrap().expect("a subject");
+        assert!(p.len() == w * h && p.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "keep_io_types {keep_io_types}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// [`constant_onnx`]'s map stored in the external file `location` (ONNX external data).
+fn external_onnx(s: u64, values: &[f32], location: &str) -> Vec<u8> {
+    let entry = |k: &str, v: &str| {
+        bytes_of(|e| {
+            field_bytes(1, k.as_bytes(), e);
+            field_bytes(2, v.as_bytes(), e);
+        })
+    };
+    let k = bytes_of(|t| {
+        for d in [1, 1, s, s] {
+            field_varint(1, d, t);
+        }
+        field_varint(2, 1, t);
+        field_bytes(8, b"k", t);
+        field_bytes(13, &entry("location", location), t);
+        field_bytes(13, &entry("offset", "0"), t);
+        field_bytes(13, &entry("length", &(values.len() * 4).to_string()), t);
+        field_varint(14, 1, t);
+    });
+    let nodes = [
+        node("ReduceMean", &["x"], "m", &[attr_ints("axes", &[1]), attr_int("keepdims", 1)]),
+        node("Mul", &["m", "zero"], "z", &[]),
+        node("Add", &["z", "k"], "y", &[]),
+    ];
+    let graph = bytes_of(|g| {
+        for n in &nodes {
+            field_bytes(1, n, g);
+        }
+        field_bytes(2, b"external", g);
+        field_bytes(5, &initializer("zero", &[1], &[0.0]), g);
+        field_bytes(5, &k, g);
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+#[test]
+fn a_model_with_external_weights_is_copied_as_one_file() {
+    let dir = temp_models();
+    let s = 32usize;
+    let values: Vec<f32> = (0..s * s).map(|i| if i % s < s / 2 { 0.9 } else { 0.1 }).collect();
+    let src = picked_bytes(&dir, "model.onnx", &external_onnx(s as u64, &values, "model.onnx_data"));
+    std::fs::write(dir.join("picked/model.onnx_data"), values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let c = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
+    // the picked folder can go: the copy has the weights
+    std::fs::remove_dir_all(dir.join("picked")).unwrap();
+    let seg = snapshot(Group::Subject, &dir).unwrap().segmenter().unwrap().expect("the copied model loads");
+    let p = seg.predict(&synthetic(s, s), s, s).unwrap().expect("a subject");
+    assert!(p[s / 4] > 0.99 && p[s * 3 / 4] < 0.01, "{} {}", p[s / 4], p[s * 3 / 4]);
+    assert!(c.path(&dir).is_file() && std::fs::read_dir(custom_dir(&dir)).unwrap().count() == 2, "one model file and the list");
+    // weights outside the model's folder, or missing, are refused and nothing is kept
+    for location in ["../secret.bin", "/etc/passwd", "missing.bin"] {
+        let src = picked_bytes(&dir, "escape.onnx", &external_onnx(s as u64, &values, location));
+        let err = add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap_err();
+        assert!(custom(&dir, Group::Depth).is_none(), "{location}: {err:#}");
+    }
+    assert_eq!(std::fs::read_dir(custom_dir(&dir)).unwrap().count(), 2);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn custom_depth_models_get_their_normalisation_and_output_direction() {
+    let dir = temp_models();
+    let s = 32usize;
+    // metric depth: the left half 2 m away, the right half 10 m
+    let metres: Vec<f32> = (0..s * s).map(|i| if i % s < s / 2 { 2.0 } else { 10.0 }).collect();
+    let path = picked_bytes(&dir, "metric.onnx", &constant_onnx(s as u64, 1, &metres, None));
+    let c = add_custom(&dir, Group::Depth, &path, CustomOptions { depth_metric: true, ..CustomOptions::for_group(Group::Depth) }, &keep).unwrap();
+    assert_eq!((c.norm, c.class), (Norm::ImageNet, 1), "depth models start ImageNet-normalised");
+    let seg = shared_depth(&dir).unwrap().unwrap();
+    // the model gets ImageNet-normalised input: mid grey is (0.5 - mean) / std
+    let grey: Vec<u8> = (0..s * s).flat_map(|_| [128, 128, 128, 255]).collect();
+    let input = seg.input(&grey, s, s, false).unwrap();
+    assert!((input[[0, 0, 0, 0]] - (128.0 / 255.0 - 0.485) / 0.229).abs() < 1e-4, "{}", input[[0, 0, 0, 0]]);
+    let near = seg.predict_depth(&grey, s, s).unwrap();
+    assert!(near[s / 4] > 0.99 && near[s * 3 / 4] < 0.01, "the 2 m side is the nearer: {} {}", near[s / 4], near[s * 3 / 4]);
+    // the same model read as inverse depth puts the 10 m side nearest; switching needs no new import
+    let c = set_custom_options(&dir, Group::Depth, CustomOptions { norm: Norm::Half, ..CustomOptions::default() }).unwrap();
+    assert_eq!((c.norm, c.class), (Norm::Half, 0));
+    assert_eq!(custom(&dir, Group::Depth), Some(c), "the list keeps the DPT style and the output");
+    let near = shared_depth(&dir).unwrap().unwrap().predict_depth(&grey, s, s).unwrap();
+    assert!(near[s / 4] < 0.01 && near[s * 3 / 4] > 0.99);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn custom_lines_from_before_outputs_were_checked_keep_their_meaning() {
+    let dir = temp_models();
+    let src = picked(&dir, "m.onnx", Some((32, 32)), Out::Map);
+    let subject = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
+    let sky = add_custom(&dir, Group::Sky, &src, CustomOptions::default(), &keep).unwrap();
+    std::fs::write(custom_list(&dir), format!("subject\t{}\tS\t32\tisnet\t1\t0\nsky\t{}\tK\t32\timagenet\t1\t0\n", subject.file, sky.file)).unwrap();
+    assert_eq!(custom(&dir, Group::Subject).unwrap().activation, Activation::Probability);
+    let sky = custom(&dir, Group::Sky).unwrap();
+    assert_eq!((sky.activation, sky.norm), (Activation::Logits, Norm::ImageNet));
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -515,15 +781,47 @@ fn depth_model_finds_the_near_ground() {
         return;
     }
     let seg = Segmenter::load(spec, &path).unwrap();
-    let (w, h) = (384, 288);
-    let img = ground_scene(w, h);
-    let d = seg.predict_depth(&img, w, h).unwrap();
-    assert_eq!(d.len(), w * h);
-    assert!(d.iter().all(|v| (0.0..=1.0).contains(v)));
-    let at = |x: usize, y: usize| d[y * w + x];
-    let (near, far) = (at(w / 8, h - 6), at(w / 8, (h as f32 * 0.42) as usize));
-    assert!(near > far + 0.2, "near ground {near}, horizon {far}");
-    assert!(at(w / 2, h * 3 / 4) > far, "the box is nearer than the horizon");
+    // landscape and portrait, each seen in its own aspect ratio
+    for (w, h) in [(384, 288), (288, 384)] {
+        assert_eq!(seg.input_size(w, h), depth_input(518, w, h));
+        let img = ground_scene(w, h);
+        let d = seg.predict_depth(&img, w, h).unwrap();
+        assert_eq!(d.len(), w * h);
+        assert!(d.iter().all(|v| (0.0..=1.0).contains(v)));
+        let at = |x: usize, y: usize| d[y * w + x];
+        let (near, far) = (at(w / 8, h - 6), at(w / 8, (h as f32 * 0.42) as usize));
+        assert!(near > far + 0.2, "{w}x{h}: near ground {near}, horizon {far}");
+        assert!(at(w / 2, h * 3 / 4) > far, "{w}x{h}: the box is nearer than the horizon");
+    }
+}
+
+#[test]
+fn flexible_depth_models_keep_the_photos_aspect_ratio() {
+    assert_eq!(depth_input(518, 1536, 1024), (518, 784));
+    assert_eq!(depth_input(518, 1024, 1536), (784, 518));
+    assert_eq!(depth_input(518, 4000, 3000), (518, 686));
+    assert_eq!(depth_input(518, 800, 800), (518, 518));
+    assert_eq!(depth_input(518, 9000, 1000), (518, 1036), "a panorama is capped at 2:1");
+    // the official depth model's flexible input: planned for a shape when a photo of it comes,
+    // a fixed one stays square
+    let dir = temp_models();
+    let depth = ModelSpec { size: 28, ..*Group::Depth.official() };
+    let flexible = Segmenter::load(&depth, &picked(&dir, "flex.onnx", None, Out::Map)).unwrap();
+    let fixed = Segmenter::load(&depth, &picked(&dir, "fixed.onnx", Some((28, 28)), Out::Map)).unwrap();
+    let planned = || flexible.flexible.as_ref().unwrap().built.lock().unwrap().iter().map(|(at, _)| *at).collect::<Vec<_>>();
+    assert_eq!(planned(), [], "nothing is planned before a photo comes");
+    let (w, h) = (90, 60);
+    assert_eq!((flexible.input_size(w, h), fixed.input_size(w, h)), ((28, 42), (28, 28)));
+    for seg in [&flexible, &fixed] {
+        let d = seg.predict_depth(&synthetic(w, h), w, h).unwrap();
+        assert_eq!(d.len(), w * h);
+    }
+    flexible.predict_depth(&synthetic(h, w), h, w).unwrap();
+    flexible.predict_depth(&synthetic(w, h), w, h).unwrap();
+    assert_eq!(planned(), [(28, 42), (42, 28)], "one plan per shape, the most recently used first");
+    let custom = add_custom(&dir, Group::Depth, &picked(&dir, "custom.onnx", None, Out::Map), CustomOptions::for_group(Group::Depth), &keep).unwrap();
+    assert_eq!(shared_depth(&dir).unwrap().unwrap().input_size(w, h), (custom.size, custom.size), "a custom model's patch size is unknown: square");
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
@@ -656,6 +954,36 @@ fn ai_denoise_custom_model_and_use_default() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// A residual restoration graph (`y = x + x`): tract runs it, the GPU denoiser has no `Add`.
+fn residual_onnx(s: u64) -> Vec<u8> {
+    let graph = bytes_of(|g| {
+        field_bytes(1, &node("Add", &["x", "x"], "y", &[]), g);
+        field_bytes(2, b"residual", g);
+        field_bytes(11, &value_info("x", Some(&[Some(1), Some(3), Some(s), Some(s)])), g);
+        field_bytes(12, &value_info("y", None), g);
+    });
+    bytes_of(|m| {
+        field_varint(1, 7, m);
+        field_bytes(7, &graph, m);
+        field_bytes(8, &bytes_of(|o| field_varint(2, 13, o)), m);
+    })
+}
+
+#[test]
+fn custom_denoisers_are_checked_against_the_gpu_graph_that_runs_them() {
+    let dir = temp_models();
+    let residual = picked_bytes(&dir, "residual.onnx", &residual_onnx(32));
+    for group in [Group::RawDenoise, Group::RgbDenoise] {
+        let err = add_custom(&dir, group, &residual, CustomOptions::default(), &keep).unwrap_err();
+        match err.downcast_ref::<CustomModelError>() {
+            Some(CustomModelError::UnsupportedRestoration { reason }) => assert!(reason.contains("Add"), "{reason}"),
+            _ => panic!("{err:#}"),
+        }
+        assert!(custom(&dir, group).is_none(), "refused at import, not at Apply");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn bg_tier_tiny_smoke_preserves_probabilities_and_no_subject() {
     let dir = temp_models();
@@ -713,6 +1041,33 @@ fn bg_subject_group_uses_chosen_tier_for_all_callers() {
     assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
     set_subject_quality(&dir, false);
     assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("rmbg-1.4").unwrap())));
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn the_subject_function_uses_whichever_tier_is_installed() {
+    let (fast, better) = (spec("rmbg-1.4").unwrap(), spec("inspyrenet").unwrap());
+    for (installed, chosen) in [(better, false), (fast, true)] {
+        let dir = temp_models();
+        std::fs::write(model_path(&dir, installed), b"installed").unwrap();
+        set_subject_quality(&dir, chosen);
+        assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(installed)), "chosen better: {chosen}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn the_subject_tier_choice_is_kept_in_the_models_folder() {
+    let dir = temp_models();
+    for model in ["rmbg-1.4", "inspyrenet"] {
+        std::fs::write(model_path(&dir, spec(model).unwrap()), b"installed").unwrap();
+    }
+    set_subject_quality(&dir, true);
+    assert_eq!(std::fs::read_to_string(dir.join("segmentation/subject-tier.txt")).unwrap(), "better");
+    // a later run (nothing remembered in memory) reads it back
+    SUBJECT_QUALITY.lock().unwrap().retain(|(d, _)| *d != dir);
+    assert!(subject_quality(&dir));
+    assert_eq!(Group::Subject.in_use(&dir), Some(InUse::Official(spec("inspyrenet").unwrap())));
     let _ = std::fs::remove_dir_all(dir);
 }
 
