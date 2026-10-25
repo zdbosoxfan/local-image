@@ -9,7 +9,7 @@
 //!   never a software adapter) shared by the GPU parity gates.
 //! - [`constant_gray_jpeg`]: a tiny JPEG fixture of any declared size, for codec limit tests.
 #![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
-#![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
+#![cfg_attr(all(test, feature = "kittest"), expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 pub mod softpaint;
 
