@@ -69,6 +69,21 @@ fn the_doctor_lists_template_models_as_ready_and_prints_json() {
 }
 
 #[test]
+fn templates_can_come_from_a_folder_when_the_server_serves_none() {
+    let (dir, data) = (models("templates-dir"), tmp("templates-dir-data"));
+    let server = MockComfy::start().unwrap();
+    server.serve_comfy_0_42_5(&dir.0);
+    let empty = tmp("templates-dir-empty");
+    server.set_templates_dir(&empty.0);
+    let (_, out, _) = doctor(server.host(), &dir, &data, &[]);
+    assert!(out.contains("doesn't serve its templates") && out.contains("NO MATCH"), "no templates, no template models: {out}");
+    let templates = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/li-ai/tests/fixtures/comfy-0.42.5/templates");
+    let (code, out, err) = doctor(server.host(), &dir, &data, &["--templates-dir", templates.to_str().unwrap()]);
+    assert_eq!(code, 0, "{out}\n{err}");
+    assert!(out.contains("READY    FLUX.3 Klein · distilled · BF16"), "{out}");
+}
+
+#[test]
 fn verify_tests_one_model_at_a_time_and_frees_memory_after_each() {
     let (dir, data) = (models("verify"), tmp("verify-data"));
     let server = MockComfy::start().unwrap();

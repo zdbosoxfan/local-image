@@ -53,7 +53,7 @@ pub(crate) fn doctor(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 
         None if modelsetup::is_local(&host) => Some(li_ai::AiSettings::load().model_dir()),
         None => None,
     };
-    let opts = Options::for_host(&host, model_dir);
+    let opts = Options { templates_dir: a.get("--templates-dir").map(PathBuf::from), ..Options::for_host(&host, model_dir) };
     let scan = modelsetup::scan(&opts);
     let mut code = 0;
     if let Some(which) = a.get("--verify").filter(|_| scan.snapshot.is_some()) {

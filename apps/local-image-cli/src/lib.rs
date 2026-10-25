@@ -72,11 +72,12 @@ USAGE:
       doc.open/new/save/inspect/render/select/close, session.list, batch, methods
       (docs/control-protocol.md#headless-server).
 
-  local-image-cli ai doctor [--host <host:port>] [--model-dir <dir>] [--json] [--verify <model|file|all>]
+  local-image-cli ai doctor [--host <host:port>] [--model-dir <dir>] [--templates-dir <dir>] [--json] [--verify <model|file|all>]
       Check every model file on the connected ComfyUI: what it is, which official template or builder runs
       it, and what blocks it, with fixes. --verify tests models with small renders, one at a time (all: every
-      model not tested yet), and frees ComfyUI's memory after each. Never downloads, moves files or starts
-      ComfyUI. Host: --host, else LOCAL_IMAGE_COMFY, else the Local AI settings. Exit 0 when nothing blocks,
+      model not tested yet), and frees ComfyUI's memory after each. --templates-dir reads the official
+      templates (index.json and its templates) from a folder instead of the server. Never downloads, moves
+      files or starts ComfyUI. Host: --host, else LOCAL_IMAGE_COMFY, else the Local AI settings. Exit 0 when nothing blocks,
       1 on blockers or failed tests, 3 when ComfyUI is not reachable.
 
   local-image-cli <subcommand> --help (or -h) prints this text. A flag the subcommand doesn't take is
@@ -138,7 +139,7 @@ const SUBCOMMANDS: &[Subcommand] = &[
         bare: &[],
         run: Run::Plain(|a, _, err| serve(a, err)),
     },
-    Subcommand { name: "ai doctor", values: &["--host", "--model-dir", "--verify"], bare: &["--json"], run: Run::Exit(ai_doctor::doctor) },
+    Subcommand { name: "ai doctor", values: &["--host", "--model-dir", "--templates-dir", "--verify"], bare: &["--json"], run: Run::Exit(ai_doctor::doctor) },
 ];
 
 /// The subcommand's arguments, or `None` when they ask for help (`--help` or `-h`).
