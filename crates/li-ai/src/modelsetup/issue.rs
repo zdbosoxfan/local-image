@@ -48,9 +48,6 @@ pub enum Fix {
     ChooseTemplate {
         candidates: Vec<String>,
     },
-    SmallerVariant {
-        file: String,
-    },
     OpenUrl {
         label: String,
         url: String,
@@ -60,7 +57,6 @@ pub enum Fix {
         label: String,
         command: String,
     },
-    AddToken,
     UpdateProfiles,
     CheckOnline,
     Recheck,
@@ -82,10 +78,8 @@ impl Fix {
             Self::UseInstead { declared, installed } => format!("use {installed} instead of {declared}"),
             Self::Move { from, to_folder } => format!("move {from} to {to_folder}/"),
             Self::ChooseTemplate { candidates } => format!("choose a template: {}", candidates.join(", ")),
-            Self::SmallerVariant { file } => format!("use a smaller version: {file}"),
             Self::OpenUrl { label, url } => format!("{label}: {url}"),
             Self::CopyCommand { label, command } => format!("{label}: {command}"),
-            Self::AddToken => "add a Hugging Face token in Local AI › Accounts".into(),
             Self::UpdateProfiles => "update Model Profiles".into(),
             Self::CheckOnline => "check online for a newer ComfyUI (local-image-cli ai doctor --online)".into(),
             Self::Recheck => "press Re-check (or run local-image-cli ai doctor again)".into(),
@@ -101,10 +95,8 @@ impl Fix {
             Self::UseInstead { .. } => "use_instead",
             Self::Move { .. } => "move",
             Self::ChooseTemplate { .. } => "choose_template",
-            Self::SmallerVariant { .. } => "smaller_variant",
             Self::OpenUrl { .. } => "open_url",
             Self::CopyCommand { .. } => "copy_command",
-            Self::AddToken => "add_token",
             Self::UpdateProfiles => "update_profiles",
             Self::CheckOnline => "check_online",
             Self::Recheck => "recheck",
@@ -155,11 +147,6 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     ),
     ("CompanionMissing", Severity::Blocker, "{model} needs the {role_label} {file} ({size}) in {folder}/. Any precision of {stem} works."),
     ("UsingEquivalent", Severity::Info, "{model} expects {declared}. Using {installed}, which decodes the same format."),
-    (
-        "CompanionGated",
-        Severity::Blocker,
-        "{file} is gated by {publisher}. Accept the licence ({licence}) on its Hugging Face page, add a Hugging Face token in Local AI › Accounts, then press Re-check.",
-    ),
     (
         "UnverifiableDownload",
         Severity::Blocker,

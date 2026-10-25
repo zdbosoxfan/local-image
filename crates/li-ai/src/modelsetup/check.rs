@@ -297,7 +297,18 @@ pub fn check(m: &ModelCheck) -> Checked {
         if generation != Some(need.as_str()) {
             let args = [("file", m.file.to_owned()), ("quant", rule.label.clone()), ("gpu", gpu.clone().unwrap_or_else(|| "unknown".into()))];
             if rule.block && !m.try_anyway {
-                issues.push(Issue::new("QuantUnsupported", key, &args).fix(Fix::TryAnyway));
+                let mut issue = Issue::new("QuantUnsupported", key, &args);
+                // The precision the template itself declares, when this GPU runs it.
+                let runs_here = |name: &str| {
+                    let q = crate::stem::name_quant(&crate::stem::stem_key(name).quant_tokens);
+                    q.and_then(|q| m.runtime.quant_rule(&q)).is_none_or(|r| !r.block || r.needs.as_deref().is_none_or(|n| generation == Some(n)))
+                };
+                let official = r.bindings().into_iter().find(|b| b.role == "main" && b.declared != m.file && !b.url.is_empty() && runs_here(&b.declared));
+                if let Some(b) = official.filter(|_| !s.remote) {
+                    let bytes = declared_size(m.runtime, &b.declared).unwrap_or(0);
+                    issue = issue.fix(Fix::Download { files: vec![b.declared.clone()], folder: b.folder.clone(), bytes, url: b.url.clone() });
+                }
+                issues.push(issue.fix(Fix::TryAnyway));
             } else if !rule.block {
                 issues.push(Issue::new("QuantSlow", key, &args));
             }

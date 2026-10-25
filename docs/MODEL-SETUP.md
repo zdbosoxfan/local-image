@@ -56,7 +56,7 @@ in `state/templates/<version>/`.
 | A combo option is missing (for example `CLIPLoader` type `flux3`) | `This ComfyUI ({have}) doesn't offer {class} {input} "{value}" …` | Update ComfyUI. |
 | A companion file is missing | `{model} needs the {role} {file} ({size}) in {folder}/. Any precision of {stem} works.` | Install it (setup never downloads on its own). A file only one tool needs, such as Krea 2's style LoRA, turns only that tool off. |
 | An equivalent file is used | `{model} expects {declared}. Using {installed}, which decodes the same format.` | Nothing. |
-| A Blackwell-only precision (NVFP4, FP4) on an older GPU | `{file} uses {quant}, which needs an NVIDIA Blackwell (RTX 50-series) GPU.` | Use another precision of the model, or Try anyway. |
+| A Blackwell-only precision (NVFP4, FP4) on an older GPU | `{file} uses {quant}, which needs an NVIDIA Blackwell (RTX 50-series) GPU.` | Download the precision the template declares (offered when this GPU runs it), or Try anyway. |
 | MXFP8 on an older GPU | `It runs fastest on Blackwell GPUs and may be slower on {gpu}.` | Nothing required. |
 | The model may not fit in GPU memory | `{model} needs about {need} GB of GPU memory …` | It may run slowly; a smaller precision helps. |
 | The template has an optional prompt enhancer | `This model can use an optional prompt enhancer ({file}, {size}). Turn on Enhance prompt in Generate to use it.` | Optional. It is never downloaded or turned on by itself. |
@@ -117,8 +117,7 @@ install in the Model Browser) shows the same results as the doctor, for the conn
   time and every one re-checks afterwards: **Download** (planned like a Model Browser install, its
   size and SHA-256 from the publisher, and confirmed before anything downloads), **Use … instead**,
   **Move to …/** (inside the model folder only, never over a file, with Undo for 30 seconds),
-  **Choose template…**, **Copy commands** (shown, never run), **Add token…**, **Try anyway** and
-  **Ignore**. **Check online…** opens ComfyUI's releases in the browser.
+  **Choose template…**, **Copy commands** (shown, never run), **Try anyway** and **Ignore**. **Check online…** opens ComfyUI's releases in the browser.
 - **Verify** runs the tests above for that model, shows each tool's result, time and the GPU
   memory in use, and can be cancelled. **Verify all ready** tests every untested model one at a
   time.

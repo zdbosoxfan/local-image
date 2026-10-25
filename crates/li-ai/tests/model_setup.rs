@@ -371,6 +371,14 @@ fn blackwell_only_precisions_are_blocked_on_older_gpus() {
     let issue = m.issues.iter().find(|i| i.code == "QuantUnsupported").unwrap_or_else(|| panic!("{:?}", m.issues));
     assert!(issue.english().contains("uses NVFP4, which needs an NVIDIA Blackwell"), "{}", issue.english());
     assert_eq!(m.status, Status::Blocked);
+    let declared = m.bindings.iter().find(|b| b.role == "main").map(|b| b.declared.clone()).unwrap();
+    assert!(!declared.contains("nvfp4"), "{declared}");
+    assert!(
+        matches!(&issue.fixes[..], [modelsetup::issue::Fix::Download { files, folder, url, .. }, modelsetup::issue::Fix::TryAnyway]
+            if files == &[declared.clone()] && folder == "diffusion_models" && url.ends_with(&format!("/{declared}"))),
+        "the template's own precision is offered before Try anyway: {:?}",
+        issue.fixes
+    );
     // On a Blackwell GPU the same file is ready; Style references stay off until their LoRA
     // is installed (a warning, not a blocker).
     s.mock.set_system_stats(system_stats("0.42.5", "NVIDIA GeForce RTX 5090"));

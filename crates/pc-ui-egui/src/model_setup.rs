@@ -59,7 +59,6 @@ pub(crate) enum Action {
     OpenUrl(String),
     Copy(String),
     CopyReport,
-    AddToken,
     OpenModelBrowser,
     StartEngine,
     UseInGenerate(String),
@@ -318,9 +317,6 @@ fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, a: Action) {
                 ctx.copy_text(modelsetup::report::render_text(&modelsetup::report(&options(), &scan)));
                 with(|s| s.message = Some((tl!("Copied the report.").into(), false)));
             }
-        }
-        Action::AddToken => {
-            crate::prefs_ui::open_preferences(app, "ai.providers");
         }
         Action::OpenModelBrowser => crate::model_browser::open(),
         Action::StartEngine => {
