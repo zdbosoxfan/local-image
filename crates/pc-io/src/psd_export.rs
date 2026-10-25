@@ -17,6 +17,9 @@ use crate::psd_import::REGENERATED;
 use crate::vector_map::fallback;
 
 const PSD_MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+/// How many times larger than the tiles holding its pixels a layer's box must be to count as
+/// sparse ([`gather_refused`]).
+const SPARSE_GATHER_FACTOR: u64 = 8;
 const PSD_ESTIMATE_FIXED_OVERHEAD: u64 = 1024 * 1024;
 const PSD_ESTIMATE_LAYER_OVERHEAD: u64 = 64 * 1024;
 
@@ -260,6 +263,27 @@ fn upsert(raw: &mut Vec<([u8; 4], Vec<u8>)>, key: &[u8; 4], data: Vec<u8>, befor
     }
 }
 
+/// Whether the samples of `r` in `s` are too sparse to gather for a document whose canvas is
+/// `canvas`. A PSD layer record is one dense rectangle, so a few pixels far apart (content moved
+/// far off the canvas, or a crafted document) make a box of mostly nothing that can't be
+/// allocated, gathered and then copied into channel planes.
+fn sparse_gather(s: &Surface, r: photocraft_geom::Rect, canvas: photocraft_geom::Rect) -> bool {
+    let bpp = s.format().bytes_per_pixel() as u64;
+    let bytes = |r: photocraft_geom::Rect| u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(bpp);
+    let tile = u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2);
+    let held = (s.tile_count() as u64).saturating_mul(tile).saturating_mul(bpp);
+    gather_refused(bytes(r), held, lightcraft_sysmem::profile().memory_budget(), bytes(canvas))
+}
+
+/// [`sparse_gather`] on byte counts: refused only when the box is more than
+/// [`SPARSE_GATHER_FACTOR`] times what its tiles hold, larger than the `canvas` (whose merged
+/// image the save holds anyway) and, with the planes made from it (alive together), over the
+/// memory `budget`. A dense layer (a stitched panorama, an HDR merge) is gathered however large
+/// it is: its tiles already hold that much.
+fn gather_refused(boxed: u64, held: u64, budget: u64, canvas: u64) -> bool {
+    boxed > held.saturating_mul(SPARSE_GATHER_FACTOR) && boxed > (budget / 2).max(canvas)
+}
+
 fn psd_mode(m: ColorMode) -> PsdMode {
     match m {
         ColorMode::Grayscale => PsdMode::Grayscale,
@@ -308,6 +332,14 @@ impl Ex {
         if r.is_empty() {
             return (PsdRect::default(), self.empty_channels());
         }
+        if sparse_gather(&s, r, self.canvas) {
+            self.warnings.push(format!(
+                "layer \"{name}\": its pixels are scattered over {}×{} px, too large to write: saved without its pixels (delete the stray pixels far from the rest and save again)",
+                r.width(),
+                r.height()
+            ));
+            return (PsdRect::default(), self.empty_channels());
+        }
         let mut bytes = s.to_interleaved(r);
         if self.fmt.mode == ColorMode::Lab && self.fmt.sample == SampleType::U16 {
             crate::pixels::lab16_chroma(&mut bytes, self.cc + 1, false);
@@ -324,10 +356,18 @@ impl Ex {
         (to_psd_rect(r), ch)
     }
 
-    fn mask(&self, m: &LayerMask, vector: Option<(f32, f32)>) -> (MaskData, Option<ChannelData>) {
+    fn mask(&mut self, m: &LayerMask, vector: Option<(f32, f32)>, name: &str) -> (MaskData, Option<ChannelData>) {
         let s = if m.surface.format() != self.mask_fmt { m.surface.convert(self.mask_fmt) } else { m.surface.clone() };
         let default = s.default_pixel().first().copied().unwrap_or(0.0);
-        let r = s.content_bounds();
+        let mut r = s.content_bounds();
+        if !r.is_empty() && sparse_gather(&s, r, self.canvas) {
+            self.warnings.push(format!(
+                "layer \"{name}\": its mask's painted pixels are scattered over {}×{} px, too large to write: saved as an empty mask",
+                r.width(),
+                r.height()
+            ));
+            r = photocraft_geom::Rect::EMPTY;
+        }
         let (w, h) = (r.width() as usize, r.height() as usize);
         let plane = if r.is_empty() { Vec::new() } else { deinterleave(&s.to_interleaved(r), 1, self.mask_fmt.sample, &[false]).remove(0) };
         let mut flags = 0u8;
@@ -381,7 +421,7 @@ impl Ex {
         // Vector mask density/feather live in the mask parameters, with or without a user mask.
         let vector = l.vector_mask.as_ref().map(|vm| (vm.density, vm.feather));
         if let Some(m) = &l.mask {
-            let (md, ch) = self.mask(m, vector);
+            let (md, ch) = self.mask(m, vector, &l.name);
             mask = md;
             channels.extend(ch);
         } else if let Some(parameters) = mask_parameters(None, vector) {

@@ -319,3 +319,72 @@ fn a_linked_and_an_embedded_copy_of_the_same_bytes_keep_their_own_rule() {
     }
     std::fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn only_sparse_boxes_past_the_canvas_and_the_memory_budget_are_refused() {
+    const GIB: u64 = 1 << 30;
+    let tile = 256 * 256 * 8;
+    let canvas = 8 * 8 * 8;
+    // Two tiles of a 16-bit RGBA layer far apart: a box of almost nothing, refused whatever the
+    // budget.
+    assert!(gather_refused(u64::MAX, 2 * tile, 256 * GIB, canvas));
+    assert!(gather_refused(400 * GIB, 2 * tile, 64 * GIB, canvas));
+    // A dense 16-bit RGBA panorama of 40000×12000 px (3.6 GiB, past upstream's fixed 1 GiB cap):
+    // its tiles hold the whole box, so it is gathered whatever the budget.
+    let pano = 40_000u64 * 12_000 * 8;
+    let pano_tiles = 40_000u64.div_ceil(256) * 12_000u64.div_ceil(256) * tile;
+    assert!(!gather_refused(pano, pano_tiles, 64 * GIB, pano));
+    assert!(!gather_refused(pano, pano_tiles, GIB, pano));
+    // A few strokes at opposite corners of that panorama's canvas: sparse, but no larger than
+    // the canvas, so gathered even past the budget.
+    assert!(!gather_refused(pano, 10 * tile, GIB, pano));
+    // A sparse box past the canvas that fits the budget is gathered too.
+    assert!(!gather_refused(60_000_000 * 8, 10 * tile, 32 * GIB, canvas));
+}
+
+/// Two pixels four billion pixels apart span a box no computer can gather: that layer is
+/// saved without its pixels, a mask like it is saved empty, and both say so; the rest is written.
+#[test]
+fn layers_and_masks_with_pixels_far_apart_are_saved_without_them() {
+    let mut doc = document(8, 8);
+    let fmt = doc.pixel_format();
+    let far = [(-2_000_000_000, -2_000_000_000), (2_000_000_000, 2_000_000_000)];
+    let mut stray = Layer::raster("stray", fmt);
+    for (x, y) in far {
+        stray.surface_mut().unwrap().write_region(photocraft_geom::Rect::new(x, y, x + 1, y + 1), &[1.0, 0.0, 0.0, 1.0]);
+    }
+    let mut masked = Layer::raster("masked", fmt);
+    masked.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.0, 0.0, 1.0, 1.0]);
+    let mut mask = LayerMask::hide_all();
+    for (x, y) in far {
+        mask.surface.write_region(photocraft_geom::Rect::new(x, y, x + 1, y + 1), &[1.0]);
+    }
+    masked.mask = Some(mask);
+    doc.layers.push(stray);
+    doc.layers.push(masked);
+    let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+    let records = file.layers();
+    assert_eq!(records[0].rect, PsdRect::default(), "the stray layer has no pixels");
+    assert!(warnings.iter().any(|w| w.starts_with("layer \"stray\": its pixels are scattered")), "{warnings:?}");
+    assert_eq!((records[1].rect.right, records[1].rect.bottom), (8, 8), "the masked layer keeps its pixels");
+    let MaskData::Mask(m) = &records[1].mask else { panic!("the masked layer keeps a mask") };
+    assert_eq!((m.rect, m.default_color), (PsdRect::default(), 0), "an empty hide-all mask");
+    assert!(warnings.iter().any(|w| w.starts_with("layer \"masked\": its mask's painted pixels are scattered")), "{warnings:?}");
+}
+
+/// Dense 16-bit pixels past the canvas are written in full, as they always were.
+#[test]
+fn dense_16_bit_layers_are_written_past_the_canvas() {
+    let mut doc = Document::new("dense", photocraft_geom::Size::new(256, 256), ColorMode::Rgb, SampleType::U16);
+    let fmt = doc.pixel_format();
+    let mut layer = Layer::raster("pano", fmt);
+    let r = photocraft_geom::Rect::new(-300, -100, 900, 500);
+    layer.surface_mut().unwrap().fill_rect(r, &[0.25, 0.5, 0.75, 1.0]);
+    doc.layers.push(layer);
+    let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+    let record = &file.layers()[0];
+    assert_eq!(record.rect, to_psd_rect(r), "{warnings:?}");
+    let red = record.channels.iter().find(|c| c.id == 0).unwrap().decode(1200, 600, 16, Version::Psd).unwrap();
+    assert_eq!(red.len(), 1200 * 600 * 2);
+    assert!(red.as_chunks::<2>().0.iter().all(|v| u16::from_be_bytes(*v).abs_diff(16384) <= 1), "a quarter of full scale");
+}
