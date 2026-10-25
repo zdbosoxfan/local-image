@@ -197,7 +197,7 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     (
         "VerifyFailed:refine_drift",
         Severity::Blocker,
-        "Refine changed the test image too much (difference {difference}; at most 35 is allowed). Refine is turned off for this model.",
+        "Refine changed the test image too much (difference {difference}; at most 35 is allowed). Refine tests the model again when you choose it and won't run it if it drifts again.",
     ),
     ("VerifyFailed:edit_nochange", Severity::Blocker, "The Edit test returned the picture unchanged. Edit is turned off for this model."),
     ("VerifyFailed:inpaint_nochange", Severity::Blocker, "Fill didn't change the selected area in the test. Fill is turned off for this model."),

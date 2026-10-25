@@ -561,7 +561,8 @@ pub fn family_for(recipe: &TemplateRecipe, profile: Option<&Family>, id: &str, l
             inpaint: recipe.create.is_some() || recipe.edit.is_some(),
             transparent: false,
             negative_prompt: c.negative,
-            upscale: recipe.create.is_some(),
+            // A dedicated upscaler (SeedVR2); an image model upscales through Refine.
+            upscale: false,
         },
         vram_gb: profile.map(|p| p.vram_gb).unwrap_or(0),
         license: profile.map(|p| p.license.clone()).unwrap_or_default(),

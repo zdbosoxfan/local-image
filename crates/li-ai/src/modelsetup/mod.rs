@@ -640,7 +640,6 @@ pub fn publish(server: &ServerState, info: &ObjectInfo) -> bool {
             let caps = &mut family.capabilities;
             caps.edit &= !failed("edit");
             caps.inpaint &= !failed("inpaint");
-            caps.upscale &= !failed("refine");
             if failed("references") || failed("style") {
                 caps.references = 0;
             }

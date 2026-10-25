@@ -1084,6 +1084,17 @@ fn app_on(key: &str) -> PhotocraftApp {
 }
 
 #[test]
+fn template_models_refine_and_upscale_only_through_refine() {
+    let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _models = TemplateModels::new(FLUX3_FILES);
+    let flux = ModelId::from_key(FLUX3_KEY).expect("set up from its template").info();
+    assert!(fits_mode(flux, Mode::Refine), "an image model refines");
+    assert!(!fits_mode_with(flux, Mode::Upscale, false), "Upscale offers the official upscalers first");
+    assert!(fits_mode_with(flux, Mode::Upscale, true), "Choose another model… refine-upscales with it");
+    assert!(!runs_as_enhance(flux, Mode::Upscale), "it never goes to ai.enhance");
+}
+
+#[test]
 fn template_models_carry_their_setup_chip_and_failed_ones_wait_for_setup() {
     use egui_kittest::kittest::{NodeT, Queryable};
     let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());

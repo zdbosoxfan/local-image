@@ -191,6 +191,7 @@ fn a_model_no_profile_describes_runs_and_verifies_through_its_official_template(
     let model = ModelId::from_key(MOSS_KEY).expect("published to the catalogue");
     let info = model.info();
     assert!(info.recipe.is_some() && info.text_to_image && info.resolved.capabilities.inpaint);
+    assert!(!info.upscale, "no dedicated upscaler: it upscales through Refine");
     assert_eq!(info.family_label, "MOSS-Image", "the picker's family column names the model, not its precision");
     // Verification renders through the app's generation path; ComfyUI's memory is freed once.
     let (w, h) = create_size(MOSS_KEY);
