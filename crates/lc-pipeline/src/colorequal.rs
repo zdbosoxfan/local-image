@@ -147,6 +147,25 @@ fn gradient(s: &[f32], w: usize, h: usize, x: usize, y: usize) -> f32 {
     let gy = 47. / 255. * (p(-1, -1) - p(-1, 1) + p(1, -1) - p(1, 1)) + 162. / 255. * (p(0, -1) - p(0, 1));
     (gx * gx + gy * gy).sqrt()
 }
+/// `edit` at the OkLab hue of `reference` (the pixel after only its band's hue shift), with its own
+/// OkLab lightness and chroma, held inside Rec. 2020 at that hue. UCS 22 hue lines bend away from
+/// OkLab's, by up to 0.3 rad for deep blues at Saturation +100, so the equalizer's saturation and
+/// brightness changes would otherwise turn the hue that the other colour tools and the gamut knees
+/// keep.
+fn hold_hue(edit: [f32; 3], reference: [f32; 3]) -> [f32; 3] {
+    use li_color::perceptual::oklab_from_2020;
+    if edit == reference {
+        return edit;
+    }
+    let (e, r) = (oklab_from_2020(edit), oklab_from_2020(reference));
+    let chroma = r[1].hypot(r[2]);
+    if chroma.is_nan() || chroma <= 1e-7 {
+        return edit;
+    }
+    let k = e[1].hypot(e[2]) / chroma;
+    crate::gamut::scene_lab([e[0], r[1] * k, r[2] * k], 1.0, 1.0)
+}
+
 pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
     if s.mixer.is_neutral() && !crate::is_bw(s) {
         return;
@@ -231,8 +250,10 @@ pub fn apply(img: &mut RgbFrame, s: &DevelopSettings, ppl: f64) {
                 let gain = (ucs::lookup_gamut(&bw, h[0]) * 1.3).exp2();
                 *pixel = [y * gain; 3];
             } else {
+                let mut shifted = [h[0], c[1], c[2]];
+                ucs::gamut_map_hsb(&mut shifted, lw);
                 ucs::gamut_map_hsb(&mut h, lw);
-                *pixel = ucs::hsb_to_rgb(h, lw);
+                *pixel = hold_hue(ucs::hsb_to_rgb(h, lw), ucs::hsb_to_rgb(shifted, lw));
             }
         }
     });

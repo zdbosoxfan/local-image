@@ -97,6 +97,9 @@ All notable changes to Local Image are recorded here. The format follows
   - HSL Luminance can no longer turn saturated colours black: Blue Luminance -100 darkens a deep
     blue sky by about 2.5 EV. The eight HSL and B&W mix bands no longer overshoot between bands,
     and an untouched band changes nothing.
+  - HSL Saturation and Luminance keep the hue; only the Hue slider moves it. They used to turn deep
+    blues by up to 17 degrees at Saturation +100 and 6 degrees at Luminance +100, and yellows by up
+    to 6 degrees.
   - Dehaze no longer takes shadows to black or leaves black fringes beside bright windows, and
     previews show the same edge as exports.
   - Luminance and Color noise reduction are independent: Color NR no longer smooths luminance
