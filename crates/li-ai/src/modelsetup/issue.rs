@@ -214,6 +214,7 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
         "The test image doesn't show what was asked (a red ball on white). The text encoder ({te}) may not match this model; check its results.",
     ),
     ("VerifyWarning:edit", Severity::Warning, "The Edit test didn't make the requested change. Edit may not follow instructions well with this model."),
+    ("VerifyWarning:fill", Severity::Warning, "The Fill test didn't paint what was asked (a red ball). Fill may not follow the prompt well with this model."),
     ("ReverifyNeeded", Severity::Warning, "ComfyUI was updated from {old} to {new}. {model} needs a quick re-check."),
     ("StillValid", Severity::Info, "Still valid on ComfyUI {new}."),
     ("UsingLastGood", Severity::Warning, "Using the recipe verified on ComfyUI {old}; the new template could not be read: {reason}."),

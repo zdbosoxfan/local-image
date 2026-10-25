@@ -8,15 +8,22 @@
 //! Thresholds: `luma_mean < 8` black; `luma_mean > 247 && luma_std < 6` white; `luma_std < 6`
 //! flat; `noise_ratio > 0.65` noise (latent-scale noise measures about 1, natural pictures under
 //! 0.4); refine difference over [`crate::refine::PASS_LIMIT`]; edit difference under 0.8. Fill
-//! applies the image checks to the middle half of the selection's box, and fails a difference
-//! inside the mask under 8 or outside it over 8. Soft checks (warnings): Create `red_centre < 0.15 ||
-//! ring_luma < 150`, Edit `blue_centre < 0.15 || ring_diff > 30`.
+//! fails a black or noise core (the middle half of the selection's box), a difference inside the
+//! mask under 8 or outside it over 8; a flat core is no failure, because a correct fill of the flat
+//! test illustration can itself be flat (a plain red disk, plain sky). Soft checks (warnings):
+//! Create `red_centre < 0.15 || ring_luma < 150`, Edit `blue_centre < 0.15 || ring_diff > 30`,
+//! Fill red share of the selection's box under 0.01.
 //!
 //! Measured on 2026-10-24 (ComfyUI 0.42.5, RTX 5090; FLUX.3 Klein base and distilled, Krea 2
 //! Turbo and MOSS-Image SFT in BF16 through templates, FLUX.2 Klein 9B FP8 and Qwen Image 2.1 BF16
 //! through builders): Create luma mean 197-242, std 38-83, noise ratio 0.025-0.032, red centre
 //! 0.44-1.0, ring luma 239-255; Edit difference 13-50, blue centre 0.44-1.0, ring difference
-//! 0.4-2.7; Refine difference 3.4-14.6; Fill difference inside the mask 46-102, outside 0.04-2.3.
+//! 0.4-2.7; Refine difference 3.4-14.6; Fill difference inside the mask 46-102, outside 0.04-2.4.
+//! The Fill core's luma std was 0.95 (FLUX.3 distilled) and 1.16 (FLUX.3 base), both a flat red
+//! fill of the selection, 1.21 (MOSS-Image, plain sky), 3.9 (FLUX.2 Klein 9B, a red ball), 7.1
+//! (Krea 2) and 20.6 (Qwen Image 2.1), its noise ratio 0.09-0.32; the red share of the box 0.99-1.0
+//! (FLUX.3, FLUX.2 Klein 9B), 0.44 (Qwen Image 2.1), 0.046 (Krea 2, a small ball) and 0 (MOSS-Image's
+//! sky, and a cloud or sky in earlier Krea 2 and Qwen Image 2.1 runs).
 //! The share of the most common colour (0.47-0.92: a product shot on white is mostly one colour)
 //! cannot tell a correct picture from a flat one with any margin, so it is recorded but not used.
 //! The live negative controls (a 16-channel VAE for MOSS-Image, a text-only encoder for FLUX.3)
@@ -58,6 +65,7 @@ const NOISE_RATIO: f64 = 0.65;
 const EDIT_NOCHANGE: f64 = 0.8;
 const FILL_NOCHANGE: f64 = 8.0;
 const FILL_OUTSIDE: f64 = 8.0;
+const FILL_RED: f64 = 0.01;
 const PROMPT_RED: f64 = 0.15;
 const PROMPT_RING_LUMA: f64 = 150.0;
 const EDIT_BLUE: f64 = 0.15;
@@ -80,6 +88,11 @@ fn small(img: &RgbImage) -> RgbImage {
 fn in_ring(x: u32, y: u32, w: u32, h: u32) -> bool {
     let (rx, ry) = ((f64::from(w) * 0.08).ceil() as u32, (f64::from(h) * 0.08).ceil() as u32);
     x < rx || y < ry || x >= w.saturating_sub(rx) || y >= h.saturating_sub(ry)
+}
+
+fn is_red(p: &image::Rgb<u8>) -> bool {
+    let (r, g, b) = (i32::from(p[0]), i32::from(p[1]), i32::from(p[2]));
+    r >= 120 && r - g.max(b) >= 50
 }
 
 fn in_centre(x: u32, y: u32, w: u32, h: u32) -> bool {
@@ -116,7 +129,7 @@ pub fn metrics(img: &RgbImage, source: Option<&RgbImage>) -> Metrics {
         if in_centre(x, y, w, h) {
             centre += 1.0;
             let (r, g, b) = (i32::from(p[0]), i32::from(p[1]), i32::from(p[2]));
-            if r >= 120 && r - g.max(b) >= 50 {
+            if is_red(p) {
                 red += 1.0;
             }
             if b - r.max(g) >= 40 {
@@ -202,36 +215,44 @@ pub fn masked_difference(a: &RgbImage, b: &RgbImage, mask: &GrayImage) -> (f64, 
     (inside / f64::max(ni, 1.0), outside / f64::max(no, 1.0))
 }
 
-/// The core `(x, y, width, height)` of the fill test's selection in an image of `w x h`: the
-/// middle half of its box, which the feathered composite replaces almost entirely.
-fn fill_core(w: u32, h: u32) -> (u32, u32, u32, u32) {
+/// The fill test's selection box in an image of `w x h`, less `inset` of its size on each side,
+/// as `(x, y, width, height)`.
+fn fill_box(w: u32, h: u32, inset: f32) -> (u32, u32, u32, u32) {
     let (x0, y0, x1, y1) = MASK_BOX;
-    let (qx, qy) = ((x1 - x0) / 4.0, (y1 - y0) / 4.0);
+    let (qx, qy) = ((x1 - x0) * inset, (y1 - y0) * inset);
     let (left, top) = (((x0 + qx) * w as f32).round() as u32, ((y0 + qy) * h as f32).round() as u32);
     let (right, bottom) = ((((x1 - qx) * w as f32).round() as u32).min(w), (((y1 - qy) * h as f32).round() as u32).min(h));
     (left, top, right.saturating_sub(left).max(1), bottom.saturating_sub(top).max(1))
 }
 
 /// Judges a fill of `picture`'s selection `mask` that came back as `out`: the selection must
-/// differ from the original, its core must hold a picture (not black, white, a flat colour or
-/// noise), and the rest of the picture must be unchanged.
+/// differ from the original, its core (the middle half of its box, which the feathered composite
+/// replaces almost entirely) must not be black or noise, and the rest of the picture must be
+/// unchanged. A selection with no red in it gets a warning: the fill didn't paint the red ball
+/// asked for.
 pub fn judge_fill(picture: &RgbImage, mask: &GrayImage, out: &RgbImage, r: &mut CapabilityResult) {
     let (w, h) = picture.dimensions();
     let out = if out.dimensions() == (w, h) { out.clone() } else { image::imageops::resize(out, w, h, image::imageops::FilterType::Triangle) };
     let (inside, outside) = masked_difference(picture, &out, mask);
     r.difference = Some(inside);
     r.outside_change = Some(outside);
-    let (x, y, cw, ch) = fill_core(w, h);
-    let m = metrics(&image::imageops::crop_imm(&out, x, y, cw, ch).to_image(), None);
+    let crop = |(x, y, cw, ch): (u32, u32, u32, u32)| image::imageops::crop_imm(&out, x, y, cw, ch).to_image();
+    let m = metrics(&crop(fill_box(w, h, 0.25)), None);
+    // A correct fill of the flat test illustration can itself be flat or white.
     r.failure = if inside < FILL_NOCHANGE {
         Some("VerifyFailed:inpaint_nochange".into())
-    } else if let Some(fail) = image_failure(&m) {
+    } else if let Some(fail) = image_failure(&m).filter(|f| matches!(*f, "black" | "noise")) {
         Some(format!("VerifyFailed:{fail}"))
     } else if outside > FILL_OUTSIDE {
         Some("VerifyFailed:inpaint_outside".into())
     } else {
         None
     };
+    let selection = crop(fill_box(w, h, 0.0));
+    let red = selection.pixels().filter(|p| is_red(p)).count() as f64 / f64::from(selection.width() * selection.height()).max(1.0);
+    if r.failure.is_none() && red < FILL_RED {
+        r.warnings = vec!["VerifyWarning:fill".into()];
+    }
     r.metrics = Some(m);
 }
 
@@ -760,33 +781,45 @@ mod tests {
         let judged = |out: &RgbImage| {
             let mut r = CapabilityResult::default();
             judge_fill(&picture, &mask, out, &mut r);
-            r.failure
+            (r.failure, r.warnings)
         };
+        let fails = |out: &RgbImage| judged(out).0;
+        let no_red = vec!["VerifyWarning:fill".to_owned()];
         // A shaded red ball on the sky, where the sun was.
         let sky = |y: u32| {
             let v = f64::from(y) / 288.0;
             Rgb([105 + (v * 25.0) as u8, 166 + (v * 22.0) as u8, 205 + (v * 25.0) as u8])
         };
-        let red_ball = |x: u32, y: u32| {
-            let d = ((f64::from(x) - 400.0).powi(2) + (f64::from(y) - 66.0).powi(2)).sqrt();
-            if d < 24.0 { Rgb([(230.0 * (1.0 - d / 60.0)) as u8, 30, 30]) } else { sky(y) }
+        let ball = |radius: f64| {
+            move |x: u32, y: u32| {
+                let d = ((f64::from(x) - 400.0).powi(2) + (f64::from(y) - 66.0).powi(2)).sqrt();
+                if d < radius { Rgb([(230.0 * (1.0 - d / 60.0)) as u8, 30, 30]) } else { sky(y) }
+            }
         };
-        assert_eq!(judged(&fill(&red_ball)), None);
-        assert_eq!(judged(&fill(&|_, _| Rgb([0, 0, 0]))).as_deref(), Some("VerifyFailed:black"));
+        let red_ball = ball(24.0);
+        assert_eq!(judged(&fill(&red_ball)), (None, Vec::new()));
+        // A small ball (Krea 2 painted one over 4.6% of the selection).
+        assert_eq!(judged(&fill(&ball(8.0))), (None, Vec::new()));
+        // Flat fills of the flat illustration pass: a plain red disk filling the selection (FLUX.3,
+        // core luma std about 1), and plain sky over the sun (MOSS-Image), which warns because it
+        // didn't paint the ball asked for.
+        assert_eq!(judged(&fill(&|_, _| Rgb([220, 30, 30]))), (None, Vec::new()));
+        assert_eq!(judged(&fill(&|_, y| sky(y))), (None, no_red.clone()));
+        assert_eq!(judged(&fill(&|_, _| Rgb([128, 128, 128]))), (None, no_red));
+        assert_eq!(fails(&fill(&|_, _| Rgb([0, 0, 0]))).as_deref(), Some("VerifyFailed:black"));
         let hashed = |x: u32, y: u32| {
             let h = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)).wrapping_mul(2_654_435_761);
             Rgb([(h >> 8) as u8, (h >> 16) as u8, (h >> 24) as u8])
         };
-        assert_eq!(judged(&fill(&hashed)).as_deref(), Some("VerifyFailed:noise"));
-        assert_eq!(judged(&fill(&|_, _| Rgb([128, 128, 128]))).as_deref(), Some("VerifyFailed:flat"));
-        assert_eq!(judged(&picture).as_deref(), Some("VerifyFailed:inpaint_nochange"));
+        assert_eq!(fails(&fill(&hashed)).as_deref(), Some("VerifyFailed:noise"));
+        assert_eq!(fails(&picture).as_deref(), Some("VerifyFailed:inpaint_nochange"));
         let mut spilled = fill(&red_ball);
         for (x, y, p) in spilled.enumerate_pixels_mut() {
             if mask.get_pixel(x, y)[0] == 0 {
                 p.0 = p.0.map(|c| c / 2);
             }
         }
-        assert_eq!(judged(&spilled).as_deref(), Some("VerifyFailed:inpaint_outside"));
+        assert_eq!(fails(&spilled).as_deref(), Some("VerifyFailed:inpaint_outside"));
     }
 
     #[test]
