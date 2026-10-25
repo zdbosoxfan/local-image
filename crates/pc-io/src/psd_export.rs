@@ -121,8 +121,9 @@ struct SmartOut {
     prune_ok: bool,
     /// Files to embed.
     add: Vec<crate::linked::LinkedFile>,
-    /// Sources converted so far, by content hash (`Err` = can't be embedded).
-    converted: std::collections::HashMap<[u8; 32], Result<Source, String>>,
+    /// Sources converted so far, by content hash and whether they were read from a link (`Err` =
+    /// can't be embedded).
+    converted: std::collections::HashMap<([u8; 32], bool), Result<Source, String>>,
     /// Embedded documents decoded while converting them, by uuid (for the filter caches).
     docs: std::collections::HashMap<String, Document>,
     /// Source composites (document pixel format, source space) by uuid; `None` = unreadable.
@@ -845,7 +846,7 @@ impl Ex {
     /// only a file Local Image can open is embedded (a link to a text or settings file is written
     /// as pixels instead).
     fn embed(&mut self, file_name: &str, bytes: &[u8], linked: bool) -> Result<Source, String> {
-        let key = *blake3::hash(bytes).as_bytes();
+        let key = (*blake3::hash(bytes).as_bytes(), linked);
         if let Some(r) = self.smart.converted.get(&key) {
             return r.clone();
         }

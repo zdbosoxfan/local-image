@@ -298,3 +298,24 @@ fn links_to_files_that_are_not_images_are_never_embedded() {
     }
     std::fs::remove_file(path).unwrap();
 }
+
+/// A linked and an embedded copy of the same bytes meet in the export's conversion cache: each
+/// keeps its own rule, whichever is written first.
+#[test]
+fn a_linked_and_an_embedded_copy_of_the_same_bytes_keep_their_own_rule() {
+    const TEXT: &[u8] = b"plain text, not an image\nlocal-image-shared-marker\n";
+    let path = temp_file("shared", TEXT);
+    let linked = smart_layer(photocraft_doc::SmartSource::Linked { path: path.clone() });
+    let embedded = smart_layer(photocraft_doc::SmartSource::Embedded { file_name: "readme".into(), bytes: std::sync::Arc::new(TEXT.to_vec()) });
+    for layers in [vec![linked.clone(), embedded.clone()], vec![embedded, linked]] {
+        let mut doc = document(8, 8);
+        doc.layers = layers;
+        for ext in ["psd", "psb", "tif"] {
+            let r = crate::export(&doc, ext, &crate::ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+            let copies = r.bytes.windows(TEXT.len()).filter(|w| *w == TEXT).count();
+            assert_eq!(copies, 1, "{ext}: only the embedded copy is kept: {:?}", r.warnings);
+            assert!(r.warnings.iter().any(|w| w.contains("smart object written as pixels")), "{ext}: {:?}", r.warnings);
+        }
+    }
+    std::fs::remove_file(path).unwrap();
+}
