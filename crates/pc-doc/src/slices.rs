@@ -6,6 +6,8 @@
 //! rectangles that fill the rest of the canvas, recomputed whenever they are needed, exactly like
 //! Photoshop regenerates them after every slice edit.
 
+use std::collections::HashMap;
+
 use photocraft_geom::Rect;
 use serde::{Deserialize, Serialize};
 
@@ -227,14 +229,23 @@ pub fn auto_slices(canvas: Rect, taken: &[Rect]) -> Vec<Rect> {
             runs.push(Rect::new(s, band_y0, *xs.last().unwrap_or(&canvas.x1), band_y1));
         }
     }
-    // Merge vertically adjacent runs with the same columns.
+    // Merge vertically adjacent runs with the same columns. `open` finds the slice a run
+    // continues by its columns and bottom edge: searching the output for each run is quadratic
+    // in the runs, and bars crossing in a grid leave hundreds of thousands of them.
     let mut out: Vec<Rect> = Vec::new();
+    let mut open: HashMap<(i32, i32, i32), usize> = HashMap::new();
     for r in runs {
-        if let Some(prev) = out.iter_mut().find(|p| p.x0 == r.x0 && p.x1 == r.x1 && p.y1 == r.y0) {
-            prev.y1 = r.y1;
-        } else {
-            out.push(r);
-        }
+        let i = match open.remove(&(r.x0, r.x1, r.y0)) {
+            Some(i) => {
+                out[i].y1 = r.y1;
+                i
+            }
+            None => {
+                out.push(r);
+                out.len() - 1
+            }
+        };
+        open.insert((r.x0, r.x1, r.y1), i);
     }
     out
 }
@@ -385,6 +396,20 @@ mod tests {
         auto.sort_by_key(|r| (r.y0, r.x0));
         let m = 2 * n;
         assert_eq!(auto, vec![Rect::new(-1, -1, m + 1, 0), Rect::new(-1, 0, 0, m), Rect::new(m, 0, m + 1, m), Rect::new(-1, m, m + 1, m + 1)]);
+    }
+
+    #[test]
+    fn a_grid_of_crossing_slices_resolves_without_stalling() {
+        // 700 horizontal and 700 vertical one-pixel slices leave 701 × 701 free cells, each its
+        // own auto slice. Searching the output for the slice each run continues is quadratic in
+        // the runs, which took far longer than the watchdog allows.
+        let k = 700;
+        let canvas = Rect::new(0, 0, 2 * k + 1, 2 * k + 1);
+        let bars = (0..k).flat_map(|i| [Rect::new(2 * i + 1, 0, 2 * i + 2, 2 * k + 1), Rect::new(0, 2 * i + 1, 2 * k + 1, 2 * i + 2)]);
+        let auto = auto_slices_within_watchdog(canvas, bars.collect());
+        let cells = (k as usize + 1).pow(2);
+        assert_eq!(auto.len(), cells);
+        assert!(auto.iter().all(|r| r.width() == 1 && r.height() == 1 && r.x0 % 2 == 0 && r.y0 % 2 == 0));
     }
 
     #[test]
