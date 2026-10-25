@@ -356,7 +356,8 @@ enum Cov {
 /// Shader flags for effect passes (keep in sync with compose.wgsl). Coverage `m` of a paint, with
 /// `a` the layer's alpha and `inside` = `a > 0.5/255`:
 /// knockout `m × (1 − a × k)` (k in `p4.w`); gate `inside ? m : 0`; rel `inside ? min(m / a, 1) : 0`;
-/// stroke-out `inside ? (vector ? 0 : 1) : m`.
+/// stroke-out uses disjoint-area coverage (`effects::outline_share`); fully covered pixels and
+/// unfilled vector interiors have no stroke share.
 pub const F_KNOCKOUT: u32 = 16;
 /// Effect merge: A already holds the layer; only mix with the backdrop by the layer's opacity.
 pub const F_NO_LAYER: u32 = 32;
@@ -1156,8 +1157,8 @@ impl<'a> Planner<'a> {
             .collect();
         if !outs.is_empty() {
             let (mut acc, mut cover): (Option<Slot>, Option<Slot>) = (None, None);
-            if outline {
-                // The layer's alpha rides along the coverage (`effects::outline_share`).
+            if outline || !vector_shape {
+                // Layer alpha determines the outside stroke's share beneath partially filled pixels.
                 let ll = self.retain(l);
                 cover = Some(init(self, ll, None, INIT_COVER, 1.0));
             }

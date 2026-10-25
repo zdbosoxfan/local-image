@@ -738,18 +738,40 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             }
             let sat = clamp(p0.y + ds, -1.0, 1.0);
             let light = clamp(p0.z, -1.0, 1.0);
-            if (p0.w > 0.5) {
-                hh = rem_euclid(p0.x, 360.0) / 360.0;
-                ss = max(abs(sat), 0.25);
+            var rgb: vec3<f32>;
+            if (p1.y > 0.5 && p0.w <= 0.5) {
+                var lc = c * (1.0 + light);
+                if (light > 0.0) { lc = c + (1.0 - c) * light; }
+                let lh = rgb_to_hsl(lc);
+                let hh = rem_euclid(lh.x + (p0.x + dh) / 360.0, 1.0);
+                // Match compose::adjust::hdr_saturation_factor in whole numbers.
+                var k: f32;
+                if (sat <= 0.0) {
+                    k = 1.0 - floor(-sat * 256.0 + 1e-4) / 256.0;
+                } else {
+                    let steps = min(u32(floor(sat * 254.0 + 1e-4)), 254u);
+                    k = f32(min(65280u / (255u - steps), 32767u)) / 256.0;
+                }
+                let d = (max(max(lc.r, lc.g), lc.b) - min(min(lc.r, lc.g), lc.b)) * k;
+                let lo = lh.z - d / 2.0;
+                let hi = lh.z + d / 2.0;
+                rgb = vec3(hue_ch(lo, hi, hh + 1.0 / 3.0), hue_ch(lo, hi, hh), hue_ch(lo, hi, hh - 1.0 / 3.0));
             } else {
-                hh = rem_euclid(hsl.x + (p0.x + dh) / 360.0, 1.0);
-                ss = clamp(hsl.y * (1.0 + sat), 0.0, 1.0);
-            }
-            var rgb = hsl_to_rgb(hh, ss, hsl.z);
-            if (light > 0.0) {
-                rgb = rgb + (1.0 - rgb) * light;
-            } else if (light < 0.0) {
-                rgb = rgb * (1.0 + light);
+                var hh: f32;
+                var ss: f32;
+                if (p0.w > 0.5) {
+                    hh = rem_euclid(p0.x, 360.0) / 360.0;
+                    ss = max(abs(sat), 0.25);
+                } else {
+                    hh = rem_euclid(hsl.x + (p0.x + dh) / 360.0, 1.0);
+                    ss = clamp(hsl.y * (1.0 + sat), 0.0, 1.0);
+                }
+                rgb = hsl_to_rgb(hh, ss, hsl.z);
+                if (light > 0.0) {
+                    rgb = rgb + (1.0 - rgb) * light;
+                } else if (light < 0.0) {
+                    rgb = rgb * (1.0 + light);
+                }
             }
             let range_light = clamp(dl, -1.0, 1.0);
             let endpoint = select(min(rgb.r, min(rgb.g, rgb.b)), max(rgb.r, max(rgb.g, rgb.b)), range_light > 0.0);
@@ -1067,6 +1089,7 @@ fn fs_fxinit(in: VOut) -> @location(0) vec4<f32> {
 // beneath a layer of alpha `l` (disjoint areas).
 fn outline_share(cov: f32, l: f32) -> f32 {
     let outside = max(1.0 - clamp(cov, 0.0, 1.0), 0.0);
+    if (outside <= 1e-6) { return 0.0; }
     let rest = 1.0 - clamp(l, 0.0, 1.0);
     if (rest <= 1e-6) { return 1.0; }
     return min(outside / rest, 1.0);
@@ -1108,7 +1131,7 @@ fn fs_fxpaint(in: VOut) -> @location(0) vec4<f32> {
 }
 
 // Outside strokes (A = the exterior result before them, B = the layer, C = coverage so far in
-// `.r` and, along a filled shape's outline (F_OUTLINE), the layer's alpha in `.g`, D
+// `.r` and the layer's alpha in `.g` for pixel layers or a filled shape's outline (F_OUTLINE), D
 // (`layer_tex`) = accumulated premultiplied colour). Each stroke takes its band × opacity not yet
 // covered above it; `kind` 0 accumulates that share of the stroke blended over A at full
 // coverage, `kind` 1 the coverage.
@@ -1121,7 +1144,8 @@ fn fs_fxstroke(in: VOut) -> @location(0) vec4<f32> {
     let first = (op.flags & F_FIRST) != 0u;
     var cover = 0.0;
     var lay_a = 0.0;
-    if (!first || outline) {
+    let vector = (op.flags & F_VECTOR) != 0u;
+    if (!first || outline || !vector) {
         let cv = textureLoad(tex_c, p, 0);
         cover = cv.r;
         lay_a = cv.g;
@@ -1130,7 +1154,11 @@ fn fs_fxstroke(in: VOut) -> @location(0) vec4<f32> {
     if (outline) {
         k = k * outline_share(a, lay_a);
     } else if (a > INSIDE_EPS) {
-        k = select(1.0, 0.0, (op.flags & F_VECTOR) != 0u);
+        if (vector) {
+            k = 0.0;
+        } else {
+            k = k * outline_share(a, lay_a);
+        }
     }
     let share = k * op.opacity * (1.0 - cover);
     if (op.kind == 1) { return vec4(cover + share, lay_a, 0.0, 0.0); }
