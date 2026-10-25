@@ -152,6 +152,35 @@ fn the_1_to_1_render_is_drawn_once_it_is_current() {
     assert!(!h.app.renderer.is_pending(Slot::Detail), "no 1:1 render of the old settings is waited for");
 }
 
+/// On a wide-gamut monitor the 1:1 view is drawn over a loupe render made in the monitor's space,
+/// so it is made in that space too and shows the same colours: a green inside Display P3 but
+/// outside sRGB is not clipped to sRGB when the 1:1 view lands.
+#[test]
+fn the_1_to_1_render_shows_the_loupe_renders_colours_on_a_wide_gamut_monitor() {
+    let mut session = lightcraft_engine::Session::new();
+    session.media.file_loader = Some(Arc::new(|_: &str, _| Ok((li_raster::RgbFrame::filled(864, 576, [0.10, 0.45, 0.05]), Default::default()))));
+    let p = Photo::new(PhotoId(1), Source::File { path: "a1.tif".into() }, "a1.tif", "TIFF", 8640, 5760, "2026-10-24");
+    let (mut h, work) = loupe_on(session, p, Zoom::Percent(100), 1.0);
+    let mut color = photocraft_engine::color_cmds::ColorState::default();
+    color.settings.monitor_profile = "display-p3".into();
+    h.app.renderer.set_display(color.srgb_preview_display().unwrap());
+    h.app.renderer.keep_pixels = true;
+    h.step();
+    work.finish(&mut h, Slot::Main, false);
+    let (main, detail) = (work.last(Slot::Main).unwrap(), work.last(Slot::Detail).expect("a 1:1 render"));
+    assert_eq!(main.request.space, lightcraft_pipeline::OutputSpace::DisplayP3);
+    assert_eq!(detail.request.space, main.request.space, "the 1:1 view is made in the loupe render's space");
+    work.finish(&mut h, Slot::Detail, false);
+    assert_eq!(h.app.loupe_shown, Some((PhotoId(1), "detail")), "and drawn once it is current");
+    assert!(!h.app.renderer.is_pending(Slot::Detail), "nothing is waited for or cancelled");
+    let centre = |slot: Slot| {
+        let px = h.app.renderer.textures[&slot].pixels.clone().unwrap();
+        px.pixels[px.size[1] / 2 * px.size[0] + px.size[0] / 2].to_array()
+    };
+    let (shown, loupe) = (centre(Slot::Detail), centre(Slot::Main));
+    assert!(shown.iter().zip(loupe).all(|(a, b)| a.abs_diff(b) <= 1), "the 1:1 view {shown:?} shows the loupe render's {loupe:?}");
+}
+
 #[test]
 fn a_cropped_frame_renders_1_to_1_at_its_own_size_and_fit_never_does() {
     let mut cropped = DevelopSettings::default();

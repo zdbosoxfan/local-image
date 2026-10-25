@@ -42,9 +42,10 @@ fn interactive_slot(slot: Slot) -> bool {
 
 /// Slots showing a photo large enough to judge its colour: rendered in the monitor's gamut
 /// ([`Renderer::set_display`]), as are the neighbours prefetched for them and the loupe stand-in
-/// taken from their cached render. Thumbnails stay sRGB.
+/// taken from their cached render. The loupe's 1:1 view is drawn over its render, so it is in the
+/// same space. Thumbnails stay sRGB.
 fn view_slot(slot: Slot) -> bool {
-    interactive_slot(slot) || matches!(slot, Slot::Compare(_))
+    interactive_slot(slot) || matches!(slot, Slot::Compare(_) | Slot::Detail)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -399,6 +400,16 @@ impl Renderer {
         self.submit(slot, job, priority, Some(cost));
     }
 
+    /// `job` as `slot` renders it: a view slot's in the monitor's space on a wide-gamut monitor
+    /// ([`Self::set_display`]), with that space's key, which is the key its texture carries. (A
+    /// soft proof already renders straight to the monitor.)
+    pub fn for_slot(&self, slot: Slot, job: RenderJob) -> RenderJob {
+        match &self.view {
+            Some((space, _)) if view_slot(slot) && job.request.proof.is_none() => job.with_space(*space),
+            _ => job,
+        }
+    }
+
     /// Whether the loupe's full-size renders may run: on the GPU only. On the CPU one needs
     /// several GB and seconds per edit.
     pub fn full_size_on_gpu(&self) -> bool {
@@ -422,11 +433,7 @@ impl Renderer {
     }
 
     fn submit(&mut self, slot: Slot, job: RenderJob, priority: u32, admit: Option<u64>) {
-        // (a soft proof already renders straight to the monitor)
-        let mut job = match &self.view {
-            Some((space, _)) if view_slot(slot) && job.request.proof.is_none() => job.with_space(*space),
-            _ => job,
-        };
+        let mut job = self.for_slot(slot, job);
         if !self.request_needed(slot, job.key, priority) {
             return;
         }

@@ -293,7 +293,8 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         .and_then(|e| {
             let (dw, dh) = if aspect >= 1.0 { (e, (e as f32 / aspect) as usize) } else { ((e as f32 * aspect) as usize, e) };
             let job = app.session.detail_job(id, dw.max(8), dh.max(8), !crop_tool)?;
-            let job = loupe_look(app, &d, job);
+            // keyed as the renderer keys it (in the loupe render's space on a wide-gamut monitor)
+            let job = app.renderer.for_slot(Slot::Detail, loupe_look(app, &d, job));
             if job.cpu_only().is_some() || job.source.is_proxy() {
                 return None;
             }
