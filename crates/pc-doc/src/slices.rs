@@ -181,13 +181,10 @@ pub fn auto_slices(canvas: Rect, taken: &[Rect]) -> Vec<Rect> {
     if canvas.is_empty() {
         return Vec::new();
     }
+    let clipped: Vec<Rect> = taken.iter().map(|r| r.intersect(&canvas)).filter(|r| !r.is_empty()).collect();
     let mut xs = vec![canvas.x0, canvas.x1];
     let mut ys = vec![canvas.y0, canvas.y1];
-    for r in taken {
-        let r = r.intersect(&canvas);
-        if r.is_empty() {
-            continue;
-        }
+    for r in &clipped {
         xs.extend([r.x0, r.x1]);
         ys.extend([r.y0, r.y1]);
     }
@@ -195,24 +192,39 @@ pub fn auto_slices(canvas: Rect, taken: &[Rect]) -> Vec<Rect> {
     xs.dedup();
     ys.sort_unstable();
     ys.dedup();
-    let covered = |x0: i32, y0: i32| taken.iter().any(|r| x0 >= r.x0 && x0 < r.x1 && y0 >= r.y0 && y0 < r.y1);
-    // Horizontal runs per row band.
+    // Every clipped edge is in `xs`, so this is the index of the grid column starting at `x`.
+    let column = |x: i32| xs.partition_point(|&e| e < x);
+    let spans: Vec<(Rect, usize, usize)> = clipped.into_iter().map(|r| (r, column(r.x0), column(r.x1))).collect();
+    // Horizontal runs per row band. Testing every cell against every slice is cubic in the
+    // slice count, and the canvas resolves slices on every repaint. Instead, per band, count
+    // where the slices spanning it start and end, and sum those counts from left to right.
+    let mut edges = vec![0i32; xs.len()];
     let mut runs: Vec<Rect> = Vec::new();
     for yw in ys.windows(2) {
+        let (band_y0, band_y1) = (yw[0], yw[1]);
+        edges.fill(0);
+        for &(r, c0, c1) in &spans {
+            if r.y0 <= band_y0 && band_y1 <= r.y1 {
+                edges[c0] += 1;
+                edges[c1] -= 1;
+            }
+        }
+        let mut covering = 0i32;
         let mut start: Option<i32> = None;
-        for xw in xs.windows(2) {
-            let free = !covered(xw[0], yw[0]);
+        for (xw, edge) in xs.windows(2).zip(&edges) {
+            covering += edge;
+            let free = covering == 0;
             match (free, start) {
                 (true, None) => start = Some(xw[0]),
                 (false, Some(s)) => {
-                    runs.push(Rect::new(s, yw[0], xw[0], yw[1]));
+                    runs.push(Rect::new(s, band_y0, xw[0], band_y1));
                     start = None;
                 }
                 _ => {}
             }
         }
         if let Some(s) = start {
-            runs.push(Rect::new(s, yw[0], *xs.last().unwrap_or(&canvas.x1), yw[1]));
+            runs.push(Rect::new(s, band_y0, *xs.last().unwrap_or(&canvas.x1), band_y1));
         }
     }
     // Merge vertically adjacent runs with the same columns.
@@ -285,6 +297,94 @@ mod tests {
         assert_eq!(auto.len(), 4);
         assert_eq!(auto[0], Rect::new(0, 0, 100, 10));
         assert_eq!(auto_slices(canvas, &[]), vec![canvas]);
+    }
+
+    /// Checks that the auto slices tile exactly the part of `canvas` no taken rect covers: inside
+    /// the canvas, no overlaps, and auto area + taken-union area == canvas area.
+    fn assert_auto_slices_tile_the_complement(canvas: Rect, taken: &[Rect]) {
+        let auto = auto_slices(canvas, taken);
+        for (i, a) in auto.iter().enumerate() {
+            assert!(!a.is_empty() && a.intersect(&canvas) == *a, "{a:?} outside {canvas:?}");
+            for t in taken {
+                assert!(a.intersect(t).is_empty(), "{a:?} overlaps taken {t:?}");
+            }
+            for b in &auto[i + 1..] {
+                assert!(a.intersect(b).is_empty(), "{a:?} overlaps {b:?}");
+            }
+        }
+        // The union of the taken rects within the canvas, summed over the grid of their edges.
+        let clipped: Vec<Rect> = taken.iter().map(|t| t.intersect(&canvas)).filter(|t| !t.is_empty()).collect();
+        let mut xs = vec![canvas.x0, canvas.x1];
+        let mut ys = vec![canvas.y0, canvas.y1];
+        for t in &clipped {
+            xs.extend([t.x0, t.x1]);
+            ys.extend([t.y0, t.y1]);
+        }
+        xs.sort_unstable();
+        xs.dedup();
+        ys.sort_unstable();
+        ys.dedup();
+        let mut union_cells = 0i64;
+        for yw in ys.windows(2) {
+            for xw in xs.windows(2) {
+                if clipped.iter().any(|r| xw[0] >= r.x0 && xw[0] < r.x1 && yw[0] >= r.y0 && yw[0] < r.y1) {
+                    union_cells += i64::from(xw[1] - xw[0]) * i64::from(yw[1] - yw[0]);
+                }
+            }
+        }
+        assert_eq!(area(&auto) + union_cells, i64::from(canvas.width()) * i64::from(canvas.height()), "{taken:?}");
+    }
+
+    #[test]
+    fn auto_slices_cover_exactly_with_many_overlapping_slices() {
+        let canvas = Rect::new(0, 0, 200, 150);
+        let taken = [Rect::new(10, 10, 90, 70), Rect::new(50, 40, 160, 120), Rect::new(120, 0, 200, 50), Rect::new(0, 100, 60, 150)];
+        assert_auto_slices_tile_the_complement(canvas, &taken);
+        // Random overlapping, nested, empty and off-canvas slices.
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut next = |m: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % m) as i32
+        };
+        for _ in 0..300 {
+            let n = next(12);
+            let taken: Vec<Rect> = (0..n)
+                .map(|_| {
+                    let (x, y) = (next(260) - 30, next(210) - 30);
+                    Rect::new(x, y, x + next(120), y + next(100))
+                })
+                .collect();
+            assert_auto_slices_tile_the_complement(canvas, &taken);
+        }
+    }
+
+    /// Runs `auto_slices` on a worker and fails if it doesn't finish within the watchdog.
+    fn auto_slices_within_watchdog(canvas: Rect, taken: Vec<Rect>) -> Vec<Rect> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(auto_slices(canvas, &taken));
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(auto) => auto,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("auto slices stalled"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("auto slices panicked"),
+        }
+    }
+
+    #[test]
+    fn thousands_of_nested_slices_resolve_without_stalling() {
+        // The canvas repaint resolves the slices every frame, and a PSD can hold thousands.
+        // Testing every grid cell against every slice is cubic in the slice count; 3000
+        // nested slices (innermost first) took far longer than the watchdog allows.
+        let n = 3000;
+        let canvas = Rect::new(-1, -1, 2 * n + 1, 2 * n + 1);
+        let taken: Vec<Rect> = (0..n).rev().map(|i| Rect::new(i, i, 2 * n - i, 2 * n - i)).collect();
+        let mut auto = auto_slices_within_watchdog(canvas, taken);
+        auto.sort_by_key(|r| (r.y0, r.x0));
+        let m = 2 * n;
+        assert_eq!(auto, vec![Rect::new(-1, -1, m + 1, 0), Rect::new(-1, 0, 0, m), Rect::new(m, 0, m + 1, m), Rect::new(-1, m, m + 1, m + 1)]);
     }
 
     #[test]
