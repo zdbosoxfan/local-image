@@ -1,6 +1,6 @@
 //! File identification on trimmed real headers (`tests/fixtures/headers`): kind, architecture,
-//! variant and precision for every fixture, the generation veto (finding 61), GGUF files decided
-//! by their tensors (finding 70) and detection rules that arrive as profile data (finding 68).
+//! variant and precision for every fixture, the generation veto, GGUF files decided by their
+//! tensors and detection rules that arrive as profile data.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -256,7 +256,7 @@ fn same_network_at_another_precision_has_the_same_signature() {
     assert_eq!(identify::logical_shape(&nvfp4, wq), vec![6144, 6144]);
 }
 
-/// Finding 61: names and metadata that name a newer generation never map onto an older family.
+/// Names and metadata that name a newer generation never map onto an older family.
 #[test]
 fn newer_generations_never_fall_back_to_older_families() {
     assert_eq!(arch::guess_from_name("flux3-image-klein-bf16.safetensors", D), None);
@@ -296,7 +296,7 @@ fn newer_generations_never_fall_back_to_older_families() {
     assert_eq!((remote.arch.as_deref(), remote.variant.as_deref()), (Some("moss-image"), Some("sft")));
 }
 
-/// Finding 70: GGUF tensors decide before `general.architecture` (Klein vs dev).
+/// GGUF tensors decide before `general.architecture` (Klein vs dev).
 #[test]
 fn gguf_files_are_decided_by_their_tensors() {
     let reg = embedded_registry();
@@ -318,7 +318,7 @@ fn gguf_files_are_decided_by_their_tensors() {
     assert_eq!(arch::classify(&lumina, "lumina.gguf").family.as_deref(), Some("lumina2"));
 }
 
-/// Finding 68: a profile update can teach detection a new family, and a name-only rule can never
+/// A profile update can teach detection a new family, and a name-only rule can never
 /// override what the weights say.
 #[test]
 fn detection_rules_arrive_as_profile_data() {

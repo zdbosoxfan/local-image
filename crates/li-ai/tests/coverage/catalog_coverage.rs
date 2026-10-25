@@ -253,7 +253,7 @@ fn installed(key: &str, family: &str, role: Role, file: &str, variant: Option<&s
     }
 }
 
-/// Finding 63: a checkpoint no family describes is not blocked by "missing the nodes ." (the
+/// A checkpoint no family describes is not blocked by "missing the nodes ." (the
 /// refine checker validates its own recipe).
 #[test]
 fn unknown_installed_checkpoints_are_available_for_the_checker() {
@@ -265,7 +265,7 @@ fn unknown_installed_checkpoints_are_available_for_the_checker() {
     assert!(li_ai::builders::required_nodes(&li_ai::refine::unknown_profile()).is_empty());
 }
 
-/// Finding 64: Klein 9B files outside the curated preset get the 8B text encoder; the base
+/// Klein 9B files outside the curated preset get the 8B text encoder; the base
 /// sampling override still applies (overrides are cumulative).
 #[test]
 fn klein_9b_files_get_the_8b_text_encoder() {
@@ -292,7 +292,7 @@ fn klein_9b_files_get_the_8b_text_encoder() {
     assert_eq!(got[2], (Some("qwen_3_4b.safetensors".into()), 20.0), "base 4B keeps the 4B encoder");
 }
 
-/// Finding 65: an installed Qwen Image 2.1 file resolves its text encoder (any precision), and
+/// An installed Qwen Image 2.1 file resolves its text encoder (any precision), and
 /// is unavailable rather than run with an empty `clip_name` when none is installed.
 #[test]
 fn qwen_21_installed_files_need_their_text_encoder() {
@@ -325,7 +325,7 @@ fn qwen_21_installed_files_need_their_text_encoder() {
     assert!(!a.available && a.reason.contains("Set up"), "{a:?}");
 }
 
-/// Finding 72: `ae.safetensors` is matched by name or stem, never as a substring of another VAE.
+/// `ae.safetensors` is matched by name or stem, never as a substring of another VAE.
 #[test]
 fn ae_vae_is_never_a_substring_match() {
     let model = || vec![installed("unet:z_image_bf16.safetensors", "z-image", Role::Unet, "z_image_bf16.safetensors", None)];

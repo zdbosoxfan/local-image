@@ -9,7 +9,7 @@
 Local Image ran image models through its own workflow builders, one generic builder driven by a
 family profile per model family. New models arrive faster than profiles can be written and tested,
 and each new architecture needs new loader types, text encoders, samplers or conditioning nodes
-that the generic builder does not know. A review of the model system (findings 61-72) found that:
+that the generic builder does not know. A review of the model system found that:
 
 - name and metadata fallbacks filed new generations under old families (FLUX.3 as FLUX.2 Klein,
   HiDream-O1 as HiDream-I1), producing graphs that fail or silently render garbage;

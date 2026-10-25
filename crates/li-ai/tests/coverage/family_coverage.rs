@@ -464,7 +464,7 @@ fn sd15_at(version: u64, label: &str) -> Value {
     v
 }
 
-/// Finding 69 (i): a profile for a newer schema is reported as needing a newer app and never
+/// A profile for a newer schema is reported as needing a newer app and never
 /// written, so it is not "updated" again on every click.
 #[test]
 fn future_schema_profiles_need_a_newer_app() {
@@ -478,7 +478,7 @@ fn future_schema_profiles_need_a_newer_app() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Finding 69 (ii): one semantically broken user profile drops only itself; cached updates stay.
+/// One semantically broken user profile drops only itself; cached updates stay.
 #[test]
 fn a_broken_user_profile_keeps_the_other_updates() {
     let dir = unique_dir("load-tolerant");
@@ -497,7 +497,7 @@ fn a_broken_user_profile_keeps_the_other_updates() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Finding 69 (iii): a new base family and a family derived from it arrive in one update.
+/// A new base family and a family derived from it arrive in one update.
 #[test]
 fn new_base_and_derived_families_update_together() {
     let dir = unique_dir("update-batch");
@@ -518,7 +518,7 @@ fn new_base_and_derived_families_update_together() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Finding 69 (iv): a profile the user overrides is cached and reported as kept, and the next
+/// A profile the user overrides is cached and reported as kept, and the next
 /// update finds nothing new.
 #[test]
 fn user_overrides_are_reported_once() {
@@ -533,7 +533,7 @@ fn user_overrides_are_reported_once() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Finding 68: a downloaded detect rule may not claim built-in tensors without `refines`.
+/// A downloaded detect rule may not claim built-in tensors without `refines`.
 #[test]
 fn updates_cannot_take_built_in_tensors() {
     let dir = unique_dir("update-detect");
@@ -545,7 +545,7 @@ fn updates_cannot_take_built_in_tensors() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Finding 62: the profile channel and Help point at the live `main` branch.
+/// The profile channel and Help point at the live `main` branch.
 #[test]
 fn profile_updates_come_from_main() {
     assert!(li_ai::family::REMOTE_BASE.contains("/main/") && !li_ai::family::REMOTE_BASE.contains("/v2/"));
