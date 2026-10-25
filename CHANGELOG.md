@@ -56,6 +56,8 @@ All notable changes to Local Image are recorded here. The format follows
 
 - Develop: Refine Edges distinguishes different subject masks and image detail when reusing a
   matting result, preventing stale coverage with repeated or symmetric patterns.
+- Develop: changing the monitor, Library or preview cache cancels full-size loupe renders that
+  are still waiting for memory admission.
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
   transparency keep it.
