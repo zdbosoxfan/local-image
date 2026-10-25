@@ -250,7 +250,7 @@ pub(crate) fn decode_comps(resource: Option<&[u8]>, doc: &Document) -> (Vec<Laye
                 let target = if *id == 0 { Some(&mut last) } else { id_to_index.get(id).map(|&i| &mut comps[i]) };
                 let Some(c) = target else { continue };
                 let visible = if *id != 0 && c.apply_visibility { Some(resolved) } else { s.visible };
-                if visible.is_none() && s.offset.is_none() {
+                if visible.is_none() && position.is_none() {
                     continue;
                 }
                 c.states.push(CompLayerState { layer: l.id, visible, position, appearance: None });
@@ -558,6 +558,24 @@ mod tests {
         // Control: an ordinary position is written as its offset from the layer origin.
         let cm = write_cmls(&[comp(Some((10, 1)))], None, &l, 1).unwrap();
         assert_eq!(parse_cmls(&cm).unwrap()[0].offset, Some((6, -3)));
+    }
+
+    #[test]
+    fn invalid_position_without_visibility_leaves_no_comp_state() {
+        let (mut d, lid, _) = doc_with_cmls_offset((Value::Integer(i32::MAX), Value::Integer(0)));
+        let setting = obj("null")
+            .with("compList", Value::List(vec![Value::Integer(1)]))
+            .with("Ofst", Value::Descriptor(obj("null").with("Hrzn", Value::Integer(i32::MAX)).with("Vrtc", Value::Integer(0))));
+        let cmls = VersionedDescriptor::new(Descriptor::new("null").with("layerSettings", Value::List(vec![Value::Descriptor(setting)]))).to_bytes();
+        d.layer_mut(lid).unwrap().psd_blocks = vec![(*b"shmd", std::sync::Arc::new(write_shmd(&[MetadataItem::new(*b"cmls", cmls)])))];
+        let mut comp = visibility_comp(1, "Position");
+        comp.apply_visibility = false;
+        comp.apply_position = true;
+        d.layer_comps.push(comp);
+        let res = write_comps_resource(&d).unwrap();
+        let (comps, _, _, warnings) = decode_comps(Some(&res), &d);
+        assert_eq!(comps[0].state(lid), None);
+        assert_eq!(warnings.len(), 1);
     }
 
     /// A document with `comps` and one layer whose `cmls` has a single `layerSettings` entry
