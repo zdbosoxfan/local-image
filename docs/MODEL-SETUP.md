@@ -84,13 +84,17 @@ while ComfyUI's queue is empty. It uses the same generation path as Generate:
 A tool the checks already turned off (a file only it needs is missing) is not rendered. The
 report lists any tool a passing test did not render as "not tested".
 
-Each image is measured: black, blank white, a single flat colour, noise, the wrong size, an edit or
-fill that changed nothing, a fill that changed the picture outside its selection, or a refine that
-changed the picture too much (difference over 35) fail that tool (Fill is judged on the middle of
-its selection); a picture that doesn't show a red ball in the middle is a warning (it usually
-means the text encoder doesn't fit). Create failing marks the model failed; another tool failing
-turns only that tool off until the model is verified again. Time, the first-run flag and the GPU memory in use during the test are recorded, and
-ComfyUI's memory is freed after each model.
+Each image is measured. Black, blank white, a single flat colour, noise or the wrong size fail
+Create, Edit and References; an edit that changed nothing fails Edit; a fill that changed nothing,
+changed the picture outside its selection, or left the middle of its selection black or noise fails
+Fill (a flat fill passes: the test picture is a flat illustration); a refine that changed the
+picture too much (difference over 35) fails Refine. A Create picture without a red ball in the
+middle (it usually means the text encoder doesn't fit), an edit that didn't make the ball blue and
+a fill with no red in its selection are warnings. Create failing marks the model failed. For a
+template model, a failed Edit, References or Fill test turns that tool off until the model is
+verified again; Refine tests a model again when you choose it and won't run it if it drifts again.
+A built-in model keeps its tools and reports the failure. Time, the first-run flag and the GPU
+memory in use during the test are recorded, and ComfyUI's memory is freed after each model.
 
 If a test prompt waits in ComfyUI's queue for over a minute while nothing runs, ComfyUI's prompt
 worker has stopped: verification withdraws the prompt, stops (later models are not tested) and

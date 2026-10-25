@@ -199,14 +199,15 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
         Severity::Blocker,
         "Refine changed the test image too much (difference {difference}; at most 35 is allowed). Refine tests the model again when you choose it and won't run it if it drifts again.",
     ),
-    ("VerifyFailed:edit_nochange", Severity::Blocker, "The Edit test returned the picture unchanged. Edit is turned off for this model."),
-    ("VerifyFailed:inpaint_nochange", Severity::Blocker, "Fill didn't change the selected area in the test. Fill is turned off for this model."),
+    ("VerifyFailed:edit_nochange", Severity::Blocker, "The Edit test returned the picture unchanged."),
+    ("VerifyFailed:inpaint_nochange", Severity::Blocker, "Fill didn't change the selected area in the test."),
     (
         "VerifyFailed:inpaint_outside",
         Severity::Blocker,
-        "Fill changed the picture outside the selected area in the test (difference {outside}; at most 8 is allowed). Fill is turned off for this model.",
+        "Fill changed the picture outside the selected area in the test (difference {outside}; at most 8 is allowed).",
     ),
     ("VerifyFailed:error", Severity::Blocker, "The {capability} test failed: {message}"),
+    ("VerifyTurnedOff", Severity::Info, "{capability} is turned off for this model until it passes its test."),
     ("VerifyTimeout", Severity::Blocker, "The {capability} test took longer than 10 minutes and was stopped. Try again when the GPU is free."),
     (
         "VerifyWarning:prompt",

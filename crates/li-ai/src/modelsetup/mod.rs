@@ -634,19 +634,25 @@ pub fn publish(server: &ServerState, info: &ObjectInfo) -> bool {
         let family_label =
             profile.map(|p| p.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| m.label.split(" · ").next().unwrap_or_default().to_owned());
         let mut family = compile::family_for(recipe, profile, &id, &family_label);
-        // A tool whose test failed stays off while that test applies.
         if let Some(v) = m.verified.as_ref().filter(|_| m.status == Status::PartiallyVerified) {
-            let failed = |c: &str| v.capabilities.get(c).is_some_and(|r| !r.pass);
             let caps = &mut family.capabilities;
-            caps.edit &= !failed("edit");
-            caps.inpaint &= !failed("inpaint");
-            if failed("references") || failed("style") {
-                caps.references = 0;
+            for tool in turned_off(v) {
+                match tool {
+                    "edit" => caps.edit = false,
+                    "inpaint" => caps.inpaint = false,
+                    _ => caps.references = 0,
+                }
             }
         }
         map.insert(key.clone(), TemplateModel { recipe: Arc::new(recipe.clone()), family, label: m.label.clone() });
     }
     crate::catalog::set_templates(map)
+}
+
+/// The tools of a partly verified template model that its failed tests turn off while they apply
+/// (Refine has its own check when it is chosen; a failed Create fails the model).
+fn turned_off(v: &state::Verified) -> impl Iterator<Item = &'static str> + '_ {
+    ["edit", "inpaint", "references", "style"].into_iter().filter(|c| v.capabilities.get(*c).is_some_and(|r| !r.pass))
 }
 
 /// Publishes the stored recipes for `host` (no network beyond what `info` already is): the app
@@ -763,16 +769,22 @@ pub fn verify_models(
     Ok(out)
 }
 
-/// The issues a verification found (failures and warnings, with the files involved).
+/// `Fill`, `Style references`, `Edit`.
+fn tool_label(capability: &str) -> String {
+    match capability {
+        "inpaint" => "Fill".to_owned(),
+        "style" => "Style references".to_owned(),
+        c => format!("{}{}", c[..1].to_ascii_uppercase(), &c[1..]),
+    }
+}
+
+/// The issues a verification found (failures and warnings, with the files involved, and the
+/// tools a template model's failures turn off).
 fn verification_issues(key: &str, m: &ModelState, t: &verify::Target, v: &state::Verified) -> Vec<Issue> {
     let mut out = Vec::new();
     for (cap, r) in &v.capabilities {
-        let capability = match cap.as_str() {
-            "inpaint" => "Fill".to_owned(),
-            c => format!("{}{}", c[..1].to_ascii_uppercase(), &c[1..]),
-        };
         let args = [
-            ("capability", capability),
+            ("capability", tool_label(cap)),
             ("model", m.label.clone()),
             ("quant", t.quant.clone()),
             ("te", t.te.clone()),
@@ -784,6 +796,9 @@ fn verification_issues(key: &str, m: &ModelState, t: &verify::Target, v: &state:
             ("want", r.requested.map(|(w, h)| format!("{w}x{h}")).unwrap_or_default()),
         ];
         out.extend(r.failure.iter().chain(&r.warnings).map(|code| Issue::new(code, Some(key), &args)));
+    }
+    if m.engine == "template" && status_after(v) == Status::PartiallyVerified {
+        out.extend(turned_off(v).map(|tool| Issue::new("VerifyTurnedOff", Some(key), &[("capability", tool_label(tool))])));
     }
     out
 }
@@ -876,4 +891,25 @@ pub fn report(opts: &Options, scan: &Scan) -> Report {
     };
     r.summarise();
     r
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_template_models_failed_tool_is_said_to_be_turned_off() {
+        let result = |pass: bool, failure: Option<&str>| state::CapabilityResult { pass, failure: failure.map(str::to_owned), ..Default::default() };
+        let v = state::Verified {
+            capabilities: [("create".to_owned(), result(true, None)), ("inpaint".to_owned(), result(false, Some("VerifyFailed:inpaint_nochange")))].into(),
+            ..Default::default()
+        };
+        let t = verify::Target { model: ModelId::Qwen, variant: "", label: "M", quant: String::new(), te: String::new(), vae: String::new(), off: Vec::new() };
+        let sentences = |engine: &str| {
+            let m = ModelState { engine: engine.into(), label: "M".into(), ..Default::default() };
+            verification_issues("unet:m", &m, &t, &v).iter().map(Issue::english).collect::<Vec<_>>()
+        };
+        assert_eq!(sentences("template"), ["Fill didn't change the selected area in the test.", "Fill is turned off for this model until it passes its test."]);
+        assert_eq!(sentences("builtin"), ["Fill didn't change the selected area in the test."], "a built-in model keeps its tools");
+    }
 }

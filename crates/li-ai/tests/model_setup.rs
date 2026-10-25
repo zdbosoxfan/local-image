@@ -278,6 +278,7 @@ fn a_black_fill_turns_only_fill_off() {
     assert_eq!(m.status, Status::PartiallyVerified);
     assert!(!m.issues.iter().any(|i| i.code == "NotVerified"), "{:?}", codes(&again, MOSS_KEY));
     assert!(m.issues.iter().any(|i| i.code == "VerifyFailed:black" && i.english().starts_with("The Fill test image came out black")));
+    assert!(m.issues.iter().any(|i| i.english() == "Fill is turned off for this model until it passes its test."), "{:?}", codes(&again, MOSS_KEY));
     let info = ModelId::from_key(MOSS_KEY).unwrap().info();
     assert!(info.text_to_image && !info.inpaint, "Fill is off, Create stays on");
 }
