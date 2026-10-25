@@ -734,6 +734,10 @@ pub fn levels_gamma(u: f32, g: f32) -> f32 {
         return u.powf(c);
     }
     let b = (a * u1 - u1.powf(c)) / u1.powf(q);
+    // Near gamma 1 the toe vanishes: its denominator underflows before the join point does.
+    if !b.is_finite() {
+        return u.powf(c);
+    }
     a * u - b * u.powf(q)
 }
 
