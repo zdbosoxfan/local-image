@@ -12,6 +12,8 @@
 //! Both are re-emitted verbatim while they still decode to the document's state, and are
 //! regenerated otherwise (comp appearance is not written to PSD; `.pcraft` keeps it).
 
+use std::collections::HashMap;
+
 use photocraft_doc::comps::layer_position;
 use photocraft_doc::{Artboard, ArtboardBackground, CompLayerState, Document, Guides, Layer, LayerComp};
 use photocraft_geom::Rect;
@@ -203,6 +205,12 @@ pub(crate) fn decode_comps(resource: Option<&[u8]>, doc: &Document) -> (Vec<Laye
         }
     }
     let last_applied = int(d, "lastAppliedComp").map(|v| v as u32).filter(|id| comps.iter().any(|c| c.id == *id));
+    // The comp list and every layer's comp ids come from the file: look ids up in an index
+    // rather than searching the comps for each one. The first comp with an id keeps it.
+    let mut id_to_index: HashMap<u32, usize> = HashMap::with_capacity(comps.len());
+    for (i, c) in comps.iter().enumerate() {
+        id_to_index.entry(c.id).or_insert(i);
+    }
     let mut last = LayerComp {
         id: 0,
         name: "Last Document State".into(),
@@ -239,7 +247,7 @@ pub(crate) fn decode_comps(resource: Option<&[u8]>, doc: &Document) -> (Vec<Laye
                 _ => None,
             };
             for id in &s.comps {
-                let target = if *id == 0 { Some(&mut last) } else { comps.iter_mut().find(|c| c.id == *id) };
+                let target = if *id == 0 { Some(&mut last) } else { id_to_index.get(id).map(|&i| &mut comps[i]) };
                 let Some(c) = target else { continue };
                 let visible = if *id != 0 && c.apply_visibility { Some(resolved) } else { s.visible };
                 if visible.is_none() && s.offset.is_none() {
@@ -550,5 +558,55 @@ mod tests {
         // Control: an ordinary position is written as its offset from the layer origin.
         let cm = write_cmls(&[comp(Some((10, 1)))], None, &l, 1).unwrap();
         assert_eq!(parse_cmls(&cm).unwrap()[0].offset, Some((6, -3)));
+    }
+
+    /// A document with `comps` and one layer whose `cmls` has a single `layerSettings` entry
+    /// (hidden) listing `ids`, plus the resource 1065 data for those comps.
+    fn doc_with_comp_ids(comps: Vec<LayerComp>, ids: &[u32]) -> (Document, photocraft_doc::LayerId, Vec<u8>) {
+        let mut d = Document::with_background("t", Size::new(32, 32), ColorMode::Rgb, SampleType::U8, Color::WHITE);
+        d.layer_comps = comps;
+        let setting = obj("null").with("enab", Value::Boolean(false)).with("compList", Value::List(ids.iter().map(|i| Value::Integer(*i as i32)).collect()));
+        let cmls = VersionedDescriptor::new(Descriptor::new("null").with("layerSettings", Value::List(vec![Value::Descriptor(setting)]))).to_bytes();
+        let mut l = Layer::raster("A", PixelFormat::RGBA8);
+        l.psd_blocks = vec![(*b"shmd", std::sync::Arc::new(write_shmd(&[MetadataItem::new(*b"cmls", cmls)])))];
+        let lid = l.id;
+        d.layers.push(l);
+        let res = write_comps_resource(&d).unwrap();
+        (d, lid, res)
+    }
+
+    fn visibility_comp(id: u32, name: &str) -> LayerComp {
+        LayerComp { id, name: name.into(), comment: String::new(), apply_visibility: true, apply_position: false, apply_appearance: false, states: Vec::new() }
+    }
+
+    #[test]
+    fn a_duplicated_comp_id_records_states_in_its_first_comp() {
+        let (d, lid, res) = doc_with_comp_ids(vec![visibility_comp(1, "first"), visibility_comp(1, "second")], &[1]);
+        let (comps, _, _) = comps_from_psd(Some(&res), &d);
+        assert_eq!(comps[0].state(lid).and_then(|s| s.visible), Some(false));
+        assert!(comps[1].states.is_empty());
+    }
+
+    #[test]
+    fn many_unmatched_comp_ids_do_not_stall_the_import() {
+        // The comp list and each layer's comp ids both come from the file. Searching the comps for
+        // every id is quadratic, and the PSD import can't be cancelled inside it: 200,000 comps and
+        // a layer listing as many unknown ids took far longer than the watchdog allows.
+        let n = 200_000u32;
+        let comps = (1..=n).map(|id| visibility_comp(id, "c")).collect();
+        let ids: Vec<u32> = (n + 1..=2 * n).chain([1]).collect();
+        let (d, lid, res) = doc_with_comp_ids(comps, &ids);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(comps_from_psd(Some(&res), &d).0);
+        });
+        let comps = match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(comps) => comps,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("matching layer comp ids stalled"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("layer comp decoding panicked"),
+        };
+        assert_eq!(comps.len(), n as usize);
+        assert_eq!(comps[0].state(lid).and_then(|s| s.visible), Some(false), "the one known id still applies");
+        assert!(comps[1..].iter().all(|c| c.states.is_empty()));
     }
 }
