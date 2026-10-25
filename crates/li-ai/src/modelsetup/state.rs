@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use super::issue::Issue;
+use super::issue::{Fix, Issue};
 use crate::companions::Binding;
 use crate::identify::Identity;
 use crate::template::TemplateRecipe;
@@ -240,8 +240,8 @@ impl SetupState {
 }
 
 /// Merges a freshly prepared model into the stored one: the person's choices and the
-/// verification survive; a stored verification is kept only while the tested recipe, file and
-/// server are unchanged (else the model needs a re-check).
+/// verification survive; a stored verification, and the failures and warnings it found, count
+/// only while the tested recipe and file are unchanged (else the model needs a re-check).
 pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &ServerState, comfyui_version: &str) -> ModelState {
     let Some(old) = stored else { return fresh };
     fresh.user = old.user.clone();
@@ -263,34 +263,47 @@ pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &Server
     }
     let failed = v.capabilities.values().any(|c| !c.pass && c.failure.is_some());
     let create_failed = v.capabilities.get("create").is_some_and(|c| !c.pass);
-    fresh.status = if file_changed {
-        fresh.issues.push(Issue::new("FileChanged", Some(&fresh_key(&fresh)), &[("file", fresh.file.clone()), ("date", v.at.clone())]));
-        Status::NeedsReverify
+    let key = fresh_key(&fresh);
+    // It was tested: "not tested yet" no longer applies, whatever the test's standing now.
+    fresh.issues.retain(|i| i.code != "NotVerified");
+    let reverify = if file_changed {
+        Some(Issue::new("FileChanged", Some(&key), &[("file", fresh.file.clone()), ("date", v.at.clone())]))
     } else if !same_recipe && v.comfyui_version != comfyui_version {
-        fresh.issues.push(Issue::new(
+        Some(Issue::new(
             "ReverifyNeeded",
-            Some(&fresh_key(&fresh)),
+            Some(&key),
             &[("old", v.comfyui_version.clone()), ("new", comfyui_version.to_owned()), ("model", fresh.label.clone())],
-        ));
-        Status::NeedsReverify
+        ))
     } else if !same_recipe {
-        fresh.issues.push(Issue::new("RecipeChanged", Some(&fresh_key(&fresh)), &[]));
-        Status::NeedsReverify
-    } else if create_failed {
-        Status::Failed
-    } else if failed {
-        Status::PartiallyVerified
+        Some(Issue::new("RecipeChanged", Some(&key), &[]))
     } else {
-        if v.comfyui_version != comfyui_version {
-            fresh.issues.push(Issue::new("StillValid", Some(&fresh_key(&fresh)), &[("new", comfyui_version.to_owned())]));
+        None
+    };
+    fresh.status = match reverify {
+        Some(issue) => {
+            fresh.issues.push(issue.fix(Fix::Verify { model: fresh.file.clone() }));
+            Status::NeedsReverify
         }
-        Status::Verified
+        None => {
+            // The stored test still applies, and so do the failures and warnings it found.
+            fresh.issues.extend(old.issues.iter().filter(|i| i.code.starts_with("Verify")).cloned());
+            if create_failed {
+                Status::Failed
+            } else if failed {
+                Status::PartiallyVerified
+            } else {
+                if v.comfyui_version != comfyui_version {
+                    fresh.issues.push(Issue::new("StillValid", Some(&key), &[("new", comfyui_version.to_owned())]));
+                }
+                Status::Verified
+            }
+        }
     };
     if let Some(gpu) = &server.gpu
         && !v.gpu.is_empty()
         && v.gpu != gpu.name
     {
-        fresh.issues.push(Issue::new("OtherGpu", Some(&fresh_key(&fresh)), &[("old_gpu", v.gpu.clone()), ("new_gpu", gpu.name.clone())]));
+        fresh.issues.push(Issue::new("OtherGpu", Some(&key), &[("old_gpu", v.gpu.clone()), ("new_gpu", gpu.name.clone())]));
     }
     fresh
 }
@@ -340,6 +353,37 @@ mod tests {
         // A blocker found now wins over the old verification.
         let blocked = ModelState { status: Status::Blocked, ..fresh() };
         assert_eq!(merge(Some(&verified_model(&empty, "0.42.5")), blocked, &server, "0.42.5").status, Status::Blocked);
+    }
+
+    #[test]
+    fn a_rescan_keeps_what_the_test_found_and_drops_not_tested() {
+        let empty = super::super::recipe_sha256(&TemplateRecipe::default());
+        let mut old = verified_model(&empty, "0.42.5");
+        old.verified
+            .as_mut()
+            .unwrap()
+            .capabilities
+            .insert("inpaint".into(), CapabilityResult { failure: Some("VerifyFailed:black".into()), ..Default::default() });
+        old.issues = vec![Issue::new("VerifyFailed:black", None, &[("capability", "Fill".into())]), Issue::new("LicenceUnknown", None, &[])];
+        let fresh = || ModelState {
+            status: Status::Ready,
+            file: "m.safetensors".into(),
+            fingerprint: Fingerprint { bytes: 10, ..Default::default() },
+            recipe: Some(TemplateRecipe::default()),
+            issues: vec![Issue::new("NotVerified", None, &[("model", "M".into())]), Issue::new("LicenceUnknown", None, &[])],
+            ..Default::default()
+        };
+        let m = merge(Some(&old), fresh(), &ServerState::default(), "0.42.5");
+        let codes: Vec<&str> = m.issues.iter().map(|i| i.code.as_str()).collect();
+        assert_eq!(m.status, Status::PartiallyVerified);
+        assert_eq!(codes, ["LicenceUnknown", "VerifyFailed:black"]);
+        assert!(m.issues[1].english().starts_with("The Fill test image came out black"));
+        // A replaced file needs a new test: the old findings go, and the re-check offers Verify.
+        let changed = ModelState { fingerprint: Fingerprint { bytes: 11, ..Default::default() }, ..fresh() };
+        let m = merge(Some(&old), changed, &ServerState::default(), "0.42.5");
+        let codes: Vec<&str> = m.issues.iter().map(|i| i.code.as_str()).collect();
+        assert_eq!(codes, ["LicenceUnknown", "FileChanged"]);
+        assert!(matches!(&m.issues[1].fixes[..], [Fix::Verify { model }] if model == "m.safetensors"));
     }
 
     #[test]

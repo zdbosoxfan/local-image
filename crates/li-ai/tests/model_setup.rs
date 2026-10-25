@@ -228,6 +228,14 @@ fn a_noise_render_fails_verification_and_names_the_vae() {
     assert_eq!(m.status, Status::Failed);
     let issue = m.issues.iter().find(|i| i.code == "VerifyFailed:noise").unwrap();
     assert!(issue.english().contains("The VAE (flux2-vae.safetensors) probably doesn't match"), "{}", issue.english());
+    // The rescan the wizard runs after Verify keeps the explanation and doesn't call it untested.
+    let again = s.scan();
+    let m = &again.server.models[FLUX3_KEY];
+    assert_eq!(m.status, Status::Failed);
+    assert!(!m.issues.iter().any(|i| i.code == "NotVerified"), "{:?}", codes(&again, FLUX3_KEY));
+    assert!(m.issues.iter().any(|i| i.code == "VerifyFailed:noise" && i.english().contains("probably doesn't match")));
+    let summary = modelsetup::summary::summarise(Some(&again.server), &li_ai::catalog::catalog().models, Some("0.42.5"));
+    assert_eq!(summary.models[FLUX3_KEY].issue.as_ref().map(|i| i.code.as_str()), Some("VerifyFailed:noise"), "the picker's tooltip names the failure");
 }
 
 #[test]
