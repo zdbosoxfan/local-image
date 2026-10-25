@@ -849,6 +849,21 @@ mod tests {
     }
 
     /// A stand-in Bayer model: each 2×2 block becomes [R, mean G, B] scaled by `gain`.
+    /// The mosaic the Bayer model reads has the source decode's hot and dead photosites replaced,
+    /// so a stuck site does not reach the model (and its denoised output) as a coloured dot.
+    #[test]
+    fn ai_denoise_reads_the_mosaic_with_hot_photosites_replaced() {
+        let mut raw = lightcraft_raw::decode(&clipped_bayer_dng("RGGB")).unwrap();
+        let i = 52 * raw.width + 20;
+        let lightcraft_raw::RawData::U16(data) = &mut raw.data else { panic!("16-bit samples") };
+        let around = data[i];
+        data[i] = 15000;
+        let bytes = lightcraft_raw::write_dng(&raw, &Default::default()).unwrap();
+        let prepared = crate::files::prepare_raw(&bytes, &crate::files::RawOptions::default()).unwrap();
+        let site = prepared.data.get(i);
+        assert!((site - f32::from(around)).abs() < 50.0, "the hot site reads {site}, its surroundings {around}");
+    }
+
     fn bayer_stub(gain: f32) -> impl FnOnce(&[f32], usize, usize) -> Result<Vec<[f32; 3]>, String> {
         move |packed, w, h| {
             let mut out = vec![[0.0; 3]; w * h * 4];
