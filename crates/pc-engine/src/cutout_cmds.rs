@@ -8,6 +8,7 @@ use photocraft_doc::{Color, Document, Fill, Layer, LayerContent, LayerId, LayerM
 use photocraft_raster::Surface;
 
 use lightcraft_sysmem::JobCtl;
+use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
 use crate::commands::{CommandSpec, layer_param};
@@ -171,13 +172,23 @@ fn enabled(s: &Session) -> std::result::Result<(), String> {
     check(&d.doc, crate::active_layer_of(s)?)
 }
 
+/// A placed photo must be segmented against its own background, rather than the empty canvas.
+fn subject_area(layer: &Layer, canvas: Rect, sample_all: bool) -> Rect {
+    let Some(surface) = layer.surface().filter(|_| !sample_all) else { return canvas };
+    let empty_around = surface.format().alpha && surface.default_pixel().last().is_some_and(|a| *a <= 0.0);
+    let bounds = surface.content_bounds().intersect(&canvas);
+    if empty_around && !bounds.is_empty() { bounds } else { canvas }
+}
+
 fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let id = layer_param(s, p)?;
     let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
-    check(doc, doc.layer(id).ok_or(EngineError::NoLayer(id))?).map_err(EngineError::Other)?;
+    let layer = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+    check(doc, layer).map_err(EngineError::Other)?;
     let output = BackgroundOutput::from_params(p, CMD)?;
     let sample_all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(false);
     let refine = p.get("refine").and_then(Value::as_bool).unwrap_or(true);
+    let area = subject_area(layer, doc.bounds(), sample_all);
     let require_learned = p.get("engine").and_then(Value::as_str) == Some("learned");
     // Resolved here, on the thread that started the job (a test's mock model is per thread).
     let learned = crate::seg::wanted(p).map_err(|msg| EngineError::BadParams { cmd: CMD.into(), msg })?;
@@ -196,16 +207,16 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
             if require_learned && learned.is_none() {
                 return Err(EngineError::Other("no subject found".into()));
             }
-            let refine_params = if learned.is_some() { crate::smartselect_cmds::learned_refine(doc.bounds()) } else { REFINE };
-            let found = learned.or_else(|| with_doc_sampler(doc, Some(id), sample_all, |smp, d| subject::select_subject(smp, d.bounds())));
+            let refine_params = if learned.is_some() { crate::smartselect_cmds::learned_refine(area) } else { REFINE };
+            let found = learned.or_else(|| with_doc_sampler(doc, Some(id), sample_all, |smp, _| subject::select_subject(smp, area)));
             let mut region = found.ok_or_else(|| EngineError::Other("no subject found".into()))?;
             if ctx.is_cancelled() {
                 return Err(EngineError::Cancelled);
             }
             if refine {
                 ctx.report(0.6, "Refining edge");
-                let refined = with_doc_sampler(doc, Some(id), sample_all, |smp, d| {
-                    matting::refine_mask(smp, &matting::region_reader(&region), region.bbox, d.bounds(), &refine_params)
+                let refined = with_doc_sampler(doc, Some(id), sample_all, |smp, _| {
+                    matting::refine_mask(smp, &matting::region_reader(&region), region.bbox, area, &refine_params)
                 });
                 region = refined.unwrap_or(region);
                 if ctx.is_cancelled() {
@@ -465,5 +476,41 @@ mod tests {
         s.execute(CMD, json!({"refine": false})).unwrap();
         let masks = s.active().unwrap().doc.walk().into_iter().filter(|(_, _, l)| l.mask.is_some()).count();
         assert_eq!(masks, 1);
+    }
+    #[test]
+    fn remove_background_on_a_layer_smaller_than_the_canvas_masks_the_subject_not_the_layer() {
+        // The photo doesn't fill the canvas (a placed photo, or the canvas grown): the empty
+        // canvas around it is not the background, and a Stroke must not outline the photo's
+        // rectangle (#8235).
+        for depth in [8, 16, 32] {
+            let (mut s, inside) = disc(depth);
+            s.execute("layer.new.layerFromBackground", json!({})).unwrap();
+            s.execute("image.canvasSize", json!({"width": 260, "height": 220, "anchor": "center"})).unwrap();
+            let id = active_id(&s);
+            s.execute(CMD, json!({"engine": "classic"})).unwrap();
+            // The photo now sits at (30, 30).
+            let v = mask_iou(&s, 260, 220, |x, y| inside(x - 30, y - 30));
+            assert!(v >= 0.75, "depth {depth}: IoU {v}");
+            for (x, y) in [(31, 31), (228, 31), (31, 188), (228, 188), (40, 110)] {
+                assert!(mask_cov(&s, x, y) < 0.2, "depth {depth}: photo background at ({x}, {y}) revealed");
+            }
+            s.edit("stroke", |doc, _| {
+                let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
+                l.effects.items = vec![photocraft_doc::Effect::Stroke(photocraft_doc::StrokeFx {
+                    common: photocraft_doc::FxCommon::new(photocraft_color::BlendMode::Normal, 1.0),
+                    size: 3.0,
+                    position: photocraft_doc::StrokePosition::Outside,
+                    paint: photocraft_doc::FxPaint::Color(photocraft_color::Color::rgb(0.0, 0.0, 1.0)),
+                })];
+                Ok(())
+            })
+            .unwrap();
+            let img = photocraft_compose::render(&s.active().unwrap().doc, Rect::new(0, 0, 260, 220));
+            // Just outside the photo's left edge, and just inside it: no stroke.
+            for x in [27, 28, 29, 30, 31] {
+                let a = img.px[110 * 260 + x][3];
+                assert!(a < 0.05, "depth {depth}: stroke along the layer's edge at x = {x} (alpha {a})");
+            }
+        }
     }
 }
