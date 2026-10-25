@@ -140,12 +140,12 @@ pub(crate) fn apply_lens_opcodes(list3: &[Opcode], image: &mut RgbFrame, clip: f
     correct_with_clip(image, clip, |img| lightcraft_raw::opcodes::apply_list3(list3, img))
 }
 
-/// Develop `raw` like [`RawImage::develop`] (normalize, demosaic, `OpcodeList3`, default crop),
-/// returning camera RGB and its clip level ([`Frame::clip`]).
+/// Develop `raw` like [`RawImage::develop`] (normalize, demosaic the mosaic balanced by its
+/// as-shot white, `OpcodeList3`, default crop), returning camera RGB and its clip level
+/// ([`Frame::clip`]).
 fn develop_frame(raw: &RawImage, method: lightcraft_raw::Method) -> Result<(RgbFrame, f32)> {
     let normalized = raw.normalized().map_err(|e| MergeError::Decode(e.to_string()))?;
-    let mut image = lightcraft_raw::demosaic(&normalized, method);
-    drop(normalized);
+    let mut image = lightcraft_raw::demosaic_balanced(normalized, method, &Default::default(), raw.as_shot_wb());
     let sensor_clip = detect_clip(&image);
     let clip = apply_lens_opcodes(&raw.opcodes.list3, &mut image, sensor_clip);
     let crop = raw.crop.clipped(image.width, image.height);
@@ -281,6 +281,26 @@ mod tests {
         let m2 = Metadata { exposure_time: Some(4.0 / 125.0), ..m.clone() };
         assert!((exif_exposure(&m2).unwrap() - e - 2.0).abs() < 1e-9);
         assert!(exif_exposure(&Metadata::default()).is_none());
+    }
+
+    /// Full-size panorama frames are developed as Develop develops the raw (Auto on the mosaic
+    /// balanced by the as-shot white), so slanted neutral edges such as mullions and siding get a
+    /// single raw's demosaic, not the false colour of an unbalanced one.
+    #[test]
+    fn full_size_raw_frames_demosaic_like_develop() {
+        // (RW2 rows pack ten samples to a block)
+        let (w, h) = (100, 64);
+        // neutral bars slanted 18 degrees, as camera RGB under the RW2's [2, 1, 1.5] multipliers
+        let scene: Vec<[f32; 3]> =
+            (0..w * h).map(|i| if ((i % w) as f32 + (i / w) as f32 / 3.0) % 6.0 < 3.0 { [0.3, 0.6, 0.4] } else { [0.04, 0.08, 0.0533] }).collect();
+        let bytes = lightcraft_raw::testgen::rw2(w, h, &lightcraft_raw::testgen::mosaic(&scene, w, [0, 1, 1, 2], 128, 4095), 12);
+        let raw = lightcraft_raw::decode(&bytes).unwrap();
+        assert_ne!(raw.as_shot_wb(), [1.0; 3], "a white balance to demosaic under");
+        let expected = raw.develop(lightcraft_raw::Method::Auto).unwrap();
+        let frame = load_frame(&bytes, None, false).unwrap();
+        assert_eq!((frame.image.width, frame.image.height), (expected.width, expected.height));
+        let error = frame.image.data.iter().flatten().zip(expected.data.iter().flatten()).map(|(a, b)| (a - b.max(0.0)).abs()).fold(0f32, f32::max);
+        assert!(error < 1e-6, "the frame differs from Develop's demosaic by {error}");
     }
 
     #[test]

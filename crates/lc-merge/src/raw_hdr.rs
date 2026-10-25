@@ -373,12 +373,12 @@ pub fn merge_raw_hdr(raws: &[RawImage], options: &HdrOptions, progress: &Progres
     if merged.data.iter().any(|v| !v.is_finite()) {
         return Err(MergeError::Mismatch("Raw HDR fusion produced non-finite sensor samples".into()));
     }
-    // Develop's default method, so merges render detail like single raws. The mosaic stays in
+    let ref_raw = &raws[reference];
+    // Develop's default demosaic (Auto, on the mosaic balanced by the reference's as-shot white,
+    // as `RawImage::develop` does), so merges render detail like single raws. The mosaic stays in
     // reference-exposure units: Auto's noise and dual-mask thresholds are absolute, and RCD,
     // VNG, DCB and LMMSE keep values above white (only AMaZE clamps at 1.0).
-    result.radiance = lightcraft_raw::demosaic(&merged, lightcraft_raw::Method::Auto);
-    drop(merged);
-    let ref_raw = &raws[reference];
+    result.radiance = lightcraft_raw::demosaic_balanced(merged, lightcraft_raw::Method::Auto, &Default::default(), ref_raw.as_shot_wb());
     // A sample clipped in every bracket keeps only the darkest frame's weight.
     let saturation = gains[darkest].into_iter().fold(0.0f32, f32::max) / k[darkest];
     // The output has no source opcode list. Apply every operation in its declared
