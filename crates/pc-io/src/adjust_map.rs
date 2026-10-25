@@ -157,11 +157,26 @@ pub fn parse(key: &[u8; 4], data: &[u8], cged: Option<&[u8]>, channels: Channels
     a
 }
 
+/// Keys of a Brightness/Contrast `CgEd` descriptor: the ones [`write`] emits plus Photoshop's
+/// preset bookkeeping.
+const BRIT_CGED_KEYS: [&str; 9] = ["Vrsn", "Brgh", "Cntr", "means", "Lab ", "useLegacy", "Auto", "presetKind", "presetFileName"];
+
+/// Whether a `brit` layer's `CgEd` descriptor holds settings Brightness/Contrast has no place
+/// for. Photoshop 2026's Light adjustment (Exposure, Contrast, Highlights, Shadows, Whites,
+/// Blacks) is stored under the `brit` key; read as Brightness/Contrast it would keep only
+/// Contrast and lose the rest without a word, so such a layer stays [`Adjustment::Unsupported`].
+pub fn is_extended_brit(cged: Option<&[u8]>) -> bool {
+    cged.and_then(|c| VersionedDescriptor::parse_prefix(c).ok())
+        .is_some_and(|(v, _)| v.descriptor.items.iter().any(|(k, _)| !BRIT_CGED_KEYS.iter().any(|n| k.is(n))))
+}
+
 fn parse_any(key: &[u8; 4], data: &[u8], cged: Option<&[u8]>) -> Adjustment {
     let parsed = match key {
         b"nvrt" => Some(Adjustment::Invert),
         b"thrs" => be16(data, 0).map(|v| Adjustment::Threshold { level: f32::from(v) / 255.0 }),
         b"post" => be16(data, 0).map(|v| Adjustment::Posterize { levels: u32::from(v) }),
+        // Kept raw (with its `CgEd`, which the PSD writer keeps while the layer is unchanged).
+        b"brit" if is_extended_brit(cged) => None,
         b"brit" => {
             let modern = cged.and_then(|c| VersionedDescriptor::parse_prefix(c).ok()).and_then(|(v, _)| {
                 let d = v.descriptor;
