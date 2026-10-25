@@ -264,13 +264,20 @@ pub fn render_text(r: &Report) -> String {
             o.push_str(&format!("{:>11}uses {}\n", "", uses.join(", ")));
         }
         if !m.capabilities.is_empty() {
-            let caps: Vec<String> = m.capabilities.iter().filter(|c| c.state != "unsupported").map(capability_label).collect();
-            let tested = match m.status.as_str() {
-                "ready" => " - not tested",
-                "verified" => " - verified",
-                _ => "",
+            let shown: Vec<&CapabilityReport> = m.capabilities.iter().filter(|c| c.state != "unsupported").collect();
+            let labels = |caps: &[&CapabilityReport]| caps.iter().map(|c| capability_label(c)).collect::<Vec<_>>().join(", ");
+            // A verified model names the tools its test didn't render.
+            let (untested, tested): (Vec<&CapabilityReport>, Vec<&CapabilityReport>) = shown.iter().partition(|c| c.state == "ready");
+            let line = match m.status.as_str() {
+                "ready" => format!("{} - not tested", labels(&shown)),
+                _ if tested.is_empty() => labels(&untested),
+                status => {
+                    let verified = if status == "verified" { " - verified" } else { "" };
+                    let rest = if untested.is_empty() { String::new() } else { format!("; not tested: {}", labels(&untested)) };
+                    format!("{}{verified}{rest}", labels(&tested))
+                }
             };
-            o.push_str(&format!("{:>11}{}{tested}\n", "", caps.join(", ")));
+            o.push_str(&format!("{:>11}{line}\n", ""));
         }
         if let (Some(at), Some(sec)) = (&m.verified_at, m.seconds) {
             let vram = m.peak_vram_gb.map(|v| format!(", GPU memory in use up to {v:.1} GB")).unwrap_or_default();
@@ -360,5 +367,12 @@ mod tests {
         assert!(t.contains("Summary: 1 usable (0 verified, 1 not tested, 0 need attention), 0 not usable, 0 blockers."), "{t}");
         let back: Report = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
         assert_eq!(back, r);
+        // A verified model doesn't claim the tools its test didn't render.
+        let cap = |name: &str, state: &str, detail: &str| CapabilityReport { name: name.into(), state: state.into(), detail: detail.into() };
+        r.models[0].status = "verified".into();
+        r.models[0].capabilities =
+            vec![cap("create", "verified", ""), cap("style", "ready", "3"), cap("refine", "verified", ""), cap("upscale", "verified", "uses Refine")];
+        let t = render_text(&r);
+        assert!(t.contains("Create, Refine, Upscale - verified; not tested: Style references 3\n"), "{t}");
     }
 }

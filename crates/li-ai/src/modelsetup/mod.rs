@@ -709,6 +709,7 @@ pub fn verify_models(
             quant: m.identity.as_ref().and_then(|i| i.quant.class.as_ref()).map(|q| q.label()).unwrap_or_default(),
             te: binding("clip"),
             vae: binding("vae"),
+            off: m.capabilities.iter().filter(|c| !c.ok).map(|c| c.name.clone()).collect(),
         };
         let seed = u64::from(rand::random::<u32>());
         let result = verify::verify(&opts.host, &target, seed, ctl, &mut |step| progress(key, step));

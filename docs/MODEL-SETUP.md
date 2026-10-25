@@ -76,8 +76,13 @@ while ComfyUI's queue is empty. It uses the same generation path as Generate:
 - **Create**: "A single bright red ball in the centre of a plain white background …" at the model's
   native size (at most 1 megapixel) with the template's own steps and guidance.
 - **Edit** (models with an edit template): the Create result with "Make the ball blue …".
+- **References** (template models that take reference images): the Create prompt with the Create
+  result as one reference, through the style graph (Krea 2 Style references) or the edit graph.
 - **Refine**: the refine checker's test picture at the recipe's default strength.
 - **Fill**: the same picture with the area around its sun selected, "a red ball".
+
+A tool the checks already turned off (a file only it needs is missing) is not rendered. The
+report lists any tool a passing test did not render as "not tested".
 
 Each image is measured: black, blank white, a single flat colour, noise, the wrong size, an edit or
 fill that changed nothing, a fill that changed the picture outside its selection, or a refine that

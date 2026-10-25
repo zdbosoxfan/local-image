@@ -468,6 +468,8 @@ pub struct Target<'a> {
     pub quant: String,
     pub te: String,
     pub vae: String,
+    /// Capabilities the static check turned off (a file only they need is missing): not rendered.
+    pub off: Vec<String>,
 }
 
 /// One finished capability, for progress output.
@@ -569,7 +571,8 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
         };
         made = runner.run("create", &create, &judge)?;
     }
-    if f.capabilities.edit {
+    let on = |name: &str| !t.off.iter().any(|o| o == name);
+    if f.capabilities.edit && on("edit") {
         let source = made.clone().unwrap_or_else(|| image::DynamicImage::ImageRgb8(crate::refine::test_image()).to_rgba8());
         let src = rgb(&source);
         let req = GenerateRequest { mode: GenerateMode::Edit, prompt: EDIT_PROMPT.into(), source: Some(source), seed: seed.wrapping_add(1), ..create.clone() };
@@ -588,6 +591,21 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
             r.metrics = Some(m);
         };
         runner.run("edit", &req, &judge)?;
+    }
+    // Create with one reference, through the graph a template model uses for references (its
+    // style graph when it has no edit graph, else the edit graph).
+    if let Some(recipe) = info.recipe.as_ref().filter(|r| r.reference_capacity() > 0 && info.text_to_image) {
+        let name = if recipe.edit.is_none() && recipe.style.is_some() { "style" } else { "references" };
+        if on(name) {
+            let reference = made.clone().unwrap_or_else(|| image::DynamicImage::ImageRgb8(crate::refine::test_image()).to_rgba8());
+            let req = GenerateRequest { references: vec![reference], seed: seed.wrapping_add(4), ..create.clone() };
+            let judge = |img: &RgbaImage, r: &mut CapabilityResult| {
+                let m = metrics(&rgb(img), None);
+                r.failure = image_failure(&m).map(|fail| format!("VerifyFailed:{fail}"));
+                r.metrics = Some(m);
+            };
+            runner.run(name, &req, &judge)?;
+        }
     }
     // Refine: the recipe the app's refine checker uses, on its test picture.
     if let Some(recipe) = refine_recipe(t.model, variant, &client) {
@@ -617,7 +635,7 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
         runner.record("refine", r);
         runner.out.capabilities.insert("upscale".into(), upscale);
     }
-    if f.capabilities.inpaint {
+    if f.capabilities.inpaint && on("inpaint") {
         let picture = crate::refine::test_image();
         let mask = fill_mask(picture.width(), picture.height());
         let req = GenerateRequest {

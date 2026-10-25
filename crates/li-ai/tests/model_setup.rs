@@ -282,6 +282,31 @@ fn a_black_fill_turns_only_fill_off() {
 }
 
 #[test]
+fn verification_renders_create_with_a_reference_through_the_edit_graph() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(FLUX3);
+    let scan = s.scan();
+    let (w, h) = create_size(FLUX3_KEY);
+    let red = png(&ball(w, h, [230, 30, 30]));
+    s.mock.queue_outputs([red.clone(), png(&ball(w, h, [30, 40, 230])), red, png(&li_ai::refine::test_image()), png(&filled(&red_ball_on_sky))]);
+    let mut steps = Vec::new();
+    let done = modelsetup::verify_models(&s.options(), &scan, &[FLUX3_KEY.to_owned()], &JobControl::new(), &mut |_, st| {
+        steps.push((st.capability.to_owned(), st.result.failure.clone()))
+    })
+    .unwrap();
+    assert!(done[0].result.is_ok(), "{:?}", done[0].result.as_ref().err());
+    let names: Vec<&str> = steps.iter().map(|(c, _)| c.as_str()).collect();
+    assert_eq!(names, ["create", "edit", "references", "refine", "inpaint"], "{steps:?}");
+    assert!(steps.iter().all(|(_, f)| f.is_none()), "{steps:?}");
+    let with_reference = &s.mock.prompts()[2];
+    assert!(with_reference.to_string().contains(modelsetup::verify::CREATE_PROMPT), "{with_reference}");
+    assert!(with_reference.as_object().unwrap().values().any(|n| n["class_type"] == "LoadImage"), "one reference image: {with_reference}");
+    let r = modelsetup::report(&s.options(), &s.scan());
+    let text = modelsetup::report::render_text(&r);
+    assert!(text.contains("References 10, Edit 10, Refine, Fill, Upscale - verified\n"), "{text}");
+}
+
+#[test]
 fn a_shape_mismatch_names_the_installed_and_declared_text_encoders() {
     let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let s = Setup::new(FLUX3);
