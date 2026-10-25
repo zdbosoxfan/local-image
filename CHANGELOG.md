@@ -42,6 +42,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- RAW capture sharpening leaves flat areas beyond the contrast mask's blur unchanged, keeping
+  CPU and GPU previews consistent at high iteration counts.
+
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
   transparency keep it.
