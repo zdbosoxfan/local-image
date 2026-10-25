@@ -92,7 +92,13 @@ pub fn adjust_mask(s: &mut Surface, adj: &Adjustment, selection: Option<&Surface
         // Tile by tile, and only where the selection stores something (it is unselected, so
         // unchanged, elsewhere): its content bounds can span a grid of mostly nothing.
         let tiles: Vec<Rect> = if sel.default_pixel().iter().all(|v| *v == 0.0) {
-            sel.tiles().map(|(c, _)| c.rect().intersect(&r)).filter(|t| !t.is_empty()).collect()
+            let tiles = stored_tiles(sel, r);
+            let missing = tiles.iter().filter(|c| s.tile(**c).is_none()).count() as u64;
+            let tile_bytes = (TILE_SIZE as u64).pow(2) * s.format().bytes_per_pixel() as u64;
+            if missing.saturating_mul(tile_bytes) > max_unstored_bytes() {
+                return Err(TOO_SPARSE.into());
+            }
+            tiles.into_iter().map(|c| c.rect().intersect(&r)).collect()
         } else {
             // Unselected pixels count too, so every tile of the span is adjusted, one at a time
             // (not one read of the whole span), and the span is bounded by the tiles that writes
@@ -410,6 +416,32 @@ mod tests {
         let mut m = Surface::with_default(PixelFormat::GRAY8, &[0.5]);
         let sel = distant_blocks(PixelFormat::GRAY8, 1.0);
         assert!(adjust_mask(&mut m, &Adjustment::Invert, Some(&sel)).is_err());
+    }
+
+    #[test]
+    fn a_large_shared_selection_cannot_materialize_an_unstored_mask() {
+        let mut mask = Surface::with_default(PixelFormat::GRAY8, &[1.0]);
+        let before = mask.clone();
+        let mut selection = Surface::new(PixelFormat::GRAY8);
+        let columns = 1000;
+        let tile_bytes = (TILE_SIZE as u64).pow(2) * mask.format().bytes_per_pixel() as u64;
+        let rows = max_unstored_bytes() / (columns * tile_bytes) + 1;
+        let height = i32::try_from(rows * TILE_SIZE as u64).unwrap();
+        selection.fill_rect(Rect::new(0, 0, columns as i32 * TILE_SIZE, height), &[1.0]);
+        assert!(adjust_mask(&mut mask, &Adjustment::Invert, Some(&selection)).is_err());
+        assert!(mask == before, "refusal leaves every mask pixel and its default unchanged");
+    }
+
+    #[test]
+    fn adjusting_a_stored_mask_through_a_selection_keeps_unselected_pixels() {
+        let mut mask = Surface::with_default(PixelFormat::GRAY8, &[1.0]);
+        mask.fill_rect(Rect::new(0, 0, 512, 256), &[0.25]);
+        let mut selection = Surface::new(PixelFormat::GRAY8);
+        selection.fill_rect(Rect::new(0, 0, 256, 256), &[1.0]);
+        adjust_mask(&mut mask, &Adjustment::Invert, Some(&selection)).unwrap();
+        assert!((mask.sample_channel(128, 128, 0) - 0.75).abs() < 0.01);
+        assert!((mask.sample_channel(384, 128, 0) - 0.25).abs() < 0.01);
+        assert_eq!(mask.sample_channel(768, 128, 0), 1.0);
     }
 
     /// Only the tiles a surface lacks count against the budget: a dense 16-bit layer of 26
