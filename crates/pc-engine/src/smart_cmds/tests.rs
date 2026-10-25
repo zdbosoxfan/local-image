@@ -988,3 +988,39 @@ fn smart_resource_nested_psd_linked_source_remains_editable() {
     assert_eq!(bytes.as_ref(), &png);
     assert_eq!(decode_source(&name, &bytes).unwrap().size, Size::new(10, 8));
 }
+
+/// Exported contents are a fresh document whose own linked smart objects name stored paths: an
+/// untrusted session's PSD of them embeds none of those files, a trusted one embeds them.
+#[test]
+fn gated_contents_exports_embed_no_file_a_nested_link_names() {
+    use photocraft_color::SampleType;
+    let dir = std::env::temp_dir().join(format!("pcraft-smart-gated-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let image = Document::with_background("blue", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, photocraft_color::Color::rgba(0.0, 0.0, 1.0, 1.0));
+    let png = photocraft_io::export(&image, "png", &Default::default()).unwrap().bytes;
+    let outside = dir.join("outside.png");
+    std::fs::write(&outside, &png).unwrap();
+    let mut inner = Document::new("inner", Size::new(8, 8), ColorMode::Rgb, SampleType::U8);
+    let link = SmartObject::new(SmartSource::Linked { path: outside.to_string_lossy().into_owned() }, Affine::IDENTITY, image.layers[0].surface().cloned());
+    inner.layers.push(Layer::new("link", LayerContent::Smart(link)));
+    let contents = encode_source(&inner).unwrap();
+    let mut s = session(8);
+    paint(&mut s);
+    convert(&mut s);
+    s.edit("nest", |doc, active| {
+        let Some(LayerContent::Smart(sm)) = doc.layer_mut(active.unwrap()).map(|l| &mut l.content) else { panic!("smart") };
+        sm.source = SmartSource::Embedded { file_name: "inner.pcraft".into(), bytes: Arc::new(contents) };
+        Ok(())
+    })
+    .unwrap();
+    let has_png = |bytes: &[u8]| bytes.windows(png.len()).any(|w| w == png.as_slice());
+    let out = dir.join("contents.psd");
+    let export = |s: &mut Session| {
+        s.execute("layer.smartObjects.exportContents", json!({"path": out.to_str().unwrap()})).unwrap();
+        std::fs::read(&out).unwrap()
+    };
+    assert!(has_png(&export(&mut s)), "a trusted export embeds the linked file");
+    s.authorize = Some(|_, _| Ok(()));
+    assert!(!has_png(&export(&mut s)), "an untrusted export does not");
+    std::fs::remove_dir_all(dir).unwrap();
+}

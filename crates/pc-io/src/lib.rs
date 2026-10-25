@@ -129,11 +129,14 @@ pub struct ExportOptions {
     /// Which part of the document's XMP packet a flat export embeds (PSD/PSB/`.pcraft`
     /// always keep everything). Everything by default, as Save As does; Export As offers None.
     pub xmp: XmpEmbed,
+    /// PSD/PSB and layered TIFF: read and embed the files linked smart objects name (see
+    /// [`PsdExportOptions::read_linked_files`]). On by default; automation turns it off.
+    pub read_linked_files: bool,
 }
 
 impl Default for ExportOptions {
     fn default() -> Self {
-        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All }
+        ExportOptions { encode: EncodeOptions::default(), force_psb: false, tiff_layers: false, xmp: XmpEmbed::All, read_linked_files: true }
     }
 }
 
@@ -232,7 +235,7 @@ fn export_with_projection_inner(
     }
     if ext == "psd" || ext == "psb" {
         psd_generation::admit(doc)?;
-        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", ..Default::default() };
+        let o = PsdExportOptions { force_psb: opts.force_psb || ext == "psb", read_linked_files: opts.read_linked_files, ..Default::default() };
         let prepared = vector_map::fallback::prepare(doc, projection)?;
         psd_generation::admit(&prepared)?;
         let (file, mut warnings) = document_to_psd_with(&prepared, &o);

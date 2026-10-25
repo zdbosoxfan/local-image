@@ -218,3 +218,50 @@ fn layer_block_follows_a_kept_merged_transparency_marker() {
     let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
     assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { index: 0, .. }));
 }
+
+/// A temporary file holding `bytes`.
+fn temp_file(name: &str, bytes: &[u8]) -> String {
+    let path = std::env::temp_dir().join(format!("pc-io-linked-{}-{name}", std::process::id()));
+    std::fs::write(&path, bytes).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+/// An image Local Image can open: a file that embeds it carries these exact bytes, while pixels
+/// written for a layer don't.
+fn png() -> Vec<u8> {
+    let image = photocraft_codecs::Image::from_u8(8, 8, photocraft_codecs::ChannelLayout::Rgb, (0..192u8).collect()).unwrap();
+    photocraft_codecs::encode(&image, photocraft_codecs::Format::Png, &Default::default()).unwrap()
+}
+
+/// A red smart object over an 8×8 RGB canvas, with `source`.
+fn smart_layer(source: photocraft_doc::SmartSource) -> Layer {
+    let fmt = document(8, 8).pixel_format();
+    let mut cache = Surface::new(fmt);
+    cache.fill_rect(photocraft_geom::Rect::new(0, 0, 8, 8), &[1.0, 0.0, 0.0, 1.0]);
+    Layer::new("smart", LayerContent::Smart(photocraft_doc::SmartObject::new(source, photocraft_geom::Affine::IDENTITY, Some(cache))))
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn an_export_that_reads_no_linked_files_writes_linked_smart_objects_as_pixels() {
+    let png = png();
+    let path = temp_file("pixels.png", &png);
+    let mut doc = document(8, 8);
+    doc.layers.push(smart_layer(photocraft_doc::SmartSource::Linked { path: path.clone() }));
+    for ext in ["psd", "psb", "tif"] {
+        let trusted = crate::export(&doc, ext, &crate::ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+        assert!(contains(&trusted.bytes, &png), "{ext}: a trusted save embeds the linked file");
+        let opts = crate::ExportOptions { tiff_layers: true, read_linked_files: false, ..Default::default() };
+        let r = crate::export(&doc, ext, &opts).unwrap();
+        assert!(!contains(&r.bytes, &png), "{ext}: the linked file is not embedded");
+        assert!(r.warnings.iter().any(|w| w.contains("smart object written as pixels")), "{ext}: {:?}", r.warnings);
+        let back = crate::import(&format!("back.{ext}"), &r.bytes).unwrap().document;
+        let layer = back.layers.iter().find(|l| l.name == "smart").unwrap();
+        assert!(matches!(layer.content, LayerContent::Raster(_)), "{ext}: the layer keeps its pixels");
+        assert_eq!(layer.surface().unwrap().rgba(3, 3), [1.0, 0.0, 0.0, 1.0], "{ext}");
+    }
+    std::fs::remove_file(path).unwrap();
+}
