@@ -493,6 +493,54 @@ fn a_template_this_comfyui_cannot_run_is_refused_before_anything_downloads() {
 }
 
 #[test]
+fn a_hidream_o1_template_card_plans_only_its_own_files() {
+    use li_ai::browser::{Kind, Query, Source, View};
+    /// The fixture templates, and every Hugging Face file listed with a size and a SHA-256.
+    struct Fixtures;
+    impl li_ai::browser::Net for Fixtures {
+        fn get(&self, url: &str) -> anyhow::Result<Vec<u8>> {
+            if url.contains("/api/models/") {
+                let paths = [
+                    "text_encoders/gemma4_e4b_it_fp8_scaled.safetensors",
+                    "checkpoints/hidream_o1_image_bf16.safetensors",
+                    "split_files/text_encoders/clip_l_hidream.safetensors",
+                    "split_files/text_encoders/clip_g_hidream.safetensors",
+                    "split_files/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
+                    "split_files/text_encoders/llama_3.1_8b_instruct_fp8_scaled.safetensors",
+                    "split_files/vae/ae.safetensors",
+                ];
+                let tree: Vec<Value> = paths.iter().map(|p| json!({ "type": "file", "path": p, "lfs": { "oid": "ab".repeat(32), "size": 1000 } })).collect();
+                return Ok(serde_json::to_vec(&tree)?);
+            }
+            let name = url.rsplit('/').next().unwrap_or_default();
+            std::fs::read(fixtures().join("comfy-0.42.5/templates").join(name)).map_err(Into::into)
+        }
+        fn head_size(&self, _: &str) -> anyhow::Result<Option<u64>> {
+            Ok(None)
+        }
+    }
+    let index: Value = serde_json::from_slice(&std::fs::read(fixtures().join("comfy-0.42.5/templates/index.json")).unwrap()).unwrap();
+    let cfg = li_ai::browser::Config { templates: "http://templates.invalid/templates".into(), ..Default::default() };
+    let q = Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: Vec::new() };
+    let items = li_ai::browser::items(li_ai::family::registry(), &cfg, &q, &[(Source::Template, index)]);
+    let card = |name: &str| items.iter().find(|i| i.template.as_deref() == Some(name)).unwrap().clone();
+    // The index labels both "HiDream"; only E1 is the HiDream family the builder runs.
+    assert_eq!(card("image_hidream_o1").family, None);
+    assert_eq!(card("hidream_e1_1").family.as_deref(), Some("hidream"));
+    let dir = model_dir(&[]);
+    let server = modelsetup::Snapshot::from_parts(
+        "127.0.0.1:8189",
+        &system_stats("0.42.5", "NVIDIA GeForce RTX 5090"),
+        li_ai::comfy::ObjectInfo::from_bytes(&serde_json::to_vec(&object_info(&dir.0)).unwrap()).unwrap(),
+    );
+    let planned = modelsetup::fixes::plan_template(&card("image_hidream_o1"), &cfg, &Fixtures, &server).unwrap();
+    let plan = planned.plan.unwrap_or_else(|| panic!("{:?}", planned.issues));
+    let mut names: Vec<&str> = plan.files.iter().map(|f| f.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["gemma4_e4b_it_fp8_scaled.safetensors", "hidream_o1_image_bf16.safetensors"], "none of HiDream I1's encoders or VAE");
+}
+
+#[test]
 fn an_installed_template_runs_its_main_file_through_that_template() {
     let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let s = Setup::new(&[

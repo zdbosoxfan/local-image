@@ -203,6 +203,10 @@ pub fn family_for_label(reg: &Registry, label: &str) -> Option<String> {
             return Some(f.id.clone());
         }
     }
+    // A generation no profile lists ("HiDream O1", "Flux.3") is not its older namesake.
+    if matches!(crate::detect::generation(l), crate::detect::Gen::Unknown(_)) {
+        return None;
+    }
     // ComfyUI-Manager's `base` spellings and common Civitai variants.
     let map = [
         ("sd1.5", "sd15"),
@@ -686,10 +690,14 @@ pub fn items(reg: &Registry, cfg: &Config, q: &Query, bodies: &[(Source, Value)]
                     if e.size > 0 {
                         item.files.push(CatalogFile { name: "(template files)".into(), approx_bytes: Some(e.size), ..Default::default() });
                     }
+                    // The index's `models` label names the series ("HiDream" for HiDream-O1 too); a
+                    // template named after a generation no profile describes has no builder family.
+                    let new_generation = matches!(crate::detect::generation(&e.name), crate::detect::Gen::Unknown(_));
                     item.family = e
                         .models
                         .iter()
                         .chain(std::iter::once(&e.name))
+                        .filter(|_| !new_generation)
                         .find_map(|m| family_for_label(reg, m).or_else(|| crate::arch::guess_from_name(m, crate::arch::FileKind::DiffusionModel)))
                         .filter(|f| reg.family(f).is_some());
                     out.push(item);

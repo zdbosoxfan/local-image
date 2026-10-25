@@ -141,6 +141,12 @@ fn family_for_label_variants_and_unknown() {
 
     // Unknown label
     assert_eq!(family_for_label(reg, "totally-unknown"), None);
+
+    // A newer generation is not its older namesake
+    assert_eq!(family_for_label(reg, "HiDream"), Some("hidream".to_string()));
+    assert_eq!(family_for_label(reg, "HiDream O1"), None);
+    assert_eq!(family_for_label(reg, "Qwen Image 3"), None);
+    assert_eq!(family_for_label(reg, "Flux.3"), None);
 }
 
 // model_folder
