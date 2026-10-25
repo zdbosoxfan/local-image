@@ -102,56 +102,10 @@ impl CurveTables {
     }
 }
 
-/// Channel distances from the achromatic axis up to this stay as they are in the output knee, so
-/// colours inside the output gamut keep their saturation.
+/// The output knee ([`crate::gamut::output`]): chroma up to this fraction of the output gamut's
+/// edge, at the colour's OkLab lightness and hue, stays as it is, so colours inside the output gamut
+/// keep their saturation.
 pub const GAMUT_KNEE: f32 = 0.98;
-
-/// Soft compression of each channel's distance from the achromatic axis, `(max − c) / max`, past
-/// `threshold`: distance `limits[i]` lands on the gamut edge (1) along the ACES reference gamut
-/// compression curve (power 1.2, C1 at the threshold, monotone). A channel whose limit is inside
-/// the gamut is left alone; [`gamut_map`] contains whatever remains outside.
-pub fn soft_gamut(r: [f32; 3], threshold: f32, limits: [f32; 3]) -> [f32; 3] {
-    let a = r[0].max(r[1]).max(r[2]);
-    if a <= 1e-9 {
-        return r;
-    }
-    let power = 1.2f32;
-    std::array::from_fn(|i| {
-        let (x, limit) = (r[i], limits[i]);
-        let distance = (a - x) / a;
-        if distance <= threshold || limit <= 1.0 {
-            return x;
-        }
-        let scale = (limit - threshold) / (((1.0 - threshold) / (limit - threshold)).powf(-power) - 1.0).powf(1.0 / power);
-        let u = (distance - threshold) / scale;
-        let compressed = threshold + scale * u / (1.0 + u.powf(power)).powf(1.0 / power);
-        a * (1.0 - compressed)
-    })
-}
-
-/// The output knee's per-channel limits for `to_out` (linear Rec. 2020 → linear output RGB): the
-/// largest distance any colour on the Rec. 2020 gamut edge reaches in that channel, so the whole
-/// working gamut fits the output and nothing inside the output gamut moves.
-pub fn gamut_limits(to_out: &[[f32; 3]; 3]) -> [f32; 3] {
-    const STEPS: usize = 64;
-    let mut limits = [0f32; 3];
-    for (i, j) in [(0, 1), (1, 2), (2, 0)] {
-        for k in 0..=STEPS {
-            let t = k as f32 / STEPS as f32;
-            let mut c = [0f32; 3];
-            c[i] = 1.0 - t;
-            c[j] = t;
-            let r = mul3(to_out, c);
-            let a = r[0].max(r[1]).max(r[2]);
-            if a > 1e-9 {
-                for (l, x) in limits.iter_mut().zip(r) {
-                    *l = l.max((a - x) / a);
-                }
-            }
-        }
-    }
-    limits
-}
 
 /// Position-hashed TPDF noise shared with WGSL; exactly representable 16-bit fractions.
 pub const DITHER_HASH: [u32; 3] = [0x7feb_352d, 0x846c_a68b, 0x9e37_79b9];
@@ -302,8 +256,8 @@ pub struct FinishParams {
     pub curves: Option<CurveTables>,
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
     pub refine_sat: f32,
-    /// The output knee's limits ([`soft_gamut`], [`gamut_limits`]) for raw renders.
-    pub soft_gamut: Option<[f32; 3]>,
+    /// The output knee for raw renders: the output gamut's [`crate::gamut::lms_to`] matrix.
+    pub soft_gamut: Option<[[f32; 3]; 3]>,
     pub vig: Option<Vig>,
     /// Linear Rec.2020 → linear output RGB, the output's luminance weights (gamut mapping) and its
     /// encoding curve (see [`crate::output`]).
@@ -367,7 +321,7 @@ impl FinishParams {
             lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)).filter(|(_, amount)| *amount > 0.0),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
-            soft_gamut: info.raw.then(|| gamut_limits(&space.from_working())),
+            soft_gamut: info.raw.then(|| crate::gamut::lms_to(&space.from_working())),
             refine_sat: (s.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
             vig: if effects { vignette(s) } else { None },
             to_out: space.from_working(),
@@ -837,8 +791,8 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 d
             } else {
                 let r = mul3(to_out, d);
-                let knee = fp.soft_gamut.filter(|_| fp.lut.is_none());
-                gamut_map(knee.map_or(r, |limits| soft_gamut(r, GAMUT_KNEE, limits)), *out_luma).0
+                let knee = fp.soft_gamut.as_ref().filter(|_| fp.lut.is_none());
+                gamut_map(knee.map_or(r, |m| crate::gamut::output(d, r, m, GAMUT_KNEE)), *out_luma).0
             };
 
             // encode, curves, grain
@@ -877,18 +831,22 @@ use crate::layers::mix3;
 struct LutInput {
     to_srgb: [[f32; 3]; 3],
     from_srgb: [[f32; 3]; 3],
-    limits: Option<[f32; 3]>,
+    knee: Option<[[f32; 3]; 3]>,
 }
 
 impl LutInput {
     fn new(soft_gamut: bool) -> LutInput {
         let to_srgb = OutputSpace::Srgb.from_working();
-        LutInput { to_srgb, from_srgb: li_color::SRGB.to_space(&li_color::REC2020).to_f32(), limits: soft_gamut.then(|| gamut_limits(&to_srgb)) }
+        LutInput {
+            to_srgb,
+            from_srgb: li_color::SRGB.to_space(&li_color::REC2020).to_f32(),
+            knee: soft_gamut.then(|| crate::gamut::lms_to(&to_srgb)),
+        }
     }
 
     fn apply(&self, d: [f32; 3], lut: &crate::lut::Lut3d, amount: f32) -> [f32; 3] {
         let r = mul3(&self.to_srgb, d);
-        let r = gamut_map(self.limits.map_or(r, |limits| soft_gamut(r, GAMUT_KNEE, limits)), OutputSpace::Srgb.luma()).0;
+        let r = gamut_map(self.knee.as_ref().map_or(r, |m| crate::gamut::output(d, r, m, GAMUT_KNEE)), OutputSpace::Srgb.luma()).0;
         let e = r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0)));
         let m = lut.apply(e);
         let e: [f32; 3] = std::array::from_fn(|i| e[i] + (m[i] - e[i]) * amount);
@@ -1190,36 +1148,62 @@ mod colour_tone_tests {
         assert!((sum as f64 / 16384. - 0.501 * 255.).abs() < 0.02);
         assert!(hi > lo && hi - lo <= 2, "TPDF quantization support: {lo}..{hi}");
     }
-    #[test]
-    fn soft_gamut_is_identity_interior_monotone_and_continuous() {
-        let limits = gamut_limits(&OutputSpace::Srgb.from_working());
-        let knee = |c| soft_gamut(c, GAMUT_KNEE, limits);
-        assert_eq!(knee([0.3; 3]), [0.3; 3]);
-        assert_eq!(knee([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
-        let mut previous = 1.0f32;
-        for i in 0..3000 {
-            let d = i as f32 / 1000.;
-            let mapped = knee([1., 1. - d, 0.8]);
-            assert!(mapped.iter().all(|v| v.is_finite()));
-            assert!(mapped[1] <= previous + 1e-6);
-            assert!((mapped[1] - previous).abs() < 0.0011);
-            previous = mapped[1];
+    /// Colours on the Rec. 2020 gamut's edge: mixes of two primaries at full level.
+    fn rec2020_edge() -> Vec<[f32; 3]> {
+        let mut edge = Vec::new();
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            for k in 0..=64 {
+                let t = k as f32 / 64.0;
+                let mut c = [0f32; 3];
+                c[i] = 1.0 - t;
+                c[j] = t;
+                edge.push(c);
+            }
         }
-        let e = 1e-5;
-        let at = 1.0 - GAMUT_KNEE;
-        assert!((knee([1., at - e, 0.8])[1] - knee([1., at + e, 0.8])[1]).abs() < 3e-5);
-        // the Rec. 2020 edge lands on the output edge
-        let edge = mul3(&OutputSpace::Srgb.from_working(), [0.0, 0.0, 1.0]);
-        assert!(knee(edge).iter().all(|v| *v >= -1e-4), "{:?}", knee(edge));
+        edge
+    }
+
+    #[test]
+    fn output_knee_is_identity_inside_and_lands_the_working_edge_on_the_output_edge() {
+        use li_color::perceptual::{lab_to_lch, lch_to_lab, oklab_from_2020, oklab_to_2020};
+        for space in [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::AdobeRgb] {
+            let to_out = space.from_working();
+            let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
+            let m = crate::gamut::lms_to(&to_out);
+            let knee = |r: [f32; 3]| crate::gamut::output(mul3(&from_out, r), r, &m, GAMUT_KNEE);
+            assert_eq!(knee([0.3; 3]), [0.3; 3]);
+            assert_eq!(knee([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
+            let inside = |r: [f32; 3], n: f32, slack: f32| r.iter().all(|v| *v >= -slack * n && *v <= 1.0 + slack * (1.0 - n));
+            for d in rec2020_edge() {
+                let r = mul3(&to_out, d);
+                let out = crate::gamut::output(d, r, &m, GAMUT_KNEE);
+                if inside(r, 0.0, 0.0) {
+                    // Display P3's red reaches a sliver past Rec. 2020's
+                    assert_eq!(out, r, "{}: {d:?}", space.label());
+                    continue;
+                }
+                let [l0, c0, h0] = lab_to_lch(oklab_from_2020(d));
+                let [l, c, h] = lab_to_lch(oklab_from_2020(mul3(&from_out, out)));
+                assert!((l - l0).abs() < 1e-3 && (h - h0).abs() < 1e-3 && c < c0, "{}: {d:?} -> {out:?}", space.label());
+                // it reaches the output's edge: no less chroma than where the line first leaves
+                // the output gamut (lines that fold back out and in again reach further)
+                let at = |chroma: f32| inside(mul3(&to_out, oklab_to_2020(lch_to_lab([l, chroma, h]))), 0.0, 0.0);
+                let first = (1..=4000).map(|i| i as f32 * c0 / 4000.0).find(|chroma| !at(*chroma)).unwrap_or(c0);
+                assert!(c >= first * 0.995, "{}: {d:?} -> {out:?} stops at chroma {c}, the edge is at {first}", space.label());
+            }
+        }
     }
 
     #[test]
     fn output_knee_keeps_in_gamut_colours_in_every_output_space() {
         use crate::metrics::{delta_e, lab};
         let from_srgb = li_color::SRGB.to_space(&li_color::REC2020).to_f32();
-        let out = |space: OutputSpace, d: [f32; 3]| {
+        let knee = |space: OutputSpace, d: [f32; 3]| {
             let to_out = space.from_working();
-            let r = gamut_map(soft_gamut(mul3(&to_out, d), GAMUT_KNEE, gamut_limits(&to_out)), space.luma()).0;
+            crate::gamut::output(d, mul3(&to_out, d), &crate::gamut::lms_to(&to_out), GAMUT_KNEE)
+        };
+        let out = |space: OutputSpace, d: [f32; 3]| {
+            let r = gamut_map(knee(space, d), space.luma()).0;
             mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), r)
         };
         let patch = |rgb: [u8; 3]| mul3(&from_srgb, rgb.map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.0)));
@@ -1233,10 +1217,16 @@ mod colour_tone_tests {
             let e = delta_e(lab(out(OutputSpace::Srgb, d)), lab(out(OutputSpace::ProPhoto, d)));
             assert!(e < tolerance, "{rgb:?}: sRGB vs ProPhoto dE00 {e}");
         }
-        // wider spaces hold (nearly) the whole working gamut: (almost) nothing is compressed
+        // wider spaces hold (nearly) the whole working gamut: its edge keeps its OkLab hue and
+        // loses at most 1.2 % of its chroma (ProPhoto's blue face cuts 0.28 % into Rec. 2020's red
+        // corner, at a grazing angle to the OkLab hue line, and the final containment clips that
+        // sliver)
+        let lch = |c: [f32; 3]| li_color::perceptual::lab_to_lch(li_color::perceptual::oklab_from_2020(c));
         for space in [OutputSpace::ProPhoto, OutputSpace::Rec2020] {
-            let limits = gamut_limits(&space.from_working());
-            assert!(limits.iter().all(|l| *l <= 1.005), "{}: {limits:?}", space.label());
+            for d in rec2020_edge() {
+                let ([_, c0, h0], [_, c, h]) = (lch(d), lch(out(space, d)));
+                assert!(c >= c0 * 0.988 && (h - h0).abs() < 3e-3, "{}: {d:?} chroma x{}, hue {}", space.label(), c / c0, h - h0);
+            }
         }
     }
 

@@ -2,9 +2,9 @@ use lightcraft_develop::{DevelopSettings, LocalAdjustments};
 use lightcraft_pipeline::{
     OutputSpace, SourceInfo,
     finish::{
-        FinishParams, GAMUT_KNEE, MASK_SUMS, MASK_TERMS, SRGB_LUT_N, defringe_weight, dither8, gamut_limits, gamut_map, mask_terms,
-        refine_saturation, soft_gamut, srgb_lut,
+        FinishParams, GAMUT_KNEE, MASK_SUMS, MASK_TERMS, SRGB_LUT_N, defringe_weight, dither8, gamut_map, mask_terms, refine_saturation, srgb_lut,
     },
+    gamut,
     geometry::Frame,
 };
 
@@ -34,10 +34,13 @@ fn zero_local_adjustments() -> LocalAdjustments {
 }
 
 #[test]
-fn soft_gamut_outputs_are_finite_and_do_not_increase_max_channel() {
+fn output_knee_outputs_are_finite_and_do_not_increase_max_channel() {
     let samples = [[1.0, 0.2, 0.8], [1.0, 1.0, 0.0], [1.5, -0.5, 2.0], [0.1, -0.2, 0.3], [10.0, -10.0, 5.0]];
+    let to_out = OutputSpace::Srgb.from_working();
+    let from_out = OutputSpace::Srgb.rgb_space().to_space(&li_color::REC2020).to_f32();
     for c in samples {
-        let out = soft_gamut(c, GAMUT_KNEE, gamut_limits(&OutputSpace::Srgb.from_working()));
+        let d: [f32; 3] = std::array::from_fn(|i| (0..3).map(|j| from_out[i][j] * c[j]).sum());
+        let out = gamut::output(d, c, &gamut::lms_to(&to_out), GAMUT_KNEE);
         assert!(out.iter().all(|v| v.is_finite()), "non-finite for {c:?}: {out:?}");
         let orig_max = c.iter().fold(f32::NEG_INFINITY, |a, b| a.max(*b));
         let out_max = out.iter().fold(f32::NEG_INFINITY, |a, b| a.max(*b));

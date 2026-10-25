@@ -777,6 +777,35 @@ fn gamut_knees_match_in_every_output_space() {
     }
 }
 
+/// The hue-preserving knees (`lightcraft_pipeline::gamut`, `gamut_*` in WGSL) and the colour
+/// mixer's hue hold, on constant OkLab hue and lightness sweeps from neutral to far past Rec. 2020.
+#[test]
+fn hue_preserving_knees_and_mixer_hue_hold_match() {
+    let _gpu = crate::support::lock();
+    require_gpu();
+    use lightcraft_pipeline::OutputSpace;
+    let (w, h) = (240, 144);
+    let src = Arc::new(RgbFrame::from_fn(w, h, |x, y| {
+        let hue = (y / 4) as f32 * std::f32::consts::TAU / 36.0;
+        let l = [0.35, 0.55, 0.7, 0.85][y % 4];
+        let c = x as f32 / (w - 1) as f32 * 0.45;
+        li_color::perceptual::oklab_to_2020([l, c * hue.cos(), c * hue.sin()])
+    }));
+    let mut mixer = DevelopSettings::default();
+    for band in [&mut mixer.mixer.red, &mut mixer.mixer.yellow, &mut mixer.mixer.aqua, &mut mixer.mixer.blue, &mut mixer.mixer.magenta] {
+        band.sat = 80.0;
+        band.lum = -60.0;
+    }
+    mixer.mixer.orange.hue = 40.0;
+    for (kind, info) in [("raw", SourceInfo { raw: true, ..Default::default() }), ("rendered", SourceInfo::default())] {
+        for space in OutputSpace::ALL {
+            let req = RenderRequest { space, ..RenderRequest::fit(w, h) };
+            check(&format!("hue knees {kind} {space:?}"), &src, &info, &DevelopSettings::default(), &req);
+            check(&format!("hue knees mixer {kind} {space:?}"), &src, &info, &mixer, &req);
+        }
+    }
+}
+
 /// All combinations use the common uploaded tone tables and the per-channel hue kernel.
 #[test]
 fn colour_tone_looks_bases_hue_and_rolloff() {

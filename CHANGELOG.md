@@ -140,12 +140,15 @@ All notable changes to Local Image are recorded here. The format follows
   of leaving warm light 3-13% off neutral. Picked values keep two decimals, so strongly coloured
   light is not left off neutral by rounding. Clicking on black shows a message instead of resetting
   to As Shot.
-- Develop colour on raws: colours inside the export's gamut keep their saturation. The output knee
-  used to start at 80% of the gamut distance, so saturated yellows, oranges and reds came out washed
-  out (ColorChecker yellow dE00 2.9 in sRGB) and differently in sRGB, Display P3, Adobe RGB and
-  ProPhoto exports; it now starts at 98% and only makes room for the working gamut that does not fit
-  the output space. Scene colours past Rec. 2020 (LED coves, neon) roll off towards its edge instead
-  of being clipped onto it.
+- Develop colour on raws: colours inside the export's gamut keep their saturation, and colours
+  outside it keep their hue. The output knee used to start at 80% of the gamut distance, so
+  saturated yellows, oranges and reds came out washed out (ColorChecker yellow dE00 2.9 in sRGB) and
+  differently in sRGB, Display P3, Adobe RGB and ProPhoto exports; it now starts at 98% and only
+  makes room for the working gamut that does not fit the output space. Colours outside the export's
+  gamut move towards grey at constant OkLab lightness and hue instead of being compressed channel by
+  channel, which bent saturated blues towards purple and cyan and oranges towards red. Scene colours
+  past Rec. 2020 (LED coves, neon) roll off towards its edge the same way instead of being clipped
+  onto it.
 - LUT profiles (`.cube`, `.3dl`, `.look`) get sRGB / Rec. 709 display values in every export colour
   space, so a look that is right in the preview exports the same to Display P3, Adobe RGB and
   ProPhoto, a soft proof shows it, and adding an adjustment layer no longer changes it. On raws the
