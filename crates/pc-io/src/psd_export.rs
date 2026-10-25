@@ -793,13 +793,14 @@ impl Ex {
                     // non-regular files and files past the input limit.
                     let bytes = photocraft_format::read_file(std::path::Path::new(path)).map_err(|e| format!("the linked file {path} can't be read: {e}"))?;
                     let name = path.rsplit(['/', '\\']).next().unwrap_or(path).to_string();
+                    let source = self.embed(&name, &bytes, true)?;
                     self.warnings.push(format!("the linked smart object {name} was embedded (PSD export keeps no external links)"));
-                    self.embed(&name, &bytes)
+                    Ok(source)
                 }
                 #[cfg(target_arch = "wasm32")]
                 Err(format!("the linked file {path} can't be read here"))
             }
-            SmartSource::Embedded { file_name, bytes } => self.embed(file_name, bytes),
+            SmartSource::Embedded { file_name, bytes } => self.embed(file_name, bytes, false),
         }
     }
 
@@ -840,18 +841,20 @@ impl Ex {
     }
 
     /// Adds `bytes` as an embedded file (converted to PSB when it is a `.pcraft` bundle), once
-    /// per distinct content.
-    fn embed(&mut self, file_name: &str, bytes: &[u8]) -> Result<Source, String> {
+    /// per distinct content. `linked`: the bytes were read from a path the document names, so
+    /// only a file Local Image can open is embedded (a link to a text or settings file is written
+    /// as pixels instead).
+    fn embed(&mut self, file_name: &str, bytes: &[u8], linked: bool) -> Result<Source, String> {
         let key = *blake3::hash(bytes).as_bytes();
         if let Some(r) = self.smart.converted.get(&key) {
             return r.clone();
         }
-        let r = self.convert_source(file_name, bytes);
+        let r = self.convert_source(file_name, bytes, linked);
         self.smart.converted.insert(key, r.clone());
         r
     }
 
-    fn convert_source(&mut self, file_name: &str, bytes: &[u8]) -> Result<Source, String> {
+    fn convert_source(&mut self, file_name: &str, bytes: &[u8], linked: bool) -> Result<Source, String> {
         let (name, data, size, dpi, nested) = if photocraft_format::is_pcraft(bytes) {
             if self.smart.depth >= MAX_NESTING {
                 return Err(format!("smart objects nest more than {MAX_NESTING} deep"));
@@ -865,8 +868,13 @@ impl Ex {
             let size = (f64::from(doc.size.width), f64::from(doc.size.height));
             (format!("{stem}.psb"), data, size, f64::from(doc.resolution_dpi), Some(doc))
         } else {
-            // Formats we can't decode (vector PDF/AI…) are still embedded; their size comes from the layer.
-            let (size, dpi) = source_geometry(file_name, bytes).unwrap_or(((0.0, 0.0), f64::from(self.dpi)));
+            // Embedded formats we can't decode (vector PDF/AI…) are kept; their size comes from the
+            // layer. A linked file we can't decode is not embedded.
+            let (size, dpi) = match source_geometry(file_name, bytes) {
+                Ok(geometry) => geometry,
+                Err(e) if linked => return Err(format!("the linked file {file_name} is not an image Local Image can open: {e}")),
+                Err(_) => ((0.0, 0.0), f64::from(self.dpi)),
+            };
             (file_name.to_string(), bytes.to_vec(), size, dpi, None)
         };
         let uuid = crate::smart_map::uuid_from(&data);

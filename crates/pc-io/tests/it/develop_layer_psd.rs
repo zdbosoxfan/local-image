@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use lightcraft_raw::testgen::{DngSpec, mosaic, scene};
+use lightcraft_raw::testgen::{DngSpec, mosaic, scene, tiff_ep};
 use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image};
 use photocraft_doc::{DevelopLink, Document, LayerContent, SmartFilter, SmartObject, SmartSource};
 use photocraft_io::smart_map::{DEVELOP_LAYER_MARKER, filter_from_item, item_for_filter, parse_sold};
@@ -152,5 +152,37 @@ fn library_identity_survives_two_layered_format_cycles() {
             doc = import(&format!("identity.{ext}"), &result.bytes).unwrap().document;
             assert_eq!(smart(&doc).develop.as_ref(), Some(&expected), "{ext}: origin lost");
         }
+    }
+}
+
+/// A Develop layer opened from a raw file links that file (`develop.openPhoto`). A layered save
+/// embeds only a linked file Local Image can open, and a camera raw is one: DNG (Mavic) and
+/// TIFF/EP raws (Sony ARW, Nikon NEF) keep their source in PSD, PSB and layered TIFF.
+#[test]
+fn develop_layers_linked_to_their_raw_embed_it() {
+    let (w, h) = (40, 24);
+    let cfa = mosaic(&scene(w, h), w, [0, 1, 1, 2], 0, 65535);
+    let raws = [
+        ("shot.dng", dng()),
+        ("shot.arw", tiff_ep("SONY", w, h, &cfa, [0, 1, 1, 2], 16, vec![])),
+        ("shot.nef", tiff_ep("NIKON CORPORATION", w, h, &cfa, [0, 1, 1, 2], 16, vec![])),
+    ];
+    for (file, bytes) in raws {
+        let path = std::env::temp_dir().join(format!("pc-io-develop-link-{}-{file}", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        let l = link(0.5, Some(3));
+        let mut doc = develop_doc("shot.dng", &dng(), l.clone());
+        smart_mut(&mut doc).source = SmartSource::Linked { path: path.to_string_lossy().into_owned() };
+        for ext in ["psd", "psb", "tif"] {
+            let r = export(&doc, ext, &ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+            assert!(!r.warnings.iter().any(|w| w.contains("written as pixels")), "{file} {ext}: {:?}", r.warnings);
+            let back = import(&format!("back.{ext}"), &r.bytes).unwrap().document;
+            let sm = smart(&back);
+            assert_eq!(sm.develop, Some(l.clone()), "{file} {ext}");
+            let SmartSource::Linked { path: uuid } = &sm.source else { panic!("PSD import keeps sources as uuids") };
+            let embedded = photocraft_io::linked::find_linked_file(&back.metadata, uuid).map(|f| f.bytes);
+            assert_eq!(embedded.as_ref(), Some(&bytes), "{file} {ext}: the raw file is embedded");
+        }
+        std::fs::remove_file(path).unwrap();
     }
 }

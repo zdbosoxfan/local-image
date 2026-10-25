@@ -280,3 +280,21 @@ fn links_to_device_and_kernel_files_are_not_read() {
         assert!(!file.global_blocks.iter().any(|b| &b.key == b"lnk2"), "{path}: nothing is embedded");
     }
 }
+
+/// A link to a file Local Image can't open (a text or settings file) is never embedded: a saved
+/// PSD would otherwise carry bytes no reader can show as the layer's contents. The layer is
+/// written as pixels.
+#[test]
+fn links_to_files_that_are_not_images_are_never_embedded() {
+    const TEXT: &[u8] = b"plain text, not an image\nlocal-image-text-marker\n";
+    let path = temp_file("readme", TEXT);
+    let mut doc = document(8, 8);
+    doc.layers.push(smart_layer(photocraft_doc::SmartSource::Linked { path: path.clone() }));
+    for ext in ["psd", "psb", "tif"] {
+        let r = crate::export(&doc, ext, &crate::ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+        assert!(!contains(&r.bytes, TEXT), "{ext}: the text file is not embedded");
+        assert!(r.warnings.iter().any(|w| w.contains("smart object written as pixels") && w.contains("not an image")), "{ext}: {:?}", r.warnings);
+        assert!(!r.warnings.iter().any(|w| w.contains("was embedded")), "{ext}: {:?}", r.warnings);
+    }
+    std::fs::remove_file(path).unwrap();
+}
