@@ -18,7 +18,9 @@
 //! `.pat` file is `8BPT`, version u16 (1), count u32, then the patterns without length prefixes.
 //! Photoshop writes the channel count as 24 and only marks the real channels as written; like
 //! ag-psd (MIT) we take the first written arrays as the colour channels and the next one as
-//! transparency.
+//! transparency. Photoshop stores a pattern's transparency in the last (sheet mask) array and
+//! leaves the user mask unwritten (psd-tools multichannel-pattern-fill.psd, Photoshop CC 2019); it
+//! refuses a file with transparency in the user mask array.
 
 use crate::compression::{Compression, MAX_DECODED_BYTES, PlaneLayout, decode_planes, encode_planes};
 use crate::error::{PsdError, Result};
@@ -347,12 +349,12 @@ fn write_pattern(p: &PsdPattern, out: &mut Vec<u8>) -> Result<()> {
     for _ in nc..SLOTS as usize {
         body.extend_from_slice(&0u32.to_be_bytes());
     }
-    // User mask slot: transparency; sheet mask slot: unused.
+    // User mask slot: unused; sheet mask slot: transparency, where Photoshop keeps it.
+    body.extend_from_slice(&0u32.to_be_bytes());
     match &p.alpha {
         Some(a) => array(a, &mut body)?,
         None => body.extend_from_slice(&0u32.to_be_bytes()),
     }
-    body.extend_from_slice(&0u32.to_be_bytes());
     out.extend_from_slice(&3u32.to_be_bytes());
     out.extend_from_slice(&(body.len() as u32).to_be_bytes());
     out.extend_from_slice(&body);
@@ -493,6 +495,45 @@ mod tests {
 
     fn set_i32(bytes: &mut [u8], offset: usize, value: i32) {
         bytes[offset..offset + 4].copy_from_slice(&value.to_be_bytes());
+    }
+
+    /// Offsets of the virtual memory arrays of a one-pattern block (each at its "written" flag),
+    /// with whether each is written, and the end of the array list.
+    fn vma_slots(block: &[u8], p: &PsdPattern) -> (Vec<(usize, bool)>, usize) {
+        let rect = pattern_vma_rect_offset(4, p);
+        let end = rect + u32::from_be_bytes(block[rect - 4..rect].try_into().unwrap()) as usize;
+        let (mut at, mut slots) = (rect + 20, Vec::new());
+        while at < end {
+            let written = u32::from_be_bytes(block[at..at + 4].try_into().unwrap()) != 0;
+            slots.push((at, written));
+            at += 4;
+            if written {
+                at += 4 + u32::from_be_bytes(block[at..at + 4].try_into().unwrap()) as usize;
+            }
+        }
+        (slots, end)
+    }
+
+    #[test]
+    fn transparency_goes_in_the_sheet_mask_array_like_photoshop() {
+        // Transparency in the user mask array (slot 24) made Photoshop refuse the file;
+        // Photoshop keeps it in the sheet mask array (slot 25).
+        for depth in [8, 16, 32] {
+            let p = pat(depth, true);
+            let mut block = write_pattern_block(std::slice::from_ref(&p)).unwrap();
+            let (slots, end) = vma_slots(&block, &p);
+            let written: Vec<usize> = slots.iter().enumerate().filter(|(_, s)| s.1).map(|(i, _)| i).collect();
+            assert_eq!((slots.len(), written), (26, vec![0, 1, 2, 25]), "{depth}-bit");
+            // The layout earlier builds wrote still opens.
+            block[slots[24].0..end].rotate_left(4);
+            let (slots, _) = vma_slots(&block, &p);
+            assert!(slots[24].1 && !slots[25].1);
+            assert_eq!(parse_pattern_block(&block).unwrap(), vec![p]);
+        }
+        let opaque = pat(8, false);
+        let (slots, _) = vma_slots(&write_pattern_block(std::slice::from_ref(&opaque)).unwrap(), &opaque);
+        assert_eq!(slots.iter().filter(|s| s.1).count(), 3);
+        assert_eq!(slots.len(), 26);
     }
 
     #[test]
