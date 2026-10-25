@@ -49,5 +49,6 @@ mod tests {
         for url in [APP_PAGE, GITHUB, HELP, FEEDBACK] {
             assert!(url.starts_with("https://github.com/zdbosoxfan/local-image"), "{url}");
         }
+        assert!(HELP.ends_with("/tree/main/docs"), "Help opens the live docs on main, not a frozen branch: {HELP}");
     }
 }
