@@ -35,6 +35,13 @@ fn selected_pixel_layers(s: &Session) -> Vec<LayerId> {
     st.selected_layers().into_iter().filter(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Raster(_)))).collect()
 }
 
+/// A Background's built-in position lock permits conversion to an ordinary layer when moved.
+fn pinned(doc: &Document, id: LayerId) -> bool {
+    let locks = doc.effective_locks(id);
+    let background = doc.layers.first().is_some_and(|l| l.id == id && crate::extra_cmds::is_background(l));
+    locks.all || locks.pixels || (locks.position && !background)
+}
+
 fn two_layers(s: &Session) -> std::result::Result<(), String> {
     s.active().ok_or("no document open")?;
     if selected_pixel_layers(s).len() < 2 { Err("select two or more pixel layers in the Layers panel".into()) } else { Ok(()) }
@@ -54,7 +61,7 @@ fn auto_align(s: &mut Session, p: &Value) -> Result<Value> {
     let reference = match p.get("reference").and_then(Value::as_u64) {
         Some(r) if ids.contains(&LayerId(r)) => LayerId(r),
         Some(r) => return Err(bad(cmd, format!("reference {r} is not a selected pixel layer"))),
-        None => ids[0],
+        None => ids.iter().copied().find(|id| pinned(&doc, *id)).unwrap_or(ids[0]),
     };
     let ref_idx = ids.iter().position(|i| *i == reference).unwrap_or(0);
     let area = doc.bounds();
@@ -77,6 +84,9 @@ fn auto_align(s: &mut Session, p: &Value) -> Result<Value> {
     if moves.is_empty() {
         return Err(EngineError::Other("Auto-Align couldn't find enough matching detail between the layers".into()));
     }
+    if let Some(l) = moves.iter().find(|&&i| pinned(&doc, ids[i])).and_then(|&i| doc.layer(ids[i])) {
+        return Err(EngineError::Other(format!("Auto-Align can't move the locked layer \"{}\"", l.name)));
+    }
     let warped: Vec<(LayerId, Surface, Option<Surface>)> = moves
         .iter()
         .map(|&i| {
@@ -94,6 +104,7 @@ fn auto_align(s: &mut Session, p: &Value) -> Result<Value> {
         .collect::<Result<_>>()?;
     s.edit("Auto-Align Layers", |doc, _| {
         for (id, px, mask) in &warped {
+            crate::extra_cmds::background_to_layer(doc, *id);
             let l = doc.layer_mut(*id).ok_or(EngineError::NoLayer(*id))?;
             if let Some(surf) = l.surface_mut() {
                 *surf = px.clone();
@@ -225,7 +236,7 @@ pub fn specs() -> Vec<CommandSpec> {
         spec!(
             "edit.autoAlignLayers",
             "Auto-Align Layers…",
-            r##"{"projection":"auto|perspective|cylindrical|spherical|collage|reposition","reference":layer id?=bottom selected layer,"geometricCorrection":bool=false,"interpolation":"bicubic|bilinear|nearest"}"##,
+            r##"{"projection":"auto|perspective|cylindrical|spherical|collage|reposition","reference":layer id?=the locked selected layer, else the bottom selected layer,"geometricCorrection":bool=false,"interpolation":"bicubic|bilinear|nearest"}"##,
             auto_align
         ),
         spec!("edit.autoBlendLayers", "Auto-Blend Layers…", r##"{"method":"panorama|stack","seamlessTones":bool=true}"##, auto_blend),
@@ -356,8 +367,14 @@ mod tests {
     /// Deterministic texture written into a layer at offset (dx, dy).
     fn texture_layer(s: &mut Session, name: &str, dx: i32, dy: i32) -> LayerId {
         s.execute("layer.new.layer", json!({"name": name})).unwrap();
-        s.edit("tex", |doc, active| {
-            let surf = doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap();
+        let id = s.active().unwrap().active_layer.unwrap();
+        paint_texture(s, id, dx, dy);
+        id
+    }
+
+    fn paint_texture(s: &mut Session, id: LayerId, dx: i32, dy: i32) {
+        s.edit("tex", |doc, _| {
+            let surf = doc.layer_mut(id).unwrap().surface_mut().unwrap();
             let mut seed = 99u64;
             let mut rnd = || {
                 seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
@@ -373,7 +390,6 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        s.active().unwrap().active_layer.unwrap()
     }
 
     fn select(s: &mut Session, ids: &[LayerId]) {
@@ -512,5 +528,81 @@ mod tests {
             assert_eq!(b[i] + b[i + 2], 120.);
             assert!(s.undo());
         }
+    }
+    #[test]
+    fn auto_align_keeps_a_locked_layer_as_the_reference() {
+        for lock in ["all", "position", "pixels"] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 300, "height": 240, "background": "transparent"})).unwrap();
+            let a = texture_layer(&mut s, "A", 20, 20);
+            let b = texture_layer(&mut s, "B", 31, 13);
+            s.edit("lock", |doc, _| {
+                doc.layer_mut(b).unwrap().locks =
+                    photocraft_doc::Locks { all: lock == "all", position: lock == "position", pixels: lock == "pixels", ..Default::default() };
+                Ok(())
+            })
+            .unwrap();
+            select(&mut s, &[a, b]);
+            let r = s.execute("edit.autoAlignLayers", json!({"projection": "reposition"})).unwrap();
+            assert_eq!(r["reference"], b.0, "{lock}: {r}");
+            let doc = &s.active().unwrap().doc;
+            let bb = doc.layer(b).unwrap().surface().unwrap().content_bounds();
+            assert_eq!((bb.x0, bb.y0), (31, 13), "{lock}: the locked layer stays put");
+            let ab = doc.layer(a).unwrap().surface().unwrap().content_bounds();
+            assert!((ab.x0 - 31).abs() <= 1 && (ab.y0 - 13).abs() <= 1, "{lock}: {ab:?} {r}");
+            // An explicit reference that would move the locked layer is refused.
+            s.undo();
+            assert!(s.execute("edit.autoAlignLayers", json!({"projection": "reposition", "reference": a.0})).is_err());
+            // Two locked layers: nothing may move.
+            s.edit("lock", |doc, _| {
+                doc.layer_mut(a).unwrap().locks =
+                    photocraft_doc::Locks { all: lock == "all", position: lock == "position", pixels: lock == "pixels", ..Default::default() };
+                Ok(())
+            })
+            .unwrap();
+            assert!(s.execute("edit.autoAlignLayers", json!({"projection": "reposition"})).is_err());
+            let bb = s.active().unwrap().doc.layer(a).unwrap().surface().unwrap().content_bounds();
+            assert_eq!((bb.x0, bb.y0), (20, 20));
+        }
+    }
+
+    #[test]
+    fn auto_align_moves_the_background_as_a_normal_layer() {
+        let setup = || {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 300, "height": 240, "background": "white"})).unwrap();
+            let bg = s.active().unwrap().doc.layers[0].id;
+            paint_texture(&mut s, bg, 20, 20);
+            let b = texture_layer(&mut s, "B", 31, 13);
+            select(&mut s, &[bg, b]);
+            (s, bg, b)
+        };
+        for projection in ["cylindrical", "spherical", "auto"] {
+            let (mut s, bg, b) = setup();
+            let r = s.execute("edit.autoAlignLayers", json!({"projection": projection})).unwrap_or_else(|e| panic!("{projection}: {e}"));
+            let doc = &s.active().unwrap().doc;
+            let moved = r["aligned"].as_array().unwrap().iter().any(|a| a["layer"] == bg.0);
+            assert_eq!(moved, projection != "auto" || r["layout"] != "perspective", "{projection}: {r}");
+            assert_eq!(crate::extra_cmds::is_background(doc.layer(bg).unwrap()), !moved, "{projection}: a moved Background is a normal layer: {r}");
+            if moved {
+                assert_eq!(doc.layer(bg).unwrap().name, "Layer 0", "{projection}");
+            }
+            assert!(doc.layer(b).is_some(), "{projection}");
+            s.undo();
+            assert!(crate::extra_cmds::is_background(s.active().unwrap().doc.layer(bg).unwrap()), "{projection}: undo restores the Background");
+        }
+        // Planar, with the other layer as the reference: the Background moves onto it.
+        let (mut s, bg, b) = setup();
+        s.execute("edit.autoAlignLayers", json!({"projection": "reposition", "reference": b.0})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        assert!(!crate::extra_cmds::is_background(doc.layer(bg).unwrap()));
+        // Default reference: the Background (bottom) stays put and stays the Background.
+        let (mut s, bg, b) = setup();
+        let r = s.execute("edit.autoAlignLayers", json!({"projection": "reposition"})).unwrap();
+        assert_eq!(r["reference"], bg.0, "{r}");
+        let doc = &s.active().unwrap().doc;
+        assert!(crate::extra_cmds::is_background(doc.layer(bg).unwrap()));
+        let bb = doc.layer(b).unwrap().surface().unwrap().content_bounds();
+        assert!((bb.x0 - 20).abs() <= 1 && (bb.y0 - 20).abs() <= 1, "{bb:?} {r}");
     }
 }
