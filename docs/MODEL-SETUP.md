@@ -80,10 +80,11 @@ while ComfyUI's queue is empty. It uses the same generation path as Generate:
 - **Fill**: the same picture with the area around its sun selected, "a red ball".
 
 Each image is measured: black, blank white, a single flat colour, noise, the wrong size, an edit or
-fill that changed nothing, or a refine that changed the picture too much (difference over 35) fail
-that tool; a picture that doesn't show a red ball in the middle is a warning (it usually means the
-text encoder doesn't fit). Create failing marks the model failed; another tool failing turns only
-that tool off. Time, the first-run flag and the GPU memory in use during the test are recorded, and
+fill that changed nothing, a fill that changed the picture outside its selection, or a refine that
+changed the picture too much (difference over 35) fail that tool (Fill is judged on the middle of
+its selection); a picture that doesn't show a red ball in the middle is a warning (it usually
+means the text encoder doesn't fit). Create failing marks the model failed; another tool failing
+turns only that tool off until the model is verified again. Time, the first-run flag and the GPU memory in use during the test are recorded, and
 ComfyUI's memory is freed after each model.
 
 If a test times out while ComfyUI's queue shows the prompt as pending and nothing running,

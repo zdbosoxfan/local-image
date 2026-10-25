@@ -1,13 +1,15 @@
 //! Verification: a few small test renders through the same generation path the app uses
 //! ([`crate::ops::Ai`], submitting only to an idle queue), judged by image measurements that
 //! catch the silent failures of a wrong text encoder, VAE or precision (black, blank, flat or
-//! noise images, an edit that changes nothing, a refine that drifts). Runs only when asked, one
-//! model at a time, and frees ComfyUI's memory afterwards.
+//! noise images, an edit or fill that changes nothing, a fill that spills outside its selection,
+//! a refine that drifts). Runs only when asked, one model at a time, and frees ComfyUI's memory
+//! afterwards.
 //!
 //! Thresholds: `luma_mean < 8` black; `luma_mean > 247 && luma_std < 6` white; `luma_std < 6`
 //! flat; `noise_ratio > 0.65` noise (latent-scale noise measures about 1, natural pictures under
-//! 0.4); refine difference over [`crate::refine::PASS_LIMIT`]; edit difference under 0.8; fill
-//! difference inside the mask under 8. Soft checks (warnings): Create `red_centre < 0.15 ||
+//! 0.4); refine difference over [`crate::refine::PASS_LIMIT`]; edit difference under 0.8. Fill
+//! applies the image checks to the middle half of the selection's box, and fails a difference
+//! inside the mask under 8 or outside it over 8. Soft checks (warnings): Create `red_centre < 0.15 ||
 //! ring_luma < 150`, Edit `blue_centre < 0.15 || ring_diff > 30`.
 //!
 //! Measured on 2026-10-24 (ComfyUI 0.42.5, RTX 5090; FLUX.3 Klein base and distilled, Krea 2
@@ -49,6 +51,7 @@ const FLAT_STD: f64 = 6.0;
 const NOISE_RATIO: f64 = 0.65;
 const EDIT_NOCHANGE: f64 = 0.8;
 const FILL_NOCHANGE: f64 = 8.0;
+const FILL_OUTSIDE: f64 = 8.0;
 const PROMPT_RED: f64 = 0.15;
 const PROMPT_RING_LUMA: f64 = 150.0;
 const EDIT_BLUE: f64 = 0.15;
@@ -191,6 +194,39 @@ pub fn masked_difference(a: &RgbImage, b: &RgbImage, mask: &GrayImage) -> (f64, 
         }
     }
     (inside / f64::max(ni, 1.0), outside / f64::max(no, 1.0))
+}
+
+/// The core `(x, y, width, height)` of the fill test's selection in an image of `w x h`: the
+/// middle half of its box, which the feathered composite replaces almost entirely.
+fn fill_core(w: u32, h: u32) -> (u32, u32, u32, u32) {
+    let (x0, y0, x1, y1) = MASK_BOX;
+    let (qx, qy) = ((x1 - x0) / 4.0, (y1 - y0) / 4.0);
+    let (left, top) = (((x0 + qx) * w as f32).round() as u32, ((y0 + qy) * h as f32).round() as u32);
+    let (right, bottom) = ((((x1 - qx) * w as f32).round() as u32).min(w), (((y1 - qy) * h as f32).round() as u32).min(h));
+    (left, top, right.saturating_sub(left).max(1), bottom.saturating_sub(top).max(1))
+}
+
+/// Judges a fill of `picture`'s selection `mask` that came back as `out`: the selection must
+/// differ from the original, its core must hold a picture (not black, white, a flat colour or
+/// noise), and the rest of the picture must be unchanged.
+pub fn judge_fill(picture: &RgbImage, mask: &GrayImage, out: &RgbImage, r: &mut CapabilityResult) {
+    let (w, h) = picture.dimensions();
+    let out = if out.dimensions() == (w, h) { out.clone() } else { image::imageops::resize(out, w, h, image::imageops::FilterType::Triangle) };
+    let (inside, outside) = masked_difference(picture, &out, mask);
+    r.difference = Some(inside);
+    r.outside_change = Some(outside);
+    let (x, y, cw, ch) = fill_core(w, h);
+    let m = metrics(&image::imageops::crop_imm(&out, x, y, cw, ch).to_image(), None);
+    r.failure = if inside < FILL_NOCHANGE {
+        Some("VerifyFailed:inpaint_nochange".into())
+    } else if let Some(fail) = image_failure(&m) {
+        Some(format!("VerifyFailed:{fail}"))
+    } else if outside > FILL_OUTSIDE {
+        Some("VerifyFailed:inpaint_outside".into())
+    } else {
+        None
+    };
+    r.metrics = Some(m);
 }
 
 /// The create test's size: the model's native size, at most 1 MP, snapped to its grid, short
@@ -478,14 +514,7 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
             seed: seed.wrapping_add(3),
             ..create.clone()
         };
-        let judge = |img: &RgbaImage, r: &mut CapabilityResult| {
-            let (inside, outside) = masked_difference(&picture, &rgb(img), &mask);
-            r.difference = Some(inside);
-            r.outside_change = Some(outside);
-            if inside < FILL_NOCHANGE {
-                r.failure = Some("VerifyFailed:inpaint_nochange".into());
-            }
-        };
+        let judge = |img: &RgbaImage, r: &mut CapabilityResult| judge_fill(&picture, &mask, &rgb(img), r);
         runner.run("inpaint", &req, &judge)?;
     }
     Ok(runner.out)
@@ -542,6 +571,51 @@ mod tests {
         assert_eq!(create_warnings(&blue), ["VerifyWarning:prompt"]);
         let edited = metrics(&ball(30, 40, 230), Some(&ball(230, 30, 30)));
         assert!(edit_warnings(&edited).is_empty(), "{edited:?}");
+    }
+
+    #[test]
+    fn a_fill_must_paint_a_picture_inside_its_selection_only() {
+        let picture = crate::refine::test_image();
+        let mask = fill_mask(picture.width(), picture.height());
+        let fill = |paint: &dyn Fn(u32, u32) -> Rgb<u8>| {
+            let mut out = picture.clone();
+            for (x, y, p) in out.enumerate_pixels_mut() {
+                if mask.get_pixel(x, y)[0] > 127 {
+                    *p = paint(x, y);
+                }
+            }
+            out
+        };
+        let judged = |out: &RgbImage| {
+            let mut r = CapabilityResult::default();
+            judge_fill(&picture, &mask, out, &mut r);
+            r.failure
+        };
+        // A shaded red ball on the sky, where the sun was.
+        let sky = |y: u32| {
+            let v = f64::from(y) / 288.0;
+            Rgb([105 + (v * 25.0) as u8, 166 + (v * 22.0) as u8, 205 + (v * 25.0) as u8])
+        };
+        let red_ball = |x: u32, y: u32| {
+            let d = ((f64::from(x) - 400.0).powi(2) + (f64::from(y) - 66.0).powi(2)).sqrt();
+            if d < 24.0 { Rgb([(230.0 * (1.0 - d / 60.0)) as u8, 30, 30]) } else { sky(y) }
+        };
+        assert_eq!(judged(&fill(&red_ball)), None);
+        assert_eq!(judged(&fill(&|_, _| Rgb([0, 0, 0]))).as_deref(), Some("VerifyFailed:black"));
+        let hashed = |x: u32, y: u32| {
+            let h = (x.wrapping_mul(73_856_093) ^ y.wrapping_mul(19_349_663)).wrapping_mul(2_654_435_761);
+            Rgb([(h >> 8) as u8, (h >> 16) as u8, (h >> 24) as u8])
+        };
+        assert_eq!(judged(&fill(&hashed)).as_deref(), Some("VerifyFailed:noise"));
+        assert_eq!(judged(&fill(&|_, _| Rgb([128, 128, 128]))).as_deref(), Some("VerifyFailed:flat"));
+        assert_eq!(judged(&picture).as_deref(), Some("VerifyFailed:inpaint_nochange"));
+        let mut spilled = fill(&red_ball);
+        for (x, y, p) in spilled.enumerate_pixels_mut() {
+            if mask.get_pixel(x, y)[0] == 0 {
+                p.0 = p.0.map(|c| c / 2);
+            }
+        }
+        assert_eq!(judged(&spilled).as_deref(), Some("VerifyFailed:inpaint_outside"));
     }
 
     #[test]

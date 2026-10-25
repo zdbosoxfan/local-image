@@ -130,6 +130,27 @@ fn noise(w: u32, h: u32) -> RgbImage {
     image::imageops::resize(&cells, w, h, image::imageops::FilterType::Nearest)
 }
 
+/// What ComfyUI returns for the fill test: the crop of the test picture the model sees, with the
+/// selection painted by `paint`.
+fn filled(paint: &dyn Fn(u32, u32) -> Rgb<u8>) -> RgbImage {
+    let mut out = li_ai::refine::test_image();
+    let mask = modelsetup::verify::fill_mask(out.width(), out.height());
+    for (x, y, p) in out.enumerate_pixels_mut() {
+        if mask.get_pixel(x, y)[0] > 0 {
+            *p = paint(x, y);
+        }
+    }
+    let c = li_ai::inpaint::plan(&mask).unwrap().context;
+    image::imageops::crop_imm(&out, c.x0, c.y0, c.width(), c.height()).to_image()
+}
+
+/// A shaded red ball on the sky where the test picture's sun was (what the fill test asks for).
+fn red_ball_on_sky(x: u32, y: u32) -> Rgb<u8> {
+    let d = ((f64::from(x) - 400.0).powi(2) + (f64::from(y) - 66.0).powi(2)).sqrt();
+    let v = f64::from(y) / 288.0;
+    if d < 24.0 { Rgb([(230.0 * (1.0 - d / 60.0)) as u8, 30, 30]) } else { Rgb([105 + (v * 25.0) as u8, 166 + (v * 22.0) as u8, 205 + (v * 25.0) as u8]) }
+}
+
 fn create_size(key: &str) -> (u32, u32) {
     let f = &ModelId::from_key(key).unwrap().info().resolved;
     modelsetup::verify::test_size(f.sizes.native, f.sizes.multiple)
@@ -174,13 +195,7 @@ fn a_model_no_profile_describes_runs_and_verifies_through_its_official_template(
     // Verification renders through the app's generation path; ComfyUI's memory is freed once.
     let (w, h) = create_size(MOSS_KEY);
     let picture = li_ai::refine::test_image();
-    let mut filled = picture.clone();
-    for (x, y, p) in filled.enumerate_pixels_mut() {
-        if modelsetup::verify::fill_mask(picture.width(), picture.height()).get_pixel(x, y)[0] > 0 {
-            *p = Rgb([210, 20, 20]);
-        }
-    }
-    s.mock.queue_outputs([png(&ball(w, h, [230, 30, 30])), png(&picture), png(&filled)]);
+    s.mock.queue_outputs([png(&ball(w, h, [230, 30, 30])), png(&picture), png(&filled(&red_ball_on_sky))]);
     let mut steps = Vec::new();
     let done = modelsetup::verify_models(&s.options(), &scan, &[MOSS_KEY.to_owned()], &JobControl::new(), &mut |_, st| {
         steps.push((st.capability.to_owned(), st.result.pass, st.result.failure.clone()))
@@ -236,6 +251,28 @@ fn a_noise_render_fails_verification_and_names_the_vae() {
     assert!(m.issues.iter().any(|i| i.code == "VerifyFailed:noise" && i.english().contains("probably doesn't match")));
     let summary = modelsetup::summary::summarise(Some(&again.server), &li_ai::catalog::catalog().models, Some("0.42.5"));
     assert_eq!(summary.models[FLUX3_KEY].issue.as_ref().map(|i| i.code.as_str()), Some("VerifyFailed:noise"), "the picker's tooltip names the failure");
+}
+
+#[test]
+fn a_black_fill_turns_only_fill_off() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(MOSS);
+    let scan = s.scan();
+    assert_eq!(scan.server.models[MOSS_KEY].status, Status::Ready, "{:?}", codes(&scan, MOSS_KEY));
+    let (w, h) = create_size(MOSS_KEY);
+    // A VAE that decodes the fill to black.
+    s.mock.queue_outputs([png(&ball(w, h, [230, 30, 30])), png(&li_ai::refine::test_image()), png(&filled(&|_, _| Rgb([0, 0, 0])))]);
+    let done = modelsetup::verify_models(&s.options(), &scan, &[MOSS_KEY.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let v = done[0].result.as_ref().unwrap();
+    assert_eq!(v.capabilities["inpaint"].failure.as_deref(), Some("VerifyFailed:black"), "{:?}", v.capabilities["inpaint"]);
+    assert!(v.capabilities["create"].pass);
+    let again = s.scan();
+    let m = &again.server.models[MOSS_KEY];
+    assert_eq!(m.status, Status::PartiallyVerified);
+    assert!(!m.issues.iter().any(|i| i.code == "NotVerified"), "{:?}", codes(&again, MOSS_KEY));
+    assert!(m.issues.iter().any(|i| i.code == "VerifyFailed:black" && i.english().starts_with("The Fill test image came out black")));
+    let info = ModelId::from_key(MOSS_KEY).unwrap().info();
+    assert!(info.text_to_image && !info.inpaint, "Fill is off, Create stays on");
 }
 
 #[test]

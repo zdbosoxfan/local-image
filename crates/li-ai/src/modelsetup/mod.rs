@@ -633,7 +633,18 @@ pub fn publish(server: &ServerState, info: &ObjectInfo) -> bool {
         let id = arch.clone().unwrap_or_else(|| format!("template:{}", m.identity.as_ref().map(|i| i.stem.as_str()).unwrap_or("")));
         let family_label =
             profile.map(|p| p.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| m.label.split(" · ").next().unwrap_or_default().to_owned());
-        let family = compile::family_for(recipe, profile, &id, &family_label);
+        let mut family = compile::family_for(recipe, profile, &id, &family_label);
+        // A tool whose test failed stays off while that test applies.
+        if let Some(v) = m.verified.as_ref().filter(|_| m.status == Status::PartiallyVerified) {
+            let failed = |c: &str| v.capabilities.get(c).is_some_and(|r| !r.pass);
+            let caps = &mut family.capabilities;
+            caps.edit &= !failed("edit");
+            caps.inpaint &= !failed("inpaint");
+            caps.upscale &= !failed("refine");
+            if failed("references") || failed("style") {
+                caps.references = 0;
+            }
+        }
         map.insert(key.clone(), TemplateModel { recipe: Arc::new(recipe.clone()), family, label: m.label.clone() });
     }
     crate::catalog::set_templates(map)
@@ -752,6 +763,7 @@ fn verification_issues(key: &str, m: &ModelState, t: &verify::Target, v: &state:
             ("vae", t.vae.clone()),
             ("message", r.message.clone().unwrap_or_default()),
             ("difference", r.difference.map(|d| format!("{d:.1}")).unwrap_or_default()),
+            ("outside", r.outside_change.map(|d| format!("{d:.1}")).unwrap_or_default()),
             ("got", r.size.map(|(w, h)| format!("{w}x{h}")).unwrap_or_default()),
             ("want", r.requested.map(|(w, h)| format!("{w}x{h}")).unwrap_or_default()),
         ];

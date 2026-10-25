@@ -210,6 +210,11 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     ),
     ("VerifyFailed:edit_nochange", Severity::Blocker, "The Edit test returned the picture unchanged. Edit is turned off for this model."),
     ("VerifyFailed:inpaint_nochange", Severity::Blocker, "Fill didn't change the selected area in the test. Fill is turned off for this model."),
+    (
+        "VerifyFailed:inpaint_outside",
+        Severity::Blocker,
+        "Fill changed the picture outside the selected area in the test (difference {outside}; at most 8 is allowed). Fill is turned off for this model.",
+    ),
     ("VerifyFailed:error", Severity::Blocker, "The {capability} test failed: {message}"),
     ("VerifyTimeout", Severity::Blocker, "The {capability} test took longer than 10 minutes and was stopped. Try again when the GPU is free."),
     (
