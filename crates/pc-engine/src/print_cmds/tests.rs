@@ -169,3 +169,30 @@ fn paths_export_as_illustrator_postscript() {
     assert_eq!(r["paths"], 1);
     assert!(s.execute("file.export.pathsToIllustrator", json!({"paths": "Nope"})).is_err());
 }
+
+#[test]
+fn package_copies_only_links_to_images() {
+    let dir = tmp("package-not-image");
+    let link = format!("{dir}/art.png");
+    let text = format!("{dir}/readme");
+    const TEXT: &[u8] = b"plain text, not an image: package marker";
+    std::fs::write(&text, TEXT).unwrap();
+    let mut s = session("rgb", 8);
+    crate::file_cmds::save_doc(&s.active().unwrap().doc, &link, None).unwrap();
+    s.execute("file.placeLinked", json!({"path": link})).unwrap();
+    s.edit("redirect link", |doc, active| {
+        let LayerContent::Smart(so) = &mut doc.layer_mut(active.unwrap()).unwrap().content else { panic!("smart object") };
+        so.source = SmartSource::Linked { path: text.clone() };
+        Ok(())
+    })
+    .unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let pkg = format!("{dir}/pkg");
+    let result = s.execute("file.package", json!({"dir": pkg}));
+    assert!(!std::path::Path::new(&format!("{pkg}/Print Me/Links/readme")).exists(), "non-image was copied: {result:?}");
+    let result = result.unwrap();
+    assert_eq!(result["missing"], json!([text]));
+    assert_eq!(result["links"], json!([]));
+    assert_eq!(s.active().unwrap().doc, before);
+    assert!(std::path::Path::new(result["document"].as_str().unwrap()).is_file());
+}
