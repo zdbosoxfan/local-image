@@ -28,6 +28,9 @@ ignore = [
     # --- rsa 0.9.10 via rustls-rustcrypto (Marvin timing attack on private-key operations). No
     # upstream fix exists; li-ai is a TLS client and holds no RSA private key.
     { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack; no upstream fix; only reachable through rustls-rustcrypto client-side verification" },
+    # crypto-bigint 0.5.5 via elliptic-curve 0.13: the latest rustls-rustcrypto still pins
+    # p256/p384 0.13. Fixed crypto-bigint >=0.7.6 requires their newer, incompatible APIs.
+    { id = "RUSTSEC-2026-0387", allow = ["elliptic-curve@0.13.8"], reason = "RUSTSEC-2026-0387 affects TLS ECDHE secrets; rustls-rustcrypto 0.0.2-alpha pins p256/p384 ^0.13 and crypto-bigint ^0.5; fixed >=0.7.6 is incompatible. Remove when a maintained pure-Rust TLS provider permits the patched dependency" },
     # --- Unmaintained crates (informational; no known vulnerability).
     { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro (pulp -> exr); no runtime code" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25.1 unmaintained, via ab_glyph; replace with a maintained font parser" },
