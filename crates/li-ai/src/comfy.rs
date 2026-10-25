@@ -687,7 +687,7 @@ struct PromptPermit;
 impl PromptPermit {
     fn reserve() -> Result<Self> {
         OWNED_COUNT
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_OWNED).then_some(n + 1))
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < MAX_OWNED).then_some(n + 1))
             .map_err(|_| anyhow!("Too many unresolved ComfyUI jobs. Reconnect to finish cancellation before starting another."))?;
         Ok(Self)
     }
