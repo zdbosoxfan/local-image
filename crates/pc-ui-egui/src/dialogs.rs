@@ -399,10 +399,59 @@ pub fn cancel(app: &mut PhotocraftApp, id: u64) -> Option<crate::state::Dialog> 
     Some(dialog)
 }
 
+type Fields = serde_json::Map<String, Value>;
+
+/// The markers [`confirm`] and [`cancel`] choose a dialog's handler by: keys the code opening a
+/// dialog puts in its fields. Keep in step with their arms.
+const ROUTES: &[fn(&Fields) -> bool] = &[
+    crate::fill_ui::owns,
+    crate::rasterize_prompt::owns,
+    crate::disk_change_prompt::owns,
+    crate::variables_ui::owns,
+    crate::file_ui::owns,
+    crate::color_picker_ui::owns,
+    crate::color_range_ui::owns,
+    crate::prefs_ui::owns,
+    |f| f.contains_key("__export"),
+    |f| f.contains_key("__smartFilter"),
+];
+
+/// Whether `key` is a marker that picks a dialog's handler. Automation may change the values of
+/// a dialog's fields, private ones included, but never add a marker: a dialog it opened would
+/// otherwise confirm through another dialog's handler, one its command was never judged for.
+pub(crate) fn is_route_marker(key: &str) -> bool {
+    let probe = Fields::from_iter([(key.to_string(), Value::Bool(true))]);
+    ROUTES.iter().any(|owns| owns(&probe))
+}
+
+/// The file command a dialog's handler stands for when it writes files, or asks where to, itself
+/// rather than by running the dialog's `__command` (a disk-change save, Export As, Save for Web),
+/// so automation is judged for that command. Print runs `file.print`, which the engine judges.
+fn file_command(fields: &Fields) -> Option<&'static str> {
+    if crate::disk_change_prompt::owns(fields) {
+        Some("file.save")
+    } else if fields.contains_key("__export") {
+        Some("file.export.exportAs")
+    } else if fields.contains_key("__web") {
+        Some("file.export.saveForWebLegacy")
+    } else {
+        None
+    }
+}
+
 /// Confirm a dialog: run its action and close it. Used by the OK button and by automation.
 pub fn confirm(app: &mut PhotocraftApp, id: u64) -> Result<Value, String> {
     if let Some(dialog) = app.ui.dialogs.iter().find(|dialog| dialog.id == id) {
         validate_document_target(app, &dialog.fields)?;
+    }
+    // A control request installs the session gate; synthetic input sets `automation_input`.
+    // Either way a handler's own file access is judged before it runs, as its command would be.
+    if (app.automation_input || app.session.authorize.is_some())
+        && let Some(d) = app.ui.dialogs.iter().find(|d| d.id == id)
+        && let Some(command) = file_command(&d.fields)
+        && let Some(authorize) = app.services.automation_command.as_ref()
+    {
+        authorize(command, &Value::Object(d.fields.clone()))?;
     }
     if let Some(d) = app.ui.dialogs.iter().find(|d| d.id == id)
         && (crate::prefs_ui::is_preferences(&d.fields) || crate::color_range_ui::owns(&d.fields))
