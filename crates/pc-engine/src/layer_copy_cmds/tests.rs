@@ -1,5 +1,5 @@
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
-use photocraft_doc::{Document, LayerId, Pattern};
+use photocraft_doc::{Document, Layer, LayerId, MAX_GROUP_DEPTH, Pattern};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
@@ -154,4 +154,31 @@ fn bad_params_and_states_fail_without_changing_anything() {
     // A single open document: nothing to copy to.
     s.close(1);
     assert!(!s.is_enabled(cmd));
+}
+
+#[test]
+fn a_copied_group_cannot_nest_the_destination_past_the_group_depth_limit() {
+    let (mut s, paint) = two_docs(40, 30, 8);
+    // A group in the source, and a destination whose active layer sits at the deepest legal level.
+    s.execute("layer.groupLayers", json!({"layer": paint.0})).unwrap();
+    let group = s.active().unwrap().active_layer.unwrap();
+    s.set_active(1);
+    let mut inner = None;
+    s.edit("nest", |doc, active| {
+        let mut l = Layer::raster("deep", doc.pixel_format());
+        inner = Some(l.id);
+        for _ in 0..MAX_GROUP_DEPTH {
+            l = Layer::group("g", vec![l]);
+        }
+        doc.layers.push(l);
+        *active = inner;
+        Ok(())
+    })
+    .unwrap();
+    s.set_active(0);
+    let before = doc(&s, 1).clone();
+    let e = s.execute("layer.copyToDocument", json!({"document": 1, "layers": [group.0]})).unwrap_err();
+    assert!(e.to_string().contains("deeper than"), "{e}");
+    assert_eq!(*doc(&s, 1), before, "nothing was copied");
+    assert_eq!(s.active_index(), Some(0), "the source stays active");
 }

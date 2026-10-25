@@ -161,6 +161,8 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
             new.push(id);
         }
         *active = above;
+        // Copied groups keep their own nesting: repeated copies would otherwise nest without end.
+        crate::layer_multi_cmds::check_group_depth(doc, "Copy Layers")?;
         Ok(new)
     });
     // Nothing changed: the source stays the active document.
