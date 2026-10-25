@@ -23,44 +23,36 @@ pub const STATE_VERSION: u32 = 1;
 pub enum Status {
     #[default]
     New,
-    Identified,
     Unmatched,
     Blocked,
     Ready,
-    Verifying,
     Verified,
     PartiallyVerified,
     Failed,
     NeedsReverify,
-    Broken,
     Builtin,
     Ignored,
-    Removed,
 }
 
 impl Status {
     pub fn id(self) -> &'static str {
         match self {
             Self::New => "new",
-            Self::Identified => "identified",
             Self::Unmatched => "unmatched",
             Self::Blocked => "blocked",
             Self::Ready => "ready",
-            Self::Verifying => "verifying",
             Self::Verified => "verified",
             Self::PartiallyVerified => "partially_verified",
             Self::Failed => "failed",
             Self::NeedsReverify => "needs_reverify",
-            Self::Broken => "broken",
             Self::Builtin => "builtin",
             Self::Ignored => "ignored",
-            Self::Removed => "removed",
         }
     }
 
     /// Whether the model is offered for generation.
     pub fn usable(self) -> bool {
-        matches!(self, Self::Ready | Self::Verifying | Self::Verified | Self::PartiallyVerified | Self::NeedsReverify | Self::Builtin)
+        matches!(self, Self::Ready | Self::Verified | Self::PartiallyVerified | Self::NeedsReverify | Self::Builtin)
     }
 }
 
@@ -257,7 +249,7 @@ pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &Server
             && old.fingerprint.header_sha256 != fresh.fingerprint.header_sha256;
     let tested = fresh.recipe.as_ref().map(super::recipe_sha256).unwrap_or_default();
     let same_recipe = tested == v.recipe_sha256;
-    let blocked = matches!(fresh.status, Status::Blocked | Status::Unmatched | Status::Broken);
+    let blocked = matches!(fresh.status, Status::Blocked | Status::Unmatched);
     fresh.verified = Some(v.clone());
     if blocked || fresh.status == Status::Ignored {
         return fresh;

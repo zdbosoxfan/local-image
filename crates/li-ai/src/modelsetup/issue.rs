@@ -127,9 +127,7 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
         Severity::Warning,
         "This ComfyUI doesn't serve its templates (/templates), so models without a profile can't be matched. Update ComfyUI, or press Check online.",
     ),
-    ("NotAModel", Severity::Info, "{file} is a {kind_label}, not an image model. It belongs in {expected}/."),
     ("WrongFolder", Severity::Blocker, "{file} is a {kind_label}, but it is in {found}/. ComfyUI loads {kind_label_plural} from {expected}/."),
-    ("NotListed", Severity::Blocker, "ComfyUI hasn't listed {file} yet. Press Re-check; if it stays missing, restart ComfyUI."),
     (
         "NoTemplate",
         Severity::Blocker,
@@ -180,7 +178,6 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     ("NotVerified", Severity::Info, "{model} hasn't been tested on this computer yet."),
     ("Busy", Severity::Info, "ComfyUI is busy. Verification starts when its queue is empty."),
     ("Stalled", Severity::Blocker, "ComfyUI stopped processing prompts: a test waited over a minute while nothing ran. Restart ComfyUI, then verify again."),
-    ("VerifyFailed:no_image", Severity::Blocker, "The {capability} test render produced no image."),
     ("VerifyFailed:wrong_size", Severity::Blocker, "The {capability} test image came back {got} instead of {want}."),
     (
         "VerifyFailed:black",
@@ -220,12 +217,9 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     ("StillValid", Severity::Info, "Still valid on ComfyUI {new}."),
     ("UsingLastGood", Severity::Warning, "Using the recipe verified on ComfyUI {old}; the new template could not be read: {reason}."),
     ("FileChanged", Severity::Warning, "{file} changed since it was tested on {date}. Verify it again."),
-    ("CompanionChanged", Severity::Warning, "Its {role_label} ({file}) changed since the test. Verify it again."),
     ("RecipeChanged", Severity::Warning, "Its settings changed since the test (a model profile or Local Image update). Verify it again."),
-    ("RecipeBroken", Severity::Blocker, "After the ComfyUI update, {model} no longer works: {reason}"),
     ("OtherGpu", Severity::Info, "Tested on {old_gpu}; now running on {new_gpu}."),
     ("ForeignLora", Severity::Info, "{file} is a LoRA for {base}, which Local Image doesn't run. It is hidden from the style lists."),
-    ("BuiltinToolMissing", Severity::Warning, "{file} ({size}) is not in {folder}/. {tool} uses {fallback} until it is installed."),
     (
         "ProfileNeedsNewerApp",
         Severity::Warning,

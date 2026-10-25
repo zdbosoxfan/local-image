@@ -155,8 +155,8 @@ fn fixture() -> Scan {
     let mut klein = model(KLEIN9B, "FLUX.2 Klein 9B · FP8", Status::NeedsReverify, "flux2-klein", Some("9b"));
     klein.issues = vec![issue("ReverifyNeeded", KLEIN9B, &[("old", "0.42.5"), ("new", "0.43.0"), ("model", "FLUX.2 Klein 9B · FP8")])];
     models.insert(KLEIN9B.to_owned(), klein);
-    let mut hidream = model(HIDREAM, "HiDream O1 · BF16", Status::Broken, "", None);
-    hidream.issues = vec![issue("RecipeBroken", HIDREAM, &[("model", "HiDream O1"), ("reason", "This ComfyUI doesn't have the node HiDreamO1Sampler.")])];
+    let mut hidream = model(HIDREAM, "HiDream O1 · BF16", Status::Blocked, "", None);
+    hidream.issues = vec![issue("NodeMissing", HIDREAM, &[("have", "0.43.0"), ("class", "HiDreamO1Sampler"), ("model", "HiDream O1"), ("need_clause", "")])];
     models.insert(HIDREAM.to_owned(), hidream);
     let mut ming = model(MING, "Ming Image · BF16", Status::Unmatched, "", None);
     ming.engine = "unsupported".into();
@@ -234,7 +234,7 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.get_by_label("Krea 2 · turbo · BF16, verified");
     h.get_by_label("Qwen Image 2.1 · turbo · BF16, test failed");
     h.get_by_label("FLUX.2 Klein 9B · FP8, needs a re-check");
-    h.get_by_label("HiDream O1 · BF16, stopped working after an update");
+    h.get_by_label("HiDream O1 · BF16, needs attention");
     h.get_by_label("Ming Image · BF16, no matching template");
     h.get_by_label("Qwen Image 2.1 · BF16, built-in support");
     for heading in ["New (1)", "Needs attention (5)", "Verified (1)", "Built-in (1)"] {
@@ -270,9 +270,9 @@ fn every_state_shows_its_status_reason_and_next_step() {
     // Failed: the failure in plain words.
     select(&mut h, TURBO, Step::Verify);
     assert!(h.query_by_label_contains("The Create test image is noise, not a picture. The VAE (qwen_image_vae.safetensors)").is_some());
-    // Broken and unmatched: the reason and what to do.
+    // A missing node, and no template: the reason and what to do.
     select(&mut h, HIDREAM, Step::Check);
-    h.get_by_label("After the ComfyUI update, HiDream O1 no longer works: This ComfyUI doesn't have the node HiDreamO1Sampler.");
+    h.get_by_label("This ComfyUI (0.43.0) doesn't have the node HiDreamO1Sampler that HiDream O1 uses. Update ComfyUI.");
     select(&mut h, MING, Step::Check);
     h.get_by_label("Choose template…");
     h.get_by_label("Check online…");
@@ -431,7 +431,7 @@ fn model_setup_screens() {
         ("verified-verify", KREA, Step::Verify),
         ("failed-verify", TURBO, Step::Verify),
         ("needs-reverify-check", KLEIN9B, Step::Check),
-        ("broken-check", HIDREAM, Step::Check),
+        ("missing-node-check", HIDREAM, Step::Check),
         ("unmatched-check", MING, Step::Check),
         ("ready-use", FLUX3, Step::Use),
     ];

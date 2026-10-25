@@ -114,8 +114,8 @@ next to a model that needs it, Preferences › AI › Models, and **Set up and t
 install in the Model Browser) shows the same results as the doctor, for the connected server:
 
 - **The list** groups the models: *New* (not tested yet), *Needs attention* (blocked, no template,
-  failed, broken after an update, or due a re-check), *Verified* and *Built-in*; text encoders and
-  VAEs and ignored files fold away below. Each row has a status icon whose shape and colour both
+  failed, or due a re-check), *Verified* and *Built-in*; text encoders and VAEs and ignored files
+  fold away below. Each row has a status icon whose shape and colour both
   say the status, and a screen-reader label such as "FLUX.3 Klein · distilled · BF16, ready, not
   tested". Up and Down move between rows, Enter opens Check, the context menu has Ignore and Show
   again.
@@ -158,16 +158,17 @@ blocks, 1 blockers or failed tests, 2 usage, 3 ComfyUI not reachable. The host i
 These parts of the model setup design are deferred; nothing in the app or the doctor claims them:
 
 - The doctor's **built-in tools** section (for example AI Remove's missing
-  `flux-2-klein-base-4b`) and its message `BuiltinToolMissing`.
+  `flux-2-klein-base-4b`).
 - `--online` (look up a newer ComfyUI and template package), `--offline` and `--compare-engines`
   (render a curated model through its builder and its official template side by side). Check online…
   in the app opens ComfyUI's releases page instead.
 - Ctrl-C during `--verify`: the process ends without cancelling ComfyUI's running prompt or exiting
   with 130. The verification lock it leaves is taken over once its process has ended.
 - **Verified by use** (a model that rendered fine in Generate counting as verified).
-- Messages defined for these cases but not yet produced: `NotListed`, `NotAModel`, `RecipeBroken`
-  (the `broken` status), `CompanionChanged` and `VerifyFailed:no_image` (a render with no image is
-  reported as `VerifyFailed:error`).
+- Separate messages for a file in the model folder that ComfyUI hasn't listed yet, a recipe that
+  stopped working after a ComfyUI update (reported as blocked, with what the check found) and a
+  text encoder or VAE that changed since the test. A render with no image is reported as
+  `VerifyFailed:error`.
 
 ## Live test
 

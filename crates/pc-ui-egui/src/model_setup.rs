@@ -385,36 +385,32 @@ pub(crate) fn sentence(i: &Issue) -> String {
 /// How a status reads: chip icon, text and tone.
 pub(crate) fn chip(status: Status) -> (&'static str, &'static str, Tone) {
     match status {
-        Status::New | Status::Identified => ("circle-dot", tl!("New"), Tone::Neutral),
+        Status::New => ("circle-dot", tl!("New"), Tone::Neutral),
         Status::Ready => ("circle-dashed", tl!("Not tested"), Tone::Neutral),
-        Status::Verifying => ("refresh-cw", tl!("Testing…"), Tone::Neutral),
         Status::Verified => ("check", tl!("Verified"), Tone::Good),
         Status::PartiallyVerified => ("triangle-alert", tl!("Partly verified"), Tone::Warning),
         Status::NeedsReverify => ("refresh-cw", tl!("Re-check"), Tone::Warning),
         Status::Blocked => ("triangle-alert", tl!("Needs attention"), Tone::Warning),
         Status::Unmatched => ("triangle-alert", tl!("No template"), Tone::Warning),
         Status::Failed => ("x", tl!("Failed"), Tone::Danger),
-        Status::Broken => ("x", tl!("Broken"), Tone::Danger),
         Status::Builtin => ("check", tl!("Built-in"), Tone::Good),
-        Status::Ignored | Status::Removed => ("ban", tl!("Ignored"), Tone::Neutral),
+        Status::Ignored => ("ban", tl!("Ignored"), Tone::Neutral),
     }
 }
 
 /// The status in words, for screen readers.
 fn spoken(status: Status) -> &'static str {
     match status {
-        Status::New | Status::Identified => tl!("new, not set up"),
+        Status::New => tl!("new, not set up"),
         Status::Ready => tl!("ready, not tested"),
-        Status::Verifying => tl!("testing"),
         Status::Verified => tl!("verified"),
         Status::PartiallyVerified => tl!("partly verified"),
         Status::NeedsReverify => tl!("needs a re-check"),
         Status::Blocked => tl!("needs attention"),
         Status::Unmatched => tl!("no matching template"),
         Status::Failed => tl!("test failed"),
-        Status::Broken => tl!("stopped working after an update"),
         Status::Builtin => tl!("built-in support"),
-        Status::Ignored | Status::Removed => tl!("ignored"),
+        Status::Ignored => tl!("ignored"),
     }
 }
 

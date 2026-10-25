@@ -14,11 +14,11 @@ enum Group {
 
 fn group(status: Status) -> Group {
     match status {
-        Status::New | Status::Identified | Status::Ready | Status::Verifying => Group::New,
-        Status::Blocked | Status::Unmatched | Status::Failed | Status::Broken | Status::NeedsReverify | Status::PartiallyVerified => Group::Attention,
+        Status::New | Status::Ready => Group::New,
+        Status::Blocked | Status::Unmatched | Status::Failed | Status::NeedsReverify | Status::PartiallyVerified => Group::Attention,
         Status::Verified => Group::Verified,
         Status::Builtin => Group::Builtin,
-        Status::Ignored | Status::Removed => Group::Ignored,
+        Status::Ignored => Group::Ignored,
     }
 }
 

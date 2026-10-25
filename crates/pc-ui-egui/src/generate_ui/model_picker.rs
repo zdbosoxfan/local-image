@@ -435,8 +435,8 @@ pub(super) fn readiness_warning(app: &mut PhotocraftApp, ui: &mut egui::Ui, why:
     });
 }
 
-/// The model-setup banner above the picker while models are new, due a re-check after a ComfyUI
-/// update, or broken; its button opens Set Up Models.
+/// The model-setup banner above the picker while models are new or due a re-check after a
+/// ComfyUI update; its button opens Set Up Models.
 pub(super) fn setup_banner(ui: &mut egui::Ui, st: &crate::ai_ui::EngineStatus) {
     let setup = &st.setup;
     let n = setup.banner();
@@ -476,10 +476,8 @@ pub(super) fn setup_chip(status: Option<li_ai::modelsetup::state::Status>) -> Op
         Status::NeedsReverify => ("refresh-cw", tl!("Re-check"), widgets::Tone::Warning),
         Status::Verified => ("check", tl!("Works"), widgets::Tone::Good),
         Status::PartiallyVerified => ("triangle-alert", tl!("Partly works"), widgets::Tone::Warning),
-        Status::New | Status::Identified | Status::Blocked | Status::Unmatched | Status::Failed | Status::Broken => {
-            ("triangle-alert", tl!("Needs setup"), widgets::Tone::Warning)
-        }
-        Status::Verifying | Status::Builtin | Status::Ignored | Status::Removed => return None,
+        Status::New | Status::Blocked | Status::Unmatched | Status::Failed => ("triangle-alert", tl!("Needs setup"), widgets::Tone::Warning),
+        Status::Builtin | Status::Ignored => return None,
     })
 }
 
@@ -492,7 +490,7 @@ pub(super) fn needs_setup(m: &catalog::ModelInfo, st: &crate::ai_ui::EngineStatu
     }
     let issue = st.setup.models.get(m.id.key()).and_then(|x| x.issue.as_ref()).map(crate::model_setup::sentence);
     match st.setup.status(m.id.key()) {
-        Some(Status::Failed | Status::Broken) => Some(issue.unwrap_or_else(|| tl!("Its test failed. Open Set Up Models to see why.").into())),
+        Some(Status::Failed) => Some(issue.unwrap_or_else(|| tl!("Its test failed. Open Set Up Models to see why.").into())),
         Some(Status::Ignored) => None,
         _ if m.template_engine && m.recipe.is_none() => {
             Some(issue.unwrap_or_else(|| li_i18n::fmt(tl!("Set up {model} first: Window › Set Up Models…"), &[("model", &m.label)])))

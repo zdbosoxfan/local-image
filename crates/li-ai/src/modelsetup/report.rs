@@ -153,7 +153,7 @@ impl Report {
     }
 
     pub fn failures(&self) -> usize {
-        self.models.iter().filter(|m| matches!(m.status.as_str(), "failed" | "broken")).count()
+        self.models.iter().filter(|m| m.status == "failed").count()
     }
 
     /// Counts the models by state.
@@ -194,7 +194,6 @@ fn status_word(status: &str) -> &'static str {
         "partially_verified" => "PARTIAL",
         "needs_reverify" => "RECHECK",
         "failed" => "FAILED",
-        "broken" => "BROKEN",
         "blocked" => "BLOCKED",
         "unmatched" => "NO MATCH",
         "ignored" => "IGNORED",
