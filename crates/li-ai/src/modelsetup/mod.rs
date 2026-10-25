@@ -700,14 +700,24 @@ pub fn verify_models(
             out.push(Verification { key: key.clone(), label: m.label.clone(), result: Err("not in the catalogue".into()) });
             continue;
         };
-        let binding = |role: &str| m.bindings.iter().find(|b| b.role == role).and_then(|b| b.used.clone()).unwrap_or_default();
+        // A built-in or builder model loads the files its preset resolves to (a checkpoint holds
+        // its own text encoder and VAE).
+        let variant = if m.variant.is_empty() { crate::catalog::default_variant(model) } else { m.variant.as_str() };
+        let preset_files =
+            crate::catalog::preset(model, variant).filter(|_| m.engine != "template").map(|p| crate::catalog::availability(p, &snapshot.info).files);
+        let file = |role: &str, preset_role: Role| {
+            m.bindings.iter().find(|b| b.role == role).and_then(|b| b.used.clone()).or_else(|| {
+                let files = preset_files.as_ref()?;
+                files.get(&preset_role).or_else(|| files.get(&Role::Checkpoint)).cloned()
+            })
+        };
         let target = verify::Target {
             model,
             variant: &m.variant,
             label: &m.label,
             quant: m.identity.as_ref().and_then(|i| i.quant.class.as_ref()).map(|q| q.label()).unwrap_or_default(),
-            te: binding("clip"),
-            vae: binding("vae"),
+            te: file("clip", Role::Clip).unwrap_or_default(),
+            vae: file("vae", Role::Vae).unwrap_or_default(),
             off: m.capabilities.iter().filter(|c| !c.ok).map(|c| c.name.clone()).collect(),
         };
         let seed = u64::from(rand::random::<u32>());

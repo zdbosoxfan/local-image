@@ -344,6 +344,9 @@ fn verifying_one_precision_of_a_curated_model_renders_and_records_that_file() {
         let m = &scan.server.models[key];
         assert_eq!((m.status, m.catalog_id.as_str(), m.variant.as_str()), (Status::Builtin, "qwen", variant), "{:?}", m.issues);
     }
+    // A flat Create render: its message names the files that precision loads.
+    let (w, h) = create_size("qwen");
+    s.mock.queue_outputs([png(&RgbImage::from_pixel(w, h, Rgb([90, 140, 60])))]);
     let done = modelsetup::verify_models(&s.options(), &scan, &[bf16.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
     assert!(done[0].result.is_ok(), "{:?}", done[0].result.as_ref().err());
     let prompts = s.mock.prompts();
@@ -356,6 +359,8 @@ fn verifying_one_precision_of_a_curated_model_renders_and_records_that_file() {
     let stored = li_ai::modelsetup::state::SetupState::load(&s.options().state_path);
     let server = stored.server(s.mock.host()).unwrap();
     assert!(server.models[bf16].verified.is_some());
+    let flat = server.models[bf16].issues.iter().find(|i| i.code == "VerifyFailed:flat").expect("the flat render failed Create").english();
+    assert!(flat.contains("Check the text encoder (qwen3vl_8b_bf16.safetensors) and the VAE (qwen_image_2.1_vae_bf16.safetensors)."), "{flat}");
     assert_eq!((server.models[int8].status, server.models[int8].verified.as_ref()), (Status::Builtin, None), "the other precision is untouched");
     let summary = modelsetup::summary::summarise(Some(server), &li_ai::catalog::catalog().models, Some("0.42.5"));
     assert_eq!(summary.status_for("qwen", "int8"), Some(Status::Builtin));
