@@ -73,8 +73,11 @@ impl Confirm {
         self.replan();
     }
 
-    /// Ticks or unticks an optional file and plans again.
+    /// Ticks or unticks an optional file and plans again, keeping the precision planned.
     fn tick(&mut self, name: &str, on: bool) {
+        if self.variant.is_none() {
+            self.variant = self.plan.lock().ok().and_then(|p| p.as_ref()?.as_ref().ok()?.variant.clone());
+        }
         self.extras.retain(|e| e != name);
         if on {
             self.extras.push(name.to_owned());
