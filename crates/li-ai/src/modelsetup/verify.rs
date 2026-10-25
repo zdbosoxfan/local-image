@@ -628,6 +628,15 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
             runner.run(name, &req, &judge)?;
         }
     }
+    if info.recipe.as_ref().is_some_and(|r| r.enhancer_ready()) && info.text_to_image && on("prompt_enhancer") {
+        let request = GenerateRequest { enhance: true, seed: seed.wrapping_add(5), ..create.clone() };
+        let judge = |img: &RgbaImage, result: &mut CapabilityResult| {
+            let measured = metrics(&rgb(img), None);
+            result.failure = image_failure(&measured).map(|fail| format!("VerifyFailed:{fail}"));
+            result.metrics = Some(measured);
+        };
+        runner.run("prompt_enhancer", &request, &judge)?;
+    }
     // Refine: the recipe the app's refine checker uses, on its test picture.
     if let Some(recipe) = refine_recipe(t.model, variant, &client) {
         let watch = Watch::start(ctl, host);

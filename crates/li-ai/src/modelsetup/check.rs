@@ -130,6 +130,9 @@ fn capabilities(r: &TemplateRecipe, s: &Snapshot) -> Vec<CapabilityCheck> {
     if r.edit.is_some() {
         try_build("edit", Params { task: Task::Edit, ..base }, r.edit.as_ref().map(|g| g.refs.max() as u32).unwrap_or(0).min(r.controls.references));
     }
+    if r.enhancer_ready() {
+        try_build("prompt_enhancer", Params { enhance: true, ..base }, 0);
+    }
     try_build("refine", Params { task: Task::Refine { denoise: d.denoise.clamp(0.05, 1.0) }, ..base }, 0);
     try_build("inpaint", Params { task: Task::Inpaint { denoise: 1.0 }, ..base }, 0);
     if let Some(refine) = out.iter().find(|c| c.name == "refine").cloned() {

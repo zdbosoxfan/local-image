@@ -207,6 +207,7 @@ fn capability_label(c: &CapabilityReport) -> String {
         "edit" => "Edit",
         "references" => "References",
         "style" => "Style references",
+        "prompt_enhancer" => "Prompt enhancer",
         "refine" => "Refine",
         "inpaint" => "Fill",
         "upscale" => "Upscale",

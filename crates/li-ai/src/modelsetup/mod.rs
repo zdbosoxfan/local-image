@@ -797,6 +797,7 @@ fn tool_label(capability: &str) -> String {
     match capability {
         "inpaint" => "Fill".to_owned(),
         "style" => "Style references".to_owned(),
+        "prompt_enhancer" => "Prompt enhancer".to_owned(),
         c => format!("{}{}", c[..1].to_ascii_uppercase(), &c[1..]),
     }
 }
@@ -810,7 +811,14 @@ fn verification_issues(key: &str, m: &ModelState, t: &verify::Target, v: &state:
             ("capability", tool_label(cap)),
             ("model", m.label.clone()),
             ("quant", t.quant.clone()),
-            ("te", t.te.clone()),
+            (
+                "te",
+                if cap == "prompt_enhancer" {
+                    m.recipe.as_ref().and_then(|r| r.upsampler.as_ref()).and_then(|u| u.installed.clone()).unwrap_or_else(|| t.te.clone())
+                } else {
+                    t.te.clone()
+                },
+            ),
             ("vae", t.vae.clone()),
             ("message", r.message.clone().unwrap_or_default()),
             ("difference", r.difference.map(|d| format!("{d:.1}")).unwrap_or_default()),

@@ -437,8 +437,8 @@ fn the_report_counts_models_and_renders_text_and_json() {
     assert_eq!(r.summary.not_tested, 2, "{:?}", r.models.iter().map(|m| (&m.key, &m.status)).collect::<Vec<_>>());
     assert_eq!(r.blockers(), 0, "{:?}", r.issues);
     let text = modelsetup::report::render_text(&r);
-    assert!(text.contains("READY    FLUX.3 Klein · distilled · BF16"), "{text}");
-    assert!(text.contains("MOSS-Image · sft · BF16") || text.contains("MOSS-Image · SFT · BF16"), "{text}");
+    assert!(text.contains("READY    FLUX.3 Klein Distilled · BF16"), "{text}");
+    assert!(text.contains("MOSS-Image SFT · BF16"), "{text}");
     assert!(text.contains("Licence: FLUX Kommunity License"), "{text}");
     let back: modelsetup::report::Report = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
     assert_eq!(back, r);
@@ -672,4 +672,28 @@ fn an_installed_template_runs_its_main_file_through_that_template() {
     assert_eq!(m.user.template_choice.as_deref(), Some("image_moss_image_t2i"));
     assert_eq!(m.templates.get("create").map(String::as_str), Some("image_moss_image_t2i"));
     assert!(ModelId::from_key(&key).is_some_and(|id| id.info().recipe.is_some()), "published as a template model, not a custom workflow");
+}
+
+#[test]
+fn verification_tests_an_installed_prompt_enhancer_separately() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut files = FLUX3.to_vec();
+    files.push(("text_encoders/qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors", MOSS[1].1));
+    let s = Setup::new(&files);
+    let scan = s.scan();
+    assert!(scan.server.models[FLUX3_KEY].recipe.as_ref().unwrap().enhancer_ready());
+    let (w, h) = create_size(FLUX3_KEY);
+    let red = png(&ball(w, h, [230, 30, 30]));
+    s.mock.queue_outputs([red.clone(), png(&ball(w, h, [30, 40, 230])), red.clone(), red, png(&li_ai::refine::test_image()), png(&filled(&red_ball_on_sky))]);
+    let done = modelsetup::verify_models(&s.options(), &scan, &[FLUX3_KEY.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let result = done[0].result.as_ref().unwrap();
+    assert!(result.capabilities.contains_key("prompt_enhancer"), "{result:?}");
+    assert!(result.capabilities["prompt_enhancer"].pass);
+    let prompts = s.mock.prompts();
+    let has_enhancer = |g: &Value| g.as_object().unwrap().values().any(|n| n["class_type"] == "TextGenerate");
+    assert!(!has_enhancer(&prompts[0]), "plain Create stays the default");
+    assert!(has_enhancer(&prompts[3]), "the separate optional test uses the template's enhancer");
+    assert!(prompts[3].to_string().contains(modelsetup::verify::CREATE_PROMPT));
+    let report = modelsetup::report(&s.options(), &s.scan());
+    assert!(report.models.iter().find(|m| m.key == FLUX3_KEY).unwrap().capabilities.iter().any(|c| c.name == "prompt_enhancer" && c.state == "verified"));
 }
