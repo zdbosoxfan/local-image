@@ -265,3 +265,18 @@ fn an_export_that_reads_no_linked_files_writes_linked_smart_objects_as_pixels() 
     }
     std::fs::remove_file(path).unwrap();
 }
+
+/// A link that names a device or kernel file is never read: PSD export reads linked files through
+/// the bounded reader every open uses (a link to `/dev/zero` would otherwise read until memory
+/// runs out).
+#[cfg(target_os = "linux")]
+#[test]
+fn links_to_device_and_kernel_files_are_not_read() {
+    for path in ["/proc/self/status", "/dev/null"] {
+        let mut doc = document(8, 8);
+        doc.layers.push(smart_layer(photocraft_doc::SmartSource::Linked { path: path.into() }));
+        let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+        assert!(warnings.iter().any(|w| w.contains("smart object written as pixels") && w.contains("can't be read")), "{path}: {warnings:?}");
+        assert!(!file.global_blocks.iter().any(|b| &b.key == b"lnk2"), "{path}: nothing is embedded");
+    }
+}

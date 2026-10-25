@@ -789,7 +789,9 @@ impl Ex {
                     if !self.read_linked_files {
                         return Err(format!("the linked file {path} is not read for this export"));
                     }
-                    let bytes = std::fs::read(path).map_err(|e| format!("the linked file {path} can't be read: {e}"))?;
+                    // The reader every open uses: it refuses device, kernel and network paths,
+                    // non-regular files and files past the input limit.
+                    let bytes = photocraft_format::read_file(std::path::Path::new(path)).map_err(|e| format!("the linked file {path} can't be read: {e}"))?;
                     let name = path.rsplit(['/', '\\']).next().unwrap_or(path).to_string();
                     self.warnings.push(format!("the linked smart object {name} was embedded (PSD export keeps no external links)"));
                     self.embed(&name, &bytes)
