@@ -47,32 +47,32 @@ pub(super) fn subject_alpha(w: usize, h: usize, rgb: &[[f32; 3]], mask: &[f32], 
     RESULTS.get_or_solve(fingerprint(w, h, rgb, mask, band), || li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, rgb), mask, band))
 }
 
-/// Identifies the inputs: for each row of the image and of the mask, every channel's sum and its
-/// sum weighted by column (a value that changes or moves changes them), with the sizes and band.
+/// Hash every ordered sample: row summaries can alias different edges and coverage patterns.
 fn fingerprint(w: usize, h: usize, rgb: &[[f32; 3]], mask: &[f32], band: f32) -> u64 {
-    let image: Vec<[f64; 6]> = rgb
+    let image: Vec<u64> = rgb
         .par_chunks(w.max(1))
         .map(|row| {
-            let mut m = [0.0f64; 6];
-            for (x, p) in row.iter().enumerate() {
-                for c in 0..3 {
-                    let v = f64::from(p[c]);
-                    m[c] += v;
-                    m[3 + c] += v * x as f64;
-                }
+            let mut hasher = std::hash::DefaultHasher::new();
+            for v in row.iter().flatten() {
+                v.to_bits().hash(&mut hasher);
             }
-            m
+            hasher.finish()
         })
         .collect();
-    let coverage: Vec<[f64; 2]> = mask
+    let coverage: Vec<u64> = mask
         .par_chunks(w.max(1))
-        .map(|row| row.iter().enumerate().fold([0.0f64; 2], |m, (x, v)| [m[0] + f64::from(*v), m[1] + f64::from(*v) * x as f64]))
+        .map(|row| {
+            let mut hasher = std::hash::DefaultHasher::new();
+            for v in row {
+                v.to_bits().hash(&mut hasher);
+            }
+            hasher.finish()
+        })
         .collect();
     let mut hasher = std::hash::DefaultHasher::new();
     (w, h, rgb.len(), mask.len(), band.to_bits()).hash(&mut hasher);
-    for v in image.iter().flatten().chain(coverage.iter().flatten()) {
-        v.to_bits().hash(&mut hasher);
-    }
+    image.hash(&mut hasher);
+    coverage.hash(&mut hasher);
     hasher.finish()
 }
 
@@ -87,6 +87,40 @@ mod tests {
         let img = RgbFrame::from_fn(w, h, |x, y| if y < 30 + x / 16 { [0.8, 0.85, 0.95] } else { [0.12, 0.1, 0.09] });
         let mask = (0..w * h).map(|i| (((34 + (i % w) / 16) as f32 - (i / w) as f32) / 4.0).clamp(0.0, 1.0)).collect();
         (img, mask)
+    }
+
+    #[test]
+    fn cached_matting_distinguishes_masks_with_matching_row_moments() {
+        let (w, h) = (32, 20);
+        let rgb = vec![[0.5; 3]; w * h];
+        let masks: Vec<Vec<f32>> =
+            [[0.75, 0.25, 0.25, 0.75], [0.25, 0.75, 0.75, 0.25]].into_iter().map(|pattern| (0..w * h).map(|i| pattern[i % 4]).collect()).collect();
+        let results = Results::new();
+        for mask in &masks {
+            let direct = li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, &rgb), mask, 3.0);
+            let cached = results.get_or_solve(fingerprint(w, h, &rgb, mask, 3.0), || direct.clone());
+            assert!(cached == direct, "a different mask must not reuse earlier coverage");
+        }
+    }
+
+    #[test]
+    fn changed_rgb_with_matching_row_moments_recomputes_matting() {
+        let (img, mask) = scene();
+        let mut changed = img.clone();
+        for (x, delta) in [(2, 0.125), (3, -0.25), (4, 0.125)] {
+            changed.data[20 * img.width + x][0] += delta;
+        }
+        let results = Results::new();
+        let solved = std::cell::Cell::new(0);
+        for input in [&img, &changed] {
+            let direct = li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(input.width, input.height, &input.data), &mask, 6.0);
+            let cached = results.get_or_solve(fingerprint(input.width, input.height, &input.data, &mask, 6.0), || {
+                solved.set(solved.get() + 1);
+                direct.clone()
+            });
+            assert!(cached == direct, "the cached matte must match the current guide");
+        }
+        assert_eq!(solved.get(), 2, "changed guide pixels must invalidate the solve");
     }
 
     #[test]
