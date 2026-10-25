@@ -15,12 +15,20 @@ the codebase from drifting back.
 - **Package names differ from directory names.** `crates/pc-engine` is `photocraft-engine`,
   `crates/lc-engine` is `lightcraft-engine`, and `apps/local-image` is `local-image`. Check
   `Cargo.toml` before running `cargo -p`.
-- **Toolchain:** Rust 1.98.1. Build only what you touch (`cargo check -p <pkg> --all-targets --locked`).
-  Run a whole-workspace build once at the end, not on every edit.
+- **Toolchain:** Rust 1.98.1. Build only what you touch (`cargo check -p <pkg> --all-targets --locked`)
+  and run only the tests your change needs. The section 2 gates run once, on the merged result,
+  not after every edit.
 - **Work on a branch and open a PR.** Never commit agent scratch: plans, reports, logs, task briefs,
   proof screenshots or `docs/wip`-style folders. Keep that in your own scratch space.
 - **Parallel agents get their own git worktree and disjoint file sets.** Two writers never edit the
   same files at once. When splitting work, name each agent's files explicitly.
+- **Test only what the change needs.** A fix gets one regression test, seen failing before the fix.
+  New behaviour gets tests at the crate's public boundary, extending an existing test where one
+  exists. Moves, renames, constants and plumbing get none. Run the tests that cover the change,
+  not the whole package; the exceptions are file and catalog formats, user data, settings
+  persistence and pipeline/WGSL stages, where one whole-package run
+  (`cargo test -p <pkg> --tests --locked`) is the check. Don't re-run tests after `cargo fmt` or
+  comment-only edits.
 
 ## 2. Quality gates (all must pass before a PR merges)
 
@@ -37,8 +45,9 @@ cargo xtask test-fast                                     # the Fast CI lane
 - New RustSec advisories appear almost daily. When `deny` fails without a code change, upgrade if a
   fix exists. If none exists, add a narrowly scoped `deny.toml` ignore whose reason states the
   advisory, why it is unreachable or unfixable, and what would clear it.
-- Tests can be flaky under heavy parallel load. Rerun a failure alone, and check it against `main`,
-  before blaming your change or "fixing" the test.
+- Tests can be flaky under heavy parallel load. When a test your change cannot affect fails, rerun
+  it alone once: if it passes, report it as flaky; if not, report it as pre-existing. Don't edit
+  the test, and don't build `main` to compare.
 
 ## 3. Production-readiness checklist for this app
 
@@ -144,15 +153,18 @@ reintroduce them.
   `sin` and similar differ in the last bit between macOS and Linux libm. Compare against a
   higher-precision reference within a stated tolerance, or compare two implementations on the same
   machine.
-- Fix a test only when it is wrong, and say why in the commit message. Never weaken a check to make
-  CI green.
+- Never change what an existing test checks to make it pass: its assertions, expected values,
+  tolerances, goldens or `#[ignore]` status. If a test looks wrong, agents stop and flag it with
+  the evidence (expected, actual, why) unless the task names that test; then change it in its own
+  commit whose message says why. Never weaken a check to make CI green.
 
 **Tools**
 - Review mode follows the ai-slop-cleaner method (yeachan-heo/oh-my-claudecode,
   `skills/ai-slop-cleaner`): protect behaviour with tests first, plan, classify each smell
   (duplication, dead code, needless abstraction, boundary violation, weak tests), then clean in
-  single-focus passes (deletions, then duplicates, then naming and errors, then tests), re-running
-  the quality gates after each pass. Prefer deletion. Keep diffs small and reversible.
+  single-focus passes (deletions, then duplicates, then naming and errors, then tests), running
+  the touched packages' tests after each pass and the section 2 gates once at the end. Prefer
+  deletion. Keep diffs small and reversible.
 - [dabit3/deslop](https://github.com/dabit3/deslop) is a quick regex check (dividers, explicit
   boolean comparisons, vague TODOs, debug logging). It scans only a branch's diff against `main`,
   which is the right default for reviewing a PR (`npx deslop -b main`). Its patterns target
