@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 use super::issue::{Issue, Severity};
 use super::state::{ServerState, SetupState, Status};
-use crate::catalog::{ModelInfo, Origin};
+use crate::catalog::{ModelId, ModelInfo, Origin};
 
 /// One scanned model, as the picker shows it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -36,6 +36,12 @@ impl Summary {
         self.models.get(key).map(|m| m.status)
     }
 
+    /// The status of one preset of a curated model (each precision is its own file), else the
+    /// model's.
+    pub fn status_for(&self, key: &str, variant: &str) -> Option<Status> {
+        self.models.get(&preset_key(key, variant)).map(|m| m.status).or_else(|| self.status(key))
+    }
+
     fn count(&self, f: impl Fn(Status) -> bool) -> usize {
         self.models.values().filter(|m| f(m.status)).count()
     }
@@ -55,6 +61,10 @@ impl Summary {
     }
 }
 
+fn preset_key(catalog_id: &str, variant: &str) -> String {
+    format!("{catalog_id}#{variant}")
+}
+
 /// Whether an installed model runs only once model setup has prepared it (no builder runs it).
 pub fn needs_setup(m: &ModelInfo) -> bool {
     m.origin == Origin::Installed && !m.tool && !m.resolved.buildable()
@@ -69,7 +79,14 @@ pub fn summarise(server: Option<&ServerState>, models: &[ModelInfo], version: Op
             let issue = m.issues.iter().filter(|i| i.severity != Severity::Info).min_by_key(|i| i.severity).cloned();
             let summary = ModelSummary { status: m.status, issue };
             if !m.catalog_id.is_empty() && m.catalog_id != *key {
-                out.models.insert(m.catalog_id.clone(), summary.clone());
+                if !m.variant.is_empty() {
+                    out.models.insert(preset_key(&m.catalog_id, &m.variant), summary.clone());
+                }
+                // The model's own key stands for its default preset (else the first file seen).
+                let default = ModelId::from_key(&m.catalog_id).map(crate::catalog::default_variant);
+                if default == Some(m.variant.as_str()) || !out.models.contains_key(&m.catalog_id) {
+                    out.models.insert(m.catalog_id.clone(), summary.clone());
+                }
             }
             out.models.insert(key.clone(), summary);
         }
@@ -139,5 +156,17 @@ mod tests {
         assert_eq!(s.status("qwen-image-21"), Some(Status::Builtin), "curated models are found by their catalogue key");
         assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (3, 1, 2));
         assert_eq!(s.updated, Some(("0.42.5".into(), "0.43.0".into())));
+    }
+
+    #[test]
+    fn each_precision_of_a_curated_model_keeps_its_own_status() {
+        let mut server = ServerState { comfyui_version: "0.42.5".into(), ..Default::default() };
+        let preset = |status, variant: &str| ModelState { status, catalog_id: "qwen".into(), variant: variant.into(), ..Default::default() };
+        server.models.insert("unet:qwen_image_2.1_bf16.safetensors".into(), preset(Status::Verified, "bf16"));
+        server.models.insert("unet:qwen_image_2.1_int8_convrot.safetensors".into(), preset(Status::Builtin, "int8"));
+        let s = summarise(Some(&server), &[], Some("0.42.5"));
+        assert_eq!(s.status_for("qwen", "bf16"), Some(Status::Verified));
+        assert_eq!(s.status_for("qwen", "int8"), Some(Status::Builtin));
+        assert_eq!(s.status("qwen"), Some(Status::Builtin), "the model's key is its default preset, {}", crate::catalog::default_variant(ModelId::Qwen));
     }
 }

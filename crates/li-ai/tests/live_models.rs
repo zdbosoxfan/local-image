@@ -186,6 +186,7 @@ fn verify_with(l: &Live, scan: &modelsetup::Scan, key: &str, role: &str, file: &
     li_ai::catalog::set_templates([(key.to_owned(), TemplateModel { recipe: std::sync::Arc::new(recipe), family, label: label.clone() })].into());
     let target = modelsetup::verify::Target {
         model: ModelId::from_key(key).context("not in the catalogue")?,
+        variant: &m.variant,
         label: &label,
         quant: String::new(),
         te: String::new(),

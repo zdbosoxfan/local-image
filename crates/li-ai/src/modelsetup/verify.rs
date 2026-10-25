@@ -312,6 +312,8 @@ impl Drop for VerifyLock {
 /// What to verify.
 pub struct Target<'a> {
     pub model: ModelId,
+    /// The preset that loads the file under test (empty: the model's default preset).
+    pub variant: &'a str,
     pub label: &'a str,
     /// For messages: the main file's precision and the companions in use.
     pub quant: String,
@@ -393,7 +395,9 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
     let f = &info.resolved;
     let mut runner = Runner { ai: Ai::idle_only(host), host, ctl, cold: true, out: Verified { seed, ..Default::default() }, progress };
     let (w, h) = test_size(f.sizes.native, f.sizes.multiple);
+    let variant = if t.variant.is_empty() { crate::catalog::default_variant(t.model) } else { t.variant };
     let mut create = GenerateRequest::new(t.model, CREATE_PROMPT);
+    create.variant = variant.to_owned();
     create.width = w;
     create.height = h;
     create.seed = seed;
@@ -436,7 +440,7 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
         runner.run("edit", &req, &judge)?;
     }
     // Refine: the recipe the app's refine checker uses, on its test picture.
-    if let Some(recipe) = refine_recipe(t.model, &client) {
+    if let Some(recipe) = refine_recipe(t.model, variant, &client) {
         let (job, timed_out) = timed(ctl);
         let sampler = VramSampler::start(host);
         let start = Instant::now();
@@ -487,11 +491,10 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
     Ok(runner.out)
 }
 
-/// The refine recipe the app would test for `model` (its compiled template recipe, or its
-/// family builder).
-fn refine_recipe(model: ModelId, client: &ComfyClient) -> Option<crate::refine::Recipe> {
+/// The refine recipe the app would test for `model`'s `variant` (its compiled template recipe, or
+/// its family builder).
+fn refine_recipe(model: ModelId, variant: &str, client: &ComfyClient) -> Option<crate::refine::Recipe> {
     let info = client.object_info().ok()?;
-    let variant = crate::catalog::default_variant(model);
     let target = crate::refine::target(model, variant, &info).ok()?;
     crate::refine::family_recipe(model, variant, &target, &info)
 }

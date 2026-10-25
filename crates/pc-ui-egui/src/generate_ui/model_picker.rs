@@ -593,7 +593,7 @@ pub(super) fn model_picker(
                     }
                     ui.label(RichText::new(&m.family_label).size(10.5).color(t.text_faint));
                     if m.origin == catalog::Origin::Installed
-                        && let Some((icon, text, tone)) = setup_chip(st.setup.status(m.id.key()))
+                        && let Some((icon, text, tone)) = setup_chip(st.setup.status_for(m.id.key(), variant))
                     {
                         widgets::status_chip(ui, icon, text, tone);
                     }

@@ -163,6 +163,8 @@ pub struct ModelState {
     pub label: String,
     /// The catalogue model it runs as (`unet:<file>`, or a curated model's key).
     pub catalog_id: String,
+    /// The preset of `catalog_id` this file is (`int8`, `bf16`); empty: the model's default.
+    pub variant: String,
     /// What each capability's static check found.
     pub capabilities: Vec<super::check::CapabilityCheck>,
 }

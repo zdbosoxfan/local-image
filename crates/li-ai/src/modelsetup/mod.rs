@@ -460,6 +460,7 @@ fn prepare(ctx: &Ctx) -> BTreeMap<String, ModelState> {
         let m = if let Some(p) = curated.filter(|p| p.model.try_info().is_some_and(|i| !i.template_engine)) {
             let a = crate::catalog::availability(p, &ctx.snapshot.info);
             m.catalog_id = p.model.key().to_owned();
+            m.variant.clone_from(&p.variant);
             m.label = format!("{} · {}", p.model.info().label, p.label);
             m.engine = "builtin".into();
             m.status = if a.available { Status::Builtin } else { Status::Blocked };
@@ -471,6 +472,7 @@ fn prepare(ctx: &Ctx) -> BTreeMap<String, ModelState> {
         } else if builder {
             let preset = presets.iter().find(|p| p.installed && p.model.key() == im.key);
             let a = preset.map(|p| crate::catalog::availability(p, &ctx.snapshot.info));
+            m.variant = preset.map(|p| p.variant.clone()).unwrap_or_default();
             m.label = im.label.clone();
             m.engine = "builder".into();
             m.status = if a.as_ref().is_none_or(|a| a.available) { Status::Builtin } else { Status::Blocked };
@@ -690,6 +692,7 @@ pub fn verify_models(
         let binding = |role: &str| m.bindings.iter().find(|b| b.role == role).and_then(|b| b.used.clone()).unwrap_or_default();
         let target = verify::Target {
             model,
+            variant: &m.variant,
             label: &m.label,
             quant: m.identity.as_ref().and_then(|i| i.quant.class.as_ref()).map(|q| q.label()).unwrap_or_default(),
             te: binding("clip"),

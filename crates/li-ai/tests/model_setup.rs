@@ -246,6 +246,46 @@ fn a_shape_mismatch_names_the_installed_and_declared_text_encoders() {
 }
 
 #[test]
+fn verifying_one_precision_of_a_curated_model_renders_and_records_that_file() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(&[
+        ("diffusion_models/qwen_image_2.1_bf16.safetensors", "local__diffusion_models~qwen_image_2.1_bf16"),
+        ("diffusion_models/qwen_image_2.1_int8_convrot.safetensors", "local__diffusion_models~qwen_image_2.1_int8_convrot"),
+        ("text_encoders/qwen3vl_8b_bf16.safetensors", "local__text_encoders~qwen3vl_8b_bf16"),
+        ("text_encoders/qwen3vl_8b_int8_convrot.safetensors", "local__text_encoders~qwen3vl_8b_int8_convrot"),
+        ("vae/qwen_image_2.1_vae_bf16.safetensors", "local__vae~qwen_image_2.1_vae_bf16"),
+    ]);
+    // The curated Qwen builder's nodes, beyond what the official templates use.
+    let mut info = object_info(&s.dir.0);
+    for (class, node) in li_ai::mock::object_info().as_object().unwrap() {
+        info.as_object_mut().unwrap().entry(class.clone()).or_insert_with(|| node.clone());
+    }
+    s.mock.set_object_info(info);
+    let (bf16, int8) = ("unet:qwen_image_2.1_bf16.safetensors", "unet:qwen_image_2.1_int8_convrot.safetensors");
+    let scan = s.scan();
+    for (key, variant) in [(bf16, "bf16"), (int8, "int8")] {
+        let m = &scan.server.models[key];
+        assert_eq!((m.status, m.catalog_id.as_str(), m.variant.as_str()), (Status::Builtin, "qwen", variant), "{:?}", m.issues);
+    }
+    let done = modelsetup::verify_models(&s.options(), &scan, &[bf16.to_owned()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    assert!(done[0].result.is_ok(), "{:?}", done[0].result.as_ref().err());
+    let prompts = s.mock.prompts();
+    assert!(!prompts.is_empty());
+    for p in &prompts {
+        let unets: Vec<&str> =
+            p.as_object().unwrap().values().filter(|n| n["class_type"] == "UNETLoader").filter_map(|n| n["inputs"]["unet_name"].as_str()).collect();
+        assert_eq!(unets, ["qwen_image_2.1_bf16.safetensors"], "every test renders the file being verified: {p}");
+    }
+    let stored = li_ai::modelsetup::state::SetupState::load(&s.options().state_path);
+    let server = stored.server(s.mock.host()).unwrap();
+    assert!(server.models[bf16].verified.is_some());
+    assert_eq!((server.models[int8].status, server.models[int8].verified.as_ref()), (Status::Builtin, None), "the other precision is untouched");
+    let summary = modelsetup::summary::summarise(Some(server), &li_ai::catalog::catalog().models, Some("0.42.5"));
+    assert_eq!(summary.status_for("qwen", "int8"), Some(Status::Builtin));
+    assert_eq!(summary.status_for("qwen", "bf16"), Some(server.models[bf16].status));
+}
+
+#[test]
 fn an_older_comfyui_is_reported_before_anything_runs() {
     let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let s = Setup::new(FLUX3);
