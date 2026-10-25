@@ -195,6 +195,8 @@ impl LiquifyDialog {
     }
 
     fn begin(&mut self, p: [f64; 3], now: f64) {
+        // A stroke still open has already changed the field; record it so undo can replay it.
+        self.end();
         self.redo.clear();
         let mut s = self.template();
         s.points.push(p.to_vec());
@@ -802,7 +804,8 @@ pub fn show(app: &mut PhotocraftApp, ctx: &egui::Context) {
                     events.push(ToolEvent::Move { x: q[0], y: q[1], pressure: pr });
                     ctx.request_repaint();
                 }
-            } else if resp.drag_started() || (resp.is_pointer_button_down_on() && d.cur.is_none()) {
+            } else if (resp.drag_started() || resp.is_pointer_button_down_on()) && d.cur.is_none() {
+                // The stroke already began at the press; egui's later drag start must not restart it.
                 events.push(ToolEvent::Down { x: q[0], y: q[1], pressure: pr });
             } else if resp.dragged() || resp.is_pointer_button_down_on() {
                 let moved = d.cur.as_ref().is_some_and(|(_, l)| l[0] != q[0] || l[1] != q[1]);
@@ -1192,6 +1195,70 @@ mod tests {
             crate::shortcuts::handle(&mut app, ui.ctx());
         });
         assert_eq!(app.distort.liquify.as_ref().unwrap().strokes.len(), 1, "Cmd+Shift+Z redoes the last stroke");
+    }
+
+    /// A second pointer-down while a stroke is open must not drop the dabs already applied.
+    #[test]
+    fn second_down_without_up_keeps_the_open_strokes_dabs_recorded() {
+        let ctx = egui::Context::default();
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        control(&mut app, &json!({"tool": "forwardWarp", "size": 30})).unwrap();
+        for ev in [
+            ToolEvent::Down { x: 40.0, y: 40.0, pressure: 1.0 },
+            ToolEvent::Move { x: 46.0, y: 41.0, pressure: 1.0 },
+            ToolEvent::Down { x: 46.0, y: 41.0, pressure: 1.0 },
+            ToolEvent::Move { x: 55.0, y: 42.0, pressure: 1.0 },
+            ToolEvent::Up { x: 55.0, y: 42.0 },
+        ] {
+            pointer(&mut app, ev, egui::Modifiers::NONE);
+        }
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes) == d.field, "the live field must match the field rebuilt from the recorded strokes");
+    }
+
+    /// Short strokes drawn with the mouse (moves inside egui's drag threshold first) are recorded
+    /// whole, as one stroke each, so undo removes only the last one.
+    #[test]
+    fn short_mouse_strokes_are_recorded_whole_and_undo_removes_only_the_last() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let mut app = app_with_layer();
+        open(&mut app, &ctx).unwrap();
+        control(&mut app, &json!({"tool": "forwardWarp", "size": 30})).unwrap();
+        let screen = ERect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0));
+        let frame = |app: &mut PhotocraftApp, events: Vec<egui::Event>| {
+            let raw = egui::RawInput { screen_rect: Some(screen), events, ..Default::default() };
+            let mut out = ctx.run_ui(raw, |ui| show(app, ui.ctx()));
+            out.textures_delta.clear();
+        };
+        frame(&mut app, vec![]);
+        frame(&mut app, vec![]);
+        let mut before_last = Vec::new();
+        let strokes = 6;
+        for i in 0..strokes {
+            let start = pos2(560.0 + i as f32 * 25.0, 380.0 + (i % 2) as f32 * 20.0);
+            before_last = app.distort.liquify.as_ref().unwrap().out.clone();
+            frame(&mut app, vec![egui::Event::PointerMoved(start)]);
+            let press = egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE };
+            frame(&mut app, vec![press]);
+            let mut p = start;
+            for _ in 0..8 {
+                p += vec2(1.5, 1.0);
+                frame(&mut app, vec![egui::Event::PointerMoved(p)]);
+            }
+            let release = egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE };
+            frame(&mut app, vec![release]);
+            frame(&mut app, vec![]);
+            let d = app.distort.liquify.as_ref().unwrap();
+            assert_eq!(d.strokes.len(), i + 1, "one recorded stroke per mouse stroke");
+            assert!(LiquifyField::from_strokes(d.canvas, d.cell, &d.strokes) == d.field, "stroke {i}: the live field must match the recorded strokes");
+        }
+        control(&mut app, &json!({"undo": true})).unwrap();
+        let d = app.distort.liquify.as_ref().unwrap();
+        assert_eq!(d.strokes.len(), strokes - 1);
+        let differ = d.out.iter().zip(&before_last).filter(|(a, b)| a != b).count();
+        assert_eq!(differ, 0, "undo restores the pixels from before the last stroke");
     }
 
     #[test]
