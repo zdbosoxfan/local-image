@@ -475,3 +475,16 @@ fn find_edges_uses_full_sobel_strength() {
     assert!((out.rgba(7, 8)[0] - 15.0 / 255.0).abs() < 1e-5);
     assert_eq!(out.rgba(2, 8), [1.0; 4]);
 }
+
+#[test]
+fn blur_halos_follow_the_clamped_radius_and_never_overflow() {
+    let smart = |radius| FilterParams::SmartBlur { radius, threshold: 25.0, quality: BlurQuality::default(), mode: SmartBlurMode::default() };
+    assert_eq!(smart(1e9).halo(), Halo::Radius(101));
+    assert_eq!(smart(f32::INFINITY).halo(), Halo::Radius(101));
+    let gaussian = FilterParams::GaussianBlur { radius: f32::INFINITY };
+    assert_eq!(gaussian.halo(), Halo::Radius(i32::MAX));
+    let motion = FilterParams::MotionBlur { angle: 0.0, distance: f32::INFINITY };
+    assert_eq!(motion.halo(), Halo::Radius(i32::MAX));
+    // The widest halo still gets the largest automatic tile, not an overflowed one.
+    assert_eq!(auto_tile(&gaussian), 2048);
+}

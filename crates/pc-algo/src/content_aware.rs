@@ -102,14 +102,35 @@ fn sample(src: Src, x: f32, y: f32, out: &mut [f32]) -> bool {
     true
 }
 
-/// Transformed copy of the source: rotation (degrees) and scale about the centre, optional mirror.
-fn variant(src: Src, deg: f32, scale: f32, mirror: bool) -> Variant {
-    let Src { w, h, ch, .. } = src;
+/// Most pixels the mosaic of the image and its variants may span. It is one dense rectangle, so
+/// thin images turned to different angles leave it mostly empty: the cost grows with the square
+/// of their length, not with their pixels.
+const MAX_MOSAIC_PIXELS: usize = 1 << 25;
+
+/// Size of the mosaic of a `w`×`h` image and `extra` variant sizes separated by `gap`, or `None`
+/// when it spans more than [`MAX_MOSAIC_PIXELS`] (or overflows).
+fn mosaic_size(w: usize, h: usize, gap: usize, extra: &[(usize, usize)]) -> Option<(usize, usize)> {
+    let col_w = extra.iter().map(|v| v.0).max().unwrap_or(0);
+    let col_h = extra.iter().try_fold(0usize, |n, v| n.checked_add(v.1)?.checked_add(gap))?;
+    let mw = w.checked_add(gap)?.checked_add(col_w)?;
+    let mh = h.max(col_h);
+    (mw.checked_mul(mh)? <= MAX_MOSAIC_PIXELS).then_some((mw, mh))
+}
+
+/// Dimensions of the [`variant`] copy: the rotated, scaled bounding box, without its pixels.
+fn variant_dims(w: usize, h: usize, deg: f32, scale: f32) -> (usize, usize) {
     let (s, c) = (-deg.to_radians()).sin_cos();
-    // Output size: the rotated, scaled bounding box.
     let (fw, fh) = (w as f32 * scale, h as f32 * scale);
     let ow = ((fw * c.abs() + fh * s.abs()).round() as usize).max(1);
     let oh = ((fw * s.abs() + fh * c.abs()).round() as usize).max(1);
+    (ow, oh)
+}
+
+/// Transformed copy of the source: rotation (degrees) and scale about the centre, optional mirror.
+fn variant(src: Src, deg: f32, scale: f32, mirror: bool) -> Variant {
+    let Src { w, h, ch, .. } = src;
+    let (ow, oh) = variant_dims(w, h, deg, scale);
+    let (s, c) = (-deg.to_radians()).sin_cos();
     let (icx, icy) = ((w as f32 - 1.0) / 2.0, (h as f32 - 1.0) / 2.0);
     let (ocx, ocy) = ((ow as f32 - 1.0) / 2.0, (oh as f32 - 1.0) / 2.0);
     let mut out = Variant { w: ow, h: oh, img: vec![0.0; ow * oh * ch], ok: vec![false; ow * oh] };
@@ -169,23 +190,26 @@ pub fn fill_with(
     let gap = 2 * params.patch_radius + 2;
     let ok: Vec<bool> = hole.iter().zip(source).map(|(h, s)| !h && *s).collect();
     let src = Src { w, h, ch, img, ok: &ok };
-    // Variants: the identity (which holds the hole) first, then the adaptations.
-    let mut extra: Vec<Variant> = Vec::new();
+    // Variants: the identity (which holds the hole) first, then the adaptations. Their pixels are
+    // expensive, so the mosaic budget is settled on their dimensions before any variant is built;
+    // when the variants would not fit, the image itself is completed without them.
+    let mut specs: Vec<(f32, f32, bool)> = Vec::new();
     if opts.mirror {
-        extra.push(variant(src, 0.0, 1.0, true));
+        specs.push((0.0, 1.0, true));
     }
     for &deg in &opts.rotations {
-        extra.push(variant(src, deg, 1.0, false));
+        specs.push((deg, 1.0, false));
     }
     if opts.scale {
-        extra.push(variant(src, 0.0, 0.8, false));
-        extra.push(variant(src, 0.0, 1.25, false));
+        specs.push((0.0, 0.8, false));
+        specs.push((0.0, 1.25, false));
     }
-    // Mosaic: identity at the left, variants in a column to its right.
-    let col_w = extra.iter().map(|v| v.w).max().unwrap_or(0);
-    let col_h: usize = extra.iter().map(|v| v.h + gap).sum();
-    let mw = if extra.is_empty() { w } else { w + gap + col_w };
-    let mh = h.max(col_h);
+    let dims: Vec<(usize, usize)> = specs.iter().map(|&(deg, scale, _)| variant_dims(w, h, deg, scale)).collect();
+    let fitted = if specs.is_empty() { None } else { mosaic_size(w, h, gap, &dims) };
+    let extra: Vec<Variant> = if fitted.is_some() { specs.iter().map(|&(deg, scale, mirror)| variant(src, deg, scale, mirror)).collect() } else { Vec::new() };
+    // Mosaic: identity at the left, variants in a column to its right. Without variants (none
+    // asked for, or too many cells) it is the image itself.
+    let (mw, mh) = fitted.unwrap_or((w, h));
     let mut mimg = vec![0.0f32; mw * mh * ch];
     let mut unknown = vec![true; mw * mh];
     for y in 0..h {
@@ -272,6 +296,15 @@ fn adapt_colors(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_thin_image_with_turned_variants_does_not_get_a_quadratic_mosaic() {
+        // 40000×1 plus its 90° copy (1×40000): about 1.6 billion mosaic cells for 80000 pixels.
+        assert_eq!(variant_dims(40_000, 1, 90.0, 1.0), (1, 40_000));
+        assert_eq!(mosaic_size(40_000, 1, 8, &[(1, 40_000)]), None);
+        assert_eq!(mosaic_size(usize::MAX, 1, 8, &[(1, 1)]), None);
+        assert_eq!(mosaic_size(100, 100, 8, &[(100, 100)]), Some((208, 108)));
+    }
 
     /// Vertical stripes (period 6) in grey, with a hole in the middle.
     fn stripes(w: usize, h: usize) -> (Vec<f32>, Vec<bool>) {
@@ -363,5 +396,17 @@ mod tests {
         let v = variant(src, 0.0, 0.8, true);
         assert_eq!((v.w, v.h), (8, 5));
         assert!(v.ok.iter().filter(|o| **o).count() > 20);
+    }
+
+    #[test]
+    fn a_fill_whose_variants_would_not_fit_completes_the_image_alone() {
+        // A 6000×8 strip and its 90° copy would span a 6016×6008 mosaic, past the budget: the
+        // strip is filled from itself, as without rotation adaptation, instead of completing
+        // 36M mostly empty cells.
+        let (w, h) = (6000, 8);
+        let (img, hole) = stripes(w, h);
+        let source = vec![true; w * h];
+        let turned = FillOptions { rotations: vec![90.0], ..FillOptions::default() };
+        assert_eq!(fill(w, h, 1, &img, &hole, &source, &turned), fill(w, h, 1, &img, &hole, &source, &FillOptions::default()));
     }
 }
