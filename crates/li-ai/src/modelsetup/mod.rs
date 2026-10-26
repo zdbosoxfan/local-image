@@ -718,9 +718,17 @@ fn other_files(info: &ObjectInfo, server: &ServerState) -> Vec<FileReport> {
     out
 }
 
+fn template_family(m: &ModelState, recipe: &TemplateRecipe) -> Family {
+    let reg = crate::family::registry();
+    let arch = m.identity.as_ref().and_then(|i| i.arch.clone());
+    let profile = arch.as_deref().and_then(|a| reg.family(a));
+    let id = arch.clone().unwrap_or_else(|| format!("template:{}", m.identity.as_ref().map(|i| i.stem.as_str()).unwrap_or("")));
+    let family_label = profile.map(|p| p.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| m.label.split(" · ").next().unwrap_or_default().to_owned());
+    compile::family_for(recipe, profile, &id, &family_label)
+}
+
 /// Publishes the usable template recipes of `server` whose main file `info` still lists.
 pub fn publish(server: &ServerState, info: &ObjectInfo) -> bool {
-    let reg = crate::family::registry();
     let mut map = BTreeMap::new();
     for (key, m) in &server.models {
         let Some(recipe) = &m.recipe else { continue };
@@ -734,12 +742,15 @@ pub fn publish(server: &ServerState, info: &ObjectInfo) -> bool {
         if !listed || folders.is_empty() {
             continue;
         }
-        let arch = m.identity.as_ref().and_then(|i| i.arch.clone());
-        let profile = arch.as_deref().and_then(|a| reg.family(a));
-        let id = arch.clone().unwrap_or_else(|| format!("template:{}", m.identity.as_ref().map(|i| i.stem.as_str()).unwrap_or("")));
-        let family_label =
-            profile.map(|p| p.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| m.label.split(" · ").next().unwrap_or_default().to_owned());
-        let mut family = compile::family_for(recipe, profile, &id, &family_label);
+        let mut family = template_family(m, recipe);
+        let enabled = |name: &str| m.capabilities.iter().find(|c| c.name == name).is_none_or(|c| c.ok);
+        family.capabilities.create &= enabled("create");
+        family.capabilities.edit &= enabled("edit");
+        family.capabilities.inpaint &= enabled("inpaint");
+        let references = if recipe.edit.is_some() { "references" } else { "style" };
+        if !enabled(references) {
+            family.capabilities.references = 0;
+        }
         if let Some(v) = m.verified.as_ref().filter(|_| m.status == Status::PartiallyVerified) {
             let caps = &mut family.capabilities;
             for tool in turned_off(v) {

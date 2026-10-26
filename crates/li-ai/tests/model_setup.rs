@@ -802,3 +802,15 @@ fn a_background_snapshot_rechecks_replaced_weights_without_rendering() {
     assert_eq!(summary.banner(), 1);
     assert!(s.mock.prompts().is_empty(), "automatic scans never submit test renders");
 }
+
+#[test]
+fn published_models_honour_static_fill_checks() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(MOSS);
+    let mut scan = s.scan();
+    scan.server.models.get_mut(MOSS_KEY).unwrap().capabilities.iter_mut().find(|c| c.name == "inpaint").unwrap().ok = false;
+    modelsetup::publish(&scan.server, &scan.snapshot.as_ref().unwrap().info);
+    let model = ModelId::from_key(MOSS_KEY).unwrap().info();
+    assert!(model.text_to_image, "Create remains usable");
+    assert!(!model.inpaint, "a static Fill failure must not be advertised as usable");
+}
