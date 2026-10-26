@@ -61,6 +61,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Compositing: Save for Web shows preview settings and codec errors instead of a blank preview,
+  and recovers when the settings are corrected.
+
 - Library: directory-sync failures when opening the catalog journal are reported, and retries
   confirm the directory entry is durable before saving edits.
 - Develop and export preserve saturated colours already inside the selected output space,

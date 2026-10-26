@@ -254,7 +254,8 @@ fn variants(p: &Value) -> Vec<Value> {
 
 /// The flattened preview image: pixels, width, height, full-size / proxy pixel ratio.
 type WebProxy = (Arc<Vec<[f32; 4]>>, u32, u32, f64);
-type WebCache = (String, Arc<egui::TextureHandle>, Option<(usize, Option<usize>, &'static str)>);
+type WebPreview = Result<(Arc<egui::TextureHandle>, Option<(usize, Option<usize>, &'static str)>), String>;
+type WebCache = (String, WebPreview);
 
 /// Renders one preview pane: the original (`None`) or an optimised variant.
 fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<&Value>, full_px: f64) {
@@ -267,53 +268,63 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
     // proxies or textures alive.
     let base = p.cloned().unwrap_or_else(|| json!({}));
     let size_sig = format!("{}|{}|{}|{}", base["percent"], base["width"], base["height"], base["resample"]);
-    let wkey = egui::Id::new(("web-proxy", doc.id.0, p.is_some()));
-    let proxy_sig = format!("{rev}|{size_sig}");
-    let cached_proxy: Option<(String, WebProxy)> = ui.data(|d| d.get_temp(wkey));
-    let proxy = cached_proxy.filter(|(sig, _)| sig == &proxy_sig).map(|(_, proxy)| proxy);
-    let (px, w, h, ratio) = match proxy {
-        Some(v) => v,
-        None => {
-            let (fw, fh) = match web_size::web_dimensions(&doc, &base) {
-                Ok(size) => size,
-                Err(error) => {
-                    ui.label(egui::RichText::new(error).color(t.warning));
-                    return;
-                }
-            };
-            let k = (640.0 / fw.max(fh)).min(1.0);
-            let st = WebSettings::default();
-            let resample = web_size::proxy_resample(&base, k);
-            let Ok((wd, _, _)) =
-                web_cmds::web_document(&doc, &json!({"width": (fw * k).round().max(1.0), "height": (fh * k).round().max(1.0), "resample": resample}), &st)
-            else {
-                return;
-            };
-            let buf = photocraft_compose::flatten(&wd);
-            let v = (Arc::new(buf.px), wd.size.width, wd.size.height, (fw * fh) / (f64::from(wd.size.width) * f64::from(wd.size.height)).max(1.0));
-            ui.data_mut(|d| d.insert_temp(wkey, (proxy_sig, v.clone())));
-            v
-        }
-    };
     let sig = format!("{}|{rev}|{size_sig}|{}", doc.id.0, p.map(|v| v.to_string()).unwrap_or_else(|| "original".into()));
     let key = ui.next_auto_id().with("web-pane");
     let cached: Option<WebCache> = ui.data(|d| d.get_temp(key));
-    let (tex, info) = match cached.filter(|c| c.0 == sig) {
-        Some((_, tex, info)) => (tex, info),
+    let preview = match cached.filter(|c| c.0 == sig) {
+        Some((_, preview)) => preview,
         None => {
-            let (rgba, info) = match p {
-                None => (px.iter().flat_map(|q| q.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).collect::<Vec<u8>>(), None),
-                Some(p) => match WebSettings::from_params(p, "preview")
-                    .and_then(|st| web_cmds::optimize(&px, w as usize, photocraft_geom::Rect::new(0, 0, w as i32, h as i32), &st, None, None, 72.0, true))
-                {
-                    Ok(Optimized { preview, bytes, colors, ext, .. }) => (preview, Some(((bytes.len() as f64 * ratio) as usize, colors, ext))),
-                    Err(_) => (vec![0; (w * h * 4) as usize], None),
-                },
-            };
-            let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
-            let tex = Arc::new(ui.ctx().load_texture("web-pane", img, egui::TextureOptions::LINEAR));
-            ui.data_mut(|d| d.insert_temp(key, (sig, tex.clone(), info)));
-            (tex, info)
+            let preview = (|| -> WebPreview {
+                let wkey = egui::Id::new(("web-proxy", doc.id.0, p.is_some()));
+                let proxy_sig = format!("{rev}|{size_sig}");
+                let cached_proxy: Option<(String, WebProxy)> = ui.data(|d| d.get_temp(wkey));
+                let proxy = cached_proxy.filter(|(sig, _)| sig == &proxy_sig).map(|(_, proxy)| proxy);
+                let (px, w, h, ratio) = match proxy {
+                    Some(v) => v,
+                    None => {
+                        let (fw, fh) = web_size::web_dimensions(&doc, &base)?;
+                        let k = (640.0 / fw.max(fh)).min(1.0);
+                        let st = WebSettings::default();
+                        let resample = web_size::proxy_resample(&base, k);
+                        let (wd, _, _) = web_cmds::web_document(
+                            &doc,
+                            &json!({"width": (fw * k).round().max(1.0), "height": (fh * k).round().max(1.0), "resample": resample}),
+                            &st,
+                        )
+                        .map_err(|error| error.to_string())?;
+                        let buf = photocraft_compose::flatten(&wd);
+                        let v = (Arc::new(buf.px), wd.size.width, wd.size.height, (fw * fh) / (f64::from(wd.size.width) * f64::from(wd.size.height)).max(1.0));
+                        ui.data_mut(|d| d.insert_temp(wkey, (proxy_sig, v.clone())));
+                        v
+                    }
+                };
+                let (rgba, info) = match p {
+                    None => (px.iter().flat_map(|q| q.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).collect::<Vec<u8>>(), None),
+                    Some(p) => {
+                        let Optimized { preview, bytes, colors, ext, .. } = WebSettings::from_params(p, "preview")
+                            .and_then(|st| {
+                                web_cmds::optimize(&px, w as usize, photocraft_geom::Rect::new(0, 0, w as i32, h as i32), &st, None, None, 72.0, true)
+                            })
+                            .map_err(|error| error.to_string())?;
+                        (preview, Some(((bytes.len() as f64 * ratio) as usize, colors, ext)))
+                    }
+                };
+                let img = egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &rgba);
+                let tex = Arc::new(ui.ctx().load_texture("web-pane", img, egui::TextureOptions::LINEAR));
+                Ok((tex, info))
+            })();
+            ui.data_mut(|d| d.insert_temp(key, (sig, preview.clone())));
+            preview
+        }
+    };
+    let (tex, info) = match preview {
+        Ok(preview) => preview,
+        Err(error) => {
+            ui.allocate_ui(size, |ui| {
+                ui.set_min_size(size);
+                ui.add(egui::Label::new(egui::RichText::new(tl!(&error)).color(if t.dark() { t.warning } else { t.danger })).wrap());
+            });
+            return;
         }
     };
     ui.vertical(|ui| {
