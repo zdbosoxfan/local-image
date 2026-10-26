@@ -268,6 +268,14 @@ pub(crate) mod tests {
     }
 }
 
+/// Preserve integral reciprocal shutter speeds that decimal denominators approximate.
+fn reciprocal(value: Option<f64>) -> Option<lightcraft_tiff::Value> {
+    let value = value.filter(|value| value.is_finite() && *value > 0.0 && *value < 1.0)?;
+    let inverse = 1.0 / value;
+    ((inverse - inverse.round()).abs() < 1e-6 && inverse.round() <= f64::from(u32::MAX))
+        .then(|| lightcraft_tiff::Value::Rational(vec![(1, inverse.round() as u32)]))
+}
+
 /// Serialise the interchange subset of `meta` as a TIFF-structured Exif block (little-endian, no
 /// `Exif\0\0` prefix): IFD0 (make, model, software, artist, copyright, description, orientation,
 /// date), the Exif IFD (capture settings, lens) and, when present, the GPS IFD.
@@ -327,7 +335,7 @@ pub fn exif_ifd(meta: &Metadata) -> lightcraft_tiff::IfdBuilder {
         (t::DATE_TIME_ORIGINAL, meta.capture_time.map(|d| Value::Ascii(d.to_exif()))),
         (t::OFFSET_TIME_ORIGINAL, meta.capture_time.and_then(|d| d.offset()).map(Value::Ascii)),
         (t::SUBSEC_TIME_ORIGINAL, meta.capture_time.filter(|d| d.millis != 0).map(|d| Value::Ascii(format!("{:03}", d.millis)))),
-        (t::EXPOSURE_TIME, r(meta.exposure_time)),
+        (t::EXPOSURE_TIME, reciprocal(meta.exposure_time).or_else(|| r(meta.exposure_time))),
         (t::F_NUMBER, r(meta.f_number)),
         (t::FOCAL_LENGTH, r(meta.focal_length)),
         (
@@ -353,6 +361,16 @@ pub fn exif_ifd(meta: &Metadata) -> lightcraft_tiff::IfdBuilder {
 
 #[cfg(test)]
 mod write_tests {
+    #[test]
+    fn fast_shutter_speeds_round_trip_exactly() {
+        for den in [640.0, 3200.0, 6400.0, 8000.0, 12800.0, 16000.0, 32000.0] {
+            let metadata = super::Metadata { exposure_time: Some(1.0 / den), ..Default::default() };
+            let bytes = super::write_exif(&metadata);
+            let back = super::read_exif(&bytes);
+            assert_eq!(back.exposure_time, metadata.exposure_time, "1/{den}");
+        }
+    }
+
     use super::*;
 
     #[test]
