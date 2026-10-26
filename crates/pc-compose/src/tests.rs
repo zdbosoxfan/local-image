@@ -1677,6 +1677,7 @@ fn effect_cache_keeps_no_pixels_of_a_dropped_layer() {
     assert_eq!(std::sync::Arc::strong_count(&child), 1);
 }
 
+mod hdr_adjustments;
 mod layer_rendering;
 mod tone_curves;
 

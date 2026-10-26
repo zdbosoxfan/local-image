@@ -10,6 +10,9 @@ use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, ToneSpace};
 
 use crate::Buffer;
 
+/// Integer Legacy Brightness/Contrast pivots around Photoshop's mid-grey sample.
+pub const LEGACY_PIVOT: f32 = 128.0 / 255.0;
+
 /// Number of values in the table of a `size`³ Color Lookup (`size³ × 3`). `None` for a size below
 /// 2 or one whose table length overflows: a stored document's size is untrusted. (Upstream
 /// 5049a1d0 keeps this in `photocraft_doc::adjust::lut3d_len`; pc-doc is not ours to edit here.)
@@ -88,12 +91,12 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
         Adjustment::Threshold { level } => map_rgb(buf, |c| [if threshold_white(c, *level, depth) { 1.0 } else { 0.0 }; 3]),
         Adjustment::Posterize { levels } => map_rgb(buf, |c| c.map(|v| posterize_in(v, *levels, depth))),
         Adjustment::BrightnessContrast { brightness, contrast, legacy: true } => {
-            // Legacy: contrast scales around mid-grey, then brightness is added
-            // (fitted to Photoshop's rendering, exact on the corpus).
+            // Photoshop adds brightness before raised contrast and after lowered contrast.
             let b = brightness / 255.0;
             let c = contrast.clamp(-100.0, 99.0);
             let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
-            map_rgb(buf, |px| px.map(|v| ((v - 0.5) * k + 0.5 + b).clamp(0.0, 1.0)))
+            let (pre, post) = if c >= 0.0 { (b, 0.0) } else { (0.0, b) };
+            map_rgb(buf, |px| px.map(|v| ((v + pre - LEGACY_PIVOT) * k + LEGACY_PIVOT + post).clamp(0.0, 1.0)))
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
             // Modern (CS3+) Brightness/Contrast: smooth curves that pin pure black and white (see
