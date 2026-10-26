@@ -227,6 +227,27 @@ fn displace_none_selectors_keep_the_embedded_map_and_real_requests_replace_it() 
 }
 
 #[test]
+fn oversized_file_maps_are_rejected_before_dense_rendering() {
+    let mut doc = Document::new("large map", photocraft_geom::Size::new(8192, 2049), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+    let mut surface = photocraft_raster::Surface::new(doc.pixel_format());
+    surface.write_pixel(0, 0, &[1.0; 4]);
+    surface.write_pixel(8191, 2048, &[1.0; 4]);
+    let layer = Layer::new("map", photocraft_doc::LayerContent::Raster(surface));
+    let id = layer.id.0;
+    doc.layers.push(layer);
+    let bytes = photocraft_format::save_to_bytes(&doc, &Default::default()).unwrap();
+    let path = std::env::temp_dir().join(format!("pcraft-displace-layer-{}.pcraft", std::process::id()));
+    std::fs::write(&path, bytes).unwrap();
+    let s = session();
+    let results = [json!({"mapPath":path}), json!({"mapPath":path,"mapLayer":id})].map(|params| check_displace_embed(&s, &params));
+    std::fs::remove_file(path).unwrap();
+    for result in results {
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("16,777,216 pixels"), "{error}");
+    }
+}
+
+#[test]
 fn oversized_map_headers_are_rejected_before_pixel_decoding() {
     let path = std::env::temp_dir().join(format!("pcraft-displace-header-{}.psd", std::process::id()));
     let mut header = vec![0u8; 26];
