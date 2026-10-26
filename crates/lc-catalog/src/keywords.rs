@@ -13,6 +13,9 @@ use crate::{Catalog, CatalogError, Meta, Op, Result};
 /// Separator of hierarchical keyword levels.
 pub const SEP: char = '|';
 
+/// Maximum tree depth, bounding stored prefixes and recursive traversal.
+const MAX_LEVELS: usize = 64;
+
 /// Normalize a keyword: trim every level, drop empty levels.
 pub fn clean(k: &str) -> String {
     k.split(SEP).map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("|")
@@ -71,7 +74,7 @@ impl Catalog {
                 let mut path = String::new();
                 let mut lower = String::new();
                 let mut parent: Option<String> = None;
-                for part in k.split(SEP).map(str::trim).filter(|s| !s.is_empty()) {
+                for part in k.split(SEP).map(str::trim).filter(|s| !s.is_empty()).take(MAX_LEVELS) {
                     if !path.is_empty() {
                         path.push(SEP);
                         lower.push(SEP);
@@ -297,5 +300,18 @@ mod tests {
         assert_eq!(s, ["parade"]);
         let s = c.keyword_suggestions(&[], "E", 5);
         assert_eq!(s, ["eagle", "beach", "parade"], "prefix matches before substring matches");
+    }
+    #[test]
+    fn keyword_tree_caps_a_keyword_at_the_list_depth() {
+        let deep = (0..256).map(|i| format!("k{i}")).collect::<Vec<_>>().join("|");
+        let (c, _) = lib(&[&[&deep]]);
+        let tree = c.keyword_tree();
+        let mut nodes = tree.as_slice();
+        let mut depth = 0;
+        while let [node] = nodes {
+            depth += 1;
+            nodes = &node.children;
+        }
+        assert_eq!(depth, 64);
     }
 }
