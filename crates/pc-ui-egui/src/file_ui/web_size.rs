@@ -152,13 +152,15 @@ pub(super) fn web_size(ui: &mut egui::Ui, f: &mut Map<String, Value>, doc: &phot
             write(f, size);
         }
     }
-    ui.label(egui::RichText::new(tl!("Resample")).color(t.text_dim));
-    let current = f.get("resample").and_then(Value::as_str).and_then(ResampleChoice::from_key).unwrap_or(ResampleChoice::Bicubic);
-    let mut kernel = current.key().to_owned();
-    let kernels: Vec<(String, &str, &str)> = ResampleChoice::ALL.iter().map(|c| (c.key().to_owned(), c.label(), c.hint())).collect();
-    if crate::widgets::dropdown_with_tooltips(ui, "web-resample", &mut kernel, &kernels, 230.0) {
-        f.insert("resample".into(), json!(kernel));
-    }
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new(tl!("Resample")).color(t.text_dim));
+        let current = f.get("resample").and_then(Value::as_str).and_then(ResampleChoice::from_key).unwrap_or(ResampleChoice::Bicubic);
+        let mut kernel = current.key().to_owned();
+        let kernels: Vec<(String, &str, &str)> = ResampleChoice::ALL.iter().map(|c| (c.key().to_owned(), c.label(), c.hint())).collect();
+        if crate::widgets::dropdown_with_tooltips(ui, "web-resample", &mut kernel, &kernels, 170.0) {
+            f.insert("resample".into(), json!(kernel));
+        }
+    });
 }
 
 #[cfg(test)]
