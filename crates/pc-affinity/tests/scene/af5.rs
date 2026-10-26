@@ -533,7 +533,7 @@ fn bitmap_fixture(size: i32, format: u16, values: &[u8]) -> F {
 fn masks_decode_only_the_covered_content_and_hide_nonoverlap() {
     for attached in [true, false] {
         for x in [0., 100.] {
-            let mask = F::Obj(tag(b"MRst"), vec![(tag(b"Bitm"), bitmap_fixture(256, 6, &[2])), (tag(b"Xfrm"), F::F64s(vec![1., 0., x, 0., 1., 0.]))]);
+            let mask = F::Obj(tag(b"MRst"), vec![(tag(b"Bitm"), bitmap_fixture(256, 6, &[2])), (tag(b"Xfrm"), F::F64s(vec![10., 0., x * 10., 0., 10., 0.]))]);
             let mut shape = curve();
             let F::Def(_, _, fields) = &mut shape else { panic!() };
             fields.push((tag(b"Xfrm"), F::F64s(vec![0.1, 0., 0., 0., 0.1, 0.])));
