@@ -90,6 +90,37 @@ fn fine_histogram_motion_clamps_and_keeps_fractional_travel() {
 }
 
 #[test]
+fn histogram_click_wobble_only_toggles_clipping() {
+    for batched in [false, true] {
+        let mut h = setup();
+        let start = ZONES[2].rect(plot(&h)).center();
+        let end = start + egui::vec2(2.0, 0.0);
+        let before = h.app.session.undo.len();
+        if batched {
+            h.events.extend([
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerMoved(end),
+                egui::Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ]);
+            h.step();
+        } else {
+            pointer(&mut h, start, Some(true), false);
+            pointer(&mut h, end, None, false);
+            assert_eq!(values(&h), [0.0; 5], "click motion must not write a live tone draft");
+            pointer(&mut h, end, Some(false), false);
+        }
+        assert_eq!(values(&h), [0.0; 5]);
+        assert_eq!(h.app.session.undo.len(), before);
+        assert!(h.app.session.interaction.is_none());
+        assert!(h.app.ui.dragging_control.is_none());
+        assert!(h.app.ui.show_clipping, "one clipping toggle");
+        h.step();
+        assert!(h.app.ui.show_clipping);
+    }
+}
+
+#[test]
 fn histogram_excludes_metadata_and_indicators_and_keeps_click_and_space() {
     let mut h = setup();
     let plot = plot(&h);

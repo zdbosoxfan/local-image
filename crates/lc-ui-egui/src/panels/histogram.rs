@@ -123,6 +123,7 @@ struct DragOwner {
     frame: u64,
     previous: Pos2,
     expected: f64,
+    dragging: bool,
 }
 
 fn interact(app: &mut LightcraftApp, ui: &egui::Ui, response: &Response, plot: Rect, id: PhotoId) -> Option<Active> {
@@ -164,7 +165,7 @@ fn interact(app: &mut LightcraftApp, ui: &egui::Ui, response: &Response, plot: R
                 let value = value_of(app, id, spec);
                 app.ui.dragging_control = Some(spec.id.into());
                 app.gesture = Some(Gesture::HistogramDrag { control: spec.id, value });
-                state = Some(DragOwner { owner, frame: ui.ctx().cumulative_frame_nr(), previous: press, expected: value });
+                state = Some(DragOwner { owner, frame: ui.ctx().cumulative_frame_nr(), previous: press, expected: value, dragging: false });
             }
             Err(error) => app.toast(ui.ctx(), error),
         }
@@ -174,22 +175,28 @@ fn interact(app: &mut LightcraftApp, ui: &egui::Ui, response: &Response, plot: R
         && let (Some(spec), Some(state)) = (controls::find(control), state.as_mut())
     {
         state.frame = ui.ctx().cumulative_frame_nr();
-        if ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released())
-            && let Some(point) = ui.input(|input| input.pointer.interact_pos())
-        {
-            let next = dragged(spec, value, point.x - state.previous.x, plot.width(), ui.input(|input| input.modifiers.shift));
-            state.previous = point;
-            app.gesture = Some(Gesture::HistogramDrag { control, value: next });
-            let value = quantized(spec, next);
-            if value != value_of(app, id, spec)
-                && let Err(error) = app.run("develop.set", json!({"control":control,"value":value}))
+        if ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released()) {
+            state.dragging |= ui.input(|input| !input.pointer.could_any_button_be_click());
+            if state.dragging
+                && let Some(point) = ui.input(|input| input.pointer.interact_pos())
             {
-                app.toast(ui.ctx(), error);
+                let next = dragged(spec, value, point.x - state.previous.x, plot.width(), ui.input(|input| input.modifiers.shift));
+                state.previous = point;
+                app.gesture = Some(Gesture::HistogramDrag { control, value: next });
+                let value = quantized(spec, next);
+                if value != value_of(app, id, spec)
+                    && let Err(error) = app.run("develop.set", json!({"control":control,"value":value}))
+                {
+                    app.toast(ui.ctx(), error);
+                }
+                state.expected = value_of(app, id, spec);
             }
-            state.expected = value_of(app, id, spec);
         }
-        active =
-            ZONES.iter().copied().find(|zone| zone.control == control).map(|zone| Active { zone, value: value_of(app, id, spec), dragging: true });
+        active = ZONES.iter().copied().find(|zone| zone.control == control).map(|zone| Active {
+            zone,
+            value: value_of(app, id, spec),
+            dragging: state.dragging,
+        });
         if response.drag_stopped_by(egui::PointerButton::Primary) || ui.input(|input| !input.pointer.primary_down() || !input.focused) {
             finish(app, ui);
         }
