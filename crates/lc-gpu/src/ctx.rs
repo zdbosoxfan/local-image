@@ -21,6 +21,8 @@ const MODULES: &[Module] = &[
     },
     #[cfg(test)]
     Module { src: include_str!("wgsl/toneeq_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["teq_round_probe"] },
+    #[cfg(test)]
+    Module { src: include_str!("wgsl/gamut_test.wgsl"), bindings: &[("a", false, "f32"), ("dst", true, "f32")], entries: &["gamut_probe"] },
     Module {
         src: include_str!("wgsl/haze_select.wgsl"),
         bindings: &[("a", false, "f32"), ("b", true, "f32"), ("c", false, "f32"), ("dst", true, "f32")],
@@ -508,6 +510,11 @@ fn constants() -> String {
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
     s += &format!("const DEHAZE_FLOOR_EV: f32 = {:?};\n", lightcraft_pipeline::detail::haze::SHADOW_FLOOR_EV);
     s += &format!("const GAMUT_KNEE: f32 = {:?};\n", lightcraft_pipeline::finish::GAMUT_KNEE);
+    use lightcraft_pipeline::gamut::{MAX_CHROMA, OUTPUT_ZONE, STEPS};
+    s += &format!(
+        "const GAMUT_ZONE_OUT: f32 = {:?};\nconst GAMUT_ZONE_IN: f32 = {:?};\nconst GAMUT_MAX_CHROMA: f32 = {MAX_CHROMA:?};\nconst GAMUT_STEPS: u32 = {STEPS}u;\n",
+        OUTPUT_ZONE.0, OUTPUT_ZONE.1
+    );
     use lightcraft_pipeline::tone2::{SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT};
     s += &format!("const SCENE_GAMUT_KNEE: f32 = {SCENE_GAMUT_KNEE:?};\nconst SCENE_GAMUT_LIMIT: f32 = {SCENE_GAMUT_LIMIT:?};\n");
     for (i, h) in GRAIN_HASH.iter().enumerate() {
@@ -537,6 +544,9 @@ fn module_source(m: &Module, consts: &str) -> String {
     }
     if m.entries.first().is_some_and(|e| e.starts_with("p_")) {
         s += include_str!("wgsl/ucs.wgsl");
+    }
+    if m.src.contains("gamut_") {
+        s += include_str!("wgsl/gamut.wgsl");
     }
     s += m.src;
     s

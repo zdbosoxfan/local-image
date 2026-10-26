@@ -2005,6 +2005,10 @@ mod embedded_tests;
 mod geometry_tests;
 
 #[cfg(test)]
+#[path = "gamut_tests.rs"]
+mod gamut_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

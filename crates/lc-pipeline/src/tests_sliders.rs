@@ -459,6 +459,36 @@ fn hsl_luminance_darkens_saturated_blues_without_reaching_black() {
 }
 
 #[test]
+fn hsl_saturation_and_luminance_keep_the_oklab_hue() {
+    // UCS 22 hue lines bend away from OkLab's: before the equalizer held the hue, these edits
+    // turned deep blues by up to 0.29 rad and yellows and greens by up to 0.2 rad.
+    let lch = |c: [f32; 3]| li_color::perceptual::lab_to_lch(li_color::perceptual::oklab_from_2020(c));
+    let deep_blue = li_color::SRGB.to_space(&li_color::REC2020).apply_f32([40., 90., 200.].map(|v| li_color::transfer::srgb_to_linear(v / 255.)));
+    for patch in [[0.08, 0.14, 0.32], [0.03, 0.07, 0.30], deep_blue, [0.4, 0.1, 0.05], [0.1, 0.35, 0.05], [0.5, 0.35, 0.05], [0.3, 0.05, 0.25]] {
+        let [_, c0, h0] = lch(patch);
+        for value in [-100., -50., 50., 100.] {
+            for luminance in [false, true] {
+                let mut s = DevelopSettings::default();
+                let m = &mut s.mixer;
+                for band in [&mut m.red, &mut m.orange, &mut m.yellow, &mut m.green, &mut m.aqua, &mut m.blue, &mut m.purple, &mut m.magenta] {
+                    if luminance { band.lum = value } else { band.sat = value }
+                }
+                let mut img = RgbFrame::filled(16, 12, patch);
+                colorequal::apply(&mut img, &s, 1000.);
+                let [_, c, h] = lch(img.get(8, 6));
+                if c < 0.02 * c0 {
+                    continue; // desaturated to grey: no hue left
+                }
+                let turn = (h - h0 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                let what = if luminance { "Luminance" } else { "Saturation" };
+                assert!(turn.abs() < 3e-3, "{patch:?} {what} {value} turned the hue by {turn} rad");
+                assert!((c - c0).abs() > 1e-3 * c0 || value == 0., "{patch:?} {what} {value} changed nothing");
+            }
+        }
+    }
+}
+
+#[test]
 fn hue_band_curves_stay_between_their_nodes() {
     let hues = colorequal::hues();
     let at = |lut: &[f32], hue: f32| crate::ucs::lookup_gamut(lut, hue);

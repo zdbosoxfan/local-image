@@ -85,7 +85,19 @@ fn p_equal_finish(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workg
     var limit=pf(5u); if(ev<0.0) {limit=-pf(4u);} let e=exp(-2.0*abs(ev)/limit);
     h.z=max(h.z*exp2(sign(ev)*limit*(1.0-e)/(1.0+e)),0.0);
     let lw=y_ls(1.0); if(pu(2u)!=0u) {let yy=ls_y(clamp(h.z*lw,0.0,LS_UPPER)); put_rgb(i,vec3<f32>(yy*exp2(lut_hue(2048u,h.x)*1.3)));}
-    else {put_rgb(i,hsb_rgb(gamut_hsb(h,lw),lw));}
+    else {
+        let shifted=hsb_rgb(gamut_hsb(vec3<f32>(h.x,a[4u*i+1u],a[4u*i+2u]),lw),lw);
+        put_rgb(i,hold_hue(hsb_rgb(gamut_hsb(h,lw),lw),shifted));
+    }
+}
+// `colorequal::hold_hue`
+fn hold_hue(edit: vec3<f32>, reference: vec3<f32>) -> vec3<f32> {
+    if (all(edit == reference)) {return edit;}
+    let e=oklab(edit); let r=oklab(reference);
+    let chroma=length(r.yz);
+    if (!(chroma > 1e-7)) {return edit;}
+    let k=length(e.yz)/chroma;
+    return gamut_scene_lab(vec3<f32>(e.x,r.y*k,r.z*k),1.0,1.0);
 }
 @compute @workgroup_size(256)
 fn p_skin_pre(@builtin(global_invocation_id) g: vec3<u32>,@builtin(num_workgroups) ng: vec3<u32>) {

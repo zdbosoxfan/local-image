@@ -401,17 +401,19 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     d
 }
 
-/// Where the scene knee starts: Rec. 2020 channel distances up to this stay as they are (every sRGB
-/// colour is inside it; sRGB blue reaches 0.988).
+/// Where the scene knee starts: chroma up to this fraction of the Rec. 2020 edge's, at the colour's
+/// OkLab lightness and hue, stays as it is (every sRGB colour is inside it; sRGB blue reaches 0.944).
 pub const SCENE_GAMUT_KNEE: f32 = 0.99;
-/// The scene channel distance that lands on the Rec. 2020 edge: saturated light past the working
-/// gamut (LEDs, neon) keeps a gradation up to here instead of collapsing onto one surface.
-pub const SCENE_GAMUT_LIMIT: f32 = 1.5;
+/// The scene chroma, relative to the Rec. 2020 edge's, that lands on the edge: just past the
+/// spectral locus (at most 2.34 times the edge's chroma, at 480 nm), so saturated light past the
+/// working gamut (LEDs, neon) keeps a gradation instead of collapsing onto one surface.
+pub const SCENE_GAMUT_LIMIT: f32 = 2.5;
 
-/// Scene colours rolled off towards the Rec. 2020 gamut edge ([`crate::finish::soft_gamut`]).
+/// Scene colours rolled off towards the Rec. 2020 gamut edge at constant OkLab lightness and hue
+/// ([`crate::gamut::scene`]).
 #[inline]
 pub fn scene_gamut_knee(c: [f32; 3]) -> [f32; 3] {
-    crate::finish::soft_gamut(c, SCENE_GAMUT_KNEE, [SCENE_GAMUT_LIMIT; 3])
+    crate::gamut::scene(c, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT)
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.

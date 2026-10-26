@@ -49,6 +49,7 @@ pub mod detail;
 pub mod dust;
 pub mod eigf;
 pub mod finish;
+pub mod gamut;
 pub mod geometry;
 pub mod layers;
 pub mod lcp;

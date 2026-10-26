@@ -105,21 +105,21 @@ fn cases() -> Vec<(&'static str, Value)> {
 /// (case/source kind, render hash, settings hash), x86_64 Linux.
 const GOLDEN: [(&str, u64, u64); 14] = [
     ("default/rendered", 0x9ab6df6ab933abe6, 0x97d20305a4beb718),
-    ("default/raw", 0xdc9aaa89cfab9e36, 0x97d20305a4beb718),
-    ("raw defaults + edits/rendered", 0xa8641fb4c4e800e4, 0x15c51fec88c0f59f),
-    ("raw defaults + edits/raw", 0x5c7840f8ce377617, 0x15c51fec88c0f59f),
+    ("default/raw", 0x2bd11621367cfc41, 0x97d20305a4beb718),
+    ("raw defaults + edits/rendered", 0x085235f082c46d1e, 0x15c51fec88c0f59f),
+    ("raw defaults + edits/raw", 0x6a9dbc744a95f020, 0x15c51fec88c0f59f),
     ("optics + geometry + crop/rendered", 0xc994ce6fab68fd65, 0x0d608f6981034f4f),
-    ("optics + geometry + crop/raw", 0x997d7d64873815e4, 0x0d608f6981034f4f),
-    ("profile look/rendered", 0x00ee8131abe439a1, 0x67aea33bdcc2fa0b),
-    ("profile look/raw", 0x8ea983a978bf0ef7, 0x67aea33bdcc2fa0b),
+    ("optics + geometry + crop/raw", 0x250e97b1fc1589f3, 0x0d608f6981034f4f),
+    ("profile look/rendered", 0x77b7e5e2b4d43f52, 0x67aea33bdcc2fa0b),
+    ("profile look/raw", 0x505d8abaca60c234, 0x67aea33bdcc2fa0b),
     ("b&w profile/rendered", 0x3d61cfe30c95ede3, 0xb6159ee7a2d437b0),
     ("b&w profile/raw", 0x83be731308b9b845, 0xb6159ee7a2d437b0),
-    ("negative/rendered", 0x46c146aa61802925, 0xb00a5805f4d46110),
-    ("negative/raw", 0x149c13250a08118b, 0xb00a5805f4d46110),
+    ("negative/rendered", 0x1f18b65cd743ea3c, 0xb00a5805f4d46110),
+    ("negative/raw", 0x089adfda3fc1d29c, 0xb00a5805f4d46110),
     // Layer renders apply sequential developed-image tools, so their hashes differ from the
     // no-layer renders; every settings hash above/below is independent of that.
     ("layers/rendered", 0x98739d43cba77b92, 0x72a3db4f1a1900ec),
-    ("layers/raw", 0x421d8508b216f162, 0x72a3db4f1a1900ec),
+    ("layers/raw", 0x5499ad4dff328e8c, 0x72a3db4f1a1900ec),
 ];
 
 #[test]
