@@ -15,7 +15,8 @@ All notable changes to Local Image are recorded here. The format follows
   options, missing companion files, GPU support for the precision, memory, licence) and explains
   each problem with a fix; verification tests a model with small renders on request.
 - `local-image-cli ai doctor` lists every model on the connected ComfyUI, how it runs and what
-  blocks it; `--verify` tests models one at a time; `--json` prints the report.
+  blocks it; `--verify` tests models one at a time; Ctrl-C cancels its render and exits 130;
+  `--json` prints the report.
 - AI: Window › Set Up Models… shows every installed model, what it is, what it needs and why,
   with one-click fixes (verified download of a missing file, use another installed file, move a
   misplaced file, choose a template, ignore) and test renders with progress and Cancel. Generate's

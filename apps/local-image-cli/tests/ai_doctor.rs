@@ -107,3 +107,53 @@ fn usage_errors_and_an_unreachable_server_have_their_own_exit_codes() {
     assert_eq!(bin().arg("ai").output().unwrap().status.code(), Some(2));
     assert_eq!(bin().args(["ai", "doctor", "--help"]).output().unwrap().status.code(), Some(0));
 }
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_interrupts_the_owned_render_and_exits_130() {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let (dir, data) = (models("cancel"), tmp("cancel-data"));
+    let server = MockComfy::start().unwrap();
+    server.serve_comfy_0_42_5(&dir.0);
+    server.delay_ms.store(30_000, std::sync::atomic::Ordering::SeqCst);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_local-image-cli"))
+        .args(["ai", "doctor", "--host", server.host(), "--model-dir"])
+        .arg(&dir.0)
+        .args(["--verify", "all"])
+        .env("LOCAL_IMAGE_DATA_DIR", &data.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let until = Instant::now() + Duration::from_secs(15);
+    while server.prompts().is_empty() && Instant::now() < until {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("doctor exited before rendering: {status}");
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    assert!(!server.prompts().is_empty(), "doctor must have submitted a render");
+    let client = li_ai::ComfyClient::new(server.host());
+    let queue = client.queue_state().unwrap();
+    let owned = queue["queue_running"][0][1].as_str().expect("the doctor's render is running").to_owned();
+    assert!(Command::new("kill").args(["-INT", &child.id().to_string()]).status().unwrap().success());
+    let until = Instant::now() + Duration::from_secs(15);
+    while child.try_wait().unwrap().is_none() && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    if child.try_wait().unwrap().is_none() {
+        child.kill().unwrap();
+        panic!("doctor did not stop after Ctrl-C");
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(130), "{}", String::from_utf8_lossy(&output.stderr));
+    let history = client.history(&owned).unwrap().expect("cancelled prompt history");
+    assert_eq!(history["status"]["status_str"], "error");
+    assert!(history["status"]["messages"].to_string().contains("execution_interrupted"));
+    let queue = client.queue_state().unwrap();
+    assert!(queue["queue_running"].as_array().unwrap().is_empty() && queue["queue_pending"].as_array().unwrap().is_empty());
+    assert_eq!(server.interrupts(), 0, "cancellation uses the owned job endpoint, never a global interrupt");
+    assert_eq!(server.frees(), 1, "cancel still releases model memory");
+    assert_eq!(server.prompts().len(), 1, "no later test is submitted");
+}

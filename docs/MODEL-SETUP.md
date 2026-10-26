@@ -146,11 +146,13 @@ local-image-cli ai doctor [--host <host:port>] [--model-dir <dir>] [--templates-
 ```
 
 Prints every model, its engine, templates, companions, capabilities and issues with fixes. It reads
-only: no downloads, moves or renders, and it never starts ComfyUI. `--verify` runs the tests above
+only: no downloads, moves or renders, and it never starts ComfyUI. Ctrl-C during verification
+cancels the doctor's owned prompt, releases model memory and exits 130. `--verify` runs the tests above
 (`all`: every template model not tested yet) and stores the results where the app reads them.
 `--templates-dir` reads the official templates (an `index.json` and its templates) from a folder
 instead of the server. `--json` prints the report (`report_version` 1). Exit codes: 0 nothing
-blocks, 1 blockers or failed tests, 2 usage, 3 ComfyUI not reachable. The host is `--host`, else
+blocks, 1 blockers or failed tests, 2 usage, 3 ComfyUI not reachable, 130 verification cancelled.
+The host is `--host`, else
 `LOCAL_IMAGE_COMFY`, else the Local AI settings.
 
 ### Not implemented yet
@@ -162,8 +164,6 @@ These parts of the model setup design are deferred; nothing in the app or the do
 - `--online` (look up a newer ComfyUI and template package), `--offline` and `--compare-engines`
   (render a curated model through its builder and its official template side by side). Check online…
   in the app opens ComfyUI's releases page instead.
-- Ctrl-C during `--verify`: the process ends without cancelling ComfyUI's running prompt or exiting
-  with 130. The verification lock it leaves is taken over once its process has ended.
 - **Verified by use** (a model that rendered fine in Generate counting as verified).
 - Separate messages for a file in the model folder that ComfyUI hasn't listed yet, a recipe that
   stopped working after a ComfyUI update (reported as blocked, with what the check found) and a

@@ -3,7 +3,7 @@
 //! verifying (no downloads or moves); it never starts ComfyUI.
 //!
 //! Exit codes: 0 nothing blocks and no test failed, 1 blockers or failed tests, 2 usage, 3
-//! ComfyUI unreachable.
+//! ComfyUI unreachable, 130 verification cancelled.
 
 use std::io::Write;
 use std::path::PathBuf;
@@ -12,6 +12,7 @@ use li_ai::comfy::JobControl;
 use li_ai::modelsetup::{self, Options, report};
 
 use super::Args;
+mod interrupt;
 
 /// The models `--verify` names: `all` (every model not verified yet), a model key or a file name.
 fn verify_keys(scan: &modelsetup::Scan, which: &str) -> Result<Vec<String>, String> {
@@ -65,6 +66,13 @@ pub(crate) fn doctor(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 
             }
         };
         let ctl = JobControl::new();
+        let _interrupt = match interrupt::Interrupt::start(ctl.clone()) {
+            Ok(listener) => listener,
+            Err(e) => {
+                let _ = writeln!(err, "error: cannot listen for Ctrl-C: {e}");
+                return 1;
+            }
+        };
         let labels: std::collections::BTreeMap<String, String> = scan.server.models.iter().map(|(k, m)| (k.clone(), m.label.clone())).collect();
         let quiet = a.has("--json");
         let mut progress = |key: &str, step: modelsetup::verify::Step| {
@@ -98,10 +106,18 @@ pub(crate) fn doctor(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 
                     }
                 }
             }
+            Err(_) if ctl.is_cancelled() => {
+                let _ = writeln!(err, "Verification cancelled.");
+                return 130;
+            }
             Err(e) => {
                 let _ = writeln!(err, "error: {e:#}");
                 return 1;
             }
+        }
+        if ctl.is_cancelled() {
+            let _ = writeln!(err, "Verification cancelled.");
+            return 130;
         }
     }
     // The report reflects what was stored (including the tests just run).

@@ -32,7 +32,7 @@ li-ai = { workspace = true }
 # The compute profile and the global compute pool (main.rs).
 lightcraft-sysmem = { workspace = true }
 serde_json = { workspace = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync"] }
 
 [dev-dependencies]
 lightcraft-tiff = { workspace = true }
