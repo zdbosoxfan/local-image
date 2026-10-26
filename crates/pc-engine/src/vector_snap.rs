@@ -524,6 +524,10 @@ impl Cache {
             for target in self.axes.iter().filter(|t| t.axis == axis && enabled(t.hit.kind, settings)) {
                 consider(target.clone());
             }
+            // Rectangle centres still align to objects and guides; grid and pixel targets use edges.
+            if anchors.len() == 3 && i == 1 {
+                continue;
+            }
             for (on, step, origin, kind, source) in [
                 (settings.grid, settings.grid_step, settings.grid_origin[axis], Kind::Grid, Source::Grid),
                 (settings.pixel, 1.0, 0.0, Kind::Pixel, Source::Pixel),
