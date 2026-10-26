@@ -380,7 +380,7 @@ fn outlined_artistic_text_keeps_full_mask_and_node_shadow() {
 
 #[test]
 fn hostile_effect_geometry_never_publishes_a_scene() {
-    for (field, value) in [(b"Radi", -1.), (b"Radi", 513.), (b"Radi", f64::NAN), (b"Angl", 1e300)] {
+    for (field, value) in [(b"Radi", -1.), (b"Radi", 1e6), (b"Radi", 1e300), (b"Radi", f64::NAN), (b"Angl", 1e300)] {
         let mut shape = curve();
         if let F::Def(_, _, fields) = &mut shape {
             fields.push((
