@@ -32,6 +32,7 @@ what remains missing. No test contacts the network.
 (GPL-3.0-or-later, 2026-10-26): child/parent colour overlays, two shadow axes, a stroked shape
 with an outside outline, approximate bevel and editable underlined text. Its byte array was
 assembled independently with Python struct/zlib from the documented stream/container layout;
-engine and reader tests share those exact bytes. `scene/af5.rs` uses the existing synth builders
+engine and reader tests share those exact bytes. A second original document covers artistic
+text with one outlined run, a full-size pixel mask and a node-level shadow. `scene/af5.rs` uses the existing synth builders
 for original nested-document, table, profile and master-page fixtures. No Affinity program,
 client documents, external fonts or network resources were used.

@@ -136,12 +136,18 @@ impl State<'_, '_> {
         if outlined.is_empty() {
             return Ok(layer);
         }
-        if outlined.len() == t.runs.len() && outlined.iter().all(|s| *s == outlined[0]) {
+        if outlined.len() == t.runs.len()
+            && outlined.iter().all(|s| *s == outlined[0] && s.dash.is_none())
+            && t.runs.iter().all(|r| matches!(r.fill, crate::paint::Paint::Solid(color) if color.alpha() == 1.))
+        {
             let stroke = outlined[0];
             let b = super::scene::bounds(&layer);
             let Some(native) = paint::stroke(self, stroke, transform, (f64::from(b.x0), f64::from(b.y0), f64::from(b.x1), f64::from(b.y1)), name)? else {
                 return Ok(layer);
             };
+            if native.width > 512. {
+                return self.outlined_text(t, &layout, transform, layer, name);
+            }
             let fxpaint = match native.paint {
                 photocraft_doc::Fill::Solid(color) => photocraft_doc::effects::FxPaint::Color(color),
                 _ => {
@@ -153,7 +159,11 @@ impl State<'_, '_> {
             layer.effects.items.push(photocraft_doc::effects::Effect::Stroke(photocraft_doc::effects::StrokeFx {
                 common: photocraft_doc::effects::FxCommon::new(photocraft_doc::BlendMode::Normal, 1.),
                 size: native.width,
-                position: photocraft_doc::effects::StrokePosition::Center,
+                position: match stroke.align {
+                    crate::paint::Align::Inside => photocraft_doc::effects::StrokePosition::Inside,
+                    crate::paint::Align::Outside => photocraft_doc::effects::StrokePosition::Outside,
+                    crate::paint::Align::Center => photocraft_doc::effects::StrokePosition::Center,
+                },
                 paint: fxpaint,
             }));
             return Ok(layer);

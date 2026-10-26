@@ -316,3 +316,63 @@ fn repeated_tiny_embedded_documents_share_the_node_allowance() {
     let bytes = container(nodes, vec![], None, &[("inner", &data, Method::Stored)]);
     assert!(matches!(photocraft_affinity::read(&bytes, Limits { max_objects: 12, ..Default::default() }), Err(Error::Limit("too many layers"))));
 }
+
+#[test]
+fn table_cell_product_is_capped_before_expanding_cells() {
+    let positions = (0..258).map(|v| v as f64).collect::<Vec<_>>();
+    let table = F::Obj(
+        tag(b"TxtT"),
+        vec![
+            (tag(b"StSt"), F::Obj(tag(b"Stry"), vec![])),
+            (
+                tag(b"TxtH"),
+                F::Obj(
+                    tag(b"TabH"),
+                    vec![(
+                        tag(b"Tabl"),
+                        F::Obj(
+                            tag(b"Tabl"),
+                            vec![
+                                (tag(b"CPos"), F::Obj(tag(b"Posn"), vec![(tag(b"Posn"), text_fixture::array_f64(b"Posn", &positions))])),
+                                (tag(b"RPos"), F::Obj(tag(b"Posn"), vec![(tag(b"Posn"), text_fixture::array_f64(b"Posn", &positions))])),
+                            ],
+                        ),
+                    )],
+                ),
+            ),
+        ],
+    );
+    let doc = photocraft_affinity::read(&container(vec![table], vec![], None, &[]), Limits::default()).unwrap();
+    assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Unsupported));
+    assert!(doc.warnings.iter().any(|w| w.contains("more than 65536 cells")));
+}
+
+proptest::proptest! {
+    #![proptest_config(proptest::test_runner::Config::with_cases(64))]
+    #[test]
+    fn af5_stream_mutations_stay_bounded_without_panicking(edits in proptest::collection::vec((proptest::prelude::any::<usize>(), proptest::prelude::any::<u8>()), 0..12)) {
+        let mut archive = photocraft_affinity::Archive::open(affinity_docs::EFFECTS, Limits::default()).unwrap();
+        let mut stream = archive.read("doc.dat").unwrap();
+        for (index, value) in edits { let len = stream.len(); stream[index % len] = value; }
+        let bytes = synth::container(&[("doc.dat", &stream, Method::Stored)], None);
+        let mut options = ImportOptions::default(); options.limits.decompressed_bytes = 16 << 20; options.limits.objects = 2000; options.limits.pixels = 1_000_000;
+        let _result = import(&bytes, &options);
+    }
+}
+
+#[test]
+fn outlined_artistic_text_keeps_full_mask_and_node_shadow() {
+    let scene = import(affinity_docs::TEXT_EFFECTS, &ImportOptions::default()).unwrap();
+    let layers = walk(&scene.layers);
+    let group = layers.iter().find(|l| l.name == "Masked outlined text").unwrap();
+    assert!(matches!(group.content, LayerContent::Group(_)));
+    assert!(group.mask.is_some());
+    assert!(matches!(group.effects.items[0], photocraft_doc::effects::Effect::DropShadow(_)));
+    let text = layers.iter().find_map(|l| if let LayerContent::Text(t) = &l.content { Some(t) } else { None }).unwrap();
+    assert_eq!(text.text, "AB");
+    let outline = layers.iter().find(|l| l.name == "Text outline").unwrap().surface().unwrap();
+    let ink = text.cache.as_ref().unwrap().content_bounds();
+    let over = outline.content_bounds();
+    assert!(over.x0 < ink.x0 || over.y0 < ink.y0 || over.x1 > ink.x1 || over.y1 > ink.y1);
+    assert_eq!(group.mask.as_ref().unwrap().surface.content_bounds(), photocraft_doc::Rect::new(0, 0, 128, 128));
+}
