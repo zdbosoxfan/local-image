@@ -50,6 +50,13 @@ pub struct CanvasCache {
     /// `revision`, so the Navigator never shows a stale CPU image after GPU-path edits.
     pub tex_revision: u64,
     pub tex_preview_key: u64,
+    filter_preview_key: Option<u64>,
+}
+
+impl Default for CanvasCache {
+    fn default() -> Self {
+        Self { revision: 0, texture: None, scale: 1.0, preview_key: 0, on_gpu: false, tex_revision: 0, tex_preview_key: 0, filter_preview_key: None }
+    }
 }
 
 /// An in-progress pointer gesture on the canvas.

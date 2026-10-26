@@ -182,10 +182,7 @@ mod tests {
         app.run("file.new", serde_json::json!({"width":32,"height":24})).unwrap();
         let doc = app.session.active().unwrap().doc.clone();
         let weak = Arc::downgrade(&doc);
-        app.canvases.insert(
-            (doc.id, 0),
-            crate::canvas::CanvasCache { revision: 0, texture: None, scale: 1., preview_key: 0, on_gpu: false, tex_revision: 0, tex_preview_key: 0 },
-        );
+        app.canvases.insert((doc.id, 0), crate::canvas::CanvasCache::default());
         display(&mut app, 0, doc.clone(), doc.clone(), 0).unwrap();
         drop(doc);
         app.run("file.close", serde_json::json!({})).unwrap();
