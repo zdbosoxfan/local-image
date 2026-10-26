@@ -119,6 +119,8 @@ struct State {
     confirm_move: Option<MoveAsk>,
     confirm_download: Option<li_ai::browser::Plan>,
     choose_template: Option<ChooseTemplate>,
+    dialog_was_open: bool,
+    dialog_trigger: Option<egui::Id>,
     show_other: bool,
     show_ignored: bool,
     /// The new-model count last seen (a rise during the session posts one notice).
@@ -448,7 +450,21 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(egui::Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(0)))
         .open(&mut open)
         .show(ctx, |ui| with(|s| content(ui, s, &t, &mut actions)));
-    with(|s| dialogs::show(ctx, s, &t, &mut actions));
+    with(|s| {
+        if dialogs::any_open(s) && !s.dialog_was_open {
+            s.dialog_trigger = ctx.memory(|m| m.focused());
+        }
+        dialogs::show(ctx, s, &t, &mut actions);
+        let dialog_open = dialogs::any_open(s);
+        // The previous modal layer owns focus until the next pass after closing.
+        if !dialog_open
+            && ctx.memory(|m| m.top_modal_layer().is_none())
+            && let Some(trigger) = s.dialog_trigger.take()
+        {
+            ctx.memory_mut(|m| m.request_focus(trigger));
+        }
+        s.dialog_was_open = dialog_open;
+    });
     let on_top = shown.as_ref().is_some_and(|w| ctx.top_layer_id() == Some(w.response.layer_id));
     if on_top && !with(|s| dialogs::any_open(s)) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         open = false;

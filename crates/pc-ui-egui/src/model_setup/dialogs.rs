@@ -36,7 +36,10 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
                 )
                 .wrap(),
             );
-            answer = buttons(ui, &[DialogButton::new(ButtonRole::Default, "Move", 84.0), DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0)]);
+            answer = buttons(
+                ui,
+                &[DialogButton::new(ButtonRole::Default, "Move", 84.0), DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0).focus(!s.dialog_was_open)],
+            );
         });
         let escape = modal.is_top_modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         match answer {
@@ -87,7 +90,10 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
                     .color(t.danger),
                 );
             }
-            answer = buttons(ui, &[DialogButton::new(ButtonRole::Default, "Download", 84.0), DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0)]);
+            answer = buttons(
+                ui,
+                &[DialogButton::new(ButtonRole::Default, "Download", 84.0), DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0).focus(!s.dialog_was_open)],
+            );
         });
         let escape = modal.is_top_modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         match answer {
@@ -119,7 +125,10 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
             .wrap(),
         );
         ui.add_space(6.0);
-        ui.add(egui::TextEdit::singleline(&mut chooser.search).hint_text(tl!("Search templates…")).desired_width(f32::INFINITY));
+        let search = ui.add(egui::TextEdit::singleline(&mut chooser.search).hint_text(tl!("Search templates…")).desired_width(f32::INFINITY));
+        if !s.dialog_was_open {
+            search.request_focus();
+        }
         let query = chooser.search.trim().to_lowercase();
         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
             if widgets::nav_row(ui, "", None, tl!("Let Local Image choose"), "", current.is_none()).clicked() {

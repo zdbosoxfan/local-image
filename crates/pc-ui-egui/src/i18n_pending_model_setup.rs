@@ -180,6 +180,8 @@
     "Warning",
     "needs testing again",
     "{capability} failed: {reason}",
+    "{capability} failed",
+    "{capability} passed: {result}",
     "{status}: {issue}",
     "{capability} passed",
     "{date} · seed {seed}",

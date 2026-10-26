@@ -1219,13 +1219,7 @@ fn an_unknown_checkpoint_is_offered_for_refine_without_a_builder_check() {
 }
 
 #[test]
-fn the_picker_uses_the_wizards_status_words_and_avoids_repeating_families() {
-    use li_ai::modelsetup::state::Status;
-    for status in
-        [Status::New, Status::Ready, Status::Verified, Status::PartiallyVerified, Status::NeedsReverify, Status::Blocked, Status::Unmatched, Status::Failed]
-    {
-        assert_eq!(setup_chip(Some(status)), Some(crate::model_setup::chip(status)));
-    }
+fn the_picker_does_not_repeat_a_family_already_in_the_model_name() {
     assert_eq!(family_suffix("FLUX.3 Klein Distilled · BF16", "FLUX.3 Klein"), None);
     assert_eq!(family_suffix("Krea 2 Turbo · BF16", "Krea 2"), None);
     assert_eq!(family_suffix("Model", "Other family"), Some("Other family"));

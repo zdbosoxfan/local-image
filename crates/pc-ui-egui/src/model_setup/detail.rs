@@ -161,9 +161,17 @@ fn severity_status(sev: Severity) -> (&'static str, &'static str, Tone) {
 fn issue_row(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, i: &Issue, t: &Tokens, out: &mut Vec<Action>) {
     let (icon, status, tone) = severity_status(i.severity);
     ui.horizontal_top(|ui| {
-        widgets::status_icon(ui, icon, &li_i18n::fmt(tl!("{status}: {issue}"), &[("status", status), ("issue", &sentence(i))]), tone);
+        widgets::status_icon(ui, icon, status, tone);
         ui.vertical(|ui| {
-            ui.add(egui::Label::new(RichText::new(sentence(i)).color(if i.severity == Severity::Info { t.text_dim } else { t.text })).wrap());
+            ui.add(egui::Label::new(RichText::new(sentence(i)).color(if i.severity == Severity::Info { t.text_dim } else { t.text })).wrap()).widget_info(
+                || {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Label,
+                        true,
+                        li_i18n::fmt(tl!("{status}: {issue}"), &[("status", status), ("issue", &sentence(i))]),
+                    )
+                },
+            );
             let mut fixes: Vec<Fix> = i.fixes.clone();
             if i.code == "ReverifyNeeded" && !fixes.iter().any(|f| matches!(f, Fix::Verify { .. })) {
                 fixes.push(Fix::Verify { model: key.to_owned() });
@@ -441,13 +449,14 @@ fn result_row(ui: &mut egui::Ui, m: &ModelState, cap: &str, r: &CapabilityResult
     let (icon, tone) = if r.pass { ("check", Tone::Good) } else { ("x", Tone::Danger) };
     let text = result_text(m, cap, r);
     let outcome = if r.pass {
-        li_i18n::fmt(tl!("{capability} passed"), &[("capability", capability_name(cap))])
+        li_i18n::fmt(tl!("{capability} passed: {result}"), &[("capability", capability_name(cap)), ("result", &text)])
     } else {
         li_i18n::fmt(tl!("{capability} failed: {reason}"), &[("capability", capability_name(cap)), ("reason", &text)])
     };
-    widgets::status_icon(ui, icon, &outcome, tone);
+    let icon_label = li_i18n::fmt(if r.pass { tl!("{capability} passed") } else { tl!("{capability} failed") }, &[("capability", capability_name(cap))]);
+    widgets::status_icon(ui, icon, &icon_label, tone);
     ui.label(RichText::new(capability_name(cap)).color(t.text));
-    ui.add(egui::Label::new(RichText::new(text).color(t.text_dim)).wrap());
+    ui.add(egui::Label::new(RichText::new(text).color(t.text_dim)).wrap()).widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &outcome));
     ui.end_row();
 }
 
@@ -494,18 +503,18 @@ fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Token
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::fixtures::{FLUX3, fixture};
-#[test]
-fn each_failed_tool_gets_its_own_failure_sentence() {
-    let mut m = fixture().server.models[FLUX3].clone();
-    m.issues = ["Create", "Fill"]
-        .iter()
-        .map(|cap| Issue::new("VerifyFailed:noise", Some(FLUX3), &[("capability", (*cap).into()), ("vae", "vae.safetensors".into())]))
-        .collect();
-    let result = CapabilityResult { failure: Some("VerifyFailed:noise".into()), ..Default::default() };
-    assert!(result_text(&m, "create", &result).contains("The Create test image is noise"));
-    assert!(result_text(&m, "inpaint", &result).contains("The Fill test image is noise"));
-}
+    use super::*;
 
+    #[test]
+    fn each_failed_tool_gets_its_own_failure_sentence() {
+        let mut m = fixture().server.models[FLUX3].clone();
+        m.issues = ["Create", "Fill"]
+            .iter()
+            .map(|cap| Issue::new("VerifyFailed:noise", Some(FLUX3), &[("capability", (*cap).into()), ("vae", "vae.safetensors".into())]))
+            .collect();
+        let result = CapabilityResult { failure: Some("VerifyFailed:noise".into()), ..Default::default() };
+        assert!(result_text(&m, "create", &result).contains("The Create test image is noise"));
+        assert!(result_text(&m, "inpaint", &result).contains("The Fill test image is noise"));
+    }
 }

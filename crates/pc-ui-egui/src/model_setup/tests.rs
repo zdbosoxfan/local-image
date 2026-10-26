@@ -85,9 +85,9 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.get_by_label("MOSS-Image SFT · BF16 can't be used yet.");
     // Verified: each test with its time and the GPU memory it used.
     select(&mut h, KREA, Step::Verify);
-    h.get_by_label("5.5 s · first run, includes loading");
-    h.get_by_label("3.9 s · changed 11.6 of 255 on average");
-    h.get_by_label("uses Refine");
+    h.get_by_label("Create passed: 5.5 s · first run, includes loading");
+    h.get_by_label("Refine passed: 3.9 s · changed 11.6 of 255 on average");
+    h.get_by_label("Upscale passed: uses Refine");
     h.get_by_label("GPU memory in use during the test: up to 17.9 GB of 33.7 GB");
     h.get_by_label("Checked on ComfyUI 0.42.5 · 10/24/2026 14:02").hover();
     h.run_steps(60);
@@ -97,7 +97,7 @@ fn every_state_shows_its_status_reason_and_next_step() {
     assert!(h.query_by_label_contains("The Create test image is noise, not a picture. The VAE (qwen_image_vae.safetensors)").is_some());
     // A missing node, and no template: the reason and what to do.
     select(&mut h, HIDREAM, Step::Check);
-    h.get_by_label("This ComfyUI (0.43.0) doesn't have the node HiDreamO1Sampler that HiDream O1 uses. Update ComfyUI.");
+    h.get_by_label("Needs attention: This ComfyUI (0.43.0) doesn't have the node HiDreamO1Sampler that HiDream O1 uses. Update ComfyUI.");
     select(&mut h, MING, Step::Check);
     h.get_by_label("Choose template…");
     h.get_by_label("Check online…");
@@ -179,7 +179,7 @@ fn verify_all_tests_the_untested_models_and_cancel_stops_it() {
     with(|s| s.task = Some(task));
     select(&mut h, FLUX3, Step::Verify);
     h.get_by_label("Testing this model…");
-    h.get_by_label("9.8 s · first run, includes loading");
+    h.get_by_label("Create passed: 9.8 s · first run, includes loading");
     assert!(h.get_by_label("Verify all ready (2)").accesskit_node().is_disabled());
     h.get_all_by_label("Cancel").next().unwrap().click();
     h.run_steps(2);
@@ -382,4 +382,34 @@ fn verification_dates_follow_the_interface_language_and_preserve_the_stored_offs
         h.get_by_label("Checked on ComfyUI 0.42.5 · 2026-10-24 14:02:11-04:00 · seed 518877231");
     }
     li_i18n::set_current(original);
+}
+
+#[test]
+fn keyboard_template_choice_takes_and_returns_focus() {
+    let mut h = harness(fixture(), MING, vec2(1100.0, 760.0));
+    select(&mut h, MING, Step::Check);
+    h.get_by_label("Choose template…").focus();
+    h.run_steps(2);
+    h.key_press(egui::Key::Space);
+    h.run_steps(4);
+    assert!(with(|s| s.choose_template.is_some()));
+    assert!(h.get_by_role(egui::accesskit::Role::TextInput).accesskit_node().is_focused(), "the chooser takes focus on open");
+    for _ in 0..5 {
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+    }
+    assert!(h.get_by_role(egui::accesskit::Role::TextInput).accesskit_node().is_focused(), "Tab stays inside the chooser");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    assert!(with(|s| s.choose_template.is_none()));
+    assert!(h.get_by_label("Choose template…").accesskit_node().is_focused(), "Escape returns focus to the trigger");
+    h.key_press(egui::Key::Space);
+    h.run_steps(4);
+    for _ in 0..3 {
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+    }
+    h.key_press(egui::Key::Enter);
+    h.run_steps(4);
+    assert_eq!(recorded(), [Action::Choose(MING.into(), Choice::Template(Some("image_moss_image_t2i".into())))]);
 }
