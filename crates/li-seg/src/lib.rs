@@ -713,6 +713,10 @@ impl Segmenter {
     }
 
     fn load_cfg(cfg: Config, path: &Path) -> Result<Self> {
+        Self::load_cfg_with(cfg, |onnx| onnx.model_for_path(path).with_context(|| format!("Could not read the segmentation model {}", path.display())))
+    }
+
+    fn load_cfg_with(cfg: Config, load: impl FnOnce(tract_onnx::Onnx) -> Result<InferenceModel>) -> Result<Self> {
         if matches!(cfg.task, Task::ImageText | Task::FaceDetect | Task::FaceEmbed | Task::Upscale | Task::Inpaint | Task::Denoise { .. }) {
             bail!("use the dedicated embedding or face inference API");
         }
@@ -722,11 +726,7 @@ impl Segmenter {
         // the dynamic-shape depth export declares symbolic intermediate shapes that conflict
         // with the fixed input: let tract infer them
         let depth = cfg.task == Task::Depth;
-        let model = tract_onnx::onnx()
-            .with_ignore_value_info(depth)
-            .with_ignore_output_shapes(depth || cfg.task == Task::Subject)
-            .model_for_path(path)
-            .with_context(|| format!("Could not read the segmentation model {}", path.display()))?;
+        let model = load(tract_onnx::onnx().with_ignore_value_info(depth).with_ignore_output_shapes(depth || cfg.task == Task::Subject))?;
         let fact = model.input_fact(0)?;
         let input = fact.datum_type.concretize().unwrap_or(DatumType::F32);
         let flexible = cfg.keeps_aspect && [2, 3].iter().all(|i| fact.shape.dim(*i).and_then(|d| d.concretize()).and_then(|d| d.to_i64().ok()).is_none());

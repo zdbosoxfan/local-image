@@ -574,6 +574,21 @@ fn external_onnx(s: u64, values: &[f32], location: &str) -> Vec<u8> {
 }
 
 #[test]
+fn self_contained_imports_keep_the_loaded_model_bytes() {
+    let dir = temp_models();
+    let bytes = constant_onnx(32, 1, &vec![0.5; 32 * 32], None);
+    let src = picked_bytes(&dir, "model.onnx", &bytes);
+    let loaded = external_data::inlined(&src).unwrap();
+    std::fs::write(&src, external_onnx(64, &vec![0.5; 64 * 64], "missing-weights")).unwrap();
+    assert_eq!(loaded, bytes, "the loaded model survives replacement of the source");
+    let retained = picked_bytes(&dir, "retained.onnx", &loaded);
+    let c = add_custom(&dir, Group::Subject, &retained, CustomOptions::default(), &keep).unwrap();
+    assert_eq!(c.size, 32);
+    assert_eq!(std::fs::read(c.path(&dir)).unwrap(), bytes);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn a_model_with_external_weights_is_copied_as_one_file() {
     let dir = temp_models();
     let s = 32usize;
@@ -648,12 +663,12 @@ fn hf_snapshot_weights_are_imported_with_the_model() {
 fn hf_snapshot_weights_cannot_escape_the_repository_blobs() {
     let dir = temp_models();
     let values = vec![0.5f32; 32 * 32];
-    for (name, target) in [
-        ("models--org--model", "models--other--model/blobs/weights"),
-        ("models--org--model", "models--org--model/blobs-extra/weights"),
-        ("models--org--model", "models--org--model/refs/weights"),
-        ("unrelated", "unrelated/blobs/weights"),
-        ("models--model", "models--model/blobs/weights"),
+    for (name, target, link_blobs) in [
+        ("models--org--model", "models--other--model/blobs/weights", Some("models--other--model/blobs")),
+        ("models--org--model", "models--org--model/blobs-extra/weights", None),
+        ("models--org--model", "models--org--model/refs/weights", None),
+        ("unrelated", "unrelated/blobs/weights", None),
+        ("models--model", "models--model/blobs/weights", None),
     ] {
         let hub = dir.join("hub");
         let snapshot = hub.join(name).join("snapshots/revision/onnx");
@@ -661,8 +676,8 @@ fn hf_snapshot_weights_cannot_escape_the_repository_blobs() {
         std::fs::create_dir_all(&snapshot).unwrap();
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         std::fs::write(&target, b"x").unwrap();
-        if name == "models--org--model" && target == hub.join("models--other--model/blobs/weights") {
-            std::os::unix::fs::symlink(target.parent().unwrap(), hub.join(name).join("blobs")).unwrap();
+        if let Some(blobs) = link_blobs {
+            std::os::unix::fs::symlink(hub.join(blobs), hub.join(name).join("blobs")).unwrap();
         }
         std::os::unix::fs::symlink(&target, snapshot.join("weights")).unwrap();
         let src = snapshot.join("model.onnx");

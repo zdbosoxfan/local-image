@@ -98,6 +98,12 @@ impl Denoiser {
         let onnx = tract_onnx::onnx();
         let proto = onnx.proto_model_for_path(path)?;
         let model = onnx.model_for_proto_model(&proto)?;
+        Self::from_model_at(model, kind, tile)
+    }
+
+    pub(crate) fn from_model_at(model: InferenceModel, kind: Variant, tile: usize) -> Result<Self> {
+        ensure!((32..=1024).contains(&tile) && tile.is_multiple_of(16), "restoration tile must be 32–1024 and a multiple of 16");
+        crate::init_executor();
         let plan =
             model.with_input_fact(0, InferenceFact::dt_shape(f32::datum_type(), tvec!(1, kind.channels(), tile, tile)))?.into_optimized()?.into_runnable()?;
         Ok(Self { tile, kind, run: Arc::new(move |t| plan.run(tvec!(t.into()))) })

@@ -256,8 +256,8 @@ fn tract_error(e: anyhow::Error) -> CustomModelError {
 
 /// The first output of a mask model run on the synthetic photo and on its inverse: its shape, and
 /// what its values are.
-fn probe_outputs(cfg: Config, path: &Path, peak_scaled: bool) -> Result<(Vec<usize>, Activation), CustomModelError> {
-    let seg = Segmenter::load_cfg(cfg, path).map_err(tract_error)?;
+fn probe_outputs(cfg: Config, bytes: &[u8], peak_scaled: bool) -> Result<(Vec<usize>, Activation), CustomModelError> {
+    let seg = Segmenter::load_cfg_with(cfg, |onnx| onnx.model_for_read(&mut std::io::Cursor::new(bytes))).map_err(tract_error)?;
     let s = seg.cfg.size;
     let photo = synthetic(s, s);
     let inverse: Vec<u8> = photo.as_chunks::<4>().0.iter().flat_map(|p| [255 - p[0], 255 - p[1], 255 - p[2], p[3]]).collect();
@@ -272,16 +272,19 @@ fn probe_outputs(cfg: Config, path: &Path, peak_scaled: bool) -> Result<(Vec<usi
     Ok((shape, Activation::of_outputs(values)))
 }
 
-/// Checks that `path` can serve `custom.group` as `opts` configure it: a mask model runs on the
+/// Checks that `bytes` can serve `custom.group` as `opts` configure it: a mask model runs on the
 /// synthetic photo (its sky classes and output activation are set in `custom`), a restoration
 /// model on a flat tile. Errors say what doesn't fit.
-fn validate(custom: &mut Custom, path: &Path, opts: &CustomOptions) -> Result<(), CustomModelError> {
+fn validate(custom: &mut Custom, bytes: &[u8], opts: &CustomOptions) -> Result<(), CustomModelError> {
     if matches!(custom.group, Group::RawDenoise | Group::RgbDenoise) {
         let kind = if custom.class == 1 { denoise::Variant::Linear } else { denoise::Variant::Rgb };
         // the GPU graph is what runs the model; tract checks its numbers on the CPU
-        restoration_graph::Graph::load(path, restoration_graph::Shape { c: kind.channels(), h: custom.size, w: custom.size })
+        let onnx = tract_onnx::onnx();
+        let proto = onnx.proto_model_for_read(&mut std::io::Cursor::new(bytes)).map_err(tract_error)?;
+        restoration_graph::Graph::from_proto(proto, restoration_graph::Shape { c: kind.channels(), h: custom.size, w: custom.size })
             .map_err(|e| CustomModelError::UnsupportedRestoration { reason: format!("{e:#}") })?;
-        let model = denoise::Denoiser::load_at(path, kind, custom.size).map_err(tract_error)?;
+        let model = onnx.model_for_read(&mut std::io::Cursor::new(bytes)).map_err(tract_error)?;
+        let model = denoise::Denoiser::from_model_at(model, kind, custom.size).map_err(tract_error)?;
         let out = model.run_tile(&vec![0.1; 3 * custom.size * custom.size]).map_err(tract_error)?;
         if out.len() != 3 * custom.size * custom.size || !out.iter().all(|v| v.is_finite()) {
             return Err(CustomModelError::Other("Restoration output must be three finite channels at the input size".into()));
@@ -293,7 +296,7 @@ fn validate(custom: &mut Custom, path: &Path, opts: &CustomOptions) -> Result<()
     }
     let cfg =
         Config { task: if custom.group == Group::Sky { Task::Sky { classes: 1, class: 0, margin: 0.0 } } else { custom.config().task }, ..custom.config() };
-    let (shape, activation) = probe_outputs(cfg, path, custom.group == Group::Subject)?;
+    let (shape, activation) = probe_outputs(cfg, bytes, custom.group == Group::Subject)?;
     match custom.group {
         Group::Sky => {
             let classes = match shape.as_slice() {
@@ -322,12 +325,12 @@ pub fn add_custom(models_dir: &Path, group: Group, src: &Path, opts: CustomOptio
     add_custom_with(models_dir, group, src, opts, dispose, &write_customs)
 }
 
-fn identical_files(a: &Path, b: &Path) -> std::io::Result<bool> {
+fn identical_file(a: &Path, bytes: &[u8]) -> std::io::Result<bool> {
     use std::io::Read;
-    if std::fs::metadata(a)?.len() != std::fs::metadata(b)?.len() {
+    if std::fs::metadata(a)?.len() != bytes.len() as u64 {
         return Ok(false);
     }
-    let (mut a, mut b) = (std::io::BufReader::new(std::fs::File::open(a)?), std::io::BufReader::new(std::fs::File::open(b)?));
+    let (mut a, mut b) = (std::io::BufReader::new(std::fs::File::open(a)?), std::io::Cursor::new(bytes));
     let (mut aa, mut bb) = ([0u8; 8192], [0u8; 8192]);
     loop {
         let n = a.read(&mut aa)?;
@@ -360,15 +363,9 @@ pub(crate) fn add_custom_with(
         return Err(CustomModelError::NotOnnx.into());
     }
     // Validate external paths before tract can load their weights.
-    let inlined = external_data::inlined(src).map_err(tract_error)?;
-    let size = match &inlined {
-        Some(bytes) => {
-            let model = tract_onnx::onnx().model_for_read(&mut std::io::Cursor::new(bytes)).map_err(tract_error)?;
-            model_input_size(&model)?
-        }
-        None => input_size(src)?,
-    }
-    .unwrap_or(group.official().size);
+    let bytes = external_data::inlined(src).map_err(tract_error)?;
+    let model = tract_onnx::onnx().model_for_read(&mut std::io::Cursor::new(&bytes)).map_err(tract_error)?;
+    let size = model_input_size(&model)?.unwrap_or(group.official().size);
     let mut c = Custom {
         group,
         file: format!("{}-{}", group.key(), safe_name(&name)),
@@ -392,11 +389,10 @@ pub(crate) fn add_custom_with(
     let original_dest = c.path(models_dir);
     // A replacement with the same basename must not overwrite the registered file
     // before its new metadata has been published.
-    let same_copy = inlined.is_none()
-        && src != original_dest
+    let same_copy = src != original_dest
         && original_dest.is_file()
         && old.as_ref().is_some_and(|old| old.path(models_dir) == original_dest)
-        && identical_files(src, &original_dest)?;
+        && identical_file(&original_dest, &bytes)?;
     if src != original_dest && original_dest.exists() && !same_copy {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         loop {
@@ -409,14 +405,10 @@ pub(crate) fn add_custom_with(
     let dest = c.path(models_dir);
     let copied = src != dest && !same_copy;
     if copied {
-        match &inlined {
-            Some(bytes) => li_fs::write_atomic(&dest, bytes).map(drop),
-            None => std::fs::copy(src, &dest).map(drop),
-        }
-        .with_context(|| format!("Could not copy the model into {}", dest.display()))?;
+        li_fs::write_atomic(&dest, &bytes).with_context(|| format!("Could not copy the model into {}", dest.display()))?;
     }
-    // the copy is what runs, so it is what gets tested
-    if let Err(error) = validate(&mut c, &dest, &opts) {
+    // Validate the same bytes used for the copy, without reopening a mutable source path.
+    if let Err(error) = validate(&mut c, &bytes, &opts) {
         if copied {
             let _ = std::fs::remove_file(&dest);
         }

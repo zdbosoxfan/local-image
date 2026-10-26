@@ -56,8 +56,11 @@ All notable changes to Local Image are recorded here. The format follows
 
 - Custom ONNX imports accept Hugging Face snapshot links into the same repository's blobs,
   refuse other external weights outside the model's folder with their resolved destination,
-  and check the opened weights' file identity on Unix before reading. Input-size checks reuse
-  the inlined model instead of reopening external weights.
+  and reject absolute, parent and Windows-prefixed weights paths before any filesystem lookup.
+  Linux and macOS check the opened descriptor's path against that boundary before reading;
+  experimental Windows rechecks the path, leaving a narrowed check-to-open race window.
+  Input-size checks, validation and copying reuse the loaded bytes for all models.
+  Hard links to outside files remain a limitation against a same-user attacker.
 - Develop: Refine Edges distinguishes different subject masks and image detail when reusing a
   matting result, preventing stale coverage with repeated or symmetric patterns.
 - Develop: changing the monitor, Library or preview cache cancels full-size loupe renders that
