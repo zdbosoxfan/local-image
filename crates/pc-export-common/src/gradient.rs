@@ -78,7 +78,7 @@ impl Gradient {
         // interpolate straight channels, so only that product needs subdivisions.
         // An imported SVG already has one alpha ramp and must retain its stop count.
         if !opacity_stops.is_empty() && stops.windows(2).any(|p| p[0].1[3] != p[1].1[3]) {
-            if positions.len().saturating_mul(16) > MAX_EXPANDED_STOPS {
+            if method == GradientMethod::Perceptual && positions.len().saturating_mul(16) > MAX_EXPANDED_STOPS {
                 return Err(invalid("gradient alpha needs too many samples; simplify the ramp"));
             }
             for pair in positions.windows(2) {
@@ -100,7 +100,7 @@ impl Gradient {
         }
         samples.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         samples.dedup();
-        if samples.len() > MAX_EXPANDED_STOPS {
+        if method == GradientMethod::Perceptual && samples.len() > MAX_EXPANDED_STOPS {
             return Err(invalid("gradient needs too many samples; simplify the ramp"));
         }
         let ramp = Paint::Gradient {
@@ -145,6 +145,33 @@ impl Gradient {
 mod tests {
     use super::*;
     use photocraft_doc::{Color, ColorMode, SampleType, Size};
+
+    #[test]
+    fn classic_export_retains_large_alpha_and_hard_stop_ramps() {
+        let doc = Document::new("Gradient", Size::new(64, 32), ColorMode::Rgb, SampleType::U8);
+        let path = photocraft_vector::shapes::rect(0.0, 0.0, 64.0, 32.0);
+        let mut alpha = Fill::gradient(
+            (0..65).map(|i| (i as f32 / 64.0, Color::rgba(0.0, 0.0, 0.0, i as f32 / 64.0))).collect(),
+            0.0, 1.0, GradientStyle::Reflected, false,
+        );
+        if let Fill::Gradient { opacity_stops, midpoints, .. } = &mut alpha {
+            *opacity_stops = (0..65).map(|i| (i as f32 / 64.0, 1.0 - i as f32 / 64.0)).collect();
+            *midpoints = vec![0.25; 64];
+        }
+        let hard = Fill::gradient(
+            (0..1100).flat_map(|i| [(i as f32 / 1099.0, Color::BLACK), (i as f32 / 1099.0, Color::WHITE)]).collect(),
+            0.0, 1.0, GradientStyle::Reflected, false,
+        );
+        for mut fill in [alpha, hard] {
+            let gradient = Gradient::new(&doc, &fill, &path).expect("Classic ramps retain their pre-Perceptual export acceptance");
+            assert!(gradient.samples.len() > MAX_EXPANDED_STOPS);
+            assert!(gradient.samples.iter().all(|(t, side)| gradient.color(*t, *side).iter().all(|v| v.is_finite())));
+            if let Fill::Gradient { method, .. } = &mut fill {
+                *method = GradientMethod::Perceptual;
+            }
+            assert!(Gradient::new(&doc, &fill, &path).is_err(), "Perceptual expansion stays bounded");
+        }
+    }
 
     #[test]
     fn perceptual_export_keeps_hard_stops_and_bounds_every_smooth_span() {
