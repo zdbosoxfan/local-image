@@ -583,9 +583,8 @@ mod tests {
 
     #[test]
     fn small_changes_of_a_colour_move_its_knees_little() {
-        // Where a hue line folds in and out of a gamut, an edge taken where the line first leaves
-        // jumps between the fold's ends; the extent moves with the colour instead. CPU and GPU
-        // inputs differ by about 1e-5, so this is what keeps the two renderers together.
+        // Nearby working colours exercise sensitivity to the small input differences between
+        // CPU and GPU rendering, including hue lines with multiple gamut intervals.
         let mut state = 0x2545_f491_4f6c_dd1du64;
         let mut random = || {
             state ^= state << 13;
