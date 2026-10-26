@@ -15,10 +15,12 @@ pub(super) fn show(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<A
         return;
     };
     ui.horizontal(|ui| {
-        ui.add(egui::Label::new(RichText::new(&m.label).font(crate::theme::semibold(15.0)).color(t.text)).truncate());
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             let (icon, text, tone) = chip(m.status);
             widgets::status_chip(ui, icon, text, tone);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                ui.add(egui::Label::new(RichText::new(&m.label).font(crate::theme::semibold(15.0)).color(t.text)).truncate()).on_hover_text(&m.label);
+            });
         });
     });
     let mut line = vec![m.file.clone()];
@@ -32,7 +34,7 @@ pub(super) fn show(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<A
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         for step in Step::ALL {
-            if widgets::pill_tab(ui, step.label(), s.step == step).clicked() {
+            if widgets::pill_tab_translated(ui, step.label(), s.step == step).clicked() {
                 s.step = step;
             }
         }
@@ -55,20 +57,34 @@ fn field(ui: &mut egui::Ui, t: &Tokens, name: &str, value: &str) {
 }
 
 fn template_title(scan: &Scan, name: &str) -> String {
-    scan.templates.iter().find(|x| x.name == name).map(|x| x.title.clone()).filter(|x| !x.is_empty()).unwrap_or_else(|| name.to_owned())
+    scan.templates.iter().find(|x| x.name == name).map(|x| x.title.clone()).filter(|x| !x.is_empty()).unwrap_or_else(|| {
+        name.trim_start_matches("image_")
+            .split('_')
+            .map(|word| {
+                let mut c = word.chars();
+                c.next().map(|first| first.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    })
+}
+
+fn capability_key(c: &str) -> &'static str {
+    match c {
+        "create" => "Create",
+        "edit" => "Edit",
+        "references" => "References",
+        "style" => "Style references",
+        "refine" => "Refine",
+        "inpaint" => "Fill",
+        "upscale" => "Upscale",
+        "prompt_enhancer" => "Prompt enhancer",
+        _ => "Other",
+    }
 }
 
 fn capability_name(c: &str) -> &'static str {
-    match c {
-        "create" => tl!("Create"),
-        "edit" => tl!("Edit"),
-        "references" => tl!("References"),
-        "style" => tl!("Style references"),
-        "refine" => tl!("Refine"),
-        "inpaint" => tl!("Fill"),
-        "upscale" => tl!("Upscale"),
-        _ => tl!("Other"),
-    }
+    li_i18n::t(capability_key(c))
 }
 
 fn identify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelState, t: &Tokens) {
@@ -82,24 +98,21 @@ fn identify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelS
             Some(li_ai::arch::FileKind::Vae) => tl!("VAE"),
             _ => tl!("Unknown"),
         };
-        field(ui, t, tl!("Kind"), &format!("{kind} ({}/)", m.folder));
+        field(ui, t, tl!("Kind"), kind);
         let arch = id.and_then(|i| i.arch.as_deref());
         let mut what = arch
             .map(|a| li_ai::family::registry().family(a).map(|f| f.label.clone()).filter(|l| !l.is_empty()).unwrap_or_else(|| a.to_owned()))
             .unwrap_or_else(|| tl!("Not recognised").into());
-        if let Some(v) = id.and_then(|i| i.variant.as_deref()) {
-            what = format!("{what} · {v}");
-        }
         if let Some(g) = id.and_then(|i| i.vetoed.as_deref()) {
             what = li_i18n::fmt(tl!("Looks like {generation}"), &[("generation", g)]);
         }
-        let evidence = id.map(|i| i.evidence.as_str()).filter(|e| !e.is_empty());
-        let shown = match evidence {
-            Some(e) => format!("{what}\n{}", li_i18n::fmt(tl!("How Local Image knows: {evidence}"), &[("evidence", e)])),
-            None => what,
-        };
-        field(ui, t, tl!("Architecture"), &shown);
-        let quant = id.and_then(|i| i.quant.class.as_ref()).map(|q| q.label()).unwrap_or_else(|| tl!("unknown").into());
+        ui.label(RichText::new(tl!("Architecture")).color(t.text_faint));
+        let response = ui.add(egui::Label::new(RichText::new(what).color(t.text)).wrap());
+        if let Some(evidence) = id.map(|i| i.evidence.as_str()).filter(|e| !e.is_empty()) {
+            response.on_hover_text(li_i18n::fmt(tl!("How Local Image knows: {evidence}"), &[("evidence", evidence)]));
+        }
+        ui.end_row();
+        let quant = id.and_then(|i| i.quant.class.as_ref()).map(|q| q.label()).unwrap_or_else(|| tl!("Unknown").into());
         let precision = if m.fingerprint.bytes > 0 { format!("{quant} ({})", li_ai::download::human_bytes(m.fingerprint.bytes)) } else { quant };
         field(ui, t, tl!("Precision"), &precision);
         let engine = match m.engine.as_str() {
@@ -124,29 +137,37 @@ fn identify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelS
     }
     if matches!(m.engine.as_str(), "template" | "unsupported") && !scan.templates.is_empty() {
         ui.add_space(6.0);
-        if widgets::secondary_button(ui, tl!("Change template…"), 0.0).on_hover_text(tl!("Run this file through another official template")).clicked() {
+        if ui
+            .add_enabled_ui(!s.busy(), |ui| widgets::secondary_button_translated(ui, tl!("Change template…"), 0.0))
+            .inner
+            .on_disabled_hover_text(tl!("Wait for the current task to finish."))
+            .on_hover_text(tl!("Run this file through another official template"))
+            .clicked()
+        {
             s.choose_template = Some(ChooseTemplate { key: key.to_owned(), ..Default::default() });
         }
     }
 }
 
-fn severity_icon(sev: Severity, t: &Tokens) -> (&'static str, egui::Color32) {
+fn severity_status(sev: Severity) -> (&'static str, &'static str, Tone) {
     match sev {
-        Severity::Blocker => ("x", t.danger),
-        Severity::Warning => ("triangle-alert", t.warning),
-        Severity::Info => ("info", t.text_faint),
+        Severity::Blocker => ("x", tl!("Needs attention"), Tone::Danger),
+        Severity::Warning => ("triangle-alert", tl!("Warning"), Tone::Warning),
+        Severity::Info => ("info", tl!("Information"), Tone::Neutral),
     }
 }
 
 /// One finding with its fixes.
 fn issue_row(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, i: &Issue, t: &Tokens, out: &mut Vec<Action>) {
-    let (icon, ink) = severity_icon(i.severity, t);
+    let (icon, status, tone) = severity_status(i.severity);
     ui.horizontal_top(|ui| {
-        let (r, _) = ui.allocate_exact_size(vec2(16.0, 18.0), egui::Sense::hover());
-        crate::icons::paint(ui, r, icon, 12.0, ink);
+        widgets::status_icon(ui, icon, &li_i18n::fmt(tl!("{status}: {issue}"), &[("status", status), ("issue", &sentence(i))]), tone);
         ui.vertical(|ui| {
             ui.add(egui::Label::new(RichText::new(sentence(i)).color(if i.severity == Severity::Info { t.text_dim } else { t.text })).wrap());
             let mut fixes: Vec<Fix> = i.fixes.clone();
+            if i.code == "ReverifyNeeded" && !fixes.iter().any(|f| matches!(f, Fix::Verify { .. })) {
+                fixes.push(Fix::Verify { model: key.to_owned() });
+            }
             if matches!(i.code.as_str(), "NoTemplate" | "UnsupportedGeneration" | "TemplateUnusable") && !scan.templates.is_empty() {
                 fixes.insert(0, Fix::ChooseTemplate { candidates: Vec::new() });
             }
@@ -180,11 +201,21 @@ fn fix_button(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, f: &Fix,
         Fix::UpdateProfiles => (tl!("Update Model Profiles…").into(), Some(tl!("Opens the Model Browser, where profiles update")), true),
         Fix::CheckOnline => (tl!("Check online…").into(), Some(tl!("Opens ComfyUI's releases on github.com")), true),
         Fix::Recheck => (tl!("Re-check").into(), None, !busy),
-        Fix::Verify { .. } => (tl!("Verify…").into(), None, true),
+        Fix::Verify { .. } => {
+            (if s.model(key).is_some_and(|m| m.status == Status::NeedsReverify) { tl!("Verify again") } else { tl!("Verify…") }.into(), None, !busy)
+        }
         Fix::TryAnyway => (tl!("Try anyway").into(), Some(tl!("Verification decides whether it runs on this GPU")), !busy),
         Fix::Ignore => (tl!("Ignore").into(), None, !busy),
     };
-    let r = ui.add_enabled_ui(enabled, |ui| widgets::secondary_button(ui, &label, 0.0)).inner;
+    let r = ui.add_enabled_ui(enabled, |ui| widgets::secondary_button_translated(ui, &label, 0.0)).inner;
+    let reason = if busy {
+        tl!("Wait for the current task to finish.")
+    } else if scan.snapshot.is_none() {
+        tl!("Start the AI engine first.")
+    } else {
+        tl!("The model folder is on another computer; install or move the file there.")
+    };
+    let r = r.on_disabled_hover_text(reason);
     let r = match tip {
         Some(tip) => r.on_hover_text(tip),
         None => r,
@@ -221,8 +252,7 @@ fn check(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelStat
     let problems = issues.iter().filter(|i| i.severity != Severity::Info).count();
     if problems == 0 {
         ui.horizontal(|ui| {
-            let (r, _) = ui.allocate_exact_size(vec2(16.0, 18.0), egui::Sense::hover());
-            crate::icons::paint(ui, r, "check", 12.0, t.accent);
+            widgets::status_icon(ui, "check", tl!("All checks passed"), Tone::Good);
             ui.label(RichText::new(tl!("Nothing is in the way.")).color(t.text));
         });
         ui.add_space(4.0);
@@ -236,8 +266,13 @@ fn check(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelStat
     }
     for b in m.bindings.iter().filter(|b| b.role != "main" && !b.optional) {
         let Some(used) = &b.used else { continue };
-        let role = li_i18n::t(&modelsetup::issue::role_label(&b.role, false)).to_owned();
-        let mut line = format!("{role}: {used}");
+        let role = match b.role.as_str() {
+            "clip" => tl!("Text encoder"),
+            "vae" => tl!("VAE"),
+            "lora" => tl!("LoRA"),
+            _ => tl!("Model"),
+        };
+        let mut line = li_i18n::fmt(tl!("{role}: {file}"), &[("role", role), ("file", used)]);
         if *used != b.declared {
             line.push_str(&li_i18n::fmt(tl!(" (the template names {file})"), &[("file", &b.declared)]));
         }
@@ -254,20 +289,22 @@ fn check(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelStat
     egui::CollapsingHeader::new(RichText::new(title).color(t.text_dim)).id_salt(("model-setup-passed", key)).default_open(problems == 0).show(ui, |ui| {
         for p in passed {
             ui.horizontal(|ui| {
-                let (r, _) = ui.allocate_exact_size(vec2(16.0, 18.0), egui::Sense::hover());
-                crate::icons::paint(ui, r, "check", 12.0, t.accent);
+                widgets::status_icon(ui, "check", tl!("Check passed"), Tone::Good);
                 ui.add(egui::Label::new(RichText::new(p).color(t.text_dim)).wrap());
             });
         }
     });
 }
 
-/// The capabilities a test renders (create, edit, refine and fill each render once).
+/// Count only capabilities that submit a render, including optional installed graphs.
 fn renders(m: &ModelState) -> usize {
-    m.capabilities.iter().filter(|c| c.ok && matches!(c.name.as_str(), "create" | "edit" | "refine" | "inpaint")).count().max(1)
+    let base = m.capabilities.iter().filter(|c| c.ok && matches!(c.name.as_str(), "create" | "edit" | "refine" | "inpaint")).count();
+    let references = usize::from(m.recipe.is_some() && m.capabilities.iter().any(|c| c.ok && matches!(c.name.as_str(), "references" | "style")));
+    let enhancer = usize::from(m.capabilities.iter().any(|c| c.ok && c.name == "prompt_enhancer"));
+    (base + references + enhancer).max(1)
 }
 
-fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
+pub(super) fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
     if r.via.is_some() {
         return tl!("uses Refine").into();
     }
@@ -281,7 +318,7 @@ fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
         parts.push(li_i18n::fmt(tl!("changed {difference} of 255 on average"), &[("difference", &format!("{d:.1}"))]));
     }
     let mut text = parts.join(" · ");
-    let explain = |code: &str| m.issues.iter().find(|i| i.code == code).map(sentence);
+    let explain = |code: &str| m.issues.iter().find(|i| i.code == code && i.args.get("capability").is_none_or(|c| c == capability_key(cap))).map(sentence);
     if let Some(code) = &r.failure {
         text.push('\n');
         text.push_str(&explain(code).or_else(|| r.message.clone()).unwrap_or_else(|| code.clone()));
@@ -295,6 +332,32 @@ fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
     text
 }
 
+/// Format the stored wall time in the interface language; its offset stays in the report.
+fn verification_date(at: &str) -> String {
+    use li_i18n::Lang;
+    let Some(prefix) = at.get(..16).filter(|p| p.is_ascii()) else { return tl!("Unknown").into() };
+    let bytes = prefix.as_bytes();
+    if !bytes.iter().enumerate().all(|(i, b)| match i {
+        4 | 7 => *b == b'-',
+        10 => *b == b'T',
+        13 => *b == b':',
+        _ => b.is_ascii_digit(),
+    }) {
+        return tl!("Unknown").into();
+    }
+    let year = &prefix[..4];
+    let month = &prefix[5..7];
+    let day = &prefix[8..10];
+    let clock = &prefix[11..16];
+    match li_i18n::current() {
+        Lang::En => format!("{month}/{day}/{year} {clock}"),
+        Lang::Ja | Lang::ZhHans | Lang::ZhHant => format!("{year}/{month}/{day} {clock}"),
+        Lang::Ko => format!("{year}. {month}. {day}. {clock}"),
+        Lang::De | Lang::Ru | Lang::Cs => format!("{day}.{month}.{year} {clock}"),
+        Lang::Es | Lang::Fr | Lang::Id | Lang::PtBr | Lang::It => format!("{day}/{month}/{year} {clock}"),
+    }
+}
+
 fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelState, t: &Tokens, out: &mut Vec<Action>) {
     let task = s.task.clone();
     let running = task.as_ref().and_then(|x| x.lock().ok().map(|x| (x.verifying.contains(&key.to_owned()), x.current.clone(), x.steps.clone())));
@@ -304,13 +367,15 @@ fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelSta
         ui.horizontal(|ui| {
             ui.spinner();
             ui.label(RichText::new(label).color(t.text_dim));
-            if widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+            if widgets::secondary_button_translated(ui, tl!("Cancel"), 0.0).clicked() {
                 out.push(Action::Cancel);
             }
         });
-        for (_, cap, r) in here {
-            result_row(ui, m, cap, r, t);
-        }
+        egui::Grid::new("model-setup-live-results").num_columns(3).show(ui, |ui| {
+            for (_, cap, r) in here {
+                result_row(ui, m, cap, r, t);
+            }
+        });
         return;
     }
     let connected = scan.snapshot.is_some();
@@ -324,9 +389,12 @@ fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelSta
     } else {
         None
     };
-    let label = if m.verified.is_some() { tl!("Verify again · {n} short test renders") } else { tl!("Verify · {n} short test renders") };
-    let label = li_i18n::fmt(label, &[("n", &renders(m).to_string())]);
-    let r = ui.add_enabled_ui(reason.is_none(), |ui| widgets::primary_button(ui, &label, 0.0)).inner;
+    let label = if m.verified.is_some() {
+        li_i18n::trn(li_i18n::current(), renders(m) as u64, "Verify again · {n} short test render", "Verify again · {n} short test renders")
+    } else {
+        li_i18n::trn(li_i18n::current(), renders(m) as u64, "Verify · {n} short test render", "Verify · {n} short test renders")
+    };
+    let r = ui.add_enabled_ui(reason.is_none(), |ui| widgets::primary_button_translated(ui, &label, 0.0)).inner;
     let r = match reason {
         Some(why) => r.on_disabled_hover_text(why),
         None => r.on_hover_text(tl!("Each test renders at most one megapixel; ComfyUI frees the GPU afterwards")),
@@ -339,11 +407,13 @@ fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelSta
         ui.label(RichText::new(tl!("Not tested on this computer yet.")).color(t.text_dim));
         return;
     };
-    for cap in ["create", "edit", "refine", "inpaint", "upscale"] {
-        if let Some(r) = v.capabilities.get(cap) {
-            result_row(ui, m, cap, r, t);
+    egui::Grid::new("model-setup-results").num_columns(3).spacing(vec2(8.0, 6.0)).show(ui, |ui| {
+        for cap in ["create", "edit", "references", "style", "refine", "inpaint", "upscale", "prompt_enhancer"] {
+            if let Some(r) = v.capabilities.get(cap) {
+                result_row(ui, m, cap, r, t);
+            }
         }
-    }
+    });
     ui.add_space(4.0);
     let peak = v.capabilities.values().filter_map(|c| c.peak_vram_gb).reduce(f64::max);
     if let Some(peak) = peak {
@@ -357,25 +427,28 @@ fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelSta
         );
     }
     ui.label(
-        RichText::new(li_i18n::fmt(
-            tl!("Checked on ComfyUI {version} · {date} · seed {seed}"),
-            &[("version", &v.comfyui_version), ("date", &v.at.replacen('T', " ", 1)), ("seed", &v.seed.to_string())],
-        ))
-        .size(11.5)
-        .color(t.text_faint),
-    );
+        RichText::new(li_i18n::fmt(tl!("Checked on ComfyUI {version} · {date}"), &[("version", &v.comfyui_version), ("date", &verification_date(&v.at))]))
+            .size(11.5)
+            .color(t.text_faint),
+    )
+    .on_hover_text(li_i18n::fmt(
+        tl!("Checked on ComfyUI {version} · {date} · seed {seed}"),
+        &[("version", &v.comfyui_version), ("date", &v.at.replacen('T', " ", 1)), ("seed", &v.seed.to_string())],
+    ));
 }
 
 fn result_row(ui: &mut egui::Ui, m: &ModelState, cap: &str, r: &CapabilityResult, t: &Tokens) {
-    let (icon, ink) = if r.pass { ("check", t.accent) } else { ("x", t.danger) };
-    ui.horizontal_top(|ui| {
-        let (rect, _) = ui.allocate_exact_size(vec2(16.0, 18.0), egui::Sense::hover());
-        crate::icons::paint(ui, rect, icon, 12.0, ink);
-        ui.allocate_ui_with_layout(vec2(70.0, 18.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
-            ui.label(RichText::new(capability_name(cap)).color(t.text));
-        });
-        ui.add(egui::Label::new(RichText::new(result_text(m, cap, r)).color(t.text_dim)).wrap());
-    });
+    let (icon, tone) = if r.pass { ("check", Tone::Good) } else { ("x", Tone::Danger) };
+    let text = result_text(m, cap, r);
+    let outcome = if r.pass {
+        li_i18n::fmt(tl!("{capability} passed"), &[("capability", capability_name(cap))])
+    } else {
+        li_i18n::fmt(tl!("{capability} failed: {reason}"), &[("capability", capability_name(cap)), ("reason", &text)])
+    };
+    widgets::status_icon(ui, icon, &outcome, tone);
+    ui.label(RichText::new(capability_name(cap)).color(t.text));
+    ui.add(egui::Label::new(RichText::new(text).color(t.text_dim)).wrap());
+    ui.end_row();
 }
 
 fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Tokens, out: &mut Vec<Action>) {
@@ -384,7 +457,7 @@ fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Token
         if let Some(i) = m.issues.iter().filter(|i| i.severity != Severity::Info).min_by_key(|i| i.severity) {
             ui.add(egui::Label::new(RichText::new(sentence(i)).color(t.text_dim)).wrap());
         }
-        if widgets::secondary_button(ui, tl!("Go to Check"), 0.0).clicked() {
+        if widgets::secondary_button_translated(ui, tl!("Go to Check"), 0.0).clicked() {
             s.step = Step::Check;
         }
         return;
@@ -394,9 +467,10 @@ fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Token
     let mut caps: Vec<String> = Vec::new();
     for c in m.capabilities.iter().filter(|c| c.ok) {
         caps.push(match c.name.as_str() {
-            "edit" | "references" | "style" if c.references > 0 => {
-                li_i18n::fmt(tl!("{capability} (up to {n} references)"), &[("capability", capability_name(&c.name)), ("n", &c.references.to_string())])
-            }
+            "edit" | "references" | "style" if c.references > 0 => li_i18n::fmt(
+                &li_i18n::trn(li_i18n::current(), c.references as u64, "{capability} (up to {n} reference)", "{capability} (up to {n} references)"),
+                &[("capability", capability_name(&c.name))],
+            ),
             name => capability_name(name).to_owned(),
         });
     }
@@ -412,11 +486,8 @@ fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Token
     }
     ui.add_space(8.0);
     ui.horizontal(|ui| {
-        if widgets::primary_button(ui, tl!("Use in Generate"), 0.0).clicked() {
+        if widgets::primary_button_translated(ui, tl!("Use in Generate"), 0.0).clicked() {
             out.push(Action::UseInGenerate(catalog_key.to_owned()));
-        }
-        if widgets::secondary_button(ui, tl!("Copy report"), 0.0).clicked() {
-            out.push(Action::CopyReport);
         }
     });
 }

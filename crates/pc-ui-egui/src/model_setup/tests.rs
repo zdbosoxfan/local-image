@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-use egui_kittest::Harness;
-use egui_kittest::kittest::{NodeT, Queryable};
 use super::fixtures::*;
 use super::*;
+use egui_kittest::Harness;
+use egui_kittest::kittest::{NodeT, Queryable};
 
 /// Puts the window on `scan`, recording actions instead of running them.
 fn prepare(scan: Scan, selected: &str, step: Step, connected: bool) {
@@ -50,23 +50,25 @@ fn select(h: &mut Harness<'static, PhotocraftApp>, key: &str, step: Step) {
 fn every_state_shows_its_status_reason_and_next_step() {
     let mut h = harness(fixture(), FLUX3, vec2(1100.0, 760.0));
     // The list groups models and names each row with its status.
-    h.get_by_label("FLUX.3 Klein · distilled · BF16, ready, not tested");
-    h.get_by_label("MOSS-Image · sft · BF16, needs attention");
-    h.get_by_label("Krea 2 · turbo · BF16, verified");
-    h.get_by_label("Qwen Image 2.1 · turbo · BF16, test failed");
-    h.get_by_label("FLUX.2 Klein 9B · FP8, needs a re-check");
+    h.get_by_label("FLUX.3 Klein Distilled · BF16, ready, not tested");
+    h.get_by_label("MOSS-Image SFT · BF16, needs attention");
+    h.get_by_label("Krea 2 Turbo · BF16, verified");
+    h.get_by_label("Qwen Image 2.1 Turbo · BF16, test failed");
+    h.get_by_label("FLUX.2 Klein 9B · FP8, needs testing again");
     h.get_by_label("HiDream O1 · BF16, needs attention");
     h.get_by_label("Ming Image · BF16, no matching template");
     h.get_by_label("Qwen Image 2.1 · BF16, built-in support");
-    for heading in ["New (1)", "Needs attention (5)", "Verified (1)", "Built-in (1)"] {
+    for heading in ["NEW · 1", "NEEDS ATTENTION · 5", "VERIFIED · 1", "BUILT-IN · 1"] {
         h.get_by_label(heading);
     }
     // Identify: what the file is and how it runs.
     h.get_by_label("Official ComfyUI templates");
     h.get_by_label("FLUX 3 Image Klein Distilled: Text to Image");
+    h.get_by_label("FLUX.3 Klein").hover();
+    h.run_steps(60);
     assert!(h.query_by_label_contains("How Local Image knows: content_mode_blocks").is_some());
     // The update banner names the versions and counts the models to re-check.
-    h.get_by_label("ComfyUI was updated from 0.42.5 to 0.43.0. 1 models need a quick re-check.");
+    h.get_by_label("ComfyUI was updated from 0.42.5 to 0.43.0. 1 model needs testing again.");
     // Check (ready): nothing blocks; the optional enhancer is offered; what passed is listed.
     select(&mut h, FLUX3, Step::Check);
     h.get_by_label("Nothing is in the way.");
@@ -80,13 +82,15 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.get_by_label("Move to vae/");
     h.get_by_label("Copy commands");
     select(&mut h, MOSS, Step::Use);
-    h.get_by_label("MOSS-Image · sft · BF16 can't be used yet.");
+    h.get_by_label("MOSS-Image SFT · BF16 can't be used yet.");
     // Verified: each test with its time and the GPU memory it used.
     select(&mut h, KREA, Step::Verify);
     h.get_by_label("5.5 s · first run, includes loading");
     h.get_by_label("3.9 s · changed 11.6 of 255 on average");
     h.get_by_label("uses Refine");
     h.get_by_label("GPU memory in use during the test: up to 17.9 GB of 33.7 GB");
+    h.get_by_label("Checked on ComfyUI 0.42.5 · 10/24/2026 14:02").hover();
+    h.run_steps(60);
     h.get_by_label("Checked on ComfyUI 0.42.5 · 2026-10-24 14:02:11-04:00 · seed 518877231");
     // Failed: the failure in plain words.
     select(&mut h, TURBO, Step::Verify);
@@ -99,7 +103,7 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.get_by_label("Check online…");
     // Use: a usable model goes to Generate.
     select(&mut h, FLUX3, Step::Use);
-    h.get_by_label("FLUX.3 Klein · distilled · BF16 is ready (not tested yet).");
+    h.get_by_label("FLUX.3 Klein Distilled · BF16 is ready (not tested yet).");
     h.get_by_label("Use in Generate").click();
     h.run_steps(2);
     assert_eq!(recorded(), [Action::UseInGenerate(FLUX3.into())]);
@@ -185,7 +189,7 @@ fn verify_all_tests_the_untested_models_and_cancel_stops_it() {
 #[test]
 fn up_and_down_walk_the_list_and_ignore_is_in_the_context_menu() {
     let mut h = harness(fixture(), FLUX3, vec2(1100.0, 760.0));
-    h.get_by_label("FLUX.3 Klein · distilled · BF16, ready, not tested").focus();
+    h.get_by_label("FLUX.3 Klein Distilled · BF16, ready, not tested").focus();
     h.run_steps(2);
     h.key_press(egui::Key::ArrowDown);
     h.run_steps(3);
@@ -195,7 +199,7 @@ fn up_and_down_walk_the_list_and_ignore_is_in_the_context_menu() {
     h.key_press(egui::Key::Enter);
     h.run_steps(3);
     assert_eq!(with(|s| s.step), Step::Check);
-    h.get_by_label("FLUX.3 Klein · distilled · BF16, ready, not tested").click_secondary();
+    h.get_by_label("FLUX.3 Klein Distilled · BF16, ready, not tested").click_secondary();
     h.run_steps(3);
     h.get_by_label("Ignore").click();
     h.run_steps(2);
@@ -274,4 +278,120 @@ fn model_setup_screens() {
             }
         }
     }
+}
+
+#[test]
+fn the_window_and_footer_stay_put_across_repaints() {
+    for size in [vec2(1440.0, 900.0), vec2(1024.0, 700.0), vec2(960.0, 600.0)] {
+        let mut h = harness(fixture(), FLUX3, size);
+        h.run_steps(8);
+        let before = h.get_by_label("Copy report").rect();
+        h.run_steps(120);
+        let after = h.get_by_label("Copy report").rect();
+        assert!((after.bottom() - before.bottom()).abs() < 0.5 && (after.right() - before.right()).abs() < 0.5, "footer drifted: {before:?} -> {after:?}");
+        assert!(after.bottom() < size.y - 20.0, "window covers the status bar: {after:?}");
+    }
+}
+
+#[test]
+fn reverify_has_an_action_and_results_name_their_outcomes() {
+    let mut h = harness(fixture(), KLEIN9B, vec2(1024.0, 700.0));
+    select(&mut h, KLEIN9B, Step::Check);
+    h.get_by_label("Verify again").click();
+    h.run_steps(3);
+    assert_eq!(with(|s| s.step), Step::Verify);
+    select(&mut h, KREA, Step::Verify);
+    h.get_by_label("Create passed");
+    h.get_by_label("Refine passed");
+    let create = h.get_by_label("Create").rect();
+    let refine = h.get_by_label("Refine").rect();
+    assert!((create.left() - refine.left()).abs() < 0.5, "result labels must align");
+    select(&mut h, TURBO, Step::Verify);
+    h.get_by_label_contains("Create failed: 7.0 s");
+}
+
+#[test]
+fn a_single_test_render_uses_the_singular_label() {
+    let mut scan = fixture();
+    scan.server.models.get_mut(FLUX3).unwrap().capabilities.retain(|c| c.name == "create");
+    let mut h = harness(scan, FLUX3, vec2(1024.0, 700.0));
+    select(&mut h, FLUX3, Step::Verify);
+    h.get_by_label("Verify · 1 short test render");
+}
+
+#[test]
+fn remote_fixes_explain_why_they_are_disabled() {
+    let mut scan = fixture();
+    scan.snapshot.as_mut().unwrap().remote = true;
+    let mut h = harness(scan, MOSS, vec2(1440.0, 900.0));
+    select(&mut h, MOSS, Step::Check);
+    let download = h.get_by_label("Download 19.3 GB");
+    assert!(download.accesskit_node().is_disabled());
+    download.hover();
+    h.run_steps(60);
+    h.get_by_label("The model folder is on another computer; install or move the file there.");
+}
+
+#[test]
+fn each_failed_tool_gets_its_own_failure_sentence() {
+    let mut m = fixture().server.models[FLUX3].clone();
+    m.issues = ["Create", "Fill"]
+        .iter()
+        .map(|cap| Issue::new("VerifyFailed:noise", Some(FLUX3), &[("capability", (*cap).into()), ("vae", "vae.safetensors".into())]))
+        .collect();
+    let result = CapabilityResult { failure: Some("VerifyFailed:noise".into()), ..Default::default() };
+    assert!(detail::result_text(&m, "create", &result).contains("The Create test image is noise"));
+    assert!(detail::result_text(&m, "inpaint", &result).contains("The Fill test image is noise"));
+}
+
+#[test]
+fn identifying_a_model_cannot_replace_a_running_task() {
+    let mut h = harness(fixture(), FLUX3, vec2(1100.0, 760.0));
+    let task = Arc::new(Mutex::new(Task::default()));
+    with(|s| s.task = Some(task.clone()));
+    select(&mut h, FLUX3, Step::Identify);
+    assert!(h.get_by_label("Change template…").accesskit_node().is_disabled());
+    with(|s| start(s, "another task", Vec::new(), |_| panic!("overlapping work must not start")));
+    assert!(with(|s| Arc::ptr_eq(s.task.as_ref().unwrap(), &task)));
+    assert!(!task.lock().unwrap().ctl.is_cancelled());
+    with(|s| {
+        s.recorded = None;
+        run(s, Action::Cancel);
+    });
+    assert!(task.lock().unwrap().ctl.is_cancelled());
+}
+
+#[test]
+fn keyboard_navigation_reveals_rows_and_skips_folded_ignored_models() {
+    let mut h = harness(fixture(), FLUX3, vec2(960.0, 600.0));
+    h.get_by_label("FLUX.3 Klein Distilled · BF16, ready, not tested").focus();
+    h.run_steps(2);
+    for _ in 0..7 {
+        h.key_press(egui::Key::ArrowDown);
+        h.run_steps(6);
+    }
+    h.run_steps(20);
+    assert_eq!(with(|s| s.selected.clone()), Some(QWEN21.into()));
+    let row = h.get_by_label("Qwen Image 2.1 · BF16, built-in support").rect();
+    let footer = h.get_by_label("Copy report").rect();
+    assert!(row.bottom() < footer.top(), "the focused row must be visible above the footer: {row:?}");
+    assert!(row.top() > h.get_by_label("Re-check").rect().bottom());
+    h.key_press(egui::Key::ArrowDown);
+    h.run_steps(4);
+    assert_eq!(with(|s| s.selected.clone()), Some(QWEN21.into()), "folded ignored rows are not keyboard targets");
+}
+
+#[test]
+fn verification_dates_follow_the_interface_language_and_preserve_the_stored_offset() {
+    use li_i18n::Lang;
+    let original = li_i18n::current();
+    for (lang, expected) in [(Lang::En, "10/24/2026 14:02"), (Lang::De, "24.10.2026 14:02"), (Lang::Fr, "24/10/2026 14:02"), (Lang::Ja, "2026/10/24 14:02")] {
+        li_i18n::set_current(lang);
+        let mut h = harness(fixture(), KREA, vec2(1100.0, 760.0));
+        select(&mut h, KREA, Step::Verify);
+        h.get_by_label(&format!("Checked on ComfyUI 0.42.5 · {expected}")).hover();
+        h.run_steps(60);
+        h.get_by_label("Checked on ComfyUI 0.42.5 · 2026-10-24 14:02:11-04:00 · seed 518877231");
+    }
+    li_i18n::set_current(original);
 }

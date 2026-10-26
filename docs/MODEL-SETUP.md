@@ -121,7 +121,7 @@ install in the Model Browser) shows the same results as the doctor, for the conn
   again.
 - **Identify** says what the file is (kind, architecture and variant, how Local Image knows, the
   precision and size), how it runs and through which templates; **Change template…** picks
-  another official template (a passing test is what makes it verified).
+  another official template (a passing test is what makes it verified). Tensor evidence stays in a tooltip.
 - **Check** lists the problems first, each with its fixes, then what passed. Fixes run one at a
   time and every one re-checks afterwards: **Download** (planned like a Model Browser install, its
   size and SHA-256 from the publisher, and confirmed before anything downloads), **Use … instead**,
@@ -146,7 +146,7 @@ A missing optional style file disables that tool while plain Create remains usab
 checks the chosen tool's files and nodes again before submitting its graph.
 
 When the number of new models rises during a session, one notice says so. Generate's picker shows
-a chip on template models ("Not tested", "Re-check", "Works"); a model that can't run yet (no
+a chip on template models ("Not tested", "Test again", "Verified"); a model that can't run yet (no
 recipe, or its test failed) is listed under *Other installed models* with the reason and
 **Set up…**. A model whose template has a local prompt enhancer gets an **Enhance prompt** switch in
 Generate, off by default and remembered per model; it can be turned on once the enhancer's file is

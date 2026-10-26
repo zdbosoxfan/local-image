@@ -20,7 +20,11 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
         let mut answer = None;
         let modal = egui::Modal::new(egui::Id::new("model-setup-move")).backdrop_color(egui::Color32::TRANSPARENT).show(ctx, |ui| {
             ui.set_width(460.0);
-            ui.label(RichText::new(li_i18n::fmt(tl!("Move {file} to {folder}/?"), &[("file", &ask.file), ("folder", &ask.to_folder)])).size(15.0).strong());
+            ui.label(
+                RichText::new(li_i18n::fmt(tl!("Move {file} to {folder}/?"), &[("file", &ask.file), ("folder", &ask.to_folder)]))
+                    .font(crate::theme::semibold(15.0)),
+            );
+            widgets::hairline(ui);
             ui.add_space(6.0);
             ui.add(
                 egui::Label::new(
@@ -32,7 +36,7 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
                 )
                 .wrap(),
             );
-            answer = buttons(ui, &[DialogButton::new(ButtonRole::Default, tl!("Move"), 80.0), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]);
+            answer = buttons(ui, &[DialogButton::new(ButtonRole::Default, "Move", 84.0), DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0)]);
         });
         let escape = modal.is_top_modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         match answer {
@@ -50,13 +54,21 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
         let modal = egui::Modal::new(egui::Id::new("model-setup-download")).backdrop_color(egui::Color32::TRANSPARENT).show(ctx, |ui| {
             ui.set_width(500.0);
             let size = li_ai::download::human_bytes(plan.total());
-            ui.label(RichText::new(li_i18n::fmt(tl!("Download {size}?"), &[("size", &size)])).size(15.0).strong());
+            ui.label(RichText::new(li_i18n::fmt(tl!("Download {size}?"), &[("size", &size)])).font(crate::theme::semibold(15.0)));
+            widgets::hairline(ui);
             ui.add_space(6.0);
             for f in &plan.files {
                 let host = f.url.split('/').nth(2).unwrap_or_default();
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(&f.name).color(t.text));
-                    ui.label(RichText::new(format!("→ {}/ · {} · {host}", f.folder, li_ai::download::human_bytes(f.bytes))).size(11.0).color(t.text_faint));
+                ui.vertical(|ui| {
+                    ui.add(egui::Label::new(RichText::new(&f.name).color(t.text)).wrap());
+                    ui.label(
+                        RichText::new(li_i18n::fmt(
+                            tl!("→ {folder}/ · {size} · {host}"),
+                            &[("folder", &f.folder), ("size", &li_ai::download::human_bytes(f.bytes)), ("host", host)],
+                        ))
+                        .size(11.0)
+                        .color(t.text_faint),
+                    );
                 });
             }
             if !plan.license.is_empty() {
@@ -75,7 +87,7 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
                     .color(t.danger),
                 );
             }
-            answer = buttons(ui, &[DialogButton::new(ButtonRole::Default, tl!("Download"), 80.0), DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]);
+            answer = buttons(ui, &[DialogButton::new(ButtonRole::Default, "Download", 84.0), DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0)]);
         });
         let escape = modal.is_top_modal && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
         match answer {
@@ -98,7 +110,8 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
     let mut close = false;
     let modal = egui::Modal::new(egui::Id::new("model-setup-template")).backdrop_color(egui::Color32::TRANSPARENT).show(ctx, |ui| {
         ui.set_width(520.0);
-        ui.label(RichText::new(tl!("Choose a template")).size(15.0).strong());
+        ui.label(RichText::new(tl!("Choose a template")).font(crate::theme::semibold(15.0)));
+        widgets::hairline(ui);
         ui.add(
             egui::Label::new(
                 RichText::new(tl!("The file runs through the template you choose; only a passing test makes it verified.")).size(11.5).color(t.text_dim),
@@ -109,18 +122,18 @@ pub(super) fn show(ctx: &egui::Context, s: &mut State, t: &Tokens, out: &mut Vec
         ui.add(egui::TextEdit::singleline(&mut chooser.search).hint_text(tl!("Search templates…")).desired_width(f32::INFINITY));
         let query = chooser.search.trim().to_lowercase();
         egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-            if ui.add(egui::Button::selectable(current.is_none(), tl!("Let Local Image choose"))).clicked() {
+            if widgets::nav_row(ui, "", None, tl!("Let Local Image choose"), "", current.is_none()).clicked() {
                 picked = Some(None);
             }
             for c in scan.templates.iter().filter(|c| query.is_empty() || c.title.to_lowercase().contains(&query) || c.name.contains(&query)) {
                 let on = current.as_deref() == Some(c.name.as_str());
-                let r = ui.add(egui::Button::selectable(on, RichText::new(&c.title).color(t.text)));
+                let r = widgets::nav_row(ui, "", None, &c.title, "", on);
                 if r.on_hover_text(&c.name).clicked() {
                     picked = Some(Some(c.name.clone()));
                 }
             }
         });
-        close = buttons(ui, &[DialogButton::new(ButtonRole::Cancel, tl!("Cancel"), 80.0)]).is_some();
+        close = buttons(ui, &[DialogButton::new(ButtonRole::Cancel, "Cancel", 84.0)]).is_some();
     });
     close |= modal.is_top_modal && !modal.any_popup_open && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape));
     if let Some(choice) = picked {

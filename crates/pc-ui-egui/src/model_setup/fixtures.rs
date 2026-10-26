@@ -1,3 +1,5 @@
+//! Synthetic model states for interaction tests and the snapshot example.
+
 use li_ai::arch::FileKind;
 use li_ai::companions::{Binding, Why};
 use li_ai::identify::{Identity, Quant, QuantClass};
@@ -28,22 +30,22 @@ pub(super) fn snapshot(version: &str) -> Snapshot {
     }
 }
 
-pub(super) fn cap(name: &str, references: u32) -> CapabilityCheck {
+fn cap(name: &str, references: u32) -> CapabilityCheck {
     CapabilityCheck { name: name.into(), ok: true, references, detail: String::new() }
 }
 
-pub(super) fn model(key: &str, label: &str, status: Status, arch: &str, variant: Option<&str>) -> ModelState {
-    let (prefix, file) = key.split_once(':').unwrap();
+fn model(key: &str, label: &str, status: Status, arch: &str, variant: Option<&str>) -> ModelState {
+    let file = key.trim_start_matches("unet:").trim_start_matches("ckpt:");
     ModelState {
         status,
         file: file.into(),
-        folder: if prefix == "ckpt" { "checkpoints".into() } else { "diffusion_models".into() },
+        folder: if key.starts_with("ckpt:") { "checkpoints".into() } else { "diffusion_models".into() },
         label: label.into(),
         engine: "template".into(),
         catalog_id: key.into(),
         fingerprint: Fingerprint { bytes: 11_097_404_512, ..Default::default() },
         identity: Some(Identity {
-            kind: if prefix == "ckpt" { FileKind::Checkpoint } else { FileKind::DiffusionModel },
+            kind: if key.starts_with("ckpt:") { FileKind::Checkpoint } else { FileKind::DiffusionModel },
             arch: Some(arch.to_owned()).filter(|a| !a.is_empty()),
             variant: variant.map(str::to_owned),
             quant: Quant { class: Some(QuantClass::Bf16), ..Default::default() },
@@ -55,14 +57,14 @@ pub(super) fn model(key: &str, label: &str, status: Status, arch: &str, variant:
     }
 }
 
-pub(super) fn issue(code: &str, key: &str, args: &[(&str, &str)]) -> Issue {
+fn issue(code: &str, key: &str, args: &[(&str, &str)]) -> Issue {
     Issue::new(code, Some(key), &args.iter().map(|(k, v)| (*k, (*v).to_owned())).collect::<Vec<_>>())
 }
 
 /// One model in each state Set Up Models shows.
 pub(super) fn fixture() -> Scan {
     let mut models = std::collections::BTreeMap::new();
-    let mut flux3 = model(FLUX3, "FLUX.3 Klein · distilled · BF16", Status::Ready, "flux3-klein", Some("distilled"));
+    let mut flux3 = model(FLUX3, "FLUX.3 Klein Distilled · BF16", Status::Ready, "flux3-klein", Some("distilled"));
     flux3.templates = [("create".into(), "image_flux3_klein_distilled_t2i".into()), ("edit".into(), "image_flux3_klein_distilled_image_edit".into())].into();
     flux3.bindings = vec![
         Binding {
@@ -81,7 +83,7 @@ pub(super) fn fixture() -> Scan {
         },
     ];
     flux3.issues = vec![
-        issue("NotVerified", FLUX3, &[("model", "FLUX.3 Klein · distilled · BF16")]).fix(Fix::Verify { model: "flux3-image-klein-bf16.safetensors".into() }),
+        issue("NotVerified", FLUX3, &[("model", "FLUX.3 Klein Distilled · BF16")]).fix(Fix::Verify { model: "flux3-image-klein-bf16.safetensors".into() }),
         issue("UpsamplerAvailable", FLUX3, &[("file", "qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors"), ("size", "8.1 GB")]).fix(Fix::Download {
             files: vec!["qwen3.5_9b_flux3_prompt_upsampler_w4a8.safetensors".into()],
             folder: "text_encoders".into(),
@@ -91,7 +93,7 @@ pub(super) fn fixture() -> Scan {
         issue("LicenceNotice", FLUX3, &[("licence", "FLUX Kommunity License v1.0"), ("summary", "Non-commercial.")]),
     ];
     models.insert(FLUX3.to_owned(), flux3);
-    let mut moss = model(MOSS, "MOSS-Image · sft · BF16", Status::Blocked, "moss-image", Some("sft"));
+    let mut moss = model(MOSS, "MOSS-Image SFT · BF16", Status::Blocked, "moss-image", Some("sft"));
     moss.bindings = vec![Binding {
         role: "vae".into(),
         declared: "flux2-vae.safetensors".into(),
@@ -104,7 +106,7 @@ pub(super) fn fixture() -> Scan {
             "CompanionMissing",
             MOSS,
             &[
-                ("model", "MOSS-Image · sft · BF16"),
+                ("model", "MOSS-Image SFT · BF16"),
                 ("role_label", "text encoder"),
                 ("file", "qwen3.5_9b_bf16.safetensors"),
                 ("size", "19.3 GB"),
@@ -125,12 +127,12 @@ pub(super) fn fixture() -> Scan {
             &[("file", "flux2-vae.safetensors"), ("kind_label", "VAE"), ("kind_label_plural", "VAEs"), ("found", "diffusion_models"), ("expected", "vae")],
         )
         .fix(Fix::Move { from: "flux2-vae.safetensors".into(), to_folder: "vae".into() }),
-        issue("ComfyTooOld", MOSS, &[("model", "MOSS-Image"), ("need", "0.41.3"), ("have", "0.38.0"), ("how", "Update ComfyUI.")])
+        issue("ComfyTooOld", MOSS, &[("model", "MOSS-Image"), ("need", "0.44.0"), ("have", "0.43.0"), ("how", "Update ComfyUI.")])
             .fix(Fix::CopyCommand { label: "Update ComfyUI".into(), command: "git pull".into() }),
     ];
     moss.capabilities.clear();
     models.insert(MOSS.to_owned(), moss);
-    let mut krea = model(KREA, "Krea 2 · turbo · BF16", Status::Verified, "krea2", Some("turbo"));
+    let mut krea = model(KREA, "Krea 2 Turbo · BF16", Status::Verified, "krea2", Some("turbo"));
     let mut caps = std::collections::BTreeMap::new();
     caps.insert("create".to_owned(), CapabilityResult { pass: true, seconds: 5.5, cold: true, peak_vram_gb: Some(17.9), ..Default::default() });
     caps.insert("refine".to_owned(), CapabilityResult { pass: true, seconds: 3.9, difference: Some(11.6), ..Default::default() });
@@ -143,7 +145,7 @@ pub(super) fn fixture() -> Scan {
         ..Default::default()
     });
     models.insert(KREA.to_owned(), krea);
-    let mut turbo = model(TURBO, "Qwen Image 2.1 · turbo · BF16", Status::Failed, "qwen-image-21", Some("turbo"));
+    let mut turbo = model(TURBO, "Qwen Image 2.1 Turbo · BF16", Status::Failed, "qwen-image-21", Some("turbo"));
     let mut caps = std::collections::BTreeMap::new();
     caps.insert("create".to_owned(), CapabilityResult { pass: false, seconds: 7.0, failure: Some("VerifyFailed:noise".into()), ..Default::default() });
     turbo.verified = Some(Verified { at: "2026-10-24T14:10:00-04:00".into(), comfyui_version: "0.42.5".into(), capabilities: caps, ..Default::default() });
@@ -170,7 +172,7 @@ pub(super) fn fixture() -> Scan {
         other_files: vec![li_ai::modelsetup::report::FileReport {
             file: "qwen3vl_4b_bf16.safetensors".into(),
             kind: "text encoder".into(),
-            used_by: vec!["FLUX.3 Klein · distilled · BF16".into()],
+            used_by: vec!["FLUX.3 Klein Distilled · BF16".into()],
         }],
         templates: vec![
             TemplateChoice { name: "image_flux3_klein_distilled_t2i".into(), title: "FLUX 3 Image Klein Distilled: Text to Image".into() },
@@ -179,4 +181,3 @@ pub(super) fn fixture() -> Scan {
         ..Default::default()
     }
 }
-
