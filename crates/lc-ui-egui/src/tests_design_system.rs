@@ -21,8 +21,8 @@ fn click(h: &mut Headless, id: &str) {
 fn rect(h: &Headless, id: &str) -> Rect {
     h.app.widgets.iter().rev().find(|(name, _)| name == id).unwrap_or_else(|| panic!("missing {id}")).1
 }
-fn setup(width: f32, dark: bool) -> Headless {
-    let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+fn setup(session: lightcraft_engine::Session, width: f32, dark: bool) -> Headless {
+    let mut app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
     app.ui.settings.gpu = false;
     app.ui.view = crate::state::ViewMode::Detail;
     app.ui.right = RightPanel::Edit;
@@ -57,6 +57,18 @@ fn panel_top(h: &Headless, height: f32) -> Rect {
     Rect::from_min_size(panel.min, vec2(panel.width(), height.min(panel.height())))
 }
 
+fn focus(h: &mut Headless, name: &str) {
+    for _ in 0..256 {
+        let wanted = rect(h, name);
+        let focused = h.view.ctx.memory(|memory| memory.focused());
+        if focused.and_then(|id| h.view.ctx.read_response(id)).is_some_and(|response| response.rect == wanted) {
+            return;
+        }
+        request(h, "ui.key", json!({"key":"tab"}));
+    }
+    panic!("keyboard could not focus {name}");
+}
+
 #[test]
 #[ignore = "design-system screenshots: run explicitly with --ignored"]
 fn design_system_develop_screens() {
@@ -64,7 +76,7 @@ fn design_system_develop_screens() {
         for width in [250.0, 400.0] {
             let tag = format!("{}-{}", if dark { "dark" } else { "light" }, width as u32);
             // Layer bar: Background row, a filled and a radial layer, the selected layer's controls.
-            let mut h = setup(width, dark);
+            let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
             click(&mut h, "button:layerNew");
             click(&mut h, "button:maskNew:full");
             click(&mut h, "button:layerNew");
@@ -103,7 +115,7 @@ fn design_system_develop_screens() {
             );
 
             // Skin Tone (Background): the picker, swatch with readout, range strips.
-            let mut h = setup(width, dark);
+            let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
             h.app.ui.open_sections = vec!["color".into()];
             h.app.ui.open_flyouts.clear();
             h.step();
@@ -130,6 +142,70 @@ fn design_system_develop_screens() {
             h.step();
             h.step();
             save(&h, &format!("picker-{tag}"), Rect::from_center_size(at + vec2(14.0, 14.0), vec2(64.0, 64.0)));
+
+            for scale in [1.0, 1.5] {
+                let tag = format!("{tag}-{}ppp", scale);
+                let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
+                h.pixels_per_point = scale;
+                let mut palette = Tokens::get(&h.view.ctx);
+                palette.panel_w = width;
+                h.app.set_host_theme(palette);
+                h.app.restyle(&h.view.ctx);
+                request(&mut h, "engine.execute", json!({"command":"panel.presets"}));
+                focus(&mut h, "preset:lc.warm-glow");
+                request(&mut h, "ui.key", json!({"key":"space"}));
+                h.step();
+                focus(&mut h, "value:presetAmount");
+                request(&mut h, "ui.key", json!({"key":"space"}));
+                request(&mut h, "ui.key", json!({"key":"a","cmd":true}));
+                request(&mut h, "ui.text", json!({"text":"75"}));
+                let commits = h.app.session.commits();
+                request(&mut h, "ui.key", json!({"key":"enter"}));
+                assert_eq!(h.app.session.commits(), commits + 1, "Amount keyboard replacement");
+                assert!(h.settle(T));
+                let right = rect(&h, "panel:right_panel").left();
+                save(&h, &format!("presets-{tag}"), Rect::from_min_max(pos2(right - width, 0.0), pos2(right, 900.0)));
+
+                request(&mut h, "engine.execute", json!({"command":"panel.presets"}));
+                request(&mut h, "engine.execute", json!({"command":"photo.setReference"}));
+                request(&mut h, "ui.key", json!({"key":"r","shift":true}));
+                assert!(h.settle(T));
+                save(&h, &format!("reference-{tag}"), h.app.canvas_rect.unwrap());
+                let pinned = h.app.ui.reference.unwrap();
+                request(&mut h, "engine.execute", json!({"command":"photo.delete","params":{"ids":[pinned]}}));
+                assert!(h.settle(T));
+                save(&h, &format!("reference-missing-{tag}"), h.app.canvas_rect.unwrap());
+                request(&mut h, "ui.key", json!({"key":"escape"}));
+                assert_eq!(h.app.ui.view, crate::state::ViewMode::Detail);
+
+                request(&mut h, "ui.key", json!({"key":"r"}));
+                request(&mut h, "engine.execute", json!({"command":"crop.straighten","params":{"angle":6}}));
+                request(&mut h, "engine.execute", json!({"command":"crop.aspect","params":{"aspect":"current"}}));
+                assert!(h.settle(T));
+                save(&h, &format!("crop-{tag}"), Rect::from_min_max(pos2(0.0, 0.0), pos2(h.size[0], h.size[1])));
+
+                request(&mut h, "ui.key", json!({"key":"escape"}));
+                request(&mut h, "engine.execute", json!({"command":"view.photoGrid"}));
+                let active = h.app.session.active().unwrap();
+                request(&mut h, "engine.execute", json!({"command":"photo.delete","params":{"ids":[active.0]}}));
+                request(&mut h, "engine.execute", json!({"command":"library.source","params":{"kind":"recentlyDeleted"}}));
+                assert!(h.settle(T));
+                let thumbnail = rect(&h, &format!("thumb:{}", active.0)).center();
+                request(&mut h, "ui.click", json!({"x":thumbnail.x,"y":thumbnail.y,"button":"right"}));
+                h.step();
+                save(&h, &format!("deleted-reference-menu-{tag}"), Rect::from_min_max(pos2(0.0, 0.0), pos2(h.size[0], h.size[1])));
+
+                let (session, directory) = super::tests_develop_a::flat_session();
+                let mut flat = setup(session, width, dark);
+                flat.pixels_per_point = scale;
+                request(&mut flat, "ui.key", json!({"key":"r"}));
+                focus(&mut flat, "button:straightenAuto");
+                request(&mut flat, "ui.key", json!({"key":"space"}));
+                assert!(flat.settle(T));
+                assert!(flat.app.ui.toast.as_ref().is_some_and(|toast| toast.0 == "No horizon or vertical lines to level by"));
+                save(&flat, &format!("straighten-empty-{tag}"), Rect::from_min_size(pos2(0.0, 0.0), vec2(flat.size[0], flat.size[1])));
+                std::fs::remove_dir_all(directory).unwrap();
+            }
         }
     }
 }
