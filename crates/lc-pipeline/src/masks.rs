@@ -12,6 +12,9 @@ use crate::geometry::Frame;
 
 mod matting;
 
+/// Maximum color samples evaluated per pixel, including imported presets and catalog data.
+pub const MAX_COLOR_RANGE_SAMPLES: usize = 64;
+
 #[derive(Clone)]
 pub struct Evaluated {
     /// The mask's id ([`Mask::id`]).
@@ -265,7 +268,7 @@ pub fn shape_alpha_tone(
         }
         MaskShape::ColorRange { samples, refine } => {
             let tol = 0.04 + 0.16 * (*refine as f32 / 100.0);
-            let samples: Vec<[f32; 3]> = samples.iter().map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]).collect();
+            let samples: Vec<[f32; 3]> = samples.iter().take(MAX_COLOR_RANGE_SAMPLES).map(|s| [s[0] as f32, s[1] as f32, s[2] as f32]).collect();
             for (v, c) in out.data.iter_mut().zip(&img.data) {
                 let lab = li_color::perceptual::oklab_from_2020(
                     tone.map_or_else(|| tonemap_for_select(c.map(|v| v * gain)), |t| crate::tone2::tone_px(t, &t.method(), c.map(|v| v * gain))),
@@ -561,6 +564,19 @@ mod tests {
 
     fn frame(w: usize, h: usize) -> Frame {
         Frame::new(w, h, &DevelopSettings::default(), true)
+    }
+
+    #[test]
+    fn color_range_evaluation_ignores_samples_past_the_limit() {
+        let img = RgbFrame::from_fn(2, 2, |_, _| [0.3, 0.2, 0.1]);
+        let log_l = img.map(crate::local::log_lum);
+        let mut samples = vec![[10.0, 10.0, 10.0]; 64];
+        let bounded = shape_alpha(&MaskShape::ColorRange { samples: samples.clone(), refine: 50.0 }, &frame(2, 2), 2, 2, &img, &log_l, 0.0);
+        let matching = li_color::perceptual::oklab_from_2020(tonemap_for_select(img.data[0])).map(f64::from);
+        samples.push(matching);
+        let oversized = shape_alpha(&MaskShape::ColorRange { samples, refine: 50.0 }, &frame(2, 2), 2, 2, &img, &log_l, 0.0);
+        assert_eq!(bounded.data, vec![0.0; 4]);
+        assert_eq!(oversized.data, bounded.data);
     }
 
     #[test]

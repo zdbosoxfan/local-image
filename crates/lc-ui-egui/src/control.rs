@@ -341,7 +341,13 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context, req: &ControlRequest
             Outcome::Screenshot { path: s("path").map(str::to_string), headless: p.get("headless").and_then(Value::as_bool).unwrap_or(false) }
         }
         "ui.render" => {
-            let id = p.get("id").and_then(Value::as_u64).map(lightcraft_catalog::PhotoId).or(app.session.active());
+            let id = match p.get("id") {
+                None | Some(Value::Null) => app.session.active(),
+                Some(value) => match value.as_u64() {
+                    Some(id) => Some(lightcraft_catalog::PhotoId(id)),
+                    None => return err("`id` must be a photo id (a whole number)"),
+                },
+            };
             let Some(id) = id else { return err("no photo") };
             if let Some(Err(e)) = s("path").map(|path| app.session.check_write_target(path)) {
                 return err(e);
@@ -405,9 +411,14 @@ pub fn export_active(app: &mut LightcraftApp, p: &Value) -> Result<Value, String
         let ext = path.rsplit_once('.').map_or("", |(_, e)| e);
         opts.format = lightcraft_engine::export::ExportFormat::parse(ext).unwrap_or(opts.format);
     }
-    let ids: Vec<_> = match p.get("ids").and_then(Value::as_array) {
-        Some(a) => a.iter().filter_map(|v| serde_json::from_value(v.clone()).ok()).collect(),
-        None => export_targets(app),
+    let ids: Vec<_> = match p.get("ids") {
+        None | Some(Value::Null) => export_targets(app),
+        Some(value) => value
+            .as_array()
+            .ok_or("app.export: `ids` must be a list of photo ids")?
+            .iter()
+            .map(|id| id.as_u64().map(lightcraft_catalog::PhotoId).ok_or("app.export: `ids` must be photo ids (whole numbers)"))
+            .collect::<Result<_, _>>()?,
     };
     if ids.is_empty() {
         return Err("no photo selected".into());
@@ -533,5 +544,30 @@ pub fn save_screenshot(app: &mut LightcraftApp, image: &egui::ColorImage, path: 
             Err(e) => json!({"ok": false, "error": e}),
         },
         None => json!({"ok": false, "error": "no writer configured"}),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_and_export_refuse_malformed_photo_parameters() -> Result<(), Box<dyn std::error::Error>> {
+        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), crate::Services::default());
+        let ctx = egui::Context::default();
+        for bad in [json!("1"), json!(-1), json!(1.5), json!([1])] {
+            let (req, _) = ControlRequest::new("ui.render", json!({"id": bad, "size": 8}));
+            let Outcome::Done(response) = handle(&mut app, &ctx, &req) else { return Err("expected render response".into()) };
+            assert_eq!(response["ok"], false, "{bad}: {response}");
+            assert!(response["error"].as_str().ok_or("missing error text")?.contains("`id`"), "{response}");
+        }
+        for bad in [json!("1"), json!(-1), json!(1.5), json!(["1"]), json!({"id": 1})] {
+            let error = match export_active(&mut app, &json!({"ids": bad, "dir": "unused"})) {
+                Err(error) => error,
+                Ok(value) => return Err(format!("export accepted {bad}: {value}").into()),
+            };
+            assert!(error.contains("`ids`"), "{bad}: {error}");
+        }
+        Ok(())
     }
 }

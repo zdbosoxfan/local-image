@@ -49,7 +49,7 @@ fn album_json(a: &Album, all: &[Album], cat: &lightcraft_catalog::Catalog) -> Va
 }
 
 fn photo_arg(s: &Session, p: &Value, c: &str) -> crate::Result<PhotoId> {
-    p.get("id").and_then(Value::as_u64).map(PhotoId).or(s.active()).ok_or_else(|| bad(c, "no photo"))
+    super::photo_id(p, c)?.or(s.active()).ok_or_else(|| bad(c, "no photo"))
 }
 
 pub fn specs() -> Vec<CommandSpec> {
