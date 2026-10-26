@@ -34,6 +34,9 @@ use crate::blocks::{enum_of, get_desc, num};
 
 #[path = "camera_raw_map.rs"]
 mod camera_raw;
+#[path = "displace_map.rs"]
+mod displace;
+pub use displace::{embed_map as displace_embed_map, embedded_map as displace_embedded_map, without_map as displace_without_map};
 #[path = "hue_sat_filter_map.rs"]
 mod hue_sat;
 #[path = "perspective_warp_map.rs"]
@@ -162,6 +165,7 @@ pub fn filter_from_item(item: &Descriptor) -> SmartFilter {
     let class = class.or_else(|| KNOWN.iter().find(|k| k.filter_id == filter_id).map(|k| k.class.to_string()));
     let known = match class.as_deref() {
         Some(camera_raw::CLASS) => camera_raw::import_params(item).map(|p| develop_import(item, p)),
+        Some(displace::CLASS) => displace::import_params(item).map(|p| (displace::COMMAND, p)),
         Some(perspective_warp::CLASS) => perspective_warp::import_params(item).map(|p| (perspective_warp::COMMAND, p)),
         Some(hue_sat::CLASS) => fltr.and_then(hue_sat::import_params).map(|p| (hue_sat::COMMAND, p)),
         _ if fltr.is_none() && item.get("Fltr").is_some() => None,
@@ -375,6 +379,12 @@ pub fn item_for_filter(f: &SmartFilter) -> Result<Descriptor, String> {
     }
     if perspective_warp::handles(&f.command) {
         return perspective_warp::export_item(f);
+    }
+    if f.command == displace::COMMAND {
+        let mut item = displace::export_item(&f.params)?;
+        set(&mut item, "blendOptions", blend_options(f));
+        set(&mut item, "enab", Value::Boolean(f.visible));
+        return Ok(item);
     }
     if f.command == UNSUPPORTED_FILTER {
         let raw = f.params.get("psd").and_then(J::as_str).and_then(from_hex).ok_or("its Photoshop data is missing")?;

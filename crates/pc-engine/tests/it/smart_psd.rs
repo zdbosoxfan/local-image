@@ -501,3 +501,48 @@ fn perspective_warp_psd_filter_renders_warped() {
     }
 }
 
+
+#[test]
+fn editable_filter_stack_survives_psd_and_re_renders_at_all_depths() {
+    for depth in [8, 16, 32] {
+        let mut session = session(depth);
+        session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        for (command, params) in [
+            ("filter.sharpen.sharpen", json!({})),
+            ("filter.noise.dustAndScratches", json!({"radius": 2, "threshold": 8})),
+            ("filter.blur.surfaceBlur", json!({"radius": 5, "threshold": 15})),
+            ("image.adjustments.hueSaturation", json!({"hue": 20, "saturation": -12, "lightness": 0, "colorize": false})),
+            ("image.adjustments.invert", json!({})),
+        ] {
+            session.execute(command, params).unwrap();
+        }
+        let document = session.active().unwrap().doc.clone();
+        let before = smart(&document).1;
+        let exported = photocraft_io::export(&document, "psd", &Default::default()).unwrap();
+        assert!(exported.warnings.is_empty(), "{:?}", exported.warnings);
+        assert!(structure_errors(&exported.bytes).is_empty());
+        let imported = photocraft_io::import("filters.psd", &exported.bytes).unwrap().document;
+        let (id, after) = smart(&imported);
+        assert_eq!(after.smart_filters.len(), 5);
+        for (actual, expected) in after.smart_filters.iter().zip(&before.smart_filters) {
+            assert_eq!((&actual.command, actual.blend, actual.opacity, actual.visible),
+                       (&expected.command, expected.blend, expected.opacity, expected.visible));
+            for (key, expected) in expected.params.as_object().unwrap() {
+                let actual = &actual.params[key];
+                assert!(actual == expected || actual.as_f64().zip(expected.as_f64()).is_some_and(|(a, b)| a == b),
+                        "{}: {key}: {actual} vs {expected}", actual);
+            }
+        }
+        let mut layer = imported.layer(photocraft_doc::LayerId(id)).unwrap().clone();
+        assert!(refresh_layer(&imported, &mut layer).unwrap());
+        let LayerContent::Smart(rerendered) = &layer.content else { panic!("smart object") };
+        let (actual, expected) = (rerendered.cache.as_ref().unwrap(), before.cache.as_ref().unwrap());
+        for y in 0..H {
+            for x in 0..W {
+                let (a, b) = (actual.rgba(x, y), expected.rgba(x, y));
+                // A PSD source round trip may quantize to eight bits.
+                assert!((0..4).all(|c| (a[c] - b[c]).abs() <= 2.0 / 255.0), "depth {depth}, {x},{y}: {a:?} vs {b:?}");
+            }
+        }
+    }
+}

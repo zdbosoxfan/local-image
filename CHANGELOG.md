@@ -8,6 +8,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Compositing: PSD import and export preserve embedded Displace maps with editable scale, fit
+  and edge settings.
+
 - Compositing: PSD smart filters retain editable blur, sharpen, noise, pixelate, stylize,
   distort and Invert settings. Unmodelled settings and Average remain verbatim.
 
