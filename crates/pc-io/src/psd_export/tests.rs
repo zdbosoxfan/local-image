@@ -330,7 +330,7 @@ fn only_sparse_boxes_past_the_memory_budget_are_refused() {
     let pano_tiles = 40_000u64.div_ceil(256) * 12_000u64.div_ceil(256) * tile;
     assert!(!gather_refused(pano, pano_tiles, 64 * GIB));
     assert!(!gather_refused(pano, pano_tiles, GIB));
-    assert!(gather_refused(pano, 10 * tile, GIB), "a sparse box is unsafe even when the canvas is equally large");
+    assert!(!gather_refused(pano, 10 * tile, GIB), "a sparse box no larger than the canvas keeps its pixels");
     assert!(!gather_refused(60_000_000 * 8, 10 * tile, 32 * GIB));
 }
 
