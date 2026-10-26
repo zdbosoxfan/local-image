@@ -149,7 +149,26 @@ fn design_system_develop_screens() {
                 }
                 for width in [250.0, 400.0] {
                     for scale in [1.0, 1.5] {
-                        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+                        let mut session = lightcraft_engine::Session::with_demo();
+                        let id = session.active().unwrap();
+                        let photo = session.catalog.photo(id).unwrap();
+                        let content = lightcraft_catalog::Op::SetContent {
+                            id,
+                            width: photo.width,
+                            height: photo.height,
+                            file_size: photo.file_size,
+                            content_hash: photo.content_hash.clone(),
+                            preview_only: Some("Synthetic RAW preview fixture".into()),
+                        };
+                        let source = lightcraft_catalog::Op::Relink {
+                            id,
+                            file_name: "SYNTHETIC-PREVIEW.RAW".into(),
+                            source: photo.source.clone(),
+                            format: Some("RAW".into()),
+                        };
+                        session.catalog.apply(content).unwrap();
+                        session.catalog.apply(source).unwrap();
+                        let mut app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
                         app.ui.settings.gpu = false;
                         app.ui.right_width = width;
                         app.ui.left_panel = false;
@@ -168,6 +187,13 @@ fn design_system_develop_screens() {
                             h.app.ui.open_sections = vec!["light".into()];
                             h.step();
                             h.step();
+                            if screen == "develop" {
+                                click(&mut h, "button:layerNew");
+                                click(&mut h, "button:maskNew:full");
+                                h.app.ui.open_sections = vec!["layer-color".into(), "layer-effects".into()];
+                                h.step();
+                                h.step();
+                            }
                             assert!(h.settle(T));
                             save(&h, &format!("contrast-{phase}-{screen}-{tag}"), Rect::from_min_size(pos2(0.0, 0.0), h.size));
                         }
