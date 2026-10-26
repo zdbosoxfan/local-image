@@ -263,25 +263,21 @@ fn upsert(raw: &mut Vec<([u8; 4], Vec<u8>)>, key: &[u8; 4], data: Vec<u8>, befor
     }
 }
 
-/// Whether the samples of `r` in `s` are too sparse to gather for a document whose canvas is
-/// `canvas`. A PSD layer record is one dense rectangle, so a few pixels far apart (content moved
-/// far off the canvas, or a crafted document) make a box of mostly nothing that can't be
-/// allocated, gathered and then copied into channel planes.
-fn sparse_gather(s: &Surface, r: photocraft_geom::Rect, canvas: photocraft_geom::Rect) -> bool {
+/// Whether the samples of `r` in `s` are too sparse to gather. A PSD layer record is one dense
+/// rectangle, so a few pixels far apart (content moved far off the canvas, or a crafted
+/// document) make a box of mostly nothing that cannot be gathered and copied into channel planes.
+fn sparse_gather(s: &Surface, r: photocraft_geom::Rect) -> bool {
     let bpp = s.format().bytes_per_pixel() as u64;
     let bytes = |r: photocraft_geom::Rect| u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(bpp);
     let tile = u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2);
     let held = (s.tile_count() as u64).saturating_mul(tile).saturating_mul(bpp);
-    gather_refused(bytes(r), held, lightcraft_sysmem::profile().memory_budget(), bytes(canvas))
+    gather_refused(bytes(r), held, lightcraft_sysmem::profile().memory_budget())
 }
 
-/// [`sparse_gather`] on byte counts: refused only when the box is more than
-/// [`SPARSE_GATHER_FACTOR`] times what its tiles hold, larger than the `canvas` (whose merged
-/// image the save holds anyway) and, with the planes made from it (alive together), over the
-/// memory `budget`. A dense layer (a stitched panorama, an HDR merge) is gathered however large
-/// it is: its tiles already hold that much.
-fn gather_refused(boxed: u64, held: u64, budget: u64, canvas: u64) -> bool {
-    boxed > held.saturating_mul(SPARSE_GATHER_FACTOR) && boxed > (budget / 2).max(canvas)
+/// Refuse sparse rectangles whose dense staging and channel planes exceed the memory budget.
+/// Dense layers already hold their full area in tiles and remain eligible regardless of size.
+fn gather_refused(boxed: u64, held: u64, budget: u64) -> bool {
+    boxed > held.saturating_mul(SPARSE_GATHER_FACTOR) && boxed > budget / 2
 }
 
 fn psd_mode(m: ColorMode) -> PsdMode {
@@ -332,7 +328,7 @@ impl Ex {
         if r.is_empty() {
             return (PsdRect::default(), self.empty_channels());
         }
-        if sparse_gather(&s, r, self.canvas) {
+        if sparse_gather(&s, r) {
             self.warnings.push(format!(
                 "layer \"{name}\": its pixels are scattered over {}×{} px, too large to write: saved without its pixels (delete the stray pixels far from the rest and save again)",
                 r.width(),
@@ -360,7 +356,7 @@ impl Ex {
         let s = if m.surface.format() != self.mask_fmt { m.surface.convert(self.mask_fmt) } else { m.surface.clone() };
         let default = s.default_pixel().first().copied().unwrap_or(0.0);
         let mut r = s.content_bounds();
-        if !r.is_empty() && sparse_gather(&s, r, self.canvas) {
+        if !r.is_empty() && sparse_gather(&s, r) {
             self.warnings.push(format!(
                 "layer \"{name}\": its mask's painted pixels are scattered over {}×{} px, too large to write: saved as an empty mask",
                 r.width(),

@@ -321,25 +321,17 @@ fn a_linked_and_an_embedded_copy_of_the_same_bytes_keep_their_own_rule() {
 }
 
 #[test]
-fn only_sparse_boxes_past_the_canvas_and_the_memory_budget_are_refused() {
+fn only_sparse_boxes_past_the_memory_budget_are_refused() {
     const GIB: u64 = 1 << 30;
     let tile = 256 * 256 * 8;
-    let canvas = 8 * 8 * 8;
-    // Two tiles of a 16-bit RGBA layer far apart: a box of almost nothing, refused whatever the
-    // budget.
-    assert!(gather_refused(u64::MAX, 2 * tile, 256 * GIB, canvas));
-    assert!(gather_refused(400 * GIB, 2 * tile, 64 * GIB, canvas));
-    // A dense 16-bit RGBA panorama of 40000×12000 px (3.6 GiB, past upstream's fixed 1 GiB cap):
-    // its tiles hold the whole box, so it is gathered whatever the budget.
+    assert!(gather_refused(u64::MAX, 2 * tile, 256 * GIB));
+    assert!(gather_refused(400 * GIB, 2 * tile, 64 * GIB));
     let pano = 40_000u64 * 12_000 * 8;
     let pano_tiles = 40_000u64.div_ceil(256) * 12_000u64.div_ceil(256) * tile;
-    assert!(!gather_refused(pano, pano_tiles, 64 * GIB, pano));
-    assert!(!gather_refused(pano, pano_tiles, GIB, pano));
-    // A few strokes at opposite corners of that panorama's canvas: sparse, but no larger than
-    // the canvas, so gathered even past the budget.
-    assert!(!gather_refused(pano, 10 * tile, GIB, pano));
-    // A sparse box past the canvas that fits the budget is gathered too.
-    assert!(!gather_refused(60_000_000 * 8, 10 * tile, 32 * GIB, canvas));
+    assert!(!gather_refused(pano, pano_tiles, 64 * GIB));
+    assert!(!gather_refused(pano, pano_tiles, GIB));
+    assert!(gather_refused(pano, 10 * tile, GIB), "a sparse box is unsafe even when the canvas is equally large");
+    assert!(!gather_refused(60_000_000 * 8, 10 * tile, 32 * GIB));
 }
 
 /// Two pixels four billion pixels apart span a box no computer can gather: that layer is
@@ -378,13 +370,16 @@ fn dense_16_bit_layers_are_written_past_the_canvas() {
     let mut doc = Document::new("dense", photocraft_geom::Size::new(256, 256), ColorMode::Rgb, SampleType::U16);
     let fmt = doc.pixel_format();
     let mut layer = Layer::raster("pano", fmt);
-    let r = photocraft_geom::Rect::new(-300, -100, 900, 500);
-    layer.surface_mut().unwrap().fill_rect(r, &[0.25, 0.5, 0.75, 1.0]);
+    let r = photocraft_geom::Rect::new(-300, -100, 11_700, 11_900);
+    // Byte-repeated samples keep the encoded fixture small while gathering every pixel.
+    layer.surface_mut().unwrap().fill_rect(r, &[64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0]);
     doc.layers.push(layer);
     let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+    let bytes = file.to_bytes().unwrap();
+    let file = PsdFile::from_bytes(&bytes).unwrap();
     let record = &file.layers()[0];
     assert_eq!(record.rect, to_psd_rect(r), "{warnings:?}");
-    let red = record.channels.iter().find(|c| c.id == 0).unwrap().decode(1200, 600, 16, Version::Psd).unwrap();
-    assert_eq!(red.len(), 1200 * 600 * 2);
-    assert!(red.as_chunks::<2>().0.iter().all(|v| u16::from_be_bytes(*v).abs_diff(16384) <= 1), "a quarter of full scale");
+    let red = record.channels.iter().find(|c| c.id == 0).unwrap().decode(12_000, 12_000, 16, file.header.version).unwrap();
+    assert_eq!(red.len(), 12_000 * 12_000 * 2);
+    assert!(red.as_chunks::<2>().0.iter().all(|v| u16::from_be_bytes(*v).abs_diff(0x4040) <= 1), "the original 16-bit red samples");
 }
