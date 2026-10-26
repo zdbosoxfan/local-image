@@ -83,7 +83,10 @@ fn embedded_pixels_share_parent_pixel_and_archive_budgets() {
     let mut bad = data.clone();
     bad[88] ^= 1;
     let bad = container(vec![embedded("bad"), bitmap(2, 2, 0, &[2, 0, 0, 2])], vec![], None, &[("bad", &bad, Method::Zlib)]);
-    assert!(matches!(photocraft_affinity::read(&bad, Limits::default()), Err(Error::Malformed(_))));
+    let doc = photocraft_affinity::read(&bad, Limits::default()).unwrap();
+    assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Unsupported));
+    assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Image(_)));
+    assert!(doc.warnings.iter().any(|w| w.contains("embedded document") && w.contains("could not be read")));
 }
 #[test]
 fn master_instances_expand_with_unique_ids_and_bounded_copies() {
