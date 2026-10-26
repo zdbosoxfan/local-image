@@ -154,7 +154,7 @@ fn override_held(mods: egui::Modifiers) -> bool {
 fn begin(app: &mut PhotocraftApp, p: [f64; 2]) {
     app.prefs_rt.snap = None;
     app.prefs_rt.snap_lines.clear();
-    if app.session.active().is_none() {
+    if app.session.active().is_none() || app.distort.active() {
         return;
     }
     let tool = app.ui.tool;
@@ -488,5 +488,26 @@ mod tests {
         crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 199.0, y: 176.0 }, m);
         let sel = app.session.active().unwrap().doc.selection.as_ref().unwrap().content_bounds();
         assert_eq!((sel.x0, sel.y0, sel.x1, sel.y1), (150, 125, 200, 175));
+    }
+
+    #[test]
+    fn puppet_warp_pins_never_snap() {
+        for (tool, snap) in [(Tool::Move, false), (Tool::Move, true), (Tool::RectMarquee, true), (Tool::Brush, false)] {
+            let mut app = app_with_box();
+            app.ui.tool = tool;
+            app.ui.extras.snap = snap;
+            app.ui.view.show.smart_guides = true;
+            app.run("view.newGuide", json!({"orientation": "vertical", "position": 321})).unwrap();
+            let ctx = egui::Context::default();
+            crate::distort_ui::menu(&mut app, &ctx, "edit.puppetWarp", &json!({})).unwrap().unwrap();
+            let m = egui::Modifiers::NONE;
+            crate::canvas::tool_event(&mut app, ToolEvent::Down { x: 60.0, y: 60.0, pressure: 1.0 }, m);
+            // The mover's left edge 3 px right of the target's, the pin 2 px from the guide.
+            crate::canvas::tool_event(&mut app, ToolEvent::Move { x: 323.0, y: 100.0, pressure: 1.0 }, m);
+            assert!(app.prefs_rt.snap_lines.is_empty(), "{tool:?}, snap {snap}: {:?}", app.prefs_rt.snap_lines);
+            crate::canvas::tool_event(&mut app, ToolEvent::Up { x: 323.0, y: 100.0 }, m);
+            let pins = &app.distort.puppet.as_ref().unwrap().warp.pins;
+            assert_eq!(pins.iter().map(|p| p.dst).collect::<Vec<_>>(), vec![[323.0, 100.0]], "{tool:?}, snap {snap}");
+        }
     }
 }
