@@ -122,8 +122,7 @@ pub fn specs() -> Vec<CommandSpec> {
                         }
                     }
                 };
-                if let Some(ids) = p.get("ids").and_then(Value::as_array) {
-                    let ids: Vec<PhotoId> = ids.iter().filter_map(Value::as_u64).map(PhotoId).collect();
+                if let Some(ids) = super::photo_ids(p, "develop.set")? {
                     let ops = ids
                         .iter()
                         .filter_map(|id| s.develop_of(*id).map(|d| (*id, d)))

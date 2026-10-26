@@ -91,3 +91,21 @@ fn lock_holder_child() {
     std::fs::write(std::path::Path::new(&dir).join("child-locked"), b"").unwrap();
     std::thread::sleep(std::time::Duration::from_secs(120));
 }
+
+#[cfg(unix)]
+#[test]
+fn a_link_at_the_owner_note_is_never_written_through() {
+    let dir = temp_dir("owner-link");
+    let victim = dir.join("victim.txt");
+    std::fs::write(&victim, b"keep").unwrap();
+    std::os::unix::fs::symlink(&victim, dir.join(OWNER)).unwrap();
+    let l = LibraryLock::acquire(&dir, "LightCraft").unwrap();
+    assert!(l.held());
+    assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+    assert!(!std::fs::symlink_metadata(dir.join(OWNER)).unwrap().file_type().is_symlink(), "the link was replaced by the note");
+    let owner: LockOwner = serde_json::from_slice(&std::fs::read(dir.join(OWNER)).unwrap()).unwrap();
+    assert_eq!(owner.pid, std::process::id());
+    drop(l);
+    assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+    let _ = std::fs::remove_dir_all(&dir);
+}

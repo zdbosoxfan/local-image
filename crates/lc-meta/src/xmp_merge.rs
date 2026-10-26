@@ -23,7 +23,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use quick_xml::events::Event;
 
-use crate::xmp::{XmpError, canonical_name, parse_xmp};
+use crate::xmp::{MAX_NODES, MAX_OPAQUE_NAME_BYTES, XmpError, canonical_name, parse_xmp};
 
 /// Which properties [`merge_xmp`] takes from the fresh packet. Names are canonical
 /// `prefix:name` (prefixes as [`crate::parse_xmp`] reports them); `prefix:*` is a whole namespace.
@@ -73,7 +73,7 @@ struct Desc {
 }
 
 #[derive(Debug, Default)]
-struct Scan {
+pub(crate) struct Scan {
     descs: Vec<Desc>,
     /// Where the first `</rdf:RDF>` starts.
     rdf_close: Option<usize>,
@@ -124,13 +124,14 @@ fn pos(r: &quick_xml::Reader<&[u8]>) -> usize {
 }
 
 /// Locate the descriptions, their top-level properties and `</rdf:RDF>` in a packet.
-fn scan(s: &str) -> Result<Scan, XmpError> {
+pub(crate) fn scan(s: &str) -> Result<Scan, XmpError> {
     let mut reader = quick_xml::Reader::from_reader(s.as_bytes());
     reader.config_mut().check_end_names = true;
     let mut out = Scan::default();
     let mut stack: Vec<Kind> = Vec::new();
     let mut scopes: Vec<Vec<(String, String)>> = vec![vec![("xml".into(), "http://www.w3.org/XML/1998/namespace".into())]];
     let mut count = 0usize;
+    let mut opaque_budget = MAX_OPAQUE_NAME_BYTES;
     loop {
         let before = pos(&reader);
         let ev = reader.read_event().map_err(|e| XmpError::Xml(e.to_string()))?;
@@ -138,7 +139,7 @@ fn scan(s: &str) -> Result<Scan, XmpError> {
         match ev {
             Event::Start(ref e) | Event::Empty(ref e) => {
                 count += 1;
-                if count > 200_000 || stack.len() > 64 {
+                if count > MAX_NODES || stack.len() > 64 {
                     return Err(XmpError::TooComplex);
                 }
                 let empty = matches!(ev, Event::Empty(_));
@@ -162,18 +163,20 @@ fn scan(s: &str) -> Result<Scan, XmpError> {
                 }
                 scopes.push(scope);
                 let raw_name = String::from_utf8_lossy(e.name().as_ref()).into_owned();
-                let name = canonical_name(&raw_name, &scopes);
+                let name = canonical_name(&raw_name, &scopes, &mut opaque_budget)?;
                 let kind = match stack.last() {
                     Some(Kind::Rdf) if in_namespace(&raw_name, &scopes, "http://www.w3.org/1999/02/22-rdf-syntax-ns#", "Description") => {
                         let attrs = raw_attrs
                             .into_iter()
-                            .map(|(raw, value)| Attr {
-                                geometry: geometry_name(&raw, &scopes, true),
-                                name: if raw.contains(':') { canonical_name(&raw, &scopes) } else { raw.clone() },
-                                raw,
-                                value,
+                            .map(|(raw, value)| {
+                                Ok(Attr {
+                                    geometry: geometry_name(&raw, &scopes, true),
+                                    name: if raw.contains(':') { canonical_name(&raw, &scopes, &mut opaque_budget)? } else { raw.clone() },
+                                    raw,
+                                    value,
+                                })
                             })
-                            .collect();
+                            .collect::<Result<_, XmpError>>()?;
                         out.descs.push(Desc { tag_start: before, tag_end: after, raw_name, empty, attrs, props: Vec::new(), end: after });
                         Kind::Desc(out.descs.len() - 1)
                     }
@@ -734,6 +737,45 @@ mod tests {
     fn refuses_what_it_cannot_read() {
         for bad in ["", "not xml at all", "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF", "<a><b></a>", "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>"] {
             assert!(merge_xmp(bad, &fresh(1, &[]), RULES).is_err(), "{bad:?}");
+        }
+    }
+    #[test]
+    fn preserves_foreign_properties_using_known_prefixes() {
+        for property in [r#"lc:Secret="keep-me"/>"#, r#"><lc:Secret>keep-me</lc:Secret></rdf:Description>"#] {
+            let desc = format!(r#"<rdf:Description rdf:about="" xmlns:lc="https://example.org/vendor/" {property}"#);
+            let old = format!(r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">{desc}</rdf:RDF>"#);
+            let out = merge_xmp(&old, &fresh(4, &[]), RULES).unwrap();
+            assert!(out.contains(&desc), "lost foreign description: {out}");
+            assert_eq!(parse_xmp(&out).unwrap().metadata.rating, Some(4));
+            assert_eq!(merge_xmp(&out, &fresh(4, &[]), RULES).unwrap(), out);
+        }
+    }
+    #[test]
+    fn namespace_aliases_remain_distinct_during_merge() {
+        // The alias URI includes a character reference: scanning and parsing must resolve it identically.
+        let foreign = r#"<rdf:Description xmlns:xmp="https://example.org/vendor/" xmp:Rating="2"/>"#;
+        let old = format!(
+            r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">{foreign}
+            <rdf:Description xmlns:a="http://ns.adobe.com/xap/1.0&#47;" a:Rating="3"/>
+            </rdf:RDF>"#
+        );
+        let out = merge_xmp(&old, &fresh(5, &[]), RULES).unwrap();
+        assert!(out.contains(foreign), "lost foreign rating: {out}");
+        assert!(!out.contains("a:Rating="), "genuine alias must be replaced: {out}");
+        assert_eq!(parse_xmp(&out).unwrap().metadata.rating, Some(5));
+        assert_eq!(merge_xmp(&out, &fresh(5, &[]), RULES).unwrap(), out);
+    }
+
+    #[test]
+    fn opaque_namespace_expansion_is_bounded() {
+        let uri = format!("https://example.org/{}", "a".repeat(1024));
+        for body in [
+            format!(r#"<rdf:Description xmlns:lc="{uri}">{}</rdf:Description>"#, "<lc:p/>".repeat(10_000)),
+            format!(r#"<rdf:Description xmlns:lc="{uri}" {}/>"#, (0..10_000).map(|i| format!(r#"lc:p{i}="value" "#)).collect::<String>()),
+        ] {
+            let packet = format!(r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">{body}</rdf:RDF>"#);
+            assert!(matches!(parse_xmp(&packet), Err(XmpError::TooComplex)));
+            assert!(matches!(scan(&packet), Err(XmpError::TooComplex)));
         }
     }
 }

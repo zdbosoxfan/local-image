@@ -57,6 +57,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Panorama: frames crossing the back seam of a 360-degree panorama retain detail when their
   tile centre cannot be projected into the source photo.
 
+- Library: catalog files moved behind symbolic links can be edited, compacted and recovered;
+  writes keep the links and update the files at their target locations.
 - Develop: Refine Edges distinguishes different subject masks and image detail when reusing a
   matting result, preventing stale coverage with repeated or symmetric patterns.
 - Develop: changing the monitor, Library or preview cache cancels full-size loupe renders that

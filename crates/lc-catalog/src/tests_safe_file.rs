@@ -1,6 +1,7 @@
-//! The shared file writer ([`li_fs`]) as the catalog and Library engine use it: durable writes
-//! preserve modes and symlinks; no-sync writes remain suitable for caches; new-file publication
-//! never replaces an existing name, including on unsupported volumes.
+//! Shared file writes through [`li_fs`] and [`crate::FsStore`]: catalog destination links are
+//! resolved and preserved; durable replacement keeps modes and exclusively creates staging files.
+//! No-sync writes suit caches; new-file publication never replaces an existing name, including
+//! on unsupported volumes.
 use li_fs::{
     fail_writes_after, same_file, syncs_on_this_thread, write_atomic, write_atomic_nosync, write_atomic_with, write_new, write_new_unique,
     write_new_with,
@@ -181,5 +182,98 @@ mod store_writer_tests {
         assert_eq!(store.read("prefs.json").unwrap().unwrap(), b"previous");
         assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
         fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(unix)]
+mod store_link_tests {
+    use crate::{FsStore, Store};
+
+    #[test]
+    fn catalog_writes_preserve_links_and_update_resolved_targets() {
+        use std::{fs, os::unix::fs::symlink};
+
+        let root = std::env::temp_dir().join(format!("lc-store-linked-targets-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let library = root.join("library");
+        let moved = root.join("moved");
+        fs::create_dir_all(&moved).unwrap();
+        let mut store = FsStore::open(&library).unwrap();
+        for name in ["catalog.log", "catalog.snap", "catalog.log.damaged-1"] {
+            let target = moved.join(name);
+            let link = library.join(name);
+            let relative = std::path::Path::new("../moved").join(name);
+            fs::write(&target, b"old").unwrap();
+            symlink(&relative, &link).unwrap();
+
+            store.write_atomic(name, b"replacement").unwrap();
+            assert_eq!(fs::read_link(&link).unwrap(), relative);
+            assert_eq!(fs::read(&target).unwrap(), b"replacement");
+            store.append(name, b" appended").unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"replacement appended");
+            store.truncate(name, 3).unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"rep");
+            let length = store
+                .write_atomic_with(name, &mut |writer| {
+                    assert_eq!(fs::read(&target)?, b"rep");
+                    assert_eq!(fs::read_dir(&library)?.count(), 1, "staging stays outside the library");
+                    assert_eq!(fs::read_dir(&moved)?.count(), 2, "staging is beside the resolved target");
+                    writer.write_all(b"streamed")
+                })
+                .unwrap();
+            assert_eq!(length, 8);
+            assert_eq!(fs::read(&target).unwrap(), b"streamed");
+            {
+                let _fault = super::fail_writes_after(3);
+                let error = store.write_atomic(name, b"replacement").unwrap_err();
+                assert!(error.to_string().contains("injected"), "{error}");
+                let error = store.write_atomic_with(name, &mut |writer| writer.write_all(b"replacement")).unwrap_err();
+                assert!(error.to_string().contains("injected"), "{error}");
+            }
+            assert_eq!(fs::read_link(&link).unwrap(), relative);
+            assert_eq!(fs::read(&target).unwrap(), b"streamed");
+            assert_eq!(fs::read_dir(&library).unwrap().count(), 1);
+            assert_eq!(fs::read_dir(&moved).unwrap().count(), 1, "failed staging files are removed");
+            fs::remove_file(link).unwrap();
+            fs::remove_file(target).unwrap();
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn catalog_writes_preserve_destination_links_and_refuse_staging_links() {
+        use li_fs::{AtomicFs, RealFs};
+
+        let dir = std::env::temp_dir().join(format!("lc-store-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let target = dir.join("target");
+        let mut store = FsStore::open(&dir).unwrap();
+        for name in ["catalog.log", "catalog.snap", "catalog.log.damaged-1"] {
+            std::fs::write(&target, b"keep").unwrap();
+            std::os::unix::fs::symlink(&target, dir.join(name)).unwrap();
+            store.append(name, b"appended").unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"keepappended");
+            store.truncate(name, 0).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"");
+            store.write_atomic(name, b"replacement").unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"replacement");
+            store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"streamed");
+            assert_eq!(std::fs::read_link(dir.join(name)).unwrap(), target);
+            std::fs::remove_file(dir.join(name)).unwrap();
+            store.append(name, b"abc").unwrap();
+            store.truncate(name, 1).unwrap();
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"a");
+            store.write_atomic(name, b"new").unwrap();
+            store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).unwrap();
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"streamed");
+        }
+        let staging = dir.join("catalog.snap.tmp");
+        std::os::unix::fs::symlink(&target, &staging).unwrap();
+        assert_eq!(RealFs.write_new(&staging, b"replacement").unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&target).unwrap(), b"streamed");
+        assert_eq!(std::fs::read_link(&staging).unwrap(), target);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

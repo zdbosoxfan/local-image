@@ -76,7 +76,7 @@ pub(crate) fn check_ai_update(s: &Session, i: usize, p: &Value, c: &str) -> Resu
 fn regenerate(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "spot.regenerate";
     let id = s.active().ok_or_else(|| bad(C, "no active photo"))?;
-    let i = p.get("index").and_then(Value::as_u64).map(|v| v as usize).or(s.active_spot).ok_or_else(|| bad(C, "no spot selected (give `index`)"))?;
+    let i = crate::cmd::optional_index(p, "index", C)?.or(s.active_spot).ok_or_else(|| bad(C, "no spot selected (give `index`)"))?;
     let d = s.develop_of(id).unwrap_or_default();
     let sp = d.spots.get(i).filter(|sp| sp.mode == SpotMode::Ai).ok_or_else(|| bad(C, "not an AI removal"))?;
     let stroke =
@@ -109,10 +109,7 @@ fn cancel(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn status(s: &mut Session, p: &Value) -> Result<Value> {
     const C: &str = "enhance.status";
-    let id = match p.get("id").and_then(Value::as_u64) {
-        Some(i) => lightcraft_catalog::PhotoId(i),
-        None => s.active().ok_or_else(|| bad(C, "no active photo"))?,
-    };
+    let id = crate::cmd::photo_id(p, C)?.or(s.active()).ok_or_else(|| bad(C, "no active photo"))?;
     let d = s.develop_of(id).ok_or_else(|| bad(C, "no such photo"))?;
     let spots: Vec<Value> = d
         .spots

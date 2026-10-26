@@ -1,5 +1,7 @@
 //! Locating metadata blocks inside image containers.
 //!
+//! - Photoshop PSD/PSB: Exif (1058) and XMP (1060) image resources.
+//!
 //! - JPEG (ITU-T T.81 marker structure): APP1 `Exif\0\0`, APP1 `http://ns.adobe.com/xap/1.0/\0` (XMP),
 //!   APP1 `http://ns.adobe.com/xmp/extension/\0` (extended XMP, reassembled), APP2 `ICC_PROFILE\0`
 //!   (multi-chunk, reassembled in sequence order), APP13 `Photoshop 3.0\0` 8BIM resource 0x0404 (IPTC-IIM).
@@ -38,6 +40,9 @@ pub fn embedded(bytes: &[u8]) -> Embedded {
 /// [`embedded`] without copying a TIFF-based file into [`Embedded::exif`]: there the whole file is
 /// the Exif block, so `exif` stays `None` and the file's parse is returned instead.
 pub(crate) fn blocks(bytes: &[u8]) -> (Embedded, Option<Tiff>) {
+    if bytes.starts_with(b"8BPS") {
+        return (crate::psd::embedded(bytes), None);
+    }
     if bytes.starts_with(b"FUJIFILMCCD-RAW") {
         // Fujifilm RAF: metadata lives in the embedded JPEG whose (offset, length) are big-endian u32s at byte 84
         let be = |i: usize| bytes.get(i..i + 4).map(|s| u32::from_be_bytes([s[0], s[1], s[2], s[3]]) as usize);

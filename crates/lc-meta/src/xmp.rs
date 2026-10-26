@@ -150,28 +150,31 @@ impl Node {
 }
 
 const MAX_DEPTH: usize = 64;
-const MAX_NODES: usize = 200_000;
+pub(crate) const MAX_NODES: usize = 200_000;
+// Bound amplification from namespace expansion and flattened struct paths separately.
+pub(crate) const MAX_OPAQUE_NAME_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PROPERTY_KEY_BYTES: usize = 64 * 1024 * 1024;
 
-/// `prefix:local` with the prefix canonicalised by namespace URI (see [`NAMESPACES`]).
-pub(crate) fn canonical_name(qname: &str, scopes: &[Vec<(String, String)>]) -> String {
-    canonical(qname, scopes)
-}
-
-fn canonical(qname: &str, scopes: &[Vec<(String, String)>]) -> String {
+/// Canonical names preserve foreign bindings without allowing unbounded URI expansion.
+pub(crate) fn canonical_name(qname: &str, scopes: &[Vec<(String, String)>], opaque_budget: &mut usize) -> Result<String, XmpError> {
     let (prefix, local) = qname.split_once(':').unwrap_or(("", qname));
     if prefix == "xml" || prefix == "xmlns" {
-        return qname.to_string();
+        return Ok(qname.to_string());
     }
     let uri = scopes.iter().rev().flat_map(|s| s.iter().rev()).find(|(p, _)| p == prefix).map(|(_, u)| u.as_str());
-    match uri {
+    Ok(match uri {
         Some(u) => match NAMESPACES.iter().find(|(_, nu)| *nu == u) {
             Some((p, _)) => format!("{p}:{local}"),
             None if prefix.is_empty() => local.to_string(),
-            None if NAMESPACES.iter().any(|(known, _)| *known == prefix) => format!("{{{u}}}{local}"),
+            None if NAMESPACES.iter().any(|(known, _)| *known == prefix) => {
+                let size = u.len().checked_add(local.len()).and_then(|n| n.checked_add(2)).ok_or(XmpError::TooComplex)?;
+                *opaque_budget = opaque_budget.checked_sub(size).ok_or(XmpError::TooComplex)?;
+                format!("{{{u}}}{local}")
+            }
             None => qname.to_string(),
         },
         None => qname.to_string(),
-    }
+    })
 }
 
 fn entity(name: &str) -> Option<char> {
@@ -220,6 +223,7 @@ fn parse_tree(s: &str) -> Result<Node, XmpError> {
     let mut stack: Vec<Node> = vec![Node { name: "#root".into(), ..Default::default() }];
     let mut scopes: Vec<Vec<(String, String)>> = vec![vec![("xml".into(), "http://www.w3.org/XML/1998/namespace".into())]];
     let mut count = 0usize;
+    let mut opaque_budget = MAX_OPAQUE_NAME_BYTES;
     loop {
         let ev = reader.read_event().map_err(|e| XmpError::Xml(e.to_string()))?;
         match ev {
@@ -242,14 +246,14 @@ fn parse_tree(s: &str) -> Result<Node, XmpError> {
                     }
                 }
                 scopes.push(scope);
-                let name = canonical(&String::from_utf8_lossy(e.name().as_ref()), &scopes);
+                let name = canonical_name(&String::from_utf8_lossy(e.name().as_ref()), &scopes, &mut opaque_budget)?;
                 let attrs = raw_attrs
                     .into_iter()
                     .map(|(k, v)| {
-                        let name = if k.contains(':') { canonical(&k, &scopes) } else { k };
-                        (name, v)
+                        let name = if k.contains(':') { canonical_name(&k, &scopes, &mut opaque_budget)? } else { k };
+                        Ok((name, v))
                     })
-                    .collect();
+                    .collect::<Result<_, XmpError>>()?;
                 let node = Node { name, attrs, ..Default::default() };
                 if matches!(ev, Event::Empty(_)) {
                     scopes.pop();
@@ -308,19 +312,26 @@ fn is_rdf_meta_attr(k: &str) -> bool {
     matches!(k, "rdf:about" | "rdf:ID" | "rdf:nodeID" | "xml:lang" | "rdf:parseType" | "rdf:resource" | "rdf:datatype") || k.starts_with("xmlns")
 }
 
-fn collect_description(d: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>) {
+fn property_key(prefix: &str, name: &str, budget: &mut usize) -> Result<String, XmpError> {
+    let size = prefix.len().checked_add(name.len()).ok_or(XmpError::TooComplex)?;
+    *budget = budget.checked_sub(size).ok_or(XmpError::TooComplex)?;
+    Ok(format!("{prefix}{name}"))
+}
+
+fn collect_description(d: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize) -> Result<(), XmpError> {
     for (k, v) in &d.attrs {
         if !is_rdf_meta_attr(k) {
-            props.entry(format!("{prefix}{k}")).or_default().push(v.clone());
+            props.entry(property_key(prefix, k, key_budget)?).or_default().push(v.clone());
         }
     }
     for c in &d.children {
-        collect_property(c, prefix, props);
+        collect_property(c, prefix, props, key_budget)?;
     }
+    Ok(())
 }
 
-fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>) {
-    let key = format!("{prefix}{}", p.name);
+fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<String>>, key_budget: &mut usize) -> Result<(), XmpError> {
+    let key = property_key(prefix, &p.name, key_budget)?;
     if let Some(arr) = p.children.iter().find(|c| matches!(c.name.as_str(), "rdf:Seq" | "rdf:Bag" | "rdf:Alt")) {
         let mut items: Vec<(bool, String)> = arr
             .children
@@ -334,28 +345,29 @@ fn collect_property(p: &Node, prefix: &str, props: &mut BTreeMap<String, Vec<Str
             items.sort_by_key(|(default, _)| !*default);
         }
         props.entry(key).or_default().extend(items.into_iter().map(|(_, v)| v));
-        return;
+        return Ok(());
     }
     let struct_prefix = format!("{key}/");
     if p.attr("rdf:parseType") == Some("Resource") {
         for c in &p.children {
-            collect_property(c, &struct_prefix, props);
+            collect_property(c, &struct_prefix, props, key_budget)?;
         }
-        return;
+        return Ok(());
     }
     if let Some(d) = p.children.iter().find(|c| c.name == "rdf:Description") {
-        collect_description(d, &struct_prefix, props);
-        return;
+        collect_description(d, &struct_prefix, props, key_budget)?;
+        return Ok(());
     }
     let field_attrs: Vec<&(String, String)> = p.attrs.iter().filter(|(k, _)| !is_rdf_meta_attr(k)).collect();
     if !field_attrs.is_empty() && p.children.is_empty() && p.text.trim().is_empty() {
         for (k, v) in field_attrs {
-            props.entry(format!("{struct_prefix}{k}")).or_default().push(v.clone());
+            props.entry(property_key(&struct_prefix, k, key_budget)?).or_default().push(v.clone());
         }
-        return;
+        return Ok(());
     }
     let v = p.attr("rdf:resource").map(str::to_string).unwrap_or_else(|| p.text.trim().to_string());
     props.entry(key).or_default().push(v);
+    Ok(())
 }
 
 fn find_descriptions<'a>(n: &'a Node, out: &mut Vec<&'a Node>) {
@@ -468,9 +480,10 @@ pub fn parse_xmp(s: &str) -> Result<XmpData, XmpError> {
     let mut descs = Vec::new();
     find_descriptions(&tree, &mut descs);
     let mut props = BTreeMap::new();
+    let mut key_budget = MAX_PROPERTY_KEY_BYTES;
     let mut values = BTreeMap::new();
     for d in descs {
-        collect_description(d, "", &mut props);
+        collect_description(d, "", &mut props, &mut key_budget)?;
         if let XmpValue::Struct(m) = node_struct(d) {
             values.extend(m);
         }
@@ -1118,6 +1131,51 @@ mod tests {
         let mut a = Metadata::default();
         a.overlay_user_fields(&b);
         assert_eq!(a.regions, vec![with_region]);
+    }
+    #[test]
+    fn foreign_namespace_cannot_impersonate_known_metadata() {
+        for body in [
+            r#"xmp:Rating="2" lc:settings="foreign settings"/>"#,
+            r#"><xmp:Rating>2</xmp:Rating><lc:settings>foreign settings</lc:settings></rdf:Description>"#,
+        ] {
+            let packet = format!(
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description
+                xmlns:xmp="https://example.org/vendor/" xmlns:lc="https://example.org/vendor/" {body}</rdf:RDF>"#
+            );
+            let d = parse_xmp(&packet).unwrap();
+            assert_eq!(d.metadata.rating, None, "foreign rating: {packet}");
+            assert_eq!(d.lc_settings, None, "foreign settings: {packet}");
+            assert!(!d.properties.contains_key("xmp:Rating"));
+            assert!(!d.values.contains_key("lc:settings"));
+            assert!(d.properties.values().any(|v| v == &["foreign settings"]));
+        }
+    }
+    #[test]
+    fn foreign_namespace_names_are_distinct_and_scoped() {
+        let packet = r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+            <rdf:Description xmlns:xmp="http://ns.adobe.com/xap/1.0/">
+                <xmp:Rating xmlns:xmp="https://example.org/one/">1</xmp:Rating>
+                <xmp:Rating xmlns:xmp="https://example.org/two/">2</xmp:Rating>
+                <xmp:Rating>4</xmp:Rating>
+            </rdf:Description></rdf:RDF>"#;
+        let d = parse_xmp(packet).unwrap();
+        assert_eq!(d.metadata.rating, Some(4), "a local rebinding must not escape its scope");
+        assert_eq!(d.properties.len(), 3, "different foreign URIs must not collide");
+        assert_eq!(d.values.len(), 3);
+        assert_eq!(d.properties["xmp:Rating"], vec!["4"]);
+        assert!(d.properties.values().any(|v| v == &["1"]));
+        assert!(d.properties.values().any(|v| v == &["2"]));
+    }
+
+    #[test]
+    fn flattened_struct_path_expansion_is_bounded() {
+        let name = "a".repeat(4096);
+        let packet = format!(
+            r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:v="https://example.org/vendor/">
+            <v:{name} rdf:parseType="Resource">{}</v:{name}></rdf:Description></rdf:RDF>"#,
+            (0..17_000).map(|i| format!("<v:p{i}>value</v:p{i}>")).collect::<String>()
+        );
+        assert!(matches!(parse_xmp(&packet), Err(XmpError::TooComplex)));
     }
 }
 
