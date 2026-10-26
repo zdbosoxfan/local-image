@@ -47,30 +47,12 @@ impl CutParts {
         };
         let fmt = surf.format();
         let with_alpha = PixelFormat::new(fmt.mode, fmt.sample, true);
-        let mut rest = if fmt == with_alpha { surf.clone() } else { surf.convert(with_alpha) };
-        let mut piece = Surface::new(with_alpha);
-        let b = sel.content_bounds().intersect(&surf.content_bounds());
-        if !b.is_empty() {
-            let n = with_alpha.channels();
-            let a = n - 1;
-            let mut rp = rest.read_region(b);
-            let mut pp = rp.clone();
-            let w = b.width() as usize;
-            for (i, (p, r)) in pp.chunks_exact_mut(n).zip(rp.chunks_exact_mut(n)).enumerate() {
-                let k = sel.sample_channel(b.x0 + (i % w) as i32, b.y0 + (i / w) as i32, 0);
-                if k <= 0.0 {
-                    p.fill(0.0);
-                } else {
-                    p[a] *= k;
-                }
-                if !copy {
-                    r[a] *= 1.0 - k;
-                }
-            }
-            rest.write_region(b, &rp);
-            rest.prune();
-            piece.write_region(b, &pp);
-            piece.prune();
+        let base = if fmt == with_alpha { surf.clone() } else { surf.convert(with_alpha) };
+        let mut rest = base.clone();
+        let bounds = sel.content_bounds().intersect(&base.content_bounds());
+        let piece = cut_piece(&base, sel, bounds, with_alpha)?;
+        if !copy && !bounds.is_empty() {
+            crate::pixels::clear_surface(&mut rest, bounds, Some(sel))?;
         }
         Ok(Self { layer, rest, piece })
     }
@@ -88,6 +70,105 @@ impl CutParts {
         *surf = out;
         Ok(d)
     }
+}
+
+/// Extract the selected pixels of `base` over `b` into a `with_alpha` surface, tile by tile in
+/// parallel. Fully selected tiles on an alpha surface share `base`'s `Arc<Tile>` directly.
+fn cut_piece(base: &Surface, sel: &Surface, b: photocraft_geom::Rect, with_alpha: PixelFormat) -> Result<Surface> {
+    use photocraft_color::{SampleType, read_sample};
+    use photocraft_geom::{TILE_SIZE, TileCoord};
+    use photocraft_raster::Tile;
+    use rayon::prelude::*;
+
+    let mut piece = Surface::new(with_alpha);
+    let src_fmt = base.format();
+    let same_fmt = src_fmt == with_alpha;
+    let n = with_alpha.channels();
+    let a = n - 1;
+    let dst_bpp = with_alpha.bytes_per_pixel();
+    let src_bpp = src_fmt.bytes_per_pixel();
+    let sb = with_alpha.sample.bytes();
+    let alpha_off = dst_bpp - sb;
+    let src_empty_default = same_fmt && base.default_bytes().iter().all(|&v| v == 0);
+    let oom = |error: photocraft_raster::AllocationError| crate::allocation::error("floating selection", &error.to_string());
+    let mut coords = crate::allocation::capacity(b.tiles().count(), "floating selection")?;
+    coords.extend(b.tiles());
+    let mut results = crate::allocation::capacity(coords.len(), "floating selection")?;
+    coords
+        .into_par_iter()
+        .map(|tc| -> Result<Option<(TileCoord, Arc<Tile>)>> {
+            let tr = tc.rect().intersect(&b);
+            let mask = crate::fill_cmds::Mask::of(sel, tc);
+            if mask.empty(tr) {
+                return Ok(None);
+            }
+            let src_tile = base.tile(tc);
+            if same_fmt && src_tile.is_none() && src_empty_default {
+                return Ok(None);
+            }
+            if same_fmt
+                && tr == tc.rect()
+                && mask.full(tr)
+                && let Some(t) = src_tile
+            {
+                return Ok(Some((tc, t.clone())));
+            }
+            let src_bytes = src_tile.map_or(base.default_bytes(), |t| t.bytes());
+            let mut out = piece.try_default_tile().map_err(oom)?;
+            let out_bytes = out.bytes_mut();
+            let mut px = [0.0f32; 8];
+            let mut has_content = false;
+            for y in tr.y0..tr.y1 {
+                let row = (y - tc.ty * TILE_SIZE) as usize * TILE_SIZE as usize;
+                for x in tr.x0..tr.x1 {
+                    let k = mask.at(x, y);
+                    if k <= 0.0 {
+                        continue;
+                    }
+                    let idx = row + (x - tc.tx * TILE_SIZE) as usize;
+                    let dst_i = idx * dst_bpp;
+                    let Some(dst_px) = out_bytes.get_mut(dst_i..dst_i + dst_bpp) else { continue };
+                    let src_i = if src_bytes.len() == src_bpp { 0 } else { idx * src_bpp };
+                    let Some(src_px) = src_bytes.get(src_i..src_i + src_bpp) else { continue };
+                    if same_fmt && k >= 1.0 {
+                        if src_px.iter().any(|&v| v != 0) {
+                            dst_px.copy_from_slice(src_px);
+                            has_content = true;
+                        }
+                        continue;
+                    }
+                    if same_fmt {
+                        for (c, v) in px.iter_mut().enumerate().take(n) {
+                            *v = read_sample(src_px, src_fmt.sample, c);
+                        }
+                        px[a] *= k;
+                    } else {
+                        for (c, v) in px.iter_mut().enumerate().take(a) {
+                            *v = read_sample(src_px, src_fmt.sample, c);
+                        }
+                        px[a] = k;
+                    }
+                    if px[a] <= 0.0 {
+                        continue;
+                    }
+                    photocraft_raster::encode_pixel(&with_alpha, &px[..n], dst_px);
+                    let non_zero = match with_alpha.sample {
+                        SampleType::U8 => dst_px.get(alpha_off) != Some(&0) || dst_px.iter().any(|&v| v != 0),
+                        SampleType::U16 => dst_px.get(alpha_off..dst_bpp) != Some(&[0, 0]) || dst_px.iter().any(|&v| v != 0),
+                        SampleType::F32 => dst_px.iter().any(|&v| v != 0),
+                    };
+                    has_content |= non_zero;
+                }
+            }
+            Ok(has_content.then(|| (tc, Arc::new(out))))
+        })
+        .collect_into_vec(&mut results);
+    let mut tiles = crate::allocation::capacity(results.len(), "floating selection")?;
+    for result in results {
+        tiles.extend(result?);
+    }
+    piece.put_tiles(tiles);
+    Ok(piece)
 }
 
 /// Move the active layer's selected pixels and the selection together, atomically. Unlike a
