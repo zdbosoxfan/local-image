@@ -772,16 +772,6 @@ fn turned_off(v: &state::Verified) -> impl Iterator<Item = &'static str> + '_ {
     ["edit", "inpaint", "references", "style"].into_iter().filter(|c| v.capabilities.get(*c).is_some_and(|r| !r.pass))
 }
 
-/// Publishes the stored recipes for `host` (no network beyond what `info` already is): the app
-/// calls this after each inventory refresh, so models set up by `ai doctor` or the wizard appear.
-pub fn publish_stored(host: &str, info: &ObjectInfo) -> bool {
-    let s = SetupState::load(&state::default_path());
-    match s.server(host) {
-        Some(server) => publish(server, info),
-        None => crate::catalog::set_templates(BTreeMap::new()),
-    }
-}
-
 /// One model's verification outcome.
 pub struct Verification {
     pub key: String,

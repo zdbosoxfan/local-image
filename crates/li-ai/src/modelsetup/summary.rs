@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use super::issue::{Issue, Severity};
-use super::state::{ServerState, SetupState, Status};
+use super::state::{ServerState, Status};
 use crate::catalog::{ModelId, ModelInfo, Origin};
 
 /// One scanned model, as the picker shows it.
@@ -107,12 +107,6 @@ pub fn summarise(server: Option<&ServerState>, models: &[ModelInfo], version: Op
     out.new.sort();
     out.new.dedup();
     out
-}
-
-/// [`summarise`] for `host` from the app's stored state and the current catalogue.
-pub fn summary(host: &str, version: Option<&str>) -> Summary {
-    let state = SetupState::load(&super::state::default_path());
-    summarise(state.server(host), &crate::catalog::catalog().models, version)
 }
 
 #[cfg(test)]
