@@ -156,10 +156,10 @@ pub fn filter_from_item(item: &Descriptor) -> SmartFilter {
     let class = fltr.map(|f| String::from_utf8_lossy(f.class_id.as_bytes()).into_owned());
     let filter_id = int(item, "filterID").unwrap_or(0);
     let class = class.or_else(|| KNOWN.iter().find(|k| k.filter_id == filter_id).map(|k| k.class.to_string()));
-    let known = if class.as_deref() == Some(camera_raw::CLASS) {
-        camera_raw::import_params(item).map(|p| develop_import(item, p))
-    } else {
-        class.as_deref().and_then(|c| known_params(c, fltr))
+    let known = match class.as_deref() {
+        Some(camera_raw::CLASS) => camera_raw::import_params(item).map(|p| develop_import(item, p)),
+        _ if fltr.is_none() && item.get("Fltr").is_some() => None,
+        class => class.and_then(|c| known_params(c, fltr, item)),
     };
     let (command, params) = match known {
         Some((c, p)) => (c.to_string(), p),
@@ -373,13 +373,18 @@ pub fn item_for_filter(f: &SmartFilter) -> Result<Descriptor, String> {
     }
     let k = known_by_command(&f.command).ok_or("Photoshop has no equivalent filter")?;
     let fltr = fltr_for(k, &f.params)?;
+    let (foreground, background) = match k.class {
+        "Pntl" => (rgbc(0.0), known::colour_rgbc(f.params.get("background"), 255.0)?),
+        "Tls " => (known::colour_rgbc(f.params.get("foreground"), 0.0)?, known::colour_rgbc(f.params.get("background"), 255.0)?),
+        _ => (rgbc(0.0), rgbc(255.0)),
+    };
     let mut d = Descriptor::new("filterFX")
         .with("Nm  ", Value::Text(UnicodeString::new_nul(k.name)))
         .with("blendOptions", blend_options(f))
         .with("enab", Value::Boolean(f.visible))
         .with("hasoptions", Value::Boolean(fltr.is_some()))
-        .with("FrgC", rgbc(0.0))
-        .with("BckC", rgbc(255.0));
+        .with("FrgC", foreground)
+        .with("BckC", background);
     if let Some(x) = fltr {
         d = d.with("Fltr", Value::Descriptor(x));
     }

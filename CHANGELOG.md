@@ -8,6 +8,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Compositing: PSD smart filters retain editable blur, sharpen, noise, pixelate, stylize,
+  distort and Invert settings. Unmodelled settings and Average remain verbatim.
+
 - Compositing: Save for Web's Image Size sets the exported Width and Height in pixels, kept in
   proportion while Constrain proportions is on, or a Percent, and offers the Resample list Export
   As uses (Bicubic by default; the choice is remembered). A layered composite can go out at, say,
