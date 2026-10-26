@@ -844,7 +844,13 @@ pub(super) fn effect_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer,
             right,
             &name,
             egui::FontId::proportional(11.5),
-            if on { t.text_dim } else { t.text_faint },
+            if on {
+                t.text_dim
+            } else if resp.hovered() {
+                t.text_secondary_on_fill
+            } else {
+                t.text_faint
+            },
         );
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name.clone()));
         if resp.double_clicked() {

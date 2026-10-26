@@ -366,13 +366,14 @@ pub(super) fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 "Open" => "image",
                 _ => "sliders-horizontal",
             };
-            let color = if is_redo { t.text_faint } else { t.text };
+            let secondary = if resp.hovered() { t.text_secondary_on_fill } else { t.text_faint };
+            let color = if is_redo { secondary } else { t.text };
             icons::paint(
                 ui,
                 Rect::from_center_size(pos2(rect.left() + 42.0, rect.center().y), vec2(16.0, 16.0)),
                 icon,
                 12.0,
-                if is_redo { t.text_faint } else { t.icon },
+                if is_redo { secondary } else { t.icon },
             );
             ui.painter().text(pos2(rect.left() + 58.0, rect.center().y), Align2::LEFT_CENTER, &e, egui::FontId::proportional(12.0), color);
             if resp.clicked() {

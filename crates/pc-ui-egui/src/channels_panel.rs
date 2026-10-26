@@ -130,11 +130,12 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 painter.line_segment([pos2(rect.left() + 30.0, rect.top()), pos2(rect.left() + 30.0, rect.bottom())], Stroke::new(1.0, t.separator));
                 painter.line_segment([rect.left_bottom(), rect.right_bottom()], Stroke::new(1.0, t.separator));
             }
+            let secondary = if selected || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint };
             let eye = Rect::from_min_size(pos2(rect.left() + 6.0, rect.center().y - 11.0), vec2(22.0, 22.0));
             let eye_resp = ui.interact(eye, ui.id().with(("chan-eye", format!("{:?}", row.reference()))), Sense::click());
             // Like Photoshop, the temporary mask row's eye is empty until the mask is shown.
             if row != Row::LayerMask || visible || eye_resp.hovered() {
-                icons::paint(ui, eye, if visible { "eye" } else { "eye-off" }, 14.0, if visible { t.icon } else { t.text_faint });
+                icons::paint(ui, eye, if visible { "eye" } else { "eye-off" }, 14.0, if visible { t.icon } else { secondary });
             }
             let eye_resp = eye_resp.on_hover_text(if row == Row::LayerMask { tl!("Show the layer mask as an overlay") } else { tl!("Toggle visibility") });
             eye_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Visibility {name}")));
@@ -181,7 +182,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                     Align2::RIGHT_CENTER,
                     crate::shortcuts::pretty(&format!("Cmd+{slot}")),
                     theme::mono(11.0),
-                    t.text_faint,
+                    secondary,
                 );
             }
             let rename_id = egui::Id::new(("chan-rename", doc.id.0, format!("{:?}", row.reference())));
