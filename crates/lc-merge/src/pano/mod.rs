@@ -283,17 +283,34 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
             let mut wgt = vec![0f32; tw * th];
             rgb.par_chunks_mut(tw).zip(wgt.par_chunks_mut(tw)).enumerate().for_each(|(ty, (row, wrow))| {
                 let v = (ty0 + ty) as f64 + 0.5 + oy;
+                let centre = tx0 as f64 + tw as f64 / 2.0 + ox;
+                let at = |u, v| c.project(projection.inverse(u, v, f_out));
+                // Widen along each source axis by the projected footprint of one output pixel.
+                let stretch = match (at(centre - 1.0, v), at(centre + 1.0, v), at(centre, v - 1.0), at(centre, v + 1.0)) {
+                    (Some(left), Some(right), Some(top), Some(bottom)) => {
+                        [((right.0 - left.0) / 2.0).hypot((bottom.0 - top.0) / 2.0), ((right.1 - left.1) / 2.0).hypot((bottom.1 - top.1) / 2.0)].map(
+                            |value| {
+                                if value.is_finite() {
+                                    value.clamp(1.0, f64::from(li_raster::frame::CUBIC_MAX_STRETCH)) as f32
+                                } else {
+                                    li_raster::frame::CUBIC_MAX_STRETCH
+                                }
+                            },
+                        )
+                    }
+                    _ => [li_raster::frame::CUBIC_MAX_STRETCH; 2],
+                };
                 for tx in 0..tw {
                     let u = (tx0 + tx) as f64 + 0.5 + ox;
                     let d = projection.inverse(u, v, f_out);
                     let Some((px, py)) = c.project(d) else { continue };
-                    if px < 0.0 || py < 0.0 || px > fw || py > fh {
+                    if !px.is_finite() || !py.is_finite() || px < 0.0 || py < 0.0 || px > fw || py > fh {
                         continue;
                     }
                     let wx = 1.0 - (2.0 * px / fw - 1.0).abs();
                     let wy = 1.0 - (2.0 * py / fh - 1.0).abs();
                     let w = (wx * wy).max(1e-6) as f32;
-                    row[tx] = fr.image.sample_bilinear(px as f32, py as f32);
+                    row[tx] = fr.image.sample_cubic(px as f32, py as f32, stretch, 0.0);
                     wrow[tx] = w;
                 }
             });
