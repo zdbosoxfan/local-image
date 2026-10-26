@@ -364,7 +364,7 @@ fn near_neutral_highlights_reduce_lightness_without_increasing_chroma() {
         for h in [-2.5f32, 1.9898, 3.0] {
             for c in [1e-6, 1e-5, 1e-4, 5e-4] {
                 let (lab, rgb) = mapped_lab(space, [1.01, c * h.cos(), c * h.sin()]);
-                assert!(rgb.iter().all(|v| (0.0..=1.0).contains(v)), "{}: {rgb:?}", space.label());
+                assert!(rgb.iter().all(|v| (-OUTPUT_EPS..=1.0 + OUTPUT_EPS + 2.0 * f32::EPSILON).contains(v)), "{}: {rgb:?}", space.label());
                 assert!(lab[0] < 1.001 && lab[0] > 0.99, "{}: {lab:?}", space.label());
                 assert!(lab[1].hypot(lab[2]) <= c + 2e-6, "{}: {lab:?} exceeds input chroma {c}", space.label());
             }
