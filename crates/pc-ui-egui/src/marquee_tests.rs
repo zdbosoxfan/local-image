@@ -354,3 +354,63 @@ fn fixed_size_alt_centers_the_box_at_the_current_pointer() {
         assert_eq!(selection(&h), Rect::new(105, 85, 116, 96), "{tool:?}: Alt centres the moving box");
     }
 }
+
+#[test]
+fn object_selection_keeps_the_mode_from_the_mouse_press() {
+    for dragged in [false, true] {
+        for held in [false, true] {
+            for at_press in [Modifiers::SHIFT, Modifiers::ALT] {
+                let mut h = canvas_harness(Tool::ObjectSelection, Some(1.0 / 60.0));
+                h.state_mut().ui.extras.snap = false;
+                h.state_mut().run("paint.pencil", json!({"points": [[220, 150]], "size": 60, "color": "#ff0000"})).unwrap();
+                if at_press.alt {
+                    h.state_mut().run("select.all", json!({})).unwrap();
+                } else {
+                    h.state_mut().run("select.rect", json!({"x": 10, "y": 10, "width": 20, "height": 20})).unwrap();
+                }
+                // Capture click requests at the authorization boundary: inference needs an installed model.
+                let clicks = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+                let captured = clicks.clone();
+                h.state_mut().services.automation_command = Some(Box::new(move |id, params| {
+                    if id == "select.object" && params.get("point").is_some() {
+                        captured.borrow_mut().push(params.clone());
+                        return Err("click inference refused by the test authority".into());
+                    }
+                    Ok(())
+                }));
+                h.state_mut().automation_input = true;
+                let start_doc = if dragged { [180.0, 110.0] } else { [220.0, 150.0] };
+                mods(&mut h, at_press);
+                move_to(&mut h, start_doc[0], start_doc[1]);
+                let start = screen(&h, start_doc[0], start_doc[1]);
+                button(&mut h, start, true, at_press);
+                assert!(h.state().drag.is_none(), "the press is below the drag threshold");
+                let during = if held { at_press } else { Modifiers::NONE };
+                mods(&mut h, during);
+                let end_doc = if dragged { [260.0, 190.0] } else { start_doc };
+                release_at(&mut h, end_doc[0], end_doc[1], during);
+                let app = h.state();
+                let params = if dragged {
+                    let (command, params) = app.session.journal.last().expect("the gesture dispatched a command");
+                    assert_eq!(command, "select.object");
+                    params.clone()
+                } else {
+                    clicks.borrow().last().expect("the click reached authorization").clone()
+                };
+                let expected = if at_press.alt { "subtract" } else { "add" };
+                assert_eq!(params["mode"], expected, "dragged={dragged}, held={held}");
+                if dragged {
+                    let sel = app.session.active().unwrap().doc.selection.as_ref().expect("selection outside the object survives");
+                    assert!(sel.sample_channel(20, 20, 0) > 0.99);
+                    assert_eq!(sel.sample_channel(220, 150, 0) > 0.5, !at_press.alt);
+                }
+                mods(&mut h, Modifiers::NONE);
+                move_to(&mut h, 220.0, 150.0);
+                let next = screen(&h, 220.0, 150.0);
+                button(&mut h, next, true, Modifiers::NONE);
+                release_at(&mut h, 220.0, 150.0, Modifiers::NONE);
+                assert_eq!(clicks.borrow().last().unwrap()["mode"], "replace", "a new press clears the prior mode");
+            }
+        }
+    }
+}

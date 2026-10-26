@@ -729,6 +729,12 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed: true, modifiers } if rect.contains(*pos) => Some((*pos, *modifiers)),
             _ => None,
         });
+        let object_press = egui::Id::new(("object-selection-press-modifiers", idx));
+        if tool == Tool::ObjectSelection
+            && let Some((_, modifiers)) = pressed
+        {
+            ctx.data_mut(|data| data.insert_temp(object_press, modifiers));
+        }
         if painting
             && !move_input
             && (response.is_pointer_button_down_on() || buttons.clicked || buttons.started)
@@ -746,7 +752,8 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 begin_transform_controls_at(app, &ctx, &xf, p);
             }
             let d = xf.to_doc(p);
-            tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, mods);
+            let down_mods = if tool == Tool::ObjectSelection { ctx.data(|data| data.get_temp(object_press)).unwrap_or(mods) } else { mods };
+            tool_event(app, ToolEvent::Down { x: d[0], y: d[1], pressure: app.stylus.pressure() }, down_mods);
         }
         if buttons.dragged || buttons.stopped {
             // Feed every pointer move the OS delivered this frame, not just the latest position, so
@@ -819,6 +826,11 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
         {
             let click_button = if app.secondary_erase { PointerButton::Secondary } else { PointerButton::Primary };
             let click_mods = ui.input(|i| pointer_button_modifiers(&i.events, click_button)).unwrap_or(mods);
+            let click_mods = if tool == Tool::ObjectSelection && click_button == PointerButton::Primary {
+                ctx.data(|data| data.get_temp(object_press)).unwrap_or(click_mods)
+            } else {
+                click_mods
+            };
             let d = xf.to_doc(p);
             match tool {
                 Tool::Zoom => {
