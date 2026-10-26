@@ -223,18 +223,18 @@ fn near_black_output_chroma_is_monotone_across_membership_boundary() {
 }
 
 #[test]
-fn nearby_blue_inputs_choose_the_adjacent_chroma_interval() {
+fn captured_blue_pair_maps_continuously() {
     let space = OutputSpace::Srgb;
     let to_out = space.from_working();
-    let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
     let m = lms_to(&to_out);
-    let outside = [0.04546731, 0.021514542, 0.86354965];
-    let inside = mul3(&to_out, [0.04551213, 0.021517217, 0.8635499]);
-    let mapped = output(outside, mul3(&to_out, outside), &m);
-    let lab = oklab_from_2020(outside);
-    let actual = oklab_from_2020(mul3(&from_out, mapped));
-    // The closer blue component begins above this input's chroma, across a narrow gap.
-    assert!(actual[1].hypot(actual[2]) > lab[1].hypot(lab[2]), "{lab:?} -> {actual:?}: {mapped:?}");
-    assert!(in_cube(mapped, OUTPUT_EPS), "{mapped:?}");
-    assert_eq!(output(mul3(&from_out, inside), inside, &m), inside);
+    let cpu = [0.04546731, 0.021514542, 0.86354965];
+    let gpu = [0.04551213, 0.021517217, 0.8635499];
+    let inside = mul3(&to_out, gpu);
+    assert_eq!(output(gpu, inside, &m), inside);
+    let encoded = |d| output(d, mul3(&to_out, d), &m).map(|v| space.trc().encode(v.clamp(0.0, 1.0)) * 255.0);
+    let a = encoded(cpu);
+    let b = encoded(gpu);
+    for i in 0..3 {
+        assert!((a[i] - b[i]).abs() <= 1.0, "channel {i}: {a:?} vs {b:?}");
+    }
 }
