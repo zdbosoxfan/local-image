@@ -567,3 +567,122 @@ fn dsfix_original_export_refuses_textual_xmp_and_iptc_locations() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+pub(crate) fn synthetic_psd(version: u16, resources: &[(u16, &[u8])]) -> Vec<u8> {
+    let mut section = Vec::new();
+    for (id, bytes) in resources {
+        section.extend_from_slice(b"8BIM");
+        section.extend_from_slice(&id.to_be_bytes());
+        section.extend_from_slice(&[0, 0]);
+        section.extend_from_slice(&u32::try_from(bytes.len()).unwrap().to_be_bytes());
+        section.extend_from_slice(bytes);
+        if !bytes.len().is_multiple_of(2) {
+            section.push(0);
+        }
+    }
+    let mut out = b"8BPS".to_vec();
+    out.extend_from_slice(&version.to_be_bytes());
+    out.extend_from_slice(&[0; 6]);
+    out.extend_from_slice(&3u16.to_be_bytes());
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(&1u32.to_be_bytes());
+    out.extend_from_slice(&8u16.to_be_bytes());
+    out.extend_from_slice(&3u16.to_be_bytes());
+    out.extend_from_slice(&0u32.to_be_bytes());
+    out.extend_from_slice(&u32::try_from(section.len()).unwrap().to_be_bytes());
+    out.extend_from_slice(&section);
+    if version == 2 {
+        out.extend_from_slice(&0u64.to_be_bytes());
+    } else {
+        out.extend_from_slice(&0u32.to_be_bytes());
+    }
+    out.extend_from_slice(&0u16.to_be_bytes());
+    out.extend_from_slice(&[40, 80, 120]);
+    out
+}
+
+pub(crate) fn synthetic_psd_with_metadata(version: u16, metadata: &lightcraft_meta::Metadata) -> Vec<u8> {
+    let exif = lightcraft_meta::write_exif(metadata);
+    let xmp = lightcraft_meta::write_xmp(metadata, None);
+    synthetic_psd(version, &[(1058, &exif), (1060, xmp.as_bytes())])
+}
+
+#[test]
+fn psb_import_retains_capture_time_and_all_metadata() {
+    let dir = temp_dir("psb-metadata");
+    let metadata = lightcraft_meta::Metadata {
+        make: Some("Test".into()),
+        model: Some("Camera".into()),
+        lens_model: Some("Test lens".into()),
+        capture_time: lightcraft_meta::DateTime::parse_iso("2023-05-14T14:40:39+02:00"),
+        gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }),
+        title: Some("Building".into()),
+        keywords: vec!["city".into(), "architecture".into()],
+        rating: Some(4),
+        label: Some("Red".into()),
+        ..Default::default()
+    };
+    let path = dir.join("Building.psb");
+    std::fs::write(&path, synthetic_psd_with_metadata(2, &metadata)).unwrap();
+    let mut session = Session::new().with_fs();
+    let result = session.execute("library.import", &json!({"paths": [path]})).unwrap();
+    assert_eq!(result["failed"], json!([]), "{result}");
+    let photo = session.catalog.photos().next().unwrap();
+    assert_eq!((photo.width, photo.height), (1, 1));
+    assert_eq!(photo.captured.as_deref(), Some("2023-05-14T14:40:39+02:00"));
+    assert_eq!(photo.meta.camera, "Test Camera");
+    assert_eq!(photo.meta.lens, "Test lens");
+    assert_eq!(photo.meta.gps, Some((45.0, 7.0)));
+    assert_eq!(photo.meta.title, "Building");
+    assert_eq!(photo.meta.keywords, metadata.keywords);
+    let id = photo.id;
+    let all = session.execute("photo.allMetadata", &json!({"id": id.0})).unwrap();
+    assert!(all["exif"].as_array().unwrap().iter().any(|row| row["tag"] == json!(0x9003)), "{all}");
+    for (name, value) in [("dc:title", "Building"), ("xmp:Rating", "4"), ("xmp:Label", "Red")] {
+        assert!(all["xmp"].as_array().unwrap().iter().any(|row| row["name"] == name && row["value"] == value), "{all}");
+    }
+    drop(session);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn remove_location_refuses_a_psd_that_embeds_gps() {
+    let dir = temp_dir("export-noloc-psd");
+    let metadata =
+        lightcraft_meta::Metadata { gps: Some(lightcraft_meta::Gps { latitude: 45.0, longitude: 7.0, altitude: None }), ..Default::default() };
+    let path = dir.join("Geo.psd");
+    let bytes = synthetic_psd_with_metadata(1, &metadata);
+    std::fs::write(&path, &bytes).unwrap();
+    let mut session = Session::new().with_fs();
+    session.execute("library.import", &json!({"paths": [path]})).unwrap();
+    let id = session.catalog.photos().next().unwrap().id;
+    let original = export_photo(&mut session, id, &ExportOptions::from_json(&json!({"format": "original"})), 1).unwrap();
+    assert_eq!(original.bytes, bytes);
+    let error = export_photo(&mut session, id, &ExportOptions::from_json(&json!({"format": "original", "removeLocation": true})), 1).err().unwrap();
+    assert!(error.contains("embeds location info") && error.contains("export as JPEG"), "{error}");
+    drop(session);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn remove_location_refuses_a_psd_with_unreadable_resources_or_xmp() {
+    let dir = temp_dir("export-noloc-malformed-psd");
+    for (name, mut bytes) in [("resources.psd", synthetic_psd(1, &[])), ("xmp.psb", synthetic_psd(2, &[(1060, b"<x:xmpmeta><broken")]))] {
+        if name == "resources.psd" {
+            bytes.splice(34..34, *b"BAD!");
+            bytes[30..34].copy_from_slice(&4u32.to_be_bytes());
+        }
+        let path = dir.join(name);
+        let version = if name.ends_with("psb") { 2 } else { 1 };
+        std::fs::write(&path, synthetic_psd(version, &[])).unwrap();
+        let mut session = Session::new().with_fs();
+        session.execute("library.import", &json!({"paths": [path.to_string_lossy()]})).unwrap();
+        let id = session.catalog.photos().next().unwrap().id;
+        // The original can change after import; export must verify the bytes it will copy.
+        std::fs::write(&path, &bytes).unwrap();
+        let error =
+            export_photo(&mut session, id, &ExportOptions::from_json(&json!({"format": "original", "removeLocation": true})), 1).err().unwrap();
+        assert!(error.contains("can't verify location metadata") && error.contains("malformed PSD/PSB"), "{error}");
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
