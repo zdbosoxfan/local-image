@@ -226,17 +226,6 @@ impl SmartOut {
     }
 }
 
-/// Size and resolution of a smart-object source file (PSD/PSB header, `.pcraft`, or any image).
-fn source_geometry(name: &str, bytes: &[u8]) -> Result<((f64, f64), f64), String> {
-    if crate::is_psd(bytes) {
-        let rd = |at: usize| bytes.get(at..at + 4).map(|b| f64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])));
-        let (h, w) = rd(14).zip(rd(18)).ok_or("truncated PSD header")?;
-        return Ok(((w, h), 72.0));
-    }
-    let doc = crate::import(name, bytes).map_err(|e| e.to_string())?.document;
-    Ok(((f64::from(doc.size.width), f64::from(doc.size.height)), f64::from(doc.resolution_dpi)))
-}
-
 /// The source size of a smart object whose file we can't decode: its rendered bounds taken back
 /// through the inverse transform (the source's top-left is the origin).
 fn size_from_layer(sm: &photocraft_doc::SmartObject) -> (f64, f64) {
@@ -1592,6 +1581,7 @@ fn mask_parameters(user: Option<(f32, f32)>, vector: Option<(f32, f32)>) -> Opti
 }
 
 mod linked_source;
+use linked_source::source_geometry;
 
 #[cfg(test)]
 mod tests;

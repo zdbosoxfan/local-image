@@ -1,5 +1,16 @@
 use super::*;
 
+/// Size and resolution of a smart-object source file (PSD/PSB header, `.pcraft`, or any image).
+pub(super) fn source_geometry(name: &str, bytes: &[u8]) -> Result<((f64, f64), f64), String> {
+    if crate::is_psd(bytes) {
+        let rd = |at: usize| bytes.get(at..at + 4).map(|b| f64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])));
+        let (h, w) = rd(14).zip(rd(18)).ok_or("truncated PSD header")?;
+        return Ok(((w, h), 72.0));
+    }
+    let doc = crate::import(name, bytes).map_err(|e| e.to_string())?.document;
+    Ok(((f64::from(doc.size.width), f64::from(doc.size.height)), f64::from(doc.resolution_dpi)))
+}
+
 impl Ex {
     /// The `lnk2` file a smart object's source is written as: a preserved embedded file, or a new
     /// one (a `.pcraft` source becomes a PSB of the nested document; image files are embedded as
