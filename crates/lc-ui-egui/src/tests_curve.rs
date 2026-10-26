@@ -187,3 +187,209 @@ fn curve_points_from_an_agent_are_stored_in_order() {
     let c = pts(&develop(&h).curve.green);
     assert!(c[1].0 < c[2].0, "dragged up to its neighbour, not past it: {c:?}");
 }
+
+#[test]
+fn dragging_a_split_with_reversed_neighbours_keeps_finite_ordered_bounds() {
+    let mut h = curve_open("parametric");
+    let id = h.app.session.active().unwrap();
+    let mut settings = develop(&h);
+    settings.curve.split_shadows = 80.0;
+    settings.curve.split_mid = 20.0;
+    settings.curve.split_highlights = 30.0;
+    h.app
+        .session
+        .catalog
+        .apply(lightcraft_catalog::Op::SetDevelop { id, settings: std::sync::Arc::new(settings), label: "Curve".into(), edited: None })
+        .unwrap();
+    h.step();
+    let r = h.request("ui.dragWidget", json!({"id":"curveSplit:1", "dx":10.0, "steps":4}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    let curve = develop(&h).curve;
+    assert!(curve.split_mid.is_finite());
+    assert!(curve.split_mid >= curve.split_shadows && curve.split_mid <= curve.split_highlights);
+}
+
+fn graph(h: &Headless) -> egui::Rect {
+    h.app.widgets.iter().rev().find(|(name, _)| name == "curve").expect("curve is visible").1
+}
+
+fn graph_pointer(h: &mut Headless, point: egui::Pos2, pressed: Option<bool>, modifiers: egui::Modifiers) {
+    h.events.push(egui::Event::ModifiersChanged(modifiers));
+    h.events.push(egui::Event::PointerMoved(point));
+    if let Some(pressed) = pressed {
+        h.events.push(egui::Event::PointerButton { pos: point, button: egui::PointerButton::Primary, pressed, modifiers });
+    }
+    h.step();
+}
+
+fn painted_level(h: &Headless, x: f64) -> f64 {
+    let rect = graph(h);
+    let point = h
+        .view
+        .shapes()
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Path(path) if path.points.len() == 257 && (path.stroke.width - 2.75).abs() < 0.01 => path
+                .points
+                .iter()
+                .min_by(|a, b| (a.x - rect.left() - x as f32 * rect.width()).abs().total_cmp(&(b.x - rect.left() - x as f32 * rect.width()).abs())),
+            _ => None,
+        })
+        .expect("painted parametric curve");
+    f64::from((rect.bottom() - point.y) / rect.height())
+}
+
+#[test]
+fn parametric_drags_lock_the_pressed_region_and_commit_one_undo() {
+    for (region, x) in [0.125, 0.375, 0.625, 0.875].into_iter().enumerate() {
+        for direction in [-1.0, 1.0] {
+            let mut h = curve_open("parametric");
+            let rect = graph(&h);
+            let start = egui::pos2(rect.left() + x * rect.width(), rect.bottom() - x * rect.height());
+            let before = h.app.session.undo.len();
+            graph_pointer(&mut h, start, None, egui::Modifiers::NONE);
+            graph_pointer(&mut h, start, Some(true), egui::Modifiers::NONE);
+            assert_eq!(develop(&h).curve, lightcraft_develop::ToneCurve::default(), "the press does not jump");
+            let end = start + egui::vec2(0.2 * rect.width(), direction * 0.025 * rect.height());
+            graph_pointer(&mut h, end, None, egui::Modifiers::NONE);
+            let model = lightcraft_pipeline::curve::ParametricCurve::new(&develop(&h).curve);
+            for (index, amount) in model.amounts.into_iter().enumerate() {
+                if index == region {
+                    assert!(amount * f64::from(direction) < 0.0, "region {region}: {amount}");
+                } else {
+                    assert_eq!(amount, 0.0);
+                }
+            }
+            assert_eq!(h.app.session.undo.len(), before, "live changes remain one draft");
+            let label = lightcraft_develop::controls::find(lightcraft_pipeline::curve::PARAM_AMOUNTS[region]).unwrap().label;
+            assert!(super::tests_develop_c::texts(&h).contains(&format!("{label} {:.0}", model.amounts[region])));
+            let end = start + egui::vec2(0.2 * rect.width(), direction * 2.0 * rect.height());
+            graph_pointer(&mut h, end, None, egui::Modifiers::NONE);
+            assert_eq!(lightcraft_pipeline::curve::ParametricCurve::new(&develop(&h).curve).amounts[region], -100.0 * f64::from(direction));
+            graph_pointer(&mut h, end, Some(false), egui::Modifiers::NONE);
+            assert_eq!(h.app.session.undo.len(), before + 1);
+            exec(&mut h, "edit.undo", json!({}));
+            h.step();
+            assert_eq!(develop(&h).curve, lightcraft_develop::ToneCurve::default());
+            assert!((painted_level(&h, f64::from(x)) - f64::from(x)).abs() < 0.005);
+        }
+    }
+}
+
+#[test]
+fn horizontal_motion_and_off_curve_presses_do_not_change_the_curve() {
+    let mut h = curve_open("parametric");
+    exec(&mut h, "develop.set", json!({"control":"curve.darks", "value":60}));
+    h.step();
+    let before = develop(&h).curve;
+    let undo = h.app.session.undo.len();
+    let level = lightcraft_pipeline::finish::curve_luts(&before).unwrap().tables[0].eval(0.51);
+    let rect = graph(&h);
+    let start = egui::pos2(rect.left() + 0.51 * rect.width(), rect.bottom() - level * rect.height());
+    graph_pointer(&mut h, start, Some(true), egui::Modifiers::NONE);
+    let end = start + egui::vec2(45.0, 0.0);
+    graph_pointer(&mut h, end, None, egui::Modifiers::NONE);
+    graph_pointer(&mut h, end, Some(false), egui::Modifiers::NONE);
+    assert_eq!(develop(&h).curve, before);
+    assert_eq!(h.app.session.undo.len(), undo);
+    let far = rect.left_top() + egui::vec2(20.0, 20.0);
+    graph_pointer(&mut h, far, None, egui::Modifiers::NONE);
+    assert_ne!(h.last_cursor, egui::CursorIcon::Grab);
+    graph_pointer(&mut h, far, Some(true), egui::Modifiers::NONE);
+    graph_pointer(&mut h, far + egui::vec2(0.0, 30.0), None, egui::Modifiers::NONE);
+    graph_pointer(&mut h, far, Some(false), egui::Modifiers::NONE);
+    assert_eq!(develop(&h).curve, before);
+    assert_eq!(h.app.session.undo.len(), undo);
+}
+
+#[test]
+fn composed_master_drag_tracks_its_slope_and_flat_segments_do_not_jump() {
+    for points in [vec![[0.0, 0.0], [1.0, 0.5]], vec![[0.0, 0.4], [1.0, 0.4]]] {
+        let mut h = curve_open("parametric");
+        exec(&mut h, "develop.curve", json!({"channel":"master", "points":points}));
+        h.step();
+        let before = develop(&h).curve;
+        let rect = graph(&h);
+        let level = lightcraft_pipeline::finish::curve_luts(&before).unwrap().tables[0].eval(0.625);
+        assert!((painted_level(&h, 0.625) - f64::from(level)).abs() < 0.005);
+        let start = egui::pos2(rect.left() + 0.625 * rect.width(), rect.bottom() - level * rect.height());
+        graph_pointer(&mut h, start, Some(true), egui::Modifiers::NONE);
+        let end = start - egui::vec2(0.0, rect.height() * 0.02);
+        graph_pointer(&mut h, end, None, egui::Modifiers::NONE);
+        graph_pointer(&mut h, end, Some(false), egui::Modifiers::NONE);
+        h.step();
+        if points[0][1] == points[1][1] {
+            assert_eq!(develop(&h).curve, before);
+        } else {
+            assert!((painted_level(&h, 0.625) - f64::from(level) - 0.02).abs() < 0.004);
+        }
+    }
+}
+
+#[test]
+fn alt_scales_curve_motion_and_undo_cancels_a_held_drag() {
+    let drag = |fine: bool| {
+        let mut h = curve_open("parametric");
+        let rect = graph(&h);
+        let start = egui::pos2(rect.left() + 0.625 * rect.width(), rect.bottom() - 0.625 * rect.height());
+        let modifiers = egui::Modifiers { alt: fine, ..Default::default() };
+        graph_pointer(&mut h, start, Some(true), modifiers);
+        graph_pointer(&mut h, start - egui::vec2(0.0, 10.0), None, modifiers);
+        let amount = develop(&h).curve.lights;
+        h.app.run("edit.undo", json!({})).unwrap();
+        graph_pointer(&mut h, start - egui::vec2(0.0, 20.0), None, modifiers);
+        graph_pointer(&mut h, start - egui::vec2(0.0, 20.0), Some(false), modifiers);
+        assert_eq!(develop(&h).curve.lights, 0.0, "cancelled pointer cannot reapply its amount");
+        amount
+    };
+    let normal = drag(false);
+    let fine = drag(true);
+    assert!((fine - normal * 0.1).abs() <= 1.0, "{normal}, {fine}");
+}
+
+#[test]
+fn parametric_layer_drags_never_write_the_background_after_target_changes() {
+    let mut h = curve_open("parametric");
+    h.app.run("mask.add", json!({"kind":"full"})).unwrap();
+    h.app.ui.layer_used_only = false;
+    h.app.ui.open_sections = vec!["layer-light".into()];
+    h.app.ui.open_flyouts = vec!["layer-curve".into()];
+    h.step();
+    h.step();
+    let rect = graph(&h);
+    let start = egui::pos2(rect.left() + 0.625 * rect.width(), rect.bottom() - 0.625 * rect.height());
+    graph_pointer(&mut h, start, Some(true), egui::Modifiers::NONE);
+    graph_pointer(&mut h, start - egui::vec2(0.0, 10.0), None, egui::Modifiers::NONE);
+    let edited = develop(&h);
+    assert_eq!(edited.curve.lights, 0.0);
+    let amount = edited.masks[0].tools.curve.as_ref().unwrap().lights;
+    assert!(amount > 0.0);
+    h.app.run("mask.select", json!({"id":null})).unwrap();
+    h.app.ui.open_sections = vec!["light".into()];
+    h.app.ui.open_flyouts = vec!["curve".into()];
+    graph_pointer(&mut h, start - egui::vec2(0.0, 20.0), None, egui::Modifiers::NONE);
+    graph_pointer(&mut h, start - egui::vec2(0.0, 20.0), Some(false), egui::Modifiers::NONE);
+    assert_eq!(develop(&h).curve.lights, 0.0);
+    assert_eq!(develop(&h).masks[0].tools.curve.as_ref().unwrap().lights, amount);
+    assert!(h.app.session.interaction.is_none());
+}
+
+#[test]
+fn batched_primary_curve_drag_uses_the_original_press_and_commits_once() {
+    let mut h = curve_open("parametric");
+    let rect = graph(&h);
+    let start = egui::pos2(rect.left() + 0.625 * rect.width(), rect.bottom() - 0.625 * rect.height());
+    let end = start + egui::vec2(-rect.width() * 0.3, -10.0);
+    let before = h.app.session.undo.len();
+    h.events.extend([
+        egui::Event::PointerMoved(start),
+        egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+        egui::Event::PointerMoved(end),
+        egui::Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+    ]);
+    h.step();
+    assert!(develop(&h).curve.lights > 0.0);
+    assert_eq!(develop(&h).curve.darks, 0.0);
+    assert_eq!(h.app.session.undo.len(), before + 1);
+    assert!(h.app.session.interaction.is_none());
+}

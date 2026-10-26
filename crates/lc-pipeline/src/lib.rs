@@ -45,6 +45,7 @@ pub mod colorcal;
 pub mod colorequal;
 pub mod colorops;
 pub mod cull;
+pub mod curve;
 pub mod detail;
 pub mod dust;
 pub mod eigf;
