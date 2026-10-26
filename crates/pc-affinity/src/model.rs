@@ -899,8 +899,14 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
     fn effects(&mut self, id: ObjId, world: Affine, bounds: Option<Rect>) -> Vec<Effect> {
         let s = self.s;
         let mut out = Vec::new();
-        if s.array_len(id, b"FiEf") > 64 || !self.charge_owned(s.array_len(id, b"FiEf").saturating_mul(std::mem::size_of::<Effect>())) {
+        if self.failure.is_some() {
+            return out;
+        }
+        if s.array_len(id, b"FiEf") > 64 {
             self.failure = Some(Error::Limit("layer effects"));
+            return out;
+        }
+        if !self.charge_owned(s.array_len(id, b"FiEf").saturating_mul(std::mem::size_of::<Effect>())) {
             return out;
         }
         for e in s.objs(id, b"FiEf").into_iter().take(64) {
