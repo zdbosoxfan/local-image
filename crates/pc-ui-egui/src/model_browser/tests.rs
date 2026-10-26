@@ -53,7 +53,8 @@ fn template_cards_say_when_comfyui_is_too_old_and_offer_set_up_after_install() {
     };
     let h = card_harness(item.clone(), None);
     h.get_by_label("Needs ComfyUI 0.41.3");
-    assert!(h.get_all_by_label("Official template").count() > 0);
+    assert!(h.get_all_by_label("ComfyUI template").count() > 0);
+    assert_eq!(h.get_all_by_label("ComfyUI template").count(), 1);
     drop(h);
     let done = InstallRun { finished: true, setup: Some("unet:moss_image_sft_int8_convrot.safetensors".into()), ..Default::default() };
     let mut h = card_harness(Item { min_comfyui: None, ..item }, Some(done));

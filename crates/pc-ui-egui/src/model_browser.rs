@@ -436,16 +436,6 @@ fn human(n: u64) -> String {
     li_ai::download::human_bytes(n)
 }
 
-/// A small pill.
-fn pill(ui: &mut egui::Ui, text: &str, fill: Color32, ink: Color32) -> egui::Response {
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), ink);
-    let (r, resp) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 16.0), Sense::hover());
-    ui.painter().rect_filled(r, 8.0, fill);
-    ui.painter().galley(r.center() - galley.size() / 2.0, galley, ink);
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
-    resp
-}
-
 /// A source filter: a quiet outlined chip, filled when on.
 fn filter_chip(ui: &mut egui::Ui, text: &str, on: bool, disabled: bool, t: &Tokens) -> egui::Response {
     let ink = if disabled {
@@ -474,31 +464,6 @@ fn filter_chip(ui: &mut egui::Ui, text: &str, on: bool, disabled: bool, t: &Toke
     resp
 }
 
-fn nav_row(ui: &mut egui::Ui, icon: &str, label: &str, on: bool, t: &Tokens) -> bool {
-    nav_row_with(ui, icon, label, "", on, t)
-}
-
-fn nav_row_with(ui: &mut egui::Ui, icon: &str, label: &str, trailing: &str, on: bool, t: &Tokens) -> bool {
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
-    if on {
-        ui.painter().rect_filled(r, t.radius_sm, t.row_selected);
-    } else if resp.hovered() {
-        ui.painter().rect_filled(r, t.radius_sm, t.hover);
-    }
-    let ink = if on { t.text } else { t.text_dim };
-    let mut x = r.left() + 8.0;
-    if !icon.is_empty() {
-        crate::icons::paint(ui, egui::Rect::from_min_size(egui::pos2(x, r.top() + 5.0), vec2(16.0, 16.0)), icon, 14.0, ink);
-        x += 22.0;
-    }
-    ui.painter().text(egui::pos2(x, r.center().y), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.5), ink);
-    if !trailing.is_empty() {
-        ui.painter().text(egui::pos2(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, trailing, egui::FontId::proportional(11.0), t.text_faint);
-    }
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label));
-    resp.clicked()
-}
-
 fn capability_tags(item: &Item) -> Vec<String> {
     let reg = li_ai::family::registry();
     let mut tags = Vec::new();
@@ -519,11 +484,9 @@ fn capability_tags(item: &Item) -> Vec<String> {
                 tags.push(tl!("Fill").into());
             }
             if c.references > 0 {
-                tags.push(li_i18n::fmt(tl!("{n} refs"), &[("n", &c.references.to_string())]));
+                tags.push(li_i18n::trn(li_i18n::current(), c.references as u64, "{n} ref", "{n} refs"));
             }
         }
-    } else if item.basic_controls() {
-        tags.push(tl!("Official template").into());
     } else if item.template.is_none() {
         tags.push(tl!("Unknown family").into());
     }
@@ -650,7 +613,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                     (Nav::Installed, "hard-drive", tl!("Installed"), ""),
                     (Nav::FitsGpu, "cpu", tl!("Works on my GPU"), gpu_text.as_str()),
                 ] {
-                    if nav_row_with(ui, icon, label, trailing, s.nav == nav, t) {
+                    if widgets::nav_row(ui, icon, None, label, trailing, s.nav == nav).clicked() {
                         s.nav = nav;
                     }
                 }
@@ -671,7 +634,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                             ui.label(RichText::new(&f.group).size(10.5).color(t.text_faint));
                         }
                         let on = s.nav == Nav::Family(f.id.clone());
-                        if nav_row(ui, "", &f.label, on, t) {
+                        if widgets::nav_row(ui, "", None, &f.label, "", on).clicked() {
                             s.nav = Nav::Family(f.id.clone());
                         }
                     }
@@ -854,28 +817,31 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
                 .as_deref()
                 .and_then(|f| li_ai::family::registry().family(f))
                 .map(|f| f.label.clone())
-                .unwrap_or_else(|| tl!("Unknown family").into());
-            ui.painter().text(pr.center() + vec2(0.0, 22.0), egui::Align2::CENTER_CENTER, fam, egui::FontId::proportional(11.0), t.text_faint);
+                .unwrap_or_else(|| if item.template.is_some() { item.title.clone() } else { tl!("Unknown family").into() });
+            let mut job = egui::text::LayoutJob::simple_singleline(fam, crate::theme::medium(11.0), t.text_faint);
+            job.wrap = egui::text::TextWrapping::truncate_at_width((pr.width() - 16.0).max(0.0));
+            let galley = ui.painter().layout_job(job);
+            ui.painter().galley(pr.center() + vec2(-galley.size().x / 2.0, 22.0 - galley.size().y / 2.0), galley, t.text_faint);
         }
     }
     // Source and access badges over the preview.
     let mut badge_ui = ui.new_child(egui::UiBuilder::new().max_rect(pr.shrink(8.0)).layout(egui::Layout::left_to_right(egui::Align::Min)));
-    let dark = Color32::from_black_alpha(170);
     if let Some(src) = item.source {
-        pill(&mut badge_ui, src.label(), dark, Color32::WHITE);
+        widgets::overlay_chip(&mut badge_ui, li_i18n::t(src.label()), widgets::Tone::Neutral);
+    } else if item.template.is_some() {
+        widgets::overlay_chip(&mut badge_ui, tl!("ComfyUI template"), widgets::Tone::Neutral);
     }
     if item.gated {
-        pill(&mut badge_ui, tl!("Licence gate"), dark, Color32::from_rgb(255, 200, 90)).on_hover_text(tl!("Accept the licence on the publisher's page first"));
-    }
-    if item.basic_controls() {
-        pill(&mut badge_ui, tl!("Official template"), dark, Color32::WHITE)
-            .on_hover_text(tl!("Local Image runs it through ComfyUI's official template; Set Up Models checks and tests it"));
+        widgets::overlay_chip(&mut badge_ui, tl!("Licence gate"), widgets::Tone::Warning)
+            .on_hover_text(tl!("Accept the licence on the publisher's page first"));
     }
     if let Some(need) = needs_newer_comfy(item) {
-        pill(&mut badge_ui, &li_i18n::fmt(tl!("Needs ComfyUI {need}"), &[("need", &need)]), dark, Color32::from_rgb(255, 200, 90)).on_hover_text(li_i18n::fmt(
-            tl!("This template was made for ComfyUI {need} or newer; this server runs {have}."),
-            &[("need", &need), ("have", &crate::ai_ui::status().comfyui_version)],
-        ));
+        widgets::overlay_chip(&mut badge_ui, &li_i18n::fmt(tl!("Needs ComfyUI {need}"), &[("need", &need)]), widgets::Tone::Warning).on_hover_text(
+            li_i18n::fmt(
+                tl!("This template was made for ComfyUI {need} or newer; this server runs {have}."),
+                &[("need", &need), ("have", &crate::ai_ui::status().comfyui_version)],
+            ),
+        );
     }
     // Text.
     let body = egui::Rect::from_min_max(egui::pos2(outer.left() + 10.0, pr.bottom() + 8.0), outer.max - vec2(10.0, 8.0));
@@ -896,7 +862,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
         for tg in capability_tags(item).iter().take(5) {
-            pill(ui, tg, t.card, t.text_dim);
+            widgets::tag_chip(ui, tg);
         }
     });
     ui.horizontal(|ui| {
@@ -958,7 +924,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             }
         }
         Some((true, None, _, _, note)) => {
-            let r = ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            let r = ui.label(RichText::new(tl!("Installed")).size(11.5).color(t.accent));
             if let Some(n) = note {
                 r.on_hover_text(n);
             }
@@ -969,7 +935,7 @@ fn card(ui: &mut egui::Ui, s: &mut State, t: &Tokens, item: &Item, w: f32, names
             }
         }
         None if installed => {
-            ui.label(RichText::new(tl!("Installed")).size(11.5).color(Color32::from_rgb(70, 190, 110)));
+            ui.label(RichText::new(tl!("Installed")).size(11.5).color(t.accent));
             if let Some(target) = removal_for(item) {
                 let tip = if li_ai::trash::available() { tl!("Remove (moves the files to the Trash)") } else { tl!("Remove (deletes the files)") };
                 let r = crate::icons::button(ui, "trash", 22.0, false, tip);

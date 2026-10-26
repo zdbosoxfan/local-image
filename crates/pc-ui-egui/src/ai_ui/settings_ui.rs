@@ -342,9 +342,11 @@ fn tool_row(
 fn models(app: &mut PhotocraftApp, ui: &mut egui::Ui, settings: &mut AiSettings, st: &EngineStatus, t: &Tokens) {
     if st.connected {
         ui.horizontal_wrapped(|ui| {
-            let counts = [("new", st.setup.new.len().to_string()), ("attention", st.setup.attention().to_string())];
-            let counts: Vec<(&str, &str)> = counts.iter().map(|(k, v)| (*k, v.as_str())).collect();
-            ui.label(RichText::new(li_i18n::fmt(tl!("Models: {new} new, {attention} need attention"), &counts)).color(t.text_dim));
+            let attention = li_i18n::trn(li_i18n::current(), st.setup.attention() as u64, "{n} needs attention", "{n} need attention");
+            ui.label(
+                RichText::new(li_i18n::fmt(tl!("Models: {new} new, {attention}"), &[("new", &st.setup.new.len().to_string()), ("attention", &attention)]))
+                    .color(t.text_dim),
+            );
             if widgets::secondary_button(ui, tl!("Set Up Models…"), 0.0).clicked() {
                 crate::model_setup::open(None);
             }

@@ -226,7 +226,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.generate.denoise, 1.0);
     h.get_by_label("Refines by reference: the image guides the result");
-    h.get_by_value(&format!("{} · {}", ModelId::Klein4B.info().label, ModelId::Klein4B.info().family_label)).click();
+    h.get_by_value(&ModelId::Klein4B.info().label).click();
     h.run_steps(2);
     h.get_by_label("Edit models — refine by reference");
     h.get_by_label("Image models — refine by denoise");
@@ -238,7 +238,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     assert_eq!(h.state().ui.ai.generate.denoise, 0.35);
     h.get_by_label("Refines by denoise: lower keeps more of the image");
     h.state_mut().ui.ai.generate.denoise = 0.72;
-    h.get_by_value(&format!("{} · {}", ModelId::ZImageTurbo.info().label, ModelId::ZImageTurbo.info().family_label)).click();
+    h.get_by_value(&ModelId::ZImageTurbo.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);
@@ -253,7 +253,7 @@ fn refine_panel_mode_and_second_pass_use_model_defaults_and_grouped_picker() {
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.generate.refine_strength, 1.0);
     h.state_mut().ui.ai.generate.refine_strength = 0.72;
-    h.get_all_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).last().unwrap().click();
+    h.get_all_by_value(&ModelId::Klein9B.info().label).last().unwrap().click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
     h.run_steps(3);
@@ -1107,13 +1107,13 @@ fn template_models_carry_their_setup_chip_and_failed_ones_wait_for_setup() {
     st.setup.models.get_mut(KREA_KEY).unwrap().status = li_ai::modelsetup::state::Status::Failed;
     crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(st));
     let mut h = panel_harness(app_on(FLUX3_KEY), vec2(520.0, 1100.0));
-    h.get_by_value(&format!("{} · {}", flux.label, flux.family_label)).click();
+    h.get_by_value(&flux.label).click();
     h.run_steps(3);
     h.get_by_label("Not tested");
     h.get_by_label("OTHER INSTALLED MODELS");
     let krea = ModelId::from_key(KREA_KEY).unwrap().info();
     assert!(h.get_by_label(&krea.label).accesskit_node().is_disabled(), "a model whose test failed can't be picked");
-    h.get_by_label("Set up…").click();
+    h.get_all_by_label("Set up…").last().unwrap().click();
     h.run_steps(3);
     assert!(crate::model_setup::is_open());
     assert_eq!(crate::model_setup::selected().as_deref(), Some(KREA_KEY));
@@ -1135,7 +1135,7 @@ fn the_new_models_banner_opens_set_up_models() {
     let app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
     let mut h = panel_harness(app, vec2(420.0, 900.0));
     h.get_by_label("2 new models found");
-    h.get_by_label("Set up").click();
+    h.get_by_label("Set up…").click();
     h.run_steps(3);
     assert!(crate::model_setup::is_open());
     assert_eq!(crate::model_setup::selected().as_deref(), Some(FLUX3_KEY));
@@ -1216,4 +1216,17 @@ fn an_unknown_checkpoint_is_offered_for_refine_without_a_builder_check() {
     h.run_steps(3);
     assert!(!h.get_by_role_and_label(egui::accesskit::Role::Button, &id.info().label).accesskit_node().is_disabled());
     assert!(h.query_by_label_contains("missing the nodes").is_none());
+}
+
+#[test]
+fn the_picker_uses_the_wizards_status_words_and_avoids_repeating_families() {
+    use li_ai::modelsetup::state::Status;
+    for status in
+        [Status::New, Status::Ready, Status::Verified, Status::PartiallyVerified, Status::NeedsReverify, Status::Blocked, Status::Unmatched, Status::Failed]
+    {
+        assert_eq!(setup_chip(Some(status)), Some(crate::model_setup::chip(status)));
+    }
+    assert_eq!(family_suffix("FLUX.3 Klein Distilled · BF16", "FLUX.3 Klein"), None);
+    assert_eq!(family_suffix("Krea 2 Turbo · BF16", "Krea 2"), None);
+    assert_eq!(family_suffix("Model", "Other family"), Some("Other family"));
 }

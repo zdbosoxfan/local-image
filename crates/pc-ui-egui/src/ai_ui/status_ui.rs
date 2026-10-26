@@ -1,3 +1,5 @@
+//! AI status and job controls shared by the application status bar.
+
 use super::*;
 
 // Status pill
@@ -24,7 +26,7 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             let used = g.vram_used.map(|u| format!(" · {:.0}/{:.0} GB", u as f64 / 1e9, g.vram_total as f64 / 1e9)).unwrap_or_default();
             format!(" · {}{used}", short_gpu(&g.name))
         });
-        (Color32::from_rgb(70, 190, 110), li_i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
+        (t.accent, li_i18n::fmt(tl!("AI ready{gpu}"), &[("gpu", &gpu.unwrap_or_default())]))
     };
     let galley = ui.painter().layout_no_wrap(text, egui::FontId::proportional(11.5), t.text_dim);
     let size = vec2(galley.size().x + 26.0, 18.0);
@@ -41,7 +43,12 @@ pub fn status_pill(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     };
     if st.connected && !st.setup.new.is_empty() {
         tip.push('\n');
-        tip.push_str(&li_i18n::fmt(tl!("{n} new models found: Window › Set Up Models…"), &[("n", &st.setup.new.len().to_string())]));
+        tip.push_str(&li_i18n::trn(
+            li_i18n::current(),
+            st.setup.new.len() as u64,
+            "{n} new model found: Window › Set Up Models…",
+            "{n} new models found: Window › Set Up Models…",
+        ));
     }
     let resp = resp.on_hover_text(tip);
     if resp.clicked() {
@@ -118,4 +125,3 @@ pub fn stop_generation(app: &mut PhotocraftApp, jobs: &[photocraft_engine::jobs:
 pub(crate) fn short_gpu(name: &str) -> String {
     name.replace("NVIDIA ", "").replace("GeForce ", "").replace("Laptop GPU", "Laptop")
 }
-

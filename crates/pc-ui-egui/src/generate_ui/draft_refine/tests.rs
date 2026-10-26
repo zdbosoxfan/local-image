@@ -84,7 +84,7 @@ fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
     h.run_steps(3);
     assert!(h.query_by_label(tip).is_none());
     let current = model_of(&h.state().ui.ai.generate).info();
-    h.get_by_value(&format!("{} · {}", current.label, current.family_label)).click();
+    h.get_by_value(&current.label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
     h.run_steps(3);
@@ -94,9 +94,9 @@ fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
     assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0)).contains_rect(note));
     h.render().unwrap().save(dir.join("generate-tip.png")).unwrap();
     let info = ModelId::ZImageTurbo.info();
-    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).scroll_to_me();
+    h.get_by_value(&info.label).scroll_to_me();
     h.run_steps(20);
-    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).click();
+    h.get_by_value(&info.label).click();
     h.run_steps(2);
     let row = h.get_by_role_and_label(Role::Button, &info.label).rect();
     h.hover_at(row.center());
@@ -110,7 +110,7 @@ fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
     h.get_by_role_and_label(Role::Button, "Draft").click();
     h.run_steps(3);
     let current = model_of(&h.state().ui.ai.draft_refine.draft).info();
-    h.get_by_value(&format!("{} · {}", current.label, current.family_label)).click();
+    h.get_by_value(&current.label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &info.label).click();
     h.run_steps(3);
@@ -152,9 +152,9 @@ fn zimage_turbo_variety_tip_follows_picker_clicks_in_generate_and_draft_gpu() {
     h.get_by_role_and_label(Role::Button, "Off").click();
     h.run_steps(2);
     assert_eq!(h.state().ui.ai.draft_refine.draft.variety, 0.0);
-    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).scroll_to_me();
+    h.get_by_value(&info.label).scroll_to_me();
     h.run_steps(20);
-    h.get_by_value(&format!("{} · {}", info.label, info.family_label)).click();
+    h.get_by_value(&info.label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::Klein4B.info().label).click();
     h.run_steps(3);
@@ -222,7 +222,7 @@ fn draft_refine_sampling_is_editable_and_bounded_only_by_comfyui() {
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
     // Qwen has variable steps and guidance; Klein's distilled ranges are fixed.
-    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+    h.get_by_value(&ModelId::Klein9B.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
     h.run_steps(3);
@@ -547,7 +547,7 @@ fn draft_refine_gpu_design_system_all_themes_and_resolutions() {
                     .save(dir.join(format!("{}-{}x{}-{}.png", theme.id(), size.x as u32, size.y as u32, if refine { "refinement" } else { "draft" })))
                     .unwrap();
                 if refine && theme == crate::theme::ThemeKind::Pro && size.x == 1280.0 {
-                    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+                    h.get_by_value(&ModelId::Klein9B.info().label).click();
                     h.run_steps(3);
                     h.get_by_label("Edit models — refine by reference");
                     h.get_by_label("Image models — refine by denoise");
@@ -578,7 +578,7 @@ fn draft_refine_lora_picker_filters_family_and_carries_strength_in_request() {
     let _reset = Reset;
     let mut h = harness(vec2(1280.0, 800.0));
     open_from_menu(&mut h);
-    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+    h.get_by_value(&ModelId::Klein9B.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(egui::accesskit::Role::Button, &ModelId::Qwen.info().label).click();
     h.run_steps(3);
@@ -637,7 +637,7 @@ fn draft_refine_fresh_and_changed_refinement_model_use_per_model_denoise() {
     let denoise = h.get_by_role_and_label(egui::accesskit::Role::SpinButton, "Denoise").rect();
     drag(&mut h, denoise.center(), vec2(-20.0, 0.0));
     assert_ne!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0, "denoise stays editable");
-    h.get_by_value(&format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label)).click();
+    h.get_by_value(&ModelId::Klein9B.info().label).click();
     h.run_steps(2);
     let reference = h.get_by_label("Edit models — refine by reference").rect();
     let img2img = h.get_by_label("Image models — refine by denoise").rect();
@@ -652,13 +652,13 @@ fn draft_refine_fresh_and_changed_refinement_model_use_per_model_denoise() {
     // Qwen edit refines by reference at full denoise (verified with real refines).
     assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 1.0);
     assert_eq!(stage_request(h.state(), true).unwrap().denoise, 1.0);
-    h.get_by_value(&format!("{} · {}", ModelId::Qwen.info().label, ModelId::Qwen.info().family_label)).click();
+    h.get_by_value(&ModelId::Qwen.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::ZImageTurbo.info().label).click();
     h.run_steps(3);
     assert_eq!(h.state().ui.ai.draft_refine.refinement.denoise, 0.35);
     h.get_by_label("Refines by denoise: lower keeps more of the image");
-    h.get_by_value(&format!("{} · {}", ModelId::ZImageTurbo.info().label, ModelId::ZImageTurbo.info().family_label)).click();
+    h.get_by_value(&ModelId::ZImageTurbo.info().label).click();
     h.run_steps(2);
     h.get_by_role_and_label(Role::Button, &ModelId::Klein9B.info().label).click();
     h.run_steps(3);
@@ -731,7 +731,7 @@ fn autodetect_refine_picker_disables_failure_and_click_retest_verifies_on_worker
     assert!(matches!(result, Verdict::Failed { .. }));
     let mut h = harness_render(vec2(1280.0, 800.0), true);
     open_from_menu(&mut h);
-    let current = format!("{} · {}", ModelId::Klein9B.info().label, ModelId::Klein9B.info().family_label);
+    let current = ModelId::Klein9B.info().label.clone();
     h.get_by_value(&current).click();
     h.run_steps(3);
     h.get_by_role_and_label(Role::Button, &model.info().label).scroll_to_me();

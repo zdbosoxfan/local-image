@@ -20,7 +20,7 @@ All notable changes to Local Image are recorded here. The format follows
 - AI: Window › Set Up Models… shows every installed model, what it is, what it needs and why,
   with one-click fixes (verified download of a missing file, use another installed file, move a
   misplaced file, choose a template, ignore) and test renders with progress and Cancel. Generate's
-  picker marks template models "Not tested", "Re-check" or "Works", lists models that can't run
+  picker marks template models "Not tested", "Test again" or "Verified", lists models that can't run
   yet with the reason and a Set up… button, and a banner announces new models.
 - AI: an opt-in Enhance prompt switch for models whose official template has a local prompt
   enhancer (off by default, remembered per model), with its own optional verification render when
@@ -29,6 +29,10 @@ All notable changes to Local Image are recorded here. The format follows
   seed and size are found by their roles (basic controls).
 
 ### Changed
+
+- Set Up Models uses the Model Browser frame and neutral navigation with a fixed footer and
+  shared accessible status chips. Distinct-file counts, model names and singular forms agree
+  across the wizard, picker and preferences; test dates follow the interface language.
 
 - AI: previously verified template models ask for one re-test after the recipe-hash change.
 - AI: model files are identified by their weights before their names; a name that points at a

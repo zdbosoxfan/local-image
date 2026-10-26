@@ -377,14 +377,6 @@ pub(super) fn chips_with(ui: &mut egui::Ui, items: &[&str], selected: usize, tip
     hit
 }
 
-/// A small capability tag.
-pub(super) fn tag(ui: &mut egui::Ui, text: &str, t: &Tokens) {
-    let galley = ui.painter().layout_no_wrap(text.to_owned(), egui::FontId::proportional(10.5), t.text_dim);
-    let (r, _) = ui.allocate_exact_size(vec2(galley.size().x + 10.0, 16.0), Sense::hover());
-    ui.painter().rect_filled(r, 8.0, t.field);
-    ui.painter().galley(r.center() - galley.size() / 2.0, galley, t.text_dim);
-}
-
 pub(super) fn model_variety_tip(model: ModelId) -> Option<&'static str> {
     (model == ModelId::ZImageTurbo)
         .then(|| tl!("Low variety by design: different seeds give similar layouts. Change the prompt (or raise Variety) for different compositions."))
@@ -444,41 +436,40 @@ pub(super) fn setup_banner(ui: &mut egui::Ui, st: &crate::ai_ui::EngineStatus) {
         return;
     }
     let t = Tokens::get(ui.ctx());
-    let (text, action) = match &setup.updated {
-        Some((old, new)) if setup.new.is_empty() && setup.needs_reverify() > 0 => (
-            li_i18n::fmt(
-                tl!("ComfyUI was updated from {old} to {new}. {n} models need a quick re-check."),
-                &[("old", old), ("new", new), ("n", &setup.needs_reverify().to_string())],
+    let text = match &setup.updated {
+        Some((old, new)) if setup.new.is_empty() && setup.needs_reverify() > 0 => li_i18n::fmt(
+            &li_i18n::trn(
+                li_i18n::current(),
+                setup.needs_reverify() as u64,
+                "ComfyUI was updated from {old} to {new}. {n} model needs testing again.",
+                "ComfyUI was updated from {old} to {new}. {n} models need testing again.",
             ),
-            tl!("Re-check"),
+            &[("old", old), ("new", new)],
         ),
-        _ if !setup.new.is_empty() => (li_i18n::fmt(tl!("{n} new models found"), &[("n", &setup.new.len().to_string())]), tl!("Set up")),
-        _ => (li_i18n::fmt(tl!("{n} models need attention"), &[("n", &n.to_string())]), tl!("Set up")),
+        _ if !setup.new.is_empty() => li_i18n::trn(li_i18n::current(), setup.new.len() as u64, "{n} new model found", "{n} new models found"),
+        _ => li_i18n::trn(li_i18n::current(), n as u64, "{n} model needs attention", "{n} models need attention"),
     };
-    egui::Frame::new().fill(t.field).corner_radius(t.radius_sm).inner_margin(egui::Margin::symmetric(8, 6)).show(ui, |ui| {
-        ui.set_width(ui.available_width());
-        ui.horizontal_wrapped(|ui| {
-            let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
-            crate::icons::paint(ui, r, "sparkles", 12.0, t.accent);
-            ui.label(RichText::new(text).size(11.5).color(t.text));
-            if widgets::secondary_button(ui, action, 0.0).on_hover_text(tl!("Set Up Models checks and tests new models")).clicked() {
-                crate::model_setup::open(setup.new.first().map(String::as_str));
-            }
-        });
+    ui.horizontal_wrapped(|ui| {
+        widgets::status_icon(ui, "info", tl!("Model setup"), widgets::Tone::Neutral);
+        ui.label(RichText::new(text).font(crate::theme::medium(11.5)).color(t.text_dim));
+        if widgets::secondary_button(ui, tl!("Set up…"), 0.0).on_hover_text(tl!("Set Up Models checks and tests new models")).clicked() {
+            crate::model_setup::open(setup.new.first().map(String::as_str));
+        }
     });
 }
 
-/// The setup chip a picker row shows, from the model's setup status.
+/// The same status words, icons and tones in the wizard and the picker.
 pub(super) fn setup_chip(status: Option<li_ai::modelsetup::state::Status>) -> Option<(&'static str, &'static str, widgets::Tone)> {
     use li_ai::modelsetup::state::Status;
-    Some(match status? {
-        Status::Ready => ("circle-dashed", tl!("Not tested"), widgets::Tone::Neutral),
-        Status::NeedsReverify => ("refresh-cw", tl!("Re-check"), widgets::Tone::Warning),
-        Status::Verified => ("check", tl!("Works"), widgets::Tone::Good),
-        Status::PartiallyVerified => ("triangle-alert", tl!("Partly works"), widgets::Tone::Warning),
-        Status::New | Status::Blocked | Status::Unmatched | Status::Failed => ("triangle-alert", tl!("Needs setup"), widgets::Tone::Warning),
-        Status::Builtin | Status::Ignored => return None,
-    })
+    match status? {
+        Status::Builtin | Status::Ignored => None,
+        status => Some(crate::model_setup::chip(status)),
+    }
+}
+
+/// A family suffix adds information only when the displayed name does not already contain it.
+pub(super) fn family_suffix<'a>(label: &str, family: &'a str) -> Option<&'a str> {
+    (!family.is_empty() && !label.to_lowercase().starts_with(&family.to_lowercase())).then_some(family)
 }
 
 /// Why an installed model can't be picked until Set Up Models has prepared it, if so: it runs only
@@ -541,7 +532,7 @@ pub(super) fn model_picker(
         Some(name) => li_i18n::fmt(tl!("{name} · Custom workflow"), &[("name", name)]),
         None => ModelId::from_key(current)
             .and_then(|m| m.try_info())
-            .map(|i| format!("{} · {}", i.label, i.family_label))
+            .map(|i| family_suffix(&i.label, &i.family_label).map(|f| format!("{} · {f}", i.label)).unwrap_or_else(|| i.label.clone()))
             .unwrap_or_else(|| tl!("Choose a model").into()),
     };
     let mut picked = None;
@@ -589,14 +580,16 @@ pub(super) fn model_picker(
                             li_ai::refine::checker().request(li_ai::ComfyClient::new(&st.host), m.id, variant.into(), true);
                         }
                     }
-                    ui.label(RichText::new(&m.family_label).size(10.5).color(t.text_faint));
+                    if let Some(family) = family_suffix(&m.label, &m.family_label) {
+                        ui.label(RichText::new(family).size(10.5).color(t.text_faint));
+                    }
                     if m.origin == catalog::Origin::Installed
                         && let Some((icon, text, tone)) = setup_chip(st.setup.status_for(m.id.key(), variant))
                     {
                         widgets::status_chip(ui, icon, text, tone);
                     }
                     for tg in m.tags().iter().take(4) {
-                        tag(ui, tg, &t);
+                        widgets::tag_chip(ui, tg);
                     }
                     resp
                 });
@@ -638,7 +631,7 @@ pub(super) fn model_picker(
                     if let Some((icon, text, tone)) = setup_chip(st.setup.status(m.id.key()).or(Some(li_ai::modelsetup::state::Status::New))) {
                         widgets::status_chip(ui, icon, text, tone).on_hover_text(&why);
                     }
-                    if widgets::secondary_button(ui, tl!("Set up…"), 0.0).on_hover_text(&why).clicked() {
+                    if ui.small_button(tl!("Set up…")).on_hover_text(&why).clicked() {
                         crate::model_setup::open(Some(m.id.key()));
                         ui.close();
                     }
@@ -661,7 +654,7 @@ pub(super) fn model_picker(
                         ui.label(RichText::new(m.provider.label()).size(10.5).color(t.text_faint));
                         for (on, tg) in [(m.create, tl!("Create")), (m.edit, tl!("Edit")), (m.fill, tl!("Fill"))] {
                             if on {
-                                tag(ui, tg, &t);
+                                widgets::tag_chip(ui, tg);
                             }
                         }
                         resp
@@ -694,7 +687,7 @@ pub(super) fn model_picker(
                         ui.add_space(14.0);
                         let resp = ui.add(egui::Button::selectable(current == key, &w.name));
                         for tg in w.tags().iter().take(4) {
-                            tag(ui, tg, &t);
+                            widgets::tag_chip(ui, tg);
                         }
                         resp
                     });
