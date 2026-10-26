@@ -39,8 +39,8 @@ fn drag(h: &mut Headless, button: PointerButton, from: Pos2, to: Pos2) -> egui::
 }
 
 #[test]
-fn a_middle_drag_pans_with_the_healing_brush_and_adds_no_spot() {
-    let mut h = setup(RightPanel::Remove, "heal", Zoom::Percent(100));
+fn a_middle_drag_pans_with_clone_and_primary_still_paints() {
+    let mut h = setup(RightPanel::Remove, "clone", Zoom::Percent(100));
     let at = h.app.canvas_rect.unwrap().center();
     let pan = h.app.ui.pan;
     let cursor = drag(&mut h, PointerButton::Middle, at, at + vec2(-150.0, -100.0));
