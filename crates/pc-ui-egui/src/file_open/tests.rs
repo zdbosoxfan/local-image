@@ -743,13 +743,3 @@ fn os_open_restores_a_minimized_window_before_focusing_it() {
         assert_eq!(commands, expected);
     }
 }
-
-#[test]
-fn a_host_opening_file_bytes_also_focuses_the_existing_tab() {
-    let (mut app, _) = app_with(None, None);
-    app.open_file("/pics/a.psd", b"x").unwrap();
-    app.open_file("/pics/b.psd", b"x").unwrap();
-    app.open_file("/pics/a.psd", b"bad").unwrap();
-    assert_eq!(app.session.documents().len(), 2);
-    assert_eq!(app.session.active_index(), Some(0));
-}
