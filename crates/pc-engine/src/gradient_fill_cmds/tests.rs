@@ -424,3 +424,49 @@ fn perceptual_paint_preserves_preset_name_resolution_and_current_fallback() {
         assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
     }
 }
+
+#[test]
+fn perceptual_paint_bounds_source_lists_before_expansion_and_mutation() {
+    use crate::presets::gradients::{GradientPreset, StopColor};
+    #[derive(Clone, Copy, Debug)]
+    enum Source {
+        Explicit,
+        Current,
+        Named,
+        Opacity,
+        Combined,
+    }
+    let count = photocraft_vector::gradient_method::MAX_EXPANDED_STOPS + 1;
+    for route in [Source::Explicit, Source::Current, Source::Named, Source::Opacity, Source::Combined] {
+        let mut s = session(32, "transparent");
+        let mut params = json!({"from":[0,0],"to":[48,0],"method":"perceptual","dither":false});
+        let mut preset = GradientPreset::foreground_to_background();
+        preset.name = "Oversized".into();
+        match route {
+            Source::Explicit => params["stops"] = json!(vec![json!([0.5, "#000000"]); count]),
+            Source::Current | Source::Named => preset.stops = vec![(0.5, StopColor::Foreground); count],
+            Source::Opacity => preset.opacity = vec![(0.5, 0.5); count],
+            Source::Combined => {
+                preset.stops = vec![(0.5, StopColor::Foreground); count - 1025];
+                preset.opacity = vec![(0.5, 0.5); 1024];
+            }
+        }
+        if matches!(route, Source::Named) {
+            s.presets.gradients[0].items.push(preset);
+            params["gradient"] = json!("Oversized");
+        } else if !matches!(route, Source::Explicit) {
+            s.presets.gradient = preset;
+        }
+        let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+        let history = s.active().unwrap().history.past_len();
+        let error = s.execute("paint.gradient", params).expect_err("oversized source lists must be rejected");
+        assert!(matches!(error, EngineError::BadParams { msg, .. } if msg.contains("source stops")), "{route:?}");
+        assert_eq!(s.active().unwrap().history.past_len(), history, "{route:?}");
+        assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before, "{route:?}");
+    }
+    let mut s = session(32, "transparent");
+    let params = json!({"from":[0,0],"to":[48,0],"method":"perceptual","dither":false,"stops":vec![json!([0.5,"#000000"]); count - 3]});
+    s.execute("paint.gradient", params).unwrap();
+    let pixels = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+    assert!(pixels.iter().all(|pixel| *pixel == [0.0, 0.0, 0.0, 1.0]), "a bounded coincident ramp still paints");
+}
