@@ -554,6 +554,11 @@ mod tests {
                     if mul3(&li_color::perceptual::oklab_matrices()[0], d).iter().any(|v| *v <= 0.0) {
                         continue; // past the spectral locus' cone: no physical colour has this hue
                     }
+                    let r = mul3(&space.from_working(), d);
+                    if in_cube(r, OUTPUT_EPS) && !in_cube(r, 0.0) {
+                        assert_eq!(output(d, r, &lms_to(&space.from_working())), r);
+                        continue;
+                    }
                     let out = render(space, d);
                     let e = hue_error(out, d).abs();
                     if e > worst.0 {
@@ -572,12 +577,7 @@ mod tests {
                     }
                 }
             }
-            // What the final containment clips: slivers of faces the line grazes (and ProPhoto's
-            // faces, which fold back past Rec. 2020).
-            // What moves the hue at all is the final containment clipping the sliver past a face
-            // that the softened edge leaves (under 0.7 degrees); ProPhoto's faces also fold back
-            // past Rec. 2020 (its blue primary is imaginary), and colours out there land in a fold.
-            let (hue, light) = if space == OutputSpace::ProPhoto { (0.12, 0.02) } else { (0.012, 1.5e-3) };
+            let (hue, light) = (1e-3, 2e-4);
             assert!(worst.0 < hue, "{}: hue moved by {} rad at {:?}", space.label(), worst.0, worst.1);
             assert!(lightness < light, "{}: OkLab lightness moved by {lightness}", space.label());
         }
