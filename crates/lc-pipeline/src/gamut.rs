@@ -31,7 +31,7 @@ pub const MAX_CHROMA: f32 = 2.0;
 pub const BLUE_SRGB: [f32; 2] = [-1.674_503, -1.671_768];
 pub const BLUE_REC2020: [f32; 2] = [-2.005_771, -2.001_952];
 
-fn blue_weight(space: OutputSpace, h: f32) -> f32 {
+pub(crate) fn blue_weight(space: OutputSpace, h: f32) -> f32 {
     let [lo, hi] = match space {
         OutputSpace::Srgb => BLUE_SRGB,
         OutputSpace::Rec2020 => BLUE_REC2020,

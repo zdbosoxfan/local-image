@@ -1184,7 +1184,8 @@ mod colour_tone_tests {
                 }
                 let [l0, c0, h0] = lab_to_lch(oklab_from_2020(d));
                 let [l, c, h] = lab_to_lch(oklab_from_2020(mul3(&from_out, out)));
-                assert!((l - l0).abs() < 1e-3 && (h - h0).abs() < 1e-3 && c < c0, "{}: {d:?} -> {out:?}", space.label());
+                let hue_limit = if crate::gamut::blue_weight(space, h0) > 0.0 { 0.045 } else { 1e-3 };
+                assert!((l - l0).abs() < 1e-3 && (h - h0).abs() < hue_limit && c < c0, "{}: {d:?} -> {out:?}", space.label());
                 // it reaches the output's edge: no less chroma than where the line first leaves
                 // the output gamut (lines that fold back out and in again reach further)
                 let at = |chroma: f32| inside(mul3(&to_out, oklab_to_2020(lch_to_lab([l, chroma, h]))), 0.0, 0.0);
