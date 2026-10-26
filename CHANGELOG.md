@@ -27,6 +27,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Changed
 
+- Affinity raster import enforces a 100-megapixel full-resolution layer cap and checks
+  shared allocation limits before decoding.
+
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
   removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
   railings, roof lines, brick), most visibly under tungsten light. 1:1 views and full-size exports

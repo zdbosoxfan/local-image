@@ -13,7 +13,7 @@ use crate::model::{Affine, Image, Pixels, Reader};
 use crate::stream::{self, ObjId, Tag, Value};
 
 /// Pixels decoded per layer (the content's bounding box, not the canvas).
-const MAX_PIXELS: u64 = 64 << 20;
+const MAX_PIXELS: u64 = 100_000_000;
 const TILE: usize = 256;
 const TILE_BYTES: usize = TILE * TILE;
 
@@ -42,6 +42,9 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
     if let Some(name) = s.entry(bitmap, b"Bckg").filter(|n| !n.is_empty())
         && (s.is(id, b"ImgN") || !has_tiles)
     {
+        if u64::from(width) * u64::from(height) > MAX_PIXELS {
+            return Err(Error::Limit("layer exceeds 100 megapixels"));
+        }
         match original(r, name) {
             Ok(bytes) => return Ok(Some(Image { width, height, pixels: Pixels::Encoded(bytes), transform: world })),
             Err(Error::Limit(e)) => return Err(Error::Limit(e)),
@@ -115,8 +118,7 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     }
     let (w, h) = (x1 - x0, y1 - y0);
     if u64::from(w) * u64::from(h) > MAX_PIXELS {
-        r.warn("pixel layers larger than 64 megapixels");
-        return Ok(None);
+        return Err(Error::Limit("layer exceeds 100 megapixels"));
     }
     let format = s.enumeration(bitmap, b"Frmt").map(|(f, _)| f);
     let (channels, bps) = match format {
@@ -388,6 +390,24 @@ mod tests {
             ],
             None,
         )
+    }
+
+    #[test]
+    fn full_resolution_layers_preflight_shared_budget_above_64_megapixels() {
+        for (width, height) in [(9000, 8000), (10_000, 10_000), (10_001, 10_000)] {
+            let bitmap = F::Obj(tag(b"DyBm"), vec![(tag(b"Frmt"), F::Enum(0, 0)), (tag(b"BmpW"), F::I32(width)), (tag(b"BmpH"), F::I32(height))]);
+            let node = F::Def(1, vec![tag(b"Rstr")], vec![(tag(b"Bitm"), bitmap)]);
+            let spread = F::Def(2, vec![tag(b"Sprd")], vec![(tag(b"Chld"), F::Shared(vec![node]))]);
+            let stream = synth::stream(&[(tag(b"DocR"), F::Obj(tag(b"DocN"), vec![(tag(b"Chld"), F::Shared(vec![spread]))]))]);
+            let bytes = synth::container(&[("doc.dat", &stream, Method::Zlib)], None);
+            let limits = crate::Limits { max_pixels: 100, ..Default::default() };
+            let result = crate::read(&bytes, limits);
+            if width > 10_000 {
+                assert_eq!(result, Err(Error::Limit("layer exceeds 100 megapixels")));
+            } else {
+                assert!(matches!(result, Err(Error::Limit(_))));
+            }
+        }
     }
 
     #[test]

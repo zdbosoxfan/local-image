@@ -46,7 +46,7 @@ impl Default for Limits {
             max_values: 1 << 24,
             max_depth: 384,
             max_segments: 4_000_000,
-            max_pixels: 64 << 20,
+            max_pixels: 100_000_000,
         }
     }
 }

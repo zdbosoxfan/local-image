@@ -243,7 +243,7 @@ impl<'a, 'b> State<'a, 'b> {
     }
     pub(super) fn image(&mut self, image: &model::Image, m: Affine) -> Result<Surface, Error> {
         let count = u64::from(image.width) * u64::from(image.height);
-        if count == 0 || count > self.options.limits.pixels {
+        if count == 0 || count > 100_000_000 || count > self.options.limits.pixels {
             return Err(Error::Limit("image pixels"));
         }
         self.bytes = self.bytes.saturating_add(count.saturating_mul(16));
