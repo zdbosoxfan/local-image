@@ -27,13 +27,14 @@ mod curve_stroke;
 pub use curve_stroke::stroke_outline;
 pub mod edit;
 pub mod flatten;
+pub mod gradient_method;
 pub mod raster;
 pub mod shapes;
 pub mod stroke;
 pub mod trace;
 
 use photocraft_color::{ColorMode, PixelFormat};
-use photocraft_doc::{Fill, FillRule, GradientStyle, Path, PathOp, ShapeLayer, ShapeStroke, StrokeAlign, VectorMask};
+use photocraft_doc::{Fill, FillRule, GradientMethod, GradientStyle, Path, PathOp, ShapeLayer, ShapeStroke, StrokeAlign, VectorMask};
 use photocraft_geom::{Rect, TILE_SIZE};
 use photocraft_raster::Surface;
 
@@ -251,6 +252,7 @@ pub enum Paint {
         /// Opacity stops `(location, opacity)` sorted by location; empty = each stop's alpha.
         opacity_stops: Vec<(f32, f32)>,
         style: GradientStyle,
+        method: GradientMethod,
         /// Effective `(angle, scale, offset)` after whole-pixel snapping ([`gradient_layout`]).
         layout: (f32, f32, (f32, f32)),
         reverse: bool,
@@ -278,7 +280,7 @@ impl Paint {
             Fill::Solid(c) => Paint::Solid(rgba(c)),
             // No `..` here on purpose: a new gradient field must fail to compile until the
             // shape renderer honours it (the same sentinel the document/compositor pair uses).
-            Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+            Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
                 let frame = if *align { bounds } else { canvas };
                 // Fill midpoints index intervals between sorted stops, regardless
                 // of the stops' storage order. Do not reorder or discard them.
@@ -292,6 +294,7 @@ impl Paint {
                     midpoints,
                     opacity_stops: opacity,
                     style: *style,
+                    method: *method,
                     layout: gradient_layout(*style, *angle, *scale, *offset, frame),
                     reverse: *reverse,
                     dither: *dither,
@@ -307,9 +310,9 @@ impl Paint {
         match self {
             Paint::None => [0.0; 4],
             Paint::Solid(c) => *c,
-            Paint::Gradient { stops, midpoints, opacity_stops, style, layout, reverse, dither: dith, frame } => {
+            Paint::Gradient { method, stops, midpoints, opacity_stops, style, layout, reverse, dither: dith, frame } => {
                 let t = gradient_t(*style, layout.0, layout.1, *reverse, layout.2, *frame, x, y);
-                let mut c = sample_stops(stops, midpoints, opacity_stops, t);
+                let mut c = gradient_method::sample_stops(*method, stops, midpoints, opacity_stops, t);
                 if *dith {
                     dither(&mut c, x.floor() as i32, y.floor() as i32);
                 }
@@ -419,46 +422,16 @@ pub fn midpoint_remap(u: f32, m: f32) -> f32 {
     }
 }
 
-/// Colour stops with midpoints at `t` (stops sorted by location).
-fn sample_color(stops: &[(f32, [f32; 4])], mids: &[f32], t: f32) -> [f32; 4] {
-    let (Some(first), Some(last)) = (stops.first(), stops.last()) else { return [0.0; 4] };
-    if t <= first.0 {
-        return first.1;
-    }
-    for (i, w) in stops.windows(2).enumerate() {
-        let (a, b) = (&w[0], &w[1]);
-        if t <= b.0 {
-            let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
-            let k = midpoint_remap(u, mids.get(i).copied().unwrap_or(0.5));
-            return std::array::from_fn(|ch| a.1[ch] + (b.1[ch] - a.1[ch]) * k);
-        }
-    }
-    last.1
-}
-
 /// Opacity stops at `t` (stops sorted by location; 1.0 when empty).
 pub fn sample_opacity(stops: &[(f32, f32)], t: f32) -> f32 {
     let (Some(first), Some(last)) = (stops.first(), stops.last()) else { return 1.0 };
     if t <= first.0 {
         return first.1;
     }
-    for w in stops.windows(2) {
-        if t <= w[1].0 {
-            let u = if w[1].0 > w[0].0 { (t - w[0].0) / (w[1].0 - w[0].0) } else { 0.0 };
-            return w[0].1 + (w[1].1 - w[0].1) * u;
-        }
-    }
-    last.1
-}
-
-/// Colour and alpha at `t`: colour stops with midpoints, alpha times opacity stops. Mirrors
-/// the compositor's `gradient_fill::Ramp::sample`.
-fn sample_stops(stops: &[(f32, [f32; 4])], mids: &[f32], opacity: &[(f32, f32)], t: f32) -> [f32; 4] {
-    let mut c = sample_color(stops, mids, t);
-    if !opacity.is_empty() {
-        c[3] *= sample_opacity(opacity, t);
-    }
-    c
+    let at = stops.partition_point(|s| s.0 < t);
+    let (Some(a), Some(b)) = (at.checked_sub(1).and_then(|i| stops.get(i)), stops.get(at)) else { return last.1 };
+    let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
+    a.1 + (b.1 - a.1) * u
 }
 
 /// Adds one level of the shared dither noise to a colour's channels (as the Gradient tool and

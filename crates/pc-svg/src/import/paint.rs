@@ -51,6 +51,7 @@ pub(super) fn mirror(p: &usvg::Paint, transform: Affine, opacity: f32, bounds: (
     // when a prepared cache matches the original; editing must not silently lose fidelity.
     warn(warnings, "gradient-projection", id, "SVG gradients remain editable, but some SVG geometry may be simplified.");
     Fill::Gradient {
+        method: Default::default(),
         stops,
         angle: angle.to_degrees() as f32,
         scale: ((b.x - a.x).hypot(b.y - a.y) / denom.max(1e-6)) as f32,

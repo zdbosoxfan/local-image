@@ -63,6 +63,7 @@ fn svg_export_resvg_independent_geometry_and_gradient_oracles() {
         for style in [GradientStyle::Linear, GradientStyle::Reflected, GradientStyle::Radial] {
             for angle in [0.0, 31.0, 90.0] {
                 let fill = Fill::Gradient {
+                    method: Default::default(),
                     stops: vec![(1.0, Color::WHITE), (0.0, Color::rgb(0.1, 0.2, 0.4))],
                     style,
                     angle,
@@ -393,6 +394,7 @@ fn svg_export_hard_stops_and_color_alpha_resvg_gate() {
     let mut b = Color::rgb(0., 0., 1.);
     b.alpha = 0.9;
     let paint = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0., a), (0.5, a), (0.5, b), (1., b)],
         style: GradientStyle::Linear,
         angle: 31.,
@@ -542,6 +544,7 @@ fn svg_cropped_fallback_keeps_masks_nontransparent_defaults_and_skips_empty_scop
 fn svg_cropped_fallback_preserves_canvas_relative_gradient_frame() {
     for align in [false, true] {
         let fill = Fill::Gradient {
+            method: Default::default(),
             stops: vec![(0., Color::BLACK), (1., Color::WHITE)],
             style: GradientStyle::Linear,
             angle: 0.,
@@ -689,5 +692,22 @@ fn svg_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal() {
         let mut context = export::ExportContext { cancelled: &cancel, projection: None, text: &mut text };
         assert!(matches!(export::export_with(&doc, &ExportScope::Document, &options, &mut context), Err(ExportError::Cancelled)));
         assert!(checks.get() < 100, "cancellation should stop the current traversal promptly");
+    }
+}
+
+#[test]
+fn perceptual_gradients_remain_vector_and_match_the_cpu() {
+    for style in [GradientStyle::Linear, GradientStyle::Radial, GradientStyle::Reflected] {
+        let mut fill = Fill::gradient(vec![(0.0, Color::rgb(0.0, 0.0, 1.0)), (1.0, Color::rgb(1.0, 1.0, 0.0))], 31.0, 0.8, style, true);
+        if let Fill::Gradient { method, midpoints, opacity_stops, .. } = &mut fill {
+            *method = photocraft_doc::GradientMethod::Perceptual;
+            *midpoints = vec![0.3];
+            *opacity_stops = vec![(0.0, 0.5), (0.5, 0.8), (1.0, 1.0)];
+        }
+        let doc = scene(photocraft_vector::shapes::rect(16.0, 20.0, 224.0, 216.0), fill);
+        let svg = svg(&doc);
+        assert!(!svg.contains("<image"), "a supported perceptual gradient stays vector");
+        assert!(svg.contains("Gradient") && svg.matches("<stop").count() > 4);
+        assert_oracle(&doc, &format!("perceptual {style:?}"));
     }
 }

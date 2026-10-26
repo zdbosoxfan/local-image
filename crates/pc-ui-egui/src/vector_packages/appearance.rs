@@ -349,7 +349,7 @@ fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document, selected_stop: &mut O
                 changed = true;
             }
         }
-        Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+        Fill::Gradient { method: _, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
             changed |= combo(
                 ui,
                 "Gradient style",

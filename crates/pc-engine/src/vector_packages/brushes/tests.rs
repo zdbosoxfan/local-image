@@ -157,6 +157,7 @@ fn brush17_engine_translucent_scatter_uses_single_coverage_and_existing_gradient
     assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, cpu.px);
     assert!(s.undo());
     stroke.base.paint = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0., photocraft_doc::Color::rgb(1., 0., 0.)), (1., photocraft_doc::Color::rgb(0., 0., 1.))],
         angle: 0.,
         scale: 100.,

@@ -15,6 +15,7 @@ pub(crate) enum Method {
     Classic,
     Perceptual,
     Linear,
+    Smooth,
 }
 
 impl Method {
@@ -22,6 +23,7 @@ impl Method {
         match code {
             Some(b"Perc") => Method::Perceptual,
             Some(b"Lnr ") => Method::Linear,
+            Some(b"Smoo") => Method::Smooth,
             _ => Method::Classic,
         }
     }
@@ -46,7 +48,7 @@ fn into_space(m: Method, rgb: [f32; 3]) -> [f32; 3] {
     match m {
         Method::Classic => rgb,
         Method::Linear => rgb.map(lin),
-        Method::Perceptual => to_oklab(rgb),
+        Method::Perceptual | Method::Smooth => to_oklab(rgb),
     }
 }
 
@@ -54,12 +56,15 @@ fn out_of_space(m: Method, p: [f32; 3]) -> [f32; 3] {
     match m {
         Method::Classic => p.map(|v| v.clamp(0.0, 1.0)),
         Method::Linear => p.map(enc),
-        Method::Perceptual => from_oklab(p),
+        Method::Perceptual | Method::Smooth => from_oklab(p),
     }
 }
 
+// Photoshop 27.11's measured progress along an OKLab segment at sixteenth intervals.
+const SMOOTH_EASE: [f32; 17] = [0.0, 0.0438, 0.099, 0.1644, 0.2303, 0.2988, 0.3667, 0.433, 0.4974, 0.5642, 0.6302, 0.6985, 0.7656, 0.8333, 0.8945, 0.9517, 1.0];
+
 /// Colour at `t` for sorted stops (positions in 0..1) in `m`'s space.
-fn eval(stops: &[(f32, [f32; 3])], mids: &[f32], smooth: f32, t: f32) -> [f32; 3] {
+fn eval(stops: &[(f32, [f32; 3])], mids: &[f32], smooth: f32, t: f32, method: Method) -> [f32; 3] {
     let n = stops.len();
     if t <= stops[0].0 {
         return stops[0].1;
@@ -75,6 +80,12 @@ fn eval(stops: &[(f32, [f32; 3])], mids: &[f32], smooth: f32, t: f32) -> [f32; 3
     let mid = mids.get(i).copied().unwrap_or(0.5).clamp(0.05, 0.95);
     u = if u <= mid { 0.5 * u / mid } else { 0.5 + 0.5 * (u - mid) / (1.0 - mid) };
     let (p0, p1) = (stops[i].1, stops[i + 1].1);
+    if method == Method::Smooth {
+        let x = u.clamp(0.0, 1.0) * 16.0;
+        let i = (x.floor() as usize).min(15);
+        let progress = SMOOTH_EASE[i] + (SMOOTH_EASE[i + 1] - SMOOTH_EASE[i]) * (x - i as f32);
+        return std::array::from_fn(|ch| p0[ch] + (p1[ch] - p0[ch]) * progress);
+    }
     // Catmull-Rom tangents per unit t; the ends use half the chord slope.
     let tangent = |k: usize| -> [f32; 3] {
         let (a, b) = match k {
@@ -117,7 +128,7 @@ pub(crate) fn bake(stops: Vec<(f32, Color)>, midpoints: &[f32], smoothness: f32,
     let mut out: Vec<(f32, Color)> = (0..=N)
         .map(|k| {
             let t = k as f32 / N as f32;
-            let v = eval(&pts, midpoints, smoothness.clamp(0.0, 1.0), t);
+            let v = eval(&pts, midpoints, smoothness.clamp(0.0, 1.0), t, method);
             if lab {
                 return (t, Color { mode: ColorMode::Lab, c: [v[0].clamp(0.0, 1.0), v[1].clamp(0.0, 1.0), v[2].clamp(0.0, 1.0), 0.0], alpha: alpha(t) });
             }

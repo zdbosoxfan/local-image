@@ -21,6 +21,37 @@ pub enum GradientStyle {
     Diamond,
 }
 
+/// How colours between gradient stops are mixed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GradientMethod {
+    #[default]
+    Classic,
+    Perceptual,
+}
+
+impl GradientMethod {
+    pub fn parse(value: &str) -> Option<Self> {
+        if value.eq_ignore_ascii_case("classic") {
+            Some(Self::Classic)
+        } else if value.eq_ignore_ascii_case("perceptual") {
+            Some(Self::Perceptual)
+        } else {
+            None
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Classic => "classic",
+            Self::Perceptual => "perceptual",
+        }
+    }
+
+    pub fn is_classic(&self) -> bool {
+        *self == Self::Classic
+    }
+}
+
 /// A gradient: colour stops plus transparency stops (both at `0..=1`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Gradient {

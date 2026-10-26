@@ -65,6 +65,7 @@ pub(super) fn fill(state: &mut State<'_, '_>, p: &Paint, m: Affine, bounds: (f64
                 state.warn("conical-gradient", name, "Conical gradient imported as radial.");
             }
             Ok(Some(Fill::Gradient {
+                method: Default::default(),
                 stops: stops.iter().map(|s| (s.offset as f32, color(s.color))).collect(),
                 midpoints: stops.iter().take(stops.len().saturating_sub(1)).map(|s| s.half_point() as f32).collect(),
                 angle: angle.to_degrees() as f32,

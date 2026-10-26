@@ -57,7 +57,8 @@ fn hash_fill(f: &Fill, h: &mut impl Hasher) {
     std::mem::discriminant(f).hash(h);
     match f {
         Fill::Solid(c) => hash_color(c, h),
-        Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+        Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+            std::mem::discriminant(method).hash(h);
             stops.len().hash(h);
             for (p, c) in stops {
                 p.to_bits().hash(h);
@@ -694,6 +695,7 @@ mod tests {
         for stroke_paint in [false, true] {
             for (align, dither) in [(false, false), (true, true), (false, true)] {
                 let paint = Fill::Gradient {
+                    method: Default::default(),
                     stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
                     angle: 0.0,
                     scale: 1.0,
@@ -721,5 +723,27 @@ mod tests {
                 assert_eq!(RENDERS.with(std::cell::Cell::get), n + 1 + usize::from(!align), "canvas anchoring follows a changed canvas");
             }
         }
+    }
+    #[test]
+    fn method_only_edits_invalidate_shape_parts_and_keep_translation_reuse() {
+        let canvas = Rect::new(0, 0, 64, 32);
+        let fill = Fill::gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], 0.0, 1.0, photocraft_doc::GradientStyle::Linear, false);
+        let mut shape = ShapeLayer {
+            path: photocraft_vector::shapes::rect(4.0, 4.0, 40.0, 20.0),
+            fill: Some(fill),
+            stroke: Some(ShapeStroke::default()),
+            ..Default::default()
+        };
+        let before = split(&shape, canvas, SampleType::F32).unwrap().0;
+        let old_key = key(&shape, canvas, origin(&shape), SampleType::F32);
+        if let Some(Fill::Gradient { method, .. }) = &mut shape.fill {
+            *method = photocraft_doc::GradientMethod::Perceptual;
+        }
+        assert_ne!(old_key, key(&shape, canvas, origin(&shape), SampleType::F32));
+        let after = split(&shape, canvas, SampleType::F32).unwrap().0;
+        assert!((before.pixel(24, 12)[0] - after.pixel(24, 12)[0]).abs() > 0.1);
+        shape.path = shape.path.transform(&photocraft_geom::Affine::translate(4.0, 0.0));
+        let moved = split(&shape, canvas, SampleType::F32).unwrap().0;
+        assert_eq!(after.pixel(24, 12), moved.pixel(28, 12));
     }
 }

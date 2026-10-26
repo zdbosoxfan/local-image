@@ -166,7 +166,7 @@ fn frame_with_align(layer: &Layer, f: &Fill, canvas: Rect) -> Rect {
 pub fn apply_set(layer: &Layer, f: &Fill, canvas: Rect, p: &Value, fg: [f32; 4], bg: [f32; 4]) -> Result<Fill> {
     const CMD: &str = SET;
     let mut out = f.clone();
-    let Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = &mut out else {
+    let Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = &mut out else {
         return Err(bad(CMD, "not a gradient fill"));
     };
     let old_frame = frame_with_align(layer, f, canvas);
@@ -202,6 +202,7 @@ pub fn apply_set(layer: &Layer, f: &Fill, canvas: Rect, p: &Value, fg: [f32; 4],
     let to = point(CMD, p, "to")?;
     let frame = {
         let tmp = Fill::Gradient {
+            method: *method,
             stops: Vec::new(),
             angle: *angle,
             scale: *scale,
@@ -286,7 +287,19 @@ pub fn new_layer(s: &Session, doc: &Document, p: &Value) -> Result<Layer> {
         return Err(bad(CMD, "the document is empty"));
     }
     let (angle, scale, offset) = gf::from_handles(style, from, to, canvas, 0.0);
-    let fill = Fill::Gradient { stops, angle, scale: clamp_scale(scale), style, reverse, opacity_stops, midpoints: Vec::new(), offset, dither, align: false };
+    let fill = Fill::Gradient {
+        method: Default::default(),
+        stops,
+        angle,
+        scale: clamp_scale(scale),
+        style,
+        reverse,
+        opacity_stops,
+        midpoints: Vec::new(),
+        offset,
+        dither,
+        align: false,
+    };
     let mut l = Layer::new(doc.next_layer_name("Gradient Fill"), LayerContent::Fill(fill));
     l.opacity = opacity;
     l.blend = blend;
@@ -469,8 +482,9 @@ pub fn apply_stop(f: &Fill, p: &Value, fg: [f32; 4], bg: [f32; 4]) -> Result<Fil
 
 /// The colour stops' own alpha at `t` (without the opacity stops).
 fn ramp_color_alpha(f: &Fill, t: f32) -> f32 {
-    let Fill::Gradient { stops, midpoints, .. } = f else { return 1.0 };
+    let Fill::Gradient { method, stops, midpoints, .. } = f else { return 1.0 };
     let bare = Fill::Gradient {
+        method: *method,
         stops: stops.clone(),
         angle: 0.0,
         scale: 1.0,
@@ -497,10 +511,11 @@ fn stop(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// A gradient fill layer's settings as JSON (`gradient.fill.get`).
 pub fn describe_fill(f: &Fill, frame: Rect) -> Value {
-    let Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = f else { return Value::Null };
+    let Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = f else { return Value::Null };
     let (from, to) = gf::handles(*style, *angle, *scale, *offset, frame);
     json!({
         "style": style_name(*style),
+        "method": method.name(),
         "angle": angle,
         "scale": scale * 100.0,
         "offset": [offset.0 * 100.0, offset.1 * 100.0],

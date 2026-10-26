@@ -195,6 +195,11 @@ pub(crate) fn gradient_style_value(s: GradientStyle) -> Value {
     Value::Enumerated { type_id: Id::new("GrdT"), value: Id::new(v) }
 }
 
+/// Photoshop's current key takes precedence over the legacy fallback.
+pub(crate) fn gradient_method(d: &Descriptor) -> Option<&[u8]> {
+    enum_of(d, "gradientsInterpolationMethod").or_else(|| enum_of(d, "gs99"))
+}
+
 /// Colour and opacity stops of a `Grdn` descriptor (locations 0..4096 → 0..1).
 /// Colour stops and opacity stops of a gradient.
 pub(crate) type Stops = (Vec<(f32, Color)>, Vec<(f32, f32)>);
@@ -220,16 +225,20 @@ pub(crate) struct RawStops {
     pub smooth: f32,
 }
 
-/// Stops of a gradient fill layer, kept editable: when Photoshop's interpolation is plain
-/// (no smoothness, Classic method) the stops stay as they are with their midpoints, else they
-/// are baked like [`gradient_stops_with`] (midpoints folded in). Opacity stops that are all
-/// 100 % come back empty.
-pub(crate) fn gradient_stops_editable(grad: &Descriptor, method: Option<&[u8]>) -> RawStops {
+/// Native Classic/Perceptual stops remain editable when smoothness and the colour model
+/// permit it. Other appearances are baked to Classic stops with midpoints folded in.
+pub(crate) fn gradient_stops_editable(grad: &Descriptor, method: Option<&[u8]>) -> (RawStops, photocraft_doc::GradientMethod) {
     let mut raw = gradient_stops_raw(grad);
     let m = crate::gradient_bake::Method::from_code(method);
     // Lab stops (Lab documents) interpolate in L*a*b*, which only baking reproduces.
     let lab = raw.stops.iter().all(|(_, c)| c.mode == photocraft_color::ColorMode::Lab);
-    if raw.stops.len() >= 2 && (raw.smooth > 0.0 || m != crate::gradient_bake::Method::Classic || lab) {
+    let bake = raw.smooth > 0.0 || lab || matches!(m, crate::gradient_bake::Method::Linear | crate::gradient_bake::Method::Smooth);
+    let method = if !bake && m == crate::gradient_bake::Method::Perceptual {
+        photocraft_doc::GradientMethod::Perceptual
+    } else {
+        photocraft_doc::GradientMethod::Classic
+    };
+    if raw.stops.len() >= 2 && bake {
         raw.stops = crate::gradient_bake::bake(std::mem::take(&mut raw.stops), &raw.mids, raw.smooth, m);
         raw.mids.clear();
     }
@@ -239,7 +248,7 @@ pub(crate) fn gradient_stops_editable(grad: &Descriptor, method: Option<&[u8]>) 
     if raw.opacity.iter().all(|o| (o.1 - 1.0).abs() < 1e-4) {
         raw.opacity.clear();
     }
-    raw
+    (raw, method)
 }
 
 fn gradient_stops_raw(grad: &Descriptor) -> RawStops {
@@ -361,8 +370,8 @@ pub fn fill_from_desc(key: &[u8; 4], d: &Descriptor) -> Option<Fill> {
         b"GdFl" => {
             let angle = num(d.get("Angl")).unwrap_or(90.0) as f32;
             let scale = num(d.get("Scl ")).map_or(1.0, |v| v as f32 / 100.0);
-            let raw = get_desc(d, "Grad").map(|g| gradient_stops_editable(g, enum_of(d, "gs99")));
-            let (mut stops, midpoints) = raw.map(|r| (r.stops, r.mids)).unwrap_or_default();
+            let raw = get_desc(d, "Grad").map(|g| gradient_stops_editable(g, gradient_method(d)));
+            let (mut stops, midpoints, method) = raw.map(|(r, method)| (r.stops, r.mids, method)).unwrap_or_default();
             // Opacity stops with Photoshop's smoothness and opacity midpoints applied (raw when
             // the interpolation is plain); none when fully opaque.
             let mut opacity_stops = get_desc(d, "Grad").map(smoothed_opacity_stops).unwrap_or_default();
@@ -375,6 +384,7 @@ pub fn fill_from_desc(key: &[u8; 4], d: &Descriptor) -> Option<Fill> {
             let pct = |o: &Descriptor, k: &str| num(o.get(k)).map_or(0.0, |v| v as f32 / 100.0);
             let offset = get_desc(d, "Ofst").map_or((0.0, 0.0), |o| (pct(o, "Hrzn"), pct(o, "Vrtc")));
             Some(Fill::Gradient {
+                method,
                 stops,
                 angle,
                 scale,
@@ -407,13 +417,16 @@ pub fn write_fill(f: &Fill) -> ([u8; 4], Vec<u8>) {
 pub fn fill_to_desc(f: &Fill) -> ([u8; 4], Descriptor) {
     match f {
         Fill::Solid(c) => (*b"SoCo", Descriptor::new("null").with("Clr ", Value::Descriptor(color_to_desc_with_pc_alpha(c)))),
-        Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+        Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
             let prc = |v: f32| Value::UnitFloat { unit: *b"#Prc", value: f64::from(v * 100.0) };
             let mut d = Descriptor::new("null")
                 .with("Angl", Value::UnitFloat { unit: *b"#Ang", value: f64::from(*angle) })
                 .with("Type", gradient_style_value(*style))
                 .with("Scl ", prc(*scale))
                 .with("Grad", Value::Descriptor(gradient_desc_with(stops, opacity_stops, midpoints)));
+            if *method == photocraft_doc::GradientMethod::Perceptual {
+                d = d.with("gradientsInterpolationMethod", Value::Enumerated { type_id: Id::new("gradientInterpolationMethodType"), value: Id::new("Perc") });
+            }
             if *reverse {
                 d = d.with("Rvrs", Value::Boolean(true));
             }
@@ -648,6 +661,7 @@ mod tests {
         use photocraft_color::Color;
         use photocraft_doc::Fill;
         let fill = Fill::Gradient {
+            method: Default::default(),
             stops: vec![(0.0, Color::rgba(1.0, 0.0, 0.0, 0.5)), (1.0, Color::WHITE)],
             angle: 90.0,
             scale: 1.0,
@@ -772,6 +786,7 @@ mod tests {
             Fill::gradient(vec![(0.0, Color::rgb(1.0, 0.0, 0.0)), (1.0, Color::rgb(0.0, 0.0, 1.0))], 45.0, 1.0, GradientStyle::Reflected, true),
             // A live gradient (Gradient tool): canvas-aligned, offset, midpoints, opacity, dither.
             Fill::Gradient {
+                method: Default::default(),
                 stops: vec![(0.0, Color::rgb(1.0, 0.0, 0.0)), (0.5, Color::rgb(0.0, 1.0, 0.0)), (1.0, Color::rgb(0.0, 0.0, 1.0))],
                 angle: -33.5,
                 scale: 2.25,
@@ -797,6 +812,71 @@ mod tests {
                 _ => assert_eq!(back, f),
             }
         }
+    }
+    #[test]
+    fn gradient_fill_reads_photoshop_perceptual_key() {
+        let fill = Fill::gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], 0.0, 1.0, GradientStyle::Linear, false);
+        let (key, descriptor) = fill_to_desc(&fill);
+        let descriptor =
+            descriptor.with("gradientsInterpolationMethod", Value::Enumerated { type_id: Id::new("gradientInterpolationMethodType"), value: Id::new("Perc") });
+        let back = fill_from_desc(&key, &descriptor).unwrap();
+        let color = photocraft_compose::gradient_fill::Ramp::new(&back).unwrap().sample(0.5);
+        assert!((color[0] - 0.388573).abs() < 2e-5, "Photoshop Perceptual midpoint: {color:?}");
+    }
+
+    #[test]
+    fn native_method_keys_keep_source_stops_and_current_key_wins() {
+        use photocraft_doc::GradientMethod;
+        let mut fill = Fill::gradient(vec![(0.0, Color::BLACK), (0.5, Color::rgb(0.2, 0.7, 0.4)), (1.0, Color::WHITE)], 0.0, 1.0, GradientStyle::Linear, false);
+        if let Fill::Gradient { midpoints, .. } = &mut fill {
+            *midpoints = vec![0.25, 0.75];
+        }
+        let (key, classic) = fill_to_desc(&fill);
+        assert!(classic.get("gradientsInterpolationMethod").is_none());
+        let code = |name: &str| Value::Enumerated { type_id: Id::new("gradientInterpolationMethodType"), value: Id::new(name) };
+        for name in ["gs99", "gradientsInterpolationMethod"] {
+            let descriptor = classic.clone().with(name, code("Perc"));
+            let back = fill_from_desc(&key, &descriptor).unwrap();
+            let Fill::Gradient { method, stops, midpoints, .. } = &back else { panic!("gradient") };
+            assert_eq!(*method, GradientMethod::Perceptual);
+            assert_eq!(stops.len(), 3);
+            assert_eq!(midpoints, &[0.25, 0.75]);
+            let (key, bytes) = write_fill(&back);
+            let saved = parse_prefix_versioned(&bytes).unwrap();
+            assert_eq!(gradient_method(&saved), Some(&b"Perc"[..]));
+            assert_eq!(fill_from_desc(&key, &saved).unwrap(), back);
+        }
+        let new_wins = classic.clone().with("gs99", code("Perc")).with("gradientsInterpolationMethod", code("Gcls"));
+        assert_eq!(fill_from_desc(&key, &new_wins).unwrap(), fill);
+        let unknown = classic.with("gs99", code("Perc")).with("gradientsInterpolationMethod", code("????"));
+        assert_eq!(fill_from_desc(&key, &unknown).unwrap(), fill);
+    }
+
+    #[test]
+    fn unsupported_smoothness_is_baked_and_effects_read_the_current_method_key() {
+        use photocraft_doc::GradientMethod;
+        let fill = Fill::gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], 0.0, 1.0, GradientStyle::Linear, false);
+        let (key, classic) = fill_to_desc(&fill);
+        let method = |code: &str| Value::Enumerated { type_id: Id::new("gradientInterpolationMethodType"), value: Id::new(code) };
+        let smooth = classic.clone().with("gradientsInterpolationMethod", method("Smoo"));
+        let back = fill_from_desc(&key, &smooth).unwrap();
+        assert!(matches!(&back, Fill::Gradient { method: GradientMethod::Classic, stops, .. } if stops.len() > 2));
+        let value = photocraft_compose::gradient_fill::Ramp::new(&back).unwrap().sample(0.5)[0] * 255.0;
+        assert!((value - 99.0).abs() <= 2.0, "Smooth stays baked: {value}");
+        let mut grad = get_desc(&classic, "Grad").unwrap().clone();
+        for (key, value) in &mut grad.items {
+            if key.is("Intr") {
+                *value = Value::Double(4096.0);
+            }
+        }
+        let mut smoothness = classic.clone();
+        smoothness.items.retain(|(key, _)| !key.is("Grad"));
+        let smoothness = smoothness.with("Grad", Value::Descriptor(grad)).with("gradientsInterpolationMethod", method("Perc"));
+        assert!(matches!(fill_from_desc(&key, &smoothness).unwrap(), Fill::Gradient { method: GradientMethod::Classic, stops, .. } if stops.len() > 2));
+        let effect = classic.with("gradientsInterpolationMethod", method("Perc"));
+        let (stops, _) = gradient_stops_with(get_desc(&effect, "Grad").unwrap(), gradient_method(&effect));
+        let baked = Fill::gradient(stops, 0.0, 1.0, GradientStyle::Linear, false);
+        assert!((photocraft_compose::gradient_fill::Ramp::new(&baked).unwrap().sample(0.5)[0] - 0.388573).abs() < 2e-5);
     }
 }
 

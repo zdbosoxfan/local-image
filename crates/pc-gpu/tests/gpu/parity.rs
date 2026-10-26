@@ -8,6 +8,8 @@ use photocraft_doc::{Adjustment, Document, Fill, GradientStyle, Layer, LayerCont
 use photocraft_geom::{Rect, Size};
 use photocraft_gpu::{Compositor, render_to_vec};
 
+mod gradient_methods;
+
 const TOL: f32 = 1.0 / 255.0;
 
 pub(super) struct Gpu {
@@ -468,6 +470,7 @@ fn fills_and_dissolve() {
         let mut d = base_doc(64, 48);
         let stops = vec![(0.0, Color::rgb(1.0, 0.0, 0.0)), (0.6, Color::rgb(0.0, 1.0, 0.2)), (1.0, Color::rgb(0.1, 0.1, 0.9))];
         let fill = Fill::Gradient {
+            method: Default::default(),
             stops,
             angle: -20.0,
             scale: 0.6,
@@ -1396,6 +1399,7 @@ fn shape_gradient_fields_strokes_clips_and_effects() {
                 let mut d = Document::new("gradient sync", Size::new(320, 72), ColorMode::Rgb, depth);
                 d.layers.push(noise_layer("bg", d.pixel_format(), d.bounds(), 71, 0.5));
                 let paint = Fill::Gradient {
+                    method: Default::default(),
                     stops: vec![(1.0, Color::WHITE), (0.5, Color::rgb(0.9, 0.2, 0.4)), (0.0, Color::BLACK)],
                     angle: 31.0,
                     scale: 1.3,

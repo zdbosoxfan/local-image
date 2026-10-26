@@ -1,8 +1,9 @@
 //! Native gradient geometry and ramp are read from pc-vector::Paint, including #1321
 //! pixel-corner sampling. Writers serialize the frame and stop samples below.
 use super::*;
-use photocraft_doc::{Fill, GradientStyle};
+use photocraft_doc::{Fill, GradientMethod, GradientStyle};
 use photocraft_vector::Paint;
+use photocraft_vector::gradient_method::{MAX_EXPANDED_STOPS, refine_samples, sample_limits};
 
 pub fn supported(f: &Fill) -> bool {
     match f {
@@ -30,10 +31,15 @@ impl Gradient {
         if !supported(fill) {
             return Err(invalid("unsupported vector paint reached writer"));
         }
+        if let Fill::Gradient { stops, opacity_stops, midpoints, .. } = fill
+            && stops.len().saturating_add(opacity_stops.len()).saturating_add(midpoints.len()) > MAX_EXPANDED_STOPS
+        {
+            return Err(invalid("gradient has too many source stops; simplify the ramp"));
+        }
         let bounds = path.control_bounds().unwrap_or((0.0, 0.0, 1.0, 1.0));
         let r = doc.bounds();
         let paint = Paint::from_fill(fill, bounds, (r.x0 as f64, r.y0 as f64, r.x1 as f64, r.y1 as f64));
-        let Paint::Gradient { stops, midpoints, opacity_stops, style, layout, reverse, frame, .. } = paint else {
+        let Paint::Gradient { method, stops, midpoints, opacity_stops, style, layout, reverse, frame, .. } = paint else {
             return Err(invalid("gradient expected"));
         };
         let (angle, scale, offset) = layout;
@@ -72,6 +78,9 @@ impl Gradient {
         // interpolate straight channels, so only that product needs subdivisions.
         // An imported SVG already has one alpha ramp and must retain its stop count.
         if !opacity_stops.is_empty() && stops.windows(2).any(|p| p[0].1[3] != p[1].1[3]) {
+            if positions.len().saturating_mul(16) > MAX_EXPANDED_STOPS {
+                return Err(invalid("gradient alpha needs too many samples; simplify the ramp"));
+            }
             for pair in positions.windows(2) {
                 for i in 1..16 {
                     samples.push(pair[0] + (pair[1] - pair[0]) * i as f32 / 16.0);
@@ -91,7 +100,11 @@ impl Gradient {
         }
         samples.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         samples.dedup();
+        if samples.len() > MAX_EXPANDED_STOPS {
+            return Err(invalid("gradient needs too many samples; simplify the ramp"));
+        }
         let ramp = Paint::Gradient {
+            method,
             stops,
             midpoints,
             opacity_stops,
@@ -101,12 +114,73 @@ impl Gradient {
             dither: false,
             frame: (0.0, 0.0, 1.0, 1.0),
         };
-        Ok(Self { style, center: (cx, cy), radius: len / 2.0, axis, samples, ramp })
+        let mut gradient = Self { style, center: (cx, cy), radius: len / 2.0, axis, samples, ramp };
+        if method == GradientMethod::Perceptual {
+            gradient.samples = refine_samples(std::mem::take(&mut gradient.samples), |u, side| gradient.color(u, side)).map_err(invalid)?;
+        }
+        Ok(gradient)
     }
     /// Straight RGBA at a sample from [`Self::samples`].
     pub fn color(&self, u: f32, side: i8) -> [f32; 4] {
+        if side != 0
+            && let Paint::Gradient { method: GradientMethod::Perceptual, stops, midpoints, opacity_stops, reverse, .. } = &self.ramp
+        {
+            let position = stops.iter().map(|s| s.0).chain(opacity_stops.iter().map(|s| s.0)).find(|t| {
+                let t = if *reverse { 1.0 - t } else { *t };
+                if self.style == GradientStyle::Reflected { (1.0 - t) / 2.0 == u || (1.0 + t) / 2.0 == u } else { t == u }
+            });
+            if let Some(t) = position {
+                let (left, right) = sample_limits(GradientMethod::Perceptual, stops, midpoints, opacity_stops, t);
+                let increasing = (self.style != GradientStyle::Reflected || u >= 0.5) != *reverse;
+                return if (side < 0) == increasing { left } else { right };
+            }
+        }
         let sample = (u + f32::from(side) * 0.000001).clamp(0.0, 1.0);
         let t = if self.style == GradientStyle::Reflected { (2.0 * sample - 1.0).abs() } else { sample };
         self.ramp.at(f64::from(t) + 0.5, 0.5)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use photocraft_doc::{Color, ColorMode, SampleType, Size};
+
+    #[test]
+    fn perceptual_export_keeps_hard_stops_and_bounds_every_smooth_span() {
+        let doc = Document::new("Gradient", Size::new(64, 32), ColorMode::Rgb, SampleType::U8);
+        let path = photocraft_vector::shapes::rect(0.0, 0.0, 64.0, 32.0);
+        for style in [GradientStyle::Linear, GradientStyle::Radial, GradientStyle::Reflected] {
+            for reverse in [false, true] {
+                let mut fill = Fill::gradient(
+                    vec![(0.0, Color::BLACK), (0.5, Color::rgb(0.0, 0.0, 1.0)), (0.5, Color::rgb(1.0, 1.0, 0.0)), (1.0, Color::WHITE)],
+                    0.0,
+                    1.0,
+                    style,
+                    reverse,
+                );
+                if let Fill::Gradient { method, .. } = &mut fill {
+                    *method = GradientMethod::Perceptual;
+                }
+                let gradient = Gradient::new(&doc, &fill, &path).unwrap();
+                let hard: &[f32] = if style == GradientStyle::Reflected { &[0.25, 0.75] } else { &[0.5] };
+                for t in hard {
+                    assert!(gradient.samples.contains(&(*t, -1)) && gradient.samples.contains(&(*t, 1)));
+                    let (a, b) = (gradient.color(*t, -1), gradient.color(*t, 1));
+                    assert!((a[0] - b[0]).abs() > 0.9, "hard stop at {t}: {a:?} {b:?}");
+                }
+                for pair in gradient.samples.windows(2).filter(|p| p[0].0 < p[1].0) {
+                    let (a, b) = (gradient.color(pair[0].0, pair[0].1), gradient.color(pair[1].0, pair[1].1));
+                    for u in [0.125, 0.375, 0.625, 0.875] {
+                        let actual = gradient.color(pair[0].0 + (pair[1].0 - pair[0].0) * u, 0);
+                        for ch in 0..4 {
+                            assert!((actual[ch] - (a[ch] + (b[ch] - a[ch]) * u)).abs() < 0.4 / 255.0, "{style:?} reverse={reverse}");
+                        }
+                    }
+                }
+            }
+        }
+        let fill = Fill::gradient(vec![(0.0, Color::BLACK); MAX_EXPANDED_STOPS + 1], 0.0, 1.0, GradientStyle::Linear, false);
+        assert!(Gradient::new(&doc, &fill, &path).is_err());
     }
 }

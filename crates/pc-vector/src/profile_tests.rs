@@ -85,6 +85,7 @@ fn tagged_solid_and_gradient_paint_use_profile_across_multiple_tile_bands() {
             });
             let fill = if gradient {
                 Fill::Gradient {
+                    method: Default::default(),
                     stops: vec![(0., colors[0]), (1., colors[1])],
                     style: GradientStyle::Linear,
                     angle: 0.,
