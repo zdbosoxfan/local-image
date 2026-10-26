@@ -57,10 +57,25 @@ pub fn export_document(doc: &Document, r: &Request, cancelled: &dyn Fn() -> bool
     if doc.id.0 != r.document {
         return Err(error("Export snapshot does not match the captured document"));
     }
+    let info = match doc.metadata.xmp.as_deref() {
+        Some(packet) => {
+            let metadata = lightcraft_meta::parse_xmp(packet)
+                .map_err(|cause| error(format!("PDF File Info could not be read: {cause}; correct File Info before exporting")))?.metadata;
+            photocraft_pdf::export::FileInfo {
+                author: metadata.artist.unwrap_or_default(),
+                description: metadata.caption.unwrap_or_default(),
+                keywords: metadata.keywords,
+                copyright_marked: metadata.copyright_marked,
+                copyright: metadata.copyright.unwrap_or_default(),
+                copyright_url: metadata.copyright_url.unwrap_or_default(),
+            }
+        }
+        None => photocraft_pdf::export::FileInfo::default(),
+    };
     let mut text = vector_export_job::font_snapshot(cancelled)?;
     let (projected, warnings) = crate::vector_integration::project_for_export_with(doc, &mut text, cancelled)?;
     let mut cx = ExportContext { cancelled, projection: None, text: &mut text };
-    let mut output = photocraft_pdf::export::export_with(&projected, &r.scope.exchange(), &r.options, &mut cx)
+    let mut output = photocraft_pdf::export::export_with_info(&projected, &r.scope.exchange(), &r.options, &mut cx, &info)
         .map_err(|e| if cancelled() { EngineError::Cancelled } else { error(e.to_string()) })?;
     if cancelled() {
         return Err(EngineError::Cancelled);

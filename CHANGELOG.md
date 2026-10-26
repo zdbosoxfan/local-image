@@ -8,6 +8,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Compositing: Export PDF carries File Info author, description, keywords, copyright status,
+  notice and rights URL without camera, GPS or Develop metadata.
+
 - Compositing: moving selected pixels uses parallel sparse tiles, shares fully selected tiles,
   and avoids an initial zero-offset preview composite on large documents.
 
