@@ -52,6 +52,20 @@ fn snapping_guides_grid_nodes_pixels_at_zoom_and_hidpi() {
         }
     }
 }
+
+#[test]
+fn moved_rectangles_snap_their_edges_to_grid_and_pixel_targets() {
+    let doc = document();
+    let cache = Cache::build(&doc, 0, Exclusions::default(), None).unwrap();
+    let grid = Settings { grid_step: 20., tolerance_px: 10., ..only(Kind::Grid) };
+    for (rect, expected) in [([108., 108., 208., 208.], [100., 100.]), ([131., 129., 231., 229.], [140., 120.])] {
+        assert_eq!(cache.rect(rect, &grid, View::default(), false).unwrap().point, expected);
+    }
+    let pixel = cache.rect([10.3, 20.3, 21.3, 31.3], &only(Kind::Pixel), View::default(), false).unwrap();
+    assert_eq!(pixel.point, [10., 20.]);
+    let point = cache.point([150.2, 150.2], &grid, View::default(), None, false).unwrap();
+    assert_eq!(point.point, [160., 160.]);
+}
 #[test]
 fn snapping_tie_priority_and_reordering_are_stable() {
     let mut doc = document();

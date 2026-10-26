@@ -63,6 +63,10 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
             )
         })
         .unwrap_or((0, 0, width, height));
+    let state_slots = (1..=4).fold(0usize, |count, c| count.saturating_add(s.array_len(bitmap, &tag(b"Sta", c))));
+    if !r.charge_slots(state_slots) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     let source_tiles_only =
         (1..=4).all(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if !a.is_empty() && a.iter().all(|v| *v == Value::UInt(5))));
     if s.field(bitmap, b"Bckg").is_some() && has_tiles && !source_tiles_only && !s.is(id, b"ImgN") {
@@ -135,6 +139,11 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     // duplicating the pixels. State 5 is checked in the public Patchy embedded-jpeg fixture.
     // Support only the observed, same-size RGBA8 image with a zero bitmap origin; other
     // representations still receive the existing loss warning rather than guessing a mapping.
+    // Pay for shared state arrays before source detection or the per-channel tile walk.
+    let state_slots = (1..=channels).fold(0usize, |count, c| count.saturating_add(s.array_len(bitmap, &tag(b"Sta", c))));
+    if !r.charge_slots(state_slots) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     let needs_source = (1..=channels).any(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if a.contains(&Value::UInt(5))));
     let source = if needs_source && format == Some(0) && s.int(bitmap, b"LInf") == Some(0) && s.int(bitmap, b"TInf") == Some(0) {
         if let Some(name) = s.entry(bitmap, b"Bckg") {
@@ -242,10 +251,14 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
     let height = s.int(bitmap, b"BmpH").and_then(|v| usize::try_from(v).ok()).unwrap_or(0);
     let tw = s.int(bitmap, &tag(b"TWi", c)).and_then(|v| usize::try_from(v).ok()).unwrap_or_else(|| (width * bps).div_ceil(TILE));
     let th = s.int(bitmap, &tag(b"THi", c)).and_then(|v| usize::try_from(v).ok()).unwrap_or_else(|| height.div_ceil(TILE));
-    let states: Vec<u8> = match s.field(bitmap, &tag(b"Sta", c)) {
-        Some(Value::Array(a)) => a.iter().map(|v| if let Value::UInt(u) = v { u8::try_from(*u).unwrap_or(255) } else { 255 }).collect(),
-        _ => Vec::new(),
+    // Borrow shared state arrays; only the declared tile grid is visited.
+    let states: &[Value] = match s.field(bitmap, &tag(b"Sta", c)) {
+        Some(Value::Array(a)) => a,
+        _ => &[],
     };
+    if !r.charge_slots(s.array_len(bitmap, &tag(b"Idx", c))) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     let tiles = s.objs(bitmap, &tag(b"Idx", c));
     let row = (w as usize) * bps;
     let mut out = vec![0u8; row * h as usize];
@@ -255,6 +268,7 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
     for (t, state) in states.iter().enumerate().take(tw.saturating_mul(th)) {
         crate::import::cancelled(r.archive.cancel)?;
         let (ty, tx) = (t / tw.max(1), t % tw.max(1));
+        let state = if let Value::UInt(u) = state { u8::try_from(*u).unwrap_or(255) } else { 255 };
         let fill = match state {
             0 | 1 => None,
             2 => Some(0xFF),

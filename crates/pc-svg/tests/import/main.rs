@@ -23,6 +23,34 @@ fn flat(layers: &[Layer]) -> Vec<&Layer> {
     }
     out
 }
+
+#[test]
+fn editable_font_family_roundtrips_css_string_escapes() {
+    use photocraft_doc::vector_design::exchange::ExportScope;
+    use photocraft_svg::export::{ExportOptions, export};
+    for family in ["Mom's Typewriter", r"a'b\c", r"back\slash", r"trailing\", "'quoted'", "comma, family", "Inter"] {
+        let mut doc = Document::new("Font family", photocraft_doc::Size::new(128, 128), ColorMode::Rgb, SampleType::U8);
+        doc.layers
+            .push(Layer::new("Text", LayerContent::Text(photocraft_doc::TextLayer { text: "H".into(), font_family: family.into(), ..Default::default() })));
+        let output = export(&doc, &ExportScope::Document, &ExportOptions { text_as_curves: false, ..Default::default() }).unwrap();
+        let scene = photocraft_svg::import(&output.bytes, &ImportOptions::default()).unwrap();
+        let layers = flat(&scene.layers);
+        let text = layers.iter().find_map(|layer| if let LayerContent::Text(text) = &layer.content { Some(text) } else { None }).unwrap();
+        assert_eq!(text.text.trim(), "H");
+        let mut offset = 0;
+        let style = text
+            .runs
+            .iter()
+            .find_map(|run| {
+                let end = offset + run.len;
+                let contains_glyph = text.text[offset..end].contains('H');
+                offset = end;
+                contains_glyph.then_some(&run.style)
+            })
+            .unwrap();
+        assert_eq!(style.font_family, family);
+    }
+}
 fn document(scene: photocraft_doc::vector_design::exchange::ImportedScene) -> Document {
     let mut d = Document::new("test", scene.size, ColorMode::Rgb, SampleType::F32);
     d.layers = scene.layers;

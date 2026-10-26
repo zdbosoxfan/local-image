@@ -263,7 +263,10 @@ pub(crate) fn descriptor(r: &mut Reader, id: ObjId, local: Affine) -> Option<Pai
     }
 }
 
-fn current(r: &Reader, id: ObjId, list: &[u8; 4], index: &[u8; 4]) -> Option<ObjId> {
+fn current(r: &mut Reader, id: ObjId, list: &[u8; 4], index: &[u8; 4]) -> Option<ObjId> {
+    if !r.charge_slots(r.s.array_len(id, list)) {
+        return None;
+    }
     let items = r.s.objs(id, list);
     let i = r.s.int(id, index).and_then(|i| usize::try_from(i).ok()).unwrap_or(0);
     items.get(i).or_else(|| items.first()).copied()
@@ -279,6 +282,9 @@ pub(crate) fn fills(r: &mut Reader, id: ObjId, local: Affine, list: &[u8; 4]) ->
 pub(crate) fn node_paint(r: &mut Reader, id: ObjId, local: Affine) -> (Vec<Paint>, Vec<Stroke>) {
     let s = r.s;
     let fills = fills(r, id, local, b"BFFl");
+    if !r.charge_slots(s.array_len(id, b"BFFl").saturating_add(s.array_len(id, b"LIFl"))) {
+        return (fills, Vec::new());
+    }
     if r.s.objs(id, b"BFFl").len() > 1 || r.s.objs(id, b"LIFl").len() > 1 {
         r.warn("several fills or strokes on one object (only the active one is imported)");
     }
@@ -313,6 +319,9 @@ fn stroke(r: &mut Reader, pen: ObjId, ldsc: ObjId, local: Affine, behind: bool) 
     let scales = s.bool(ldsc, b"LDSc").unwrap_or(true);
     let width = if scales { weight * local.scale() } else { weight };
     let data = s.bytes(lsty, b"Data").unwrap_or_default();
+    if data.get(10) == Some(&0) {
+        return None;
+    }
     let miter_limit = data.get(0..8).and_then(|b| b.try_into().ok()).map(f64::from_le_bytes).filter(|m| m.is_finite() && *m >= 1.0).unwrap_or(4.0);
     // Cap and join bytes are only partly understood: (0, 0) is butt/miter in every clean sample;
     // (2, 2) ends plain lines square and brush lines round; joins import round, which never
@@ -329,7 +338,12 @@ fn stroke(r: &mut Reader, pen: ObjId, ldsc: ObjId, local: Affine, behind: bool) 
         Some(2) => Align::Outside,
         _ => Align::Center,
     };
+    const MAX_DASHES: usize = 64;
     let dash = match s.field(lsty, b"Patn") {
+        Some(Value::Array(a)) if a.len() > MAX_DASHES => {
+            r.warn("dash patterns longer than 64 lengths (imported as solid)");
+            None
+        }
         Some(Value::Array(a)) if data.get(10) == Some(&2) || !a.is_empty() => {
             let mut v: Vec<f64> = a.iter().filter_map(|x| if let Value::Float(f) = x { Some(*f) } else { None }).collect();
             while v.len() >= 2 && v.iter().rev().take(2).all(|x| *x == 0.0) {

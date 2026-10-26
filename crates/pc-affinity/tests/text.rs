@@ -300,7 +300,13 @@ fn nonfinite_text_frame_and_baseline_fail_before_model_publication() {
 #[test]
 fn text_run_storage_obeys_expanded_model_budget() {
     let count = 20_000;
-    let bytes = document(vec![block(utf8(&"x".repeat(count)), (1..=count).map(|n| run(n as i32, None)).collect(), &[])], false, 96., IDENTITY);
+    let characters_per_run = 40;
+    let bytes = document(
+        vec![block(utf8(&"x".repeat(count * characters_per_run)), (1..=count).map(|n| run((n * characters_per_run) as i32, None)).collect(), &[])],
+        false,
+        96.,
+        IDENTITY,
+    );
     let limits = Limits { max_total: 8 << 20, ..Limits::default() };
     assert!(matches!(photocraft_affinity::read(&bytes, limits), Err(photocraft_affinity::Error::Limit("expanded model allocation"))));
 }

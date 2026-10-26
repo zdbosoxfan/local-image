@@ -80,11 +80,35 @@ impl AtomicFs for CapFs<'_> {
     }
 
     fn preserve_permissions(&self, from: &Path, to: &Path, _policy: li_fs::Policy) -> io::Result<()> {
-        let permissions = self.dir.metadata(from)?.permissions();
+        let metadata = self.dir.metadata(from)?;
         let mut options = OpenOptions::new();
         options.write(true);
         let file = self.dir.open_with(to, &options)?;
-        file.set_permissions(permissions)?;
+        #[cfg(unix)]
+        let file = file.into_std();
+        #[cfg(unix)]
+        {
+            use cap_std::fs::MetadataExt;
+            li_fs::preserve_access(&file, metadata.mode(), metadata.gid(), || {
+                #[cfg(target_os = "linux")]
+                {
+                    use cap_std::fs::OpenOptionsExt;
+                    if !self.dir.symlink_metadata(from)?.is_file() {
+                        return Ok(None);
+                    }
+                    let mut options = OpenOptions::new();
+                    options.read(true).custom_flags(li_fs::read::REGULAR_READ_OPEN_FLAGS);
+                    let source = self.dir.open_with(from, &options)?.into_std();
+                    if source.metadata()?.is_file() { li_fs::read_access_acl(&source) } else { Ok(None) }
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Ok(None)
+                }
+            })?;
+        }
+        #[cfg(not(unix))]
+        file.set_permissions(metadata.permissions())?;
         file.sync_all()
     }
 }
@@ -539,6 +563,43 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let workspace = AuthorizedWorkspace::new(Some(&inside), Some(&inside)).unwrap();
         (inside, outside, workspace)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_replaces_fifo_without_waiting_for_a_reader() {
+        let (inside, _, workspace) = roots("fifo-replacement");
+        let target = inside.join("output.txt");
+        assert!(std::process::Command::new("mkfifo").arg(&target).status().unwrap().success());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || sender.send(workspace.write("output.txt", b"replacement")).unwrap());
+        receiver.recv_timeout(std::time::Duration::from_secs(5)).expect("replacing a FIFO must not block").unwrap();
+        worker.join().unwrap();
+        assert!(std::fs::symlink_metadata(&target).unwrap().is_file());
+        assert_eq!(std::fs::read(&target).unwrap(), b"replacement");
+        assert!(temp_files(&inside).is_empty());
+        std::fs::remove_dir_all(inside.parent().unwrap()).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn capability_replacement_keeps_the_posix_access_acl() {
+        use std::os::unix::fs::MetadataExt;
+        let (inside, outside, workspace) = roots("access-acl");
+        let target = inside.join("access.txt");
+        std::fs::write(&target, b"original").unwrap();
+        let uid = std::fs::metadata(&target).unwrap().uid();
+        assert!(std::process::Command::new("setfacl").args(["-m", &format!("u:{uid}:r,g::---,m::r,o::---"), "--"]).arg(&target).status().unwrap().success());
+        let before = std::process::Command::new("getfacl").args(["--omit-header", "--numeric", "--"]).arg(&target).output().unwrap();
+        assert!(before.status.success());
+        workspace.write("access.txt", b"replacement").unwrap();
+        let after = std::process::Command::new("getfacl").args(["--omit-header", "--numeric", "--"]).arg(&target).output().unwrap();
+        assert!(after.status.success());
+        assert_eq!(before.stdout, after.stdout);
+        assert_eq!(std::fs::read(&target).unwrap(), b"replacement");
+        drop(workspace);
+        std::fs::remove_dir_all(inside.parent().unwrap()).unwrap();
+        assert!(!outside.exists());
     }
 
     #[test]

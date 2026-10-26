@@ -23,6 +23,94 @@ impl Drop for Dir {
 }
 const OLD: &[u8] = b"original document";
 
+#[cfg(target_os = "linux")]
+#[test]
+fn replacements_keep_the_exact_posix_access_acl() {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let dir = Dir::new();
+    let target = dir.target();
+    fs::write(&target, OLD).unwrap();
+    let uid = fs::metadata(&target).unwrap().uid();
+    let mut acl = 2u32.to_le_bytes().to_vec();
+    for (tag, permissions, id) in [(1u16, 6u16, u32::MAX), (2, 4, uid), (4, 0, u32::MAX), (16, 4, u32::MAX), (32, 0, u32::MAX)] {
+        acl.extend(tag.to_le_bytes());
+        acl.extend(permissions.to_le_bytes());
+        acl.extend(id.to_le_bytes());
+    }
+    const NAME: &str = "system.posix_acl_access";
+    match rustix::fs::setxattr(&target, NAME, &acl, rustix::fs::XattrFlags::empty()) {
+        Ok(()) => {}
+        Err(rustix::io::Errno::NOTSUP) => {
+            eprintln!("NOT VERIFIED: this filesystem does not support POSIX ACLs");
+            return;
+        }
+        Err(error) => panic!("set access ACL: {error}"),
+    }
+    for stage in [false, true] {
+        let mut before = [0; 1024];
+        let n = rustix::fs::getxattr(&target, NAME, &mut before[..]).unwrap();
+        assert_eq!(&before[..n], &acl);
+        if stage {
+            stage_write(&target, b"staged", &Interrupt::NONE).unwrap().commit().unwrap();
+        } else {
+            write_atomic(&target, b"atomic").unwrap();
+        }
+        let mut after = [0; 1024];
+        let n = rustix::fs::getxattr(&target, NAME, &mut after[..]).unwrap();
+        assert_eq!(&after[..n], &acl);
+        assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o640);
+    }
+    rustix::fs::removexattr(&target, NAME).unwrap();
+    rustix::fs::setxattr(&dir.0, "system.posix_acl_default", &acl, rustix::fs::XattrFlags::empty()).unwrap();
+    write_atomic(&target, b"without an ACL").unwrap();
+    let mut after = [0; 1024];
+    assert_eq!(rustix::fs::getxattr(&target, NAME, &mut after[..]), Err(rustix::io::Errno::NODATA));
+    dir.clean();
+}
+
+#[cfg(unix)]
+#[test]
+fn replacements_keep_a_supplementary_group() {
+    use std::os::unix::fs::MetadataExt;
+    let dir = Dir::new();
+    let target = dir.target();
+    fs::write(&target, OLD).unwrap();
+    let primary = fs::metadata(&target).unwrap().gid();
+    let groups = std::process::Command::new("id").arg("-G").output().unwrap();
+    assert!(groups.status.success());
+    let group = std::str::from_utf8(&groups.stdout).unwrap().split_whitespace().map(|g| g.parse::<u32>().unwrap()).find(|g| *g != primary);
+    let Some(group) = group else {
+        eprintln!("NOT VERIFIED: no supplementary group is available");
+        return;
+    };
+    std::os::unix::fs::chown(&target, None, Some(group)).unwrap();
+    for stage in [false, true] {
+        if stage {
+            stage_write(&target, b"staged", &Interrupt::NONE).unwrap().commit().unwrap();
+        } else {
+            write_atomic(&target, b"atomic").unwrap();
+        }
+        assert_eq!(fs::metadata(&target).unwrap().gid(), group);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_group_preservation_failure_restricts_the_replacement_to_its_owner() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Dir::new();
+    let target = dir.target();
+    fs::write(&target, OLD).unwrap();
+    fs::set_permissions(&target, fs::Permissions::from_mode(0o640)).unwrap();
+    let previous = FAIL_ACCESS_GROUP.with(|flag| flag.replace(true));
+    let result = write_atomic(&target, b"replacement");
+    FAIL_ACCESS_GROUP.with(|flag| flag.set(previous));
+    result.unwrap();
+    assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(fs::read(&target).unwrap(), b"replacement");
+    dir.clean();
+}
+
 #[test]
 fn golden_all_write_policies_and_stream_lengths() {
     let dir = Dir::new();

@@ -17,8 +17,7 @@ const MAX_SIDES: i64 = 10_000;
 
 /// The last value of a tag: a shape changed from one kind to another keeps a stale first block.
 fn last<'a>(r: &'a Reader, id: ObjId, tag: &[u8; 4]) -> Option<&'a Value> {
-    let t = Tag::of(tag);
-    r.s.object(id)?.fields.iter().rev().find(|(k, _)| *k == t).map(|(_, v)| v)
+    r.s.object(id)?.get_last(Tag::of(tag))
 }
 
 fn num(r: &Reader, id: ObjId, tag: &[u8; 4]) -> Option<f64> {

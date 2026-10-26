@@ -359,6 +359,171 @@ mod archive {
     }
 }
 
+mod bounds {
+    use crate::synth::{self, F, Method, tag};
+    use crate::{Error, Limits};
+
+    fn document(children: Vec<F>) -> Vec<u8> {
+        let children = children
+            .into_iter()
+            .enumerate()
+            .map(|(i, child)| match child {
+                F::Obj(class, fields) => F::Def(1000 + i as u32, vec![class], fields),
+                other => other,
+            })
+            .collect();
+        let data = synth::stream(&[(
+            tag(b"DocR"),
+            F::Obj(tag(b"DocN"), vec![(tag(b"Chld"), F::Objs(tag(b"Sprd"), vec![vec![(tag(b"Chld"), F::Shared(children))]]))]),
+        )]);
+        synth::container(&[("doc.dat", &data, Method::Stored)], None)
+    }
+
+    #[test]
+    fn repeated_null_arrays_exhaust_the_document_work_budget() {
+        for field in [b"Chld", b"FiEf", b"BFFl", b"LIFl", b"LILn", b"AdCh"] {
+            let mut fields = vec![
+                (tag(b"Shpe"), F::Obj(tag(b"ShNR"), vec![])),
+                (tag(b"ShpB"), F::F64s(vec![0., 0., 20., 20.])),
+                (tag(field), F::Shared(vec![F::Null; 1_000_000])),
+            ];
+            if field == b"LILn" {
+                fields.push((tag(b"LIFl"), F::Shared(vec![])));
+            }
+            let mut children = vec![F::Def(7, vec![tag(b"ShpN")], fields)];
+            children.extend(std::iter::repeat_n(F::Ref(7), 9_999));
+            let bytes = document(children);
+            let start = std::time::Instant::now();
+            let result = crate::read(&bytes, Limits::default());
+            assert!(matches!(result, Err(Error::Limit(_))), "{field:?}: {:?}", result.as_ref().err());
+            assert!(start.elapsed().as_secs() < 10, "shared null array traversal: {field:?}");
+        }
+    }
+
+    #[test]
+    fn shared_raster_states_exhaust_the_document_work_budget() {
+        for columns in [1, 1_000_000] {
+            let bitmap = F::Obj(
+                tag(b"DyBm"),
+                vec![
+                    (tag(b"BmpW"), F::U32(1)),
+                    (tag(b"BmpH"), F::U32(1)),
+                    (tag(b"Frmt"), F::Enum(6, 0)),
+                    (tag(b"Sta1"), F::U8s(vec![0; 1_000_000])),
+                    (tag(b"TWi1"), F::U32(columns)),
+                    (tag(b"THi1"), F::U32(1)),
+                ],
+            );
+            let mut children = vec![F::Def(7, vec![tag(b"Rstr")], vec![(tag(b"Bitm"), bitmap)])];
+            children.extend(std::iter::repeat_n(F::Ref(7), 9_999));
+            let bytes = document(children);
+            let start = std::time::Instant::now();
+            let result = crate::read(&bytes, Limits::default());
+            assert!(matches!(result, Err(Error::Limit(_))), "shared states with {columns} columns: {:?}", result.as_ref().err());
+            assert!(start.elapsed().as_secs() < 10, "shared raster traversal took {:?}", start.elapsed());
+        }
+    }
+
+    #[test]
+    fn zero_width_records_are_rejected_before_expansion() {
+        let bytes = synth::stream(&[(tag(b"Data"), F::Records(0, vec![Vec::new(); 1024]))]);
+        assert_eq!(crate::stream::parse(&bytes).unwrap_err(), Error::Malformed("array longer than its data"));
+    }
+
+    #[test]
+    fn shared_object_field_lookup_keeps_first_match_without_repeated_scans() {
+        let mut fields = vec![(tag(b"Fill"), F::U8(0)); 1_000_000];
+        fields.extend([(tag(b"Desc"), F::Str("first".into())), (tag(b"Desc"), F::Str("last".into()))]);
+        let bytes = synth::stream(&[(tag(b"Item"), F::Def(7, vec![tag(b"Node")], fields)), (tag(b"Refs"), F::Shared(vec![F::Ref(7); 10_000]))]);
+        let stream = crate::stream::parse(&bytes).unwrap();
+        let start = std::time::Instant::now();
+        for id in stream.objs(stream.root, b"Refs") {
+            assert_eq!(stream.str(id, b"Desc"), Some("first"));
+            assert_eq!(stream.object(id).unwrap().get_last(tag(b"Desc")), Some(&crate::stream::Value::Str("last".into())));
+            assert_eq!(stream.field(id, b"Miss"), None);
+        }
+        assert!(start.elapsed().as_secs() < 10, "shared field lookup took {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn a_large_live_corner_curve_imports_with_its_last_anchor_intact() {
+        let count = 200_000u32;
+        let records = (0..count)
+            .map(|i| {
+                let mut record = f64::from(i).to_le_bytes().to_vec();
+                record.extend(0f64.to_le_bytes());
+                record.extend([0, 0]);
+                record
+            })
+            .collect();
+        // Positional CnrD contains a byte, an i32 array and an f64 array.
+        let mut corners = vec![0x30];
+        corners.extend(tag(b"CnrD").0.to_le_bytes());
+        corners.extend([0x01, 0, 0x87]);
+        corners.extend(count.to_le_bytes());
+        for i in 0..count {
+            corners.extend(i.to_le_bytes());
+        }
+        corners.push(0x8a);
+        corners.extend(count.to_le_bytes());
+        for _ in 0..count {
+            corners.extend(1f64.to_le_bytes());
+        }
+        corners.push(0);
+        let bytes = document(vec![F::Def(
+            7,
+            vec![tag(b"PCrv")],
+            vec![(
+                tag(b"Crvs"),
+                F::Obj(
+                    tag(b"PCvD"),
+                    vec![(tag(b"Data"), F::Pos(vec![F::U8(0), F::U32(1), F::Bool(false), F::Records(18, records)])), (tag(b"CnrD"), F::Raw(corners))],
+                ),
+            )],
+        )]);
+        let start = std::time::Instant::now();
+        let doc = crate::read(&bytes, Limits::default()).unwrap();
+        let crate::model::Kind::Shape { path, .. } = &doc.spreads[0].nodes[0].kind else { panic!("curve") };
+        assert_eq!(path.subpaths.len(), 1);
+        assert_eq!(path.subpaths[0].segments.last().unwrap()[2], crate::model::Point { x: f64::from(count - 1), y: 0. });
+        assert!(start.elapsed().as_secs() < 10, "curve import took {:?}", start.elapsed());
+    }
+
+    #[test]
+    fn none_strokes_are_absent_and_oversized_dash_patterns_are_solid() {
+        let pen = F::Obj(tag(b"FilS"), vec![(tag(b"Colr"), F::Obj(tag(b"GRAY"), vec![(tag(b"_col"), F::F64s(vec![0., 1.]))]))]);
+        for (style, count) in [(0, 0), (2, 65), (2, 64)] {
+            let mut data = 4f64.to_le_bytes().to_vec();
+            data.extend([0, 0, style]);
+            let mut pattern = vec![0x8a];
+            pattern.extend(tag(b"Patn").0.to_le_bytes());
+            pattern.extend((count as u32).to_le_bytes());
+            for _ in 0..count {
+                pattern.extend(1f64.to_le_bytes());
+            }
+            let bytes = document(vec![F::Obj(
+                tag(b"ShpN"),
+                vec![
+                    (tag(b"Shpe"), F::Obj(tag(b"ShNR"), vec![])),
+                    (tag(b"ShpB"), F::F64s(vec![0., 0., 20., 20.])),
+                    (tag(b"PFil"), pen.clone()),
+                    (tag(b"LSty"), F::Obj(tag(b"LSty"), vec![(tag(b"Wght"), F::F64(1.)), (tag(b"Data"), F::Struct(data)), (tag(b"Patn"), F::Raw(pattern))])),
+                ],
+            )]);
+            let doc = crate::read(&bytes, Limits::default()).unwrap();
+            let crate::model::Kind::Shape { strokes, .. } = &doc.spreads[0].nodes[0].kind else { panic!("shape") };
+            if style == 0 {
+                assert!(strokes.is_empty(), "None-style stroke became an outline");
+            } else if count > 64 {
+                assert!(strokes[0].dash.is_none());
+                assert!(doc.warnings.iter().any(|w| w.contains("64")));
+            } else {
+                assert_eq!(strokes[0].dash.as_ref().unwrap().0, vec![1.; 64]);
+            }
+        }
+    }
+}
+
 #[cfg(feature = "synth")]
 #[test]
 fn shared_class_chain_limit_includes_the_final_class() {

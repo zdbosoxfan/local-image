@@ -282,9 +282,19 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     let active = s.active().and_then(|d| d.active_layer);
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
         let mask = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
-        let sel = if p.get("target").and_then(Value::as_str) == Some("mask") { mask.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask) }?;
-        matting::refine_mask(smp, &matting::surface_reader(sel), sel.content_bounds(), doc.bounds(), &params)
-    })?;
+        let sel = if p.get("target").and_then(Value::as_str) == Some("mask") { mask.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask) };
+        let Some(sel) = sel else { return Ok(None) };
+        // The refined result is dense over the selection's bounds: refuse what would not fit
+        // rather than allocate it (a whole-canvas selection on a gigapixel canvas).
+        let content = sel.content_bounds();
+        let area = matting::refine_area(content, doc.bounds(), &params);
+        let (w, h, max) = (area.width(), area.height(), matting::MAX_REFINE_AREA);
+        if u64::from(w) * u64::from(h) > max {
+            let msg = format!("the selection is too large to refine ({w} × {h} px; at most {max} px in all): select a smaller area");
+            return Err(bad("select.refineEdge", &msg));
+        }
+        Ok(matting::refine_mask(smp, &matting::surface_reader(sel), content, doc.bounds(), &params))
+    })??;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let active = d.active_layer.filter(|id| d.doc.layer(*id).is_some());
     match output.as_str() {
@@ -635,6 +645,28 @@ mod tests {
         s.execute("edit.undo", json!({})).unwrap();
         s.execute("select.refineEdge", json!({"feather": 8, "contrast": 100})).unwrap();
         assert!(cov(&s, 38, 20) == 1.0 && cov(&s, 42, 20) == 0.0);
+    }
+
+    /// A refine whose result would be dense over more than [`matting::MAX_REFINE_AREA`] pixels
+    /// (a whole-canvas selection on a huge canvas) is refused before anything is allocated, and
+    /// the selection stays as it was. A small selection on the same canvas still refines.
+    #[test]
+    fn refine_edge_refuses_a_selection_too_large_to_refine() {
+        let mut s = Session::new();
+        s.add_document(
+            Document::new("huge", photocraft_doc::Size::new(100_000, 100_000), photocraft_doc::ColorMode::Rgb, photocraft_color::SampleType::U8),
+            None,
+        );
+        let t = std::time::Instant::now();
+        s.execute("select.rect", json!({"x": 10, "y": 60, "width": 10, "height": 10})).unwrap();
+        s.execute("select.refineEdge", json!({"radius": 4})).unwrap();
+        s.execute("edit.undo", json!({})).unwrap();
+        s.execute("select.all", json!({})).unwrap();
+        let all = s.active().and_then(|d| d.doc.selection.clone()).expect("selected");
+        let e = s.execute("select.refineEdge", json!({"radius": 4})).expect_err("too large to refine");
+        assert!(e.to_string().contains("too large to refine"), "{e}");
+        assert!(s.active().and_then(|d| d.doc.selection.as_ref()) == Some(&all), "the selection is unchanged");
+        assert!(t.elapsed() < std::time::Duration::from_secs(20), "{:?}", t.elapsed());
     }
 
     #[test]

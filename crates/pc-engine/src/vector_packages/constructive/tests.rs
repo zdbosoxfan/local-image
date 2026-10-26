@@ -134,6 +134,30 @@ fn constructive_cpu_builder_remove_face_and_entire_selection() {
     assert_eq!(s.journal.len(), 1);
     assert!(s.undo());
 }
+
+#[test]
+fn shape_builder_merge_keeps_a_line_that_ends_inside_the_shape() {
+    let (mut session, ids) = fixture(vec![vector::shapes::rect(0., 0., 100., 100.), Path::new(vec![Subpath::polyline(&[(50., -20.), (50., 99.)])])]);
+    let before = session.active().unwrap().doc.clone();
+    for remove in [false, true] {
+        let gesture = Gesture::begin(&session, &ids).unwrap();
+        let face = gesture.face_at(Point::new(25., 50.)).unwrap().unwrap();
+        let action = Action::Builder { faces: vec![face], remove, style: ids[0] };
+        let prepared = gesture.preview(&action).unwrap();
+        let length: f64 = prepared
+            .output_paths()
+            .iter()
+            .flat_map(|path| &path.subpaths)
+            .filter(|sp| !sp.closed)
+            .flat_map(Subpath::segments)
+            .map(|segment| (segment[3].x - segment[0].x).hypot(segment[3].y - segment[0].y))
+            .sum();
+        assert!((length - 119.).abs() < 1e-6, "open line length: {length}, remove={remove}");
+        gesture.commit(&mut session, action).unwrap();
+        assert!(session.undo());
+        assert_eq!(session.active().unwrap().doc, before);
+    }
+}
 #[test]
 fn constructive_cpu_knife_area_through_nodes_tangent_and_partial() {
     for (stroke, count) in
