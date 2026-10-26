@@ -101,7 +101,8 @@ pub fn from_json(current: &str, json: &str) -> Result<Option<Update>> {
     Ok(newest.map(|(_, update)| update))
 }
 
-/// Blocking: invoke only from a worker. Uses the existing pure-Rust TLS provider and roots.
+/// Blocking: invoke only from a worker. Uses ring under the 2026-10-25 TLS security exception
+/// for C/assembly crypto and the bundled roots.
 pub fn check(current: &str) -> Result<Option<Update>> {
     let agent: ureq::Agent =
         ureq::Agent::config_builder().tls_config(crate::tls::config()).timeout_global(Some(Duration::from_secs(15))).max_redirects(0).build().into();

@@ -98,8 +98,9 @@ to a local desktop app. These do:
 - Before adding or swapping any dependency, confirm it exists and is the crate you meant: check the
   owner, age, downloads and repository on crates.io. Prefer established maintainers. A young
   single-owner fork replacing security-critical code (TLS, crypto, parsers) is a no.
-- Pure Rust only (`xtask deps-pure`). No git dependencies (`deny.toml` sources). Pin GitHub Actions
-  to commit SHAs. Let Dependabot propose upgrades; review them like any other change.
+- Pure Rust only (`xtask deps-pure`), except ring's C/assembly TLS crypto under the 2026-10-25
+  security decision. No git dependencies (`deny.toml` sources). Pin GitHub Actions to commit SHAs.
+  Let Dependabot propose upgrades; review them like any other change.
 
 **Reliability and UX**
 - Long work runs off the UI thread and can be cancelled. Errors tell the user what to do next,

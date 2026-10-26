@@ -877,7 +877,7 @@ mod tests {
     }
 }
 
-/// HTTPS agent using the pure-Rust RustCrypto provider (no `ring`).
+/// HTTPS agent using ring under the 2026-10-25 TLS security exception for C/assembly crypto.
 fn xtask_agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)

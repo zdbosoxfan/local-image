@@ -1,6 +1,6 @@
-//! TLS for the HTTP clients: rustls with the pure-Rust RustCrypto provider (no `ring`, no C),
-//! and the bundled webpki root certificates. The provider is set per agent, so nothing depends
-//! on a process-wide default.
+//! TLS for the HTTP clients: rustls with ring and the bundled webpki root certificates.
+//! The 2026-10-25 TLS security exception permits ring's C/assembly crypto. The provider is set
+//! per agent, so nothing depends on a process-wide default.
 
 use std::sync::Arc;
 
@@ -16,7 +16,7 @@ pub fn config() -> ureq::tls::TlsConfig {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn an_agent_with_the_pure_rust_provider_builds_and_refuses_a_closed_port() {
+    fn an_agent_with_the_ring_provider_builds_and_refuses_a_closed_port() {
         let agent: ureq::Agent = ureq::Agent::config_builder().tls_config(super::config()).build().into();
         // Nothing listens on port 1; the point is that building the TLS stack does not panic.
         assert!(agent.get("https://127.0.0.1:1/").call().is_err());
