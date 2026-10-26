@@ -26,6 +26,7 @@ mod app_log;
 mod apple_events;
 mod automation_library;
 mod compute_policy;
+mod control_click;
 mod control_server;
 mod crash_guard;
 mod cursor;

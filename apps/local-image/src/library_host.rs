@@ -67,6 +67,7 @@ pub struct Host {
     automation_media: Option<crate::automation_library::MediaHooks>,
     prefs: PrefsWriter,
     mode: Module,
+    control_click: crate::control_click::ControlClick,
     /// The module whose visuals are applied to the context (Library and Develop share LightCraft's).
     styled: Option<(bool, photocraft_ui_egui::theme::ThemeKind)>,
     opens: Opens,
@@ -187,6 +188,7 @@ impl Host {
             automation_media: None,
             prefs: PrefsWriter::default(),
             mode,
+            control_click: Default::default(),
             styled: None,
             opens: Arc::default(),
             preserve_library_vectorize_return: false,
@@ -1301,6 +1303,7 @@ impl eframe::App for Host {
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.control_click.normalize(&mut raw.events, ctx.os() == egui::os::OperatingSystem::Mac);
         match (self.mode, self.library.as_mut()) {
             (Module::Library | Module::Develop, Some(lib)) => {
                 if let Some(menu) = self.editor.services.native_menu.as_mut() {
