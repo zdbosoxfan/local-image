@@ -12,7 +12,10 @@ fn mix(method: GradientMethod, a: [f32; 4], b: [f32; 4], u: f32) -> [f32; 4] {
         let decode = |c: [f32; 4]| srgb_perceptual::linear_srgb_to_oklab_f64(std::array::from_fn(|ch| transfer::srgb_to_linear_f64(f64::from(c[ch]))));
         let (p, q) = (decode(a), decode(b));
         let lab = std::array::from_fn(|ch| p[ch] + (q[ch] - p[ch]) * f64::from(u));
-        let rgb = srgb_perceptual::oklab_to_linear_srgb_f64(lab).map(|v| transfer::linear_to_srgb_f64(v).clamp(0.0, 1.0) as f32);
+        let rgb = srgb_perceptual::oklab_to_linear_srgb_f64(lab).map(|v| {
+            let v = transfer::linear_to_srgb_f64(v);
+            if v.is_finite() { v.clamp(0.0, 1.0) as f32 } else { 0.0 }
+        });
         out[..3].copy_from_slice(&rgb);
     }
     out

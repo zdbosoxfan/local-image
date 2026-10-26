@@ -69,3 +69,11 @@ fn expansion_refuses_invalid_or_unrepresentable_ramps() {
     assert!(refine_samples(vec![(0.0, 0), (1.0, 0)], |_, _| [f32::NAN; 4]).is_err());
     assert!(refine_samples(vec![(0.0, 0), (1.0, 0)], |t, _| [if t < 0.3333333 { 0.0 } else { 1.0 }; 4]).is_err());
 }
+
+#[test]
+fn perceptual_mix_maps_nonfinite_rgb_to_zero() {
+    let stops = [(0.0, [f32::NAN, 0.0, 0.0, 0.2]), (1.0, [1.0, 1.0, 1.0, 0.8])];
+    let sampled = sample_stops(GradientMethod::Perceptual, &stops, &[], &[], 0.5);
+    assert_eq!(&sampled[..3], &[0.0; 3]);
+    assert!((sampled[3] - 0.5).abs() < 1e-6);
+}

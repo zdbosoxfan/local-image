@@ -1,12 +1,16 @@
-//! Photoshop gradient appearance → dense linear stops.
+//! Photoshop gradient appearance -> dense linear stops.
 //!
-//! Photoshop interpolates gradient colours with a *Smoothness* setting (0–100 %) and, since the
-//! 2023 releases, an interpolation *method* (Perceptual / Linear / Classic). The compositors
-//! interpolate stops linearly in sRGB, so on import we sample Photoshop's curve into dense stops.
+//! Photoshop interpolates gradient colours with a *Smoothness* setting (0-100 %) and, since the
+//! 2023 releases, an interpolation *method* (Smooth / Perceptual / Linear / Classic).
+//! Native Perceptual fills remain editable; unsupported imported appearances are sampled into
+//! dense sRGB stops for the compositors.
 //! The model was fitted to Photoshop's own composites in the test corpus (clean-room, from
 //! pixels): Smoothness blends linear interpolation with a Catmull-Rom spline through the stop
 //! colours (end tangents at half the chord slope); Perceptual interpolates in Oklab, Linear in
 //! linear light, Classic in sRGB. Stop midpoints remap each segment piecewise-linearly.
+//! Smooth goes straight across each segment in OKLab with its own easing, independent of
+//! Smoothness. The easing was measured on Photoshop 27.11 at sixteenth intervals on three colour
+//! pairs and is kept in [`SMOOTH_EASE`].
 
 use photocraft_color::{Color, ColorMode};
 
@@ -182,6 +186,31 @@ mod tests {
         let p = at(&s, 0.113);
         for (got, want) in p.iter().zip([0.839f32, 0.608, 0.290]) {
             assert!((got - want).abs() < 0.012, "{p:?}");
+        }
+    }
+
+    #[test]
+    fn smooth_matches_photoshop() {
+        // Photoshop 27.11, Gradient tool, Method Smooth, dither off, 256 px wide, every 32 px.
+        type Row = (&'static str, [f32; 3], [f32; 3], [[u8; 3]; 8]);
+        let measured: [Row; 2] = [
+            ("black->white", [0.0; 3], [1.0; 3], [[0; 3], [4; 3], [29; 3], [63; 3], [99; 3], [137; 3], [179; 3], [221; 3]]),
+            (
+                "red->blue",
+                [1.0, 0.0, 0.0],
+                [0.0, 0.0, 1.0],
+                [[255, 0, 0], [232, 51, 67], [202, 71, 105], [171, 81, 136], [140, 83, 162], [109, 80, 188], [76, 69, 213], [41, 49, 236]],
+            ),
+        ];
+        for (name, a, b, want) in measured {
+            let s = bake(vec![(0.0, Color::rgb(a[0], a[1], a[2])), (1.0, Color::rgb(b[0], b[1], b[2]))], &[0.5], 1.0, Method::Smooth);
+            for (k, w) in want.iter().enumerate() {
+                let x = k * 32;
+                let got = at(&s, (x as f32 + 0.5) / 256.0).map(|v| (v * 255.0).round() as i32);
+                for c in 0..3 {
+                    assert!((got[c] - i32::from(w[c])).abs() <= 2, "{name} x {x}: {got:?} vs Photoshop {w:?}");
+                }
+            }
         }
     }
 
