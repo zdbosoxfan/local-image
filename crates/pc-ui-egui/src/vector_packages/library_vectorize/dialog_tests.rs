@@ -99,9 +99,9 @@ fn library_vectorize_already_open_photo_opens_its_dialog() {
             let job = host.app.jobs.opens[0].job;
             assert_eq!(host.handoff.opening_job(), Some(job));
             host.app.session.wait_job(job).unwrap();
-            for event in host.app.session.poll_jobs() {
-                host.handoff.on_job_event(&host.app, &event).unwrap();
-            }
+            host.app.library_vectorize = std::mem::take(&mut host.handoff);
+            crate::jobs_ui::tick_background(&mut host.app, &egui::Context::default());
+            host.handoff = std::mem::take(&mut host.app.library_vectorize);
         } else {
             assert!(host.app.jobs.opens.is_empty());
         }
