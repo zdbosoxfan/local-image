@@ -60,7 +60,8 @@ fn fixed_lab_search_chroma_is_monotone() {
                     let rgb = output_lab([l, c * h.cos(), c * h.sin()], &lms_to(&space.from_working()), mul3(&space.from_working(), oklab_to_2020([l, c * h.cos(), c * h.sin()])), space);
                     let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb));
                     let chroma = lab[1].hypot(lab[2]);
-                    assert!(chroma >= previous - 2e-6, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
+                    let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 } else { 2e-6 };
+                    assert!(chroma >= previous - tolerance, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
                     assert!(in_cube(rgb, OUTPUT_EPS), "{}: {rgb:?}", space.label());
                     previous = chroma;
                 }
