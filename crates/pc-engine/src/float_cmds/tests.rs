@@ -127,27 +127,33 @@ fn needs_a_selection_and_an_unlocked_pixel_layer() {
     assert!(s.is_enabled("select.float"));
 }
 
-/// `cargo test --release -p photocraft-engine float_drag_bench -- --ignored --nocapture`
+/// Compare small-piece and full-frame Move previews with the same dev-profile harness.
 #[test]
 #[ignore]
 fn float_drag_bench() {
-    let mut s = Session::new();
-    s.execute("file.new", json!({"width": 6000, "height": 4000, "background": "transparent"})).unwrap();
-    s.execute("layer.new.layer", json!({})).unwrap();
-    s.edit("paint", |doc, a| {
-        doc.layer_mut(a.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(0, 0, 6000, 4000), &[0.2, 0.4, 0.6, 1.0]);
-        Ok(())
-    })
-    .unwrap();
-    s.execute("select.rect", json!({"x": 1000, "y": 1000, "width": 500, "height": 400})).unwrap();
-    let t = std::time::Instant::now();
-    s.execute("select.float", json!({})).unwrap();
-    let cut = t.elapsed();
-    let t = std::time::Instant::now();
-    for i in 0..20 {
-        displayed(s.active().unwrap(), (i * 7, i * 3)).unwrap();
+    for (width, height, depth, select_all) in [(6000, 4000, 8, false), (9504, 6336, 16, true)] {
+        let mut session = Session::new();
+        session.execute("file.new", json!({"width": width, "height": height, "depth": depth, "background": "transparent"})).unwrap();
+        session.execute("layer.new.layer", json!({})).unwrap();
+        session.edit("paint", |doc, active| {
+            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap()
+                .fill_rect(Rect::new(0, 0, width, height), &[0.2, 0.4, 0.6, 1.0]);
+            Ok(())
+        }).unwrap();
+        if select_all {
+            session.execute("select.all", json!({})).unwrap();
+        } else {
+            session.execute("select.rect", json!({"x": 1000, "y": 1000, "width": 500, "height": 400})).unwrap();
+        }
+        let start = std::time::Instant::now();
+        session.execute("select.float", json!({})).unwrap();
+        let cut = start.elapsed();
+        let start = std::time::Instant::now();
+        for i in 0..20 {
+            displayed(session.active().unwrap(), (i * 7, i * 3)).unwrap();
+        }
+        eprintln!("{width}x{height} {depth}-bit select_all={select_all}: cut {cut:?}, then {:?} per pointer move", start.elapsed() / 20);
     }
-    eprintln!("6000×4000 layer, 500×400 piece: cut {cut:?}, then {:?} per pointer move", t.elapsed() / 20);
 }
 
 #[test]
