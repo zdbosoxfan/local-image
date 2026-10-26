@@ -689,6 +689,7 @@ mod tests {
         let tone = ToneMap::rendered(1.0, 0.0, 0.0, 0.0);
         let method = tone.method();
         for colour in [[0.8, 0.0, 0.0], [0.0, 0.8, 0.0], [0.0, 0.0, 0.8], [0.8, 0.8, 0.0], [0.0, 0.8, 0.8]] {
+            assert_eq!(method.contain_gamut(colour), colour, "scene containment moved {colour:?}");
             let mapped = tone_px_working(&tone, &method, colour);
             for i in 0..3 {
                 assert!((mapped[i] - colour[i]).abs() < 2e-3, "{colour:?} -> {mapped:?}");
