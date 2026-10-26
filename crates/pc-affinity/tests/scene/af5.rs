@@ -113,6 +113,7 @@ fn cmyk_profile_and_coated_fallback_match_the_cms_transform() {
         photocraft_cms::Transform::new(profile, photocraft_cms::Builtin::Srgb.profile(), photocraft_cms::Intent::RelativeColorimetric, true).unwrap();
     let mut expected = [0.; 3];
     transform.eval(&[1., 0., 0., 0.], &mut expected);
+    let expected = expected.map(|v| v.clamp(0., 1.));
     for profile in [None, Some(encoded)] {
         let bytes = container(vec![bitmap(2, 2, 4, &[2, 0, 0, 0, 2]), bitmap(2, 2, 4, &[2, 0, 0, 0, 0])], vec![], profile.clone(), &[]);
         let scene = import(&bytes, &ImportOptions::default()).unwrap();
