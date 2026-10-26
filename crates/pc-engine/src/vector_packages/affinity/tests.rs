@@ -280,3 +280,55 @@ fn affinity_open_and_place_use_the_document_group_depth_limit() {
     scene.layers = vec![Layer::group("nested", std::mem::take(&mut scene.layers))];
     assert!(validate_scene(None, &scene, limits).is_err());
 }
+
+#[path = "../../../../pc-affinity/tests/support/affinity_docs.rs"]
+mod affinity_docs;
+#[test]
+fn affinity_native_effect_pixels_survive_visibility_refresh_and_gpu_render() {
+    use photocraft_gpu::{Compositor, render_to_vec};
+    let _gpu_gate = li_testkit::gpu::lock();
+    let scene = read_open(affinity_docs::EFFECTS, 72., &std::sync::atomic::AtomicBool::new(false)).unwrap();
+    let (mut doc, warnings) = document(scene, "AF.5 native effects");
+    assert!(warnings.iter().any(|w| w.feature == "bevel-approximation"));
+    let first = photocraft_compose::flatten(&doc);
+    let at = |x: usize, y: usize| first.px[y * 128 + x];
+    assert_eq!(at(20, 20), [1., 0., 0., 1.]);
+    assert_eq!(at(60, 28), [0., 0., 0., 1.]);
+    assert_eq!(at(108, 16), [0., 0., 0., 1.]);
+    assert!(at(8, 60)[2] > 0.5, "outline must surround the existing shape stroke");
+    let id = doc.walk().into_iter().find(|(_, _, l)| l.name == "Parent red").unwrap().2.id;
+    doc.layer_mut(id).unwrap().visible = false;
+    assert_eq!(photocraft_compose::flatten(&doc).px[20 * 128 + 20][3], 0.);
+    doc.layer_mut(id).unwrap().visible = true;
+    assert_eq!(photocraft_compose::flatten(&doc), first);
+    let (device, queue) = crate::gpu_test_support::compositor_device("Affinity native effects");
+    let mut compositor = Compositor::try_new_with_format(&device, wgpu::TextureFormat::Rgba32Float).unwrap();
+    let gpu = render_to_vec(&mut compositor, &device, &queue, &doc, doc.bounds()).unwrap();
+    let difference = first.px.iter().zip(gpu).flat_map(|(a, b)| (0..4).map(move |i| (a[i] - b[i]).abs())).fold(0.0_f32, f32::max);
+    assert!(difference <= 1. / 255. + 1e-5, "native effect CPU/GPU max difference {difference}");
+    let scene = read_open(affinity_docs::TEXT_EFFECTS, 72., &std::sync::atomic::AtomicBool::new(false)).unwrap();
+    let (mut text_doc, _) = document(scene, "Outlined masked type");
+    let first = photocraft_compose::flatten(&text_doc);
+    let parent = text_doc.walk().into_iter().find(|(_, _, l)| l.name == "Masked outlined text").unwrap().2.id;
+    text_doc.layer_mut(parent).unwrap().visible = false;
+    assert!(photocraft_compose::flatten(&text_doc).px.iter().all(|p| p[3] == 0.));
+    text_doc.layer_mut(parent).unwrap().visible = true;
+    assert_eq!(photocraft_compose::flatten(&text_doc), first);
+    let gpu = render_to_vec(&mut compositor, &device, &queue, &text_doc, text_doc.bounds()).unwrap();
+    let difference = first.px.iter().zip(gpu).flat_map(|(a, b)| (0..4).map(move |i| (a[i] - b[i]).abs())).fold(0.0_f32, f32::max);
+    assert!(difference <= 1. / 255. + 1e-5, "outlined masked text CPU/GPU max difference {difference}");
+}
+
+#[test]
+fn affinity_worker_preparation_keeps_captured_admission_and_cancellation() {
+    let session = session();
+    let mut request = capture(&session, affinity_docs::EFFECTS.to_vec()).unwrap();
+    request.admission = Admission::for_ram(0);
+    let cancel = std::sync::atomic::AtomicBool::new(false);
+    assert!(prepare(&request, 72., &cancel).is_err());
+    request.admission = Admission::for_ram(32 << 30);
+    let scene = prepare(&request, 72., &cancel).unwrap();
+    assert!(scene.warnings.iter().any(|w| w.feature == "bevel-approximation"));
+    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert!(matches!(prepare(&request, 72., &cancel), Err(EngineError::Cancelled)));
+}

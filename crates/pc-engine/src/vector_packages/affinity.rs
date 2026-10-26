@@ -228,9 +228,16 @@ pub fn decode(session: &Session, request: &Place) -> Result<ImportedScene> {
 pub fn decode_with(session: &Session, request: &Place, cancel: &std::sync::atomic::AtomicBool) -> Result<ImportedScene> {
     check(session, request)?;
     let s = session.active().ok_or(EngineError::NoDocument)?;
-    let options = ImportOptions { dpi: s.doc.resolution_dpi, limits: request.admission.0, ..Default::default() };
-    photocraft_affinity::import_with(&request.bytes, &options, None, cancel).map_err(reader_error)
+    prepare(request, s.doc.resolution_dpi, cancel)
 }
+/// Prepare captured Place bytes on a worker with the original engine admission allowance.
+pub fn prepare(request: &Place, dpi: f32, cancel: &std::sync::atomic::AtomicBool) -> Result<ImportedScene> {
+    let options = ImportOptions { dpi, limits: request.admission.0, ..Default::default() };
+    let scene = photocraft_affinity::import_with(&request.bytes, &options, None, cancel).map_err(reader_error)?;
+    validate_scene(None, &scene, request.admission.0)?;
+    Ok(scene)
+}
+
 fn reader_error(e: photocraft_affinity::Error) -> EngineError {
     if e == photocraft_affinity::Error::Cancelled { EngineError::Cancelled } else { error(e) }
 }

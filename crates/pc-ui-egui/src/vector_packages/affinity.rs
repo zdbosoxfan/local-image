@@ -77,10 +77,12 @@ impl State {
             r.name = self.name.clone();
         }
         let dpi = if action == 3 { 72.0 } else { session.active().ok_or(EngineError::NoDocument)?.doc.resolution_dpi };
-        let options = photocraft_doc::vector_design::exchange::ImportOptions { dpi, ..Default::default() };
         let bytes = self.source.clone();
         self.worker = Some(crate::import_worker::Task::start(move |cancel| {
-            let scene = photocraft_affinity::import_with(&bytes, &options, None, cancel).map_err(|e| EngineError::Other(e.to_string()))?;
+            let scene = match &request {
+                Some(request) => affinity::prepare(request, dpi, cancel)?,
+                None => affinity::read_open(&bytes, dpi, cancel)?,
+            };
             Ok((request, scene))
         })?);
         self.worker_action = action;
