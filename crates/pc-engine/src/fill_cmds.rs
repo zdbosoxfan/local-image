@@ -289,25 +289,30 @@ fn blend_into(surf: &mut Surface, area: Rect, source: &Source, sel: Option<&Surf
 }
 
 /// The selection's coverage over one tile (its channel 0).
-struct Mask<'a> {
+pub(crate) struct Mask<'a> {
     bytes: &'a [u8],
     fmt: photocraft_color::PixelFormat,
     origin: Rect,
 }
 
-impl Mask<'_> {
-    fn at(&self, x: i32, y: i32) -> f32 {
+impl<'a> Mask<'a> {
+    /// Borrow selection coverage from a tile, or its default pixel where no tile exists.
+    pub(crate) fn of(selection: &'a Surface, coord: photocraft_geom::TileCoord) -> Self {
+        Self { bytes: selection.tile(coord).map_or(selection.default_bytes(), |tile| tile.bytes()), fmt: selection.format(), origin: coord.rect() }
+    }
+
+    pub(crate) fn at(&self, x: i32, y: i32) -> f32 {
         let bpp = self.fmt.bytes_per_pixel();
         // A default-pixel mask is one pixel long: every position reads it.
         let i = if self.bytes.len() == bpp { 0 } else { ((y - self.origin.y0) as usize * TILE_SIZE as usize + (x - self.origin.x0) as usize) * bpp };
         self.bytes.get(i..i + bpp).map_or(0.0, |px| photocraft_color::read_sample(px, self.fmt.sample, 0))
     }
     /// Fully selected over `r`?
-    fn full(&self, r: Rect) -> bool {
+    pub(crate) fn full(&self, r: Rect) -> bool {
         (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) >= 1.0))
     }
     /// Nothing selected over `r`?
-    fn empty(&self, r: Rect) -> bool {
+    pub(crate) fn empty(&self, r: Rect) -> bool {
         (r.y0..r.y1).all(|y| (r.x0..r.x1).all(|x| self.at(x, y) <= 0.0))
     }
 }
