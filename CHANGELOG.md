@@ -8,6 +8,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Changed
 
+- Drag the parametric Tone Curve line to adjust its tonal region with one undo step.
+  Drag histogram zones to adjust Blacks, Shadows, Exposure, Highlights and Whites;
+  double-click a zone to restore the photo's own default.
+
 - Guided Upright guides can be selected, deleted individually, and adjusted by dragging endpoints.
   Middle-button drags pan zoomed Develop photos without leaving the active tool.
 
