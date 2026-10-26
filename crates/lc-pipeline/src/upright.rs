@@ -377,11 +377,15 @@ fn focal_from_vps(v: [f64; 3], h: [f64; 3]) -> Option<f64> {
 
 /// Pure rotation (degrees, clockwise +) that levels the dominant lines.
 fn level_angle(vert: &[Segment], horiz: &[Segment]) -> Option<f64> {
+    level_angle_within(vert, horiz, 90.0, 1)
+}
+
+fn level_angle_within(vert: &[Segment], horiz: &[Segment], max: f64, min_lines: usize) -> Option<f64> {
     let lh: f64 = horiz.iter().map(Segment::len).sum();
     let lv: f64 = vert.iter().map(Segment::len).sum();
     // the dominant family first; plumb lines when the horizon's segments disagree, and vice versa
     let order = if lh >= lv * 0.5 && lh > 0.0 { [(horiz, false), (vert, true)] } else { [(vert, true), (horiz, false)] };
-    order.into_iter().find_map(|(set, vertical)| family_level(set, vertical))
+    order.into_iter().find_map(|(set, vertical)| family_level(set, vertical, max, min_lines))
 }
 
 /// Signed deviation in degrees of a segment from the vertical or horizontal axis.
@@ -401,7 +405,7 @@ fn axis_deviation(s: &Segment, vertical: bool) -> f64 {
 
 /// [`level_angle`] from one family: the length-weighted median deviation, when most of the
 /// family's length agrees with it.
-fn family_level(set: &[Segment], vertical: bool) -> Option<f64> {
+fn family_level(set: &[Segment], vertical: bool, max: f64, min_lines: usize) -> Option<f64> {
     if set.is_empty() {
         return None;
     }
@@ -416,8 +420,16 @@ fn family_level(set: &[Segment], vertical: bool) -> Option<f64> {
     })?;
     // consensus: most of the line length must agree with the median within 2°, otherwise the "lines" are scene
     // texture (tree flanks, ridges) rather than a horizon or plumb lines
-    let agree: f64 = v.iter().filter(|(d, _)| (d - median.0).abs() <= 2.0).map(|x| x.1).sum();
-    (agree >= 0.5 * total).then_some(-median.0)
+    let mut agreeing = 0;
+    let agree: f64 = v
+        .iter()
+        .filter(|(d, _)| (d - median.0).abs() <= 2.0)
+        .map(|x| {
+            agreeing += 1;
+            x.1
+        })
+        .sum();
+    (agree >= 0.5 * total && agreeing >= min_lines && median.0.abs() <= max).then_some(-median.0)
 }
 
 fn rot_z_h(deg: f64) -> Homography {
@@ -627,11 +639,19 @@ fn analyze_lines(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Anal
     a
 }
 
+/// Auto straighten rejects steep texture and isolated edges.
+const STRAIGHTEN_MAX_DEGREES: f64 = 10.0;
+const STRAIGHTEN_MIN_LINES: usize = 3;
+
+fn straighten_angle(a: &Analysis) -> Option<f64> {
+    level_angle_within(&a.vertical, &a.horizontal, STRAIGHTEN_MAX_DEGREES, STRAIGHTEN_MIN_LINES)
+}
+
 /// The rotation (degrees, clockwise +) that levels `src`'s dominant horizon/plumb lines, if they agree
-/// (the consensus rule of Upright Level). Used by the crop panel's Auto straighten.
+/// within ten degrees and backed by at least three agreeing lines. Used by Auto straighten.
 pub fn level_degrees(src: &RgbFrame, info: &SourceInfo, s: &DevelopSettings) -> Option<f64> {
     let a = analyze_source(src, info, s);
-    level_angle(&a.vertical, &a.horizontal)
+    straighten_angle(&a)
 }
 
 /// The automatic Upright correction for `mode` on `src` (identity for Off and Guided).

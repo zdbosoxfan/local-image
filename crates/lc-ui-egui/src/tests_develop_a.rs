@@ -639,3 +639,36 @@ fn a_straightened_full_height_crop_slides_sideways() {
     assert!(after.center().x > before.center().x + 0.005, "crop stayed centred: {before:?} -> {after:?}");
     assert!((after.width() - before.width()).abs() < 1e-5 && (after.height() - before.height()).abs() < 1e-5, "moving keeps the size");
 }
+
+#[test]
+fn auto_straighten_says_when_it_finds_nothing() {
+    let (session, dir) = flat_session();
+    let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
+    let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
+    for (method, params) in [("ui.set", json!({"view": "detail"})), ("engine.execute", json!({"command": "panel.crop"}))] {
+        let r = h.request(method, params, T);
+        assert_eq!(r["ok"], true, "{r}");
+    }
+    h.settle(T);
+    let r = h.request("ui.clickWidget", json!({"id": "button:straightenAuto"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    h.settle(T);
+    assert!(h.app.ui.toast.as_ref().is_some_and(|t| t.0 == "No horizon or vertical lines to level by"), "{:?}", h.app.ui.toast);
+    assert_eq!(d(&h).crop.geometry.angle, 0.0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+pub(super) fn flat_session() -> (lightcraft_engine::Session, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("lc-ui-auto-straighten-{}", std::process::id()));
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    std::fs::create_dir_all(&dir).unwrap();
+    let img = li_raster::Rgba8 { width: 64, height: 48, data: vec![[90, 120, 160, 255]; 64 * 48] };
+    let bytes = lightcraft_codecs::encode_png(&lightcraft_codecs::EncodeImage::rgba8(&img), &lightcraft_codecs::EncodeMeta::default()).unwrap();
+    let path = dir.join("flat.png");
+    std::fs::write(&path, bytes).unwrap();
+    let mut session = lightcraft_engine::Session::new().with_fs();
+    session.execute("library.import", &json!({"paths": [path.to_string_lossy()]})).unwrap();
+    (session, dir)
+}
