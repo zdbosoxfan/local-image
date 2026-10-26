@@ -157,3 +157,35 @@ fn ctrl_c_interrupts_the_owned_render_and_exits_130() {
     assert_eq!(server.frees(), 1, "cancel still releases model memory");
     assert_eq!(server.prompts().len(), 1, "no later test is submitted");
 }
+
+#[cfg(unix)]
+#[test]
+fn ctrl_c_after_verification_exits_130_during_the_report() {
+    use std::io::Read;
+    use std::process::Stdio;
+    let (dir, data) = (models("report-cancel"), tmp("report-cancel-data"));
+    // Keep the JSON report larger than a pipe so the parent can interrupt its writer.
+    let source = dir.0.join("diffusion_models/flux3-image-klein-bf16.safetensors");
+    for i in 0..128 {
+        std::fs::copy(&source, dir.0.join(format!("diffusion_models/flux3-image-klein-copy-{i}.safetensors"))).unwrap();
+    }
+    let server = MockComfy::start().unwrap();
+    server.serve_comfy_0_42_5(&dir.0);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_local-image-cli"))
+        .args(["ai", "doctor", "--host", server.host(), "--model-dir"])
+        .arg(&dir.0)
+        .args(["--verify", "flux3-image-klein-bf16.safetensors", "--json"])
+        .env("LOCAL_IMAGE_DATA_DIR", &data.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut first = [0];
+    child.stdout.as_mut().unwrap().read_exact(&mut first).unwrap();
+    assert_eq!(first, [b'{'], "JSON output starts only after verification and the final scan");
+    assert_eq!(server.frees(), 1, "the owned verification has finished");
+    assert!(Command::new("kill").args(["-INT", &child.id().to_string()]).status().unwrap().success());
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(130), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(server.interrupts(), 0, "no global interrupt after verification");
+}

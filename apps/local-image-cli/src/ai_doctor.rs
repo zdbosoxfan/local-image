@@ -57,6 +57,9 @@ pub(crate) fn doctor(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 
     let opts = Options { templates_dir: a.get("--templates-dir").map(PathBuf::from), ..Options::for_host(&host, model_dir) };
     let scan = modelsetup::scan(&opts);
     let mut code = 0;
+    let ctl = JobControl::new();
+    // Tokio keeps its OS handler installed, so receive interrupts through the final report.
+    let mut _interrupt = None;
     if let Some(which) = a.get("--verify").filter(|_| scan.snapshot.is_some()) {
         let keys = match verify_keys(&scan, which) {
             Ok(k) => k,
@@ -65,14 +68,13 @@ pub(crate) fn doctor(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 
                 return 2;
             }
         };
-        let ctl = JobControl::new();
-        let _interrupt = match interrupt::Interrupt::start(ctl.clone()) {
+        _interrupt = Some(match interrupt::Interrupt::start(ctl.clone()) {
             Ok(listener) => listener,
             Err(e) => {
                 let _ = writeln!(err, "error: cannot listen for Ctrl-C: {e}");
                 return 1;
             }
-        };
+        });
         let labels: std::collections::BTreeMap<String, String> = scan.server.models.iter().map(|(k, m)| (k.clone(), m.label.clone())).collect();
         let quiet = a.has("--json");
         let mut progress = |key: &str, step: modelsetup::verify::Step| {
@@ -128,6 +130,10 @@ pub(crate) fn doctor(a: &Args, out: &mut dyn Write, err: &mut dyn Write) -> i32 
     } else {
         write!(out, "{}", report::render_text(&r)).map_err(|e| e.to_string())
     };
+    if ctl.is_cancelled() {
+        let _ = writeln!(err, "Verification cancelled.");
+        return 130;
+    }
     if let Err(e) = written {
         let _ = writeln!(err, "error: {e}");
         return 1;

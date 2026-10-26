@@ -1,4 +1,4 @@
-//! Scope the CLI's interrupt listener to verification and bridge it to the render's JobControl.
+//! Bridge Ctrl-C to verification, including its follow-up scan and report.
 
 use li_ai::JobControl;
 use tokio::sync::oneshot;
