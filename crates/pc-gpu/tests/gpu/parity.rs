@@ -10,7 +10,7 @@ use photocraft_gpu::{Compositor, render_to_vec};
 
 const TOL: f32 = 1.0 / 255.0;
 
-struct Gpu {
+pub(super) struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     comp: Compositor,
@@ -25,7 +25,7 @@ const PAGED_LIMIT: u32 = 256;
 
 /// Concurrent wgpu instances in one process segfault on some drivers (RADV), so every GPU test
 /// holds `li_testkit::gpu::lock()` until its device is dropped.
-fn gpu() -> Gpu {
+pub(super) fn gpu() -> Gpu {
     let lock = li_testkit::gpu::lock();
     let li_testkit::gpu::HardwareGpu { adapter, device, queue, .. } = li_testkit::gpu::hardware_device("photocraft-gpu parity");
     // Exact parity needs 32-bit float targets (adapters without them use the CPU compositor in the
@@ -119,7 +119,7 @@ fn diff_rect(g: &mut Gpu, doc: &Document, rect: Rect, what: &str) -> Result<phot
     first.ok_or_else(|| format!("{what}: no render"))
 }
 
-fn check(g: &mut Gpu, doc: &Document, what: &str) {
+pub(super) fn check(g: &mut Gpu, doc: &Document, what: &str) {
     diff_rect(g, doc, doc.bounds(), what).unwrap_or_else(|e| panic!("{e}"));
 }
 

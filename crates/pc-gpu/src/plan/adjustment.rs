@@ -47,9 +47,21 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             p[0] = [2f32.powf(*exposure), *offset, gamma.max(0.01), transfer_exponent(transfer.for_exposure())];
             (6, p, None)
         }
+        Adjustment::Levels { master, per_channel, space: ToneSpace::Rgb, .. } if depth == photocraft_color::SampleType::F32 => {
+            // Twenty coefficients exceed the uniform parameters; row zero stores four records.
+            let mut row = [0.0f32; 4096];
+            for (i, ch) in std::iter::once(master).chain(per_channel).enumerate() {
+                p[0][i] = if *ch == photocraft_doc::adjust::LevelsChannel::default() { 1.0 } else { 0.0 };
+                row[i * 5..i * 5 + 5].copy_from_slice(&[ch.in_black, ch.in_white, ch.gamma.max(0.01), ch.out_black, ch.out_white]);
+            }
+            (19, p, Some(vec![row]))
+        }
         // The CPU's channel/master composition and depth rounding stay in the tone rows.
         Adjustment::Levels { space, .. } | Adjustment::Curves { space, .. } => {
             let mut rows: Vec<_> = adjust::tone_luts_depth(adj, Some(depth)).iter().map(|t| to_row(t)).collect();
+            for (v, identity) in p[0].iter_mut().zip(adjust::float_tone_identity(adj, Some(depth))) {
+                *v = if identity { 1.0 } else { 0.0 };
+            }
             let kind = match space {
                 ToneSpace::Rgb => 7,
                 ToneSpace::Lab => 17,

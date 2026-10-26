@@ -380,6 +380,8 @@ pub const F_FIRST: u32 = 2048;
 pub const F_CHANNELS: u32 = 4096;
 /// Lab document: Normal blending mixes in CIELAB (`psblend::LAB_MIX`).
 pub const F_LAB: u32 = 65536;
+/// Float document: adjustment kernels retain signed values and highlights.
+pub const F_HDR: u32 = 262144;
 /// `Lerp`: A rounded to `p0.x` steps per unit (adjustment results on integer documents).
 pub const F_QUANT: u32 = 32768;
 /// `Lerp` as A + (B − C) premultiplied (layers clipped to pass-through groups).
@@ -444,6 +446,9 @@ impl<'a> Planner<'a> {
         pass.dst = dst;
         if self.cx.mode == photocraft_color::ColorMode::Lab {
             pass.flags |= F_LAB;
+        }
+        if self.cx.depth == photocraft_color::SampleType::F32 {
+            pass.flags |= F_HDR;
         }
         let (a, b, c, d) = (pass.a, pass.b, pass.c, pass.d);
         self.passes.push(pass);
