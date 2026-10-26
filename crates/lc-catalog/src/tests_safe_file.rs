@@ -189,6 +189,57 @@ mod store_link_tests {
     use crate::{FsStore, Store};
 
     #[test]
+    fn catalog_writes_preserve_links_and_update_resolved_targets() {
+        use std::{fs, os::unix::fs::symlink};
+
+        let root = std::env::temp_dir().join(format!("lc-store-linked-targets-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let library = root.join("library");
+        let moved = root.join("moved");
+        fs::create_dir_all(&moved).unwrap();
+        let mut store = FsStore::open(&library).unwrap();
+        for name in ["catalog.log", "catalog.snap", "catalog.log.damaged-1"] {
+            let target = moved.join(name);
+            let link = library.join(name);
+            let relative = std::path::Path::new("../moved").join(name);
+            fs::write(&target, b"old").unwrap();
+            symlink(&relative, &link).unwrap();
+
+            store.write_atomic(name, b"replacement").unwrap();
+            assert_eq!(fs::read_link(&link).unwrap(), relative);
+            assert_eq!(fs::read(&target).unwrap(), b"replacement");
+            store.append(name, b" appended").unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"replacement appended");
+            store.truncate(name, 3).unwrap();
+            assert_eq!(fs::read(&target).unwrap(), b"rep");
+            let length = store
+                .write_atomic_with(name, &mut |writer| {
+                    assert_eq!(fs::read(&target)?, b"rep");
+                    assert_eq!(fs::read_dir(&library)?.count(), 1, "staging stays outside the library");
+                    assert_eq!(fs::read_dir(&moved)?.count(), 2, "staging is beside the resolved target");
+                    writer.write_all(b"streamed")
+                })
+                .unwrap();
+            assert_eq!(length, 8);
+            assert_eq!(fs::read(&target).unwrap(), b"streamed");
+            {
+                let _fault = super::fail_writes_after(3);
+                let error = store.write_atomic(name, b"replacement").unwrap_err();
+                assert!(error.to_string().contains("injected"), "{error}");
+                let error = store.write_atomic_with(name, &mut |writer| writer.write_all(b"replacement")).unwrap_err();
+                assert!(error.to_string().contains("injected"), "{error}");
+            }
+            assert_eq!(fs::read_link(&link).unwrap(), relative);
+            assert_eq!(fs::read(&target).unwrap(), b"streamed");
+            assert_eq!(fs::read_dir(&library).unwrap().count(), 1);
+            assert_eq!(fs::read_dir(&moved).unwrap().count(), 1, "failed staging files are removed");
+            fs::remove_file(link).unwrap();
+            fs::remove_file(target).unwrap();
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn catalog_writes_refuse_links_without_changing_the_target() {
         let dir = std::env::temp_dir().join(format!("lc-store-links-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
