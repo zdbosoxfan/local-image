@@ -348,7 +348,7 @@ pub(super) fn ensure_texture_in_view(
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
         let factor = texture_factor([doc.size.width, doc.size.height], texture_side(ctx));
-        let sampling = if pixel_preview { TextureOptions::NEAREST } else { canvas_texture_options(factor) };
+        let sampling = if pixel_preview { TextureOptions::NEAREST } else { TextureOptions::LINEAR };
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
@@ -901,6 +901,21 @@ pub(super) fn hdr_preview(app: &PhotocraftApp, doc: &photocraft_doc::Document) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn zoomed_cpu_canvas_uploads_a_linearly_filtered_document_texture() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 64, "height": 64, "background": "white"})).unwrap();
+        let ctx = egui::Context::default();
+        let view = InView { key: 1, zoom: 8.0, visible: DRect::new(0, 0, 64, 64) };
+        let textures = ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap();
+        assert_eq!(textures.scale, 1.0);
+        assert!(textures.detail.is_none(), "the whole-document texture supplies the zoomed canvas");
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let options = delta.set[&textures.texture].last().unwrap().options;
+        delta.clear();
+        assert_eq!(options, TextureOptions::LINEAR, "zoomed document pixels are bilinearly filtered");
+    }
 
     #[test]
     fn the_cpu_canvas_shows_a_filter_dialogs_preview() {
