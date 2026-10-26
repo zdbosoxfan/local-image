@@ -518,9 +518,6 @@ mod tests {
         serde_json::from_value(v).unwrap()
     }
 
-    /// Upstream LightCraft a08d0f6: "in the last N" never overflows, whatever N an agent or a saved
-    /// file holds: a zero, negative or unreadable N matches nothing (either way round); an N beyond
-    /// 10,000 years means "ever", so every dated photo is in it and none is outside it.
     #[test]
     fn f32_boundary_values_match_gte_lte() {
         let cat = Catalog::new();
@@ -540,6 +537,9 @@ mod tests {
         }
     }
 
+    /// Upstream LightCraft a08d0f6: "in the last N" never overflows, whatever N an agent or a saved
+    /// file holds: a zero, negative or unreadable N matches nothing (either way round); an N beyond
+    /// 10,000 years means "ever", so every dated photo is in it and none is outside it.
     #[test]
     fn in_the_last_survives_hostile_counts() {
         set_now(Some("2026-09-01T00:00:00".into()));
