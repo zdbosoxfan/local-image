@@ -188,6 +188,47 @@ fn displace_reads_another_document() {
 }
 
 #[test]
+fn displace_none_selectors_keep_the_embedded_map_and_real_requests_replace_it() {
+    let image = algo::Image { rect: Rect::new(0, 0, 1, 1), ch: 1, data: vec![1.0] };
+    let embedded = photocraft_io::smart_map::displace_embed_map(&json!({"horizontal":10,"vertical":0}), &image).unwrap();
+    for selector in [Value::Null, json!(-1), json!("")] {
+        let mut p = embedded.clone();
+        p["mapDocument"] = selector;
+        p["mapPath"] = json!("");
+        let mut s = session();
+        let before = pixels(&s);
+        s.execute("filter.distort.displace", p).unwrap();
+        assert_ne!(pixels(&s), before);
+    }
+    let mut s = session();
+    let mut p = embedded;
+    p["mapDocument"] = json!(0);
+    s.execute("filter.distort.displace", p).unwrap();
+    // The textured document replaces the flat white map.
+    let actual = pixels(&s);
+    let mut other = session();
+    other.execute("filter.distort.displace", json!({"mapDocument":0,"horizontal":10,"vertical":0})).unwrap();
+    assert_eq!(actual, pixels(&other));
+}
+
+#[test]
+fn oversized_map_headers_are_rejected_before_pixel_decoding() {
+    let path = std::env::temp_dir().join(format!("pcraft-displace-header-{}.psd", std::process::id()));
+    let mut header = vec![0u8; 26];
+    header[..4].copy_from_slice(b"8BPS");
+    header[4..6].copy_from_slice(&1u16.to_be_bytes());
+    header[12..14].copy_from_slice(&3u16.to_be_bytes());
+    header[14..18].copy_from_slice(&4096u32.to_be_bytes());
+    header[18..22].copy_from_slice(&8192u32.to_be_bytes());
+    header[22..24].copy_from_slice(&8u16.to_be_bytes());
+    header[24..26].copy_from_slice(&3u16.to_be_bytes());
+    std::fs::write(&path, header).unwrap();
+    let error = map_from_path(path.to_str().unwrap(), None).unwrap_err().to_string();
+    std::fs::remove_file(path).unwrap();
+    assert!(error.contains("16,777,216 pixels"), "{error}");
+}
+
+#[test]
 fn lens_blur_uses_the_layer_mask_as_depth() {
     let mut s = session();
     s.execute("layer.layerMask.revealAll", json!({})).unwrap();

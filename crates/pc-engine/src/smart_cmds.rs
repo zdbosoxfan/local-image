@@ -896,6 +896,25 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "layer.smartFilter.setParams";
     let new = p.get("params").cloned().ok_or_else(|| bad(CMD, "pass `params` (merged into the filter's parameters)"))?;
     let authorize = s.authorize;
+    let new_map = {
+        let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+        let sm = smart(doc, layer_param(s, p)?)?;
+        let f = &sm.smart_filters[filter_index(CMD, p, sm)?];
+        if f.command == "filter.distort.displace" && (crate::filters_ext::map_path(&new).is_some() || crate::filters_ext::map_document(&new).is_some()) {
+            let request = crate::filters_ext::displace_request(&new);
+            if let Some(gate) = authorize {
+                gate(&f.command, &request)?;
+            }
+            let mut fp = crate::filters::params_for(&f.command, &request).ok_or_else(|| bad(CMD, "unreadable Displace settings"))?;
+            crate::filters_ext::resolve(s, &mut fp, &request)?;
+            match fp {
+                photocraft_algo::FilterParams::Displace { map, .. } => map,
+                _ => None,
+            }
+        } else {
+            None
+        }
+    };
     edit_filters(s, p, "Edit Smart Filter", |sm| {
         let i = filter_index(CMD, p, sm)?;
         let f = &mut sm.smart_filters[i];
@@ -910,6 +929,14 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         // merged params, including paths already stored in the document, before re-rendering.
         if let Some(gate) = authorize {
             gate(&f.command, &f.params)?;
+        }
+        if f.command == "filter.distort.displace" {
+            if let Some(map) = &new_map {
+                f.params = photocraft_io::smart_map::displace_embed_map(&f.params, map)
+                    .ok_or_else(|| bad(CMD, "choose a displacement map with at most 4096 x 4096 pixels, or rasterize the layer first"))?;
+            } else {
+                crate::filters_ext::displace_settle(&mut f.params);
+            }
         }
         Ok(())
     })

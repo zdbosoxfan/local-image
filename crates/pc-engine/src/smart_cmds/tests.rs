@@ -58,6 +58,48 @@ fn convert(s: &mut Session) -> u64 {
 }
 
 #[test]
+fn displace_file_maps_are_embedded_replaced_and_survive_source_removal() {
+    let dir = std::env::temp_dir().join(format!("pcraft-displace-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("map.png");
+    let write_map = |value| {
+        let image = photocraft_codecs::Image::from_u8(2, 2, photocraft_codecs::ChannelLayout::Rgb, vec![value; 12]).unwrap();
+        let bytes = photocraft_codecs::encode(&image, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
+    };
+    write_map(255);
+    let mut s = session(8);
+    paint(&mut s);
+    convert(&mut s);
+    let original = flat(&s);
+    s.execute("filter.distort.displace", json!({"mapPath":path,"horizontal":10,"vertical":0})).unwrap();
+    let white = flat(&s);
+    assert_ne!(white, original);
+    let params = active_smart(&s).smart_filters[0].params.clone();
+    assert!(params.get("mapPath").is_none());
+    assert_eq!(photocraft_io::smart_map::displace_embedded_map(&params).unwrap().data[0], 1.0);
+    write_map(0);
+    let history = s.active().unwrap().history.past_len();
+    let mut replacement = params;
+    replacement["mapPath"] = json!(path);
+    s.execute("layer.smartFilter.setParams", json!({"params":replacement})).unwrap();
+    let black = flat(&s);
+    assert_ne!(black, white);
+    assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+    assert_eq!(photocraft_io::smart_map::displace_embedded_map(&active_smart(&s).smart_filters[0].params).unwrap().data[0], 0.0);
+    std::fs::remove_file(&path).unwrap();
+    s.undo();
+    assert_eq!(flat(&s), white);
+    s.redo();
+    assert_eq!(flat(&s), black);
+    s.execute("layer.smartFilter.setVisible", json!({"visible":false})).unwrap();
+    assert_eq!(flat(&s), original);
+    s.execute("layer.smartFilter.setVisible", json!({"visible":true})).unwrap();
+    assert_eq!(flat(&s), black);
+    std::fs::remove_dir(&dir).unwrap();
+}
+
+#[test]
 fn conversion_is_pixel_identical_at_every_depth() {
     for depth in DEPTHS {
         let mut s = session(depth);

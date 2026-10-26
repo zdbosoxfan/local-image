@@ -25,6 +25,10 @@ fn b(p: &Value, k: &str, d: bool) -> bool {
 fn s<'a>(p: &'a Value, k: &str, d: &'a str) -> &'a str {
     p.get(k).and_then(Value::as_str).unwrap_or(d)
 }
+fn seed(p: &Value) -> u32 {
+    // Stored records keep their tolerant fallback outside the documented unsigned range.
+    p.get("seed").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()).unwrap_or_else(|| i(p, "seed", 0) as u32)
+}
 fn undefined(p: &Value) -> UndefinedAreas {
     match s(p, "undefinedAreas", "wrap") {
         "repeat" => UndefinedAreas::Repeat,
@@ -93,7 +97,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
             amount: f(p, "amount", 12.5).clamp(0.1, 400.0),
             distribution: if s(p, "distribution", "uniform") == "gaussian" { Distribution::Gaussian } else { Distribution::Uniform },
             monochromatic: b(p, "monochromatic", false),
-            seed: i(p, "seed", 0) as u32,
+            seed: seed(p),
         },
         "filter.noise.median" => FilterParams::Median { radius: f(p, "radius", 1.0).clamp(1.0, 500.0) },
         "filter.noise.dustAndScratches" => {
@@ -130,7 +134,7 @@ pub fn params_for(id: &str, p: &Value) -> Option<FilterParams> {
                 _ => WaveType::Sine,
             },
             undefined: undefined(p),
-            seed: i(p, "seed", 0) as u32,
+            seed: seed(p),
         },
         "filter.distort.ripple" => FilterParams::Ripple {
             amount: f(p, "amount", 100.0).clamp(-999.0, 999.0),
@@ -292,8 +296,14 @@ pub(crate) fn validate_params(id: &str, p: &Value) -> Result<()> {
 pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> {
     validate_params(id, p)?;
     // Session state some filters read (colours) becomes explicit params; external inputs resolve here.
-    let prepared = crate::filters_ext::prepare(s, id, p);
+    let mut prepared = crate::filters_ext::prepare(s, id, p);
+    if id == "filter.distort.displace" {
+        prepared = crate::filters_ext::displace_request(&prepared);
+    }
     let p = &prepared;
+    if let Some(gate) = s.authorize {
+        gate(id, p)?;
+    }
     let mut fp = params_for(id, p).ok_or_else(|| EngineError::Other(format!("unknown filter {id}")))?;
     crate::filters_ext::resolve(s, &mut fp, p)?;
     let layer = match p.get("layer").and_then(Value::as_u64) {
@@ -337,12 +347,19 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
             let surf = match &mut l.content {
                 LayerContent::Raster(surf) => surf,
                 LayerContent::Smart(_) => {
+                    let mut params = match &fp {
+                        FilterParams::Displace { map: Some(map), .. } if photocraft_io::smart_map::displace_embedded_map(&params).is_none() => {
+                            photocraft_io::smart_map::displace_embed_map(&params, map).ok_or_else(|| {
+                                EngineError::Other("Displace: choose a smaller map (at most 4096 x 4096 pixels), or rasterize the layer first".into())
+                            })?
+                        }
+                        _ => params.clone(),
+                    };
                     if matches!(fp, FilterParams::Displace { .. }) {
-                        return Err(EngineError::Other("Displace on a Smart Object is unavailable; rasterize the layer first".into()));
+                        crate::filters_ext::displace_settle(&mut params);
                     }
                     // Non-destructive: record the filter and re-render the smart object from its source.
-                    let sf =
-                        SmartFilter { command: id.clone(), params: params.clone(), blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
+                    let sf = SmartFilter { command: id.clone(), params, blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
                     return crate::smart_cmds::add_smart_filter(doc, layer, sf, selection.as_ref()).map(|()| fp);
                 }
                 _ => return Err(EngineError::Other("not a pixel layer".into())),
@@ -459,8 +476,33 @@ fn last_filter(s: &Session) -> Option<(String, Value)> {
 }
 
 #[cfg(test)]
+mod tests_displace;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unsigned_seeds_preserve_distinct_deterministic_wave_and_noise() {
+        for id in ["filter.distort.wave", "filter.noise.addNoise"] {
+            let render = |seed| {
+                let mut s = session();
+                s.execute(id, json!({"seed": seed})).unwrap();
+                let d = s.active().unwrap();
+                d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().read_region(d.doc.bounds())
+            };
+            let high = render(4_000_000_000u32);
+            assert_ne!(high, render(2_147_483_647), "{id}: distinct seeds");
+            assert_eq!(high, render(4_000_000_000), "{id}: deterministic seed");
+            for seed in [0, u32::MAX] {
+                let fp = params_for(id, &json!({"seed": seed})).unwrap();
+                match fp {
+                    FilterParams::Wave { seed: actual, .. } | FilterParams::AddNoise { seed: actual, .. } => assert_eq!(actual, seed),
+                    _ => panic!("seeded filter"),
+                }
+            }
+        }
+    }
 
     #[test]
     fn strict_extended_filters_keep_defaults_targets_history_and_last_filter() {
@@ -860,9 +902,5 @@ mod tests {
         assert_eq!(sm.smart_filters[0].command, "filter.blur.gaussianBlur");
         assert_eq!(sm.smart_filters[0].params["radius"], json!(2));
         assert!(sm.cache.as_ref().unwrap().pixel(10, 5)[3] > 0.0, "cache was blurred");
-        let before = d.doc.clone();
-        let error = s.execute("filter.distort.displace", json!({"mapDocument": 0})).unwrap_err().to_string();
-        assert!(error.contains("rasterize the layer first"), "{error}");
-        assert_eq!(s.active().unwrap().doc, before);
     }
 }
