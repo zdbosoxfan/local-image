@@ -21,7 +21,7 @@ rayon = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 ureq = { workspace = true }
-rustls-rustcrypto = { workspace = true }
+rustls = { workspace = true }
 tungstenite = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
@@ -29,9 +29,3 @@ log = { workspace = true }
 dirs = { workspace = true }
 tiny_http = { workspace = true }
 base64 = "0.22"
-
-
-
-[dev-dependencies]
-# Existing workspace/lock package: local TLS and CONNECT regression fixtures only.
-rustls = { workspace = true }
