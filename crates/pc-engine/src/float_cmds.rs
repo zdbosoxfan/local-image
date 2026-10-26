@@ -84,7 +84,7 @@ impl CutParts {
             .surface_mut()
             .ok_or_else(|| EngineError::Other("the layer has no pixels to move".into()))?;
         let mut out = self.rest.clone();
-        crate::transform_cmds::composite_over(&mut out, &photocraft_algo::resample::translate_surface(&self.piece, dx, dy));
+        crate::transform_cmds::composite_over(&mut out, &photocraft_algo::resample::translate_surface(&self.piece, dx, dy))?;
         *surf = out;
         Ok(d)
     }
