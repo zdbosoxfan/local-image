@@ -236,3 +236,21 @@ fn float_curve_mode_and_layer_paths_match_direct_application() {
         }
     }
 }
+
+#[test]
+fn float_exposure_keeps_signed_gamma_in_rgb_and_gray_layers() {
+    for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+        let mut doc = Document::new("exposure", Size::new(3, 1), mode, SampleType::F32);
+        let fmt = doc.pixel_format();
+        let mut layer = Layer::raster("pixels", fmt);
+        for (x, value) in [-0.375, 0.125, 2.125].into_iter().enumerate() {
+            layer.surface_mut().unwrap().write_pixel(x as i32, 0, &photocraft_raster::from_rgba(&fmt, [value, value, value, 1.0]));
+        }
+        doc.layers.push(layer);
+        doc.layers.push(Layer::new("exposure", LayerContent::Adjustment(Adjustment::Exposure { exposure: 1.0, offset: -0.25, gamma: 2.0 })));
+        for (actual, expected) in flatten(&doc).px.iter().zip([-1.0, 0.0, 2.0]) {
+            assert!(actual[..3].iter().all(|v| (v - expected).abs() < 1e-6), "{mode:?}: {actual:?} vs {expected}");
+            assert_eq!(actual[3], 1.0);
+        }
+    }
+}
