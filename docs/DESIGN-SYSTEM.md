@@ -76,7 +76,8 @@ transparency checker) is content, not chrome, and may be literal.
 
 **Shape.** Radii: `radius_sm` / `radius` / `radius_lg` = Pro 3/4/6, Studio 6/8/12, Classic 0/0/0
 (`pc theme.rs:100`). Library: buttons and rows 4, windows and menus 6, swatch tile 3 (`SWATCH_RADIUS`),
-badge 6 (`BADGE_RADIUS`). Strokes are 1 pt everywhere (`Stroke::new(1.0, ..)`); never thicker for chrome.
+badge 6 (`BADGE_RADIUS`). Chrome strokes use the existing shared metrics, typically 1 pt;
+keyboard focus uses `li-ui-kit::widget_style::FOCUS_STROKE` and `FOCUS_OUTSET` (both 2 pt).
 Spacing: editor `item_spacing` 8x6, `button_padding` 10x4, `interact_size` 24, `ROW_GAP` 4 between stacked
 panel rows (`pc theme.rs:547`), `TOOLTIP_DELAY` 0.35 s (`:543`). Library: item spacing 6x4, button padding
 8x3, interact height 22 (`lc theme.rs:201`), metrics `panel_w` 270, `section_h` 57, `slider_row_h` 45.
@@ -87,6 +88,10 @@ panel rows (`pc theme.rs:547`), `TOOLTIP_DELAY` 0.35 s (`:543`). Library: item s
 (headings 15 editor / 16 library). Pass them through the helpers (`t.font(12.0)`, `theme::semibold(12.5)`),
 never `FontId::new(..)` by hand. Preferences > Interface > UI Font Size scales every face at once
 (`pc theme.rs:414`), so do not multiply sizes yourself.
+The committed `li-ui-kit::fonts::font_scale` choices are Tiny (10/12), Small (1, default),
+Medium (14/12) and Large (16/12). Large is about 133%; the 150% and 200% text-only review targets
+in section 7 exceed these choices. UI Scale, canvas zoom and pixels-per-point are separate controls
+and do not establish text-only scaling support.
 
 **Add a token.** Add common/editor roles to `li-ui-kit::theme::Tokens` and its theme constructors.
 Library-only roles belong in `LibraryRoles`, layout in `Metrics`; update the shared Library profile
@@ -268,26 +273,126 @@ ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted gly
   flush against the panel edge; this has been a real bug. Use the same inset for new Develop rows.
 - **Dock widths.** Editor dock: 250 to 520 pt, default 290/300 (`pc panels.rs:1332`). Library right panel:
   250 to 520, default 270; left sidebar 200 to 480 (`lc state.rs:238`). Everything must work at **250 pt
-  (narrow)** and **400 pt (normal)**: no clipped labels, no horizontal scrollbar, long text elides with
-  "...", buttons that do not fit wrap to their own row.
+  (narrow)** and **400 pt (normal)**: no clipped labels or horizontal scrollbar. Essential labels,
+  instructions and errors wrap; rows grow vertically and buttons that do not fit wrap to their own row.
+  Compact metadata and paths may elide with "..." only if the full value is available through a
+  keyboard-accessible detail view, expansion or focus-accessible tooltip. Hover alone is insufficient;
+  expose the full value to AccessKit too. Check recovery with a long synthetic path and translation
+  at 250 pt and 200% text (section 7).
 - **HiDPI.** Test at 1.0 and 1.5 pixels-per-point (examples: `pc menu_nav_tests.rs:10`). Size in points,
   never pixels; icons are rasterised at the exact on-screen size so they stay crisp.
 - **Scrolling.** A column that can overflow is wrapped in a vertical `ScrollArea`; context menus use
   `widgets::menu_scroll`. A dock group never grows with its content; taller content scrolls inside it (`pc dock.rs:4`).
 - **Rows.** Stack panel rows with `ROW_GAP`; align labels, fields and sliders on one left edge.
 
+**Bidirectional layout review.** Treat chrome alignment and insets as leading/trailing when reviewing
+RTL: panel labels and fields, list order, navigation placement and directional navigation chevrons
+should follow the reading direction, with matching keyboard traversal. The left/right metrics above
+describe the committed LTR layout. Preserve platform dialog-button conventions. Do not mirror photo
+pixels, swatches, curve and histogram axes, numeric signs/values or spatial tool meaning (for example,
+rotate clockwise). Mirror an icon only when it expresses reading-direction navigation; a disclosure
+must still express its open/closed state. Verify mixed-script paths, punctuation and numerals without
+reversing stored strings.
+
+`li-i18n::LANGUAGES` currently includes neither Arabic nor Hebrew; a translated RTL shell is not
+established by font fallback or by right-aligned rows. Use synthetic Arabic/Hebrew names and mixed
+Arabic-Latin paths in the section 7 matrix. Record text shaping, bidi ordering, focus order and any
+unavailable RTL-shell configuration separately; a missing locale or unreadable glyph is a review gap,
+not a pass. See [Material bidirectionality](https://m3.material.io/foundations/layout/bidirectionality-rtl).
+
 ## 6. Accessibility
+
+These are acceptance requirements for shared widgets and their callers, not a certification that
+every committed screen meets them. Record missing support or failing cases with evidence; changes
+to palettes, geometry, widgets or preferences still follow the project's design approval process.
 
 - Every interactive widget has an accessible name. Icon-only buttons need a label as well as a tooltip
   (`icon_action(.., label, tip, ..)`; `icons::button` uses the tooltip text); tiles and strips get one via
   `widget_info`/the `label` argument (`color_swatch`, `range_strip`).
 - A disabled control says why: pass the reason as the tooltip (`icon_action(.., Some("Open a document first"))`),
   never just grey it out. Disabled must also mean no click, no focus, and disabled for screen readers.
-- Everything is reachable by keyboard: Tab order follows reading order, focus shows the same fill as hover,
-  Enter/Space activate, Esc closes. Dialog buttons come from `dialog_buttons` for the right order and Tab walk.
-- Text contrast must stay readable on every theme; derive colours from tokens (`text_on`, `readable_text`
-  in `lc theme.rs:252`). Translate user-visible text with `tl!("...")` (editor) / `li_i18n::library::t` (library), both from `li-i18n`; the
+- Everything is reachable by keyboard: Tab/Shift+Tab follow reading order, Enter/Space activate,
+  Esc closes. Keyboard focus needs an independent visible cue using existing tokens/shared focus
+  metrics, identifiable even when the control is also selected or hovered. A hover fill alone does
+  not identify focus. Inspect focused, selected+focused and hovered+focused controls in every theme,
+  including scrolled content, and confirm focus in AccessKit.
+- **Modal focus lifecycle.** On open, remember the initiating control and move focus inside to the
+  appropriate field, reading start or safe action. Tab/Shift+Tab stay inside the active modal;
+  background controls cannot activate. Confirm, Cancel, Escape and any other supported dismissal
+  return focus to the initiating control. If it was removed or disabled, use a meaningful enabled
+  neighbour or parent action in the same workflow. Apply keeps the modal open and focus inside it.
+  Reuse `dialog_buttons`/`DialogButton::focus` for editor button order and initial button focus, and
+  `lc::widgets::modal` for the Library modal shell; callers still own restoration and must verify the
+  full lifecycle. Check keyboard open, forward/backward traversal, confirm, cancel, Escape and trigger
+  removal. This adapts the [APG modal focus pattern](https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/)
+  to egui/AccessKit.
+- Translate user-visible text with `tl!("...")` (editor) / `li_i18n::library::t` (library), both from `li-i18n`; the
   `_translated` widget variants are for text already translated.
+
+### Contrast acceptance
+
+Measure foreground/background pairs after compositing on the actual surface, using WCAG relative
+luminance: `(L_lighter + 0.05) / (L_darker + 0.05)` with linearized sRGB. Do not round a failing ratio
+up to the threshold. Normal text requires **4.5:1**; qualifying large text requires **3:1** (at least
+18 pt regular or 14 pt bold in WCAG terms). An egui logical-point size or a SemiBold face alone does
+not establish that exception; keep 4.5:1 unless equivalent rendered size and weight are established.
+Meaningful control/state indicators and graphics require **3:1** against adjacent colours.
+See [WCAG text contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) and
+[non-text contrast](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html).
+
+| Foreground role | Backgrounds to measure where used | Requirement |
+| --- | --- | --- |
+| Editor `text`, `text_dim`, and informational `text_faint`; Library `text`, `text_label`, `text_dim` | Actual `chrome`, `dock`/`card`, `inset`, `field`, button and tab surfaces | Text threshold, including secondary labels |
+| `primary_text`, `accent_text`; Library `selection_text` | Paired `primary_bg`, `accent_soft`/actual accent fill; Library `selection` | Text threshold |
+| Text and `icon` on interactive controls | Actual normal, `hover`, `pressed`, `row_selected`/`tool_active` fills | Text threshold; 3:1 for meaningful icons |
+| `accent`/`accent_border`, checkmarks, field outlines and scope indicators when needed to identify a control, state or data | Each adjacent surface, including focused+selected and focused+hovered combinations; `histogram_bg` for scopes | 3:1 for the meaningful cue |
+| `danger`, `warning` / Library `caution` used as text or status icons | Actual notice, field or panel fill | Text threshold or 3:1 for icons; also convey meaning with text/shape |
+| `overlay_fg` | `overlay_bg` composited over synthetic black, white and high-detail/checkerboard image regions | Text threshold or 3:1 for meaningful badge icons |
+
+This matrix names used pairings, not permission to mix roles arbitrarily. Check all five themes
+(`Pro`, `ProMedium`, `Studio`, `StudioLight`, `Classic`) and both UI profiles, including translucent
+overlays and modified hover/pressed colours. Use `text_on`/`readable_text` through the Library theme
+facade where appropriate; their presence alone is not measurement evidence. Record the roles,
+composited colours, state, theme and ratio, then inspect the screenshots. Disabled controls and purely
+decorative separators/borders are exempt; enabled secondary text is not. A decorative border need
+not meet 3:1 if another cue identifies the control. Photo pixels and colour samples remain content.
+
+### Targets and desktop density
+
+Measure actual interactive rectangles, not the painted glyph or `interact_size` alone. The inherited
+editor 24 pt interact size and Library 22 pt interact height are compact desktop defaults; individual
+widgets allocate their own rectangles. They do not establish compliance with Material's
+[48x48 dp touch / 44x44 dp pointer guidance](https://m3.material.io/foundations/designing/structure).
+Its [density guidance](https://m3.material.io/foundations/layout/grids-spacing/density) also recommends
+a 48x48 CSS-pixel default; the pointer figure is not a blanket compact-density exemption. These are
+platform reference units, not automatic conversions to egui points.
+
+For the changed controls, record hit width/height and separation at 1.0 and 1.5 pixels-per-point,
+check pointer acquisition at edges, keyboard acquisition and adjacent controls for overlapping hit
+regions. Keep the inherited geometry until a deliberate design decision. Non-overlapping expanded
+hit areas or an opt-in comfortable density with a reachable reset need that decision; this document
+does not add a density mode or silently enlarge controls.
+
+### Motion and reduced motion
+
+Keep productivity actions immediate. Use restrained, consistent motion only for a named purpose
+(continuity, feedback or a relationship), with no decorative animation of photo pixels and no flashing.
+Transitions must remain interruptible, reverse/retarget from their current state and never delay
+input or hide an action until completion. Reuse shared behavior; there is no universal duration or
+curve. Colour/opacity transitions stay within valid bounds without overshoot.
+
+The reduced-motion contract is one shared path from the native preference to widget behavior,
+with an accessible application fallback if the platform cannot supply it. Reduced motion removes
+decorative sliding, parallax and morphing and presents the same information in a static state;
+a subtle fade is acceptable only if comfortable. Keep progress, results and cancellation understandable.
+The committed Library style sets `animation_time = 0.08` in `li-ui-kit::library::apply_tokens`; that is an
+existing timing value, not a reduced-motion facility. A shared native-preference path is not
+established here; record it as unavailable until implemented and verified under an approved design.
+
+Review panels and dialogs with motion enabled and reduced: interrupt, reverse and repeat transitions,
+compare final state and keyboard focus, and check that controls remain usable throughout. Record an
+unavailable preference path as NOT VERIFIED rather than inferring it from a still screenshot.
+See [Material transitions](https://m3.material.io/styles/motion/transitions/applying-transitions).
 
 ## 7. Testing
 
@@ -305,6 +410,33 @@ ship. The hand-drawn Glossy Duotone tool icons and LightCraft's code-painted gly
   Studio Light) and `lc tests_design_system.rs` (headless, default dark vs `tests_develop_c::light()`);
   output goes to `target/design-system/`. Look at them; passing assertions do not prove it looks right.
 - Do not run the full workspace build for a UI tweak; run the owning crate's lib tests.
+
+### Text, direction and interaction review matrix
+
+For changed screens, extend the existing screenshot/keyboard review with this matrix. Text percentages
+are relative to the inherited Small/default face sizes; they are independent of display density.
+
+| Axis | Required cases |
+| --- | --- |
+| Panel width | 250 pt and 400 pt |
+| Text size | 100%, 150%, 200%, at each width |
+| Pixels-per-point | 1.0 and 1.5, independently of text size |
+| Appearance | Dark and light for layout; all five themes for contrast/focus as specified in section 6 |
+| Content/direction | Long translated labels (for example German), long synthetic paths/errors, Arabic/Hebrew names and mixed Arabic-Latin paths/numerals; RTL chrome where supported |
+| Interaction | Keyboard-only completion, full elided-value recovery, focus combinations and modal lifecycle from section 6; motion enabled/reduced |
+
+At every text size, line height and containers must grow enough to avoid clipped glyphs, overlapping
+fields and hidden actions. Wrap before truncating essential content; permit vertical growth and
+scrolling while preserving access to every action. Check full values in AccessKit and by keyboard.
+For direction review, inspect label/field alignment, traversal, navigation/disclosure chevrons and
+numeric fields; compare photo orientation, curves, histograms and spatial tools with LTR (section 5).
+
+Use the existing harnesses only where they can express the configuration. The current font choices
+do not reach 150%/200% text-only scaling (section 2); record those cases as NOT VERIFIED if unavailable,
+with the configuration and missing capability. Do the same for unsupported RTL chrome, script
+rendering or reduced-motion paths. Neither larger pixels-per-point nor a passing default-size
+screenshot substitutes for these cases. Retain review evidence outside the repository and distinguish
+measured passes, failures and unavailable configurations; do not claim runtime coverage from this contract.
 
 ## 8. The rule
 
