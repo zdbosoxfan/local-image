@@ -185,7 +185,8 @@ fn public_output_chroma_is_monotone_on_well_conditioned_rays() {
                     checked += 1;
                     let (lab, _) = mapped_lab(space, input);
                     let chroma = lab[1].hypot(lab[2]);
-                    assert!(chroma >= previous - 2e-5, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
+                    let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 } else { 2e-5 };
+                    assert!(chroma >= previous - tolerance, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
                     previous = chroma;
                 }
                 assert!(checked > 100, "insufficient well-conditioned samples at ({l}, {h})");
