@@ -360,7 +360,6 @@ fn main_role(key: &str) -> (Role, FileKind, &'static [&'static str]) {
     }
 }
 
-/// The template model for one installed file (matching, compiling, checking).
 fn checked_recipe(ctx: &Ctx, key: &str, m: &ModelState, id: &Identity, recipe: &TemplateRecipe) -> check::Checked {
     let local =
         |folder: &str, file: &str| crate::inventory::local_path(ctx.model_dir, &[folder], file).and_then(|p| std::fs::metadata(p).ok()).map(|m| m.len());
@@ -437,6 +436,7 @@ fn restore_last_good(ctx: &Ctx, key: &str, m: &mut ModelState) {
     m.status = Status::NeedsReverify;
 }
 
+/// The template model for one installed file (matching, compiling, checking).
 fn template_model(ctx: &Ctx, im: &InstalledModel, name: &str, id: &Identity, mut m: ModelState) -> ModelState {
     let key = im.key.as_str();
     let family = id.arch.as_deref().and_then(|a| ctx.reg.family(a));
