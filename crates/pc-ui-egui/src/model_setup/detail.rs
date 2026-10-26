@@ -334,32 +334,6 @@ fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
     text
 }
 
-/// Format the stored wall time in the interface language; its offset stays in the report.
-fn verification_date(at: &str) -> String {
-    use li_i18n::Lang;
-    let Some(prefix) = at.get(..16).filter(|p| p.is_ascii()) else { return tl!("Unknown").into() };
-    let bytes = prefix.as_bytes();
-    if !bytes.iter().enumerate().all(|(i, b)| match i {
-        4 | 7 => *b == b'-',
-        10 => *b == b'T',
-        13 => *b == b':',
-        _ => b.is_ascii_digit(),
-    }) {
-        return tl!("Unknown").into();
-    }
-    let year = &prefix[..4];
-    let month = &prefix[5..7];
-    let day = &prefix[8..10];
-    let clock = &prefix[11..16];
-    match li_i18n::current() {
-        Lang::En => format!("{month}/{day}/{year} {clock}"),
-        Lang::Ja | Lang::ZhHans | Lang::ZhHant => format!("{year}/{month}/{day} {clock}"),
-        Lang::Ko => format!("{year}. {month}. {day}. {clock}"),
-        Lang::De | Lang::Ru | Lang::Cs => format!("{day}.{month}.{year} {clock}"),
-        Lang::Es | Lang::Fr | Lang::Id | Lang::PtBr | Lang::It => format!("{day}/{month}/{year} {clock}"),
-    }
-}
-
 fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelState, t: &Tokens, out: &mut Vec<Action>) {
     let task = s.task.clone();
     let running = task.as_ref().and_then(|x| x.lock().ok().map(|x| (x.verifying.contains(&key.to_owned()), x.current.clone(), x.steps.clone())));
@@ -429,9 +403,12 @@ fn verify(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelSta
         );
     }
     ui.label(
-        RichText::new(li_i18n::fmt(tl!("Checked on ComfyUI {version} · {date}"), &[("version", &v.comfyui_version), ("date", &verification_date(&v.at))]))
-            .size(11.5)
-            .color(t.text_faint),
+        RichText::new(li_i18n::fmt(
+            tl!("Checked on ComfyUI {version} · {date}"),
+            &[("version", &v.comfyui_version), ("date", &li_i18n::dates::display_time(&v.at))],
+        ))
+        .size(11.5)
+        .color(t.text_faint),
     )
     .on_hover_text(li_i18n::fmt(
         tl!("Checked on ComfyUI {version} · {date} · seed {seed}"),
