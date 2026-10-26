@@ -5,6 +5,7 @@
 //! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. MIT OR Apache-2.0.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 #![cfg(feature = "synth")]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 mod support {

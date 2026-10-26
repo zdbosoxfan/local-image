@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 #![cfg_attr(any(test, target_arch = "aarch64"), expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
+#![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 extern crate self as photocraft_doc;
 
