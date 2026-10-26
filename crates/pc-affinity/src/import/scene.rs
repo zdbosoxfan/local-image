@@ -24,6 +24,7 @@ pub(super) struct State<'a, 'b> {
     pub(super) warnings: Vec<VectorWarning>,
     pub(super) supported: usize,
     pub(super) unsupported: bool,
+    pub(super) cmyk: std::collections::HashMap<usize, photocraft_cms::Transform>,
 }
 impl<'a, 'b> State<'a, 'b> {
     pub(super) fn new(options: &'a ImportOptions, fonts: Option<&'b mut photocraft_text::TextEngine>, cancel: &'a AtomicBool, size: Size, bytes: u64) -> Self {
@@ -40,6 +41,7 @@ impl<'a, 'b> State<'a, 'b> {
             warnings: vec![],
             supported: 0,
             unsupported: false,
+            cmyk: std::collections::HashMap::new(),
         }
     }
     pub(super) fn warn(&mut self, feature: &str, name: &str, message: &str) {
@@ -64,10 +66,18 @@ impl<'a, 'b> State<'a, 'b> {
         }
         Ok(())
     }
+    pub(super) fn charge_layers(&mut self, count: usize) -> Result<(), Error> {
+        self.objects = self.objects.saturating_add(count);
+        self.bytes = self.bytes.saturating_add((count as u64).saturating_mul(std::mem::size_of::<Layer>() as u64 * 2));
+        if self.objects > self.options.limits.objects || self.bytes > self.options.limits.decompressed_bytes {
+            return Err(Error::Limit("expanded native layers"));
+        }
+        Ok(())
+    }
     pub(super) fn affine(&self, m: Affine) -> Result<(), Error> {
         if m.m.iter().all(|v| v.is_finite() && v.abs() <= 1_000_000.) { Ok(()) } else { Err(Error::Limit("transform coordinates")) }
     }
-    fn path(&mut self, p: &model::Path, m: Affine, even: bool) -> Result<Path, Error> {
+    pub(super) fn path(&mut self, p: &model::Path, m: Affine, even: bool) -> Result<Path, Error> {
         let n = p.subpaths.iter().map(|p| p.segments.len() + 1).sum::<usize>();
         self.segments = self.segments.saturating_add(n);
         if self.segments > self.options.limits.segments {
@@ -106,7 +116,7 @@ impl<'a, 'b> State<'a, 'b> {
         path.fill_rule = if even { FillRule::EvenOdd } else { FillRule::NonZero };
         Ok(path)
     }
-    fn shape(&mut self, path: Path, fills: &[crate::paint::Paint], strokes: &[crate::paint::Stroke], m: Affine, name: &str) -> Result<Layer, Error> {
+    pub(super) fn shape(&mut self, path: Path, fills: &[crate::paint::Paint], strokes: &[crate::paint::Stroke], m: Affine, name: &str) -> Result<Layer, Error> {
         let b = path.control_bounds().unwrap_or((0., 0., 0., 0.));
         let mut items = Vec::new();
         for s in strokes.iter().filter(|s| s.behind) {
@@ -160,7 +170,52 @@ impl<'a, 'b> State<'a, 'b> {
                 if v.len() as u64 != count * 4 {
                     return Err(Error::Malformed("RGBA length"));
                 }
-                v.clone()
+                v.iter().map(|v| f32::from(*v) / 255.).collect::<Vec<_>>()
+            }
+            model::Pixels::Cmyka8(v) => {
+                if v.len() as u64 != count * 5 {
+                    return Err(Error::Malformed("CMYK length"));
+                }
+                let key = image.profile.as_ref().map_or(0, |p| std::sync::Arc::as_ptr(p) as usize);
+                if !self.cmyk.contains_key(&key) {
+                    self.bytes = self.bytes.saturating_add(8 << 20);
+                    if self.bytes > self.options.limits.decompressed_bytes {
+                        return Err(Error::Limit("CMYK transform bytes"));
+                    }
+                    let profile = if let Some(bytes) = &image.profile {
+                        let profile = photocraft_cms::Profile::parse(bytes).map_err(|_| Error::Malformed("invalid CMYK profile"))?;
+                        if profile.color_space != photocraft_cms::ColorSpace::Cmyk {
+                            return Err(Error::Malformed("non-CMYK source profile"));
+                        }
+                        profile
+                    } else {
+                        self.warn(
+                            "colour-profile",
+                            "Affinity document",
+                            "CMYK pixels use the built-in coated CMYK profile because no source profile is embedded.",
+                        );
+                        photocraft_cms::Builtin::CoatedCmyk.profile().clone()
+                    };
+                    let transform =
+                        photocraft_cms::Transform::new(&profile, photocraft_cms::Builtin::Srgb.profile(), photocraft_cms::Intent::RelativeColorimetric, true)
+                            .map_err(|_| Error::Malformed("CMYK source transform"))?;
+                    self.cmyk.insert(key, transform);
+                }
+                let transform = self.cmyk.get(&key).ok_or(Error::Malformed("CMYK transform"))?;
+                let mut out = vec![0f32; count as usize * 4];
+                for (index, (input, output)) in v.as_chunks::<5>().0.iter().zip(out.as_chunks_mut::<4>().0.iter_mut()).enumerate() {
+                    if index % 65536 == 0 {
+                        cancelled(Some(self.cancel))?;
+                    }
+                    let mut rgb = [0.; 3];
+                    transform.eval(&[input[0], input[1], input[2], input[3]].map(|v| f32::from(v) / 255.), &mut rgb);
+                    if rgb.iter().any(|v| !v.is_finite()) {
+                        return Err(Error::Malformed("nonfinite CMYK conversion"));
+                    }
+                    output[..3].copy_from_slice(&rgb);
+                    output[3] = f32::from(input[4]) / 255.;
+                }
+                out
             }
             model::Pixels::Encoded(v) => {
                 let reader = || image::ImageReader::new(Cursor::new(v)).with_guessed_format().map_err(|_| Error::Malformed("image format"));
@@ -180,6 +235,9 @@ impl<'a, 'b> State<'a, 'b> {
                     .map_err(|e| if matches!(e, image::ImageError::Limits(_)) { Error::Limit("image decoder") } else { Error::Malformed("image pixels") })?
                     .into_rgba8()
                     .into_raw()
+                    .into_iter()
+                    .map(|v| f32::from(v) / 255.)
+                    .collect()
             }
         };
         let transform = m.mul(&affine(image.transform));
@@ -202,7 +260,7 @@ impl<'a, 'b> State<'a, 'b> {
                         continue;
                     }
                     let i = ((p.y.floor() as usize) * image.width as usize + p.x.floor() as usize) * 4;
-                    out.extend(raw[i..i + 4].iter().map(|v| f32::from(*v) / 255.));
+                    out.extend_from_slice(&raw[i..i + 4]);
                 }
             }
             surface.write_region(r, &out);
@@ -210,7 +268,15 @@ impl<'a, 'b> State<'a, 'b> {
         self.supported += 1;
         Ok(surface)
     }
-    fn nodes(&mut self, nodes: &[model::Node], m: Affine, depth: usize) -> Result<Vec<Layer>, Error> {
+    fn nodes(
+        &mut self,
+        nodes: &[model::Node],
+        m: Affine,
+        depth: usize,
+        native: &model::Document,
+        spread: &model::Spread,
+        masters: &mut std::collections::HashSet<usize>,
+    ) -> Result<Vec<Layer>, Error> {
         if nodes.is_empty() {
             return Ok(Vec::new());
         }
@@ -218,14 +284,15 @@ impl<'a, 'b> State<'a, 'b> {
             return Err(Error::Limit("native group depth"));
         }
         let mut out = Vec::new();
-        for n in nodes {
+        for n in nodes
+            .iter()
+            .filter(|n| matches!(n.kind, model::Kind::MasterInstance { .. }))
+            .chain(nodes.iter().filter(|n| !matches!(n.kind, model::Kind::MasterInstance { .. })))
+        {
             cancelled(Some(self.cancel))?;
-            self.objects += 1;
-            if self.objects > self.options.limits.objects {
-                return Err(Error::Limit("native layers"));
-            }
+            self.charge_layers(1)?;
             let name = if n.name.is_empty() { "Affinity object" } else { &n.name };
-            let children = self.nodes(&n.children, m, depth + 1)?;
+            let children = self.nodes(&n.children, m, depth + 1, native, spread, masters)?;
             let mut layer = match &n.kind {
                 model::Kind::Group | model::Kind::Layer => Layer::group(name, children),
                 model::Kind::Shape { path, fills, strokes, even_odd } | model::Kind::Artboard { path, background: fills, strokes, even_odd, .. } => {
@@ -235,6 +302,7 @@ impl<'a, 'b> State<'a, 'b> {
                     } else {
                         let behind: Vec<_> = strokes.iter().filter(|s| s.behind).cloned().collect();
                         let front: Vec<_> = strokes.iter().filter(|s| !s.behind).cloned().collect();
+                        self.charge_layers(2 + usize::from(!front.is_empty()))?;
                         let mut parts = vec![self.shape(path.clone(), fills, &behind, m, name)?];
                         let mut content = Layer::group("Clipped content", children);
                         content.vector.clip = Some(path.clone());
@@ -258,9 +326,41 @@ impl<'a, 'b> State<'a, 'b> {
                         group
                     }
                 }
+                model::Kind::Table(t) => self.table(t, m, name)?,
+                model::Kind::MasterInstance { master, page, master_page, count } => {
+                    if !masters.insert(*master) {
+                        return Err(Error::Malformed("cyclic master pages"));
+                    }
+                    let source = native.masters.get(*master).ok_or(Error::Malformed("missing master"))?;
+                    let mut parts = Vec::new();
+                    for offset in 0..*count {
+                        let target = spread.pages.get(page.saturating_add(offset)).copied().or_else(|| (*page == 0 && offset == 0).then_some(spread.bounds));
+                        let from = source
+                            .pages
+                            .get(master_page.saturating_add(offset))
+                            .copied()
+                            .or_else(|| (*master_page == 0 && offset == 0).then_some(source.bounds));
+                        let (Some(target), Some(from)) = (target, from) else {
+                            self.warn("master-page", name, "Master page range does not match the spread; unmatched pages omitted.");
+                            continue;
+                        };
+                        let at = m.mul(&Affine::translate(target.x0 - from.x0, target.y0 - from.y0));
+                        let nodes = self.nodes(&source.nodes, at, depth + 1, native, source, masters)?;
+                        let clip =
+                            self.path(&model::Path { subpaths: vec![crate::shapes::rectangle(target.x0, target.y0, target.x1, target.y1)] }, m, false)?;
+                        self.charge_layers(1)?;
+                        let mut page = Layer::group("Master page", nodes);
+                        page.vector_mask = Some(VectorMask::new(clip.clone()));
+                        page.vector.clip = Some(clip);
+                        parts.push(page);
+                    }
+                    masters.remove(master);
+                    Layer::group(name, parts)
+                }
                 model::Kind::Text(t) => {
                     if !children.is_empty() {
                         self.warn("text-children", name, "Children of text are retained in a group.");
+                        self.charge_layers(1)?;
                         let text = self.text(t, m, name)?;
                         let mut v = vec![text];
                         v.extend(children);
@@ -274,6 +374,7 @@ impl<'a, 'b> State<'a, 'b> {
                     if children.is_empty() {
                         image
                     } else {
+                        self.charge_layers(1)?;
                         let mut v = vec![image];
                         v.extend(children);
                         Layer::group(name, v)
@@ -285,6 +386,7 @@ impl<'a, 'b> State<'a, 'b> {
                     Layer::group(name, children)
                 }
             };
+            self.effects(&n.effects, &mut layer, m, name)?;
             if let Some(p) = &n.mask {
                 let mut path = self.path(p, m, false)?;
                 if path.is_empty() {
@@ -300,6 +402,7 @@ impl<'a, 'b> State<'a, 'b> {
                 let mut mask = photocraft_doc::LayerMask::hide_all();
                 let r = rgba.content_bounds();
                 for r in tiles(r) {
+                    cancelled(Some(self.cancel))?;
                     let data: Vec<f32> = rgba.read_region(r).as_chunks::<4>().0.iter().map(|v| v[0] * v[3]).collect();
                     mask.surface.write_region(r, &data);
                 }
@@ -353,8 +456,10 @@ pub(super) fn convert(
     let mut layers = Vec::new();
     for (s, m, w, h) in selected {
         state.affine(m)?;
-        let mut nodes = state.nodes(&s.nodes, m, 1)?;
+        let mut nodes = state.nodes(&s.nodes, m, 1, &native, s, &mut std::collections::HashSet::new())?;
+        state.charge_layers(1)?;
         if !s.transparent {
+            state.charge_layers(1)?;
             let path = Path::new(vec![Subpath::polygon(&[
                 (m.m[4] + s.bounds.x0 * scale, 0.),
                 (m.m[4] + s.bounds.x0 * scale + w, 0.),
@@ -420,7 +525,7 @@ fn tiles(r: Rect) -> Vec<Rect> {
     }
     out
 }
-fn blend(b: model::Blend, s: &mut State<'_, '_>, name: &str) -> BlendMode {
+pub(super) fn blend(b: model::Blend, s: &mut State<'_, '_>, name: &str) -> BlendMode {
     use model::Blend as B;
     match b {
         B::Normal => BlendMode::Normal,
@@ -453,4 +558,11 @@ fn blend(b: model::Blend, s: &mut State<'_, '_>, name: &str) -> BlendMode {
             BlendMode::Normal
         }
     }
+}
+
+pub(super) fn bounds(layer: &Layer) -> Rect {
+    if let Some(surface) = layer.surface() {
+        return surface.content_bounds();
+    }
+    layer.children().unwrap_or_default().iter().map(bounds).fold(Rect::EMPTY, |a, b| a.union(&b))
 }

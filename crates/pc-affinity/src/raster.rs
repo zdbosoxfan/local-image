@@ -3,7 +3,8 @@
 //! 256 bytes × 256 rows per channel, each its own archive entry.
 
 //! Adapted from VectorCraft crates/affinity/src/raster.rs at
-//! d522c1d7be4035bd4f4a84cd6ebfca44f5155092. MIT OR Apache-2.0.
+//! d522c1d7be4035bd4f4a84cd6ebfca44f5155092, with AF.5 records from
+//! b3ccdf01a7482fc4fd7545ed9e302911824a2a3c. MIT OR Apache-2.0.
 //! Copyright (c) 2026 ArtCraft Team and the VectorCraft contributors.
 
 use std::collections::HashMap;
@@ -45,8 +46,9 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
         if u64::from(width) * u64::from(height) > MAX_PIXELS {
             return Err(Error::Limit("layer exceeds 100 megapixels"));
         }
+        r.charge_pixels(u64::from(width) * u64::from(height))?;
         match original(r, name) {
-            Ok(bytes) => return Ok(Some(Image { width, height, pixels: Pixels::Encoded(bytes), transform: world })),
+            Ok(bytes) => return Ok(Some(Image { profile: None, width, height, pixels: Pixels::Encoded(bytes), transform: world })),
             Err(Error::Limit(e)) => return Err(Error::Limit(e)),
             Err(Error::Cancelled) => return Err(Error::Cancelled),
             Err(_) => r.warn("an embedded image file that could not be read (its cached pixels were used)"),
@@ -126,10 +128,7 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
         Some(1) => (4, 2),
         Some(6) => (1, 1),
         Some(7) => (1, 2),
-        Some(4) => {
-            r.warn("CMYK pixel layers (converted to RGB without the document's colour profile)");
-            (5, 1)
-        }
+        Some(4) => (5, 1),
         _ => {
             r.warn("pixel layers in grey, Lab or 32-bit formats");
             return Ok(None);
@@ -170,7 +169,8 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
         planes.push(plane(r, bitmap, c, bps, (x0, y0, w, h), &mut cache)?);
     }
     let n = (w as usize) * (h as usize);
-    let mut rgba = vec![0u8; n * 4];
+    let stride = if channels == 5 { 5 } else { 4 };
+    let mut rgba = vec![0u8; n * stride];
     let sample = |p: &Vec<u8>, i: usize| -> f64 {
         if bps == 2 {
             f64::from(u16::from_le_bytes([p.get(2 * i).copied().unwrap_or(0), p.get(2 * i + 1).copied().unwrap_or(0)])) / 65535.0
@@ -178,23 +178,25 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
             f64::from(p.get(i).copied().unwrap_or(0)) / 255.0
         }
     };
-    for (i, px) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+    for (i, px) in rgba.chunks_exact_mut(stride).enumerate() {
+        if i % 65536 == 0 {
+            crate::import::cancelled(r.archive.cancel)?;
+        }
         let mut v = [0.; 5];
         for (value, plane) in v.iter_mut().zip(&planes) {
             *value = sample(plane, i);
         }
-        let (r2, g, b, a) = if channels == 1 {
-            (v[0], v[0], v[0], 1.0)
-        } else if channels == 5 {
-            let k = 1.0 - v[3];
-            ((1.0 - v[0]) * k, (1.0 - v[1]) * k, (1.0 - v[2]) * k, v[4])
-        } else {
-            (v[0], v[1], v[2], v[3])
-        };
+        if channels == 5 {
+            for (channel, value) in px.iter_mut().zip(v) {
+                *channel = (value.clamp(0., 1.) * 255.).round() as u8;
+            }
+            continue;
+        }
+        let (r2, g, b, a) = if channels == 1 { (v[0], v[0], v[0], 1.0) } else { (v[0], v[1], v[2], v[3]) };
         px.copy_from_slice(&[r2, g, b, a].map(|c| (c.clamp(0.0, 1.0) * 255.0).round() as u8));
     }
     let transform = Affine([1.0, 0.0, 0.0, 1.0, f64::from(x0), f64::from(y0)]).then(world);
-    Ok(Some(Image { width: w, height: h, pixels: Pixels::Rgba8(rgba), transform }))
+    Ok(Some(Image { profile: None, width: w, height: h, pixels: if channels == 5 { Pixels::Cmyka8(rgba) } else { Pixels::Rgba8(rgba) }, transform }))
 }
 
 /// The original image file: entry `c/N` is a stream whose root (`Blck`) holds it as `Data`.
@@ -203,7 +205,12 @@ fn original(r: &mut Reader, name: &str) -> Result<Vec<u8>, Error> {
     let s = stream::parse_with(&bytes, r.archive.limits, r.archive.cancel)?;
     let root = s.object(s.root).ok_or(Error::Malformed("embedded image"))?;
     match root.get(Tag::of(b"Data")) {
-        Some(Value::Blob(b)) if !b.is_empty() => Ok(b.clone()),
+        Some(Value::Blob(b)) if !b.is_empty() => {
+            if !r.charge_owned(b.len()) {
+                return Err(r.failure.unwrap_or(Error::Limit("embedded source bytes")));
+            }
+            Ok(b.clone())
+        }
         _ => Err(Error::Malformed("embedded image without data")),
     }
 }

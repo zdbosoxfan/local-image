@@ -5,6 +5,7 @@ use photocraft_doc::{
     vector_design::exchange::{ImportOptions, ImportedScene, VectorWarning},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
+mod effects;
 mod paint;
 mod scene;
 mod text;
@@ -49,8 +50,10 @@ pub fn import_with(
     limits.max_depth = options.limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH);
     archive.limits = limits;
     // Stream parsing and layer recursion have different nesting conventions.
-    let native = model::Reader::new(&stream, &mut archive).document()?;
-    scene::convert(native, options, fonts, cancel, archive.extracted() as u64)
+    let mut reader = model::Reader::new(&stream, &mut archive);
+    let native = reader.document()?;
+    let bytes = reader.budget.owned as u64;
+    scene::convert(native, options, fonts, cancel, bytes.saturating_add(archive.extracted() as u64))
 }
 /// Explicit read-only recovery, intended for Open after a native unsupported-layout error.
 /// A preview remains at thumbnail dimensions and is visibly identified as flattened.
@@ -68,8 +71,13 @@ pub fn import_preview(bytes: &[u8], options: &ImportOptions, cancel: &AtomicBool
     if u64::from(preview.width) * u64::from(preview.height) > options.limits.pixels {
         return Err(Error::Limit("preview pixels"));
     }
-    let image =
-        model::Image { width: preview.width, height: preview.height, pixels: model::Pixels::Encoded(preview.png.to_vec()), transform: model::Affine::IDENTITY };
+    let image = model::Image {
+        profile: None,
+        width: preview.width,
+        height: preview.height,
+        pixels: model::Pixels::Encoded(preview.png.to_vec()),
+        transform: model::Affine::IDENTITY,
+    };
     let size = Size::new(preview.width, preview.height);
     let mut state = scene::State::new(options, None, cancel, size, preview.png.len() as u64);
     let surface = state.image(&image, photocraft_doc::Affine::IDENTITY)?;

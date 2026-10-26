@@ -5719,6 +5719,7 @@ dependencies = [
  "flate2",
  "image",
  "li-color",
+ "photocraft-cms",
  "photocraft-color",
  "photocraft-doc",
  "photocraft-geom",

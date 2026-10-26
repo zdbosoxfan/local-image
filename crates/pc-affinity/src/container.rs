@@ -286,6 +286,11 @@ impl<'a> Archive<'a> {
         self.extracted
     }
 
+    pub(crate) fn charge(&mut self, bytes: usize) -> Result<(), Error> {
+        self.extracted = self.extracted.checked_add(bytes).filter(|n| *n <= self.limits.max_total).ok_or(Error::Limit("nested archive bytes"))?;
+        Ok(())
+    }
+
     /// Extract an entry by name: decompress, undo the byte predictor and verify the CRC.
     pub fn read(&mut self, name: &str) -> Result<Vec<u8>, Error> {
         crate::import::cancelled(self.cancel)?;
@@ -298,6 +303,7 @@ impl<'a> Archive<'a> {
         if total > self.limits.max_total {
             return Err(Error::Limit("document too large"));
         }
+        self.extracted = total;
         let mut c = Cursor::new(self.bytes, offset(e.offset)?);
         if c.take(4)? != b"#Fil" {
             return Err(Error::Malformed("archive entry has no data block"));
@@ -317,7 +323,6 @@ impl<'a> Archive<'a> {
         if crc32fast::hash(&out) != e.crc {
             return Err(Error::Malformed("archive entry checksum mismatch"));
         }
-        self.extracted = total;
         Ok(out)
     }
 }

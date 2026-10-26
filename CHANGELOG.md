@@ -8,6 +8,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Affinity import keeps decorated text, table cells and grid lines, master-page content,
+  embedded native documents and supported layer styles editable. CMYK pixel layers retain
+  source-profile colour conversion, with a coated CMYK fallback and explicit approximation warnings.
+
 - Compositing: Export PDF carries File Info author, description, keywords, copyright status,
   notice and rights URL without camera, GPS or Develop metadata.
 

@@ -349,3 +349,12 @@ fn dsfix_character_attribute_run_budget_preserves_all_characters() {
     assert_eq!(text(&d).runs.len(), 4096);
     assert!(warning(&d, "text run budget exceeded"));
 }
+
+#[test]
+fn font_names_above_16_kib_use_default_without_copying_metadata() {
+    let d = read(vec![block(utf8("keep"), vec![run(4, Some(attrs(&"F".repeat(16 * 1024 + 1), &"P".repeat(16 * 1024 + 1), 400, false, 12.)))], &[])]);
+    assert_eq!(content(text(&d)), "keep");
+    assert!(text(&d).runs[0].family.is_empty());
+    assert!(text(&d).runs[0].postscript.is_empty());
+    assert!(warning(&d, "font names longer than 16384 bytes"));
+}
