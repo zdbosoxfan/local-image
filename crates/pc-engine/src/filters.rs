@@ -487,6 +487,7 @@ mod tests {
         for id in ["filter.distort.wave", "filter.noise.addNoise"] {
             let render = |seed| {
                 let mut s = session();
+                paint_pattern(&mut s);
                 s.execute(id, json!({"seed": seed})).unwrap();
                 let d = s.active().unwrap();
                 d.doc.layer(d.active_layer.unwrap()).unwrap().surface().unwrap().read_region(d.doc.bounds())
