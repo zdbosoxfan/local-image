@@ -61,6 +61,8 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Library: directory-sync failures when opening the catalog journal are reported, and retries
+  confirm the directory entry is durable before saving edits.
 - Develop and export preserve saturated colours already inside the selected output space,
   including deep blue. Colours outside that space transition smoothly, avoiding visible jumps
   from small edits. Rendered images and converted film negatives keep their saturated colours

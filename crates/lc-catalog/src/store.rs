@@ -64,12 +64,34 @@ impl FsStore {
     fn path(&self, name: &str) -> PathBuf {
         self.dir.join(name)
     }
-    fn sync_dir(&self) {
-        // Makes the rename durable on POSIX; opening a directory fails on Windows (where
-        // `rename` is already journaled by NTFS), so errors are ignored.
-        if let Ok(d) = std::fs::File::open(&self.dir) {
-            let _ = d.sync_all();
+    #[cfg(not(windows))]
+    fn sync_dir(dir: &Path) -> io::Result<()> {
+        std::fs::File::open(dir)?.sync_all()
+    }
+
+    #[cfg(windows)]
+    fn sync_dir(_: &Path) -> io::Result<()> {
+        // File::open cannot open Windows directories; NTFS journals directory-entry changes.
+        Ok(())
+    }
+
+    fn append_with_sync_dir(&mut self, name: &str, data: &[u8], sync_dir: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
+        use std::io::Write;
+        if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
+            let f = std::fs::OpenOptions::new().create(true).append(true).open(self.path(name))?;
+            // An existing entry may be left by an append whose directory sync failed.
+            sync_dir(&self.dir)?;
+            self.appender = Some((name.to_string(), f));
         }
+        let Some((_, f)) = self.appender.as_mut() else { return Err(io::Error::other("appender not open")) };
+        let written = f.write_all(data).and_then(|()| f.sync_data());
+        if written.is_err() {
+            // The handle may be dead (a network share that reconnected, a removed volume): the next
+            // attempt reopens the file. Part of `data` may be in the file; the caller cuts it back
+            // ([`Store::truncate`]) before appending again.
+            self.appender = None;
+        }
+        written
     }
 }
 
@@ -97,24 +119,7 @@ impl Store for FsStore {
     }
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
-        use std::io::Write;
-        if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
-            let existed = self.path(name).exists();
-            let f = std::fs::OpenOptions::new().create(true).append(true).open(self.path(name))?;
-            if !existed {
-                self.sync_dir();
-            }
-            self.appender = Some((name.to_string(), f));
-        }
-        let Some((_, f)) = self.appender.as_mut() else { return Err(io::Error::other("appender not open")) };
-        let written = f.write_all(data).and_then(|()| f.sync_data());
-        if written.is_err() {
-            // The handle may be dead (a network share that reconnected, a removed volume): the next
-            // attempt reopens the file. Part of `data` may be in the file; the caller cuts it back
-            // ([`Store::truncate`]) before appending again.
-            self.appender = None;
-        }
-        written
+        self.append_with_sync_dir(name, data, Self::sync_dir)
     }
 
     fn truncate(&mut self, name: &str, len: u64) -> io::Result<()> {
@@ -184,5 +189,52 @@ impl Store for MemStore {
     }
     fn background_writer(&self) -> Option<Box<dyn Store>> {
         self.background.then(|| Box::new(self.clone()) as Box<dyn Store>)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn append_retries_directory_sync_after_failure() -> io::Result<()> {
+        let dir = std::env::temp_dir().join(format!("lc-store-dir-sync-{}", std::process::id()));
+        std::fs::create_dir(&dir)?;
+        let mut store = FsStore::open(&dir)?;
+        let calls = Cell::new(0);
+        let fail = Cell::new(true);
+        let sync_dir = |dir: &Path| {
+            calls.set(calls.get() + 1);
+            if fail.get() { Err(io::Error::from_raw_os_error(5)) } else { FsStore::sync_dir(dir) }
+        };
+
+        for _ in 0..2 {
+            let result = store.append_with_sync_dir("catalog.log", b"committed\n", sync_dir);
+            assert!(matches!(result, Err(ref error) if error.raw_os_error() == Some(5)), "{result:?}");
+            assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"");
+            store.truncate("catalog.log", 0)?;
+        }
+        assert_eq!(calls.get(), 2);
+
+        #[cfg(not(windows))]
+        {
+            let result = store.append_with_sync_dir("catalog.log", b"committed\n", |dir| FsStore::sync_dir(&dir.join("missing")));
+            assert!(matches!(result, Err(ref error) if error.kind() == io::ErrorKind::NotFound), "{result:?}");
+            assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"");
+        }
+
+        fail.set(false);
+        store.append_with_sync_dir("catalog.log", b"committed\n", sync_dir)?;
+        store.append_with_sync_dir("catalog.log", b"cached\n", sync_dir)?;
+        assert_eq!(calls.get(), 3);
+        assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"committed\ncached\n");
+        drop(store);
+
+        let mut reopened = FsStore::open(&dir)?;
+        reopened.append("catalog.log", b"reopened\n")?;
+        assert_eq!(std::fs::read(dir.join("catalog.log"))?, b"committed\ncached\nreopened\n");
+        drop(reopened);
+        std::fs::remove_dir_all(dir)
     }
 }
