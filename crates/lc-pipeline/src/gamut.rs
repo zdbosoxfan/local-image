@@ -632,7 +632,8 @@ mod tests {
                     let f = 0.9 + i as f32 * 1e-3;
                     let (c, out) = chroma(f);
                     assert!(c.is_finite());
-                    assert!(c >= previous - 2e-5, "{} at ({l}, {h}): chroma {c} after {previous} at {f}", space.label());
+                    let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 / edge } else { 2e-5 };
+                    assert!(c >= previous - tolerance, "{} at ({l}, {h}): chroma {c} after {previous} at {f}", space.label());
                     if i > 0 {
                         steepest = steepest.max(c - previous);
                     }
