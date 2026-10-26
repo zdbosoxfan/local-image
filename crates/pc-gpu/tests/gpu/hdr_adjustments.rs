@@ -160,3 +160,23 @@ fn float_exposure_matches_cpu_in_rgb_and_gray_layers() {
         check(&mut g, &doc, "signed RGB/Gray Exposure");
     }
 }
+
+#[test]
+fn float_adjustments_preserve_sources_beyond_half_float_range() {
+    let mut g = gpu();
+    let id = LevelsChannel::default();
+    let levels = Adjustment::Levels {
+        master: LevelsChannel { out_white: 0.5, ..id.clone() },
+        per_channel: [id.clone(), id.clone(), id.clone()],
+        space: Default::default(),
+        black: id,
+    };
+    for adj in [levels, Adjustment::Exposure { exposure: -1.0, offset: 0.0, gamma: 1.0 }] {
+        let mut doc = document();
+        let bounds = doc.bounds();
+        doc.layers[0].surface_mut().unwrap().fill_rect(bounds, &[100_000.0, -100_000.0, 200_000.0, 1.0]);
+        doc.layers.push(Layer::new("adjust", LayerContent::Adjustment(adj)));
+        assert_eq!(photocraft_compose::render(&doc, Rect::new(0, 0, 1, 1)).px[0], [50_000.0, -50_000.0, 100_000.0, 1.0]);
+        check(&mut g, &doc, "float input upload retains finite HDR samples");
+    }
+}

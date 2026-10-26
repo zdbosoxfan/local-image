@@ -2171,7 +2171,9 @@ fn write_tile(queue: &wgpu::Queue, r: &Resident, c: TileCoord, bytes: &[u8]) {
 
 fn precise_inputs(plan: &Plan<'_>, depth: SampleType) -> bool {
     plan.passes.iter().any(|p| {
-        p.kernel == Kernel::BlendIf || (p.kernel == Kernel::Adjust && (matches!(p.adjust_kind, 17 | 18) || (p.adjust_kind == 16 && depth != SampleType::U8)))
+        p.kernel == Kernel::BlendIf
+            || (p.kernel == Kernel::Adjust
+                && (depth == SampleType::F32 || matches!(p.adjust_kind, 17 | 18) || (p.adjust_kind == 16 && depth != SampleType::U8)))
     })
 }
 
