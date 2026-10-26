@@ -188,22 +188,23 @@ fn blend_channel(mode: i32, cb: f32, cs: f32) -> f32 {
 
 fn lum(c: vec3<f32>) -> f32 { return 0.3 * c.r + 0.59 * c.g + 0.11 * c.b; }
 
-fn clip_color(c: vec3<f32>) -> vec3<f32> {
+fn clip_color(c: vec3<f32>, top: f32) -> vec3<f32> {
     let l = lum(c);
     let n = min(min(c.r, c.g), c.b);
     let x = max(max(c.r, c.g), c.b);
     var out = c;
     if (n < 0.0) {
         let d = l - n;
-        if (abs(d) < 1e-12) { out = vec3(l); } else { out = l + (out - l) * l / d; }
+        if (l > 0.0 && d > 0.0) { out = l + (out - l) * l / d; } else { out = vec3(l); }
     }
-    if (x > 1.0) {
+    if (x > top) {
         let d = x - l;
-        if (abs(d) < 1e-12) { out = vec3(l); } else { out = l + (out - l) * (1.0 - l) / d; }
+        if (l < top && d > 0.0) { out = l + (out - l) * (top - l) / d; } else { out = vec3(l); }
     }
     return out;
 }
-fn set_lum(c: vec3<f32>, l: f32) -> vec3<f32> { return clip_color(c + (l - lum(c))); }
+fn set_lum_within(c: vec3<f32>, l: f32, top: f32) -> vec3<f32> { return clip_color(c + (l - lum(c)), top); }
+fn set_lum(c: vec3<f32>, l: f32) -> vec3<f32> { return set_lum_within(c, l, 1.0); }
 fn sat(c: vec3<f32>) -> f32 { return max(max(c.r, c.g), c.b) - min(min(c.r, c.g), c.b); }
 fn set_sat(c: vec3<f32>, s: f32) -> vec3<f32> {
     let mx = max(max(c.r, c.g), c.b);
