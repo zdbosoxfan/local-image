@@ -172,7 +172,7 @@ fn shared() -> &'static Arc<Shared> {
 
 /// The current engine status (cheap).
 pub fn status() -> EngineStatus {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "snapshot-fixtures"))]
     if let Some(status) = TEST_STATUS.with(|s| s.borrow().clone()) {
         return status;
     }
@@ -184,7 +184,7 @@ pub(crate) static AI_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 // UI tests use the real mock server for commands, with deterministic readiness on their
 // own thread rather than racing the asynchronous status poller.
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! {
     pub(crate) static TEST_STATUS: std::cell::RefCell<Option<EngineStatus>> = const { std::cell::RefCell::new(None) };
 }
@@ -483,7 +483,7 @@ impl SegOpts {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! {
     /// The file the next "Choose an ONNX file…" click picks, in place of a real dialog.
     pub(crate) static TEST_PICK: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
@@ -1055,7 +1055,7 @@ pub(crate) const REMOVE_ENGINES: [(&str, &str, ModelId, &str); 3] = [
     ("qwen-int8", "Qwen Compact", ModelId::Qwen, "int8"),
     ("qwen-bf16", "Qwen Full", ModelId::Qwen, "bf16"),
 ];
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 thread_local! { pub(crate) static TEST_LAMA_READY: std::cell::RefCell<Option<bool>> = const { std::cell::RefCell::new(None) }; }
 
 /// Resolve Automatic from the background connection status. Explicit choices persist.

@@ -101,6 +101,11 @@ cargo run -p photocraft-ui-egui --example snapshot -- --out browser.png --size 1
   --script '[["ui.menu.invoke", {"id": "li.browseModels"}], ["sleep", {"ms": 1500}]]'
 ```
 
+For synthetic Set Up Models states, build the `snapshot` example with `snapshot-fixtures` and
+pass `--model-setup-scene ready-check` (or a scene listed in `model_setup/snapshots.rs`). This
+uses the real window and shared widgets without a server or model renders; `ui.set` can select
+`pro` or `studioLight` for the usual 1440x900 and 1024x700 comparisons.
+
 ## Model family profiles
 
 A family is a JSON file in `crates/li-ai/families/` (schema in `crates/li-ai/src/family.rs`).

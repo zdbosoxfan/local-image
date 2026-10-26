@@ -103,6 +103,41 @@ fn with<R>(f: impl FnOnce(&mut State) -> R) -> R {
 const SOURCES: [(Source, &str); 4] =
     [(Source::HuggingFace, "Hugging Face"), (Source::Civitai, "Civitai"), (Source::Template, "Templates"), (Source::Community, "Community")];
 
+#[cfg(feature = "snapshot-fixtures")]
+pub(crate) fn snapshot_scene() {
+    with(|s| {
+        *s = State { open: true, ..Default::default() };
+        s.loaded = Some((s.nav.clone(), s.kind, s.search.clone(), s.sources));
+        s.installed = Some((std::time::Instant::now(), Arc::new(HashSet::new())));
+        s.items = vec![
+            Item {
+                id: "synthetic-flux3".into(),
+                title: "FLUX.3 Klein Distilled".into(),
+                family: Some("flux3-klein".into()),
+                license: "FLUX Kommunity".into(),
+                source: Some(Source::HuggingFace),
+                ..Default::default()
+            },
+            Item {
+                id: "synthetic-moss".into(),
+                title: "MOSS-Image SFT".into(),
+                template: Some("image_moss_image_t2i".into()),
+                license: "Apache-2.0".into(),
+                min_comfyui: Some("0.44.0".into()),
+                ..Default::default()
+            },
+            Item {
+                id: "synthetic-krea".into(),
+                title: "Krea 2 Turbo".into(),
+                family: Some("krea2".into()),
+                license: "Apache-2.0".into(),
+                source: Some(Source::HuggingFace),
+                ..Default::default()
+            },
+        ];
+    });
+}
+
 /// Opens the browser window.
 pub fn open() {
     with(|s| s.open = true);

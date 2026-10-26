@@ -86,5 +86,7 @@ serde_json = { workspace = true }
 toml = "1"
 
 [features]
+# Synthetic scenes used only by the offscreen snapshot example.
+snapshot-fixtures = []
 default = ["pdf-import-integrated"]
 pdf-import-integrated = ["photocraft-engine/pdf-import-integrated"]

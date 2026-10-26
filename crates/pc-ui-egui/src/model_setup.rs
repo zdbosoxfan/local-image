@@ -6,8 +6,12 @@
 
 mod detail;
 mod dialogs;
-#[cfg(test)]
+#[cfg(any(test, feature = "snapshot-fixtures"))]
 mod fixtures;
+#[cfg(feature = "snapshot-fixtures")]
+mod snapshots;
+#[cfg(feature = "snapshot-fixtures")]
+pub use snapshots::snapshot_scene;
 mod list;
 
 use std::sync::{Arc, Mutex};
@@ -109,6 +113,8 @@ struct ChooseTemplate {
 #[derive(Default)]
 struct State {
     open: bool,
+    #[cfg(feature = "snapshot-fixtures")]
+    snapshot_only: bool,
     selected: Option<String>,
     step: Step,
     scan: Option<Arc<Scan>>,
@@ -310,6 +316,10 @@ fn run(s: &mut State, a: Action) {
 
 /// Runs any action (those that open other windows need the app).
 fn dispatch(app: &mut PhotocraftApp, ctx: &egui::Context, a: Action) {
+    #[cfg(feature = "snapshot-fixtures")]
+    if with(|s| s.snapshot_only) {
+        return;
+    }
     #[cfg(test)]
     if with(|s| s.recorded.as_mut().map(|r| r.push(a.clone())).is_some()) {
         return;
