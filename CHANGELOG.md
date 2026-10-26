@@ -8,6 +8,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Compositing: Displace Smart Filters embed maps chosen from files or open documents, retain
+  them through map replacement, undo and PSD/native saves, and no longer depend on the map source.
+  Large embedded maps are omitted from inspect output and count toward the undo memory budget.
+
 - Compositing: Export PDF carries File Info author, description, keywords, copyright status,
   notice and rights URL without camera, GPS or Develop metadata.
 
@@ -60,6 +64,8 @@ All notable changes to Local Image are recorded here. The format follows
   slightly different files than before.
 
 ### Fixed
+
+- Compositing: Add Noise and Wave retain the full unsigned 32-bit seed range.
 
 - Develop and export preserve saturated colours already inside the selected output space,
   including deep blue. Colours outside that space transition smoothly, avoiding visible jumps

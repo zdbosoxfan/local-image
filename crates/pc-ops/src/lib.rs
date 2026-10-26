@@ -279,6 +279,24 @@ fn backing_bytes(doc: &Document, seen: &mut HashSet<usize>) -> usize {
         }
         let raw = match &layer.content {
             LayerContent::Smart(smart) => {
+                let mut values: Vec<_> = smart.smart_filters.iter().map(|filter| &filter.params).collect();
+                while let Some(value) = values.pop() {
+                    if !(value.is_string() || value.is_array() || value.is_object()) || !seen.insert(value as *const _ as usize) {
+                        continue;
+                    }
+                    if let Some(text) = value.as_str() {
+                        n = n.saturating_add(text.len());
+                    } else if let Some(array) = value.as_array() {
+                        n = n.saturating_add(array.capacity().saturating_mul(std::mem::size_of_val(value)));
+                        values.extend(array);
+                    } else if let Some(object) = value.as_object() {
+                        n = n.saturating_add(object.len().saturating_mul(std::mem::size_of::<String>().saturating_add(std::mem::size_of_val(value))));
+                        for (key, child) in object {
+                            n = n.saturating_add(key.capacity());
+                            values.push(child);
+                        }
+                    }
+                }
                 if let SmartSource::Embedded { bytes, .. } = &smart.source {
                     n = n.saturating_add(arc_bytes(bytes, seen));
                 }
@@ -580,6 +598,38 @@ mod tests {
             d.layer_mut(id).unwrap().surface_mut().unwrap().write_pixel(1, 1, &[0.0, 0.0, 0.0, 1.0]);
         });
         assert_eq!(h.unique_bytes(&cur), 256 * 256 * 4);
+    }
+
+    #[test]
+    fn history_budget_counts_owned_filter_params_and_keeps_shared_sources() {
+        use photocraft_doc::{Affine, BlendMode, LayerContent, SmartFilter, SmartObject, SmartSource};
+        const BYTES: usize = 65536;
+        let source = Arc::new(vec![0; BYTES]);
+        let mut sm = SmartObject::new(SmartSource::Embedded { file_name: "source.pcraft".into(), bytes: source.clone() }, Affine::IDENTITY, None);
+        let mut params = Default::default();
+        sm.smart_filters.push(SmartFilter { command: "filter.distort.displace".into(), params, blend: BlendMode::Normal, opacity: 1.0, visible: true });
+        params = Default::default();
+        params["nested"]["maps"] = vec!["a".repeat(BYTES), "b".repeat(BYTES)].into();
+        sm.smart_filters[0].params = params;
+        let mut doc = Document::new("maps", Size::new(1, 1), ColorMode::Rgb, SampleType::U8);
+        doc.layers.push(Layer::new("smart", LayerContent::Smart(sm)));
+        let mut cur = Arc::new(doc);
+        let mut h = History::new(50);
+        for n in 0..4 {
+            edit(&mut h, &mut cur, "Rename", |d| d.name = n.to_string());
+        }
+        assert!(h.pixel_bytes(&cur) >= 11 * BYTES, "each JSON clone owns its strings; the source counts once");
+        let snapshot = Arc::new((*cur).clone());
+        assert!(h.extra_bytes(&cur, &[&snapshot]) >= 2 * BYTES);
+        assert_eq!(h.extra_bytes(&cur, &[&cur]), 0, "the same document is not an extra allocation");
+        cur = h.undo(cur).unwrap().0;
+        assert!(h.unique_bytes(&cur) >= 8 * BYTES, "redo holds owned params too");
+        h.max_bytes = 7 * BYTES;
+        assert!(h.trim_with(&cur, &[&snapshot]) > 0);
+        assert_eq!(h.past_len(), 1);
+        cur = h.redo(cur).unwrap().0;
+        assert_eq!(cur.name, "3");
+        assert!(Arc::strong_count(&source) > 1);
     }
 
     #[test]
