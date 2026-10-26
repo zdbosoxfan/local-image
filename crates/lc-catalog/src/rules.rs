@@ -205,6 +205,11 @@ fn number(v: &Value) -> Option<f64> {
     }
 }
 
+/// Compare camera f32 fields using the decimal value a photographer types.
+fn f32_as_decimal(v: f32) -> f64 {
+    v.to_string().parse().unwrap_or(f64::from(v))
+}
+
 fn num_op(op: &str, have: Option<f64>, value: &Value) -> bool {
     if op == "between" {
         let (a, b) = match value {
@@ -397,8 +402,8 @@ impl Rule {
             "importDate" => date_op(op, Some(&p.imported), value),
             "editDate" => date_op(op, p.edited.as_deref(), value),
             "iso" => num_op(op, m.iso.map(|v| v as f64), value),
-            "aperture" => num_op(op, m.aperture.map(|v| v as f64), value),
-            "focalLength" => num_op(op, m.focal_mm.map(|v| v as f64), value),
+            "aperture" => num_op(op, m.aperture.map(f32_as_decimal), value),
+            "focalLength" => num_op(op, m.focal_mm.map(f32_as_decimal), value),
             "megapixels" => num_op(op, Some(p.width as f64 * p.height as f64 / 1e6), value),
             "sharpness" => num_op(op, p.analysis.map(|a| a.sharpness as f64), value),
             "bestOfGroup" => p.analysis.is_some_and(|a| a.best || a.group.is_none()) == value.as_bool().unwrap_or(true),
@@ -516,6 +521,25 @@ mod tests {
     /// Upstream LightCraft a08d0f6: "in the last N" never overflows, whatever N an agent or a saved
     /// file holds: a zero, negative or unreadable N matches nothing (either way round); an N beyond
     /// 10,000 years means "ever", so every dated photo is in it and none is outside it.
+    #[test]
+    fn f32_boundary_values_match_gte_lte() {
+        let cat = Catalog::new();
+        let matches =
+            |p: &Photo, field: &str, op: &str, value: f64| rs(json!({"rules": [{"field": field, "op": op, "value": value}]})).matches(p, &cat);
+        for v in [1.4f32, 1.8, 2.8, 5.6, 0.95] {
+            let mut p = photo(1);
+            p.meta.aperture = Some(v);
+            p.meta.focal_mm = Some(v);
+            let w = v.to_string().parse::<f64>().unwrap();
+            for field in ["aperture", "focalLength"] {
+                assert!(matches(&p, field, "gte", w), "{field} gte {w}");
+                assert!(matches(&p, field, "lte", w), "{field} lte {w}");
+                assert!(!matches(&p, field, "gt", w), "{field} gt {w}");
+                assert!(!matches(&p, field, "lt", w), "{field} lt {w}");
+            }
+        }
+    }
+
     #[test]
     fn in_the_last_survives_hostile_counts() {
         set_now(Some("2026-09-01T00:00:00".into()));
