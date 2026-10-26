@@ -587,7 +587,13 @@ fn nav_row_with(ui: &mut egui::Ui, icon: &str, label: &str, trailing: &str, on: 
     }
     ui.painter().text(egui::pos2(x, r.center().y), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.5), ink);
     if !trailing.is_empty() {
-        ui.painter().text(egui::pos2(r.right() - 8.0, r.center().y), egui::Align2::RIGHT_CENTER, trailing, egui::FontId::proportional(11.0), t.text_faint);
+        ui.painter().text(
+            egui::pos2(r.right() - 8.0, r.center().y),
+            egui::Align2::RIGHT_CENTER,
+            trailing,
+            egui::FontId::proportional(11.0),
+            if on || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint },
+        );
     }
     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label));
     resp.clicked()

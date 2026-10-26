@@ -481,6 +481,7 @@ pub(super) fn layer_row(
     } else if resp.hovered() {
         painter.rect_filled(rect, t.radius, t.hover.gamma_multiply(0.5));
     }
+    let secondary = if selected || resp.hovered() { t.text_secondary_on_fill } else { t.text_faint };
     let mut x = rect.left() + 6.0;
     let eye = Rect::from_min_size(pos2(x, rect.center().y - 11.0), vec2(22.0, 22.0));
     // The eye takes drags too (so a drag starting on it never reorders the row): dragging down
@@ -529,7 +530,7 @@ pub(super) fn layer_row(
     x += 28.0 + crate::layer_row_ui::indent(depth, rect.width(), fixed);
     let toggled = crate::layer_tree_ui::disclosure(ui, rect, &mut x, l, actions);
     if l.clipped {
-        painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, "↳", egui::FontId::proportional(13.0), t.text_faint);
+        painter.text(pos2(x, rect.center().y), Align2::LEFT_CENTER, "↳", egui::FontId::proportional(13.0), secondary);
         x += 12.0;
     }
     let thumb = Rect::from_min_size(pos2(x, rect.center().y - ts / 2.0), vec2(ts, ts));
@@ -574,8 +575,8 @@ pub(super) fn layer_row(
     }
     // Right-hand indicators first; the name gets what is left and ends in "…" (#144).
     let fx_open = app.session.active().is_none_or(|d| !d.fx_collapsed.contains(&l.id));
-    let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, &painter, rect, x, l, fx_open, actions);
-    let name_color = if l.visible { t.text } else { t.text_faint };
+    let (name_right, indicators, fx_toggled) = crate::layer_row_ui::indicators(ui, rect, x, l, fx_open, secondary, actions);
+    let name_color = if l.visible { t.text } else { secondary };
     let font = if selected && !t.pro { theme::medium(13.0) } else { egui::FontId::proportional(if t.pro { 12.0 } else { 13.0 }) };
     // Photoshop before 2026 set the Background layer's name in italics; 2026 sets it upright.
     let italic = !t.pro && l.name == "Background" && l.locks.transparency;
@@ -593,7 +594,7 @@ pub(super) fn layer_row(
             LayerContent::Group(g) => li_i18n::trn(li_i18n::current(), g.children.len() as u64, "Group · {n} layer", "Group · {n} layers"),
             other => tl!(other.kind_name()).to_string(),
         };
-        crate::layer_row_ui::label(&painter, x, rect.center().y + 8.0, name_right, &sub, egui::FontId::proportional(11.0), t.text_faint);
+        crate::layer_row_ui::label(&painter, x, rect.center().y + 8.0, name_right, &sub, egui::FontId::proportional(11.0), secondary);
     }
     crate::layer_row_ui::record(ctx, crate::layer_row_ui::RowRects { layer: l.id.0, row: rect, name: name_rect, indicators });
     // ⌘-click a layer, mask or vector-mask thumbnail loads its transparency / mask / path as a

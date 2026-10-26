@@ -78,7 +78,7 @@ pub(super) fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
                 let name = format!("{}{}", st.doc.name, if st.is_dirty() { " *" } else { "" });
                 let meta = format!("{}/{}", mode_label(&st.doc), st.doc.depth.bits());
                 let name_g = ui.painter().layout_no_wrap(name, crate::theme::medium(12.5), t.text);
-                let meta_g = ui.painter().layout_no_wrap(meta, egui::FontId::proportional(10.5), t.text_faint);
+                let meta_g = ui.painter().layout_no_wrap(meta, egui::FontId::proportional(10.5), t.text_secondary_on_fill);
                 let w = name_g.size().x + meta_g.size().x + 44.0;
                 let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 26.0), Sense::click());
                 resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, sel, &st.doc.name));
@@ -96,13 +96,13 @@ pub(super) fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
                 let color = if sel { t.text } else { t.text_dim };
                 let ny = r.center().y - name_g.size().y / 2.0;
                 ui.painter().galley_with_override_text_color(egui::pos2(r.left() + 10.0, ny), name_g.clone(), color);
-                ui.painter().galley(egui::pos2(r.left() + 16.0 + name_g.size().x, r.center().y - meta_g.size().y / 2.0), meta_g, t.text_faint);
+                ui.painter().galley(egui::pos2(r.left() + 16.0 + name_g.size().x, r.center().y - meta_g.size().y / 2.0), meta_g, t.text_secondary_on_fill);
                 let xr = Rect::from_center_size(egui::pos2(r.right() - 12.0, r.center().y), egui::vec2(16.0, 16.0));
                 let xresp = ui.interact(xr, ui.id().with(("tabx", i)), Sense::click());
                 if xresp.hovered() {
                     ui.painter().rect_filled(xr, 4.0, t.hover);
                 }
-                crate::icons::paint(ui, xr, "x", 11.0, if xresp.hovered() { t.text } else { t.text_faint });
+                crate::icons::paint(ui, xr, "x", 11.0, if xresp.hovered() { t.text } else { t.text_secondary_on_fill });
                 if xresp.clicked() {
                     close = Some(i);
                 } else if resp.clicked() {
@@ -116,7 +116,7 @@ pub(super) fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
             for (job, name, frac) in crate::jobs_ui::open_tabs(app) {
                 let sel = app.jobs.focus == Some(job);
                 let name_g = ui.painter().layout_no_wrap(name, crate::theme::medium(12.5), t.text);
-                let meta_g = ui.painter().layout_no_wrap(format!("{:.0}%", frac * 100.0), egui::FontId::proportional(10.5), t.text_faint);
+                let meta_g = ui.painter().layout_no_wrap(format!("{:.0}%", frac * 100.0), egui::FontId::proportional(10.5), t.text_secondary_on_fill);
                 let w = name_g.size().x + meta_g.size().x + 44.0;
                 let (r, resp) = ui.allocate_exact_size(egui::vec2(w, 26.0), Sense::click());
                 if sel {
@@ -127,14 +127,14 @@ pub(super) fn tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
                 }
                 let ny = r.center().y - name_g.size().y / 2.0;
                 ui.painter().galley_with_override_text_color(egui::pos2(r.left() + 10.0, ny), name_g.clone(), if sel { t.text } else { t.text_dim });
-                ui.painter().galley(egui::pos2(r.left() + 16.0 + name_g.size().x, r.center().y - meta_g.size().y / 2.0), meta_g, t.text_faint);
+                ui.painter().galley(egui::pos2(r.left() + 16.0 + name_g.size().x, r.center().y - meta_g.size().y / 2.0), meta_g, t.text_secondary_on_fill);
                 crate::jobs_ui::tab_underline(ui, r, frac, &t);
                 let xr = Rect::from_center_size(egui::pos2(r.right() - 12.0, r.center().y), egui::vec2(16.0, 16.0));
                 let xresp = ui.interact(xr, ui.id().with(("tabjobx", job.0)), Sense::click());
                 if xresp.hovered() {
                     ui.painter().rect_filled(xr, 4.0, t.hover);
                 }
-                crate::icons::paint(ui, xr, "x", 11.0, if xresp.hovered() { t.text } else { t.text_faint });
+                crate::icons::paint(ui, xr, "x", 11.0, if xresp.hovered() { t.text } else { t.text_secondary_on_fill });
                 if xresp.on_hover_text(tl!("Cancel opening")).clicked() {
                     cancel_open = Some(job);
                 } else if resp.clicked() {
@@ -246,8 +246,8 @@ pub(super) fn pro_tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
         // Painted: name the tab and its × for accessibility (and so tests and agents can find them).
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, sel, g.text()));
         xresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Close")));
-        crate::icons::paint(ui, xr, "x", 10.0, if xresp.hovered() { t.text } else { t.text_faint });
-        ui.painter().galley_with_override_text_color(at, g, if sel { t.text } else { t.text_faint });
+        crate::icons::paint(ui, xr, "x", 10.0, if xresp.hovered() { t.text } else { t.text_secondary_on_fill });
+        ui.painter().galley_with_override_text_color(at, g, if sel { t.text } else { t.text_secondary_on_fill });
         if xresp.clicked() {
             close = Some(i);
         } else if resp.clicked() {
@@ -275,8 +275,8 @@ pub(super) fn pro_tabs(app: &mut PhotocraftApp, ui: &mut egui::Ui) -> TabStrip {
         crate::jobs_ui::tab_underline(ui, r, frac, &t);
         let (xr, at) = pro_tab_layout(r, g.size().y, mac);
         let xresp = ui.interact(xr, ui.id().with(("ptabjobx", job.0)), Sense::click());
-        crate::icons::paint(ui, xr, "x", 10.0, if xresp.hovered() { t.text } else { t.text_faint });
-        ui.painter().galley_with_override_text_color(at, g, if sel { t.text } else { t.text_faint });
+        crate::icons::paint(ui, xr, "x", 10.0, if xresp.hovered() { t.text } else { t.text_secondary_on_fill });
+        ui.painter().galley_with_override_text_color(at, g, if sel { t.text } else { t.text_secondary_on_fill });
         if xresp.on_hover_text(tl!("Cancel opening")).clicked() {
             cancel_open = Some(job);
         } else if resp.clicked() {
@@ -390,6 +390,7 @@ pub fn mode_label(doc: &Document) -> &'static str {
 
 pub(super) fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
+    let secondary = if t.dark() { t.text_faint } else { t.text_secondary_on_fill };
     let area = ui.available_rect_before_wrap();
     paint_dots(ui, area);
     // File › Open Recent, newest first (on the web there are no paths to reopen).
@@ -402,13 +403,13 @@ pub(super) fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.vertical_centered(|ui| {
             ui.horizontal(|ui| {
                 let title = ui.painter().layout_no_wrap(tl!("Local Image").into(), crate::theme::semibold(38.0), t.text);
-                let by = ui.painter().layout_no_wrap("open source".into(), egui::FontId::proportional(13.0), t.text_faint);
+                let by = ui.painter().layout_no_wrap("open source".into(), egui::FontId::proportional(13.0), secondary);
                 let total = title.size().x + by.size().x + 10.0;
                 ui.add_space(((card.width() - total) / 2.0).max(0.0));
                 let (r, _) = ui.allocate_exact_size(title.size(), Sense::hover());
                 ui.painter().galley(r.min, title, t.text);
                 let (r2, _) = ui.allocate_exact_size(egui::vec2(by.size().x + 10.0, r.height()), Sense::hover());
-                ui.painter().galley(egui::pos2(r2.left() + 10.0, r.bottom() - by.size().y - 8.0), by, t.text_faint);
+                ui.painter().galley(egui::pos2(r2.left() + 10.0, r.bottom() - by.size().y - 8.0), by, secondary);
             });
             ui.add_space(6.0);
             ui.label(egui::RichText::new(tl!("Edit photos, catalogue them, and create with local AI.")).color(t.text_dim).size(14.0));
@@ -457,9 +458,9 @@ pub(super) fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     let msg = if st.connected { tl!("No AI model is installed yet.") } else { tl!("The AI engine isn't running.") };
-                    let g = ui.painter().layout_no_wrap(msg.into(), egui::FontId::proportional(12.5), t.text_faint);
+                    let g = ui.painter().layout_no_wrap(msg.into(), egui::FontId::proportional(12.5), secondary);
                     ui.add_space(((card.width() - g.size().x - 90.0) / 2.0).max(0.0));
-                    ui.label(egui::RichText::new(msg).color(t.text_faint));
+                    ui.label(egui::RichText::new(msg).color(secondary));
                     let label = if st.connected { tl!("Get Models…") } else { tl!("Set Up AI…") };
                     if ui.link(label).clicked() {
                         if st.connected {
@@ -473,11 +474,11 @@ pub(super) fn start_screen(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ui.add_space(20.0);
             ui.horizontal(|ui| {
                 let msg = start_screen_drop_hint(app.services.is_wayland);
-                let g = ui.painter().layout_no_wrap(msg.into(), egui::FontId::proportional(12.5), t.text_faint);
+                let g = ui.painter().layout_no_wrap(msg.into(), egui::FontId::proportional(12.5), secondary);
                 ui.add_space(((card.width() - g.size().x - 24.0) / 2.0).max(0.0));
                 let (r, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
-                crate::icons::paint(ui, r, "image", 15.0, t.text_faint);
-                ui.label(egui::RichText::new(msg).color(t.text_faint));
+                crate::icons::paint(ui, r, "image", 15.0, secondary);
+                ui.label(egui::RichText::new(msg).color(secondary));
             });
             if !recent.is_empty() {
                 ui.add_space(22.0);
@@ -516,6 +517,7 @@ pub(super) fn home_recent(app: &mut PhotocraftApp, ui: &mut egui::Ui, recent: &[
         if resp.hovered() {
             ui.painter().rect_filled(row, t.radius_sm, t.hover);
         }
+        let secondary = if resp.hovered() || !t.dark() { t.text_secondary_on_fill } else { t.text_faint };
         let icon = Rect::from_center_size(egui::pos2(row.left() + 16.0, row.center().y), egui::vec2(16.0, 16.0));
         crate::icons::paint(ui, icon, "file", 14.0, t.text_dim);
         let x = row.left() + 32.0;
@@ -524,8 +526,8 @@ pub(super) fn home_recent(app: &mut PhotocraftApp, ui: &mut egui::Ui, recent: &[
         ui.painter().galley(egui::pos2(x, row.center().y - name_g.size().y / 2.0), name_g, t.text);
         let folder_max = (row.right() - 10.0 - (x + name_w + 14.0)).max(0.0);
         if folder_max > 20.0 && !folder.is_empty() {
-            let fg = crate::tab_strip::elided(ui, &folder, egui::FontId::proportional(11.5), t.text_faint, folder_max);
-            ui.painter().galley(egui::pos2(row.right() - 10.0 - fg.size().x, row.center().y - fg.size().y / 2.0), fg, t.text_faint);
+            let fg = crate::tab_strip::elided(ui, &folder, egui::FontId::proportional(11.5), secondary, folder_max);
+            ui.painter().galley(egui::pos2(row.right() - 10.0 - fg.size().x, row.center().y - fg.size().y / 2.0), fg, secondary);
         }
         if resp.on_hover_text(path).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
             open = Some(path.clone());
