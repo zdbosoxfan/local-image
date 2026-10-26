@@ -181,12 +181,17 @@ fn half_curve() -> Adjustment {
 
 #[test]
 fn edited_float_curves_extrapolate_with_continuous_end_slopes() {
-    let mut adj = half_curve();
+    let adj = half_curve();
     for v in [-0.5, -1e-5, 0.0, 1e-5, 0.25, 1.0 - 1e-5, 1.0, 1.0 + 1e-5, 2.0, 8.0] {
         let out = evaluate(&adj, [v, 8.0, -0.5, 0.375], SampleType::F32);
         assert!((out[0] - v * 128.0 / 255.0).abs() < 3e-5, "{v}: {out:?}");
         assert_eq!(&out[1..], &[8.0, -0.5, 0.375]);
     }
+}
+
+#[test]
+fn nonlinear_float_curves_follow_natural_spline_end_slopes() {
+    let mut adj = half_curve();
     if let Adjustment::Curves { per_channel, .. } = &mut adj {
         per_channel[0] = vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 0.5, output: 0.2 }, CurvePoint { input: 1.0, output: 1.0 }];
     }
