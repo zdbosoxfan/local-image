@@ -132,6 +132,7 @@ fn design_system_develop_screens() {
             save(&h, &format!("picker-{tag}"), Rect::from_center_size(at + vec2(14.0, 14.0), vec2(64.0, 64.0)));
         }
     }
+    #[cfg(all(debug_assertions, not(target_arch = "wasm32")))]
     if let Some(path) = std::env::var_os("PHOTOCRAFT_THEME_FILE") {
         let proposals: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         for kind in [li_ui_kit::theme::ThemeKind::Pro, li_ui_kit::theme::ThemeKind::StudioLight] {
