@@ -90,8 +90,9 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         return;
     }
     crate::panels::layer_bar::keyboard(app, ctx);
-    // don't steal keys from text fields
-    if ctx.egui_wants_keyboard_input() {
+    // Focused guides own their activation keys; Delete still follows the command binding.
+    let guide_focused = crate::panels::detail::guided::focused(app, ctx);
+    if ctx.egui_wants_keyboard_input() && !guide_focused {
         return;
     }
     if !ctx.input(|i| i.events.iter().any(|event| matches!(event, egui::Event::Key { pressed: true, .. }))) {
@@ -100,6 +101,9 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     let table: Vec<_> = catalog::effective(app)
         .into_iter()
         .filter_map(|(binding, chord)| {
+            if guide_focused && binding.command != "photo.delete" {
+                return None;
+            }
             if app.native_shortcuts.contains(&chord) || app.host_session.as_ref().is_some_and(|h| !h.allows(&binding.command)) {
                 return None;
             }
@@ -136,7 +140,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
         }
     };
     // Shared ordered consumption; a newly opened modal owns every later event.
-    while !keyboard_blocked(app, ctx) && !ctx.egui_wants_keyboard_input() {
+    while !keyboard_blocked(app, ctx) && (!ctx.egui_wants_keyboard_input() || guide_focused) {
         let Some((binding, _)) = li_keys::input::take_pressed(ctx, &table) else {
             break;
         };
@@ -211,6 +215,26 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             if f == "photo.delete" {
                 use crate::state::RightPanel as R;
                 match app.ui.right {
+                    R::Crop if app.ui.tool == "guidedUpright" => {
+                        if let Some((photo, index)) = app.ui.selected_guide.take()
+                            && let Some(active) = app.session.active().filter(|id| id.0 == photo)
+                            && let Some(develop) = app.session.develop_of(active)
+                            && index < develop.geometry.guides.len()
+                        {
+                            let guides: Vec<[f64; 4]> = develop
+                                .geometry
+                                .guides
+                                .iter()
+                                .enumerate()
+                                .filter(|(i, _)| *i != index)
+                                .map(|(_, (a, b))| [a.x, a.y, b.x, b.y])
+                                .collect();
+                            if let Err(error) = app.run("geometry.guides", json!({"guides": guides})) {
+                                app.toast_error(ctx, error);
+                            }
+                        }
+                        continue;
+                    }
                     R::Masking | R::Edit if app.session.active_mask.is_some() => {
                         if app.session.active_mask.is_some() {
                             if app.ui.right == R::Edit {

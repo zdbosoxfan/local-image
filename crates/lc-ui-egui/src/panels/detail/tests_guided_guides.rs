@@ -366,3 +366,62 @@ fn changing_photo_or_tool_clears_the_guide_selection() {
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(h.app.ui.selected_guide, None);
 }
+
+#[test]
+fn guides_can_be_selected_and_deleted_by_keyboard() {
+    let mut h = guided();
+    let photo = h.app.session.active().unwrap();
+    let target = egui::Id::new(("uprightGuide", photo.0, 1_usize));
+    for _ in 0..256 {
+        if h.view.ctx.memory(|memory| memory.focused()) == Some(target) {
+            break;
+        }
+        let r = h.request("ui.key", json!({"key":"tab"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+    }
+    assert_eq!(h.view.ctx.memory(|memory| memory.focused()), Some(target));
+    let r = h.request("ui.key", json!({"key":"space"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.selected_guide, Some((photo.0, 1)));
+    let undo = h.app.session.undo.len();
+    let r = h.request("ui.key", json!({"key":"Backspace"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(guides_len(&h), 1);
+    assert_eq!(h.app.session.undo.len(), undo + 1);
+    assert!(h.app.ui.dialog.is_none());
+    assert!(!h.app.session.catalog.photo(photo).unwrap().deleted);
+}
+
+#[test]
+fn endpoint_drag_in_a_warped_frame_preserves_the_other_corrected_points() {
+    let mut h = guided();
+    h.app.run("develop.set", json!({"control":"geometry.vertical","value":20})).unwrap();
+    assert!(h.settle(SETTLE));
+    let id = h.app.session.active().unwrap();
+    let photo = h.app.session.catalog.photo(id).unwrap();
+    let settings = photo.develop.clone();
+    let original = settings.geometry.guides.clone();
+    let frame = super::Frame::new(photo.width as usize, photo.height as usize, &settings, false);
+    let map = super::CanvasMap::new(&frame, h.app.image_rect.unwrap());
+    let from = map.screen(frame.corrected_to_transformed(original[0].0));
+    let to = from + egui::vec2(24.0, 35.0);
+    let expected = frame.transformed_to_corrected(map.norm(to));
+    assert!(expected.dist(map.norm(to)) > 0.001, "fixture exercises the corrected-coordinate conversion");
+    let undo = h.app.session.undo.len();
+    h.events.extend([
+        egui::Event::PointerMoved(from),
+        egui::Event::PointerButton {pos:from, button:egui::PointerButton::Primary, pressed:true, modifiers:egui::Modifiers::NONE},
+    ]);
+    h.step();
+    h.events.push(egui::Event::PointerMoved(to));
+    h.step();
+    h.events.push(egui::Event::PointerButton {pos:to, button:egui::PointerButton::Primary, pressed:false, modifiers:egui::Modifiers::NONE});
+    h.step();
+    let after = h.app.session.develop_of(id).unwrap();
+    assert!(after.geometry.guides[0].0.dist(expected) < 1e-3);
+    assert_eq!(after.geometry.guides[0].1, original[0].1);
+    assert_eq!(after.geometry.guides[1], original[1]);
+    assert_eq!(h.app.session.undo.len(), undo + 1);
+    h.app.run("edit.undo", json!({})).unwrap();
+    assert_eq!(h.app.session.develop_of(id).unwrap().geometry.guides, original);
+}

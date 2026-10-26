@@ -332,7 +332,7 @@ pub struct UiState {
     pub crop_overlay_orient: u8,
     pub crop_overlay: CropOverlay,
     #[serde(skip)]
-    pub(crate) selected_guide: Option<(u64, usize)>,
+    pub selected_guide: Option<(u64, usize)>,
     pub show_filenames: bool,
     /// What the square grid's caption shows: `filename`, `exposure` (shutter · aperture · ISO ·
     /// focal length) or `date`.

@@ -16,7 +16,7 @@ use crate::state::{BeforeAfter, RightPanel, Zoom};
 use crate::theme::Tokens;
 use crate::widgets::register;
 
-mod guided;
+pub(crate) mod guided;
 #[cfg(test)]
 mod tests_guided_guides;
 #[cfg(test)]
@@ -68,6 +68,11 @@ pub enum Gesture {
     /// Guided Upright: a guide being drawn from `a` (normalized transformed coordinates).
     Guide {
         a: Point,
+    },
+    GuideEndpoint {
+        i: usize,
+        end: usize,
+        from: Pos2,
     },
     /// Red Eye: an ellipse being dragged from corner `a` (normalized).
     Eye {
@@ -211,6 +216,7 @@ fn animated_rect(ctx: &egui::Context, anim: &mut bool, target: Rect) -> Rect {
 }
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    guided::reconcile(app);
     let t = Tokens::get(ui.ctx());
     let full = ui.max_rect();
     let fullscreen = app.ui.fullscreen;
@@ -1079,7 +1085,7 @@ fn general_interaction(
 
 fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, frame: &Frame, d: &DevelopSettings, id: PhotoId) {
     if app.ui.tool == "guidedUpright" {
-        guided::guided_overlay(app, ui, resp, map, frame, d);
+        guided::guided_overlay(app, ui, resp, map, frame, d, id);
         return;
     }
     if app.ui.tool == "straighten" {
