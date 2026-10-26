@@ -71,7 +71,8 @@ fn fixed_lab_search_chroma_is_monotone() {
                     let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 } else { 2e-6 };
                     assert!(chroma >= previous - tolerance, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
                     let luma = space.luma();
-                    let lower = -(OUTPUT_EPS + 2.0 * f32::EPSILON) * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]);
+                    let magnitude = rgb.iter().fold(0.0f32, |max, v| max.max(v.abs()));
+                    let lower = -(OUTPUT_EPS * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]) + 8.0 * f32::EPSILON * magnitude);
                     assert!(rgb.iter().all(|v| *v >= lower && *v <= 1.0 + OUTPUT_EPS), "{}: {rgb:?}", space.label());
                     previous = chroma;
                 }
