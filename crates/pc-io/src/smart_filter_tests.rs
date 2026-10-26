@@ -1243,8 +1243,9 @@ fn malformed_stylize_and_pixelate_filters_are_kept_verbatim() {
 
 #[test]
 fn average_stays_verbatim() {
-    let item = photoshop_no_options_item("Average", Value::Integer(code(b"Avrg")));
+    let mut item = photoshop_no_options_item("Average", Value::Integer(code(b"Avrg")));
     let filter = filter_from_item(&item);
+    set(&mut item, "blendOptions", blend_options(&filter));
     assert_eq!(filter.command, UNSUPPORTED_FILTER);
     assert_eq!(item_for_filter(&filter).unwrap(), item);
 }
