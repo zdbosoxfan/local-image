@@ -10,6 +10,8 @@
 //! version reads. Unknown fields are not kept here; callers that need a byte-exact round trip
 //! keep the raw resource while the slices are unchanged.
 
+use std::collections::HashMap;
+
 use crate::descriptor::{Descriptor, Id, UnicodeString, Value, VersionedDescriptor};
 use crate::error::{PsdError, Result};
 use crate::io::{Reader, WriteExt};
@@ -307,13 +309,19 @@ impl SlicesResource {
             && let Ok(vd) = VersionedDescriptor::read(r)
             && let Some(Value::List(items)) = vd.descriptor.get("slices")
         {
+            // Both lists come from the file, so searching the slices for every descriptor would
+            // be quadratic. A descriptor applies to the first slice with its id.
+            let mut id_to_index: HashMap<u32, usize> = HashMap::with_capacity(slices.len());
+            for (i, s) in slices.iter().enumerate() {
+                id_to_index.entry(s.id).or_insert(i);
+            }
             for v in items {
                 let Value::Descriptor(d) = v else { continue };
                 // An entry without a usable id belongs to no slice (not to slice 0).
                 let Some(id) = d_u32(d, "sliceID") else { continue };
                 let extra = slice_from_descriptor(d);
-                if let Some(s) = slices.iter_mut().find(|s| s.id == id) {
-                    s.outsets = extra.outsets;
+                if let Some(&i) = id_to_index.get(&id) {
+                    slices[i].outsets = extra.outsets;
                 }
             }
         }
@@ -601,5 +609,50 @@ mod tests {
         huge.extend(u32::MAX.to_be_bytes());
         assert!(SlicesResource::from_bytes(&huge).is_err());
         assert!(SlicesResource::from_bytes(&9u32.to_be_bytes()).is_err());
+    }
+
+    #[test]
+    fn trailing_descriptor_applies_outsets_to_first_matching_slice() {
+        // Two slices share id 1; the trailing descriptor updates the first one only.
+        let plain = SlicesResource {
+            version: 6,
+            bounds: [0, 0, 80, 100],
+            group_name: "site".into(),
+            slices: vec![
+                SliceRecord { id: 1, origin: 0, kind: 1, rect: [0, 0, 10, 10], ..Default::default() },
+                SliceRecord { id: 1, origin: 0, kind: 1, rect: [10, 10, 20, 20], ..Default::default() },
+            ],
+        };
+        let mut bytes = plain.to_bytes();
+        let extra = Descriptor::new("slice").with("sliceID", Value::Integer(1)).with("topOutset", Value::Integer(7));
+        VersionedDescriptor::new(Descriptor::new("null").with("slices", Value::List(vec![Value::Descriptor(extra)]))).write(&mut bytes);
+        let back = SlicesResource::from_bytes(&bytes).unwrap();
+        assert_eq!(back.slices[0].outsets, [7, 0, 0, 0], "first slice receives the outset");
+        assert_eq!(back.slices[1].outsets, [0, 0, 0, 0], "later duplicate is untouched");
+    }
+
+    #[test]
+    fn many_unmatched_trailing_descriptors_do_not_stall_the_import() {
+        // Both the slice list and the descriptor list come from the file. Searching the slices
+        // for every descriptor id is quadratic, and the PSD import can't be cancelled inside it:
+        // 300,000 slices with as many unmatched ids took far longer than the watchdog allows.
+        let n = 300_000;
+        let plain = SlicesResource { version: 6, slices: vec![SliceRecord::default(); n], ..Default::default() };
+        let mut bytes = plain.to_bytes();
+        let outset = |id: i32| Value::Descriptor(Descriptor::new("slice").with("sliceID", Value::Integer(id)).with("topOutset", Value::Integer(7)));
+        let list = (1..=n as i32).chain([0]).map(outset).collect();
+        VersionedDescriptor::new(Descriptor::new("null").with("slices", Value::List(list))).write(&mut bytes);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(SlicesResource::from_bytes(&bytes).map(|s| s.slices));
+        });
+        let slices = match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(parsed) => parsed.unwrap(),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("matching trailing slice descriptors stalled"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("slice parsing panicked"),
+        };
+        assert_eq!(slices.len(), n);
+        assert_eq!(slices[0].outsets, [7, 0, 0, 0], "the one matching descriptor still applies");
+        assert!(slices[1..].iter().all(|s| s.outsets == [0; 4]));
     }
 }

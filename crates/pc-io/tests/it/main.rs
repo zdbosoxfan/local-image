@@ -3,6 +3,8 @@ mod adjust_blend_roundtrip;
 mod annotations;
 mod artboard_guide_order;
 mod banded;
+#[cfg(feature = "corpus")]
+mod blend_modes_corpus;
 mod cancel;
 mod channels;
 mod cmyk_export;

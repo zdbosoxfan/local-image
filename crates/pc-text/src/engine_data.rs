@@ -320,6 +320,12 @@ fn format_real(r: f64) -> String {
     while s.ends_with('0') {
         s.pop();
     }
+    if matches!(s.as_str(), "0." | "-0.") {
+        return "0.0".into();
+    }
+    if s.ends_with('.') {
+        s.push('0');
+    }
     if let Some(rest) = s.strip_prefix("0.") {
         s = format!(".{rest}");
     } else if let Some(rest) = s.strip_prefix("-0.") {
@@ -333,6 +339,18 @@ mod tests {
     use super::*;
 
     const SAMPLE: &[u8] = b"\n\n<<\n\t/EngineDict\n\t<<\n\t\t/Editor\n\t\t<<\n\t\t\t/Text (\xFE\xFF\x00H\x00i\x00\\)\x00\r)\n\t\t>>\n\t\t/Nums [ 1.0 .5 -2 0 ]\n\t\t/Flag true\n\t\t/Kind /Roman\n\t\t/Runs [\n\t\t<<\n\t\t\t/A 1\n\t\t>>\n\t\t]\n\t>>\n>>";
+
+    #[test]
+    fn format_real_never_ends_with_bare_dot() {
+        assert_eq!(format_real(5.000001), "5.0");
+        assert_eq!(format_real(12.000004), "12.0");
+        assert_eq!(format_real(-5.000001), "-5.0");
+        assert_eq!(format_real(1e20), "100000000000000000000.0");
+        assert_eq!(format_real(0.5), ".5");
+        assert_eq!(format_real(-0.25), "-.25");
+        assert_eq!(format_real(1e-9), "0.0");
+        assert_eq!(format_real(3.0), "3.0");
+    }
 
     #[test]
     fn parses_sample() {
@@ -360,6 +378,26 @@ mod tests {
         assert_eq!(format_real(0.5), ".5");
         assert_eq!(format_real(-0.25), "-.25");
         assert_eq!(format_real(12.125), "12.125");
+    }
+
+    #[test]
+    fn tiny_reals_round_trip_as_numbers() {
+        for value in [0.000004, -0.000004] {
+            assert_eq!(format_real(value), "0.0");
+            let source = Value::Dict(vec![(
+                "EngineDict".into(),
+                Value::Dict(vec![("StyleRun".into(), Value::Array(vec![Value::Dict(vec![("BaselineShift".into(), Value::Real(value))])]))]),
+            )]);
+            let encoded = write(&source);
+            let parsed = parse(&encoded).expect("formatted tiny real should parse");
+            let baseline_shift = parsed
+                .path(&["EngineDict", "StyleRun"])
+                .and_then(Value::as_array)
+                .and_then(|runs| runs.first())
+                .and_then(|run| run.get("BaselineShift"))
+                .and_then(Value::as_f64);
+            assert_eq!(baseline_shift, Some(0.0));
+        }
     }
 
     #[test]

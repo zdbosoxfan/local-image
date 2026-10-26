@@ -993,6 +993,33 @@ fn layer_effects_opacity_fill_blend_and_off_canvas() {
         d.layers.push(l);
         fx_check(&mut g, &d, &format!("opacity {opacity} fill {fill} {blend:?}"));
     }
+    // Fill below 100 % with an Outside stroke: the interior stays clear of the stroke (the
+    // "outline only" look of Fill 0 %).
+    for fill in [0.0, 0.5] {
+        let mut d = fx_doc(80, 80, SampleType::U8);
+        let mut l = blob("ring", d.pixel_format(), 40.0, 40.0, 20.0, [0.2, 0.6, 0.9]);
+        l.effects.items = vec![Effect::Stroke(stroke(4.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.95, 0.85, 0.1))))];
+        l.fill_opacity = fill;
+        d.layers.push(l);
+        fx_check(&mut g, &d, &format!("outside stroke at fill {fill}"));
+    }
+    // An Outside stroke has no share beneath fully opaque pixels (#5861): non-Normal layers with
+    // an Outside stroke on a soft blob and a hard square.
+    for blend in [BlendMode::Multiply, BlendMode::Screen] {
+        let mut d = fx_doc(80, 80, SampleType::U8);
+        let mut l = blob("ring", d.pixel_format(), 40.0, 40.0, 20.0, [0.9, 0.1, 0.1]);
+        l.effects.items = vec![Effect::Stroke(stroke(4.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.1, 0.2, 0.9))))];
+        l.blend = blend;
+        d.layers.push(l);
+        fx_check(&mut g, &d, &format!("outside stroke under a {blend:?} blob"));
+        let mut d = fx_doc(40, 40, SampleType::U8);
+        let mut l = Layer::raster("square", d.pixel_format());
+        l.surface_mut().unwrap().fill_rect(Rect::new(15, 15, 25, 25), &[1.0, 0.0, 0.0, 1.0]);
+        l.effects.items = vec![Effect::Stroke(stroke(3.0, StrokePosition::Outside, FxPaint::Color(Color::rgb(0.0, 0.0, 1.0))))];
+        l.blend = blend;
+        d.layers.push(l);
+        fx_check(&mut g, &d, &format!("outside stroke under a {blend:?} square"));
+    }
     // Shapes partly off the canvas (their effects reach back in) and a masked effect layer.
     let mut d = fx_doc(90, 70, SampleType::U8);
     let mut l = blob("edge", d.pixel_format(), 4.0, 66.0, 18.0, [0.9, 0.9, 0.2]);
@@ -2518,5 +2545,21 @@ fn wide_strokes_and_blended_shadow_knockout_match_cpu() {
         ];
         d.layers.push(layer);
         fx_check(&mut g, &d, &format!("wide stroke and knockout {blend:?}"));
+    }
+}
+
+#[test]
+fn hdr_hue_saturation_bright_colours() {
+    let mut g = gpu();
+    let mut d = Document::new("t", Size::new(4, 1), ColorMode::Rgb, SampleType::F32);
+    let mut bg = Layer::raster("bg", d.pixel_format());
+    let px = [2.0, 0.0, 0.0, 1.0, 0.25, -0.25, 0.0, 1.0, 1.1, 0.9, 1.0, 1.0, 0.55, 0.45, 0.5, 1.0];
+    bg.surface_mut().unwrap().write_region(Rect::from_xywh(0, 0, 4, 1), &px);
+    d.layers.push(bg);
+    for (hue, saturation) in [(40.0, 0.0), (0.0, 25.0), (0.0, -25.0), (40.0, 75.0)] {
+        let hs = Adjustment::HueSaturation { hue, saturation, lightness: 0.0, colorize: false, ranges: HueRange::defaults() };
+        d.layers.push(Layer::new("hs", LayerContent::Adjustment(hs)));
+        check(&mut g, &d, &format!("hue {hue} saturation {saturation} on bright colours"));
+        d.layers.pop();
     }
 }

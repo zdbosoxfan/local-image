@@ -12,6 +12,10 @@ use photocraft_doc::{Pattern, Rect};
 
 pub(crate) const PREPARED_PATTERN_BYTES: usize = 64 << 20;
 const MAX_PREPARED_PATTERNS: usize = 64;
+/// Largest RGBA expansion of one pattern that isn't cached. An uncached pattern is expanded
+/// again for every output tile, so above this it paints nothing. Independent of the cache budget,
+/// so small patterns still convert when nothing is cached. Covers Define Pattern's 4000 × 4000.
+const MAX_UNCACHED_PATTERN_BYTES: usize = 256 << 20;
 type PreparedSlot = Arc<OnceLock<Option<Arc<Tile>>>>;
 
 struct PreparedState {
@@ -70,6 +74,9 @@ impl<'a> PreparedPatterns<'a> {
                 // Run on the requesting worker to preserve its active CMYK profile.
                 slot.get_or_init(|| Tile::new(p).map(Arc::new)).clone()
             }
+            // Expanding a huge pattern for every tile, possibly on several workers at once,
+            // would exhaust memory even though the cache refused to keep it.
+            None if bytes.is_none_or(|b| b > MAX_UNCACHED_PATTERN_BYTES) => None,
             None => Tile::new(p).map(Arc::new),
         }
     }
@@ -235,6 +242,17 @@ mod tests {
         let list = [p];
         assert!(PreparedPatterns::new(&list, PREPARED_PATTERN_BYTES).get("big", "").is_none());
         assert!(PreparedPatterns::new(&list, 0).get("big", "").is_none());
+    }
+
+    #[test]
+    fn paintable_patterns_too_large_to_cache_are_not_expanded_per_tile() {
+        // 5000 × 4000 is paintable but expands to 320 MB of floats, more than the cache holds,
+        // so every output tile (on every Rayon worker) expanded it again.
+        let p = Pattern { id: "wide".into(), name: "Wide".into(), width: 5000, height: 4000, surface: Surface::new(PixelFormat::RGBA8) };
+        assert!(p.is_paintable());
+        let list = [p];
+        assert!(PreparedPatterns::new(&list, PREPARED_PATTERN_BYTES).get("wide", "").is_none());
+        assert!(PreparedPatterns::new(&list, 0).get("wide", "").is_none());
     }
 
     #[test]

@@ -81,3 +81,23 @@ fn tagged_cmyk_merged_image_reads_through_its_embedded_profile() {
     let builtin = cmyk_to_rgb(inks(0));
     assert!((0..3).any(|c| (merged[0][c] - builtin[c]).abs() > 0.01));
 }
+
+#[test]
+fn psd_fill_pixels_use_the_embedded_cmyk_profile() {
+    use photocraft_doc::{Fill, LayerContent};
+    let mut doc = Document::new("tagged fill", Size::new(4, 4), ColorMode::Cmyk, SampleType::U16);
+    doc.icc_profile = Some(
+        cmyk_profile(&CmykParams { description: "Fill CMYK".into(), tvi: [0.26, 0.26, 0.26, 0.3], grid_a2b: 5, grid_b2a: 9, ..Default::default() }).to_bytes(),
+    );
+    let color = photocraft_color::Color::rgb(0.2, 0.4, 0.6);
+    doc.layers.push(Layer::new("fill", LayerContent::Fill(Fill::Solid(color))));
+    let space = photocraft_compose::cmyk_space(&doc);
+    let expected = photocraft_color::convert::with_cmyk_space(space.as_ref(), || photocraft_raster::from_rgba(&doc.pixel_format(), [0.2, 0.4, 0.6, 1.0]));
+    let saved = export(&doc, "fill.psd", &Default::default()).unwrap();
+    let reopened = photocraft_io::import("fill.psd", &saved.bytes).unwrap().document;
+    assert_eq!(reopened.icc_profile, doc.icc_profile);
+    let actual = reopened.layers[0].fill_cache.as_ref().unwrap().surface.pixel(0, 0);
+    for (actual, expected) in actual.iter().zip(expected) {
+        assert!((actual - expected).abs() <= 1.0 / 65535.0, "stored ink {actual} != {expected}");
+    }
+}

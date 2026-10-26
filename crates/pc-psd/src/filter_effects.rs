@@ -170,7 +170,10 @@ impl FilterEffects {
             let pad = ((4 - len % 4) % 4).min(r.remaining() as u64);
             r.skip(pad as usize)?;
             let rest = r.peek_rest();
-            if rest.iter().all(|&b| b == 0) && rest.len() <= 3 {
+            // Padding is at most three bytes. Check the length before scanning the rest for
+            // zeros: scanning the whole remainder after every section is quadratic when a block
+            // holds many empty sections.
+            if rest.len() <= 3 && rest.iter().all(|&b| b == 0) {
                 break;
             }
             if rest.len() < 8 {
@@ -337,5 +340,24 @@ mod tests {
         let at = 4 + 8 + 2 + 4 + 8 + 16 + 4; // max channels
         huge[at..at + 4].copy_from_slice(&u32::MAX.to_be_bytes());
         assert!(FilterEffects::parse(&huge).is_err());
+    }
+
+    #[test]
+    fn a_block_of_empty_sections_parses_without_stalling() {
+        // A version followed by zeros reads as one empty section per 8 bytes. Scanning the rest
+        // of the block for padding after each of them is quadratic, and the PSD import can't be
+        // cancelled inside one block: 4 MiB of zeros took far longer than the watchdog allows.
+        let mut bytes = 1u32.to_be_bytes().to_vec();
+        bytes.resize(4 + (4 << 20), 0);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(FilterEffects::parse(&bytes));
+        });
+        let fx = match rx.recv_timeout(std::time::Duration::from_secs(20)) {
+            Ok(parsed) => parsed.unwrap(),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => panic!("parsing empty filter effects sections stalled"),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => panic!("filter effects parsing panicked"),
+        };
+        assert_eq!(fx, FilterEffects { version: 1, items: Vec::new() });
     }
 }

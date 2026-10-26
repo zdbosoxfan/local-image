@@ -315,7 +315,7 @@ impl Ctx<'_> {
         } else if let Some(k) = adj_key {
             let data = rec.block(k).map(|b| b.data.clone()).unwrap_or_default();
             let cged = rec.block(b"CgEd").map(|b| &b.data[..]);
-            LayerContent::Adjustment(adjust_map::parse(
+            let adj = adjust_map::parse(
                 k,
                 &data,
                 cged,
@@ -326,7 +326,15 @@ impl Ctx<'_> {
                     ColorMode::Lab => adjust_map::Channels::Lab,
                     _ => adjust_map::Channels::Other,
                 },
-            ))
+            );
+            // Photoshop 2026's Light adjustment shares the Brightness/Contrast key. It is kept
+            // verbatim for saving but renders as nothing: say so rather than open it silently.
+            if k == b"brit" && matches!(adj, photocraft_doc::Adjustment::Unsupported { .. }) && adjust_map::is_extended_brit(cged) {
+                self.warn(format!(
+                    "layer \"{name}\": its Light settings could not be read (Light adjustments, with Exposure, Highlights, Shadows, Whites and Blacks, aren't supported yet); the layer is kept as saved but has no effect"
+                ));
+            }
+            LayerContent::Adjustment(adj)
         } else if let Some(block) = rec.block(b"TySh") {
             // Typed model from TySh/EngineData (photocraft-text); Photoshop's pixels stay the
             // cache. Only safely decoded type data becomes editable text: a transform that is not
@@ -1006,7 +1014,10 @@ fn psd_to_document_with_budget(file: &PsdFile, ctl: &lightcraft_sysmem::jobs::In
 
     // Layer comps (resource 1065 + per-layer `cmls`); the raw data stays for verbatim export.
     let raw_comps = doc.metadata.psd_resources.iter().find(|(id, _, _)| *id == crate::comps_map::LAYER_COMPS).map(|(_, _, d)| d.clone());
-    (doc.layer_comps, doc.last_applied_comp, doc.last_document_state) = crate::comps_map::comps_from_psd(raw_comps.as_deref().map(Vec::as_slice), &doc);
+    let comp_warnings;
+    (doc.layer_comps, doc.last_applied_comp, doc.last_document_state, comp_warnings) =
+        crate::comps_map::decode_comps(raw_comps.as_deref().map(Vec::as_slice), &doc);
+    cx.warnings.extend(comp_warnings);
     // Slices (resource 1050), after layer ids are known; the raw data stays for verbatim export.
     crate::slices_map::import(&mut doc);
     // Character and paragraph styles from the type layers' engine data.
@@ -1316,5 +1327,42 @@ mod file_input_regressions {
         assert_eq!(merged_plane(&all, 1, 2), Some(&[3u8, 4][..]));
         assert_eq!(merged_plane(&all, 2, 2), None);
         assert_eq!(merged_plane(&all, usize::MAX, 2), None);
+    }
+
+    #[test]
+    fn light_adjustment_is_kept_verbatim_and_warned() {
+        // Photoshop 2026's Light layer is a `brit` block whose `CgEd` descriptor carries more
+        // than Brightness/Contrast. Synthetic block: the extra key names are placeholders.
+        use photocraft_psd::descriptor::{Descriptor, Value, VersionedDescriptor};
+        let brit = vec![0, 0, 0xff, 0xfe, 0, 127, 0, 0];
+        let d = Descriptor::new("null")
+            .with("Vrsn", Value::Integer(1))
+            .with("Brgh", Value::Integer(0))
+            .with("Cntr", Value::Integer(-2))
+            .with("Exps", Value::Double(-2.3))
+            .with("Hghl", Value::Integer(-64))
+            .with("useLegacy", Value::Boolean(false));
+        let cged = VersionedDescriptor::new(d).to_bytes();
+        let adjustment = adjust_map::parse(b"brit", &brit, Some(&cged), adjust_map::Channels::Rgb);
+        assert_eq!(adjustment, photocraft_doc::Adjustment::Unsupported { psd_key: "brit".into(), raw: brit.clone() });
+        let mut doc = Document::with_background("Light", Size::new(8, 8), ColorMode::Rgb, SampleType::U8, photocraft_doc::Color::WHITE);
+        let mut layer = Layer::new("Light 1", LayerContent::Adjustment(adjustment));
+        layer.psd_blocks = vec![(*b"brit", Arc::new(brit.clone())), (*b"CgEd", Arc::new(cged.clone()))];
+        doc.layers.push(layer);
+        let block = |file: &PsdFile, key: &[u8; 4]| file.layers().iter().find_map(|r| r.block(key)).map(|b| b.data.clone());
+        let file = PsdFile::from_bytes(&crate::document_to_psd(&doc).to_bytes().unwrap()).unwrap();
+        let (restored, warnings) = psd_to_document(&file).unwrap();
+        assert!(warnings.iter().any(|w| w.contains("\"Light 1\"") && w.contains("Light settings")), "{warnings:?}");
+        // Saved again unchanged, both blocks are written back byte for byte.
+        let again = PsdFile::from_bytes(&crate::document_to_psd(&restored).to_bytes().unwrap()).unwrap();
+        assert_eq!(block(&again, b"brit").as_deref(), Some(&brit[..]));
+        assert_eq!(block(&again, b"CgEd").as_deref(), Some(&cged[..]));
+        // A plain Brightness/Contrast descriptor still reads as Brightness/Contrast.
+        let plain = adjust_map::write(&photocraft_doc::Adjustment::BrightnessContrast { brightness: 5.0, contrast: -2.0, legacy: false });
+        assert!(!adjust_map::is_extended_brit(Some(&plain[1].1)));
+        assert_eq!(
+            adjust_map::parse(b"brit", &plain[0].1, Some(&plain[1].1), adjust_map::Channels::Rgb),
+            photocraft_doc::Adjustment::BrightnessContrast { brightness: 5.0, contrast: -2.0, legacy: false }
+        );
     }
 }

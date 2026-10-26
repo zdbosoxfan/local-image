@@ -135,6 +135,47 @@ fn shape_layer_typed_roundtrip() {
     }
 }
 
+/// Appearance fill and stroke alphas survive PSD save/load, and a redraw (move/crop) uses those
+/// values instead of snapping to opaque.
+#[test]
+fn rectangle_appearance_alphas_survive_psd_and_redraw() {
+    let mut d = doc();
+    let sh = ShapeLayer {
+        path: photocraft_vector::shapes::rect(16.0, 16.0, 128.0, 96.0),
+        fill: Some(Fill::Solid(Color::rgba(1.0, 0.0, 0.0, 0.5))),
+        stroke: Some(ShapeStroke {
+            width: 4.0,
+            paint: Fill::Solid(Color::rgba(0.0, 0.0, 1.0, 0.4)),
+            opacity: 0.5,
+            align: StrokeAlign::Outside,
+            ..ShapeStroke::default()
+        }),
+        live: Some(LiveShape::Rect { rect: [16.0, 16.0, 128.0, 96.0], radii: [0.0; 4] }),
+        ..Default::default()
+    };
+    d.layers.push(shape_layer(sh));
+    let b = roundtrip(&d);
+    let LayerContent::Shape(s) = &b.layers[1].content else { panic!("not a shape") };
+    let Fill::Solid(fill) = s.fill.as_ref().unwrap() else { panic!("solid fill") };
+    assert!((fill.alpha - 0.5).abs() < 1e-4, "fill appearance alpha {}", fill.alpha);
+    let st = s.stroke.as_ref().unwrap();
+    let Fill::Solid(stroke_c) = &st.paint else { panic!("solid stroke") };
+    assert!((stroke_c.alpha - 0.4).abs() < 1e-4, "stroke colour alpha {}", stroke_c.alpha);
+    assert!((st.opacity - 0.5).abs() < 1e-4, "stroke opacity {}", st.opacity);
+    let redrawn = photocraft_vector::render_shape(s, photocraft_color::PixelFormat::RGBA8, Rect::new(0, 0, 256, 256));
+    let original = d.layers[1].surface().unwrap();
+    for ((x, y), expected) in [((64, 64), [1.0, 0.0, 0.0, 0.5]), ((14, 64), [0.0, 0.0, 1.0, 0.2])] {
+        let rect = Rect::from_xywh(x, y, 1, 1);
+        let (mut before, mut after) = ([[0.0; 4]], [[0.0; 4]]);
+        original.read_rgba_into(rect, &mut before);
+        redrawn.read_rgba_into(rect, &mut after);
+        for (c, want) in expected.into_iter().enumerate() {
+            assert!((before[0][c] - want).abs() <= 1.0 / 255.0, "original at ({x}, {y}): {:?}", before[0]);
+            assert!((after[0][c] - before[0][c]).abs() <= 1.0 / 255.0, "redraw at ({x}, {y}): {:?} vs {:?}", after[0], before[0]);
+        }
+    }
+}
+
 #[test]
 fn vector_mask_roundtrip_and_removal() {
     let mut d = doc();
