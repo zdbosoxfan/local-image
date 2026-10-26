@@ -23,12 +23,14 @@ All notable changes to Local Image are recorded here. The format follows
   picker marks template models "Not tested", "Re-check" or "Works", lists models that can't run
   yet with the reason and a Set up… button, and a banner announces new models.
 - AI: an opt-in Enhance prompt switch for models whose official template has a local prompt
-  enhancer (off by default, remembered per model), with its own optional verification render when installed.
+  enhancer (off by default, remembered per model), with its own optional verification render when
+  installed.
 - AI: Import Workflow… accepts a ComfyUI workflow without `li:` node titles; its prompt, negative,
   seed and size are found by their roles (basic controls).
 
 ### Changed
 
+- AI: previously verified template models ask for one re-test after the recipe-hash change.
 - AI: model files are identified by their weights before their names; a name that points at a
   model generation no profile describes is no longer filed under an older family.
 - AI: ComfyUI errors name the failing node's files and say what to do (update ComfyUI, the text
@@ -39,9 +41,12 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
-- AI: a changed model stays marked for testing across subsequent scans and temporary missing-node blockers until it is explicitly tested again.
+- AI: a changed model stays marked for testing across subsequent scans and temporary missing-node
+  blockers until it is explicitly tested again.
 - AI: a verification result cannot overwrite a newer model scan or changed setup choices.
-- AI: verification retries test previously failed tools again; optional style files no longer block plain Create, and published capabilities honor their static checks. Background model refreshes recheck files and recipes after updates.
+- AI: verification retries test previously failed tools again; optional style files no longer block
+  plain Create, and published capabilities honor their static checks. Background model refreshes
+  recheck files and recipes after updates.
 - AI: a Hugging Face model card no longer installs every file of its repository into one folder:
   files go to the folder their repository path names, diffusers copies and shards are left out,
   and a repository with several precisions installs the one chosen in the install dialog.
