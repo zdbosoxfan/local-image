@@ -200,12 +200,14 @@ impl Tile {
                             if value.is_finite() {
                                 value.clamp(1.0, f64::from(li_raster::frame::CUBIC_MAX_STRETCH)) as f32
                             } else {
-                                li_raster::frame::CUBIC_MAX_STRETCH
+                                1.0
                             }
                         },
                     )
                 }
-                _ => [li_raster::frame::CUBIC_MAX_STRETCH; 2],
+                // A seam-spanning tile can face away at its centre; an unknown footprint
+                // does not imply minification, so keep the native sampling width.
+                _ => [1.0; 2],
             };
             for tx in 0..tw {
                 let u = (tx0 + tx) as f64 + 0.5 + ox;
@@ -518,5 +520,42 @@ fn compensate_gains(tiles: &[Option<Tile>], gains: &mut [f64], frames: &[Frame])
         && g.iter().all(|v| v.is_finite() && *v > 0.0)
     {
         gains.copy_from_slice(&g);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn back_seam_frame_keeps_native_resampling_detail() {
+        let image = RgbFrame::from_fn(96, 48, |x, _| [if x % 4 < 2 { 0.1 } else { 0.9 }; 3]);
+        let frame = Frame::from_linear_rec2020(image, None);
+        let camera = Camera { f: 96.0, r: [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]], cx: 48.0, cy: 24.0 };
+        // A full 360-degree canvas puts this backward-facing frame across both horizontal edges.
+        let origin = (-303.0, -24.0);
+        for projection in [Projection::Cylindrical, Projection::Spherical] {
+            let tile = Tile::project(&frame, camera, projection, 96.0, origin, (606, 48), 2).unwrap();
+            let centre = tile.x0 as f64 + tile.w as f64 / 2.0 + origin.0;
+            assert!(camera.project(projection.inverse(centre, 0.0, 96.0)).is_none(), "the tile centre is behind the seam camera");
+            let mut samples = 0;
+            let mut contrast = 0.0;
+            for y in 0..tile.h {
+                for x in 0..tile.w {
+                    let u = (tile.x0 + x) as f64 + 0.5 + origin.0;
+                    let v = (tile.y0 + y) as f64 + 0.5 + origin.1;
+                    let Some((px, py)) = camera.project(projection.inverse(u, v, 96.0)) else { continue };
+                    if (24.0..72.0).contains(&px) && (12.0..36.0).contains(&py) {
+                        assert!(tile.wgt[y * tile.w + x] > 0.0);
+                        contrast += (tile.rgb[y * tile.w + x][0] - 0.5).abs();
+                        samples += 1;
+                    }
+                }
+            }
+            assert!(samples > 500, "{projection:?}: {samples} samples");
+            // Native cubic retains the two-pixel bars; a 4x footprint averages them to grey.
+            let contrast = contrast / samples as f32;
+            assert!(contrast > 0.18, "{projection:?}: seam-frame contrast {contrast}");
+        }
     }
 }
