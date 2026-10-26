@@ -199,6 +199,9 @@ fn options() -> modelsetup::Options {
 
 /// Starts `work` as the window's background task.
 fn start(s: &mut State, label: &str, verifying: Vec<String>, work: impl FnOnce(&Mutex<Task>) -> anyhow::Result<Done> + Send + 'static) {
+    if s.busy() {
+        return;
+    }
     let current = verifying.first().cloned();
     let task = Arc::new(Mutex::new(Task { label: label.to_owned(), verifying, current, ..Default::default() }));
     let t = task.clone();
@@ -227,6 +230,9 @@ fn run(s: &mut State, a: Action) {
     #[cfg(test)]
     if let Some(r) = s.recorded.as_mut() {
         r.push(a);
+        return;
+    }
+    if s.busy() && !matches!(a, Action::Cancel) {
         return;
     }
     let opts = options();
@@ -371,7 +377,7 @@ fn notice_new_models(app: &mut PhotocraftApp) {
     if before.is_some_and(|b| n > b) {
         crate::notices::post(
             app,
-            li_i18n::fmt(tl!("{n} new models found"), &[("n", &n.to_string())]),
+            li_i18n::trn(li_i18n::current(), n as u64, "{n} new model found", "{n} new models found"),
             vec![tl!("Window › Set Up Models… checks and tests them.").into()],
             false,
             None,
@@ -391,7 +397,7 @@ pub(crate) fn chip(status: Status) -> (&'static str, &'static str, Tone) {
         Status::Ready => ("circle-dashed", tl!("Not tested"), Tone::Neutral),
         Status::Verified => ("check", tl!("Verified"), Tone::Good),
         Status::PartiallyVerified => ("triangle-alert", tl!("Partly verified"), Tone::Warning),
-        Status::NeedsReverify => ("refresh-cw", tl!("Re-check"), Tone::Warning),
+        Status::NeedsReverify => ("refresh-cw", tl!("Test again"), Tone::Warning),
         Status::Blocked => ("triangle-alert", tl!("Needs attention"), Tone::Warning),
         Status::Unmatched => ("triangle-alert", tl!("No template"), Tone::Warning),
         Status::Failed => ("x", tl!("Failed"), Tone::Danger),
@@ -407,7 +413,7 @@ fn spoken(status: Status) -> &'static str {
         Status::Ready => tl!("ready, not tested"),
         Status::Verified => tl!("verified"),
         Status::PartiallyVerified => tl!("partly verified"),
-        Status::NeedsReverify => tl!("needs a re-check"),
+        Status::NeedsReverify => tl!("needs testing again"),
         Status::Blocked => tl!("needs attention"),
         Status::Unmatched => tl!("no matching template"),
         Status::Failed => tl!("test failed"),
@@ -432,15 +438,14 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut open = true;
     let mut actions = Vec::new();
     let screen = ctx.content_rect();
-    let size = vec2((screen.width() - 160.0).clamp(720.0, 1100.0), (screen.height() - 160.0).clamp(480.0, 720.0));
+    let size = vec2((screen.width() - 160.0).clamp(720.0, 1100.0), (screen.height() - 200.0).clamp(380.0, 680.0));
     let shown = egui::Window::new(tl!("Set Up Models"))
         .id(egui::Id::new("model-setup-window"))
         .collapsible(false)
-        .resizable(true)
-        .default_size(size)
-        .min_size(vec2(720.0, 480.0))
+        .resizable(false)
+        .fixed_size(size)
         .default_pos(screen.center() - size / 2.0)
-        .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(egui::Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(12)))
+        .frame(egui::Frame::window(&ctx.global_style()).fill(t.card).stroke(egui::Stroke::new(1.0, t.card_border)).inner_margin(egui::Margin::same(0)))
         .open(&mut open)
         .show(ctx, |ui| with(|s| content(ui, s, &t, &mut actions)));
     with(|s| dialogs::show(ctx, s, &t, &mut actions));
@@ -465,35 +470,53 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
 }
 
 fn content(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
-    header(ui, s, t, out);
-    ui.add_space(4.0);
-    widgets::hairline(ui);
-    let footer_h = 36.0;
-    let body_h = (ui.available_height() - footer_h - 8.0).max(240.0);
-    ui.horizontal_top(|ui| {
-        let list_w = (ui.available_width() * 0.3).clamp(220.0, 300.0);
-        ui.allocate_ui_with_layout(vec2(list_w, body_h), egui::Layout::top_down(egui::Align::Min), |ui| {
-            egui::ScrollArea::vertical().id_salt("model-setup-list").auto_shrink([false, false]).show(ui, |ui| list::show(ui, s, t, out));
-        });
-        widgets::vline(ui, body_h);
-        ui.allocate_ui_with_layout(vec2(ui.available_width(), body_h), egui::Layout::top_down(egui::Align::Min), |ui| {
-            egui::ScrollArea::vertical().id_salt("model-setup-detail").auto_shrink([false, false]).show(ui, |ui| detail::show(ui, s, t, out));
+    // Panels reserve their measured height before the scrollable split view is allocated.
+    egui::Panel::bottom("model-setup-footer").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6))).show(ui, |ui| footer(ui, s, out));
+    egui::Panel::top("model-setup-header").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6))).show(ui, |ui| header(ui, s, t, out));
+    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+        let full = ui.available_size();
+        let side = (full.x * 0.3).clamp(220.0, 300.0);
+        ui.horizontal_top(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            ui.allocate_ui_with_layout(vec2(side, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.painter().rect_filled(ui.max_rect(), 0.0, t.dock);
+                egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 12)).show(ui, |ui| {
+                    ui.set_width(side - 20.0);
+                    egui::ScrollArea::vertical()
+                        .id_salt("model-setup-list")
+                        .max_height((full.y - 24.0).max(0.0))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| list::show(ui, s, t, out));
+                });
+            });
+            ui.allocate_ui_with_layout(vec2(full.x - side, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
+                ui.spacing_mut().item_spacing.x = 8.0;
+                egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 12, bottom: 0 }).show(ui, |ui| {
+                    ui.set_width((full.x - side - 28.0).max(0.0));
+                    egui::ScrollArea::vertical()
+                        .id_salt("model-setup-detail")
+                        .max_height((full.y - 12.0).max(0.0))
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| detail::show(ui, s, t, out));
+                });
+            });
         });
     });
-    widgets::hairline(ui);
-    footer(ui, s, out);
 }
 
 /// Server line, banners, the running task and the last message.
 fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
     let st = crate::ai_ui::status();
     let snapshot = s.scan.as_ref().and_then(|x| x.snapshot.clone());
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let line = match &snapshot {
             Some(sn) => {
                 let mut parts = vec![li_i18n::fmt(tl!("ComfyUI {version} at {host}"), &[("version", &sn.version_label()), ("host", &sn.host)])];
                 if let Some(g) = &sn.gpu {
-                    parts.push(format!("{}, {:.1} GB", g.name.replace("NVIDIA ", "").replace("GeForce ", ""), g.vram_total as f64 / 1e9));
+                    parts.push(li_i18n::fmt(
+                        tl!("{gpu}, {memory} GB"),
+                        &[("gpu", &crate::ai_ui::short_gpu(&g.name)), ("memory", &format!("{:.0}", g.vram_total as f64 / 1e9))],
+                    ));
                 }
                 if !sn.templates_version.is_empty() {
                     parts.push(li_i18n::fmt(tl!("templates {version}"), &[("version", &sn.templates_version)]));
@@ -505,8 +528,12 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
         };
         ui.label(RichText::new(line).color(t.text_dim));
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let recheck = ui.add_enabled_ui(!s.busy(), |ui| widgets::secondary_button(ui, tl!("Re-check"), 0.0)).inner;
-            if recheck.on_hover_text(tl!("Check every model again (no test renders)")).clicked() {
+            let recheck = ui.add_enabled_ui(!s.busy(), |ui| widgets::secondary_button_translated(ui, tl!("Re-check"), 0.0)).inner;
+            if recheck
+                .on_disabled_hover_text(tl!("Wait for the current task to finish."))
+                .on_hover_text(tl!("Check every model again (no test renders)"))
+                .clicked()
+            {
                 out.push(Action::Recheck);
             }
         });
@@ -514,7 +541,7 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
     if s.scan.is_some() && snapshot.is_none() && !st.connected {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(tl!("Start the AI engine to check new models.")).color(t.warning));
-            if widgets::primary_button(ui, tl!("Start AI Engine"), 0.0).clicked() {
+            if widgets::secondary_button_translated(ui, tl!("Start AI Engine"), 0.0).clicked() {
                 out.push(Action::StartEngine);
             }
         });
@@ -523,7 +550,12 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
         let updated: Vec<&Issue> = sc.server.models.values().flat_map(|m| &m.issues).filter(|i| i.code == "ReverifyNeeded").collect();
         if let Some(first) = updated.first() {
             let text = li_i18n::fmt(
-                tl!("ComfyUI was updated from {old} to {new}. {n} models need a quick re-check."),
+                &li_i18n::trn(
+                    li_i18n::current(),
+                    updated.len() as u64,
+                    "ComfyUI was updated from {old} to {new}. {n} model needs testing again.",
+                    "ComfyUI was updated from {old} to {new}. {n} models need testing again.",
+                ),
                 &[
                     ("old", first.args.get("old").map(String::as_str).unwrap_or("")),
                     ("new", first.args.get("new").map(String::as_str).unwrap_or("")),
@@ -540,7 +572,7 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
             let (r, _) = ui.allocate_exact_size(vec2(160.0, 6.0), egui::Sense::hover());
             li_ui_kit::progress::bar(ui, r, x.progress.map(|(d, n)| d as f32 / n.max(1) as f32), t);
             ui.label(RichText::new(&x.label).color(t.text_dim));
-            if (x.progress.is_some() || !x.verifying.is_empty()) && widgets::secondary_button(ui, tl!("Cancel"), 0.0).clicked() {
+            if (x.progress.is_some() || !x.verifying.is_empty()) && widgets::secondary_button_translated(ui, tl!("Cancel"), 0.0).clicked() {
                 out.push(Action::Cancel);
             }
         });
@@ -552,7 +584,7 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
             let name = moved.to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             ui.horizontal(|ui| {
                 ui.label(RichText::new(li_i18n::fmt(tl!("Moved {file}."), &[("file", &name)])).color(t.text_dim));
-                if widgets::secondary_button(ui, tl!("Undo"), 0.0).clicked() {
+                if widgets::secondary_button_translated(ui, tl!("Undo"), 0.0).clicked() {
                     out.push(Action::Undo);
                 }
             });
@@ -569,21 +601,29 @@ fn untested(scan: &Scan) -> Vec<String> {
 }
 
 fn footer(ui: &mut egui::Ui, s: &mut State, out: &mut Vec<Action>) {
-    ui.add_space(6.0);
     ui.horizontal(|ui| {
         let keys = s.scan.as_deref().map(untested).unwrap_or_default();
         let connected = s.scan.as_ref().is_some_and(|x| x.snapshot.is_some());
         let label = li_i18n::fmt(tl!("Verify all ready ({n})"), &[("n", &keys.len().to_string())]);
-        let verify = ui.add_enabled_ui(!keys.is_empty() && connected && !s.busy(), |ui| widgets::primary_button(ui, &label, 0.0)).inner;
-        if verify.on_hover_text(tl!("Test each model with a few small renders, one model at a time")).clicked() {
+        let verify = ui.add_enabled_ui(!keys.is_empty() && connected && !s.busy(), |ui| widgets::secondary_button_translated(ui, &label, 0.0)).inner;
+        let reason = if s.busy() {
+            tl!("Wait for the current task to finish.")
+        } else if !connected {
+            tl!("Start the AI engine first.")
+        } else {
+            tl!("No models are ready to test.")
+        };
+        if verify.on_disabled_hover_text(reason).on_hover_text(tl!("Test each model with a few small renders, one model at a time")).clicked() {
             out.push(Action::Verify(keys));
         }
-        if ui.add_enabled_ui(s.scan.is_some(), |ui| widgets::secondary_button(ui, tl!("Copy report"), 0.0)).inner.clicked() {
-            out.push(Action::CopyReport);
-        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if widgets::secondary_button(ui, tl!("Close"), 0.0).clicked() {
-                s.open = false;
+            if ui
+                .add_enabled_ui(s.scan.is_some(), |ui| widgets::secondary_button_translated(ui, tl!("Copy report"), 0.0))
+                .inner
+                .on_disabled_hover_text(tl!("Check the models first."))
+                .clicked()
+            {
+                out.push(Action::CopyReport);
             }
         });
     });

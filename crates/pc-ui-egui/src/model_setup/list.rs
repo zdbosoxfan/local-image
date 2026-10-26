@@ -26,11 +26,11 @@ const GROUPS: [Group; 4] = [Group::New, Group::Attention, Group::Verified, Group
 
 fn title(g: Group, n: usize) -> String {
     let text = match g {
-        Group::New => tl!("New ({n})"),
-        Group::Attention => tl!("Needs attention ({n})"),
-        Group::Verified => tl!("Verified ({n})"),
-        Group::Builtin => tl!("Built-in ({n})"),
-        Group::Ignored => tl!("Ignored ({n})"),
+        Group::New => tl!("NEW · {n}"),
+        Group::Attention => tl!("NEEDS ATTENTION · {n}"),
+        Group::Verified => tl!("VERIFIED · {n}"),
+        Group::Builtin => tl!("BUILT-IN · {n}"),
+        Group::Ignored => tl!("IGNORED · {n}"),
     };
     li_i18n::fmt(text, &[("n", &n.to_string())])
 }
@@ -60,67 +60,63 @@ pub(super) fn show(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<A
             )
             .wrap(),
         );
-        if widgets::secondary_button(ui, tl!("Open Model Browser"), 0.0).clicked() {
+        if widgets::secondary_button_translated(ui, tl!("Open Model Browser"), 0.0).clicked() {
             out.push(Action::OpenModelBrowser);
         }
         return;
     }
-    let order = order(&scan);
+    let order: Vec<String> = order(&scan).into_iter().filter(|key| s.show_ignored || scan.server.models[key].status != Status::Ignored).collect();
     for g in GROUPS {
         let keys = keys_in(&scan, g);
+        if keys.is_empty() {
+            continue;
+        }
         ui.add_space(6.0);
         widgets::section_label_translated(ui, &title(g, keys.len()));
         for key in &keys {
             row(ui, s, t, &order, key, &scan.server.models[key], out);
         }
     }
-    ui.add_space(6.0);
-    let other =
-        egui::CollapsingHeader::new(RichText::new(li_i18n::fmt(tl!("Other files ({n})"), &[("n", &scan.other_files.len().to_string())])).color(t.text_faint))
+    if !scan.other_files.is_empty() {
+        ui.add_space(6.0);
+        let label = li_i18n::fmt(tl!("OTHER FILES · {n}"), &[("n", &scan.other_files.len().to_string())]);
+        let other = egui::CollapsingHeader::new(RichText::new(label).font(crate::theme::medium(10.5)).color(t.text_faint))
             .id_salt("model-setup-other")
             .open(Some(s.show_other))
             .show(ui, |ui| {
                 for f in &scan.other_files {
-                    let r = ui.add(egui::Label::new(RichText::new(format!("{} · {}", f.file, li_i18n::t(&f.kind))).size(11.5).color(t.text_dim)).truncate());
+                    let label = format!("{} · {}", f.file, li_i18n::t(&f.kind));
+                    let r = ui.add(egui::Label::new(RichText::new(&label).size(11.5).color(t.text_dim)).truncate()).on_hover_text(&label);
                     if !f.used_by.is_empty() {
                         r.on_hover_text(li_i18n::fmt(tl!("Used by {models}"), &[("models", &f.used_by.join(", "))]));
                     }
                 }
             });
-    if other.header_response.clicked() {
-        s.show_other = !s.show_other;
+        if other.header_response.clicked() {
+            s.show_other = !s.show_other;
+        }
     }
     let ignored = keys_in(&scan, Group::Ignored);
-    let header = egui::CollapsingHeader::new(RichText::new(title(Group::Ignored, ignored.len())).color(t.text_faint))
-        .id_salt("model-setup-ignored")
-        .open(Some(s.show_ignored))
-        .show(ui, |ui| {
-            for key in &ignored {
-                row(ui, s, t, &order, key, &scan.server.models[key], out);
-            }
-        });
-    if header.header_response.clicked() {
-        s.show_ignored = !s.show_ignored;
+    if !ignored.is_empty() {
+        let label = title(Group::Ignored, ignored.len());
+        let header = egui::CollapsingHeader::new(RichText::new(label).font(crate::theme::medium(10.5)).color(t.text_faint))
+            .id_salt("model-setup-ignored")
+            .open(Some(s.show_ignored))
+            .show(ui, |ui| {
+                for key in &ignored {
+                    row(ui, s, t, &order, key, &scan.server.models[key], out);
+                }
+            });
+        if header.header_response.clicked() {
+            s.show_ignored = !s.show_ignored;
+        }
     }
 }
 
 fn row(ui: &mut egui::Ui, s: &mut State, t: &Tokens, order: &[String], key: &str, m: &ModelState, out: &mut Vec<Action>) {
     let selected = s.selected.as_deref() == Some(key);
     let (icon, _, tone) = chip(m.status);
-    let ink = match tone {
-        Tone::Neutral => t.text_dim,
-        Tone::Good => t.accent,
-        Tone::Warning => t.warning,
-        Tone::Danger => t.danger,
-    };
-    let r = ui
-        .horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            let (r, _) = ui.allocate_exact_size(vec2(16.0, 16.0), egui::Sense::hover());
-            crate::icons::paint(ui, r, icon, 12.0, ink);
-            ui.add(egui::Button::selectable(selected, RichText::new(&m.label).color(if selected { t.text } else { t.text_dim })).truncate())
-        })
-        .inner;
+    let r = widgets::nav_row(ui, icon, Some(tone.ink(t)), &m.label, "", selected);
     let spoken_label = format!("{}, {}", m.label, spoken(m.status));
     r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &spoken_label));
     if r.clicked() {
@@ -148,12 +144,13 @@ fn row(ui: &mut egui::Ui, s: &mut State, t: &Tokens, order: &[String], key: &str
     }
     if ui.memory(|mem| mem.data.get_temp::<String>(egui::Id::new("model-setup-focus"))).as_deref() == Some(key) {
         r.request_focus();
+        r.scroll_to_me(Some(egui::Align::Center));
         ui.memory_mut(|mem| mem.data.remove::<String>(egui::Id::new("model-setup-focus")));
     }
     let ignored = m.status == Status::Ignored;
     r.context_menu(|ui| {
         let label = if ignored { tl!("Show again") } else { tl!("Ignore") };
-        if widgets::command_menu_item(ui, label, None, None, None).clicked() {
+        if widgets::command_menu_item(ui, label, None, None, s.busy().then_some(tl!("Wait for the current task to finish."))).clicked() {
             out.push(Action::Choose(key.to_owned(), Choice::Ignore(!ignored)));
             ui.close();
         }
