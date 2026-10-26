@@ -190,6 +190,7 @@ pub struct Session {
     /// Photos in the current source with no filter on (cached like `visible`).
     total: Option<((u64, String), usize, Option<String>)>,
     pub undo: Vec<UndoEntry>,
+    commits: u64,
     pub redo: Vec<UndoEntry>,
     pub interaction: Option<Interaction>,
     /// Set by a command whose change must not rewrite the photo's XMP sidecar even with auto-write on
@@ -326,6 +327,7 @@ impl Session {
             visible_gen: 0,
             total: None,
             undo: Vec::new(),
+            commits: 0,
             redo: Vec::new(),
             interaction: None,
             skip_auto_write: false,
@@ -469,6 +471,11 @@ impl Session {
 
     // ops, undo
 
+    /// Successful commits, including steps folded into a background undo group.
+    pub fn commits(&self) -> u64 {
+        self.commits
+    }
+
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
         let filter = self.ephemeral_photo();
@@ -479,6 +486,7 @@ impl Session {
         let fwd = op.clone();
         let inv = self.catalog.apply(op)?;
         self.pending_log.push(fwd);
+        self.commits = self.commits.wrapping_add(1);
         self.undo.push(UndoEntry { group: self.undo_group, label: label.to_string(), op: inv, folder: None, people: None });
         let same_scope = |e: &UndoEntry| filter.is_none_or(|photo| ephemeral::only_photo(&e.op, photo) == scope.0);
         if self.undo.len() > 1000
