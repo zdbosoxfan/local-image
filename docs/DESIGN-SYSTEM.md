@@ -74,6 +74,13 @@ default and a light palette supplied by the host (`Tokens.dark`).
 read the same in light and dark chrome. Image data (a swatch's colour, mask black/white, the
 transparency checker) is content, not chrome, and may be literal.
 
+**Photo overlays.** `LibraryRoles::overlay_guide` (`overlay_guide` in the Library facade) is the
+amber guide role, RGB (255, 196, 40), fixed across themes. Unselected Upright guide lines and endpoints
+use it with an `overlay_bg` outline; selected guides retain `overlay_fg` and their larger handles.
+Check overlays against both light and dark photo areas, not just the canvas surround. Amber against
+`overlay_bg` (26, 26, 26) is 10.92:1; amber alone against white is only 1.59:1, so keep the dark outline
+(17.40:1 against white). The core and outline together preserve the guide on arbitrary photo pixels.
+
 **Shape.** Radii: `radius_sm` / `radius` / `radius_lg` = Pro 3/4/6, Studio 6/8/12, Classic 0/0/0
 (`pc theme.rs:100`). Library: buttons and rows 4, windows and menus 6, swatch tile 3 (`SWATCH_RADIUS`),
 badge 6 (`BADGE_RADIUS`). Strokes are 1 pt everywhere (`Stroke::new(1.0, ..)`); never thicker for chrome.

@@ -633,6 +633,8 @@ pub struct LibraryRoles {
     pub overlay_bg: Color32,
     pub overlay_fg: Color32,
     pub overlay_reject: Color32,
+    /// Unselected Upright guides, paired with an overlay_bg outline over photo pixels.
+    pub overlay_guide: Color32,
     pub metrics: Metrics,
 }
 /// Inherited Library/Develop layout in points, independent of the active palette.
@@ -690,6 +692,7 @@ impl Default for LibraryRoles {
             overlay_bg: Color32::from_gray(26),
             overlay_fg: Color32::from_gray(235),
             overlay_reject: Color32::from_rgb(255, 120, 120),
+            overlay_guide: Color32::from_rgb(255, 196, 40),
             metrics: Metrics::default(),
         }
     }

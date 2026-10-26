@@ -244,6 +244,15 @@ fn design_system_develop_screens() {
                 assert_eq!(h.app.ui.selected_guide, Some((photo.0, 0)));
                 save(&h, &format!("guides-endpoint-{tag}"), full);
 
+                request(
+                    &mut h,
+                    "engine.execute",
+                    json!({"command":"geometry.guides", "params":{"guides":[[0.25,0.02,0.25,0.98],[0.75,0.02,0.75,0.98]]}}),
+                );
+                h.app.ui.selected_guide = None;
+                assert!(h.settle(T));
+                save(&h, &format!("guides-contrast-{tag}"), full);
+
                 let mut pan = setup(lightcraft_engine::Session::with_demo(), width, dark);
                 pan.pixels_per_point = scale;
                 request(&mut pan, "engine.execute", json!({"command":"panel.remove"}));

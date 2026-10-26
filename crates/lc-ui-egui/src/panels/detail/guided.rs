@@ -32,7 +32,7 @@ pub(super) fn guided_overlay(
 ) {
     let p = ui.painter_at(map.rect.expand(8.0));
     let tokens = Tokens::get(ui.ctx());
-    let col = tokens.accent;
+    let col = tokens.overlay_guide;
     let selected = app.ui.selected_guide.filter(|(photo, _)| *photo == id.0).map(|(_, i)| i);
     let draw = |a: Pos2, b: Pos2, sel: bool| {
         let (edge, core, at) = if sel { (3.5, 2.5, 5.0) } else { (3.0, 1.5, 4.0) };

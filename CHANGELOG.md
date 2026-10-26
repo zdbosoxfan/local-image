@@ -6,10 +6,12 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
-### Changed
+### Added
 
 - Guided Upright guides can be selected, deleted individually, and adjusted by dragging endpoints.
-  Middle-button drags pan zoomed Develop photos without leaving the active tool.
+- Middle-button drags pan zoomed Develop photos without leaving the active tool.
+
+### Changed
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
   removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
