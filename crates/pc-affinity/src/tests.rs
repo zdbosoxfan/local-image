@@ -422,6 +422,50 @@ mod bounds {
     }
 
     #[test]
+    fn a_large_live_corner_curve_imports_with_its_last_anchor_intact() {
+        let count = 200_000u32;
+        let records = (0..count)
+            .map(|i| {
+                let mut record = f64::from(i).to_le_bytes().to_vec();
+                record.extend(0f64.to_le_bytes());
+                record.extend([0, 0]);
+                record
+            })
+            .collect();
+        // Positional CnrD contains a byte, an i32 array and an f64 array.
+        let mut corners = vec![0x30];
+        corners.extend(tag(b"CnrD").0.to_le_bytes());
+        corners.extend([0x01, 0, 0x87]);
+        corners.extend(count.to_le_bytes());
+        for i in 0..count {
+            corners.extend(i.to_le_bytes());
+        }
+        corners.push(0x8a);
+        corners.extend(count.to_le_bytes());
+        for _ in 0..count {
+            corners.extend(1f64.to_le_bytes());
+        }
+        corners.push(0);
+        let bytes = document(vec![F::Def(
+            7,
+            vec![tag(b"PCrv")],
+            vec![(
+                tag(b"Crvs"),
+                F::Obj(
+                    tag(b"PCvD"),
+                    vec![(tag(b"Data"), F::Pos(vec![F::U8(0), F::U32(1), F::Bool(false), F::Records(18, records)])), (tag(b"CnrD"), F::Raw(corners))],
+                ),
+            )],
+        )]);
+        let start = std::time::Instant::now();
+        let doc = crate::read(&bytes, Limits::default()).unwrap();
+        let crate::model::Kind::Shape { path, .. } = &doc.spreads[0].nodes[0].kind else { panic!("curve") };
+        assert_eq!(path.subpaths.len(), 1);
+        assert_eq!(path.subpaths[0].segments.last().unwrap()[2], crate::model::Point { x: f64::from(count - 1), y: 0. });
+        assert!(start.elapsed().as_secs() < 10, "curve import took {:?}", start.elapsed());
+    }
+
+    #[test]
     fn none_strokes_are_absent_and_oversized_dash_patterns_are_solid() {
         let pen = F::Obj(tag(b"FilS"), vec![(tag(b"Colr"), F::Obj(tag(b"GRAY"), vec![(tag(b"_col"), F::F64s(vec![0., 1.]))]))]);
         for (style, count) in [(0, 0), (2, 65), (2, 64)] {
