@@ -54,7 +54,8 @@ impl Summary {
         self.count(|s| matches!(s, Status::Blocked | Status::Unmatched | Status::Failed | Status::NeedsReverify | Status::PartiallyVerified))
     }
 
-    /// Files awaiting setup, testing or a fix (the New and Needs attention groups).
+    /// Distinct files in New or Needs attention, including blocked and failed files.
+    /// Catalogue and precision aliases do not contribute another file.
     pub fn banner(&self) -> usize {
         self.new.len() + self.attention()
     }
@@ -154,11 +155,12 @@ mod tests {
         server.models.insert("unet:b".into(), stored(Status::NeedsReverify, vec![info, warn.clone()]));
         server.models.insert("unet:c".into(), stored(Status::Failed, Vec::new()));
         server.models.insert("unet:d".into(), ModelState { status: Status::Builtin, catalog_id: "qwen-image-21".into(), ..Default::default() });
+        server.models.insert("unet:e".into(), ModelState { status: Status::Ready, catalog_id: "qwen".into(), variant: "bf16".into(), ..Default::default() });
         let s = summarise(Some(&server), &[], Some("0.43.0"));
         assert_eq!(s.models["unet:a"].issue.as_ref().map(|i| i.code.as_str()), Some("NodeMissing"));
         assert_eq!(s.models["unet:b"].issue.as_ref().map(|i| i.code.as_str()), Some("QuantSlow"));
         assert_eq!(s.status("qwen-image-21"), Some(Status::Builtin), "curated models are found by their catalogue key");
-        assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (3, 1, 3));
+        assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (3, 1, 4));
         assert_eq!(s.updated, Some(("0.42.5".into(), "0.43.0".into())));
     }
 
