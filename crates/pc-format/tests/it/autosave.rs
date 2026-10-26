@@ -11,6 +11,36 @@ use photocraft_format::*;
 
 #[cfg(unix)]
 #[test]
+fn recovery_store_restricts_existing_owned_directories_without_following_symlinks() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let root = temp_dir("existing-private-recovery");
+    let dir = root.join("Recovery");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(dir.join("canary"), b"keep").unwrap();
+    let mode = |path: &std::path::Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+    let store = RecoveryStore::new(&dir);
+    assert_eq!(mode(&dir), 0o700);
+    assert_eq!(std::fs::read(dir.join("canary")).unwrap(), b"keep");
+    drop(store);
+
+    let outside = root.join("outside");
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let link = root.join("linked-recovery");
+    symlink(&outside, &link).unwrap();
+    drop(RecoveryStore::new(&link));
+    assert_eq!(mode(&outside), 0o755);
+    let file = root.join("regular-file");
+    std::fs::write(&file, b"keep").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    drop(RecoveryStore::new(&file));
+    assert_eq!(mode(&file), 0o644);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn recovery_folders_and_sidecars_are_owner_only() {
     use std::os::unix::fs::PermissionsExt;
     let root = temp_dir("private-recovery");

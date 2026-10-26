@@ -323,6 +323,24 @@ impl RecoveryStore {
         let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let session = format!("{t:x}_{:x}_{:x}", std::process::id(), STORES.fetch_add(1, Ordering::Relaxed));
         let dir = recovery_dir.into();
+        #[cfg(unix)]
+        {
+            use rustix::fs::{Mode, OFlags, fchmod, fstat, open};
+            use rustix::io::Errno;
+            // Pin the real directory so a pathname replacement cannot redirect the chmod.
+            let migration = open(&dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).and_then(|directory| {
+                let metadata = fstat(&directory)?;
+                if metadata.st_uid == rustix::process::geteuid().as_raw() && metadata.st_mode & 0o7777 != 0o700 {
+                    fchmod(&directory, Mode::RWXU)?;
+                }
+                Ok(())
+            });
+            match migration {
+                // Missing roots are created privately by the worker; other file types are left alone.
+                Ok(()) | Err(Errno::NOENT | Errno::NOTDIR | Errno::LOOP) => {}
+                Err(error) => log::warn!("could not restrict recovery directory permissions: {error}"),
+            }
+        }
         sweep_orphans(&dir, ORPHAN_AGE);
         RecoveryStore { dir, session, savers: HashMap::new(), adopted: HashMap::new() }
     }
