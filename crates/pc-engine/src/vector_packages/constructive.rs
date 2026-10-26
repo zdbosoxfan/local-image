@@ -341,7 +341,7 @@ impl Gesture {
                 }
                 for line in &map.lines {
                     let raw = ops::to_geometry(&line.path);
-                    let between = raw.subpaths.first().filter(|sp| sp.segment_count() > 0).is_some_and(|sp| {
+                    let between = if let Some(sp) = raw.subpaths.first().filter(|sp| sp.segment_count() > 0) {
                         let c = sp.segment(sp.segment_count() / 2);
                         let mid = c.eval(0.5);
                         let a = c.eval(0.49);
@@ -349,13 +349,18 @@ impl Gesture {
                         let d = b - a;
                         let len = d.hypot();
                         if len <= 1e-12 {
-                            return false;
+                            false
+                        } else {
+                            let mut sides = [None; 2];
+                            for (index, side) in [1.0, -1.0].into_iter().enumerate() {
+                                let q = Point::new(mid.x - d.y / len * 0.001 * side, mid.y + d.x / len * 0.001 * side);
+                                sides[index] = self.face_at(q)?;
+                            }
+                            matches!(sides, [Some(a), Some(b)] if a != b && chosen.contains(&a) && chosen.contains(&b))
                         }
-                        [1.0, -1.0].iter().all(|side| {
-                            let q = Point::new(mid.x - d.y / len * 0.001 * side, mid.y + d.x / len * 0.001 * side);
-                            self.face_at(q).ok().flatten().is_some_and(|i| chosen.contains(&i))
-                        })
-                    });
+                    } else {
+                        false
+                    };
                     if !between {
                         plan.add(line.key as usize, line.path.clone());
                     }
