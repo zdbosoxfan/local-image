@@ -917,6 +917,12 @@ fn quick_export(s: &mut Session, p: &Value) -> Result<Value> {
             }
         }
     };
+    let fmt = match crate::file_cmds::extension(&path).as_deref() {
+        None => fmt,
+        Some("jpg" | "jpeg") => "jpg".into(),
+        Some(e @ ("png" | "gif" | "webp")) => e.into(),
+        Some(e) => return Err(bad(cmd, format!("Quick Export writes PNG, JPEG, GIF or WebP, not .{e}; use Export As"))),
+    };
     let metadata = serde_json::to_value(prefs.metadata).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
     let mut o = serde_json::Map::new();
     o.insert(

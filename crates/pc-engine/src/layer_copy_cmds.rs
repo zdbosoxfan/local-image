@@ -9,7 +9,7 @@
 //! black point compensation) and bit depth, as Photoshop converts dragged layers.
 
 use photocraft_color::ColorMode;
-use photocraft_doc::{Document, LayerId};
+use photocraft_doc::{Document, Layer, LayerContent, LayerId};
 use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
@@ -55,6 +55,18 @@ fn layered(mode: ColorMode) -> bool {
 
 fn center(r: Rect) -> [f64; 2] {
     [(f64::from(r.x0) + f64::from(r.x1)) / 2.0, (f64::from(r.y0) + f64::from(r.y1)) / 2.0]
+}
+
+/// Renders the shape caches of `layers` (groups included) for `doc`'s canvas and pixel format:
+/// every shape when `new_canvas`, otherwise only shapes that have no cache.
+fn prepare_shapes(layers: &mut [Layer], doc: &Document, new_canvas: bool) {
+    for layer in layers {
+        match &mut layer.content {
+            LayerContent::Shape(shape) if new_canvas || shape.cache.is_none() => crate::vector_cmds::refresh_shape(doc, shape),
+            LayerContent::Group(group) => prepare_shapes(&mut group.children, doc, new_canvas),
+            _ => {}
+        }
+    }
 }
 
 /// `layer.copyToDocument`.
@@ -106,6 +118,10 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
         copies.layers.push(l);
     }
     crate::vector_packages::symbols::transfer_definitions(&sdoc, &ddoc, &mut copies)?;
+    // A shape without a cache has no bounds to place it by: render it in the source's space.
+    prepare_shapes(&mut copies.layers, &sdoc, false);
+    let bounds = copies.layers.iter().filter_map(crate::layer_multi_cmds::layer_bounds).fold(Rect::EMPTY, |a, b| a.union(&b));
+    let content = if bounds.is_empty() { sdoc.bounds() } else { bounds };
     if (copies.mode, &copies.icc_profile) != (ddoc.mode, &ddoc.icc_profile) {
         let profile = crate::color_cmds::document_profile(&ddoc);
         crate::color_cmds::convert_document(&mut copies, &profile, s.color.settings.intent(), s.color.settings.bpc)?;
@@ -123,10 +139,10 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
             });
         }
     }
+    let new_canvas = copies.bounds() != ddoc.bounds();
+    prepare_shapes(&mut copies.layers, &ddoc, new_canvas);
     // Placement: centred on the destination's canvas, centred on a point, or offset from where
     // the layers are in the source (default: the same canvas position).
-    let bounds = copies.layers.iter().filter_map(crate::layer_multi_cmds::layer_bounds).fold(Rect::EMPTY, |a, b| a.union(&b));
-    let content = if bounds.is_empty() { sdoc.bounds() } else { bounds };
     let (dx, dy) = if p.get("center").and_then(Value::as_bool).unwrap_or(false) {
         let (c, d) = (center(content), center(ddoc.bounds()));
         (d[0] - c[0], d[1] - c[1])
@@ -138,7 +154,12 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let (dx, dy) = (dx.round() as i32, dy.round() as i32);
     if dx != 0 || dy != 0 {
-        let snapshot = copies.clone();
+        // Moving re-renders shape and type caches: clip and quantize them for the destination.
+        let mut snapshot = copies.clone();
+        snapshot.size = ddoc.size;
+        snapshot.mode = ddoc.mode;
+        snapshot.depth = ddoc.depth;
+        snapshot.icc_profile = ddoc.icc_profile.clone();
         for l in &mut copies.layers {
             crate::commands::translate_layer(&snapshot, l, dx, dy)?;
             crate::vector_cmds::translate_vectors(&snapshot, l, f64::from(dx), f64::from(dy))?;
@@ -161,6 +182,8 @@ fn copy_to_document(s: &mut Session, p: &Value) -> Result<Value> {
             new.push(id);
         }
         *active = above;
+        // Copied groups keep their own nesting: repeated copies would otherwise nest without end.
+        crate::layer_multi_cmds::check_group_depth(doc, "Copy Layers")?;
         Ok(new)
     });
     // Nothing changed: the source stays the active document.

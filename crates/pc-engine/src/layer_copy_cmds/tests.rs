@@ -1,5 +1,5 @@
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
-use photocraft_doc::{Document, LayerId, Pattern};
+use photocraft_doc::{Document, Layer, LayerContent, LayerId, MAX_GROUP_DEPTH, Pattern};
 use photocraft_geom::Rect;
 use photocraft_raster::Surface;
 use serde_json::{Value, json};
@@ -154,4 +154,161 @@ fn bad_params_and_states_fail_without_changing_anything() {
     // A single open document: nothing to copy to.
     s.close(1);
     assert!(!s.is_enabled(cmd));
+}
+
+#[test]
+fn a_copied_group_cannot_nest_the_destination_past_the_group_depth_limit() {
+    let (mut s, paint) = two_docs(40, 30, 8);
+    // A group in the source, and a destination whose active layer sits at the deepest legal level.
+    s.execute("layer.groupLayers", json!({"layer": paint.0})).unwrap();
+    let group = s.active().unwrap().active_layer.unwrap();
+    s.set_active(1);
+    let mut inner = None;
+    s.edit("nest", |doc, active| {
+        let mut l = Layer::raster("deep", doc.pixel_format());
+        inner = Some(l.id);
+        for _ in 0..MAX_GROUP_DEPTH {
+            l = Layer::group("g", vec![l]);
+        }
+        doc.layers.push(l);
+        *active = inner;
+        Ok(())
+    })
+    .unwrap();
+    s.set_active(0);
+    let before = doc(&s, 1).clone();
+    let e = s.execute("layer.copyToDocument", json!({"document": 1, "layers": [group.0]})).unwrap_err();
+    assert!(e.to_string().contains("deeper than"), "{e}");
+    assert_eq!(*doc(&s, 1), before, "nothing was copied");
+    assert_eq!(s.active_index(), Some(0), "the source stays active");
+}
+
+/// Red 20×20 rectangles with drop shadows at x = `xs`, y = 20, on a new transparent
+/// `width`×`height` 8-bit document, grouped when there are several. Returns the shape ids.
+fn shapes_doc(s: &mut Session, width: u32, height: u32, xs: &[i64]) -> Vec<LayerId> {
+    s.execute("file.new", json!({"width": width, "height": height, "background": "transparent"})).unwrap();
+    let mut ids = Vec::new();
+    for x in xs {
+        s.execute("shape.create", json!({"kind": "rect", "rect": [x, 20, 20, 20], "fill": "#ff0000"})).unwrap();
+        s.execute("layer.layerStyle.dropShadow", json!({"size": 4, "distance": 3})).unwrap();
+        ids.push(s.active().unwrap().active_layer.unwrap());
+    }
+    if ids.len() > 1 {
+        s.active_mut().unwrap().selected_layers = ids.clone();
+        s.execute("layer.groupLayers", json!({})).unwrap();
+    }
+    ids
+}
+
+/// Every shape of the active document has a non-empty cache rendered for its canvas and depth.
+fn assert_shapes_render_for_the_canvas(s: &Session, count: usize, what: &str) {
+    let st = s.active().unwrap();
+    let shapes: Vec<_> =
+        st.doc.walk().into_iter().filter_map(|(_, _, layer)| if let LayerContent::Shape(shape) = &layer.content { Some(shape) } else { None }).collect();
+    assert_eq!(shapes.len(), count, "{what}");
+    for shape in shapes {
+        let cache = shape.cache.as_ref().unwrap_or_else(|| panic!("{what}: no cache"));
+        assert_eq!(cache.format().sample, st.doc.depth, "{what}");
+        assert!(!cache.content_bounds().is_empty(), "{what}: the cache is clipped to the source's canvas");
+        let fresh = photocraft_vector::render_shape(shape, st.doc.pixel_format(), st.doc.bounds());
+        assert!(*cache == fresh, "{what}: the cache differs from a fresh render on the destination");
+    }
+}
+
+#[test]
+fn a_shape_group_centred_on_a_larger_document_renders_on_its_canvas() {
+    for depth in [8, 16] {
+        let mut s = Session::new();
+        shapes_doc(&mut s, 100, 100, &[10, 50]);
+        s.execute("file.new", json!({"width": 800, "height": 600, "depth": depth})).unwrap();
+        s.execute("layer.copyToDocument", json!({"source": 0, "document": 1, "center": true})).unwrap();
+        let st = s.active().unwrap();
+        let group = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        assert!(!crate::transform_cmds::transform_bounds(&st.doc, group).is_empty(), "{depth}-bit: Free Transform has bounds");
+        assert_eq!(group.children().unwrap().len(), 2);
+        for child in group.children().unwrap() {
+            let LayerContent::Shape(shape) = &child.content else { panic!("shape") };
+            assert!(shape.cache.as_ref().unwrap().content_bounds().x0 > 100, "{depth}-bit: beyond the source's canvas");
+        }
+        assert_shapes_render_for_the_canvas(&s, 2, &format!("{depth}-bit"));
+        let before = s.active().unwrap().doc.clone();
+        s.execute("layer.translate", json!({"dx": 10, "dy": 10})).unwrap();
+        assert_ne!(s.active().unwrap().doc, before);
+        assert!(s.undo());
+        assert_eq!(s.active().unwrap().doc, before);
+    }
+}
+
+#[test]
+fn a_shape_kept_in_place_on_a_larger_document_is_not_cut_at_the_sources_edge() {
+    let mut s = Session::new();
+    // 90..110 across: the source's canvas ends at 100.
+    shapes_doc(&mut s, 100, 100, &[90]);
+    s.execute("file.new", json!({"width": 800, "height": 600, "depth": 16})).unwrap();
+    let r = s.execute("layer.copyToDocument", json!({"source": 0, "document": 1})).unwrap();
+    assert_eq!(r["offset"], json!([0, 0]));
+    assert_shapes_render_for_the_canvas(&s, 1, "in place");
+    let st = s.active().unwrap();
+    let LayerContent::Shape(shape) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("shape") };
+    assert!(shape.cache.as_ref().unwrap().content_bounds().x1 > 100, "the part past the source's edge shows");
+}
+
+#[test]
+fn moved_type_renders_at_the_destinations_depth() {
+    let mut s = Session::new();
+    s.execute("file.new", json!({"width": 100, "height": 100, "background": "transparent"})).unwrap();
+    s.execute("type.create", json!({"x": 10, "y": 30, "text": "Hello", "size": 12, "color": "#000000"})).unwrap();
+    s.execute("file.new", json!({"width": 800, "height": 600, "depth": 16})).unwrap();
+    s.execute("layer.copyToDocument", json!({"source": 0, "document": 1, "center": true})).unwrap();
+    let st = s.active().unwrap();
+    let LayerContent::Text(t) = &st.doc.layer(st.active_layer.unwrap()).unwrap().content else { panic!("type") };
+    let cache = t.cache.as_ref().unwrap();
+    assert_eq!(cache.format().sample, st.doc.depth, "re-rendered for the 16-bit destination");
+    assert!(cache.content_bounds().x0 > 100, "centred beyond the source's canvas");
+}
+
+#[test]
+fn shapes_copied_to_a_smaller_document_are_placed_by_their_source_bounds() {
+    for x in [90, 700] {
+        for grouped in [false, true] {
+            for missing_cache in [false, true] {
+                for depth in [8, 16] {
+                    for at in [None, Some([40, 60])] {
+                        let what = format!("x={x}, grouped={grouped}, cache missing={missing_cache}, depth={depth}, at={at:?}");
+                        let mut s = Session::new();
+                        let xs: &[i64] = if grouped { &[x, x + 30] } else { &[x] };
+                        let ids = shapes_doc(&mut s, 800, 600, xs);
+                        if missing_cache {
+                            s.edit("drop cached shapes", |doc, _| {
+                                for id in &ids {
+                                    let LayerContent::Shape(shape) = &mut doc.layer_mut(*id).unwrap().content else { panic!("shape") };
+                                    shape.cache = None;
+                                }
+                                Ok(())
+                            })
+                            .unwrap();
+                        }
+                        s.execute("file.new", json!({"width": 100, "height": 100, "depth": depth, "background": "transparent"})).unwrap();
+                        let before = s.active().unwrap().doc.clone();
+                        let mut params = json!({"source": 0, "document": 1, "center": true});
+                        if let Some(at) = at {
+                            params["center"] = json!(false);
+                            params["at"] = json!(at);
+                        }
+                        let result = s.execute("layer.copyToDocument", params).unwrap();
+                        let target = at.unwrap_or([50, 50]);
+                        let dx = target[0] - (x + if grouped { 25 } else { 10 });
+                        let dy = target[1] - 30;
+                        assert_eq!(result["offset"], json!([dx, dy]), "{what}");
+                        assert_shapes_render_for_the_canvas(&s, xs.len(), &what);
+                        let after = s.active().unwrap().doc.clone();
+                        assert!(s.undo());
+                        assert_eq!(s.active().unwrap().doc, before, "{what}");
+                        assert!(s.redo());
+                        assert_eq!(s.active().unwrap().doc, after, "{what}");
+                    }
+                }
+            }
+        }
+    }
 }

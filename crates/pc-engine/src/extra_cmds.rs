@@ -295,12 +295,17 @@ fn can_reselect(s: &Session) -> std::result::Result<(), String> {
     reselect_target(s).map(|_| ()).ok_or_else(|| "there is no selection to restore".into())
 }
 
+/// Edit › Paste Special › Paste Into (or Outside): the clipboard centred on the selection, not
+/// clamped to the canvas, as a new layer masked to the selection (or its inverse). One history
+/// step.
 fn paste_into(s: &mut Session, p: &Value, outside: bool) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let selection = d.doc.selection.clone().ok_or(EngineError::Other("Paste Into needs a selection".into()))?;
     let b = selection.content_bounds();
     let key = step_key(s, "pasteInto");
-    let mut params = json!({"center": [(b.x0 + b.x1) as f64 / 2.0, (b.y0 + b.y1) as f64 / 2.0], "coalesce": key});
+    // Centred on the selection, even where that runs off the canvas (not clamped like a paste).
+    let center = [crate::edit_cmds::mid(b.x0, b.x1), crate::edit_cmds::mid(b.y0, b.y1)];
+    let mut params = json!({"center": center, "clampToCanvas": false, "coalesce": key});
     if let Some(c) = p.get("center") {
         params["center"] = c.clone();
     }

@@ -21,3 +21,5 @@ mod unicode_colors;
 mod vectorize;
 
 mod vector_foundation_gpu;
+
+mod export_shape_strokes;
