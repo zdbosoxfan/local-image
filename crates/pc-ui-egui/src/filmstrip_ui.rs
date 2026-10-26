@@ -464,7 +464,7 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 Some(i) => format!("{} / {}", i + 1, files.len()),
                 None => li_i18n::fmt(tl!("{n} images"), &[("n", &files.len().to_string())]),
             };
-            ui.label(RichText::new(count).color(t.text_faint).size(11.0));
+            ui.label(RichText::new(count).color(if t.dark() { t.text_faint } else { t.text_secondary_on_fill }).size(11.0));
             if !edited.is_empty() {
                 ui.label(RichText::new(li_i18n::fmt(tl!("{n} edited"), &[("n", &edited.len().to_string())])).color(t.accent).size(11.0));
             }
@@ -533,7 +533,13 @@ pub fn panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                 let stem = if stem.chars().count() > 14 { format!("{}…", stem.chars().take(13).collect::<String>()) } else { stem };
                 let ext = path.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default();
                 ui.painter().text(cell.left_top() + vec2(8.0, 4.0), egui::Align2::LEFT_TOP, stem, crate::theme::semibold(10.5), t.text_dim);
-                ui.painter().text(cell.right_top() + vec2(-8.0, 5.0), egui::Align2::RIGHT_TOP, ext, crate::theme::semibold(10.5), t.text_faint);
+                ui.painter().text(
+                    cell.right_top() + vec2(-8.0, 5.0),
+                    egui::Align2::RIGHT_TOP,
+                    ext,
+                    crate::theme::semibold(10.5),
+                    if is_active || resp.hovered() || !t.dark() { t.text_secondary_on_fill } else { t.text_faint },
+                );
                 let area = egui::Rect::from_min_max(cell.left_top() + vec2(10.0, 20.0), cell.right_bottom() - vec2(10.0, 8.0));
                 match strip(|s| s.textures.get(path).cloned()) {
                     Some(tex) => {
