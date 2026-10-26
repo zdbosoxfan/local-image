@@ -197,11 +197,7 @@ impl Tile {
                 (Some(left), Some(right), Some(top), Some(bottom)) => {
                     [((right.0 - left.0) / 2.0).hypot((bottom.0 - top.0) / 2.0), ((right.1 - left.1) / 2.0).hypot((bottom.1 - top.1) / 2.0)].map(
                         |value| {
-                            if value.is_finite() {
-                                value.clamp(1.0, f64::from(li_raster::frame::CUBIC_MAX_STRETCH)) as f32
-                            } else {
-                                1.0
-                            }
+                            if value.is_finite() { value.clamp(1.0, f64::from(li_raster::frame::CUBIC_MAX_STRETCH)) as f32 } else { 1.0 }
                         },
                     )
                 }
