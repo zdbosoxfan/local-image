@@ -132,11 +132,11 @@ fn validate_scene(destination: Option<&Document>, scene: &ImportedScene, limits:
         return Err(error("Affinity layer count budget"));
     }
     let mut effected = Vec::new();
-    let mut stack: Vec<_> = scene.layers.iter().map(|l| (l, 1usize)).collect();
+    let mut stack: Vec<_> = scene.layers.iter().map(|l| (l, 0usize)).collect();
     let mut ids = std::collections::HashSet::new();
     let mut bytes = 0u64;
     while let Some((l, depth)) = stack.pop() {
-        if depth >= photocraft_doc::MAX_GROUP_DEPTH
+        if depth > photocraft_doc::MAX_GROUP_DEPTH
             || ids.len() >= limits.objects
             || !ids.insert(l.id)
             || destination.is_some_and(|doc| doc.layer(l.id).is_some())

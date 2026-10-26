@@ -254,3 +254,29 @@ fn affinity_valid_effects_use_the_captured_working_budget_before_preview() {
     let error = preview(&session, &request, &scene).unwrap_err().to_string();
     assert!(error.contains("effect working budget"), "{error}");
 }
+
+#[test]
+fn affinity_open_and_place_use_the_document_group_depth_limit() {
+    let _gpu_gate = li_testkit::gpu::lock();
+    let session = session();
+    let request = capture(&session, source()).unwrap();
+    let limits = request.admission.0;
+    let mut scene = ImportedScene {
+        size: photocraft_doc::Size::new(1, 1),
+        resolution_dpi: 72.,
+        units: photocraft_doc::DesignUnits::Pixels,
+        layers: vec![Layer::raster("pixel", photocraft_doc::PixelFormat::RGBA32F)],
+        symbols: vec![],
+        warnings: vec![],
+    };
+    for _ in 0..photocraft_doc::MAX_GROUP_DEPTH - 1 {
+        scene.layers = vec![Layer::group("nested", std::mem::take(&mut scene.layers))];
+    }
+    assert!(validate_scene(None, &scene, limits).is_ok());
+    assert!(preview(&session, &request, &scene).is_ok());
+    scene.layers = vec![Layer::group("nested", std::mem::take(&mut scene.layers))];
+    assert!(validate_scene(None, &scene, limits).is_ok());
+    assert!(preview(&session, &request, &scene).is_err());
+    scene.layers = vec![Layer::group("nested", std::mem::take(&mut scene.layers))];
+    assert!(validate_scene(None, &scene, limits).is_err());
+}
