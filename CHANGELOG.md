@@ -42,6 +42,7 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- SVG: editable text preserves font-family apostrophes and backslashes across export and import.
 - Automation: saving over a Unix FIFO replaces it without blocking while copying permissions.
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
