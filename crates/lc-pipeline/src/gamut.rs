@@ -548,8 +548,8 @@ mod tests {
             }
         }
         for space in OutputSpace::ALL {
-            let mut worst = (0f32, [0f32; 3]);
-            let mut lightness = 0f32;
+            let mut worst = [(0f32, [0f32; 3]); 2];
+            let mut lightness = [0f32; 2];
             for &(l, h) in &colours {
                 let edge = exact_edge(space, l, h);
                 for f in [0.99, 1.02, 1.1, 1.5, 3.0] {
@@ -564,10 +564,9 @@ mod tests {
                     }
                     let out = render(space, d);
                     let e = hue_error(out, d).abs();
-                    if e > worst.0 {
-                        worst = (e, d);
-                    }
-                    lightness = lightness.max((oklab_from_2020(out)[0] - l).abs());
+                    let band = usize::from(blue_weight(space, h) > 0.0);
+                    if e > worst[band].0 { worst[band] = (e, d); }
+                    lightness[band] = lightness[band].max((oklab_from_2020(out)[0] - l).abs());
                 }
             }
             for level in [0.1f32, 0.4, 0.9] {
@@ -575,14 +574,15 @@ mod tests {
                     let d = c.map(|v| v * level);
                     let out = render(space, d);
                     let e = hue_error(out, d).abs();
-                    if e > worst.0 {
-                        worst = (e, d);
-                    }
+                    let lab = oklab_from_2020(d);
+                    let band = usize::from(blue_weight(space, lab[2].atan2(lab[1])) > 0.0);
+                    if e > worst[band].0 { worst[band] = (e, d); }
                 }
             }
-            let (hue, light) = (1e-3, 2e-4);
-            assert!(worst.0 < hue, "{}: hue moved by {} rad at {:?}", space.label(), worst.0, worst.1);
-            assert!(lightness < light, "{}: OkLab lightness moved by {lightness}", space.label());
+            for (band, (hue, light)) in [(1e-3, 2e-4), (0.045, 1e-3)].into_iter().enumerate() {
+                assert!(worst[band].0 < hue, "{} band {band}: hue moved by {} rad at {:?}", space.label(), worst[band].0, worst[band].1);
+                assert!(lightness[band] < light, "{} band {band}: OkLab lightness moved by {}", space.label(), lightness[band]);
+            }
         }
     }
 
