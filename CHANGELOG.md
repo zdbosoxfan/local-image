@@ -39,6 +39,7 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- AI: a verification result cannot overwrite a newer model scan or changed setup choices.
 - AI: verification retries test previously failed tools again; optional style files no longer block plain Create, and published capabilities honor their static checks. Background model refreshes recheck files and recipes after updates.
 - AI: a Hugging Face model card no longer installs every file of its repository into one folder:
   files go to the folder their repository path names, diffusers copies and shards are left out,

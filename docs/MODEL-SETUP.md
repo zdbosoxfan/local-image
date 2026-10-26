@@ -139,7 +139,8 @@ tested signature. File size, header and modification time detect normal main-wei
 a payload replacement that preserves all three is not detected. A previously tested template
 recipe remains available while it still validates if its new package cannot be read or matched.
 Verification retries use the checked recipe, so a tool disabled by its old failure is actually
-tested again. Unknown checkpoints get a metadata-aware universal Refine test.
+tested again. Unknown checkpoints get a metadata-aware universal Refine test. A verification result
+is discarded if the setup record or server versions changed while its renders ran.
 
 A missing optional style file disables that tool while plain Create remains usable. The runtime
 checks the chosen tool's files and nodes again before submitting its graph.

@@ -880,3 +880,32 @@ fn retrying_a_failed_create_uses_the_statically_checked_recipe() {
 fn retrying_a_failed_fill_actually_renders_fill_again() {
     retry_template_test("inpaint");
 }
+
+#[test]
+fn a_verification_cannot_overwrite_a_newer_scan() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(MOSS);
+    let scan = s.scan();
+    let (w, h) = create_size(MOSS_KEY);
+    s.mock.queue_outputs([png(&ball(w, h, [230, 30, 30])), png(&li_ai::refine::test_image()), png(&filled(&red_ball_on_sky))]);
+    let opts = s.options();
+    let mut changed = false;
+    let done = modelsetup::verify_models(&opts, &scan, &[MOSS_KEY.into()], &JobControl::new(), &mut |_, _| {
+        if !changed {
+            changed = true;
+            modelsetup::state::SetupState::update(&opts.state_path, |state| {
+                let m = state.servers.get_mut(s.mock.host()).unwrap().models.get_mut(MOSS_KEY).unwrap();
+                m.fingerprint.bytes += 1;
+                m.status = Status::NeedsReverify;
+            })
+            .unwrap();
+        }
+    })
+    .unwrap();
+    assert!(done[0].result.as_ref().unwrap_err().contains("changed"), "a stale result must be reported instead of accepted");
+    let state = modelsetup::state::SetupState::load(&opts.state_path);
+    let current = &state.servers[s.mock.host()].models[MOSS_KEY];
+    assert_eq!(current.status, Status::NeedsReverify);
+    assert_eq!(current.fingerprint.bytes, scan.server.models[MOSS_KEY].fingerprint.bytes + 1);
+    assert!(current.verified.is_none(), "the newer file was never tested");
+}

@@ -859,15 +859,23 @@ pub fn verify_models(
                 v.gpu = snapshot.gpu.as_ref().map(|g| g.name.clone()).unwrap_or_default();
                 let issues = verification_issues(key, m, &target, &v);
                 let (k, stored) = (key.clone(), v.clone());
+                let mut recorded = false;
                 SetupState::update(&opts.state_path, |s| {
-                    if let Some(sm) = s.servers.entry(opts.host.clone()).or_default().models.get_mut(&k) {
+                    let Some(server) = s.servers.get_mut(&opts.host) else { return };
+                    if server.comfyui_version != snapshot.version_label() || server.templates_version != snapshot.templates_version {
+                        return;
+                    }
+                    if let Some(sm) = server.models.get_mut(&k)
+                        && &*sm == m
+                    {
                         sm.status = status_after(&stored);
                         sm.issues.retain(|i| i.code != "NotVerified" && !i.code.starts_with("Verify"));
                         sm.issues.extend(issues);
                         sm.verified = Some(stored);
+                        recorded = true;
                     }
                 })?;
-                Ok(v)
+                if recorded { Ok(v) } else { Err("Model setup changed during verification. Re-check the model and test it again.".into()) }
             }
             Err(e) if e.is::<Busy>() => Err(Busy.to_string()),
             Err(e) if e.is::<verify::Stalled>() => {
