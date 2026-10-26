@@ -991,6 +991,12 @@ fn background_scans_reuse_unversioned_templates_and_recheck_models() {
     let deferred = modelsetup::scan_snapshot(&s.options(), snapshot());
     assert!(deferred.issues.iter().any(|i| i.code == "TemplateIndexUnavailable"), "failed fetches also back off");
     assert!(!s.scan().issues.iter().any(|i| i.code == "TemplateIndexUnavailable"), "an explicit scan can retry immediately");
+    let refreshed = modelsetup::scan_snapshot(&s.options(), snapshot());
+    assert!(!refreshed.issues.iter().any(|i| i.code == "TemplateIndexUnavailable"), "a background scan must retain the explicit recovery");
+    assert_eq!(refreshed.server.models[FLUX3_KEY].status, Status::Ready);
+    let saved = modelsetup::state::SetupState::load(&s.options().state_path);
+    assert_eq!(saved.servers[s.mock.host()].models[FLUX3_KEY].status, Status::Ready);
+    assert!(ModelId::from_key(FLUX3_KEY).unwrap().info().recipe.is_some(), "the recovered recipe must stay published");
     let other = Setup::new(FLUX3);
     let mut other_snapshot = modelsetup::Snapshot::take(&li_ai::ComfyClient::new(other.mock.host())).unwrap();
     other_snapshot.templates_version = "unavailable/package".into();

@@ -643,6 +643,9 @@ fn scan_snapshot_with(opts: &Options, snapshot: Snapshot, reg: &Registry) -> Sca
         Some(dir) => Templates::from_dir(dir, &snapshot.templates_version),
         None => Templates::fetch(&client, &snapshot.templates_version, opts.cache_dir.as_deref()),
     };
+    if opts.templates_dir.is_none() && !Templates::cacheable_version(&snapshot.templates_version) {
+        return background::scan_fetched(opts, snapshot, reg, templates);
+    }
     scan_templates_with(opts, snapshot, reg, templates.as_ref().map_err(|e| anyhow::anyhow!("{e:#}")))
 }
 
