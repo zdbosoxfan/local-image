@@ -337,6 +337,9 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
             let surf = match &mut l.content {
                 LayerContent::Raster(surf) => surf,
                 LayerContent::Smart(_) => {
+                    if matches!(fp, FilterParams::Displace { .. }) {
+                        return Err(EngineError::Other("Displace on a Smart Object is unavailable; rasterize the layer first".into()));
+                    }
                     // Non-destructive: record the filter and re-render the smart object from its source.
                     let sf =
                         SmartFilter { command: id.clone(), params: params.clone(), blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };
@@ -857,5 +860,9 @@ mod tests {
         assert_eq!(sm.smart_filters[0].command, "filter.blur.gaussianBlur");
         assert_eq!(sm.smart_filters[0].params["radius"], json!(2));
         assert!(sm.cache.as_ref().unwrap().pixel(10, 5)[3] > 0.0, "cache was blurred");
+        let before = d.doc.clone();
+        let error = s.execute("filter.distort.displace", json!({"mapDocument": 0})).unwrap_err().to_string();
+        assert!(error.contains("rasterize the layer first"), "{error}");
+        assert_eq!(s.active().unwrap().doc, before);
     }
 }

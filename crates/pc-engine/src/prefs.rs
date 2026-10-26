@@ -1587,7 +1587,9 @@ impl Session {
 
     /// Set one dotted path, routing `colorSettings.*` to the colour state.
     fn set_pref(&mut self, path: &str, value: Value) -> std::result::Result<(), String> {
-        if let Some(rest) = path.strip_prefix("colorSettings") {
+        if let Some(rest) =
+            path.strip_prefix("colorSettings").filter(|r| r.is_empty() || r.strip_prefix('.').is_some_and(|c| c.split('.').all(|part| !part.is_empty())))
+        {
             let mut cur = serde_json::to_value(&self.color.settings).map_err(|e| e.to_string())?;
             let rest = rest.trim_start_matches('.');
             if rest.is_empty() {
@@ -2172,5 +2174,20 @@ mod shortcut_tests {
         assert!(result.is_object());
         assert_eq!(normalize_shortcut("Shift+~").as_deref(), Some("Shift+Backtick"));
         assert_eq!(conflicts([("a", "Cmd+="), ("b", "Cmd++")]).len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod color_settings_path_tests {
+    use crate::Session;
+    use serde_json::json;
+    #[test]
+    fn a_path_that_only_starts_with_color_settings_is_not_in_that_section() {
+        let mut s = Session::new();
+        let before = s.color.settings.clone();
+        for path in ["colorSettingsworkingRgb", "colorSettings.", "colorSettings..workingRgb"] {
+            assert!(s.execute("prefs.set", json!({"path": path, "value": "srgb"})).is_err(), "{path}");
+        }
+        assert_eq!(s.color.settings, before);
     }
 }

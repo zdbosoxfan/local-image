@@ -273,6 +273,8 @@ pub struct ExportSettings {
     pub webp_quality: Option<u8>,
     /// TIFF: keep the layers (Photoshop layer data); `false` is "Discard Layers and Save a Copy".
     pub tiff_layers: bool,
+    /// Whether PSD, PSB and layered TIFF saves may embed linked sources.
+    pub read_linked_files: bool,
     /// Embed the document's whole XMP packet. `true` by default (Save As keeps the metadata);
     /// Export As starts at Metadata: None, since the packet can carry the text of every type
     /// layer and one id per placed document (#647).
@@ -281,7 +283,7 @@ pub struct ExportSettings {
 
 impl Default for ExportSettings {
     fn default() -> Self {
-        ExportSettings { jpeg_quality: None, webp_lossless: true, webp_quality: None, tiff_layers: true, xmp_all: true }
+        ExportSettings { jpeg_quality: None, webp_lossless: true, webp_quality: None, tiff_layers: true, read_linked_files: true, xmp_all: true }
     }
 }
 
@@ -1322,6 +1324,9 @@ impl PhotocraftApp {
             write(&path, &bytes)?;
             warnings
         };
+        if let Some(saver) = self.session.active().map(|state| state.doc.id) {
+            self.detach_others_from_file(&path, saver);
+        }
         save_worker::acknowledge_reset(&mut self.session, source_reset.as_ref());
         let preserves_document = photocraft_engine::file_cmds::saves_in_place(&path) || (tiff_options_ui::is_tiff_path(&path) && settings.tiff_layers);
         if preserves_document && let Some(st) = self.session.active_mut() {
@@ -1373,9 +1378,12 @@ impl PhotocraftApp {
             .or_else(|| state.path.clone().filter(|p| photocraft_engine::file_cmds::saves_in_place(p)))
             .ok_or("pass `path`: a save without one writes back only to the document's own PSD, PSB or .pcraft file")?;
         let export = self.services.export.as_ref().ok_or("no exporter configured")?;
-        let (bytes, warnings) = export(&state.doc, &target, &ExportSettings::default())?;
+        let (bytes, warnings) = export(&state.doc, &target, &ExportSettings { read_linked_files: false, ..Default::default() })?;
         let write = self.services.automation_write.as_mut().ok_or("automation write authority is not configured")?;
         write(&target, &bytes)?;
+        if let Some(saver) = self.session.active().map(|state| state.doc.id) {
+            self.detach_others_from_file(&target, saver);
+        }
         if (photocraft_engine::file_cmds::saves_in_place(&target) || tiff_options_ui::is_tiff_path(&target))
             && let Some(state) = self.session.active_mut()
         {

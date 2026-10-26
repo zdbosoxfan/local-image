@@ -60,15 +60,21 @@ impl State {
     /// Start through the ordinary bounded file reader and photo decoder. The host
     /// must switch modules without opening the active Library photo a second time.
     pub fn open_path(&mut self, app: &mut PhotocraftApp, photo: u64, path: &str) -> Result<(), String> {
-        self.begin(app, photo, |app| app.open_path(path).map(|_| ()))
+        self.begin(app, photo, Some(path), |app| app.open_path(path).map(|_| ()))
     }
 
     /// Already-read bytes use the same decode route (also usable by offscreen tests).
     pub fn open_file(&mut self, app: &mut PhotocraftApp, photo: u64, path: &str, bytes: &[u8]) -> Result<(), String> {
-        self.begin(app, photo, |app| app.open_file(path, bytes).map(|_| ()))
+        self.begin(app, photo, None, |app| app.open_file(path, bytes).map(|_| ()))
     }
 
-    fn begin(&mut self, app: &mut PhotocraftApp, photo: u64, open: impl FnOnce(&mut PhotocraftApp) -> Result<(), String>) -> Result<(), String> {
+    fn begin(
+        &mut self,
+        app: &mut PhotocraftApp,
+        photo: u64,
+        path: Option<&str>,
+        open: impl FnOnce(&mut PhotocraftApp) -> Result<(), String>,
+    ) -> Result<(), String> {
         if self.pending() {
             return Err(tl!("A photo is already opening for Vectorize").into());
         }
@@ -76,13 +82,25 @@ impl State {
         let previous: Vec<_> = app.session.documents().iter().map(|st| st.doc.id).collect();
         let jobs: Vec<_> = app.jobs.opens.iter().map(|tab| tab.job).collect();
         open(app)?;
-        if let Some(tab) = app.jobs.opens.iter().find(|tab| !jobs.contains(&tab.job)) {
+        if let Some(tab) = app.jobs.opens.iter().find(|tab| {
+            !jobs.contains(&tab.job)
+                || app.jobs.focus == Some(tab.job)
+                    && path.zip(tab.path.as_deref()).is_some_and(|(path, opened)| crate::develop_layer::same_file_path(path, opened))
+        }) {
             self.opening = Some(Opening { photo, job: tab.job, previous });
         } else {
-            if let Some(st) = app.session.active().filter(|st| !previous.contains(&st.doc.id)) {
+            let st = app
+                .session
+                .active()
+                .filter(|st| {
+                    !previous.contains(&st.doc.id)
+                        || path.zip(st.path.as_deref()).is_some_and(|(path, opened)| crate::develop_layer::same_file_path(path, opened))
+                })
+                .ok_or_else(|| tl!("The open job returned no photo document").to_string())?;
+            if !self.library_documents.contains(&st.doc.id) {
                 self.library_documents.push(st.doc.id);
             }
-            self.ready = Some(capture(&app.session, photo, &previous)?);
+            self.ready = Some(capture_document(st, photo)?);
         }
         Ok(())
     }
@@ -99,13 +117,10 @@ impl State {
         if let JobOutcome::Done(value) = &event.outcome {
             let document = value.get("documentId").and_then(|v| v.as_u64()).map(DocId);
             let st = document
-                .and_then(|id| app.session.documents().iter().find(|st| st.doc.id == id))
+                .and_then(|id| app.session.documents().iter().find(|st| st.doc.id == id && !opening.previous.contains(&st.doc.id)))
                 .ok_or_else(|| tl!("The open job returned no photo document").to_string())?;
-            if !opening.previous.contains(&st.doc.id) {
-                self.library_documents.push(st.doc.id);
-            }
-            // A decoder success must create a document, never retarget old work.
-            self.ready = Some(capture_document(st, opening.photo, &opening.previous)?);
+            self.library_documents.push(st.doc.id);
+            self.ready = Some(capture_document(st, opening.photo)?);
         }
         // Failed/cancelled opens keep the Library and all existing documents as-is.
         // The ordinary jobs UI is the sole owner of their progress/error notices.
@@ -134,15 +149,7 @@ impl State {
     }
 }
 
-fn capture(session: &Session, photo: u64, previous: &[DocId]) -> Result<Launch, String> {
-    let st = session.active().ok_or_else(|| tl!("The open job returned no photo document").to_string())?;
-    capture_document(st, photo, previous)
-}
-
-fn capture_document(st: &photocraft_engine::DocState, photo: u64, previous: &[DocId]) -> Result<Launch, String> {
-    if previous.contains(&st.doc.id) {
-        return Err(tl!("The open job returned no photo document").into());
-    }
+fn capture_document(st: &photocraft_engine::DocState, photo: u64) -> Result<Launch, String> {
     let layer = st.active_layer.filter(|id| st.doc.layer(*id).is_some_and(|l| matches!(l.content, LayerContent::Raster(_))));
     let Some(layer) = layer.filter(|layer| st.selected_layers() == [*layer]) else {
         return Err(tl!("Vectorize requires a raster photo layer").into());

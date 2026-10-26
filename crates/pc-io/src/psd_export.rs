@@ -17,6 +17,9 @@ use crate::psd_import::REGENERATED;
 use crate::vector_map::fallback;
 
 const PSD_MAX_FILE_SIZE: u64 = 2 * 1024 * 1024 * 1024;
+/// How many times larger than the tiles holding its pixels a layer's box must be to count as
+/// sparse ([`gather_refused`]).
+const SPARSE_GATHER_FACTOR: u64 = 8;
 const PSD_ESTIMATE_FIXED_OVERHEAD: u64 = 1024 * 1024;
 const PSD_ESTIMATE_LAYER_OVERHEAD: u64 = 64 * 1024;
 
@@ -31,11 +34,15 @@ pub struct PsdExportOptions {
     pub merged_matte: bool,
     /// Compression of the merged image (32-bit float documents are always written raw).
     pub merged_compression: Compression,
+    /// Read and embed the files linked smart objects name. On by default; automation turns it
+    /// off, since a stored path is document data rather than a granted file: such a layer is
+    /// then written as pixels, with a warning.
+    pub read_linked_files: bool,
 }
 
 impl Default for PsdExportOptions {
     fn default() -> Self {
-        PsdExportOptions { force_psb: false, merged_matte: true, merged_compression: Compression::Rle }
+        PsdExportOptions { force_psb: false, merged_matte: true, merged_compression: Compression::Rle, read_linked_files: true }
     }
 }
 
@@ -43,6 +50,8 @@ struct Ex {
     fmt: PixelFormat,
     /// Document resolution (for generated type-layer data).
     dpi: f32,
+    /// Whether linked files may be read and embedded ([`PsdExportOptions::read_linked_files`]).
+    read_linked_files: bool,
     /// Character/paragraph styles written into every type layer's engine data.
     text_styles: photocraft_doc::TextStyles,
     mask_fmt: PixelFormat,
@@ -55,6 +64,7 @@ struct Ex {
     /// PSD ids assigned to document layers (kept from `psd_id` when unique).
     layer_ids: std::collections::HashMap<photocraft_doc::LayerId, u32>,
     canvas: photocraft_geom::Rect,
+    memory_budget: u64,
     records: Vec<LayerRecord>,
     warnings: Vec<String>,
     generation_remaining: usize,
@@ -115,8 +125,9 @@ struct SmartOut {
     prune_ok: bool,
     /// Files to embed.
     add: Vec<crate::linked::LinkedFile>,
-    /// Sources converted so far, by content hash (`Err` = can't be embedded).
-    converted: std::collections::HashMap<[u8; 32], Result<Source, String>>,
+    /// Sources converted so far, by content hash and whether they were read from a link (`Err` =
+    /// can't be embedded).
+    converted: std::collections::HashMap<([u8; 32], bool), Result<Source, String>>,
     /// Embedded documents decoded while converting them, by uuid (for the filter caches).
     docs: std::collections::HashMap<String, Document>,
     /// Source composites (document pixel format, source space) by uuid; `None` = unreadable.
@@ -216,17 +227,6 @@ impl SmartOut {
     }
 }
 
-/// Size and resolution of a smart-object source file (PSD/PSB header, `.pcraft`, or any image).
-fn source_geometry(name: &str, bytes: &[u8]) -> Result<((f64, f64), f64), String> {
-    if crate::is_psd(bytes) {
-        let rd = |at: usize| bytes.get(at..at + 4).map(|b| f64::from(u32::from_be_bytes([b[0], b[1], b[2], b[3]])));
-        let (h, w) = rd(14).zip(rd(18)).ok_or("truncated PSD header")?;
-        return Ok(((w, h), 72.0));
-    }
-    let doc = crate::import(name, bytes).map_err(|e| e.to_string())?.document;
-    Ok(((f64::from(doc.size.width), f64::from(doc.size.height)), f64::from(doc.resolution_dpi)))
-}
-
 /// The source size of a smart object whose file we can't decode: its rendered bounds taken back
 /// through the inverse transform (the source's top-left is the origin).
 fn size_from_layer(sm: &photocraft_doc::SmartObject) -> (f64, f64) {
@@ -251,6 +251,23 @@ fn upsert(raw: &mut Vec<([u8; 4], Vec<u8>)>, key: &[u8; 4], data: Vec<u8>, befor
         Some(i) => raw.insert(i, (*key, data)),
         None => raw.push((*key, data)),
     }
+}
+
+/// Whether the samples of `r` in `s` are too sparse to gather. A PSD layer record is one dense
+/// rectangle, so a few pixels far apart (content moved far off the canvas, or a crafted
+/// document) make a box of mostly nothing that cannot be gathered and copied into channel planes.
+fn sparse_gather(s: &Surface, r: photocraft_geom::Rect, budget: u64, canvas: photocraft_geom::Rect) -> bool {
+    let bpp = s.format().bytes_per_pixel() as u64;
+    let bytes = |r: photocraft_geom::Rect| u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(bpp);
+    let tile = u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2);
+    let held = (s.tile_count() as u64).saturating_mul(tile).saturating_mul(bpp);
+    gather_refused(bytes(r), held, budget, bytes(canvas))
+}
+
+/// Refuse sparse rectangles larger than the canvas whose staging and planes exceed the budget.
+/// The merged image already spans the canvas; dense layers already hold their full area in tiles.
+fn gather_refused(boxed: u64, held: u64, budget: u64, canvas: u64) -> bool {
+    boxed > held.saturating_mul(SPARSE_GATHER_FACTOR) && boxed > (budget / 2).max(canvas)
 }
 
 fn psd_mode(m: ColorMode) -> PsdMode {
@@ -301,6 +318,14 @@ impl Ex {
         if r.is_empty() {
             return (PsdRect::default(), self.empty_channels());
         }
+        if sparse_gather(&s, r, self.memory_budget, self.canvas) {
+            self.warnings.push(format!(
+                "layer \"{name}\": its pixels are scattered over {}×{} px, too large to write: saved without its pixels (delete the stray pixels far from the rest and save again)",
+                r.width(),
+                r.height()
+            ));
+            return (PsdRect::default(), self.empty_channels());
+        }
         let mut bytes = s.to_interleaved(r);
         if self.fmt.mode == ColorMode::Lab && self.fmt.sample == SampleType::U16 {
             crate::pixels::lab16_chroma(&mut bytes, self.cc + 1, false);
@@ -317,10 +342,18 @@ impl Ex {
         (to_psd_rect(r), ch)
     }
 
-    fn mask(&self, m: &LayerMask, vector: Option<(f32, f32)>) -> (MaskData, Option<ChannelData>) {
+    fn mask(&mut self, m: &LayerMask, vector: Option<(f32, f32)>, name: &str) -> (MaskData, Option<ChannelData>) {
         let s = if m.surface.format() != self.mask_fmt { m.surface.convert(self.mask_fmt) } else { m.surface.clone() };
         let default = s.default_pixel().first().copied().unwrap_or(0.0);
-        let r = s.content_bounds();
+        let mut r = s.content_bounds();
+        if !r.is_empty() && sparse_gather(&s, r, self.memory_budget, self.canvas) {
+            self.warnings.push(format!(
+                "layer \"{name}\": its mask's painted pixels are scattered over {}×{} px, too large to write: saved as an empty mask",
+                r.width(),
+                r.height()
+            ));
+            r = photocraft_geom::Rect::EMPTY;
+        }
         let (w, h) = (r.width() as usize, r.height() as usize);
         let plane = if r.is_empty() { Vec::new() } else { deinterleave(&s.to_interleaved(r), 1, self.mask_fmt.sample, &[false]).remove(0) };
         let mut flags = 0u8;
@@ -374,7 +407,7 @@ impl Ex {
         // Vector mask density/feather live in the mask parameters, with or without a user mask.
         let vector = l.vector_mask.as_ref().map(|vm| (vm.density, vm.feather));
         if let Some(m) = &l.mask {
-            let (md, ch) = self.mask(m, vector);
+            let (md, ch) = self.mask(m, vector, &l.name);
             mask = md;
             channels.extend(ch);
         } else if let Some(parameters) = mask_parameters(None, vector) {
@@ -759,39 +792,6 @@ impl Ex {
         }
     }
 
-    /// The `lnk2` file a smart object's source is written as: a preserved embedded file, or a new
-    /// one (a `.pcraft` source becomes a PSB of the nested document; image files are embedded as
-    /// they are; a linked file is read and embedded).
-    fn smart_source(&mut self, sm: &photocraft_doc::SmartObject, template: Option<&crate::smart_map::Placed>) -> Result<Source, String> {
-        use photocraft_doc::SmartSource;
-        match &sm.source {
-            // A file of the imported document, or one its placed-layer data names (a missing
-            // link stays a smart object, as in Photoshop).
-            SmartSource::Linked { path } if self.smart.known.contains(path) || template.is_some_and(|t| t.idnt == *path) => {
-                let stored = template.filter(|t| t.idnt == *path).and_then(|t| crate::smart_map::stored_size(&t.descriptor));
-                let geometry = stored.map(|size| (size, f64::from(self.dpi))).or_else(|| {
-                    let meta = photocraft_doc::Metadata { psd_global_blocks: self.smart.globals.clone(), ..Default::default() };
-                    let f = crate::linked::find_linked_file(&meta, path)?;
-                    source_geometry(&f.file_name, &f.bytes).ok()
-                });
-                let (size, dpi) = geometry.unwrap_or((size_from_layer(sm), f64::from(self.dpi)));
-                Ok(Source { uuid: path.clone(), size, dpi })
-            }
-            SmartSource::Linked { path } => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let bytes = std::fs::read(path).map_err(|e| format!("the linked file {path} can't be read: {e}"))?;
-                    let name = path.rsplit(['/', '\\']).next().unwrap_or(path).to_string();
-                    self.warnings.push(format!("the linked smart object {name} was embedded (PSD export keeps no external links)"));
-                    self.embed(&name, &bytes)
-                }
-                #[cfg(target_arch = "wasm32")]
-                Err(format!("the linked file {path} can't be read here"))
-            }
-            SmartSource::Embedded { file_name, bytes } => self.embed(file_name, bytes),
-        }
-    }
-
     /// The composite of the source `uuid` (an embedded file of this export or of the imported
     /// document) in the document's pixel format, its top-left at the origin; decoded once.
     fn source_composite(&mut self, uuid: &str) -> Option<(std::sync::Arc<Surface>, photocraft_geom::Rect)> {
@@ -829,32 +829,40 @@ impl Ex {
     }
 
     /// Adds `bytes` as an embedded file (converted to PSB when it is a `.pcraft` bundle), once
-    /// per distinct content.
-    fn embed(&mut self, file_name: &str, bytes: &[u8]) -> Result<Source, String> {
-        let key = *blake3::hash(bytes).as_bytes();
+    /// per distinct content. `linked`: the bytes were read from a path the document names, so
+    /// only a file Local Image can open is embedded (a link to a text or settings file is written
+    /// as pixels instead).
+    fn embed(&mut self, file_name: &str, bytes: &[u8], linked: bool) -> Result<Source, String> {
+        let key = (*blake3::hash(bytes).as_bytes(), linked);
         if let Some(r) = self.smart.converted.get(&key) {
             return r.clone();
         }
-        let r = self.convert_source(file_name, bytes);
+        let r = self.convert_source(file_name, bytes, linked);
         self.smart.converted.insert(key, r.clone());
         r
     }
 
-    fn convert_source(&mut self, file_name: &str, bytes: &[u8]) -> Result<Source, String> {
+    fn convert_source(&mut self, file_name: &str, bytes: &[u8], linked: bool) -> Result<Source, String> {
         let (name, data, size, dpi, nested) = if photocraft_format::is_pcraft(bytes) {
             if self.smart.depth >= MAX_NESTING {
                 return Err(format!("smart objects nest more than {MAX_NESTING} deep"));
             }
             let doc = photocraft_format::load_from_bytes(bytes).map_err(|e| format!("its contents can't be read: {e}"))?;
-            let (file, warnings) = document_to_psd_nested(&doc, &PsdExportOptions { force_psb: true, ..Default::default() }, self.smart.depth + 1);
+            let opts = PsdExportOptions { force_psb: true, read_linked_files: self.read_linked_files, ..Default::default() };
+            let (file, warnings) = document_to_psd_nested(&doc, &opts, self.smart.depth + 1, self.memory_budget);
             let data = file.to_bytes().map_err(|e| format!("its contents can't be written: {e}"))?;
             let stem = file_name.rsplit_once('.').map_or(file_name, |(a, _)| a);
             self.warnings.extend(warnings.into_iter().map(|w| format!("smart object {stem}: {w}")));
             let size = (f64::from(doc.size.width), f64::from(doc.size.height));
             (format!("{stem}.psb"), data, size, f64::from(doc.resolution_dpi), Some(doc))
         } else {
-            // Formats we can't decode (vector PDF/AI…) are still embedded; their size comes from the layer.
-            let (size, dpi) = source_geometry(file_name, bytes).unwrap_or(((0.0, 0.0), f64::from(self.dpi)));
+            // Embedded formats we can't decode (vector PDF/AI...) are kept; their size comes from the
+            // layer. A linked file we can't decode is not embedded.
+            let (size, dpi) = match source_geometry(file_name, bytes) {
+                Ok(geometry) => geometry,
+                Err(e) if linked => return Err(format!("the linked file {file_name} is not an image Local Image can open: {e}")),
+                Err(_) => ((0.0, 0.0), f64::from(self.dpi)),
+            };
             (file_name.to_string(), bytes.to_vec(), size, dpi, None)
         };
         let uuid = crate::smart_map::uuid_from(&data);
@@ -1184,7 +1192,7 @@ pub fn document_to_psd(doc: &Document) -> PsdFile {
 /// anything that could not be represented. The merged composite is rendered
 /// with `photocraft_compose::flatten`.
 pub fn document_to_psd_with(doc: &Document, opts: &PsdExportOptions) -> (PsdFile, Vec<String>) {
-    document_to_psd_nested(doc, opts, 0)
+    document_to_psd_nested(doc, opts, 0, lightcraft_sysmem::profile().memory_budget())
 }
 
 /// Adds headroom for compressed channel streams and their per-row length tables.
@@ -1307,7 +1315,7 @@ pub(crate) fn psd_size_exceeds_limit(doc: &Document) -> bool {
 }
 
 /// [`document_to_psd_with`] for a document embedded `depth` smart objects deep.
-fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -> (PsdFile, Vec<String>) {
+fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, memory_budget: u64) -> (PsdFile, Vec<String>) {
     let mut compatible = doc.clone();
     compatible.normalize_legacy_groups();
     let doc = &compatible;
@@ -1321,7 +1329,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         flat.layer_comps.clear();
         flat.last_document_state = None;
         flat.last_applied_comp = None;
-        let (file, mut warnings) = document_to_psd_nested(&flat, opts, depth);
+        let (file, mut warnings) = document_to_psd_nested(&flat, opts, depth, memory_budget);
         warnings.push("Independent PDF group isolation cannot be represented as PSD layers; the complete document was flattened with its backdrop. The native document is unchanged.".into());
         return (file, warnings);
     }
@@ -1337,6 +1345,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
     let mut ex = Ex {
         fmt,
         dpi: doc.resolution_dpi,
+        read_linked_files: opts.read_linked_files,
         text_styles: doc.text_styles.clone(),
         mask_fmt: PixelFormat::new(ColorMode::Grayscale, sample, false),
         cc,
@@ -1346,6 +1355,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         used_ids: Default::default(),
         layer_ids: Default::default(),
         canvas: doc.bounds(),
+        memory_budget,
         records: Vec::new(),
         warnings: Vec::new(),
         generation_remaining: crate::psd_generation::DOCUMENT_BYTES,
@@ -1571,6 +1581,9 @@ fn mask_parameters(user: Option<(f32, f32)>, vector: Option<(f32, f32)>) -> Opti
         | u8::from(p.vector_feather.is_some()) << 3;
     (flags != 0).then_some(MaskParameters { flags, ..p })
 }
+
+mod linked_source;
+use linked_source::source_geometry;
 
 #[cfg(test)]
 mod tests;

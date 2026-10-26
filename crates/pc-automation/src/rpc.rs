@@ -567,6 +567,42 @@ mod tests {
     }
 
     #[test]
+    fn workspace_psd_saves_embed_no_file_a_linked_smart_object_names() {
+        use photocraft_engine::doc::{LayerContent, SmartSource};
+
+        // An image Local Image can open: an embedded copy carries these exact bytes, while pixels
+        // written for the layer don't.
+        let image = photocraft_codecs::Image::from_u8(8, 8, photocraft_codecs::ChannelLayout::Rgb, (0..192u8).collect()).unwrap();
+        let marker = photocraft_codecs::encode(&image, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+        let has_marker = |bytes: &[u8]| bytes.windows(marker.len()).any(|w| w == marker.as_slice());
+        let base = std::env::temp_dir().join(format!("pc-psd-linked-embed-{}", std::process::id()));
+        let root = base.join("workspace");
+        std::fs::create_dir_all(&root).unwrap();
+        let outside = base.join("outside.png");
+        std::fs::write(&outside, &marker).unwrap();
+        // A document whose smart object names a file outside the roots as its source.
+        let mut session = photocraft_engine::Session::new();
+        session.execute("file.new", json!({"width": 8, "height": 8, "background": "white"})).unwrap();
+        session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let state = session.active_mut().unwrap();
+        let LayerContent::Smart(smart) = &mut std::sync::Arc::make_mut(&mut state.doc).layers[0].content else { panic!("smart object") };
+        smart.source = SmartSource::Linked { path: outside.to_string_lossy().into_owned() };
+        std::fs::write(root.join("in.pcraft"), photocraft_engine::smart_cmds::encode_source(&state.doc).unwrap()).unwrap();
+        // A trusted export embeds the linked file.
+        assert!(has_marker(&photocraft_io::export(&state.doc, "psd", &Default::default()).unwrap().bytes));
+
+        let mut h = Headless::with_workspace(crate::AuthorizedWorkspace::new(Some(&root), Some(&root)).unwrap());
+        h.handle("doc.open", json!({"path": "in.pcraft"})).unwrap();
+        let saved = h.handle("doc.save", json!({"path": "out.psd"})).unwrap();
+        let warnings = saved["warnings"].to_string();
+        assert!(warnings.contains("written as pixels"), "{warnings}");
+        assert!(!has_marker(&std::fs::read(root.join("out.psd")).unwrap()), "the linked file outside the roots is not embedded");
+        // Release directory capabilities before cleanup on Windows.
+        drop(h);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
     fn trusted_local_render_keeps_full_size_behavior() {
         let mut h = Headless::trusted_local();
         h.handle("doc.new", json!({"width": 2049, "height": 1})).unwrap();

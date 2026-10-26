@@ -426,7 +426,7 @@ pub(crate) fn resolve(s: &Session, fp: &mut FilterParams, p: &Value) -> Result<(
     }
     let layer = p.get("mapLayer").and_then(Value::as_u64);
     let img = if let Some(path) = p.get("mapPath").and_then(Value::as_str).filter(|p| !p.is_empty()) {
-        let bytes = std::fs::read(path).map_err(|e| EngineError::Other(format!("cannot read displacement map `{path}`: {e}")))?;
+        let bytes = crate::file_cmds::read_file(path).map_err(|e| EngineError::Other(format!("cannot read displacement map: {e}")))?;
         let imported = photocraft_io::import(path, &bytes).map_err(|e| EngineError::Other(format!("cannot open displacement map `{path}`: {e}")))?;
         map_from_document(&imported.document, layer)
     } else if let Some(d) = p.get("mapDocument") {
@@ -682,3 +682,14 @@ pub fn specs() -> Vec<CommandSpec> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, target_os = "linux"))]
+mod bounded_map_tests {
+    #[test]
+    fn displace_maps_refuse_kernel_paths_before_decoding() {
+        let mut s = crate::Session::new();
+        s.execute("file.new", serde_json::json!({"width": 4, "height": 4})).unwrap();
+        let error = s.execute("filter.distort.displace", serde_json::json!({"mapPath": "/proc/version"})).unwrap_err().to_string();
+        assert!(error.contains("input paths are unavailable"), "{error}");
+    }
+}

@@ -374,7 +374,8 @@ fn export_as_files(s: &mut Session, p: &Value) -> Result<Value> {
         let safe: String = set.name.chars().map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
         let stem = template.replace("{name}", &safe).replace("{index}", &format!("{:03}", n + 1)).replace("{document}", &doc_stem);
         let path = format!("{dir}/{stem}.{format}");
-        let opts = photocraft_io::ExportOptions::default();
+        // An untrusted session's PSD export embeds no file a linked smart object names.
+        let opts = photocraft_io::ExportOptions { read_linked_files: !crate::jobs::authorization_installed(), ..Default::default() };
         let bytes = photocraft_io::export(&doc, format, &opts).map(|r| r.bytes).map_err(|e| EngineError::Other(format!("export `{}`: {e}", set.name)))?;
         crate::file_cmds::write_file(&path, &bytes)?;
         files.push(path);

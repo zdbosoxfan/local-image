@@ -218,3 +218,39 @@ fn csv_import_preserves_non_ascii_and_quoted_newlines() {
     s.execute("image.applyDataSet", json!({"name": "café 😀"})).unwrap();
     assert_eq!(text_of(&s, title), "two\nlines");
 }
+
+/// A data-set PSD made for an untrusted session embeds no file a linked smart object names.
+#[test]
+fn gated_data_set_psds_embed_no_linked_file() {
+    let (mut s, _photo, badge, _title) = session();
+    let dir = tmp("linked");
+    let image = Document::with_background(
+        "blue",
+        photocraft_geom::Size::new(8, 8),
+        photocraft_color::ColorMode::Rgb,
+        photocraft_color::SampleType::U8,
+        photocraft_color::Color::rgba(0.0, 0.0, 1.0, 1.0),
+    );
+    let png = photocraft_io::export(&image, "png", &Default::default()).unwrap().bytes;
+    let outside = format!("{dir}/outside.png");
+    std::fs::write(&outside, &png).unwrap();
+    s.edit("link", |doc, _| {
+        let source = photocraft_doc::SmartSource::Linked { path: outside.clone() };
+        let smart = photocraft_doc::SmartObject::new(source, photocraft_geom::Affine::IDENTITY, image.layers[0].surface().cloned());
+        doc.layers.push(Layer::new("link", LayerContent::Smart(smart)));
+        Ok(())
+    })
+    .unwrap();
+    s.execute("image.variables.define", json!({"defs": [{"name": "showBadge", "layer": badge.0, "type": "visibility"}]})).unwrap();
+    s.execute("image.variables.dataSets", json!({"dataSets": [{"name": "one", "values": [{"variable": "showBadge", "kind": "visibility", "value": false}]}]}))
+        .unwrap();
+    let has_png = |bytes: &[u8]| bytes.windows(png.len()).any(|w| w == png.as_slice());
+    let export = |s: &mut Session| {
+        s.execute("file.export.dataSetsAsFiles", json!({"dir": dir, "format": "psd"})).unwrap();
+        std::fs::read(format!("{dir}/one.psd")).unwrap()
+    };
+    assert!(has_png(&export(&mut s)), "a trusted export embeds the linked file");
+    s.authorize = Some(|_, _| Ok(()));
+    assert!(!has_png(&export(&mut s)), "an untrusted export does not");
+    std::fs::remove_dir_all(dir).unwrap();
+}

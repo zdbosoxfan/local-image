@@ -15,6 +15,41 @@ use std::{
     },
 };
 
+impl PhotocraftApp {
+    /// A tab whose file was replaced keeps its in-memory content and must ask before closing.
+    pub(crate) fn detach_others_from_file(&mut self, path: &str, saver: DocId) {
+        let others: Vec<_> = self
+            .session
+            .documents()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, state)| {
+                (state.doc.id != saver && state.path.as_deref().is_some_and(|p| develop_layer::same_file_path(p, path))).then_some(index)
+            })
+            .collect();
+        let viewed = self.session.active_index();
+        let mut names = Vec::new();
+        for index in others {
+            self.session.set_active(index);
+            if let Some(state) = self.session.active_mut() {
+                names.push(state.doc.name.clone());
+                state.path = None;
+                state.saved_revision = u64::MAX;
+            }
+        }
+        if let Some(viewed) = viewed {
+            self.session.set_active(viewed);
+        }
+        if !names.is_empty() {
+            let lines = names
+                .iter()
+                .map(|doc| li_i18n::fmt(tl!("\"{doc}\" no longer has a file and is marked unsaved: save it under a new name to keep it"), &[("doc", doc)]))
+                .collect();
+            notices::post(self, li_i18n::fmt(tl!("{path} was saved over"), &[("path", &crate::file_open::display_name(path))]), lines, false, None);
+        }
+    }
+}
+
 struct Alive(Arc<AtomicBool>);
 impl Drop for Alive {
     fn drop(&mut self) {
@@ -198,6 +233,9 @@ pub(crate) fn on_event(app: &mut PhotocraftApp, event: &JobEvent) -> bool {
     }
     let Some(mut pending) = app.pending_save.take() else { return false };
     let succeeded = matches!(event.outcome, JobOutcome::Done(_));
+    if succeeded {
+        app.detach_others_from_file(&pending.path, pending.doc);
+    }
     crate::discard_ui::save_finished(app, pending.doc, succeeded);
     match &event.outcome {
         JobOutcome::Done(_) => match pending.receiver.try_recv() {

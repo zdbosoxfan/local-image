@@ -79,6 +79,9 @@ fn new_blank(s: &mut Session, _p: &Value) -> Result<Value> {
         }
         let fps = doc.timeline.as_ref().map_or(30.0, |t| t.fps);
         let n = doc.timeline.as_ref().map_or(1, |t| t.duration).max(1);
+        if n > crate::timeline_cmds::MAX_DURATION {
+            return Err(EngineError::Other(format!("a video layer is limited to {} frames", crate::timeline_cmds::MAX_DURATION)));
+        }
         let frames: Vec<Surface> = (0..n).map(|_| Surface::new(fmt)).collect();
         let name = doc.next_layer_name("Video Layer");
         let mut l = Layer::raster(name, fmt);
@@ -159,6 +162,23 @@ fn rasterize(s: &mut Session, _p: &Value) -> Result<Value> {
 
 // File-based footage
 
+/// Total stored tile bytes retained by one footage import.
+const MAX_FOOTAGE_BYTES: u64 = 2 << 30;
+
+fn keep_frame(frames: &mut Vec<Surface>, surface: Surface, kept_bytes: &mut u64) -> Result<()> {
+    if frames.len() >= crate::timeline_cmds::MAX_DURATION {
+        return Err(EngineError::Other(format!("the footage has more than {} frames", crate::timeline_cmds::MAX_DURATION)));
+    }
+    let tile = u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2) * surface.format().bytes_per_pixel() as u64;
+    let next = kept_bytes.saturating_add(tile.saturating_mul(surface.tile_count() as u64));
+    if next > MAX_FOOTAGE_BYTES {
+        return Err(EngineError::Other(format!("the footage needs more than {} MiB of frames", MAX_FOOTAGE_BYTES >> 20)));
+    }
+    *kept_bytes = next;
+    frames.push(surface);
+    Ok(())
+}
+
 /// Load frames from `path`: a single image (1 frame), or a directory of images (sorted = an image
 /// sequence). Each becomes a full raster frame in the document's format.
 fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Vec<Surface>> {
@@ -170,11 +190,17 @@ fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Vec<Sur
         )
     };
     let files: Vec<std::path::PathBuf> = if p.is_dir() {
-        let mut v: Vec<_> = std::fs::read_dir(p)
-            .map_err(|e| EngineError::Other(format!("read dir `{path}`: {e}")))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|f| is_img(f))
-            .collect();
+        let entries = std::fs::read_dir(p).map_err(|e| EngineError::Other(format!("read dir `{path}`: {e}")))?;
+        let mut v = Vec::new();
+        for entry in entries {
+            let file = entry.map_err(|e| EngineError::Other(format!("read dir `{path}`: {e}")))?.path();
+            if is_img(&file) {
+                if v.len() >= crate::timeline_cmds::MAX_DURATION {
+                    return Err(EngineError::Other(format!("the footage has more than {} frames", crate::timeline_cmds::MAX_DURATION)));
+                }
+                v.push(file);
+            }
+        }
         v.sort();
         v
     } else {
@@ -184,11 +210,12 @@ fn load_frames(path: &str, fmt: photocraft_color::PixelFormat) -> Result<Vec<Sur
         return Err(EngineError::Other(format!("no images in `{path}`")));
     }
     let mut frames = Vec::with_capacity(files.len());
+    let mut kept_bytes = 0;
     for f in &files {
-        let bytes = std::fs::read(f).map_err(|e| EngineError::Other(format!("read `{}`: {e}", f.display())))?;
         let name = f.to_string_lossy();
+        let bytes = crate::file_cmds::read_file(&name)?;
         let doc = photocraft_io::import(&name, &bytes).map_err(|e| EngineError::Other(format!("`{}`: {e}", f.display())))?.document;
-        frames.push(crate::file_cmds::flattened(&doc, fmt)?);
+        keep_frame(&mut frames, crate::file_cmds::flattened_checked(&doc, fmt, "footage import")?, &mut kept_bytes)?;
     }
     Ok(frames)
 }
@@ -295,6 +322,13 @@ fn frames_to_layers(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"layers": n}))
 }
 
+/// Use only the document name's leaf: native files can declare parent-directory components.
+fn safe_stem(name: &str) -> String {
+    let leaf = name.rsplit(['/', '\\']).next().unwrap_or(name);
+    let stem = leaf.rsplit_once('.').map_or(leaf, |(a, _)| a).trim();
+    if stem.is_empty() || stem.chars().all(|c| c == '.') { "video".to_string() } else { stem.to_string() }
+}
+
 /// Export › Render Video: composite the whole document at each timeline frame and write an image
 /// sequence (`{dir}/{stem}_NNNN.{format}`). Clean-room; no proprietary codec.
 fn render_video(s: &mut Session, p: &Value) -> Result<Value> {
@@ -309,7 +343,7 @@ fn render_video(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(EngineError::Other(format!("the timeline is {frames} frames; Render Video is limited to {} frames", crate::timeline_cmds::MAX_DURATION)));
     }
     let fps = base.timeline.as_ref().map_or(30.0, |t| t.fps).max(1.0);
-    let stem = base.name.rsplit_once('.').map_or(base.name.as_str(), |(a, _)| a).to_string();
+    let stem = safe_stem(&base.name);
     let fmt = base.pixel_format();
     let bounds = base.bounds();
     let (w, h) = (bounds.width() as usize, bounds.height() as usize);
@@ -344,7 +378,7 @@ fn render_video(s: &mut Session, p: &Value) -> Result<Value> {
     }
 
     // Image sequence.
-    let opts = photocraft_io::ExportOptions::default();
+    let opts = photocraft_io::ExportOptions { read_linked_files: s.authorize.is_none(), ..Default::default() };
     let mut files = Vec::new();
     for f in 0..frames {
         let mut doc = base.clone();

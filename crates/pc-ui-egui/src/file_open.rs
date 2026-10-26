@@ -98,6 +98,9 @@ impl PhotocraftApp {
     /// Read and open the file at `path` (see [`open_file`](Self::open_file)).
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(&mut self, path: &str) -> Result<Vec<String>, String> {
+        if self.show_if_open(path) {
+            return Ok(Vec::new());
+        }
         // Documents opening in the background are read on the worker too (a 2 GB PSB read
         // would block the window). Preset files (brushes, gradients) go the usual way.
         if crate::pdf_import::offer_path(self, path)? {
@@ -125,12 +128,30 @@ impl PhotocraftApp {
         let mut opened = 0;
         for p in paths {
             let abs = absolute(p);
+            if self.show_if_open(&abs) {
+                continue;
+            }
             match self.open_path(&abs) {
                 Ok(_) => opened += 1,
                 Err(e) => self.open_failed(&display_name(p), &e),
             }
         }
         opened
+    }
+
+    /// Focus the existing tab, including a background open still in flight.
+    pub(crate) fn show_if_open(&mut self, path: &str) -> bool {
+        let same = |p: &str| crate::develop_layer::same_file_path(p, path);
+        if let Some(index) = self.session.documents().iter().position(|d| d.path.as_deref().is_some_and(same)) {
+            self.session.set_active(index);
+            self.jobs.focus = None;
+        } else if let Some(open) = self.jobs.opens.iter().find(|o| o.path.as_deref().is_some_and(|p| !is_template(p) && same(p))) {
+            self.jobs.focus = Some(open.job);
+        } else {
+            return false;
+        }
+        self.ui.chrome.home = None;
+        true
     }
 
     /// Show "Couldn't open <name>: <error>" as an error (status bar + notice).
@@ -272,6 +293,9 @@ impl PhotocraftApp {
                 OsEvent::Open(paths) => {
                     self.open_paths(&paths);
                     // Bring the window forward when another app (Finder, the Dock) asked us to open.
+                    if ctx.input(|i| i.viewport().minimized) == Some(true) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    }
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
                     ctx.request_repaint();
                 }

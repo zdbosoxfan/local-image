@@ -218,3 +218,195 @@ fn layer_block_follows_a_kept_merged_transparency_marker() {
     let saved = PsdFile::from_bytes(&document_to_psd(&doc).to_bytes().unwrap()).unwrap();
     assert!(matches!(saved.layer_info_placement, LayerInfoPlacement::GlobalBlock { index: 0, .. }));
 }
+
+/// A temporary file holding `bytes`.
+fn temp_file(name: &str, bytes: &[u8]) -> String {
+    let path = std::env::temp_dir().join(format!("pc-io-linked-{}-{name}", std::process::id()));
+    std::fs::write(&path, bytes).unwrap();
+    path.to_string_lossy().into_owned()
+}
+
+/// An image Local Image can open: a file that embeds it carries these exact bytes, while pixels
+/// written for a layer don't.
+fn png() -> Vec<u8> {
+    let image = photocraft_codecs::Image::from_u8(8, 8, photocraft_codecs::ChannelLayout::Rgb, (0..192u8).collect()).unwrap();
+    photocraft_codecs::encode(&image, photocraft_codecs::Format::Png, &Default::default()).unwrap()
+}
+
+/// A red smart object over an 8x8 RGB canvas, with `source`.
+fn smart_layer(source: photocraft_doc::SmartSource) -> Layer {
+    let fmt = document(8, 8).pixel_format();
+    let mut cache = Surface::new(fmt);
+    cache.fill_rect(photocraft_geom::Rect::new(0, 0, 8, 8), &[1.0, 0.0, 0.0, 1.0]);
+    Layer::new("smart", LayerContent::Smart(photocraft_doc::SmartObject::new(source, photocraft_geom::Affine::IDENTITY, Some(cache))))
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+#[test]
+fn an_export_that_reads_no_linked_files_writes_linked_smart_objects_as_pixels() {
+    let png = png();
+    let path = temp_file("pixels.png", &png);
+    let mut doc = document(8, 8);
+    doc.layers.push(smart_layer(photocraft_doc::SmartSource::Linked { path: path.clone() }));
+    for ext in ["psd", "psb", "tif"] {
+        let trusted = crate::export(&doc, ext, &crate::ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+        assert!(contains(&trusted.bytes, &png), "{ext}: a trusted save embeds the linked file");
+        let opts = crate::ExportOptions { tiff_layers: true, read_linked_files: false, ..Default::default() };
+        let r = crate::export(&doc, ext, &opts).unwrap();
+        assert!(!contains(&r.bytes, &png), "{ext}: the linked file is not embedded");
+        assert!(r.warnings.iter().any(|w| w.contains("smart object written as pixels")), "{ext}: {:?}", r.warnings);
+        let back = crate::import(&format!("back.{ext}"), &r.bytes).unwrap().document;
+        let layer = back.layers.iter().find(|l| l.name == "smart").unwrap();
+        assert!(matches!(layer.content, LayerContent::Raster(_)), "{ext}: the layer keeps its pixels");
+        assert_eq!(layer.surface().unwrap().rgba(3, 3), [1.0, 0.0, 0.0, 1.0], "{ext}");
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+/// A link that names a device or kernel file is never read: PSD export reads linked files through
+/// the bounded reader every open uses (a link to `/dev/zero` would otherwise read until memory
+/// runs out).
+#[cfg(target_os = "linux")]
+#[test]
+fn links_to_device_and_kernel_files_are_not_read() {
+    for path in ["/proc/self/status", "/dev/null"] {
+        let mut doc = document(8, 8);
+        doc.layers.push(smart_layer(photocraft_doc::SmartSource::Linked { path: path.into() }));
+        let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+        assert!(warnings.iter().any(|w| w.contains("smart object written as pixels") && w.contains("can't be read")), "{path}: {warnings:?}");
+        assert!(!file.global_blocks.iter().any(|b| &b.key == b"lnk2"), "{path}: nothing is embedded");
+    }
+}
+
+/// A link to a file Local Image can't open (a text or settings file) is never embedded: a saved
+/// PSD would otherwise carry bytes no reader can show as the layer's contents. The layer is
+/// written as pixels.
+#[test]
+fn links_to_files_that_are_not_images_are_never_embedded() {
+    const TEXT: &[u8] = b"plain text, not an image\nlocal-image-text-marker\n";
+    let path = temp_file("readme", TEXT);
+    let mut doc = document(8, 8);
+    doc.layers.push(smart_layer(photocraft_doc::SmartSource::Linked { path: path.clone() }));
+    for ext in ["psd", "psb", "tif"] {
+        let r = crate::export(&doc, ext, &crate::ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+        assert!(!contains(&r.bytes, TEXT), "{ext}: the text file is not embedded");
+        assert!(r.warnings.iter().any(|w| w.contains("smart object written as pixels") && w.contains("not an image")), "{ext}: {:?}", r.warnings);
+        assert!(!r.warnings.iter().any(|w| w.contains("was embedded")), "{ext}: {:?}", r.warnings);
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+/// A linked and an embedded copy of the same bytes meet in the export's conversion cache: each
+/// keeps its own rule, whichever is written first.
+#[test]
+fn a_linked_and_an_embedded_copy_of_the_same_bytes_keep_their_own_rule() {
+    const TEXT: &[u8] = b"plain text, not an image\nlocal-image-shared-marker\n";
+    let path = temp_file("shared", TEXT);
+    let linked = smart_layer(photocraft_doc::SmartSource::Linked { path: path.clone() });
+    let embedded = smart_layer(photocraft_doc::SmartSource::Embedded { file_name: "readme".into(), bytes: std::sync::Arc::new(TEXT.to_vec()) });
+    for layers in [vec![linked.clone(), embedded.clone()], vec![embedded, linked]] {
+        let mut doc = document(8, 8);
+        doc.layers = layers;
+        for ext in ["psd", "psb", "tif"] {
+            let r = crate::export(&doc, ext, &crate::ExportOptions { tiff_layers: true, ..Default::default() }).unwrap();
+            let copies = r.bytes.windows(TEXT.len()).filter(|w| *w == TEXT).count();
+            assert_eq!(copies, 1, "{ext}: only the embedded copy is kept: {:?}", r.warnings);
+            assert!(r.warnings.iter().any(|w| w.contains("smart object written as pixels")), "{ext}: {:?}", r.warnings);
+        }
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn only_sparse_boxes_past_the_canvas_and_the_memory_budget_are_refused() {
+    const GIB: u64 = 1 << 30;
+    let tile = 256 * 256 * 8;
+    let canvas = 8 * 8 * 8;
+    assert!(gather_refused(u64::MAX, 2 * tile, 256 * GIB, canvas));
+    assert!(gather_refused(400 * GIB, 2 * tile, 64 * GIB, canvas));
+    let pano = 40_000u64 * 12_000 * 8;
+    let pano_tiles = 40_000u64.div_ceil(256) * 12_000u64.div_ceil(256) * tile;
+    assert!(!gather_refused(pano, pano_tiles, 64 * GIB, pano));
+    assert!(!gather_refused(pano, pano_tiles, GIB, pano));
+    assert!(!gather_refused(pano, 10 * tile, GIB, pano), "a sparse box no larger than the canvas keeps its pixels");
+    assert!(!gather_refused(60_000_000 * 8, 10 * tile, 32 * GIB, canvas));
+}
+
+/// Two pixels four billion pixels apart span a box no computer can gather: that layer is
+/// saved without its pixels, a mask like it is saved empty, and both say so; the rest is written.
+#[test]
+fn layers_and_masks_with_pixels_far_apart_are_saved_without_them() {
+    let mut doc = document(8, 8);
+    let fmt = doc.pixel_format();
+    let far = [(-2_000_000_000, -2_000_000_000), (2_000_000_000, 2_000_000_000)];
+    let mut stray = Layer::raster("stray", fmt);
+    for (x, y) in far {
+        stray.surface_mut().unwrap().write_region(photocraft_geom::Rect::new(x, y, x + 1, y + 1), &[1.0, 0.0, 0.0, 1.0]);
+    }
+    let mut masked = Layer::raster("masked", fmt);
+    masked.surface_mut().unwrap().fill_rect(doc.bounds(), &[0.0, 0.0, 1.0, 1.0]);
+    let mut mask = LayerMask::hide_all();
+    for (x, y) in far {
+        mask.surface.write_region(photocraft_geom::Rect::new(x, y, x + 1, y + 1), &[1.0]);
+    }
+    masked.mask = Some(mask);
+    doc.layers.push(stray);
+    doc.layers.push(masked);
+    let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+    let records = file.layers();
+    assert_eq!(records[0].rect, PsdRect::default(), "the stray layer has no pixels");
+    assert!(warnings.iter().any(|w| w.starts_with("layer \"stray\": its pixels are scattered")), "{warnings:?}");
+    assert_eq!((records[1].rect.right, records[1].rect.bottom), (8, 8), "the masked layer keeps its pixels");
+    let MaskData::Mask(m) = &records[1].mask else { panic!("the masked layer keeps a mask") };
+    assert_eq!((m.rect, m.default_color), (PsdRect::default(), 0), "an empty hide-all mask");
+    assert!(warnings.iter().any(|w| w.starts_with("layer \"masked\": its mask's painted pixels are scattered")), "{warnings:?}");
+}
+
+/// Dense 16-bit pixels past the canvas are written in full, as they always were.
+#[test]
+fn dense_16_bit_layers_are_written_past_the_canvas() {
+    let mut doc = Document::new("dense", photocraft_geom::Size::new(256, 256), ColorMode::Rgb, SampleType::U16);
+    let fmt = doc.pixel_format();
+    let mut layer = Layer::raster("pano", fmt);
+    let r = photocraft_geom::Rect::new(-300, -100, 11_700, 11_900);
+    // Byte-repeated samples keep the encoded fixture small while gathering every pixel.
+    layer.surface_mut().unwrap().fill_rect(r, &[64.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0]);
+    doc.layers.push(layer);
+    let (file, warnings) = document_to_psd_with(&doc, &PsdExportOptions::default());
+    let bytes = file.to_bytes().unwrap();
+    let file = PsdFile::from_bytes(&bytes).unwrap();
+    let record = &file.layers()[0];
+    assert_eq!(record.rect, to_psd_rect(r), "{warnings:?}");
+    let red = record.channels.iter().find(|c| c.id == 0).unwrap().decode(12_000, 12_000, 16, file.header.version).unwrap();
+    assert_eq!(red.len(), 12_000 * 12_000 * 2);
+    assert!(red.as_chunks::<2>().0.iter().all(|v| u16::from_be_bytes(*v).abs_diff(0x4040) <= 1), "the original 16-bit red samples");
+}
+
+#[test]
+fn sparse_16_bit_layer_within_canvas_keeps_pixels_past_the_memory_budget() {
+    let mut doc = Document::new("sparse", photocraft_geom::Size::new(1536, 1536), ColorMode::Rgb, SampleType::U16);
+    let mut layer = Layer::raster("retouch", doc.pixel_format());
+    let points = [(0, 0), (1535, 1535)];
+    for (x, y) in points {
+        layer.surface_mut().unwrap().write_pixel(x, y, &[1.0, 0.0, 0.0, 1.0]);
+    }
+    doc.layers.push(layer);
+    let budget = 1 << 20;
+    assert!(doc.size.area() * 8 > budget / 2);
+    for force_psb in [false, true] {
+        let opts = PsdExportOptions { force_psb, ..Default::default() };
+        let (file, warnings) = document_to_psd_nested(&doc, &opts, 0, budget);
+        assert!(!warnings.iter().any(|w| w.contains("saved without its pixels")), "{warnings:?}");
+        assert_eq!(file.layers()[0].rect, to_psd_rect(doc.bounds()));
+        let bytes = file.to_bytes().unwrap();
+        let restored = crate::import("retouch.psd", &bytes).unwrap().document;
+        let surface = restored.layers[0].surface().unwrap();
+        for (x, y) in points {
+            assert_eq!(surface.rgba(x, y), [1.0, 0.0, 0.0, 1.0]);
+        }
+        assert_eq!(surface.rgba(768, 768), [0.0; 4]);
+    }
+}
