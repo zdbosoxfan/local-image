@@ -62,8 +62,8 @@ impl AppliedPreset {
 }
 
 /// The preset each photo was given, with its settings right after: the panel marks it while the
-/// photo still has exactly those settings, so it is still marked on coming back to the photo
-/// (issue #2392) and drops once the photo is edited further.
+/// photo still has exactly those settings, including after navigating away and back. A later
+/// edit discards the mark.
 #[derive(Clone, Default)]
 struct AppliedByPhoto {
     generation: u64,
@@ -103,6 +103,7 @@ impl AppliedByPhoto {
                 *then = now;
                 Some(preset.clone())
             } else {
+                map.photos.remove(&photo);
                 None
             }
         })
@@ -416,6 +417,21 @@ mod tests {
         let other = session.visible().iter().copied().find(|id| Some(*id) != active).unwrap();
         session.execute("library.select", &json!({"ids": [other.0]})).unwrap();
         assert!(!state.is_current(&session), "the preset belongs to the earlier selection");
+    }
+
+    #[test]
+    fn editing_a_photo_discards_its_preset_mark() {
+        let mut session = lightcraft_engine::Session::with_demo();
+        let context = egui::Context::default();
+        let preset = "lc.golden-hour";
+        session.execute("preset.apply", &json!({"id": preset})).unwrap();
+        AppliedByPhoto::remember(&context, &session, preset);
+        let photo = session.active();
+        assert_eq!(AppliedByPhoto::of(&context, &session, photo).as_deref(), Some(preset));
+        session.execute("develop.set", &json!({"control": "light.exposure", "value": 0.75})).unwrap();
+        assert_eq!(AppliedByPhoto::of(&context, &session, photo), None);
+        session.execute("edit.undo", &json!({})).unwrap();
+        assert_eq!(AppliedByPhoto::of(&context, &session, photo), None, "an evicted mark stays discarded on later frames");
     }
 
     #[test]
