@@ -316,9 +316,10 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
         && crate::channel_cmds::target_of(p) == crate::channel_cmds::Target::Pixels
         && s.active().and_then(|d| d.doc.layer(layer)).is_some_and(|l| matches!(&l.content, LayerContent::Smart(_)))
     {
-        crate::filters_ext::check_displace_embed(s, p)?;
+        crate::filters_ext::resolve_for_embedding(s, &mut fp, p)?;
+    } else {
+        crate::filters_ext::resolve(s, &mut fp, p)?;
     }
-    crate::filters_ext::resolve(s, &mut fp, p)?;
     let label = preset(id).map_or(fp.label(), |(name, _)| name).to_string();
     let msg = label.clone();
     let mut params = p.clone();

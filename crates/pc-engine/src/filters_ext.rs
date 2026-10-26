@@ -460,19 +460,24 @@ fn check_displace_embed_size(width: u32, height: u32) -> Result<()> {
     Ok(())
 }
 
-/// Check the embedding budget before allocating a dense map for a Smart Filter.
-pub(crate) fn check_displace_embed(s: &Session, p: &Value) -> Result<()> {
+/// Resolve a Smart Filter's map with its embedding budget checked before dense rendering.
+pub(crate) fn resolve_for_embedding(s: &Session, fp: &mut FilterParams, p: &Value) -> Result<()> {
+    let FilterParams::Displace { map, .. } = fp else { return Ok(()) };
+    if map.is_some() {
+        return Ok(());
+    }
     let layer = p.get("mapLayer").and_then(Value::as_u64);
     if let Some(path) = map_path(p) {
-        if layer.is_none() {
-            check_displace_embed_path(path)?;
-        }
-    } else if let Some(selector) = map_document(p) {
+        let img = map_for_embedding_from_path(path, layer)?;
+        *map = Some(Arc::new(img.ok_or_else(|| EngineError::Other("the displacement map is empty".into()))?));
+        return Ok(());
+    }
+    if let Some(selector) = map_document(p) {
         let doc = map_document_source(s, selector)?;
         let bounds = map_bounds(doc, layer.and_then(|id| doc.layer(photocraft_doc::LayerId(id))));
         check_displace_embed_size(bounds.width(), bounds.height())?;
     }
-    Ok(())
+    resolve(s, fp, p)
 }
 
 pub(crate) fn map_path(p: &Value) -> Option<&str> {
@@ -516,17 +521,23 @@ pub(crate) fn displace_settle(p: &mut Value) -> Result<()> {
     Ok(())
 }
 
-fn check_displace_embed_path(path: &str) -> Result<()> {
+fn map_for_embedding_from_path(path: &str, layer: Option<u64>) -> Result<Option<algo::Image>> {
     let bytes = crate::file_cmds::read_file(path).map_err(|e| EngineError::Other(format!("cannot read displacement map: {e}")))?;
-    if let Some(format) = photocraft_codecs::detect(&bytes) {
+    if layer.is_none()
+        && let Some(format) = photocraft_codecs::detect(&bytes)
+    {
         match photocraft_codecs::dimensions(format, &bytes) {
             Ok((width, height)) => check_displace_embed_size(width, height)?,
-            // Formats without a header probe retain the importer's own bounded decoder.
+            // Formats without a header probe are checked after the bounded import.
             Err(photocraft_codecs::CodecError::Unsupported { .. }) => {}
             Err(error) => return Err(EngineError::Other(format!("cannot inspect displacement map `{path}`: {error}"))),
         }
     }
-    Ok(())
+    let imported = photocraft_io::import(path, &bytes).map_err(|e| EngineError::Other(format!("cannot open displacement map `{path}`: {e}")))?;
+    let doc = &imported.document;
+    let bounds = map_bounds(doc, layer.and_then(|id| doc.layer(photocraft_doc::LayerId(id))));
+    check_displace_embed_size(bounds.width(), bounds.height())?;
+    Ok(map_from_document(doc, layer))
 }
 
 fn map_from_path(path: &str, layer: Option<u64>) -> Result<Option<algo::Image>> {

@@ -905,9 +905,8 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
             if let Some(gate) = authorize {
                 gate(&f.command, &request)?;
             }
-            crate::filters_ext::check_displace_embed(s, &request)?;
             let mut fp = crate::filters::params_for(&f.command, &request).ok_or_else(|| bad(CMD, "unreadable Displace settings"))?;
-            crate::filters_ext::resolve(s, &mut fp, &request)?;
+            crate::filters_ext::resolve_for_embedding(s, &mut fp, &request)?;
             match fp {
                 photocraft_algo::FilterParams::Displace { map, .. } => map,
                 _ => None,

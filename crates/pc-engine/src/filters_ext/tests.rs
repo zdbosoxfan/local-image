@@ -239,7 +239,10 @@ fn oversized_file_maps_are_rejected_before_dense_rendering() {
     let path = std::env::temp_dir().join(format!("pcraft-displace-layer-{}.pcraft", std::process::id()));
     std::fs::write(&path, bytes).unwrap();
     let s = session();
-    let results = [json!({"mapPath":path}), json!({"mapPath":path,"mapLayer":id})].map(|params| check_displace_embed(&s, &params));
+    let results = [json!({"mapPath":path}), json!({"mapPath":path,"mapLayer":id})].map(|params| {
+        let mut fp = params_for("filter.distort.displace", &params).unwrap();
+        resolve_for_embedding(&s, &mut fp, &params)
+    });
     std::fs::remove_file(path).unwrap();
     for result in results {
         let error = result.unwrap_err().to_string();
@@ -259,7 +262,7 @@ fn oversized_map_headers_are_rejected_before_pixel_decoding() {
     header[22..24].copy_from_slice(&8u16.to_be_bytes());
     header[24..26].copy_from_slice(&3u16.to_be_bytes());
     std::fs::write(&path, header).unwrap();
-    let error = check_displace_embed_path(path.to_str().unwrap()).unwrap_err().to_string();
+    let error = map_for_embedding_from_path(path.to_str().unwrap(), None).unwrap_err().to_string();
     std::fs::remove_file(path).unwrap();
     assert!(error.contains("16,777,216 pixels"), "{error}");
 }
