@@ -6,6 +6,8 @@
 
 mod detail;
 mod dialogs;
+#[cfg(test)]
+mod fixtures;
 mod list;
 
 use std::sync::{Arc, Mutex};
