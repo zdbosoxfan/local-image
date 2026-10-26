@@ -364,8 +364,11 @@ pub(crate) fn add_custom_with(
     }
     // Validate external paths before tract can load their weights.
     let bytes = external_data::inlined(src).map_err(tract_error)?;
-    let model = tract_onnx::onnx().model_for_read(&mut std::io::Cursor::new(&bytes)).map_err(tract_error)?;
-    let size = model_input_size(&model)?.unwrap_or(group.official().size);
+    let size = {
+        let model = tract_onnx::onnx().model_for_read(&mut std::io::Cursor::new(&bytes)).map_err(tract_error)?;
+        model_input_size(&model)?
+    }
+    .unwrap_or(group.official().size);
     let mut c = Custom {
         group,
         file: format!("{}-{}", group.key(), safe_name(&name)),
