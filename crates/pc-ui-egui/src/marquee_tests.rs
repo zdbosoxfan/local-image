@@ -269,6 +269,7 @@ fn fixed_size_selects_exactly_the_entered_size() {
             release_at(&mut h, 90.0, 90.0, Modifiers::NONE);
             let selected = selection(&h);
             assert_eq!((selected.width(), selected.height()), (w as u32, ht as u32), "{tool:?}: exact size");
+            assert_eq!(selected, Rect::new(90, 90, 90 + w, 90 + ht), "{tool:?}: dragged to the release point");
 
             // A click: the button goes down and up at one point.
             h.state_mut().run("select.deselect", json!({})).unwrap();
