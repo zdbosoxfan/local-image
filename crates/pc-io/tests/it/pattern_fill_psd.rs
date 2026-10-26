@@ -35,3 +35,37 @@ fn pattern_fill_keeps_its_pixels_in_psd_and_layered_tiff() {
         }
     }
 }
+
+#[test]
+fn vector_masked_pattern_fill_keeps_coverage_through_psd() {
+    let mut tile = Surface::new(PixelFormat::RGBA8);
+    tile.fill_rect(Rect::new(0, 0, 4, 4), &[0.2, 0.4, 0.6, 1.0]);
+    let pattern = Pattern::new("masked", tile, 4, 4);
+    for density in [1.0, 0.5] {
+        let mut doc = Document::new("masked pattern", Size::new(8, 8), ColorMode::Rgb, SampleType::U8);
+        doc.patterns.push(pattern.clone());
+        let mut layer = Layer::new(
+            "pattern",
+            LayerContent::Fill(Fill::Pattern { name: pattern.name.clone(), id: pattern.id.clone(), scale: 100.0, angle: 0.0, link: true, phase: (0.0, 0.0) }),
+        );
+        let mut mask = photocraft_doc::VectorMask::new(photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[
+            (2.0, 2.0),
+            (6.0, 2.0),
+            (6.0, 6.0),
+            (2.0, 6.0),
+        ])]));
+        mask.density = density;
+        layer.vector_mask = Some(mask);
+        let mut pixel_mask = photocraft_doc::LayerMask::reveal_all();
+        pixel_mask.surface.fill_rect(doc.bounds(), &[0.5]);
+        layer.mask = Some(pixel_mask);
+        doc.layers.push(layer);
+        let expected = photocraft_compose::flatten(&doc);
+        for _ in 0..2 {
+            let saved = photocraft_io::export(&doc, "masked.psd", &Default::default()).unwrap();
+            doc = photocraft_io::import("masked.psd", &saved.bytes).unwrap().document;
+            let actual = photocraft_compose::flatten(&doc);
+            assert!(crate::common::max_diff(&actual.px, &expected.px) <= 1.0 / 255.0, "density {density}: {:?} != {:?}", actual.px[0], expected.px[0]);
+        }
+    }
+}
