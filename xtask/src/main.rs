@@ -19,7 +19,8 @@
 //! cargo xtask upstream-check [--offline]
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
-//!     Clones go to target/upstream/ (blob-less); --offline skips fetching.
+//!     Clones go to target/upstream/ (blob-less); --offline skips cloning and fetching.
+//!     Reports checked and unchecked rows; any unchecked row makes the command fail.
 //! cargo xtask assets
 //!     audit asset attribution rows and referenced licence files.
 //! cargo xtask tool-icons
@@ -581,7 +582,7 @@ fn main() -> Result<()> {
         },
         Some("check-icons") => check_icons(&args.get(1).map(PathBuf::from).unwrap_or_else(|| root().join("packaging").join("windows").join("local-image.wxs"))),
         Some("deps-pure") => deps_pure(),
-        Some("upstream-check") => upstream_check(flag("--offline")),
+        Some("upstream-check") => upstream_check(&root(), flag("--offline")),
         Some("test-fast") => test_lane::fast(),
         Some("assets") => assets::run(&root()),
         Some("icons") => icons::run(&root()),
@@ -699,11 +700,30 @@ struct Port {
 fn upstream_repo(project: &str) -> Option<&'static str> {
     match project.to_ascii_lowercase().as_str() {
         "darktable" => Some("https://github.com/darktable-org/darktable"),
-        "rawtherapee" => Some("https://github.com/Beep6581/RawTherapee"),
+        "rawtherapee" => Some("https://github.com/RawTherapee/RawTherapee"),
         "art" => Some("https://github.com/artpixls/ART"),
         "vkdt" => Some("https://github.com/hanatos/vkdt"),
         "ansel" => Some("https://github.com/aurelienpierreeng/ansel"),
         "lightzone" => Some("https://github.com/ktgw0316/LightZone"),
+        "libraw" => Some("https://github.com/LibRaw/LibRaw"),
+        "exiftool" => Some("https://github.com/exiftool/exiftool"),
+        "make_arq" => Some("https://github.com/agriggio/make_arq"),
+        "splitmix64" => Some("https://github.com/svaarala/duktape"),
+        "darktable-ai" => Some("https://github.com/darktable-org/darktable-ai"),
+        "opencv" => Some("https://github.com/opencv/opencv"),
+        "lensfun" => Some("https://github.com/lensfun/lensfun"),
+        "photocraft" => Some("https://github.com/storytold/photocraft"),
+        "lightcraft" => Some("https://github.com/storytold/lightcraft"),
+        "vectorcraft" => Some("https://github.com/storytold/vectorcraft"),
+        "designcraft" => Some("https://github.com/storytold/designcraft"),
+        "visioncortex" => Some("https://github.com/visioncortex/visioncortex"),
+        "vtracer" => Some("https://github.com/visioncortex/vtracer"),
+        "ddcolor" => Some("https://github.com/piddnad/DDColor"),
+        "microsoft old-photo restoration" => Some("https://github.com/microsoft/Bringing-Old-Photos-Back-to-Life"),
+        "hayro" => Some("https://github.com/LaurenzV/hayro"),
+        "rawler" => Some("https://github.com/dnglab/dnglab"),
+        "rawspeed" => Some("https://github.com/darktable-org/rawspeed"),
+        "local image / lightcraft" | "local image / photocraft import" => Some("https://github.com/zdbosoxfan/local-image"),
         _ => None,
     }
 }
@@ -733,44 +753,64 @@ fn parse_ports(md: &str) -> Vec<Port> {
         let get = |i: usize| cells.get(i).cloned().unwrap_or_default();
         let commit = get(d);
         if commit.len() >= 7 && commit.chars().all(|ch| ch.is_ascii_hexdigit()) {
-            out.push(Port { ours: get(a), project: get(b), path: get(c), commit });
+            let project = get(b);
+            let project = attributions::first_link(&project).map_or(project, |(name, _)| name);
+            out.push(Port { ours: get(a), project, path: get(c), commit });
         }
     }
     out
 }
 
-fn upstream_check(offline: bool) -> Result<()> {
-    let md = std::fs::read_to_string(root().join("docs").join("PORTS.md")).context("docs/PORTS.md")?;
+fn upstream_check(root: &Path, offline: bool) -> Result<()> {
+    let md = std::fs::read_to_string(root.join("docs").join("PORTS.md")).context("docs/PORTS.md")?;
     let ports = parse_ports(&md);
     if ports.is_empty() {
         println!("docs/PORTS.md lists no ports with an upstream commit.");
         return Ok(());
     }
-    let cache = root().join("target").join("upstream");
+    let cache = root.join("target").join("upstream");
     std::fs::create_dir_all(&cache)?;
-    let mut fetched = std::collections::HashSet::new();
+    let mut fetched = std::collections::HashMap::new();
+    let mut checked = 0;
     let mut behind = 0;
     for p in &ports {
         let Some(url) = upstream_repo(&p.project) else {
             println!("? {} — unknown upstream project `{}`", p.ours, p.project);
             continue;
         };
-        let dir = cache.join(p.project.to_ascii_lowercase());
-        if fetched.insert(dir.clone()) && !offline {
-            let ok = if dir.join(".git").is_dir() {
-                Command::new("git").args(["-C"]).arg(&dir).args(["fetch", "--quiet", "--filter=blob:none", "origin"]).status()?.success()
+        let name = url.rsplit('/').next().expect("fixed upstream URLs have a repository name");
+        let dir = cache.join(name.to_ascii_lowercase());
+        if !offline {
+            let ok = if let Some(&ok) = fetched.get(&dir) {
+                ok
             } else {
-                Command::new("git").args(["clone", "--quiet", "--filter=blob:none", "--no-checkout", url]).arg(&dir).status()?.success()
+                let ok = if dir.join(".git").is_dir() {
+                    Command::new("git").args(["-C"]).arg(&dir).args(["fetch", "--quiet", "--filter=blob:none", "origin"]).status()?.success()
+                } else {
+                    Command::new("git").args(["clone", "--quiet", "--filter=blob:none", "--no-checkout", url]).arg(&dir).status()?.success()
+                };
+                fetched.insert(dir.clone(), ok);
+                ok
             };
             if !ok {
                 println!("! {}: could not fetch {url}", p.project);
                 continue;
             }
         }
+        // Git log succeeds with no matches even when a path does not exist at the pinned commit.
+        let source = Command::new("git")
+            .arg("-C")
+            .arg(&dir)
+            .args(["--literal-pathspecs", "ls-tree", "--name-only", &p.commit, "--", &p.path])
+            .output()?;
+        if !source.status.success() || source.stdout.is_empty() {
+            println!("! {} — cannot inspect {}:{} at {}: {}", p.ours, p.project, p.path, p.commit, String::from_utf8_lossy(&source.stderr).trim());
+            continue;
+        }
         let out = Command::new("git")
             .arg("-C")
             .arg(&dir)
-            .args(["log", "--format=%h %ad %s", "--date=short"])
+            .args(["--literal-pathspecs", "log", "--format=%h %ad %s", "--date=short"])
             .arg(format!("{}..origin/HEAD", p.commit))
             .args(["--", &p.path])
             .output()?;
@@ -778,6 +818,7 @@ fn upstream_check(offline: bool) -> Result<()> {
             println!("! {} — {}:{} at {}: {}", p.ours, p.project, p.path, p.commit, String::from_utf8_lossy(&out.stderr).trim());
             continue;
         }
+        checked += 1;
         let log = String::from_utf8_lossy(&out.stdout);
         let n = log.lines().count();
         if n == 0 {
@@ -790,7 +831,12 @@ fn upstream_check(offline: bool) -> Result<()> {
             }
         }
     }
-    println!("{} port(s), {behind} with upstream changes to review.", ports.len());
+    let unchecked = ports.len() - checked;
+    let summary = format!("{} port(s): {checked} checked, {unchecked} unchecked, {behind} with upstream changes to review.", ports.len());
+    println!("{summary}");
+    if unchecked != 0 {
+        bail!("Incomplete upstream check: {summary}");
+    }
     Ok(())
 }
 
@@ -817,6 +863,104 @@ mod tests {
             }]
         );
         assert!(upstream_repo("darktable").is_some() && upstream_repo("nope").is_none());
+    }
+
+    #[test]
+    fn linked_ports_resolve_to_their_upstream_repositories() {
+        let md = "| Our file | Upstream project | Upstream path | Upstream commit |\n|---|---|---|---|\n\
+| `a.rs` | [DaRkTaBlE](https://github.com/darktable-org/darktable) | `src/a.c` | `0123456789abcdef` |\n\
+| `b.rs` | [LensFun](https://github.com/lensfun/lensfun) (via the [`lensfun`](https://crates.io/crates/lensfun) crate) | `libs/b.cpp` | `0123456789abcdef` |\n\
+| `c.rs` | [PhotoCraft](https://github.com/storytold/photocraft) | `crates/c.rs` | `0123456789abcdef` |\n\
+| `d.rs` | [darktable](https://github.com/darktable-org/darktable) | `src/d.c` | (pending) |\n";
+        let ports = parse_ports(md);
+        assert_eq!(ports.len(), 3);
+        for (port, url) in
+            ports.iter().zip(["https://github.com/darktable-org/darktable", "https://github.com/lensfun/lensfun", "https://github.com/storytold/photocraft"])
+        {
+            assert_eq!(upstream_repo(&port.project), Some(url), "{}", port.project);
+        }
+    }
+
+    #[test]
+    fn upstream_check_reports_unchecked_rows() {
+        let dir = std::env::temp_dir().join(format!("li-upstream-unchecked-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(
+            dir.join("docs/PORTS.md"),
+            "| Our file | Upstream | Upstream path | Commit |\n|---|---|---|---|\n\
+| a.rs | unknown | a.c | 0123456789abcdef |\n\
+| b.rs | darktable | b.c | 0123456789abcdef |\n\
+| c.rs | darktable | c.c | (pending) |\n",
+        )
+        .unwrap();
+        let result = upstream_check(&dir, true);
+        std::fs::remove_dir_all(dir).unwrap();
+        let error = result.expect_err("unknown projects and missing offline caches must fail").to_string();
+        assert!(error.contains("0 checked, 2 unchecked"), "{error}");
+    }
+
+    #[test]
+    fn recorded_upstream_projects_are_supported() -> Result<()> {
+        let ports = parse_ports(&std::fs::read_to_string(root().join("docs/PORTS.md"))?);
+        assert!(!ports.is_empty());
+        for port in ports {
+            assert!(upstream_repo(&port.project).is_some(), "{}", port.project);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn upstream_check_counts_history_and_rejects_failed_fetches() -> Result<()> {
+        let dir = std::env::temp_dir().join(format!("li-upstream-history-{}", std::process::id()));
+        let cache = dir.join("target/upstream/darktable");
+        std::fs::create_dir_all(dir.join("docs"))?;
+        std::fs::create_dir_all(&cache)?;
+        let git = |args: &[&str]| {
+            let out = Command::new("git")
+                .arg("-C")
+                .arg(&cache)
+                .args(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        git(&["init", "--quiet"]);
+        std::fs::write(cache.join("changed.c"), "initial")?;
+        std::fs::write(cache.join("stable.c"), "stable")?;
+        git(&["add", "."]);
+        git(&["commit", "--quiet", "-m", "Initial source"]);
+        let commit = git(&["rev-parse", "HEAD"]);
+        std::fs::write(cache.join("changed.c"), "updated")?;
+        git(&["commit", "--quiet", "-am", "Update source"]);
+        git(&["update-ref", "refs/remotes/origin/HEAD", "HEAD"]);
+        git(&["remote", "add", "origin", dir.join("missing-origin").to_str().unwrap()]);
+        let complete = format!(
+            "| Our file | Upstream | Upstream path | Commit |\n|---|---|---|---|\n\
+| a.rs | [DaRkTaBlE](https://github.com/darktable-org/darktable) | changed.c | {commit} |\n\
+| b.rs | darktable | stable.c | {commit} |\n"
+        );
+        let mixed = format!(
+            "{complete}\
+| c.rs | unknown | source.c | {commit} |\n\
+| d.rs | vkdt | source.c | {commit} |\n\
+| e.rs | darktable | changed.c | 0000000000000000000000000000000000000000 |\n\
+| f.rs | darktable | missing.c | {commit} |\n\
+| g.rs | darktable | changed.c | (pending) |\n"
+        );
+        std::fs::write(dir.join("docs/PORTS.md"), mixed)?;
+        let mixed_result = upstream_check(&dir, true);
+        std::fs::write(dir.join("docs/PORTS.md"), complete)?;
+        let complete_result = upstream_check(&dir, true);
+        let fetch_result = upstream_check(&dir, false);
+        std::fs::remove_dir_all(dir)?;
+        let error = mixed_result.expect_err("incomplete history must fail").to_string();
+        assert!(error.contains("2 checked, 4 unchecked, 1 with upstream changes"), "{error}");
+        complete_result?;
+        let error = fetch_result.expect_err("a failed fetch must reject every row, even with cached history").to_string();
+        assert!(error.contains("0 checked, 2 unchecked"), "{error}");
+        Ok(())
     }
 
     #[test]
