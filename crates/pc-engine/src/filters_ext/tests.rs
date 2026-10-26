@@ -188,6 +188,21 @@ fn displace_reads_another_document() {
 }
 
 #[test]
+fn raster_displace_accepts_a_map_larger_than_the_smart_filter_embed_budget() {
+    let mut s = session();
+    let before = pixels(&s);
+    let history = s.active().unwrap().history.past_len();
+    let map = Document::new("large map", photocraft_geom::Size::new(1, (1 << 24) + 1), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
+    s.add_document(map, None);
+    s.set_active(0);
+    s.execute("filter.distort.displace", json!({"mapDocument":1,"horizontal":10,"vertical":0,"undefinedAreas":"wrap"})).unwrap();
+    assert_ne!(pixels(&s), before);
+    assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+    s.undo();
+    assert_eq!(pixels(&s), before);
+}
+
+#[test]
 fn displace_none_selectors_keep_the_embedded_map_and_real_requests_replace_it() {
     let image = algo::Image { rect: Rect::new(0, 0, 1, 1), ch: 1, data: vec![1.0] };
     let embedded = photocraft_io::smart_map::displace_embed_map(&json!({"horizontal":10,"vertical":0}), &image).unwrap();
