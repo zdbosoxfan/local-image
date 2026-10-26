@@ -241,36 +241,34 @@ fn poll_loop(s: Arc<Shared>) {
         let mut setup = s.status.lock().map(|x| x.setup.clone()).unwrap_or_default();
         let comfyui_version = stats.as_ref().map(li_ai::modelsetup::version_of).unwrap_or_default();
         let mut error = String::new();
-        let setup_versions =
-            (comfyui_version.clone(), stats.as_ref().and_then(|s| s["system"]["installed_templates_version"].as_str()).unwrap_or("").to_owned());
-        if connected
-            && (forced || !connected_before || setup_versions != last_setup_versions || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30)))
-        {
-            match ai.client.object_info() {
-                Ok(info) => {
-                    let settings = AiSettings::load();
-                    let opts = li_ai::modelsetup::Options::for_host(&host, (!settings.is_remote()).then(|| settings.model_dir()));
-                    if let Some(stats) = &stats {
-                        let snapshot = li_ai::modelsetup::Snapshot::from_parts(&host, stats, info.clone());
+        if let Some(stats) = &stats {
+            let mut snapshot = li_ai::modelsetup::Snapshot::from_parts(&host, stats, Default::default());
+            let setup_versions = (comfyui_version.clone(), snapshot.templates_version.clone());
+            if forced || !connected_before || setup_versions != last_setup_versions || last_inventory.is_none_or(|t| t.elapsed() > Duration::from_secs(30)) {
+                match ai.client.object_info() {
+                    Ok(info) => {
+                        let settings = AiSettings::load();
+                        let opts = li_ai::modelsetup::Options::for_host(&host, (!settings.is_remote()).then(|| settings.model_dir()));
+                        snapshot.info = info.clone();
                         let scan = li_ai::modelsetup::scan_snapshot(&opts, snapshot);
                         setup = li_ai::modelsetup::summary::summarise(Some(&scan.server), &catalog::catalog().models, Some(&comfyui_version));
-                    }
-                    li_ai::refine::checker().invalidate_changed_files();
-                    limits = info.sampler_limits();
-                    presets = catalog::presets()
-                        .iter()
-                        .map(|p| {
-                            (p.id(), {
-                                let a = catalog::availability(p, &info);
-                                if a.available { Ok(()) } else { Err(a.reason) }
+                        li_ai::refine::checker().invalidate_changed_files();
+                        limits = info.sampler_limits();
+                        presets = catalog::presets()
+                            .iter()
+                            .map(|p| {
+                                (p.id(), {
+                                    let a = catalog::availability(p, &info);
+                                    if a.available { Ok(()) } else { Err(a.reason) }
+                                })
                             })
-                        })
-                        .collect();
-                    object_info = Some(Arc::new(info));
-                    last_setup_versions = setup_versions;
-                    last_inventory = Some(Instant::now());
+                            .collect();
+                        object_info = Some(Arc::new(info));
+                        last_setup_versions = setup_versions;
+                        last_inventory = Some(Instant::now());
+                    }
+                    Err(e) => error = format!("{e:#}"),
                 }
-                Err(e) => error = format!("{e:#}"),
             }
         }
         if !connected {
