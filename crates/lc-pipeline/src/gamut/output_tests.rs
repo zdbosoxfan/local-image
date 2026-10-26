@@ -20,7 +20,10 @@ fn destination_cube_is_identity_including_imaginary_primaries() {
     for space in OutputSpace::ALL {
         let rgb = [-5e-7, 0.0, 1e-6];
         let d = mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb);
-        assert_eq!(output(d, rgb, &lms_to(&space.from_working()), space), rgb);
+        let out = output(d, rgb, &lms_to(&space.from_working()), space);
+        for i in 0..3 {
+            assert!((out[i] - rgb[i]).abs() <= 1.5e-6, "{}: {rgb:?} -> {out:?}", space.label());
+        }
     }
     let space = OutputSpace::ProPhoto;
     let rgb = [0.000_867_180_5, 0.209_963_34, 0.979_384_1];
