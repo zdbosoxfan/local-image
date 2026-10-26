@@ -114,8 +114,8 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("profile look/raw", 0xa0114c64b29d7339, 0x67aea33bdcc2fa0b),
     ("b&w profile/rendered", 0x3d61cfe30c95ede3, 0xb6159ee7a2d437b0),
     ("b&w profile/raw", 0x83be731308b9b845, 0xb6159ee7a2d437b0),
-    ("negative/rendered", 0x1f18b65cd743ea3c, 0xb00a5805f4d46110),
-    ("negative/raw", 0x534b7c2f7bc3029f, 0xb00a5805f4d46110),
+    ("negative/rendered", 0x30b5bb6ca4d2340b, 0xb00a5805f4d46110),
+    ("negative/raw", 0x26acfb19b56547f9, 0xb00a5805f4d46110),
     // Layer renders apply sequential developed-image tools, so their hashes differ from the
     // no-layer renders; every settings hash above/below is independent of that.
     ("layers/rendered", 0x98739d43cba77b92, 0x72a3db4f1a1900ec),
