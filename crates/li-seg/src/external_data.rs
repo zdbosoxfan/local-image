@@ -81,7 +81,6 @@ impl WeightsBoundary {
 struct CheckedWeights<'a> {
     path: PathBuf,
     file: std::fs::File,
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     boundary: &'a WeightsBoundary,
 }
 
@@ -120,12 +119,7 @@ impl<'a> CheckedWeights<'a> {
             path.display()
         );
         let file = li_fs::read::open_regular(&path, u64::MAX).with_context(|| format!("The model's weights file {} must be a regular file", path.display()))?;
-        Ok(Self {
-            path,
-            file,
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            boundary,
-        })
+        Ok(Self { path, file, boundary })
     }
 
     fn open(self) -> Result<std::fs::File> {
@@ -141,15 +135,16 @@ impl<'a> CheckedWeights<'a> {
             let path = rustix::fs::getpath(&self.file).context("Could not resolve the opened model weights")?;
             PathBuf::from(std::ffi::OsStr::from_bytes(path.as_bytes()))
         };
-        // Other targets (including experimental Windows) only recheck the path below,
+        let current = self.path.canonicalize()?;
+        // Other targets (including experimental Windows) only recheck the path,
         // leaving a swap window. Linux/macOS bind the boundary to the descriptor's path.
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+        let opened_path = &current;
         ensure!(
-            self.boundary.contains(&opened_path),
+            self.boundary.contains(opened_path.as_path()),
             "The opened model's weights file points to {}; it must be inside the model's folder or the same Hugging Face repository's blobs folder",
             opened_path.display()
         );
-        let current = self.path.canonicalize()?;
         ensure!(
             current == self.path,
             "The model's weights file {} changed while it was being opened; it now points to {}",
@@ -328,14 +323,8 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn opened_device_weights_are_refused() {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
         let boundary = WeightsBoundary { dir: PathBuf::from("/dev"), blobs: None };
-        let checked = CheckedWeights {
-            path: PathBuf::from("/dev/null"),
-            file: std::fs::File::open("/dev/null").unwrap(),
-            #[cfg(any(target_os = "linux", target_os = "macos"))]
-            boundary: &boundary,
-        };
+        let checked = CheckedWeights { path: PathBuf::from("/dev/null"), file: std::fs::File::open("/dev/null").unwrap(), boundary: &boundary };
         let error = checked.open().unwrap_err();
         assert!(format!("{error:#}").contains("regular file"), "{error:#}");
     }
