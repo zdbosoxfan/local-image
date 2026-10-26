@@ -206,6 +206,10 @@ impl std::error::Error for CustomModelError {}
 /// The model's square input size when the file fixes it (`None` when it is dynamic).
 pub fn input_size(path: &Path) -> Result<Option<usize>, CustomModelError> {
     let model = tract_onnx::onnx().model_for_path(path).map_err(|_| CustomModelError::Other(format!("Could not read {} as an ONNX model", path.display())))?;
+    model_input_size(&model)
+}
+
+fn model_input_size(model: &InferenceModel) -> Result<Option<usize>, CustomModelError> {
     let fact = model.input_fact(0).map_err(|_| CustomModelError::NoInput)?;
     let dim = |i: usize| fact.shape.dim(i).and_then(|d| d.concretize()).and_then(|d| d.to_i64().ok());
     if fact.shape.rank().concretize().is_some_and(|r| r != 4) {
@@ -357,7 +361,14 @@ pub(crate) fn add_custom_with(
     }
     // Validate external paths before tract can load their weights.
     let inlined = external_data::inlined(src).map_err(tract_error)?;
-    let size = input_size(src)?.unwrap_or(group.official().size);
+    let size = match &inlined {
+        Some(bytes) => {
+            let model = tract_onnx::onnx().model_for_read(&mut std::io::Cursor::new(bytes)).map_err(tract_error)?;
+            model_input_size(&model)?
+        }
+        None => input_size(src)?,
+    }
+    .unwrap_or(group.official().size);
     let mut c = Custom {
         group,
         file: format!("{}-{}", group.key(), safe_name(&name)),

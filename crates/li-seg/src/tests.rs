@@ -615,6 +615,88 @@ fn a_model_with_external_weights_is_copied_as_one_file() {
 }
 
 #[test]
+#[cfg(unix)]
+fn hf_snapshot_weights_are_imported_with_the_model() {
+    let dir = temp_models();
+    let s = 32usize;
+    let values: Vec<f32> = (0..s * s).map(|i| if i % s < s / 2 { 0.9 } else { 0.1 }).collect();
+    let weights: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+    for subfolder in ["", "onnx"] {
+        let repo = dir.join("hub/models--org--model");
+        let snapshot = repo.join("snapshots/revision").join(subfolder);
+        let blobs = repo.join("blobs");
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::create_dir_all(&blobs).unwrap();
+        std::fs::write(blobs.join("weights"), &weights).unwrap();
+        std::fs::write(blobs.join("model"), external_onnx(s as u64, &values, "model.onnx_data")).unwrap();
+        let prefix = if subfolder.is_empty() { "../../blobs" } else { "../../../blobs" };
+        std::os::unix::fs::symlink(format!("{prefix}/weights"), snapshot.join("model.onnx_data")).unwrap();
+        let src = snapshot.join("model.onnx");
+        std::os::unix::fs::symlink(format!("{prefix}/model"), &src).unwrap();
+        let c = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap();
+        assert_eq!(c.size, s);
+        std::fs::remove_dir_all(repo).unwrap();
+        let seg = crate::snapshot(Group::Subject, &dir).unwrap().segmenter().unwrap().unwrap();
+        let p = seg.predict(&synthetic(s, s), s, s).unwrap().unwrap();
+        assert!(p[s / 4] > 0.99 && p[s * 3 / 4] < 0.01, "{subfolder}: {} {}", p[s / 4], p[s * 3 / 4]);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn hf_snapshot_weights_cannot_escape_the_repository_blobs() {
+    let dir = temp_models();
+    let values = vec![0.5f32; 32 * 32];
+    for (name, target) in [
+        ("models--org--model", "models--other--model/blobs/weights"),
+        ("models--org--model", "models--org--model/blobs-extra/weights"),
+        ("models--org--model", "models--org--model/refs/weights"),
+        ("unrelated", "unrelated/blobs/weights"),
+        ("models--model", "models--model/blobs/weights"),
+    ] {
+        let hub = dir.join("hub");
+        let snapshot = hub.join(name).join("snapshots/revision/onnx");
+        let target = hub.join(target);
+        std::fs::create_dir_all(&snapshot).unwrap();
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(&target, b"x").unwrap();
+        if name == "models--org--model" && target == hub.join("models--other--model/blobs/weights") {
+            std::os::unix::fs::symlink(target.parent().unwrap(), hub.join(name).join("blobs")).unwrap();
+        }
+        std::os::unix::fs::symlink(&target, snapshot.join("weights")).unwrap();
+        let src = snapshot.join("model.onnx");
+        std::fs::write(&src, external_onnx(32, &values, "weights")).unwrap();
+        let error = add_custom(&dir, Group::Subject, &src, CustomOptions::default(), &keep).unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("must be inside the model's folder"), "{message}");
+        assert!(message.contains(&target.canonicalize().unwrap().display().to_string()), "{message}");
+        assert!(custom(&dir, Group::Subject).is_none());
+        assert!(!custom_dir(&dir).exists());
+        std::fs::remove_dir_all(hub).unwrap();
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+#[cfg(unix)]
+fn external_weights_links_inside_the_model_folder_are_imported() {
+    let dir = temp_models();
+    let values = vec![2.0f32; 32 * 32];
+    let src = picked_bytes(&dir, "model.onnx", &external_onnx(32, &values, "linked/weights-link"));
+    std::fs::create_dir_all(dir.join("picked/data")).unwrap();
+    std::fs::write(dir.join("picked/data/weights"), values.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    std::os::unix::fs::symlink("weights", dir.join("picked/data/weights-link")).unwrap();
+    std::os::unix::fs::symlink("data", dir.join("picked/linked")).unwrap();
+    std::os::unix::fs::symlink("picked", dir.join("model-folder")).unwrap();
+    let c = add_custom(&dir, Group::Depth, &dir.join("model-folder").join(src.file_name().unwrap()), CustomOptions::default(), &keep).unwrap();
+    assert_eq!(c.size, 32);
+    std::fs::remove_dir_all(dir.join("picked")).unwrap();
+    assert_eq!(input_size(&c.path(&dir)).unwrap(), Some(32));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn custom_depth_models_get_their_normalisation_and_output_direction() {
     let dir = temp_models();
     let s = 32usize;
