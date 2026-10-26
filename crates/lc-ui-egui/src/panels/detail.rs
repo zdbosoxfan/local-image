@@ -16,6 +16,13 @@ use crate::state::{BeforeAfter, RightPanel, Zoom};
 use crate::theme::Tokens;
 use crate::widgets::register;
 
+pub(crate) mod guided;
+mod pan;
+#[cfg(test)]
+mod tests_canvas_pan;
+#[cfg(test)]
+mod tests_guided_guides;
+
 /// An in-progress on-canvas gesture.
 #[derive(Clone, Debug)]
 pub enum Gesture {
@@ -62,6 +69,11 @@ pub enum Gesture {
     /// Guided Upright: a guide being drawn from `a` (normalized transformed coordinates).
     Guide {
         a: Point,
+    },
+    GuideEndpoint {
+        i: usize,
+        end: usize,
+        from: Pos2,
     },
     /// Red Eye: an ellipse being dragged from corner `a` (normalized).
     Eye {
@@ -205,6 +217,7 @@ fn animated_rect(ctx: &egui::Context, anim: &mut bool, target: Rect) -> Rect {
 }
 
 pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
+    guided::reconcile(app);
     let t = Tokens::get(ui.ctx());
     let full = ui.max_rect();
     let fullscreen = app.ui.fullscreen;
@@ -457,6 +470,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     register(ui.ctx(), "canvas:image", drawn);
     let map = CanvasMap::new(&frame, drawn);
     let resp = ui.interact(canvas, egui::Id::new("loupe"), Sense::click_and_drag());
+    let panning = pan::middle_pan(app, ui, &resp, canvas, img_rect);
     info_overlay(app, &p, canvas, &photo);
     if !fullscreen {
         filter_pill(app, ui, canvas);
@@ -487,6 +501,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     match right {
+        _ if panning => {}
         RightPanel::Crop => crop_overlay(app, ui, &resp, &map, &frame, &d, id),
         RightPanel::Edit | RightPanel::Masking
             if matches!(app.ui.tool.as_str(), "brush" | "linear" | "radial" | "object")
@@ -1057,10 +1072,10 @@ fn general_interaction(
     }
     if zoomed {
         // only over the photo: a panel drawn earlier (sliders) must keep its own cursor
-        if resp.dragged() || resp.hovered() {
-            ui.ctx().set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+        if resp.dragged_by(egui::PointerButton::Primary) || resp.hovered() {
+            ui.ctx().set_cursor_icon(if resp.dragged_by(egui::PointerButton::Primary) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
         }
-        if resp.dragged() {
+        if resp.dragged_by(egui::PointerButton::Primary) {
             let dlt = resp.drag_delta();
             app.ui.pan.0 = (app.ui.pan.0 - dlt.x / img.width()).clamp(0.0, 1.0);
             app.ui.pan.1 = (app.ui.pan.1 - dlt.y / img.height()).clamp(0.0, 1.0);
@@ -1073,7 +1088,7 @@ fn general_interaction(
 
 fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, frame: &Frame, d: &DevelopSettings, id: PhotoId) {
     if app.ui.tool == "guidedUpright" {
-        guided_overlay(app, ui, resp, map, frame, d);
+        guided::guided_overlay(app, ui, resp, map, frame, d, id);
         return;
     }
     if app.ui.tool == "straighten" {
@@ -1197,45 +1212,6 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         let _ = app.run("develop.endInteraction", json!({}));
     }
     let _ = id;
-}
-
-/// Guided Upright: draw up to four guides along lines that should be vertical or horizontal. Guides are
-/// stored in lens-corrected (pre-perspective) coordinates, so they stay attached to the image as it warps.
-fn guided_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, map: &CanvasMap, frame: &Frame, d: &DevelopSettings) {
-    let p = ui.painter_at(map.rect.expand(8.0));
-    let col = Color32::from_rgb(255, 196, 40);
-    let draw = |a: Pos2, b: Pos2| {
-        p.line_segment([a, b], Stroke::new(3.0, Color32::from_black_alpha(120)));
-        p.line_segment([a, b], Stroke::new(1.5, col));
-        for q in [a, b] {
-            p.circle_filled(q, 4.0, col);
-            p.circle_stroke(q, 4.0, Stroke::new(1.0, Color32::BLACK));
-        }
-    };
-    for (i, (a, b)) in d.geometry.guides.iter().enumerate() {
-        let (sa, sb) = (map.screen(frame.corrected_to_transformed(*a)), map.screen(frame.corrected_to_transformed(*b)));
-        register(ui.ctx(), format!("uprightGuide:{i}"), Rect::from_two_pos(sa, sb));
-        draw(sa, sb);
-    }
-    ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-    if resp.drag_started()
-        && let Some(q) = resp.interact_pointer_pos()
-    {
-        app.gesture = Some(Gesture::Guide { a: map.norm(q) });
-    }
-    if let (Some(Gesture::Guide { a }), Some(q)) = (&app.gesture, resp.interact_pointer_pos()) {
-        draw(map.screen(*a), q);
-    }
-    if resp.drag_stopped()
-        && let (Some(Gesture::Guide { a }), Some(q)) = (app.gesture.clone(), resp.interact_pointer_pos())
-    {
-        app.gesture = None;
-        let b = map.norm(q);
-        if a.dist(b) > 0.02 {
-            let (ca, cb) = (frame.transformed_to_corrected(a), frame.transformed_to_corrected(b));
-            let _ = app.run("geometry.guides", json!({"guides": [[ca.x, ca.y, cb.x, cb.y]], "add": true}));
-        }
-    }
 }
 
 /// Normalized oriented coords → the straightened (rotated) frame the crop rect lives in.

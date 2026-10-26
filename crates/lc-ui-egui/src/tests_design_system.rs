@@ -206,6 +206,80 @@ fn design_system_develop_screens() {
                 save(&flat, &format!("straighten-empty-{tag}"), Rect::from_min_size(pos2(0.0, 0.0), vec2(flat.size[0], flat.size[1])));
                 std::fs::remove_dir_all(directory).unwrap();
             }
+            for scale in [1.0, 1.5] {
+                let tag = format!("{tag}-{scale}ppp");
+                let mut h = setup(lightcraft_engine::Session::with_demo(), width, dark);
+                h.pixels_per_point = scale;
+                request(&mut h, "ui.key", json!({"key":"g", "shift":true}));
+                request(&mut h, "engine.execute", json!({"command":"geometry.guides", "params":{"guides":[[0.2,0.3,0.8,0.3],[0.2,0.7,0.8,0.7]]}}));
+                assert!(h.settle(T));
+                let guide = rect(&h, "uprightGuide:0").center();
+                request(&mut h, "ui.click", json!({"x":guide.x,"y":guide.y}));
+                let full = Rect::from_min_size(pos2(0.0, 0.0), h.size);
+                save(&h, &format!("guides-selected-{tag}"), full);
+
+                let photo = h.app.session.active().unwrap();
+                let target = egui::Id::new(("uprightGuide", photo.0, 1_usize));
+                for _ in 0..256 {
+                    if h.view.ctx.memory(|memory| memory.focused()) == Some(target) {
+                        break;
+                    }
+                    request(&mut h, "ui.key", json!({"key":"tab"}));
+                }
+                assert_eq!(h.view.ctx.memory(|memory| memory.focused()), Some(target), "guide keyboard focus");
+                request(&mut h, "ui.key", json!({"key":"space"}));
+                assert_eq!(h.app.ui.selected_guide, Some((photo.0, 1)));
+                save(&h, &format!("guides-keyboard-{tag}"), full);
+                request(&mut h, "ui.key", json!({"key":"Delete"}));
+                assert_eq!(h.app.session.develop_of(photo).unwrap().geometry.guides.len(), 1);
+                request(&mut h, "ui.key", json!({"key":"z","cmd":true}));
+                assert_eq!(h.app.session.develop_of(photo).unwrap().geometry.guides.len(), 2);
+                request(&mut h, "ui.click", json!({"x":guide.x,"y":guide.y}));
+                request(
+                    &mut h,
+                    "ui.pointer",
+                    json!({"events":[{"kind":"down","x":0.2,"y":0.3},{"kind":"drag","x":0.25,"y":0.4},{"kind":"up","x":0.25,"y":0.4}]}),
+                );
+                assert!(h.settle(T));
+                assert_eq!(h.app.ui.selected_guide, Some((photo.0, 0)));
+                save(&h, &format!("guides-endpoint-{tag}"), full);
+
+                request(
+                    &mut h,
+                    "engine.execute",
+                    json!({"command":"geometry.guides", "params":{"guides":[[0.25,0.02,0.25,0.98],[0.75,0.02,0.75,0.98]]}}),
+                );
+                h.app.ui.selected_guide = None;
+                assert!(h.settle(T));
+                save(&h, &format!("guides-contrast-{tag}"), full);
+
+                let mut pan = setup(lightcraft_engine::Session::with_demo(), width, dark);
+                pan.pixels_per_point = scale;
+                request(&mut pan, "engine.execute", json!({"command":"panel.remove"}));
+                request(&mut pan, "engine.execute", json!({"command":"view.zoom100"}));
+                assert!(pan.settle(T));
+                let at = pan.app.canvas_rect.unwrap().center();
+                pan.events.push(egui::Event::PointerMoved(at));
+                pan.events.push(egui::Event::PointerButton {
+                    pos: at,
+                    button: egui::PointerButton::Middle,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                pan.step();
+                pan.events.push(egui::Event::PointerMoved(at - vec2(80.0, 40.0)));
+                pan.step();
+                assert_eq!(pan.last_cursor, egui::CursorIcon::Grabbing);
+                pan.step();
+                save(&pan, &format!("middle-pan-{tag}"), Rect::from_min_size(pos2(0.0, 0.0), pan.size));
+                pan.events.push(egui::Event::PointerButton {
+                    pos: at - vec2(80.0, 40.0),
+                    button: egui::PointerButton::Middle,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                pan.step();
+            }
         }
     }
 }

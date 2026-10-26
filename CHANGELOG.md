@@ -24,6 +24,8 @@ All notable changes to Local Image are recorded here. The format follows
   proportion while Constrain proportions is on, or a Percent, and offers the Resample list Export
   As uses (Bicubic by default; the choice is remembered). A layered composite can go out at, say,
   2048 px without resizing the document. Each document opens the dialog at its own size.
+- Guided Upright guides can be selected, deleted individually, and adjusted by dragging endpoints.
+- Middle-button drags pan zoomed Develop photos without leaving the active tool.
 
 ### Changed
 

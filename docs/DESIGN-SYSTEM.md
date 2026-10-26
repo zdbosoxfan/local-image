@@ -70,9 +70,18 @@ default and a light palette supplied by the host (`Tokens.dark`).
 `separator`, `shadow`. Scopes: `histogram_bg`, `histogram_level` (use `histogram_color`, `scope_hue`).
 **Library** uses `chrome`, `canvas`, `grid_bg`, `inset`, `field`/`field_border`, `button`/`button_border`,
 `hover`, `pressed`, `tool_active`, `divider`, `text`/`text_label`/`text_dim`/`text_disabled`, `accent`,
-`caution`, and `overlay_bg`/`overlay_fg` for anything drawn over photo pixels (badges, scrims), which must
-read the same in light and dark chrome. Image data (a swatch's colour, mask black/white, the
-transparency checker) is content, not chrome, and may be literal.
+`caution`, and `overlay_bg`/`overlay_fg`/`overlay_guide` for anything drawn over photo pixels (badges,
+scrims, guides), which must read the same in light and dark chrome. Image data (a swatch's colour,
+mask black/white, the transparency checker) is content, not chrome, and may be literal.
+
+**Photo overlays.** `LibraryRoles::overlay_guide` (`overlay_guide` in the Library facade) is the
+amber guide role, RGB (255, 196, 40), fixed across themes. Unselected Upright guide lines and endpoints
+use it with an `overlay_bg` outline; selected guides retain `overlay_fg` and their larger handles.
+Check overlays against both light and dark photo areas, not just the canvas surround. Amber against
+`overlay_bg` (26, 26, 26) is 10.92:1; amber alone against white is only 1.59:1, so keep the dark outline
+(17.40:1 against white). The core or outline meets the 3:1 non-text contrast bar on the sampled light
+and dark photo areas. At 1.0 pixel per point, antialiasing reduces the amber core's contrast: on mid-grey
+(about RGB 92, 92, 92), both core and outline reach only about 2.6:1, below that bar.
 
 **Shape.** Radii: `radius_sm` / `radius` / `radius_lg` = Pro 3/4/6, Studio 6/8/12, Classic 0/0/0
 (`pc theme.rs:100`). Library: buttons and rows 4, windows and menus 6, swatch tile 3 (`SWATCH_RADIUS`),

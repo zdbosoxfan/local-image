@@ -52,6 +52,7 @@ pub struct Tokens {
     pub overlay_bg: Color32,
     pub overlay_fg: Color32,
     pub overlay_reject: Color32,
+    pub overlay_guide: Color32,
     // metrics (points)
     pub top_bar_h: f32,
     pub bottom_bar_h: f32,
@@ -102,6 +103,7 @@ impl From<li_ui_kit::theme::Tokens> for Tokens {
             overlay_bg: t.library.overlay_bg,
             overlay_fg: t.library.overlay_fg,
             overlay_reject: t.library.overlay_reject,
+            overlay_guide: t.library.overlay_guide,
             top_bar_h: t.library.metrics.top_bar_h,
             bottom_bar_h: t.library.metrics.bottom_bar_h,
             panel_w: t.library.metrics.panel_w,
@@ -151,6 +153,7 @@ impl From<Tokens> for li_ui_kit::theme::Tokens {
         t.library.overlay_bg = old.overlay_bg;
         t.library.overlay_fg = old.overlay_fg;
         t.library.overlay_reject = old.overlay_reject;
+        t.library.overlay_guide = old.overlay_guide;
         t.library.metrics.top_bar_h = old.top_bar_h;
         t.library.metrics.bottom_bar_h = old.bottom_bar_h;
         t.library.metrics.panel_w = old.panel_w;
