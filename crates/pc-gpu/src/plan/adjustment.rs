@@ -34,7 +34,8 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             let c = contrast.clamp(-100.0, 99.0);
             let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
             let (pre, post) = if c >= 0.0 { (brightness / 255.0, 0.0) } else { (0.0, brightness / 255.0) };
-            p[0] = [pre, k, adjust::LEGACY_PIVOT, post];
+            let pivot = if depth == photocraft_color::SampleType::F32 { 127.0 / 255.0 } else { adjust::LEGACY_PIVOT };
+            p[0] = [pre, k, pivot, post];
             (4, p, None)
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
@@ -113,6 +114,14 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             p[0] = matrix[0];
             p[1] = matrix[1];
             p[2] = matrix[2];
+            if depth == photocraft_color::SampleType::F32 {
+                for row in &mut p[..3] {
+                    for v in &mut row[..3] {
+                        *v = (*v * 1024.0).trunc() / 1024.0;
+                    }
+                    row[3] *= 255.0 / 512.0;
+                }
+            }
             p[3][0] = if *monochrome { 1.0 } else { 0.0 };
             (10, p, None)
         }

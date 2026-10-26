@@ -96,7 +96,14 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             let c = contrast.clamp(-100.0, 99.0);
             let k = if c >= 0.0 { 1.0 / (1.0 - c / 100.0) } else { 1.0 + c / 100.0 };
             let (pre, post) = if c >= 0.0 { (b, 0.0) } else { (0.0, b) };
-            map_rgb(buf, |px| px.map(|v| ((v + pre - LEGACY_PIVOT) * k + LEGACY_PIVOT + post).clamp(0.0, 1.0)))
+            let hdr = depth == Some(SampleType::F32);
+            let pivot = if hdr { 127.0 / 255.0 } else { LEGACY_PIVOT };
+            map_rgb(buf, |px| {
+                px.map(|v| {
+                    let out = (v + pre - pivot) * k + pivot + post;
+                    if hdr { out } else { out.clamp(0.0, 1.0) }
+                })
+            })
         }
         Adjustment::BrightnessContrast { brightness, contrast, .. } => {
             // Modern (CS3+) Brightness/Contrast: smooth curves that pin pure black and white (see
@@ -169,23 +176,38 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                 hsl_to_rgb(h, ns, l)
             })
         }
-        Adjustment::ChannelMixer { matrix, monochrome } => map_rgb(buf, |c| {
-            let mix = |row: &[f32; 4]| (row[0] * c[0] + row[1] * c[1] + row[2] * c[2] + row[3]).clamp(0.0, 1.0);
-            if *monochrome { [mix(&matrix[0]); 3] } else { [mix(&matrix[0]), mix(&matrix[1]), mix(&matrix[2])] }
-        }),
+        Adjustment::ChannelMixer { matrix, monochrome } => {
+            let hdr = depth == Some(SampleType::F32);
+            // Float source percentages truncate to 1/1024; constants count 255/512.
+            let m = if hdr {
+                matrix.map(|row| std::array::from_fn(|i| if i == 3 { row[i] * 255.0 / 512.0 } else { (row[i] * 1024.0).trunc() / 1024.0 }))
+            } else {
+                *matrix
+            };
+            map_rgb(buf, |c| {
+                let mix = |row: &[f32; 4]| {
+                    let out = row[0] * c[0] + row[1] * c[1] + row[2] * c[2] + row[3];
+                    if hdr { out } else { out.clamp(0.0, 1.0) }
+                };
+                if *monochrome { [mix(&m[0]); 3] } else { [mix(&m[0]), mix(&m[1]), mix(&m[2])] }
+            })
+        }
         Adjustment::PhotoFilter { color, density, preserve_luminosity } => {
             let linear_doc = depth == Some(SampleType::F32);
             let m = photo_filter_matrix(*color, *density, *preserve_luminosity && linear_doc);
             let set_lum = *preserve_luminosity && !linear_doc;
             map_rgb(buf, |c| {
-                let f = mat3_mul(&m, c.map(|v| transfer.decode(v))).map(|v| transfer.encode(v));
+                let f = if linear_doc { mat3_mul(&m, c) } else { mat3_mul(&m, c.map(|v| transfer.decode(v))).map(|v| transfer.encode(v)) };
                 let f = if set_lum { photocraft_color::blend::set_lum(f, photocraft_color::blend::lum(c)) } else { f };
-                f.map(|v| v.clamp(0.0, 1.0))
+                if linear_doc { f } else { f.map(|v| v.clamp(0.0, 1.0)) }
             })
         }
         Adjustment::BlackWhite { weights, tint } => map_rgb(buf, |c| {
             let g = black_white_gray(c, weights);
             match tint {
+                Some(t) if depth == Some(SampleType::F32) => {
+                    photocraft_color::blend::blend_rgb_within(photocraft_color::BlendMode::Color, [g; 3], *t, f32::MAX)
+                }
                 Some(t) => photocraft_color::blend::set_lum(*t, g).map(|v| v.clamp(0.0, 1.0)),
                 None => [g; 3],
             }

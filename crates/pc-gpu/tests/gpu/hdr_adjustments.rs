@@ -60,3 +60,34 @@ fn float_levels_and_exposure_match_cpu() {
         }
     }
 }
+
+#[test]
+fn float_colour_adjustments_match_cpu() {
+    let mut g = gpu();
+    let matrix = [[0.8, 0.3, -0.1, 0.0], [0.1, 0.9, 0.0, 0.05], [0.0, 0.2, 0.7, 0.0]];
+    let adjustments = [
+        Adjustment::BrightnessContrast { brightness: 25.0, contrast: 30.0, legacy: true },
+        Adjustment::BrightnessContrast { brightness: -23.0, contrast: -26.0, legacy: true },
+        Adjustment::ChannelMixer { matrix, monochrome: false },
+        Adjustment::ChannelMixer { matrix, monochrome: true },
+        Adjustment::PhotoFilter { color: [0.966_445_6, 0.761_806_3, 0.0], density: 0.4, preserve_luminosity: false },
+        Adjustment::PhotoFilter { color: [0.966_445_6, 0.761_806_3, 0.0], density: 0.4, preserve_luminosity: true },
+        Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint: Some([0.88235295, 0.827451, 0.7019608]) },
+    ];
+    for adj in adjustments {
+        for depth in [SampleType::F32, SampleType::U8, SampleType::U16] {
+            let mut doc = document();
+            doc.depth = depth;
+            if depth != SampleType::F32 {
+                let fmt = PixelFormat::new(ColorMode::Rgb, depth, true);
+                let surface = doc.layers[0].surface().unwrap().convert(fmt);
+                doc.layers[0].content = LayerContent::Raster(surface);
+            }
+            doc.layers.push(Layer::new("adjust", LayerContent::Adjustment(adj.clone())));
+            check(&mut g, &doc, "colour adjustment depth control");
+            doc.layers[1].clipped = true;
+            doc.layers[1].opacity = 0.5;
+            check(&mut g, &doc, "clipped colour adjustment");
+        }
+    }
+}
