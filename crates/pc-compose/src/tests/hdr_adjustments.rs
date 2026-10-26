@@ -150,3 +150,21 @@ fn float_photo_filter_applies_xyz_scaling_to_signed_linear_samples() {
         }
     }
 }
+
+#[test]
+fn float_black_white_caps_at_sixteen_and_integer_at_one() {
+    for tint in [None, Some([0.88235295, 0.827451, 0.7019608])] {
+        let adj = Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint };
+        for (value, want) in [(-0.5, 0.0), (2.0, 2.0), (20.0, 16.0)] {
+            let out = evaluate(&adj, [value, value, value, 0.375], SampleType::F32);
+            assert!((photocraft_color::blend::lum([out[0], out[1], out[2]]) - want).abs() < 3e-6, "{value}: {out:?}");
+            assert_eq!(out[3], 0.375);
+            if tint.is_none() {
+                assert_eq!(out[..3], [want; 3]);
+            }
+        }
+        for depth in [SampleType::U8, SampleType::U16] {
+            assert_eq!(evaluate(&adj, [2.0; 4], depth)[..3], [1.0; 3]);
+        }
+    }
+}

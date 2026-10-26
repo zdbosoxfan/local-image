@@ -203,7 +203,8 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
             })
         }
         Adjustment::BlackWhite { weights, tint } => map_rgb(buf, |c| {
-            let g = black_white_gray(c, weights);
+            let top = if depth == Some(SampleType::F32) { 16.0 } else { 1.0 };
+            let g = black_white_gray(c, weights).clamp(0.0, top);
             match tint {
                 Some(t) if depth == Some(SampleType::F32) => {
                     photocraft_color::blend::blend_rgb_within(photocraft_color::BlendMode::Color, [g; 3], *t, f32::MAX)
@@ -520,7 +521,7 @@ pub fn black_white_gray(c: [f32; 3], weights: &[f32; 6]) -> f32 {
     } else {
         5 // red + blue = magenta
     };
-    (min + (mid - min) * weights[secondary] / 100.0 + (max - mid) * weights[primary] / 100.0).clamp(0.0, 1.0)
+    min + (mid - min) * weights[secondary] / 100.0 + (max - mid) * weights[primary] / 100.0
 }
 
 /// Ordered-dither offset in -0.5..0.5 (4×4 Bayer matrix) for document pixel (x, y).

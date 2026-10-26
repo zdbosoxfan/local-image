@@ -72,6 +72,7 @@ fn float_colour_adjustments_match_cpu() {
         Adjustment::ChannelMixer { matrix, monochrome: true },
         Adjustment::PhotoFilter { color: [0.966_445_6, 0.761_806_3, 0.0], density: 0.4, preserve_luminosity: false },
         Adjustment::PhotoFilter { color: [0.966_445_6, 0.761_806_3, 0.0], density: 0.4, preserve_luminosity: true },
+        Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint: None },
         Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint: Some([0.88235295, 0.827451, 0.7019608]) },
     ];
     for adj in adjustments {
