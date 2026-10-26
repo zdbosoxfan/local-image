@@ -7,7 +7,7 @@ use super::*;
 /// Names: ready-identify/check/verify/use, blocked-check, verified-verify, failed-verify,
 /// needs-reverify-check, missing-node-check, unmatched-check, builtin-identify, partial-verify,
 /// ignored, other-files, running, move, download, template, offline, empty, new-identify,
-/// loading, task-error, companion-check.
+/// loading, task-error, companion-check, remote-check, generate, browser, preferences.
 pub fn snapshot_scene(scene: &str) -> Result<(), String> {
     let scan = fixtures::fixture();
     crate::ai_ui::TEST_STATUS.with(|status| {

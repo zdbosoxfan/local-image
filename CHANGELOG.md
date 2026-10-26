@@ -30,10 +30,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Changed
 
-- Set Up Models uses the Model Browser frame and neutral navigation with a fixed footer and
+- AI: Set Up Models uses the Model Browser frame and neutral navigation with a fixed footer and
   shared accessible status chips. Distinct-file counts, model names and singular forms agree
-  across the wizard, picker and preferences; test dates follow the interface language.
-
+  across the wizard, picker and preferences; test dates use the Library's format in the interface language.
 - AI: previously verified template models ask for one re-test after the recipe-hash change.
 - AI: model files are identified by their weights before their names; a name that points at a
   model generation no profile describes is no longer filed under an older family.

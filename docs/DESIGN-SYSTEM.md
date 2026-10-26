@@ -108,8 +108,8 @@ lazy system CJK source selection remain in their existing UI adapters.
 ## 3. Widget catalogue
 
 Editor widgets are PhotoCraft's (`widgets.rs`) except where marked new; library widgets are LightCraft's
-except where marked new. **New here** (not upstream): `icon_action`, `color_tile`, `status_chip`, `tag_chip`, `overlay_chip`, `status_icon`, `nav_row`,
-`color_swatch`, `range_strip`, `disclosure`, `image_badge`, `icon_button_as`.
+except where marked new. **New here** (not upstream): `icon_action`, `color_tile`, `status_chip`,
+`tag_chip`, `overlay_chip`, `status_icon`, `nav_row`, `color_swatch`, `range_strip`, `disclosure`, `image_badge`, `icon_button_as`.
 
 Rule of thumb: reach for these before touching `egui::Button`, `ui.checkbox` or `Painter` directly. Editor
 file `crates/pc-ui-egui/src/widgets.rs` (`pc`), library file `crates/lc-ui-egui/src/widgets.rs` (`lc`).
@@ -135,7 +135,7 @@ scrolling and saved menu tints stay with their established surfaces.
 | `toggle` | Switch for an immediate on/off setting | 346 |
 | `cpu_estimate` / `cpu_batch_estimate` | Shared CPU-AI preflight notices; hardware/tensor-sized estimate, theme warning/caution, interactive refusal vs cancellable batch warning | widgets.rs |
 | `checkbox` | The only checkbox: `widgets::checkbox(ui, &mut on, "Label")` | 705 |
-| `primary_button` / `secondary_button` | Filled main action / outlined action, `(ui, label, min_width)` | 375 / 380 |
+| `primary_button` / `secondary_button` (`_translated`) | Filled main action / outlined action, `(ui, label, min_width)`; the `_translated` aliases take text already translated by the caller | widgets.rs / li-ui-kit::widgets |
 | `dialog_buttons`, `DialogButton`, `ButtonRole` | Every modal's button row, in the platform's order (Default, Alternate, Cancel, Apply) | 435 / 414 / 387 |
 | `dropdown` | Compact choice list: `dropdown(ui, id, &mut cur, &[(v, "Label")], width)` | 570 |
 | `dropdown_with_tooltips` | Same, each option with a hint | 637 |
@@ -145,7 +145,7 @@ scrolling and saved menu tints stay with their established surfaces.
 | `swatch_popup` | Colour picker popup anchored to a swatch | 612 |
 | `icon_action` | Square footer/header icon button with accessible label and disabled-with-reason: `icon_action(ui, "plus", 24.0, "New Swatch", tip, None)` | 660 |
 | `nav_row` (new) | Full-width master-detail navigation row, minimum 26 pt high, growing to label height + 6 pt; 8 pt side insets, 16 pt icon box with 6 pt gap, 12.5 pt medium label and 11 pt trailing metadata. Neutral selected/hover fill, accent-border focus outline, focus on activation, optional icon tint, elision tooltip and accessible selection. Model Browser and Set Up Models share it; text is already translated | widgets/navigation.rs |
-| `status_chip` / `tag_chip` / `overlay_chip`, `status_icon`, `Tone` | Shared 16 pt minimum / 10.5 pt chip family, growing with font metrics and eliding with a tooltip. Preview badges use overlay roles; `Tone::ink` supplies every status icon and line. Small status pill: shape icon plus text in the tone's colour (`Neutral`, `Good` accent, `Warning`, `Danger`), named for accessibility; Set Up Models and the Generate model picker: `status_chip(ui, "circle-dashed", "Not tested", Tone::Neutral)` | widgets.rs |
+| `status_chip` / `tag_chip` / `overlay_chip`, `status_icon`, `Tone` | Shared 16 pt minimum / 10.5 pt chip family, growing with font metrics and eliding with a tooltip. Preview badges use overlay roles; `Tone::ink` supplies the shared status tones (`Neutral`, `Good` accent, `Warning`, `Danger`). Status icons and chips have accessible names. Used by Set Up Models, Model Browser and the Generate model picker: `status_chip(ui, "circle-dashed", "Not tested", Tone::Neutral)` | widgets/status.rs |
 | `color_control` | Named colour value; both the tile and label open the shared colour picker popup, with one combined anchor and accessibility labels | 699 |
 | `color_tile` | Paint a colour value (checkerboard under alpha, `radius_sm`, outline). Paint only; owner supplies click and name | 679 |
 | `checker` | Transparency checkerboard | 690 |
