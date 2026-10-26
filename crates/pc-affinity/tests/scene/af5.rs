@@ -509,3 +509,164 @@ fn frame_text_outlines_follow_the_independent_type_scale() {
         }
     }
 }
+
+fn groups(mut node: F, count: usize) -> F {
+    for _ in 0..count {
+        node = F::Obj(tag(b"Grup"), vec![(tag(b"Chld"), F::Shared(vec![node]))]);
+    }
+    node
+}
+fn cached_embedded(entry: &str, size: i32) -> F {
+    let mut node = embedded(entry);
+    let F::Obj(_, fields) = &mut node else { panic!() };
+    let F::Obj(_, bitmap) = &mut fields.iter_mut().find(|(key, _)| *key == tag(b"Bitm")).unwrap().1 else { panic!() };
+    let pixels = bitmap_fixture(size, 0, &[2, 0, 0, 2]);
+    bitmap.push((tag(b"Cach"), pixels));
+    bitmap.push((tag(b"ChBB"), F::F64s(vec![0., 0., size as f64, size as f64])));
+    node
+}
+fn bitmap_fixture(size: i32, format: u16, values: &[u8]) -> F {
+    let F::Obj(_, mut fields) = bitmap(size, size, format, values) else { panic!() };
+    fields.pop().unwrap().1
+}
+#[test]
+fn masks_decode_only_the_covered_content_and_hide_nonoverlap() {
+    for attached in [true, false] {
+        for x in [0., 100.] {
+            let mask = F::Obj(tag(b"MRst"), vec![(tag(b"Bitm"), bitmap_fixture(256, 6, &[2])), (tag(b"Xfrm"), F::F64s(vec![1., 0., x, 0., 1., 0.]))]);
+            let mut shape = curve();
+            let F::Def(_, _, fields) = &mut shape else { panic!() };
+            fields.push((tag(b"Xfrm"), F::F64s(vec![0.1, 0., 0., 0., 0.1, 0.])));
+            fields.push((tag(if attached { b"AdCh" } else { b"Chld" }), F::Shared(vec![mask])));
+            let bytes = container(vec![shape], vec![], None, &[]);
+            let doc = photocraft_affinity::read(&bytes, Limits { max_pixels: 36, ..Default::default() }).unwrap();
+            let mask = doc.spreads[0].nodes[0].pixel_mask.as_ref().unwrap();
+            if x == 0. {
+                assert_eq!((mask.width, mask.height), (6, 6));
+                let model::Pixels::Rgba8(pixels) = &mask.pixels else { panic!() };
+                assert!(pixels.as_chunks::<4>().0.iter().all(|p| *p == [255; 4]));
+            } else {
+                assert_eq!((mask.width, mask.height), (1, 1));
+                assert_eq!(mask.pixels, model::Pixels::Rgba8(vec![0, 0, 0, 255]));
+            }
+        }
+    }
+}
+#[test]
+fn over_budget_masks_and_cached_pictures_warn_and_keep_sibling_pixels() {
+    let mask = F::Obj(tag(b"MRst"), vec![(tag(b"Bitm"), bitmap_fixture(16, 6, &[2]))]);
+    let mut shape = curve();
+    let F::Def(_, _, fields) = &mut shape else { panic!() };
+    fields.push((tag(b"AdCh"), F::Shared(vec![mask])));
+    let bytes = container(vec![shape, cached_embedded("", 16), bitmap(2, 2, 0, &[2, 0, 0, 2])], vec![], None, &[]);
+    let doc = photocraft_affinity::read(&bytes, Limits { max_pixels: 16, ..Default::default() }).unwrap();
+    assert!(doc.spreads[0].nodes[0].pixel_mask.is_none());
+    assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Unsupported));
+    assert!(matches!(doc.spreads[0].nodes[2].kind, model::Kind::Image(_)));
+    assert!(doc.warnings.iter().any(|w| w.contains("pixel mask") && w.contains("limit")));
+    assert!(doc.warnings.iter().any(|w| w.contains("cached picture") && w.contains("limit")));
+}
+#[test]
+fn embedded_document_chains_share_the_layer_depth_limit() {
+    let mut inner = container(vec![groups(curve(), 3)], vec![], None, &[]);
+    for _ in 0..3 {
+        let mut data = b"EmDc\0\0\0\0".to_vec();
+        data.extend(inner);
+        inner = container(vec![groups(embedded("inner"), 3)], vec![], None, &[("inner", &data, Method::Zlib)]);
+    }
+    let mut options = ImportOptions::default();
+    options.limits.depth = 10;
+    assert_eq!(import(&inner, &options), Err(Error::Limit("layer depth")));
+}
+#[test]
+fn embedded_streams_use_the_stream_depth_policy() {
+    let inner = container(vec![groups(curve(), 8)], vec![], None, &[]);
+    let mut data = b"EmDc\0\0\0\0".to_vec();
+    data.extend(inner);
+    let bytes = container(vec![embedded("inner")], vec![], None, &[("inner", &data, Method::Zlib)]);
+    let mut options = ImportOptions::default();
+    options.limits.depth = 12;
+    let scene = import(&bytes, &options).unwrap();
+    assert_eq!(walk(&scene.layers).iter().filter(|l| matches!(l.content, LayerContent::Shape(_))).count(), 1);
+    assert!(!scene.warnings.iter().any(|w| w.message.contains("could not be read")));
+}
+#[test]
+fn dpi_scaled_oversized_effects_warn_and_keep_the_artwork() {
+    for (radius, offset, dpi) in [(600., 0., 72.), (100., 30., 300.)] {
+        let mut shape = curve();
+        let F::Def(_, _, fields) = &mut shape else { panic!() };
+        fields.push((
+            tag(b"FiEf"),
+            F::Shared(vec![F::Obj(
+                tag(b"Shad"),
+                vec![
+                    (tag(b"Colr"), F::Obj(tag(b"RGBA"), vec![(tag(b"_col"), F::Struct([0f32, 0., 0., 1.].into_iter().flat_map(f32::to_le_bytes).collect()))])),
+                    (tag(b"Radi"), F::F64(radius)),
+                    (tag(b"Offs"), F::F64(offset)),
+                ],
+            )]),
+        ));
+        let scene = import(&document(vec![shape]), &ImportOptions { dpi, ..Default::default() }).unwrap();
+        let layers = walk(&scene.layers);
+        assert!(layers.iter().any(|l| matches!(l.content, LayerContent::Shape(_))));
+        assert!(scene.warnings.iter().any(|w| w.feature == "effect-limit"));
+        for effect in layers.iter().flat_map(|l| &l.effects.items) {
+            if let photocraft_doc::effects::Effect::DropShadow(shadow) = effect {
+                assert!(shadow.size + shadow.distance <= 512.);
+            }
+        }
+    }
+}
+#[test]
+fn unreadable_embedded_documents_fall_back_to_the_cached_picture() {
+    for data in [b"EmDc\0\0\0\0\0\xffKA".to_vec(), b"unrecognized embedded data".to_vec()] {
+        let bytes = container(vec![cached_embedded("inner", 2), curve()], vec![], None, &[("inner", &data, Method::Zlib)]);
+        let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
+        assert!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Image(_)));
+        assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Shape { .. }));
+        assert!(doc.warnings.iter().any(|w| w.contains("embedded document") && w.contains("could not be read")));
+    }
+}
+#[test]
+fn absent_and_non_cmyk_profile_data_use_the_coated_fallback() {
+    let reference = import(&container(vec![bitmap(2, 2, 4, &[2, 0, 0, 0, 2])], vec![], None, &[]), &ImportOptions::default()).unwrap();
+    let expected = walk(&reference.layers).iter().find_map(|l| l.surface()).unwrap().rgba(0, 0);
+    let rgb = photocraft_cms::Builtin::Srgb.profile().to_bytes().as_ref().clone();
+    let no_data = F::Obj(tag(b"Prof"), vec![]);
+    let mut blob = vec![0x2d];
+    blob.extend(tag(b"Data").0.to_le_bytes());
+    blob.extend((rgb.len() as u32).to_le_bytes());
+    blob.extend(rgb);
+    for profile in [no_data, F::Obj(tag(b"Prof"), vec![(tag(b"Data"), F::Raw(blob))])] {
+        let mut root = vec![
+            (tag(b"CMYP"), profile),
+            (
+                tag(b"DocR"),
+                F::Obj(
+                    tag(b"DocN"),
+                    vec![(
+                        tag(b"Chld"),
+                        F::Shared(vec![F::Obj(
+                            tag(b"Sprd"),
+                            vec![
+                                (tag(b"SprB"), F::F64s(vec![0., 0., 64., 64.])),
+                                (tag(b"SprT"), F::Bool(true)),
+                                (tag(b"Chld"), F::Shared(vec![bitmap(2, 2, 4, &[2, 0, 0, 0, 2])])),
+                            ],
+                        )]),
+                    )],
+                ),
+            ),
+        ];
+        let mut next = 10000;
+        for (_, value) in &mut root {
+            text_fixture::shared_objects(value, &mut next);
+        }
+        let stream = synth::stream(&root);
+        let bytes = synth::container(&[("doc.dat", &stream, Method::Zlib)], None);
+        let scene = import(&bytes, &ImportOptions::default()).unwrap();
+        let actual = walk(&scene.layers).iter().find_map(|l| l.surface()).unwrap().rgba(0, 0);
+        assert_eq!(actual, expected);
+        assert!(scene.warnings.iter().any(|w| w.message.contains("profile") && w.message.contains("built-in coated")));
+    }
+}
