@@ -295,6 +295,8 @@ pub struct Document {
 const MAX_TREE_DEPTH: usize = 128;
 /// Total layer nodes imported.
 const MAX_NODES: usize = 500_000;
+const MAX_CHILD_SLOTS: usize = 8_000_000;
+const MAX_NAME_BYTES: usize = 64 << 20;
 
 /// Read a document: archive, `doc.dat` and the model.
 pub fn read(bytes: &[u8], limits: Limits) -> Result<Document, Error> {
@@ -313,6 +315,8 @@ pub(crate) struct Reader<'s, 'a, 'b> {
     pub(crate) dpi: f64,
     warnings: BTreeMap<String, usize>,
     nodes: usize,
+    child_slots: usize,
+    name_bytes: usize,
     active: HashSet<ObjId>,
     pub(crate) segments: usize,
     pub(crate) pixels: u64,
@@ -322,7 +326,34 @@ pub(crate) struct Reader<'s, 'a, 'b> {
 
 impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
     pub(crate) fn new(s: &'s Stream, archive: &'b mut Archive<'a>) -> Self {
-        Self { s, archive, dpi: 72.0, warnings: BTreeMap::new(), nodes: 0, active: HashSet::new(), segments: 0, pixels: 0, failure: None, owned: 0 }
+        Self {
+            s,
+            archive,
+            dpi: 72.0,
+            warnings: BTreeMap::new(),
+            nodes: 0,
+            child_slots: 0,
+            name_bytes: 0,
+            active: HashSet::new(),
+            segments: 0,
+            pixels: 0,
+            failure: None,
+            owned: 0,
+        }
+    }
+
+    /// Shared arrays are scanned per occurrence, including slots that produce no nodes.
+    pub(crate) fn charge_slots(&mut self, count: usize) -> bool {
+        if let Err(error) = crate::import::cancelled(self.archive.cancel) {
+            self.failure = Some(error);
+            return false;
+        }
+        self.child_slots = self.child_slots.saturating_add(count);
+        if self.child_slots > MAX_CHILD_SLOTS {
+            self.failure = Some(Error::Limit("array traversal slots"));
+            return false;
+        }
+        true
     }
 
     pub(crate) fn charge_owned(&mut self, bytes: usize) -> bool {
@@ -427,6 +458,9 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         let s = self.s;
         let mut out = Vec::new();
         let mut mask = None;
+        if !self.charge_slots(s.array_len(parent, b"Chld")) {
+            return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
+        }
         for c in s.objs(parent, b"Chld") {
             crate::import::cancelled(self.archive.cancel)?;
             if s.is(c, b"MRst") {
@@ -478,6 +512,10 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         if !self.charge_owned(source_name.len().saturating_add(std::mem::size_of::<Node>())) {
             return Err(self.failure.unwrap_or(Error::Limit("layer allocation")));
         }
+        self.name_bytes = self.name_bytes.saturating_add(source_name.len());
+        if self.name_bytes > MAX_NAME_BYTES {
+            return Err(Error::Limit("layer names too large"));
+        }
         let name = source_name.to_string();
         let visible = s.bool(id, b"Visi").unwrap_or(true);
         let locked = s.bool(id, b"Edtb").is_some_and(|e| !e);
@@ -506,6 +544,9 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         }
         let pixel_mask = attached_mask.or(child_mask);
         self.active.remove(&id);
+        if !self.charge_slots(s.array_len(id, b"FiEf")) {
+            return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
+        }
         if s.objs(id, b"FiEf").iter().any(|e| s.bool(*e, b"Enab") != Some(false)) {
             self.warn("layer effects (shadows, glows, outlines, bevels…)");
         }
@@ -588,6 +629,9 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
     /// an attached mask layer is a pixel mask. Adjustments attached the same way are reported.
     fn attached_masks(&mut self, id: ObjId, world: Affine) -> Result<(Option<Path>, Option<Image>), Error> {
         let s = self.s;
+        if !self.charge_slots(s.array_len(id, b"AdCh")) {
+            return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
+        }
         let attached = s.objs(id, b"AdCh");
         let mut mask: Option<Path> = None;
         let mut pixels: Option<Image> = None;

@@ -242,10 +242,14 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
     let height = s.int(bitmap, b"BmpH").and_then(|v| usize::try_from(v).ok()).unwrap_or(0);
     let tw = s.int(bitmap, &tag(b"TWi", c)).and_then(|v| usize::try_from(v).ok()).unwrap_or_else(|| (width * bps).div_ceil(TILE));
     let th = s.int(bitmap, &tag(b"THi", c)).and_then(|v| usize::try_from(v).ok()).unwrap_or_else(|| height.div_ceil(TILE));
-    let states: Vec<u8> = match s.field(bitmap, &tag(b"Sta", c)) {
-        Some(Value::Array(a)) => a.iter().map(|v| if let Value::UInt(u) = v { u8::try_from(*u).unwrap_or(255) } else { 255 }).collect(),
-        _ => Vec::new(),
+    // Borrow shared state arrays; only the declared tile grid is visited.
+    let states: &[Value] = match s.field(bitmap, &tag(b"Sta", c)) {
+        Some(Value::Array(a)) => a,
+        _ => &[],
     };
+    if !r.charge_slots(s.array_len(bitmap, &tag(b"Idx", c))) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
     let tiles = s.objs(bitmap, &tag(b"Idx", c));
     let row = (w as usize) * bps;
     let mut out = vec![0u8; row * h as usize];
@@ -255,6 +259,7 @@ fn plane(r: &mut Reader, bitmap: ObjId, c: usize, bps: usize, (x0, y0, w, h): (u
     for (t, state) in states.iter().enumerate().take(tw.saturating_mul(th)) {
         crate::import::cancelled(r.archive.cancel)?;
         let (ty, tx) = (t / tw.max(1), t % tw.max(1));
+        let state = if let Value::UInt(u) = state { u8::try_from(*u).unwrap_or(255) } else { 255 };
         let fill = match state {
             0 | 1 => None,
             2 => Some(0xFF),

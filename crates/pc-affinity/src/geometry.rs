@@ -107,6 +107,9 @@ fn outline_inner(r: &mut Reader, id: ObjId, class: Tag, world: Affine, budget: &
             // matches add and subtract operands in every public sample; a true union of overlapping
             // added operands would differ.
             let mut path = Path::default();
+            if !r.charge_slots(s.array_len(id, b"Chld")) {
+                return None;
+            }
             for c in s.objs(id, b"Chld") {
                 let local = s.floats::<6>(c, b"Xfrm").map(Affine::from_xfrm).unwrap_or(Affine::IDENTITY);
                 let class = s.class(c)?;
@@ -240,7 +243,11 @@ fn anchors(records: &[Value]) -> Option<Vec<Anchor>> {
 fn subpath(anchors: &[Anchor], closed: bool, radii: Option<&Vec<(usize, f64)>>) -> Option<SubPath> {
     let first = anchors.first()?;
     if let Some(radii) = radii.filter(|r| !r.is_empty()) {
-        let corner = |a: &Anchor| radii.iter().filter(|(rec, _)| *rec == a.record).map(|(_, r)| *r).fold(0.0, f64::max);
+        let mut by_record = std::collections::HashMap::<usize, f64>::new();
+        for &(record, radius) in radii {
+            by_record.entry(record).and_modify(|r| *r = r.max(radius)).or_insert(radius.max(0.0));
+        }
+        let corner = |a: &Anchor| by_record.get(&a.record).copied().unwrap_or(0.0);
         let polyline = anchors.iter().all(|a| a.inh.is_none_or(|h| h == a.p) && a.out.is_none_or(|h| h == a.p));
         if polyline {
             let mut pts: Vec<(Point, f64)> = anchors.iter().map(|a| (a.p, corner(a))).collect();
@@ -278,4 +285,26 @@ fn corner_radii(fields: Vec<&Value>) -> Option<Vec<(usize, f64)>> {
             })
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn live_corners_keep_the_largest_duplicate_and_scale_linearly() {
+        let anchors = [
+            Anchor { p: Point { x: 0., y: 0. }, inh: None, out: None, record: 0 },
+            Anchor { p: Point { x: 10., y: 0. }, inh: None, out: None, record: 1 },
+            Anchor { p: Point { x: 10., y: 10. }, inh: None, out: None, record: 2 },
+        ];
+        assert_eq!(subpath(&anchors, false, Some(&vec![(1, 1.), (1, 3.), (1, 2.)])), subpath(&anchors, false, Some(&vec![(1, 3.)])));
+        let anchors: Vec<_> = (0..200_000).map(|i| Anchor { p: Point { x: i as f64, y: 0. }, inh: None, out: None, record: i }).collect();
+        let radii = (0..200_000).map(|i| (i, 1.)).collect();
+        let start = std::time::Instant::now();
+        let path = subpath(&anchors, false, Some(&radii)).unwrap();
+        assert_eq!(path.start, anchors[0].p);
+        assert_eq!(path.segments.last().unwrap()[2], anchors.last().unwrap().p);
+        assert!(start.elapsed().as_secs() < 10, "live-corner lookup took {:?}", start.elapsed());
+    }
 }

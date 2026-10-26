@@ -76,12 +76,48 @@ pub struct Object {
     /// Class chain, most derived first (`ShpN`, `VNod`, `Node`).
     pub chain: Vec<Tag>,
     /// Fields in stream order; positional fields have tag 0.
-    pub fields: Vec<(Tag, Value)>,
+    fields: Vec<(Tag, Value)>,
+    index: std::collections::HashMap<Tag, (usize, usize)>,
 }
 
 impl Object {
+    pub fn new(class: Tag, kind: Kind, chain: Vec<Tag>, fields: Vec<(Tag, Value)>) -> Self {
+        let mut object = Self { class, kind, chain, fields: Vec::new(), index: std::collections::HashMap::new() };
+        object.set_fields(fields);
+        object
+    }
+
+    pub fn fields(&self) -> &[(Tag, Value)] {
+        &self.fields
+    }
+
     pub fn get(&self, tag: Tag) -> Option<&Value> {
-        self.fields.iter().find(|(t, _)| *t == tag).map(|(_, v)| v)
+        if self.fields.len() <= 32 {
+            self.fields.iter().find(|(t, _)| *t == tag).map(|(_, v)| v)
+        } else {
+            self.index.get(&tag).and_then(|&(first, _)| self.fields.get(first)).map(|(_, v)| v)
+        }
+    }
+
+    pub(crate) fn get_last(&self, tag: Tag) -> Option<&Value> {
+        if self.fields.len() <= 32 {
+            self.fields.iter().rev().find(|(t, _)| *t == tag).map(|(_, v)| v)
+        } else {
+            self.index.get(&tag).and_then(|&(_, last)| self.fields.get(last)).map(|(_, v)| v)
+        }
+    }
+
+    fn set_fields(&mut self, fields: Vec<(Tag, Value)>) {
+        self.index.clear();
+        // Most objects are small. Index large ones by distinct non-positional tags only.
+        if fields.len() > 32 {
+            for (i, (tag, _)) in fields.iter().enumerate() {
+                if tag.0 != 0 {
+                    self.index.entry(*tag).and_modify(|(_, last)| *last = i).or_insert((i, i));
+                }
+            }
+        }
+        self.fields = fields;
     }
 }
 
@@ -134,10 +170,10 @@ pub fn parse_with<'a>(bytes: &'a [u8], limits: crate::Limits, cancel: Option<&'a
         c.u32()?;
     }
     let mut p = Parser { c, objects: Vec::new(), shared: std::collections::HashMap::new(), depth: 0, values: 0, limits, cancel };
-    let root = p.push(Object { class, kind: Kind::Root, chain: vec![class], fields: Vec::new() })?;
+    let root = p.push(Object::new(class, Kind::Root, vec![class], Vec::new()))?;
     let fields = p.fields(true, class)?;
     if let Some(o) = p.objects.get_mut(root) {
-        o.fields = fields;
+        o.set_fields(fields);
     }
     Ok(Stream { root, objects: p.objects })
 }
@@ -267,7 +303,7 @@ impl Parser<'_> {
             }
             0x30 => {
                 let fields = self.fields(false, class)?;
-                let id = self.push(Object { class, kind: Kind::Positional, chain: Vec::new(), fields })?;
+                let id = self.push(Object::new(class, Kind::Positional, Vec::new(), fields))?;
                 Value::Obj(Some(id))
             }
             0x31 | 0x32 if !tagged => return Err(Error::Malformed("object without a field tag")),
@@ -318,7 +354,7 @@ impl Parser<'_> {
             0x2c => {
                 let n = usize::try_from(self.c.u32()?).map_err(|_| Error::Malformed("array length"))?;
                 let size = usize::from(self.c.u16()?);
-                if n.checked_mul(size).is_none_or(|b| b > self.c.remaining()) {
+                if size == 0 || n.checked_mul(size).is_none_or(|b| b > self.c.remaining()) {
                     return Err(Error::Malformed("array longer than its data"));
                 }
                 let mut v = self.vec(n)?;
@@ -365,7 +401,7 @@ impl Parser<'_> {
             }
         };
         let fields = self.fields(true, class)?;
-        let id = self.push(Object { class, kind: Kind::Inline, chain: vec![class], fields })?;
+        let id = self.push(Object::new(class, Kind::Inline, vec![class], fields))?;
         Ok(Value::Obj(Some(id)))
     }
 
@@ -384,7 +420,7 @@ impl Parser<'_> {
             return Err(Error::Malformed("object defined twice"));
         }
         // Register before the fields: an object's own fields may refer back to it.
-        let id = self.push(Object { class: Tag(0), kind: Kind::Shared, chain: Vec::new(), fields: Vec::new() })?;
+        let id = self.push(Object::new(Tag(0), Kind::Shared, Vec::new(), Vec::new()))?;
         self.shared.insert(key, id);
         let mut chain = Vec::new();
         let mut fields = Vec::new();
@@ -413,7 +449,7 @@ impl Parser<'_> {
         let class = chain.first().copied().unwrap_or(Tag(0));
         fields.extend(self.fields(true, class)?);
         if let Some(o) = self.objects.get_mut(id) {
-            *o = Object { class, kind: Kind::Shared, chain, fields };
+            *o = Object::new(class, Kind::Shared, chain, fields);
         }
         Ok(Value::Obj(Some(id)))
     }
