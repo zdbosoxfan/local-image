@@ -1112,8 +1112,11 @@ pub fn cpu_batch_estimate(ui: &mut egui::Ui, estimate: li_seg::estimate::Estimat
     ui.label(egui::RichText::new(estimate.batch_label()).color(if estimate.warning() { t.warning } else { t.text_dim }));
 }
 
+mod navigation;
 mod status;
-pub use status::{Tone, status_chip};
+pub use li_ui_kit::widgets::{primary_button as primary_button_translated, secondary_button as secondary_button_translated};
+pub use navigation::nav_row;
+pub use status::{Tone, overlay_chip, status_chip, status_icon, tag_chip};
 
 #[cfg(test)]
 #[path = "widgets/numeric_input_tests.rs"]
