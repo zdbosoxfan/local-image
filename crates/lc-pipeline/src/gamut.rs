@@ -1,7 +1,7 @@
 //! Hue-preserving gamut mapping along constant-lightness OkLab hue lines.
 //!
 //! Output uses relative colorimetric clipping: destination RGB inside the cube stays identical;
-//! outside colours lose only enough chroma to reach the nearest inward interval of that cube.
+//! outside colours move to the nearest chroma interval of that cube, below or above their input.
 //! OkLab hue lines can leave and re-enter RGB gamuts, so their cubic face crossings partition the
 //! search before bisection. The scene stage instead uses the smooth ACES reference compression
 //! curve ([`knee_curve`]) against the exposure-normalized working gamut.
@@ -18,7 +18,7 @@ pub type M3 = [[f32; 3]; 3];
 pub const OUTPUT_EPS: f32 = 1e-6;
 /// Upper-envelope round-off for choosing the highest-chroma lightness endpoint.
 pub const ENDPOINT_EPS: f32 = 4e-7;
-/// Inward chroma and endpoint lightness bisection steps, shared with WGSL.
+/// Output chroma and endpoint lightness bisection steps, shared with WGSL.
 pub const OUTPUT_STEPS: u32 = 24;
 /// Bisection steps that bracket each root of a channel's cubic before its secant.
 pub const STEPS: u32 = 12;
@@ -288,12 +288,16 @@ fn in_cube(rgb: [f32; 3], eps: f32) -> bool {
 }
 
 impl Line {
-    /// The nearest inward component of the same expanded cube used for output membership.
-    fn output_bracket(&self, m: &M3, hi: f32) -> Option<(f32, f32)> {
-        // Six cubics: three roots and two turning points each, plus endpoints.
-        let mut cuts = [0.0; 32];
+    /// The nearest valid chroma in `0..hi`, with equal distances resolved toward neutral.
+    fn output_chroma(&self, m: &M3, input: f32, hi: f32) -> Option<f32> {
+        if in_cube(self.at(m, input), OUTPUT_EPS) {
+            return Some(input);
+        }
+        // Six cubics: three roots and two turning points each, plus endpoints and input.
+        let mut cuts = [0.0; 33];
         cuts[1] = hi;
-        let mut n = 2;
+        cuts[2] = input;
+        let mut n = 3;
         let (faces, count) = self.faces(m, true, 0.0);
         for face in &faces[..count] {
             let mut face = *face;
@@ -309,21 +313,35 @@ impl Line {
             });
         }
         cuts[..n].sort_by(f32::total_cmp);
-        let mut up = hi;
-        for i in (1..n).rev() {
-            let t = cuts[i];
-            let point = self.at(m, t);
-            if in_cube(point, OUTPUT_EPS) {
-                return Some((t, up));
+        let mut seeds = [None::<f32>; 2];
+        for i in 0..n {
+            let mid = if i == 0 { cuts[i] } else { 0.5 * (cuts[i - 1] + cuts[i]) };
+            for t in [cuts[i], mid] {
+                if in_cube(self.at(m, t), OUTPUT_EPS) {
+                    let side = usize::from(t > input);
+                    if seeds[side].is_none_or(|seed| (t - input).abs() < (seed - input).abs()) {
+                        seeds[side] = Some(t);
+                    }
+                }
             }
-            let mid = 0.5 * (cuts[i - 1] + t);
-            let point = self.at(m, mid);
-            if in_cube(point, OUTPUT_EPS) {
-                return Some((mid, t));
-            }
-            up = mid;
         }
-        in_cube(self.at(m, 0.0), OUTPUT_EPS).then_some((0.0, up))
+        let mut nearest = None::<f32>;
+        for mut inside in seeds.into_iter().flatten() {
+            let mut outside = input;
+            for _ in 0..OUTPUT_STEPS {
+                let mid = 0.5 * (inside + outside);
+                if in_cube(self.at(m, mid), OUTPUT_EPS) {
+                    inside = mid;
+                } else {
+                    outside = mid;
+                }
+            }
+            // Lower seeds are refined first, so a tie keeps the lower boundary.
+            if nearest.is_none_or(|found| (inside - input).abs() < (found - input).abs()) {
+                nearest = Some(inside);
+            }
+        }
+        nearest
     }
 
     /// At C=qL, RGB=L³*v(q). The largest feasible L minimizes the upper envelope of v's
@@ -380,7 +398,8 @@ impl Line {
 
 /// Relative colorimetric output from working RGB `d` and its destination RGB `r`.
 /// Membership is tested directly in `r`, including imaginary ProPhoto colours. Only outside
-/// colours move: inward at fixed OkLab lightness and hue to the nearest valid chroma interval.
+/// colours move at fixed OkLab lightness and hue to the nearest valid chroma below or above
+/// the input, with ties going down.
 /// If the lightness has no valid chroma, first find the highest feasible lightness at that hue.
 /// Identity and search share the `OUTPUT_EPS`-expanded cube. Callers clamp its numerical slack
 /// to [0,1] only after mapping, before encoding.
@@ -403,39 +422,30 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
     // Both chroma and lightness of every supported destination cube are below 2.
     let m = &mats().from_lab;
     let mut line = Line { l: l.min(2.0), c: 1.0, d: std::array::from_fn(|i| m[i][1] * (a / c) + m[i][2] * (b / c)) };
-    let hi = c.min(MAX_CHROMA);
-    let bracket = if let Some(bracket) = line.output_bracket(to_out, hi) {
-        bracket
+    let input = c.min(MAX_CHROMA);
+    let chroma = if let Some(chroma) = line.output_chroma(to_out, input, MAX_CHROMA) {
+        chroma
     } else {
         let (c, rgb) = line.output_endpoint(to_out);
-        if c <= hi {
+        if c <= input {
             return rgb;
         }
         let (mut lo, mut up) = (0.0, line.l);
-        let mut bracket = (0.0, 0.0);
+        let mut chroma = 0.0;
         // RGB cubes contain every scaled-down colour, so feasible lightness is an interval.
         for _ in 0..OUTPUT_STEPS {
             line.l = 0.5 * (lo + up);
-            if let Some(found) = line.output_bracket(to_out, hi) {
+            if let Some(found) = line.output_chroma(to_out, input, input) {
                 lo = line.l;
-                bracket = found;
+                chroma = found;
             } else {
                 up = line.l;
             }
         }
         line.l = lo;
-        bracket
+        chroma
     };
-    let (mut lo, mut up) = bracket;
-    for _ in 0..OUTPUT_STEPS {
-        let mid = 0.5 * (lo + up);
-        if in_cube(line.at(to_out, mid), OUTPUT_EPS) {
-            lo = mid;
-        } else {
-            up = mid;
-        }
-    }
-    line.at(to_out, lo)
+    line.at(to_out, chroma)
 }
 
 /// The scene knee on scene-linear Rec. 2020 `c` (no upper bound): chroma past `knee` of the

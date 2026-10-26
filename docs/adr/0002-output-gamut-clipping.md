@@ -3,12 +3,12 @@
 Status: accepted
 
 Output mapping preserves any colour whose destination RGB is inside the selected output cube.
-Only colours outside it move, reducing OkLab chroma at fixed lightness and hue to the nearest
-valid inward interval. A hue line can leave and re-enter a gamut, so membership must be tested
-in destination RGB, independently of the path from neutral. In particular, sRGB blue and
+Only colours outside it move, choosing the nearest valid OkLab chroma below or above the input
+at fixed lightness and hue; ties go down. A hue line can leave and re-enter a gamut, so membership
+must be tested in destination RGB, independently of the path from neutral. In particular, sRGB blue and
 imaginary ProPhoto primaries remain valid output colours.
 
-Membership and inward search use the same destination cube expanded by an absolute RGB
+Membership and boundary search use the same destination cube expanded by an absolute RGB
 tolerance of `1e-6`. The final clamp to `[0,1]` runs after mapping, in the output caller.
 
 When no chroma is valid at the input lightness, the mapper first finds the highest feasible

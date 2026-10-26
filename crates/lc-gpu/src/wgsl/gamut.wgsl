@@ -246,12 +246,14 @@ fn gamut_in_cube(rgb: vec3<f32>, eps: f32) -> bool {
     return all(rgb >= vec3<f32>(-eps)) && all(rgb <= vec3<f32>(1.0 + eps));
 }
 
-// `Line::output_bracket`; negative lower bound when there is no valid component.
-fn gamut_output_bracket(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, hi: f32) -> vec2<f32> {
-    var cuts: array<f32, 32>;
+// `Line::output_chroma`; negative when there is no valid component.
+fn gamut_output_chroma(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, input: f32, hi: f32) -> f32 {
+    if (gamut_in_cube(gamut_at(m, l, d, input), GAMUT_OUTPUT_EPS)) { return input; }
+    var cuts: array<f32, 33>;
     cuts[0] = 0.0;
     cuts[1] = hi;
-    var count = 2u;
+    cuts[2] = input;
+    var count = 3u;
     for (var i = 0u; i < 3u; i++) {
         for (var f = 0u; f < 2u; f++) {
             var face = gamut_face(m, l, d, i, f, 0.0);
@@ -276,18 +278,32 @@ fn gamut_output_bracket(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, hi: f32) -
         while (j > 0u && cuts[j - 1u] > x) { cuts[j] = cuts[j - 1u]; j -= 1u; }
         cuts[j] = x;
     }
-    var up = hi;
-    for (var i = count - 1u; i > 0u; i--) {
-        let t = cuts[i];
-        var point = gamut_at(m, l, d, t);
-        if (gamut_in_cube(point, GAMUT_OUTPUT_EPS)) { return vec2<f32>(t, up); }
-        let mid = 0.5 * (cuts[i - 1u] + t);
-        point = gamut_at(m, l, d, mid);
-        if (gamut_in_cube(point, GAMUT_OUTPUT_EPS)) { return vec2<f32>(mid, t); }
-        up = mid;
+    var seeds = vec2<f32>(-1.0);
+    for (var i = 0u; i < count; i++) {
+        var mid = cuts[i];
+        if (i > 0u) { mid = 0.5 * (cuts[i - 1u] + cuts[i]); }
+        let points = vec2<f32>(cuts[i], mid);
+        for (var j = 0u; j < 2u; j++) {
+            let t = points[j];
+            if (gamut_in_cube(gamut_at(m, l, d, t), GAMUT_OUTPUT_EPS)) {
+                var side = 0u;
+                if (t > input) { side = 1u; }
+                if (seeds[side] < 0.0 || abs(t - input) < abs(seeds[side] - input)) { seeds[side] = t; }
+            }
+        }
     }
-    if (gamut_in_cube(gamut_at(m, l, d, 0.0), GAMUT_OUTPUT_EPS)) { return vec2<f32>(0.0, up); }
-    return vec2<f32>(-1.0);
+    var nearest = -1.0;
+    for (var side = 0u; side < 2u; side++) {
+        var inside = seeds[side];
+        if (inside < 0.0) { continue; }
+        var outside = input;
+        for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
+            let mid = 0.5 * (inside + outside);
+            if (gamut_in_cube(gamut_at(m, l, d, mid), GAMUT_OUTPUT_EPS)) { inside = mid; } else { outside = mid; }
+        }
+        if (nearest < 0.0 || abs(inside - input) < abs(nearest - input)) { nearest = inside; }
+    }
+    return nearest;
 }
 
 // `Line::output_endpoint`; xyz destination RGB, w endpoint chroma.
@@ -342,7 +358,7 @@ fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(rgb * scale, q * l);
 }
 
-// `gamut::output`: direct destination membership, then the nearest inward chroma interval.
+// `gamut::output`: direct destination membership, then the nearest chroma below or above input.
 fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32> {
     if (gamut_in_cube(r, GAMUT_OUTPUT_EPS)) { return r; }
     let lab = oklab(dd);
@@ -354,26 +370,20 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32
     }
     let d = gamut_dir(vec3<f32>(0.0, lab.yz / c));
     var l = min(lab.x, 2.0);
-    let hi = min(c, GAMUT_MAX_CHROMA);
-    var bracket = gamut_output_bracket(m, l, d, hi);
-    if (bracket.x < 0.0) {
+    let input = min(c, GAMUT_MAX_CHROMA);
+    var chroma = gamut_output_chroma(m, l, d, input, GAMUT_MAX_CHROMA);
+    if (chroma < 0.0) {
         let endpoint = gamut_output_endpoint(m, d);
-        if (endpoint.w <= hi) { return endpoint.xyz; }
+        if (endpoint.w <= input) { return endpoint.xyz; }
         var lo = 0.0;
         var up = l;
-        bracket = vec2<f32>(0.0);
+        chroma = 0.0;
         for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
             l = 0.5 * (lo + up);
-            let found = gamut_output_bracket(m, l, d, hi);
-            if (found.x >= 0.0) { lo = l; bracket = found; } else { up = l; }
+            let found = gamut_output_chroma(m, l, d, input, input);
+            if (found >= 0.0) { lo = l; chroma = found; } else { up = l; }
         }
         l = lo;
     }
-    var lo = bracket.x;
-    var up = bracket.y;
-    for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
-        let mid = 0.5 * (lo + up);
-        if (gamut_in_cube(gamut_at(m, l, d, mid), GAMUT_OUTPUT_EPS)) { lo = mid; } else { up = mid; }
-    }
-    return gamut_at(m, l, d, lo);
+    return gamut_at(m, l, d, chroma);
 }
