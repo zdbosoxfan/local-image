@@ -1,7 +1,7 @@
 //! Affinity effects remain native layer styles; no baked overlay copies.
 use super::{paint, scene::State};
 use crate::{Error, model};
-use photocraft_doc::{Affine, BlendMode, Fill, Layer, effects::*};
+use photocraft_doc::{Affine, BlendMode, Layer, effects::*};
 
 impl State<'_, '_> {
     pub(super) fn effects(&mut self, source: &[model::Effect], layer: &mut Layer, m: Affine, name: &str) -> Result<(), Error> {
@@ -82,16 +82,8 @@ impl State<'_, '_> {
                 E::GradientOverlay { gradient, opacity, blend } => {
                     let b = super::scene::bounds(layer);
                     let bounds = (f64::from(b.x0), f64::from(b.y0), f64::from(b.x1), f64::from(b.y1));
-                    let Some(Fill::Gradient { stops, opacity_stops, style, angle, scale, reverse, align, offset, .. }) =
-                        paint::fill(self, &crate::paint::Paint::Gradient(gradient.clone()), m, bounds, name)?
-                    else {
-                        return Err(Error::Unsupported("effect gradient paint"));
-                    };
-                    Effect::GradientOverlay {
-                        common: FxCommon::new(super::scene::blend(*blend, self, name), *opacity as f32),
-                        gradient: Gradient { stops, opacity_stops, style, angle, scale, reverse, align, offset },
-                        dither: false,
-                    }
+                    let (gradient, _) = paint::gradient(self, gradient, m, bounds, name)?;
+                    Effect::GradientOverlay { common: FxCommon::new(super::scene::blend(*blend, self, name), *opacity as f32), gradient, dither: false }
                 }
                 E::Bevel { size, depth, angle, highlight, highlight_opacity, shadow, shadow_opacity, inner } => {
                     self.warn("bevel-approximation", name, "Bevel imported as an editable native approximation; compare it with the original.");
