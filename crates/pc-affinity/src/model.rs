@@ -469,6 +469,9 @@ const MAX_TREE_DEPTH: usize = 128;
 const MAX_NODES: usize = 500_000;
 const MAX_CHILD_SLOTS: usize = 8_000_000;
 const MAX_NAME_BYTES: usize = 64 << 20;
+const MAX_DOCUMENT_CHARS: usize = 16 << 20;
+const MAX_DOCUMENT_CELLS: usize = 1 << 18;
+const MAX_EMBED_DEPTH: usize = 4;
 
 /// Read a document: archive, `doc.dat` and the model.
 pub fn read(bytes: &[u8], limits: Limits) -> Result<Document, Error> {
@@ -522,7 +525,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             dpi: 72.0,
             stream_depth,
             warnings: BTreeMap::new(),
-            budget: Budget { limit, chars: 16 << 20, cells: 1 << 18, ..Default::default() },
+            budget: Budget { limit, chars: MAX_DOCUMENT_CHARS, cells: MAX_DOCUMENT_CELLS, ..Default::default() },
             base: Affine::IDENTITY,
             type_base: Affine::IDENTITY,
             embed_depth: 0,
@@ -1070,7 +1073,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         if entry.is_empty() {
             return Ok(None);
         }
-        if self.embed_depth >= 4 {
+        if self.embed_depth >= MAX_EMBED_DEPTH {
             return Err(Error::Limit("embedded document depth"));
         }
         let data = self.archive.read(entry)?;
