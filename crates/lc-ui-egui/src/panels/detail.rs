@@ -17,6 +17,10 @@ use crate::theme::Tokens;
 use crate::widgets::register;
 
 mod guided;
+#[cfg(test)]
+mod tests_guided_guides;
+#[cfg(test)]
+mod tests_canvas_pan;
 
 /// An in-progress on-canvas gesture.
 #[derive(Clone, Debug)]
