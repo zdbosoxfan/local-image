@@ -39,6 +39,15 @@ fn float_levels_and_exposure_match_cpu() {
             [-0.25, 1.0, 4.0],
         ),
         (
+            Adjustment::Levels {
+                master: LevelsChannel { out_white: 0.5, ..LevelsChannel::default() },
+                per_channel: [LevelsChannel { gamma: 2.0, ..LevelsChannel::default() }, LevelsChannel::default(), LevelsChannel::default()],
+                space: Default::default(),
+                black: LevelsChannel::default(),
+            },
+            [-0.5 * 0.5f32.sqrt(), 1.0, 4.0],
+        ),
+        (
             Adjustment::Curves { master: curve.clone(), per_channel: [curve.clone(), curve.clone(), curve.clone()], space: Default::default(), black: curve },
             [-0.5, 2.0, 8.0],
         ),
@@ -90,5 +99,44 @@ fn float_colour_adjustments_match_cpu() {
             doc.layers[1].opacity = 0.5;
             check(&mut g, &doc, "clipped colour adjustment");
         }
+    }
+}
+
+#[test]
+fn float_curves_match_cpu_across_warm_rgb_gray_rgb_cache() {
+    let mut g = gpu();
+    let id = vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 1.0 }];
+    let adj = Adjustment::Curves {
+        master: id.clone(),
+        per_channel: [vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 128.0 / 255.0 }], id.clone(), id.clone()],
+        space: Default::default(),
+        black: id,
+    };
+    for mode in [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Rgb] {
+        let mut doc = document();
+        doc.mode = mode;
+        doc.layers.push(Layer::new("curves", LayerContent::Adjustment(adj.clone())));
+        let out = photocraft_compose::render(&doc, Rect::new(0, 0, 1, 1)).px[0];
+        let expected = if mode == ColorMode::Rgb { -0.5 * 128.0 / 255.0 } else { 0.0 };
+        assert!((out[0] - expected).abs() < 1e-6, "{mode:?}: {out:?}");
+        assert_eq!(out[1..], [2.0, 8.0, 1.0]);
+        check(&mut g, &doc, "mode-aware float curves");
+        doc.layers[1].clipped = true;
+        check(&mut g, &doc, "clipped mode-aware float curves");
+    }
+}
+
+#[test]
+fn float_black_white_highlight_cap_matches_cpu() {
+    let mut g = gpu();
+    for (input, expected) in [(-0.5, 0.0), (2.0, 2.0), (20.0, 16.0)] {
+        let mut doc = document();
+        let bounds = doc.bounds();
+        doc.layers[0].surface_mut().unwrap().fill_rect(bounds, &[input, input, input, 1.0]);
+        doc.layers
+            .push(Layer::new("black white", LayerContent::Adjustment(Adjustment::BlackWhite { weights: [40.0, 60.0, 40.0, 60.0, 20.0, 80.0], tint: None })));
+        let actual = photocraft_compose::render(&doc, Rect::new(0, 0, 1, 1)).px[0];
+        assert_eq!(actual, [expected, expected, expected, 1.0]);
+        check(&mut g, &doc, "Black White float cap");
     }
 }

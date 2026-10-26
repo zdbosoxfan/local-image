@@ -143,7 +143,7 @@ fn adjusted(s: &Surface, r: Rect, adj: &Adjustment, selection: Option<&Surface>,
         // surface's whole samples, so they always get its depth, as an adjustment layer does.
         let samples_split = matches!(adj, Adjustment::Threshold { .. } | Adjustment::Posterize { .. });
         let depth = (fmt.sample == photocraft_color::SampleType::F32 || samples_split).then_some(fmt.sample);
-        adjust::apply_depth(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample), depth);
+        adjust::apply_depth_mode(adj, &mut buf, adjust::Transfer::for_document(mode, fmt.sample), depth, mode);
         let w = r.width() as usize;
         let mut out = vec![0.0; raw.len()];
         out.par_chunks_exact_mut(n).enumerate().for_each(|(i, dst)| {
@@ -455,6 +455,42 @@ mod tests {
         s.fill_rect(r, &[0.25, 0.5, 0.75, 1.0]);
         assert!(!too_sparse(r, stored_tiles(&s, r).len(), &fmt));
         assert!(too_sparse(r, 0, &fmt));
+    }
+    #[test]
+    fn float_curve_command_respects_mode_sparse_selection_and_undo() {
+        for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+            let fmt = PixelFormat::new(mode, SampleType::F32, true);
+            let mut surface = Surface::new(fmt);
+            let mut selection = Surface::new(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false));
+            for (x, y, value) in [(0, 0, -0.5_f32), (2_000_000_000, 2_000_000_000, 2.0)] {
+                surface.write_pixel(x, y, &photocraft_raster::from_rgba(&fmt, [value, value, value, 0.375]));
+                selection.write_pixel(x, y, &[0.5]);
+            }
+            let original = surface.clone();
+            let mut doc = Document::new("curves", photocraft_geom::Size::new(3, 1), mode, SampleType::F32);
+            let layer = Layer::new("pixels", LayerContent::Raster(surface));
+            let id = layer.id;
+            doc.layers.push(layer);
+            doc.selection = Some(selection);
+            let mut session = crate::Session::new();
+            session.add_document(doc, None);
+            session.select_layer(id).unwrap();
+            session.execute("image.adjustments.curves", json!({"space": "rgb", "points": [[0, 0], [255, 128]]})).unwrap();
+            let output = session.active().unwrap().doc.layer(id).unwrap().surface().unwrap().clone();
+            assert_eq!(output.tile_count(), 2, "the distant gaps remain unallocated");
+            for (x, y, value) in [(0, 0, -0.5_f32), (2_000_000_000, 2_000_000_000, 2.0)] {
+                let input = original.pixel(x, y);
+                let adjusted = if mode == ColorMode::Rgb { value * 128.0 / 255.0 } else { value.clamp(0.0, 1.0) * 128.0 / 255.0 };
+                let want = input[0] + (adjusted - input[0]) * 0.5;
+                let pixel = output.pixel(x, y);
+                assert!((pixel[0] - want).abs() < 3e-5, "{mode:?} at {x}: {pixel:?} vs {want}");
+                assert_eq!(*pixel.last().unwrap(), 0.375);
+            }
+            session.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(session.active().unwrap().doc.layer(id).unwrap().surface().unwrap(), &original);
+            session.execute("edit.redo", json!({})).unwrap();
+            assert_eq!(session.active().unwrap().doc.layer(id).unwrap().surface().unwrap(), &output);
+        }
     }
 }
 

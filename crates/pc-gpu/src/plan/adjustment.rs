@@ -12,7 +12,7 @@ fn transfer_exponent(t: Transfer) -> f32 {
 }
 
 /// Adjustment → (kernel kind, parameters, LUT rows). Kinds are the `switch` in `adjust()`.
-pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraft_color::SampleType) -> Program {
+pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraft_color::SampleType, mode: photocraft_color::ColorMode) -> Program {
     let mut p = [[0.0f32; 4]; 4];
     match adj {
         Adjustment::Invert => (1, p, None),
@@ -63,6 +63,7 @@ pub fn adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraf
             for (v, identity) in p[0].iter_mut().zip(adjust::float_tone_identity(adj, Some(depth))) {
                 *v = if identity { 1.0 } else { 0.0 };
             }
+            p[0][3] = if adjust::float_tone_extrapolates(adj, Some(depth), mode) { 1.0 } else { 0.0 };
             let kind = match space {
                 ToneSpace::Rgb => 7,
                 ToneSpace::Lab => 17,

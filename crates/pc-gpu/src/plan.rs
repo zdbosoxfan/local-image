@@ -23,6 +23,8 @@ use photocraft_raster::Surface;
 use crate::bounds;
 
 mod adjustment;
+#[cfg(test)]
+mod hdr_tests;
 pub use adjustment::adjustment_program;
 
 /// Index of a chunk-sized accumulator texture.
@@ -934,7 +936,7 @@ impl<'a> Planner<'a> {
     fn adjust(&mut self, adj: &Adjustment, src: Slot) -> Result<Slot, Unsupported> {
         let mut p = Pass::new(Kernel::Adjust, 0);
         p.a = Some(src);
-        let (kind, params, lut) = cached_adjustment_program(adj, self.cx.transfer, self.cx.depth);
+        let (kind, params, lut) = cached_adjustment_program(adj, self.cx.transfer, self.cx.depth, self.cx.mode);
         p.adjust_kind = kind;
         p.params = params;
         p.lut = lut;
@@ -1476,10 +1478,10 @@ type Program = (i32, [[f32; 4]; 4], Option<Vec<[f32; 4096]>>);
 type SharedProgram = (i32, [[f32; 4]; 4], Option<std::sync::Arc<Vec<[f32; 4096]>>>);
 
 /// A Move changes plan clips, not Levels/Curves. Cache these expensive, profile-independent
-/// programs by exact input bits and document depth. CMYK rows embed the active profile grids,
+/// programs by exact input bits, document depth and mode. CMYK rows embed the active profile grids,
 /// so they continue through the uncached path. At most 64 programs (~4 MiB of rows) are retained.
-fn cached_adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraft_color::SampleType) -> SharedProgram {
-    let mut key = vec![depth as u64];
+fn cached_adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photocraft_color::SampleType, mode: photocraft_color::ColorMode) -> SharedProgram {
+    let mut key = vec![depth as u64, mode as u64];
     match adj {
         Adjustment::Levels { master, per_channel, space, black } if *space != ToneSpace::Cmyk => {
             key.extend([0, *space as u64]);
@@ -1497,7 +1499,7 @@ fn cached_adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photoc
             }
         }
         _ => {
-            let (kind, params, lut) = adjustment_program(adj, transfer, depth);
+            let (kind, params, lut) = adjustment_program(adj, transfer, depth, mode);
             return (kind, params, lut.map(std::sync::Arc::new));
         }
     }
@@ -1511,7 +1513,7 @@ fn cached_adjustment_program(adj: &Adjustment, transfer: Transfer, depth: photoc
     }
     // Don't hold the shared cache while computing the table.
     drop(cache);
-    let (kind, params, lut) = adjustment_program(adj, transfer, depth);
+    let (kind, params, lut) = adjustment_program(adj, transfer, depth, mode);
     let program = (kind, params, lut.map(std::sync::Arc::new));
     let mut cache = CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if cache.len() == 64 {
@@ -1600,7 +1602,7 @@ mod tests {
             dither: false,
             domain: Some(domain),
         };
-        let (kind, p, _) = adjustment_program(&adjustment, Transfer::Srgb, SampleType::F32);
+        let (kind, p, _) = adjustment_program(&adjustment, Transfer::Srgb, SampleType::F32, photocraft_color::ColorMode::Rgb);
         assert_eq!(kind, 16);
         assert_eq!(p[1], [-1.0, 0.0, 0.25, 0.0]);
         assert_eq!(p[2], [2.0, 2.0, 0.5, 0.0]);
@@ -1617,7 +1619,7 @@ mod tests {
                 tetrahedral: false,
                 dither: false,
             };
-            let (kind, _, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8);
+            let (kind, _, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8, photocraft_color::ColorMode::Rgb);
             assert_eq!((kind, rows.is_none()), (0, true), "size {size}");
         }
         let a = Adjustment::ColorLookup {
@@ -1628,7 +1630,7 @@ mod tests {
             tetrahedral: false,
             dither: false,
         };
-        let (kind, p, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8);
+        let (kind, p, rows) = adjustment_program(&a, Transfer::Srgb, SampleType::U8, photocraft_color::ColorMode::Rgb);
         assert_eq!((kind, p[0][0], rows.map(|r| r.len())), (16, 2.0, Some(1)));
         assert_eq!(p[1], [0.0; 4]);
         assert_eq!(p[2], [1.0, 1.0, 1.0, 0.0]);
@@ -1663,13 +1665,13 @@ mod tests {
                 }
                 let mut previous = None;
                 for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
-                    let cached = cached_adjustment_program(&adj, Transfer::Srgb, depth);
-                    let fresh = adjustment_program(&adj, Transfer::Srgb, depth);
+                    let cached = cached_adjustment_program(&adj, Transfer::Srgb, depth, photocraft_color::ColorMode::Rgb);
+                    let fresh = adjustment_program(&adj, Transfer::Srgb, depth, photocraft_color::ColorMode::Rgb);
                     assert_eq!(cached.0, fresh.0);
                     assert_eq!(cached.1, fresh.1);
                     let rows = cached.2.unwrap();
                     assert_eq!(rows.as_ref(), fresh.2.as_ref().unwrap());
-                    let repeated = cached_adjustment_program(&adj, Transfer::Gamma(2.2), depth).2.unwrap();
+                    let repeated = cached_adjustment_program(&adj, Transfer::Gamma(2.2), depth, photocraft_color::ColorMode::Rgb).2.unwrap();
                     assert!(std::sync::Arc::ptr_eq(&rows, &repeated), "tone tables do not depend on transfer");
                     if let Some(old) = previous {
                         assert!(!std::sync::Arc::ptr_eq(&old, &rows), "depth is part of the key");
@@ -1677,15 +1679,15 @@ mod tests {
                     previous = Some(rows);
                 }
             }
-            let before = cached_adjustment_program(&adj, Transfer::Srgb, SampleType::U8).2.unwrap();
+            let before = cached_adjustment_program(&adj, Transfer::Srgb, SampleType::U8, photocraft_color::ColorMode::Rgb).2.unwrap();
             match &mut adj {
                 Adjustment::Levels { per_channel, .. } => per_channel[0].gamma = 1.1,
                 Adjustment::Curves { per_channel, .. } => per_channel[0][0].output = 0.1,
                 _ => panic!("tone adjustment"),
             }
-            let after = cached_adjustment_program(&adj, Transfer::Srgb, SampleType::U8).2.unwrap();
+            let after = cached_adjustment_program(&adj, Transfer::Srgb, SampleType::U8, photocraft_color::ColorMode::Rgb).2.unwrap();
             assert!(!std::sync::Arc::ptr_eq(&before, &after), "edited channel receives new rows");
-            assert_eq!(after.as_ref(), adjustment_program(&adj, Transfer::Srgb, SampleType::U8).2.as_ref().unwrap());
+            assert_eq!(after.as_ref(), adjustment_program(&adj, Transfer::Srgb, SampleType::U8, photocraft_color::ColorMode::Rgb).2.as_ref().unwrap());
         }
     }
 

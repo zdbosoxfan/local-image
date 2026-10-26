@@ -168,3 +168,66 @@ fn float_black_white_caps_at_sixteen_and_integer_at_one() {
         }
     }
 }
+
+fn half_curve() -> Adjustment {
+    let id = vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 1.0 }];
+    Adjustment::Curves {
+        master: id.clone(),
+        per_channel: [vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 1.0, output: 128.0 / 255.0 }], id.clone(), id.clone()],
+        space: Default::default(),
+        black: id,
+    }
+}
+
+#[test]
+fn edited_float_curves_extrapolate_with_continuous_end_slopes() {
+    let mut adj = half_curve();
+    for v in [-0.5, -1e-5, 0.0, 1e-5, 0.25, 1.0 - 1e-5, 1.0, 1.0 + 1e-5, 2.0, 8.0] {
+        let out = evaluate(&adj, [v, 8.0, -0.5, 0.375], SampleType::F32);
+        assert!((out[0] - v * 128.0 / 255.0).abs() < 3e-5, "{v}: {out:?}");
+        assert_eq!(&out[1..], &[8.0, -0.5, 0.375]);
+    }
+    if let Adjustment::Curves { per_channel, .. } = &mut adj {
+        per_channel[0] = vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 0.5, output: 0.2 }, CurvePoint { input: 1.0, output: 1.0 }];
+    }
+    // This natural spline has endpoint derivatives 0.1 and 1.9. A 16-step window
+    // differs slightly from the exact derivative, but preserves the end segments.
+    for (v, want) in [(-0.5, -0.05), (0.25, 0.04375), (0.5, 0.2), (2.0, 2.9)] {
+        let out = evaluate(&adj, [v, 8.0, -0.5, 0.375], SampleType::F32);
+        assert!((out[0] - want).abs() < 2e-4, "{v}: {out:?} vs {want}");
+    }
+}
+
+#[test]
+fn float_curve_mode_and_layer_paths_match_direct_application() {
+    let adj = half_curve();
+    for mode in [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Cmyk, ColorMode::Lab] {
+        for depth in [SampleType::F32, SampleType::U8, SampleType::U16] {
+            let mut direct = Buffer::filled(Rect::new(0, 0, 1, 1), [-0.5, 2.0, 8.0, 0.375]);
+            adjust::apply_depth_mode(&adj, &mut direct, adjust::Transfer::for_document(mode, depth), Some(depth), mode);
+            let expected = if mode == ColorMode::Rgb && depth == SampleType::F32 { -0.5 * 128.0 / 255.0 } else { 0.0 };
+            assert!((direct.px[0][0] - expected).abs() < 1e-6, "{mode:?} {depth:?}: {:?}", direct.px[0]);
+            if depth == SampleType::F32 {
+                assert_eq!(&direct.px[0][1..], &[2.0, 8.0, 0.375]);
+            }
+        }
+    }
+    for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+        let mut doc = Document::new("curves", Size::new(2, 1), mode, SampleType::F32);
+        let mut layer = Layer::raster("pixels", PixelFormat::RGBA32F);
+        layer.surface_mut().unwrap().write_region(doc.bounds(), &[-0.5, 2.0, 8.0, 0.375, 2.0, -0.5, 0.25, 1.0]);
+        doc.layers.push(layer);
+        for clipped in [false, true] {
+            let mut adjusted = Layer::new("curve", LayerContent::Adjustment(adj.clone()));
+            adjusted.clipped = clipped;
+            doc.layers.truncate(1);
+            doc.layers.push(adjusted);
+            let out = flatten(&doc);
+            let mut direct = surface_to_buffer(doc.layers[0].surface().unwrap(), doc.bounds());
+            adjust::apply_depth_mode(&adj, &mut direct, adjust::Transfer::Gamma(1.0), Some(SampleType::F32), mode);
+            for (actual, expected) in out.px.iter().zip(direct.px) {
+                assert!(actual.iter().zip(expected).all(|(v, w)| (v - w).abs() < 1e-6), "{mode:?} clipped={clipped}: {actual:?} vs {expected:?}");
+            }
+        }
+    }
+}

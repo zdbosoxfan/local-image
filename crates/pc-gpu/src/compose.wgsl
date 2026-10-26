@@ -714,8 +714,21 @@ fn levels_float(record: i32, v: f32) -> f32 {
     return lut_at(base + 3) + mapped * (lut_at(base + 4) - lut_at(base + 3));
 }
 
-fn tone_channel(row: i32, v: f32, identity: f32) -> f32 {
+fn tone_channel(row: i32, v: f32, identity: f32, extrapolate: f32) -> f32 {
     if (identity > 0.5) { return v; }
+    // Mirrors adjust::TONE_SLOPE_SPAN: average sixteen of 4095 table intervals.
+    if (extrapolate > 0.5 && abs(v) <= 3.0e38) {
+        if (v < 0.0) {
+            let a = textureLoad(lut_tex, vec2(0, row), 0).r;
+            let b = textureLoad(lut_tex, vec2(16, row), 0).r;
+            return a + v * (b - a) * (4095.0 / 16.0);
+        }
+        if (v > 1.0) {
+            let a = textureLoad(lut_tex, vec2(4079, row), 0).r;
+            let b = textureLoad(lut_tex, vec2(4095, row), 0).r;
+            return b + (v - 1.0) * (b - a) * (4095.0 / 16.0);
+        }
+    }
     return lut(row, v);
 }
 
@@ -749,7 +762,7 @@ fn adjust(c: vec3<f32>) -> vec3<f32> {
             return clamp(v, vec3(0.0), vec3(1.0));
         }
         case 6: { return vec3(exposure(c.r, p0), exposure(c.g, p0), exposure(c.b, p0)); }  // Exposure
-        case 7: { return vec3(tone_channel(0, c.r, p0.x), tone_channel(1, c.g, p0.y), tone_channel(2, c.b, p0.z)); }        // Levels / Curves and other per-channel tone rows from the CPU
+        case 7: { return vec3(tone_channel(0, c.r, p0.x, p0.w), tone_channel(1, c.g, p0.y, p0.w), tone_channel(2, c.b, p0.z, p0.w)); }        // Levels / Curves and other per-channel tone rows from the CPU
         case 19: { return vec3(levels_float(0, levels_float(1, c.r)), levels_float(0, levels_float(2, c.g)), levels_float(0, levels_float(3, c.b))); }
         case 17: { return native_tone(c, false); }                          // Lab Levels / Curves
         case 18: { return native_tone(c, true); }                           // CMYK Levels / Curves

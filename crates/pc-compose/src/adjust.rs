@@ -4,7 +4,7 @@
 //! milestone M7 against Photoshop-rendered PSD composites (the oracle in `testkit`).
 
 use li_color::convert::{D50, SRGB_TO_XYZ_D50, XYZ_D50_TO_SRGB, mat3_mul, srgb_to_linear};
-use photocraft_color::SampleType;
+use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::Adjustment;
 use photocraft_doc::adjust::{CurvePoint, HueRange, LevelsChannel, ToneSpace};
 
@@ -86,6 +86,11 @@ pub fn apply_with(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer) {
 /// unrounded). Integer depths work on whole levels like Photoshop's (see [`levels_q`] and
 /// `adjustment_quantum`), 32-bit documents get its float Levels (see [`levels_float`]).
 pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth: Option<SampleType>) {
+    apply_depth_mode(adj, buf, transfer, depth, ColorMode::Rgb);
+}
+
+/// Applies document-mode semantics, including RGB-only float Curves extrapolation.
+pub fn apply_depth_mode(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth: Option<SampleType>, mode: ColorMode) {
     match adj {
         Adjustment::Invert => map_rgb(buf, |c| [1.0 - c[0], 1.0 - c[1], 1.0 - c[2]]),
         Adjustment::Threshold { level } => map_rgb(buf, |c| [if threshold_white(c, *level, depth) { 1.0 } else { 0.0 }; 3]),
@@ -148,7 +153,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
                 return;
             }
             let luts = tone_luts_depth(adj, depth);
-            apply_tone(buf, *space, &luts, identity);
+            apply_tone(buf, *space, &luts, identity, float_tone_extrapolates(adj, depth, mode));
         }
         Adjustment::HueSaturation { hue, saturation, lightness, colorize, ranges } => {
             let table = (!*colorize && ranges.iter().any(|r| !r.is_neutral())).then(|| hue_range_tables(ranges));
@@ -270,9 +275,15 @@ pub fn float_tone_identity(adj: &Adjustment, depth: Option<SampleType>) -> [bool
     }
 }
 
-fn apply_tone(buf: &mut Buffer, space: ToneSpace, luts: &[Vec<f32>; 4], identity: [bool; 3]) {
+/// Edited RGB-space curves extend only in RGB float documents, along their endpoint slopes.
+pub fn float_tone_extrapolates(adj: &Adjustment, depth: Option<SampleType>, mode: ColorMode) -> bool {
+    matches!(adj, Adjustment::Curves { space: ToneSpace::Rgb, .. }) && depth == Some(SampleType::F32) && mode == ColorMode::Rgb
+}
+
+fn apply_tone(buf: &mut Buffer, space: ToneSpace, luts: &[Vec<f32>; 4], identity: [bool; 3], extrapolate: bool) {
+    let sample = if extrapolate { lut_extended } else { lut };
     match space {
-        ToneSpace::Rgb => map_rgb(buf, |c| std::array::from_fn(|i| if identity[i] { c[i] } else { lut(&luts[i], c[i]) })),
+        ToneSpace::Rgb => map_rgb(buf, |c| std::array::from_fn(|i| if identity[i] { c[i] } else { sample(&luts[i], c[i]) })),
         ToneSpace::Cmyk | ToneSpace::Lab => map_rgb(buf, |c| tone_in_space(space, luts, c)),
     }
 }
@@ -598,6 +609,19 @@ fn lut(table: &[f32], v: f32) -> f32 {
     let j = (i + 1).min(table.len() - 1);
     let f = x - i as f32;
     table[i] * (1.0 - f) + table[j] * f
+}
+
+/// Endpoint slopes average sixteen LUT steps to reduce single-step f32 rounding noise.
+pub const TONE_SLOPE_SPAN: usize = 16;
+
+fn lut_extended(table: &[f32], v: f32) -> f32 {
+    let n = table.len();
+    if !v.is_finite() || (0.0..=1.0).contains(&v) || n < 2 {
+        return lut(table, v);
+    }
+    let k = TONE_SLOPE_SPAN.min(n - 1);
+    let per_unit = (n - 1) as f32 / k as f32;
+    if v < 0.0 { table[0] + v * (table[k] - table[0]) * per_unit } else { table[n - 1] + (v - 1.0) * (table[n - 1] - table[n - 1 - k]) * per_unit }
 }
 
 /// Photo Filter's linear-light RGB matrix. Photoshop multiplies the pixel's D50 XYZ, relative to
