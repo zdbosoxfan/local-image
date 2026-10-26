@@ -30,6 +30,7 @@ pub struct CutParts {
     pub layer: LayerId,
     rest: Surface,
     piece: Surface,
+    piece_bounds: photocraft_geom::Rect,
 }
 
 impl CutParts {
@@ -54,7 +55,8 @@ impl CutParts {
         if !copy && !bounds.is_empty() {
             crate::pixels::clear_surface(&mut rest, bounds, Some(sel))?;
         }
-        Ok(Self { layer, rest, piece })
+        let piece_bounds = piece.content_bounds();
+        Ok(Self { layer, rest, piece, piece_bounds })
     }
 
     /// `doc` with the piece moved by whole pixels (dx, dy) over the cut-out layer.
@@ -65,8 +67,12 @@ impl CutParts {
             .ok_or(EngineError::NoLayer(self.layer))?
             .surface_mut()
             .ok_or_else(|| EngineError::Other("the layer has no pixels to move".into()))?;
+        if self.piece_bounds.is_empty() {
+            *surf = self.rest.clone();
+            return Ok(d);
+        }
         let mut out = self.rest.clone();
-        crate::transform_cmds::composite_over(&mut out, &photocraft_algo::resample::translate_surface(&self.piece, dx, dy))?;
+        crate::transform_cmds::composite_over(&mut out, &self.piece.translated(dx, dy))?;
         *surf = out;
         Ok(d)
     }
