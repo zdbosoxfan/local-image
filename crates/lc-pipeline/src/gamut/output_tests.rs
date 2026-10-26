@@ -67,7 +67,7 @@ fn fixed_lab_search_chroma_is_monotone() {
                     let chroma = lab[1].hypot(lab[2]);
                     let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 } else { 2e-6 };
                     assert!(chroma >= previous - tolerance, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
-                    assert!(in_cube(rgb, OUTPUT_EPS), "{}: {rgb:?}", space.label());
+                    assert!(in_cube(rgb, OUTPUT_EPS, space.luma()), "{}: {rgb:?}", space.label());
                     previous = chroma;
                 }
             }
@@ -159,8 +159,16 @@ fn exact_clip_crosses_once_outside_the_windows() {
                 let reach = reference_intervals(&lower, 2.0).last().unwrap().1;
                 let c = (reach * l as f64) as f32;
                 let mut faces = reference_faces(&m, line);
-                for face in &mut faces {
-                    face[0] += OUTPUT_EPS as f64;
+                let luma = space.luma().map(f64::from);
+                let luminance: [f64; 4] = std::array::from_fn(|k| luma[0] * faces[0][k] + luma[1] * faces[2][k] + luma[2] * faces[4][k]);
+                for (i, face) in faces.iter_mut().enumerate() {
+                    if i % 2 == 0 {
+                        for k in 0..4 {
+                            face[k] += OUTPUT_EPS as f64 * luminance[k];
+                        }
+                    } else {
+                        face[0] += OUTPUT_EPS as f64;
+                    }
                 }
                 let intervals = reference_intervals(&faces, c as f64);
                 let in_window = match space {
@@ -172,7 +180,7 @@ fn exact_clip_crosses_once_outside_the_windows() {
                     assert!(intervals.len() <= 1, "{space:?} L={l} h={h}: {intervals:?}");
                 }
                 let expected = intervals.first().unwrap().1;
-                let actual = line.output_chroma(&m, c).unwrap();
+                let actual = line.output_chroma(&m, c, space.luma()).unwrap();
                 assert!((actual as f64 - expected).abs() < 3e-5, "{space:?} L={l} h={h}: {actual} vs {expected}");
             }
         }
@@ -323,10 +331,10 @@ fn out_of_range_lightness_reaches_the_hue_endpoint() {
     for space in OutputSpace::ALL {
         for h in [-2.5f32, -1.67, 0.5, 1.9, 3.0] {
             let (mapped, rgb) = mapped_lab(space, [2.0, 0.4 * h.cos(), 0.4 * h.sin()]);
-            assert!(in_cube(rgb, OUTPUT_EPS));
+            assert!(in_cube(rgb, OUTPUT_EPS, space.luma()));
             // Any small extra lightness at the mapped hue must be outside the destination cube.
             let lifted = oklab_to_2020([mapped[0] + 2e-5, mapped[1], mapped[2]]);
-            assert!(!in_cube(mul3(&space.from_working(), lifted), 0.0), "{}: {rgb:?} stopped before the endpoint", space.label());
+            assert!(!in_cube(mul3(&space.from_working(), lifted), 0.0, space.luma()), "{}: {rgb:?} stopped before the endpoint", space.label());
             assert!(mapped[0] > 0.99 && mapped[0] < 1.001, "{}: {mapped:?}", space.label());
         }
     }

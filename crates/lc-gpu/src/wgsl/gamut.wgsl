@@ -242,18 +242,22 @@ fn gamut_scene_lab(lab: vec3<f32>, knee: f32, limit: f32) -> vec3<f32> {
     return r.xyz;
 }
 
-fn gamut_in_cube(rgb: vec3<f32>, eps: f32) -> bool {
-    return all(rgb >= vec3<f32>(-eps)) && all(rgb <= vec3<f32>(1.0 + eps));
+fn gamut_in_cube(rgb: vec3<f32>, eps: f32, luma: vec3<f32>) -> bool {
+    return all(rgb >= vec3<f32>(-eps * dot(luma, rgb))) && all(rgb <= vec3<f32>(1.0 + eps));
 }
 
 // `Line::output_chroma`: first exit walking out from gray; negative for invalid gray.
-fn gamut_output_chroma(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, input: f32) -> f32 {
-    if (!gamut_in_cube(gamut_at(m, l, d, 0.0), GAMUT_OUTPUT_EPS)) { return -1.0; }
+fn gamut_output_chroma(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, input: f32, luma: vec3<f32>) -> f32 {
+    if (!gamut_in_cube(gamut_at(m, l, d, 0.0), GAMUT_OUTPUT_EPS, luma)) { return -1.0; }
     var chroma = input;
+    let luminance = luma.x * gamut_face(m, l, d, 0u, 0u, 0.0)
+        + luma.y * gamut_face(m, l, d, 1u, 0u, 0.0)
+        + luma.z * gamut_face(m, l, d, 2u, 0u, 0.0);
     for (var i = 0u; i < 3u; i++) {
         for (var f = 0u; f < 2u; f++) {
             var face = gamut_face(m, l, d, i, f, 0.0);
-            face.x += GAMUT_OUTPUT_EPS;
+            if (f == 0u) { face += GAMUT_OUTPUT_EPS * luminance; }
+            else { face.x += GAMUT_OUTPUT_EPS; }
             let p = gamut_pieces(face, input);
             let np = gamut_piece_count(p, input);
             for (var k = 0u; k < np; k++) {
@@ -272,23 +276,26 @@ fn gamut_output_chroma(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, input: f32)
 }
 
 // `Line::output_endpoint`; xyz destination RGB, w endpoint chroma.
-fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
-    var qs: array<f32, 46>;
+fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>, luma: vec3<f32>) -> vec4<f32> {
+    var qs: array<f32, 28>;
     qs[0] = 0.0;
     var count = 1u;
     let hi = 2.0 * GAMUT_MAX_CHROMA;
+    let luminance = luma.x * gamut_face(m, 1.0, d, 0u, 0u, 0.0)
+        + luma.y * gamut_face(m, 1.0, d, 1u, 0u, 0.0)
+        + luma.z * gamut_face(m, 1.0, d, 2u, 0u, 0.0);
     for (var i = 0u; i < 3u; i++) {
         let face = gamut_face(m, 1.0, d, i, 0u, 0.0);
         let turns = gamut_pieces(face, hi);
         let nt = gamut_piece_count(turns, hi);
         for (var k = 1u; k <= nt; k++) { qs[count] = turns[k]; count += 1u; }
         // Expanded lower faces, then pairwise upper-envelope channel crossings.
-        for (var j = 0u; j < 3u + i; j++) {
+        for (var j = 0u; j < 1u + i; j++) {
             var c: vec4<f32>;
-            if (j < 3u) {
-                c = (1.0 + GAMUT_OUTPUT_EPS) * face + GAMUT_OUTPUT_EPS * gamut_face(m, 1.0, d, j, 0u, 0.0);
+            if (j == 0u) {
+                c = face + GAMUT_OUTPUT_EPS * luminance;
             } else {
-                c = face - gamut_face(m, 1.0, d, j - 3u, 0u, 0.0);
+                c = face - gamut_face(m, 1.0, d, j - 1u, 0u, 0.0);
             }
             let p = gamut_pieces(c, hi);
             let np = gamut_piece_count(p, hi);
@@ -306,14 +313,14 @@ fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
     for (var i = 0u; i < count; i++) {
         let rgb = gamut_at(m, 1.0, d, qs[i]);
         let mx = max(rgb.x, max(rgb.y, rgb.z));
-        let lower = -GAMUT_OUTPUT_EPS * mx / (1.0 + GAMUT_OUTPUT_EPS);
+        let lower = -GAMUT_OUTPUT_EPS * dot(luma, rgb);
         if (all(rgb >= vec3<f32>(lower)) && mx > 0.0) { minimum = min(minimum, mx); }
     }
     var q = 0.0;
     for (var i = 0u; i < count; i++) {
         let rgb = gamut_at(m, 1.0, d, qs[i]);
         let mx = max(rgb.x, max(rgb.y, rgb.z));
-        let lower = -GAMUT_OUTPUT_EPS * mx / (1.0 + GAMUT_OUTPUT_EPS);
+        let lower = -GAMUT_OUTPUT_EPS * dot(luma, rgb);
         if (all(rgb >= vec3<f32>(lower)) && mx > 0.0 && mx <= minimum + GAMUT_ENDPOINT_EPS) { q = max(q, qs[i]); }
     }
     let rgb = gamut_at(m, 1.0, d, q);
@@ -324,28 +331,29 @@ fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
 }
 
 // `gamut::output`: first constant-L exit blended with three RGB casts near the blue pinches.
-fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>, band: u32) -> vec3<f32> {
-    if (gamut_in_cube(r, GAMUT_OUTPUT_EPS)) { return r; }
+fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>, band: u32, luma: vec3<f32>) -> vec3<f32> {
+    if (gamut_in_cube(r, GAMUT_OUTPUT_EPS, luma)) { return r; }
     let lab = oklab(dd);
     if (lab.x <= 0.0) { return vec3<f32>(0.0); }
     let c = length(lab.yz);
     if (c <= 1e-7) {
         let l = min(lab.x, pow(1.0 + GAMUT_OUTPUT_EPS, 1.0 / 3.0));
-        return clamp(mul3(m, vec3<f32>(l * l * l)), vec3<f32>(-GAMUT_OUTPUT_EPS), vec3<f32>(1.0 + GAMUT_OUTPUT_EPS));
+        let rgb = mul3(m, vec3<f32>(l * l * l));
+        return clamp(rgb, vec3<f32>(-GAMUT_OUTPUT_EPS * dot(luma, rgb)), vec3<f32>(1.0 + GAMUT_OUTPUT_EPS));
     }
     let d = gamut_dir(vec3<f32>(0.0, lab.yz / c));
     var l = min(lab.x, 2.0);
     let input = min(c, GAMUT_MAX_CHROMA);
-    var chroma = gamut_output_chroma(m, l, d, input);
+    var chroma = gamut_output_chroma(m, l, d, input, luma);
     if (chroma < 0.0) {
-        let endpoint = gamut_output_endpoint(m, d);
+        let endpoint = gamut_output_endpoint(m, d, luma);
         if (endpoint.w <= input) { return endpoint.xyz; }
         var lo = 0.0;
         var up = l;
         chroma = 0.0;
         for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
             l = 0.5 * (lo + up);
-            let found = gamut_output_chroma(m, l, d, input);
+            let found = gamut_output_chroma(m, l, d, input, luma);
             if (found >= 0.0) { lo = l; chroma = found; } else { up = l; }
         }
         l = lo;
@@ -369,9 +377,13 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>, band: u32) 
     for (var ray_step = 0u; ray_step < 3u; ray_step++) {
         let delta = ray_target - vec3<f32>(gray);
         var scale = bitcast<f32>(0x7f800000u);
+        let luminance_delta = dot(luma, delta);
         for (var k = 0u; k < 3u; k++) {
-            if (delta[k] > 0.0) { scale = min(scale, (1.0 - gray) / delta[k]); }
-            else if (delta[k] < 0.0) { scale = min(scale, -gray / delta[k]); }
+            if (delta[k] > 0.0) { scale = min(scale, (1.0 + GAMUT_OUTPUT_EPS - gray) / delta[k]); }
+            let denominator = delta[k] + GAMUT_OUTPUT_EPS * luminance_delta;
+            if (denominator < 0.0) {
+                scale = min(scale, -gray * (1.0 + GAMUT_OUTPUT_EPS * (luma.x + luma.y + luma.z)) / denominator);
+            }
         }
         boundary = vec3<f32>(gray);
         if (scale < bitcast<f32>(0x7f800000u)) { boundary += scale * delta; }

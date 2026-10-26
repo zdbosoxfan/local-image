@@ -16,7 +16,7 @@ use li_color::perceptual::{oklab_from_2020, oklab_matrices, oklab_to_2020};
 
 pub type M3 = [[f32; 3]; 3];
 
-/// Absolute destination RGB membership tolerance; also shared with WGSL.
+/// Destination RGB tolerance: relative to luminance below zero, absolute above one.
 pub const OUTPUT_EPS: f32 = 1e-6;
 /// Upper-envelope round-off for choosing the highest-chroma lightness endpoint.
 pub const ENDPOINT_EPS: f32 = 4e-7;
@@ -300,23 +300,31 @@ impl Line {
     }
 }
 
-/// Whether destination RGB is inside its cube, with `eps` numerical slack.
+/// Whether destination RGB satisfies the luminance-relative lower and absolute upper faces.
 #[inline]
-fn in_cube(rgb: [f32; 3], eps: f32) -> bool {
-    rgb.iter().all(|v| *v >= -eps && *v <= 1.0 + eps)
+fn in_cube(rgb: [f32; 3], eps: f32, luma: [f32; 3]) -> bool {
+    let lower = -eps * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]);
+    rgb.iter().all(|v| *v >= lower && *v <= 1.0 + eps)
 }
 
 impl Line {
     /// First exit from the expanded cube walking out from gray.
-    fn output_chroma(&self, m: &M3, input: f32) -> Option<f32> {
-        if !in_cube(self.at(m, 0.0), OUTPUT_EPS) {
+    fn output_chroma(&self, m: &M3, input: f32, luma: [f32; 3]) -> Option<f32> {
+        if !in_cube(self.at(m, 0.0), OUTPUT_EPS, luma) {
             return None;
         }
         let mut chroma = input;
         let (faces, count) = self.faces(m, true, 0.0);
-        for face in &faces[..count] {
+        let luminance: [f32; 4] = std::array::from_fn(|k| luma[0] * faces[0][k] + luma[1] * faces[2][k] + luma[2] * faces[4][k]);
+        for (i, face) in faces[..count].iter().enumerate() {
             let mut face = *face;
-            face[0] += OUTPUT_EPS;
+            if i % 2 == 0 {
+                for k in 0..4 {
+                    face[k] += OUTPUT_EPS * luminance[k];
+                }
+            } else {
+                face[0] += OUTPUT_EPS;
+            }
             let (cuts, count) = pieces(face, input);
             for k in 0..count {
                 let (mut lo, mut up) = (cuts[k], cuts[k + 1]);
@@ -340,11 +348,11 @@ impl Line {
     /// At C=qL, RGB=L³*v(q). The largest feasible L minimizes the upper envelope of v's
     /// three cubics on their expanded-cube intervals: stationary points, channel crossings,
     /// or interval endpoints. This avoids bisection on a vanishing-width chroma interval.
-    fn output_endpoint(&self, m: &M3) -> (f32, [f32; 3]) {
+    fn output_endpoint(&self, m: &M3, luma: [f32; 3]) -> (f32, [f32; 3]) {
         let unit = Self { l: 1.0, ..*self };
         let (faces, _) = unit.faces(m, false, 0.0);
-        // Nine turns/endpoints, 27 expanded lower-face roots, nine channel crossings, neutral.
-        let mut qs = [0.0; 46];
+        // Nine turns/endpoints, nine lower-face roots, nine channel crossings, neutral.
+        let mut qs = [0.0; 28];
         let mut count = 1;
         let mut add = |q| {
             qs[count] = q;
@@ -352,17 +360,15 @@ impl Line {
         };
         // The neutral endpoint is above L=0.5 in every supported output cube; C is below 2.
         let hi = 2.0 * MAX_CHROMA;
+        let luminance: [f32; 4] = std::array::from_fn(|k| luma[0] * faces[0][k] + luma[1] * faces[1][k] + luma[2] * faces[2][k]);
         for i in 0..3 {
             let (turns, n) = pieces(faces[i], hi);
             for q in &turns[1..=n] {
                 add(*q);
             }
-            // At the upper boundary, RGB=(1+eps)*v/max(v). Each possible maximum
-            // channel gives a cubic lower-face constraint (1+eps)*v_i+eps*v_j >= 0.
-            for j in 0..3 {
-                let lower = std::array::from_fn(|k| (1.0 + OUTPUT_EPS) * faces[i][k] + OUTPUT_EPS * faces[j][k]);
-                sign_changes(lower, hi, OUTPUT_STEPS, &mut add);
-            }
+            // The relative lower faces are homogeneous: v_i + eps*Y(v) >= 0.
+            let lower = std::array::from_fn(|k| faces[i][k] + OUTPUT_EPS * luminance[k]);
+            sign_changes(lower, hi, OUTPUT_STEPS, &mut add);
             for j in 0..i {
                 sign_changes(std::array::from_fn(|k| faces[i][k] - faces[j][k]), hi, OUTPUT_STEPS, &mut add);
             }
@@ -371,7 +377,7 @@ impl Line {
             qs[..count].iter().filter_map(|q| {
                 let rgb = unit.at(m, *q);
                 let max = rgb.into_iter().fold(0.0, f32::max);
-                let lower = -OUTPUT_EPS * max / (1.0 + OUTPUT_EPS);
+                let lower = -OUTPUT_EPS * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]);
                 (rgb.iter().all(|v| *v >= lower) && max > 0.0).then_some((*q, rgb, max))
             })
         };
@@ -394,10 +400,10 @@ impl Line {
 /// colours move to the first constant-lightness/hue boundary from gray. Near the sRGB and
 /// Rec.2020 blue pinches an RGB ray trace blend trades a small hue shift for continuity.
 /// If the lightness has no valid chroma, first find the highest feasible lightness at that hue.
-/// Identity and search share the `OUTPUT_EPS`-expanded cube. Callers clamp its numerical slack
-/// to [0,1] only after mapping, before encoding.
+/// Identity and search share lower slack `OUTPUT_EPS * Y(r)` and upper slack `OUTPUT_EPS`.
+/// Callers clamp its numerical slack to [0,1] only after mapping, before encoding.
 pub fn output(d: [f32; 3], r: [f32; 3], to_out: &M3, space: OutputSpace) -> [f32; 3] {
-    if in_cube(r, OUTPUT_EPS) {
+    if in_cube(r, OUTPUT_EPS, space.luma()) {
         return r;
     }
     output_lab(oklab_from_2020(d), to_out, r, space)
@@ -408,18 +414,21 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3, r: [f32; 3], space: OutputSpace)
         return [0.0; 3];
     }
     let c = a.hypot(b);
+    let luma = space.luma();
     if c <= 1e-7 {
-        return mul3(to_out, [l.min((1.0 + OUTPUT_EPS).cbrt()).powi(3); 3]).map(|v| v.clamp(-OUTPUT_EPS, 1.0 + OUTPUT_EPS));
+        let rgb = mul3(to_out, [l.min((1.0 + OUTPUT_EPS).cbrt()).powi(3); 3]);
+        let lower = -OUTPUT_EPS * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]);
+        return rgb.map(|v| v.clamp(lower, 1.0 + OUTPUT_EPS));
     }
     // Unit-chroma coefficients keep cubics and their discriminants finite even at 1e30 exposure.
     // Both chroma and lightness of every supported destination cube are below 2.
     let m = &mats().from_lab;
     let mut line = Line { l: l.min(2.0), c: 1.0, d: std::array::from_fn(|i| m[i][1] * (a / c) + m[i][2] * (b / c)) };
     let input = c.min(MAX_CHROMA);
-    let chroma = if let Some(chroma) = line.output_chroma(to_out, input) {
+    let chroma = if let Some(chroma) = line.output_chroma(to_out, input, luma) {
         chroma
     } else {
-        let (c, rgb) = line.output_endpoint(to_out);
+        let (c, rgb) = line.output_endpoint(to_out, luma);
         if c <= input {
             return rgb;
         }
@@ -428,7 +437,7 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3, r: [f32; 3], space: OutputSpace)
         // RGB cubes contain every scaled-down colour, so feasible lightness is an interval.
         for _ in 0..OUTPUT_STEPS {
             line.l = 0.5 * (lo + up);
-            if let Some(found) = line.output_chroma(to_out, input) {
+            if let Some(found) = line.output_chroma(to_out, input, luma) {
                 lo = line.l;
                 chroma = found;
             } else {
@@ -448,18 +457,17 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3, r: [f32; 3], space: OutputSpace)
     let mut boundary = [gray; 3];
     for _ in 0..3 {
         let delta = target.map(|v| v - gray);
-        let scale = delta
-            .iter()
-            .map(|v| {
-                if *v > 0.0 {
-                    (1.0 - gray) / v
-                } else if *v < 0.0 {
-                    -gray / v
-                } else {
-                    f32::INFINITY
-                }
-            })
-            .fold(f32::INFINITY, f32::min);
+        let luminance_delta = luma[0] * delta[0] + luma[1] * delta[1] + luma[2] * delta[2];
+        let mut scale = f32::INFINITY;
+        for v in delta {
+            if v > 0.0 {
+                scale = scale.min((1.0 + OUTPUT_EPS - gray) / v);
+            }
+            let denominator = v + OUTPUT_EPS * luminance_delta;
+            if denominator < 0.0 {
+                scale = scale.min(-gray * (1.0 + OUTPUT_EPS * luma.iter().sum::<f32>()) / denominator);
+            }
+        }
         boundary = if scale.is_finite() { delta.map(|v| gray + scale * v) } else { [gray; 3] };
         let working = if space == OutputSpace::Srgb { mul3(&mats().from_srgb, boundary) } else { boundary };
         let lab = oklab_from_2020(working);
@@ -571,7 +579,7 @@ mod tests {
                         continue; // past the spectral locus' cone: no physical colour has this hue
                     }
                     let r = mul3(&space.from_working(), d);
-                    if in_cube(r, OUTPUT_EPS) && !in_cube(r, 0.0) {
+                    if in_cube(r, OUTPUT_EPS, space.luma()) && !in_cube(r, 0.0, space.luma()) {
                         assert_eq!(output(d, r, &lms_to(&space.from_working()), space), r);
                         continue;
                     }
@@ -655,7 +663,7 @@ mod tests {
                         steepest = steepest.max(c - previous);
                     }
                     previous = c;
-                    let inside = in_cube(out, OUTPUT_EPS);
+                    let inside = out.iter().all(|v| *v >= -OUTPUT_EPS && *v <= 1.0 + OUTPUT_EPS);
                     assert!(inside, "{} at ({l}, {h}): {out:?} outside the gamut at {f}", space.label());
                 }
                 // no jump anywhere along the sweep: steps stay near the input's 1e-3

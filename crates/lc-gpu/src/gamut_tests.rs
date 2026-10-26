@@ -77,6 +77,7 @@ fn gamut_knees_match_the_cpu() {
             OutputSpace::Rec2020 => 2,
             _ => 0,
         });
+        p.extend(space.luma().map(f32::to_bits));
         let mut cx = Cx::new(g);
         let input = g.upload(colours.as_flattened());
         let out = g.buffer(colours.len() * 6);
