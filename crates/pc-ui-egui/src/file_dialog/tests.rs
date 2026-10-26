@@ -160,6 +160,7 @@ fn saving_over_the_file_of_another_open_document_detaches_it() {
     assert_eq!(docs[2].path.as_deref(), Some(a.as_str()), "B lives in a.psd");
     let notice = app.ui.notices.iter().find(|n| n.title.contains("a.psd was saved over")).expect("a notice");
     assert!(notice.title.contains("a.psd was saved over") && notice.lines.len() == 1, "{} {:?}", notice.title, notice.lines);
+    assert_eq!(notice.lines, [format!("\"{}\" no longer has a file and is marked unsaved: save it under a new name to keep it", docs[0].doc.name)]);
     // C's Save a Copy onto a.psd detaches B the same way, and C doesn't take the file.
     app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
     let ctx = egui::Context::default();
