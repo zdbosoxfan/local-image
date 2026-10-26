@@ -139,13 +139,20 @@ fn token_matches(p: &Photo, t: &str) -> bool {
             Some((_, v)) => (x - v).abs() < 1e-9,
             None => false,
         };
+        // Compare at the precision of the stored camera fields.
+        let cmp32 = |x: f32, s: &str| match num(s) {
+            Some(('>', v)) => x > v as f32,
+            Some(('<', v)) => x < v as f32,
+            Some((_, v)) => x == v as f32,
+            None => false,
+        };
         return match field {
             "rating" | "stars" => cmp(p.rating as f64, val),
             "flag" => Flag::parse(val) == Some(p.flag),
             "label" | "color" => p.label.is_some_and(|l| format!("{l:?}").eq_ignore_ascii_case(val)),
             "iso" => p.meta.iso.is_some_and(|i| cmp(i as f64, val)),
-            "f" | "aperture" => p.meta.aperture.is_some_and(|a| cmp(a as f64, val)),
-            "focal" => p.meta.focal_mm.is_some_and(|a| cmp(a as f64, val)),
+            "f" | "aperture" => p.meta.aperture.is_some_and(|a| cmp32(a, val)),
+            "focal" => p.meta.focal_mm.is_some_and(|a| cmp32(a, val)),
             "camera" => contains_lower(&p.meta.camera, val),
             "lens" => contains_lower(&p.meta.lens, val),
             "keyword" | "kw" => p.meta.keywords.iter().any(|k| crate::keywords::is_under(k, val)),
@@ -618,5 +625,17 @@ mod search_tests {
         let sorted = |ascending| c.query(&Filter::default(), &Sort { key: SortKey::FileName, ascending, ..Default::default() });
         assert_eq!(sorted(true), vec![PhotoId(2), PhotoId(3), PhotoId(1), PhotoId(4)]);
         assert_eq!(sorted(false), vec![PhotoId(4), PhotoId(1), PhotoId(3), PhotoId(2)]);
+    }
+    #[test]
+    fn fractional_aperture_and_focal_search_match_at_stored_precision() {
+        let mut p = Photo::new(PhotoId(1), crate::Source::Demo { scene: 0 }, "a.jpg", "JPEG", 1, 1, "2026-01-01");
+        p.meta.aperture = Some(2.8);
+        p.meta.focal_mm = Some(6.7);
+        for token in ["f:2.8", "aperture:2.8", "focal:6.7", "f:>2.7", "focal:<6.8"] {
+            assert!(token_matches(&p, token), "{token}");
+        }
+        for token in ["f:<2.8", "aperture:>2.8", "focal:>6.7", "f:2.9"] {
+            assert!(!token_matches(&p, token), "{token}");
+        }
     }
 }

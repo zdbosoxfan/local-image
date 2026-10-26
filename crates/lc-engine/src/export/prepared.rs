@@ -286,10 +286,14 @@ impl PreparedExport {
                 };
                 let Some(dng) = dng else {
                     // the file is copied byte for byte: refuse rather than leak a location it embeds
-                    if remove_location && original_embeds_location(&bytes) {
-                        return Err(format!(
-                            "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead"
-                        ));
+                    if remove_location {
+                        let embeds_location = original_embeds_location(&bytes)
+                            .map_err(|e| format!("{label}: can't verify location metadata in this original file: {e}"))?;
+                        if embeds_location {
+                            return Err(format!(
+                                "{label}: can't remove the location from an original file that embeds location info; export as JPEG, TIFF or DNG instead"
+                            ));
+                        }
                     }
                     let e =
                         Exported { file_name: file_name.clone(), bytes, width: size.0, height: size.1, sidecars: vec![("xmp", packet.into_bytes())] };

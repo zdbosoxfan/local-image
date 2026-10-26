@@ -1654,6 +1654,7 @@ fn masks_impl(
                     Some(2)
                 }
                 MaskShape::ColorRange { samples, refine } => {
+                    let samples = &samples[..samples.len().min(lightcraft_pipeline::masks::MAX_COLOR_RANGE_SAMPLES)];
                     if selection.is_none() {
                         let mut fp = FinishParams::new(s, frame, info, w, h, plan.px_per_long, lightcraft_pipeline::OutputSpace::Srgb);
                         fp.tone = lightcraft_pipeline::masks::selection_tone(s, info);

@@ -981,9 +981,9 @@ fn photo_for_sidecar(
     photo
 }
 /// Original files cannot be scrubbed while preserving their bytes. Include textual XMP/IPTC places.
-fn original_embeds_location(bytes: &[u8]) -> bool {
-    let m = lightcraft_meta::extract(bytes);
-    m.dji.is_some()
+fn original_embeds_location(bytes: &[u8]) -> Result<bool, String> {
+    let m = lightcraft_meta::try_extract(bytes).map_err(|e| e.to_string())?;
+    Ok(m.dji.is_some()
         || m.gps.is_some()
-        || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty()))
+        || [&m.sublocation, &m.city, &m.state, &m.country].into_iter().any(|s| s.as_deref().is_some_and(|s| !s.trim().is_empty())))
 }

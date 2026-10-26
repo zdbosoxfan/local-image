@@ -996,9 +996,9 @@ fn dsfix_original_export_rejects_embedded_places_without_gps() {
         let mut m = lightcraft_meta::Metadata::default();
         [&mut m.sublocation, &mut m.city, &mut m.state, &mut m.country][field].replace("Private place".into());
         let jpg = encode_with_metadata(&Rgba8 { width: 1, height: 1, data: vec![[0, 0, 0, 255]] }, &ExportOptions::default(), Some(&m)).unwrap();
-        assert!(original_embeds_location(&jpg), "field {field}");
+        assert!(original_embeds_location(&jpg).unwrap(), "field {field}");
     }
-    assert!(!original_embeds_location(b"original without location"));
+    assert!(!original_embeds_location(b"original without location").unwrap());
 }
 
 #[test]

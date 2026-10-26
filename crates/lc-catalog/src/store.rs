@@ -45,6 +45,35 @@ pub trait Store: Send {
     }
 }
 
+/// Replace the entry itself, never a link's target; exclusive creation refuses a raced-in entry.
+pub(crate) fn create_staging(path: &Path) -> io::Result<std::fs::File> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+/// Keep relocated catalog files at their targets without replacing the user's links.
+fn resolve_regular_file(path: &Path) -> io::Result<PathBuf> {
+    let (path, metadata) = match std::fs::symlink_metadata(path) {
+        Ok(md) if md.file_type().is_symlink() => {
+            let target = std::fs::canonicalize(path)?;
+            let metadata = std::fs::symlink_metadata(&target)?;
+            (target, metadata)
+        }
+        Ok(md) => (path.to_path_buf(), md),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(path.to_path_buf()),
+        Err(e) => return Err(e),
+    };
+    if metadata.is_file() {
+        Ok(path)
+    } else {
+        Err(io::Error::other(format!("{} is a {:?}, not a regular file", path.display(), metadata.file_type())))
+    }
+}
+
 /// Files in a directory.
 pub struct FsStore {
     dir: PathBuf,
@@ -78,7 +107,8 @@ impl FsStore {
     fn append_with_sync_dir(&mut self, name: &str, data: &[u8], sync_dir: impl FnOnce(&Path) -> io::Result<()>) -> io::Result<()> {
         use std::io::Write;
         if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
-            let f = std::fs::OpenOptions::new().create(true).append(true).open(self.path(name))?;
+            let path = resolve_regular_file(&self.path(name))?;
+            let f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
             // An existing entry may be left by an append whose directory sync failed.
             sync_dir(&self.dir)?;
             self.appender = Some((name.to_string(), f));
@@ -108,14 +138,16 @@ impl Store for FsStore {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        li_fs::write_atomic(&self.path(name), data)
+        let path = resolve_regular_file(&self.path(name))?;
+        li_fs::write_atomic(&path, data)
     }
 
     fn write_atomic_with(&mut self, name: &str, fill: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>) -> io::Result<u64> {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        li_fs::write_atomic_with(&self.path(name), fill)
+        let path = resolve_regular_file(&self.path(name))?;
+        li_fs::write_atomic_with(&path, fill)
     }
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
@@ -126,7 +158,8 @@ impl Store for FsStore {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
-        let f = match std::fs::OpenOptions::new().write(true).open(self.path(name)) {
+        let path = resolve_regular_file(&self.path(name))?;
+        let f = match std::fs::OpenOptions::new().write(true).open(path) {
             Ok(f) => f,
             // nothing to cut (an append that failed before creating the file)
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
