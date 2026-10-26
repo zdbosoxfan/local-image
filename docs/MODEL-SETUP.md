@@ -42,8 +42,8 @@ For every main model file that ComfyUI lists (`diffusion_models/`, `unet/`, `che
 7. **Publish.** Usable models appear in Generate's model picker.
 
 Results are stored per ComfyUI server in `ai-models.json` in Local Image's state folder (`state/`
-under the data folder; `LOCAL_IMAGE_DATA_DIR` moves it). The template package is cached per version
-in `state/templates/<version>/`.
+under the data folder; `LOCAL_IMAGE_DATA_DIR` moves it). The template package is cached per server and package version
+in `state/templates/<host-hash>/<version>/`.
 
 ## Checks and messages
 
@@ -132,6 +132,18 @@ install in the Model Browser) shows the same results as the doctor, for the conn
   time.
 - **Use** lists what the model can do and opens Generate on it.
 
+The inventory worker checks files and recipes again when the server or template version changes,
+and at each periodic inventory refresh. These are static checks; test renders still need a click.
+Every executable branch, resolved companion choice and derivation setting participates in the
+tested signature. File size, header and modification time detect normal main-weight replacements;
+a payload replacement that preserves all three is not detected. A previously tested template
+recipe remains available while it still validates if its new package cannot be read or matched.
+Verification retries use the checked recipe, so a tool disabled by its old failure is actually
+tested again. Unknown checkpoints get a metadata-aware universal Refine test.
+
+A missing optional style file disables that tool while plain Create remains usable. The runtime
+checks the chosen tool's files and nodes again before submitting its graph.
+
 When the number of new models rises during a session, one notice says so. Generate's picker shows
 a chip on template models ("Not tested", "Re-check", "Works"); a model that can't run yet (no
 recipe, or its test failed) is listed under *Other installed models* with the reason and
@@ -154,6 +166,9 @@ instead of the server. `--json` prints the report (`report_version` 1). Exit cod
 blocks, 1 blockers or failed tests, 2 usage, 3 ComfyUI not reachable, 130 verification cancelled.
 The host is `--host`, else
 `LOCAL_IMAGE_COMFY`, else the Local AI settings.
+
+An installed optional prompt enhancer gets its own verification render and result; plain Create
+stays the default and is tested separately.
 
 ### Not implemented yet
 

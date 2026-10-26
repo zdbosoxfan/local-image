@@ -23,7 +23,7 @@ All notable changes to Local Image are recorded here. The format follows
   picker marks template models "Not tested", "Re-check" or "Works", lists models that can't run
   yet with the reason and a Set up… button, and a banner announces new models.
 - AI: an opt-in Enhance prompt switch for models whose official template has a local prompt
-  enhancer (off by default, remembered per model).
+  enhancer (off by default, remembered per model), with its own optional verification render when installed.
 - AI: Import Workflow… accepts a ComfyUI workflow without `li:` node titles; its prompt, negative,
   seed and size are found by their roles (basic controls).
 
@@ -39,6 +39,7 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- AI: verification retries test previously failed tools again; optional style files no longer block plain Create, and published capabilities honor their static checks. Background model refreshes recheck files and recipes after updates.
 - AI: a Hugging Face model card no longer installs every file of its repository into one folder:
   files go to the folder their repository path names, diffusers copies and shards are left out,
   and a repository with several precisions installs the one chosen in the install dialog.
