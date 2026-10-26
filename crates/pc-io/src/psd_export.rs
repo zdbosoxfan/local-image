@@ -256,18 +256,18 @@ fn upsert(raw: &mut Vec<([u8; 4], Vec<u8>)>, key: &[u8; 4], data: Vec<u8>, befor
 /// Whether the samples of `r` in `s` are too sparse to gather. A PSD layer record is one dense
 /// rectangle, so a few pixels far apart (content moved far off the canvas, or a crafted
 /// document) make a box of mostly nothing that cannot be gathered and copied into channel planes.
-fn sparse_gather(s: &Surface, r: photocraft_geom::Rect, budget: u64) -> bool {
+fn sparse_gather(s: &Surface, r: photocraft_geom::Rect, budget: u64, canvas: photocraft_geom::Rect) -> bool {
     let bpp = s.format().bytes_per_pixel() as u64;
     let bytes = |r: photocraft_geom::Rect| u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(bpp);
     let tile = u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2);
     let held = (s.tile_count() as u64).saturating_mul(tile).saturating_mul(bpp);
-    gather_refused(bytes(r), held, budget)
+    gather_refused(bytes(r), held, budget, bytes(canvas))
 }
 
-/// Refuse sparse rectangles whose dense staging and channel planes exceed the memory budget.
-/// Dense layers already hold their full area in tiles and remain eligible regardless of size.
-fn gather_refused(boxed: u64, held: u64, budget: u64) -> bool {
-    boxed > held.saturating_mul(SPARSE_GATHER_FACTOR) && boxed > budget / 2
+/// Refuse sparse rectangles larger than the canvas whose staging and planes exceed the budget.
+/// The merged image already spans the canvas; dense layers already hold their full area in tiles.
+fn gather_refused(boxed: u64, held: u64, budget: u64, canvas: u64) -> bool {
+    boxed > held.saturating_mul(SPARSE_GATHER_FACTOR) && boxed > (budget / 2).max(canvas)
 }
 
 fn psd_mode(m: ColorMode) -> PsdMode {
@@ -318,7 +318,7 @@ impl Ex {
         if r.is_empty() {
             return (PsdRect::default(), self.empty_channels());
         }
-        if sparse_gather(&s, r, self.memory_budget) {
+        if sparse_gather(&s, r, self.memory_budget, self.canvas) {
             self.warnings.push(format!(
                 "layer \"{name}\": its pixels are scattered over {}×{} px, too large to write: saved without its pixels (delete the stray pixels far from the rest and save again)",
                 r.width(),
@@ -346,7 +346,7 @@ impl Ex {
         let s = if m.surface.format() != self.mask_fmt { m.surface.convert(self.mask_fmt) } else { m.surface.clone() };
         let default = s.default_pixel().first().copied().unwrap_or(0.0);
         let mut r = s.content_bounds();
-        if !r.is_empty() && sparse_gather(&s, r, self.memory_budget) {
+        if !r.is_empty() && sparse_gather(&s, r, self.memory_budget, self.canvas) {
             self.warnings.push(format!(
                 "layer \"{name}\": its mask's painted pixels are scattered over {}×{} px, too large to write: saved as an empty mask",
                 r.width(),
