@@ -3816,6 +3816,7 @@ dependencies = [
  "miniz_oxide 0.8.9",
  "prost",
  "rayon",
+ "rustix 1.1.5",
  "serde_json",
  "sha2",
  "tract-linalg",

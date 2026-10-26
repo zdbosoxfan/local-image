@@ -56,19 +56,19 @@ fn tensor(t: &pb::TensorProto) -> Result<Vec<f32>> {
 impl Graph {
     pub fn load(path: &Path, input: Shape) -> Result<Self> {
         let proto = tract_onnx::onnx().proto_model_for_path(path)?;
-        Self::from_proto(proto, input)
+        Self::from_proto(&proto, input)
     }
-    pub fn from_proto(proto: pb::ModelProto, input: Shape) -> Result<Self> {
+    pub fn from_proto(proto: &pb::ModelProto, input: Shape) -> Result<Self> {
         ensure!(
             input.checked_len().is_some_and(|n| n > 0 && n <= 1 << 29) && input.h.is_multiple_of(16) && input.w.is_multiple_of(16),
             "invalid restoration input"
         );
-        let g = proto.graph.context("ONNX has no graph")?;
+        let g = proto.graph.as_ref().context("ONNX has no graph")?;
         ensure!(g.input.len() == 1 && g.output.len() == 1, "expected one restoration input and output");
         let mut ids = HashMap::from([(g.input[0].name.clone(), 0usize)]);
-        let mut constants: HashMap<String, pb::TensorProto> = g.initializer.into_iter().map(|t| (t.name.clone(), t)).collect();
+        let mut constants: HashMap<String, &pb::TensorProto> = g.initializer.iter().map(|t| (t.name.clone(), t)).collect();
         let mut nodes: Vec<Node> = Vec::new();
-        for n in g.node {
+        for n in &g.node {
             let attr = |name: &str| n.attribute.iter().find(|a| a.name == name);
             let int = |name: &str, default: i64| attr(name).map_or(default, |a| a.i);
             let pair = |name: &str, default: [usize; 2]| -> Result<[usize; 2]> {
@@ -78,13 +78,13 @@ impl Graph {
             };
             ensure!(n.output.len() == 1, "multiple outputs on {}", n.op_type);
             if n.op_type == "Constant" {
-                let t = attr("value").and_then(|a| a.t.clone()).context("unsupported ONNX constant")?;
+                let t = attr("value").and_then(|a| a.t.as_ref()).context("unsupported ONNX constant")?;
                 constants.insert(n.output[0].clone(), t);
                 continue;
             }
             if n.op_type == "Identity" {
                 let name = n.input.first().context("identity has no input")?;
-                if let Some(t) = constants.get(name).cloned() {
+                if let Some(t) = constants.get(name).copied() {
                     constants.insert(n.output[0].clone(), t);
                 } else {
                     ids.insert(n.output[0].clone(), *ids.get(name).context("unknown identity input")?);
@@ -210,14 +210,14 @@ mod tests {
     fn ds2_malicious_shapes_return_errors_without_panics() {
         let input = Shape { c: 1, h: 16, w: 16 };
         let block = pb::AttributeProto { name: "blocksize".into(), i: i64::MAX, ..Default::default() };
-        assert!(Graph::from_proto(proto("DepthToSpace", vec![block], false), input).is_err());
-        assert!(Graph::from_proto(proto("Conv", vec![ints("pads", vec![i64::MAX; 4])], true), input).is_err());
-        assert!(Graph::from_proto(proto("ConvTranspose", vec![ints("output_padding", vec![i64::MAX; 2])], true), input).is_err());
-        assert!(Graph::from_proto(proto("Relu", vec![], false), Shape { c: usize::MAX, h: 16, w: 16 }).is_err());
+        assert!(Graph::from_proto(&proto("DepthToSpace", vec![block], false), input).is_err());
+        assert!(Graph::from_proto(&proto("Conv", vec![ints("pads", vec![i64::MAX; 4])], true), input).is_err());
+        assert!(Graph::from_proto(&proto("ConvTranspose", vec![ints("output_padding", vec![i64::MAX; 2])], true), input).is_err());
+        assert!(Graph::from_proto(&proto("Relu", vec![], false), Shape { c: usize::MAX, h: 16, w: 16 }).is_err());
     }
     #[test]
     fn ds2_maxpool_omitted_stride_is_one() {
-        let graph = Graph::from_proto(proto("MaxPool", vec![ints("kernel_shape", vec![3, 3])], false), Shape { c: 1, h: 16, w: 16 }).unwrap();
+        let graph = Graph::from_proto(&proto("MaxPool", vec![ints("kernel_shape", vec![3, 3])], false), Shape { c: 1, h: 16, w: 16 }).unwrap();
         assert_eq!(graph.nodes[0].shape, Shape { c: 1, h: 14, w: 14 });
     }
 }
