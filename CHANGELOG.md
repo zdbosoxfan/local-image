@@ -42,11 +42,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
-- Develop and export preserve colours already inside the selected output space, including sRGB
-  blue and ProPhoto primaries. Out-of-gamut colours clip at constant OkLab hue and lightness,
-  with a narrow blue-band blend to prevent visible jumps from small input changes. Scene colours
-  retain the smooth working-space compression. Rendered sources preserve saturated in-gamut
-  colours at neutral tone settings; only colours outside Rec. 2020 reach their scene gamut stage.
+- Develop and export preserve saturated colours already inside the selected output space,
+  including deep blue. Colours outside that space transition smoothly, avoiding visible jumps
+  from small edits. Rendered images and converted film negatives keep their saturated colours
+  at neutral tone settings; RAW images retain smooth transitions in very saturated light.
 - RAW capture sharpening leaves flat areas beyond the contrast mask's blur unchanged, keeping
   CPU and GPU previews consistent at high iteration counts.
 - Develop: the scene gamut knee preserves its colour response across exposure changes, including
