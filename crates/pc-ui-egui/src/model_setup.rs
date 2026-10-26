@@ -610,7 +610,12 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
             let name = moved.to.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             ui.horizontal(|ui| {
                 ui.label(RichText::new(li_i18n::fmt(tl!("Moved {file}."), &[("file", &name)])).color(t.text_dim));
-                if widgets::secondary_button_translated(ui, tl!("Undo"), 0.0).clicked() {
+                if ui
+                    .add_enabled_ui(!s.busy(), |ui| widgets::secondary_button_translated(ui, tl!("Undo"), 0.0))
+                    .inner
+                    .on_disabled_hover_text(tl!("Wait for the current task to finish."))
+                    .clicked()
+                {
                     out.push(Action::Undo);
                 }
             });
