@@ -74,6 +74,8 @@ fn fine_histogram_motion_clamps_and_keeps_fractional_travel() {
         let plot = plot(&h);
         let start = ZONES[2].rect(plot).center();
         pointer(&mut h, start, Some(true), fine);
+        let start = start + egui::vec2(0.0, h.view.ctx.options(|options| options.input_options.max_click_dist) + 1.0);
+        pointer(&mut h, start, None, fine);
         for index in 1..=20 {
             pointer(&mut h, start + egui::vec2(plot.width() * index as f32 / 1000.0, 0.0), None, fine);
         }
