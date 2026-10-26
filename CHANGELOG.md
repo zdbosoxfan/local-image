@@ -98,6 +98,7 @@ All notable changes to Local Image are recorded here. The format follows
 - PSD export uses the embedded CMYK profile when generating layer pixels, avoiding a colour shift
   when reopening fills without cached pixels.
 
+- Develop: background Upright analyses discard results after the photo's source content is replaced.
 - Develop: Refine Edges distinguishes different subject masks and image detail when reusing a
   matting result, preventing stale coverage with repeated or symmetric patterns.
 - Develop: changing the monitor, Library or preview cache cancels full-size loupe renders that
