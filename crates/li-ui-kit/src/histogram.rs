@@ -59,23 +59,41 @@ pub const LIBRARY_LINE_WIDTH: f32 = 1.5;
 /// Library histogram shell, including the accessible clipping toggle. The caller retains metadata
 /// and clipping semantics; preview histograms still use display-bin endpoint counts.
 pub fn library(ui: &mut egui::Ui, h: Option<Histogram<'_>>, clipping: (f32, f32), enabled: bool, label: &str) -> egui::Response {
-    let t = crate::library::get(ui.ctx());
-    let (r, response) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(1.0), LIBRARY_HEIGHT), egui::Sense::click());
+    let response = library_shell(ui, enabled, label);
+    paint_library_contents(ui, response.rect, h, clipping, enabled);
+    response
+}
+
+/// Allocate the Library shell before a caller paints tonal-zone feedback behind the curves.
+pub fn library_shell(ui: &mut egui::Ui, enabled: bool, label: &str) -> egui::Response {
+    let tokens = crate::library::get(ui.ctx());
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(ui.available_width().max(1.0), LIBRARY_HEIGHT), egui::Sense::click_and_drag());
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), enabled, label));
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, t.library.button);
-    let plot = Rect::from_min_max(r.min + egui::vec2(0.0, LIBRARY_PLOT_TOP), pos2(r.right(), r.bottom() - LIBRARY_METADATA_HEIGHT));
+    ui.painter().rect_filled(rect, 0.0, tokens.library.button);
+    response
+}
+
+pub fn library_plot_rect(rect: Rect) -> Rect {
+    Rect::from_min_max(rect.min + egui::vec2(0.0, LIBRARY_PLOT_TOP), pos2(rect.right(), rect.bottom() - LIBRARY_METADATA_HEIGHT))
+}
+
+pub fn library_clipping_rects(plot: Rect) -> [Rect; 2] {
+    [plot.left() + CLIP_INDICATOR_INSET, plot.right() - CLIP_INDICATOR_INSET]
+        .map(|x| Rect::from_center_size(pos2(x, plot.top() + CLIP_INDICATOR_TOP), CLIP_INDICATOR_SIZE))
+}
+
+/// Paint the borrowed histogram and endpoint indicators into an allocated Library shell.
+pub fn paint_library_contents(ui: &egui::Ui, rect: Rect, h: Option<Histogram<'_>>, clipping: (f32, f32), enabled: bool) {
+    let tokens = crate::library::get(ui.ctx());
+    let painter = ui.painter();
+    let plot = library_plot_rect(rect);
     if let Some(h) = h {
-        paint_library(p, plot, h, &t);
-        for (clipped, x) in
-            [(clipping.0 > CLIP_THRESHOLD, plot.left() + CLIP_INDICATOR_INSET), (clipping.1 > CLIP_THRESHOLD, plot.right() - CLIP_INDICATOR_INSET)]
-        {
-            let indicator = Rect::from_center_size(pos2(x, plot.top() + CLIP_INDICATOR_TOP), CLIP_INDICATOR_SIZE);
-            p.rect_filled(indicator, CLIP_INDICATOR_RADIUS, if enabled { t.hover } else { t.histogram_clip_background() });
-            paint_indicator(p, indicator.shrink(CLIP_INDICATOR_RADIUS), t.histogram_clip_color(clipped));
+        paint_library(painter, plot, h, &tokens);
+        for (clipped, indicator) in [clipping.0 > CLIP_THRESHOLD, clipping.1 > CLIP_THRESHOLD].into_iter().zip(library_clipping_rects(plot)) {
+            painter.rect_filled(indicator, CLIP_INDICATOR_RADIUS, if enabled { tokens.hover } else { tokens.histogram_clip_background() });
+            paint_indicator(painter, indicator.shrink(CLIP_INDICATOR_RADIUS), tokens.histogram_clip_color(clipped));
         }
     }
-    response
 }
 
 fn paint_indicator(p: &egui::Painter, rect: Rect, color: egui::Color32) {
