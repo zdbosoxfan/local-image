@@ -7,7 +7,7 @@ use super::*;
 /// Names: ready-identify/check/verify/use, blocked-check, verified-verify, failed-verify,
 /// needs-reverify-check, missing-node-check, unmatched-check, builtin-identify, partial-verify,
 /// ignored, other-files, running, move, download, template, offline, empty, new-identify,
-/// loading, task-error.
+/// loading, task-error, companion-check.
 pub fn snapshot_scene(scene: &str) -> Result<(), String> {
     let scan = fixtures::fixture();
     crate::ai_ui::TEST_STATUS.with(|status| {
@@ -69,7 +69,7 @@ pub fn snapshot_scene(scene: &str) -> Result<(), String> {
     let (key, step) = match scene {
         "ready-identify" | "new-identify" | "other-files" | "builtin-identify" => (if scene == "builtin-identify" { QWEN21 } else { FLUX3 }, Step::Identify),
         "ignored" => ("unet:old_test.safetensors", Step::Identify),
-        "ready-check" => (FLUX3, Step::Check),
+        "ready-check" | "companion-check" => (FLUX3, Step::Check),
         "ready-verify" | "running" => (FLUX3, Step::Verify),
         "ready-use" => (FLUX3, Step::Use),
         "blocked-check" | "remote-check" | "task-error" | "move" | "download" => (MOSS, Step::Check),
@@ -84,6 +84,12 @@ pub fn snapshot_scene(scene: &str) -> Result<(), String> {
     with(|s| -> Result<(), String> {
         *s = State { open: true, snapshot_only: true, ..Default::default() };
         let mut scan = fixtures::fixture();
+        if scene == "companion-check" {
+            let model = scan.server.models.get_mut(FLUX3).ok_or("fixture model is present")?;
+            for (role, file) in [("style_model", "reference_style.safetensors"), ("controlnet", "edge_control.safetensors")] {
+                model.bindings.push(li_ai::companions::Binding { role: role.into(), declared: file.into(), used: Some(file.into()), ..Default::default() });
+            }
+        }
         if scene == "remote-check" {
             let snapshot = scan.snapshot.as_mut().ok_or("fixture server is present")?;
             snapshot.remote = true;

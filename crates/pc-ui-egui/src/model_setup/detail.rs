@@ -274,12 +274,10 @@ fn check(ui: &mut egui::Ui, s: &mut State, scan: &Scan, key: &str, m: &ModelStat
     }
     for b in m.bindings.iter().filter(|b| b.role != "main" && !b.optional) {
         let Some(used) = &b.used else { continue };
-        let role = match b.role.as_str() {
-            "clip" => tl!("Text encoder"),
-            "vae" => tl!("VAE"),
-            "lora" => tl!("LoRA"),
-            _ => tl!("Model"),
-        };
+        let role = modelsetup::issue::role_label(&b.role, false);
+        let mut letters = role.chars();
+        let role = letters.next().map(|first| first.to_uppercase().collect::<String>() + letters.as_str()).unwrap_or_default();
+        let role = li_i18n::t(&role);
         let mut line = li_i18n::fmt(tl!("{role}: {file}"), &[("role", role), ("file", used)]);
         if *used != b.declared {
             line.push_str(&li_i18n::fmt(tl!(" (the template names {file})"), &[("file", &b.declared)]));
