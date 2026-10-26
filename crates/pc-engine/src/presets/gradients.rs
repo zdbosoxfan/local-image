@@ -361,6 +361,19 @@ pub type FillStops = (Vec<(f32, Color)>, Vec<(f32, f32)>);
 
 const CMD_SELECT: &str = "gradient.presets.select";
 
+/// Borrow the tool's named or current preset before callers clone or resolve it.
+/// None selects explicit stops; callers handle the evenly spaced colours shorthand.
+pub(crate) fn tool_preset<'a>(s: &'a Session, p: &Value) -> Result<Option<&'a GradientPreset>> {
+    if let Some(name) = str_param(p, "gradient") {
+        let (gi, ii) = find(&s.presets.gradients, name, None).ok_or_else(|| bad("paint.gradient", format!("no gradient preset \"{name}\"")))?;
+        Ok(Some(&s.presets.gradients[gi].items[ii]))
+    } else if p.get("stops").is_some() {
+        Ok(None)
+    } else {
+        Ok(Some(&s.presets.gradient))
+    }
+}
+
 /// Gradient for the Gradient tool: `"gradient": preset name`, else explicit `"stops"`, else the
 /// current gradient (Gradients panel selection); explicit `"transparency"` stops replace its
 /// own. `None` when the caller gave `colors` (the evenly spaced shorthand `paint.gradient`
@@ -370,13 +383,9 @@ pub fn tool_stops(s: &Session, p: &Value) -> Result<Option<Stops>> {
     if p.get("colors").and_then(Value::as_array).is_some_and(|a| !a.is_empty()) {
         return Ok(None);
     }
-    let g = if let Some(name) = str_param(p, "gradient") {
-        let (gi, ii) = find(&s.presets.gradients, name, None).ok_or_else(|| bad(CMD, format!("no gradient preset \"{name}\"")))?;
-        s.presets.gradients[gi].items[ii].clone().with_transparency(p, CMD)?
-    } else if p.get("stops").is_some() {
-        GradientPreset::from_params("Custom", p, CMD)?
-    } else {
-        s.presets.gradient.clone().with_transparency(p, CMD)?
+    let g = match tool_preset(s, p)? {
+        Some(preset) => preset.clone().with_transparency(p, CMD)?,
+        None => GradientPreset::from_params("Custom", p, CMD)?,
     };
     Ok(Some(g.resolve(s.tools.foreground, s.tools.background)))
 }

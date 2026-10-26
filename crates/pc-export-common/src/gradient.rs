@@ -3,7 +3,7 @@
 use super::*;
 use photocraft_doc::{Fill, GradientMethod, GradientStyle};
 use photocraft_vector::Paint;
-use photocraft_vector::gradient_method::{MAX_EXPANDED_STOPS, refine_samples, sample_limits};
+use photocraft_vector::gradient_method::{MAX_EXPANDED_STOPS, hard_stop_samples, refine_samples, sample_limits};
 
 pub fn supported(f: &Fill) -> bool {
     match f {
@@ -93,13 +93,7 @@ impl Gradient {
         if style == GradientStyle::Reflected {
             hard = hard.into_iter().flat_map(|p| [(1.0 - p) / 2.0, (1.0 + p) / 2.0]).collect();
         }
-        let mut samples = samples.into_iter().filter(|u| !hard.contains(u)).map(|u| (u, 0_i8)).collect::<Vec<_>>();
-        for u in hard {
-            samples.push((u, -1));
-            samples.push((u, 1));
-        }
-        samples.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        samples.dedup();
+        let samples = hard_stop_samples(samples, hard);
         if method == GradientMethod::Perceptual && samples.len() > MAX_EXPANDED_STOPS {
             return Err(invalid("gradient needs too many samples; simplify the ramp"));
         }
@@ -152,7 +146,10 @@ mod tests {
         let path = photocraft_vector::shapes::rect(0.0, 0.0, 64.0, 32.0);
         let mut alpha = Fill::gradient(
             (0..65).map(|i| (i as f32 / 64.0, Color::rgba(0.0, 0.0, 0.0, i as f32 / 64.0))).collect(),
-            0.0, 1.0, GradientStyle::Reflected, false,
+            0.0,
+            1.0,
+            GradientStyle::Reflected,
+            false,
         );
         if let Fill::Gradient { opacity_stops, midpoints, .. } = &mut alpha {
             *opacity_stops = (0..65).map(|i| (i as f32 / 64.0, 1.0 - i as f32 / 64.0)).collect();
@@ -160,7 +157,10 @@ mod tests {
         }
         let hard = Fill::gradient(
             (0..1100).flat_map(|i| [(i as f32 / 1099.0, Color::BLACK), (i as f32 / 1099.0, Color::WHITE)]).collect(),
-            0.0, 1.0, GradientStyle::Reflected, false,
+            0.0,
+            1.0,
+            GradientStyle::Reflected,
+            false,
         );
         for mut fill in [alpha, hard] {
             let gradient = Gradient::new(&doc, &fill, &path).expect("Classic ramps retain their pre-Perceptual export acceptance");

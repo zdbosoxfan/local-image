@@ -71,6 +71,27 @@ const TOLERANCE: f32 = 0.4 / 255.0;
 const MAX_DEPTH: u32 = 16;
 const LIMIT: &str = "gradient needs too many stops to preserve its appearance; simplify the ramp";
 
+/// Sorted ramp samples with both limits of each hard stop, including coincident endpoints.
+pub fn hard_stop_samples(positions: Vec<f32>, hard: impl IntoIterator<Item = f32>) -> Vec<(f32, i8)> {
+    let mut hard: Vec<_> = hard.into_iter().collect();
+    hard.sort_by(f32::total_cmp);
+    hard.dedup();
+    let mut samples = positions
+        .into_iter()
+        .filter(|t| {
+            let index = hard.partition_point(|h| h < t);
+            hard.get(index).is_none_or(|h| h != t)
+        })
+        .map(|t| (t, 0))
+        .collect::<Vec<_>>();
+    for t in hard {
+        samples.extend([(t, -1), (t, 1)]);
+    }
+    samples.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+    samples.dedup();
+    samples
+}
+
 /// Refines sorted ramp breakpoints until linear RGBA interpolation follows `sample` within
 /// 0.4/255 per channel. Coincident positions retain their side (-1/1) and order. Failure is
 /// explicit if the bounded sample/depth budget cannot meet the tolerance.

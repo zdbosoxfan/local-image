@@ -116,7 +116,7 @@ fn gradient(s: &mut Session, p: &Value) -> Result<Value> {
 
 fn perceptual_stops(s: &Session, p: &Value) -> Result<Vec<(f32, [f32; 4])>> {
     use photocraft_doc::GradientMethod;
-    use photocraft_vector::gradient_method::{MAX_EXPANDED_STOPS, refine_samples, sample_limits, sample_stops};
+    use photocraft_vector::gradient_method::{MAX_EXPANDED_STOPS, hard_stop_samples, refine_samples, sample_limits, sample_stops};
     const CMD: &str = "paint.gradient";
     // Leave room for both endpoints in the shared expansion budget.
     const MAX_SOURCE_STOPS: usize = MAX_EXPANDED_STOPS - 2;
@@ -146,15 +146,13 @@ fn perceptual_stops(s: &Session, p: &Value) -> Result<Vec<(f32, [f32; 4])>> {
             colors.iter().enumerate().map(|(i, c)| (if colors.len() > 1 { i as f32 / (colors.len() - 1) as f32 } else { 0.0 }, color(Some(c), fg))).collect();
         (stops, opacity)
     } else {
-        let preset = if let Some(name) = crate::presets::str_param(p, "gradient") {
-            let (group, item) = crate::presets::find(&s.presets.gradients, name, None).ok_or_else(|| bad(&format!("no gradient preset \"{name}\"")))?;
-            prepare_preset(&s.presets.gradients[group].items[item])?
-        } else if p.get("stops").is_some() {
-            let colors = p.get("stops").and_then(Value::as_array).map_or(0, Vec::len);
-            check_source(colors, opacity_count)?;
-            gradients::GradientPreset::from_params("Custom", p, CMD)?
-        } else {
-            prepare_preset(&s.presets.gradient)?
+        let preset = match gradients::tool_preset(s, p)? {
+            Some(preset) => prepare_preset(preset)?,
+            None => {
+                let colors = p.get("stops").and_then(Value::as_array).map_or(0, Vec::len);
+                check_source(colors, opacity_count)?;
+                gradients::GradientPreset::from_params("Custom", p, CMD)?
+            }
         };
         let (colors, opacity) = preset.fill_stops(fg, bg);
         (
@@ -174,25 +172,12 @@ fn perceptual_stops(s: &Session, p: &Value) -> Result<Vec<(f32, [f32; 4])>> {
     let mut positions = vec![0.0_f32, 1.0];
     positions.extend(stops.iter().map(|s| s.0));
     positions.extend(opacity.iter().map(|s| s.0));
-    positions.sort_by(f32::total_cmp);
-    positions.dedup();
-    let mut hard: Vec<_> = stops
+    let hard = stops
         .windows(2)
         .filter(|pair| pair[0].0 == pair[1].0)
         .map(|pair| pair[0].0)
-        .chain(opacity.windows(2).filter(|pair| pair[0].0 == pair[1].0).map(|pair| pair[0].0))
-        .collect();
-    hard.sort_by(f32::total_cmp);
-    hard.dedup();
-    let mut samples = Vec::with_capacity(stops.len().saturating_add(opacity.len()).saturating_add(2));
-    for position in positions {
-        let index = hard.partition_point(|value| *value < position);
-        if hard.get(index).is_some_and(|value| *value == position) {
-            samples.extend([(position, -1), (position, 1)]);
-        } else {
-            samples.push((position, 0));
-        }
-    }
+        .chain(opacity.windows(2).filter(|pair| pair[0].0 == pair[1].0).map(|pair| pair[0].0));
+    let samples = hard_stop_samples(positions, hard);
     let at = |t: f32, side: i8| {
         if side == 0 {
             sample_stops(GradientMethod::Perceptual, &stops, &[], &opacity, t)
