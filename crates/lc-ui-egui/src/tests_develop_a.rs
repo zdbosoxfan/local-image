@@ -604,3 +604,38 @@ fn develop_gpu_pressure_recovery_slider_remains_responsive() {
     frames.sort_by(f64::total_cmp);
     eprintln!("interactive during local-AI p50={:.2} ms p95={:.2} ms", frames[15], frames[28]);
 }
+
+#[test]
+fn crop_edge_handles_keep_the_locked_aspect() {
+    let mut h = setup(400.0, true, 1.0);
+    exec(&mut h, "panel.crop", json!({}));
+    exec(&mut h, "crop.set", json!({"rect":[0.2,0.2,0.8,0.8]}));
+    exec(&mut h, "crop.aspect", json!({"aspect":"current"}));
+    assert!(h.settle(T));
+    let before = d(&h).crop.geometry.rect;
+    let handle = rect(&h, "cropHandle:5").center();
+    request(&mut h, "ui.drag", json!({"x":handle.x,"y":handle.y,"toX":handle.x-40.0,"toY":handle.y}));
+    let after = d(&h).crop.geometry.rect;
+    assert!(after.width() < before.width(), "the edge moved: {before:?} -> {after:?}");
+    assert!((after.width() / after.height() - before.width() / before.height()).abs() < 1e-5, "aspect changed: {before:?} -> {after:?}");
+}
+
+#[test]
+fn a_straightened_full_height_crop_slides_sideways() {
+    let mut h = setup(400.0, true, 1.0);
+    let landscape = h.app.session.catalog.photos().find(|photo| photo.width > photo.height).unwrap().id;
+    exec(&mut h, "library.select", json!({"ids":[landscape.0]}));
+    exec(&mut h, "panel.crop", json!({}));
+    exec(&mut h, "crop.aspect", json!({"aspect":"2x3"}));
+    exec(&mut h, "crop.rotateAspect", json!({}));
+    exec(&mut h, "crop.straighten", json!({"angle":6.0}));
+    assert!(h.settle(T));
+    let before = d(&h).crop.geometry.rect;
+    let top_left = rect(&h, "cropHandle:0").center();
+    let bottom_right = rect(&h, "cropHandle:2").center();
+    let centre = top_left + (bottom_right - top_left) / 2.0;
+    request(&mut h, "ui.drag", json!({"x":centre.x,"y":centre.y,"toX":centre.x+40.0,"toY":centre.y+20.0}));
+    let after = d(&h).crop.geometry.rect;
+    assert!(after.center().x > before.center().x + 0.005, "crop stayed centred: {before:?} -> {after:?}");
+    assert!((after.width() - before.width()).abs() < 1e-5 && (after.height() - before.height()).abs() < 1e-5, "moving keeps the size");
+}
