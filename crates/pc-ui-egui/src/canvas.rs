@@ -147,14 +147,18 @@ impl Drag {
 /// style (fixed ratio / fixed size), ⇧ for a square or circle, ⌥ to draw from the centre.
 pub fn marquee_corners(o: &crate::state::ToolOptions, d: &Drag, end: [f64; 2]) -> ([f64; 2], [f64; 2]) {
     let (shift, alt) = d.marquee_mods();
+    if o.marquee_style == "fixedSize" {
+        // A fixed box follows the pointer; crossing the press must not flip it by its full size.
+        let (width, height) = (f64::from(o.marquee_width).max(1.0), f64::from(o.marquee_height).max(1.0));
+        let start = if alt { [end[0] - width / 2.0, end[1] - height / 2.0] } else { end };
+        return (start, [start[0] + width, start[1] + height]);
+    }
     let e = crate::chrome_ui::marquee_end(&o.marquee_style, o.marquee_width as f64, o.marquee_height as f64, shift, d.start, end);
     if !alt {
         return (d.start, e);
     }
     let (dx, dy) = (e[0] - d.start[0], e[1] - d.start[1]);
-    // A fixed size is centred on the press point; otherwise the drag is the half extent.
-    let (hx, hy) = if o.marquee_style == "fixedSize" { (dx / 2.0, dy / 2.0) } else { (dx, dy) };
-    ([d.start[0] - hx, d.start[1] - hy], [d.start[0] + hx, d.start[1] + hy])
+    ([d.start[0] - dx, d.start[1] - dy], [d.start[0] + dx, d.start[1] + dy])
 }
 
 /// The pixel rectangle `[x0, y0, x1, y1]` a marquee between two corners selects.
