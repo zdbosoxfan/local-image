@@ -578,7 +578,7 @@ fn self_contained_imports_keep_the_loaded_model_bytes() {
     let dir = temp_models();
     let bytes = constant_onnx(32, 1, &vec![0.5; 32 * 32], None);
     let src = picked_bytes(&dir, "model.onnx", &bytes);
-    let loaded = external_data::inlined(&src).unwrap();
+    let (loaded, _) = external_data::inlined(&src).unwrap();
     std::fs::write(&src, external_onnx(64, &vec![0.5; 64 * 64], "missing-weights")).unwrap();
     assert_ne!(loaded, std::fs::read(&src).unwrap(), "the retained model differs from its replaced source");
     let retained = picked_bytes(&dir, "retained.onnx", &loaded);

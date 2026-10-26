@@ -8,7 +8,6 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, Result, ensure};
 use prost::Message;
 use tract_onnx::pb;
-use tract_onnx::prelude::Framework;
 
 /// The protobuf format's limit on one message, so on one ONNX file.
 const MAX_MODEL_BYTES: u64 = (2 << 30) - 1;
@@ -173,24 +172,22 @@ impl<'a> CheckedWeights<'a> {
 }
 
 /// The loaded model with every external tensor read into the file itself. Self-contained models
-/// retain their original bytes, so size checks, validation and copying never reopen the source.
-pub(crate) fn inlined(path: &Path) -> Result<Vec<u8>> {
+/// retain their original bytes. Sizing and validation borrow the parsed model without decoding again.
+pub(crate) fn inlined(path: &Path) -> Result<(Vec<u8>, pb::ModelProto)> {
     let mut source = ModelSource::open(path)?;
     let mut bytes = Vec::new();
     source.file.by_ref().take(MAX_MODEL_BYTES + 1).read_to_end(&mut bytes)?;
     ensure!(bytes.len() as u64 <= MAX_MODEL_BYTES, "This model doesn't fit in one ONNX file (2 GB at most)");
-    let mut proto = tract_onnx::onnx()
-        .proto_model_for_read(&mut std::io::Cursor::new(&bytes))
-        .with_context(|| format!("Could not read {} as an ONNX model", path.display()))?;
+    let mut proto = pb::ModelProto::decode(bytes.as_slice()).with_context(|| format!("Could not read {} as an ONNX model", path.display()))?;
     let mut boundary = None;
     let mut read = 0u64;
-    let Some(graph) = proto.graph.as_mut() else { return Ok(bytes) };
+    let Some(graph) = proto.graph.as_mut() else { return Ok((bytes, proto)) };
     if !inline_graph(graph, &source, &mut boundary, &mut read)? {
-        return Ok(bytes);
+        return Ok((bytes, proto));
     }
     let len = proto.encoded_len() as u64;
     ensure!(len <= MAX_MODEL_BYTES, "This model's weights ({} MB) don't fit in one ONNX file (2 GB at most)", len >> 20);
-    Ok(proto.encode_to_vec())
+    Ok((proto.encode_to_vec(), proto))
 }
 
 /// Inlines the external tensors of `graph` and of the graphs inside its nodes. Returns whether

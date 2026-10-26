@@ -256,8 +256,8 @@ fn tract_error(e: anyhow::Error) -> CustomModelError {
 
 /// The first output of a mask model run on the synthetic photo and on its inverse: its shape, and
 /// what its values are.
-fn probe_outputs(cfg: Config, bytes: &[u8], peak_scaled: bool) -> Result<(Vec<usize>, Activation), CustomModelError> {
-    let seg = Segmenter::load_cfg_with(cfg, |onnx| onnx.model_for_read(&mut std::io::Cursor::new(bytes))).map_err(tract_error)?;
+fn probe_outputs(cfg: Config, proto: &tract_onnx::pb::ModelProto, peak_scaled: bool) -> Result<(Vec<usize>, Activation), CustomModelError> {
+    let seg = Segmenter::load_cfg_with(cfg, |onnx| onnx.model_for_proto_model(proto)).map_err(tract_error)?;
     let s = seg.cfg.size;
     let photo = synthetic(s, s);
     let inverse: Vec<u8> = photo.as_chunks::<4>().0.iter().flat_map(|p| [255 - p[0], 255 - p[1], 255 - p[2], p[3]]).collect();
@@ -272,18 +272,17 @@ fn probe_outputs(cfg: Config, bytes: &[u8], peak_scaled: bool) -> Result<(Vec<us
     Ok((shape, Activation::of_outputs(values)))
 }
 
-/// Checks that `bytes` can serve `custom.group` as `opts` configure it: a mask model runs on the
+/// Checks that `proto` can serve `custom.group` as `opts` configure it: a mask model runs on the
 /// synthetic photo (its sky classes and output activation are set in `custom`), a restoration
 /// model on a flat tile. Errors say what doesn't fit.
-fn validate(custom: &mut Custom, bytes: &[u8], opts: &CustomOptions) -> Result<(), CustomModelError> {
+fn validate(custom: &mut Custom, proto: &tract_onnx::pb::ModelProto, opts: &CustomOptions) -> Result<(), CustomModelError> {
     if matches!(custom.group, Group::RawDenoise | Group::RgbDenoise) {
         let kind = if custom.class == 1 { denoise::Variant::Linear } else { denoise::Variant::Rgb };
         // the GPU graph is what runs the model; tract checks its numbers on the CPU
         let onnx = tract_onnx::onnx();
-        let proto = onnx.proto_model_for_read(&mut std::io::Cursor::new(bytes)).map_err(tract_error)?;
         restoration_graph::Graph::from_proto(proto, restoration_graph::Shape { c: kind.channels(), h: custom.size, w: custom.size })
             .map_err(|e| CustomModelError::UnsupportedRestoration { reason: format!("{e:#}") })?;
-        let model = onnx.model_for_read(&mut std::io::Cursor::new(bytes)).map_err(tract_error)?;
+        let model = onnx.model_for_proto_model(proto).map_err(tract_error)?;
         let model = denoise::Denoiser::from_model_at(model, kind, custom.size).map_err(tract_error)?;
         let out = model.run_tile(&vec![0.1; 3 * custom.size * custom.size]).map_err(tract_error)?;
         if out.len() != 3 * custom.size * custom.size || !out.iter().all(|v| v.is_finite()) {
@@ -296,7 +295,7 @@ fn validate(custom: &mut Custom, bytes: &[u8], opts: &CustomOptions) -> Result<(
     }
     let cfg =
         Config { task: if custom.group == Group::Sky { Task::Sky { classes: 1, class: 0, margin: 0.0 } } else { custom.config().task }, ..custom.config() };
-    let (shape, activation) = probe_outputs(cfg, bytes, custom.group == Group::Subject)?;
+    let (shape, activation) = probe_outputs(cfg, proto, custom.group == Group::Subject)?;
     match custom.group {
         Group::Sky => {
             let classes = match shape.as_slice() {
@@ -363,9 +362,9 @@ pub(crate) fn add_custom_with(
         return Err(CustomModelError::NotOnnx.into());
     }
     // Validate external paths before tract can load their weights.
-    let bytes = external_data::inlined(src).map_err(tract_error)?;
+    let (bytes, proto) = external_data::inlined(src).map_err(tract_error)?;
     let size = {
-        let model = tract_onnx::onnx().model_for_read(&mut std::io::Cursor::new(&bytes)).map_err(tract_error)?;
+        let model = tract_onnx::onnx().model_for_proto_model(&proto).map_err(tract_error)?;
         model_input_size(&model)?
     }
     .unwrap_or(group.official().size);
@@ -411,7 +410,7 @@ pub(crate) fn add_custom_with(
         li_fs::write_atomic(&dest, &bytes).with_context(|| format!("Could not copy the model into {}", dest.display()))?;
     }
     // Validate the same bytes used for the copy, without reopening a mutable source path.
-    if let Err(error) = validate(&mut c, &bytes, &opts) {
+    if let Err(error) = validate(&mut c, &proto, &opts) {
         if copied {
             let _ = std::fs::remove_file(&dest);
         }

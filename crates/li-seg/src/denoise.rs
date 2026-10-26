@@ -93,8 +93,6 @@ impl Denoiser {
 
     /// A custom restoration graph using the selected color contract and square tile.
     pub fn load_at(path: &Path, kind: Variant, tile: usize) -> Result<Self> {
-        ensure!((32..=1024).contains(&tile) && tile.is_multiple_of(16), "restoration tile must be 32–1024 and a multiple of 16");
-        crate::init_executor();
         let onnx = tract_onnx::onnx();
         let proto = onnx.proto_model_for_path(path)?;
         let model = onnx.model_for_proto_model(&proto)?;
