@@ -714,7 +714,7 @@ fn an_unknown_checkpoint_is_verified_through_universal_refine() {
     assert_eq!(model.engine, "universal");
     assert!(model.capabilities.iter().any(|c| c.name == "refine" && c.ok), "{model:?}");
     s.mock.queue_outputs([png(&li_ai::refine::test_image())]);
-    let done = modelsetup::verify_models(&s.options(), &scan, &[key.clone()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let done = modelsetup::verify_models(&s.options(), &scan, std::slice::from_ref(&key), &JobControl::new(), &mut |_, _| {}).unwrap();
     let verified = done[0].result.as_ref().unwrap();
     assert!(verified.capabilities["refine"].pass, "{verified:?}");
     assert_eq!(s.mock.prompts().len(), 1, "the preservation test must actually render");
