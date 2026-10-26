@@ -314,7 +314,7 @@ fn composed_master_drag_tracks_its_slope_and_flat_segments_do_not_jump() {
         assert!((painted_level(&h, 0.625) - f64::from(level)).abs() < 0.005);
         let start = egui::pos2(rect.left() + 0.625 * rect.width(), rect.bottom() - level * rect.height());
         graph_pointer(&mut h, start, Some(true), egui::Modifiers::NONE);
-        let end = start - egui::vec2(0.0, rect.height() * 0.02);
+        let end = start - egui::vec2(10.0, rect.height() * 0.02);
         graph_pointer(&mut h, end, None, egui::Modifiers::NONE);
         graph_pointer(&mut h, end, Some(false), egui::Modifiers::NONE);
         h.step();
