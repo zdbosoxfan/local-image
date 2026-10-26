@@ -808,7 +808,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
         }
         let mut node = Node { class, name, visible, locked, opacity, blend, kind, mask, pixel_mask, effects: Vec::new(), children };
-        node.effects = self.effects(id, world, tree_bounds(&node));
+        node.effects = self.effects(id, world, &node);
         Ok(Some(node))
     }
 
@@ -927,7 +927,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
 
     /// The enabled layer effects (`FiEf`) of node `id`. The angle convention was measured on the
     /// public MIT fx fixture (Patchy): an angle of π/2 with offset 10 shadows 10 below.
-    fn effects(&mut self, id: ObjId, world: Affine, bounds: Option<Rect>) -> Vec<Effect> {
+    fn effects(&mut self, id: ObjId, world: Affine, node: &Node) -> Vec<Effect> {
         let s = self.s;
         let mut out = Vec::new();
         if self.failure.is_some() {
@@ -940,6 +940,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         if !self.charge_owned(s.array_len(id, b"FiEf").saturating_mul(std::mem::size_of::<Effect>())) {
             return out;
         }
+        let mut bounds = None;
         for e in s.objs(id, b"FiEf").into_iter().take(64) {
             if s.bool(e, b"Enab") == Some(false) {
                 continue;
@@ -997,7 +998,9 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                     let blend = self.effect_blend(e);
                     // The gradient's unit space spans the node's bounding box from -1 to 1, centred
                     // on it (y down): checked against the stored previews of real documents.
-                    let space = bounds.map(|b| Affine([(b.x1 - b.x0) / 2.0, 0.0, 0.0, (b.y1 - b.y0) / 2.0, (b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0]));
+                    let space = bounds
+                        .get_or_insert_with(|| tree_bounds(node))
+                        .map(|b| Affine([(b.x1 - b.x0) / 2.0, 0.0, 0.0, (b.y1 - b.y0) / 2.0, (b.x0 + b.x1) / 2.0, (b.y0 + b.y1) / 2.0]));
                     match (s.obj(e, b"GrFl"), space) {
                         (Some(fill), Some(space)) => match paint::descriptor(self, fill, space) {
                             Some(Paint::Gradient(gradient)) => {
