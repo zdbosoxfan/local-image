@@ -298,6 +298,16 @@ pub(super) fn navigator_in_background(
 /// Make sure the canvas texture for document `idx` on `display` is current; returns (texture
 /// id, scale).
 pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, display: Option<u32>) -> Option<(egui::TextureId, f32)> {
+    ensure_texture_in_view(app, ctx, idx, display, None).map(|textures| (textures.texture, textures.scale))
+}
+
+pub(super) fn ensure_texture_in_view(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    idx: usize,
+    display: Option<u32>,
+    view: Option<InView>,
+) -> Option<CpuTextures> {
     let output = display;
     let (revision, last_damage, id) = {
         let st = app.session.documents().get(idx)?;
@@ -310,6 +320,7 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     {
         (doc, preview_key, reduced) = (preview, key, factor > 1);
     }
+    let view = view.filter(|_| !reduced);
     // An adjustment dialog's preview of a large document (drawn by the GPU path on a GPU machine)
     // would cost a full-size CPU composite per change here: show the document instead.
     if crate::adjust_preview::shown_key(app) == Some(preview_key)
@@ -321,13 +332,23 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     let (display, display_key) = canvas_display(app, &doc, output);
     let seen = app.canvases.get(&cache_key(id, output)).map(|c| (c.tex_revision, c.tex_preview_key));
     let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage)).filter(|_| !reduced);
+    // The detail texture can lag the whole-document one (made or moved later): its own damage.
+    let detail_seen = view.and_then(|v| {
+        let c = app.canvases.get(&cache_key(id, output))?;
+        c.detail.iter().find(|(k, _)| *k == v.key).map(|(_, d)| (d.revision, d.preview_key))
+    });
+    let detail_damage = match detail_seen {
+        Some(s) if Some(s) == seen => damage,
+        Some(s) => damage_since(app, idx, s, (revision, preview_key), display_key, last_damage),
+        None => None,
+    };
     let preview_key = preview_key ^ display_key;
-    let sampling = if crate::vector_integration::views::pixel_preview(app, idx) { TextureOptions::NEAREST } else { TextureOptions::LINEAR };
+    let pixel_preview = crate::vector_integration::views::pixel_preview(app, idx);
     let cache = app.canvases.entry(cache_key(id, output)).or_default();
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
-        let longest = doc.size.width.max(doc.size.height);
-        let factor = longest.div_ceil(texture_side(ctx)).max(1);
+        let factor = texture_factor([doc.size.width, doc.size.height], texture_side(ctx));
+        let sampling = if pixel_preview { TextureOptions::NEAREST } else { canvas_texture_options(factor) };
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
@@ -356,7 +377,106 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
         cache.tex_revision = revision;
         cache.tex_preview_key = preview_key;
     }
-    Some((cache.texture.as_ref()?.id(), cache.scale))
+    let texture = cache.texture.as_ref()?.id();
+    let scale = cache.scale;
+    // Without a view (the Navigator's call) the views' detail textures stay as they are.
+    let Some(view) = view else { return Some(CpuTextures { texture, scale, detail: None }) };
+    let old = cache.detail.iter().position(|(k, _)| *k == view.key).map(|i| cache.detail.remove(i).1);
+    let Some(plan) = detail_plan([doc.size.width, doc.size.height], texture_side(ctx), view.zoom, view.visible) else {
+        return Some(CpuTextures { texture, scale, detail: None });
+    };
+    let t0 = crate::gpu_canvas::now_ms();
+    let name = format!("canvas-detail-{}-{}", id.0, cache_key(id, output).1);
+    let detail = update_detail(ctx, &doc, display.as_deref(), name, plan, old, detail_damage, (revision, preview_key));
+    if detail.as_ref().is_some_and(|d| d.rendered) {
+        app.perf.span("canvas detail", crate::gpu_canvas::now_ms() - t0);
+    }
+    let Some(mut detail) = detail else { return Some(CpuTextures { texture, scale, detail: None }) };
+    detail.rendered = false;
+    // Where its texels lie in the document: reduced texel t covers [t*W/w, (t+1)*W/w).
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let (sx, sy) = (doc.size.width as f32 / w as f32, doc.size.height as f32 / h as f32);
+    let out = detail.out;
+    let shown = (detail.texture.id(), [out.x0 as f32 * sx, out.y0 as f32 * sy, out.x1 as f32 * sx, out.y1 as f32 * sy]);
+    cache.detail.push((view.key, detail));
+    // Views that stopped asking (a closed window, a zoom out) give theirs up past a few.
+    if cache.detail.len() > MAX_DETAIL_VIEWS {
+        cache.detail.remove(0);
+    }
+    Some(CpuTextures { texture, scale, detail: Some(shown) })
+}
+
+fn canvas_texture_options(factor: u32) -> TextureOptions {
+    if factor == 1 { TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR } } else { TextureOptions::LINEAR }
+}
+
+const MAX_DETAIL_VIEWS: usize = 4;
+
+fn update_detail(
+    ctx: &egui::Context,
+    doc: &Document,
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    name: String,
+    plan: DetailPlan,
+    old: Option<DetailTexture>,
+    damage: Option<DRect>,
+    now: (u64, u64),
+) -> Option<DetailTexture> {
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let options = canvas_texture_options(plan.factor);
+    let (kept, spare) = match old {
+        Some(d) if d.plan == plan => (Some(d), None),
+        d => (None, d.map(|d| d.texture)),
+    };
+    if let Some(mut d) = kept {
+        if (d.revision, d.preview_key) == now {
+            return Some(d);
+        }
+        // An edit or a stroke step in view: only the texels it touched.
+        if let Some(dmg) = damage {
+            let dmg = dmg.intersect(&plan.region);
+            let buf = (!dmg.is_empty()).then(|| photocraft_compose::render_reduced_damage(doc, w, h, dmg));
+            let fits = buf.as_ref().is_none_or(|b| d.out.contains_rect(&b.rect));
+            if fits {
+                if let Some(b) = buf.filter(|b| !b.rect.is_empty()) {
+                    let at = [b.rect.x0.abs_diff(d.out.x0) as usize, b.rect.y0.abs_diff(d.out.y0) as usize];
+                    d.texture.set_partial(at, display_image(display, &b, doc.depth), options);
+                    d.rendered = true;
+                }
+                (d.revision, d.preview_key) = now;
+                return Some(d);
+            }
+        }
+        return render_detail(ctx, doc, display, name, plan, Some(d.texture), now);
+    }
+    render_detail(ctx, doc, display, name, plan, spare, now)
+}
+
+fn render_detail(
+    ctx: &egui::Context,
+    doc: &Document,
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    name: String,
+    plan: DetailPlan,
+    texture: Option<egui::TextureHandle>,
+    now: (u64, u64),
+) -> Option<DetailTexture> {
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let options = canvas_texture_options(plan.factor);
+    let buf = photocraft_compose::render_reduced_damage(doc, w, h, plan.region);
+    let out = buf.rect;
+    if out.is_empty() {
+        return None;
+    }
+    let img = display_image(display, &buf, doc.depth);
+    let texture = match texture {
+        Some(mut t) if t.size() == img.size => {
+            t.set(img, options);
+            t
+        }
+        _ => ctx.load_texture(name, img, options),
+    };
+    Some(DetailTexture { texture, plan, out, revision: now.0, preview_key: now.1, rendered: true })
 }
 
 /// What changed since a canvas cache showed (`revision`, `preview key`) `seen`, when only a

@@ -773,3 +773,130 @@ fn fixed_size_px_is_exactly_the_size() {
     assert_eq!(fixed_size_px([3.5, 3.5], [4.5, 4.5], 1.0, 1.0), [4.0, 4.0, 5.0, 5.0]);
     assert_eq!(fixed_size_px([0.0, 0.0], [2.6, 2.4], 2.6, 2.4), [0.0, 0.0, 3.0, 2.0]);
 }
+
+#[test]
+fn cpu_canvas_draws_large_documents_at_full_resolution() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    app.run("file.new", json!({"width": 3 * MAX_TEXTURE, "height": 8, "background": "white"})).unwrap();
+    app.run("select.rect", json!({"x": 101, "y": 0, "width": 1, "height": 8})).unwrap();
+    app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+    app.run("select.deselect", json!({})).unwrap();
+    app.sync_views();
+    let ctx = egui::Context::default();
+    ctx.input_mut(|input| input.max_texture_side = 16384);
+    let view = View { zoom: 1.0, center: [500.0, 4.0], fit_pending: false, ..Default::default() };
+    let rect = Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 8.0));
+    let mut output = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 80.0))), ..Default::default() }, |ui| {
+        canvas_view(&mut app, ui, 0, rect, view.clone(), false);
+    });
+    let sharp = output.shapes.iter().any(|shape| {
+        let egui::Shape::Mesh(mesh) = &shape.shape else { return false };
+        let Some(image) = output.textures_delta.set.get(&mesh.texture_id).and_then(|updates| updates.last()) else { return false };
+        let egui::ImageData::Color(image) = &image.image;
+        image.size == [1024, 8] && image.pixels[100] == Color32::WHITE && image.pixels[101] == Color32::BLACK && image.pixels[102] == Color32::WHITE
+    });
+    output.textures_delta.clear();
+    assert!(sharp, "the canvas draws the visible one-pixel line from full-resolution pixels");
+}
+
+#[test]
+fn cpu_canvas_detail_plan_shows_large_documents_at_full_resolution() {
+    let size = [12000, 8000];
+    // A 1920x1080 view in the middle (`visible_doc_rect` adds 2 px around it).
+    let screen = DRect::new(4998, 2998, 6922, 4082);
+    for limit in [16384, 8192, 4096, 2048] {
+        let ctx = egui::Context::default();
+        ctx.input_mut(|input| input.max_texture_side = limit);
+        let side = texture_side(&ctx);
+        assert!(texture_factor(size, side) > 1, "the whole document is reduced on a {limit} px device");
+        for zoom in [1.0, 2.0, 8.0] {
+            let plan = detail_plan(size, side, zoom, screen).unwrap_or_else(|| panic!("{limit} px device at {zoom}"));
+            assert_eq!(plan.factor, 1, "one texel per document pixel at {zoom} on a {limit} px device");
+            assert!(plan.region.contains_rect(&screen), "{plan:?}");
+            assert!(plan.region.width() <= 1924 + 2 * 256 && plan.region.height() <= 1084 + 2 * 256, "about the view's size: {plan:?}");
+            assert!(plan.region.width() < side && plan.region.height() < side, "{plan:?}");
+        }
+    }
+    // A small pan reuses the region (no new composite).
+    assert_eq!(detail_plan(size, 4096, 1.0, screen), detail_plan(size, 4096, 1.0, screen.translate(8, -8)));
+    // A window wider than a small device's limit coarsens rather than exceed it.
+    let wide = DRect::new(0, 0, 3000, 2000);
+    let plan = detail_plan(size, 2048, 1.0, wide).unwrap();
+    assert_eq!(plan.factor, 2);
+    assert!(plan.region.width() / 2 < 2048 && plan.region.contains_rect(&wide), "{plan:?}");
+    // Zoomed out a little: finer than the reduced whole, as fine as the screen.
+    let plan = detail_plan(size, 4096, 0.4, DRect::new(0, 0, 4800, 2700)).unwrap();
+    assert_eq!(plan.factor, 2);
+    // Zoomed out far enough, the reduced whole is as fine as the screen: nothing to add.
+    let whole = DRect::new(0, 0, 12000, 8000);
+    assert_eq!(detail_plan(size, 4096, 0.25, whole), None);
+    assert_eq!(detail_plan(size, 4096, 1.0 / 3.0, whole), None, "a detail as large as the document would not fit");
+    // A document that fits is uploaded whole at full resolution.
+    assert_eq!(detail_plan([4000, 3000], 4096, 1.0, screen), None);
+    // Nothing of the document in view, or a broken zoom.
+    assert_eq!(detail_plan(size, 4096, 1.0, DRect::new(-500, -500, -10, -10)), None);
+    for zoom in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+        assert_eq!(detail_plan(size, 4096, zoom, screen), None, "{zoom}");
+    }
+    assert_eq!(detail_plan([0, 0], 4096, 1.0, screen), None);
+    assert_eq!(detail_plan([u32::MAX, 8], 4096, 1.0, screen), None);
+}
+
+#[test]
+fn cpu_canvas_detail_shows_a_large_documents_own_pixels_at_100_percent() {
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+    app.run("file.new", json!({"width": 3 * MAX_TEXTURE, "height": 8})).unwrap();
+    app.run("select.rect", json!({"x": 101, "y": 0, "width": 1, "height": 8})).unwrap();
+    app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+    app.run("select.deselect", json!({})).unwrap();
+    let ctx = egui::Context::default();
+    ctx.input_mut(|i| i.max_texture_side = 16384);
+    let uploads = |ctx: &egui::Context, tex: egui::TextureId| {
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let seen: Vec<_> = delta.set.get(&tex).into_iter().flatten().map(|d| (d.pos, d.options, d.image.clone())).collect();
+        delta.clear();
+        seen
+    };
+    let row = |image: &egui::ImageData| {
+        let egui::ImageData::Color(image) = image;
+        (image.size, image.pixels.clone())
+    };
+    let view = InView { visible: DRect::new(0, 0, 1000, 8), zoom: 1.0, key: 1 };
+    let t = ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap();
+    assert!(t.scale < 1.0, "the whole document is reduced");
+    let (detail, area) = t.detail.expect("a detail texture at 100 %");
+    assert_eq!(area, [0.0, 0.0, 1024.0, 8.0]);
+    let crisp = TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR };
+    let up = uploads(&ctx, detail);
+    assert_eq!(up.len(), 1);
+    let (pos, options, image) = &up[0];
+    assert_eq!((*pos, *options), (None, crisp));
+    let (size, px) = row(image);
+    assert_eq!(size, [1024, 8]);
+    assert_eq!((px[100], px[101], px[102]), (Color32::WHITE, Color32::BLACK, Color32::WHITE), "the 1 px line stays 1 px");
+    // Unchanged: nothing is composited again, and a small pan keeps the region.
+    let panned = InView { visible: DRect::new(4, 0, 1004, 8), ..view };
+    assert_eq!(ensure_texture_in_view(&mut app, &ctx, 0, None, Some(panned)).unwrap().detail, Some((detail, area)));
+    assert!(uploads(&ctx, detail).is_empty());
+    // The Navigator's call (no view) leaves the view's detail alone.
+    ensure_texture(&mut app, &ctx, 0, None).unwrap();
+    assert_eq!(app.canvases.values().map(|c| c.detail.len()).sum::<usize>(), 1);
+    // An edit in view updates just its texels.
+    app.run("select.rect", json!({"x": 300, "y": 0, "width": 1, "height": 8})).unwrap();
+    ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap();
+    uploads(&ctx, detail);
+    app.run("edit.fill", json!({"color": "#000000"})).unwrap();
+    assert_eq!(ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap().detail.map(|d| d.0), Some(detail));
+    let up = uploads(&ctx, detail);
+    assert_eq!(up.len(), 1);
+    let (pos, options, image) = &up[0];
+    assert_eq!(*options, crisp);
+    let [x, y] = pos.expect("a partial update");
+    let (size, px) = row(image);
+    assert!(y == 0 && x < 300 && x + size[0] > 300, "the edit's texels: {x} {size:?}");
+    assert_eq!((px[299 - x], px[300 - x]), (Color32::WHITE, Color32::BLACK));
+    // Zoomed out, the reduced texture is enough: the detail goes.
+    let far = InView { zoom: 0.25, ..view };
+    assert!(ensure_texture_in_view(&mut app, &ctx, 0, None, Some(far)).unwrap().detail.is_none());
+    assert!(app.canvases.values().all(|c| c.detail.is_empty()));
+}
