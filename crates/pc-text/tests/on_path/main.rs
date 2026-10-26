@@ -1,5 +1,7 @@
 //! Compiles the `on_path` source directly rather than through the public module.
 //! Independent analytic curves avoid sharing the V1 sampler.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 pub use photocraft_text::{TextEngine, layout, raster, render};
 #[path = "../../src/on_path.rs"]
 #[allow(dead_code)]

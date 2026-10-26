@@ -1,4 +1,6 @@
 //! Independent scene/pixel/budget oracles using original fixed-layout fixtures.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use photocraft_affinity::{Archive, Error, Limits, import, import_preview, import_with};
 use photocraft_doc::{LayerContent, vector_design::exchange::ImportOptions};
 use std::sync::atomic::AtomicBool;

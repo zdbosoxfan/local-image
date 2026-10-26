@@ -13,6 +13,7 @@
 //! Replacement), [`retouch`] (sequential/accumulating helpers for the retouch tools).
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
 
 use photocraft_geom::{Point, Rect};
 use photocraft_raster::Surface;

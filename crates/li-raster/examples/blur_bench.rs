@@ -1,6 +1,8 @@
 //! Micro-benchmark for the blur/map primitives (min of N runs, wall-clock and process CPU time, so
 //! it stays meaningful on a loaded machine):
 //! `RAYON_NUM_THREADS=1 cargo run --release -p li-raster --example blur_bench`.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 use li_raster::{GrayFrame, RgbFrame};
 use std::time::Instant;
 

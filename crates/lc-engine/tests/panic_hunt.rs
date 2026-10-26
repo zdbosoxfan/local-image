@@ -1,5 +1,6 @@
 //! Library's opt-in full-registry command fuzz, sharing Compositing's isolated worker runner.
 //! `cargo +1.98.1 test --offline -p lightcraft-engine --test panic_hunt -- --ignored --nocapture`
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 #[path = "../../../tests/support/panic_hunt.rs"]
 mod guard;

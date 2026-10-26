@@ -1,4 +1,6 @@
 //! Single integration-test binary for this crate (one link instead of one per file).
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 mod brush_smoothing;
 mod camera_raw_noise_clamp;
 mod eraser_locked;

@@ -11,6 +11,8 @@
 //! final-name creation and a synced, verified streaming copy: readers may briefly see partial
 //! new content, but existing files are never overwritten. Owned files are cleaned on failures.
 //! [`AtomicFs`] retains the editor's injectable filesystem seam and supports capability adapters.
+#![expect(clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
 
 use lightcraft_sysmem::jobs::Interrupt;
 pub mod read;

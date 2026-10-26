@@ -1,4 +1,5 @@
 //! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 // Use the same complete compute-device lifetime guard as GPU integration tests.
 #[path = "../../../lc-gpu/tests/support/mod.rs"]

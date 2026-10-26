@@ -1,5 +1,7 @@
 //! Exercise tract's real row dispatcher without downloading model weights.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::collections::HashSet;
 use std::process::Command;
 use std::sync::Mutex;

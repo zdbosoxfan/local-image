@@ -1,6 +1,8 @@
 //! Pure vector projections and non-destructive vector effects; pc-vector remains the rasterizer.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(clippy::allow_attributes_without_reason, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+
 pub mod brush;
 pub mod envelope;
 pub mod repeat;

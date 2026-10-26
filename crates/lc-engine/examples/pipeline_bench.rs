@@ -6,6 +6,8 @@
 //! to get each phase's own peak RSS); without it all three run in turn. Each phase prints its wall
 //! time, process CPU time and the process's peak RSS so far (`VmHWM`). The compute profile comes
 //! from the hardware like the app's (`LOCAL_IMAGE_THREADS` overrides the pool size).
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::path::Path;
 use std::time::Instant;
 

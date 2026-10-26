@@ -1,4 +1,6 @@
 //! Save/reopen contracts for merged features awaiting their native persistence adapters.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 #[path = "../../pc-format/tests/contracts_support/mod.rs"]
 mod contracts_support;
 use contracts_support::*;

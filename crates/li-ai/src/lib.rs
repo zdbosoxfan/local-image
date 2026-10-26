@@ -1,6 +1,8 @@
 //! Local Image's AI services, independent of the editor: a ComfyUI client, the model catalog and
 //! workflow graphs carried over from Local Image 0.7, verified model downloads, the generated-image
 //! library and ComfyUI setup helpers. Everything here is blocking and meant for worker threads.
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed"))]
 
 pub mod arch;
 pub mod browser;

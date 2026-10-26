@@ -13,6 +13,7 @@
 //! recomposite (the canvas samples the composited texture's mip levels); "viewport (CPU)" times
 //! what the CPU fallback pays for one 1920×1080 view. Each row is the median of `--reps` runs
 //! (min / max shown); the first run of an operation is reported separately as "cold".
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 

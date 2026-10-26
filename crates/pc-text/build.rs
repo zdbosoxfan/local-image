@@ -12,6 +12,8 @@
 //! The web build (wasm32) embeds nothing: the fonts don't fit its per-file size cap (measured
 //! 2026-10-06: the UI face alone took the release wasm from 24.19 MB to 28.87 MB, over the
 //! 24 MiB gate).
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 

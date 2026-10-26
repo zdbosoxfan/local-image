@@ -5,6 +5,13 @@
 //! The same entry point serves menus, shortcuts, buttons and the control channel ([`control`]).
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(
+    clippy::allow_attributes_without_reason,
+    clippy::let_underscore_must_use,
+    clippy::map_err_ignore,
+    reason = "baseline 2026-10-25: unreviewed"
+)]
+#![cfg_attr(test, expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed"))]
 
 mod color_icons;
 pub mod control;

@@ -8,6 +8,7 @@
 //! Pre-processing uses premultiplied square resize and the model's RGB mean/std. The new
 //! subject tiers use x/255 and clamped probabilities; custom IS-Net and U²-Net style
 //! models use peak scaling and min–max output. Maps are bilinearly resized to the photo.
+#![expect(clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
 
 pub mod bpe;
 pub mod clip;

@@ -1,3 +1,5 @@
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier, mpsc};
 use std::time::{Duration, Instant};

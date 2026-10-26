@@ -19,6 +19,8 @@
 // doesn't open a console window. (`--version` output then only shows when redirected.)
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed"))]
 
 mod app_icon;
 mod app_log;

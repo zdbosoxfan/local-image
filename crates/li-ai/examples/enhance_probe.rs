@@ -1,5 +1,7 @@
 //! Opt-in measurements through the service used by the interactive app.
 //! LOCAL_IMAGE_TEST_MODELS names the isolated cache, never the user's model folder.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use image::{Rgba, RgbaImage, imageops};
 use li_ai::{
     Ai, JobControl, ModelId,

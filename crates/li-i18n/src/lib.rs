@@ -33,6 +33,7 @@
 //!   [`library::builtin_label`] translates stock names and never a user's.
 //! - [`tr_format!`]: a Library & Develop format string whose translations are checked by
 //!   `format!` at compile time (a wrong placeholder in any language is a build error).
+#![cfg_attr(test, expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
 
 pub mod catalog;
 mod system;

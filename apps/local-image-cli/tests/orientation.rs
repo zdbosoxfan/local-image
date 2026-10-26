@@ -2,6 +2,7 @@
 //! phone-style JPEG (stored landscape, Orientation = 6) converts to an upright
 //! portrait, an explicit rotation turns it back, and a `.pcraft` round trip
 //! changes nothing.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

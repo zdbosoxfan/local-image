@@ -1,6 +1,8 @@
 //! PSD/PSB contracts for editable content the adapter claims to preserve.
 //! Advanced vector stacks/live groups/symbols/mesh are documented warned raster fallbacks,
 //! so their editable structural contracts belong to contracts_native / contracts_storage.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 #[path = "it/common/mod.rs"]
 mod legacy;
 use photocraft_doc::text::{CharStyle, ParagraphRun, ParagraphStyle, TextAlign, TextRun};

@@ -1,4 +1,6 @@
 //! Native contracts compare the complete Document, including caches, pixels, IDs and metadata.
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 mod contracts_support;
 #[path = "it/common/mod.rs"]
 mod legacy;

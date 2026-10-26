@@ -39,6 +39,7 @@
 //!
 //! The version comes from `[workspace.package] version` in the root `Cargo.toml`
 //! (`LOCAL_IMAGE_VERSION` overrides it).
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
