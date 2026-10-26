@@ -126,6 +126,26 @@ fn displace_psd_filter_renders_with_its_embedded_map() {
 }
 
 #[test]
+fn displace_selection_remains_the_filter_mask_after_deselect_and_rerender() {
+    let mut s = session(16);
+    let original = pixels(&s.active().unwrap().doc);
+    s.execute("select.rect", json!({"x":0,"y":0,"width":8,"height":24})).unwrap();
+    s.execute(DISPLACE, embedded()).unwrap();
+    let displaced = pixels(&s.active().unwrap().doc);
+    assert_ne!(displaced, original);
+    for y in 0..24 {
+        let outside = (y * 32 + 10) * 4..(y * 32 + 32) * 4;
+        assert_eq!(displaced[outside.clone()], original[outside]);
+    }
+    assert!(smart(&s.active().unwrap().doc).1.filter_mask.is_some());
+    s.execute("select.deselect", json!({})).unwrap();
+    s.execute("layer.smartFilter.setVisible", json!({"visible":false})).unwrap();
+    assert_eq!(pixels(&s.active().unwrap().doc), original);
+    s.execute("layer.smartFilter.setVisible", json!({"visible":true})).unwrap();
+    assert_eq!(pixels(&s.active().unwrap().doc), displaced);
+}
+
+#[test]
 fn invalid_and_oversized_map_requests_leave_document_and_history_unchanged() {
     let mut s = session(8);
     let huge = Document::new("large map", photocraft_geom::Size::new((1 << 24) + 1, 1), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
