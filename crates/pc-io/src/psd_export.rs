@@ -882,12 +882,11 @@ impl Ex {
         };
         if let Some(mask) = l.vector_mask.as_ref().filter(|mask| mask.enabled) {
             // Density and feather stay in the mask parameters; the pixel mask stays separate.
-            let mut geometry = mask.clone();
-            geometry.density = 1.0;
-            let geometry = photocraft_vector::CompiledVectorMask::new(&geometry);
-            let mut format = s.format();
-            format.alpha = true;
-            s = s.convert(format);
+            let geometry = photocraft_vector::CompiledVectorMask::new(&photocraft_doc::VectorMask { density: 1.0, ..mask.clone() });
+            let format = PixelFormat { alpha: true, ..s.format() };
+            if s.format() != format {
+                s = s.convert(format);
+            }
             let bounds = s.content_bounds().intersect(&self.canvas);
             let mut pixels = Vec::new();
             for y in (bounds.y0..bounds.y1).step_by(photocraft_geom::TILE_SIZE as usize) {
