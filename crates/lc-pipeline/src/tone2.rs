@@ -48,6 +48,17 @@ pub struct ToneMethod {
     pub gamut_knee: f32,
 }
 
+impl ToneMethod {
+    #[inline]
+    fn contain_gamut(&self, c: [f32; 3]) -> [f32; 3] {
+        // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
+        // desaturated to zero (darktable sigmoid)
+        // At the rendered edge, negative-channel containment is the continuous limiting clip.
+        let c = if self.gamut_knee == 1.0 { c } else { scene_gamut_knee(c) };
+        desaturate_negative(c)
+    }
+}
+
 /// darktable sigmoid's curve parameters (`dt_iop_sigmoid_data_t`), computed from its user
 /// parameters as `commit_params` does.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -377,11 +388,7 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     if tone.is_working_identity() {
         return c;
     }
-    // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
-    // desaturated to zero (darktable sigmoid)
-    // At the rendered edge, negative-channel containment is the continuous limiting clip.
-    let c = if v.gamut_knee == 1.0 { c } else { scene_gamut_knee(c) };
-    let c = desaturate_negative(c);
+    let c = v.contain_gamut(c);
     if v.luminance {
         let y = li_color::luminance_2020(c);
         if y <= 0.0 {
