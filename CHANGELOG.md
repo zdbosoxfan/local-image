@@ -58,6 +58,18 @@ All notable changes to Local Image are recorded here. The format follows
   every bit depth, so fine bright detail such as lit window grids keeps its brightness, and no
   dark halo forms beside bright windows. Saved export presets with a resize kernel produce
   slightly different files than before.
+- Develop: at 100% and closer the loupe renders the frame, after crop and rotation, from the
+  original at its native pixels on the GPU, so 1:1 shows the demosaicing, sharpening and noise
+  reduction a full-size export has, one screen pixel per photo pixel. Without a GPU, while soft
+  proofing, with a LUT profile, or for an original that is offline or can't be read, the loupe
+  keeps its preview render. Known limitation: Fit and Fill views still render from a preview
+  source at most 2560 pixels long, so a frame cropped to a small part of a high-resolution photo
+  looks soft at Fit until it is zoomed to 100%.
+- Develop: Paste, Sync, Auto Sync and presets that carry an automatic Upright mode analyse each
+  photo's own lines in the background, with progress and Cancel, instead of giving every photo the
+  first photo's correction or freezing the app while they solve.
+- Develop: Reset, a section's reset and double-clicking a slider return to the photo's own
+  defaults, such as a raw's camera defaults and As Shot white balance.
 
 ### Fixed
 
@@ -86,6 +98,13 @@ All notable changes to Local Image are recorded here. The format follows
 - PSD export uses the embedded CMYK profile when generating layer pixels, avoiding a colour shift
   when reopening fills without cached pixels.
 
+- Develop: Refine Edges distinguishes different subject masks and image detail when reusing a
+  matting result, preventing stale coverage with repeated or symmetric patterns.
+- Develop: changing the monitor, Library or preview cache cancels full-size loupe renders that
+  are still waiting for memory admission.
+- Develop: background AI masks discard results after their source, decoding, shape or coordinate
+  mapping changes, while keeping crop, tone and depth-range edits. Masks created by Paste, Sync or
+  presets decode with the incoming RAW settings.
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
   transparency keep it.

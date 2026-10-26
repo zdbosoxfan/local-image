@@ -1,11 +1,12 @@
 //! Compare the real official darktable restore output at the sensor stage, before colour/tone.
 use li_raster::RgbFrame;
-use lightcraft_engine::enhance::denoise::{camera_rgb_to_working, pack_bayer, prepare_raw, unpack_camera};
+use lightcraft_engine::enhance::denoise::{camera_rgb_to_working, pack_bayer, unpack_camera};
+use lightcraft_engine::files::prepare_raw;
 use std::path::Path;
 fn main() -> Result<(), String> {
     let args: Vec<_> = std::env::args().collect();
     let bytes = std::fs::read(args.get(1).ok_or("source raw")?).map_err(|e| e.to_string())?;
-    let mut raw = prepare_raw(&bytes)?;
+    let mut raw = prepare_raw(&bytes, &Default::default())?;
     let source_raw = raw.clone();
     let n = raw.normalized().map_err(|e| e.to_string())?;
     let (_, w, h, phase) = pack_bayer(&n)?;

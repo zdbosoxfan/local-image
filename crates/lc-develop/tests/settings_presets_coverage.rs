@@ -429,12 +429,12 @@ fn section_toggles_and_reset_preserve_section_enabled_state() {
 
     s.negative.enabled = true;
     s.negative.d_max = 1.6;
-    s.reset_section(Section::Negative);
+    s.reset_section_to(Section::Negative, &DevelopSettings::default());
     assert_eq!(s.negative, Negative { enabled: true, ..Negative::default() });
 
     s.raw.capture.enabled = true;
     s.raw.demosaic = Demosaic::Rcd;
-    s.reset_section(Section::Raw);
+    s.reset_section_to(Section::Raw, &DevelopSettings::default());
     assert!(s.raw.capture.enabled);
     assert_eq!(s.raw.demosaic, Demosaic::Auto);
 }

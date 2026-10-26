@@ -10,6 +10,8 @@ use lightcraft_geom::Point;
 use crate::for_rows;
 use crate::geometry::Frame;
 
+mod matting;
+
 #[derive(Clone)]
 pub struct Evaluated {
     /// The mask's id ([`Mask::id`]).
@@ -152,11 +154,7 @@ pub fn evaluate_one_tone(
         let k = (m.refine / 100.0).clamp(0.0, 1.0) as f32;
         let sigma = refine_sigma(frame, w, k);
         let refined = if uses_subject_matting(m) {
-            GrayFrame {
-                width: w,
-                height: h,
-                data: li_matte::refine::subject_alpha(&li_matte::RgbImage::borrowed(w, h, &img.data), &alpha.data, sigma),
-            }
+            GrayFrame { width: w, height: h, data: matting::subject_alpha(w, h, &img.data, &alpha.data, sigma) }
         } else {
             guided_cross(log_l, &alpha, sigma, 0.02)
         };

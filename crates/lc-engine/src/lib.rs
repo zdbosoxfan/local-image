@@ -234,6 +234,8 @@ pub struct Session {
     pub import_probes: std::collections::HashMap<String, media::ProbeInfo>,
     /// The last (or running) Build Previews.
     pub preview_build: Option<std::sync::Arc<cmd::previews::PreviewBuild>>,
+    /// Automatic Upright analysed in the background after Paste, Sync and presets.
+    pub upright: cmd::upright::UprightQueue,
     /// Develop defaults applied on import (persisted in prefs.json).
     pub import_defaults: import::ImportDefaults,
     /// Disk budget of the library's thumbnail cache in MB (0 = default; persisted in prefs.json).
@@ -327,6 +329,7 @@ impl Session {
             before: Default::default(),
             import_probes: Default::default(),
             preview_build: None,
+            upright: Default::default(),
             import_defaults: import::ImportDefaults::default(),
             cache_mb: 0,
             smart_previews_dir: None,
@@ -398,6 +401,7 @@ impl Session {
             }
         }
         if self.depth == 0 {
+            self.start_upright();
             let skip = std::mem::take(&mut self.skip_auto_write);
             if r.is_ok() && !skip && self.xmp.auto_write && self.interaction.is_none() && self.pending_log.len() > log_start {
                 self.auto_write_sidecars(&self.pending_log[log_start..]);
@@ -682,7 +686,12 @@ impl Session {
         let mut ops = vec![self.develop_op(id, (*settings).clone(), label).ok_or(lightcraft_catalog::CatalogError::NoPhoto(id))?];
         ops.extend(self.auto_sync_ops(id, &settings, label));
         let op = if ops.len() == 1 { ops.remove(0) } else { Op::Batch { ops } };
-        self.commit(label, op)
+        let r = self.commit(label, op);
+        if self.depth == 0 {
+            // outside a command (a drag ending): the Upright analyses Auto Sync queued join this step
+            self.start_upright();
+        }
+        r
     }
 
     /// With Auto Sync on, the ops that carry an edit of the active photo `id` (to `new`) over to the
@@ -919,6 +928,8 @@ mod tests_library;
 mod tests_merge;
 #[cfg(test)]
 mod tests_organize;
+#[cfg(test)]
+mod tests_per_photo;
 #[cfg(test)]
 mod tests_persist;
 #[cfg(test)]

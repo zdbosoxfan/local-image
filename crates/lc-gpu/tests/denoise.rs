@@ -23,6 +23,38 @@ fn denoiser_retains_its_device_across_context_release() {
 }
 
 #[test]
+#[ignore = "required physical GPU acceptance; see docs/GPU-VALIDATION.md"]
+fn ai_denoise_gpu_convolves_tiles_past_one_dispatch_dimension() {
+    let _gpu = support::lock();
+    // 1024² output positions need 65536 workgroups of 16, one more than a dimension allows
+    let shape = Shape { c: 3, h: 1024, w: 1024 };
+    let weights = vec![0.5, 0.25, 0.25, -1.0, 2.0, 0.0, 0.0, 0.0, 1.0];
+    let conv = Op::Conv { weights: weights.clone(), bias: vec![0.1, 0.0, -0.1], kernel: [1, 1], stride: [1, 1], pad: [0, 0], transpose: false };
+    let graph = Graph { input: shape, nodes: vec![Node { inputs: vec![0], shape, op: conv }], output: 1 };
+    let d = Denoiser::from_graph(graph, Variant::Rgb).expect("physical GPU is required");
+    let plane = shape.h * shape.w;
+    let input: Vec<f32> = (0..shape.len()).map(|i| ((i * 7919) % 1000) as f32 / 1000.0).collect();
+    let out = d.run_tile(&input).unwrap();
+    for c in 0..3 {
+        for p in [0, 1, plane / 2, plane - 17, plane - 1] {
+            let expected = [0.1, 0.0, -0.1][c] + (0..3).map(|k| weights[c * 3 + k] * input[k * plane + p]).sum::<f32>();
+            assert!((out[c * plane + p] - expected).abs() < 1e-5, "channel {c} position {p}: {} vs {expected}", out[c * plane + p]);
+        }
+    }
+}
+
+#[test]
+#[ignore = "required physical GPU acceptance; see docs/GPU-VALIDATION.md"]
+fn ai_denoise_gpu_cancel_reads_as_a_cancelled_job() {
+    let _gpu = support::lock();
+    let shape = Shape { c: 3, h: 32, w: 32 };
+    let graph = Graph { input: shape, nodes: vec![Node { inputs: vec![0], shape, op: Op::Activation { alpha: 0.0, sigmoid: false } }], output: 1 };
+    let d = Denoiser::from_graph(graph, Variant::Rgb).expect("physical GPU is required");
+    let err = d.denoise(&vec![0.2; 3 * 100 * 80], 100, 80, &|_, _| false).unwrap_err();
+    assert_eq!(err, lightcraft_sysmem::Cancelled.to_string());
+}
+
+#[test]
 #[ignore = "required RTX 5090 acceptance; see docs/GPU-VALIDATION.md"]
 fn ai_denoise_gpu_transpose_and_shuffle() {
     let _gpu = support::lock();

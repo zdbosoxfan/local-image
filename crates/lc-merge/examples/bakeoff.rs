@@ -78,7 +78,7 @@ mod tests {
         use lightcraft_merge::{DngSamples, write_linear_dng};
         let image = RgbFrame::from_fn(16, 8, |x, y| [2f32.powf(x as f32 - 10.0), y as f32 * 0.1234567, 0.000012345]);
         let f = Frame::from_linear_rec2020(image.clone(), Some(0.0));
-        let bytes = write_linear_dng(&image, &f.color, f.orientation, &f.metadata, 0.0, DngSamples::Float)?;
+        let bytes = write_linear_dng(&image, &f.color, f.orientation, &f.metadata, 0.0, DngSamples::Float, None)?;
         let raw = lightcraft_raw::decode(&bytes)?;
         assert_eq!((raw.width, raw.height, raw.cpp, raw.bits), (16, 8, 3, 32));
         assert!(raw.cfa.is_none());

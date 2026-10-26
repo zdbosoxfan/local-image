@@ -107,7 +107,7 @@ impl PreviewCache {
             return Some(v.clone());
         }
         let img = Arc::new(self.disk.as_ref()?.get(key)?);
-        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img.clone(), cost(&img));
+        self.remember(key, img.clone());
         Some(img)
     }
 
@@ -123,8 +123,41 @@ impl PreviewCache {
         if let Some(d) = &self.disk {
             d.put(key, &img);
         }
+        self.remember(key, img);
+    }
+
+    /// Keep `img` for later viewing (previews built ahead): on disk only, so a batch of them
+    /// never pushes what is on screen out of memory. A cache without a disk keeps it in memory.
+    pub fn put_ahead_at(&self, generation: u64, key: Hash128, img: Arc<Rgba8>) {
+        let current = self.generation.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if *current != Some(generation) {
+            return;
+        }
+        match &self.disk {
+            Some(d) => d.put(key, &img),
+            None => _ = self.remember(key, img),
+        }
+    }
+
+    /// Keep `img` in memory unless it alone would take more than half the memory budget: one
+    /// huge view must not push out every thumbnail (it stays on disk only). Whether it was kept.
+    fn remember(&self, key: Hash128, img: Arc<Rgba8>) -> bool {
         let c = cost(&img);
-        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img, c);
+        let mut mem = self.mem.lock().unwrap_or_else(|e| e.into_inner());
+        let kept = c <= mem.budget() / 2;
+        if kept {
+            mem.insert(key, img, c);
+        }
+        kept
+    }
+
+    /// Bytes of the largest image this cache keeps: half its memory budget, and what one deferred
+    /// disk write may queue.
+    pub fn max_image_bytes(&self) -> usize {
+        let mem = self.mem.lock().unwrap_or_else(|e| e.into_inner()).budget() / 2;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mem = mem.min(MAX_QUEUED_BYTES);
+        mem
     }
 
     /// Like [`Self::put`], but the disk write (a JPEG encode) happens on a background thread, so
@@ -139,18 +172,23 @@ impl PreviewCache {
             return;
         }
         let c = cost(&img);
-        self.mem.lock().unwrap_or_else(|e| e.into_inner()).insert(key, img.clone(), c);
+        let in_memory = self.remember(key, img.clone());
         drop(current);
         let Some(d) = &self.disk else { return };
         #[cfg(target_arch = "wasm32")]
         {
+            let _ = in_memory;
             d.put(key, &img);
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
             let _ = d;
             if self.queued.load(Ordering::Relaxed).saturating_add(c) > MAX_QUEUED_BYTES {
-                log::debug!("preview cache: disk writes are behind; this one is skipped (the image stays in memory)");
+                if in_memory {
+                    log::debug!("preview cache: disk writes are behind; this one is skipped (the image stays in memory)");
+                } else {
+                    log::debug!("preview cache: a {c}-byte image is too large to queue for disk or keep in memory; not cached");
+                }
                 return;
             }
             let mut writer = self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

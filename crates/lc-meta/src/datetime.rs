@@ -144,11 +144,15 @@ impl DateTime {
         if self.millis != 0 {
             s += &format!(".{:03}", self.millis);
         }
-        if let Some(o) = self.offset_minutes {
-            let sign = if o < 0 { '-' } else { '+' };
-            s += &format!("{sign}{:02}:{:02}", o.abs() / 60, o.abs() % 60);
+        if let Some(o) = self.offset() {
+            s += &o;
         }
         s
+    }
+
+    /// The UTC offset as `+HH:MM` / `-HH:MM` (Exif `OffsetTime*`, the ISO 8601 suffix), when known.
+    pub fn offset(&self) -> Option<String> {
+        self.offset_minutes.map(|o| format!("{}{:02}:{:02}", if o < 0 { '-' } else { '+' }, o.abs() / 60, o.abs() % 60))
     }
 
     /// Seconds since 1970-01-01T00:00:00 of the civil time (UTC when the offset is known, else "local" seconds).

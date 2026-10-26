@@ -369,3 +369,45 @@ fn deferred_writes_are_bounded_and_drain_to_disk() {
     assert!(keys.iter().all(|k| cache.get(*k).is_some()));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A full-size render (an A1 frame is ~200 MB of RGBA) is bigger than the whole memory budget:
+/// it goes to disk only, so it can't push every thumbnail out of memory.
+#[test]
+fn one_huge_view_never_evicts_the_thumbnails() {
+    let dir = temp_dir("huge-view");
+    let cache = Arc::new(PreviewCache::with_disk(128 << 20, &dir, 1 << 31));
+    let thumbs: Vec<Hash128> = (0..8u32).map(|i| hash_bytes(&(i + 100).to_le_bytes())).collect();
+    for key in &thumbs {
+        cache.put(*key, Arc::new(gradient(512, 341, 1)));
+    }
+    let in_memory = |cache: &PreviewCache| thumbs.iter().all(|k| cache.mem.lock().unwrap().contains(k));
+    let key = hash_bytes(b"full-size view");
+    cache.put(key, Arc::new(gradient(9000, 6000, 2)));
+    assert!(in_memory(&cache), "the thumbnails stay in memory");
+    assert_eq!(cache.get(key).map(|i| (i.width, i.height)), Some((9000, 6000)), "the view is still there, from disk");
+    assert!(in_memory(&cache), "reading it back keeps them too");
+    assert_eq!(cache.max_image_bytes(), 64 << 20);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Previews built ahead go to disk only (a batch never pushes what is on screen out of memory),
+/// and are read back like any other; without a disk they are kept in memory.
+#[test]
+fn previews_built_ahead_skip_memory_when_there_is_a_disk() {
+    let dir = temp_dir("ahead");
+    let cache = PreviewCache::with_disk(128 << 20, &dir, 1 << 31);
+    let thumb = hash_bytes(b"thumb");
+    cache.put(thumb, Arc::new(gradient(512, 341, 1)));
+    let built = hash_bytes(b"built view");
+    cache.put_ahead_at(cache.generation(), built, Arc::new(gradient(2048, 1365, 2)));
+    assert_eq!(cache.mem_usage().0, 1, "only the thumbnail is in memory");
+    assert_eq!(cache.get(built).map(|i| (i.width, i.height)), Some((2048, 1365)), "the built view is read from disk");
+    let stale = cache.generation();
+    cache.clear();
+    cache.put_ahead_at(stale, built, Arc::new(gradient(64, 64, 3)));
+    assert!(cache.get(built).is_none(), "a build from before Discard Previews is not kept");
+    let memory = PreviewCache::memory(128 << 20);
+    memory.put_ahead_at(memory.generation(), built, Arc::new(gradient(64, 64, 3)));
+    assert!(memory.get(built).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -228,7 +228,7 @@ Ports are listed in `docs/PORTS.md`, with notices in `licenses/darktable-NOTICE.
 `licenses/rawtherapee-NOTICE.md`, `licenses/lensfun-NOTICE.md` and `licenses/model-system-NOTICE.md`.
 
 * **Raw processing** (`DevelopSettings.raw`, raw files only; Detail copy group):
-  * Demosaic: Default (AHD) / AHD / **RCD** / **Dual (RCD + VNG4)** / **VNG4** /
+  * Demosaic: Automatic (RCD, or Dual RCD + VNG4 on noisy mosaics; also used for HDR merges) / AHD / **RCD** / **Dual (RCD + VNG4)** / **VNG4** /
     **AMaZE** / **Dual (AMaZE + VNG4)** / PPG / Bilinear. The saved `dualRcd`
     (RCD + bilinear) decoder and mask are unchanged and appear in the menu only when selected.
     New keys are `vng4`, `amaze`, `dualRcdVng`, `dualAmazeVng`.

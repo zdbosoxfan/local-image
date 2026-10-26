@@ -12,6 +12,8 @@ use crate::Frame;
 pub struct BracketProbe {
     pub exposure: Option<f64>,
     pub capture_seconds: Option<f64>,
+    /// Shutter time in seconds; long exposures (and in-camera dark frames) delay the next shot.
+    pub exposure_seconds: Option<f64>,
     pub width: usize,
     pub height: usize,
     pub camera: (Option<String>, Option<String>),
@@ -60,6 +62,7 @@ impl BracketProbe {
         Self {
             exposure: frame.exposure.filter(|e| e.is_finite()),
             capture_seconds: frame.metadata.capture_time.map(|t| t.unix_seconds() as f64 + t.millis as f64 / 1000.0),
+            exposure_seconds: frame.metadata.exposure_time.filter(|t| t.is_finite() && *t > 0.0),
             width: frame.width(),
             height: frame.height(),
             camera: (frame.metadata.make.clone(), frame.metadata.model.clone()),
@@ -121,10 +124,13 @@ pub fn detect_groups(probes: &[BracketProbe], options: &BracketOptions) -> Vec<V
             let first = &probes[current[0]];
             let prior = &probes[last];
             let correlation: f32 = first.scene.iter().zip(p.scene).map(|(a, b)| a * b).sum();
+            // The gap between shots excludes exposure time, whether the camera stamps the start or
+            // the end of an exposure, and the dark frame of long-exposure noise reduction.
+            let exposing = 2.0 * prior.exposure_seconds.unwrap_or(0.0) + p.exposure_seconds.unwrap_or(0.0);
             p.width == first.width
                 && p.height == first.height
                 && p.camera == first.camera
-                && p.capture_seconds.unwrap_or_default() - prior.capture_seconds.unwrap_or_default() <= options.max_gap_seconds
+                && p.capture_seconds.unwrap_or_default() - prior.capture_seconds.unwrap_or_default() - exposing <= options.max_gap_seconds
                 && correlation >= options.min_scene_correlation
                 && current.iter().all(|&j| (probes[j].exposure.unwrap_or_default() - p.exposure.unwrap_or_default()).abs() > options.ev_tolerance)
         });
@@ -182,6 +188,28 @@ mod tests {
             probe(2.0, 32.0, true),
         ];
         assert_eq!(detect_groups(&p, &BracketOptions::default()), vec![vec![0, 1, 2], vec![3, 4, 5], vec![6, 7, 8], vec![9, 10, 11]]);
+    }
+
+    #[test]
+    fn brackets_allow_for_long_exposures_between_shots() {
+        // A twilight set: +2 and +4 EV frames of 4 s and 15 s push the next shot's start back.
+        let shots = [(0.0, 0.0, 1.0), (-2.0, 1.5, 0.25), (2.0, 3.0, 4.0), (-4.0, 13.5, 0.0625), (4.0, 14.2, 15.0)];
+        let mut p: Vec<_> = shots
+            .iter()
+            .map(|&(ev, start, shutter)| {
+                let mut probe = probe(ev, start, true);
+                probe.exposure_seconds = Some(shutter);
+                probe
+            })
+            .collect();
+        assert_eq!(detect_groups(&p, &BracketOptions::default()), vec![vec![0, 1, 2, 3, 4]]);
+        // The next set, shot after the long frame plus a real pause, stays separate.
+        for &(ev, start, shutter) in &shots {
+            let mut probe = probe(ev, 60.0 + start, true);
+            probe.exposure_seconds = Some(shutter);
+            p.push(probe);
+        }
+        assert_eq!(detect_groups(&p, &BracketOptions::default()), vec![vec![0, 1, 2, 3, 4], vec![5, 6, 7, 8, 9]]);
     }
 
     #[test]

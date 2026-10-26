@@ -2,7 +2,8 @@
 //! Reference images and masks remain in the supplied evaluation folder, never owner photos.
 use li_raster::RgbFrame;
 use li_seg::denoise::Variant;
-use lightcraft_engine::enhance::denoise::{camera_rgb_to_working, infer, pack_bayer, prepare_raw, unpack_camera};
+use lightcraft_engine::enhance::denoise::{camera_rgb_to_working, infer, pack_bayer, unpack_camera};
+use lightcraft_engine::files::prepare_raw;
 use std::{
     path::{Path, PathBuf},
     time::Instant,
@@ -36,7 +37,7 @@ fn main() -> Result<(), String> {
     clean.map_in_place(|p| p.map(|v| v * gain));
     let offset = align(&noisy, &clean);
     println!("pair {scene} {}x{} reference gain {gain:.6} translation {offset:?}", noisy.width, noisy.height);
-    let raw = prepare_raw(&noisy_bytes)?;
+    let raw = prepare_raw(&noisy_bytes, &Default::default())?;
     let norm = raw.normalized().map_err(|e| e.to_string())?;
     let bayer = norm.cfa.as_ref().is_some_and(|c| c.is_bayer());
     // Native-resolution crops with context; 64 px are excluded from all metrics.

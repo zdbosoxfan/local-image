@@ -94,7 +94,8 @@ fn denoise(s: &mut Session, p: &Value) -> Result<Value> {
     let wait = bool_or(p, "wait", false);
     let preview = bool_or(p, "preview", false);
     let destination = str_param(p, "path").map(std::path::PathBuf::from);
-    let job = s.start_denoise_with(id, preview, destination, wait).map_err(|e| other(C, e))?;
+    let center = p.get("center").and_then(Value::as_array).and_then(|c| Some([c.first()?.as_f64()?, c.get(1)?.as_f64()?]));
+    let job = s.start_denoise_with(id, preview, center, destination, wait).map_err(|e| other(C, e))?;
     if wait { finish_inline(s, C, &job) } else { Ok(json!({"job":job.id})) }
 }
 
@@ -131,7 +132,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             "AI Denoise",
             [],
             None,
-            "{preview?: bool, path?: new .dng/.tiff file, wait?: bool} → {job}; background source-stage AI denoise",
+            "{preview?: bool, center?: [x, y] normalized (the preview's 1024 px area; the photo's centre), path?: new .dng/.tiff file, wait?: bool} → {job}; background source-stage AI denoise",
             has_active,
             denoise
         ),

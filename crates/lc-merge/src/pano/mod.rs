@@ -79,6 +79,10 @@ pub struct PanoResult {
     pub metadata: lightcraft_meta::Metadata,
     pub raw: bool,
     pub baseline_exposure: f64,
+    /// Raw inputs: the level every input's saturated values were moved to after exposure
+    /// compensation, so a clip in any frame reads as one clip in the panorama ([`Frame::clip`]).
+    /// `None` when an input is not a raw file: rendered and float images keep their values.
+    pub clip: Option<f32>,
 }
 
 /// Field of view (degrees) of the cameras' union, measured in the spherical projection.
@@ -316,6 +320,14 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         }
     }
     check(progress, 0.7, "Blending")?;
+    // Raw frames clip at different compensated levels; saturated values all take the highest,
+    // and the seam owner's saturated channels stay exactly there through blending.
+    let clip = used
+        .iter()
+        .all(|&i| frames[i].raw)
+        .then(|| used.iter().map(|&i| frames[i].clip * gains[i] as f32).fold(0.0f32, f32::max))
+        .filter(|c| c.is_finite());
+    let mut saturated = vec![0u8; if clip.is_some() { pw * ph } else { 0 }];
     let mut blender = Blender::new(pw, ph, levels);
     for (i, t) in tiles.into_iter().enumerate() {
         let Some(t) = t else { continue };
@@ -325,12 +337,22 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         for ty in 0..t.h {
             for tx in 0..t.w {
                 let k = ty * t.w + tx;
+                let owned = label[(t.y0 + ty) * pw + t.x0 + tx] == i as u16;
                 if t.wgt[k] > 0.0 {
                     for c in 0..3 {
-                        vals.data[k * 3 + c] = (t.rgb[k][c] * g).max(1e-6).ln();
+                        let v = match clip {
+                            Some(clip) if t.rgb[k][c] >= frames[i].clip => {
+                                if owned {
+                                    saturated[(t.y0 + ty) * pw + t.x0 + tx] |= 1 << c;
+                                }
+                                clip
+                            }
+                            _ => t.rgb[k][c] * g,
+                        };
+                        vals.data[k * 3 + c] = v.max(1e-6).ln();
                     }
                 }
-                if label[(t.y0 + ty) * pw + t.x0 + tx] == i as u16 {
+                if owned {
                     mask.data[k] = 1.0;
                 }
             }
@@ -340,13 +362,16 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         check(progress, 0.7 + 0.2 * (i + 1) as f32 / n as f32, "Blending")?;
     }
     let out = blender.finish();
+    // Only raw panoramas pin samples (`saturated` is empty otherwise).
+    let pin = clip.unwrap_or_default();
     let mut image = RgbFrame::new(cw, ch);
     let mut alpha = GrayFrame::new(cw, ch);
     for y in 0..ch {
         for x in 0..cw {
             let k = y * pw + x;
             if label[k] != u16::MAX {
-                image.data[y * cw + x] = [0, 1, 2].map(|c| out.data[k * 3 + c].exp());
+                let pinned = saturated.get(k).copied().unwrap_or(0);
+                image.data[y * cw + x] = [0, 1, 2].map(|c| if pinned & (1 << c) != 0 { pin } else { out.data[k * 3 + c].exp() });
                 alpha.data[y * cw + x] = 1.0;
             }
         }
@@ -362,6 +387,16 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         image = finish::fill_edges(&image, &alpha);
     }
     let r = &frames[used[0]];
+    // The projection has no source lens geometry: no lens model may be applied to the panorama.
+    let mut metadata = r.metadata.clone();
+    metadata.lens_corrections_baked = true;
+    if let Some(sony) = &mut metadata.sony {
+        sony.lens_correction = None;
+    }
+    // The canvas's own 35 mm-equivalent focal length (by the diagonal, as EXIF; the projection's at
+    // its centre): the reference frame's describes a narrower view, and Upright takes this as the
+    // camera of the panorama.
+    metadata.focal_length_35mm = Some(f_out * 36f64.hypot(24.0) / (cw as f64).hypot(ch as f64));
     Ok(PanoResult {
         image,
         alpha,
@@ -376,15 +411,10 @@ pub fn stitch(frames: Vec<Frame>, opts: &PanoOptions, progress: &Progress) -> Re
         focal: f_out,
         origin: (ox, oy),
         color: r.color.clone(),
-        // The canvas's own 35 mm-equivalent focal length (by the diagonal, as EXIF; the projection's
-        // at its centre): the reference frame's describes a narrower view, and Upright takes this
-        // as the camera of the panorama.
-        metadata: lightcraft_meta::Metadata {
-            focal_length_35mm: Some(f_out * 36f64.hypot(24.0) / (cw as f64).hypot(ch as f64)),
-            ..r.metadata.clone()
-        },
+        metadata,
         raw: r.raw,
         baseline_exposure: r.baseline_exposure,
+        clip,
     })
 }
 
