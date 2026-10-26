@@ -70,4 +70,3 @@ fn batch_inner(s: &mut Session, p: &Value) -> Result<Value> {
     s.actions.script_steps = carried.get();
     Ok(r)
 }
-
