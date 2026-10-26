@@ -43,6 +43,8 @@ All notable changes to Local Image are recorded here. The format follows
 ### Fixed
 
 - PSD export keeps pattern fills inside their vector masks when reopened.
+- PSD export uses the embedded CMYK profile when generating layer pixels, avoiding a colour shift
+  when reopening fills without cached pixels.
 
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real

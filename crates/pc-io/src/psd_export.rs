@@ -867,19 +867,38 @@ impl Ex {
         Ok(Source { uuid, size, dpi })
     }
 
-    /// Pixels for a fill layer: Photoshop's cached rendering while valid,
-    /// otherwise our own rendering of the fill over the canvas.
+    /// Pixels for a fill layer, including the vector path that PSD shape caches already apply.
     fn fill_pixels(&self, l: &Layer, f: &photocraft_doc::Fill) -> Surface {
-        if let Some(c) = &l.fill_cache
+        let mut s = if let Some(c) = &l.fill_cache
             && c.fill == *f
         {
-            return c.surface.clone();
+            c.surface.clone()
+        } else {
+            let buf = photocraft_compose::render_fill_content(l, f, self.canvas, &self.patterns);
+            let mut s = Surface::new(self.fmt);
+            let vals: Vec<f32> = buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&self.fmt, *p)).collect();
+            s.write_region(self.canvas, &vals);
+            s
+        };
+        if let Some(mask) = l.vector_mask.as_ref().filter(|mask| mask.enabled) {
+            // Density and feather stay in the mask parameters; the pixel mask stays separate.
+            let mut geometry = mask.clone();
+            geometry.density = 1.0;
+            let geometry = photocraft_vector::CompiledVectorMask::new(&geometry);
+            let mut format = s.format();
+            format.alpha = true;
+            s = s.convert(format);
+            let bounds = s.content_bounds().intersect(&self.canvas);
+            let mut pixels = Vec::new();
+            for y in (bounds.y0..bounds.y1).step_by(photocraft_geom::TILE_SIZE as usize) {
+                let band = photocraft_geom::Rect::new(bounds.x0, y, bounds.x1, y.saturating_add(photocraft_geom::TILE_SIZE).min(bounds.y1));
+                s.read_region_into(band, &mut pixels);
+                for (pixel, coverage) in pixels.chunks_exact_mut(format.channels()).zip(geometry.render(band)) {
+                    pixel[format.channels() - 1] *= coverage;
+                }
+                s.write_region(band, &pixels);
+            }
         }
-        // In the frame the layer's masks give it, like the compositor (masks are stored apart).
-        let buf = photocraft_compose::render_fill_content(l, f, self.canvas, &self.patterns);
-        let mut s = Surface::new(self.fmt);
-        let vals: Vec<f32> = buf.px.iter().flat_map(|p| photocraft_raster::from_rgba(&self.fmt, *p)).collect();
-        s.write_region(self.canvas, &vals);
         s.prune();
         s
     }
@@ -1391,7 +1410,8 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         ex.next_id = used.iter().copied().max().unwrap_or(0);
         ex.used_ids = used;
     }
-    ex.emit(&doc.layers);
+    let space = photocraft_compose::cmyk_space(doc);
+    photocraft_color::convert::with_cmyk_space(space.as_ref(), || ex.emit(&doc.layers));
 
     // Merged composite, rendered and encoded in bands (no full-size float composite). Matting
     // against white only changes pixels with alpha < 1; if some are slightly translucent but all
