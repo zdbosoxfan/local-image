@@ -680,8 +680,8 @@ mod deps_pure_tests {
 
     #[test]
     fn the_deny_list_catches_ring_and_stray_cc() {
-        let edges = "li-ai ureq\nrustls ring\nx cc\nblake3 cc\n";
-        assert_eq!(impure_crates(edges), vec!["cc (needed by x)".to_string(), "ring (needed by rustls)".to_string()]);
+        let edges = "li-ai ureq\nrustls ring\nrustls-webpki ring\nring cc\nx ring\nx cc\nblake3 cc\n";
+        assert_eq!(impure_crates(edges), vec!["cc (needed by x)".to_string(), "ring (needed by x)".to_string()]);
     }
 }
 
