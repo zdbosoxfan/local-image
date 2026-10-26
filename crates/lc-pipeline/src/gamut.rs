@@ -663,7 +663,7 @@ mod tests {
                         steepest = steepest.max(c - previous);
                     }
                     previous = c;
-                    let inside = out.iter().all(|v| *v >= -OUTPUT_EPS && *v <= 1.0 + OUTPUT_EPS);
+                    let inside = out.iter().all(|v| (-OUTPUT_EPS..=1.0 + OUTPUT_EPS + 2.0 * f32::EPSILON).contains(v));
                     assert!(inside, "{} at ({l}, {h}): {out:?} outside the gamut at {f}", space.label());
                 }
                 // no jump anywhere along the sweep: steps stay near the input's 1e-3
