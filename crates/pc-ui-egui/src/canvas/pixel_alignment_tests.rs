@@ -12,10 +12,11 @@ fn xform(ppp: f32, physical_size: [f32; 2]) -> ViewXform {
 
 #[test]
 fn cpu_canvas_paints_its_image_on_physical_pixel_edges() {
-    for ppp in [1.0, 1.25, 2.0] {
+    for ppp in [1.0, 1.25, 1.5, 2.0] {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", serde_json::json!({"width": 64, "height": 64, "background": "white"})).unwrap();
         app.sync_views();
+        app.ui.extras.rulers = false;
         app.ui.views[0].zoom = 1.0 / ppp;
         app.ui.views[0].center = [32.0, 32.0];
         app.ui.views[0].fit_pending = false;
@@ -25,8 +26,10 @@ fn cpu_canvas_paints_its_image_on_physical_pixel_edges() {
         let tex = ensure_texture(&mut app, &ctx, 0, None).unwrap().0;
         let view = app.ui.views[0].clone();
         let saved_center = view.center;
+        let rect = xform(ppp, [523.0, 471.0]).rect;
+        app.last_canvas_rect = rect;
         let mut out = ctx.run_ui(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 600.0))), ..Default::default() }, |ui| {
-            canvas_view(&mut app, ui, 0, xform(ppp, [523.0, 471.0]).rect, view.clone(), false);
+            canvas_view(&mut app, ui, 0, rect, view.clone(), true);
         });
         out.textures_delta.clear();
         let mesh = out
@@ -38,7 +41,10 @@ fn cpu_canvas_paints_its_image_on_physical_pixel_edges() {
             })
             .expect("CPU document image quad");
         assert_eq!(mesh.vertices.len(), 4);
-        for vertex in &mesh.vertices {
+        let active = ViewXform::active(&app).unwrap();
+        for (vertex, expected) in mesh.vertices.iter().zip([[0.0, 0.0], [64.0, 0.0], [64.0, 64.0], [0.0, 64.0]]) {
+            let doc = active.to_doc(vertex.pos);
+            assert!((doc[0] - expected[0]).abs() < 0.001 && (doc[1] - expected[1]).abs() < 0.001, "input matches rendered pixels at {ppp}: {doc:?}");
             let p = vertex.pos * ppp;
             assert!((p.x - p.x.round()).abs() < 0.001 && (p.y - p.y.round()).abs() < 0.001, "ppp {ppp}: {p:?}");
         }
