@@ -184,7 +184,10 @@ fn edited_float_curves_extrapolate_with_continuous_end_slopes() {
     let adj = half_curve();
     for v in [-0.5, -1e-5, 0.0, 1e-5, 0.25, 1.0 - 1e-5, 1.0, 1.0 + 1e-5, 2.0, 8.0] {
         let out = evaluate(&adj, [v, 8.0, -0.5, 0.375], SampleType::F32);
-        assert!((out[0] - v * 128.0 / 255.0).abs() < 3e-5, "{v}: {out:?}");
+        // The sixteen-step f32 slope error grows with distance beyond the endpoint.
+        let tolerance = 2e-5 * f64::from((v.abs() - 1.0).max(1.0));
+        let expected = f64::from(v) * 128.0 / 255.0;
+        assert!((f64::from(out[0]) - expected).abs() < tolerance, "{v}: {out:?}");
         assert_eq!(&out[1..], &[8.0, -0.5, 0.375]);
     }
 }
