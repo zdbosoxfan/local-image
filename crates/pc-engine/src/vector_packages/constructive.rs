@@ -238,6 +238,52 @@ impl Gesture {
         let q = ops::geom::Point::new(p.x, p.y);
         Ok(self.face_map()?.hits.iter().position(|(bez, bounds)| bounds.contains(q) && bez.winding(q) != 0))
     }
+    /// Faces crossed by a pointer segment, in encounter order, including its endpoints.
+    pub fn faces_along(&self, a: Point, b: Point) -> Result<Vec<usize>> {
+        for p in [a, b] {
+            bounded(p.x, -MAX_COORD, MAX_COORD)?;
+            bounded(p.y, -MAX_COORD, MAX_COORD)?;
+        }
+        let start = ops::geom::Point::new(a.x, a.y);
+        let end = ops::geom::Point::new(b.x, b.y);
+        let bounds = ops::geom::Rect::from_points(start, end);
+        let len = start.distance(end);
+        if len == 0.0 {
+            return Ok(self.face_at(a)?.into_iter().collect());
+        }
+        let mut crossings: Vec<f64> = Vec::new();
+        for (path, hit_bounds) in &self.face_map()?.hits {
+            if hit_bounds.x0 > bounds.x1 || hit_bounds.x1 < bounds.x0 || hit_bounds.y0 > bounds.y1 || hit_bounds.y1 < bounds.y0 {
+                continue;
+            }
+            for segment in path.segments() {
+                crossings.extend(segment.intersect_line((start, end).into()).iter().map(|hit| hit.line_t));
+            }
+        }
+        crossings.retain(|t| t.is_finite() && *t > 0.0 && *t < 1.0);
+        crossings.sort_by(f64::total_cmp);
+        let mut probes = vec![a];
+        let mut from = 0.0;
+        for to in crossings.into_iter().chain([1.0]) {
+            // Coincident crossings are one place; every intervening stretch gets a probe.
+            if (to - from) * len > 1e-9 {
+                let t = (from + to) * 0.5;
+                probes.push(Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t));
+                from = to;
+            }
+        }
+        probes.push(b);
+        let mut faces = Vec::new();
+        let mut seen = BTreeSet::new();
+        for probe in probes {
+            if let Some(face) = self.face_at(probe)?
+                && seen.insert(face)
+            {
+                faces.push(face);
+            }
+        }
+        Ok(faces)
+    }
     pub fn face_style(&self, face: usize) -> Result<LayerId> {
         let i = self.arrangement()?.regions.get(face).and_then(ops::Region::top).unwrap_or(0);
         self.inputs.get(i).map(|l| l.id).ok_or_else(|| error("face has no selected style source"))

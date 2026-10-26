@@ -78,6 +78,28 @@ fn constructive_ui_builder_hover_drag_merge_and_alt_mid_drag_remove() {
         assert!(!host.session.undo());
     }
 }
+
+#[test]
+fn builder_drag_selects_a_region_between_pointer_samples() {
+    let mut host = fixture(Tool::Builder, false);
+    let doc = std::sync::Arc::make_mut(&mut host.session.active_mut().unwrap().doc);
+    let mut shape = ShapeLayer { path: photocraft_vector::shapes::rect(31.4, 20., 0.2, 100.), fill: Some(Fill::Solid(Color::BLACK)), ..Default::default() };
+    photocraft_engine::vector_cmds::refresh_shape(doc, &mut shape);
+    let layer = Layer::new("Narrow region", LayerContent::Shape(shape));
+    host.tools.targets.push(layer.id);
+    doc.layers.push(layer);
+    let before = host.session.active().unwrap().doc.clone();
+    let mut h = Harness::builder().with_size(egui::vec2(700., 330.)).build_ui_state(ui, host);
+    move_to(&mut h, 30., 70.);
+    button(&mut h, 30., 70., true, Modifiers::NONE);
+    move_to(&mut h, 40., 70.);
+    assert_eq!(h.state().tools.drag.as_ref().unwrap().faces.len(), 3);
+    button(&mut h, 40., 70., false, Modifiers::NONE);
+    assert!(h.state().tools.error.is_none(), "{:?}", h.state().tools.error);
+    assert_eq!(h.state().session.active().unwrap().doc.layers.len(), 1);
+    assert!(h.state_mut().session.undo());
+    assert_eq!(h.state().session.active().unwrap().doc, before);
+}
 #[test]
 fn constructive_ui_knife_live_preview_release_and_undo() {
     let mut h = harness(Tool::Knife, false);

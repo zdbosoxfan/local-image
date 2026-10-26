@@ -144,8 +144,14 @@ fn shape_builder_merge_keeps_a_line_that_ends_inside_the_shape() {
         let face = gesture.face_at(Point::new(25., 50.)).unwrap().unwrap();
         let action = Action::Builder { faces: vec![face], remove, style: ids[0] };
         let prepared = gesture.preview(&action).unwrap();
-        let length: f64 = prepared.output_paths().iter().flat_map(|path| &path.subpaths).filter(|sp| !sp.closed).flat_map(Subpath::segments)
-            .map(|segment| (segment[3].x - segment[0].x).hypot(segment[3].y - segment[0].y)).sum();
+        let length: f64 = prepared
+            .output_paths()
+            .iter()
+            .flat_map(|path| &path.subpaths)
+            .filter(|sp| !sp.closed)
+            .flat_map(Subpath::segments)
+            .map(|segment| (segment[3].x - segment[0].x).hypot(segment[3].y - segment[0].y))
+            .sum();
         assert!((length - 119.).abs() < 1e-6, "open line length: {length}, remove={remove}");
         gesture.commit(&mut session, action).unwrap();
         assert!(session.undo());

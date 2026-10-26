@@ -348,15 +348,10 @@ impl State {
         }
         if d.tool == Tool::Builder {
             let last = d.points.last().copied().unwrap_or(p);
-            let count = (((p.x - last.x).hypot(p.y - last.y) * zoom / 2.0).ceil() as usize).clamp(1, 4000);
-            for k in 0..=count {
-                let t = k as f64 / count as f64;
-                let q = Point::new(last.x + (p.x - last.x) * t, last.y + (p.y - last.y) * t);
-                if let Some(face) = d.gesture.face_at(q).map_err(|e| e.to_string())? {
-                    d.faces.insert(face);
-                    if d.style.is_none() {
-                        d.style = Some(d.gesture.face_style(face).map_err(|e| e.to_string())?);
-                    }
+            for face in d.gesture.faces_along(last, p).map_err(|e| e.to_string())? {
+                d.faces.insert(face);
+                if d.style.is_none() {
+                    d.style = Some(d.gesture.face_style(face).map_err(|e| e.to_string())?);
                 }
             }
         }
