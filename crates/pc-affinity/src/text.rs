@@ -15,6 +15,7 @@ use crate::stream::{ObjId, Value};
 const MAX_CHARS: usize = 1 << 20;
 /// Shared character attributes must not amplify into unbounded font/feature/gradient data.
 const MAX_ATTRIBUTE_BYTES: usize = 16 << 20;
+/// Excess ranges are coalesced into the last run, retaining characters with bounded metadata.
 const MAX_RUNS: usize = 4096;
 
 /// Ends a table cell in a table's story (Affinity's break glyph of kind 4).
@@ -25,8 +26,8 @@ pub(crate) fn read(r: &mut Reader, id: ObjId, world: Affine) -> Option<Text> {
     let story = s.obj(id, b"StSt")?;
     let frame = s.obj(id, b"TxtH")?;
     let artistic = s.is(frame, b"ArFr");
-    if let Err(error) = s.check_finite(frame, b"FrmB").and_then(|()| s.check_finite(frame, b"ArtV")) {
-        r.failure = Some(error);
+    if let Err(e) = s.check_finite(frame, b"FrmB").and_then(|()| s.check_finite(frame, b"ArtV")) {
+        r.failure = Some(e);
         return None;
     }
     let bounds = s.floats::<4>(frame, b"FrmB").map(rect)?;
@@ -367,6 +368,7 @@ fn push_run(
         return;
     }
     if runs.len() >= MAX_RUNS {
+        // Coalescing adds owned characters, but no additional TextRun storage.
         if !r.charge_owned(text.len()) {
             return;
         }
@@ -376,6 +378,7 @@ fn push_run(
         }
         return;
     }
+    // Keep the newer capacity-growth accounting without charging each run twice.
     if !r.charge_owned(std::mem::size_of::<TextRun>().saturating_mul(2).saturating_add(text.len())) {
         return;
     }
