@@ -183,3 +183,34 @@ mod store_writer_tests {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(unix)]
+mod store_link_tests {
+    use crate::{FsStore, Store};
+
+    #[test]
+    fn catalog_writes_refuse_links_without_changing_the_target() {
+        let dir = std::env::temp_dir().join(format!("lc-store-links-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim");
+        std::fs::write(&victim, b"keep").unwrap();
+        let mut store = FsStore::open(&dir).unwrap();
+        for name in ["catalog.log", "catalog.snap", "catalog.log.damaged-1"] {
+            std::os::unix::fs::symlink(&victim, dir.join(name)).unwrap();
+            assert!(store.append(name, b"appended").is_err(), "append {name}");
+            assert!(store.truncate(name, 0).is_err(), "truncate {name}");
+            assert!(store.write_atomic(name, b"replacement").is_err(), "atomic {name}");
+            assert!(store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).is_err(), "streamed {name}");
+            assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+            std::fs::remove_file(dir.join(name)).unwrap();
+            store.append(name, b"abc").unwrap();
+            store.truncate(name, 1).unwrap();
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"a");
+            store.write_atomic(name, b"new").unwrap();
+            store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).unwrap();
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"streamed");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

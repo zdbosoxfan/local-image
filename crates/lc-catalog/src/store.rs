@@ -45,6 +45,26 @@ pub trait Store: Send {
     }
 }
 
+/// Replace the entry itself, never a link's target; exclusive creation refuses a raced-in entry.
+pub(crate) fn create_staging(path: &Path) -> io::Result<std::fs::File> {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    std::fs::OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+/// A prepared library must not redirect catalog writes outside its directory.
+fn check_regular_directory_entry(path: &Path) -> io::Result<()> {
+    match std::fs::symlink_metadata(path) {
+        Ok(md) if md.is_file() => Ok(()),
+        Ok(md) => Err(io::Error::other(format!("{} is a {:?}, not a regular file", path.display(), md.file_type()))),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
 /// Files in a directory.
 pub struct FsStore {
     dir: PathBuf,
@@ -86,6 +106,7 @@ impl Store for FsStore {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
+        check_regular_directory_entry(&self.path(name))?;
         li_fs::write_atomic(&self.path(name), data)
     }
 
@@ -93,12 +114,14 @@ impl Store for FsStore {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
+        check_regular_directory_entry(&self.path(name))?;
         li_fs::write_atomic_with(&self.path(name), fill)
     }
 
     fn append(&mut self, name: &str, data: &[u8]) -> io::Result<()> {
         use std::io::Write;
         if self.appender.as_ref().is_none_or(|(n, _)| n != name) {
+            check_regular_directory_entry(&self.path(name))?;
             let existed = self.path(name).exists();
             let f = std::fs::OpenOptions::new().create(true).append(true).open(self.path(name))?;
             if !existed {
@@ -121,6 +144,7 @@ impl Store for FsStore {
         if self.appender.as_ref().is_some_and(|(n, _)| n == name) {
             self.appender = None;
         }
+        check_regular_directory_entry(&self.path(name))?;
         let f = match std::fs::OpenOptions::new().write(true).open(self.path(name)) {
             Ok(f) => f,
             // nothing to cut (an append that failed before creating the file)
