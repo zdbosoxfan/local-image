@@ -357,6 +357,11 @@ fn keyboard_navigation_reveals_rows_and_skips_folded_ignored_models() {
     for _ in 0..7 {
         h.key_press(egui::Key::ArrowDown);
         h.run_steps(6);
+        let label = with(|s| {
+            let m = s.model(s.selected.as_deref().unwrap()).unwrap();
+            format!("{}, {}", m.label, spoken(m.status))
+        });
+        assert!(h.get_by_label(&label).accesskit_node().is_focused(), "focus follows the selected model");
     }
     h.run_steps(20);
     assert_eq!(with(|s| s.selected.clone()), Some(QWEN21.into()));
@@ -367,6 +372,10 @@ fn keyboard_navigation_reveals_rows_and_skips_folded_ignored_models() {
     h.key_press(egui::Key::ArrowDown);
     h.run_steps(4);
     assert_eq!(with(|s| s.selected.clone()), Some(QWEN21.into()), "folded ignored rows are not keyboard targets");
+    h.key_press(egui::Key::ArrowUp);
+    h.run_steps(6);
+    assert_eq!(with(|s| s.selected.clone()), Some(KREA.into()));
+    assert!(h.get_by_label("Krea 2 Turbo · BF16, verified").accesskit_node().is_focused());
 }
 
 #[test]

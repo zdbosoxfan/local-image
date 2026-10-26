@@ -122,6 +122,11 @@ fn row(ui: &mut egui::Ui, s: &mut State, t: &Tokens, order: &[String], key: &str
     if r.clicked() {
         s.selected = Some(key.to_owned());
     }
+    if ui.memory(|mem| mem.data.get_temp::<String>(egui::Id::new("model-setup-focus"))).as_deref() == Some(key) {
+        r.request_focus();
+        r.scroll_to_me(Some(egui::Align::Center));
+        ui.memory_mut(|mem| mem.data.remove::<String>(egui::Id::new("model-setup-focus")));
+    }
     if r.has_focus() {
         let step = ui.input_mut(|i| {
             if i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown) {
@@ -132,20 +137,20 @@ fn row(ui: &mut egui::Ui, s: &mut State, t: &Tokens, order: &[String], key: &str
                 0
             }
         });
+        if step != 0 {
+            // These arrows move model rows rather than egui's spatial focus a second time.
+            ui.memory_mut(|mem| mem.move_focus(egui::FocusDirection::None));
+        }
         let at = order.iter().position(|k| k == key);
         if let Some(next) = at.and_then(|i| i.checked_add_signed(step)).filter(|_| step != 0).and_then(|i| order.get(i)) {
             s.selected = Some(next.clone());
             ui.memory_mut(|mem| mem.data.insert_temp(egui::Id::new("model-setup-focus"), next.clone()));
+            ui.ctx().request_repaint();
         }
         if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
             s.selected = Some(key.to_owned());
             s.step = Step::Check;
         }
-    }
-    if ui.memory(|mem| mem.data.get_temp::<String>(egui::Id::new("model-setup-focus"))).as_deref() == Some(key) {
-        r.request_focus();
-        r.scroll_to_me(Some(egui::Align::Center));
-        ui.memory_mut(|mem| mem.data.remove::<String>(egui::Id::new("model-setup-focus")));
     }
     let ignored = m.status == Status::Ignored;
     r.context_menu(|ui| {
