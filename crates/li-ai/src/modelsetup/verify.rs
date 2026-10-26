@@ -622,6 +622,11 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
         };
         runner.run("edit", &req, &judge)?;
     }
+    let plain_judge = |img: &RgbaImage, r: &mut CapabilityResult| {
+        let m = metrics(&rgb(img), None);
+        r.failure = image_failure(&m).map(|fail| format!("VerifyFailed:{fail}"));
+        r.metrics = Some(m);
+    };
     // Create with one reference, through the graph a template model uses for references (its
     // style graph when it has no edit graph, else the edit graph).
     if let Some(recipe) = info.recipe.as_ref().filter(|r| r.reference_capacity() > 0 && info.text_to_image) {
@@ -629,22 +634,12 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
         if on(name) {
             let reference = made.clone().unwrap_or_else(|| image::DynamicImage::ImageRgb8(crate::refine::test_image()).to_rgba8());
             let req = GenerateRequest { references: vec![reference], seed: seed.wrapping_add(4), ..create.clone() };
-            let judge = |img: &RgbaImage, r: &mut CapabilityResult| {
-                let m = metrics(&rgb(img), None);
-                r.failure = image_failure(&m).map(|fail| format!("VerifyFailed:{fail}"));
-                r.metrics = Some(m);
-            };
-            runner.run(name, &req, &judge)?;
+            runner.run(name, &req, &plain_judge)?;
         }
     }
     if info.recipe.as_ref().is_some_and(|r| r.enhancer_ready()) && info.text_to_image && on("prompt_enhancer") {
         let request = GenerateRequest { enhance: true, seed: seed.wrapping_add(5), ..create.clone() };
-        let judge = |img: &RgbaImage, result: &mut CapabilityResult| {
-            let measured = metrics(&rgb(img), None);
-            result.failure = image_failure(&measured).map(|fail| format!("VerifyFailed:{fail}"));
-            result.metrics = Some(measured);
-        };
-        runner.run("prompt_enhancer", &request, &judge)?;
+        runner.run("prompt_enhancer", &request, &plain_judge)?;
     }
     // Refine: the recipe the app's refine checker uses, on its test picture.
     if on("refine")
