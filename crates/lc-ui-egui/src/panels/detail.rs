@@ -19,9 +19,9 @@ use crate::widgets::register;
 pub(crate) mod guided;
 mod pan;
 #[cfg(test)]
-mod tests_guided_guides;
-#[cfg(test)]
 mod tests_canvas_pan;
+#[cfg(test)]
+mod tests_guided_guides;
 
 /// An in-progress on-canvas gesture.
 #[derive(Clone, Debug)]

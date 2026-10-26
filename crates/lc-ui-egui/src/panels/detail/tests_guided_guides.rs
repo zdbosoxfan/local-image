@@ -1,4 +1,3 @@
-
 use std::time::Duration;
 
 use serde_json::json;
@@ -337,13 +336,7 @@ fn delete_ignores_a_stale_guide_index() {
     let id = h.app.session.active().unwrap();
     let undo = h.app.session.undo.len();
     h.app.ui.selected_guide = Some((id.0, 10));
-    h.events.push(egui::Event::Key {
-        key: egui::Key::Backspace,
-        physical_key: None,
-        pressed: true,
-        repeat: false,
-        modifiers: egui::Modifiers::NONE,
-    });
+    h.events.push(egui::Event::Key { key: egui::Key::Backspace, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
     h.step();
     assert_eq!(h.app.ui.selected_guide, None);
     assert_eq!(guides_len(&h), 2);
@@ -410,12 +403,12 @@ fn endpoint_drag_in_a_warped_frame_preserves_the_other_corrected_points() {
     let undo = h.app.session.undo.len();
     h.events.extend([
         egui::Event::PointerMoved(from),
-        egui::Event::PointerButton {pos:from, button:egui::PointerButton::Primary, pressed:true, modifiers:egui::Modifiers::NONE},
+        egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
     ]);
     h.step();
     h.events.push(egui::Event::PointerMoved(to));
     h.step();
-    h.events.push(egui::Event::PointerButton {pos:to, button:egui::PointerButton::Primary, pressed:false, modifiers:egui::Modifiers::NONE});
+    h.events.push(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
     h.step();
     let after = h.app.session.develop_of(id).unwrap();
     assert!(after.geometry.guides[0].0.dist(expected) < 1e-3);

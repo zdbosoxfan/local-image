@@ -50,11 +50,8 @@ pub(super) fn guided_overlay(
     for (i, guide) in d.geometry.guides.iter().enumerate() {
         let (sa, sb) = on_screen(guide);
         register(ui.ctx(), format!("uprightGuide:{i}"), Rect::from_two_pos(sa, sb));
-        let response = ui.interact(
-            Rect::from_two_pos(sa, sb).expand(7.0),
-            egui::Id::new(("uprightGuide", id.0, i)),
-            egui::Sense::focusable_noninteractive(),
-        );
+        let response =
+            ui.interact(Rect::from_two_pos(sa, sb).expand(7.0), egui::Id::new(("uprightGuide", id.0, i)), egui::Sense::focusable_noninteractive());
         response.widget_info(|| {
             egui::WidgetInfo::selected(
                 egui::WidgetType::SelectableLabel,
@@ -68,8 +65,7 @@ pub(super) fn guided_overlay(
                 p.circle_stroke(endpoint, 8.0, Stroke::new(1.0, tokens.overlay_fg));
             }
             if ui.input_mut(|input| {
-                input.consume_key(egui::Modifiers::NONE, egui::Key::Space)
-                    || input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
+                input.consume_key(egui::Modifiers::NONE, egui::Key::Space) || input.consume_key(egui::Modifiers::NONE, egui::Key::Enter)
             }) {
                 app.ui.selected_guide = if selected == Some(i) { None } else { Some((id.0, i)) };
             }
@@ -175,4 +171,3 @@ pub(super) fn guided_overlay(
         }
     }
 }
-
