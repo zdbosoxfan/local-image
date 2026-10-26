@@ -909,3 +909,38 @@ fn a_verification_cannot_overwrite_a_newer_scan() {
     assert_eq!(current.fingerprint.bytes, scan.server.models[MOSS_KEY].fingerprint.bytes + 1);
     assert!(current.verified.is_none(), "the newer file was never tested");
 }
+
+#[test]
+fn changed_weights_need_a_test_across_repeated_scans_and_blockers() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(MOSS);
+    let initial = s.scan();
+    let (w, h) = create_size(MOSS_KEY);
+    let outputs = || [png(&ball(w, h, [230, 30, 30])), png(&li_ai::refine::test_image()), png(&filled(&red_ball_on_sky))];
+    s.mock.queue_outputs(outputs());
+    modelsetup::verify_models(&s.options(), &initial, &[MOSS_KEY.into()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    assert_eq!(s.scan().server.models[MOSS_KEY].status, Status::Verified);
+    let file = std::fs::OpenOptions::new().write(true).open(s.dir.0.join(MOSS[0].0)).unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(60)).unwrap();
+    for _ in 0..2 {
+        let scan = s.scan();
+        assert_eq!(scan.server.models[MOSS_KEY].status, Status::NeedsReverify);
+        assert!(scan.server.models[MOSS_KEY].issues.iter().any(|i| i.code == "FileChanged"));
+    }
+    let mut blocked = object_info(&s.dir.0);
+    blocked.as_object_mut().unwrap().remove("KSampler");
+    s.mock.set_object_info(blocked);
+    assert_eq!(s.scan().server.models[MOSS_KEY].status, Status::Blocked);
+    s.mock.set_object_info(object_info(&s.dir.0));
+    let ready = s.scan();
+    assert_eq!(ready.server.models[MOSS_KEY].status, Status::NeedsReverify);
+    assert!(ready.server.models[MOSS_KEY].issues.iter().any(|i| i.code == "FileChanged"));
+    assert_eq!(s.mock.prompts().len(), 3, "rescans never render a verification");
+    s.mock.queue_outputs(outputs());
+    let done = modelsetup::verify_models(&s.options(), &ready, &[MOSS_KEY.into()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    assert!(done[0].result.is_ok());
+    let tested = s.scan();
+    assert_eq!(tested.server.models[MOSS_KEY].status, Status::Verified);
+    assert!(!tested.server.models[MOSS_KEY].issues.iter().any(|i| i.code == "FileChanged"));
+    assert_eq!(s.mock.prompts().len(), 6);
+}

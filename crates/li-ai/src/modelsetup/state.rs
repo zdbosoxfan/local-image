@@ -249,7 +249,11 @@ pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &Server
         fresh.status = Status::Ignored;
     }
     let Some(v) = old.verified.clone() else { return fresh };
-    let file_changed = old.fingerprint.bytes != fresh.fingerprint.bytes
+    // Scans update the observed fingerprint; only a completed test clears its pending change.
+    let pending_file_change =
+        !matches!(old.status, Status::Verified | Status::PartiallyVerified | Status::Failed) && old.issues.iter().any(|issue| issue.code == "FileChanged");
+    let file_changed = pending_file_change
+        || old.fingerprint.bytes != fresh.fingerprint.bytes
         || old.fingerprint.mtime_ns != fresh.fingerprint.mtime_ns
         || old.fingerprint.header_sha256.is_some()
             && fresh.fingerprint.header_sha256.is_some()
@@ -258,27 +262,29 @@ pub fn merge(stored: Option<&ModelState>, mut fresh: ModelState, server: &Server
     let same_recipe = tested == v.recipe_sha256;
     let blocked = matches!(fresh.status, Status::Blocked | Status::Unmatched);
     fresh.verified = Some(v.clone());
+    let key = fresh_key(&fresh);
+    let file_change_issue = file_changed.then(|| Issue::new("FileChanged", Some(&key), &[("file", fresh.file.clone()), ("date", v.at.clone())]));
     if blocked || fresh.status == Status::Ignored {
+        fresh.issues.extend(file_change_issue.map(|issue| issue.fix(Fix::Verify { model: fresh.file.clone() })));
         return fresh;
     }
     let failed = v.capabilities.values().any(|c| !c.pass && c.failure.is_some());
     let create_failed = v.capabilities.get("create").is_some_and(|c| !c.pass);
-    let key = fresh_key(&fresh);
     // It was tested: "not tested yet" no longer applies, whatever the test's standing now.
     fresh.issues.retain(|i| i.code != "NotVerified");
-    let reverify = if file_changed {
-        Some(Issue::new("FileChanged", Some(&key), &[("file", fresh.file.clone()), ("date", v.at.clone())]))
-    } else if !same_recipe && v.comfyui_version != comfyui_version {
-        Some(Issue::new(
-            "ReverifyNeeded",
-            Some(&key),
-            &[("old", v.comfyui_version.clone()), ("new", comfyui_version.to_owned()), ("model", fresh.label.clone())],
-        ))
-    } else if !same_recipe {
-        Some(Issue::new("RecipeChanged", Some(&key), &[]))
-    } else {
-        None
-    };
+    let reverify = file_change_issue.or_else(|| {
+        if !same_recipe && v.comfyui_version != comfyui_version {
+            Some(Issue::new(
+                "ReverifyNeeded",
+                Some(&key),
+                &[("old", v.comfyui_version.clone()), ("new", comfyui_version.to_owned()), ("model", fresh.label.clone())],
+            ))
+        } else if !same_recipe {
+            Some(Issue::new("RecipeChanged", Some(&key), &[]))
+        } else {
+            None
+        }
+    });
     fresh.status = match reverify {
         Some(issue) => {
             fresh.issues.push(issue.fix(Fix::Verify { model: fresh.file.clone() }));
