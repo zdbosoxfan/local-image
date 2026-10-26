@@ -158,3 +158,66 @@ fn render_video_rejects_gif_frames_too_large_to_stage() {
     let err = s.execute("file.export.renderVideo", json!({"dir": tmpdir("large-gif"), "format": "gif"})).unwrap_err();
     assert!(err.to_string().contains("too large"), "{err}");
 }
+
+#[test]
+fn render_video_names_frames_after_the_leaf_of_the_document_name() {
+    let out = tmpdir("safe-name");
+    for (i, name) in ["../../outside.png", "C:\\Users\\x\\clip.v2.gif", "..", "../..", "", "/", "a/.."].into_iter().enumerate() {
+        let mut s = session();
+        s.edit("name", |doc, _| {
+            doc.name = name.into();
+            Ok(())
+        })
+        .unwrap();
+        let r = s.execute("file.export.renderVideo", json!({"dir": out, "format": "png"})).unwrap();
+        assert_eq!(r["frames"], 1);
+        let expected = format!("{out}/{}_0000.png", safe_stem(name));
+        assert!(std::path::Path::new(&expected).is_file(), "case {i}: {expected}");
+        assert_eq!(std::path::Path::new(&expected).parent(), Some(std::path::Path::new(&out)));
+    }
+    assert_eq!(safe_stem("../../outside/clip.png"), "clip");
+    assert_eq!(safe_stem("C:\\Users\\x\\clip.v2.gif"), "clip.v2");
+}
+
+#[test]
+fn footage_budget_counts_tiles_and_empty_frames() {
+    let fmt = session().active().unwrap().doc.pixel_format();
+    let mut surface = Surface::new(fmt);
+    surface.fill_rect(photocraft_geom::Rect::new(0, 0, 1, 1), &[1.0; 4]);
+    let mut frames = Vec::new();
+    let mut bytes = MAX_FOOTAGE_BYTES;
+    assert!(keep_frame(&mut frames, surface.clone(), &mut bytes).unwrap_err().to_string().contains("MiB"));
+    assert!(frames.is_empty());
+    bytes = 0;
+    keep_frame(&mut frames, surface, &mut bytes).unwrap();
+    assert_eq!(bytes, u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2) * fmt.bytes_per_pixel() as u64);
+    frames.resize(crate::timeline_cmds::MAX_DURATION, Surface::new(fmt));
+    assert!(keep_frame(&mut frames, Surface::new(fmt), &mut bytes).unwrap_err().to_string().contains("frames"));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn footage_refuses_kernel_paths_before_decoding() {
+    let error = load_frames("/proc/version", session().active().unwrap().doc.pixel_format()).unwrap_err().to_string();
+    assert!(error.contains("input paths are unavailable"), "{error}");
+}
+
+#[test]
+fn restricted_video_psds_embed_no_linked_image() {
+    let dir = tmpdir("gated-video");
+    let mut s = session();
+    let png = photocraft_io::export(&s.active().unwrap().doc, "png", &Default::default()).unwrap().bytes;
+    let outside = format!("{dir}/outside.png");
+    std::fs::write(&outside, &png).unwrap();
+    s.execute("file.placeLinked", json!({"path": outside})).unwrap();
+    let out = format!("{dir}/out");
+    let save = |s: &mut Session| {
+        s.execute("file.export.renderVideo", json!({"dir": out, "format": "psd"})).unwrap();
+        let name = safe_stem(&s.active().unwrap().doc.name);
+        std::fs::read(format!("{out}/{name}_0000.psd")).unwrap()
+    };
+    let contains = |bytes: &[u8]| bytes.windows(png.len()).any(|w| w == png);
+    assert!(contains(&save(&mut s)));
+    s.authorize = Some(|_, _| Ok(()));
+    assert!(!contains(&save(&mut s)));
+}
