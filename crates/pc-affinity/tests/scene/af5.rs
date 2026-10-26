@@ -376,3 +376,36 @@ fn outlined_artistic_text_keeps_full_mask_and_node_shadow() {
     assert!(over.x0 < ink.x0 || over.y0 < ink.y0 || over.x1 > ink.x1 || over.y1 > ink.y1);
     assert_eq!(group.mask.as_ref().unwrap().surface.content_bounds(), photocraft_doc::Rect::new(0, 0, 128, 128));
 }
+
+#[test]
+fn hostile_effect_geometry_never_publishes_a_scene() {
+    for (field, value) in [(b"Radi", -1.), (b"Radi", 513.), (b"Radi", f64::NAN), (b"Angl", 1e300)] {
+        let mut shape = curve();
+        if let F::Def(_, _, fields) = &mut shape {
+            fields.push((
+                tag(b"FiEf"),
+                F::Shared(vec![F::Obj(
+                    tag(b"Shad"),
+                    vec![
+                        (
+                            tag(b"Colr"),
+                            F::Obj(tag(b"RGBA"), vec![(tag(b"_col"), F::Struct([0f32, 0., 0., 1.].into_iter().flat_map(f32::to_le_bytes).collect()))]),
+                        ),
+                        (tag(field), F::F64(value)),
+                    ],
+                )]),
+            ));
+        }
+        assert!(matches!(import(&document(vec![shape]), &ImportOptions::default()), Err(Error::Limit(_) | Error::Malformed(_))));
+    }
+}
+
+#[test]
+fn native_text_metadata_is_reserved_before_layout_clones() {
+    let attrs = text_fixture::attrs(&"F".repeat(16 * 1024), "", 400, false, 12.);
+    let runs = (1..=64).map(|end| text_fixture::run(end, Some(attrs.clone()))).collect();
+    let bytes = text_fixture::document(vec![text_fixture::block(text_fixture::utf8(&"A".repeat(64)), runs, &[0])], false, 72., text_fixture::IDENTITY);
+    let mut options = ImportOptions::default();
+    options.limits.decompressed_bytes = 8 << 20;
+    assert!(matches!(import(&bytes, &options), Err(Error::Limit("text layout bytes"))));
+}

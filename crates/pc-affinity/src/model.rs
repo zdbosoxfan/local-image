@@ -551,11 +551,13 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             return false;
         }
         self.budget.owned = self.budget.owned.saturating_add(bytes);
-        if self.budget.owned.saturating_add(self.archive_base).saturating_add(self.archive.extracted()) > self.budget.limit {
+        let remaining =
+            self.budget.limit.checked_sub(self.budget.owned).and_then(|v| v.checked_sub(self.archive_base)).filter(|v| *v >= self.archive.extracted());
+        let Some(remaining) = remaining else {
             self.failure = Some(Error::Limit("expanded model allocation"));
             return false;
-        }
-        self.archive.limits.max_total = self.budget.limit - self.budget.owned - self.archive_base;
+        };
+        self.archive.limits.max_total = remaining;
         true
     }
     pub(crate) fn charge_pixels(&mut self, count: u64) -> Result<(), Error> {
@@ -742,7 +744,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         if source_name.len() > 4096 {
             return Err(Error::Limit("layer name bytes"));
         }
-        if !self.charge_owned(source_name.len().saturating_add(std::mem::size_of::<Node>())) {
+        if !self.charge_owned(source_name.len().saturating_add(std::mem::size_of::<Node>().saturating_mul(2))) {
             return Err(self.failure.unwrap_or(Error::Limit("layer allocation")));
         }
         self.budget.name_bytes = self.budget.name_bytes.saturating_add(source_name.len());
@@ -910,6 +912,14 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                     self.failure = Some(error);
                     return out;
                 }
+            }
+            if [b"Radi", b"Offs"].iter().any(|tag| s.f64(e, tag).is_some_and(|v| !(0.0..1e6).contains(&v))) {
+                self.failure = Some(Error::Limit("effect geometry"));
+                return out;
+            }
+            if [b"Angl", b"Azim"].iter().any(|tag| s.f64(e, tag).is_some_and(|v| v.abs() > 1e6)) {
+                self.failure = Some(Error::Limit("effect angle"));
+                return out;
             }
             // "Scale with object": lengths follow the node's transform; otherwise they are absolute.
             let k = if s.bool(e, b"SclO") == Some(true) { world.scale() } else { 1.0 };

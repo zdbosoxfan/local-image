@@ -17,7 +17,7 @@ impl State<'_, '_> {
         cancelled(Some(self.cancel))?;
         let text_bytes = t.runs.iter().fold(0u64, |total, run| total.saturating_add(run.text.len() as u64));
         // Reserve a conservative allowance for glyph/layout work before the text engine allocates.
-        self.bytes = self.bytes.saturating_add(text_bytes.saturating_mul(256));
+        self.bytes = self.bytes.saturating_add(text_bytes.saturating_mul(256)).saturating_add(metadata_bytes(&t.runs).saturating_mul(8));
         if self.bytes > self.options.limits.decompressed_bytes {
             return Err(Error::Limit("text layout bytes"));
         }
@@ -281,6 +281,11 @@ impl State<'_, '_> {
                 self.warn("table-insets", name, "Cell insets leave no text area; cell text omitted.");
                 continue;
             }
+            let clone_bytes = metadata_bytes(&cell.runs).saturating_add(cell.runs.iter().map(|r| r.text.len() as u64).sum::<u64>()).saturating_mul(2);
+            self.bytes = self.bytes.saturating_add(clone_bytes);
+            if self.bytes > self.options.limits.decompressed_bytes {
+                return Err(Error::Limit("table text bytes"));
+            }
             let source = model::Text {
                 runs: cell.runs.clone(),
                 align: cell.runs.first().map_or(model::Align::Left, |r| r.paragraph.align),
@@ -330,4 +335,20 @@ impl State<'_, '_> {
         }
         Ok(Layer::group(name, parts))
     }
+}
+
+fn metadata_bytes(runs: &[model::TextRun]) -> u64 {
+    runs.iter().fold(0u64, |total, run| {
+        let stops = |paint: &crate::paint::Paint| match paint {
+            crate::paint::Paint::Gradient(g) => g.stops.len() as u64 * std::mem::size_of::<crate::paint::Stop>() as u64,
+            _ => 0,
+        };
+        let outline = run.stroke.as_ref().map_or(0, |stroke| stops(&stroke.paint) + stroke.dash.as_ref().map_or(0, |(d, _)| d.len() as u64 * 8));
+        total
+            .saturating_add(std::mem::size_of::<model::TextRun>() as u64 * 2)
+            .saturating_add(run.family.len() as u64 + run.postscript.len() as u64)
+            .saturating_add(run.features.iter().map(|s| (s.len() + std::mem::size_of::<String>()) as u64).sum::<u64>())
+            .saturating_add(stops(&run.fill))
+            .saturating_add(outline)
+    })
 }

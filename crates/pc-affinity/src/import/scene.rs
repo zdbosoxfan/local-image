@@ -178,7 +178,7 @@ impl<'a, 'b> State<'a, 'b> {
                 }
                 let key = image.profile.as_ref().map_or(0, |p| std::sync::Arc::as_ptr(p) as usize);
                 if !self.cmyk.contains_key(&key) {
-                    self.bytes = self.bytes.saturating_add(8 << 20);
+                    self.bytes = self.bytes.saturating_add(8 << 20).saturating_add(image.profile.as_ref().map_or(0, |p| (p.len() as u64).saturating_mul(8)));
                     if self.bytes > self.options.limits.decompressed_bytes {
                         return Err(Error::Limit("CMYK transform bytes"));
                     }

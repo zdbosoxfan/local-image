@@ -296,6 +296,25 @@ fn affinity_native_effect_pixels_survive_visibility_refresh_and_gpu_render() {
     assert_eq!(at(60, 28), [0., 0., 0., 1.]);
     assert_eq!(at(108, 16), [0., 0., 0., 1.]);
     assert!(at(8, 60)[2] > 0.5, "outline must surround the existing shape stroke");
+    let exported = photocraft_io::export(&doc, "png", &Default::default()).unwrap();
+    let png = image::load_from_memory(&exported.bytes).unwrap().into_rgba8();
+    assert_eq!(png.dimensions(), (128, 128));
+    let export_difference = first
+        .px
+        .iter()
+        .zip(png.pixels())
+        .flat_map(|(a, b)| {
+            (0..4).map(move |i| {
+                let decoded = f32::from(b[i]) / 255.;
+                if i == 3 { (a[i] - decoded).abs() } else { (a[i] * a[3] - decoded * f32::from(b[3]) / 255.).abs() }
+            })
+        })
+        .fold(0.0_f32, f32::max);
+    assert!(export_difference <= 1. / 255. + 1e-5, "native effect PNG export max difference {export_difference}");
+    let saved = photocraft_io::export(&doc, "pcraft", &Default::default()).unwrap();
+    let restored = photocraft_format::load_from_bytes(&saved.bytes).unwrap();
+    assert_eq!(restored.walk().iter().map(|(_, _, l)| &l.effects).collect::<Vec<_>>(), doc.walk().iter().map(|(_, _, l)| &l.effects).collect::<Vec<_>>());
+    assert_eq!(photocraft_compose::flatten(&restored), first);
     let id = doc.walk().into_iter().find(|(_, _, l)| l.name == "Parent red").unwrap().2.id;
     doc.layer_mut(id).unwrap().visible = false;
     assert_eq!(photocraft_compose::flatten(&doc).px[20 * 128 + 20][3], 0.);
