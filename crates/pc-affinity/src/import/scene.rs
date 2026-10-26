@@ -212,7 +212,7 @@ impl<'a, 'b> State<'a, 'b> {
                     if rgb.iter().any(|v| !v.is_finite()) {
                         return Err(Error::Malformed("nonfinite CMYK conversion"));
                     }
-                    output[..3].copy_from_slice(&rgb);
+                    output[..3].copy_from_slice(&rgb.map(|v| v.clamp(0., 1.)));
                     output[3] = f32::from(input[4]) / 255.;
                 }
                 out
