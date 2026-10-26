@@ -50,12 +50,8 @@ pub struct ToneMethod {
 
 impl ToneMethod {
     #[inline]
-    fn contain_gamut(&self, c: [f32; 3]) -> [f32; 3] {
-        // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
-        // desaturated to zero (darktable sigmoid)
-        // At the rendered edge, negative-channel containment is the continuous limiting clip.
-        let c = if self.scene_compression { scene_gamut_knee(c) } else { c };
-        desaturate_negative(c)
+    fn compress_scene_gamut(&self, c: [f32; 3]) -> [f32; 3] {
+        if self.scene_compression { scene_gamut_knee(c) } else { c }
     }
 }
 
@@ -388,7 +384,8 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     if tone.is_working_identity() {
         return c;
     }
-    let c = v.contain_gamut(c);
+    // At the rendered edge, negative-channel containment is the continuous limiting clip.
+    let c = desaturate_negative(v.compress_scene_gamut(c));
     if v.luminance {
         let y = li_color::luminance_2020(c);
         if y <= 0.0 {
@@ -689,7 +686,7 @@ mod tests {
         let tone = ToneMap::rendered(1.0, 0.0, 0.0, 0.0);
         let method = tone.method();
         for colour in [[0.8, 0.0, 0.0], [0.0, 0.8, 0.0], [0.0, 0.0, 0.8], [0.8, 0.8, 0.0], [0.0, 0.8, 0.8]] {
-            assert_eq!(method.contain_gamut(colour), colour, "scene containment moved {colour:?}");
+            assert_eq!(method.compress_scene_gamut(colour), colour, "scene containment moved {colour:?}");
             let mapped = tone_px_working(&tone, &method, colour);
             for i in 0..3 {
                 assert!((mapped[i] - colour[i]).abs() < 2e-3, "{colour:?} -> {mapped:?}");
