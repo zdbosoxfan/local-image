@@ -361,17 +361,17 @@ pub fn exif_ifd(meta: &Metadata) -> lightcraft_tiff::IfdBuilder {
 
 #[cfg(test)]
 mod write_tests {
+    use super::*;
+
     #[test]
     fn fast_shutter_speeds_round_trip_exactly() {
         for den in [640.0, 3200.0, 6400.0, 8000.0, 12800.0, 16000.0, 32000.0] {
-            let metadata = super::Metadata { exposure_time: Some(1.0 / den), ..Default::default() };
-            let bytes = super::write_exif(&metadata);
-            let back = super::read_exif(&bytes);
+            let metadata = Metadata { exposure_time: Some(1.0 / den), ..Default::default() };
+            let bytes = write_exif(&metadata);
+            let back = read_exif(&bytes);
             assert_eq!(back.exposure_time, metadata.exposure_time, "1/{den}");
         }
     }
-
-    use super::*;
 
     #[test]
     fn exif_round_trips() {
