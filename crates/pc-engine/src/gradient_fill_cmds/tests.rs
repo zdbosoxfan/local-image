@@ -470,3 +470,30 @@ fn perceptual_paint_bounds_source_lists_before_expansion_and_mutation() {
     let pixels = photocraft_compose::flatten(&s.active().unwrap().doc).px;
     assert!(pixels.iter().all(|pixel| *pixel == [0.0, 0.0, 0.0, 1.0]), "a bounded coincident ramp still paints");
 }
+
+#[test]
+fn destructive_paint_accepts_two_thousand_colours_for_both_methods() {
+    for method in ["classic", "perceptual"] {
+        let mut s = session(32, "transparent");
+        let history = s.active().unwrap().history.past_len();
+        s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":method,"dither":false,"colors":vec!["#000000"; 2000]})).unwrap();
+        assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+        assert!(photocraft_compose::flatten(&s.active().unwrap().doc).px.iter().all(|pixel| *pixel == [0.0, 0.0, 0.0, 1.0]));
+    }
+}
+
+#[test]
+fn classic_shape_retains_source_acceptance_while_perceptual_is_bounded() {
+    let count = photocraft_vector::gradient_method::MAX_EXPANDED_STOPS + 1;
+    for stops in [vec![json!([0.5, "#000000"]); count], vec![json!([1e100, "#000000"]), json!([1, "#ffffff"])]] {
+        let mut s = session(32, "transparent");
+        let history = s.active().unwrap().history.past_len();
+        let mut params = json!({"rect":[0,0,40,24],"fill":{"gradient":{"stops":stops,"method":"perceptual"}}});
+        assert!(s.execute("shape.create", params.clone()).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        params["fill"]["gradient"]["method"] = json!("classic");
+        let created = s.execute("shape.create", params).expect("Classic shape gradients retain their existing input acceptance");
+        assert_eq!(created["fill"]["gradient"]["method"], "classic");
+        assert_eq!(created["fill"]["gradient"]["stops"].as_array().unwrap().len(), stops.len());
+    }
+}

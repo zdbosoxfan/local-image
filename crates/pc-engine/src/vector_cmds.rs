@@ -278,10 +278,13 @@ fn parse_fill(v: &Value) -> std::result::Result<Option<Fill>, String> {
             "diamond" => GradientStyle::Diamond,
             _ => GradientStyle::Linear,
         };
-        if stops.len() > 4096 || stops.iter().any(|(t, c)| !t.is_finite() || c.c.iter().any(|v| !v.is_finite()) || !c.alpha.is_finite()) {
-            return Err("gradient stops must have finite positions and colours (max 4096)".into());
-        }
         let method = crate::gradient_fill_cmds::method_param("shape", g).map_err(|e| e.to_string())?.unwrap_or_default();
+        use photocraft_vector::gradient_method::MAX_EXPANDED_STOPS;
+        if method == photocraft_doc::GradientMethod::Perceptual
+            && (stops.len() > MAX_EXPANDED_STOPS || stops.iter().any(|(t, c)| !t.is_finite() || c.c.iter().any(|v| !v.is_finite()) || !c.alpha.is_finite()))
+        {
+            return Err(format!("gradient stops must have finite positions and colours (max {MAX_EXPANDED_STOPS})"));
+        }
         let mut fill = Fill::gradient(
             stops,
             f64p(g, "angle").unwrap_or(90.0) as f32,

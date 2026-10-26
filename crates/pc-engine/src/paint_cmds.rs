@@ -140,9 +140,6 @@ fn perceptual_stops(s: &Session, p: &Value) -> Result<Vec<(f32, [f32; 4])>> {
     };
     let (fg, bg) = (s.tools.foreground, s.tools.background);
     let (stops, opacity) = if let Some(colors) = p.get("colors").and_then(Value::as_array).filter(|a| !a.is_empty()) {
-        if colors.len() > 1024 {
-            return Err(bad("too many colour stops (max 1024)"));
-        }
         check_source(colors.len(), opacity_count)?;
         let opacity = gradients::transparency_param(p, CMD)?.unwrap_or_default();
         let stops =
