@@ -6,6 +6,13 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Compositing: Save for Web's Image Size sets the exported Width and Height in pixels, kept in
+  proportion while Constrain proportions is on, or a Percent, and offers the Resample list Export
+  As uses (Bicubic by default; the choice is remembered). A layered composite can go out at, say,
+  2048 px without resizing the document. Each document opens the dialog at its own size.
+
 ### Changed
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This

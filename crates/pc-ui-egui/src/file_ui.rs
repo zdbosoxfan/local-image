@@ -190,6 +190,8 @@ fn b(f: &Map<String, Value>, k: &str, d: bool) -> bool {
 
 // Save for Web
 
+mod web_size;
+
 const WEB_FORMATS: [(&str, &str); 5] = [("gif", "GIF"), ("png8", "PNG-8"), ("png24", "PNG-24"), ("jpeg", "JPEG"), ("wbmp", "WBMP")];
 
 pub fn open_web(app: &mut PhotocraftApp) -> u64 {
@@ -201,7 +203,8 @@ pub fn open_web(app: &mut PhotocraftApp) -> u64 {
     let last = app.session.file_menu.last_web.clone().unwrap_or_else(|| json!({"format": "jpeg", "quality": 60}));
     if let Value::Object(m) = last {
         for (k, v) in m {
-            if !matches!(k.as_str(), "path" | "dir") {
+            // Each document starts at its own size; a remembered size would stretch another one.
+            if !matches!(k.as_str(), "path" | "dir" | "width" | "height" | "percent") {
                 f.insert(k, v);
             }
         }
@@ -222,6 +225,7 @@ pub fn open_web(app: &mut PhotocraftApp) -> u64 {
         ("convertToSrgb", json!(true)),
         ("metadata", json!("copyright")),
         ("percent", json!(100.0)),
+        ("resample", json!("bicubic")),
         ("webSnap", json!(0)),
     ] {
         f.entry(k.to_string()).or_insert(v);
@@ -258,31 +262,41 @@ fn web_pane(app: &PhotocraftApp, ui: &mut egui::Ui, size: egui::Vec2, p: Option<
     let Some(st) = app.session.active() else { return };
     let doc = st.doc.clone();
     let rev = st.revision;
-    // The proxy: the export size, at most 640 px on the long side.
+    // The proxy: the export size, at most 640 px on the long side. One entry per document and
+    // pane kind, replaced when the size or the document changes, so typing sizes keeps no stale
+    // proxies or textures alive.
     let base = p.cloned().unwrap_or_else(|| json!({}));
-    let size_sig = format!("{}|{}|{}", base["percent"], base["width"], base["height"]);
-    let wkey = egui::Id::new(("web-proxy", doc.id.0, rev, size_sig.clone()));
-    let proxy: Option<WebProxy> = ui.data(|d| d.get_temp(wkey));
+    let size_sig = format!("{}|{}|{}|{}", base["percent"], base["width"], base["height"], base["resample"]);
+    let wkey = egui::Id::new(("web-proxy", doc.id.0, p.is_some()));
+    let proxy_sig = format!("{rev}|{size_sig}");
+    let cached_proxy: Option<(String, WebProxy)> = ui.data(|d| d.get_temp(wkey));
+    let proxy = cached_proxy.filter(|(sig, _)| sig == &proxy_sig).map(|(_, proxy)| proxy);
     let (px, w, h, ratio) = match proxy {
         Some(v) => v,
         None => {
-            let pct = base["percent"].as_f64().unwrap_or(100.0).max(1.0) / 100.0;
-            let (fw, fh) = (f64::from(doc.size.width) * pct, f64::from(doc.size.height) * pct);
+            let (fw, fh) = match web_size::web_dimensions(&doc, &base) {
+                Ok(size) => size,
+                Err(error) => {
+                    ui.label(egui::RichText::new(error).color(t.warning));
+                    return;
+                }
+            };
             let k = (640.0 / fw.max(fh)).min(1.0);
             let st = WebSettings::default();
+            let resample = web_size::proxy_resample(&base, k);
             let Ok((wd, _, _)) =
-                web_cmds::web_document(&doc, &json!({"width": (fw * k).round().max(1.0), "height": (fh * k).round().max(1.0), "resample": "bilinear"}), &st)
+                web_cmds::web_document(&doc, &json!({"width": (fw * k).round().max(1.0), "height": (fh * k).round().max(1.0), "resample": resample}), &st)
             else {
                 return;
             };
             let buf = photocraft_compose::flatten(&wd);
             let v = (Arc::new(buf.px), wd.size.width, wd.size.height, (fw * fh) / (f64::from(wd.size.width) * f64::from(wd.size.height)).max(1.0));
-            ui.data_mut(|d| d.insert_temp(wkey, v.clone()));
+            ui.data_mut(|d| d.insert_temp(wkey, (proxy_sig, v.clone())));
             v
         }
     };
-    let sig = format!("{}{}", size_sig, p.map(|v| v.to_string()).unwrap_or_else(|| "original".into()));
-    let key = egui::Id::new(("web-pane", doc.id.0, rev, sig.clone()));
+    let sig = format!("{}|{rev}|{size_sig}|{}", doc.id.0, p.map(|v| v.to_string()).unwrap_or_else(|| "original".into()));
+    let key = ui.next_auto_id().with("web-pane");
     let cached: Option<WebCache> = ui.data(|d| d.get_temp(key));
     let (tex, info) = match cached.filter(|c| c.0 == sig) {
         Some((_, tex, info)) => (tex, info),
@@ -488,13 +502,7 @@ fn web_body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             });
             ui.add_space(8.0);
             ui.label(egui::RichText::new(tl!("Image Size")).font(crate::theme::semibold(12.0)).color(t.text));
-            number(ui, f, "percent", tl!("Percent"), 1.0..=1000.0, "%", 100.0);
-            let pct = n(f, "percent", 100.0) / 100.0;
-            ui.label(
-                egui::RichText::new(format!("W: {} px   H: {} px", (f64::from(doc.size.width) * pct).round(), (f64::from(doc.size.height) * pct).round()))
-                    .color(t.text_dim)
-                    .size(11.5),
-            );
+            web_size::web_size(ui, f, &doc);
             let nslices = photocraft_doc::slices::resolve(&doc).len();
             if !doc.slices.is_empty() {
                 ui.add_space(6.0);
@@ -799,6 +807,165 @@ mod tests {
         assert!(page.contains("&lt;script&gt;alert(1)&lt;/script&gt;&lt;b&gt;Label&lt;/b&gt;"), "{page}");
         assert!(!page.contains("<script>"));
         let _ = std::fs::remove_dir_all(&base);
+    }
+
+    /// A scripted export at an exact size must not carry that size into the next document's
+    /// dialog (PhotoCraft cd559b38).
+    #[test]
+    fn save_for_web_starts_at_the_current_document_size() {
+        let (mut app, _) = app();
+        let path = std::env::temp_dir().join(format!("pc-webui-size-{}.png", std::process::id())).to_string_lossy().into_owned();
+        app.run("file.export.saveForWebLegacy", json!({"path": path, "format": "png24", "width": 60, "height": 40, "percent": 50})).unwrap();
+        app.run("file.new", json!({"width": 240, "height": 160, "name": "next"})).unwrap();
+        let id = open_web(&mut app);
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "png24");
+        assert_eq!(f["percent"], 100.0);
+        assert!(!f.contains_key("width"));
+        assert!(!f.contains_key("height"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Save for Web's Image Size on `app`'s document, as a PNG-24 (no other number fields).
+    fn web_size_dialog(app: PhotocraftApp) -> (egui_kittest::Harness<'static, PhotocraftApp>, u64) {
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(1600.0, 1100.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                    crate::dialogs::show(app, ui.ctx());
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+        let id = open_web(h.state_mut());
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("format".into(), json!("png24"));
+        h.run_steps(5);
+        (h, id)
+    }
+
+    /// Types `text` into the number field named `label`, and leaves it with Tab.
+    fn type_into_field(h: &mut egui_kittest::Harness<'static, PhotocraftApp>, label: &str, text: &str) {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        for _ in 0..32 {
+            let focused =
+                h.query_all_by_role(egui::accesskit::Role::SpinButton).any(|node| node.accesskit_node().label().as_deref() == Some(label) && node.is_focused());
+            if focused {
+                break;
+            }
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+        }
+        assert!(
+            h.query_all_by_role(egui::accesskit::Role::SpinButton).any(|node| node.accesskit_node().label().as_deref() == Some(label) && node.is_focused()),
+            "Tab reaches {label}"
+        );
+        h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        h.event(egui::Event::Text(text.into()));
+        h.run_steps(1);
+        h.key_press(egui::Key::Tab);
+        h.run_steps(3);
+    }
+
+    fn web_size_fields(h: &egui_kittest::Harness<'static, PhotocraftApp>) -> Map<String, Value> {
+        h.state().ui.dialogs[0].fields.clone()
+    }
+
+    /// Save for Web's Image Size has Width and Height linked in proportion, as in Photoshop
+    /// (PhotoCraft 562601eb). A typed width sets the height, the file comes out at that size,
+    /// and the document itself is never resized.
+    #[test]
+    fn save_for_web_width_keeps_proportions_and_sizes_the_file() {
+        use egui_kittest::kittest::Queryable;
+        let (app, _) = app();
+        let (mut h, id) = web_size_dialog(app);
+        let revision = h.state().session.active().unwrap().revision;
+        type_into_field(&mut h, "Width", "60");
+        let f = web_size_fields(&h);
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64(), f.get("percent")), (Some(60.0), Some(40.0), None), "{f:?}");
+        // Unlinked, the height changes alone; linked again, it follows the width.
+        h.get_by_label("Constrain proportions").click();
+        h.run_steps(3);
+        type_into_field(&mut h, "Height", "50");
+        let f = web_size_fields(&h);
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64()), (Some(60.0), Some(50.0)), "{f:?}");
+        h.get_by_label("Constrain proportions").click();
+        h.run_steps(3);
+        let f = web_size_fields(&h);
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64(), f.get("__constrain")), (Some(60.0), Some(40.0), Some(&json!(true))), "{f:?}");
+        let path = std::env::temp_dir().join(format!("pc-webui-wh-{}.png", std::process::id())).to_string_lossy().into_owned();
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("path".into(), json!(path));
+        let r = crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        assert_eq!((r["width"].as_u64(), r["height"].as_u64()), (Some(60), Some(40)), "{r}");
+        let st = h.state().session.active().unwrap();
+        assert_eq!((st.revision, st.doc.size), (revision, photocraft_doc::Size::new(120, 80)));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A Percent edit sets both sides, and the Resample menu offers the shared list and sets the
+    /// method the file is resampled with.
+    #[test]
+    fn save_for_web_percent_sets_both_sides_and_the_menu_sets_the_method() {
+        use egui_kittest::kittest::{NodeT, Queryable};
+        let (mut app, _) = app();
+        // A red edge that falls inside a pixel at half size, so the methods differ there.
+        app.run("select.rect", json!({"x": 0, "y": 0, "width": 61, "height": 80})).unwrap();
+        app.run("edit.fill", json!({"color": "#b04020"})).unwrap();
+        app.run("select.deselect", json!({})).unwrap();
+        let (mut h, id) = web_size_dialog(app);
+        type_into_field(&mut h, "Percent", "50");
+        let f = web_size_fields(&h);
+        assert_eq!((f["width"].as_f64(), f["height"].as_f64(), f["percent"].as_f64()), (Some(60.0), Some(40.0), Some(50.0)), "{f:?}");
+        assert_eq!(f["resample"], "bicubic", "the default method");
+        h.query_all_by_role(egui::accesskit::Role::ComboBox)
+            .find(|n| n.accesskit_node().value().as_deref() == Some("Bicubic (smooth gradients)"))
+            .expect("the Resample menu")
+            .click();
+        h.run_steps(3);
+        for choice in li_raster::resample::ResampleChoice::ALL {
+            assert!(h.query_by_label(choice.label()).is_some(), "{} in the menu", choice.label());
+        }
+        h.get_by_label("Nearest Neighbor (hard edges)").click();
+        h.run_steps(3);
+        let f = web_size_fields(&h);
+        assert_eq!(f["resample"], "nearest");
+        let dir = std::env::temp_dir().join(format!("pc-webui-resample-{}", std::process::id()));
+        let file = |name: &str| dir.join(name).to_string_lossy().into_owned();
+        let pixels = |path: &str| image::open(path).unwrap().to_rgba8().into_raw();
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("path".into(), json!(file("dialog.png")));
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        let mut p = params(&f);
+        for method in ["nearest", "bicubic"] {
+            p["resample"] = json!(method);
+            p["path"] = json!(file(&format!("{method}.png")));
+            h.state_mut().run("file.export.saveForWebLegacy", p.clone()).unwrap();
+        }
+        let saved = pixels(&file("dialog.png"));
+        assert_eq!(saved, pixels(&file("nearest.png")), "the dialog's file uses the chosen method");
+        assert_ne!(saved, pixels(&file("bicubic.png")), "the methods differ on this edge");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Reopened on another document, Save for Web starts at that document's full size again but
+    /// keeps the resampling method, like the other encoding choices (PhotoCraft 562601eb).
+    #[test]
+    fn save_for_web_reopens_at_full_size_with_the_resample_method() {
+        let (app, _) = app();
+        let (mut h, id) = web_size_dialog(app);
+        type_into_field(&mut h, "Width", "60");
+        let path = std::env::temp_dir().join(format!("pc-webui-reopen-{}.png", std::process::id())).to_string_lossy().into_owned();
+        let d = h.state_mut().ui.dialog_mut(id).unwrap();
+        d.fields.insert("resample".into(), json!("nearest"));
+        d.fields.insert("path".into(), json!(path));
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        h.state_mut().run("file.new", json!({"width": 240, "height": 160, "name": "next"})).unwrap();
+        let id = open_web(h.state_mut());
+        h.run_steps(3);
+        let f = h.state().ui.dialogs.iter().find(|d| d.id == id).unwrap().fields.clone();
+        assert_eq!(f["resample"], "nearest");
+        assert!(!f.contains_key("width") && !f.contains_key("height"), "{f:?}");
+        let size = web_size::web_dimensions(&h.state().session.active().unwrap().doc, &params(&f)).unwrap();
+        assert_eq!(size, (240.0, 160.0));
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
