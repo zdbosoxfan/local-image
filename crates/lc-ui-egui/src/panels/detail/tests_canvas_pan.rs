@@ -120,9 +120,11 @@ fn navigator_and_covering_ui_own_their_presses() {
     drag(&mut h, PointerButton::Primary, nav.center(), nav.center() + vec2(-20.0, 0.0));
     assert_ne!(h.app.ui.pan, pan, "Navigator still navigates");
     assert_eq!(*h.app.session.develop_of(id).unwrap(), *before);
-    let pan = h.app.ui.pan;
-    drag(&mut h, PointerButton::Middle, nav.center(), nav.center() + vec2(-90.0, -50.0));
-    assert_eq!(h.app.ui.pan, pan, "middle drag from Navigator cannot reach the canvas");
+    let target = nav.center() + vec2(-90.0, -50.0);
+    let cursor = drag(&mut h, PointerButton::Middle, nav.center(), target);
+    let expected = (((target.x - nav.left()) / nav.width()).clamp(0.0, 1.0), ((target.y - nav.top()) / nav.height()).clamp(0.0, 1.0));
+    assert!((h.app.ui.pan.0 - expected.0).abs() < 1e-5 && (h.app.ui.pan.1 - expected.1).abs() < 1e-5, "Navigator owns the middle drag");
+    assert_ne!(cursor, egui::CursorIcon::Grabbing, "the canvas pan did not take the Navigator drag");
     let at = h.app.canvas_rect.unwrap().center();
     let r = h.request("ui.click", json!({"x":at.x - 30.0,"y":at.y - 30.0,"button":"right"}), T);
     assert_eq!(r["ok"], true, "{r}");

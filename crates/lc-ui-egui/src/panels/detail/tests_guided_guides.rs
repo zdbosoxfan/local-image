@@ -314,15 +314,12 @@ fn a_press_that_leaves_the_menu_in_one_frame_draws_nothing() {
     let img = h.app.image_rect.expect("the photo on screen");
     let menu = end - egui::vec2(29.0, 29.0);
     let bare = egui::pos2(img.center().x, img.top() + 0.95 * img.height());
-    let rel = |p: egui::Pos2| (((p.x - img.left()) / img.width()) as f64, ((p.y - img.top()) / img.height()) as f64);
-    let (mx, my) = rel(menu);
-    let (bx, by) = rel(bare);
-    let r = h.request(
-        "ui.pointer",
-        json!({"events": [{"kind": "down", "x": mx, "y": my}, {"kind": "drag", "x": bx, "y": by}, {"kind": "up", "x": bx, "y": by}]}),
-        T,
-    );
-    assert_eq!(r["ok"], true, "{r}");
+    h.events.extend([
+        egui::Event::PointerMoved(menu),
+        egui::Event::PointerButton { pos: menu, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+        egui::Event::PointerMoved(bare),
+        egui::Event::PointerButton { pos: bare, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+    ]);
     assert!(h.settle(SETTLE));
     assert_eq!(guides_len(&h), 2, "the press that left the menu drew no guide");
     assert_eq!(h.app.ui.selected_guide, None, "and selected nothing");
