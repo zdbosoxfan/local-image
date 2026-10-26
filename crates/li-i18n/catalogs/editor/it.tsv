@@ -3931,3 +3931,4 @@ ai	New	Nuovi
 	Put this command's shortcuts back as they were	Ripristina le scorciatoie di questo comando com'erano
 	Take the shortcut from the other command and select it	Togli la scorciatoia all'altro comando e selezionalo
 	GPU Memory (MB, 0 = Automatic)	Memoria GPU (MB, 0 = Automatico)
+	{path} was saved over	{path} è stato sovrascritto
