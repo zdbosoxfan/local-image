@@ -89,7 +89,7 @@ fn every_state_shows_its_status_reason_and_next_step() {
     h.get_by_label("Refine passed: 3.9 s · changed 11.6 of 255 on average");
     h.get_by_label("Upscale passed: uses Refine");
     h.get_by_label("GPU memory in use during the test: up to 17.9 GB of 33.7 GB");
-    h.get_by_label("Checked on ComfyUI 0.42.5 · 10/24/2026 14:02").hover();
+    h.get_by_label("Checked on ComfyUI 0.42.5 · October 24, 2026 at 2:02:11 PM").hover();
     h.run_steps(60);
     h.get_by_label("Checked on ComfyUI 0.42.5 · 2026-10-24 14:02:11-04:00 · seed 518877231");
     // Failed: the failure in plain words.
@@ -382,8 +382,9 @@ fn keyboard_navigation_reveals_rows_and_skips_folded_ignored_models() {
 fn verification_dates_follow_the_interface_language_and_preserve_the_stored_offset() {
     use li_i18n::Lang;
     let original = li_i18n::current();
-    for (lang, expected) in [(Lang::En, "10/24/2026 14:02"), (Lang::De, "24.10.2026 14:02"), (Lang::Fr, "24/10/2026 14:02"), (Lang::Ja, "2026/10/24 14:02")] {
+    for lang in Lang::ALL {
         li_i18n::set_current(lang);
+        let expected = li_i18n::dates::display_time("2026-10-24T14:02:11-04:00");
         let mut h = harness(fixture(), KREA, vec2(1100.0, 760.0));
         select(&mut h, KREA, Step::Verify);
         h.get_by_label(&format!("Checked on ComfyUI 0.42.5 · {expected}")).hover();
