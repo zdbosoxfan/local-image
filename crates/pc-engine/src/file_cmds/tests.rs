@@ -693,3 +693,152 @@ fn raw_cc0_nef_editor_routes() {
     assert_eq!(lightcraft_raw::probe(&bytes), Some(lightcraft_raw::RawFormat::Nef));
     raw_routes(&bytes, "CC0.nef");
 }
+
+/// Batch takes the result at the action's recorded Save, Save As or Save a Copy, as Photoshop's
+/// "Override Action 'Save As' Commands" does: a document closed after its save is written as the
+/// save found it. The usual "…, Save As, Close" ending failed on every file: the Save was dropped,
+/// and nothing was left open to save after the action.
+#[test]
+fn batch_saves_at_the_recorded_save_so_a_close_after_it_keeps_the_result() {
+    let dir = tmp("batch-save-close");
+    let red = png(&dir, "red.png", 8, 8, "#ff0000");
+    let saved = |out: &str| photocraft_io::import("red.png", &std::fs::read(join(out, "red.png")).unwrap()).unwrap().document;
+    let mut s = Session::new();
+    let out = join(&dir, "close");
+    let steps = json!([["image.adjustments.invert", {}], ["file.saveAs", {}], ["file.close", {}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(r["files"], json!([join(&out, "red.png")]));
+    assert_eq!(photocraft_compose::render(&saved(&out), Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 1.0, 1.0], "the inverted red");
+
+    // Save a Copy marks the result the same way, and its recorded path is never written.
+    let out = join(&dir, "copy");
+    let elsewhere = join(&dir, "elsewhere.png");
+    let steps = json!([["image.adjustments.invert", {}], ["file.saveACopy", {"path": elsewhere}], ["file.close", {}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    assert_eq!(photocraft_compose::render(&saved(&out), Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 1.0, 1.0]);
+    assert!(!std::path::Path::new(&elsewhere).exists());
+
+    // With no Save step the result is still saved after the action; with nothing left open then,
+    // the file is an error, not a silent skip.
+    let out = join(&dir, "closed");
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": [["file.close", {}]]})).unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("no active document"), "{r}");
+}
+
+/// The document a recorded save marked is the result, not the one left active after it closed.
+/// Here the action saves and closes a second document it made, then inverts the input; the output
+/// used to be the inverted input, written in place of the result without an error.
+#[test]
+fn batch_saves_the_document_active_at_the_save_not_the_one_left_after_it() {
+    let dir = tmp("batch-save-second");
+    let red = png(&dir, "red.png", 8, 8, "#ff0000");
+    let out = join(&dir, "out");
+    let steps = json!([
+        ["file.new", {"width": 4, "height": 4, "background": "#00ff00"}],
+        ["file.save", {}],
+        ["file.close", {}],
+        ["image.adjustments.invert", {}]
+    ]);
+    let r = Session::new().execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    let saved = photocraft_io::import("red.png", &std::fs::read(join(&out, "red.png")).unwrap()).unwrap().document;
+    assert_eq!((saved.size.width, saved.size.height), (4, 4));
+    assert_eq!(photocraft_compose::render(&saved, Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 0.0, 1.0]);
+}
+
+/// While the saved document is open, the steps after its save still reach the result (#3058: a
+/// recorded Save then Rotate writes the rotated image). A step failing after the save writes
+/// nothing, as when Batch saved only after the action.
+#[test]
+fn batch_applies_the_steps_after_a_save_while_its_document_is_open() {
+    let dir = tmp("batch-save-then-edit");
+    let red = png(&dir, "red.png", 8, 8, "#ff0000");
+    let mut s = Session::new();
+    let out = join(&dir, "edited");
+    let steps = json!([["file.saveAs", {}], ["image.adjustments.invert", {}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"], json!([]), "{r}");
+    let saved = photocraft_io::import("red.png", &std::fs::read(join(&out, "red.png")).unwrap()).unwrap().document;
+    assert_eq!(photocraft_compose::render(&saved, Rect::new(1, 1, 2, 2)).px[0], [0.0, 1.0, 1.0, 1.0]);
+
+    let out = join(&dir, "failed");
+    let steps = json!([["image.adjustments.invert", {}], ["file.saveAs", {}], ["layer.select", {"layer": "missing"}]]);
+    let r = s.execute("file.automate.batch", json!({"input": [red], "output": out, "format": "png", "steps": steps})).unwrap();
+    assert_eq!(r["errors"].as_array().unwrap().len(), 1, "{r}");
+    assert!(!std::path::Path::new(&join(&out, "red.png")).exists(), "{r}");
+}
+
+#[test]
+fn auxiliary_flattening_refuses_oversized_native_canvases() {
+    let dir = tmp("oversized-flatten");
+    let mut s = session(4, 4, 8);
+    s.edit("large sparse canvas", |doc, _| {
+        doc.size = photocraft_doc::Size::new(100_000, 100_000);
+        Ok(())
+    })
+    .unwrap();
+    let source = join(&dir, "large.pcraft");
+    save_doc(doc(&s), &source, None).unwrap();
+    let copy = join(&dir, "copy.pcraft");
+    let error = s.execute("file.saveACopy", json!({"path": copy, "layers": false})).unwrap_err().to_string();
+    assert!(error.contains("too large to flatten"), "{error}");
+    assert!(!std::path::Path::new(&copy).exists());
+    let mut target = session(4, 4, 8);
+    let error = target.execute("file.placeEmbedded", json!({"path": source})).unwrap_err().to_string();
+    assert!(error.contains("too large to flatten"), "{error}");
+    let error = target.execute("file.scripts.loadFilesIntoStack", json!({"paths": [source]})).unwrap_err().to_string();
+    assert!(error.contains("too large to flatten"), "{error}");
+    assert_eq!(target.documents().len(), 1);
+}
+
+#[test]
+fn restricted_engine_saves_embed_no_linked_image() {
+    let dir = tmp("gated-linked-save");
+    let image = png(&dir, "outside.png", 4, 4, "#1234ab");
+    let png_bytes = std::fs::read(&image).unwrap();
+    let mut s = session(4, 4, 8);
+    s.execute("file.placeLinked", json!({"path": image})).unwrap();
+    let save = |s: &mut Session| {
+        let path = join(&dir, "copy.psd");
+        s.execute("file.saveACopy", json!({"path": path})).unwrap();
+        std::fs::read(path).unwrap()
+    };
+    let contains = |bytes: &[u8]| bytes.windows(png_bytes.len()).any(|w| w == png_bytes);
+    assert!(contains(&save(&mut s)));
+    s.authorize = Some(|_, _| Ok(()));
+    assert!(!contains(&save(&mut s)));
+}
+
+#[test]
+fn batch_carries_the_authorization_gate_into_scratch_steps() {
+    let dir = tmp("gated-batch");
+    let input = png(&dir, "input.png", 4, 4, "#1234ab");
+    let mut s = Session::new();
+    s.authorize = Some(|id, _| if id == "image.adjustments.invert" { Err(EngineError::Other("denied test step".into())) } else { Ok(()) });
+    let r = s
+        .execute("file.automate.batch", json!({"input": [input], "output": join(&dir, "out"), "format": "png", "steps": [["image.adjustments.invert", {}]]}))
+        .unwrap();
+    assert_eq!(r["files"], json!([]));
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("denied test step"), "{r}");
+}
+
+#[test]
+fn batch_does_not_inherit_caller_actions_or_write_their_recorded_save_paths() {
+    let dir = tmp("caller-action-scope");
+    let input = png(&dir, "input.png", 4, 4, "#1234ab");
+    let elsewhere = join(&dir, "recorded.png");
+    let mut s = Session::new();
+    s.actions.list.push(crate::actions_cmds::Action { name: "save elsewhere".into(), steps: vec![("file.saveACopy".into(), json!({"path": elsewhere}))] });
+    let r = s
+        .execute(
+            "file.automate.batch",
+            json!({"input": [input], "output": join(&dir, "out"), "format": "png", "steps": [["actions.play", {"action": "save elsewhere"}]]}),
+        )
+        .unwrap();
+    assert_eq!(r["files"], json!([]), "{r}");
+    assert!(r["errors"][0]["error"].as_str().unwrap().contains("no action named"), "{r}");
+    assert!(!std::path::Path::new(&elsewhere).exists());
+}

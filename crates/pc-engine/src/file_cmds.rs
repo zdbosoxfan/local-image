@@ -210,7 +210,8 @@ impl From<Option<f64>> for SaveOpts {
 /// Encodes `doc` for `path`'s extension.
 pub(crate) fn encode(doc: &Document, path: &str, save: impl Into<SaveOpts>) -> Result<(Vec<u8>, Vec<String>)> {
     let save = save.into();
-    let mut opts = photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, ..Default::default() };
+    let mut opts =
+        photocraft_io::ExportOptions { tiff_layers: save.tiff_layers, read_linked_files: !crate::jobs::authorization_installed(), ..Default::default() };
     if let Some(q) = save.quality {
         let q = (q.clamp(0.0, 12.0) / 12.0 * 99.0 + 1.0).round() as u8;
         opts.encode.jpeg_quality = q;
@@ -260,6 +261,18 @@ pub(crate) fn buffer_surface(buf: &photocraft_compose::Buffer, fmt: PixelFormat)
 /// The flattened image of `doc` as a surface in `fmt`, placed at the origin.
 pub(crate) fn flattened(doc: &Document, fmt: PixelFormat) -> Result<Surface> {
     Ok(photocraft_compose::flatten_to_surface(&crate::vector_integration::project_document(doc)?, fmt, None))
+}
+
+/// Refuse file-declared canvases larger than the compositor can render before flattening.
+pub(crate) fn flattened_checked(doc: &Document, fmt: PixelFormat, cmd: &str) -> Result<Surface> {
+    let bounds = doc.bounds();
+    if u64::from(bounds.width()) * u64::from(bounds.height()) > photocraft_compose::MAX_RENDER_PIXELS {
+        return Err(EngineError::BadParams {
+            cmd: cmd.into(),
+            msg: format!("the document's {}×{} canvas is too large to flatten", bounds.width(), bounds.height()),
+        });
+    }
+    flattened(doc, fmt)
 }
 
 // Close / revert / save a copy / open as
@@ -332,7 +345,7 @@ fn save_a_copy(s: &mut Session, p: &Value) -> Result<Value> {
     if p.get("layers").and_then(Value::as_bool) == Some(false) {
         // "Layers" unchecked in Save a Copy: write the flattened image.
         let fmt = doc.pixel_format();
-        let px = flattened(&doc, fmt)?;
+        let px = flattened_checked(&doc, fmt, "file.saveACopy")?;
         doc.layers = vec![Layer::new("Background", LayerContent::Raster(px))];
     }
     let warnings = save_doc(&doc, &path, SaveOpts::from_params(p))?;
@@ -510,7 +523,7 @@ fn place_decoded_with(s: &mut Session, name: &str, bytes: Vec<u8>, linked: Optio
         _ => (cw / 2.0, ch / 2.0),
     };
     let (dx, dy) = ((center.0 - w * scale / 2.0).round(), (center.1 - h * scale / 2.0).round());
-    let mut px = flattened(&src, fmt)?;
+    let mut px = flattened_checked(&src, fmt, "file.place")?;
     if (scale - 1.0).abs() > 1e-9 {
         px = resize_surface(&px, scale, scale, Resample::Bicubic);
     }
@@ -644,7 +657,14 @@ pub(crate) fn batch_inputs(p: &Value, cmd: &str) -> Result<Vec<String>> {
 
 /// Opens each input in a scratch session, runs `f` on it and saves it to `output` as `format`
 /// (`"same"` keeps the input's extension). Errors per file are collected, not fatal.
-pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save: SaveOpts, suffix: &str, f: &dyn Fn(&mut Session) -> Result<()>) -> Value {
+pub(crate) fn process_files(
+    inputs: &[String],
+    output: &str,
+    format: &str,
+    save: SaveOpts,
+    suffix: &str,
+    f: &dyn Fn(&mut Session, &str) -> Result<bool>,
+) -> Value {
     let mut files = Vec::new();
     let mut errors = Vec::new();
     let mut written = OutputClaims::default();
@@ -658,9 +678,10 @@ pub(crate) fn process_files(inputs: &[String], output: &str, format: &str, save:
             let mut scratch = Session::new();
             let doc = import(&file_name(path), &bytes)?;
             scratch.add_document(doc, Some(path.clone()));
-            f(&mut scratch)?;
-            let d = scratch.active().ok_or(EngineError::NoDocument)?;
-            save_doc(&d.doc, &out, save)?;
+            if !f(&mut scratch, &out)? {
+                let d = scratch.active().ok_or(EngineError::NoDocument)?;
+                save_doc(&d.doc, &out, save)?;
+            }
             Ok(())
         })();
         match r {
@@ -695,25 +716,74 @@ impl OutputClaims {
     }
 }
 
-fn batch(_s: &mut Session, p: &Value) -> Result<Value> {
+/// Recorded saves mark the result; their paths never override the batch destination.
+pub(crate) fn batch_save_point(id: &str) -> bool {
+    matches!(id, "file.save" | "file.saveAs" | "file.saveACopy")
+}
+
+fn batch(s: &mut Session, p: &Value) -> Result<Value> {
+    crate::automate_cmds::run_bounded(s, "file.automate.batch", |s| batch_inner(s, p))
+}
+
+fn batch_inner(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.automate.batch";
     let mut steps =
         parse_steps(p.get("steps").or_else(|| p.get("action")).ok_or_else(|| EngineError::BadParams { cmd: cmd.into(), msg: "missing \"steps\"".into() })?)?;
-    // Each result goes to the destination folder, which overrides the action's recorded save and
-    // Quick Export steps (Photoshop's "Override Action 'Save As' Commands").
-    steps.retain(|(id, _)| !matches!(id.as_str(), "file.save" | "file.saveAs" | "file.saveACopy" | "file.export.quickExport"));
-    if let Some((id, _)) = steps.iter().find(|(id, _)| crate::commands::find(id).is_none()) {
+    steps.retain(|(id, _)| id != "file.export.quickExport");
+    if let Some((id, _)) = steps.iter().find(|(id, _)| !batch_save_point(id) && crate::commands::find(id).is_none()) {
         return Err(EngineError::BadParams { cmd: cmd.into(), msg: format!("unknown command `{id}` in the action") });
     }
     let inputs = batch_inputs(p, cmd)?;
     let output = str_param(p, "output", cmd)?.to_string();
     let format = p.get("format").and_then(Value::as_str).unwrap_or("same").to_string();
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p), "", &|scratch| {
-        for (id, params) in &steps {
-            scratch.execute(id, params.clone())?;
-        }
-        Ok(())
+    let save = SaveOpts::from_params(p);
+    // Reserve the complete input and direct-step cost before reading any files. Nested work
+    // spends the same counter, but cannot make later imports escape their original charge.
+    let cost = (inputs.len() as u64).saturating_mul((steps.len() as u64).saturating_add(1));
+    let charged = s.actions.script_steps.saturating_add(cost);
+    if charged > crate::automate_cmds::MAX_SCRIPT_STEPS {
+        return Err(EngineError::BadParams {
+            cmd: cmd.into(),
+            msg: format!(
+                "this batch would exceed the {} step limit for scripts and batches; use fewer input files or action steps",
+                crate::automate_cmds::MAX_SCRIPT_STEPS
+            ),
+        });
+    }
+    s.actions.script_steps = charged;
+    let carried = std::cell::Cell::new(s.actions.script_steps);
+    let actions = crate::actions_cmds::ActionState { playing: s.actions.playing, script_depth: s.actions.script_depth, ..Default::default() };
+    let authorize = s.authorize;
+    let r = process_files(&inputs, &output, &format, save, "", &|scratch, out| {
+        scratch.actions = actions.clone();
+        scratch.actions.script_steps = carried.get();
+        scratch.authorize = authorize;
+        let result = (|| {
+            let mut saved: Option<Arc<Document>> = None;
+            for (id, params) in &steps {
+                if batch_save_point(id) {
+                    saved = Some(scratch.active().ok_or(EngineError::NoDocument)?.doc.clone());
+                    continue;
+                }
+                let result = scratch.execute(id, params.clone())?;
+                if let Some(error) = crate::automate_cmds::nested_failure(id, &result) {
+                    return Err(EngineError::Other(error));
+                }
+            }
+            // Delay publication until all steps succeed. While the marked document remains
+            // active, subsequent edits still reach the result.
+            match saved {
+                Some(doc) if scratch.active().is_none_or(|d| d.doc.id != doc.id) => {
+                    save_doc(&doc, out, save)?;
+                    Ok(true)
+                }
+                _ => Ok(false),
+            }
+        })();
+        carried.set(scratch.actions.script_steps);
+        result
     });
+    s.actions.script_steps = carried.get();
     Ok(r)
 }
 
@@ -727,14 +797,14 @@ fn image_processor(_s: &mut Session, p: &Value) -> Result<Value> {
         (w, h) => Some(json!({"width": w.unwrap_or(1e9), "height": h.unwrap_or(1e9), "dontEnlarge": true})),
     };
     let to_srgb = p.get("convertToSrgb").and_then(Value::as_bool).unwrap_or(false);
-    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), "", &|scratch| {
+    let r = process_files(&inputs, &output, &format, SaveOpts::from_params(p).or_quality(8.0), "", &|scratch, _| {
         if to_srgb && scratch.active().is_some_and(|d| d.doc.mode != ColorMode::Rgb) {
             scratch.execute("image.mode.rgb", json!({}))?;
         }
         if let Some(fp) = &fit {
             fit_image(scratch, fp)?;
         }
-        Ok(())
+        Ok(false)
     });
     Ok(r)
 }
@@ -763,7 +833,7 @@ fn load_files_into_stack(s: &mut Session, p: &Value) -> Result<Value> {
     let fmt = stack.pixel_format();
     // First file at the bottom, like Photoshop's script.
     for (name, d) in &docs {
-        stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened(d, fmt)?)));
+        stack.layers.push(Layer::new(name.clone(), LayerContent::Raster(flattened_checked(d, fmt, cmd)?)));
     }
     let n = stack.layers.len();
     if p.get("createSmartObject").and_then(Value::as_bool).unwrap_or(false) {
@@ -1159,7 +1229,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Batch…",
             &["File", "Automate"],
             None,
-            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false} → {files, errors} (an input whose output name was already written in the run goes to errors)"##,
+            r##"{"steps":[[commandId,params]|{"command":id,"params":{}}…] (a recorded action; Save, Save As and Save a Copy mark the output document; recorded save paths are ignored),"input":folder|[paths],"output":folder,"format":"same|png|jpg|psd|tiff|…"="same","quality":0..12?,"tiffLayers":bool=false} → {files, errors} (up to 16 nested scripts/batches and 100000 input/step units per run, including nested actions; each input and action step counts once; an input whose output name was already written in the run goes to errors)"##,
             native,
             batch
         ),

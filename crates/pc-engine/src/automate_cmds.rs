@@ -96,18 +96,78 @@ fn parse_steps(v: &Value, cmd: &str) -> Result<Vec<(String, Value)>> {
         .collect()
 }
 
-fn check_known(steps: &[(String, Value)], cmd: &str) -> Result<()> {
-    match steps.iter().find(|(id, _)| crate::commands::find(id).is_none()) {
+fn check_known<'a>(steps: impl IntoIterator<Item = &'a (String, Value)>, cmd: &str) -> Result<()> {
+    match steps.into_iter().find(|(id, _)| crate::commands::find(id).is_none()) {
         Some((id, _)) => Err(bad(cmd, format!("unknown command `{id}` in the script"))),
         None => Ok(()),
     }
 }
 
+const MAX_SCRIPT_DEPTH: u8 = 16;
+pub(crate) const MAX_SCRIPT_STEPS: u64 = 100_000;
+
+/// A fresh scratch session must not restart a script or batch's execution budget.
+pub(crate) fn run_bounded(s: &mut Session, cmd: &str, run: impl FnOnce(&mut Session) -> Result<Value>) -> Result<Value> {
+    if s.actions.script_depth >= MAX_SCRIPT_DEPTH {
+        return Err(bad(cmd, format!("scripts or batches are nested more than {MAX_SCRIPT_DEPTH} deep")));
+    }
+    if s.actions.script_depth == 0 {
+        s.actions.script_steps = 0;
+    }
+    s.actions.script_depth += 1;
+    let result = run(s);
+    s.actions.script_depth -= 1;
+    result
+}
+
+pub(crate) fn consume_script_step(s: &mut Session) -> std::result::Result<(), String> {
+    if s.actions.script_depth > 0 {
+        if s.actions.script_steps >= MAX_SCRIPT_STEPS {
+            return Err(format!("the script or batch ran more than {MAX_SCRIPT_STEPS} steps in all"));
+        }
+        s.actions.script_steps += 1;
+    }
+    Ok(())
+}
+
+/// Nested commands can report failure within a successful command response.
+pub(crate) fn nested_failure(id: &str, result: &Value) -> Option<String> {
+    let failed = match id {
+        "file.scripts.browse" => result.get("ok") == Some(&Value::Bool(false)),
+        "actions.play" => result.get("failed").is_some(),
+        "file.automate.batch" | "file.automate.runDroplet" => result.get("errors").and_then(Value::as_array).is_some_and(|a| !a.is_empty()),
+        _ => false,
+    };
+    failed.then(|| {
+        let detail = result.get("failed").and_then(|f| f.get("error")).and_then(Value::as_str).or_else(|| {
+            result
+                .get("results")
+                .or_else(|| result.get("errors"))
+                .and_then(Value::as_array)
+                .and_then(|entries| entries.iter().find_map(|entry| entry.get("error").and_then(Value::as_str)))
+        });
+        match detail {
+            Some(detail) => format!("{id} failed: {detail}"),
+            None => format!("{id} reported a failed step"),
+        }
+    })
+}
+
 fn run_steps(s: &mut Session, steps: &[(String, Value)]) -> Vec<Value> {
     let mut results = Vec::new();
     for (id, params) in steps {
+        if let Err(error) = consume_script_step(s) {
+            results.push(json!({"command": id, "error": error}));
+            break;
+        }
         match s.execute(id, params.clone()) {
-            Ok(r) => results.push(json!({"command": id, "result": r})),
+            Ok(r) => {
+                if let Some(error) = nested_failure(id, &r) {
+                    results.push(json!({"command": id, "error": error}));
+                    break;
+                }
+                results.push(json!({"command": id, "result": r}));
+            }
             Err(e) => {
                 results.push(json!({"command": id, "error": e.to_string()}));
                 break;
@@ -135,9 +195,11 @@ fn browse(s: &mut Session, p: &Value) -> Result<Value> {
         _ => return Err(bad(cmd, "give \"path\" (a script file), \"script\" (its text) or \"steps\"")),
     };
     check_known(&steps, cmd)?;
-    let results = run_steps(s, &steps);
-    let ok = results.iter().all(|r| r.get("error").is_none());
-    Ok(json!({"steps": steps.len(), "ok": ok, "results": results}))
+    run_bounded(s, cmd, |s| {
+        let results = run_steps(s, &steps);
+        let ok = results.iter().all(|r| r.get("error").is_none());
+        Ok(json!({"steps": steps.len(), "ok": ok, "results": results}))
+    })
 }
 
 // Script Events Manager
@@ -296,7 +358,7 @@ fn create_droplet(s: &mut Session, p: &Value) -> Result<Value> {
     let path = p.get("path").and_then(Value::as_str).filter(|v| !v.is_empty()).ok_or_else(|| bad(cmd, "missing \"path\" (where to save the droplet)"))?;
     let steps_v = p.get("steps").or_else(|| p.get("action")).ok_or_else(|| bad(cmd, "missing \"steps\" (the action to run)"))?;
     let steps = parse_steps(steps_v, cmd)?;
-    check_known(&steps, cmd)?;
+    check_known(steps.iter().filter(|(id, _)| !crate::file_cmds::batch_save_point(id)), cmd)?;
     let path = if path.ends_with(".pcdroplet") || path.ends_with(".json") { path.to_string() } else { format!("{path}.pcdroplet") };
     let name = p.get("name").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&path));
     let steps_json: Vec<Value> = steps.iter().map(|(id, pr)| json!([id, pr])).collect();
