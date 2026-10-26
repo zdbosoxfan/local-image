@@ -1240,7 +1240,7 @@ fn levels_dont_clip_in_32_bit() {
         adjust::apply_depth(&adj, &mut b, adjust::Transfer::Srgb, Some(depth));
         (b.px[0][0] * 255.0).round()
     };
-    for (v, want) in [(0.0, 0.0), (0.0497, 3.0), (0.0976, 32.0), (0.4508, 140.0), (0.9473, 255.0), (1.0, 255.0)] {
+    for (v, want) in [(0.0, -20.0), (0.0497, 3.0), (0.0976, 32.0), (0.4508, 140.0), (0.9473, 255.0), (1.0, 266.0)] {
         assert_eq!(level(SampleType::F32, v), want, "{v}");
     }
     assert_eq!(level(SampleType::U8, 0.0), 10.0);
