@@ -128,7 +128,14 @@ fn perceptual_stops(s: &Session, p: &Value) -> Result<Vec<(f32, [f32; 4])>> {
             colors.iter().enumerate().map(|(i, c)| (if colors.len() > 1 { i as f32 / (colors.len() - 1) as f32 } else { 0.0 }, color(Some(c), fg))).collect();
         (stops, gradients::transparency_param(p, CMD)?.unwrap_or_default())
     } else {
-        let preset = crate::gradient_fill_cmds::preset_param(s, p, CMD)?;
+        let preset = if let Some(name) = crate::presets::str_param(p, "gradient") {
+            let (group, item) = crate::presets::find(&s.presets.gradients, name, None).ok_or_else(|| bad(&format!("no gradient preset \"{name}\"")))?;
+            s.presets.gradients[group].items[item].clone().with_transparency(p, CMD)?
+        } else if p.get("stops").is_some() {
+            gradients::GradientPreset::from_params("Custom", p, CMD)?
+        } else {
+            s.presets.gradient.clone().with_transparency(p, CMD)?
+        };
         let (colors, opacity) = preset.fill_stops(fg, bg);
         (
             colors

@@ -121,7 +121,7 @@ fn hex(c: &Color) -> String {
 
 /// The gradient a `gradient.fill.create` uses: a preset (`"gradient"`), explicit `"stops"`,
 /// else the current gradient (Gradients panel); explicit `"transparency"` stops replace its own.
-pub(crate) fn preset_param(s: &Session, p: &Value, cmd: &str) -> Result<GradientPreset> {
+fn preset_param(s: &Session, p: &Value, cmd: &str) -> Result<GradientPreset> {
     if let Some(name) = p.get("gradient").and_then(Value::as_str) {
         let groups = &s.presets.gradients;
         return groups

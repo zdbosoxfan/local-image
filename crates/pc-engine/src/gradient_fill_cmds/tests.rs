@@ -392,3 +392,35 @@ fn shape_fill_and_stroke_methods_survive_describe_edit_and_copied_paint() {
     assert_eq!(s.execute("shape.info", json!({})).unwrap(), before);
     assert_eq!(s.active().unwrap().history.past_len(), history);
 }
+
+#[test]
+fn perceptual_paint_preserves_preset_name_resolution_and_current_fallback() {
+    for method in ["classic", "perceptual"] {
+        let render = |name: Option<&str>| {
+            let mut s = session(32, "transparent");
+            let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+            let history = s.active().unwrap().history.past_len();
+            let mut params = json!({"from":[0,0],"to":[48,0],"method":method,"dither":false});
+            if let Some(name) = name {
+                params["gradient"] = json!(name);
+            }
+            s.execute("paint.gradient", params).unwrap();
+            assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+            let rendered = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+            s.execute("edit.undo", json!({})).unwrap();
+            assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+            rendered
+        };
+        let named = render(Some("Foreground to Transparent"));
+        assert!(named[24][0].abs() < 1e-6 && named[24][3] > 0.0);
+        assert_eq!(render(Some(" Foreground to Transparent ")), named);
+        assert_eq!(render(Some("")), render(None));
+        assert_eq!(render(Some(" \t ")), render(None));
+        let mut s = session(32, "transparent");
+        let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+        let history = s.active().unwrap().history.past_len();
+        assert!(s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":method,"gradient":"foreground to transparent"})).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+    }
+}
