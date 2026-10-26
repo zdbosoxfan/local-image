@@ -219,3 +219,26 @@ fn selected_interior_tiles_share_storage_on_cut_and_place() {
     let moved_coordinate = photocraft_geom::TileCoord { tx: 2, ty: 1 };
     assert!(Arc::ptr_eq(original.tile(coordinate).unwrap(), shown.layer(id).unwrap().surface().unwrap().tile(moved_coordinate).unwrap()));
 }
+
+#[test]
+fn tile_clear_matches_dense_clear_with_soft_and_sparse_selections() {
+    use photocraft_color::{ColorMode, SampleType};
+    for mode in [ColorMode::Rgb, ColorMode::Cmyk, ColorMode::Lab, ColorMode::Grayscale] {
+        for sample in [SampleType::U8, SampleType::U16, SampleType::F32] {
+            let format = PixelFormat::new(mode, sample, true);
+            let pixel = photocraft_raster::from_rgba(&format, [0.3, 0.7, 0.2, 0.8]);
+            for default in [vec![0.0; format.channels()], pixel.clone()] {
+                let mut actual = Surface::with_default(format, &default);
+                let bounds = Rect::new(-10, -5, 270, 260);
+                actual.fill_rect(bounds, &pixel);
+                let mut selection = Surface::with_default(PixelFormat::GRAY8, &[0.5]);
+                selection.fill_rect(Rect::new(0, 0, 256, 256), &[1.0]);
+                selection.fill_rect(Rect::new(-5, -5, 0, 0), &[0.0]);
+                let mut expected = actual.clone();
+                crate::pixels::clear_surface(&mut expected, bounds, Some(&selection)).unwrap();
+                clear_selected_pixels(&mut actual, bounds, &selection).unwrap();
+                assert_eq!(actual.read_region(bounds), expected.read_region(bounds), "{mode:?}/{sample:?}");
+            }
+        }
+    }
+}

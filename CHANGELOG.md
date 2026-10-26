@@ -8,6 +8,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Compositing: moving selected pixels uses parallel sparse tiles, shares fully selected tiles,
+  and avoids an initial zero-offset preview composite on large documents.
+
 - Compositing: PSD import and export preserve embedded Displace maps with editable scale, fit
   and edge settings.
 
