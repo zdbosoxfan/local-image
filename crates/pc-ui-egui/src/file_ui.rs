@@ -916,15 +916,33 @@ mod tests {
         let f = web_size_fields(&h);
         assert_eq!((f["width"].as_f64(), f["height"].as_f64(), f["percent"].as_f64()), (Some(60.0), Some(40.0), Some(50.0)), "{f:?}");
         assert_eq!(f["resample"], "bicubic", "the default method");
-        h.query_all_by_role(egui::accesskit::Role::ComboBox)
-            .find(|n| n.accesskit_node().value().as_deref() == Some("Bicubic (smooth gradients)"))
-            .expect("the Resample menu")
-            .click();
+        for _ in 0..32 {
+            if h.query_all_by_role(egui::accesskit::Role::ComboBox)
+                .any(|node| node.accesskit_node().value().as_deref() == Some("Bicubic (smooth gradients)") && node.is_focused())
+            {
+                break;
+            }
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+        }
+        assert!(
+            h.query_all_by_role(egui::accesskit::Role::ComboBox)
+                .any(|node| node.accesskit_node().value().as_deref() == Some("Bicubic (smooth gradients)") && node.is_focused())
+        );
+        h.key_press(egui::Key::Space);
         h.run_steps(3);
         for choice in li_raster::resample::ResampleChoice::ALL {
             assert!(h.query_by_label(choice.label()).is_some(), "{} in the menu", choice.label());
         }
-        h.get_by_label("Nearest Neighbor (hard edges)").click();
+        for _ in 0..16 {
+            if h.get_by_label("Nearest Neighbor (hard edges)").is_focused() {
+                break;
+            }
+            h.key_press(egui::Key::Tab);
+            h.run_steps(2);
+        }
+        assert!(h.get_by_label("Nearest Neighbor (hard edges)").is_focused());
+        h.key_press(egui::Key::Enter);
         h.run_steps(3);
         let f = web_size_fields(&h);
         assert_eq!(f["resample"], "nearest");
