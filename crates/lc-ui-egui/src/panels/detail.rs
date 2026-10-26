@@ -17,6 +17,7 @@ use crate::theme::Tokens;
 use crate::widgets::register;
 
 pub(crate) mod guided;
+mod pan;
 #[cfg(test)]
 mod tests_guided_guides;
 #[cfg(test)]
@@ -469,6 +470,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     register(ui.ctx(), "canvas:image", drawn);
     let map = CanvasMap::new(&frame, drawn);
     let resp = ui.interact(canvas, egui::Id::new("loupe"), Sense::click_and_drag());
+    let panning = pan::middle_pan(app, ui, &resp, canvas, img_rect);
     info_overlay(app, &p, canvas, &photo);
     if !fullscreen {
         filter_pill(app, ui, canvas);
@@ -499,6 +501,7 @@ pub fn show(app: &mut LightcraftApp, ui: &mut egui::Ui) {
         }
     }
     match right {
+        _ if panning => {}
         RightPanel::Crop => crop_overlay(app, ui, &resp, &map, &frame, &d, id),
         RightPanel::Edit | RightPanel::Masking
             if matches!(app.ui.tool.as_str(), "brush" | "linear" | "radial" | "object")
@@ -1069,10 +1072,10 @@ fn general_interaction(
     }
     if zoomed {
         // only over the photo: a panel drawn earlier (sliders) must keep its own cursor
-        if resp.dragged() || resp.hovered() {
-            ui.ctx().set_cursor_icon(if resp.dragged() { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
+        if resp.dragged_by(egui::PointerButton::Primary) || resp.hovered() {
+            ui.ctx().set_cursor_icon(if resp.dragged_by(egui::PointerButton::Primary) { egui::CursorIcon::Grabbing } else { egui::CursorIcon::Grab });
         }
-        if resp.dragged() {
+        if resp.dragged_by(egui::PointerButton::Primary) {
             let dlt = resp.drag_delta();
             app.ui.pan.0 = (app.ui.pan.0 - dlt.x / img.width()).clamp(0.0, 1.0);
             app.ui.pan.1 = (app.ui.pan.1 - dlt.y / img.height()).clamp(0.0, 1.0);

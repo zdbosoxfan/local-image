@@ -137,3 +137,26 @@ fn navigator_and_covering_ui_own_their_presses() {
     assert_eq!(h.app.ui.pan, pan, "host modal blocks canvas input");
     assert_eq!(*h.app.session.develop_of(id).unwrap(), *before);
 }
+
+#[test]
+fn middle_pan_keeps_a_new_gradient_ready_to_draw() {
+    for tool in ["linear", "radial"] {
+        let mut h = setup(RightPanel::Edit, "", Zoom::Percent(100));
+        h.app.run(&format!("tool.{tool}"), json!({})).unwrap();
+        assert!(h.settle(T));
+        let id = h.app.session.active().unwrap();
+        let before = h.app.session.develop_of(id).unwrap();
+        let pending = h.app.ui.pending_mask_shape;
+        assert!(pending.is_some(), "the new gradient is ready to draw");
+        let undo = h.app.session.undo.len();
+        let at = h.app.canvas_rect.unwrap().center();
+        drag(&mut h, PointerButton::Middle, at, at + vec2(-90.0, -50.0));
+        assert_eq!(*h.app.session.develop_of(id).unwrap(), *before, "middle release cannot reshape the new gradient");
+        assert_eq!(h.app.ui.pending_mask_shape, pending);
+        assert_eq!(h.app.ui.pending_mask_origin, None);
+        assert_eq!(h.app.session.undo.len(), undo);
+        drag(&mut h, PointerButton::Primary, at, at + vec2(90.0, 50.0));
+        assert_ne!(*h.app.session.develop_of(id).unwrap(), *before, "the primary button still draws");
+        assert_eq!(h.app.ui.pending_mask_shape, None);
+    }
+}
