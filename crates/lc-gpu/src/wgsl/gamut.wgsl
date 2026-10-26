@@ -364,10 +364,10 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>, band: u32) 
     if (weight == 0.0) { return clipped; }
     let anchor = clamp(l, 1e-4, 1.0 - 1e-4);
     let gray = anchor * anchor * anchor;
-    var target = r;
+    var ray_target = r;
     var boundary = vec3<f32>(gray);
-    for (var cast = 0u; cast < 3u; cast++) {
-        let delta = target - vec3<f32>(gray);
+    for (var ray_step = 0u; ray_step < 3u; ray_step++) {
+        let delta = ray_target - vec3<f32>(gray);
         var scale = bitcast<f32>(0x7f800000u);
         for (var k = 0u; k < 3u; k++) {
             if (delta[k] > 0.0) { scale = min(scale, (1.0 - gray) / delta[k]); }
@@ -378,7 +378,7 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>, band: u32) 
         var working = boundary;
         if (band == 1u) { working = mul3(GAMUT_FROM_SRGB, boundary); }
         let cast_lab = oklab(working);
-        target = gamut_at(m, l, d, length(cast_lab.yz));
+        ray_target = gamut_at(m, l, d, length(cast_lab.yz));
     }
     return clipped + weight * (boundary - clipped);
 }
