@@ -565,6 +565,33 @@ fn over_budget_masks_and_cached_pictures_warn_and_keep_sibling_pixels() {
     assert!(matches!(doc.spreads[0].nodes[2].kind, model::Kind::Image(_)));
     assert!(doc.warnings.iter().any(|w| w.contains("pixel mask") && w.contains("limit")));
     assert!(doc.warnings.iter().any(|w| w.contains("cached picture") && w.contains("limit")));
+
+    let pixels = image::RgbaImage::from_pixel(2, 2, image::Rgba([255, 0, 0, 255]));
+    let mut png = std::io::Cursor::new(Vec::new());
+    pixels.write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let png = png.into_inner();
+    let mut blob = vec![0x2d];
+    blob.extend(tag(b"Data").0.to_le_bytes());
+    blob.extend((png.len() as u32).to_le_bytes());
+    blob.extend(png);
+    let source = synth::stream(&[(tag(b"Data"), F::Raw(blob))]);
+    for limit in [4, 7, 9] {
+        let mut cached = cached_embedded("", 2);
+        let F::Obj(_, fields) = &mut cached else { panic!() };
+        let F::Obj(_, embedded) = &mut fields.iter_mut().find(|(key, _)| *key == tag(b"Bitm")).unwrap().1 else { panic!() };
+        let F::Obj(_, cache_fields) = &mut embedded.iter_mut().find(|(key, _)| *key == tag(b"Cach")).unwrap().1 else { panic!() };
+        for (key, value) in cache_fields.iter_mut() {
+            if [tag(b"Sta1"), tag(b"Sta2"), tag(b"Sta3"), tag(b"Sta4")].contains(key) {
+                *value = F::U8s(vec![5]);
+            }
+        }
+        cache_fields.extend([(tag(b"Bckg"), F::Entry("source".into())), (tag(b"LInf"), F::I32(0)), (tag(b"TInf"), F::I32(0))]);
+        let bytes = container(vec![cached, bitmap(1, 1, 0, &[2, 0, 0, 2])], vec![], None, &[("source", &source, Method::Zlib)]);
+        let doc = photocraft_affinity::read(&bytes, Limits { max_pixels: limit, ..Default::default() }).unwrap();
+        assert_eq!(matches!(doc.spreads[0].nodes[0].kind, model::Kind::Image(_)), limit == 9);
+        assert!(matches!(doc.spreads[0].nodes[1].kind, model::Kind::Image(_)));
+        assert_eq!(doc.warnings.iter().any(|w| w.contains("cached picture") && w.contains("limit")), limit < 9);
+    }
 }
 #[test]
 fn embedded_document_chains_share_the_layer_depth_limit() {

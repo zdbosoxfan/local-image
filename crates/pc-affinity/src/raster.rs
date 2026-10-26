@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::Error;
 use crate::model::{Affine, Image, Pixels, Reader, Rect};
-use crate::stream::{self, ObjId, Tag, Value};
+use crate::stream::{self, ObjId, Stream, Tag, Value};
 
 /// Pixels decoded per layer (the content's bounding box, not the canvas).
 pub(crate) const MAX_PIXELS: u64 = 100_000_000;
@@ -143,8 +143,19 @@ pub(crate) fn embedded(r: &mut Reader, id: ObjId, world: Affine) -> Result<Optio
 fn decode_auxiliary(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affine, warning: &str) -> Result<Option<Image>, Error> {
     crate::import::cancelled(r.archive.cancel)?;
     let count = u64::from(crop.2.saturating_sub(crop.0)) * u64::from(crop.3.saturating_sub(crop.1));
-    // Refuse optional storage before charging it, leaving the budget available for other artwork.
-    if count > MAX_PIXELS.min(r.pixel_capacity()) {
+    let state_slots = (1..=4).fold(0usize, |count, c| count.saturating_add(r.s.array_len(bitmap, &tag(b"Sta", c))));
+    if !r.charge_slots(state_slots) {
+        return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
+    }
+    let source = if source_entry(r.s, bitmap).is_some() {
+        let width = r.s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        let height = r.s.int(bitmap, b"BmpH").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        u64::from(width) * u64::from(height)
+    } else {
+        0
+    };
+    // Source-backed caches hold the cropped pixels and the full decoded source together.
+    if count > MAX_PIXELS || source > MAX_PIXELS || count.saturating_add(source) > r.pixel_capacity() {
         r.warn(warning);
         return Ok(None);
     }
@@ -185,20 +196,15 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     if !r.charge_slots(state_slots) {
         return Err(r.failure.unwrap_or(Error::Limit("array traversal slots")));
     }
-    let needs_source = (1..=channels).any(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if a.contains(&Value::UInt(5))));
-    let source = if needs_source && format == Some(0) && s.int(bitmap, b"LInf") == Some(0) && s.int(bitmap, b"TInf") == Some(0) {
-        if let Some(name) = s.entry(bitmap, b"Bckg") {
-            let width = s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
-            let height = s.int(bitmap, b"BmpH").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
-            r.charge_pixels(u64::from(width) * u64::from(height))?;
-            match original(r, name).and_then(|bytes| source_pixels(&bytes, width, height)) {
-                Ok(pixels) => Some((width as usize, pixels)),
-                Err(Error::Limit(e)) => return Err(Error::Limit(e)),
-                Err(Error::Cancelled) => return Err(Error::Cancelled),
-                Err(_) => None,
-            }
-        } else {
-            None
+    let source = if let Some(name) = source_entry(s, bitmap) {
+        let width = s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        let height = s.int(bitmap, b"BmpH").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+        r.charge_pixels(u64::from(width) * u64::from(height))?;
+        match original(r, name).and_then(|bytes| source_pixels(&bytes, width, height)) {
+            Ok(pixels) => Some((width as usize, pixels)),
+            Err(Error::Limit(e)) => return Err(Error::Limit(e)),
+            Err(Error::Cancelled) => return Err(Error::Cancelled),
+            Err(_) => None,
         }
     } else {
         None
@@ -237,6 +243,14 @@ fn decode(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affi
     }
     let transform = Affine([1.0, 0.0, 0.0, 1.0, f64::from(x0), f64::from(y0)]).then(world);
     Ok(Some(Image { profile: None, width: w, height: h, pixels: if channels == 5 { Pixels::Cmyka8(rgba) } else { Pixels::Rgba8(rgba) }, transform }))
+}
+
+fn source_entry(s: &Stream, bitmap: ObjId) -> Option<&str> {
+    if s.enumeration(bitmap, b"Frmt").map(|(format, _)| format) != Some(0) || s.int(bitmap, b"LInf") != Some(0) || s.int(bitmap, b"TInf") != Some(0) {
+        return None;
+    }
+    let needs_source = (1..=4).any(|c| matches!(s.field(bitmap, &tag(b"Sta", c)), Some(Value::Array(a)) if a.contains(&Value::UInt(5))));
+    if needs_source { s.entry(bitmap, b"Bckg") } else { None }
 }
 
 /// The original image file: entry `c/N` is a stream whose root (`Blck`) holds it as `Data`.
