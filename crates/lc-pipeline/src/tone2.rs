@@ -44,7 +44,7 @@ pub struct ToneMethod {
     pub hue: f32,
     /// Camera fits map a luminance norm; sigmoid and Soft Film use per-channel mapping.
     pub luminance: bool,
-    /// Chroma relative to the working gamut edge where compression starts.
+    /// Chroma relative to the working gamut edge where compression starts; 1 clips at the edge.
     pub gamut_knee: f32,
 }
 
@@ -379,7 +379,9 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     }
     // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
     // desaturated to zero (darktable sigmoid)
-    let c = desaturate_negative(scene_gamut_knee(c, v.gamut_knee));
+    // At the rendered edge, negative-channel containment is the continuous limiting clip.
+    let c = if v.gamut_knee == 1.0 { c } else { scene_gamut_knee(c) };
+    let c = desaturate_negative(c);
     if v.luminance {
         let y = li_color::luminance_2020(c);
         if y <= 0.0 {
@@ -418,12 +420,8 @@ pub const SCENE_GAMUT_LIMIT: f32 = 2.5;
 /// Scene colours rolled off towards the Rec. 2020 gamut edge at constant OkLab lightness and hue
 /// ([`crate::gamut::scene`]).
 #[inline]
-pub fn scene_gamut_knee(c: [f32; 3], knee: f32) -> [f32; 3] {
-    // Rendered colours can occupy blue intervals detached from the ray's neutral prefix.
-    if knee == 1.0 && c.iter().all(|v| *v >= 0.0) {
-        return c;
-    }
-    crate::gamut::scene(c, knee, SCENE_GAMUT_LIMIT)
+pub fn scene_gamut_knee(c: [f32; 3]) -> [f32; 3] {
+    crate::gamut::scene(c, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT)
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.
@@ -564,7 +562,7 @@ mod tests {
             let mut p = [0f32; 3];
             p[i] = 0.5;
             let c = std::array::from_fn(|r| (0..3).map(|j| from_srgb[r][j] * p[j]).sum());
-            assert_eq!(scene_gamut_knee(c, SCENE_GAMUT_KNEE), c);
+            assert_eq!(scene_gamut_knee(c), c);
         }
     }
 
@@ -689,11 +687,13 @@ mod tests {
                 assert!((mapped[i] - colour[i]).abs() < 2e-3, "{colour:?} -> {mapped:?}");
             }
         }
-        let edge = [0.0, 0.8, 0.1];
         for delta in [1e-6, 1e-5, 1e-4] {
-            let mapped = tone_px_working(&tone, &method, [-delta, edge[1], edge[2]]);
-            assert!(mapped.iter().all(|v| v.is_finite()), "{mapped:?}");
-            assert!((0..3).all(|i| (mapped[i] - edge[i]).abs() < 2e-3), "edge {edge:?} -> {mapped:?}");
+            for colour in [[-delta, 0.8, 0.1], [-delta, 0.0, 0.8], [0.0, -delta, 0.8]] {
+                let edge = colour.map(|v: f32| v.max(0.0));
+                let mapped = tone_px_working(&tone, &method, colour);
+                assert!(mapped.iter().all(|v| v.is_finite()), "{mapped:?}");
+                assert!((0..3).all(|i| (mapped[i] - edge[i]).abs() < 2e-3), "edge {edge:?} -> {mapped:?}");
+            }
         }
     }
 

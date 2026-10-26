@@ -186,7 +186,6 @@ fn gamut_extent(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, upper: bool, z0: f
 // `gamut::knee_curve`
 fn gamut_knee_curve(s: f32, knee: f32, limit: f32) -> f32 {
     if (s <= knee || limit <= 1.0 + 1e-6) { return s; }
-    if (knee >= 1.0) { return min(s, 1.0); }
     let p = 1.2;
     let scale = (limit - knee) / pow(pow((1.0 - knee) / (limit - knee), -p) - 1.0, 1.0 / p);
     let u = (s - knee) / scale;

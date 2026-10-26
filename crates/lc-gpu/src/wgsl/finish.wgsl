@@ -63,7 +63,7 @@ fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
     // `scene_gamut_knee`, then `desaturate_negative`
     let knee = ff(F_TONE_GAMUT_KNEE);
     var ck = c0;
-    if (knee != 1.0 || any(c0 < vec3<f32>(0.0))) {
+    if (knee != 1.0) {
         ck = gamut_scene(c0, knee, SCENE_GAMUT_LIMIT);
     }
     let avg = max((ck.x + ck.y + ck.z) / 3.0, 0.0);

@@ -8,14 +8,15 @@ Refines the scene-stage decision in [0002](0002-output-gamut-clipping.md), retai
 Rendered sources already carry their tonal response. Applying the RAW scene knee, which starts
 at 0.99 of the Rec. 2020 extent, changes saturated in-gamut colours even with neutral settings.
 Their tone maps therefore start gamut compression at the extent itself, at relative chroma 1.0.
-Nonnegative working RGB is preserved directly, including detached blue intervals that a search
-from neutral cannot recognize as part of its prefix.
+At that threshold the existing negative-channel containment supplies the boundary clip:
+nonnegative working RGB stays unchanged, and outside colours move along a linear RGB ray from
+their nonnegative channel average until the lowest channel reaches zero. This is continuous at
+every lower face, including detached blue intervals that a radial search from neutral cannot
+approach continuously. The scene gamut is a cone without an upper bound; the following tone
+response handles intensity.
 
-For outside colours the zero-width knee is its continuous limiting clip: relative chroma up to
-one stays unchanged and values above one land on the extent. This avoids the smooth curve's
-zero scale at a knee of one. RAW tone maps retain the 0.99 knee, exposure-normalized extent and
-2.5 limit. Converted negatives use the rendered-source tone map.
-
-The tone method carries its knee into the generated GPU finish parameters. CPU and WGSL use the
-same membership check and limiting curve. The subsequent tone response and negative-channel
-containment remain in their existing order. No persisted settings or catalog format changes.
+The tone method carries its knee into the generated GPU finish parameters. At a knee of one,
+CPU and WGSL bypass the radial scene compression and use the existing negative-channel
+containment. RAW tone maps retain the 0.99 knee, exposure-normalized extent and 2.5 limit.
+Converted negatives use the rendered-source tone map. No persisted settings or catalog format
+changes.
