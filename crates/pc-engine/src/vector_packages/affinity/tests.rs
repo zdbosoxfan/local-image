@@ -169,3 +169,88 @@ fn affinity_prepared_scene_validates_all_layers_before_publication() {
     assert!(commit(&mut s, &request, &scene).is_err());
     assert_eq!(s.active().unwrap().doc, before);
 }
+
+#[test]
+fn affinity_invalid_native_effects_publish_no_document_or_history_change() {
+    let _gpu_gate = li_testkit::gpu::lock();
+    use photocraft_doc::effects::{Effect, FxCommon, Gradient};
+    let mut session = session();
+    let request = capture(&session, source()).unwrap();
+    let scene = decode(&session, &request).unwrap();
+    let before = session.active().unwrap().doc.clone();
+    let revision = session.active().unwrap().revision;
+    let journal = session.journal.len();
+    let mut huge_shadow = Effect::default_drop_shadow();
+    if let Effect::DropShadow(shadow) = &mut huge_shadow {
+        shadow.size = 1_000_000.;
+        shadow.use_global_light = false;
+    }
+    let nan = Effect::ColorOverlay { common: FxCommon::new(photocraft_doc::BlendMode::Normal, f32::NAN), color: photocraft_doc::Color::WHITE };
+    let gradient = Effect::GradientOverlay {
+        common: FxCommon::new(photocraft_doc::BlendMode::Normal, 1.),
+        gradient: Gradient { stops: vec![(0., photocraft_doc::Color::WHITE); 1025], ..Default::default() },
+        dither: false,
+    };
+    for effects in [
+        vec![nan],
+        vec![huge_shadow],
+        vec![gradient],
+        vec![Effect::ColorOverlay { common: FxCommon::new(photocraft_doc::BlendMode::Normal, 1.), color: photocraft_doc::Color::WHITE }; 65],
+    ] {
+        let mut malicious = scene.clone();
+        malicious.layers[0].effects.enabled = true;
+        malicious.layers[0].effects.items = effects;
+        assert!(commit(&mut session, &request, &malicious).is_err());
+        assert_eq!(session.active().unwrap().doc, before);
+        assert_eq!(session.active().unwrap().revision, revision);
+        assert_eq!(session.journal.len(), journal);
+    }
+}
+
+#[test]
+fn affinity_captured_admission_bounds_decode_and_cannot_be_supplied_by_json() {
+    let _gpu_gate = li_testkit::gpu::lock();
+    let session = session();
+    let mut request = capture(&session, source()).unwrap();
+    let mut forged = serde_json::to_value(&request).unwrap();
+    forged["admission"] = json!({"decompressed_bytes":u64::MAX,"pixels":u64::MAX});
+    assert!(serde_json::from_value::<Place>(forged).is_err());
+    request.admission = Admission::for_ram(0);
+    assert!(decode(&session, &request).is_err());
+    for available in [1 << 20, 4 << 30, 32 << 30, u64::MAX] {
+        let admission = Admission::for_ram(available).0;
+        assert!(admission.decompressed_bytes <= available / 4);
+        assert!(admission.decompressed_bytes <= 8 << 30);
+        assert_eq!(admission.pixels * 48 + admission.decompressed_bytes % 48, admission.decompressed_bytes);
+    }
+    assert!(Admission::for_ram(32 << 30).0.pixels >= 100_000_000);
+}
+
+#[test]
+fn affinity_valid_effects_use_the_captured_working_budget_before_preview() {
+    let _gpu_gate = li_testkit::gpu::lock();
+    let session = session();
+    let mut request = capture(&session, source()).unwrap();
+    let mut scene = decode(&session, &request).unwrap();
+    let mut effect = photocraft_doc::Effect::default_drop_shadow();
+    if let photocraft_doc::Effect::DropShadow(shadow) = &mut effect {
+        shadow.use_global_light = false;
+    }
+    scene.layers[0].effects.enabled = true;
+    scene.layers[0].effects.items = vec![effect];
+    let admission = Admission::for_ram(32 << 30);
+    request.admission = admission;
+    assert!(preview(&session, &request, &scene).is_ok());
+    // Admit the existing cache and fixed effect metadata, leaving no room for effect pixel buffers.
+    let cache_bytes = scene
+        .layers
+        .iter()
+        .flat_map(|layer| if let LayerContent::Group(group) = &layer.content { group.children.iter() } else { panic!() })
+        .filter_map(|layer| layer.surface())
+        .flat_map(|surface| surface.tiles())
+        .map(|(_, tile)| tile.bytes().len() as u64)
+        .sum::<u64>();
+    request.admission.0.decompressed_bytes = cache_bytes + std::mem::size_of::<photocraft_doc::Effect>() as u64;
+    let error = preview(&session, &request, &scene).unwrap_err().to_string();
+    assert!(error.contains("effect working budget"), "{error}");
+}

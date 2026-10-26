@@ -28,7 +28,8 @@ All notable changes to Local Image are recorded here. The format follows
 ### Changed
 
 - Affinity raster import enforces a 100-megapixel full-resolution layer cap and checks
-  shared allocation limits before decoding.
+  shared allocation limits before decoding. Engine Open/Place captures a machine-sized
+  memory allowance and rejects invalid detached native effects before publication.
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
   removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
