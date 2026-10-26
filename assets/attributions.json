@@ -8548,7 +8548,7 @@
         },
         {
           "name": "clipboard-win",
-          "version": "5.4.1",
+          "version": "5.4.3",
           "used_for": "Provides simple way to interact with Windows clipboard.",
           "licence": "BSL-1.0",
           "url": "https://github.com/DoumanAsh/clipboard-win"
