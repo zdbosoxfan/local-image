@@ -459,6 +459,9 @@ impl Drop for ScanTask {
 
 /// Scan `paths` in the background, then open the review dialog (see [`poll_scan`]).
 pub fn open(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String> {
+    if app.import.is_some() {
+        return Err(li_i18n::library::t("An import is running").into());
+    }
     if app.scan.is_some() {
         return Err("a scan is already running".into());
     }
@@ -727,6 +730,10 @@ impl ScanTask {
 
 /// Start importing the dialog's checked files (the dialog's OK / `ui.dialog.confirm`).
 pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String> {
+    // A completed browse scan starts its own import, so it owns this slot too.
+    if app.import.is_some() || app.scan.as_ref().is_some_and(|task| task.browse) {
+        return Err(li_i18n::library::t("An import is running").into());
+    }
     let queue = d.selected_paths();
     if queue.is_empty() {
         return Err("no photos selected".into());
@@ -780,7 +787,7 @@ pub fn start(app: &mut LightcraftApp, d: &ImportDialog) -> Result<Value, String>
 
 /// Start importing `paths` (files or folders) in the background, e.g. dropped on the window.
 pub fn start_paths(app: &mut LightcraftApp, paths: Vec<String>) -> Result<Value, String> {
-    if app.import.is_some() || app.scan.as_ref().is_some_and(|t| !t.browse) {
+    if app.import.is_some() || app.scan.is_some() {
         return Err("an import is running".into());
     }
     let total = paths.len();
@@ -1902,3 +1909,6 @@ mod trashed_review_tests {
         assert_eq!(t.params["onDeleted"], "skip");
     }
 }
+
+#[cfg(test)]
+mod admission_tests;
