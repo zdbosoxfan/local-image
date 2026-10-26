@@ -314,7 +314,7 @@ fn deform_selected(surf: &Surface, sel: Option<&Surface>, f: &dyn Fn(&Surface) -
         Some(sel) => {
             let (lifted, mut rest) = crate::transform_cmds::split_selected(surf, sel);
             let moved = f(&lifted)?;
-            crate::transform_cmds::composite_over(&mut rest, &moved);
+            crate::transform_cmds::composite_over(&mut rest, &moved)?;
             rest.prune();
             Ok(rest)
         }

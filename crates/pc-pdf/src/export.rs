@@ -22,6 +22,9 @@ use std::collections::{BTreeMap, BTreeSet};
 mod paint;
 #[path = "export/text.rs"]
 mod text;
+#[path = "export/xmp.rs"]
+mod xmp;
+pub use xmp::FileInfo;
 pub type Result<T> = std::result::Result<T, ExportError>;
 #[derive(Debug, thiserror::Error)]
 pub enum ExportError {
@@ -67,6 +70,11 @@ pub fn export(doc: &Document, scope: &ExportScope, opts: &ExportOptions) -> Resu
     export_with(doc, scope, opts, &mut ExportContext { cancelled: &|| false, projection: None, text: &mut text })
 }
 pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx: &mut ExportContext<'_>) -> Result<ExportedVector> {
+    export_with_info(doc, scope, opts, cx, &FileInfo::default())
+}
+
+/// Export with the editor's selected File Info fields, excluding camera and location metadata.
+pub fn export_with_info(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx: &mut ExportContext<'_>, info: &FileInfo) -> Result<ExportedVector> {
     check_cancel(cx)?;
     validate(doc, opts)?;
     let scopes = page_scopes(doc, scope, opts)?;
@@ -78,7 +86,7 @@ pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx
             .map_err(|e| ExportError::Write(format!("{e:?}")))?,
         ..Default::default()
     });
-    pdf.set_metadata(krilla::metadata::Metadata::new().title(doc.name.clone()).creator("Local Image".into()));
+    pdf.set_metadata(xmp::metadata(&doc.name, info, opts.max_bytes)?);
     let mut warnings = BTreeMap::new();
     for scope in scopes {
         check_cancel(cx)?;
@@ -112,6 +120,8 @@ pub fn export_with(doc: &Document, scope: &ExportScope, opts: &ExportOptions, cx
     }
     check_cancel(cx)?;
     let bytes = pdf.finish().map_err(|e| ExportError::Write(format!("{e:?}")))?;
+    check_cancel(cx)?;
+    let bytes = xmp::apply(bytes, info, opts.max_bytes)?;
     check_cancel(cx)?;
     if bytes.len() > opts.max_bytes {
         return Err(ExportError::Budget("output bytes"));

@@ -72,7 +72,7 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
                 let mut base = photocraft_raster::Surface::new(fmt);
                 let fill = photocraft_raster::from_rgba(&fmt, bg);
                 base.write_region(canvas, &fill.repeat(canvas.width() as usize * canvas.height() as usize));
-                crate::transform_cmds::composite_over(&mut base, &warped);
+                crate::transform_cmds::composite_over(&mut base, &warped)?;
                 base.prune();
                 *surf = base;
                 if let Some(m) = l.mask.as_mut() {

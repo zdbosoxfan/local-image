@@ -59,7 +59,7 @@ fn filter_stack_defaults_on_empty_descriptor() {
 
 #[test]
 fn item_for_filter_unknown_command_errors() {
-    let f = sf("filter.distort.twirl", json!({"angle": 50}));
+    let f = sf("filter.distort.shear", json!({"amount": 40}));
     let err = item_for_filter(&f).err().unwrap();
     assert!(err.contains("Photoshop has no equivalent filter"));
 }

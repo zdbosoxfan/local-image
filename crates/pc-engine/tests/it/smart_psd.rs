@@ -4,7 +4,7 @@
 //!
 //! Set `PHOTOCRAFT_SMART_PSD_OUT=<dir>` to keep the exported files (for opening in Photoshop).
 
-use photocraft_doc::{Document, LayerContent, SmartObject, SmartSource};
+use photocraft_doc::{Document, LayerContent, SmartFilter, SmartObject, SmartSource};
 use photocraft_engine::Session;
 use photocraft_engine::smart_cmds::{decode_source, refresh_layer, source_bytes};
 use photocraft_geom::Rect;
@@ -43,6 +43,22 @@ fn smart(doc: &Document) -> (u64, SmartObject) {
             _ => None,
         })
         .expect("a smart object")
+}
+
+// Imported adjustments render as smart filters even when their editing commands require
+// raster pixels.
+fn add_stored_filter(session: &mut Session, filter: SmartFilter) {
+    session
+        .edit("smart filter", |document, active| {
+            let id = active.unwrap();
+            let mut layer = document.layer(id).unwrap().clone();
+            let LayerContent::Smart(smart) = &mut layer.content else { panic!("smart object") };
+            smart.smart_filters.push(filter);
+            assert!(refresh_layer(document, &mut layer).unwrap());
+            *document.layer_mut(id).unwrap() = layer;
+            Ok(())
+        })
+        .unwrap();
 }
 
 fn max_diff(a: &[[f32; 4]], b: &[[f32; 4]]) -> f32 {
@@ -402,4 +418,154 @@ fn edited_psd_smart_objects_drop_their_old_file() {
     let (_, sm) = smart(&back);
     let SmartSource::Linked { path } = &sm.source else { panic!() };
     assert_eq!(uuids, vec![path.clone()]);
+}
+
+#[test]
+fn hue_saturation_smart_filter_survives_psd_and_re_renders() {
+    for depth in [8, 16, 32] {
+        let mut s = session(depth);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let plain = smart(&s.active().unwrap().doc).1.cache.unwrap();
+        let params = json!({"hue": 40, "saturation": -30, "lightness": 10, "colorize": false,
+                            "greens": {"hue": -20, "saturation": 15, "lightness": -5, "range": [75, 105, 135, 165]}});
+        add_stored_filter(
+            &mut s,
+            SmartFilter {
+                command: "image.adjustments.hueSaturation".into(),
+                params: params.clone(),
+                blend: photocraft_doc::BlendMode::Normal,
+                opacity: 1.0,
+                visible: true,
+            },
+        );
+        let doc = s.active().unwrap().doc.clone();
+        let (_, before) = smart(&doc);
+        assert_eq!(before.smart_filters.len(), 1);
+        assert_eq!(before.smart_filters[0].command, "image.adjustments.hueSaturation");
+        let adjusted = before.cache.clone().unwrap();
+        assert!(plain.pixel(20, 20) != adjusted.pixel(20, 20), "depth {depth}: the filter changes pixels");
+
+        let out = photocraft_io::export(&doc, "psd", &Default::default()).unwrap();
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+        assert_eq!(structure_errors(&out.bytes), Vec::<String>::new());
+        keep(&format!("hue-sat-{depth}.psd"), &out.bytes);
+        let back = photocraft_io::import("hue-sat.psd", &out.bytes).unwrap().document;
+        let (bid, after) = smart(&back);
+        assert_eq!(after.smart_filters.len(), 1);
+        let f = &after.smart_filters[0];
+        assert_eq!(f.command, "image.adjustments.hueSaturation", "depth {depth}: {}", f.params);
+        for (k, v) in params.as_object().unwrap() {
+            assert_eq!(&f.params[k], v, "depth {depth}: {k}");
+        }
+        // Re-rendered from the source (as replaceContents / relink do), the filter still applies.
+        let mut l = back.layer(photocraft_doc::LayerId(bid)).unwrap().clone();
+        assert!(refresh_layer(&back, &mut l).unwrap());
+        let LayerContent::Smart(sm) = &l.content else { panic!("smart") };
+        let cache = sm.cache.as_ref().unwrap();
+        for (x, y) in [(20, 20), (40, 30), (70, 50)] {
+            let (a, b) = (cache.pixel(x, y), adjusted.pixel(x, y));
+            assert!((0..4).all(|c| (a[c] - b[c]).abs() <= 1.0 / 255.0 + 1e-6), "depth {depth} at {x},{y}: {a:?} vs {b:?}");
+        }
+    }
+}
+
+#[test]
+fn perspective_warp_psd_filter_renders_warped() {
+    use photocraft_psd::descriptor::{Descriptor, UnicodeString, Value};
+    let pnts = |p: &[[f64; 2]]| {
+        let px = |v: f64| Value::UnitFloat { unit: *b"#Pxl", value: v };
+        Value::List(p.iter().map(|q| Value::Descriptor(Descriptor::new("Pnt ").with("Hrzn", px(q[0])).with("Vrtc", px(q[1])))).collect())
+    };
+    let quad = Descriptor::new("perspectiveWarpQuad").with("indices", Value::List((0..4).map(Value::Integer).collect()));
+    let fltr = Descriptor::new("perspectiveWarpTransform")
+        .with("vertices", pnts(&[[8.0, 6.0], [80.0, 6.0], [80.0, 58.0], [8.0, 58.0]]))
+        // The right edge moves in and shrinks: the content no longer reaches x = 70.
+        .with("warpedVertices", pnts(&[[8.0, 6.0], [50.0, 20.0], [50.0, 44.0], [8.0, 58.0]]))
+        .with("quads", Value::List(vec![Value::Descriptor(quad)]));
+    let item = Descriptor::new("filterFX")
+        .with("Nm  ", Value::Text(UnicodeString::new_nul("Perspective Warp...")))
+        .with("enab", Value::Boolean(true))
+        .with("hasoptions", Value::Boolean(true))
+        .with("Fltr", Value::Descriptor(fltr))
+        .with("filterID", Value::Integer(708));
+    for depth in [8, 16, 32] {
+        let mut s = session(depth);
+        s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        let filter = photocraft_io::smart_map::filter_from_item(&item);
+        assert_eq!(filter.command, "layer.smartObjects.perspectiveWarp");
+        add_stored_filter(&mut s, filter.clone());
+        let doc = s.active().unwrap().doc.clone();
+        let alpha = |doc: &Document, x: i32, y: i32| smart(doc).1.cache.unwrap().pixel(x, y)[3];
+        assert!(alpha(&doc, 20, 30) > 0.99 && alpha(&doc, 70, 30) < 0.01 && alpha(&doc, 45, 10) < 0.01, "depth {depth}: warped");
+
+        let out = photocraft_io::export(&doc, "psd", &Default::default()).unwrap();
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+        assert_eq!(structure_errors(&out.bytes), Vec::<String>::new());
+        keep(&format!("perspective-warp-{depth}.psd"), &out.bytes);
+        let back = photocraft_io::import("perspective.psd", &out.bytes).unwrap().document;
+        let native = photocraft_format::load_from_bytes(&photocraft_format::save_to_bytes(&back, &Default::default()).unwrap()).unwrap();
+        for doc in [&back, &native] {
+            let (bid, after) = smart(doc);
+            assert_eq!(after.smart_filters, vec![filter.clone()], "depth {depth}");
+            let mut l = doc.layer(photocraft_doc::LayerId(bid)).unwrap().clone();
+            assert!(refresh_layer(doc, &mut l).unwrap());
+            let LayerContent::Smart(sm) = &l.content else { panic!("smart") };
+            let (a, b) = (sm.cache.as_ref().unwrap(), smart(&s.active().unwrap().doc).1.cache.unwrap());
+            assert_eq!(a.pixel(20, 30), b.pixel(20, 30), "depth {depth}: re-render");
+            assert_eq!(a.pixel(70, 30), b.pixel(70, 30), "depth {depth}: re-render");
+        }
+    }
+}
+
+#[test]
+fn editable_filter_stack_survives_psd_and_re_renders_at_all_depths() {
+    for depth in [8, 16, 32] {
+        let mut session = session(depth);
+        session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+        for (command, params) in [
+            ("filter.sharpen.sharpen", json!({})),
+            ("filter.noise.dustAndScratches", json!({"radius": 2, "threshold": 8})),
+            ("filter.blur.surfaceBlur", json!({"radius": 5, "threshold": 15})),
+            ("image.adjustments.hueSaturation", json!({"hue": 20, "saturation": -12, "lightness": 0, "colorize": false})),
+            ("image.adjustments.invert", json!({})),
+        ] {
+            if command.starts_with("image.adjustments.") {
+                add_stored_filter(
+                    &mut session,
+                    SmartFilter { command: command.into(), params, blend: photocraft_doc::BlendMode::Normal, opacity: 1.0, visible: true },
+                );
+            } else {
+                session.execute(command, params).unwrap();
+            }
+        }
+        let document = session.active().unwrap().doc.clone();
+        let before = smart(&document).1;
+        let exported = photocraft_io::export(&document, "psd", &Default::default()).unwrap();
+        assert!(exported.warnings.is_empty(), "{:?}", exported.warnings);
+        assert!(structure_errors(&exported.bytes).is_empty());
+        let imported = photocraft_io::import("filters.psd", &exported.bytes).unwrap().document;
+        let (id, after) = smart(&imported);
+        assert_eq!(after.smart_filters.len(), 5);
+        for (actual, expected) in after.smart_filters.iter().zip(&before.smart_filters) {
+            assert_eq!(
+                (&actual.command, actual.blend, actual.opacity, actual.visible),
+                (&expected.command, expected.blend, expected.opacity, expected.visible)
+            );
+            for (key, expected) in expected.params.as_object().unwrap() {
+                let actual = &actual.params[key];
+                assert!(actual == expected || actual.as_f64().zip(expected.as_f64()).is_some_and(|(a, b)| a == b), "{}: {key}: {actual} vs {expected}", actual);
+            }
+        }
+        let mut layer = imported.layer(photocraft_doc::LayerId(id)).unwrap().clone();
+        assert!(refresh_layer(&imported, &mut layer).unwrap());
+        let LayerContent::Smart(rerendered) = &layer.content else { panic!("smart object") };
+        let (actual, expected) = (rerendered.cache.as_ref().unwrap(), before.cache.as_ref().unwrap());
+        for y in 0..H {
+            for x in 0..W {
+                let (a, b) = (actual.rgba(x, y), expected.rgba(x, y));
+                // A PSD source round trip may quantize to eight bits.
+                assert!((0..4).all(|c| (a[c] - b[c]).abs() <= 2.0 / 255.0), "depth {depth}, {x},{y}: {a:?} vs {b:?}");
+            }
+        }
+    }
 }

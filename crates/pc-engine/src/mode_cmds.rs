@@ -98,7 +98,7 @@ pub(crate) fn rotate_doc(doc: &mut Document, deg: f64, interp: Interp, bg: [f32;
             let mut base = Surface::new(fmt);
             let fill = photocraft_raster::from_rgba(&fmt, bg);
             base.write_region(canvas, &fill.repeat(canvas.width() as usize * canvas.height() as usize));
-            crate::transform_cmds::composite_over(&mut base, &rotated);
+            crate::transform_cmds::composite_over(&mut base, &rotated)?;
             base.prune();
             *surf = base;
             if let Some(m) = l.mask.as_mut() {

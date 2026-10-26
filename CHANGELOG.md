@@ -6,6 +6,25 @@ All notable changes to Local Image are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Compositing: Export PDF carries File Info author, description, keywords, copyright status,
+  notice and rights URL without camera, GPS or Develop metadata.
+
+- Compositing: moving selected pixels uses parallel sparse tiles, shares fully selected tiles,
+  and avoids an initial zero-offset preview composite on large documents.
+
+- Compositing: PSD import and export preserve embedded Displace maps with editable scale, fit
+  and edge settings.
+
+- Compositing: PSD smart filters retain editable blur, sharpen, noise, pixelate, stylize,
+  distort and Invert settings. Unmodelled settings and Average remain verbatim.
+
+- Compositing: Save for Web's Image Size sets the exported Width and Height in pixels, kept in
+  proportion while Constrain proportions is on, or a Percent, and offers the Resample list Export
+  As uses (Bicubic by default; the choice is remembered). A layered composite can go out at, say,
+  2048 px without resizing the document. Each document opens the dialog at its own size.
+
 ### Changed
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
