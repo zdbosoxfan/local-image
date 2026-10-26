@@ -333,18 +333,6 @@ fn remote_fixes_explain_why_they_are_disabled() {
 }
 
 #[test]
-fn each_failed_tool_gets_its_own_failure_sentence() {
-    let mut m = fixture().server.models[FLUX3].clone();
-    m.issues = ["Create", "Fill"]
-        .iter()
-        .map(|cap| Issue::new("VerifyFailed:noise", Some(FLUX3), &[("capability", (*cap).into()), ("vae", "vae.safetensors".into())]))
-        .collect();
-    let result = CapabilityResult { failure: Some("VerifyFailed:noise".into()), ..Default::default() };
-    assert!(detail::result_text(&m, "create", &result).contains("The Create test image is noise"));
-    assert!(detail::result_text(&m, "inpaint", &result).contains("The Fill test image is noise"));
-}
-
-#[test]
 fn identifying_a_model_cannot_replace_a_running_task() {
     let mut h = harness(fixture(), FLUX3, vec2(1100.0, 760.0));
     let task = Arc::new(Mutex::new(Task::default()));

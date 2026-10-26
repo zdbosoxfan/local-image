@@ -304,7 +304,7 @@ fn renders(m: &ModelState) -> usize {
     (base + references + enhancer).max(1)
 }
 
-pub(super) fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
+fn result_text(m: &ModelState, cap: &str, r: &CapabilityResult) -> String {
     if r.via.is_some() {
         return tl!("uses Refine").into();
     }
@@ -490,4 +490,22 @@ fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Token
             out.push(Action::UseInGenerate(catalog_key.to_owned()));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::fixtures::{FLUX3, fixture};
+#[test]
+fn each_failed_tool_gets_its_own_failure_sentence() {
+    let mut m = fixture().server.models[FLUX3].clone();
+    m.issues = ["Create", "Fill"]
+        .iter()
+        .map(|cap| Issue::new("VerifyFailed:noise", Some(FLUX3), &[("capability", (*cap).into()), ("vae", "vae.safetensors".into())]))
+        .collect();
+    let result = CapabilityResult { failure: Some("VerifyFailed:noise".into()), ..Default::default() };
+    assert!(result_text(&m, "create", &result).contains("The Create test image is noise"));
+    assert!(result_text(&m, "inpaint", &result).contains("The Fill test image is noise"));
+}
+
 }
