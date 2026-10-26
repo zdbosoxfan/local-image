@@ -186,6 +186,13 @@ mod tests {
         assert_eq!(s.new, ["unet:b"]);
         assert_eq!(s.status("unet:b"), Some(Status::Ready));
         assert_eq!(s.status_for("qwen", "bf16"), Some(Status::NeedsReverify));
+        let catalogue = crate::catalog::build(crate::family::registry(), &[installed("c", "")]);
+        let model = catalogue.models.iter().find(|m| m.id.key() == "unet:c").unwrap();
+        let duplicated = [model.clone(), model.clone()];
+        let s = summarise(Some(&server), &duplicated, None);
+        assert_eq!(s.new, ["unet:b", "unet:c"]);
+        assert_eq!((s.attention(), s.needs_reverify(), s.banner()), (1, 1, 3));
+        assert_eq!(s.models["qwen#bf16"].file_key, "unet:a");
     }
     #[test]
     fn a_scanned_update_keeps_the_actionable_version_context() {
