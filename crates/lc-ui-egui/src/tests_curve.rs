@@ -393,3 +393,61 @@ fn batched_primary_curve_drag_uses_the_original_press_and_commits_once() {
     assert_eq!(h.app.session.undo.len(), before + 1);
     assert!(h.app.session.interaction.is_none());
 }
+
+#[test]
+fn clicking_the_parametric_line_with_a_wobble_leaves_settings_and_undo_unchanged() {
+    for batched in [false, true] {
+        let mut h = curve_open("parametric");
+        let rect = graph(&h);
+        let start = egui::pos2(rect.left() + 0.625 * rect.width(), rect.bottom() - 0.625 * rect.height());
+        let end = start - egui::vec2(0.0, 2.0);
+        assert!(start.distance(end) < h.view.ctx.options(|options| options.input_options.max_click_dist));
+        let before = develop(&h);
+        let undo = h.app.session.undo.len();
+        if batched {
+            h.events.extend([
+                egui::Event::PointerMoved(start),
+                egui::Event::PointerButton { pos: start, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE },
+                egui::Event::PointerMoved(end),
+                egui::Event::PointerButton { pos: end, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE },
+            ]);
+            h.step();
+        } else {
+            graph_pointer(&mut h, start, Some(true), egui::Modifiers::NONE);
+            graph_pointer(&mut h, end, None, egui::Modifiers::NONE);
+            assert_eq!(develop(&h), before, "a click wobble must not write live settings");
+            graph_pointer(&mut h, end, Some(false), egui::Modifiers::NONE);
+        }
+        assert_eq!(develop(&h), before);
+        assert_eq!(h.app.session.undo.len(), undo);
+        assert!(h.app.session.interaction.is_none());
+        assert!(h.app.ui.dragging_control.is_none());
+    }
+}
+
+#[test]
+fn dragging_a_region_notch_preserves_its_neighbours_and_undo_label() {
+    for index in 0..3 {
+        let mut h = curve_open("parametric");
+        exec(&mut h, "develop.merge", json!({"settings":{"curve":{"split_shadows":23.0,"split_mid":37.0,"split_highlights":79.0}}}));
+        h.step();
+        let before = develop(&h).curve;
+        let splits = [before.split_shadows, before.split_mid, before.split_highlights];
+        let undo = h.app.session.undo.len();
+        let r = h.request("ui.dragWidget", json!({"id":format!("curveSplit:{index}"),"dx":10.0,"steps":4}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        let after = develop(&h).curve;
+        let updated = [after.split_shadows, after.split_mid, after.split_highlights];
+        for neighbour in 0..3 {
+            if neighbour == index {
+                assert!(updated[neighbour] > splits[neighbour], "the dragged notch moves");
+            } else {
+                assert_eq!(updated[neighbour], splits[neighbour], "neighbour {neighbour} of notch {index}");
+            }
+        }
+        assert_eq!(h.app.session.undo.len(), undo + 1);
+        assert_eq!(h.app.session.undo.last().unwrap().label, "Curve Regions");
+        exec(&mut h, "edit.undo", json!({}));
+        assert_eq!(develop(&h).curve, before);
+    }
+}

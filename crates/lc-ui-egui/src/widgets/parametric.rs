@@ -15,6 +15,7 @@ struct Drag {
     per_unit: f64,
     previous: Pos2,
     travel: f32,
+    dragging: bool,
 }
 
 /// Direct curve manipulation returns the same transaction output as a numeric slider.
@@ -71,6 +72,7 @@ pub(crate) fn parametric_drag(
             per_unit: model.level_per_unit(region, x) * slope,
             previous: press,
             travel: 0.0,
+            dragging: false,
         });
         output = Some((PARAM_AMOUNTS[region], SliderOut { drag_started: true, ..Default::default() }));
     }
@@ -78,7 +80,9 @@ pub(crate) fn parametric_drag(
         drag.frame = ui.ctx().cumulative_frame_nr();
         let control = PARAM_AMOUNTS[drag.region];
         let mut out = output.map_or_else(SliderOut::default, |(_, out)| out);
-        if ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released())
+        drag.dragging |= ui.input(|input| !input.pointer.could_any_button_be_click());
+        if drag.dragging
+            && ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released())
             && let Some(point) = ui.input(|input| input.pointer.interact_pos())
         {
             let motion = drag.previous.y - point.y;

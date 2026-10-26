@@ -1256,8 +1256,14 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                     to_screen(x as f64, tables.as_ref().map_or(x, |c| c.tables[0].eval(x)) as f64)
                 })
                 .collect();
-            // Region dividers use the actual pipeline split positions.
-            let splits = lightcraft_pipeline::curve::ParametricCurve::new(&d.curve).splits.map(|split| split * 100.0);
+            // Keep settings precision while enforcing the pipeline's split ordering.
+            let raw_splits = [d.curve.split_shadows, d.curve.split_mid, d.curve.split_highlights];
+            let mut lower = 0.0_f64;
+            let splits = std::array::from_fn::<_, 3, _>(|i| {
+                let split = raw_splits[i];
+                lower = if split.is_nan() { [25.0_f64, 50.0, 75.0][i].max(lower) } else { split.clamp(lower, 100.0) };
+                lower
+            });
             let press = crate::widgets::primary_press(ui, &resp);
             let mut split_priority = false;
             for (i, split) in splits.into_iter().enumerate() {
@@ -1290,14 +1296,16 @@ fn curve_editor(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId, d: &Dev
                         f64::from((point.x - r.left()) / r.width() * 100.0).clamp(lower + gap, upper - gap)
                     });
                     let stopped = response.drag_stopped_by(egui::PointerButton::Primary) || !owns;
-                    apply_slider_out(app, spec, SliderOut { value, drag_started: started, drag_stopped: stopped, reset: false }, |app, value| {
-                        let mut updated = splits;
-                        updated[i] = value;
-                        target.merge(
-                            app,
-                            json!({"curve":{"split_shadows":updated[0],"split_mid":updated[1],"split_highlights":updated[2]}}),
-                            "Curve Regions",
-                        )
+                    let spec = ControlSpec { label: "Curve Regions", ..*spec };
+                    apply_slider_out(app, &spec, SliderOut { value, drag_started: started, drag_stopped: stopped, reset: false }, |app, value| {
+                        let mut updated = serde_json::Map::new();
+                        for (index, key) in ["split_shadows", "split_mid", "split_highlights"].into_iter().enumerate() {
+                            let next = if index == i { value } else { splits[index] };
+                            if next != raw_splits[index] {
+                                updated.insert(key.into(), json!(next));
+                            }
+                        }
+                        target.merge(app, json!({"curve":updated}), "Curve Regions")
                     });
                     if stopped {
                         ui.data_mut(|data| data.remove::<egui::Id>(owner_id));
