@@ -451,6 +451,8 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     let mut actions = Vec::new();
     let screen = ctx.content_rect();
     let size = vec2((screen.width() - 160.0).clamp(720.0, 1100.0), (screen.height() - 200.0).clamp(380.0, 680.0));
+    let first_tab =
+        ctx.memory(|memory| memory.focused().is_none()) && ctx.input(|input| input.modifiers == egui::Modifiers::NONE && input.key_pressed(egui::Key::Tab));
     let shown = egui::Window::new(tl!("Set Up Models"))
         .id(egui::Id::new("model-setup-window"))
         .collapsible(false)
@@ -476,8 +478,17 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
         s.dialog_was_open = dialog_open;
     });
     let on_top = shown.as_ref().is_some_and(|w| ctx.top_layer_id() == Some(w.response.layer_id));
-    if on_top && !with(|s| dialogs::any_open(s)) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
-        open = false;
+    if on_top && !with(|s| dialogs::any_open(s)) {
+        // The window's title-bar close button registers before its content.
+        if first_tab
+            && let Some(recheck) = shown.as_ref().and_then(|window| window.inner.as_ref())
+            && recheck.enabled()
+        {
+            recheck.request_focus();
+        }
+        if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+            open = false;
+        }
     }
     for a in actions {
         dispatch(app, ctx, a);
@@ -495,75 +506,89 @@ pub fn window(app: &mut PhotocraftApp, ctx: &egui::Context) {
     }
 }
 
-fn content(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
-    // Panels reserve their measured height before the scrollable split view is allocated.
-    egui::Panel::bottom("model-setup-footer").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6))).show(ui, |ui| footer(ui, s, out));
-    egui::Panel::top("model-setup-header").frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6))).show(ui, |ui| header(ui, s, t, out));
-    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
-        let full = ui.available_size();
-        let side = (full.x * 0.3).clamp(220.0, 300.0);
-        ui.horizontal_top(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.allocate_ui_with_layout(vec2(side, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.painter().rect_filled(ui.max_rect(), 0.0, t.dock);
-                egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 12)).show(ui, |ui| {
-                    ui.set_width(side - 20.0);
-                    egui::ScrollArea::vertical()
-                        .id_salt("model-setup-list")
-                        .max_height((full.y - 24.0).max(0.0))
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| list::show(ui, s, t, out));
+fn content(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) -> egui::Response {
+    let footer_frame = egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6));
+    let footer_height = egui::containers::panel::PanelState::load(ui.ctx(), egui::Id::new("model-setup-footer"))
+        .map_or(ui.spacing().interact_size.y + footer_frame.total_margin().sum().y, |state| state.size().y);
+    let recheck = egui::Panel::top("model-setup-header")
+        .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 6)))
+        .show(ui, |ui| header(ui, s, t, out))
+        .inner;
+    // Reserve the measured footer, but register its widgets after the reading-order content.
+    let mut body_rect = ui.available_rect_before_wrap();
+    body_rect.max.y = (body_rect.bottom() - footer_height).max(body_rect.top());
+    {
+        let mut body = ui.new_child(egui::UiBuilder::new().id_salt("model-setup-body").max_rect(body_rect));
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(&mut body, |ui| {
+            let full = ui.available_size();
+            let side = (full.x * 0.3).clamp(220.0, 300.0);
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.allocate_ui_with_layout(vec2(side, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.painter().rect_filled(ui.max_rect(), 0.0, t.dock);
+                    egui::Frame::new().inner_margin(egui::Margin::symmetric(10, 12)).show(ui, |ui| {
+                        ui.set_width(side - 20.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("model-setup-list")
+                            .max_height((full.y - 24.0).max(0.0))
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| list::show(ui, s, t, out));
+                    });
                 });
-            });
-            ui.allocate_ui_with_layout(vec2(full.x - side, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 12, bottom: 0 }).show(ui, |ui| {
-                    ui.set_width((full.x - side - 28.0).max(0.0));
-                    egui::ScrollArea::vertical()
-                        .id_salt("model-setup-detail")
-                        .max_height((full.y - 12.0).max(0.0))
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| detail::show(ui, s, t, out));
+                ui.allocate_ui_with_layout(vec2(full.x - side, full.y), egui::Layout::top_down(egui::Align::Min), |ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    egui::Frame::new().inner_margin(egui::Margin { left: 14, right: 14, top: 12, bottom: 0 }).show(ui, |ui| {
+                        ui.set_width((full.x - side - 28.0).max(0.0));
+                        egui::ScrollArea::vertical()
+                            .id_salt("model-setup-detail")
+                            .max_height((full.y - 12.0).max(0.0))
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| detail::show(ui, s, t, out));
+                    });
                 });
             });
         });
-    });
+    }
+    egui::Panel::bottom("model-setup-footer").frame(footer_frame).show(ui, |ui| footer(ui, s, out));
+    recheck
 }
 
 /// Server line, banners, the running task and the last message.
-fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
+fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) -> egui::Response {
     let st = crate::ai_ui::status();
     let snapshot = s.scan.as_ref().and_then(|x| x.snapshot.clone());
-    ui.horizontal_wrapped(|ui| {
-        let line = match &snapshot {
-            Some(sn) => {
-                let mut parts = vec![li_i18n::fmt(tl!("ComfyUI {version} at {host}"), &[("version", &sn.version_label()), ("host", &sn.host)])];
-                if let Some(g) = &sn.gpu {
-                    parts.push(li_i18n::fmt(
-                        tl!("{gpu}, {memory} GB"),
-                        &[("gpu", &crate::ai_ui::short_gpu(&g.name)), ("memory", &format!("{:.0}", g.vram_total as f64 / 1e9))],
-                    ));
+    let recheck = ui
+        .horizontal_wrapped(|ui| {
+            let line = match &snapshot {
+                Some(sn) => {
+                    let mut parts = vec![li_i18n::fmt(tl!("ComfyUI {version} at {host}"), &[("version", &sn.version_label()), ("host", &sn.host)])];
+                    if let Some(g) = &sn.gpu {
+                        parts.push(li_i18n::fmt(
+                            tl!("{gpu}, {memory} GB"),
+                            &[("gpu", &crate::ai_ui::short_gpu(&g.name)), ("memory", &format!("{:.0}", g.vram_total as f64 / 1e9))],
+                        ));
+                    }
+                    if !sn.templates_version.is_empty() {
+                        parts.push(li_i18n::fmt(tl!("templates {version}"), &[("version", &sn.templates_version)]));
+                    }
+                    parts.join(" · ")
                 }
-                if !sn.templates_version.is_empty() {
-                    parts.push(li_i18n::fmt(tl!("templates {version}"), &[("version", &sn.templates_version)]));
+                None if s.scan.is_some() => li_i18n::fmt(tl!("ComfyUI is not reachable at {host}"), &[("host", &options().host)]),
+                None => tl!("Checking models…").into(),
+            };
+            ui.label(RichText::new(line).color(t.text_dim));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let recheck = ui.add_enabled_ui(!s.busy(), |ui| widgets::secondary_button_translated(ui, tl!("Re-check"), 0.0)).inner;
+                let recheck =
+                    recheck.on_disabled_hover_text(tl!("Wait for the current task to finish.")).on_hover_text(tl!("Check every model again (no test renders)"));
+                if recheck.clicked() {
+                    out.push(Action::Recheck);
                 }
-                parts.join(" · ")
-            }
-            None if s.scan.is_some() => li_i18n::fmt(tl!("ComfyUI is not reachable at {host}"), &[("host", &options().host)]),
-            None => tl!("Checking models…").into(),
-        };
-        ui.label(RichText::new(line).color(t.text_dim));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let recheck = ui.add_enabled_ui(!s.busy(), |ui| widgets::secondary_button_translated(ui, tl!("Re-check"), 0.0)).inner;
-            if recheck
-                .on_disabled_hover_text(tl!("Wait for the current task to finish."))
-                .on_hover_text(tl!("Check every model again (no test renders)"))
-                .clicked()
-            {
-                out.push(Action::Recheck);
-            }
-        });
-    });
+                recheck
+            })
+            .inner
+        })
+        .inner;
     if s.scan.is_some() && snapshot.is_none() && !st.connected {
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(tl!("Start the AI engine to check new models.")).color(t.warning));
@@ -624,6 +649,7 @@ fn header(ui: &mut egui::Ui, s: &mut State, t: &Tokens, out: &mut Vec<Action>) {
     if let Some((text, error)) = &s.message {
         ui.add(egui::Label::new(RichText::new(text).color(if *error { t.danger } else { t.text_dim })).wrap());
     }
+    recheck
 }
 
 /// The models a "Verify all" tests: set up, usable and not tested (or due a re-check).

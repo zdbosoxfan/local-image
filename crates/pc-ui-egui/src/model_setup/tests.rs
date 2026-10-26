@@ -281,6 +281,45 @@ fn model_setup_screens() {
 }
 
 #[test]
+fn keyboard_and_screen_reader_order_follow_the_window_layout() {
+    let mut h = harness(fixture(), FLUX3, vec2(1440.0, 900.0));
+    let row = "FLUX.3 Klein Distilled · BF16, ready, not tested";
+    let labels: Vec<_> = h.root().children_recursive().filter_map(|n| n.accesskit_node().label()).collect();
+    let positions =
+        ["Re-check", row, "1 Identify", "Change template…", "Verify all ready (2)", "Copy report"].map(|label| labels.iter().position(|l| l == label).unwrap());
+    assert!(positions.windows(2).all(|p| p[0] < p[1]), "AccessKit order: {labels:?}");
+    h.key_press(egui::Key::Tab);
+    h.run_steps(2);
+    assert!(h.get_by_label("Re-check").accesskit_node().is_focused(), "the first Tab starts in the header");
+    let mut reached_row = false;
+    let mut reached_tabs = false;
+    let mut reached_action = false;
+    let mut reached_verify = false;
+    for _ in 0..32 {
+        h.key_press(egui::Key::Tab);
+        h.run_steps(2);
+        reached_row |= h.get_by_label(row).accesskit_node().is_focused();
+        if h.get_by_label("1 Identify").accesskit_node().is_focused() {
+            assert!(reached_row, "navigation precedes detail tabs");
+            reached_tabs = true;
+        }
+        if h.get_by_label("Change template…").accesskit_node().is_focused() {
+            assert!(reached_tabs, "tabs precede page actions");
+            reached_action = true;
+        }
+        if h.get_by_label("Verify all ready (2)").accesskit_node().is_focused() {
+            assert!(reached_action, "page actions precede the footer");
+            reached_verify = true;
+        }
+        if h.get_by_label("Copy report").accesskit_node().is_focused() {
+            assert!(reached_verify, "Verify all precedes Copy report");
+            return;
+        }
+    }
+    panic!("Tab did not reach the footer");
+}
+
+#[test]
 fn the_window_and_footer_stay_put_across_repaints() {
     for size in [vec2(1440.0, 900.0), vec2(1024.0, 700.0), vec2(960.0, 600.0)] {
         let mut h = harness(fixture(), FLUX3, size);
