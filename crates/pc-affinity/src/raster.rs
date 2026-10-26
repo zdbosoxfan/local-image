@@ -10,11 +10,11 @@
 use std::collections::HashMap;
 
 use crate::Error;
-use crate::model::{Affine, Image, Pixels, Reader};
+use crate::model::{Affine, Image, Pixels, Reader, Rect};
 use crate::stream::{self, ObjId, Tag, Value};
 
 /// Pixels decoded per layer (the content's bounding box, not the canvas).
-const MAX_PIXELS: u64 = 100_000_000;
+pub(crate) const MAX_PIXELS: u64 = 100_000_000;
 const TILE: usize = 256;
 const TILE_BYTES: usize = TILE * TILE;
 
@@ -81,7 +81,7 @@ pub(crate) fn node_image(r: &mut Reader, id: ObjId, world: Affine) -> Result<Opt
 }
 
 /// A mask layer (`MRst`): one channel of coverage as grey pixels (white shows, black hides).
-pub(crate) fn mask(r: &mut Reader, id: ObjId, world: Affine) -> Result<Option<Image>, Error> {
+pub(crate) fn mask(r: &mut Reader, id: ObjId, world: Affine, over: Option<Rect>) -> Result<Option<Image>, Error> {
     let s = r.s;
     let Some(bitmap) = s.obj(id, b"Bitm") else { return Ok(None) };
     let width = s.int(bitmap, b"BmpW").and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
@@ -90,7 +90,36 @@ pub(crate) fn mask(r: &mut Reader, id: ObjId, world: Affine) -> Result<Option<Im
         r.warn("pixel masks in an unknown format (imported without them)");
         return Ok(None);
     }
-    decode(r, bitmap, (0, 0, width, height), world)
+    let crop = match over.map(|over| crop_to(over, world, width, height)) {
+        Some(Some(crop)) => crop,
+        // A black pixel preserves hide-all coverage when the artwork lies outside the mask.
+        Some(None) => {
+            if r.pixel_capacity() == 0 {
+                r.warn("pixel mask beyond the import limit (left out)");
+                return Ok(None);
+            }
+            r.charge_pixels(1)?;
+            return Ok(Some(Image { profile: None, width: 1, height: 1, pixels: Pixels::Rgba8(vec![0, 0, 0, 255]), transform: world }));
+        }
+        None => (0, 0, width, height),
+    };
+    decode_auxiliary(r, bitmap, crop, world, "pixel mask beyond the import limit (left out)")
+}
+
+/// Bitmap pixels covering document bounds, with one pixel of padding for the sampling edge.
+fn crop_to(over: Rect, world: Affine, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+    let Some(inv) = (photocraft_geom::Affine { m: world.0 }).inverse() else { return Some((0, 0, width, height)) };
+    let points = [(over.x0, over.y0), (over.x1, over.y0), (over.x1, over.y1), (over.x0, over.y1)].map(|(x, y)| inv.apply(photocraft_geom::Point::new(x, y)));
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for point in points {
+        if !point.x.is_finite() || !point.y.is_finite() {
+            return Some((0, 0, width, height));
+        }
+        (x0, y0, x1, y1) = (x0.min(point.x), y0.min(point.y), x1.max(point.x), y1.max(point.y));
+    }
+    let clamp = |value: f64, max: u32| value.clamp(0., f64::from(max)) as u32;
+    let crop = (clamp(x0.floor() - 1., width), clamp(y0.floor() - 1., height), clamp(x1.ceil() + 1., width), clamp(y1.ceil() + 1., height));
+    (crop.2 > crop.0 && crop.3 > crop.1).then_some(crop)
 }
 
 /// An embedded document or symbol instance (`EmbN`), as the picture of it Affinity caches.
@@ -108,7 +137,18 @@ pub(crate) fn embedded(r: &mut Reader, id: ObjId, world: Affine) -> Result<Optio
     // thumbnails of documents with embedded documents and SVG files).
     let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
     let place = Affine([(x1 - x0) / f64::from(width), 0.0, 0.0, (y1 - y0) / f64::from(height), x0 - cx, y0 - cy]).then(world);
-    decode(r, cache, (0, 0, width, height), place)
+    decode_auxiliary(r, cache, (0, 0, width, height), place, "embedded cached picture beyond the import limit (left out)")
+}
+
+fn decode_auxiliary(r: &mut Reader, bitmap: ObjId, crop: (u32, u32, u32, u32), world: Affine, warning: &str) -> Result<Option<Image>, Error> {
+    crate::import::cancelled(r.archive.cancel)?;
+    let count = u64::from(crop.2.saturating_sub(crop.0)) * u64::from(crop.3.saturating_sub(crop.1));
+    // Refuse optional storage before charging it, leaving the budget available for other artwork.
+    if count > MAX_PIXELS.min(r.pixel_capacity()) {
+        r.warn(warning);
+        return Ok(None);
+    }
+    decode(r, bitmap, crop, world)
 }
 
 /// Decode the tiles of a bitmap inside `crop` (pixels), placed by `world` (bitmap pixels to document).

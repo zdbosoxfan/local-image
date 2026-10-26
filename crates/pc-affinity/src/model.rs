@@ -560,6 +560,10 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         self.archive.limits.max_total = remaining;
         true
     }
+    pub(crate) fn pixel_capacity(&self) -> u64 {
+        let bytes = self.budget.limit.saturating_sub(self.budget.owned).saturating_sub(self.archive_base).saturating_sub(self.archive.extracted());
+        self.archive.limits.max_pixels.saturating_sub(self.budget.pixels).min(bytes as u64 / 16)
+    }
     pub(crate) fn charge_pixels(&mut self, count: u64) -> Result<(), Error> {
         if !self.charge_owned(usize::try_from(count.saturating_mul(16)).unwrap_or(usize::MAX)) {
             return Err(self.failure.unwrap_or(Error::Limit("pixel allocation")));
@@ -689,7 +693,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
     }
 
     /// The children of `parent`, and the pixel mask a mask layer among them puts on the parent.
-    fn children(&mut self, parent: ObjId, world: Affine, depth: usize) -> Result<(Vec<Node>, Option<Image>), Error> {
+    fn children(&mut self, parent: ObjId, world: Affine, depth: usize) -> Result<(Vec<Node>, Option<(ObjId, Affine)>), Error> {
         let s = self.s;
         let mut out = Vec::new();
         let mut mask = None;
@@ -704,10 +708,10 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                     continue;
                 }
                 let local = s.floats::<6>(c, b"Xfrm").map(Affine::from_xfrm).unwrap_or(Affine::IDENTITY);
-                match crate::raster::mask(self, c, local.then(world))? {
-                    Some(m) if mask.is_none() => mask = Some(m),
-                    Some(_) => self.warn("several pixel masks on one layer (only the first is used)"),
-                    None => {}
+                if mask.is_none() {
+                    mask = Some((c, local.then(world)));
+                } else {
+                    self.warn("several pixel masks on one layer (only the first is used)");
                 }
                 continue;
             }
@@ -777,7 +781,13 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         if let Some(embedded) = embedded {
             children.extend(embedded);
         }
-        let (mask, attached_mask) = self.attached_masks(id, world)?;
+        let has_pixel_mask = child_mask.is_some() || s.array_len(id, b"AdCh") > 0;
+        let over = if has_pixel_mask { mask_extent(&kind, &children) } else { None };
+        let child_mask = match child_mask {
+            Some((id, at)) => crate::raster::mask(self, id, at, over)?,
+            None => None,
+        };
+        let (mask, attached_mask) = self.attached_masks(id, world, over)?;
         if attached_mask.is_some() && child_mask.is_some() {
             self.warn("attached and child pixel masks on one layer (only the attached mask is used)");
         }
@@ -1004,7 +1014,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
 
     /// Vector shapes attached to a node (`AdCh`) mask it: it shows only inside their outlines;
     /// an attached mask layer is a pixel mask. Adjustments attached the same way are reported.
-    fn attached_masks(&mut self, id: ObjId, world: Affine) -> Result<(Option<Path>, Option<Image>), Error> {
+    fn attached_masks(&mut self, id: ObjId, world: Affine, over: Option<Rect>) -> Result<(Option<Path>, Option<Image>), Error> {
         let s = self.s;
         if !self.charge_slots(s.array_len(id, b"AdCh")) {
             return Err(self.failure.unwrap_or(Error::Limit("array traversal slots")));
@@ -1024,7 +1034,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                 }
             } else if class == Tag::of(b"MRst") {
                 let local = s.floats::<6>(a, b"Xfrm").map(Affine::from_xfrm).unwrap_or(Affine::IDENTITY).then(world);
-                match crate::raster::mask(self, a, local)? {
+                match crate::raster::mask(self, a, local, over)? {
                     Some(m) if pixels.is_none() => pixels = Some(m),
                     Some(_) => self.warn("several pixel masks on one layer (only the first is used)"),
                     None => {}
@@ -1157,6 +1167,28 @@ fn walk_bounds(nodes: &[Node], visible_only: bool, depth: usize, out: &mut Optio
         kind_points(&n.kind, &mut |p| add_point(out, p));
         walk_bounds(&n.children, visible_only, depth + 1, out);
     }
+}
+
+/// Pixel masks cover known artwork bounds, including stroke reach. Artistic glyph bounds
+/// require layout, so a subtree containing artistic text keeps the whole mask.
+fn mask_extent(kind: &Kind, children: &[Node]) -> Option<Rect> {
+    fn visit(kind: &Kind, children: &[Node], depth: usize, out: &mut Option<Rect>) -> bool {
+        if depth > MAX_TREE_DEPTH || matches!(kind, Kind::Text(t) if t.frame.is_none()) {
+            return false;
+        }
+        let mut own = None;
+        kind_points(kind, &mut |p| add_point(&mut own, p));
+        if let (Some(r), Kind::Shape { strokes, .. } | Kind::Artboard { strokes, .. }) = (own, kind) {
+            let reach = strokes.iter().map(|s| s.width * s.miter_limit.clamp(1.0, 10.0)).filter(|w| w.is_finite()).fold(0.0, f64::max);
+            own = Some(Rect { x0: r.x0 - reach, y0: r.y0 - reach, x1: r.x1 + reach, y1: r.y1 + reach });
+        }
+        if let Some(r) = own {
+            *out = Some(out.map_or(r, |o| union(o, r)));
+        }
+        children.iter().filter(|n| n.visible).all(|n| visit(&n.kind, &n.children, depth + 1, out))
+    }
+    let mut out = None;
+    if visit(kind, children, 0, &mut out) { out } else { None }
 }
 
 fn add_point(out: &mut Option<Rect>, p: Point) {
