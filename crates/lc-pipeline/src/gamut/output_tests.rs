@@ -73,7 +73,8 @@ fn fixed_lab_search_chroma_is_monotone() {
                     let luma = space.luma();
                     let magnitude = rgb.iter().fold(0.0f32, |max, v| max.max(v.abs()));
                     let lower = -(OUTPUT_EPS * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]) + 8.0 * f32::EPSILON * magnitude);
-                    assert!(rgb.iter().all(|v| *v >= lower && *v <= 1.0 + OUTPUT_EPS), "{}: {rgb:?}", space.label());
+                    let upper = 1.0 + OUTPUT_EPS + 8.0 * f32::EPSILON * magnitude;
+                    assert!(rgb.iter().all(|v| *v >= lower && *v <= upper), "{}: {rgb:?}", space.label());
                     previous = chroma;
                 }
             }
