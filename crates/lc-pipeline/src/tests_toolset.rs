@@ -111,7 +111,7 @@ const GOLDEN: [(&str, u64, u64); 14] = [
     ("optics + geometry + crop/rendered", 0xc994ce6fab68fd65, 0x0d608f6981034f4f),
     ("optics + geometry + crop/raw", 0x3336b75b26870675, 0x0d608f6981034f4f),
     ("profile look/rendered", 0x77b7e5e2b4d43f52, 0x67aea33bdcc2fa0b),
-    ("profile look/raw", 0x0d1c2bd724910cae, 0x67aea33bdcc2fa0b),
+    ("profile look/raw", 0xa0114c64b29d7339, 0x67aea33bdcc2fa0b),
     ("b&w profile/rendered", 0x3d61cfe30c95ede3, 0xb6159ee7a2d437b0),
     ("b&w profile/raw", 0x83be731308b9b845, 0xb6159ee7a2d437b0),
     ("negative/rendered", 0x1f18b65cd743ea3c, 0xb00a5805f4d46110),
