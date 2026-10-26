@@ -34,6 +34,7 @@ enum Nav {
 }
 
 type Slot<T> = Arc<Mutex<Option<T>>>;
+type Spawn = fn(std::thread::Builder, Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>>;
 
 struct Fetched {
     items: Vec<Item>,
@@ -207,12 +208,12 @@ fn age(secs: u64) -> String {
 }
 
 /// Fetches the query's catalogues on a worker thread (cache fallback per source).
-fn start_fetch(q: Query) -> Slot<Fetched> {
+fn start_fetch(q: Query, spawn: Spawn) -> Slot<Fetched> {
     let slot: Slot<Fetched> = Arc::new(Mutex::new(None));
     let out = slot.clone();
     // Notes are shown in the window: the worker draws them in the UI's language.
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-browser".into()).spawn(move || {
+    let work = move || {
         li_i18n::set_current(lang);
         let cfg = config();
         let reg = li_ai::family::registry();
@@ -240,7 +241,13 @@ fn start_fetch(q: Query) -> Slot<Fetched> {
             *o = Some(Fetched { items, notes });
         }
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("model-browser".into()), Box::new(work)) {
+        if let Ok(mut state) = slot.lock() {
+            *state = Some(Fetched { items: Vec::new(), notes: vec![error.to_string()] });
+        }
+        request_repaint();
+    }
     slot
 }
 
@@ -413,7 +420,7 @@ pub(crate) fn test_install_plan(plan: Plan) -> TestPlanGuard {
 }
 
 /// Resolves what installing `item` downloads (and, for a template, its workflow).
-fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
+fn start_plan(item: Item, spawn: Spawn) -> Slot<Result<(Plan, Option<Value>), String>> {
     #[cfg(test)]
     if let Some(plan) = TEST_PLAN.with(|next| next.borrow_mut().take()) {
         return Arc::new(Mutex::new(Some(Ok((plan, None)))));
@@ -421,7 +428,7 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-plan".into()).spawn(move || {
+    let work = move || {
         li_i18n::set_current(lang);
         let r = (|| -> anyhow::Result<(Plan, Option<Value>)> {
             let cfg = config();
@@ -454,13 +461,19 @@ fn start_plan(item: Item) -> Slot<Result<(Plan, Option<Value>), String>> {
             *o = Some(r);
         }
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("model-plan".into()), Box::new(work)) {
+        if let Ok(mut state) = slot.lock() {
+            *state = Some(Err(error.to_string()));
+        }
+        request_repaint();
+    }
     slot
 }
 
-fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<InstallRun>> {
+fn start_install(item: Item, plan: Plan, template: Option<Value>, settings: &AiSettings, spawn: Spawn) -> Arc<Mutex<InstallRun>> {
     let run = Arc::new(Mutex::new(InstallRun { total: plan.total(), ..Default::default() }));
-    if AiSettings::load().is_remote() {
+    if settings.is_remote() {
         if let Ok(mut state) = run.lock() {
             state.finished = true;
             state.error = Some(tl!("Install generative models on the remote ComfyUI server, then check the connection again.").into());
@@ -469,7 +482,7 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
     }
     let r = run.clone();
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
+    let work = move || {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
         li_i18n::set_current(lang);
         let cfg = config();
@@ -504,14 +517,21 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
         crate::generate_ui::reload_customs();
         crate::ai_ui::refresh();
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("model-install".into()), Box::new(work)) {
+        if let Ok(mut state) = run.lock() {
+            state.finished = true;
+            state.error = Some(error.to_string());
+        }
+        request_repaint();
+    }
     run
 }
 
-fn start_profile_update() -> Slot<Result<Vec<String>, String>> {
+fn start_profile_update(spawn: Spawn) -> Slot<Result<Vec<String>, String>> {
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
-    let _ = std::thread::Builder::new().name("family-update".into()).spawn(move || {
+    let work = move || {
         let net = HttpNet::new(config());
         let base = std::env::var("LOCAL_IMAGE_FAMILIES_BASE").unwrap_or_else(|_| li_ai::family::REMOTE_BASE.to_owned());
         let r = li_ai::family::update_from(&|u| net.get(u), &base, &li_ai::family::cache_dir()).map_err(|e| first_line(&format!("{e:#}")));
@@ -523,7 +543,13 @@ fn start_profile_update() -> Slot<Result<Vec<String>, String>> {
             *o = Some(r);
         }
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("family-update".into()), Box::new(work)) {
+        if let Ok(mut state) = slot.lock() {
+            *state = Some(Err(error.to_string()));
+        }
+        request_repaint();
+    }
     slot
 }
 
@@ -701,7 +727,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
             s.items = browser::items(li_ai::family::registry(), &Config::default(), &query(s), &[]);
             s.notes.clear();
         } else {
-            s.fetch = Some(start_fetch(query(s)));
+            s.fetch = Some(start_fetch(query(s), std::thread::Builder::spawn));
         }
     }
     // Installed: always current (no network), so removed models drop off once ComfyUI re-scans.
@@ -873,7 +899,7 @@ fn grid(ui: &mut egui::Ui, s: &mut State, t: &Tokens, loading: bool) {
         ui.add_space(gap);
     }
     if let Some(item) = action {
-        s.confirm = Some(Confirm { plan: start_plan(item.clone()), item, accept: false });
+        s.confirm = Some(Confirm { plan: start_plan(item.clone(), std::thread::Builder::spawn), item, accept: false });
     }
 }
 
@@ -1116,7 +1142,7 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                     .on_hover_text(tl!("Fetch the latest family profiles (new models, settings) from Local Image's repository"))
                     .clicked()
                 {
-                    s.profiles = Some(start_profile_update());
+                    s.profiles = Some(start_profile_update(std::thread::Builder::spawn));
                     s.profiles_msg = tl!("Checking for profile updates…").into();
                 }
                 if !s.profiles_msg.is_empty() {
@@ -1245,7 +1271,7 @@ fn confirm_window(ctx: &egui::Context, t: &Tokens) {
         }
         if let Some((p, template)) = go {
             if !p.files.is_empty() || template.is_some() {
-                s.installs.insert(item.id.clone(), start_install(item.clone(), p, template));
+                s.installs.insert(item.id.clone(), start_install(item.clone(), p, template, &AiSettings::load(), std::thread::Builder::spawn));
             }
             s.confirm = None;
         } else if close {
@@ -1304,4 +1330,45 @@ fn ds2_restoration_cards_supersede_pending_catalogue_fetch() {
     *old_fetch.lock().unwrap() = Some(Fetched { items: vec![], notes: vec!["old family".into()] });
     h.run_steps(2);
     assert!(h.get_all_by_label("FBCNN · JPEG cleanup").count() > 0);
+}
+
+#[cfg(test)]
+mod spawn_tests {
+    use super::*;
+
+    fn fail_spawn(_: std::thread::Builder, _: Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>> {
+        Err(std::io::Error::other("worker thread unavailable"))
+    }
+
+    #[test]
+    fn plan_thread_failure_completes_with_error() {
+        let slot = start_plan(Item::default(), fail_spawn);
+        assert!(matches!(&*slot.lock().unwrap(), Some(Err(error)) if error == "worker thread unavailable"), "planning must leave the loading state");
+    }
+
+    #[test]
+    fn install_thread_failure_finishes_with_error() {
+        let plan = Plan::default();
+        let run = start_install(Item::default(), plan, None, &AiSettings::default(), fail_spawn);
+        let run = run.lock().unwrap();
+        assert!(run.finished, "installation must leave the progress state");
+        assert_eq!(run.error.as_deref(), Some("worker thread unavailable"));
+        assert!(run.note.is_none());
+        assert_eq!(run.done, 0);
+    }
+
+    #[test]
+    fn fetch_thread_failure_completes_with_note() {
+        let slot = start_fetch(Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![] }, fail_spawn);
+        let mut slot = slot.lock().unwrap();
+        let fetched = slot.take().expect("catalogue fetch must leave the loading state");
+        assert!(fetched.items.is_empty());
+        assert_eq!(fetched.notes, ["worker thread unavailable"]);
+    }
+
+    #[test]
+    fn profile_thread_failure_completes_with_error() {
+        let slot = start_profile_update(fail_spawn);
+        assert!(matches!(&*slot.lock().unwrap(), Some(Err(error)) if error == "worker thread unavailable"), "profile update must leave the busy state");
+    }
 }

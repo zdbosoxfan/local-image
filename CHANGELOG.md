@@ -61,6 +61,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Model Browser: worker-start failures report an error instead of leaving model checks, installs,
+  catalogue searches or profile updates loading indefinitely.
+
 - Library: directory-sync failures when opening the catalog journal are reported, and retries
   confirm the directory entry is durable before saving edits.
 - Develop and export preserve saturated colours already inside the selected output space,
