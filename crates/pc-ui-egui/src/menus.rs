@@ -442,6 +442,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 _ => &mut e.lock_guides,
             };
             *slot = !*slot;
+            if id == "view.show.grid" && *slot {
+                app.ui.view.extras = true;
+            }
             Ok(json!(*slot))
         }
         "edit.freeTransform"
@@ -1734,7 +1737,10 @@ mod open_recent_tests {
         assert_eq!(app.ui.recent_files.first().map(String::as_str), Some(p.as_str()));
         // Re-open via the recent entry.
         invoke(&mut app, &ctx, "file.openRecent.0", json!({})).unwrap();
-        assert_eq!(app.session.documents().len(), 2);
+        assert_eq!(app.session.documents().len(), 1);
+        app.session.close(0);
+        invoke(&mut app, &ctx, "file.openRecent.0", json!({})).unwrap();
+        assert_eq!(app.session.documents().len(), 1);
         let _ = std::fs::remove_file(&path);
     }
 }
@@ -1742,3 +1748,23 @@ mod open_recent_tests {
 #[cfg(test)]
 #[path = "menus/conventions_tests.rs"]
 mod conventions_tests;
+
+#[cfg(test)]
+mod grid_tests {
+    use super::*;
+    #[test]
+    fn showing_grid_restores_hidden_extras() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.ui.view.extras = false;
+        app.ui.extras.grid = false;
+        let ctx = egui::Context::default();
+        invoke(&mut app, &ctx, "view.show.grid", json!({})).unwrap();
+        assert!(app.ui.view.extras && app.ui.extras.grid);
+        invoke(&mut app, &ctx, "view.show.grid", json!({})).unwrap();
+        assert!(!app.ui.extras.grid && app.ui.view.extras);
+        app.ui.extras.grid = true;
+        app.ui.view.extras = false;
+        invoke(&mut app, &ctx, "view.show.grid", json!({})).unwrap();
+        assert!(!app.ui.extras.grid && !app.ui.view.extras);
+    }
+}
