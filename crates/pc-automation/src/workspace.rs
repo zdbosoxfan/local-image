@@ -92,8 +92,14 @@ impl AtomicFs for CapFs<'_> {
             li_fs::preserve_access(&file, metadata.mode(), metadata.gid(), || {
                 #[cfg(target_os = "linux")]
                 {
-                    let source = self.dir.open(from)?.into_std();
-                    li_fs::read_access_acl(&source)
+                    use cap_std::fs::OpenOptionsExt;
+                    if !self.dir.symlink_metadata(from)?.is_file() {
+                        return Ok(None);
+                    }
+                    let mut options = OpenOptions::new();
+                    options.read(true).custom_flags(li_fs::read::REGULAR_READ_OPEN_FLAGS);
+                    let source = self.dir.open_with(from, &options)?.into_std();
+                    if source.metadata()?.is_file() { li_fs::read_access_acl(&source) } else { Ok(None) }
                 }
                 #[cfg(not(target_os = "linux"))]
                 {
@@ -557,6 +563,22 @@ mod tests {
         std::fs::create_dir_all(&outside).unwrap();
         let workspace = AuthorizedWorkspace::new(Some(&inside), Some(&inside)).unwrap();
         (inside, outside, workspace)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_replaces_fifo_without_waiting_for_a_reader() {
+        let (inside, _, workspace) = roots("fifo-replacement");
+        let target = inside.join("output.txt");
+        assert!(std::process::Command::new("mkfifo").arg(&target).status().unwrap().success());
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || sender.send(workspace.write("output.txt", b"replacement")).unwrap());
+        receiver.recv_timeout(std::time::Duration::from_secs(5)).expect("replacing a FIFO must not block").unwrap();
+        worker.join().unwrap();
+        assert!(std::fs::symlink_metadata(&target).unwrap().is_file());
+        assert_eq!(std::fs::read(&target).unwrap(), b"replacement");
+        assert!(temp_files(&inside).is_empty());
+        std::fs::remove_dir_all(inside.parent().unwrap()).unwrap();
     }
 
     #[cfg(target_os = "linux")]
