@@ -22,6 +22,18 @@ fn colours() -> Vec<[f32; 3]> {
             }
         }
     }
+    for [lo, hi] in [gamut::BLUE_SRGB, gamut::BLUE_REC2020] {
+        for edge in [lo, hi] {
+            for offset in [-0.1001, -0.1, -0.0999, -0.0101, -0.01, -0.0099, 0.0, 0.0099, 0.01, 0.0101, 0.0999, 0.1, 0.1001] {
+                let h = edge + offset;
+                for l in [0.02, 0.2, 0.45, 0.9] {
+                    for c in [0.01, 0.1, 0.28, 0.31, 0.34, 0.38, 0.45] {
+                        out.push(li_color::perceptual::oklab_to_2020([l, c * h.cos(), c * h.sin()]));
+                    }
+                }
+            }
+        }
+    }
     for c in [[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [-0.1, 0.5, 0.2], [0.8, -0.02, 0.1]] {
         for exposure in [1e-6, 0.01, 10.0, 1000.0, 1e6, 1e30] {
             out.push(c.map(|v| v * exposure));
@@ -60,6 +72,7 @@ fn gamut_knees_match_the_cpu() {
         let lms = gamut::lms_to(&to_out);
         let mut p = vec![colours.len() as u32];
         p.extend(to_out.as_flattened().iter().chain(lms.as_flattened()).map(|v| v.to_bits()));
+        p.push(match space { OutputSpace::Srgb => 1, OutputSpace::Rec2020 => 2, _ => 0 });
         let mut cx = Cx::new(g);
         let input = g.upload(colours.as_flattened());
         let out = g.buffer(colours.len() * 6);
@@ -67,7 +80,7 @@ fn gamut_knees_match_the_cpu() {
         let gpu: Vec<f32> = cx.read(&out, colours.len() * 6);
         let (mut worst_out, mut worst_scene) = ((0f32, [0f32; 3]), (0f32, [0f32; 3]));
         for (d, q) in colours.iter().zip(gpu.as_chunks::<6>().0) {
-            let cpu_out = gamut::output(*d, mul3(&to_out, *d), &lms);
+            let cpu_out = gamut::output(*d, mul3(&to_out, *d), &lms, space);
             let cpu_scene = gamut::scene(*d, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT);
             assert!(q.iter().chain(&cpu_out).chain(&cpu_scene).all(|v| v.is_finite()), "{} at {d:?}: {q:?}", space.label());
             let scale = |c: [f32; 3]| c.iter().fold(1f32, |m, v| m.max(v.abs()));

@@ -12,7 +12,7 @@ fn destination_cube_is_identity_including_imaginary_primaries() {
                 for b in values {
                     let rgb = [r, g, b];
                     let d = mul3(&from_out, rgb);
-                    assert_eq!(output(d, rgb, &m), rgb, "{}: {rgb:?}", space.label());
+                    assert_eq!(output(d, rgb, &m, space), rgb, "{}: {rgb:?}", space.label());
                 }
             }
         }
@@ -20,12 +20,12 @@ fn destination_cube_is_identity_including_imaginary_primaries() {
     for space in OutputSpace::ALL {
         let rgb = [-5e-7, 0.0, 1e-6];
         let d = mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb);
-        assert_eq!(output(d, rgb, &lms_to(&space.from_working())), rgb);
+        assert_eq!(output(d, rgb, &lms_to(&space.from_working()), space), rgb);
     }
     let space = OutputSpace::ProPhoto;
     let rgb = [0.000_867_180_5, 0.209_963_34, 0.979_384_1];
     let d = mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb);
-    assert_eq!(output(d, rgb, &lms_to(&space.from_working())), rgb);
+    assert_eq!(output(d, rgb, &lms_to(&space.from_working()), space), rgb);
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn mixed_negative_blue_is_contained_without_rotating_hue() {
     let d = [-0.010_398_38, -0.008_016_221, 0.403_574_4];
     let space = OutputSpace::ProPhoto;
     let to_out = space.from_working();
-    let out = output(d, mul3(&to_out, d), &lms_to(&to_out));
+    let out = output(d, mul3(&to_out, d), &lms_to(&to_out), space);
     assert!(out.iter().all(|v| (0.0..=1.0).contains(v)), "{out:?}");
     let mapped = mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), out);
     let a = oklab_from_2020(d);
@@ -44,7 +44,7 @@ fn mixed_negative_blue_is_contained_without_rotating_hue() {
 
 fn mapped_lab(space: OutputSpace, lab: [f32; 3]) -> ([f32; 3], [f32; 3]) {
     let d = oklab_to_2020(lab);
-    let rgb = output(d, mul3(&space.from_working(), d), &lms_to(&space.from_working()));
+    let rgb = output(d, mul3(&space.from_working(), d), &lms_to(&space.from_working()), space);
     let working = mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb);
     (oklab_from_2020(working), rgb)
 }
@@ -57,7 +57,7 @@ fn fixed_lab_search_chroma_is_monotone() {
                 let mut previous = 0.0f32;
                 for ci in 0..=1000 {
                     let c = ci as f32 * 0.0006;
-                    let rgb = output_lab([l, c * h.cos(), c * h.sin()], &lms_to(&space.from_working()));
+                    let rgb = output_lab([l, c * h.cos(), c * h.sin()], &lms_to(&space.from_working()), mul3(&space.from_working(), oklab_to_2020([l, c * h.cos(), c * h.sin()])), space);
                     let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb));
                     let chroma = lab[1].hypot(lab[2]);
                     assert!(chroma >= previous - 2e-6, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
@@ -93,7 +93,7 @@ fn inward_search_reaches_the_nearest_interval_including_blue_reentry() {
                     hi = mid;
                 }
             }
-            let rgb = output(d, mul3(&space.from_working(), d), &m);
+            let rgb = output(d, mul3(&space.from_working(), d), &m, space);
             let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb));
             let actual = lab[1].hypot(lab[2]);
             assert!((actual as f64 - lo).abs() < 3e-5, "{} at ({l}, {chroma}, {h}): {actual} vs inward reference {lo}", space.label());
@@ -109,12 +109,12 @@ fn negative_black_and_hdr_outputs_are_finite_and_contained() {
         for rgb in [[0.0; 3], [-1.0, -2.0, -3.0], [-0.2, 0.5, 0.1], [0.0, 0.0, 1.0], [1.0; 3], [1.0, -1.0, 0.1]] {
             for exposure in [1e-6, 0.01, 1.0, 1e3, 1e6, 1e30] {
                 let d = rgb.map(|v| v * exposure);
-                let out = output(d, mul3(&to_out, d), &m).map(|v| v.clamp(0.0, 1.0));
+                let out = output(d, mul3(&to_out, d), &m, space).map(|v| v.clamp(0.0, 1.0));
                 assert!(out.iter().all(|v| v.is_finite() && (0.0..=1.0).contains(v)), "{}: {d:?} -> {out:?}", space.label());
             }
         }
-        assert_eq!(output([-1.0; 3], mul3(&to_out, [-1.0; 3]), &m), [0.0; 3]);
-        assert_eq!(output([0.0; 3], [0.0; 3], &m), [0.0; 3]);
+        assert_eq!(output([-1.0; 3], mul3(&to_out, [-1.0; 3]), &m, space), [0.0; 3]);
+        assert_eq!(output([0.0; 3], [0.0; 3], &m, space), [0.0; 3]);
     }
 }
 
@@ -143,7 +143,7 @@ fn white_endpoint_matches_the_independent_upper_envelope_reference() {
         (OutputSpace::Rec2020, [1.0, 1.0, 0.997_633_76]),
     ] {
         let to_out = space.from_working();
-        let out = output(d, mul3(&to_out, d), &lms_to(&to_out));
+        let out = output(d, mul3(&to_out, d), &lms_to(&to_out), space);
         for i in 0..3 {
             assert!((out[i] - expected[i]).abs() < 2e-5, "{}: {out:?} vs {expected:?}", space.label());
         }
@@ -207,7 +207,7 @@ fn near_black_output_chroma_is_monotone_across_membership_boundary() {
         let actual = oklab_from_2020(input);
         let hue_error = (actual[2].atan2(actual[1]) - hue + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         assert!((actual[0] - 0.02).abs() < 2e-8 && hue_error.abs() < 2e-6, "ill-conditioned input {actual:?}");
-        let mapped = output(input, mul3(&to_out, input), &m);
+        let mapped = output(input, mul3(&to_out, input), &m, space);
         for (i, rgb) in [mapped, mapped.map(|v| v.clamp(0.0, 1.0))].into_iter().enumerate() {
             let lab = oklab_from_2020(mul3(&from_out, rgb));
             let chroma = lab[1].hypot(lab[2]);
@@ -230,8 +230,8 @@ fn captured_blue_pair_maps_continuously() {
     let cpu = [0.04546731, 0.021514542, 0.86354965];
     let gpu = [0.04551213, 0.021517217, 0.8635499];
     let inside = mul3(&to_out, gpu);
-    assert_eq!(output(gpu, inside, &m), inside);
-    let encoded = |d| output(d, mul3(&to_out, d), &m).map(|v| space.trc().encode(v.clamp(0.0, 1.0)) * 255.0);
+    assert_eq!(output(gpu, inside, &m, space), inside);
+    let encoded = |d| output(d, mul3(&to_out, d), &m, space).map(|v| space.trc().encode(v.clamp(0.0, 1.0)) * 255.0);
     let a = encoded(cpu);
     let b = encoded(gpu);
     for i in 0..3 {

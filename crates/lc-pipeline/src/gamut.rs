@@ -1,7 +1,7 @@
 //! Hue-preserving gamut mapping along constant-lightness OkLab hue lines.
 //!
 //! Output uses relative colorimetric clipping: destination RGB inside the cube stays identical;
-//! outside colours move to the nearest chroma interval of that cube, below or above their input.
+//! outside colours use the first crossing from gray, blended with an RGB ray trace near blue.
 //! OkLab hue lines can leave and re-enter RGB gamuts, so their cubic face crossings partition the
 //! search before bisection. The scene stage instead uses the smooth ACES reference compression
 //! curve ([`knee_curve`]) against the exposure-normalized working gamut.
@@ -9,6 +9,8 @@
 //! The GPU kernels in `lightcraft-gpu`'s `gamut.wgsl` mirror these operations.
 
 use std::sync::OnceLock;
+
+use crate::output::OutputSpace;
 
 use li_color::perceptual::{oklab_from_2020, oklab_matrices, oklab_to_2020};
 
@@ -25,9 +27,26 @@ pub const STEPS: u32 = 12;
 /// OkLab chroma where the search along a line ends when none of its cube-rooted LMS falls.
 pub const MAX_CHROMA: f32 = 2.0;
 
+/// Padded hue windows containing the blue pinches, shared with WGSL.
+pub const BLUE_SRGB: [f32; 2] = [-1.674_503, -1.671_768];
+pub const BLUE_REC2020: [f32; 2] = [-2.005_771, -2.001_952];
+
+fn blue_weight(space: OutputSpace, h: f32) -> f32 {
+    let [lo, hi] = match space {
+        OutputSpace::Srgb => BLUE_SRGB,
+        OutputSpace::Rec2020 => BLUE_REC2020,
+        _ => return 0.0,
+    };
+    let center = 0.5 * (lo + hi);
+    let distance = ((h - center + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI).abs() - 0.5 * (hi - lo);
+    let t = ((distance - 0.01) / 0.09).clamp(0.0, 1.0);
+    1.0 - t * t * (3.0 - 2.0 * t)
+}
+
 struct Mats {
     /// OkLab → cube-rooted LMS.
     from_lab: M3,
+    from_srgb: M3,
     /// LMS → linear Rec. 2020, the working gamut's channels.
     working: M3,
 }
@@ -36,7 +55,7 @@ fn mats() -> &'static Mats {
     static M: OnceLock<Mats> = OnceLock::new();
     M.get_or_init(|| {
         let [_, from_lms, _, from_lab] = oklab_matrices();
-        Mats { from_lab, working: from_lms }
+        Mats { from_lab, working: from_lms, from_srgb: li_color::SRGB.to_space(&li_color::REC2020).to_f32() }
     })
 }
 
@@ -288,60 +307,30 @@ fn in_cube(rgb: [f32; 3], eps: f32) -> bool {
 }
 
 impl Line {
-    /// The nearest valid chroma in `0..hi`, with equal distances resolved toward neutral.
-    fn output_chroma(&self, m: &M3, input: f32, hi: f32) -> Option<f32> {
-        if in_cube(self.at(m, input), OUTPUT_EPS) {
-            return Some(input);
+    /// First exit from the expanded cube walking out from gray.
+    fn output_chroma(&self, m: &M3, input: f32) -> Option<f32> {
+        if !in_cube(self.at(m, 0.0), OUTPUT_EPS) {
+            return None;
         }
-        // Six cubics: three roots and two turning points each, plus endpoints and input.
-        let mut cuts = [0.0; 33];
-        cuts[1] = hi;
-        cuts[2] = input;
-        let mut n = 3;
+        let mut chroma = input;
         let (faces, count) = self.faces(m, true, 0.0);
         for face in &faces[..count] {
             let mut face = *face;
             face[0] += OUTPUT_EPS;
-            let (turns, count) = pieces(face, hi);
-            for t in &turns[1..count] {
-                cuts[n] = *t;
-                n += 1;
-            }
-            sign_changes(face, hi, OUTPUT_STEPS, &mut |t| {
-                cuts[n] = t;
-                n += 1;
-            });
-        }
-        cuts[..n].sort_by(f32::total_cmp);
-        let mut seeds = [None::<f32>; 2];
-        for i in 0..n {
-            let mid = if i == 0 { cuts[i] } else { 0.5 * (cuts[i - 1] + cuts[i]) };
-            for t in [cuts[i], mid] {
-                if in_cube(self.at(m, t), OUTPUT_EPS) {
-                    let side = usize::from(t > input);
-                    if seeds[side].is_none_or(|seed| (t - input).abs() < (seed - input).abs()) {
-                        seeds[side] = Some(t);
-                    }
+            let (cuts, count) = pieces(face, input);
+            for k in 0..count {
+                let (mut lo, mut up) = (cuts[k], cuts[k + 1]);
+                if horner(face, lo) < 0.0 || horner(face, up) >= 0.0 {
+                    continue;
                 }
-            }
-        }
-        let mut nearest = None::<f32>;
-        for mut inside in seeds.into_iter().flatten() {
-            let mut outside = input;
-            for _ in 0..OUTPUT_STEPS {
-                let mid = 0.5 * (inside + outside);
-                if in_cube(self.at(m, mid), OUTPUT_EPS) {
-                    inside = mid;
-                } else {
-                    outside = mid;
+                for _ in 0..OUTPUT_STEPS {
+                    let mid = 0.5 * (lo + up);
+                    if horner(face, mid) >= 0.0 { lo = mid; } else { up = mid; }
                 }
-            }
-            // Lower seeds are refined first, so a tie keeps the lower boundary.
-            if nearest.is_none_or(|found| (inside - input).abs() < (found - input).abs()) {
-                nearest = Some(inside);
+                chroma = chroma.min(lo);
             }
         }
-        nearest
+        Some(chroma)
     }
 
     /// At C=qL, RGB=L³*v(q). The largest feasible L minimizes the upper envelope of v's
@@ -398,19 +387,19 @@ impl Line {
 
 /// Relative colorimetric output from working RGB `d` and its destination RGB `r`.
 /// Membership is tested directly in `r`, including imaginary ProPhoto colours. Only outside
-/// colours move at fixed OkLab lightness and hue to the nearest valid chroma below or above
-/// the input, with ties going down.
+/// colours move to the first constant-lightness/hue boundary from gray. Near the sRGB and
+/// Rec.2020 blue pinches an RGB ray trace blend trades a small hue shift for continuity.
 /// If the lightness has no valid chroma, first find the highest feasible lightness at that hue.
 /// Identity and search share the `OUTPUT_EPS`-expanded cube. Callers clamp its numerical slack
 /// to [0,1] only after mapping, before encoding.
-pub fn output(d: [f32; 3], r: [f32; 3], to_out: &M3) -> [f32; 3] {
+pub fn output(d: [f32; 3], r: [f32; 3], to_out: &M3, space: OutputSpace) -> [f32; 3] {
     if in_cube(r, OUTPUT_EPS) {
         return r;
     }
-    output_lab(oklab_from_2020(d), to_out)
+    output_lab(oklab_from_2020(d), to_out, r, space)
 }
 
-fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
+fn output_lab([l, a, b]: [f32; 3], to_out: &M3, r: [f32; 3], space: OutputSpace) -> [f32; 3] {
     if l <= 0.0 {
         return [0.0; 3];
     }
@@ -423,7 +412,7 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
     let m = &mats().from_lab;
     let mut line = Line { l: l.min(2.0), c: 1.0, d: std::array::from_fn(|i| m[i][1] * (a / c) + m[i][2] * (b / c)) };
     let input = c.min(MAX_CHROMA);
-    let chroma = if let Some(chroma) = line.output_chroma(to_out, input, MAX_CHROMA) {
+    let chroma = if let Some(chroma) = line.output_chroma(to_out, input) {
         chroma
     } else {
         let (c, rgb) = line.output_endpoint(to_out);
@@ -435,7 +424,7 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
         // RGB cubes contain every scaled-down colour, so feasible lightness is an interval.
         for _ in 0..OUTPUT_STEPS {
             line.l = 0.5 * (lo + up);
-            if let Some(found) = line.output_chroma(to_out, input, input) {
+            if let Some(found) = line.output_chroma(to_out, input) {
                 lo = line.l;
                 chroma = found;
             } else {
@@ -445,7 +434,25 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
         line.l = lo;
         chroma
     };
-    line.at(to_out, chroma)
+    let clipped = line.at(to_out, chroma);
+    let weight = blue_weight(space, b.atan2(a));
+    if weight == 0.0 {
+        return clipped;
+    }
+    let gray = line.l.clamp(1e-4, 1.0 - 1e-4).powi(3);
+    let mut target = r;
+    let mut boundary = [gray; 3];
+    for _ in 0..3 {
+        let delta = target.map(|v| v - gray);
+        let scale = delta.iter().map(|v| {
+            if *v > 0.0 { (1.0 - gray) / v } else if *v < 0.0 { -gray / v } else { f32::INFINITY }
+        }).fold(f32::INFINITY, f32::min);
+        boundary = if scale.is_finite() { delta.map(|v| gray + scale * v) } else { [gray; 3] };
+        let working = if space == OutputSpace::Srgb { mul3(&mats().from_srgb, boundary) } else { boundary };
+        let lab = oklab_from_2020(working);
+        target = line.at(to_out, lab[1].hypot(lab[2]));
+    }
+    std::array::from_fn(|i| clipped[i] + weight * (boundary[i] - clipped[i]))
 }
 
 /// The scene knee on scene-linear Rec. 2020 `c` (no upper bound): chroma past `knee` of the
@@ -501,7 +508,7 @@ mod tests {
     fn render(space: OutputSpace, d: [f32; 3]) -> [f32; 3] {
         let to_out = space.from_working();
         let r = mul3(&to_out, d);
-        let mapped = crate::finish::gamut_map(output(d, r, &lms_to(&to_out)), space.luma()).0;
+        let mapped = crate::finish::gamut_map(output(d, r, &lms_to(&to_out), space), space.luma()).0;
         mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), mapped)
     }
 
@@ -517,14 +524,14 @@ mod tests {
                     for f in [0.2, 0.6, 0.9, 0.96] {
                         let d = lch(l, f * exact_edge(space, l, h), h);
                         let r = mul3(&to_out, d);
-                        assert_eq!(output(d, r, &m), r, "{} {d:?}", space.label());
+                        assert_eq!(output(d, r, &m, space), r, "{} {d:?}", space.label());
                     }
                 }
             }
             // neutrals and black
             for v in [0.0, 0.18, 1.0] {
                 let r = mul3(&to_out, [v; 3]);
-                assert_eq!(output([v; 3], r, &m), r);
+                assert_eq!(output([v; 3], r, &m, space), r);
             }
         }
     }
@@ -552,7 +559,7 @@ mod tests {
                     }
                     let r = mul3(&space.from_working(), d);
                     if in_cube(r, OUTPUT_EPS) && !in_cube(r, 0.0) {
-                        assert_eq!(output(d, r, &lms_to(&space.from_working())), r);
+                        assert_eq!(output(d, r, &lms_to(&space.from_working()), space), r);
                         continue;
                     }
                     let out = render(space, d);
@@ -596,7 +603,7 @@ mod tests {
         for space in [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::Rec2020] {
             let to_out = space.from_working();
             let m = lms_to(&to_out);
-            let knee = |d: [f32; 3]| output(d, mul3(&to_out, d), &m);
+            let knee = |d: [f32; 3]| output(d, mul3(&to_out, d), &m, space);
             let worst = colours.iter().map(|d| moved(knee(*d), knee(nudged(*d)))).fold(0f32, f32::max);
             assert!(worst < 1e-3, "{}: a 2e-5 nudge moves the output knee by {worst}", space.label());
         }
@@ -614,7 +621,7 @@ mod tests {
                 let edge = exact_edge(space, l, h);
                 let chroma = |f: f32| {
                     let d = lch(l, f * edge, h);
-                    let out = output(d, mul3(&to_out, d), &m);
+                    let out = output(d, mul3(&to_out, d), &m, space);
                     let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), out));
                     (lab[1].hypot(lab[2]) / edge, out)
                 };
@@ -680,7 +687,7 @@ mod tests {
         let m = lms_to(&OutputSpace::Srgb.from_working());
         for d in [[0.0; 3], [-1.0, -2.0, -3.0], [1e-30, 0.0, 0.0], [1e6, -1e6, 3.0], [-0.2, 0.5, 0.1], [0.0, 0.0, 5.0], [2.0, 2.0, 2.0]] {
             let r = mul3(&OutputSpace::Srgb.from_working(), d);
-            assert!(output(d, r, &m).iter().all(|v| v.is_finite()), "{d:?}");
+            assert!(output(d, r, &m, OutputSpace::Srgb).iter().all(|v| v.is_finite()), "{d:?}");
             assert!(scene(d, 0.99, 2.5).iter().all(|v| v.is_finite()), "{d:?}");
         }
     }

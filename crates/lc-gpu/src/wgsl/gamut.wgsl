@@ -246,64 +246,29 @@ fn gamut_in_cube(rgb: vec3<f32>, eps: f32) -> bool {
     return all(rgb >= vec3<f32>(-eps)) && all(rgb <= vec3<f32>(1.0 + eps));
 }
 
-// `Line::output_chroma`; negative when there is no valid component.
-fn gamut_output_chroma(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, input: f32, hi: f32) -> f32 {
-    if (gamut_in_cube(gamut_at(m, l, d, input), GAMUT_OUTPUT_EPS)) { return input; }
-    var cuts: array<f32, 33>;
-    cuts[0] = 0.0;
-    cuts[1] = hi;
-    cuts[2] = input;
-    var count = 3u;
+// `Line::output_chroma`: first exit walking out from gray; negative for invalid gray.
+fn gamut_output_chroma(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, input: f32) -> f32 {
+    if (!gamut_in_cube(gamut_at(m, l, d, 0.0), GAMUT_OUTPUT_EPS)) { return -1.0; }
+    var chroma = input;
     for (var i = 0u; i < 3u; i++) {
         for (var f = 0u; f < 2u; f++) {
             var face = gamut_face(m, l, d, i, f, 0.0);
             face.x += GAMUT_OUTPUT_EPS;
-            let p = gamut_pieces(face, hi);
-            let np = gamut_piece_count(p, hi);
-            for (var k = 1u; k < np; k++) { cuts[count] = p[k]; count += 1u; }
+            let p = gamut_pieces(face, input);
+            let np = gamut_piece_count(p, input);
             for (var k = 0u; k < np; k++) {
-                let lo = p[k];
-                let up = p[k + 1u];
-                let below = gamut_horner(face, lo) < 0.0;
-                if (below == (gamut_horner(face, up) < 0.0)) { continue; }
-                let root = gamut_root(face, lo, up, GAMUT_OUTPUT_STEPS);
-                cuts[count] = root;
-                count += 1u;
+                var lo = p[k];
+                var up = p[k + 1u];
+                if (gamut_horner(face, lo) < 0.0 || gamut_horner(face, up) >= 0.0) { continue; }
+                for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
+                    let mid = 0.5 * (lo + up);
+                    if (gamut_horner(face, mid) >= 0.0) { lo = mid; } else { up = mid; }
+                }
+                chroma = min(chroma, lo);
             }
         }
     }
-    for (var i = 1u; i < count; i++) {
-        let x = cuts[i];
-        var j = i;
-        while (j > 0u && cuts[j - 1u] > x) { cuts[j] = cuts[j - 1u]; j -= 1u; }
-        cuts[j] = x;
-    }
-    var seeds = vec2<f32>(-1.0);
-    for (var i = 0u; i < count; i++) {
-        var mid = cuts[i];
-        if (i > 0u) { mid = 0.5 * (cuts[i - 1u] + cuts[i]); }
-        let points = vec2<f32>(cuts[i], mid);
-        for (var j = 0u; j < 2u; j++) {
-            let t = points[j];
-            if (gamut_in_cube(gamut_at(m, l, d, t), GAMUT_OUTPUT_EPS)) {
-                var side = 0u;
-                if (t > input) { side = 1u; }
-                if (seeds[side] < 0.0 || abs(t - input) < abs(seeds[side] - input)) { seeds[side] = t; }
-            }
-        }
-    }
-    var nearest = -1.0;
-    for (var side = 0u; side < 2u; side++) {
-        var inside = seeds[side];
-        if (inside < 0.0) { continue; }
-        var outside = input;
-        for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
-            let mid = 0.5 * (inside + outside);
-            if (gamut_in_cube(gamut_at(m, l, d, mid), GAMUT_OUTPUT_EPS)) { inside = mid; } else { outside = mid; }
-        }
-        if (nearest < 0.0 || abs(inside - input) < abs(nearest - input)) { nearest = inside; }
-    }
-    return nearest;
+    return chroma;
 }
 
 // `Line::output_endpoint`; xyz destination RGB, w endpoint chroma.
@@ -358,8 +323,8 @@ fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(rgb * scale, q * l);
 }
 
-// `gamut::output`: direct destination membership, then the nearest chroma below or above input.
-fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32> {
+// `gamut::output`: first constant-L exit blended with three RGB casts near the blue pinches.
+fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>, band: u32) -> vec3<f32> {
     if (gamut_in_cube(r, GAMUT_OUTPUT_EPS)) { return r; }
     let lab = oklab(dd);
     if (lab.x <= 0.0) { return vec3<f32>(0.0); }
@@ -371,7 +336,7 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32
     let d = gamut_dir(vec3<f32>(0.0, lab.yz / c));
     var l = min(lab.x, 2.0);
     let input = min(c, GAMUT_MAX_CHROMA);
-    var chroma = gamut_output_chroma(m, l, d, input, GAMUT_MAX_CHROMA);
+    var chroma = gamut_output_chroma(m, l, d, input);
     if (chroma < 0.0) {
         let endpoint = gamut_output_endpoint(m, d);
         if (endpoint.w <= input) { return endpoint.xyz; }
@@ -380,10 +345,40 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32
         chroma = 0.0;
         for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
             l = 0.5 * (lo + up);
-            let found = gamut_output_chroma(m, l, d, input, input);
+            let found = gamut_output_chroma(m, l, d, input);
             if (found >= 0.0) { lo = l; chroma = found; } else { up = l; }
         }
         l = lo;
     }
-    return gamut_at(m, l, d, chroma);
+    let clipped = gamut_at(m, l, d, chroma);
+    if (band == 0u) { return clipped; }
+    var window = GAMUT_BLUE_SRGB;
+    if (band == 2u) { window = GAMUT_BLUE_REC2020; }
+    let center = 0.5 * (window.x + window.y);
+    let hue = atan2(lab.z, lab.y);
+    let angle = hue - center;
+    let wrapped = angle - 6.283185307179586 * floor((angle + 3.141592653589793) / 6.283185307179586);
+    let distance = abs(wrapped) - 0.5 * (window.y - window.x);
+    let t = clamp((distance - 0.01) / 0.09, 0.0, 1.0);
+    let weight = 1.0 - t * t * (3.0 - 2.0 * t);
+    if (weight == 0.0) { return clipped; }
+    let anchor = clamp(l, 1e-4, 1.0 - 1e-4);
+    let gray = anchor * anchor * anchor;
+    var target = r;
+    var boundary = vec3<f32>(gray);
+    for (var cast = 0u; cast < 3u; cast++) {
+        let delta = target - vec3<f32>(gray);
+        var scale = bitcast<f32>(0x7f800000u);
+        for (var k = 0u; k < 3u; k++) {
+            if (delta[k] > 0.0) { scale = min(scale, (1.0 - gray) / delta[k]); }
+            else if (delta[k] < 0.0) { scale = min(scale, -gray / delta[k]); }
+        }
+        boundary = vec3<f32>(gray);
+        if (scale < bitcast<f32>(0x7f800000u)) { boundary += scale * delta; }
+        var working = boundary;
+        if (band == 1u) { working = mul3(GAMUT_FROM_SRGB, boundary); }
+        let cast_lab = oklab(working);
+        target = gamut_at(m, l, d, length(cast_lab.yz));
+    }
+    return clipped + weight * (boundary - clipped);
 }

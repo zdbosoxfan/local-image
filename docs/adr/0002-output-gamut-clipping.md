@@ -1,6 +1,6 @@
 # Output gamut clipping and scene compression
 
-Status: accepted
+Status: superseded by [0003](0003-blue-band-output-clipping.md)
 
 Output mapping preserves any colour whose destination RGB is inside the selected output cube.
 Only colours outside it move, choosing the nearest valid OkLab chroma below or above the input

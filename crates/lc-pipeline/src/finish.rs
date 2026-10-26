@@ -259,6 +259,7 @@ pub struct FinishParams {
     pub to_out: [[f32; 3]; 3],
     pub out_luma: [f32; 3],
     pub out_trc: OutputTrc,
+    pub out_space: OutputSpace,
     /// Soft proofing (CPU only; the GPU path declines proof renders).
     pub proof: Option<std::sync::Arc<crate::output::ProofParams>>,
     pub hl: f32,
@@ -322,6 +323,7 @@ impl FinishParams {
             to_out: space.from_working(),
             out_luma: space.luma(),
             out_trc: space.trc(),
+            out_space: space,
             proof: None,
             hl: (s.light.highlights / 100.0) as f32,
             sh: (s.light.shadows / 100.0) as f32,
@@ -787,7 +789,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
             } else {
                 let r = mul3(to_out, d);
                 let knee = fp.soft_gamut.as_ref().filter(|_| fp.lut.is_none());
-                knee.map_or_else(|| gamut_map(r, *out_luma).0, |m| crate::gamut::output(d, r, m).map(|v| v.clamp(0.0, 1.0)))
+                knee.map_or_else(|| gamut_map(r, *out_luma).0, |m| crate::gamut::output(d, r, m, fp.out_space).map(|v| v.clamp(0.0, 1.0)))
             };
 
             // encode, curves, grain
@@ -842,7 +844,7 @@ impl LutInput {
     fn apply(&self, d: [f32; 3], lut: &crate::lut::Lut3d, amount: f32) -> [f32; 3] {
         let r = mul3(&self.to_srgb, d);
         let r =
-            self.knee.as_ref().map_or_else(|| gamut_map(r, OutputSpace::Srgb.luma()).0, |m| crate::gamut::output(d, r, m).map(|v| v.clamp(0.0, 1.0)));
+            self.knee.as_ref().map_or_else(|| gamut_map(r, OutputSpace::Srgb.luma()).0, |m| crate::gamut::output(d, r, m, OutputSpace::Srgb).map(|v| v.clamp(0.0, 1.0)));
         let e = r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0)));
         let m = lut.apply(e);
         let e: [f32; 3] = std::array::from_fn(|i| e[i] + (m[i] - e[i]) * amount);
@@ -1166,13 +1168,13 @@ mod colour_tone_tests {
             let to_out = space.from_working();
             let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
             let m = crate::gamut::lms_to(&to_out);
-            let knee = |r: [f32; 3]| crate::gamut::output(mul3(&from_out, r), r, &m);
+            let knee = |r: [f32; 3]| crate::gamut::output(mul3(&from_out, r), r, &m, space);
             assert_eq!(knee([0.3; 3]), [0.3; 3]);
             assert_eq!(knee([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
             let inside = |r: [f32; 3], n: f32, slack: f32| r.iter().all(|v| *v >= -slack * n && *v <= 1.0 + slack * (1.0 - n));
             for d in rec2020_edge() {
                 let r = mul3(&to_out, d);
-                let out = crate::gamut::output(d, r, &m);
+                let out = crate::gamut::output(d, r, &m, space);
                 if inside(r, 0.0, 0.0) {
                     // Display P3's red reaches a sliver past Rec. 2020's
                     assert_eq!(out, r, "{}: {d:?}", space.label());
@@ -1196,7 +1198,7 @@ mod colour_tone_tests {
         let from_srgb = li_color::SRGB.to_space(&li_color::REC2020).to_f32();
         let knee = |space: OutputSpace, d: [f32; 3]| {
             let to_out = space.from_working();
-            crate::gamut::output(d, mul3(&to_out, d), &crate::gamut::lms_to(&to_out))
+            crate::gamut::output(d, mul3(&to_out, d), &crate::gamut::lms_to(&to_out), space)
         };
         let out = |space: OutputSpace, d: [f32; 3]| {
             let r = gamut_map(knee(space, d), space.luma()).0;
