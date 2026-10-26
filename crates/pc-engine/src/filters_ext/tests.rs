@@ -238,7 +238,7 @@ fn oversized_map_headers_are_rejected_before_pixel_decoding() {
     header[22..24].copy_from_slice(&8u16.to_be_bytes());
     header[24..26].copy_from_slice(&3u16.to_be_bytes());
     std::fs::write(&path, header).unwrap();
-    let error = map_from_path(path.to_str().unwrap(), None).unwrap_err().to_string();
+    let error = check_displace_embed_path(path.to_str().unwrap()).unwrap_err().to_string();
     std::fs::remove_file(path).unwrap();
     assert!(error.contains("16,777,216 pixels"), "{error}");
 }

@@ -36,7 +36,10 @@ use crate::blocks::{enum_of, get_desc, num};
 mod camera_raw;
 #[path = "displace_map.rs"]
 mod displace;
-pub use displace::{embed_map as displace_embed_map, embedded_map as displace_embedded_map, without_map as displace_without_map};
+pub use displace::{
+    MAX_EMBED_PIXELS as DISPLACE_MAX_EMBED_PIXELS, TEMPLATE_KEY as DISPLACE_TEMPLATE_KEY, embed_map as displace_embed_map,
+    embedded_map as displace_embedded_map, without_map as displace_without_map,
+};
 #[path = "hue_sat_filter_map.rs"]
 mod hue_sat;
 #[path = "perspective_warp_map.rs"]

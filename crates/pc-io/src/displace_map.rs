@@ -29,7 +29,7 @@ use crate::blocks::{enum_of, num};
 pub(super) const CLASS: &str = "Dspl";
 pub(super) const COMMAND: &str = "filter.distort.displace";
 const FILTER_ID: i32 = super::code(b"Dspl");
-pub(super) const TEMPLATE_KEY: &str = "__displacePsd";
+pub const TEMPLATE_KEY: &str = "__displacePsd";
 /// The embedded map (raw data).
 const MAP_KEY: &str = "DspD";
 /// `tdta` header: height, width (u32 LE) and mode (u16 LE).
@@ -41,7 +41,7 @@ const MAX_MAP_PIXELS: usize = 1 << 26;
 /// 4K × 4K: the largest map Local Image embeds itself. Params hold it as hex, about 4 bytes per
 /// pixel, copied with every history state and written into `.pcraft`'s manifest, so a few of the
 /// largest readable maps would make a file the reader refuses.
-const MAX_EMBED_PIXELS: usize = 1 << 24;
+pub const MAX_EMBED_PIXELS: usize = 1 << 24;
 /// The template is the item plus the map; a little room for the rest of the descriptor.
 const MAX_TEMPLATE_BYTES: usize = 2 * MAX_MAP_PIXELS + (1 << 20);
 

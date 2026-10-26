@@ -905,6 +905,7 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
             if let Some(gate) = authorize {
                 gate(&f.command, &request)?;
             }
+            crate::filters_ext::check_displace_embed(s, &request)?;
             let mut fp = crate::filters::params_for(&f.command, &request).ok_or_else(|| bad(CMD, "unreadable Displace settings"))?;
             crate::filters_ext::resolve(s, &mut fp, &request)?;
             match fp {
@@ -933,7 +934,7 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
         if f.command == "filter.distort.displace" {
             if let Some(map) = &new_map {
                 f.params = photocraft_io::smart_map::displace_embed_map(&f.params, map)
-                    .ok_or_else(|| bad(CMD, "choose a displacement map with at most 4096 x 4096 pixels, or rasterize the layer first"))?;
+                    .ok_or_else(|| EngineError::Other(crate::filters_ext::DISPLACE_EMBED_LIMIT.into()))?;
             } else {
                 crate::filters_ext::displace_settle(&mut f.params)?;
             }

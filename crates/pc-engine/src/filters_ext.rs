@@ -408,18 +408,27 @@ pub(crate) fn prepare(s: &Session, id: &str, p: &Value) -> Value {
 /// A flattened document (or one of its layers) as an RGBA map image.
 fn map_from_document(doc: &Document, layer: Option<u64>) -> Option<algo::Image> {
     let layer = layer.and_then(|l| doc.layer(photocraft_doc::LayerId(l)));
-    let bounds = layer.and_then(|l| l.surface()).map(|s| s.content_bounds()).filter(|r| !r.is_empty()).unwrap_or_else(|| doc.bounds());
-    if u64::from(bounds.width()) * u64::from(bounds.height()) > MAX_DISPLACE_MAP_PIXELS {
-        return None;
-    }
     let buf = match layer {
-        Some(l) => photocraft_compose::render_layer(l, bounds),
+        Some(l) => photocraft_compose::render_layer(l, map_bounds(doc, layer)),
         None => photocraft_compose::flatten(doc),
     };
     if buf.rect.is_empty() {
         return None;
     }
     Some(algo::Image { rect: buf.rect, ch: 4, data: buf.px.iter().flatten().copied().collect() })
+}
+
+fn map_bounds(doc: &Document, layer: Option<&Layer>) -> Rect {
+    layer.and_then(|l| l.surface()).map(|s| s.content_bounds()).filter(|r| !r.is_empty()).unwrap_or_else(|| doc.bounds())
+}
+
+fn map_document_source<'a>(s: &'a Session, selector: &Value) -> Result<&'a Document> {
+    let docs = s.documents();
+    let found = match selector {
+        Value::String(name) => docs.iter().find(|ds| ds.doc.name == *name || ds.path.as_deref() == Some(name.as_str())),
+        other => other.as_u64().and_then(|k| usize::try_from(k).ok()).and_then(|k| docs.get(k)),
+    };
+    found.map(|ds| ds.doc.as_ref()).ok_or_else(|| EngineError::Other("displacement map document not found".into()))
 }
 
 /// Resolves inputs that live outside the target layer: Displace's map (`mapPath`, or
@@ -433,22 +442,38 @@ pub(crate) fn resolve(s: &Session, fp: &mut FilterParams, p: &Value) -> Result<(
     let img = if let Some(path) = map_path(p) {
         map_from_path(path, layer)?
     } else if let Some(d) = map_document(p) {
-        let docs = s.documents();
-        let found = match d {
-            Value::String(name) => docs.iter().find(|ds| ds.doc.name == *name || ds.path.as_deref() == Some(name.as_str())),
-            other => other.as_u64().and_then(|k| usize::try_from(k).ok()).and_then(|k| docs.get(k)),
-        };
-        let ds = found.ok_or_else(|| EngineError::Other("displacement map document not found".into()))?;
-        map_from_document(&ds.doc, layer)
+        map_from_document(map_document_source(s, d)?, layer)
     } else {
         return Err(EngineError::Other("Displace needs a displacement map: pass `mapPath` or `mapDocument`".into()));
     };
-    *map = Some(Arc::new(img.ok_or_else(|| EngineError::Other("the displacement map is empty or exceeds 4096 x 4096 pixels; choose a smaller map".into()))?));
+    *map = Some(Arc::new(img.ok_or_else(|| EngineError::Other("the displacement map is empty".into()))?));
     Ok(())
 }
 
-// Match the PSD map embedding budget before allocating a dense composite.
-const MAX_DISPLACE_MAP_PIXELS: u64 = 1 << 24;
+pub(crate) const DISPLACE_EMBED_LIMIT: &str =
+    "Displace Smart Filters need a map with at most 16,777,216 pixels; choose a smaller map or rasterize the layer first";
+
+fn check_displace_embed_size(width: u32, height: u32) -> Result<()> {
+    if u64::from(width) * u64::from(height) > photocraft_io::smart_map::DISPLACE_MAX_EMBED_PIXELS as u64 {
+        return Err(EngineError::Other(DISPLACE_EMBED_LIMIT.into()));
+    }
+    Ok(())
+}
+
+/// Check the embedding budget before allocating a dense map for a Smart Filter.
+pub(crate) fn check_displace_embed(s: &Session, p: &Value) -> Result<()> {
+    let layer = p.get("mapLayer").and_then(Value::as_u64);
+    if let Some(path) = map_path(p) {
+        if layer.is_none() {
+            check_displace_embed_path(path)?;
+        }
+    } else if let Some(selector) = map_document(p) {
+        let doc = map_document_source(s, selector)?;
+        let bounds = map_bounds(doc, layer.and_then(|id| doc.layer(photocraft_doc::LayerId(id))));
+        check_displace_embed_size(bounds.width(), bounds.height())?;
+    }
+    Ok(())
+}
 
 pub(crate) fn map_path(p: &Value) -> Option<&str> {
     p.get("mapPath").and_then(Value::as_str).filter(|p| !p.is_empty())
@@ -466,11 +491,14 @@ pub(crate) fn displace_request(p: &Value) -> Value {
 
 /// Empty dialog selectors must not turn an embedded PSD filter into an external one.
 pub(crate) fn displace_settle(p: &mut Value) -> Result<()> {
-    if p.get("__displacePsd").is_none() {
+    if p.get(photocraft_io::smart_map::DISPLACE_TEMPLATE_KEY).is_none() {
         return Ok(());
     }
     if photocraft_io::smart_map::displace_embedded_map(p).is_none() {
-        return Err(EngineError::Other("Displace's embedded map is unreadable; omit `__displacePsd` to keep the stored map, or choose another map".into()));
+        return Err(EngineError::Other(format!(
+            "Displace's embedded map is unreadable; omit `{}` to keep the stored map, or choose another map",
+            photocraft_io::smart_map::DISPLACE_TEMPLATE_KEY
+        )));
     }
     let path = map_path(p).is_some();
     let document = map_document(p).is_some();
@@ -488,21 +516,21 @@ pub(crate) fn displace_settle(p: &mut Value) -> Result<()> {
     Ok(())
 }
 
-fn map_from_path(path: &str, layer: Option<u64>) -> Result<Option<algo::Image>> {
+fn check_displace_embed_path(path: &str) -> Result<()> {
     let bytes = crate::file_cmds::read_file(path).map_err(|e| EngineError::Other(format!("cannot read displacement map: {e}")))?;
-    if layer.is_none()
-        && let Some(format) = photocraft_codecs::detect(&bytes)
-    {
+    if let Some(format) = photocraft_codecs::detect(&bytes) {
         match photocraft_codecs::dimensions(format, &bytes) {
-            Ok((width, height)) if u64::from(width) * u64::from(height) > MAX_DISPLACE_MAP_PIXELS => {
-                return Err(EngineError::Other("Displace: choose a map with at most 16,777,216 pixels (4096 x 4096)".into()));
-            }
-            Ok(_) => {}
+            Ok((width, height)) => check_displace_embed_size(width, height)?,
             // Formats without a header probe retain the importer's own bounded decoder.
             Err(photocraft_codecs::CodecError::Unsupported { .. }) => {}
             Err(error) => return Err(EngineError::Other(format!("cannot inspect displacement map `{path}`: {error}"))),
         }
     }
+    Ok(())
+}
+
+fn map_from_path(path: &str, layer: Option<u64>) -> Result<Option<algo::Image>> {
+    let bytes = crate::file_cmds::read_file(path).map_err(|e| EngineError::Other(format!("cannot read displacement map: {e}")))?;
     let imported = photocraft_io::import(path, &bytes).map_err(|e| EngineError::Other(format!("cannot open displacement map `{path}`: {e}")))?;
     Ok(map_from_document(&imported.document, layer))
 }

@@ -65,6 +65,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Compositing: ordinary raster Displace accepts maps over 16,777,216 pixels; the map embedding
+  limit applies only to Smart Filters.
+
 - Compositing: Add Noise and Wave retain the full unsigned 32-bit seed range.
 
 - Develop and export preserve saturated colours already inside the selected output space,

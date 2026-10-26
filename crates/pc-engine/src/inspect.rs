@@ -148,7 +148,7 @@ fn filter_params(params: &Value) -> Value {
         params
             .iter()
             .map(|(key, value)| {
-                let value = if key == "__displacePsd" && value.as_str().is_some_and(|text| text.len() > 65536) {
+                let value = if key == photocraft_io::smart_map::DISPLACE_TEMPLATE_KEY && value.as_str().is_some_and(|text| text.len() > 65536) {
                     json!({"omitted":true,"bytes":value.as_str().map(str::len)})
                 } else {
                     value.clone()

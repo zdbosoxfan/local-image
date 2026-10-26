@@ -192,7 +192,7 @@ pub fn apply_filter_to_surface_in(
         return Ok(crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas));
     }
     let Some(fp) = params_for(id, params) else { return Ok(None) };
-    if matches!(fp, FilterParams::Displace { map: None, .. }) && params.get("__displacePsd").is_some() {
+    if matches!(fp, FilterParams::Displace { map: None, .. }) && params.get(photocraft_io::smart_map::DISPLACE_TEMPLATE_KEY).is_some() {
         return Err(EngineError::Other("Displace's embedded map is unreadable; choose another map".into()));
     }
     let sel_bounds = selection.map(photocraft_raster::Surface::content_bounds);
@@ -308,11 +308,17 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
         gate(id, p)?;
     }
     let mut fp = params_for(id, p).ok_or_else(|| EngineError::Other(format!("unknown filter {id}")))?;
-    crate::filters_ext::resolve(s, &mut fp, p)?;
     let layer = match p.get("layer").and_then(Value::as_u64) {
         Some(l) => photocraft_doc::LayerId(l),
         None => s.active().and_then(|d| d.active_layer).ok_or(EngineError::Other("no active layer".into()))?,
     };
+    if id == "filter.distort.displace"
+        && crate::channel_cmds::target_of(p) == crate::channel_cmds::Target::Pixels
+        && s.active().and_then(|d| d.doc.layer(layer)).is_some_and(|l| matches!(&l.content, LayerContent::Smart(_)))
+    {
+        crate::filters_ext::check_displace_embed(s, p)?;
+    }
+    crate::filters_ext::resolve(s, &mut fp, p)?;
     let label = preset(id).map_or(fp.label(), |(name, _)| name).to_string();
     let msg = label.clone();
     let mut params = p.clone();
@@ -352,9 +358,8 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
                 LayerContent::Smart(_) => {
                     let mut params = match &fp {
                         FilterParams::Displace { map: Some(map), .. } if photocraft_io::smart_map::displace_embedded_map(&params).is_none() => {
-                            photocraft_io::smart_map::displace_embed_map(&params, map).ok_or_else(|| {
-                                EngineError::Other("Displace: choose a smaller map (at most 4096 x 4096 pixels), or rasterize the layer first".into())
-                            })?
+                            photocraft_io::smart_map::displace_embed_map(&params, map)
+                                .ok_or_else(|| EngineError::Other(crate::filters_ext::DISPLACE_EMBED_LIMIT.into()))?
                         }
                         _ => params.clone(),
                     };
