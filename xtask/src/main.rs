@@ -798,11 +798,7 @@ fn upstream_check(root: &Path, offline: bool) -> Result<()> {
             }
         }
         // Git log succeeds with no matches even when a path does not exist at the pinned commit.
-        let source = Command::new("git")
-            .arg("-C")
-            .arg(&dir)
-            .args(["--literal-pathspecs", "ls-tree", "--name-only", &p.commit, "--", &p.path])
-            .output()?;
+        let source = Command::new("git").arg("-C").arg(&dir).args(["--literal-pathspecs", "ls-tree", "--name-only", &p.commit, "--", &p.path]).output()?;
         if !source.status.success() || source.stdout.is_empty() {
             println!("! {} — cannot inspect {}:{} at {}: {}", p.ours, p.project, p.path, p.commit, String::from_utf8_lossy(&source.stderr).trim());
             continue;
