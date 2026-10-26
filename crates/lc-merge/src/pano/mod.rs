@@ -525,33 +525,42 @@ mod tests {
 
     #[test]
     fn back_seam_frame_keeps_native_resampling_detail() {
-        let image = RgbFrame::from_fn(96, 48, |x, _| [if x % 4 < 2 { 0.1 } else { 0.9 }; 3]);
-        let frame = Frame::from_linear_rec2020(image, None);
-        let camera = Camera { f: 96.0, r: [[-1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, -1.0]], cx: 48.0, cy: 24.0 };
-        // A full 360-degree canvas puts this backward-facing frame across both horizontal edges.
-        let origin = (-303.0, -24.0);
-        for projection in [Projection::Cylindrical, Projection::Spherical] {
-            let tile = Tile::project(&frame, camera, projection, 96.0, origin, (606, 48), 2).unwrap();
-            let centre = tile.x0 as f64 + tile.w as f64 / 2.0 + origin.0;
-            assert!(camera.project(projection.inverse(centre, 0.0, 96.0)).is_none(), "the tile centre is behind the seam camera");
-            let mut samples = 0;
-            let mut contrast = 0.0;
-            for y in 0..tile.h {
-                for x in 0..tile.w {
-                    let u = (tile.x0 + x) as f64 + 0.5 + origin.0;
+        let mut contrasts = Vec::new();
+        for (pitch, height, origin_y, output_height) in [(0.0_f64, 48, -24.0, 48), (45.0, 112, -360.0, 360)] {
+            let image = RgbFrame::from_fn(96, height, |x, _| [if x % 4 < 2 { 0.1 } else { 0.9 }; 3]);
+            let frame = Frame::from_linear_rec2020(image, None);
+            let (sin, cos) = pitch.to_radians().sin_cos();
+            let camera = Camera { f: 96.0, r: [[-1.0, 0.0, 0.0], [0.0, cos, -sin], [0.0, -sin, -cos]], cx: 48.0, cy: height as f64 / 2.0 };
+            // A full 360-degree canvas puts this backward-facing frame across both horizontal edges.
+            let origin = (-303.0, origin_y);
+            for projection in [Projection::Cylindrical, Projection::Spherical] {
+                let tile = Tile::project(&frame, camera, projection, 96.0, origin, (606, output_height), 2).unwrap();
+                let centre = tile.x0 as f64 + tile.w as f64 / 2.0 + origin.0;
+                assert!(camera.project(projection.inverse(centre, 0.0, 96.0)).is_none(), "the tile centre is behind the seam camera at the equator");
+                let mut samples = 0;
+                let mut contrast = 0.0;
+                for y in 0..tile.h {
                     let v = (tile.y0 + y) as f64 + 0.5 + origin.1;
-                    let Some((px, py)) = camera.project(projection.inverse(u, v, 96.0)) else { continue };
-                    if (24.0..72.0).contains(&px) && (12.0..36.0).contains(&py) {
-                        assert!(tile.wgt[y * tile.w + x] > 0.0);
-                        contrast += (tile.rgb[y * tile.w + x][0] - 0.5).abs();
-                        samples += 1;
+                    if pitch > 0.0 {
+                        // The grazing centre is in front of the tilted camera, but outside its image.
+                        let Some((_, py)) = camera.project(projection.inverse(centre, v, 96.0)) else { continue };
+                        assert!(py < 0.0 || py > height as f64);
+                    }
+                    for x in 0..tile.w {
+                        let u = (tile.x0 + x) as f64 + 0.5 + origin.0;
+                        let Some((px, py)) = camera.project(projection.inverse(u, v, 96.0)) else { continue };
+                        if (24.0..72.0).contains(&px) && (height as f64 / 4.0..height as f64 * 0.75).contains(&py) {
+                            assert!(tile.wgt[y * tile.w + x] > 0.0);
+                            contrast += (tile.rgb[y * tile.w + x][0] - 0.5).abs();
+                            samples += 1;
+                        }
                     }
                 }
+                assert!(samples > 500, "{projection:?}, pitch {pitch}: {samples} samples");
+                contrasts.push((projection, pitch, contrast / samples as f32));
             }
-            assert!(samples > 500, "{projection:?}: {samples} samples");
-            // Native cubic retains the two-pixel bars; a 4x footprint averages them to grey.
-            let contrast = contrast / samples as f32;
-            assert!(contrast > 0.18, "{projection:?}: seam-frame contrast {contrast}");
         }
+        // Native cubic retains the two-pixel bars; a 4x footprint averages them to grey.
+        assert!(contrasts.iter().all(|(_, _, contrast)| *contrast > 0.18), "seam-frame contrasts {contrasts:?}");
     }
 }
