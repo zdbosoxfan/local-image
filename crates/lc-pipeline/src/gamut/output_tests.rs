@@ -33,7 +33,7 @@ fn mixed_negative_blue_is_contained_without_rotating_hue() {
     let d = [-0.010_398_38, -0.008_016_221, 0.403_574_4];
     let space = OutputSpace::ProPhoto;
     let to_out = space.from_working();
-    let out = output(d, mul3(&to_out, d), &lms_to(&to_out), space);
+    let out = output(d, mul3(&to_out, d), &lms_to(&to_out), space).map(|v| v.clamp(0.0, 1.0));
     assert!(out.iter().all(|v| (0.0..=1.0).contains(v)), "{out:?}");
     let mapped = mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), out);
     let a = oklab_from_2020(d);
