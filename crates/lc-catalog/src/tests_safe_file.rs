@@ -241,20 +241,26 @@ mod store_link_tests {
     }
 
     #[test]
-    fn catalog_writes_refuse_links_without_changing_the_target() {
+    fn catalog_writes_preserve_destination_links_and_refuse_staging_links() {
+        use li_fs::{AtomicFs, RealFs};
+
         let dir = std::env::temp_dir().join(format!("lc-store-links-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let victim = dir.join("victim");
-        std::fs::write(&victim, b"keep").unwrap();
+        let target = dir.join("target");
         let mut store = FsStore::open(&dir).unwrap();
         for name in ["catalog.log", "catalog.snap", "catalog.log.damaged-1"] {
-            std::os::unix::fs::symlink(&victim, dir.join(name)).unwrap();
-            assert!(store.append(name, b"appended").is_err(), "append {name}");
-            assert!(store.truncate(name, 0).is_err(), "truncate {name}");
-            assert!(store.write_atomic(name, b"replacement").is_err(), "atomic {name}");
-            assert!(store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).is_err(), "streamed {name}");
-            assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
+            std::fs::write(&target, b"keep").unwrap();
+            std::os::unix::fs::symlink(&target, dir.join(name)).unwrap();
+            store.append(name, b"appended").unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"keepappended");
+            store.truncate(name, 0).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"");
+            store.write_atomic(name, b"replacement").unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"replacement");
+            store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"streamed");
+            assert_eq!(std::fs::read_link(dir.join(name)).unwrap(), target);
             std::fs::remove_file(dir.join(name)).unwrap();
             store.append(name, b"abc").unwrap();
             store.truncate(name, 1).unwrap();
@@ -263,6 +269,11 @@ mod store_link_tests {
             store.write_atomic_with(name, &mut |w| w.write_all(b"streamed")).unwrap();
             assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"streamed");
         }
+        let staging = dir.join("catalog.snap.tmp");
+        std::os::unix::fs::symlink(&target, &staging).unwrap();
+        assert_eq!(RealFs.write_new(&staging, b"replacement").unwrap_err().kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&target).unwrap(), b"streamed");
+        assert_eq!(std::fs::read_link(&staging).unwrap(), target);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
