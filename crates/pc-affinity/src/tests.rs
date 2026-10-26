@@ -401,6 +401,30 @@ mod bounds {
     }
 
     #[test]
+    fn shared_raster_states_exhaust_the_document_work_budget() {
+        for columns in [1, 1_000_000] {
+            let bitmap = F::Obj(
+                tag(b"DyBm"),
+                vec![
+                    (tag(b"BmpW"), F::U32(1)),
+                    (tag(b"BmpH"), F::U32(1)),
+                    (tag(b"Frmt"), F::Enum(6, 0)),
+                    (tag(b"Sta1"), F::U8s(vec![0; 1_000_000])),
+                    (tag(b"TWi1"), F::U32(columns)),
+                    (tag(b"THi1"), F::U32(1)),
+                ],
+            );
+            let mut children = vec![F::Def(7, vec![tag(b"Rstr")], vec![(tag(b"Bitm"), bitmap)])];
+            children.extend(std::iter::repeat_n(F::Ref(7), 9_999));
+            let bytes = document(children);
+            let start = std::time::Instant::now();
+            let result = crate::read(&bytes, Limits::default());
+            assert!(matches!(result, Err(Error::Limit(_))), "shared states with {columns} columns: {:?}", result.as_ref().err());
+            assert!(start.elapsed().as_secs() < 10, "shared raster traversal took {:?}", start.elapsed());
+        }
+    }
+
+    #[test]
     fn zero_width_records_are_rejected_before_expansion() {
         let bytes = synth::stream(&[(tag(b"Data"), F::Records(0, vec![Vec::new(); 1024]))]);
         assert_eq!(crate::stream::parse(&bytes).unwrap_err(), Error::Malformed("array longer than its data"));
