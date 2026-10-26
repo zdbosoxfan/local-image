@@ -96,16 +96,18 @@ fn pdf_export_includes_only_the_selected_file_info_fields() {
         let info = json!({"author": "Renée & Co", "description": "Façade <A>", "keywords": ["one & two", "日本語"],
             "copyrightStatus": status, "copyright": "© Studio", "copyrightUrl": "https://example.test/?a=1&b=2"});
         session.execute("file.fileInfo", info.clone()).unwrap();
-        session.edit("metadata", |document, _| {
-            let mut metadata = lightcraft_meta::parse_xmp(document.metadata.xmp.as_deref().unwrap()).unwrap().metadata;
-            metadata.make = Some("Private camera".into());
-            metadata.rating = Some(4);
-            metadata.label = Some("Private label".into());
-            metadata.hierarchical_keywords = vec!["Private|Hierarchy".into()];
-            metadata.gps = Some(lightcraft_meta::Gps { latitude: 42.0, longitude: -71.0, altitude: Some(8.0) });
-            document.metadata.xmp = Some(lightcraft_meta::write_xmp(&metadata, Some("{\"exposure\":1}")));
-            Ok(())
-        }).unwrap();
+        session
+            .edit("metadata", |document, _| {
+                let mut metadata = lightcraft_meta::parse_xmp(document.metadata.xmp.as_deref().unwrap()).unwrap().metadata;
+                metadata.make = Some("Private camera".into());
+                metadata.rating = Some(4);
+                metadata.label = Some("Private label".into());
+                metadata.hierarchical_keywords = vec!["Private|Hierarchy".into()];
+                metadata.gps = Some(lightcraft_meta::Gps { latitude: 42.0, longitude: -71.0, altitude: Some(8.0) });
+                document.metadata.xmp = Some(lightcraft_meta::write_xmp(&metadata, Some("{\"exposure\":1}")));
+                Ok(())
+            })
+            .unwrap();
         let before = session.active().unwrap().doc.clone();
         let output = export(&session, &request(&session), &|| false).unwrap();
         let packet = exported_xmp(&output.bytes);
@@ -122,10 +124,12 @@ fn pdf_export_includes_only_the_selected_file_info_fields() {
 #[test]
 fn pdf_export_rejects_malformed_file_info_without_mutation() {
     let mut session = session();
-    session.edit("metadata", |document, _| {
-        document.metadata.xmp = Some("<invalid".into());
-        Ok(())
-    }).unwrap();
+    session
+        .edit("metadata", |document, _| {
+            document.metadata.xmp = Some("<invalid".into());
+            Ok(())
+        })
+        .unwrap();
     let before = session.active().unwrap().doc.clone();
     let error = export(&session, &request(&session), &|| false).unwrap_err();
     assert!(error.to_string().contains("PDF File Info could not be read"));

@@ -501,7 +501,6 @@ fn perspective_warp_psd_filter_renders_warped() {
     }
 }
 
-
 #[test]
 fn editable_filter_stack_survives_psd_and_re_renders_at_all_depths() {
     for depth in [8, 16, 32] {
@@ -525,12 +524,13 @@ fn editable_filter_stack_survives_psd_and_re_renders_at_all_depths() {
         let (id, after) = smart(&imported);
         assert_eq!(after.smart_filters.len(), 5);
         for (actual, expected) in after.smart_filters.iter().zip(&before.smart_filters) {
-            assert_eq!((&actual.command, actual.blend, actual.opacity, actual.visible),
-                       (&expected.command, expected.blend, expected.opacity, expected.visible));
+            assert_eq!(
+                (&actual.command, actual.blend, actual.opacity, actual.visible),
+                (&expected.command, expected.blend, expected.opacity, expected.visible)
+            );
             for (key, expected) in expected.params.as_object().unwrap() {
                 let actual = &actual.params[key];
-                assert!(actual == expected || actual.as_f64().zip(expected.as_f64()).is_some_and(|(a, b)| a == b),
-                        "{}: {key}: {actual} vs {expected}", actual);
+                assert!(actual == expected || actual.as_f64().zip(expected.as_f64()).is_some_and(|(a, b)| a == b), "{}: {key}: {actual} vs {expected}", actual);
             }
         }
         let mut layer = imported.layer(photocraft_doc::LayerId(id)).unwrap().clone();

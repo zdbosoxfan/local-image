@@ -189,38 +189,41 @@ fn clear_selected_pixels(surface: &mut Surface, bounds: photocraft_geom::Rect, s
     let empty_default = default.iter().all(|&byte| byte == 0);
     let mut results = crate::allocation::capacity(bounds.tiles().count(), "clearing floating selection")?;
     let tiles = surface.try_take_tiles(bounds).map_err(|error| crate::allocation::error("clearing floating selection", &error.to_string()))?;
-    tiles.into_par_iter().map(|(coordinate, tile)| -> Result<_> {
-        let area = coordinate.rect().intersect(&bounds);
-        let mask = crate::fill_cmds::Mask::of(selection, coordinate);
-        if mask.empty(area) {
-            return Ok(Some((coordinate, tile)));
-        }
-        if empty_default && area == coordinate.rect() && mask.full(area) {
-            return Ok(None);
-        }
-        let mut tile = match Arc::try_unwrap(tile) {
-            Ok(tile) => tile,
-            Err(tile) => tile.try_clone().map_err(|error| crate::allocation::error("clearing floating selection", &error.to_string()))?,
-        };
-        let origin = coordinate.rect();
-        for y in area.y0..area.y1 {
-            for x in area.x0..area.x1 {
-                let coverage = mask.at(x, y);
-                if coverage <= 0.0 {
-                    continue;
-                }
-                let index = ((y - origin.y0) as usize * photocraft_geom::TILE_SIZE as usize + (x - origin.x0) as usize) * bytes_per_pixel;
-                let pixel = &mut tile.bytes_mut()[index..index + bytes_per_pixel];
-                let value = read_sample(pixel, format.sample, alpha) * (1.0 - coverage);
-                if value <= 0.0 {
-                    pixel.fill(0);
-                } else {
-                    write_sample(pixel, format.sample, alpha, value);
+    tiles
+        .into_par_iter()
+        .map(|(coordinate, tile)| -> Result<_> {
+            let area = coordinate.rect().intersect(&bounds);
+            let mask = crate::fill_cmds::Mask::of(selection, coordinate);
+            if mask.empty(area) {
+                return Ok(Some((coordinate, tile)));
+            }
+            if empty_default && area == coordinate.rect() && mask.full(area) {
+                return Ok(None);
+            }
+            let mut tile = match Arc::try_unwrap(tile) {
+                Ok(tile) => tile,
+                Err(tile) => tile.try_clone().map_err(|error| crate::allocation::error("clearing floating selection", &error.to_string()))?,
+            };
+            let origin = coordinate.rect();
+            for y in area.y0..area.y1 {
+                for x in area.x0..area.x1 {
+                    let coverage = mask.at(x, y);
+                    if coverage <= 0.0 {
+                        continue;
+                    }
+                    let index = ((y - origin.y0) as usize * photocraft_geom::TILE_SIZE as usize + (x - origin.x0) as usize) * bytes_per_pixel;
+                    let pixel = &mut tile.bytes_mut()[index..index + bytes_per_pixel];
+                    let value = read_sample(pixel, format.sample, alpha) * (1.0 - coverage);
+                    if value <= 0.0 {
+                        pixel.fill(0);
+                    } else {
+                        write_sample(pixel, format.sample, alpha, value);
+                    }
                 }
             }
-        }
-        Ok(tile.bytes().chunks_exact(bytes_per_pixel).any(|pixel| pixel != default).then(|| (coordinate, Arc::new(tile))))
-    }).collect_into_vec(&mut results);
+            Ok(tile.bytes().chunks_exact(bytes_per_pixel).any(|pixel| pixel != default).then(|| (coordinate, Arc::new(tile))))
+        })
+        .collect_into_vec(&mut results);
     let mut edited = crate::allocation::capacity(results.len(), "clearing floating selection")?;
     for result in results {
         edited.extend(result?);

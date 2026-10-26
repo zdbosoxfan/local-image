@@ -339,5 +339,4 @@ mod tests {
         app.session.execute("select.float", json!({"dx": -7})).unwrap();
         assert!(super::display_doc(&mut app, 0).is_some(), "returning to zero updates an existing preview");
     }
-
 }

@@ -1214,5 +1214,4 @@ mod tests {
         assert!(error.to_string().contains("not enough memory for compositing selected pixels"));
         assert_eq!(destination, before);
     }
-
 }

@@ -759,7 +759,6 @@ pub(super) fn fltr_for(k: &Known, p: &J) -> Result<Option<Descriptor>, String> {
     }))
 }
 
-
 #[cfg(test)]
 #[path = "smart_filter_tests.rs"]
 mod tests;

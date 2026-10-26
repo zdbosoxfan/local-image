@@ -135,11 +135,12 @@ fn float_drag_bench() {
         let mut session = Session::new();
         session.execute("file.new", json!({"width": width, "height": height, "depth": depth, "background": "transparent"})).unwrap();
         session.execute("layer.new.layer", json!({})).unwrap();
-        session.edit("paint", |doc, active| {
-            doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap()
-                .fill_rect(Rect::new(0, 0, width, height), &[0.2, 0.4, 0.6, 1.0]);
-            Ok(())
-        }).unwrap();
+        session
+            .edit("paint", |doc, active| {
+                doc.layer_mut(active.unwrap()).unwrap().surface_mut().unwrap().fill_rect(Rect::new(0, 0, width, height), &[0.2, 0.4, 0.6, 1.0]);
+                Ok(())
+            })
+            .unwrap();
         if select_all {
             session.execute("select.all", json!({})).unwrap();
         } else {
@@ -198,15 +199,17 @@ fn selected_interior_tiles_share_storage_on_cut_and_place() {
     let mut session = Session::new();
     session.execute("file.new", json!({"width": 1024, "height": 1024, "background": "transparent"})).unwrap();
     let id = session.active().unwrap().active_layer.unwrap();
-    session.edit("paint", |doc, _| {
-        let surface = doc.layer_mut(id).unwrap().surface_mut().unwrap();
-        for y in 0..4 {
-            for x in 0..4 {
-                surface.fill_rect(Rect::new(x * 256, y * 256, (x + 1) * 256, (y + 1) * 256), &[x as f32 / 4.0, y as f32 / 4.0, 0.5, 1.0]);
+    session
+        .edit("paint", |doc, _| {
+            let surface = doc.layer_mut(id).unwrap().surface_mut().unwrap();
+            for y in 0..4 {
+                for x in 0..4 {
+                    surface.fill_rect(Rect::new(x * 256, y * 256, (x + 1) * 256, (y + 1) * 256), &[x as f32 / 4.0, y as f32 / 4.0, 0.5, 1.0]);
+                }
             }
-        }
-        Ok(())
-    }).unwrap();
+            Ok(())
+        })
+        .unwrap();
     session.execute("select.rect", json!({"x": 100, "y": 100, "width": 800, "height": 800})).unwrap();
     session.execute("select.float", json!({})).unwrap();
     let state = session.active().unwrap();

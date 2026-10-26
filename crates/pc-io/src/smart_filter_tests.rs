@@ -520,9 +520,7 @@ fn malformed_wind_extrude_tiles_are_kept_verbatim() {
         ("BckC", Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(0.0)))),
         (
             "BckC",
-            Value::Descriptor(
-                Descriptor::new("RGBC").with("Rd  ", Value::Double(f64::NAN)).with("Grn ", Value::Double(0.0)).with("Bl  ", Value::Double(0.0)),
-            ),
+            Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(f64::NAN)).with("Grn ", Value::Double(0.0)).with("Bl  ", Value::Double(0.0))),
         ),
     ] {
         let mut item = measured_item(tiles(long(6), long(20), "FlFr"), 0.0, 255.0);
@@ -786,8 +784,8 @@ fn color_halftone_round_trips_and_reads_photoshops_shape() {
     assert_eq!(f.params, json!({"maxRadius": 6, "channel1": 10, "channel2": 20, "channel3": 30, "channel4": 40}));
     assert_eq!(get_desc(&item_for_filter(&f).unwrap(), "Fltr"), Some(&measured));
     // Defaults and hostile values write longs within the dialog's ranges.
-    let d = item_for_filter(&sf("filter.pixelate.colorHalftone", json!({"maxRadius": f64::NAN, "channel1": 1e12, "channel2": -1e12, "channel3": "x"})))
-        .unwrap();
+    let d =
+        item_for_filter(&sf("filter.pixelate.colorHalftone", json!({"maxRadius": f64::NAN, "channel1": 1e12, "channel2": -1e12, "channel3": "x"}))).unwrap();
     let fltr = get_desc(&d, "Fltr").unwrap();
     let got: Vec<_> = ["Rds ", "Ang1", "Ang2", "Ang3", "Ang4"].iter().map(|k| int(fltr, k)).collect();
     assert_eq!(got, [Some(8), Some(360), Some(-360), Some(90), Some(45)]);
@@ -948,12 +946,7 @@ fn blur_family_matches_photoshop_shapes() {
     let cases = [
         (surface_blur(5.0, 15), 1135, "filter.blur.surfaceBlur", json!({"radius": 5.0, "threshold": 15})),
         (surface_blur(12.0, 40), 1135, "filter.blur.surfaceBlur", json!({"radius": 12.0, "threshold": 40})),
-        (
-            smart_blur(5.0, 25.0, "SBQH", "SBMN"),
-            smart,
-            "filter.blur.smartBlur",
-            json!({"radius": 5.0, "threshold": 25.0, "quality": "high", "mode": "normal"}),
-        ),
+        (smart_blur(5.0, 25.0, "SBQH", "SBMN"), smart, "filter.blur.smartBlur", json!({"radius": 5.0, "threshold": 25.0, "quality": "high", "mode": "normal"})),
         (
             smart_blur(3.0, 30.0, "SBQL", "SBME"),
             smart,
@@ -1246,7 +1239,6 @@ fn malformed_stylize_and_pixelate_filters_are_kept_verbatim() {
         assert!(item_for_filter(&sf(c, p.clone())).is_err(), "{c} {p}");
     }
 }
-
 
 #[test]
 fn average_stays_verbatim() {

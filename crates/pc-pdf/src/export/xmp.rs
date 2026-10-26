@@ -20,7 +20,8 @@ fn xml_character(character: &char) -> bool {
 
 pub(super) fn metadata(title: &str, info: &FileInfo, budget: usize) -> Result<krilla::metadata::Metadata> {
     let size = [title, &info.author, &info.description, &info.copyright, &info.copyright_url]
-        .into_iter().chain(info.keywords.iter().map(String::as_str))
+        .into_iter()
+        .chain(info.keywords.iter().map(String::as_str))
         .try_fold(0usize, |sum, value| sum.checked_add(value.len()))
         .ok_or(ExportError::Budget("metadata bytes"))?;
     if size > budget {
@@ -60,14 +61,20 @@ fn properties(info: &FileInfo) -> String {
     }
     let notice = info.copyright.trim();
     if !notice.is_empty() {
-        output.push_str(&format!("<dc:rights xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:rights>", xml_text(notice)));
+        output.push_str(&format!(
+            "<dc:rights xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:Alt><rdf:li xml:lang=\"x-default\">{}</rdf:li></rdf:Alt></dc:rights>",
+            xml_text(notice)
+        ));
     }
     let url = info.copyright_url.trim();
     if !url.is_empty() {
         output.push_str(&format!("<xmpRights:WebStatement xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\">{}</xmpRights:WebStatement>", xml_text(url)));
     }
     if let Some(marked) = info.copyright_marked {
-        output.push_str(&format!("<xmpRights:Marked xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\">{}</xmpRights:Marked>", if marked { "True" } else { "False" }));
+        output.push_str(&format!(
+            "<xmpRights:Marked xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\">{}</xmpRights:Marked>",
+            if marked { "True" } else { "False" }
+        ));
     }
     output
 }
@@ -144,7 +151,12 @@ pub(super) fn apply(pdf: Vec<u8>, info: &FileInfo, budget: usize) -> Result<Vec<
     let growth = properties.len().checked_add(new_length.len()).and_then(|size| size.checked_sub(length_end - length_start)).ok_or_else(failed)?;
     let new_xref = xref_start.checked_add(growth).ok_or(ExportError::Budget("output bytes"))?;
     let new_pointer = new_xref.to_string();
-    let output_size = pdf.len().checked_add(growth).and_then(|size| size.checked_add(new_pointer.len())).and_then(|size| size.checked_sub(pointer_end - pointer_start)).ok_or(ExportError::Budget("output bytes"))?;
+    let output_size = pdf
+        .len()
+        .checked_add(growth)
+        .and_then(|size| size.checked_add(new_pointer.len()))
+        .and_then(|size| size.checked_sub(pointer_end - pointer_start))
+        .ok_or(ExportError::Budget("output bytes"))?;
     if output_size > budget {
         return Err(ExportError::Budget("output bytes"));
     }

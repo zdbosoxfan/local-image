@@ -1,23 +1,36 @@
 use super::*;
 use crate::export::{ExportContext, ExportOptions, export, export_with_info};
-use hayro_syntax::{Pdf, object::{Dict, Name, Object, Stream}};
+use hayro_syntax::{
+    Pdf,
+    object::{Dict, Name, Object, Stream},
+};
 use photocraft_doc::vector_design::exchange::ExportScope;
 use photocraft_doc::{Color, ColorMode, Document, Fill, Layer, LayerContent, SampleType, ShapeLayer, Size};
 
 fn document() -> Document {
     let mut document = Document::new("PDF metadata", Size::new(64, 64), ColorMode::Rgb, SampleType::U8);
-    document.layers.push(Layer::new("Rectangle", LayerContent::Shape(ShapeLayer {
-        path: photocraft_vector::shapes::rect(4.0, 4.0, 40.0, 40.0),
-        fill: Some(Fill::Solid(Color::BLACK)),
-        ..Default::default()
-    })));
+    document.layers.push(Layer::new(
+        "Rectangle",
+        LayerContent::Shape(ShapeLayer {
+            path: photocraft_vector::shapes::rect(4.0, 4.0, 40.0, 40.0),
+            fill: Some(Fill::Solid(Color::BLACK)),
+            ..Default::default()
+        }),
+    ));
     document
 }
 
 fn output(info: &FileInfo, compressed: bool) -> Vec<u8> {
     let mut text = photocraft_text::TextEngine::new();
-    export_with_info(&document(), &ExportScope::Document, &ExportOptions { compress: compressed, ..Default::default() },
-        &mut ExportContext { cancelled: &|| false, projection: None, text: &mut text }, info).unwrap().bytes
+    export_with_info(
+        &document(),
+        &ExportScope::Document,
+        &ExportOptions { compress: compressed, ..Default::default() },
+        &mut ExportContext { cancelled: &|| false, projection: None, text: &mut text },
+        info,
+    )
+    .unwrap()
+    .bytes
 }
 
 fn packet(bytes: &[u8]) -> String {
@@ -64,11 +77,15 @@ fn metadata_postpass_preserves_artwork_streams_and_legacy_export() {
     assert_eq!(plain, output(&FileInfo::default(), true));
     let content = |bytes: Vec<u8>| {
         let pdf = Pdf::new(bytes).unwrap();
-        pdf.objects().into_iter().filter_map(|object| match object {
-            Object::Stream(stream) if !stream.dict().get::<Name<'_>>(b"Type").is_some_and(|name| name.as_ref() == b"Metadata") =>
-                Some(stream.decoded().unwrap().into_owned()),
-            _ => None,
-        }).collect::<Vec<_>>()
+        pdf.objects()
+            .into_iter()
+            .filter_map(|object| match object {
+                Object::Stream(stream) if !stream.dict().get::<Name<'_>>(b"Type").is_some_and(|name| name.as_ref() == b"Metadata") => {
+                    Some(stream.decoded().unwrap().into_owned())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
     };
     assert_eq!(content(plain), content(output(&info, true)));
     assert!(!packet(&output(&FileInfo::default(), true)).contains("dc:rights"));
