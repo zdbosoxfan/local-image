@@ -73,6 +73,7 @@ fn bucket(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn gradient(s: &mut Session, p: &Value) -> Result<Value> {
+    let method = crate::gradient_fill_cmds::method_param("paint.gradient", p)?.unwrap_or_default();
     let from = point(p, "from").ok_or_else(|| EngineError::BadParams { cmd: "paint.gradient".into(), msg: "missing from".into() })?;
     let to = point(p, "to").ok_or_else(|| EngineError::BadParams { cmd: "paint.gradient".into(), msg: "missing to".into() })?;
     let shape = match p.get("style").and_then(Value::as_str).unwrap_or("linear") {
@@ -85,14 +86,18 @@ fn gradient(s: &mut Session, p: &Value) -> Result<Value> {
     let (fg, bg) = (s.tools.foreground, s.tools.background);
     // A preset (`gradient`), explicit `stops`, or the current gradient (Gradients panel); the
     // shorthand `colors` list spaces its colours evenly. Explicit `transparency` applies to all.
-    let stops: Vec<(f32, [f32; 4])> = match gradients::tool_stops(s, p)? {
-        Some(st) => st,
-        None => {
-            let colors: Vec<[f32; 4]> =
-                p.get("colors").and_then(Value::as_array).map(|a| a.iter().map(|v| color(Some(v), fg)).collect()).unwrap_or_else(|| vec![fg, bg]);
-            let n = colors.len();
-            let cs = colors.into_iter().enumerate().map(|(i, c)| (if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 }, c)).collect();
-            gradients::apply_opacity(cs, &gradients::transparency_param(p, "paint.gradient")?.unwrap_or_default())
+    let stops: Vec<(f32, [f32; 4])> = if method == photocraft_doc::GradientMethod::Perceptual {
+        perceptual_stops(s, p)?
+    } else {
+        match gradients::tool_stops(s, p)? {
+            Some(st) => st,
+            None => {
+                let colors: Vec<[f32; 4]> =
+                    p.get("colors").and_then(Value::as_array).map(|a| a.iter().map(|v| color(Some(v), fg)).collect()).unwrap_or_else(|| vec![fg, bg]);
+                let n = colors.len();
+                let cs = colors.into_iter().enumerate().map(|(i, c)| (if n > 1 { i as f32 / (n - 1) as f32 } else { 0.0 }, c)).collect();
+                gradients::apply_opacity(cs, &gradients::transparency_param(p, "paint.gradient")?.unwrap_or_default())
+            }
         }
     };
     let reverse = b(p, "reverse", false);
@@ -107,6 +112,54 @@ fn gradient(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(())
     })?;
     Ok(Value::Null)
+}
+
+fn perceptual_stops(s: &Session, p: &Value) -> Result<Vec<(f32, [f32; 4])>> {
+    use photocraft_doc::GradientMethod;
+    use photocraft_vector::gradient_method::{refine_samples, sample_limits, sample_stops};
+    const CMD: &str = "paint.gradient";
+    let bad = |msg: &str| EngineError::BadParams { cmd: CMD.into(), msg: msg.into() };
+    let (fg, bg) = (s.tools.foreground, s.tools.background);
+    let (stops, opacity) = if let Some(colors) = p.get("colors").and_then(Value::as_array).filter(|a| !a.is_empty()) {
+        if colors.len() > 1024 {
+            return Err(bad("too many colour stops (max 1024)"));
+        }
+        let stops =
+            colors.iter().enumerate().map(|(i, c)| (if colors.len() > 1 { i as f32 / (colors.len() - 1) as f32 } else { 0.0 }, color(Some(c), fg))).collect();
+        (stops, gradients::transparency_param(p, CMD)?.unwrap_or_default())
+    } else {
+        let preset = crate::gradient_fill_cmds::preset_param(s, p, CMD)?;
+        let (colors, opacity) = preset.fill_stops(fg, bg);
+        (
+            colors
+                .into_iter()
+                .map(|(t, c)| {
+                    let rgb = c.to_rgb();
+                    (t, [rgb[0], rgb[1], rgb[2], c.alpha])
+                })
+                .collect::<Vec<_>>(),
+            opacity,
+        )
+    };
+    if stops.iter().any(|(t, c)| !t.is_finite() || c.iter().any(|v| !v.is_finite())) {
+        return Err(bad("gradient positions and colours must be finite"));
+    }
+    let mut positions = vec![0.0_f32, 1.0];
+    positions.extend(stops.iter().map(|s| s.0));
+    positions.extend(opacity.iter().map(|s| s.0));
+    positions.sort_by(f32::total_cmp);
+    positions.dedup();
+    let hard = |t: f32| stops.windows(2).any(|p| p[0].0 == t && p[1].0 == t) || opacity.windows(2).any(|p| p[0].0 == t && p[1].0 == t);
+    let samples = positions.into_iter().flat_map(|t| if hard(t) { vec![(t, -1), (t, 1)] } else { vec![(t, 0)] }).collect();
+    let at = |t: f32, side: i8| {
+        if side == 0 {
+            sample_stops(GradientMethod::Perceptual, &stops, &[], &opacity, t)
+        } else {
+            let (left, right) = sample_limits(GradientMethod::Perceptual, &stops, &[], &opacity, t);
+            if side < 0 { left } else { right }
+        }
+    };
+    Ok(refine_samples(samples, at).map_err(bad)?.into_iter().map(|(t, side)| (t, at(t, side))).collect())
 }
 
 /// Paint helper command specs.
@@ -127,7 +180,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Gradient",
             menu: &[],
             shortcut: None,
-            params: r##"{"from":[x,y],"to":[x,y],"style":"linear|radial|angle|reflected|diamond"="linear","colors":["#rrggbb",…]? (evenly spaced),"gradient":preset name?,"stops":[[t,"#rrggbb"|"foreground"|"background"],…]?,"transparency":[[t,0..100],…]? (default: the current gradient, see gradient.presets.select),"reverse":bool=false,"dither":bool=true,"opacity":1..100=100,"mode":"normal|multiply|…"="normal","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target}"##,
+            params: r##"{"from":[x,y],"to":[x,y],"method":"classic|perceptual"?,"style":"linear|radial|angle|reflected|diamond"="linear","colors":["#rrggbb",…]? (evenly spaced),"gradient":preset name?,"stops":[[t,"#rrggbb"|"foreground"|"background"],…]?,"transparency":[[t,0..100],…]? (default: the current gradient, see gradient.presets.select),"reverse":bool=false,"dither":bool=true,"opacity":1..100=100,"mode":"normal|multiply|…"="normal","target":"pixels"|"mask"|"quickMask"|{"channel":i}=Channels panel target}"##,
             enabled: crate::commands::has_paintable,
             run: gradient,
             journal: true,

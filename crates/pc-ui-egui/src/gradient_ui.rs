@@ -116,7 +116,7 @@ fn edited_fill(app: &PhotocraftApp, layer: &Layer, canvas: Rect32, cmd: &str, p:
 /// Options-bar params of a new live gradient.
 fn create_params(app: &PhotocraftApp, from: [f32; 2], to: [f32; 2]) -> Value {
     let o = &app.ui.tool_options;
-    json!({"from": from, "to": to, "style": o.gradient_style, "reverse": o.gradient_reverse, "dither": o.gradient_dither, "opacity": o.fill_opacity, "mode": o.gradient_blend_mode.label()})
+    json!({"from": from, "to": to, "method": o.gradient_method.name(), "style": o.gradient_style, "reverse": o.gradient_reverse, "dither": o.gradient_dither, "opacity": o.fill_opacity, "mode": o.gradient_blend_mode.label()})
 }
 
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
@@ -494,7 +494,7 @@ pub fn draw_overlay(app: &PhotocraftApp, painter: &egui::Painter, xf: &ViewXform
 // Options bar
 
 /// A ramp of RGBA stops over a checkerboard in `r`.
-fn paint_ramp(p: &egui::Painter, r: Rect, sample: impl Fn(f32) -> [f32; 4]) {
+pub(crate) fn paint_ramp(p: &egui::Painter, r: Rect, sample: impl Fn(f32) -> [f32; 4]) {
     widgets::checker(p, r, 5.0);
     let n = 64;
     let mut mesh = egui::Mesh::default();
@@ -563,10 +563,29 @@ pub fn paint_thumbnail(ui: &egui::Ui, layer: LayerId, f: &Fill, rect: Rect) -> b
 }
 
 /// Options-bar swatch of the current gradient (live mode uses the Gradients panel selection).
-pub fn preset_swatch(ui: &mut egui::Ui, stops: &[(f32, [f32; 4])]) {
+pub fn preset_swatch(
+    ui: &mut egui::Ui,
+    preset: &photocraft_engine::presets::gradients::GradientPreset,
+    fg: [f32; 4],
+    bg: [f32; 4],
+    method: photocraft_doc::GradientMethod,
+) {
     let t = Tokens::get(ui.ctx());
     let (r, resp) = ui.allocate_exact_size(vec2(96.0, 20.0), Sense::hover());
-    paint_ramp(ui.painter(), r, |u| photocraft_algo::paint::sample_stops(stops, u));
+    if method == photocraft_doc::GradientMethod::Classic {
+        let stops = preset.resolve(fg, bg);
+        paint_ramp(ui.painter(), r, |u| photocraft_algo::paint::sample_stops(&stops, u));
+    } else {
+        let (stops, opacity) = preset.fill_stops(fg, bg);
+        let stops: Vec<_> = stops
+            .iter()
+            .map(|(t, c)| {
+                let rgb = c.to_rgb();
+                (*t, [rgb[0], rgb[1], rgb[2], c.alpha])
+            })
+            .collect();
+        paint_ramp(ui.painter(), r, |u| photocraft_vector::gradient_method::sample_stops(method, &stops, &[], &opacity, u));
+    }
     ui.painter().rect_stroke(r, 0.0, Stroke::new(1.0, t.field_border), StrokeKind::Outside);
     let _ = resp.on_hover_text(tl!("The current gradient (pick one in Window › Gradients)"));
 }
@@ -579,13 +598,25 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
         return;
     }
     let Some((l, ..)) = active_gradient(app) else { return };
+    if o.gradient_method == before.gradient_method
+        && let Some(Fill::Gradient { method, .. }) = fill_of(&l)
+    {
+        app.ui.tool_options.gradient_method = *method;
+    }
     if o.gradient_blend_mode != before.gradient_blend_mode {
         let _ = app.run("layer.setProps", json!({"layer": l.id.0, "blend": o.gradient_blend_mode.label()}));
     }
-    if o.gradient_style == before.gradient_style && o.gradient_reverse == before.gradient_reverse && o.gradient_dither == before.gradient_dither {
+    if o.gradient_method == before.gradient_method
+        && o.gradient_style == before.gradient_style
+        && o.gradient_reverse == before.gradient_reverse
+        && o.gradient_dither == before.gradient_dither
+    {
         return;
     }
     let mut p = json!({"layer": l.id.0});
+    if o.gradient_method != before.gradient_method {
+        p["method"] = json!(o.gradient_method.name());
+    }
     if o.gradient_style != before.gradient_style {
         p["style"] = json!(o.gradient_style);
     }
@@ -601,7 +632,7 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
 // Properties panel
 
 /// Width of the Properties label column ("Style", "Angle", "Scale").
-const PROP_LABEL_W: f32 = 38.0;
+const PROP_LABEL_W: f32 = 44.0;
 
 /// Commits a numeric field once (drag released, Enter, focus lost); `None` while editing.
 fn field(ui: &mut egui::Ui, id: &str, current: f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Option<f32> {
@@ -627,7 +658,7 @@ fn label(ui: &mut egui::Ui, text: &str) {
 /// "Align with layer", Reset Alignment). Every change is one `gradient.fill.*` command.
 pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
     use crate::props_layout::{COL_GAP, LABEL_GAP, field_width, section};
-    let Some(Fill::Gradient { angle, scale, style, reverse, dither, align, .. }) = fill_of(layer).cloned() else { return };
+    let Some(Fill::Gradient { method, angle, scale, style, reverse, dither, align, .. }) = fill_of(layer).cloned() else { return };
     let id = layer.id.0;
     let mut runs: Vec<Value> = Vec::new();
     if section(ui, "gradient-fill", "Gradient") {
@@ -635,6 +666,18 @@ pub fn properties(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
         ui.add_space(crate::theme::ROW_GAP);
     }
     if section(ui, "gradient-fill-options", "Gradient Options") {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = LABEL_GAP;
+            label(ui, "Method");
+            let mut selected = method;
+            use photocraft_doc::GradientMethod;
+            let choices = [(GradientMethod::Classic, tl!("Classic")), (GradientMethod::Perceptual, tl!("Perceptual"))];
+            if widgets::dropdown(ui, "gradient-fill-method", &mut selected, &choices, ui.available_width()) {
+                runs.push(json!({"method": selected.name()}));
+            }
+            ui.ctx().accesskit_node_builder(ui.make_persistent_id(egui::IdSalt::new("gradient-fill-method")), |node| node.set_label(tl!("Method")));
+        });
+        ui.add_space(crate::theme::ROW_GAP);
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = LABEL_GAP;
             label(ui, "Style");
@@ -847,7 +890,7 @@ fn stops_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, layer: &Layer) {
 mod tests {
     use super::*;
 
-    fn app_with_gradient(style: &str) -> PhotocraftApp {
+    pub(super) fn app_with_gradient(style: &str) -> PhotocraftApp {
         let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
         app.run("file.new", json!({"width": 200, "height": 120})).unwrap();
         app.ui.tool = Tool::Gradient;
@@ -859,14 +902,14 @@ mod tests {
         egui::Modifiers::NONE
     }
 
-    fn drag(app: &mut PhotocraftApp, a: [f64; 2], b: [f64; 2]) {
+    pub(super) fn drag(app: &mut PhotocraftApp, a: [f64; 2], b: [f64; 2]) {
         crate::canvas::tool_event(app, ToolEvent::Down { x: a[0], y: a[1], pressure: 1.0 }, mods());
         crate::canvas::tool_event(app, ToolEvent::Move { x: (a[0] + b[0]) / 2.0, y: (a[1] + b[1]) / 2.0, pressure: 1.0 }, mods());
         crate::canvas::tool_event(app, ToolEvent::Move { x: b[0], y: b[1], pressure: 1.0 }, mods());
         crate::canvas::tool_event(app, ToolEvent::Up { x: b[0], y: b[1] }, mods());
     }
 
-    fn get(app: &mut PhotocraftApp) -> Value {
+    pub(super) fn get(app: &mut PhotocraftApp) -> Value {
         app.run(cmds::GET, json!({})).unwrap()
     }
 
@@ -1004,3 +1047,6 @@ mod tests {
         assert!(display_doc(&mut app, 0).is_none());
     }
 }
+
+#[cfg(test)]
+mod method_tests;

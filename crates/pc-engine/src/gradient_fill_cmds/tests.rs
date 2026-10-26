@@ -316,3 +316,79 @@ fn locked_gradient_rejects_edits_without_history() {
     s.execute("edit.undo", json!({})).unwrap();
     assert_eq!(active_fill(&s), before);
 }
+
+#[test]
+fn perceptual_create_preserves_an_editable_method_and_uses_oklab() {
+    let mut s = session(32, "transparent");
+    s.execute(CREATE, json!({"from":[0,0],"to":[48,0],"method":"perceptual","dither":false,"stops":[[0,"#000000"],[1,"#ffffff"]]})).unwrap();
+    let fill = active_fill(&s);
+    let c = gf::Ramp::new(&fill).unwrap().sample(0.5);
+    assert!((c[0] - 0.388573).abs() < 2e-5, "OKLab black/white midpoint: {c:?}");
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "perceptual");
+}
+
+#[test]
+fn method_edits_preserve_stops_and_undo_redo_as_one_edit() {
+    let mut s = session(32, "transparent");
+    s.execute(CREATE, json!({"from":[0,0],"to":[48,0],"dither":false})).unwrap();
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "classic");
+    let before = s.active().unwrap().history.past_len();
+    s.execute(SET, json!({"method":"Perceptual","reverse":true})).unwrap();
+    assert_eq!(s.active().unwrap().history.past_len(), before + 1);
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "perceptual");
+    s.execute("edit.undo", json!({})).unwrap();
+    let classic = s.execute(GET, json!({})).unwrap();
+    assert_eq!(classic["method"], "classic");
+    assert_eq!(classic["reverse"], false);
+    s.execute("edit.redo", json!({})).unwrap();
+    s.execute(STOP, json!({"action":"color","index":0,"color":"#ff0000"})).unwrap();
+    assert_eq!(s.execute(GET, json!({})).unwrap()["method"], "perceptual");
+    let fill = active_fill(&s);
+    let history = s.active().unwrap().history.past_len();
+    for value in [json!("linear"), json!("smooth"), json!("typo"), json!(42), Value::Null] {
+        assert!(s.execute(SET, json!({"method":value,"reverse":false})).is_err());
+        assert_eq!(active_fill(&s), fill);
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert!(s.execute(CREATE, json!({"from":[0,0],"to":[48,0],"method":value})).is_err());
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+    }
+}
+
+#[test]
+fn perceptual_destructive_paint_matches_live_colour_then_independent_opacity() {
+    let explicit = json!({"method":"perceptual","stops":[[0,"#0000ff"],[1,"#ffff00"]],"transparency":[[0,90],[0.5,20],[1,70]],"dither":false,"reverse":true});
+    parity(32, "transparent", explicit.clone(), false, 1.0 / 255.0);
+    parity(8, "white", explicit, true, 2.0 / 255.0);
+    parity(16, "transparent", json!({"method":"perceptual","gradient":"Foreground to Transparent","dither":true}), false, 2.0 / 255.0);
+    let mut s = session(32, "transparent");
+    let before = photocraft_compose::flatten(&s.active().unwrap().doc).px;
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":"linear"})).is_err());
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+    assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+    s.execute("paint.gradient", json!({"from":[0,0],"to":[48,0],"method":"perceptual","colors":["#0000ff","#ffff00"],"dither":false})).unwrap();
+    assert_eq!(s.active().unwrap().history.past_len(), history + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(photocraft_compose::flatten(&s.active().unwrap().doc).px, before);
+}
+
+#[test]
+fn shape_fill_and_stroke_methods_survive_describe_edit_and_copied_paint() {
+    let mut s = session(32, "transparent");
+    let paint = json!({"gradient":{"stops":[[0,"#0000ff"],[1,"#ffff00"]],"method":"perceptual"}});
+    let created = s.execute("shape.create", json!({"rect":[2,2,40,24],"fill":paint,"stroke":{"width":2,"fill":paint}})).unwrap();
+    assert_eq!(created["fill"]["gradient"]["method"], "perceptual");
+    assert_eq!(created["stroke"]["fill"]["gradient"]["method"], "perceptual");
+    let copy = created["fill"].clone();
+    let second = s.execute("shape.create", json!({"rect":[4,4,32,20],"fill":copy})).unwrap();
+    assert_eq!(second["fill"]["gradient"]["method"], "perceptual");
+    s.execute("shape.edit", json!({"fill":{"gradient":{"stops":[[0,"#000000"],[1,"#ffffff"]]}}})).unwrap();
+    assert_eq!(s.execute("shape.info", json!({})).unwrap()["fill"]["gradient"]["method"], "classic");
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(s.execute("shape.info", json!({})).unwrap()["fill"]["gradient"]["method"], "perceptual");
+    let before = s.execute("shape.info", json!({})).unwrap();
+    let history = s.active().unwrap().history.past_len();
+    assert!(s.execute("shape.edit", json!({"fill":{"gradient":{"method":"linear"}}})).is_err());
+    assert_eq!(s.execute("shape.info", json!({})).unwrap(), before);
+    assert_eq!(s.active().unwrap().history.past_len(), history);
+}

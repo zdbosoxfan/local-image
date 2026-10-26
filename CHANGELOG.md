@@ -8,6 +8,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Added
 
+- Compositing: Gradient Fill layers, the Gradient tool and Vector appearance paints offer
+  Classic or Perceptual (OKLab) interpolation. Classic remains the default; native Perceptual stops
+  stay editable in PSD, and supported SVG/PDF gradients retain vector output.
+
 - Compositing: Export PDF carries File Info author, description, keywords, copyright status,
   notice and rights URL without camera, GPS or Develop metadata.
 
