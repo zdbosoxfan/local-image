@@ -852,14 +852,14 @@ mod tests {
     #[test]
     fn unknown_filters_keep_their_descriptor() {
         let item = Descriptor::new("filterFX")
-            .with("Nm  ", Value::Text(UnicodeString::new_nul("Twirl...")))
+            .with("Nm  ", Value::Text(UnicodeString::new_nul("Shear...")))
             .with("blendOptions", Value::Descriptor(Descriptor::new("blendOptions").with("Opct", unit(b"#Prc", 100.0)).with("Md  ", enumv("BlnM", "normal"))))
             .with("enab", Value::Boolean(true))
-            .with("Fltr", Value::Descriptor(Descriptor::new("Twrl").with("Angl", Value::Integer(50))))
-            .with("filterID", Value::Integer(code(b"Twrl")));
+            .with("Fltr", Value::Descriptor(Descriptor::new("Shr ").with("UndA", enumv("UndA", "WrpA"))))
+            .with("filterID", Value::Integer(code(b"Shr ")));
         let f = filter_from_item(&item);
         assert_eq!(f.command, UNSUPPORTED_FILTER);
-        assert_eq!(f.params["name"], "Twirl...");
+        assert_eq!(f.params["name"], "Shear...");
         assert_eq!(item_for_filter(&f).unwrap(), item);
         // Hidden and re-blended: only those keys change.
         let mut g = f.clone();
@@ -876,7 +876,8 @@ mod tests {
     fn unwritable_filters_are_reported_not_fatal() {
         let stack = FilterStack {
             filters: vec![
-                sf("filter.distort.twirl", json!({"angle": 50})),
+                // Shear's curve isn't mapped to Photoshop's grid yet.
+                sf("filter.distort.shear", json!({"amount": 40})),
                 sf("filter.blur.gaussianBlur", json!({"radius": 2.0})),
                 sf(UNSUPPORTED_FILTER, json!({"psd": "zz"})),
                 sf("image.adjustments.levels", json!({"cyan": {"gamma": 2.0}})),
