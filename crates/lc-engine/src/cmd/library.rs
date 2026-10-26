@@ -1,7 +1,7 @@
 //! Library commands: view source, filter/sort, selection, ratings/flags/labels, rotate, delete,
 //! metadata, albums, import.
 
-use lightcraft_catalog::{Album, AlbumId, ColorLabel, CopyrightStatus, Flag, GroupBy, Op, PhotoId, Sort, SortKey};
+use lightcraft_catalog::{Album, AlbumId, ColorLabel, CopyrightStatus, Filter, Flag, GroupBy, Op, PhotoId, Sort, SortKey};
 use serde_json::{Value, json};
 
 use super::{CommandSpec, always, bad, bool_or, cmd, has_active, has_selection, ok, str_param};
@@ -314,13 +314,35 @@ pub fn specs() -> Vec<CommandSpec> {
                 let mut v = serde_json::to_value(&s.filter).unwrap_or_default();
                 lightcraft_develop::presets::deep_merge(&mut v, p);
                 s.filter = serde_json::from_value(v).map_err(|e| bad("library.filter", e.to_string()))?;
+                s.shelved_filter = None;
                 Ok(json!({"count": s.visible().len()}))
             }
         ),
         cmd!("library.clearFilter", "Clear Filters", ["View"], None, "{}", always, |s, _| {
             s.filter = Default::default();
+            s.shelved_filter = None;
             Ok(json!({"count": s.visible().len()}))
         }),
+        cmd!(
+            "library.toggleFilters",
+            "Enable Filters",
+            ["View"],
+            Some("Cmd+L"),
+            "{} - puts the current filter aside or restores it; setting or clearing a filter forgets it -> {enabled, count}",
+            always,
+            |s, _| {
+                if s.filter != Filter::default() {
+                    s.shelved_filter = Some(std::mem::take(&mut s.filter));
+                } else if let Some(mut filter) = s.shelved_filter.take() {
+                    // The currently browsed folder owns the source, including after a source change.
+                    if s.source == LibrarySource::Folder {
+                        filter.folder = None;
+                    }
+                    s.filter = filter;
+                }
+                Ok(json!({"enabled": s.shelved_filter.is_none(), "count": s.visible().len()}))
+            }
+        ),
         cmd!(
             "library.sort",
             "Sort",
@@ -1135,6 +1157,11 @@ fn view_rules(s: &Session) -> lightcraft_catalog::Filter {
 }
 
 impl Session {
+    /// Whether Enable Filters has put a nonempty filter aside.
+    pub fn filters_off(&self) -> bool {
+        self.shelved_filter.is_some()
+    }
+
     /// The current view (source + filter) as smart-album rules (see `album.createSmart`).
     pub fn view_rules(&self) -> lightcraft_catalog::Filter {
         view_rules(self)
@@ -1189,3 +1216,7 @@ mod gps_tests {
         assert_eq!(p("hello"), None);
     }
 }
+
+#[cfg(test)]
+#[path = "library/tests_enable_filters.rs"]
+mod enable_filters_tests;

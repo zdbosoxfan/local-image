@@ -134,6 +134,7 @@ const LAYOUT: &[(&str, &[&str])] = &[
             "@Sort",
             "@Stacks",
             "view.filterBar",
+            "library.toggleFilters",
             "library.clearFilter",
             "---",
             "compare.swap",
@@ -300,6 +301,7 @@ pub fn checked(app: &LightcraftApp, id: &str) -> Option<bool> {
         "view.beforeAfterSplit" => Some(u.before_after == crate::state::BeforeAfter::Split),
         "view.autoAdvance" => Some(u.auto_advance),
         "view.filterBar" => Some(u.filter_bar),
+        "library.toggleFilters" => Some(!app.session.filters_off()),
         "view.navigator" => Some(u.navigator),
         "view.fullScreenPreview" => Some(u.fullscreen),
         "view.enterFullScreen" => Some(app.window_is_fullscreen),
@@ -1355,3 +1357,7 @@ mod tests {
         assert_eq!(shortcut_text("Delete", true), "⌫");
     }
 }
+
+#[cfg(test)]
+#[path = "menubar/tests_enable_filters.rs"]
+mod enable_filters_tests;
