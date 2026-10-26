@@ -6,7 +6,74 @@ use std::sync::Arc;
 use common::*;
 use photocraft_color::{ColorMode, SampleType};
 use photocraft_doc::{DocId, Document};
+use photocraft_format::autosave::RecoveryInfo;
 use photocraft_format::*;
+
+#[cfg(unix)]
+#[test]
+fn recovery_folders_and_sidecars_are_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = temp_dir("private-recovery");
+    let dir = root.join("Recovery");
+    let doc = Document::new("Private edits", photocraft_doc::Size::new(8, 8), ColorMode::Rgb, SampleType::U8);
+    save_once(&dir, "private", doc.clone());
+    let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode(&dir), 0o700);
+    assert_eq!(mode(&dir.join("private.pcraft")), 0o700);
+    assert_eq!(mode(&dir.join("private.json")), 0o600);
+    std::fs::set_permissions(dir.join("private.json"), std::fs::Permissions::from_mode(0o644)).unwrap();
+    save_once(&dir, "private", doc.clone());
+    assert_eq!(mode(&dir.join("private.json")), 0o600);
+    assert_eq!(recover(&list_recovery(&dir)[0]).unwrap(), doc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recovery_listing_ignores_oversized_and_non_regular_sidecars() {
+    let dir = temp_dir("bounded-recovery");
+    let doc = Document::new("Metadata", photocraft_doc::Size::new(8, 8), ColorMode::Rgb, SampleType::U8);
+    save_once(&dir, "bounded", doc);
+    let sidecar = dir.join("bounded.json");
+    let bytes = std::fs::read(&sidecar).unwrap();
+    let mut oversized = vec![b' '; 1 << 20];
+    oversized.extend(&bytes);
+    std::fs::write(&sidecar, oversized).unwrap();
+    assert!(list_recovery(&dir).is_empty(), "oversized metadata was accepted");
+    #[cfg(unix)]
+    {
+        let outside = dir.join("metadata.txt");
+        std::fs::write(&outside, &bytes).unwrap();
+        std::fs::remove_file(&sidecar).unwrap();
+        std::os::unix::fs::symlink(&outside, &sidecar).unwrap();
+        assert!(list_recovery(&dir).is_empty(), "symlinked metadata was accepted");
+        std::fs::remove_file(&sidecar).unwrap();
+        assert!(std::process::Command::new("mkfifo").arg(&sidecar).status().unwrap().success());
+        assert!(list_recovery(&dir).is_empty(), "FIFO metadata was accepted");
+    }
+    std::fs::remove_file(&sidecar).unwrap();
+    std::fs::write(&sidecar, bytes).unwrap();
+    assert_eq!(list_recovery(&dir).len(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn recovery_discard_rejects_path_components() {
+    let root = temp_dir("recovery-key");
+    let dir = root.join("Recovery");
+    let outside = root.join("outside.pcraft");
+    std::fs::create_dir(&dir).unwrap();
+    std::fs::create_dir(&outside).unwrap();
+    std::fs::write(outside.join("canary"), b"untouched").unwrap();
+    std::fs::write(root.join("outside.json"), b"untouched").unwrap();
+    let entry = RecoveryEntry {
+        info: RecoveryInfo { key: "../outside".into(), document_name: String::new(), original_path: None, saved_at: 0, revision: 0 },
+        bundle: outside.clone(),
+    };
+    assert!(discard_recovery(&dir, &entry).is_err());
+    assert_eq!(std::fs::read(outside.join("canary")).unwrap(), b"untouched");
+    assert_eq!(std::fs::read(root.join("outside.json")).unwrap(), b"untouched");
+    std::fs::remove_dir_all(root).unwrap();
+}
 
 #[test]
 fn autosave_then_recover() {
