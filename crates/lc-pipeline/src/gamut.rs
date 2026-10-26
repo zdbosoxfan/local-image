@@ -474,7 +474,7 @@ mod tests {
     use crate::output::OutputSpace;
     use li_color::perceptual::lab_to_lch;
 
-    const KNEE: f32 = 0.98;
+    const KNEE: f32 = crate::tone2::SCENE_GAMUT_KNEE;
 
     fn hue_error(a: [f32; 3], b: [f32; 3]) -> f32 {
         let (ha, hb) = (lab_to_lch(oklab_from_2020(a))[2], lab_to_lch(oklab_from_2020(b))[2]);
@@ -643,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn the_knee_curve_is_c1_at_the_knee_and_maps_the_limit_to_the_edge() {
+    fn scene_curve_is_c1_at_the_knee_and_maps_the_limit_to_the_edge() {
         let k = KNEE;
         for limit in [1.05f32, 1.6, 2.5, 6.0] {
             let slope = |a: f32, b: f32| (knee_curve(b, k, limit) - knee_curve(a, k, limit)) / (b - a);
