@@ -61,6 +61,12 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Compositing: 32-bit Levels, Curves, Exposure, Legacy Brightness/Contrast, Channel Mixer,
+  Photo Filter and Black & White preserve signed samples and highlights with depth-aware
+  formulas. Edited RGB Curves extend beyond their endpoints in RGB documents, and integer
+  Legacy Brightness/Contrast and tint follow measured Photoshop values. Float PSD merged
+  references retain native precision.
+
 - Develop and export preserve saturated colours already inside the selected output space,
   including deep blue. Colours outside that space transition smoothly, avoiding visible jumps
   from small edits. Rendered images and converted film negatives keep their saturated colours
