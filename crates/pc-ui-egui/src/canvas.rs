@@ -103,6 +103,7 @@ pub struct CanvasCache {
     pub tex_preview_key: u64,
     filter_preview_key: Option<u64>,
     detail: Vec<(u64, DetailTexture)>,
+    primary_pixels_per_point: Option<f32>,
 }
 
 impl Default for CanvasCache {
@@ -117,6 +118,7 @@ impl Default for CanvasCache {
             tex_preview_key: 0,
             filter_preview_key: None,
             detail: Vec::new(),
+            primary_pixels_per_point: None,
         }
     }
 }
@@ -360,13 +362,40 @@ impl ViewXform {
     /// The main canvas's mapping for the active document as last laid out (inside the rulers).
     pub fn active(app: &PhotocraftApp) -> Option<Self> {
         let v = app.ui.views.get(app.session.active_index()?)?;
-        Some(Self {
-            rect: crate::rulers::content_rect(app, app.last_canvas_rect),
-            zoom: v.zoom,
-            center: v.center,
-            flip: app.ui.view.flip_horizontal,
-            rotation: v.rotation,
-        })
+        let document = app.session.active()?.doc.id;
+        let ppp = app.canvases.iter().filter(|((id, _), _)| *id == document).find_map(|(_, cache)| cache.primary_pixels_per_point).unwrap_or(1.0);
+        Some(
+            Self {
+                rect: crate::rulers::content_rect(app, app.last_canvas_rect),
+                zoom: v.zoom,
+                center: v.center,
+                flip: app.ui.view.flip_horizontal,
+                rotation: v.rotation,
+            }
+            .pixel_aligned(ppp),
+        )
+    }
+    /// Share pixel-edge alignment between image geometry, overlays and pointer input without changing the saved pan.
+    fn pixel_aligned(mut self, ppp: f32) -> Self {
+        if !ppp.is_finite() || ppp <= 0.0 || !self.zoom.is_finite() || self.zoom <= 0.0 || !self.rotation.is_finite() || self.rotation != 0.0 {
+            return self;
+        }
+        let scale = self.zoom * ppp;
+        if !scale.is_finite() || scale.round() < 1.0 || (scale - scale.round()).abs() > 1e-5 {
+            return self;
+        }
+        let origin = self.to_screen(0.0, 0.0);
+        let physical = origin * ppp;
+        if !physical.is_finite() {
+            return self;
+        }
+        let aligned = pos2(physical.x.round(), physical.y.round()) / ppp;
+        let offset = self.camera().document_delta(aligned - origin);
+        let center = [self.center[0] - offset.x, self.center[1] - offset.y];
+        if center.iter().all(|value| value.is_finite()) {
+            self.center = center;
+        }
+        self
     }
     /// The shared camera maps both rendered geometry and pointer input.
     pub fn camera(&self) -> crate::view_camera::Camera {
@@ -463,7 +492,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
     let painter = ui.painter_at(rect);
     let input_enabled = ui.is_enabled() && !crate::restoration_ui::is_open(app);
     let rotate_owned = rotate_view::input(&ctx, &response, &mut view, doc.id, app.ui.tool, input_enabled && app.ui.dialogs.is_empty());
-    let xf = ViewXform { rect, zoom: view.zoom, center: view.center, flip, rotation: view.rotation };
+    let xf = ViewXform { rect, zoom: view.zoom, center: view.center, flip, rotation: view.rotation }.pixel_aligned(ctx.pixels_per_point());
     // Captured screen-axis gestures must see the camera used by this frame's pointer inverse,
     // including a just-applied Fit/resize/clamp, rather than last frame's cached View.
     if primary {
@@ -499,7 +528,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             doc: doc.id.0,
             doc_size: size,
             zoom: view.zoom,
-            center: view.center,
+            center: xf.center,
             shadow: !crate::theme::Tokens::get(&ctx).bevel && !crate::theme::Tokens::get(&ctx).pro && drop_shadow,
             pixel_grid,
             view_key: egui::Id::new(("pc-canvas-move", ctx.viewport_id(), idx)).value(),
@@ -520,7 +549,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             doc: key,
             doc_size: [doc.size.width.div_ceil(k), doc.size.height.div_ceil(k)],
             zoom: view.zoom * k as f32,
-            center: [view.center[0] / k as f32, view.center[1] / k as f32],
+            center: [xf.center[0] / k as f32, xf.center[1] / k as f32],
             shadow: {
                 let t = crate::theme::Tokens::get(&ctx);
                 !t.bevel && !t.pro && drop_shadow
@@ -542,7 +571,7 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
             doc: doc.id.0,
             doc_size: [doc.size.width, doc.size.height],
             zoom: view.zoom,
-            center: view.center,
+            center: xf.center,
             shadow: {
                 let t = crate::theme::Tokens::get(&ctx);
                 !t.bevel && !t.pro && drop_shadow
@@ -597,6 +626,13 @@ pub fn canvas_view(app: &mut PhotocraftApp, ui: &mut egui::Ui, idx: usize, rect:
                 // Erase the reduced image underneath transparent detail pixels, keeping the checker phase.
                 background(bounds);
                 painter.add(xf.camera().textured_quad(texture, bounds, uv, Color32::WHITE));
+            }
+        }
+    }
+    if primary {
+        for ((document, _), cache) in &mut app.canvases {
+            if *document == doc.id {
+                cache.primary_pixels_per_point = Some(ctx.pixels_per_point());
             }
         }
     }
@@ -1220,3 +1256,7 @@ mod brush_batch_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "canvas/pixel_alignment_tests.rs"]
+mod pixel_alignment_tests;
