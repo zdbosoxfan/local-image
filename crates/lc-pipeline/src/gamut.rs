@@ -474,8 +474,6 @@ mod tests {
     use crate::output::OutputSpace;
     use li_color::perceptual::lab_to_lch;
 
-    const OUTPUT_ZONE: (f32, f32) = (-0.02, -0.008);
-
     const KNEE: f32 = 0.98;
 
     fn hue_error(a: [f32; 3], b: [f32; 3]) -> f32 {
@@ -635,9 +633,7 @@ mod tests {
                         steepest = steepest.max(c - previous);
                     }
                     previous = c;
-                    let n = l * l * l;
-                    let (lo, hi) = (OUTPUT_ZONE.0 * n * 1.001, 1.0 - OUTPUT_ZONE.0 * (1.0 - n) * 1.001);
-                    let inside = out.iter().all(|v| *v >= lo && *v <= hi);
+                    let inside = in_cube(out, OUTPUT_EPS);
                     assert!(inside, "{} at ({l}, {h}): {out:?} outside the gamut at {f}", space.label());
                 }
                 // no jump anywhere along the sweep: steps stay near the input's 1e-3
