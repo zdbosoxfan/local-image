@@ -63,11 +63,12 @@ This project does not control their network behaviour.
 
 **Model setup** (see `docs/MODEL-SETUP.md`) reads, from the same ComfyUI server only: its version
 and GPU (`/system_stats`), its node list (`/object_info`), and its own official workflow templates
-(`/templates/index.json` and `/templates/<name>.json`), when the model list changes, when you open
-Set Up Models, or when you run `local-image-cli ai doctor`. These requests stay between this
-computer and that server; no third party is contacted. The app's status check also reads the stored
-setup results (`state/ai-models.json`) to show new models; that is a local file. Verification runs
-only when you ask for it:
+(`/templates/index.json` and `/templates/<name>.json`), during background inventory refreshes
+(about every 30 seconds), when the server or template version changes, when you open Set Up Models,
+or when you run `local-image-cli ai doctor`. Templates are cached per server and package version.
+These requests stay between this computer and that server; no third party is contacted. Background
+checks also read model headers from the local model folder and the stored setup results
+(`state/ai-models.json`) to detect changes. Verification runs only when you ask for it:
 it sends a fixed test prompt and a synthetic test picture (never one of your photos) to the
 server, reads `/system_stats` every half second during each render to record GPU memory in use, and
 asks the server to free its memory (`/free`) after each model.
