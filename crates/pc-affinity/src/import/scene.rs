@@ -9,7 +9,12 @@ use photocraft_doc::{
     },
 };
 use photocraft_geom::Point;
-use std::{io::Cursor, sync::atomic::AtomicBool};
+use std::{borrow::Cow, io::Cursor, sync::atomic::AtomicBool};
+
+enum RasterPixels<'a> {
+    Rgba8(Cow<'a, [u8]>),
+    Rgba32F(Vec<f32>),
+}
 
 pub(super) struct State<'a, 'b> {
     pub(super) options: &'a ImportOptions,
@@ -170,7 +175,7 @@ impl<'a, 'b> State<'a, 'b> {
                 if v.len() as u64 != count * 4 {
                     return Err(Error::Malformed("RGBA length"));
                 }
-                v.iter().map(|v| f32::from(*v) / 255.).collect::<Vec<_>>()
+                RasterPixels::Rgba8(Cow::Borrowed(v))
             }
             model::Pixels::Cmyka8(v) => {
                 if v.len() as u64 != count * 5 {
@@ -221,7 +226,7 @@ impl<'a, 'b> State<'a, 'b> {
                     output[..3].copy_from_slice(&rgb.map(|v| v.clamp(0., 1.)));
                     output[3] = f32::from(input[4]) / 255.;
                 }
-                out
+                RasterPixels::Rgba32F(out)
             }
             model::Pixels::Encoded(v) => {
                 let reader = || image::ImageReader::new(Cursor::new(v)).with_guessed_format().map_err(|_| Error::Malformed("image format"));
@@ -237,13 +242,12 @@ impl<'a, 'b> State<'a, 'b> {
                 lim.max_image_height = Some(image.height);
                 lim.max_alloc = Some(self.options.limits.decompressed_bytes.min(count * 16));
                 r.limits(lim);
-                r.decode()
+                let pixels = r
+                    .decode()
                     .map_err(|e| if matches!(e, image::ImageError::Limits(_)) { Error::Limit("image decoder") } else { Error::Malformed("image pixels") })?
                     .into_rgba8()
-                    .into_raw()
-                    .into_iter()
-                    .map(|v| f32::from(v) / 255.)
-                    .collect()
+                    .into_raw();
+                RasterPixels::Rgba8(Cow::Owned(pixels))
             }
         };
         let transform = m.mul(&affine(image.transform));
@@ -266,7 +270,10 @@ impl<'a, 'b> State<'a, 'b> {
                         continue;
                     }
                     let i = ((p.y.floor() as usize) * image.width as usize + p.x.floor() as usize) * 4;
-                    out.extend_from_slice(&raw[i..i + 4]);
+                    match &raw {
+                        RasterPixels::Rgba8(pixels) => out.extend(pixels[i..i + 4].iter().map(|v| f32::from(*v) / 255.)),
+                        RasterPixels::Rgba32F(pixels) => out.extend_from_slice(&pixels[i..i + 4]),
+                    }
                 }
             }
             surface.write_region(r, &out);
