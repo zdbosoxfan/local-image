@@ -97,7 +97,7 @@ pub(crate) fn can_go_back(app: &LightcraftApp) -> bool {
         || app.ui.keyword_painter.is_some()
         || app.ui.fullscreen
         || !app.ui.tool.is_empty()
-        || matches!(app.ui.view, ViewMode::Detail | ViewMode::Compare | ViewMode::Survey)
+        || matches!(app.ui.view, ViewMode::Detail | ViewMode::Compare | ViewMode::Survey | ViewMode::Reference)
 }
 
 pub const UI_COMMANDS: &[UiCommand] = &[
@@ -414,12 +414,18 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
         "view.reference" => {
             // the reference: the one set before, else the active photo (the next one becomes active)
             let vis = app.session.visible_cloned();
-            let reference = app
-                .ui
-                .reference
-                .filter(|r| app.session.catalog.photo(lightcraft_catalog::PhotoId(*r)).is_some())
-                .or_else(|| app.session.active().map(|a| a.0));
-            let Some(r) = reference else { return Some(Err("select a photo to use as the reference".into())) };
+            let live = |id: u64| crate::panels::compare::live(app, lightcraft_catalog::PhotoId(id));
+            let active = app.session.active().map(|a| a.0);
+            let reference = app.ui.reference.filter(|r| live(*r)).or_else(|| active.filter(|a| live(*a)));
+            let Some(r) = reference else {
+                return Some(Err(match active {
+                    Some(id) => li_i18n::fmt(
+                        li_i18n::library::t("Photo {id} is in Recently Deleted: restore it to use it as the reference"),
+                        &[("id", &id.to_string())],
+                    ),
+                    None => li_i18n::library::t("Select a photo to use as the reference").into(),
+                }));
+            };
             app.ui.reference = Some(r);
             if app.session.active().is_none_or(|a| a.0 == r)
                 && let Some(i) = vis.iter().position(|x| x.0 == r)
@@ -431,8 +437,25 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
             Ok(json!({"reference": r, "active": app.session.active().map(|a| a.0)}))
         }
         "photo.setReference" => {
-            let id = p.get("id").and_then(Value::as_u64).or_else(|| app.session.active().map(|a| a.0));
-            app.ui.reference = id;
+            let id = match p.get("id").filter(|value| !value.is_null()) {
+                Some(value) => match value.as_u64() {
+                    Some(id) => Some(id),
+                    None => return Some(Err(li_i18n::library::t("photo.setReference: `id` must be a photo id (whole number)").into())),
+                },
+                None => app.session.active().map(|photo| photo.0),
+            };
+            let Some(id) = id else { return Some(Err(li_i18n::library::t("Select a photo to use as the reference").into())) };
+            match app.session.catalog.photo(lightcraft_catalog::PhotoId(id)) {
+                None => return Some(Err(li_i18n::fmt(li_i18n::library::t("No photo {id}"), &[("id", &id.to_string())]))),
+                Some(photo) if photo.deleted => {
+                    return Some(Err(li_i18n::fmt(
+                        li_i18n::library::t("Photo {id} is in Recently Deleted: restore it to use it as the reference"),
+                        &[("id", &id.to_string())],
+                    )));
+                }
+                Some(_) => {}
+            }
+            app.ui.reference = Some(id);
             Ok(json!({"reference": id}))
         }
         "compare.swap" => crate::panels::compare::swap(app),
@@ -455,7 +478,7 @@ pub fn run_ui_command(app: &mut LightcraftApp, id: &str, p: &Value) -> Option<Re
                 app.ui.pending_mask_origin = None;
                 let _ = app.session.end_interaction();
                 app.ui.tool.clear();
-            } else if matches!(app.ui.view, ViewMode::Compare | ViewMode::Survey) {
+            } else if matches!(app.ui.view, ViewMode::Compare | ViewMode::Survey | ViewMode::Reference) {
                 app.ui.view = ViewMode::Detail;
             } else if app.ui.view == ViewMode::Detail {
                 app.ui.view = ViewMode::PhotoGrid;

@@ -749,6 +749,11 @@ pub fn open_library(app: &mut LightcraftApp, p: &Value) -> Result<Value, String>
     app.people_images = Default::default();
     app.ui.people = Default::default();
     app.ui.compare = None;
+    // Photo IDs are local to the library that was opened.
+    app.ui.reference = None;
+    if app.ui.view == crate::state::ViewMode::Reference {
+        app.ui.view = crate::state::ViewMode::PhotoGrid;
+    }
     app.ui.settings.library_path = path.clone();
     Ok(json!({"path": path, "photos": app.session.catalog.len()}))
 }
