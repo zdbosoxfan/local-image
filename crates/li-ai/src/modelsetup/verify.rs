@@ -491,8 +491,10 @@ pub struct Target<'a> {
     pub vae: String,
     /// Capabilities the static check turned off (a file only they need is missing): not rendered.
     pub off: Vec<String>,
-    /// A statically checked universal recipe, including checkpoint metadata/defaults.
+    /// The statically checked preservation recipe, including checkpoint metadata/defaults.
     pub refine_recipe: Option<crate::refine::Recipe>,
+    /// The scan's capabilities, before previous verification failures gate generation.
+    pub model_info: Option<crate::catalog::ModelInfo>,
 }
 
 /// One finished capability, for progress output.
@@ -517,6 +519,7 @@ struct Runner<'a> {
     cold: bool,
     out: Verified,
     progress: &'a mut dyn FnMut(Step),
+    model_info: Option<&'a crate::catalog::ModelInfo>,
 }
 
 impl Runner<'_> {
@@ -530,7 +533,10 @@ impl Runner<'_> {
         let watch = Watch::start(self.ctl, self.host);
         let sampler = VramSampler::start(self.host);
         let start = Instant::now();
-        let result = self.ai.generate(req, &watch.ctl);
+        let result = match self.model_info {
+            Some(info) => self.ai.generate_for_verification(req, info, &watch.ctl),
+            None => self.ai.generate(req, &watch.ctl),
+        };
         let mut r = CapabilityResult { seconds: start.elapsed().as_secs_f64(), cold: self.cold, peak_vram_gb: sampler.finish(), ..Default::default() };
         watch.ctl.cancel();
         self.cold = false;
@@ -566,12 +572,13 @@ pub fn verify(host: &str, t: &Target, seed: u64, ctl: &JobControl, progress: &mu
     if !wait_idle(&client, ctl)? {
         bail!(super::Busy);
     }
-    let info = t.model.info();
+    let info = t.model_info.as_ref().unwrap_or_else(|| t.model.info());
     let f = &info.resolved;
-    let mut runner = Runner { ai: Ai::idle_only(host), host, ctl, cold: true, out: Verified { seed, ..Default::default() }, progress };
+    let mut runner =
+        Runner { ai: Ai::idle_only(host), host, ctl, cold: true, out: Verified { seed, ..Default::default() }, progress, model_info: t.model_info.as_ref() };
     let (w, h) = test_size(f.sizes.native, f.sizes.multiple);
     let variant = if t.variant.is_empty() { crate::catalog::default_variant(t.model) } else { t.variant };
-    let mut create = GenerateRequest::new(t.model, CREATE_PROMPT);
+    let mut create = GenerateRequest::with_info(t.model, CREATE_PROMPT, info);
     create.variant = variant.to_owned();
     create.width = w;
     create.height = h;

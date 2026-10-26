@@ -139,7 +139,10 @@ pub struct GenerateRequest {
 
 impl GenerateRequest {
     pub fn new(model: ModelId, prompt: impl Into<String>) -> Self {
-        let info = model.info();
+        Self::with_info(model, prompt, model.info())
+    }
+
+    pub(crate) fn with_info(model: ModelId, prompt: impl Into<String>, info: &catalog::ModelInfo) -> Self {
         Self {
             model,
             variant: catalog::default_variant(model).to_owned(),
@@ -177,10 +180,14 @@ impl GenerateRequest {
 
     /// Plain-language problems with the request, before anything is sent.
     pub fn validate(&self) -> Result<()> {
+        self.validate_with(None)
+    }
+
+    fn validate_with(&self, model: Option<&catalog::ModelInfo>) -> Result<()> {
         if !(0.0..=100.0).contains(&self.variety) {
             bail!("Variety must be between 0 and 100.");
         }
-        let info = self.model.try_info().with_context(|| format!("The model {} is not installed or known.", self.model.key()))?;
+        let info = model.or_else(|| self.model.try_info()).with_context(|| format!("The model {} is not installed or known.", self.model.key()))?;
         let f = &info.resolved;
         let (source, refs) = self.source_and_refs();
         let needs_prompt = !matches!(self.mode, GenerateMode::UpscaleRefine | GenerateMode::Refine);
@@ -587,7 +594,17 @@ impl Ai {
     }
 
     pub fn generate_detailed(&self, requested: &GenerateRequest, ctl: &JobControl) -> Result<Generated> {
-        requested.validate()?;
+        self.generate_with_model(requested, None, ctl)
+    }
+
+    /// Verification uses the scan's checked recipe without changing generation's gated catalogue.
+    pub(crate) fn generate_for_verification(&self, req: &GenerateRequest, model: &catalog::ModelInfo, ctl: &JobControl) -> Result<RgbaImage> {
+        Ok(self.generate_with_model(req, Some(model), ctl)?.image)
+    }
+
+    fn generate_with_model(&self, requested: &GenerateRequest, checked: Option<&catalog::ModelInfo>, ctl: &JobControl) -> Result<Generated> {
+        requested.validate_with(checked)?;
+        let model = checked.or_else(|| requested.model.try_info()).context("The model is no longer available.")?;
         ctl.set_stage(Stage::Preparing);
         let info = self.inventory()?;
         let mut req = requested.clone();
@@ -625,7 +642,7 @@ impl Ai {
         } else {
             None
         };
-        let out = self.generate_once(&req, &info, recipe.as_ref(), ctl).map_err(|e| explain_with_recipe(e, req.model.info().recipe.as_deref()))?;
+        let out = self.generate_once(&req, model, &info, recipe.as_ref(), ctl).map_err(|e| explain_with_recipe(e, model.recipe.as_deref()))?;
         let image = match (&req.refine, &second_recipe) {
             (Some(step), Some(recipe)) => {
                 ctl.set_message("Refining the draft");
@@ -633,7 +650,7 @@ impl Ai {
             }
             _ => out,
         };
-        let family = &req.model.info().resolved;
+        let family = &model.resolved;
         let (sampler, scheduler) = req.sampler.clone().unwrap_or_else(|| (family.pipeline.sampler_name.clone(), family.pipeline.scheduler.clone()));
         // Report the actual latent strength, including full-noise text/reference creation.
         let denoise = match req.mode {
@@ -666,7 +683,14 @@ impl Ai {
         }
     }
 
-    fn generate_once(&self, req: &GenerateRequest, info: &ObjectInfo, recipe: Option<&crate::refine::Recipe>, ctl: &JobControl) -> Result<RgbaImage> {
+    fn generate_once(
+        &self,
+        req: &GenerateRequest,
+        m: &catalog::ModelInfo,
+        info: &ObjectInfo,
+        recipe: Option<&crate::refine::Recipe>,
+        ctl: &JobControl,
+    ) -> Result<RgbaImage> {
         if req.mode == GenerateMode::Refine {
             let source = req.source_and_refs().0.context("Open an image first.")?;
             let recipe = recipe.context("Refinement recipe was not resolved.")?;
@@ -687,9 +711,8 @@ impl Ai {
             };
             return recipe.run(&self.client, source, &p, ctl);
         }
-        let m = req.model.info();
         let f = &m.resolved;
-        let a = self.resolve(req.model, &req.variant, info)?;
+        let a = if m.recipe.is_some() { Availability::default() } else { self.resolve(req.model, &req.variant, info)? };
         // Resolved before the Qwen 2.1 branch: a template-engine Qwen file never takes it.
         let engine = match &m.recipe {
             Some(recipe) => Engine::Template { recipe, family: f },

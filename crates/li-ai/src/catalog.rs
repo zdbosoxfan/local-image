@@ -220,7 +220,7 @@ pub struct Catalog {
     pub on_device: &'static [li_seg::ModelSpec],
 }
 
-fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
+pub(crate) fn info_for(f: &Family, m: &ModelDef, origin: Origin) -> ModelInfo {
     let r = f.resolved_for(m);
     let c = r.capabilities;
     let short = if m.short.is_empty() { m.label.clone() } else { m.short.clone() };

@@ -846,3 +846,37 @@ fn published_krea_without_its_style_lora_can_create() {
     assert_eq!(image.dimensions(), (w, h));
     assert_eq!(s.mock.prompts().len(), 1);
 }
+
+fn retry_template_test(failed: &str) {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(MOSS);
+    let scan = s.scan();
+    let (w, h) = create_size(MOSS_KEY);
+    let create = png(&ball(w, h, [230, 30, 30]));
+    let fill = png(&filled(&red_ball_on_sky));
+    s.mock.queue_outputs([
+        if failed == "create" { png(&noise(w, h)) } else { create.clone() },
+        png(&li_ai::refine::test_image()),
+        if failed == "inpaint" { png(&filled(&|_, _| Rgb([0, 0, 0]))) } else { fill.clone() },
+    ]);
+    modelsetup::verify_models(&s.options(), &scan, &[MOSS_KEY.into()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let retry = s.scan();
+    assert_eq!(retry.server.models[MOSS_KEY].status, if failed == "create" { Status::Failed } else { Status::PartiallyVerified });
+    let before = s.mock.prompts().len();
+    s.mock.queue_outputs([create, png(&li_ai::refine::test_image()), fill]);
+    let done = modelsetup::verify_models(&s.options(), &retry, &[MOSS_KEY.into()], &JobControl::new(), &mut |_, _| {}).unwrap();
+    let result = done[0].result.as_ref().unwrap();
+    assert_eq!(s.mock.prompts().len() - before, 3, "Create, Refine and Fill must all actually run again: {result:?}");
+    assert!(result.capabilities["create"].pass && result.capabilities["inpaint"].pass, "{result:?}");
+    assert_eq!(s.scan().server.models[MOSS_KEY].status, Status::Verified);
+}
+
+#[test]
+fn retrying_a_failed_create_uses_the_statically_checked_recipe() {
+    retry_template_test("create");
+}
+
+#[test]
+fn retrying_a_failed_fill_actually_renders_fill_again() {
+    retry_template_test("inpaint");
+}

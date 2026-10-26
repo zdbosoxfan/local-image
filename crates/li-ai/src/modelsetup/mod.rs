@@ -842,7 +842,17 @@ pub fn verify_models(
             te: file("clip", Role::Clip).unwrap_or_default(),
             vae: file("vae", Role::Vae).unwrap_or_default(),
             off: m.capabilities.iter().filter(|c| !c.ok).map(|c| c.name.clone()).collect(),
-            refine_recipe: m.universal_recipe.clone(),
+            refine_recipe: m
+                .universal_recipe
+                .clone()
+                .or_else(|| m.recipe.as_ref().map(|recipe| crate::refine::Recipe::Compiled { recipe: Box::new(recipe.clone()) })),
+            model_info: m.recipe.as_ref().map(|recipe| {
+                let family = template_family(m, recipe);
+                let def = crate::family::ModelDef { key: m.catalog_id.clone(), label: m.label.clone(), ..Default::default() };
+                let mut info = crate::catalog::info_for(&family, &def, crate::catalog::Origin::Installed);
+                info.recipe = Some(Arc::new(recipe.clone()));
+                info
+            }),
         };
         let seed = u64::from(rand::random::<u32>());
         let result = verify::verify(&opts.host, &target, seed, ctl, &mut |step| progress(key, step));
@@ -1039,6 +1049,7 @@ mod tests {
             vae: String::new(),
             off: Vec::new(),
             refine_recipe: None,
+            model_info: None,
         };
         let sentences = |engine: &str| {
             let m = ModelState { engine: engine.into(), label: "M".into(), ..Default::default() };
