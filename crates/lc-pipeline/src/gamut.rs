@@ -1,26 +1,12 @@
-//! Hue-preserving gamut compression.
+//! Hue-preserving gamut mapping along constant-lightness OkLab hue lines.
 //!
-//! A colour outside a gamut moves towards the neutral axis at constant OkLab lightness and hue: the
-//! constant-lightness projection of Björn Ottosson's "sRGB gamut clipping" (2021,
-//! <https://bottosson.github.io/posts/gamutclipping/>), so the OkLab hue the colour tools work in
-//! stays where it was. Along that line OkLab's cube-rooted LMS are `L + t·Δ` at chroma scale `t`
-//! (`t = 1` is the colour itself), so each RGB channel is a cubic in `t`. The colour's chroma
-//! relative to the gamut's extent on the line, `s`, is compressed past a knee along the ACES
-//! reference gamut compression curve ([`knee_curve`]); colours inside the knee come back bit for
-//! bit.
+//! Output uses relative colorimetric clipping: destination RGB inside the cube stays identical;
+//! outside colours lose only enough chroma to reach the nearest inward interval of that cube.
+//! OkLab hue lines can leave and re-enter RGB gamuts, so their cubic face crossings partition the
+//! search before bisection. The scene stage instead uses the smooth ACES reference compression
+//! curve ([`knee_curve`]) against the exposure-normalized working gamut.
 //!
-//! OkLab hue lines bend against an RGB gamut's flat faces, so near some corners (the blue one of
-//! sRGB and Rec. 2020; ProPhoto's beyond Rec. 2020) a line leaves the gamut and comes back into it.
-//! The extent is therefore not where the line first leaves but how much of it lies inside
-//! ([`Line::extent`], from the roots of the channels' cubics): the edge where the line leaves once,
-//! shorter by any fold it passes through, so it moves continuously with the colour. The output knee
-//! softens its gamut's faces across [`OUTPUT_ZONE`], past the shallow folds a line to a colour
-//! inside passes through, so the gamut's own colours keep their place and deeper folds count in
-//! smoothly; the final containment clips the sliver past the face. The scene knee feeds the tone
-//! curve, which must see colours land on the face rather than past it, so it measures the gamut
-//! itself.
-//!
-//! The GPU kernels (`gamut_*` in `lightcraft-gpu`'s `gamut.wgsl`) are a straight port.
+//! The GPU kernels in `lightcraft-gpu`'s `gamut.wgsl` mirror these operations.
 
 use std::sync::OnceLock;
 
@@ -28,11 +14,12 @@ use li_color::perceptual::{oklab_from_2020, oklab_matrices, oklab_to_2020};
 
 pub type M3 = [[f32; 3]; 3];
 
-/// The zone across which the output knee's gamut edge is softened (see [`Line::depth`]): from the
-/// deepest fold of an OkLab hue line to a colour inside sRGB, Display P3, Adobe RGB, Rec. 2020, or
-/// ProPhoto within Rec. 2020 (0.65 % of the neutral's level, sRGB's near blue), which still counts
-/// as inside so that a gamut's own colours keep their place, out to 2 % past the face.
-pub const OUTPUT_ZONE: (f32, f32) = (-0.02, -0.008);
+/// Absolute destination RGB membership tolerance; also shared with WGSL.
+pub const OUTPUT_EPS: f32 = 1e-6;
+/// Upper-envelope round-off for choosing the highest-chroma lightness endpoint.
+pub const ENDPOINT_EPS: f32 = 4e-7;
+/// Inward chroma and endpoint lightness bisection steps, shared with WGSL.
+pub const OUTPUT_STEPS: u32 = 24;
 /// Bisection steps that bracket each root of a channel's cubic before its secant.
 pub const STEPS: u32 = 12;
 /// OkLab chroma where the search along a line ends when none of its cube-rooted LMS falls.
@@ -114,7 +101,7 @@ fn pieces(c: [f32; 4], hi: f32) -> ([f32; 4], usize) {
 
 /// Where the cubic `c` changes sign in `0..hi`: bisection on each of its monotone pieces, then the
 /// bracket's secant.
-fn sign_changes(c: [f32; 4], hi: f32, out: &mut impl FnMut(f32)) {
+fn sign_changes(c: [f32; 4], hi: f32, steps: u32, out: &mut impl FnMut(f32)) {
     let (cuts, n) = pieces(c, hi);
     for k in 0..n {
         let (mut lo, mut up) = (cuts[k], cuts[k + 1]);
@@ -122,7 +109,7 @@ fn sign_changes(c: [f32; 4], hi: f32, out: &mut impl FnMut(f32)) {
         if below == (horner(c, up) < 0.0) {
             continue;
         }
-        for _ in 0..STEPS {
+        for _ in 0..steps {
             let mid = 0.5 * (lo + up);
             if (horner(c, mid) < 0.0) == below {
                 lo = mid;
@@ -195,13 +182,6 @@ impl Line {
         (depth.clamp(0.0, 1.0), within)
     }
 
-    /// Whether the line is inside the gamut `m` at chroma scale `t` (by at least `shift`, see
-    /// [`Line::depth`]).
-    #[inline]
-    fn inside(&self, m: &M3, t: f32, upper: bool, shift: f32) -> bool {
-        self.depth(m, t, upper, (shift, shift)).0 >= 1.0
-    }
-
     /// Where the search along the line ends: where the first cube-rooted LMS reaches 0 (every gamut
     /// ends before it, and past it the channels fold back), or at [`MAX_CHROMA`].
     fn reach(&self) -> f32 {
@@ -254,7 +234,7 @@ impl Line {
         for shift in [zone.0, zone.1] {
             let (faces, count) = self.faces(m, upper, shift);
             for c in &faces[..count] {
-                sign_changes(*c, hi, &mut |t| {
+                sign_changes(*c, hi, STEPS, &mut |t| {
                     cuts[n] = t;
                     n += 1;
                 });
@@ -301,24 +281,173 @@ impl Line {
     }
 }
 
-/// The output knee on linear Rec. 2020 `d`, which is `r` in the output space whose [`lms_to`]
-/// matrix is `to_out`. Chroma past `knee` of the output gamut's extent (at `d`'s OkLab lightness and
-/// hue) is compressed so that the working gamut's extent (Rec. 2020, 0..1) lands on the output's,
-/// and anything further lands on it too; where the output reaches past the working gamut, only
-/// colours outside the output move, onto its edge. [`crate::finish::gamut_map`] then clips the
-/// sliver past a face and whatever else remains outside. Colours inside the knee, lightness outside
-/// 0..1, lines without an inside neutral and neutrals return `r` unchanged.
-pub fn output(d: [f32; 3], r: [f32; 3], to_out: &M3, knee: f32) -> [f32; 3] {
-    let Some(line) = Line::new(oklab_from_2020(d)) else {
-        return r;
-    };
-    if line.l >= 1.0 || line.stays_inside(to_out, true, OUTPUT_ZONE.1, 1.0 / knee) || !line.inside(to_out, 0.0, true, 0.0) {
+/// Whether destination RGB is inside its cube, with `eps` numerical slack.
+#[inline]
+fn in_cube(rgb: [f32; 3], eps: f32) -> bool {
+    rgb.iter().all(|v| *v >= -eps && *v <= 1.0 + eps)
+}
+
+impl Line {
+    fn output_epsilon(&self) -> f32 {
+        // Tangent round-off must scale with intensity; absolute slack would expand dark gamuts.
+        OUTPUT_EPS * (16.0 * self.l * self.l * self.l).min(1.0)
+    }
+
+    /// The outermost component of the slightly expanded cube, refined inside the strict cube
+    /// wherever possible. Tolerance-only tangent points are retained without bridging a gap.
+    fn output_bracket(&self, m: &M3, hi: f32) -> Option<(f32, f32)> {
+        // Six cubics: three roots at each slack level and two turning points, plus endpoints.
+        let mut cuts = [0.0; 50];
+        cuts[1] = hi;
+        let mut n = 2;
+        let eps = self.output_epsilon();
+        let (faces, count) = self.faces(m, true, 0.0);
+        for face in &faces[..count] {
+            let (turns, count) = pieces(*face, hi);
+            for t in &turns[1..count] {
+                cuts[n] = *t;
+                n += 1;
+            }
+            for slack in [0.0, eps] {
+                let mut face = *face;
+                face[0] += slack;
+                sign_changes(face, hi, OUTPUT_STEPS, &mut |t| {
+                    cuts[n] = t;
+                    n += 1;
+                });
+            }
+        }
+        cuts[..n].sort_by(f32::total_cmp);
+        let mut up = hi;
+        let mut tangent = None;
+        for i in (1..n).rev() {
+            let t = cuts[i];
+            let point = self.at(m, t);
+            if in_cube(point, 0.0) {
+                return Some((t, up));
+            }
+            if in_cube(point, eps) && tangent.is_none() {
+                tangent = Some(t);
+            }
+            let mid = 0.5 * (cuts[i - 1] + t);
+            let point = self.at(m, mid);
+            if in_cube(point, 0.0) {
+                return Some((mid, t));
+            }
+            if in_cube(point, eps) {
+                tangent = tangent.or(Some(mid));
+            } else if let Some(t) = tangent {
+                return Some((t, t));
+            }
+            up = mid;
+        }
+        if in_cube(self.at(m, 0.0), 0.0) { Some((0.0, up)) } else { tangent.map(|t| (t, t)) }
+    }
+
+    /// At C=qL, RGB=L³*v(q). The largest feasible L minimizes the upper envelope of v's
+    /// three cubics on their nonnegative intervals: stationary points, channel crossings,
+    /// or interval endpoints. This avoids bisection on a vanishing-width chroma interval.
+    fn output_endpoint(&self, m: &M3) -> (f32, [f32; 3]) {
+        let unit = Self { l: 1.0, ..*self };
+        let (faces, _) = unit.faces(m, false, 0.0);
+        // Three cubics: two turns and an endpoint each, three lower-face roots each,
+        // three pairwise crossings each, and neutral.
+        let mut qs = [0.0; 28];
+        let mut count = 1;
+        let mut add = |q| {
+            qs[count] = q;
+            count += 1;
+        };
+        // The neutral endpoint is above L=0.5 in every supported output cube; C is below 2.
+        let hi = 2.0 * MAX_CHROMA;
+        for i in 0..3 {
+            let (turns, n) = pieces(faces[i], hi);
+            for q in &turns[1..=n] {
+                add(*q);
+            }
+            sign_changes(faces[i], hi, OUTPUT_STEPS, &mut add);
+            for j in 0..i {
+                sign_changes(std::array::from_fn(|k| faces[i][k] - faces[j][k]), hi, OUTPUT_STEPS, &mut add);
+            }
+        }
+        let candidates = || {
+            qs[..count].iter().filter_map(|q| {
+                let rgb = unit.at(m, *q);
+                let max = rgb.into_iter().fold(0.0, f32::max);
+                (rgb.iter().all(|v| *v >= 0.0) && max > 0.0).then_some((*q, rgb, max))
+            })
+        };
+        let minimum = candidates().map(|(_, _, max)| max).fold(f32::INFINITY, f32::min);
+        // An almost-flat upper face has indistinguishable minima in f32. Take its outer end
+        // rather than letting CPU/GPU rounding choose different ends of the face.
+        let (q, rgb, max) = candidates().filter(|(_, _, max)| *max <= minimum + ENDPOINT_EPS).max_by(|a, b| a.0.total_cmp(&b.0)).unwrap_or((
+            0.0,
+            unit.at(m, 0.0),
+            minimum,
+        ));
+        let l = (1.0 / max).cbrt();
+        (q * l, rgb.map(|v| (v / max).clamp(0.0, 1.0)))
+    }
+}
+
+/// Relative colorimetric output from working RGB `d` and its destination RGB `r`.
+/// Membership is tested directly in `r`, including imaginary ProPhoto colours. Only outside
+/// colours move: inward at fixed OkLab lightness and hue to the nearest valid chroma interval.
+/// If the lightness has no valid chroma, first find the highest feasible lightness at that hue.
+/// The returned mapped colour is clamped only for floating-point residue; callers also clamp
+/// the numerical slack of an unchanged boundary colour before encoding.
+pub fn output(d: [f32; 3], r: [f32; 3], to_out: &M3) -> [f32; 3] {
+    if in_cube(r, OUTPUT_EPS) {
         return r;
     }
-    let hi = line.reach();
-    let o = line.extent(to_out, true, OUTPUT_ZONE, hi);
-    let w = line.extent(&mats().working, true, OUTPUT_ZONE, hi);
-    line.compressed(o, knee, w / o).map_or(r, |t| line.at(to_out, t))
+    output_lab(oklab_from_2020(d), to_out)
+}
+
+fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
+    if l <= 0.0 {
+        return [0.0; 3];
+    }
+    let c = a.hypot(b);
+    if c <= 1e-7 {
+        return mul3(to_out, [l.min(1.0).powi(3); 3]).map(|v| v.clamp(0.0, 1.0));
+    }
+    // Unit-chroma coefficients keep cubics and their discriminants finite even at 1e30 exposure.
+    // Both chroma and lightness of every supported destination cube are below 2.
+    let m = &mats().from_lab;
+    let mut line = Line { l: l.min(2.0), c: 1.0, d: std::array::from_fn(|i| m[i][1] * (a / c) + m[i][2] * (b / c)) };
+    let hi = c.min(MAX_CHROMA);
+    let bracket = if let Some(bracket) = line.output_bracket(to_out, hi) {
+        bracket
+    } else {
+        let (c, rgb) = line.output_endpoint(to_out);
+        if c <= hi {
+            return rgb;
+        }
+        let (mut lo, mut up) = (0.0, line.l);
+        let mut bracket = (0.0, 0.0);
+        // RGB cubes contain every scaled-down colour, so feasible lightness is an interval.
+        for _ in 0..OUTPUT_STEPS {
+            line.l = 0.5 * (lo + up);
+            if let Some(found) = line.output_bracket(to_out, hi) {
+                lo = line.l;
+                bracket = found;
+            } else {
+                up = line.l;
+            }
+        }
+        line.l = lo;
+        bracket
+    };
+    let (mut lo, mut up) = bracket;
+    for _ in 0..OUTPUT_STEPS {
+        let mid = 0.5 * (lo + up);
+        if in_cube(line.at(to_out, mid), 0.0) {
+            lo = mid;
+        } else {
+            up = mid;
+        }
+    }
+    line.at(to_out, lo).map(|v| v.clamp(0.0, 1.0))
 }
 
 /// The scene knee on scene-linear Rec. 2020 `c` (no upper bound): chroma past `knee` of the
@@ -337,12 +466,17 @@ pub fn scene_lab(lab: [f32; 3], knee: f32, limit: f32) -> [f32; 3] {
 }
 
 #[cfg(test)]
+mod output_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::output::OutputSpace;
     use li_color::perceptual::lab_to_lch;
 
-    const KNEE: f32 = crate::finish::GAMUT_KNEE;
+    const OUTPUT_ZONE: (f32, f32) = (-0.02, -0.008);
+
+    const KNEE: f32 = 0.98;
 
     fn hue_error(a: [f32; 3], b: [f32; 3]) -> f32 {
         let (ha, hb) = (lab_to_lch(oklab_from_2020(a))[2], lab_to_lch(oklab_from_2020(b))[2]);
@@ -371,7 +505,7 @@ mod tests {
     fn render(space: OutputSpace, d: [f32; 3]) -> [f32; 3] {
         let to_out = space.from_working();
         let r = mul3(&to_out, d);
-        let mapped = crate::finish::gamut_map(output(d, r, &lms_to(&to_out), KNEE), space.luma()).0;
+        let mapped = crate::finish::gamut_map(output(d, r, &lms_to(&to_out)), space.luma()).0;
         mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), mapped)
     }
 
@@ -387,14 +521,14 @@ mod tests {
                     for f in [0.2, 0.6, 0.9, 0.96] {
                         let d = lch(l, f * exact_edge(space, l, h), h);
                         let r = mul3(&to_out, d);
-                        assert_eq!(output(d, r, &m, KNEE), r, "{} {d:?}", space.label());
+                        assert_eq!(output(d, r, &m), r, "{} {d:?}", space.label());
                     }
                 }
             }
             // neutrals and black
             for v in [0.0, 0.18, 1.0] {
                 let r = mul3(&to_out, [v; 3]);
-                assert_eq!(output([v; 3], r, &m, KNEE), r);
+                assert_eq!(output([v; 3], r, &m), r);
             }
         }
     }
@@ -467,7 +601,7 @@ mod tests {
         for space in [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::Rec2020] {
             let to_out = space.from_working();
             let m = lms_to(&to_out);
-            let knee = |d: [f32; 3]| output(d, mul3(&to_out, d), &m, KNEE);
+            let knee = |d: [f32; 3]| output(d, mul3(&to_out, d), &m);
             let worst = colours.iter().map(|d| moved(knee(*d), knee(nudged(*d)))).fold(0f32, f32::max);
             assert!(worst < 1e-3, "{}: a 2e-5 nudge moves the output knee by {worst}", space.label());
         }
@@ -485,7 +619,7 @@ mod tests {
                 let edge = exact_edge(space, l, h);
                 let chroma = |f: f32| {
                     let d = lch(l, f * edge, h);
-                    let out = output(d, mul3(&to_out, d), &m, KNEE);
+                    let out = output(d, mul3(&to_out, d), &m);
                     let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), out));
                     (lab[1].hypot(lab[2]) / edge, out)
                 };
@@ -553,7 +687,7 @@ mod tests {
         let m = lms_to(&OutputSpace::Srgb.from_working());
         for d in [[0.0; 3], [-1.0, -2.0, -3.0], [1e-30, 0.0, 0.0], [1e6, -1e6, 3.0], [-0.2, 0.5, 0.1], [0.0, 0.0, 5.0], [2.0, 2.0, 2.0]] {
             let r = mul3(&OutputSpace::Srgb.from_working(), d);
-            assert!(output(d, r, &m, KNEE).iter().all(|v| v.is_finite()), "{d:?}");
+            assert!(output(d, r, &m).iter().all(|v| v.is_finite()), "{d:?}");
             assert!(scene(d, 0.99, 2.5).iter().all(|v| v.is_finite()), "{d:?}");
         }
     }

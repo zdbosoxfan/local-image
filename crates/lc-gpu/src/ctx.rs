@@ -509,11 +509,9 @@ fn constants() -> String {
     s += &format!("const AUTO_TOL_EV: f32 = {AUTO_TOL_EV:?};\nconst AUTO_TOL_CHROMA: f32 = {AUTO_TOL_CHROMA:?};\n");
     s += &format!("const SHADOW_TINT_K: f32 = {:?};\n", lightcraft_pipeline::colorops::SHADOW_TINT);
     s += &format!("const DEHAZE_FLOOR_EV: f32 = {:?};\n", lightcraft_pipeline::detail::haze::SHADOW_FLOOR_EV);
-    s += &format!("const GAMUT_KNEE: f32 = {:?};\n", lightcraft_pipeline::finish::GAMUT_KNEE);
-    use lightcraft_pipeline::gamut::{MAX_CHROMA, OUTPUT_ZONE, STEPS};
+    use lightcraft_pipeline::gamut::{ENDPOINT_EPS, MAX_CHROMA, OUTPUT_EPS, OUTPUT_STEPS, STEPS};
     s += &format!(
-        "const GAMUT_ZONE_OUT: f32 = {:?};\nconst GAMUT_ZONE_IN: f32 = {:?};\nconst GAMUT_MAX_CHROMA: f32 = {MAX_CHROMA:?};\nconst GAMUT_STEPS: u32 = {STEPS}u;\n",
-        OUTPUT_ZONE.0, OUTPUT_ZONE.1
+        "const GAMUT_OUTPUT_EPS: f32 = {OUTPUT_EPS:?};\nconst GAMUT_ENDPOINT_EPS: f32 = {ENDPOINT_EPS:?};\nconst GAMUT_OUTPUT_STEPS: u32 = {OUTPUT_STEPS}u;\nconst GAMUT_MAX_CHROMA: f32 = {MAX_CHROMA:?};\nconst GAMUT_STEPS: u32 = {STEPS}u;\n"
     );
     use lightcraft_pipeline::tone2::{SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT};
     s += &format!("const SCENE_GAMUT_KNEE: f32 = {SCENE_GAMUT_KNEE:?};\nconst SCENE_GAMUT_LIMIT: f32 = {SCENE_GAMUT_LIMIT:?};\n");

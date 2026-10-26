@@ -42,6 +42,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Develop and export preserve colours already inside the selected output space, including sRGB
+  blue and ProPhoto primaries. Out-of-gamut colours clip inward at constant OkLab hue and
+  lightness, while scene colours retain the smooth working-space compression.
 - RAW capture sharpening leaves flat areas beyond the contrast mask's blur unchanged, keeping
   CPU and GPU previews consistent at high iteration counts.
 - Develop: the scene gamut knee preserves its colour response across exposure changes, including

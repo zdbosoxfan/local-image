@@ -2,7 +2,6 @@
 //! `lightcraft_pipeline::gamut` on the CPU.
 use super::*;
 use lightcraft_pipeline::OutputSpace;
-use lightcraft_pipeline::finish::GAMUT_KNEE;
 use lightcraft_pipeline::gamut;
 use lightcraft_pipeline::tone2::{SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT};
 
@@ -28,6 +27,16 @@ fn colours() -> Vec<[f32; 3]> {
             out.push(c.map(|v| v * exposure));
         }
     }
+    out.extend([[0.0; 3], [-1.0, -2.0, -3.0], [-0.010_398_38, -0.008_016_221, 0.403_574_4]]);
+    for space in OutputSpace::ALL {
+        let m = space.rgb_space().to_space(&li_color::REC2020).to_f32();
+        out.extend([[0.0, 0.0, 1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.000_867_180_5, 0.209_963_34, 0.979_384_1]].map(|r| mul3(&m, r)));
+    }
+    for h in [-2.5f32, 1.9898, 3.0] {
+        for c in [1e-6, 1e-5, 1e-4, 5e-4] {
+            out.push(li_color::perceptual::oklab_to_2020([1.01, c * h.cos(), c * h.sin()]));
+        }
+    }
     let mut state = 0x9e37_79b9u32;
     for _ in 0..20_000 {
         out.push(std::array::from_fn(|_| {
@@ -46,7 +55,7 @@ fn gamut_knees_match_the_cpu() {
     let g = &*gpu_device;
     let _scope = crate::ctx::RenderScope::new(g);
     let colours = colours();
-    for space in [OutputSpace::Srgb, OutputSpace::DisplayP3, OutputSpace::AdobeRgb, OutputSpace::ProPhoto] {
+    for space in OutputSpace::ALL {
         let to_out = space.from_working();
         let lms = gamut::lms_to(&to_out);
         let mut p = vec![colours.len() as u32];
@@ -58,7 +67,7 @@ fn gamut_knees_match_the_cpu() {
         let gpu: Vec<f32> = cx.read(&out, colours.len() * 6);
         let (mut worst_out, mut worst_scene) = ((0f32, [0f32; 3]), (0f32, [0f32; 3]));
         for (d, q) in colours.iter().zip(gpu.as_chunks::<6>().0) {
-            let cpu_out = gamut::output(*d, mul3(&to_out, *d), &lms, GAMUT_KNEE);
+            let cpu_out = gamut::output(*d, mul3(&to_out, *d), &lms);
             let cpu_scene = gamut::scene(*d, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT);
             assert!(q.iter().chain(&cpu_out).chain(&cpu_scene).all(|v| v.is_finite()), "{} at {d:?}: {q:?}", space.label());
             let scale = |c: [f32; 3]| c.iter().fold(1f32, |m, v| m.max(v.abs()));

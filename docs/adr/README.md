@@ -9,6 +9,7 @@ the conditions under which it should be revisited.
 | Number | Title | Status |
 |---|---|---|
 | [0001](0001-journal-catalog.md) | Library catalog: in-memory maps with a JSON snapshot and an operation log | Accepted (recorded retroactively) |
+| [0002](0002-output-gamut-clipping.md) | Output gamut clipping and scene compression | Accepted |
 
 ## Conventions
 

@@ -590,7 +590,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         out[3u*i]=bitcast<u32>(d.x);out[3u*i+1u]=bitcast<u32>(d.y);out[3u*i+2u]=bitcast<u32>(d.z);
         return;
     }
-    // Gamut map to the output space (desaturate towards luminance until in range)
+    // Output gamut mapping
     let om = array<vec3<f32>, 3>(
         vec3<f32>(ff(F_OUT_M), ff(F_OUT_M + 1u), ff(F_OUT_M + 2u)),
         vec3<f32>(ff(F_OUT_M + 3u), ff(F_OUT_M + 4u), ff(F_OUT_M + 5u)),
@@ -603,20 +603,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             vec3<f32>(ff(F_SOFT_GAMUT_M + 3u), ff(F_SOFT_GAMUT_M + 4u), ff(F_SOFT_GAMUT_M + 5u)),
             vec3<f32>(ff(F_SOFT_GAMUT_M + 6u), ff(F_SOFT_GAMUT_M + 7u), ff(F_SOFT_GAMUT_M + 8u)),
         );
-        r = gamut_output(d, r, gm, GAMUT_KNEE);
-    }
-    let yy = clamp(ff(F_OUT_Y) * r.x + ff(F_OUT_Y + 1u) * r.y + ff(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
-    var tg = 1.0;
-    for (var k = 0u; k < 3u; k++) {
-        let cc = r[k];
-        if (cc < 0.0) {
-            tg = min(tg, yy / max(yy - cc, 1e-9));
-        } else if (cc > 1.0) {
-            tg = min(tg, (1.0 - yy) / max(cc - yy, 1e-9));
+        r = clamp(gamut_output(d, r, gm), vec3<f32>(0.0), vec3<f32>(1.0));
+    } else {
+        let yy = clamp(ff(F_OUT_Y) * r.x + ff(F_OUT_Y + 1u) * r.y + ff(F_OUT_Y + 2u) * r.z, 0.0, 1.0);
+        var tg = 1.0;
+        for (var k = 0u; k < 3u; k++) {
+            let cc = r[k];
+            if (cc < 0.0) {
+                tg = min(tg, yy / max(yy - cc, 1e-9));
+            } else if (cc > 1.0) {
+                tg = min(tg, (1.0 - yy) / max(cc - yy, 1e-9));
+            }
         }
-    }
-    if (tg < 1.0) {
-        r = yy + (r - yy) * tg;
+        if (tg < 1.0) {
+            r = yy + (r - yy) * tg;
+        }
     }
 
     // Encode, curves, grain
