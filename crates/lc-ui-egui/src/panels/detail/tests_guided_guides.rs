@@ -435,3 +435,31 @@ fn undo_remains_available_while_a_guide_has_keyboard_focus() {
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!(guides_len(&h), 2, "Undo restores the guide while its surviving slot retains focus");
 }
+
+#[test]
+fn focused_guide_reserves_activation_keys_and_keeps_rebound_commands() {
+    for key in ["Enter", "Space"] {
+        let mut h = guided();
+        let photo = h.app.session.active().unwrap();
+        h.app.shortcut_overrides.insert("library::rate:4:0".into(), key.into());
+        h.app.shortcut_overrides.insert("library::view.zoomToggle".into(), "F8".into());
+        h.app.shortcut_overrides.insert("library::tool.done".into(), "F9".into());
+        let guide = egui::Id::new(("uprightGuide", photo.0, 0_usize));
+        h.view.ctx.memory_mut(|memory| memory.request_focus(guide));
+        h.step();
+        let r = h.request("ui.key", json!({"key":key}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!(h.app.ui.selected_guide, Some((photo.0, 0)), "{key} activates the guide");
+        assert_eq!(h.app.session.catalog.photo(photo).unwrap().rating, 0, "{key} cannot rate the photo");
+        let r = h.request("ui.key", json!({"key":"F8"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_ne!(h.app.ui.zoom, crate::state::Zoom::Fit, "rebound zoom remains available");
+        h.app.run("view.zoomFit", json!({})).unwrap();
+        assert!(h.settle(SETTLE));
+        h.view.ctx.memory_mut(|memory| memory.request_focus(guide));
+        h.step();
+        let r = h.request("ui.key", json!({"key":"F9"}), T);
+        assert_eq!(r["ok"], true, "{r}");
+        assert_ne!(h.app.ui.tool, "guidedUpright", "rebound Done remains available");
+    }
+}

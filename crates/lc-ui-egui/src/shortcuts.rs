@@ -101,9 +101,6 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     let table: Vec<_> = catalog::effective(app)
         .into_iter()
         .filter_map(|(binding, chord)| {
-            if guide_focused && matches!(binding.command.as_str(), "view.zoomToggle" | "tool.done") {
-                return None;
-            }
             if app.native_shortcuts.contains(&chord) || app.host_session.as_ref().is_some_and(|h| !h.allows(&binding.command)) {
                 return None;
             }
@@ -118,7 +115,11 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
             {
                 return None;
             }
-            Some((binding, li_keys::input::parse(&chord)?))
+            let shortcut = li_keys::input::parse(&chord)?;
+            if guide_focused && shortcut.modifiers == Modifiers::NONE && matches!(shortcut.logical_key, Key::Space | Key::Enter) {
+                return None;
+            }
+            Some((binding, shortcut))
         })
         .collect();
     use crate::panels::compare;
