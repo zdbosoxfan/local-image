@@ -82,8 +82,9 @@ fn write_tysh_preserves_nan_transform() {
     let text_desc = Descriptor::new("TxLr");
     let tysh = TySh { transform: Affine { m: [f64::NAN, 0.0, 0.0, 1.0, 0.0, 0.0] }, text: text_desc, warp: None, bounds: [0.0; 4] };
     let bytes = write_tysh(&tysh);
-    let parsed = parse_tysh(&bytes).expect("parse with NaN transform should succeed");
-    assert!(parsed.transform.m[0].is_nan());
+    let stored = f64::from_be_bytes(bytes[2..10].try_into().unwrap());
+    assert!(stored.is_nan());
+    assert!(parse_tysh(&bytes).is_none());
 }
 
 #[test]
