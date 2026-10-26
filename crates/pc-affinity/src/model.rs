@@ -484,6 +484,7 @@ pub fn read_with<'a>(bytes: &'a [u8], limits: Limits, cancel: Option<&'a std::sy
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Budget {
     nodes: usize,
+    depth: usize,
     pixels: u64,
     child_slots: usize,
     name_bytes: usize,
@@ -497,6 +498,7 @@ pub(crate) struct Reader<'s, 'a, 'b> {
     pub(crate) s: &'s Stream,
     pub(crate) archive: &'b mut Archive<'a>,
     pub(crate) dpi: f64,
+    pub(crate) stream_depth: usize,
     warnings: BTreeMap<String, usize>,
     pub(crate) budget: Budget,
     base: Affine,
@@ -513,10 +515,12 @@ pub(crate) struct Reader<'s, 'a, 'b> {
 impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
     pub(crate) fn new(s: &'s Stream, archive: &'b mut Archive<'a>) -> Self {
         let limit = archive.limits.max_total;
+        let stream_depth = archive.limits.max_depth;
         Self {
             s,
             archive,
             dpi: 72.0,
+            stream_depth,
             warnings: BTreeMap::new(),
             budget: Budget { limit, chars: 16 << 20, cells: 1 << 18, ..Default::default() },
             base: Affine::IDENTITY,
@@ -685,7 +689,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             y1: 0.0,
         });
         let transparent = s.bool(spread, b"SprT").unwrap_or(false);
-        let (nodes, mask) = self.children(spread, self.base, 0)?;
+        let (nodes, mask) = self.children(spread, self.base, self.budget.depth)?;
         if mask.is_some() {
             self.warn("mask layers directly on a page (imported without them)");
         }
@@ -774,7 +778,10 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         if !world.is_finite() || world.0.iter().any(|v| v.abs() > 1_000_000.) {
             return Err(Error::Malformed("invalid layer transform"));
         }
-        let kind = self.kind(id, class, world, parent)?;
+        let inherited_depth = std::mem::replace(&mut self.budget.depth, depth);
+        let kind = self.kind(id, class, world, parent);
+        self.budget.depth = inherited_depth;
+        let kind = kind?;
         let embedded = self.pending.take();
         // A compound's children are its operands, already merged into its outline.
         let (mut children, child_mask) = if class == Tag::of(b"Comp") { (Vec::new(), None) } else { self.children(id, world, depth)? };
@@ -1084,9 +1091,11 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
         let mut archive = Archive::open_with(bytes, limits, self.archive.cancel)?;
         let result = (|| {
             let data = archive.read("doc.dat")?;
-            let stream = stream::parse_with(&data, limits, archive.cancel)?;
+            let stream_limits = Limits { max_depth: self.stream_depth, ..limits };
+            let stream = stream::parse_with(&data, stream_limits, archive.cancel)?;
             let mut reader = Reader::new(&stream, &mut archive);
             reader.budget = self.budget;
+            reader.stream_depth = self.stream_depth;
             reader.segments = self.segments;
             reader.base = base;
             reader.type_base = Affine([base.0[0], base.0[1], base.0[2], base.0[3], 0., 0.]);

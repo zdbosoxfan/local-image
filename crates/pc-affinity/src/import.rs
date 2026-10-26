@@ -47,10 +47,12 @@ pub fn import_with(
     let mut archive = crate::Archive::open_with(bytes, limits, Some(cancel))?;
     let data = archive.read("doc.dat")?;
     let stream = crate::stream::parse_with(&data, limits, Some(cancel))?;
+    let stream_depth = limits.max_depth;
     limits.max_depth = options.limits.depth.min(photocraft_doc::MAX_GROUP_DEPTH);
     archive.limits = limits;
     // Stream parsing and layer recursion have different nesting conventions.
     let mut reader = model::Reader::new(&stream, &mut archive);
+    reader.stream_depth = stream_depth;
     let native = reader.document()?;
     let bytes = reader.budget.owned as u64;
     scene::convert(native, options, fonts, cancel, bytes.saturating_add(archive.extracted() as u64))
