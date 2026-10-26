@@ -57,7 +57,7 @@ fn the_doctor_lists_template_models_as_ready_and_prints_json() {
     assert_eq!(code, 0, "{out}\n{err}");
     assert!(out.contains("ComfyUI  127.0.0.1:") && out.contains("v0.42.5 (local-git)  templates 0.11.96 from the server"), "{out}");
     assert!(out.contains("GPU      NVIDIA GeForce RTX 5090, 33.7 GB (Blackwell)"), "{out}");
-    assert!(out.contains("READY    FLUX.3 Klein · distilled · BF16"), "{out}");
+    assert!(out.contains("READY    FLUX.3 Klein Distilled · BF16"), "{out}");
     assert!(out.contains("image_flux3_klein_distilled_t2i + image_flux3_klein_distilled_image_edit"), "{out}");
     assert!(out.contains("Run `local-image-cli ai doctor --verify all` to test the 2 untested models"), "{out}");
     let (code, json, _) = doctor(server.host(), &dir, &data, &["--json"]);
@@ -80,7 +80,7 @@ fn templates_can_come_from_a_folder_when_the_server_serves_none() {
     let templates = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../crates/li-ai/tests/fixtures/comfy-0.42.5/templates");
     let (code, out, err) = doctor(server.host(), &dir, &data, &["--templates-dir", templates.to_str().unwrap()]);
     assert_eq!(code, 0, "{out}\n{err}");
-    assert!(out.contains("READY    FLUX.3 Klein · distilled · BF16"), "{out}");
+    assert!(out.contains("READY    FLUX.3 Klein Distilled · BF16"), "{out}");
 }
 
 #[test]
@@ -90,7 +90,7 @@ fn verify_tests_one_model_at_a_time_and_frees_memory_after_each() {
     server.serve_comfy_0_42_5(&dir.0);
     let (code, out, err) = doctor(server.host(), &dir, &data, &["--verify", "all"]);
     assert!(code == 0 || code == 1, "{out}\n{err}");
-    assert!(out.contains("VERIFY FLUX.3 Klein · distilled · BF16: create ..."), "{out}");
+    assert!(out.contains("VERIFY FLUX.3 Klein Distilled · BF16: create ..."), "{out}");
     assert!(out.contains(": refine ..."), "{out}");
     assert_eq!(server.frees(), 2, "{out}");
     assert!(!out.contains("READY    FLUX.3"), "tested models are no longer listed as untested: {out}");
