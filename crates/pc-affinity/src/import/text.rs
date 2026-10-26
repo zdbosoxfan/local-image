@@ -22,7 +22,7 @@ impl State<'_, '_> {
             return Err(Error::Limit("text layout bytes"));
         }
         let mut text = TextLayer::default();
-        let type_ratio = if t.frame.is_some() { t.text_transform.scale() / t.transform.scale().max(1e-9) } else { 1. };
+        let type_ratio = type_ratio(t);
         if !type_ratio.is_finite() || !(0.0001..=10000.).contains(&type_ratio) {
             return Err(Error::Limit("text scale"));
         }
@@ -58,9 +58,19 @@ impl State<'_, '_> {
                     photocraft_doc::Color::BLACK
                 }
             };
-            text.text.push_str(&r.text);
+            let native: String = r
+                .text
+                .chars()
+                .map(|c| match c {
+                    '\u{2028}' => '\u{3}',
+                    '\u{2029}' => '\n',
+                    c => c,
+                })
+                .collect();
+            let len = native.len();
+            text.text.push_str(&native);
             text.paragraphs.push(ParagraphRun {
-                len: r.text.len(),
+                len,
                 style: ParagraphStyle {
                     align: match r.paragraph.align {
                         model::Align::Left => TextAlign::Left,
@@ -78,7 +88,7 @@ impl State<'_, '_> {
                 },
             });
             text.runs.push(TextRun {
-                len: r.text.len(),
+                len,
                 style: CharStyle {
                     font_family: r.family.clone(),
                     postscript_name: Some(r.postscript.clone()),
@@ -97,6 +107,26 @@ impl State<'_, '_> {
                 },
             });
         }
+        let mut paragraphs = Vec::new();
+        let mut styles = text.paragraphs.into_iter();
+        let mut current = styles.next();
+        let mut start = 0;
+        for range in photocraft_text::layout::split_paragraphs(&text.text) {
+            while current.as_ref().is_some_and(|p| start + p.len <= range.start) {
+                let Some(next) = styles.next() else { break };
+                start += current.as_ref().map_or(0, |p| p.len);
+                current = Some(next);
+            }
+            let style = current.as_ref().map_or_else(ParagraphStyle::default, |p| p.style.clone());
+            paragraphs.push(ParagraphRun { len: range.len(), style });
+        }
+        // Affinity collapses adjacent spaces; native layout adds them. Retain before-space
+        // and reduce the preceding after-space to preserve the same gap.
+        for index in 1..paragraphs.len() {
+            let before = paragraphs[index].style.space_before_pt;
+            paragraphs[index - 1].style.space_after_pt = (paragraphs[index - 1].style.space_after_pt - before).max(0.);
+        }
+        text.paragraphs = paragraphs;
         // Font sizes are in node pixels; the node transform applies the DPI conversion once.
         let anchor = t.frame.map_or(t.anchor, |r| model::Point { x: r.x0, y: r.y0 });
         text.transform = m.mul(&Affine { m: t.transform.0 }).mul(&Affine::translate(anchor.x, anchor.y));
@@ -131,6 +161,9 @@ impl State<'_, '_> {
         cancelled(Some(self.cancel))?;
         self.supported += 1;
         let transform = text.transform;
+        let ratio = type_ratio(t);
+        let outline_transform =
+            Affine { m: [transform.m[0] * ratio, transform.m[1] * ratio, transform.m[2] * ratio, transform.m[3] * ratio, transform.m[4], transform.m[5]] };
         let mut layer = Layer::new(name, LayerContent::Text(text));
         let outlined: Vec<_> = t.runs.iter().filter_map(|r| r.stroke.as_ref()).collect();
         if outlined.is_empty() {
@@ -142,17 +175,18 @@ impl State<'_, '_> {
         {
             let stroke = outlined[0];
             let b = super::scene::bounds(&layer);
-            let Some(native) = paint::stroke(self, stroke, transform, (f64::from(b.x0), f64::from(b.y0), f64::from(b.x1), f64::from(b.y1)), name)? else {
+            let Some(native) = paint::stroke(self, stroke, outline_transform, (f64::from(b.x0), f64::from(b.y0), f64::from(b.x1), f64::from(b.y1)), name)?
+            else {
                 return Ok(layer);
             };
             if native.width > 512. {
-                return self.outlined_text(t, &layout, transform, layer, name);
+                return self.outlined_text(t, &layout, transform, outline_transform, layer, name);
             }
             let fxpaint = match native.paint {
                 photocraft_doc::Fill::Solid(color) => photocraft_doc::effects::FxPaint::Color(color),
                 _ => {
                     self.warn("text-outline-paint", name, "Gradient text outline retained as companion geometry.");
-                    return self.outlined_text(t, &layout, transform, layer, name);
+                    return self.outlined_text(t, &layout, transform, outline_transform, layer, name);
                 }
             };
             layer.effects.enabled = true;
@@ -168,13 +202,22 @@ impl State<'_, '_> {
             }));
             return Ok(layer);
         }
-        self.outlined_text(t, &layout, transform, layer, name)
+        self.outlined_text(t, &layout, transform, outline_transform, layer, name)
     }
 }
 
 impl State<'_, '_> {
-    fn outlined_text(&mut self, t: &model::Text, layout: &photocraft_text::TextLayout, transform: Affine, layer: Layer, name: &str) -> Result<Layer, Error> {
+    fn outlined_text(
+        &mut self,
+        t: &model::Text,
+        layout: &photocraft_text::TextLayout,
+        transform: Affine,
+        outline_transform: Affine,
+        layer: Layer,
+        name: &str,
+    ) -> Result<Layer, Error> {
         use photocraft_text::render::{OutlineEvent, OutlineVisitError, OutlineVisitLimits, PathEl, visit_outlines};
+        self.warn("text-outline", name, "Text outlines are companion vector layers; edit their paths alongside the editable text.");
         let mut paths = vec![model::Path::default(); t.runs.len()];
         let mut run = None;
         let mut current: Option<model::SubPath> = None;
@@ -254,7 +297,7 @@ impl State<'_, '_> {
                 self.charge_layers(1)?;
                 let native = self.path(&path, Affine::IDENTITY, false)?;
                 // The glyph visitor already placed the path; only paint/width retain the type transform.
-                parts.push(self.shape(native, &[], std::slice::from_ref(stroke), transform, "Text outline")?);
+                parts.push(self.shape(native, &[], std::slice::from_ref(stroke), outline_transform, "Text outline")?);
             }
         }
         self.charge_layers(1)?;
@@ -351,4 +394,8 @@ fn metadata_bytes(runs: &[model::TextRun]) -> u64 {
             .saturating_add(stops(&run.fill))
             .saturating_add(outline)
     })
+}
+
+fn type_ratio(text: &model::Text) -> f64 {
+    if text.frame.is_some() { text.text_transform.scale() / text.transform.scale().max(1e-9) } else { 1. }
 }

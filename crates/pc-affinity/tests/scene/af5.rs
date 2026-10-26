@@ -409,3 +409,102 @@ fn native_text_metadata_is_reserved_before_layout_clones() {
     options.limits.decompressed_bytes = 8 << 20;
     assert!(matches!(import(&bytes, &options), Err(Error::Limit("text layout bytes"))));
 }
+
+#[test]
+fn affinity_unicode_breaks_preserve_paragraph_formats_and_utf8_ranges() {
+    let mut block = text_fixture::block(
+        text_fixture::utf8("é\u{2028}A\u{2029}B"),
+        vec![text_fixture::run(5, Some(text_fixture::attrs("Inter", "", 400, false, 16.)))],
+        &[],
+    );
+    if let F::Obj(_, fields) = &mut block {
+        let paragraph = |end, align| {
+            vec![(tag(b"Indx"), F::I32(end)), (tag(b"Item"), F::Obj(tag(b"PAtt"), vec![(tag(b"Ints"), text_fixture::array_i32(b"Ints", &[align]))]))]
+        };
+        fields.iter_mut().find(|(key, _)| *key == tag(b"PAtt")).unwrap().1 =
+            F::Obj(tag(b"PaAS"), vec![(tag(b"Runs"), F::Objs(tag(b"PaAR"), vec![paragraph(4, 0), paragraph(5, 2)]))]);
+    }
+    let bytes = text_fixture::document(vec![block], false, 72., text_fixture::IDENTITY);
+    let doc = photocraft_affinity::read(&bytes, Limits::default()).unwrap();
+    let model::Kind::Text(source) = &doc.spreads[0].nodes[0].kind else { panic!() };
+    assert_eq!(source.runs.iter().map(|r| r.text.as_str()).collect::<String>(), "é\u{2028}A\u{2029}B");
+    let scene = import(&bytes, &ImportOptions::default()).unwrap();
+    let layers = walk(&scene.layers);
+    let text = layers.iter().find_map(|l| if let LayerContent::Text(t) = &l.content { Some(t) } else { None }).unwrap();
+    assert_eq!(text.text, "é\u{3}A\nB");
+    assert_eq!(text.runs.iter().map(|r| r.len).collect::<Vec<_>>(), [5, 1]);
+    assert_eq!(text.paragraphs.iter().map(|p| p.len).collect::<Vec<_>>(), [5, 1]);
+    assert_eq!(text.paragraphs[1].style.align, photocraft_doc::text::TextAlign::Right);
+    let layout = photocraft_text::TextEngine::new().layout(text, 72.);
+    assert_eq!(layout.lines.iter().map(|l| l.paragraph).collect::<Vec<_>>(), [0, 0, 1]);
+}
+
+#[test]
+fn affinity_paragraph_spacing_uses_the_larger_adjacent_space() {
+    let source = |after, before| {
+        let mut block =
+            text_fixture::block(text_fixture::utf8("A\nB"), vec![text_fixture::run(3, Some(text_fixture::attrs("Inter", "", 400, false, 16.)))], &[]);
+        if let F::Obj(_, fields) = &mut block {
+            let paragraph = |end, before, after| {
+                vec![
+                    (tag(b"Indx"), F::I32(end)),
+                    (tag(b"Item"), F::Obj(tag(b"PAtt"), vec![(tag(b"Doub"), text_fixture::array_f64(b"Doub", &[1.2, 0., 0., 0., 0., before, after]))])),
+                ]
+            };
+            fields.iter_mut().find(|(key, _)| *key == tag(b"PAtt")).unwrap().1 =
+                F::Obj(tag(b"PaAS"), vec![(tag(b"Runs"), F::Objs(tag(b"PaAR"), vec![paragraph(2, 0., after), paragraph(3, before, 0.)]))]);
+        }
+        text_fixture::document(vec![block], false, 72., text_fixture::IDENTITY)
+    };
+    let pitch = |bytes: &[u8]| {
+        let scene = import(bytes, &ImportOptions::default()).unwrap();
+        let layers = walk(&scene.layers);
+        let text = layers.iter().find_map(|l| if let LayerContent::Text(t) = &l.content { Some(t) } else { None }).unwrap();
+        let layout = photocraft_text::TextEngine::new().layout(text, 72.);
+        layout.lines[1].baseline - layout.lines[0].baseline
+    };
+    let plain = pitch(&source(0., 0.));
+    for (after, before) in [(8., 6.), (6., 8.)] {
+        assert!((pitch(&source(after, before)) - plain - 8.).abs() < 0.001);
+    }
+}
+
+#[test]
+fn frame_text_outlines_follow_the_independent_type_scale() {
+    let attributes = || {
+        let mut attrs = text_fixture::attrs("Inter", "", 400, false, 16.);
+        if let F::Obj(_, fields) = &mut attrs {
+            fields.iter_mut().find(|(key, _)| *key == tag(b"Objs")).unwrap().1 =
+                F::Shared(vec![text_fixture::solid(1.), text_fixture::solid(1.), F::Obj(tag(b"LSty"), vec![(tag(b"Wght"), F::F64(3.))])]);
+        }
+        attrs
+    };
+    for mixed in [false, true] {
+        for scale in [1., 2.] {
+            let runs = if mixed {
+                vec![text_fixture::run(1, Some(attributes())), text_fixture::run(2, Some(text_fixture::attrs("Inter", "", 400, false, 16.)))]
+            } else {
+                vec![text_fixture::run(2, Some(attributes()))]
+            };
+            let bytes = text_fixture::document(vec![text_fixture::block(text_fixture::utf8("AB"), runs, &[0])], true, 72., [scale, 0., 0., 0., scale, 0.]);
+            let scene = import(&bytes, &ImportOptions::default()).unwrap();
+            let layers = walk(&scene.layers);
+            let text = layers.iter().find_map(|l| if let LayerContent::Text(t) = &l.content { Some(t) } else { None }).unwrap();
+            assert!((f64::from(text.runs[0].style.size_pt) * text.transform.m[0] - 16.).abs() < 1e-5);
+            if mixed {
+                let outline = layers
+                    .iter()
+                    .find_map(|l| if l.name == "Text outline" { if let LayerContent::Shape(s) = &l.content { s.stroke.as_ref() } else { None } } else { None })
+                    .unwrap();
+                assert!((outline.width - 3.).abs() < 1e-5);
+            } else {
+                let effect = layers
+                    .iter()
+                    .flat_map(|l| &l.effects.items)
+                    .find_map(|e| if let photocraft_doc::effects::Effect::Stroke(s) = e { Some(s) } else { None })
+                    .unwrap();
+                assert!((effect.size - 3.).abs() < 1e-5);
+            }
+        }
+    }
+}
