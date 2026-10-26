@@ -234,10 +234,15 @@ fn apply(app: &mut PhotocraftApp, p: [f64; 2]) -> [f64; 2] {
 pub fn filter_event(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) -> ToolEvent {
     match ev {
         ToolEvent::Down { x, y, pressure } => {
+            let moving_selection = crate::canvas::selection_drag_kind(app, app.ui.tool, [x, y], crate::workspace_ui::sticky_mods(app, mods)).is_some();
             begin(app, [x, y]);
+            // Layer transform bounds are selection-clipped too, so these are all self-targets.
+            if moving_selection && let Some(snap) = app.prefs_rt.snap.as_mut() {
+                snap.targets = snap.targets.filtered(|kind| !matches!(kind, SnapKind::Selection | SnapKind::LayerEdge | SnapKind::LayerCenter));
+            }
             // Moves snap their delta, which is zero at the start: keep the press point.
             let p = match app.prefs_rt.snap.as_ref().map(|s| &s.gesture) {
-                Some(Gesture::Point) => {
+                Some(Gesture::Point) if !moving_selection => {
                     let q = apply(app, [x, y]);
                     pixel_round(app, q)
                 }
