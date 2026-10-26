@@ -7,6 +7,7 @@ use photocraft_doc::{
 use std::sync::atomic::{AtomicBool, Ordering};
 mod paint;
 mod scene;
+mod text;
 
 pub(crate) fn cancelled(cancel: Option<&AtomicBool>) -> Result<(), Error> {
     if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) { Err(Error::Cancelled) } else { Ok(()) }
