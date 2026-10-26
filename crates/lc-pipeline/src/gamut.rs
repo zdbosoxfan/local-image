@@ -175,43 +175,16 @@ impl Line {
         )
     }
 
-    /// How far inside the gamut `m` chroma scale `t` lies, from 0 to 1 across `zone`: 1 where every
-    /// channel is at least `zone.1` inside its faces, 0 where one is `zone.0` or further outside,
-    /// linear between. Zones are fractions of the neutral's level `n` (the face at 0) or of its
-    /// headroom `1 − n` (the face at 1, with `upper`); negative is outside. Also whether a channel
-    /// lies within the zone.
-    #[inline]
-    fn depth(&self, m: &M3, t: f32, upper: bool, zone: (f32, f32)) -> (f32, bool) {
-        let n = self.l * self.l * self.l;
-        let (mut depth, mut within) = (1.0f32, false);
-        for x in self.at(m, t) {
-            let margins = [x / n, if upper { (1.0 - x) / (1.0 - n) } else { f32::INFINITY }];
-            for margin in margins {
-                let d = if zone.1 > zone.0 {
-                    (margin - zone.0) / (zone.1 - zone.0)
-                } else if margin >= zone.1 {
-                    1.0
-                } else {
-                    0.0
-                };
-                within |= d > 0.0 && d < 1.0;
-                depth = depth.min(d);
-            }
-        }
-        (depth.clamp(0.0, 1.0), within)
-    }
-
     /// Where the search along the line ends: where the first cube-rooted LMS reaches 0 (every gamut
     /// ends before it, and past it the channels fold back), or at [`MAX_CHROMA`].
     fn reach(&self) -> f32 {
         self.d.iter().filter(|d| **d < 0.0).map(|d| self.l / -d).fold(MAX_CHROMA / self.c, f32::min)
     }
 
-    /// The cubics in the chroma scale that are ≥ 0 where the line is `shift` (see [`Line::depth`])
-    /// inside the faces of the gamut `m`: each channel's face at 0 and, with `upper`, at 1 (`[..n]`).
-    fn faces(&self, m: &M3, upper: bool, shift: f32) -> ([[f32; 4]; 6], usize) {
+    /// Cubics that are >= 0 inside the gamut `m`: each channel's face at 0 and, with
+    /// `upper`, at 1 (`[..n]`).
+    fn faces(&self, m: &M3, upper: bool) -> ([[f32; 4]; 6], usize) {
         let l = self.l;
-        let n3 = l * l * l;
         let mut faces = [[0f32; 4]; 6];
         let mut n = 0;
         for row in m {
@@ -222,55 +195,44 @@ impl Line {
                 c[2] += w * 3.0 * l * d * d;
                 c[3] += w * d * d * d;
             }
-            faces[n] = [c[0] - shift * n3, c[1], c[2], c[3]];
+            faces[n] = c;
             n += 1;
             if upper {
-                faces[n] = [1.0 - shift * (1.0 - n3) - c[0], -c[1], -c[2], -c[3]];
+                faces[n] = [1.0 - c[0], -c[1], -c[2], -c[3]];
                 n += 1;
             }
         }
         (faces, n)
     }
 
-    /// Whether the line stays `shift` inside the gamut `m` all along `0..hi`.
-    fn stays_inside(&self, m: &M3, upper: bool, shift: f32, hi: f32) -> bool {
-        let (faces, n) = self.faces(m, upper, shift);
+    /// Whether the line stays inside the lower faces of `m` all along `0..hi`.
+    fn stays_inside(&self, m: &M3, hi: f32) -> bool {
+        let (faces, n) = self.faces(m, false);
         faces[..n].iter().all(|c| {
             let (cuts, k) = pieces(*c, hi);
             cuts[..=k].iter().all(|t| horner(*c, *t) >= 0.0)
         })
     }
 
-    /// The gamut's extent along the line: the integral over `0..hi` of [`Line::depth`] across
-    /// `zone`. Where the line leaves the gamut once, that is its edge, moved half the zone outwards
-    /// or inwards; folds the line passes through shorten it by how deep they reach, so it moves
-    /// smoothly with the colour. Uses 3-point Gauss–Legendre quadrature between the points where a
-    /// channel enters or leaves the zone; changes of the limiting face within a piece are approximate.
-    fn extent(&self, m: &M3, upper: bool, zone: (f32, f32), hi: f32) -> f32 {
-        let mut cuts = [0f32; 38];
+    /// Total length of the intervals inside the lower faces of `m` along `0..hi`.
+    fn extent(&self, m: &M3, hi: f32) -> f32 {
+        // Three cubics have at most nine crossings, plus the two search bounds.
+        let mut cuts = [0f32; 11];
         let mut n = 2;
         cuts[1] = hi;
-        for shift in [zone.0, zone.1] {
-            let (faces, count) = self.faces(m, upper, shift);
-            for c in &faces[..count] {
-                sign_changes(*c, hi, STEPS, &mut |t| {
-                    cuts[n] = t;
-                    n += 1;
-                });
-            }
+        let (faces, count) = self.faces(m, false);
+        for c in &faces[..count] {
+            sign_changes(*c, hi, STEPS, &mut |t| {
+                cuts[n] = t;
+                n += 1;
+            });
         }
         let cuts = &mut cuts[..n];
         cuts.sort_by(f32::total_cmp);
-        const GAUSS: f32 = 0.774_596_7;
         cuts.windows(2)
             .map(|w| {
                 let (mid, half) = (0.5 * (w[0] + w[1]), 0.5 * (w[1] - w[0]));
-                let (depth, within) = self.depth(m, mid, upper, zone);
-                if !within {
-                    return depth * 2.0 * half;
-                }
-                let side = |t| self.depth(m, t, upper, zone).0;
-                half * (5.0 * side(mid - GAUSS * half) + 8.0 * depth + 5.0 * side(mid + GAUSS * half)) / 9.0
+                if self.at(m, mid).iter().all(|v| *v >= 0.0) { 2.0 * half } else { 0.0 }
             })
             .sum()
     }
@@ -292,10 +254,10 @@ impl Line {
         // The scene gamut is a cone: normalizing lightness keeps its boundary independent of
         // exposure and the cubic coefficients small enough for HDR samples.
         let normalized = Self { l: 1.0, c: self.c / self.l, d: self.d.map(|v| v / self.l) };
-        if normalized.stays_inside(w, false, 0.0, 1.0 / knee) {
+        if normalized.stays_inside(w, 1.0 / knee) {
             return None;
         }
-        let t = normalized.compressed(normalized.extent(w, false, (0.0, 0.0), normalized.reach()), knee, limit)?;
+        let t = normalized.compressed(normalized.extent(w, normalized.reach()), knee, limit)?;
         Some(self.at(w, t))
     }
 }
@@ -314,7 +276,7 @@ impl Line {
             return None;
         }
         let mut chroma = input;
-        let (faces, count) = self.faces(m, true, 0.0);
+        let (faces, count) = self.faces(m, true);
         let luminance: [f32; 4] = std::array::from_fn(|k| luma[0] * faces[0][k] + luma[1] * faces[2][k] + luma[2] * faces[4][k]);
         for (i, face) in faces[..count].iter().enumerate() {
             let mut face = *face;
@@ -350,7 +312,7 @@ impl Line {
     /// or interval endpoints. This avoids bisection on a vanishing-width chroma interval.
     fn output_endpoint(&self, m: &M3, luma: [f32; 3]) -> (f32, [f32; 3]) {
         let unit = Self { l: 1.0, ..*self };
-        let (faces, _) = unit.faces(m, false, 0.0);
+        let (faces, _) = unit.faces(m, false);
         // Nine turns/endpoints, nine lower-face roots, nine channel crossings, neutral.
         let mut qs = [0.0; 28];
         let mut count = 1;
@@ -726,7 +688,7 @@ mod tests {
             for hi in 0..36 {
                 let h = hi as f32 * std::f32::consts::TAU / 36.0;
                 let line = Line::new([l, h.cos(), h.sin()]).unwrap();
-                let edge = line.extent(working, false, (0.0, 0.0), line.reach());
+                let edge = line.extent(working, line.reach());
                 let mut previous = 0.0f32;
                 for f in [0.5, 0.95, 1.0, 1.2, 1.6, 2.4] {
                     let c = lch(l, f * edge, h);
