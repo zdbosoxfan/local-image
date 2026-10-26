@@ -6,6 +6,7 @@
 //! the result per server ([`state`]) and publishes the usable recipes to the catalogue.
 //! Verification ([`verify`]) runs only when asked. Everything here is blocking.
 
+mod background;
 pub mod check;
 pub mod fixes;
 pub mod issue;
@@ -126,6 +127,10 @@ pub struct Templates {
 }
 
 impl Templates {
+    fn cacheable_version(version: &str) -> bool {
+        !version.is_empty() && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+    }
+
     /// Builds the set from an `index.json` and a reader for `<name>.json` (unreadable, oversized
     /// or invalid templates are left out, logged).
     pub fn from_reader(version: &str, index: &[u8], read: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Self> {
@@ -160,7 +165,7 @@ impl Templates {
     /// The connected server's templates (`/templates/…`), cached per host and package version.
     pub fn fetch(client: &ComfyClient, version: &str, cache: Option<&Path>) -> Result<Self> {
         let dir = cache
-            .filter(|_| !version.is_empty() && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)))
+            .filter(|_| Self::cacheable_version(version))
             .map(|c| c.join(hex::encode(Sha256::digest(client.host().trim_end_matches('/').as_bytes()))).join(version));
         let cached = |f: &str| dir.as_ref().and_then(|d| std::fs::read(d.join(f)).ok());
         let get = |f: &str| -> Option<Vec<u8>> {
@@ -630,18 +635,22 @@ pub fn scan_with(opts: &Options, reg: &Registry) -> Scan {
 /// Static setup from a snapshot already collected by the background inventory poller.
 /// This never submits a render, downloads a model or moves a file.
 pub fn scan_snapshot(opts: &Options, snapshot: Snapshot) -> Scan {
-    scan_snapshot_with(opts, snapshot, crate::family::registry())
+    background::scan(opts, snapshot)
 }
 
 fn scan_snapshot_with(opts: &Options, snapshot: Snapshot, reg: &Registry) -> Scan {
     let client = ComfyClient::new(&opts.host);
-    let model_dir = opts.model_dir.as_deref().filter(|d| d.is_dir());
-    crate::inventory::refresh(&snapshot.info, model_dir);
-    let mut issues = check::server_issues(&snapshot);
     let templates = match &opts.templates_dir {
         Some(dir) => Templates::from_dir(dir, &snapshot.templates_version),
         None => Templates::fetch(&client, &snapshot.templates_version, opts.cache_dir.as_deref()),
     };
+    scan_templates_with(opts, snapshot, reg, templates.as_ref().map_err(|e| anyhow::anyhow!("{e:#}")))
+}
+
+fn scan_templates_with(opts: &Options, snapshot: Snapshot, reg: &Registry, templates: Result<&Templates>) -> Scan {
+    let model_dir = opts.model_dir.as_deref().filter(|d| d.is_dir());
+    crate::inventory::refresh(&snapshot.info, model_dir);
+    let mut issues = check::server_issues(&snapshot);
     let templates = match templates {
         Ok(t) => Some(t),
         Err(e) => {
@@ -654,7 +663,7 @@ fn scan_snapshot_with(opts: &Options, snapshot: Snapshot, reg: &Registry) -> Sca
     let stored = stored_all.server(&opts.host);
     let ctx = Ctx {
         snapshot: &snapshot,
-        templates: templates.as_ref(),
+        templates,
         model_dir,
         reg,
         runtime: crate::companions::runtime(),

@@ -959,3 +959,41 @@ fn ordinary_template_generation_reports_catalog_availability_before_building() {
     assert!(error.to_string().contains("Update ComfyUI: it is missing the nodes CLIPLoader."), "{error:#}");
     assert!(s.mock.prompts().is_empty(), "availability failures must not submit renders");
 }
+
+#[test]
+fn background_scans_reuse_unversioned_templates_and_recheck_models() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(FLUX3);
+    for version in ["", "not/a/version"] {
+        let mut stats = system_stats("0.42.5", "NVIDIA GeForce RTX 5090");
+        stats["system"]["installed_templates_version"] = json!(version);
+        s.mock.set_system_stats(stats);
+        s.mock.set_templates_dir(fixtures().join("comfy-0.42.5/templates"));
+        let snapshot = || modelsetup::Snapshot::take(&li_ai::ComfyClient::new(s.mock.host())).unwrap();
+        let scan = modelsetup::scan_snapshot(&s.options(), snapshot());
+        assert_eq!(scan.server.models[FLUX3_KEY].status, Status::Ready);
+        s.mock.set_templates_dir(s.state.0.join("unavailable-templates"));
+        let scan = modelsetup::scan_snapshot(&s.options(), snapshot());
+        assert!(!scan.issues.iter().any(|i| i.code == "TemplateIndexUnavailable"), "reuse the last package: {:?}", scan.issues);
+        let mut changed = snapshot();
+        changed.info.0.as_object_mut().unwrap().remove("CLIPLoader");
+        let scan = modelsetup::scan_snapshot(&s.options(), changed);
+        assert_eq!(scan.server.models[FLUX3_KEY].status, Status::Blocked, "cached templates must not suppress current static checks");
+    }
+    let mut stats = system_stats("0.42.5", "NVIDIA GeForce RTX 5090");
+    stats["system"]["installed_templates_version"] = json!("unavailable/package");
+    s.mock.set_system_stats(stats);
+    s.mock.set_templates_dir(s.state.0.join("unavailable-templates"));
+    let snapshot = || modelsetup::Snapshot::take(&li_ai::ComfyClient::new(s.mock.host())).unwrap();
+    let failed = modelsetup::scan_snapshot(&s.options(), snapshot());
+    assert!(failed.issues.iter().any(|i| i.code == "TemplateIndexUnavailable"));
+    s.mock.set_templates_dir(fixtures().join("comfy-0.42.5/templates"));
+    let deferred = modelsetup::scan_snapshot(&s.options(), snapshot());
+    assert!(deferred.issues.iter().any(|i| i.code == "TemplateIndexUnavailable"), "failed fetches also back off");
+    assert!(!s.scan().issues.iter().any(|i| i.code == "TemplateIndexUnavailable"), "an explicit scan can retry immediately");
+    let other = Setup::new(FLUX3);
+    let mut other_snapshot = modelsetup::Snapshot::take(&li_ai::ComfyClient::new(other.mock.host())).unwrap();
+    other_snapshot.templates_version = "unavailable/package".into();
+    let scan = modelsetup::scan_snapshot(&other.options(), other_snapshot);
+    assert_eq!(scan.server.models[FLUX3_KEY].status, Status::Ready, "another server must not reuse the failed fetch");
+}
