@@ -33,8 +33,8 @@ pub struct UprightSolve {
     group: u64,
     label: String,
     library_generation: u64,
-    /// (photo, [`analysis_key`] of the settings analysed, transform)
-    solved: Mutex<Vec<(PhotoId, u64, Homography)>>,
+    /// (photo, source content key, [`analysis_key`] of the settings analysed, transform)
+    solved: Mutex<Vec<(PhotoId, String, u64, Homography)>>,
 }
 
 impl UprightSolve {
@@ -97,6 +97,7 @@ fn analysis_key(s: &DevelopSettings) -> u64 {
 /// [`analysis_key`].
 struct Target {
     id: PhotoId,
+    source_key: String,
     source: SourceRef,
     info: SourceInfo,
     settings: Arc<DevelopSettings>,
@@ -106,7 +107,7 @@ struct Target {
 fn run(targets: Vec<(u64, Target)>, state: &UprightSolve, permits: &lightcraft_sysmem::HeavyJobs) {
     super::previews::for_each_bounded("lc-upright", targets, permits, &|| state.cancel.load(Ordering::Relaxed), &|_, t| {
         match crate::media::upright_from(&t.source, &t.info, &t.settings, t.settings.geometry.upright) {
-            Ok(h) => state.solved.lock().unwrap_or_else(PoisonError::into_inner).push((t.id, t.key, h)),
+            Ok(h) => state.solved.lock().unwrap_or_else(PoisonError::into_inner).push((t.id, t.source_key, t.key, h)),
             Err(e) => log::warn!("Upright analysis of photo {}: {e}; its renders solve it", t.id.0),
         }
         state.done.fetch_add(1, Ordering::Relaxed);
@@ -142,6 +143,7 @@ impl Session {
             let cost = super::previews::preview_cost(p.width, p.height, SourceLevel::Preview.max_edge());
             let target = Target {
                 id,
+                source_key: crate::media::content_key(&p),
                 source: self.media.source_ref(&p, SourceLevel::Preview),
                 info: crate::media::job_info(&p, &p.develop),
                 key: analysis_key(&p.develop),
@@ -182,7 +184,7 @@ impl Session {
     }
 
     /// Store finished Upright analyses: each batch is one undo step on top of the photos'
-    /// settings as they are now, skipping a photo whose Upright mode or optics changed meanwhile
+    /// settings as they are now, skipping a photo whose source, Upright mode or optics changed meanwhile
     /// (or that got a transform another way). Waits while a slider drag or brush stroke is in
     /// progress. Call it from the frame loop; returns the photos changed.
     pub fn upright_poll(&mut self) -> usize {
@@ -203,12 +205,13 @@ impl Session {
             let solved = std::mem::take(&mut *job.solved.lock().unwrap_or_else(PoisonError::into_inner));
             let ops: Vec<Op> = solved
                 .into_iter()
-                .filter_map(|(id, key, h)| {
-                    let d = self.develop_of(id)?;
-                    if !d.upright_unsolved() || analysis_key(&d) != key {
+                .filter_map(|(id, source_key, key, h)| {
+                    let photo = self.catalog.photo(id)?;
+                    let d = &photo.develop;
+                    if crate::media::content_key(photo) != source_key || !d.upright_unsolved() || analysis_key(d) != key {
                         return None;
                     }
-                    let mut settings = (*d).clone();
+                    let mut settings = (**d).clone();
                     settings.geometry.upright_transform = Some(h);
                     self.develop_op(id, settings, "Upright")
                 })
