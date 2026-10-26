@@ -132,4 +132,47 @@ fn design_system_develop_screens() {
             save(&h, &format!("picker-{tag}"), Rect::from_center_size(at + vec2(14.0, 14.0), vec2(64.0, 64.0)));
         }
     }
+    if let Some(path) = std::env::var_os("PHOTOCRAFT_THEME_FILE") {
+        let proposals: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        for kind in [li_ui_kit::theme::ThemeKind::Pro, li_ui_kit::theme::ThemeKind::StudioLight] {
+            for proposed in [false, true] {
+                let mut palette = li_ui_kit::library::for_kind(kind);
+                if proposed {
+                    let overrides = proposals.get(kind.id()).expect("the proposal contains both themes");
+                    assert!(overrides.is_object(), "theme overrides must be an object");
+                    let unknown = li_ui_kit::theme::live::apply_overrides(&mut palette, overrides);
+                    assert!(unknown.is_empty(), "unknown proposal tokens: {unknown:?}");
+                    palette.library.text_disabled = palette.text_faint;
+                    palette.library.caution = crate::theme::readable_text(palette.warning, palette.chrome);
+                    palette.library.reject = crate::theme::readable_text(palette.danger, palette.chrome);
+                }
+                for width in [250.0, 400.0] {
+                    for scale in [1.0, 1.5] {
+                        let mut app = LightcraftApp::new(lightcraft_engine::Session::with_demo(), Services { png: None, ..Default::default() });
+                        app.ui.settings.gpu = false;
+                        app.ui.right_width = width;
+                        app.ui.left_panel = false;
+                        app.ui.filmstrip = false;
+                        app.ui.histogram = false;
+                        app.set_host_theme(palette.into());
+                        let mut h = Headless::new(app, [1200.0, 900.0], scale);
+                        let phase = if proposed { "proposed" } else { "before" };
+                        let tag = format!("{}-{width}-{scale}", kind.id());
+                        for (screen, view, panel) in [
+                            ("library", crate::state::ViewMode::PhotoGrid, RightPanel::Info),
+                            ("develop", crate::state::ViewMode::Detail, RightPanel::Edit),
+                        ] {
+                            h.app.ui.view = view;
+                            h.app.ui.right = panel;
+                            h.app.ui.open_sections = vec!["light".into()];
+                            h.step();
+                            h.step();
+                            assert!(h.settle(T));
+                            save(&h, &format!("contrast-{phase}-{screen}-{tag}"), Rect::from_min_size(pos2(0.0, 0.0), h.size));
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
