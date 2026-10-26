@@ -944,3 +944,18 @@ fn changed_weights_need_a_test_across_repeated_scans_and_blockers() {
     assert!(!tested.server.models[MOSS_KEY].issues.iter().any(|i| i.code == "FileChanged"));
     assert_eq!(s.mock.prompts().len(), 6);
 }
+
+#[test]
+fn ordinary_template_generation_reports_catalog_availability_before_building() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(MOSS);
+    s.scan();
+    let model = ModelId::from_key(MOSS_KEY).unwrap();
+    let mut info = object_info(&s.dir.0);
+    info.as_object_mut().unwrap().remove("CLIPLoader");
+    s.mock.set_object_info(info);
+    let request = li_ai::GenerateRequest::new(model, "A red ball on white");
+    let error = li_ai::Ai::new(s.mock.host()).generate(&request, &JobControl::new()).unwrap_err();
+    assert!(error.to_string().contains("Update ComfyUI: it is missing the nodes CLIPLoader."), "{error:#}");
+    assert!(s.mock.prompts().is_empty(), "availability failures must not submit renders");
+}

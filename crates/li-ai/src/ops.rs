@@ -642,7 +642,12 @@ impl Ai {
         } else {
             None
         };
-        let out = self.generate_once(&req, model, &info, recipe.as_ref(), ctl).map_err(|e| explain_with_recipe(e, model.recipe.as_deref()))?;
+        let availability = if req.mode == GenerateMode::Refine || checked.is_some() && model.recipe.is_some() {
+            Availability::default()
+        } else {
+            self.resolve(req.model, &req.variant, &info)?
+        };
+        let out = self.generate_once(&req, model, &availability, &info, recipe.as_ref(), ctl).map_err(|e| explain_with_recipe(e, model.recipe.as_deref()))?;
         let image = match (&req.refine, &second_recipe) {
             (Some(step), Some(recipe)) => {
                 ctl.set_message("Refining the draft");
@@ -687,6 +692,7 @@ impl Ai {
         &self,
         req: &GenerateRequest,
         m: &catalog::ModelInfo,
+        a: &Availability,
         info: &ObjectInfo,
         recipe: Option<&crate::refine::Recipe>,
         ctl: &JobControl,
@@ -712,7 +718,6 @@ impl Ai {
             return recipe.run(&self.client, source, &p, ctl);
         }
         let f = &m.resolved;
-        let a = if m.recipe.is_some() { Availability::default() } else { self.resolve(req.model, &req.variant, info)? };
         // Resolved before the Qwen 2.1 branch: a template-engine Qwen file never takes it.
         let engine = match &m.recipe {
             Some(recipe) => Engine::Template { recipe, family: f },
@@ -722,7 +727,7 @@ impl Ai {
         let (prompt, negative) = prompt_rules(f, &req.prompt, &req.negative);
         let (source, refs) = req.source_and_refs();
         if m.recipe.is_none() && f.pipeline.encode == Encode::QwenImage21 && matches!(req.mode, GenerateMode::Create | GenerateMode::Edit) {
-            return self.qwen21_generate(req, &a, &loras, info, ctl, false);
+            return self.qwen21_generate(req, a, &loras, info, ctl, false);
         }
         let sampler = req.sampler.as_ref().map(|(a, b)| (a.as_str(), b.as_str()));
         let base = Params {
