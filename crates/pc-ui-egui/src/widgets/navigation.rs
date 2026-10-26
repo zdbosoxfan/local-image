@@ -21,6 +21,9 @@ pub fn nav_row(ui: &mut Ui, icon: &str, icon_tint: Option<Color32>, label: &str,
     let elided = galley.elided;
     let height = NAV_HEIGHT.max(galley.size().y + 6.0);
     let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
+    if response.clicked() {
+        response.request_focus();
+    }
     if selected || response.hovered() || response.has_focus() {
         ui.painter().rect_filled(rect, t.radius_sm, if selected { t.row_selected } else { t.hover });
     }
@@ -43,4 +46,38 @@ pub fn nav_row(ui: &mut Ui, icon: &str, icon_tint: Option<Color32>, label: &str,
     }
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, label));
     if elided { response.on_hover_text(label) } else { response }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::kittest::{NodeT, Queryable};
+
+    #[test]
+    fn clicking_a_navigation_row_takes_keyboard_focus() {
+        let mut first = true;
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(300.0, 140.0)).build_ui_state(
+            move |ui, selected: &mut bool| {
+                if first {
+                    crate::PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Pro);
+                    first = false;
+                    return;
+                }
+                nav_row(ui, "", None, "First model", "", !*selected);
+                if nav_row(ui, "", None, "Second model", "", *selected).clicked() {
+                    *selected = true;
+                }
+            },
+            false,
+        );
+        h.run_steps(3);
+        h.get_by_label("First model").click();
+        h.run_steps(3);
+        assert!(h.get_by_label("First model").accesskit_node().is_focused());
+        h.key_press(egui::Key::Tab);
+        h.run_steps(3);
+        h.key_press(egui::Key::Enter);
+        h.run_steps(3);
+        assert!(*h.state(), "keyboard activation reaches the next row");
+    }
 }
