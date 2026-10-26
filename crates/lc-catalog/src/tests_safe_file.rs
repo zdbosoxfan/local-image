@@ -1,6 +1,7 @@
-//! The shared file writer ([`li_fs`]) as the catalog and Library engine use it: durable writes
-//! preserve modes and symlinks; no-sync writes remain suitable for caches; new-file publication
-//! never replaces an existing name, including on unsupported volumes.
+//! Shared file writes through [`li_fs`] and [`crate::FsStore`]: catalog destination links are
+//! resolved and preserved; durable replacement keeps modes and exclusively creates staging files.
+//! No-sync writes suit caches; new-file publication never replaces an existing name, including
+//! on unsupported volumes.
 use li_fs::{
     fail_writes_after, same_file, syncs_on_this_thread, write_atomic, write_atomic_nosync, write_atomic_with, write_new, write_new_unique,
     write_new_with,

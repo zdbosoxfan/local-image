@@ -123,6 +123,7 @@ pub fn find_command(id: &str) -> Option<&'static CommandSpec> {
 
 // param helpers
 
+/// Missing or null `ids` use the selection; malformed `ids` are an error, never `None`.
 pub(crate) fn photo_ids(p: &Value, cmd: &str) -> Result<Option<Vec<lightcraft_catalog::PhotoId>>> {
     match p.get("ids") {
         None | Some(Value::Null) => Ok(None),
