@@ -614,7 +614,9 @@ fn impure_crates(edges: &str) -> Vec<String> {
     for line in edges.lines() {
         let mut it = line.split_whitespace();
         let (Some(parent), Some(child)) = (it.next(), it.next()) else { continue };
-        if IMPURE.contains(&child) && (child != "cc" || !CC_KNOWN.contains(&parent)) {
+        // The 2026-10-25 TLS security exception permits only these crypto build edges.
+        let tls_crypto = matches!((parent, child), ("rustls" | "rustls-webpki", "ring") | ("ring", "cc"));
+        if IMPURE.contains(&child) && !tls_crypto && (child != "cc" || !CC_KNOWN.contains(&parent)) {
             found.push(format!("{child} (needed by {parent})"));
         }
     }
@@ -879,7 +881,7 @@ mod tests {
 fn xtask_agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
-        .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()))
+        .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls::crypto::ring::default_provider()))
         .build();
     ureq::Agent::config_builder().tls_config(tls).build().into()
 }

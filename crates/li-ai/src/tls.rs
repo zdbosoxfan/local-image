@@ -9,7 +9,7 @@ pub fn config() -> ureq::tls::TlsConfig {
     ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
         .root_certs(ureq::tls::RootCerts::WebPki)
-        .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
+        .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
         .build()
 }
 

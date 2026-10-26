@@ -22,7 +22,7 @@ impl Resolver for Loopback {
     }
 }
 fn tls_config() -> Arc<ServerConfig> {
-    let config = ServerConfig::builder_with_provider(Arc::new(rustls_rustcrypto::provider()))
+    let config = ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
         .with_safe_default_protocol_versions()
         .unwrap()
         .with_no_client_auth()
@@ -66,7 +66,7 @@ fn config(trusted: bool, proxy: Option<ureq::Proxy>, body: Duration) -> ureq::co
     let tls = if trusted {
         ureq::tls::TlsConfig::builder()
             .provider(ureq::tls::TlsProvider::Rustls)
-            .unversioned_rustls_crypto_provider(Arc::new(rustls_rustcrypto::provider()))
+            .unversioned_rustls_crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .root_certs(vec![ureq::tls::Certificate::from_der(CERT)].into())
             .build()
     } else {

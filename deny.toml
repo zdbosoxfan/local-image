@@ -18,18 +18,6 @@ yanked = "deny"
 # catches NEW advisories; none is a claim that the finding is harmless. Remove an entry as soon as
 # the dependency can move (cargo-deny warns about an ignore that no longer matches anything).
 ignore = [
-    # --- rustls-webpki 0.102.8 (old webpki pinned by rustls-rustcrypto 0.0.2-alpha). Fixed in
-    # >=0.103.10, which that alpha crate does not allow; needs a different rustls crypto provider.
-    { id = "RUSTSEC-2026-0049", reason = "rustls-webpki 0.102.8 CRL distribution point matching; CRL checking is not used; move off rustls-rustcrypto" },
-    { id = "RUSTSEC-2026-0098", reason = "rustls-webpki 0.102.8 URI name constraints; move off rustls-rustcrypto" },
-    { id = "RUSTSEC-2026-0099", reason = "rustls-webpki 0.102.8 wildcard name constraints; move off rustls-rustcrypto" },
-    { id = "RUSTSEC-2026-0104", reason = "rustls-webpki 0.102.8 CRL parsing panic; CRL checking is not used; move off rustls-rustcrypto" },
-    { id = "RUSTSEC-2026-0382", reason = "rustls-webpki 0.102.8 emSign intermediates; rustls-rustcrypto uses it only for alg_id constants, chains are built by rustls 0.23 on rustls-webpki >=0.103.16; move off rustls-rustcrypto" },
-    # --- rsa 0.9.10 via rustls-rustcrypto (Marvin timing attack on private-key operations). No
-    # upstream fix exists; li-ai is a TLS client and holds no RSA private key.
-    { id = "RUSTSEC-2023-0071", reason = "rsa Marvin attack; no upstream fix; only reachable through rustls-rustcrypto client-side verification" },
-    # --- crypto-bigint 0.5.5 via rustls-rustcrypto -> p256/p384 (non-constant-time arithmetic).
-    { id = "RUSTSEC-2026-0387", reason = "crypto-bigint 0.5.5 via rustls-rustcrypto (p256/p384 ECDHE, ephemeral client keys); fix needs crypto-bigint >=0.7.6 via a new rustls-rustcrypto; move off rustls-rustcrypto" },
     # --- Unmaintained crates (informational; no known vulnerability).
     { id = "RUSTSEC-2024-0436", reason = "paste is a compile-time proc macro (pulp -> exr); no runtime code" },
     { id = "RUSTSEC-2026-0192", reason = "ttf-parser 0.25.1 unmaintained, via ab_glyph; replace with a maintained font parser" },
