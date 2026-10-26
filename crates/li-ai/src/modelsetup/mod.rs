@@ -28,7 +28,7 @@ use crate::catalog::{InstalledModel, ModelId, TemplateModel};
 use crate::comfy::{ComfyClient, JobControl, ObjectInfo};
 use crate::companions::Runtime;
 use crate::family::{Family, Registry, Role};
-use crate::identify::Identity;
+use crate::identify::{Identity, QuantClass};
 use crate::template::TemplateRecipe;
 use crate::template::compile::{self, Source};
 use crate::template::index::{self as tindex, DeclaredFile, IndexSource, TemplateEntry, Version};
@@ -308,11 +308,10 @@ fn label_for(family: Option<&Family>, entry_model: Option<&str>, id: &Identity, 
         let stem = crate::stem::stem_key(file).display;
         display_words(&if stem.is_empty() { crate::inventory::label_for(file) } else { stem })
     });
-    if let Some(v) = id
-        .variant
-        .as_deref()
-        .filter(|v| !matches!(v.to_ascii_lowercase().as_str(), "bf16" | "fp16" | "fp32" | "fp8" | "int8" | "full precision" | "fp8_scaled" | "int8_convrot"))
-    {
+    if let Some(v) = id.variant.as_deref().filter(|v| {
+        let precision = v.to_ascii_lowercase();
+        !matches!(precision.as_str(), "full precision" | "fp8") && matches!(QuantClass::parse(&precision), None | Some(QuantClass::Other(_)))
+    }) {
         let variant = display_words(v);
         if !base.to_lowercase().ends_with(&variant.to_lowercase()) {
             base.push(' ');
