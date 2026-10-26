@@ -1,22 +1,43 @@
-# Rendered-source gamut identity
+# 0004. Rendered-source gamut identity
 
-Status: accepted
+- Status: Accepted
+- Scope: Develop scene containment before the tone response on CPU and GPU
+- Refines: scene compression in [0003](0003-blue-band-output-clipping.md)
 
-Refines the scene-stage decision in [0002](0002-output-gamut-clipping.md), retained by
-[0003](0003-blue-band-output-clipping.md). The output mapping decision is unchanged.
+## Context
 
 Rendered sources already carry their tonal response. Applying the RAW scene knee, which starts
 at 0.99 of the Rec. 2020 extent, changes saturated in-gamut colours even with neutral settings.
-Their tone maps therefore start gamut compression at the extent itself, at relative chroma 1.0.
-At that threshold the existing negative-channel containment supplies the boundary clip:
-nonnegative working RGB stays unchanged, and outside colours move along a linear RGB ray from
-their nonnegative channel average until the lowest channel reaches zero. This is continuous at
-every lower face, including detached blue intervals that a radial search from neutral cannot
-approach continuously. The scene gamut is a cone without an upper bound; the following tone
-response handles intensity.
+A radial extent search cannot approach every detached blue interval continuously at the gamut
+boundary. Converted film negatives, including RAW negatives after inversion, are finished images
+with their own tonal response too.
 
-The tone method carries its knee into the generated GPU finish parameters. At a knee of one,
-CPU and WGSL bypass the radial scene compression and use the existing negative-channel
-containment. RAW tone maps retain the 0.99 knee, exposure-normalized extent and 2.5 limit.
-Converted negatives use the rendered-source tone map. No persisted settings or catalog format
-changes.
+## Decision
+
+1. **Rendered-source containment.** Nonnegative working RGB stays unchanged. Outside colours
+   move along a linear RGB ray from their nonnegative channel average until the lowest channel
+   reaches zero. The existing negative-channel containment supplies this boundary clip,
+   continuous at every lower face. The scene gamut is a cone without an upper bound; the
+   following tone response handles intensity.
+
+2. **RAW scene compression.** Unconverted RAW tone maps retain the 0.99 knee,
+   exposure-normalized extent and 2.5 limit, followed by negative-channel containment.
+
+3. **Explicit mode.** The tone method carries a boolean scene-compression flag into the
+   generated GPU finish parameters. CPU and WGSL apply the same fixed scene knee only when
+   enabled; rendered tone maps bypass radial scene compression.
+
+4. **Converted negatives.** Film negatives after inversion use the rendered-source tone map,
+   including negatives decoded from RAW. Skipping the 0.99 scene knee for these finished
+   images is intentional.
+
+## Consequences
+
+Saturated rendered colours remain identical through scene containment, including blue-edge
+colours. Converted RAW negatives follow this same rule. Output mapping remains governed by
+[0003](0003-blue-band-output-clipping.md). No persisted settings or catalog format changes.
+
+## Related documents
+
+- Output clipping and separate scene compression: [0003](0003-blue-band-output-clipping.md)
+- Decision index: [README](README.md)

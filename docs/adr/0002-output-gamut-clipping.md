@@ -1,6 +1,14 @@
-# Output gamut clipping and scene compression
+# 0002. Output gamut clipping and scene compression
 
-Status: superseded by [0003](0003-blue-band-output-clipping.md)
+- Status: Superseded by [0003](0003-blue-band-output-clipping.md)
+- Scope: Develop scene compression and output gamut mapping
+
+## Context
+
+Output mapping needs to preserve destination colours already inside the selected gamut,
+including colours on detached OkLab hue intervals.
+
+## Decision
 
 Output mapping preserves any colour whose destination RGB is inside the selected output cube.
 Only colours outside it move, choosing the nearest valid OkLab chroma below or above the input
@@ -20,3 +28,9 @@ Output mapping does not soften an interior shell and does not require a continuo
 at the boundary. Scene compression retains its exposure-independent working-space knee and
 smooth ACES reference compression curve. Scene compression and output clipping serve distinct
 purposes and must be tested separately.
+
+## Consequences
+
+Nearest-interval selection can amplify small input differences near the detached blue intervals.
+[0003](0003-blue-band-output-clipping.md) replaces this decision in full, including its still-valid
+identity, lightness endpoint and separation of scene compression from output clipping.

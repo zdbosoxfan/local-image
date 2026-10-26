@@ -8,9 +8,6 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Changed
 
-- Develop: output gamut tolerance scales with destination luminance near black, preventing
-  chroma jumps between very dark saturated colours.
-
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
   removes false colour and zipper along slanted and fine high-contrast edges (window mullions,
   railings, roof lines, brick), most visibly under tungsten light. 1:1 views and full-size exports
