@@ -696,7 +696,7 @@ fn raw_cc0_nef_editor_routes() {
 
 /// Batch takes the result at the action's recorded Save, Save As or Save a Copy, as Photoshop's
 /// "Override Action 'Save As' Commands" does: a document closed after its save is written as the
-/// save found it. The usual "…, Save As, Close" ending failed on every file: the Save was dropped,
+/// save found it. The usual "..., Save As, Close" ending failed on every file: the Save was dropped,
 /// and nothing was left open to save after the action.
 #[test]
 fn batch_saves_at_the_recorded_save_so_a_close_after_it_keeps_the_result() {

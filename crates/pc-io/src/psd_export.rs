@@ -855,7 +855,7 @@ impl Ex {
             let size = (f64::from(doc.size.width), f64::from(doc.size.height));
             (format!("{stem}.psb"), data, size, f64::from(doc.resolution_dpi), Some(doc))
         } else {
-            // Embedded formats we can't decode (vector PDF/AI…) are kept; their size comes from the
+            // Embedded formats we can't decode (vector PDF/AI...) are kept; their size comes from the
             // layer. A linked file we can't decode is not embedded.
             let (size, dpi) = match source_geometry(file_name, bytes) {
                 Ok(geometry) => geometry,

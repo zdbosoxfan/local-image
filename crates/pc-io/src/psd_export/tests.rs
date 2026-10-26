@@ -233,7 +233,7 @@ fn png() -> Vec<u8> {
     photocraft_codecs::encode(&image, photocraft_codecs::Format::Png, &Default::default()).unwrap()
 }
 
-/// A red smart object over an 8×8 RGB canvas, with `source`.
+/// A red smart object over an 8x8 RGB canvas, with `source`.
 fn smart_layer(source: photocraft_doc::SmartSource) -> Layer {
     let fmt = document(8, 8).pixel_format();
     let mut cache = Surface::new(fmt);
