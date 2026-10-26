@@ -55,6 +55,9 @@ All notable changes to Local Image are recorded here. The format follows
   owner permissions and special mode bits.
 - SVG: editable text preserves font-family apostrophes and backslashes across export and import.
 - Automation: saving over a Unix FIFO replaces it without blocking while copying permissions.
+- Editor: the CPU canvas keeps smooth filtering when zoomed in. Moving a selection outline
+  snaps to objects inside it, and presets dropped onto the canvas follow its aligned view.
+
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
   transparency keep it.

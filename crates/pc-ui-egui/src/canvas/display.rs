@@ -298,12 +298,29 @@ pub(super) fn navigator_in_background(
 /// Make sure the canvas texture for document `idx` on `display` is current; returns (texture
 /// id, scale).
 pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, display: Option<u32>) -> Option<(egui::TextureId, f32)> {
+    ensure_texture_in_view(app, ctx, idx, display, None).map(|textures| (textures.texture, textures.scale))
+}
+
+pub(super) fn ensure_texture_in_view(
+    app: &mut PhotocraftApp,
+    ctx: &egui::Context,
+    idx: usize,
+    display: Option<u32>,
+    view: Option<InView>,
+) -> Option<CpuTextures> {
     let output = display;
     let (revision, last_damage, id) = {
         let st = app.session.documents().get(idx)?;
         (st.revision, st.last_damage.map(|r| if r.is_empty() { r } else { r.inflate(effect_reach(&st.doc.layers)) }), st.doc.id)
     };
     let (mut doc, mut preview_key) = display_doc(app, ctx, idx);
+    let mut reduced = false;
+    if let Some((preview, key, factor)) = filter_preview_document(app, idx)
+        && app.session.documents().get(idx).is_some_and(|state| preview_fits(state.doc.size, preview.size, factor))
+    {
+        (doc, preview_key, reduced) = (preview, key, factor > 1);
+    }
+    let view = view.filter(|_| !reduced);
     // An adjustment dialog's preview of a large document (drawn by the GPU path on a GPU machine)
     // would cost a full-size CPU composite per change here: show the document instead.
     if crate::adjust_preview::shown_key(app) == Some(preview_key)
@@ -314,22 +331,24 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
     }
     let (display, display_key) = canvas_display(app, &doc, output);
     let seen = app.canvases.get(&cache_key(id, output)).map(|c| (c.tex_revision, c.tex_preview_key));
-    let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage));
-    let preview_key = preview_key ^ display_key;
-    let sampling = if crate::vector_integration::views::pixel_preview(app, idx) { TextureOptions::NEAREST } else { TextureOptions::LINEAR };
-    let cache = app.canvases.entry(cache_key(id, output)).or_insert(CanvasCache {
-        revision: 0,
-        texture: None,
-        scale: 1.0,
-        preview_key: 0,
-        on_gpu: false,
-        tex_revision: 0,
-        tex_preview_key: 0,
+    let damage = seen.and_then(|seen| damage_since(app, idx, seen, (revision, preview_key), display_key, last_damage)).filter(|_| !reduced);
+    // The detail texture can lag the whole-document one (made or moved later): its own damage.
+    let detail_seen = view.and_then(|v| {
+        let c = app.canvases.get(&cache_key(id, output))?;
+        c.detail.iter().find(|(k, _)| *k == v.key).map(|(_, d)| (d.revision, d.preview_key))
     });
+    let detail_damage = match detail_seen {
+        Some(s) if Some(s) == seen => damage,
+        Some(s) => damage_since(app, idx, s, (revision, preview_key), display_key, last_damage),
+        None => None,
+    };
+    let preview_key = preview_key ^ display_key;
+    let pixel_preview = crate::vector_integration::views::pixel_preview(app, idx);
+    let cache = app.canvases.entry(cache_key(id, output)).or_default();
     if cache.tex_revision != revision || cache.texture.is_none() || cache.tex_preview_key != preview_key {
         let t0 = crate::gpu_canvas::now_ms();
-        let longest = doc.size.width.max(doc.size.height);
-        let factor = longest.div_ceil(texture_side(ctx)).max(1);
+        let factor = texture_factor([doc.size.width, doc.size.height], texture_side(ctx));
+        let sampling = if pixel_preview { TextureOptions::NEAREST } else { TextureOptions::LINEAR };
         let (w, h) = ((doc.size.width / factor).max(1), (doc.size.height / factor).max(1));
         let current = cache.texture.as_mut().filter(|t| t.size() == [w as usize, h as usize]);
         if let (Some(d), Some(t)) = (damage, current) {
@@ -358,7 +377,106 @@ pub fn ensure_texture(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usize, 
         cache.tex_revision = revision;
         cache.tex_preview_key = preview_key;
     }
-    Some((cache.texture.as_ref()?.id(), cache.scale))
+    let texture = cache.texture.as_ref()?.id();
+    let scale = cache.scale;
+    // Without a view (the Navigator's call) the views' detail textures stay as they are.
+    let Some(view) = view else { return Some(CpuTextures { texture, scale, detail: None }) };
+    let old = cache.detail.iter().position(|(k, _)| *k == view.key).map(|i| cache.detail.remove(i).1);
+    let Some(plan) = detail_plan([doc.size.width, doc.size.height], texture_side(ctx), view.zoom, view.visible) else {
+        return Some(CpuTextures { texture, scale, detail: None });
+    };
+    let t0 = crate::gpu_canvas::now_ms();
+    let name = format!("canvas-detail-{}-{}", id.0, cache_key(id, output).1);
+    let detail = update_detail(ctx, &doc, display.as_deref(), name, plan, old, detail_damage, (revision, preview_key));
+    if detail.as_ref().is_some_and(|d| d.rendered) {
+        app.perf.span("canvas detail", crate::gpu_canvas::now_ms() - t0);
+    }
+    let Some(mut detail) = detail else { return Some(CpuTextures { texture, scale, detail: None }) };
+    detail.rendered = false;
+    // Where its texels lie in the document: reduced texel t covers [t*W/w, (t+1)*W/w).
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let (sx, sy) = (doc.size.width as f32 / w as f32, doc.size.height as f32 / h as f32);
+    let out = detail.out;
+    let shown = (detail.texture.id(), [out.x0 as f32 * sx, out.y0 as f32 * sy, out.x1 as f32 * sx, out.y1 as f32 * sy]);
+    cache.detail.push((view.key, detail));
+    // Views that stopped asking (a closed window, a zoom out) give theirs up past a few.
+    if cache.detail.len() > MAX_DETAIL_VIEWS {
+        cache.detail.remove(0);
+    }
+    Some(CpuTextures { texture, scale, detail: Some(shown) })
+}
+
+fn canvas_texture_options(factor: u32) -> TextureOptions {
+    if factor == 1 { TextureOptions { magnification: egui::TextureFilter::Nearest, ..TextureOptions::LINEAR } } else { TextureOptions::LINEAR }
+}
+
+const MAX_DETAIL_VIEWS: usize = 4;
+
+fn update_detail(
+    ctx: &egui::Context,
+    doc: &Document,
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    name: String,
+    plan: DetailPlan,
+    old: Option<DetailTexture>,
+    damage: Option<DRect>,
+    now: (u64, u64),
+) -> Option<DetailTexture> {
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let options = canvas_texture_options(plan.factor);
+    let (kept, spare) = match old {
+        Some(d) if d.plan == plan => (Some(d), None),
+        d => (None, d.map(|d| d.texture)),
+    };
+    if let Some(mut d) = kept {
+        if (d.revision, d.preview_key) == now {
+            return Some(d);
+        }
+        // An edit or a stroke step in view: only the texels it touched.
+        if let Some(dmg) = damage {
+            let dmg = dmg.intersect(&plan.region);
+            let buf = (!dmg.is_empty()).then(|| photocraft_compose::render_reduced_damage(doc, w, h, dmg));
+            let fits = buf.as_ref().is_none_or(|b| d.out.contains_rect(&b.rect));
+            if fits {
+                if let Some(b) = buf.filter(|b| !b.rect.is_empty()) {
+                    let at = [b.rect.x0.abs_diff(d.out.x0) as usize, b.rect.y0.abs_diff(d.out.y0) as usize];
+                    d.texture.set_partial(at, display_image(display, &b, doc.depth), options);
+                    d.rendered = true;
+                }
+                (d.revision, d.preview_key) = now;
+                return Some(d);
+            }
+        }
+        return render_detail(ctx, doc, display, name, plan, Some(d.texture), now);
+    }
+    render_detail(ctx, doc, display, name, plan, spare, now)
+}
+
+fn render_detail(
+    ctx: &egui::Context,
+    doc: &Document,
+    display: Option<&photocraft_engine::display_color::CanvasDisplay>,
+    name: String,
+    plan: DetailPlan,
+    texture: Option<egui::TextureHandle>,
+    now: (u64, u64),
+) -> Option<DetailTexture> {
+    let (w, h) = ((doc.size.width / plan.factor).max(1), (doc.size.height / plan.factor).max(1));
+    let options = canvas_texture_options(plan.factor);
+    let buf = photocraft_compose::render_reduced_damage(doc, w, h, plan.region);
+    let out = buf.rect;
+    if out.is_empty() {
+        return None;
+    }
+    let img = display_image(display, &buf, doc.depth);
+    let texture = match texture {
+        Some(mut t) if t.size() == img.size => {
+            t.set(img, options);
+            t
+        }
+        _ => ctx.load_texture(name, img, options),
+    };
+    Some(DetailTexture { texture, plan, out, revision: now.0, preview_key: now.1, rendered: true })
 }
 
 /// What changed since a canvas cache showed (`revision`, `preview key`) `seen`, when only a
@@ -472,15 +590,7 @@ pub(super) fn ensure_gpu(app: &mut PhotocraftApp, ctx: &egui::Context, idx: usiz
         gpu.discard_display(id.0);
         return false;
     }
-    let cache = app.canvases.entry((id, GPU_OUTPUT)).or_insert(CanvasCache {
-        revision: 0,
-        texture: None,
-        scale: 1.0,
-        preview_key: 0,
-        on_gpu: false,
-        tex_revision: 0,
-        tex_preview_key: 0,
-    });
+    let cache = app.canvases.entry((id, GPU_OUTPUT)).or_default();
     let present = cache.on_gpu && gpu.has(id.0, size);
     let current = present && cache.revision == revision && cache.preview_key == preview_key;
     if current {
@@ -560,41 +670,60 @@ fn budget_inputs(app: &PhotocraftApp, idx: usize) -> (u64, u64, Option<photocraf
     )
 }
 
-/// Live preview for an open filter dialog: run the filter on the proxy and upload it.
-pub(super) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u64)> {
+/// Compute a filter preview independently of the renderer that will present it.
+fn filter_preview_document(app: &mut PhotocraftApp, idx: usize) -> Option<(std::sync::Arc<Document>, u64, u32)> {
     if crate::adjust_preview::on_layer(app, idx) {
         return None;
     }
-    let d = app.ui.dialogs.iter().find(|d| d.fields.contains_key("__filter"))?;
-    crate::dialogs::validate_document_target(app, &d.fields).ok()?;
-    if d.fields.get("__preview").and_then(serde_json::Value::as_bool) != Some(true) {
+    let dialog = app.ui.dialogs.iter().find(|dialog| dialog.fields.contains_key("__filter"))?;
+    // A stale dialog must leave the committed document on screen.
+    crate::dialogs::validate_document_target(app, &dialog.fields).ok()?;
+    if dialog.fields.get("__preview").and_then(serde_json::Value::as_bool) != Some(true) {
         return None;
     }
-    let cmd = d.fields.get("__command")?.as_str()?.to_string();
-    // Previews edit what the command will: a targeted layer mask included (#780).
-    let params = app.with_mask_target(&cmd, crate::filter_dialog::params_of(&d.fields));
-    let (doc_id, revision, doc, active) = {
-        let st = app.session.documents().get(idx)?;
-        (st.doc.id, st.revision, st.doc.clone(), st.active_layer)
-    };
-    let k = crate::proxy::factor(&doc);
-    let hash = format!("{cmd}{params}").bytes().fold(k as u64 ^ revision.wrapping_mul(0x9e37), |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
-    let key = doc_id.0 ^ (1u64 << 61);
-    let fresh = matches!(&app.filter_preview, Some(p) if p.doc == doc_id && p.hash == hash);
-    if !fresh {
-        let t0 = crate::gpu_canvas::now_ms();
+    let command = dialog.fields.get("__command")?.as_str()?.to_string();
+    let params = app.with_mask_target(&command, crate::filter_dialog::params_of(&dialog.fields));
+    let state = app.session.documents().get(idx)?;
+    let (doc_id, revision, doc, active) = (state.doc.id, state.revision, state.doc.clone(), state.active_layer);
+    let factor = crate::proxy::factor(&doc);
+    let hash =
+        format!("{command}{params}").bytes().fold(factor as u64 ^ revision.wrapping_mul(0x9e37), |hash, byte| hash.wrapping_mul(31).wrapping_add(byte as u64));
+    if !matches!(&app.filter_preview, Some(preview) if preview.doc == doc_id && preview.hash == hash) {
+        let started = crate::gpu_canvas::now_ms();
         let documents: Vec<_> = app.session.documents().iter().map(|state| state.doc.clone()).collect();
-        let result = crate::filter_dialog::preview_document_with_sources(&doc, active, &cmd, &params, k, &documents).map(std::sync::Arc::new);
-        if let Some(r) = &result {
-            let buf = photocraft_compose::flatten(r);
-            let t1 = crate::gpu_canvas::now_ms();
-            let (display, _) = canvas_display(app, &doc, None);
-            app.gpu.as_ref()?.upload_buffer_full(key, &texture_buffer(display.as_deref(), &buf), doc.depth);
-            app.perf.record("filter-preview", r.size.area(), t1 - t0, crate::gpu_canvas::now_ms() - t1);
+        let result = crate::filter_dialog::preview_document_with_sources(&doc, active, &command, &params, factor, &documents).map(std::sync::Arc::new);
+        if let Some(preview) = &result {
+            app.perf.record("filter-preview", preview.size.area(), crate::gpu_canvas::now_ms() - started, 0.0);
         }
-        app.filter_preview = Some(crate::filter_dialog::FilterPreview { doc: doc_id, revision, hash, k, result });
+        app.filter_preview = Some(crate::filter_dialog::FilterPreview { doc: doc_id, revision, hash, k: factor, result });
     }
-    app.filter_preview.as_ref().filter(|p| p.result.is_some()).map(|p| (p.k, key))
+    let preview = app.filter_preview.as_ref()?;
+    Some((preview.result.clone()?, preview.hash | (1 << 61), preview.k))
+}
+
+/// Whether a preview covers the document without changing its aspect or canvas size.
+fn preview_fits(doc: photocraft_geom::Size, preview: photocraft_geom::Size, factor: u32) -> bool {
+    let factor = factor.max(1);
+    doc.width.div_ceil(factor) == preview.width && doc.height.div_ceil(factor) == preview.height
+}
+
+/// Upload a computed filter preview only when its pixels or texture encoding changed.
+pub(super) fn ensure_filter_preview(app: &mut PhotocraftApp, idx: usize) -> Option<(u32, u64)> {
+    let (preview, preview_key, factor) = filter_preview_document(app, idx)?;
+    let gpu = app.gpu.clone()?;
+    let source = app.session.documents().get(idx)?.doc.clone();
+    let key = source.id.0 ^ (1u64 << 61);
+    let (display, _) = canvas_display(app, &source, None);
+    let signature = preview_key ^ texture_key(display.as_deref());
+    let cache = app.canvases.entry((source.id, GPU_OUTPUT)).or_default();
+    if cache.filter_preview_key != Some(signature) || !gpu.has(key, [preview.size.width, preview.size.height]) {
+        let started = crate::gpu_canvas::now_ms();
+        let buffer = photocraft_compose::flatten(&preview);
+        gpu.upload_buffer_full(key, &texture_buffer(display.as_deref(), &buffer), preview.depth);
+        app.perf.span("filter preview upload", crate::gpu_canvas::now_ms() - started);
+        cache.filter_preview_key = Some(signature);
+    }
+    Some((factor, key))
 }
 
 /// Conservative four-corner document coverage, with a margin for filtering.
@@ -767,4 +896,65 @@ pub(super) fn sync_display_lut(app: &mut PhotocraftApp, doc: &photocraft_doc::Do
 /// View › 32-bit Preview Options for the GPU canvas shader: (exposure, gamma) when active.
 pub(super) fn hdr_preview(app: &PhotocraftApp, doc: &photocraft_doc::Document) -> Option<[f32; 2]> {
     app.session.color.hdr_preview(doc).map(|h| [h.exposure, h.gamma])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zoomed_cpu_canvas_uploads_a_linearly_filtered_document_texture() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 64, "height": 64, "background": "white"})).unwrap();
+        let ctx = egui::Context::default();
+        let view = InView { key: 1, zoom: 8.0, visible: DRect::new(0, 0, 64, 64) };
+        let textures = ensure_texture_in_view(&mut app, &ctx, 0, None, Some(view)).unwrap();
+        assert_eq!(textures.scale, 1.0);
+        assert!(textures.detail.is_none(), "the whole-document texture supplies the zoomed canvas");
+        let mut delta = ctx.tex_manager().write().take_delta();
+        let options = delta.set[&textures.texture].last().unwrap().options;
+        delta.clear();
+        assert_eq!(options, TextureOptions::LINEAR, "zoomed document pixels are bilinearly filtered");
+    }
+
+    #[test]
+    fn the_cpu_canvas_shows_a_filter_dialogs_preview() {
+        let pixels = |ctx: &egui::Context, id: egui::TextureId| {
+            let mut delta = ctx.tex_manager().write().take_delta();
+            let egui::ImageData::Color(image) = &delta.set.get(&id).and_then(|d| d.last()).expect("the canvas texture was written").image;
+            let result = (image.size, image.pixels.clone());
+            delta.clear();
+            result
+        };
+        for (size, zoom) in [([64u32, 48u32], 1.0f32), ([2400, 2200], 0.25)] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.run("file.new", json!({"width": size[0], "height": size[1], "background": "white"})).unwrap();
+            app.run("edit.fill", json!({"color": "#3399cc"})).unwrap();
+            app.sync_views();
+            app.ui.views[0].zoom = zoom;
+            let ctx = egui::Context::default();
+            let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+            let (_, plain) = pixels(&ctx, tex);
+            crate::filter_dialog::open(&mut app, "filter.stylize.solarize").unwrap();
+            let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+            let preview = app.filter_preview.as_ref().and_then(|p| p.result.clone()).expect("the dialog's preview");
+            let (tex_size, shown) = pixels(&ctx, tex);
+            let (display, _) = canvas_display(&app, &preview, None);
+            let expected = display_image(display.as_deref(), &photocraft_compose::flatten(&preview), preview.depth);
+            assert_eq!(tex_size, expected.size, "{size:?}: the preview's own size");
+            assert_eq!(shown, expected.pixels, "{size:?}: the canvas shows the preview");
+            assert_ne!(shown.first(), plain.first(), "{size:?}: the filter changed the pixels");
+            app.ui.dialogs.last_mut().unwrap().fields.insert("__preview".into(), json!(false));
+            let (tex, _) = ensure_texture(&mut app, &ctx, 0, None).unwrap();
+            assert_eq!(pixels(&ctx, tex).1, plain, "Preview off restores the document");
+        }
+    }
+    #[test]
+    fn filter_previews_fit_the_document_shape() {
+        let size = photocraft_geom::Size::new;
+        assert!(preview_fits(size(64, 32), size(64, 32), 1));
+        assert!(preview_fits(size(2401, 2200), size(1201, 1100), 2));
+        assert!(!preview_fits(size(64, 32), size(32, 64), 1));
+        assert!(!preview_fits(size(64, 32), size(80, 40), 1));
+    }
 }

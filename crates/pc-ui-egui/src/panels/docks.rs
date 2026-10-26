@@ -119,6 +119,7 @@ pub(super) fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         return;
     };
     let (rev, size) = (st.revision, st.doc.size);
+    let cmyk_space = photocraft_compose::cmyk_space(&st.doc);
     // Positions and sizes in the ruler unit (Preferences › Units & Rulers).
     let units = app.session.prefs().units_and_rulers.clone();
     let dpi = st.doc.resolution_dpi as f64;
@@ -154,12 +155,7 @@ pub(super) fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         row(&mut cols[0], "R:", rgba.map_or_else(dash, |c| q(c[0]).to_string()));
         row(&mut cols[0], "G:", rgba.map_or_else(dash, |c| q(c[1]).to_string()));
         row(&mut cols[0], "B:", rgba.map_or_else(dash, |c| q(c[2]).to_string()));
-        // Naive device CMYK (no ICC profile yet), in percent like Photoshop's readout.
-        let cmyk = rgba.map(|c| {
-            let k = 1.0 - c[0].max(c[1]).max(c[2]);
-            let f = |v: f32| if k >= 1.0 { 0.0 } else { (1.0 - v - k) / (1.0 - k) };
-            [f(c[0]), f(c[1]), f(c[2]), k].map(|v| (v * 100.0).round() as i32)
-        });
+        let cmyk = rgba.map(|c| readout_cmyk(cmyk_space.as_ref(), [c[0], c[1], c[2]]));
         for (i, k) in ["C:", "M:", "Y:", "K:"].iter().enumerate() {
             row(&mut cols[1], k, cmyk.map_or_else(dash, |c| format!("{}%", c[i])));
         }
@@ -176,6 +172,13 @@ pub(super) fn info_panel(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     ui.label(
         RichText::new(li_i18n::fmt(tl!("Doc: {w} × {h} px"), &[("w", &size.width.to_string()), ("h", &size.height.to_string())])).color(t.text_dim).size(11.5),
     );
+}
+
+/// Use the picker conversion in the document's CMYK space; HDR and NaN samples need a bounded readout.
+fn readout_cmyk(space: Option<&std::sync::Arc<photocraft_color::convert::CmykSpace>>, rgb: [f32; 3]) -> [i32; 4] {
+    let unit = |v: f32| if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) };
+    let ink = photocraft_color::convert::with_cmyk_space(space, || photocraft_color::convert::rgb_to_cmyk(rgb.map(unit)));
+    ink.map(|v| (unit(v) * 100.0).round() as i32)
 }
 
 pub(super) fn navigator(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
@@ -408,6 +411,25 @@ pub(super) fn history(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if app.run(cmd, json!({})).is_err() {
                 break;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn info_cmyk_agrees_with_the_color_picker_conversion() {
+        for rgb in [[1.0, 1.0, 1.0], [0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.5, 0.5, 0.5], [0.2, 0.6, 0.9], [1.0, 0.93, 0.0]] {
+            let picker = photocraft_color::convert::rgb_to_cmyk(rgb).map(|v| (v * 100.0).round() as i32);
+            assert_eq!(readout_cmyk(None, rgb), picker, "{rgb:?}");
+        }
+        assert_eq!(readout_cmyk(None, [2.0, 0.0, 0.0]), readout_cmyk(None, [1.0, 0.0, 0.0]));
+        assert_eq!(readout_cmyk(None, [f32::NAN; 3]), readout_cmyk(None, [0.0; 3]));
+        let in_range = |c: [i32; 4]| c.iter().all(|v| (0..=100).contains(v));
+        for rgb in [[-0.2, 0.5, 0.5], [f32::NAN, 0.5, 0.5], [f32::INFINITY, f32::NEG_INFINITY, 0.5]] {
+            assert!(in_range(readout_cmyk(None, rgb)), "{rgb:?}");
         }
     }
 }

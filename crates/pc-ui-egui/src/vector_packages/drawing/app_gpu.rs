@@ -46,16 +46,7 @@ fn harness() -> H {
     })
 }
 fn screen(h: &H, x: f32, y: f32) -> Pos2 {
-    let app = h.state();
-    let v = &app.ui.views[0];
-    photocraft_ui_egui::canvas::ViewXform {
-        rect: photocraft_ui_egui::rulers::content_rect(app, app.last_canvas_rect),
-        zoom: v.zoom,
-        center: v.center,
-        flip: app.ui.view.flip_horizontal,
-        rotation: v.rotation,
-    }
-    .to_screen(x, y)
+    photocraft_ui_egui::canvas::ViewXform::active(h.state()).expect("the document canvas is laid out").to_screen(x, y)
 }
 fn pointer(h: &mut H, x: f32, y: f32, button: Option<bool>) {
     let pos = screen(h, x, y);

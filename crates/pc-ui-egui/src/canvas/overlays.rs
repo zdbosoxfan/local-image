@@ -145,7 +145,7 @@ pub(super) fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: 
 /// Move tool › Show Transform Controls: the selected layers' shared transform bounds.
 pub(super) fn transform_controls_bounds(app: &PhotocraftApp) -> Option<DRect> {
     let dragging_box = app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) && app.session.prefs().interface.show_bounding_box_when_dragging_layer;
-    if app.ui.tool != Tool::Move || !(app.ui.tool_options.move_show_transform || dragging_box) || app.ui.transform.is_some() {
+    if app.ui.tool != Tool::Move || !(app.ui.tool_options.move_show_transform || dragging_box) || !app.ui.view.extras || app.ui.transform.is_some() {
         return None;
     }
     let st = app.session.active()?;
@@ -229,7 +229,9 @@ pub(super) fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter
     let last = d.points.last().map(|p| [p[0], p[1]]).unwrap_or(d.start);
     let marquee = matches!(d.tool, Tool::RectMarquee | Tool::EllipseMarquee).then(|| marquee_corners(&app.ui.tool_options, d, last));
     if let Some((a, b)) = marquee {
-        draw_marquee_readout(painter.ctx(), xf.to_screen(last[0] as f32, last[1] as f32), marquee_readout(marquee_px(a, b)));
+        let options = &app.ui.tool_options;
+        let rect = if options.marquee_style == "fixedSize" { fixed_size_px(a, b, options.marquee_width, options.marquee_height) } else { marquee_px(a, b) };
+        draw_marquee_readout(painter.ctx(), xf.to_screen(last[0] as f32, last[1] as f32), marquee_readout(rect));
     }
     match d.tool {
         // The canvas shows the live stroke itself (`LiveStroke`).

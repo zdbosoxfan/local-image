@@ -3433,3 +3433,5 @@ fn shared_shell_background_export_completes_while_capture_owns_input() {
     previews.retire();
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+mod control_click;

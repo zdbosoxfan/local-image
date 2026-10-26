@@ -540,8 +540,10 @@ pub(crate) fn finish_gesture(app: &mut PhotocraftApp, d: Drag) {
         Tool::Brush | Tool::Pencil | Tool::Eraser => finish_brush_gesture(app, d, None),
         Tool::RectMarquee | Tool::EllipseMarquee => {
             let (a, b) = marquee_corners(&app.ui.tool_options, &d, [end[0], end[1]]);
-            let [x0, y0, x1, y1] = marquee_px(a, b);
-            if x1 - x0 < 2.0 || y1 - y0 < 2.0 {
+            let options = &app.ui.tool_options;
+            let fixed = options.marquee_style == "fixedSize";
+            let [x0, y0, x1, y1] = if fixed { fixed_size_px(a, b, options.marquee_width, options.marquee_height) } else { marquee_px(a, b) };
+            if !fixed && (x1 - x0 < 2.0 || y1 - y0 < 2.0) {
                 if app.session.is_enabled("select.deselect") {
                     let _ = app.run("select.deselect", json!({}));
                 }
