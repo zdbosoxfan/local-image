@@ -325,7 +325,8 @@ fn label_for(family: Option<&Family>, entry_model: Option<&str>, id: &Identity, 
     base
 }
 
-fn display_words(text: &str) -> String {
+/// Display model and template identifiers as words, preserving model acronyms.
+pub fn display_words(text: &str) -> String {
     text.replace(['_', '-'], " ")
         .split_whitespace()
         .map(|w| match w.to_ascii_lowercase().as_str() {

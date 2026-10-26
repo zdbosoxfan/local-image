@@ -57,16 +57,12 @@ fn field(ui: &mut egui::Ui, t: &Tokens, name: &str, value: &str) {
 }
 
 fn template_title(scan: &Scan, name: &str) -> String {
-    scan.templates.iter().find(|x| x.name == name).map(|x| x.title.clone()).filter(|x| !x.is_empty()).unwrap_or_else(|| {
-        name.trim_start_matches("image_")
-            .split('_')
-            .map(|word| {
-                let mut c = word.chars();
-                c.next().map(|first| first.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
-    })
+    scan.templates
+        .iter()
+        .find(|x| x.name == name)
+        .map(|x| x.title.clone())
+        .filter(|x| !x.is_empty())
+        .unwrap_or_else(|| modelsetup::display_words(name.trim_start_matches("image_")))
 }
 
 fn capability_key(c: &str) -> &'static str {
@@ -503,6 +499,13 @@ fn use_it(ui: &mut egui::Ui, s: &mut State, key: &str, m: &ModelState, t: &Token
 mod tests {
     use super::super::fixtures::{FLUX3, fixture};
     use super::*;
+
+    #[test]
+    fn template_titles_preserve_model_acronyms() {
+        let scan = fixture();
+        assert_eq!(template_title(&scan, "image_flux3_lora_sft_vae"), "Flux3 LoRA SFT VAE");
+        assert_eq!(template_title(&scan, "image_flux3_klein_distilled_t2i"), "FLUX 3 Image Klein Distilled: Text to Image");
+    }
 
     #[test]
     fn each_failed_tool_gets_its_own_failure_sentence() {
