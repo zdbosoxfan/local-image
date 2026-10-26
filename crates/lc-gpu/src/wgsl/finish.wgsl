@@ -600,11 +600,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         vec3<f32>(ff(F_OUT_M + 6u), ff(F_OUT_M + 7u), ff(F_OUT_M + 8u)),
     );
     var r = mul3(om, d);
-    if (fu(F_SOFT_GAMUT) != 0u) {
+    if (fu(F_HARD_CLIP) != 0u) {
         let gm = array<vec3<f32>, 3>(
-            vec3<f32>(ff(F_SOFT_GAMUT_M), ff(F_SOFT_GAMUT_M + 1u), ff(F_SOFT_GAMUT_M + 2u)),
-            vec3<f32>(ff(F_SOFT_GAMUT_M + 3u), ff(F_SOFT_GAMUT_M + 4u), ff(F_SOFT_GAMUT_M + 5u)),
-            vec3<f32>(ff(F_SOFT_GAMUT_M + 6u), ff(F_SOFT_GAMUT_M + 7u), ff(F_SOFT_GAMUT_M + 8u)),
+            vec3<f32>(ff(F_HARD_CLIP_M), ff(F_HARD_CLIP_M + 1u), ff(F_HARD_CLIP_M + 2u)),
+            vec3<f32>(ff(F_HARD_CLIP_M + 3u), ff(F_HARD_CLIP_M + 4u), ff(F_HARD_CLIP_M + 5u)),
+            vec3<f32>(ff(F_HARD_CLIP_M + 6u), ff(F_HARD_CLIP_M + 7u), ff(F_HARD_CLIP_M + 8u)),
         );
         r = clamp(gamut_output(d, r, gm, fu(F_GAMUT_BAND), vec3<f32>(ff(F_OUT_Y), ff(F_OUT_Y + 1u), ff(F_OUT_Y + 2u))), vec3<f32>(0.0), vec3<f32>(1.0));
     } else {

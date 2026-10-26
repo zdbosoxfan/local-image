@@ -243,7 +243,7 @@ pub struct FinishParams {
     pub layer_contrast: f32,
     /// A LUT profile and its amount (0..2, `None` at 0), applied to sRGB display values in every
     /// mode but [`FinishMode::Output`] and in every output space. Its result is inside sRGB, so the
-    /// output knee is left out after it (in the Output pass of a layered render too).
+    /// output hard clip is left out after it (in the Output pass of a layered render too).
     pub lut: Option<(std::sync::Arc<crate::lut::Lut3d>, f32)>,
     pub tone: ToneMap,
     pub ops: ColorOps,
@@ -252,7 +252,7 @@ pub struct FinishParams {
     /// Refine Saturation as 0..1 (1 = the curves' own saturation).
     pub refine_sat: f32,
     /// Relative colorimetric RAW output mapping: the gamut's [`crate::gamut::lms_to`] matrix.
-    pub soft_gamut: Option<[[f32; 3]; 3]>,
+    pub hard_clip: Option<[[f32; 3]; 3]>,
     pub vig: Option<Vig>,
     /// Linear Rec.2020 → linear output RGB, the output's luminance weights (gamut mapping) and its
     /// encoding curve (see [`crate::output`]).
@@ -317,7 +317,7 @@ impl FinishParams {
             lut: crate::lut::get(&s.profile.id).map(|l| (l, (s.profile.amount / 100.0).clamp(0.0, 2.0) as f32)).filter(|(_, amount)| *amount > 0.0),
             ops: ColorOps::new(s),
             curves: curve_luts(&s.curve),
-            soft_gamut: info.raw.then(|| crate::gamut::lms_to(&space.from_working())),
+            hard_clip: info.raw.then(|| crate::gamut::lms_to(&space.from_working())),
             refine_sat: (s.curve.refine_saturation / 100.0).clamp(0.0, 1.0) as f32,
             vig: if effects { vignette(s) } else { None },
             to_out: space.from_working(),
@@ -487,7 +487,7 @@ fn finish_with_mask<T: Copy + Default + Send>(
     store: impl Fn([f32; 3], usize, usize) -> T + Sync + Send,
 ) -> Vec<T> {
     let (w, h) = (p.img.width, p.img.height);
-    let p_lut = fp.lut.clone().filter(|_| fp.mode != FinishMode::Output).map(|(lut, amount)| (lut, amount, LutInput::new(fp.soft_gamut.is_some())));
+    let p_lut = fp.lut.clone().filter(|_| fp.mode != FinishMode::Output).map(|(lut, amount)| (lut, amount, LutInput::new(fp.hard_clip.is_some())));
     let FinishParams { tone, ops, curves, vig, to_out, out_luma, hl, sh, clar, tex, dehaze, gain, ev, grain, .. } = fp;
     let (hl, sh, clar, tex, dehaze, gain, ev) = (*hl, *sh, *clar, *tex, *dehaze, *gain, *ev);
     let terms: Vec<[f32; MASK_TERMS]> = p.masks.iter().map(|m| mask_terms(&m.adjust)).collect();
@@ -788,8 +788,8 @@ fn finish_with_mask<T: Copy + Default + Send>(
                 d
             } else {
                 let r = mul3(to_out, d);
-                let knee = fp.soft_gamut.as_ref().filter(|_| fp.lut.is_none());
-                knee.map_or_else(|| gamut_map(r, *out_luma).0, |m| crate::gamut::output(d, r, m, fp.out_space).map(|v| v.clamp(0.0, 1.0)))
+                let hard_clip = fp.hard_clip.as_ref().filter(|_| fp.lut.is_none());
+                hard_clip.map_or_else(|| gamut_map(r, *out_luma).0, |m| crate::gamut::output(d, r, m, fp.out_space).map(|v| v.clamp(0.0, 1.0)))
             };
 
             // encode, curves, grain
@@ -828,22 +828,22 @@ use crate::layers::mix3;
 struct LutInput {
     to_srgb: [[f32; 3]; 3],
     from_srgb: [[f32; 3]; 3],
-    knee: Option<[[f32; 3]; 3]>,
+    hard_clip: Option<[[f32; 3]; 3]>,
 }
 
 impl LutInput {
-    fn new(soft_gamut: bool) -> LutInput {
+    fn new(hard_clip: bool) -> LutInput {
         let to_srgb = OutputSpace::Srgb.from_working();
         LutInput {
             to_srgb,
             from_srgb: li_color::SRGB.to_space(&li_color::REC2020).to_f32(),
-            knee: soft_gamut.then(|| crate::gamut::lms_to(&to_srgb)),
+            hard_clip: hard_clip.then(|| crate::gamut::lms_to(&to_srgb)),
         }
     }
 
     fn apply(&self, d: [f32; 3], lut: &crate::lut::Lut3d, amount: f32) -> [f32; 3] {
         let r = mul3(&self.to_srgb, d);
-        let r = self.knee.as_ref().map_or_else(
+        let r = self.hard_clip.as_ref().map_or_else(
             || gamut_map(r, OutputSpace::Srgb.luma()).0,
             |m| crate::gamut::output(d, r, m, OutputSpace::Srgb).map(|v| v.clamp(0.0, 1.0)),
         );
@@ -1170,9 +1170,9 @@ mod colour_tone_tests {
             let to_out = space.from_working();
             let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
             let m = crate::gamut::lms_to(&to_out);
-            let knee = |r: [f32; 3]| crate::gamut::output(mul3(&from_out, r), r, &m, space);
-            assert_eq!(knee([0.3; 3]), [0.3; 3]);
-            assert_eq!(knee([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
+            let hard_clip = |r: [f32; 3]| crate::gamut::output(mul3(&from_out, r), r, &m, space);
+            assert_eq!(hard_clip([0.3; 3]), [0.3; 3]);
+            assert_eq!(hard_clip([0.5, 0.2, 0.3]), [0.5, 0.2, 0.3]);
             let inside = |r: [f32; 3], n: f32, slack: f32| r.iter().all(|v| *v >= -slack * n && *v <= 1.0 + slack * (1.0 - n));
             for d in rec2020_edge() {
                 let r = mul3(&to_out, d);
@@ -1199,12 +1199,12 @@ mod colour_tone_tests {
     fn output_knee_keeps_in_gamut_colours_in_every_output_space() {
         use crate::metrics::{delta_e, lab};
         let from_srgb = li_color::SRGB.to_space(&li_color::REC2020).to_f32();
-        let knee = |space: OutputSpace, d: [f32; 3]| {
+        let hard_clip = |space: OutputSpace, d: [f32; 3]| {
             let to_out = space.from_working();
             crate::gamut::output(d, mul3(&to_out, d), &crate::gamut::lms_to(&to_out), space)
         };
         let out = |space: OutputSpace, d: [f32; 3]| {
-            let r = gamut_map(knee(space, d), space.luma()).0;
+            let r = gamut_map(hard_clip(space, d), space.luma()).0;
             mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), r)
         };
         let patch = |rgb: [u8; 3]| mul3(&from_srgb, rgb.map(|v| li_color::transfer::srgb_to_linear(v as f32 / 255.0)));

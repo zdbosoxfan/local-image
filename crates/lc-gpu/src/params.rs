@@ -34,8 +34,8 @@ const FIELDS: &[(&str, usize)] = &[
     ("CURVE_OFF", 1),
     ("CURVES", 1),
     ("CURVE_LUM", 1),
-    ("SOFT_GAMUT", 1),
-    ("SOFT_GAMUT_M", 9),
+    ("HARD_CLIP", 1),
+    ("HARD_CLIP_M", 9),
     ("GAMUT_BAND", 1),
     ("GAIN", 1),
     ("EV", 1),
@@ -218,8 +218,8 @@ pub fn finish_block(fp: &FinishParams, masks: &[[f32; MASK_TERMS]], present: &Pr
             _ => 0,
         },
     );
-    p.b("SOFT_GAMUT", fp.soft_gamut.is_some());
-    p.fs("SOFT_GAMUT_M", fp.soft_gamut.unwrap_or_default().as_flattened());
+    p.b("HARD_CLIP", fp.hard_clip.is_some());
+    p.fs("HARD_CLIP_M", fp.hard_clip.unwrap_or_default().as_flattened());
     p.f("REFINE_SAT", fp.refine_sat);
     p.f("GAIN", fp.gain);
     p.f("EV", fp.ev);
