@@ -886,8 +886,13 @@ pub fn context_menu(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
         super::people_workspace::finder(app, id);
         ui.close();
     }
-    if ui.button(li_i18n::library::t("Set as Reference Photo")).clicked() {
-        let _ = run_context(app, id, "photo.setReference", json!({"id": id.0}));
+    let set_reference = ui
+        .add_enabled(super::compare::live(app, id), egui::Button::new(li_i18n::library::t("Set as Reference Photo")))
+        .on_disabled_hover_text(li_i18n::library::t("Restore the photo to use it as the reference"));
+    if set_reference.clicked()
+        && let Err(error) = run_context(app, id, "photo.setReference", json!({"id": id.0}))
+    {
+        app.toast_error(ui.ctx(), error);
     }
     ui.separator();
     ui.menu_button(li_i18n::library::t("Set Rating"), |ui| {

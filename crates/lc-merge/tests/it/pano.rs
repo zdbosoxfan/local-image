@@ -346,3 +346,36 @@ fn float_frames_keep_highlights_above_the_white_level() {
     let median = sorted[sorted.len() / 2];
     assert!((median - 3.0).abs() < 0.3, "window median {median}");
 }
+
+#[test]
+fn minified_panorama_filters_fine_gratings() {
+    let image = RgbFrame::from_fn(640, 400, |x, y| {
+        if (160..480).contains(&x) && (100..300).contains(&y) {
+            [0.5 + 0.4 * (std::f32::consts::TAU * 0.45 * x as f32).cos(); 3]
+        } else {
+            // Distinct, deterministic corners register the otherwise repetitive grating.
+            let value = ((x / 11 * 73 + y / 13 * 127 + (x / 11) * (y / 13) * 17) % 251) as f32 / 251.0;
+            [0.1 + value * 0.7; 3]
+        }
+    });
+    let frames = vec![Frame::from_linear_rec2020(image.clone(), None), Frame::from_linear_rec2020(image, None)];
+    let result =
+        stitch(frames, &PanoOptions { projection: Projection::Perspective, max_megapixels: 0.09216, ..Default::default() }, &no_progress).unwrap();
+    let camera = result.cameras[0].as_ref().unwrap();
+    let mut count = 0;
+    let mut squared = 0.0;
+    for y in 0..result.image.height {
+        for x in 0..result.image.width {
+            let direction = result.projection.inverse(x as f64 + 0.5 + result.origin.0, y as f64 + 0.5 + result.origin.1, result.focal);
+            let Some((sx, sy)) = camera.project(direction) else { continue };
+            if (180.0..460.0).contains(&sx) && (120.0..280.0).contains(&sy) {
+                let error = f64::from(result.image.get(x, y)[0]) - 0.5;
+                squared += error * error;
+                count += 1;
+            }
+        }
+    }
+    assert!(count > 1000, "grating samples: {count}");
+    let rms = (squared / f64::from(count)).sqrt();
+    assert!(rms < 0.06, "aliased grating RMS {rms}");
+}

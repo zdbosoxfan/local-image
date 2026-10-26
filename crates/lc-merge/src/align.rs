@@ -259,7 +259,7 @@ pub fn warp(img: &RgbFrame, h: &Homography) -> (RgbFrame, Vec<bool>) {
             let p = h.apply(Point::new(x as f64 + 0.5, y as f64 + 0.5));
             let (sx, sy) = (p.x as f32, p.y as f32);
             if sx >= 0.0 && sy >= 0.0 && sx <= w as f32 && sy <= ht as f32 {
-                row[x] = img.sample_bilinear(sx, sy);
+                row[x] = img.sample_cubic(sx, sy, [1.0; 2], 0.0);
                 vrow[x] = true;
             }
         }

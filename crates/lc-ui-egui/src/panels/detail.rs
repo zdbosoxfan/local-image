@@ -1171,38 +1171,16 @@ fn crop_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respons
         match app.gesture.clone() {
             Some(Gesture::CropHandle { handle, start, angle }) => {
                 let n = to_straight(map.norm(q), angle, frame);
-                let mut r = start;
                 let orig = ui.input(|i| i.pointer.press_origin()).map(|q0| to_straight(map.norm(q0), angle, frame)).unwrap_or(n);
-                let (dx, dy) = (n.x - orig.x, n.y - orig.y);
-                match handle {
-                    0 => (r.x0, r.y0) = (start.x0 + dx, start.y0 + dy),
-                    1 => (r.x1, r.y0) = (start.x1 + dx, start.y0 + dy),
-                    2 => (r.x1, r.y1) = (start.x1 + dx, start.y1 + dy),
-                    3 => (r.x0, r.y1) = (start.x0 + dx, start.y1 + dy),
-                    4 => r.y0 = start.y0 + dy,
-                    5 => r.x1 = start.x1 + dx,
-                    6 => r.y1 = start.y1 + dy,
-                    7 => r.x0 = start.x0 + dx,
-                    _ => r = start.translate(lightcraft_geom::Vec2::new(dx, dy)),
-                }
-                // aspect lock
-                if let Some((aw, ah)) = d.crop.aspect
-                    && handle < 4
-                {
-                    let (iw, ih) = (frame.ow, frame.oh);
-                    let a = if (iw >= ih) == (aw >= ah) { aw as f64 / ah as f64 } else { ah as f64 / aw as f64 };
-                    let w_px = (r.x1 - r.x0).abs() * iw;
-                    let h_px = w_px / a;
-                    let hn = h_px / ih;
-                    if handle == 0 || handle == 1 {
-                        r.y0 = r.y1 - hn;
-                    } else {
-                        r.y1 = r.y0 + hn;
+                // The lock keeps the current frame's orientation, including Rotate Aspect.
+                let aspect = d.crop.aspect.map(|_| start.scale(frame.ow, frame.oh).aspect());
+                if let Some(handle) = lightcraft_geom::CropHandle::from_index(handle) {
+                    let crop =
+                        lightcraft_geom::drag_crop(lightcraft_geom::CropGeometry { rect: start, angle }, handle, orig, n, frame.ow, frame.oh, aspect);
+                    let r = crop.rect;
+                    if let Err(error) = app.run("crop.set", json!({"rect": [r.x0, r.y0, r.x1, r.y1]})) {
+                        app.toast_error(ui.ctx(), error);
                     }
-                }
-                let rr = lightcraft_geom::Rect::new(r.x0.min(r.x1), r.y0.min(r.y1), r.x0.max(r.x1), r.y0.max(r.y1));
-                if rr.width() > lightcraft_geom::MIN_CROP_FRACTION && rr.height() > lightcraft_geom::MIN_CROP_FRACTION {
-                    let _ = app.run("crop.set", json!({"rect": [rr.x0, rr.y0, rr.x1, rr.y1]}));
                 }
             }
             Some(Gesture::CropRotate { start_angle, a0 }) => {
@@ -2263,7 +2241,7 @@ fn film_base_pick(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Respo
 fn straighten_overlay(app: &mut LightcraftApp, ui: &mut egui::Ui, resp: &egui::Response, held: bool) {
     ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
     if !held && resp.double_clicked() {
-        let _ = app.run("crop.autoStraighten", json!({}));
+        app.auto_straighten(ui.ctx());
         app.ui.tool.clear();
         app.gesture = None;
         return;

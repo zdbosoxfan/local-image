@@ -16,6 +16,7 @@
 mod color_icons;
 pub mod control;
 pub mod credits;
+mod crop_tools;
 pub mod export_task;
 pub mod file_dialog;
 pub mod headless;

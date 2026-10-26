@@ -133,7 +133,7 @@ fn crop(app: &mut LightcraftApp, ui: &mut egui::Ui, id: PhotoId) {
                 app.ui.tool = if on { String::new() } else { "straighten".into() };
             }
             if text_button(ui, "straightenAuto", li_i18n::library::t("Auto"), false).clicked() {
-                let _ = app.run("crop.autoStraighten", json!({}));
+                app.auto_straighten(ui.ctx());
             }
         });
     });

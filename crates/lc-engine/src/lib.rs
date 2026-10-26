@@ -127,6 +127,50 @@ pub struct Interaction {
 /// Source of [`Session::visible_shared`] generations (process-wide, so two sessions never share one).
 static VISIBLE_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+fn clock_minute(now: &str) -> &str {
+    now.get(..16).unwrap_or(now)
+}
+
+fn albums_tested(filter: &Filter) -> Vec<lightcraft_catalog::AlbumId> {
+    fn visit(rules: &lightcraft_catalog::RuleSet, out: &mut Vec<lightcraft_catalog::AlbumId>) {
+        for rule in &rules.rules {
+            match rule {
+                lightcraft_catalog::Rule::Group { group } => visit(group, out),
+                lightcraft_catalog::Rule::Field { field, value, .. } if field == "album" => {
+                    if let Some(id) = value.as_u64() {
+                        out.push(lightcraft_catalog::AlbumId(id));
+                    }
+                }
+                lightcraft_catalog::Rule::Field { .. } => {}
+            }
+        }
+    }
+    let mut out: Vec<_> = filter.album.into_iter().collect();
+    if let Some(rules) = &filter.rule_set {
+        visit(rules, &mut out);
+    }
+    out
+}
+
+fn filter_depends_on_clock(filter: &Filter, catalog: &Catalog) -> bool {
+    if filter.depends_on_now() {
+        return true;
+    }
+    let mut pending = albums_tested(filter);
+    let mut seen = std::collections::HashSet::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let Some(smart) = catalog.album(id).and_then(|album| album.smart.as_deref()) else { continue };
+        if smart.depends_on_now() {
+            return true;
+        }
+        pending.extend(albums_tested(smart));
+    }
+    false
+}
+
 pub struct Session {
     /// Auto Sync: edits to the active photo also change the other selected photos (the settings
     /// that changed, nothing else).
@@ -146,12 +190,14 @@ pub struct Session {
     /// Shared, so frontends can hold it across frames without copying ([`Session::visible_shared`]).
     visible: Arc<[PhotoId]>,
     visible_key: Option<(u64, String)>,
+    visible_clock_minute: Option<String>,
     /// Identifies the current `visible` list: a new value (unique in the process) every time it
     /// is recomputed, so frontends can key their per-view caches on it instead of hashing the ids.
     visible_gen: u64,
     /// Photos in the current source with no filter on (cached like `visible`).
-    total: Option<((u64, String), usize)>,
+    total: Option<((u64, String), usize, Option<String>)>,
     pub undo: Vec<UndoEntry>,
+    commits: u64,
     pub redo: Vec<UndoEntry>,
     pub interaction: Option<Interaction>,
     /// Set by a command whose change must not rewrite the photo's XMP sidecar even with auto-write on
@@ -284,9 +330,11 @@ impl Session {
             selection: Selection::default(),
             visible: Vec::new().into(),
             visible_key: None,
+            visible_clock_minute: None,
             visible_gen: 0,
             total: None,
             undo: Vec::new(),
+            commits: 0,
             redo: Vec::new(),
             interaction: None,
             skip_auto_write: false,
@@ -430,6 +478,11 @@ impl Session {
 
     // ops, undo
 
+    /// Successful commits, including steps folded into a background undo group.
+    pub fn commits(&self) -> u64 {
+        self.commits
+    }
+
     /// Apply an op as one undoable step.
     pub fn commit(&mut self, label: &str, op: Op) -> Result<()> {
         let filter = self.ephemeral_photo();
@@ -440,6 +493,7 @@ impl Session {
         let fwd = op.clone();
         let inv = self.catalog.apply(op)?;
         self.pending_log.push(fwd);
+        self.commits = self.commits.wrapping_add(1);
         self.undo.push(UndoEntry { group: self.undo_group, label: label.to_string(), op: inv, folder: None, people: None });
         let same_scope = |e: &UndoEntry| filter.is_none_or(|photo| ephemeral::only_photo(&e.op, photo) == scope.0);
         if self.undo.len() > 1000
@@ -780,9 +834,14 @@ impl Session {
             // the view fills in as the background checks find files gone
             key.1.push_str(&format!("|{}", self.media.availability.generation()));
         }
-        if self.visible_key.as_ref() != Some(&key) {
-            // "in the last N days" rules count back from the session's clock
-            lightcraft_catalog::rules::set_now(Some((self.clock)()));
+        let key_changed = self.visible_key.as_ref() != Some(&key);
+        let current_now = (key_changed || self.visible_clock_minute.is_some()).then(|| (self.clock)());
+        let current_minute = current_now.as_deref().map(clock_minute);
+        let clock_changed = self.visible_clock_minute.as_deref().is_some_and(|cached| current_minute != Some(cached));
+        if key_changed || clock_changed {
+            // Evaluate and stamp relative rules with the same clock reading.
+            let now = current_now.unwrap_or_else(|| (self.clock)());
+            lightcraft_catalog::rules::set_now(Some(now.clone()));
             let mut f = self.source.to_filter(&self.filter, &self.catalog);
             smart_sort::people::resolve_filter_ids(&mut f, &self.smart.people.data);
             if self.source == LibrarySource::Folder {
@@ -826,6 +885,7 @@ impl Session {
             }
             self.visible = visible.into();
             self.visible_gen = VISIBLE_GEN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.visible_clock_minute = filter_depends_on_clock(&f, &self.catalog).then(|| clock_minute(&now).to_owned());
             self.visible_key = Some(key);
         }
         &self.visible
@@ -838,7 +898,13 @@ impl Session {
             return None;
         }
         let key = (self.catalog.revision, format!("{:?}|{:?}", self.source, self.browse));
-        if self.total.as_ref().map(|t| &t.0) != Some(&key) {
+        let key_changed = self.total.as_ref().map(|total| &total.0) != Some(&key);
+        let cached_minute = self.total.as_ref().and_then(|total| total.2.as_deref());
+        let current_now = cached_minute.map(|_| (self.clock)());
+        let clock_changed = cached_minute.is_some_and(|cached| current_now.as_deref().map(clock_minute) != Some(cached));
+        if key_changed || clock_changed {
+            let now = current_now.unwrap_or_else(|| (self.clock)());
+            lightcraft_catalog::rules::set_now(Some(now.clone()));
             let mut f = self.source.to_filter(&Filter::default(), &self.catalog);
             if self.source == LibrarySource::Folder {
                 let b = self.browse.clone().unwrap_or_default();
@@ -846,7 +912,8 @@ impl Session {
                 f.subfolders = b.subfolders;
             }
             let n = self.catalog.query(&f, &self.sort).len();
-            self.total = Some((key, n));
+            let clocked = filter_depends_on_clock(&f, &self.catalog);
+            self.total = Some((key, n, clocked.then(|| clock_minute(&now).to_owned())));
         }
         self.total.as_ref().map(|t| t.1)
     }
@@ -948,3 +1015,6 @@ mod tests_toolset;
 mod tests_xmp;
 
 pub mod dcp_profiles;
+
+#[cfg(test)]
+mod tests_view_follow;

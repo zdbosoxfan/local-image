@@ -825,3 +825,38 @@ fn dsfix_gpu_stack_preserves_background_range_overlay() {
     let max = cpu.data.iter().zip(&gpu.data).flat_map(|(a, b)| a.iter().zip(b).map(|(a, b)| a.abs_diff(*b))).max().unwrap();
     assert!(max <= 1, "Background overlay CPU/GPU mismatch: maximum {max} codes");
 }
+
+#[test]
+fn escape_leaves_reference_view() {
+    let mut h = detail("panel.edit");
+    let first = h.app.session.active().unwrap();
+    exec(&mut h, "photo.setReference", json!({}));
+    exec(&mut h, "view.reference", json!({}));
+    let r = h.request("ui.key", json!({"key":"escape"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.view, crate::state::ViewMode::Detail);
+    assert_eq!(h.app.ui.reference, Some(first.0));
+}
+
+#[test]
+fn invalid_or_deleted_reference_pins_are_refused() {
+    let mut h = detail("panel.edit");
+    let first = h.app.session.active().unwrap();
+    exec(&mut h, "photo.setReference", json!({}));
+    for id in [json!("12"), json!(-1), json!(1.5), json!(true), json!(999999)] {
+        assert!(h.app.run("photo.setReference", json!({"id":id})).is_err(), "{id}");
+        assert_eq!(h.app.ui.reference, Some(first.0));
+    }
+}
+
+#[test]
+fn deleted_reference_photos_must_be_restored() {
+    let mut h = detail("panel.edit");
+    let first = h.app.session.active().unwrap();
+    exec(&mut h, "photo.setReference", json!({}));
+    h.app.session.commit("Delete", lightcraft_catalog::Op::SetDeleted { id: first, deleted: true, deleted_at: None }).unwrap();
+    assert!(h.app.run("photo.setReference", json!({"id":first.0})).unwrap_err().contains("restore"));
+    exec(&mut h, "library.source", json!({"kind":"recentlyDeleted"}));
+    exec(&mut h, "library.select", json!({"ids":[first.0]}));
+    assert!(h.app.run("view.reference", json!({})).unwrap_err().contains("restore"));
+}
