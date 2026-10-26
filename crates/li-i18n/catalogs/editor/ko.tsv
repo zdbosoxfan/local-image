@@ -3907,3 +3907,4 @@ ai	New	새 항목
 	Take the shortcut from the other command and select it	다른 명령에서 단축키를 빼고 그 명령 선택
 	GPU Memory (MB, 0 = Automatic)	GPU 메모리(MB, 0 = 자동)
 	{path} was saved over	{path} 파일이 덮어써졌습니다
+	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" 문서는 더 이상 파일에 연결되어 있지 않으며 저장되지 않은 상태로 표시됩니다. 내용을 유지하려면 새 이름으로 저장하세요.

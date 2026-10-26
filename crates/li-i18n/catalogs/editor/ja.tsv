@@ -3919,3 +3919,4 @@ ai	New	新着
 	Take the shortcut from the other command and select it	もう一方のコマンドからショートカットを外して選択
 	GPU Memory (MB, 0 = Automatic)	GPU メモリ（MB、0 = 自動）
 	{path} was saved over	{path} は上書き保存されました
+	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	「{doc}」はファイルとの関連付けが解除され、未保存としてマークされました。内容を保持するには新しい名前で保存してください。

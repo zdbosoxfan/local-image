@@ -41,7 +41,11 @@ impl PhotocraftApp {
             self.session.set_active(viewed);
         }
         if !names.is_empty() {
-            notices::post(self, li_i18n::fmt(tl!("{path} was saved over"), &[("path", &crate::file_open::display_name(path))]), names, false, None);
+            let lines = names
+                .iter()
+                .map(|doc| li_i18n::fmt(tl!("\"{doc}\" no longer has a file and is marked unsaved: save it under a new name to keep it"), &[("doc", doc)]))
+                .collect();
+            notices::post(self, li_i18n::fmt(tl!("{path} was saved over"), &[("path", &crate::file_open::display_name(path))]), lines, false, None);
         }
     }
 }

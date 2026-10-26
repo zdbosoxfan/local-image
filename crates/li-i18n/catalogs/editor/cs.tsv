@@ -3936,3 +3936,4 @@ ai	New	Nové
 	Take the shortcut from the other command and select it	Odebrat zkratku druhému příkazu a vybrat ho
 	GPU Memory (MB, 0 = Automatic)	Paměť GPU (MB, 0 = Automaticky)
 	{path} was saved over	Soubor {path} byl přepsán
+	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	„{doc}“ už není spojen se souborem a je označen jako neuložený. Chcete-li jej zachovat, uložte jej pod novým názvem.

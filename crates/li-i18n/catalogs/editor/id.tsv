@@ -3907,3 +3907,4 @@ ai	New	Baru
 	Take the shortcut from the other command and select it	Ambil pintasan dari perintah lain dan pilih perintah itu
 	GPU Memory (MB, 0 = Automatic)	Memori GPU (MB, 0 = Otomatis)
 	{path} was saved over	{path} telah ditimpa
+	"{doc}" no longer has a file and is marked unsaved: save it under a new name to keep it	"{doc}" tidak lagi terkait dengan file dan ditandai belum disimpan: simpan dengan nama baru untuk mempertahankannya.
