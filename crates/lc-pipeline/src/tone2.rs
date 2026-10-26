@@ -44,8 +44,8 @@ pub struct ToneMethod {
     pub hue: f32,
     /// Camera fits map a luminance norm; sigmoid and Soft Film use per-channel mapping.
     pub luminance: bool,
-    /// Chroma relative to the working gamut edge where compression starts; 1 clips at the edge.
-    pub gamut_knee: f32,
+    /// Apply the RAW scene knee before negative-channel containment.
+    pub scene_compression: bool,
 }
 
 impl ToneMethod {
@@ -54,7 +54,7 @@ impl ToneMethod {
         // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
         // desaturated to zero (darktable sigmoid)
         // At the rendered edge, negative-channel containment is the continuous limiting clip.
-        let c = if self.gamut_knee == 1.0 { c } else { scene_gamut_knee(c) };
+        let c = if self.scene_compression { scene_gamut_knee(c) } else { c };
         desaturate_negative(c)
     }
 }
@@ -335,14 +335,14 @@ impl ToneMap {
         ToneMap::from_tables(
             lut,
             chroma,
-            ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: matches!(base, BaseCurve::Camera(_)), gamut_knee: SCENE_GAMUT_KNEE },
+            ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: matches!(base, BaseCurve::Camera(_)), scene_compression: true },
         )
     }
 
     /// global tone map of a rendered source (or a converted negative): [`display_tone`].
     pub fn rendered(hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
         let lut: Vec<f32> = (0..LUT_N).map(|i| display_tone(GREY * ev_at(i).exp2(), contrast, whites, blacks)).collect();
-        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: false, gamut_knee: 1.0 })
+        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: false, scene_compression: false })
     }
 }
 
