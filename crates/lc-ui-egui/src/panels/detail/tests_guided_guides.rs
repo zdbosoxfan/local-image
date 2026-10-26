@@ -425,3 +425,20 @@ fn endpoint_drag_in_a_warped_frame_preserves_the_other_corrected_points() {
     h.app.run("edit.undo", json!({})).unwrap();
     assert_eq!(h.app.session.develop_of(id).unwrap().geometry.guides, original);
 }
+
+#[test]
+fn undo_remains_available_while_a_guide_has_keyboard_focus() {
+    let mut h = guided();
+    let photo = h.app.session.active().unwrap();
+    h.view.ctx.memory_mut(|memory| memory.request_focus(egui::Id::new(("uprightGuide", photo.0, 0_usize))));
+    h.step();
+    let r = h.request("ui.key", json!({"key":"space"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.app.ui.selected_guide, Some((photo.0, 0)));
+    let r = h.request("ui.key", json!({"key":"Delete"}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(guides_len(&h), 1);
+    let r = h.request("ui.key", json!({"key":"z", "cmd":true}), T);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(guides_len(&h), 2, "Undo restores the guide while its surviving slot retains focus");
+}

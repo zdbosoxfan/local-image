@@ -101,7 +101,7 @@ pub fn handle(app: &mut LightcraftApp, ctx: &egui::Context) {
     let table: Vec<_> = catalog::effective(app)
         .into_iter()
         .filter_map(|(binding, chord)| {
-            if guide_focused && binding.command != "photo.delete" {
+            if guide_focused && matches!(binding.command.as_str(), "view.zoomToggle" | "tool.done") {
                 return None;
             }
             if app.native_shortcuts.contains(&chord) || app.host_session.as_ref().is_some_and(|h| !h.allows(&binding.command)) {
