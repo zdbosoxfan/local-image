@@ -686,3 +686,29 @@ fn remove_location_refuses_a_psd_with_unreadable_resources_or_xmp() {
     }
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn remove_location_refuses_psd_xmp_with_duplicate_or_unquoted_gps() {
+    let dir = temp_dir("export-ambiguous-psd-xmp");
+    for (index, attrs) in
+        [r#"exif:GPSLatitude="" exif:GPSLatitude="45,0N" exif:GPSLongitude="7,0E""#, r#"exif:GPSLatitude="45,0N" exif:GPSLongitude=7,0E"#]
+            .iter()
+            .enumerate()
+    {
+        for (version, extension) in [(1, "psd"), (2, "psb")] {
+            let path = dir.join(format!("ambiguous-{index}.{extension}"));
+            std::fs::write(&path, synthetic_psd(version, &[])).unwrap();
+            let mut session = Session::new().with_fs();
+            session.execute("library.import", &json!({"paths": [path.to_string_lossy()]})).unwrap();
+            let id = session.catalog.photos().next().unwrap().id;
+            let xmp = format!(
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" {attrs}/></rdf:RDF>"#
+            );
+            std::fs::write(&path, synthetic_psd(version, &[(1060, xmp.as_bytes())])).unwrap();
+            let error =
+                export_photo(&mut session, id, &ExportOptions::from_json(&json!({"format": "original", "removeLocation": true})), 1).err().unwrap();
+            assert!(error.contains("can't verify location metadata") && error.contains("malformed PSD/PSB"), "{error}");
+        }
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

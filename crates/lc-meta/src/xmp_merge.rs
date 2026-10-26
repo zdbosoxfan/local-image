@@ -73,7 +73,7 @@ struct Desc {
 }
 
 #[derive(Debug, Default)]
-struct Scan {
+pub(crate) struct Scan {
     descs: Vec<Desc>,
     /// Where the first `</rdf:RDF>` starts.
     rdf_close: Option<usize>,
@@ -124,7 +124,7 @@ fn pos(r: &quick_xml::Reader<&[u8]>) -> usize {
 }
 
 /// Locate the descriptions, their top-level properties and `</rdf:RDF>` in a packet.
-fn scan(s: &str) -> Result<Scan, XmpError> {
+pub(crate) fn scan(s: &str) -> Result<Scan, XmpError> {
     let mut reader = quick_xml::Reader::from_reader(s.as_bytes());
     reader.config_mut().check_end_names = true;
     let mut out = Scan::default();

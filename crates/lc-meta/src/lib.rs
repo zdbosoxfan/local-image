@@ -357,7 +357,17 @@ pub fn try_extract(bytes: &[u8]) -> Result<Metadata, ExtractError> {
     }
     let e = psd::parse(bytes).ok_or(ExtractError::MalformedPsd)?;
     let m = e.exif.as_deref().map(try_read_exif).transpose().map_err(|_| ExtractError::MalformedPsd)?.unwrap_or_default();
-    let xmp = e.xmp.as_deref().map(parse_xmp).transpose().map_err(|_| ExtractError::MalformedPsd)?.map(|x| x.metadata);
+    let xmp = e
+        .xmp
+        .as_deref()
+        .map(|packet| {
+            // Best-effort parsing tolerates broken XML; privacy checks need strict syntax validation.
+            xmp_merge::scan(packet)?;
+            parse_xmp(packet)
+        })
+        .transpose()
+        .map_err(|_| ExtractError::MalformedPsd)?
+        .map(|x| x.metadata);
     Ok(extract_embedded(&e, m, xmp))
 }
 

@@ -282,4 +282,19 @@ mod tests {
         truncated_record.pop();
         assert_eq!(embedded(&truncated_record), Embedded::default());
     }
+    #[test]
+    fn strict_extraction_rejects_forgiving_xmp_syntax() {
+        for attrs in
+            [r#"exif:GPSLatitude="" exif:GPSLatitude="45,0N" exif:GPSLongitude="7,0E""#, r#"exif:GPSLatitude="45,0N" exif:GPSLongitude=7,0E"#]
+        {
+            let xmp = format!(
+                r#"<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description xmlns:exif="http://ns.adobe.com/exif/1.0/" {attrs}/></rdf:RDF>"#
+            );
+            for version in [1, 2] {
+                let file = image(version, &[], &resource(1060, b"", xmp.as_bytes()));
+                assert!(crate::extract(&file).gps.is_none());
+                assert!(matches!(crate::try_extract(&file), Err(crate::ExtractError::MalformedPsd)));
+            }
+        }
+    }
 }
