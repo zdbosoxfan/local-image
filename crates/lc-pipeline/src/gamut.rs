@@ -325,7 +325,11 @@ impl Line {
                 }
                 for _ in 0..OUTPUT_STEPS {
                     let mid = 0.5 * (lo + up);
-                    if horner(face, mid) >= 0.0 { lo = mid; } else { up = mid; }
+                    if horner(face, mid) >= 0.0 {
+                        lo = mid;
+                    } else {
+                        up = mid;
+                    }
                 }
                 chroma = chroma.min(lo);
             }
@@ -444,9 +448,18 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3, r: [f32; 3], space: OutputSpace)
     let mut boundary = [gray; 3];
     for _ in 0..3 {
         let delta = target.map(|v| v - gray);
-        let scale = delta.iter().map(|v| {
-            if *v > 0.0 { (1.0 - gray) / v } else if *v < 0.0 { -gray / v } else { f32::INFINITY }
-        }).fold(f32::INFINITY, f32::min);
+        let scale = delta
+            .iter()
+            .map(|v| {
+                if *v > 0.0 {
+                    (1.0 - gray) / v
+                } else if *v < 0.0 {
+                    -gray / v
+                } else {
+                    f32::INFINITY
+                }
+            })
+            .fold(f32::INFINITY, f32::min);
         boundary = if scale.is_finite() { delta.map(|v| gray + scale * v) } else { [gray; 3] };
         let working = if space == OutputSpace::Srgb { mul3(&mats().from_srgb, boundary) } else { boundary };
         let lab = oklab_from_2020(working);
@@ -565,7 +578,9 @@ mod tests {
                     let out = render(space, d);
                     let e = hue_error(out, d).abs();
                     let band = usize::from(blue_weight(space, h) > 0.0);
-                    if e > worst[band].0 { worst[band] = (e, d); }
+                    if e > worst[band].0 {
+                        worst[band] = (e, d);
+                    }
                     lightness[band] = lightness[band].max((oklab_from_2020(out)[0] - l).abs());
                 }
             }
@@ -576,7 +591,9 @@ mod tests {
                     let e = hue_error(out, d).abs();
                     let lab = oklab_from_2020(d);
                     let band = usize::from(blue_weight(space, lab[2].atan2(lab[1])) > 0.0);
-                    if e > worst[band].0 { worst[band] = (e, d); }
+                    if e > worst[band].0 {
+                        worst[band] = (e, d);
+                    }
                 }
             }
             for (band, (hue, light)) in [(1e-3, 2e-4), (0.045, 1e-3)].into_iter().enumerate() {

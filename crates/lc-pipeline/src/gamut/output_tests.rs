@@ -57,7 +57,12 @@ fn fixed_lab_search_chroma_is_monotone() {
                 let mut previous = 0.0f32;
                 for ci in 0..=1000 {
                     let c = ci as f32 * 0.0006;
-                    let rgb = output_lab([l, c * h.cos(), c * h.sin()], &lms_to(&space.from_working()), mul3(&space.from_working(), oklab_to_2020([l, c * h.cos(), c * h.sin()])), space);
+                    let rgb = output_lab(
+                        [l, c * h.cos(), c * h.sin()],
+                        &lms_to(&space.from_working()),
+                        mul3(&space.from_working(), oklab_to_2020([l, c * h.cos(), c * h.sin()])),
+                        space,
+                    );
                     let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb));
                     let chroma = lab[1].hypot(lab[2]);
                     let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 } else { 2e-6 };
@@ -70,35 +75,229 @@ fn fixed_lab_search_chroma_is_monotone() {
     }
 }
 
-#[test]
-fn inward_search_reaches_the_nearest_interval_including_blue_reentry() {
-    // A separate f64 evaluation and fine inward scan does not use the production cubic roots.
-    for space in OutputSpace::ALL {
-        let m = lms_to(&space.from_working());
-        for (l, c, h) in [(0.452_013_7f32, 0.34f32, -1.674_494_4f32), (0.45, 0.35, -1.67), (0.63, 0.5, 0.5), (0.85, 0.4, 1.9), (0.3, 0.6, 3.0)] {
-            let d = oklab_to_2020([l, c * h.cos(), c * h.sin()]);
-            let [l, a, b] = oklab_from_2020(d);
-            let chroma = a.hypot(b);
-            let dir: [f64; 3] = std::array::from_fn(|i| (mats().from_lab[i][1] * (a / chroma) + mats().from_lab[i][2] * (b / chroma)) as f64);
-            let at = |c: f64| -> [f64; 3] { std::array::from_fn(|i| (0..3).map(|j| m[i][j] as f64 * (l as f64 + c * dir[j]).powi(3)).sum()) };
-            let eps = OUTPUT_EPS as f64 * (16.0 * (l as f64).powi(3)).min(1.0);
-            let inside = |c| at(c).iter().all(|v| *v >= -eps && *v <= 1.0 + eps);
-            let step = chroma as f64 / 20_000.0;
-            let seed = (0..=20_000).rev().map(|i| i as f64 * step).find(|c| inside(*c)).expect("valid neutral");
-            let (mut lo, mut hi) = (seed, (seed + step).min(chroma as f64));
-            for _ in 0..50 {
-                let mid = (lo + hi) / 2.0;
-                if inside(mid) {
-                    lo = mid;
-                } else {
-                    hi = mid;
+// Independent f64 channel polynomials from the production f32 matrices.
+fn reference_faces(m: &M3, line: Line) -> [[f64; 4]; 6] {
+    std::array::from_fn(|i| {
+        let channel: [f64; 4] = std::array::from_fn(|k| {
+            (0..3)
+                .map(|j| {
+                    let l = line.l as f64;
+                    let d = line.d[j] as f64;
+                    m[i / 2][j] as f64 * [l.powi(3), 3.0 * l * l * d, 3.0 * l * d * d, d.powi(3)][k]
+                })
+                .sum()
+        });
+        if i % 2 == 0 { channel } else { [1.0 - channel[0], -channel[1], -channel[2], -channel[3]] }
+    })
+}
+
+fn reference_intervals(faces: &[[f64; 4]], hi: f64) -> Vec<(f64, f64)> {
+    let at = |c: &[f64; 4], t: f64| ((c[3] * t + c[2]) * t + c[1]) * t + c[0];
+    let mut cuts = vec![0.0, hi];
+    for c in faces {
+        let (a, b, d) = (3.0 * c[3], 2.0 * c[2], c[1]);
+        let disc = b * b - 4.0 * a * d;
+        let mut turns = vec![0.0, hi];
+        if disc >= 0.0 {
+            if a != 0.0 {
+                for r in [(-b - disc.sqrt()) / (2.0 * a), (-b + disc.sqrt()) / (2.0 * a)] {
+                    if r > 0.0 && r < hi {
+                        turns.push(r);
+                    }
+                }
+            } else if b != 0.0 {
+                let r = -d / b;
+                if r > 0.0 && r < hi {
+                    turns.push(r);
                 }
             }
-            let rgb = output(d, mul3(&space.from_working(), d), &m, space);
-            let lab = oklab_from_2020(mul3(&space.rgb_space().to_space(&li_color::REC2020).to_f32(), rgb));
-            let actual = lab[1].hypot(lab[2]);
-            assert!((actual as f64 - lo).abs() < 3e-5, "{} at ({l}, {chroma}, {h}): {actual} vs inward reference {lo}", space.label());
         }
+        turns.sort_by(f64::total_cmp);
+        for pair in turns.windows(2) {
+            let (mut lo, mut up) = (pair[0], pair[1]);
+            let negative = at(c, lo) < 0.0;
+            if negative == (at(c, up) < 0.0) {
+                continue;
+            }
+            for _ in 0..48 {
+                let mid = 0.5 * (lo + up);
+                if (at(c, mid) < 0.0) == negative {
+                    lo = mid;
+                } else {
+                    up = mid;
+                }
+            }
+            cuts.push(0.5 * (lo + up));
+        }
+    }
+    cuts.sort_by(f64::total_cmp);
+    let mut intervals: Vec<(f64, f64)> = Vec::new();
+    for pair in cuts.windows(2) {
+        let mid = 0.5 * (pair[0] + pair[1]);
+        if faces.iter().all(|c| at(c, mid) >= 0.0) {
+            if let Some(last) = intervals.last_mut().filter(|last| last.1 == pair[0]) {
+                last.1 = pair[1];
+            } else {
+                intervals.push((pair[0], pair[1]));
+            }
+        }
+    }
+    intervals
+}
+
+#[test]
+fn exact_clip_crosses_once_outside_the_windows() {
+    let working = lms_to(&OutputSpace::Rec2020.from_working());
+    for space in OutputSpace::ALL {
+        let m = lms_to(&space.from_working());
+        for l in [0.02, 0.2, 0.45, 0.8, 0.98] {
+            for i in 0..720 {
+                let h = -std::f32::consts::PI + i as f32 * std::f32::consts::TAU / 720.0;
+                let line = Line::new([l, h.cos(), h.sin()]).unwrap();
+                let unit = Line { l: 1.0, ..line };
+                let lower: Vec<_> = reference_faces(&working, unit).into_iter().step_by(2).collect();
+                let reach = reference_intervals(&lower, 2.0).last().unwrap().1;
+                let c = (reach * l as f64) as f32;
+                let mut faces = reference_faces(&m, line);
+                for face in &mut faces {
+                    face[0] += OUTPUT_EPS as f64;
+                }
+                let intervals = reference_intervals(&faces, c as f64);
+                let in_window = match space {
+                    OutputSpace::Srgb => (BLUE_SRGB[0]..=BLUE_SRGB[1]).contains(&h),
+                    OutputSpace::Rec2020 => (BLUE_REC2020[0]..=BLUE_REC2020[1]).contains(&h),
+                    _ => false,
+                };
+                if !in_window {
+                    assert!(intervals.len() <= 1, "{space:?} L={l} h={h}: {intervals:?}");
+                }
+                let expected = intervals.first().unwrap().1;
+                let actual = line.output_chroma(&m, c).unwrap();
+                assert!((actual as f64 - expected).abs() < 3e-5, "{space:?} L={l} h={h}: {actual} vs {expected}");
+            }
+        }
+    }
+}
+
+#[test]
+fn pinch_windows_cover_every_pinched_hue() {
+    let working = lms_to(&OutputSpace::Rec2020.from_working());
+    for space in OutputSpace::ALL {
+        let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
+        let m = lms_to(&space.from_working());
+        let mut pinched = 0;
+        for vertex in [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 1.0, 0.0], [0.0, 1.0, 1.0], [1.0, 0.0, 1.0]] {
+            let lab = oklab_from_2020(mul3(&from_out, vertex));
+            let center = lab[2].atan2(lab[1]);
+            for i in -20_000..=20_000 {
+                let h = (center + i as f32 * 1e-6 + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                let line = Line::new([1.0, h.cos(), h.sin()]).unwrap();
+                let lower: Vec<_> = reference_faces(&m, line).into_iter().step_by(2).collect();
+                let intervals = reference_intervals(&lower, 2.0);
+                if intervals.len() < 2 {
+                    continue;
+                }
+                pinched += 1;
+                match space {
+                    OutputSpace::Srgb => assert!((BLUE_SRGB[0]..=BLUE_SRGB[1]).contains(&h), "sRGB h={h}: {intervals:?}"),
+                    OutputSpace::Rec2020 => assert!((BLUE_REC2020[0]..=BLUE_REC2020[1]).contains(&h), "Rec2020 h={h}: {intervals:?}"),
+                    OutputSpace::DisplayP3 | OutputSpace::AdobeRgb => panic!("unexpected pinch {space:?} h={h}: {intervals:?}"),
+                    OutputSpace::ProPhoto => {
+                        let lower: Vec<_> = reference_faces(&working, line).into_iter().step_by(2).collect();
+                        let rec_reach = reference_intervals(&lower, 2.0).last().unwrap().1;
+                        assert!(intervals[1].0 - rec_reach >= 0.5, "ProPhoto h={h}: {intervals:?} vs Rec2020 reach {rec_reach}");
+                    }
+                }
+            }
+        }
+        if matches!(space, OutputSpace::Srgb | OutputSpace::Rec2020 | OutputSpace::ProPhoto) {
+            assert!(pinched > 0, "no pinches found in {space:?}");
+        }
+    }
+}
+
+fn encoded_output(space: OutputSpace, d: [f32; 3]) -> [f32; 3] {
+    let to_out = space.from_working();
+    output(d, mul3(&to_out, d), &lms_to(&to_out), space).map(|v| 255.0 * space.trc().encode(v.clamp(0.0, 1.0)))
+}
+
+#[test]
+fn small_nudges_move_the_output_little() {
+    for space in OutputSpace::ALL {
+        let mut checked = 0;
+        for [lo, hi] in [BLUE_SRGB, BLUE_REC2020] {
+            for offset in [-0.101, -0.1, -0.099, -0.05, -0.011, -0.01, -0.009, 0.0, 0.009, 0.01, 0.011, 0.05, 0.099, 0.1, 0.101] {
+                for h in [lo + offset, hi + offset] {
+                    for l in [0.2, 0.3, 0.45, 0.6, 0.8] {
+                        for c in [0.05, 0.1, 0.2, 0.28, 0.31, 0.34, 0.38, 0.45] {
+                            let d = oklab_to_2020([l, c * h.cos(), c * h.sin()]);
+                            let max = d.into_iter().fold(0.0f32, f32::max);
+                            if max > 1.0 || d.iter().any(|v| *v < -0.02 * max) {
+                                continue;
+                            }
+                            checked += 1;
+                            let a = encoded_output(space, d);
+                            for sign in [[1.0, 1.0, 1.0], [1.0, -1.0, -1.0], [-1.0, 1.0, -1.0], [-1.0, -1.0, 1.0]] {
+                                for (relative, step) in [(true, 6e-5 * max), (false, 5e-5)] {
+                                    let b = encoded_output(space, std::array::from_fn(|i| d[i] + step * sign[i]));
+                                    let limit = match (space, relative) {
+                                        (OutputSpace::DisplayP3, false) => 2.44,
+                                        (OutputSpace::AdobeRgb, _) => 4.16,
+                                        (_, true) => 2.5,
+                                        (_, false) => 3.0,
+                                    };
+                                    for i in 0..3 {
+                                        assert!(
+                                            (a[i] - b[i]).abs() <= limit,
+                                            "{space:?} L={l} C={c} h={h} d={d:?} relative={relative}: {a:?} vs {b:?}, limit {limit}"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        assert!(checked > 100, "{space:?}: insufficient physical samples");
+    }
+}
+
+#[test]
+fn hue_sweeps_through_the_blue_pinch_are_continuous() {
+    for space in [OutputSpace::Srgb, OutputSpace::Rec2020] {
+        let mut space_checked = 0;
+        let [lo, hi] = if space == OutputSpace::Srgb { BLUE_SRGB } else { BLUE_REC2020 };
+        for l in [0.3, 0.45, 0.6] {
+            for c in [0.1, 0.2, 0.28, 0.31, 0.34, 0.38] {
+                let mut previous = None;
+                let mut checked = 0;
+                for i in 0..=24_000 {
+                    let h = 0.5 * (lo + hi) - 0.12 + i as f32 * 1e-5;
+                    let d = oklab_to_2020([l, c * h.cos(), c * h.sin()]);
+                    let max = d.into_iter().fold(0.0f32, f32::max);
+                    if max > 1.0 || d.iter().any(|v| *v < -0.02 * max) {
+                        previous = None;
+                        continue;
+                    }
+                    let rgb = encoded_output(space, d);
+                    if let Some(last) = previous {
+                        let last: [f32; 3] = last;
+                        for k in 0..3 {
+                            assert!((rgb[k] - last[k]).abs() <= 0.2, "{space:?} L={l} C={c} h={h}: {last:?} vs {rgb:?}");
+                        }
+                        checked += 1;
+                    }
+                    previous = Some(rgb);
+                    space_checked += 1;
+                }
+                // Some high-chroma, low-L rays lie wholly outside the physical input cone.
+                if previous.is_some() {
+                    assert!(checked > 100);
+                }
+            }
+        }
+        assert!(space_checked > 100, "no physical hue sweep in {space:?}");
     }
 }
 

@@ -471,7 +471,13 @@ fn constants() -> String {
     use lightcraft_pipeline::tone::{CHROMA_N, LUT_MAX_EV, LUT_MIN_EV, LUT_N};
     let mut s = String::new();
     let [to_lms, from_lms, to_lab, from_lab] = li_color::perceptual::oklab_matrices();
-    for (name, m) in [("OK_TO_LMS", to_lms), ("OK_FROM_LMS", from_lms), ("OK_TO_LAB", to_lab), ("OK_FROM_LAB", from_lab), ("GAMUT_FROM_SRGB", li_color::SRGB.to_space(&li_color::REC2020).to_f32())] {
+    for (name, m) in [
+        ("OK_TO_LMS", to_lms),
+        ("OK_FROM_LMS", from_lms),
+        ("OK_TO_LAB", to_lab),
+        ("OK_FROM_LAB", from_lab),
+        ("GAMUT_FROM_SRGB", li_color::SRGB.to_space(&li_color::REC2020).to_f32()),
+    ] {
         let rows: Vec<String> = m.iter().map(|r| format!("vec3<f32>({:?}, {:?}, {:?})", r[0], r[1], r[2])).collect();
         s += &format!("const {name} = array<vec3<f32>, 3>({});\n", rows.join(", "));
     }
@@ -513,7 +519,7 @@ fn constants() -> String {
     s += &format!(
         "const GAMUT_OUTPUT_EPS: f32 = {OUTPUT_EPS:?};\nconst GAMUT_ENDPOINT_EPS: f32 = {ENDPOINT_EPS:?};\nconst GAMUT_OUTPUT_STEPS: u32 = {OUTPUT_STEPS}u;\nconst GAMUT_MAX_CHROMA: f32 = {MAX_CHROMA:?};\nconst GAMUT_STEPS: u32 = {STEPS}u;\n"
     );
-    use lightcraft_pipeline::gamut::{BLUE_SRGB, BLUE_REC2020};
+    use lightcraft_pipeline::gamut::{BLUE_REC2020, BLUE_SRGB};
     for (name, [lo, hi]) in [("GAMUT_BLUE_SRGB", BLUE_SRGB), ("GAMUT_BLUE_REC2020", BLUE_REC2020)] {
         s += &format!("const {name} = vec2<f32>({lo:?}, {hi:?});\n");
     }

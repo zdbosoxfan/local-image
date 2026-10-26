@@ -843,8 +843,10 @@ impl LutInput {
 
     fn apply(&self, d: [f32; 3], lut: &crate::lut::Lut3d, amount: f32) -> [f32; 3] {
         let r = mul3(&self.to_srgb, d);
-        let r =
-            self.knee.as_ref().map_or_else(|| gamut_map(r, OutputSpace::Srgb.luma()).0, |m| crate::gamut::output(d, r, m, OutputSpace::Srgb).map(|v| v.clamp(0.0, 1.0)));
+        let r = self.knee.as_ref().map_or_else(
+            || gamut_map(r, OutputSpace::Srgb.luma()).0,
+            |m| crate::gamut::output(d, r, m, OutputSpace::Srgb).map(|v| v.clamp(0.0, 1.0)),
+        );
         let e = r.map(|v| linear_to_srgb(v.clamp(0.0, 1.0)));
         let m = lut.apply(e);
         let e: [f32; 3] = std::array::from_fn(|i| e[i] + (m[i] - e[i]) * amount);

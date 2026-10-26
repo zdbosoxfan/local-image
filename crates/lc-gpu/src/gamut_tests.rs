@@ -72,7 +72,11 @@ fn gamut_knees_match_the_cpu() {
         let lms = gamut::lms_to(&to_out);
         let mut p = vec![colours.len() as u32];
         p.extend(to_out.as_flattened().iter().chain(lms.as_flattened()).map(|v| v.to_bits()));
-        p.push(match space { OutputSpace::Srgb => 1, OutputSpace::Rec2020 => 2, _ => 0 });
+        p.push(match space {
+            OutputSpace::Srgb => 1,
+            OutputSpace::Rec2020 => 2,
+            _ => 0,
+        });
         let mut cx = Cx::new(g);
         let input = g.upload(colours.as_flattened());
         let out = g.buffer(colours.len() * 6);
