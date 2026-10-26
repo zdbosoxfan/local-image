@@ -145,7 +145,7 @@ pub(super) fn draw_tool_state(app: &PhotocraftApp, painter: &egui::Painter, xf: 
 /// Move tool › Show Transform Controls: the selected layers' shared transform bounds.
 pub(super) fn transform_controls_bounds(app: &PhotocraftApp) -> Option<DRect> {
     let dragging_box = app.drag.as_ref().is_some_and(|d| d.tool == Tool::Move) && app.session.prefs().interface.show_bounding_box_when_dragging_layer;
-    if app.ui.tool != Tool::Move || !(app.ui.tool_options.move_show_transform || dragging_box) || app.ui.transform.is_some() {
+    if app.ui.tool != Tool::Move || !(app.ui.tool_options.move_show_transform || dragging_box) || !app.ui.view.extras || app.ui.transform.is_some() {
         return None;
     }
     let st = app.session.active()?;
