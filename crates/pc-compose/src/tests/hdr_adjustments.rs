@@ -72,3 +72,27 @@ fn float_tones_keep_signed_highlights_and_alpha() {
         assert!(evaluate(&up, input, depth)[..3].iter().all(|v| (0.0..=1.0).contains(v)));
     }
 }
+
+// Measured tint samples from upstream 836fd520, Photoshop 27.11.
+#[test]
+fn black_white_tint_matches_photoshop() {
+    let weights = [40.0, 60.0, 40.0, 60.0, 20.0, 80.0];
+    let measured: [([u8; 3], u8, [u8; 3]); 6] = [
+        ([255, 0, 0], 24, [81, 1, 1]),
+        ([255, 0, 0], 120, [255, 64, 64]),
+        ([255, 0, 0], 240, [255, 235, 235]),
+        ([0xe1, 0xd3, 0xb3], 120, [133, 119, 87]),
+        ([0xe1, 0xd3, 0xb3], 24, [33, 24, 1]),
+        ([0x40, 0x20, 0x10], 120, [144, 112, 96]),
+    ];
+    for (tint, grey, want) in measured {
+        let tint = Some(tint.map(|v| v as f32 / 255.0));
+        let mut b = Buffer { rect: Rect::new(0, 0, 1, 1), px: vec![[grey as f32 / 255.0; 4]] };
+        b.px[0][3] = 1.0;
+        adjust::apply(&Adjustment::BlackWhite { weights, tint }, &mut b);
+        for (i, w) in want.iter().enumerate() {
+            let got = b.px[0][i] * 255.0;
+            assert!((got - *w as f32).abs() <= 2.5, "tint {tint:?} grey {grey} channel {i}: {got} vs {w}");
+        }
+    }
+}

@@ -186,7 +186,7 @@ pub fn apply_depth(adj: &Adjustment, buf: &mut Buffer, transfer: Transfer, depth
         Adjustment::BlackWhite { weights, tint } => map_rgb(buf, |c| {
             let g = black_white_gray(c, weights);
             match tint {
-                Some(t) => std::array::from_fn(|i| (g * t[i] * 2.0).clamp(0.0, 1.0) * 0.5 + g * 0.5),
+                Some(t) => photocraft_color::blend::set_lum(*t, g).map(|v| v.clamp(0.0, 1.0)),
                 None => [g; 3],
             }
         }),
