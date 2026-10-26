@@ -101,7 +101,8 @@ pub fn from_json(current: &str, json: &str) -> Result<Option<Update>> {
     Ok(newest.map(|(_, update)| update))
 }
 
-/// Blocking: invoke only from a worker. Uses ring under the 2026-10-25 TLS security exception
+/// Blocking: invoke only from a worker. Uses ring under the
+/// [2026-10-25 TLS security decision](https://github.com/zdbosoxfan/local-image/blob/main/docs/DEVELOPMENT.md#crypto-provider-exception)
 /// for C/assembly crypto and the bundled roots.
 pub fn check(current: &str) -> Result<Option<Update>> {
     let agent: ureq::Agent =

@@ -146,12 +146,12 @@ Development builds next to their `.dSYM` (or unstripped) print symbolicated back
 ## Update checks and privacy
 
 **Help → Check for Updates…** checks the public GitHub releases JSON through rustls and ring
-(the 2026-10-25 TLS security exception for C/assembly crypto). A background worker has a
-15-second request deadline and a 2 MiB response cap. No telemetry, photos, machine identifiers,
-tokens or model data are sent. GitHub
-necessarily sees the request's source IP and a generic application User-Agent. Requests do not
-redirect to other services. Rate limits, invalid JSON and network failures are shown in the UI;
-Retry is explicit. No binary is downloaded or installed.
+(the [2026-10-25 TLS security decision](DEVELOPMENT.md#crypto-provider-exception) for C/assembly
+crypto). A background worker has a 15-second request deadline and a 2 MiB response cap. No
+telemetry, photos, machine identifiers, tokens or model data are sent. GitHub necessarily sees
+the request's source IP and a generic application User-Agent. Requests do not redirect to other
+services. Rate limits, invalid JSON and network failures are shown in the UI; Retry is explicit.
+No binary is downloaded or installed.
 
 **Preferences → General → Check for updates at startup** defaults off, including in old settings.
 When enabled it checks once per launch, silently unless a newer release is found. Stable builds

@@ -36,7 +36,7 @@ the codebase from drifting back.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo deny --manifest-path ./Cargo.toml --locked check   # advisories, licences, bans, sources
-cargo xtask deps-pure                                     # no C-building crates
+cargo xtask deps-pure                                     # pure Rust except rustls ring crypto
 cargo xtask assets                                        # every bundled asset is attributed
 cargo xtask test-fast                                     # the Fast CI lane
 ```
@@ -98,8 +98,9 @@ to a local desktop app. These do:
 - Before adding or swapping any dependency, confirm it exists and is the crate you meant: check the
   owner, age, downloads and repository on crates.io. Prefer established maintainers. A young
   single-owner fork replacing security-critical code (TLS, crypto, parsers) is a no.
-- Pure Rust only (`xtask deps-pure`), except ring's C/assembly TLS crypto under the 2026-10-25
-  security decision. No git dependencies (`deny.toml` sources). Pin GitHub Actions to commit SHAs.
+- Pure Rust only (`xtask deps-pure`), except ring's C/assembly TLS crypto under the
+  [2026-10-25 TLS security decision](docs/DEVELOPMENT.md#crypto-provider-exception).
+  No git dependencies (`deny.toml` sources). Pin GitHub Actions to commit SHAs.
   Let Dependabot propose upgrades; review them like any other change.
 
 **Reliability and UX**

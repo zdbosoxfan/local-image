@@ -1,6 +1,7 @@
 //! TLS for the HTTP clients: rustls with ring and the bundled webpki root certificates.
-//! The 2026-10-25 TLS security exception permits ring's C/assembly crypto. The provider is set
-//! per agent, so nothing depends on a process-wide default.
+//! The [2026-10-25 TLS security decision](https://github.com/zdbosoxfan/local-image/blob/main/docs/DEVELOPMENT.md#crypto-provider-exception)
+//! permits ring's C/assembly crypto. The provider is set per agent, so nothing depends on a
+//! process-wide default.
 
 use std::sync::Arc;
 

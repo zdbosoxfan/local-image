@@ -598,7 +598,8 @@ fn main() -> Result<()> {
 
 // deps-pure
 
-/// Crates that compile C/C++/assembly (or drive a C toolchain). The app is all Rust.
+/// Crates that compile C/C++/assembly (or drive a C toolchain). The app is pure Rust except
+/// for the ring crypto provider used by rustls.
 const IMPURE: &[&str] = &["ring", "openssl-sys", "openssl-src", "aws-lc-sys", "aws-lc-rs", "cmake", "bindgen", "cc"];
 
 /// Crates still allowed to build-depend on `cc`. blake3 never calls it (`pure`); the rest are
@@ -614,7 +615,7 @@ fn impure_crates(edges: &str) -> Vec<String> {
     for line in edges.lines() {
         let mut it = line.split_whitespace();
         let (Some(parent), Some(child)) = (it.next(), it.next()) else { continue };
-        // The 2026-10-25 TLS security exception permits only these crypto build edges.
+        // Only these crypto build edges are permitted; see docs/DEVELOPMENT.md#crypto-provider-exception.
         let tls_crypto = matches!((parent, child), ("rustls" | "rustls-webpki", "ring") | ("ring", "cc"));
         if IMPURE.contains(&child) && !tls_crypto && (child != "cc" || !CC_KNOWN.contains(&parent)) {
             found.push(format!("{child} (needed by {parent})"));
@@ -658,9 +659,9 @@ fn dependency_edges() -> Result<String> {
 fn deps_pure() -> Result<()> {
     let found = impure_crates(&dependency_edges()?);
     if !found.is_empty() {
-        bail!("C-building crates in the dependency graph: {}. The app must stay all Rust.", found.join(", "));
+        bail!("Unapproved C-building crates: {}. The app is pure Rust except for rustls's ring crypto provider.", found.join(", "));
     }
-    println!("deps-pure: no C-building crates in the dependency graph");
+    println!("deps-pure: pure Rust except for the ring crypto provider used by rustls (known cc parents allowed)");
     Ok(())
 }
 
@@ -877,7 +878,8 @@ mod tests {
     }
 }
 
-/// HTTPS agent using ring under the 2026-10-25 TLS security exception for C/assembly crypto.
+/// HTTPS agent using ring under the [2026-10-25 TLS security decision](https://github.com/zdbosoxfan/local-image/blob/main/docs/DEVELOPMENT.md#crypto-provider-exception)
+/// for C/assembly crypto.
 fn xtask_agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
