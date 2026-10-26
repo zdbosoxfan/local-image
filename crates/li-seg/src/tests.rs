@@ -593,6 +593,23 @@ fn a_model_with_external_weights_is_copied_as_one_file() {
         let err = add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap_err();
         assert!(custom(&dir, Group::Depth).is_none(), "{location}: {err:#}");
     }
+    #[cfg(unix)]
+    {
+        let outside = dir.join("picked-outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(outside.join("weights.bin"), dir.join("picked/weights.bin")).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("picked/linked")).unwrap();
+        let weights: Vec<u8> = values.iter().flat_map(|v| v.to_le_bytes()).collect();
+        for bytes in [weights.as_slice(), b"x"] {
+            std::fs::write(outside.join("weights.bin"), bytes).unwrap();
+            for location in ["weights.bin", "linked/weights.bin"] {
+                let src = picked_bytes(&dir, "escape.onnx", &external_onnx(s as u64, &values, location));
+                let err = add_custom(&dir, Group::Depth, &src, CustomOptions::default(), &keep).unwrap_err();
+                assert!(format!("{err:#}").contains("must be inside the model's folder"), "{location}: {err:#}");
+                assert!(custom(&dir, Group::Depth).is_none());
+            }
+        }
+    }
     assert_eq!(std::fs::read_dir(custom_dir(&dir)).unwrap().count(), 2);
     let _ = std::fs::remove_dir_all(dir);
 }

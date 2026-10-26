@@ -20,10 +20,10 @@ const EXTERNAL: i32 = 1;
 /// none (a plain copy will do).
 pub(crate) fn inlined(path: &Path) -> Result<Option<Vec<u8>>> {
     let mut proto = tract_onnx::onnx().proto_model_for_path(path).with_context(|| format!("Could not read {} as an ONNX model", path.display()))?;
-    let dir = path.parent().unwrap_or(Path::new("."));
+    let dir = path.parent().unwrap_or(Path::new(".")).join(".").canonicalize().context("Could not read the model's folder")?;
     let mut read = 0u64;
     let Some(graph) = proto.graph.as_mut() else { return Ok(None) };
-    if !inline_graph(graph, dir, &mut read)? {
+    if !inline_graph(graph, &dir, &mut read)? {
         return Ok(None);
     }
     let len = proto.encoded_len() as u64;
@@ -63,7 +63,8 @@ fn inline_tensor(t: &mut pb::TensorProto, dir: &Path, read: &mut u64) -> Result<
     }
     let offset: u64 = entry("offset").map(str::parse).transpose().context("invalid external data offset")?.unwrap_or(0);
     let length: Option<u64> = entry("length").map(str::parse).transpose().context("invalid external data length")?;
-    let file = dir.join(location);
+    let file = dir.join(location).canonicalize().with_context(|| format!("The model's weights file {location:?} is missing"))?;
+    ensure!(file.starts_with(dir), "The model's weights file {location:?} must be inside the model's folder");
     let mut f = std::fs::File::open(&file).with_context(|| format!("The model's weights file {} is missing", file.display()))?;
     let available = f.metadata()?.len().checked_sub(offset).with_context(|| format!("{} is shorter than the model says", file.display()))?;
     let length = length.unwrap_or(available);

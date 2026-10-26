@@ -355,6 +355,8 @@ pub(crate) fn add_custom_with(
     if !name.to_lowercase().ends_with(".onnx") {
         return Err(CustomModelError::NotOnnx.into());
     }
+    // Validate external paths before tract can load their weights.
+    let inlined = external_data::inlined(src).map_err(tract_error)?;
     let size = input_size(src)?.unwrap_or(group.official().size);
     let mut c = Custom {
         group,
@@ -373,7 +375,6 @@ pub(crate) fn add_custom_with(
     if group == Group::Depth {
         c.class = usize::from(opts.depth_metric);
     }
-    let inlined = external_data::inlined(src).map_err(tract_error)?;
     std::fs::create_dir_all(custom_dir(models_dir))?;
     let mut all = read_customs(models_dir);
     let old = all.iter().find(|o| o.group == group).cloned();
