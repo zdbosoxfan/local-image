@@ -252,12 +252,19 @@ pub(crate) fn rename_folder_on_disk(from: &str, to: &str) -> std::result::Result
 
 /// After a folder moved from `from` to `to`: a browsed folder at or below it follows.
 pub(crate) fn follow_folder(s: &mut Session, from: &str, to: &str) {
+    if let Some(filter) = s.shelved_filter.as_mut()
+        && let Some(folder) = filter.folder.as_deref()
+        && let Ok(relative) = Path::new(folder).strip_prefix(from)
+    {
+        filter.folder = Some(Path::new(to).join(relative).to_string_lossy().to_string());
+    }
     if let Some(b) = &mut s.browse
         && let Ok(rel) = Path::new(&b.path).strip_prefix(from)
     {
         b.path = Path::new(to).join(rel).to_string_lossy().to_string();
-        let f = b.path.clone();
-        s.filter.folder = Some(f);
+        if s.shelved_filter.is_none() {
+            s.filter.folder = Some(b.path.clone());
+        }
     }
 }
 

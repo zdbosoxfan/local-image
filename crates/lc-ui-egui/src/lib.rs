@@ -433,6 +433,9 @@ impl LightcraftApp {
             return r;
         }
         let r = self.session.execute(id, &params).map_err(|e| e.to_string());
+        if r.is_ok() && id == "library.toggleFilters" {
+            self.ui.search = self.session.filter.text.clone();
+        }
         if let Err(e) = &r {
             log::warn!("{id}: {e}");
             self.ui.status = e.clone();

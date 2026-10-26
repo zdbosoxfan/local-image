@@ -205,6 +205,35 @@ fn design_system_develop_screens() {
                 assert!(flat.app.ui.toast.as_ref().is_some_and(|toast| toast.0 == "No horizon or vertical lines to level by"));
                 save(&flat, &format!("straighten-empty-{tag}"), Rect::from_min_size(pos2(0.0, 0.0), vec2(flat.size[0], flat.size[1])));
                 std::fs::remove_dir_all(directory).unwrap();
+
+                for (view, command) in [("grid", "view.photoGrid"), ("develop", "view.develop")] {
+                    let mut filters = setup(lightcraft_engine::Session::with_demo(), width, dark);
+                    filters.pixels_per_point = scale;
+                    filters.app.ui.filter_bar = true;
+                    filters.app.ui.filmstrip = true;
+                    request(&mut filters, "engine.execute", json!({"command":command}));
+                    let text = filters.app.session.catalog.photos().find(|photo| photo.rating >= 4).unwrap().file_name.clone();
+                    request(&mut filters, "engine.execute", json!({"command":"library.filter","params":{"text":text,"rating":4}}));
+                    filters.app.ui.search = text;
+                    let expected = filters.app.session.visible_cloned();
+                    for state in ["enabled", "disabled", "restored"] {
+                        if state != "enabled" {
+                            request(&mut filters, "ui.key", json!({"key":"l","cmd":true}));
+                        }
+                        assert_eq!(filters.app.session.filters_off(), state == "disabled");
+                        if state != "disabled" {
+                            assert_eq!(filters.app.session.visible_cloned(), expected);
+                        }
+                        assert!(filters.settle(T));
+                        click(&mut filters, "menu:View");
+                        save(
+                            &filters,
+                            &format!("filters-{view}-{state}-{tag}"),
+                            Rect::from_min_size(pos2(0.0, 0.0), vec2(filters.size[0], filters.size[1])),
+                        );
+                        request(&mut filters, "ui.key", json!({"key":"escape"}));
+                    }
+                }
             }
             for scale in [1.0, 1.5] {
                 let tag = format!("{tag}-{scale}ppp");

@@ -28,6 +28,14 @@ fn commit_keywords(s: &mut Session, label: &str, op: lightcraft_catalog::Op, fol
     if let Some(k) = s.filter.keyword.clone() {
         s.filter.keyword = follow(&k);
     }
+    if let Some(filter) = s.shelved_filter.as_mut()
+        && let Some(keyword) = filter.keyword.clone()
+    {
+        filter.keyword = follow(&keyword);
+    }
+    if s.shelved_filter.as_ref() == Some(&lightcraft_catalog::Filter::default()) {
+        s.shelved_filter = None;
+    }
     Ok(json!({"changed": n}))
 }
 
