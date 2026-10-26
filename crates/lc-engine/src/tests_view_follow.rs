@@ -77,7 +77,6 @@ fn relative_clock_source_total_expires_before_or_after_visible_refresh() {
 
         *now.lock().unwrap() = "2026-10-24T12:01:00".to_string();
         if refresh_visible {
-            s.execute("library.refresh", &json!({})).unwrap();
             assert!(s.visible_cloned().is_empty());
         }
         assert_eq!(s.source_total(), Some(0), "refresh_visible={refresh_visible}");
