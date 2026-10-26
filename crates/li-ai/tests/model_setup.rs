@@ -814,3 +814,35 @@ fn published_models_honour_static_fill_checks() {
     assert!(model.text_to_image, "Create remains usable");
     assert!(!model.inpaint, "a static Fill failure must not be advertised as usable");
 }
+
+#[test]
+fn published_krea_without_its_style_lora_can_create() {
+    let _g = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let s = Setup::new(&[
+        ("diffusion_models/krea2_turbo_bf16.safetensors", "Comfy-Org_Krea-2__diffusion_models~krea2_turbo_bf16"),
+        ("text_encoders/qwen3vl_4b_bf16.safetensors", "Comfy-Org_Krea-2__text_encoders~qwen3vl_4b_bf16"),
+        ("vae/qwen_image_vae.safetensors", "Comfy-Org_Krea-2__vae~qwen_image_vae"),
+    ]);
+    let scan = s.scan();
+    let key = "unet:krea2_turbo_bf16.safetensors";
+    assert_eq!(scan.server.models[key].status, Status::Ready);
+    let model = ModelId::from_key(key).unwrap();
+    let preset = li_ai::catalog::presets_for(model).next().unwrap();
+    let available = li_ai::catalog::availability(preset, &scan.snapshot.as_ref().unwrap().info);
+    assert!(available.available, "plain Create must not require the optional style LoRA: {}", available.reason);
+    assert_eq!(model.info().max_references, 0, "style references stay off until their LoRA is installed");
+    assert!(
+        scan.server.models[key]
+            .issues
+            .iter()
+            .any(|i| i.code == "CompanionMissing" && i.args.get("file").is_some_and(|s| s == "krea2_style_reference.safetensors"))
+    );
+    let (w, h) = create_size(key);
+    s.mock.queue_outputs([png(&ball(w, h, [230, 30, 30]))]);
+    let mut req = li_ai::GenerateRequest::new(model, "A red ball on white");
+    req.width = w;
+    req.height = h;
+    let image = li_ai::Ai::new(s.mock.host()).generate(&req, &JobControl::new()).unwrap();
+    assert_eq!(image.dimensions(), (w, h));
+    assert_eq!(s.mock.prompts().len(), 1);
+}

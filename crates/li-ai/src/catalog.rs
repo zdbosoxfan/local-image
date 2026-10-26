@@ -613,26 +613,28 @@ pub fn availability(preset: &Preset, info: &ObjectInfo) -> Availability {
     Availability { available: true, reason: String::new(), files }
 }
 
-/// A template model can run when its recipe exists, its classes are offered and every file it
-/// needs resolved.
+/// Availability of the default usable graph. Optional tools and their files are checked separately.
 fn template_availability(preset: &Preset, m: &ModelInfo, info: &ObjectInfo) -> Availability {
     let Some(recipe) = &m.recipe else {
         return Availability {
             reason: format!("Set up {} first: Generate › Set Up Models, or run local-image-cli ai doctor.", m.label), ..Default::default()
         };
     };
-    let mut classes: Vec<&str> = [&recipe.create, &recipe.edit, &recipe.style]
-        .into_iter()
-        .flatten()
-        .flat_map(|g| g.graph.values().filter_map(|n| n["class_type"].as_str()))
-        .filter(|c| !info.has_node(c))
-        .collect();
+    let graph = if m.text_to_image {
+        recipe.create.as_ref().or(recipe.style.as_ref())
+    } else {
+        recipe.edit.as_ref().or(recipe.create.as_ref()).or(recipe.style.as_ref())
+    };
+    let Some(graph) = graph else {
+        return Availability { reason: format!("Set up {} first.", m.label), ..Default::default() };
+    };
+    let mut classes: Vec<&str> = graph.graph.values().filter_map(|n| n["class_type"].as_str()).filter(|c| !info.has_node(c)).collect();
     classes.sort();
     classes.dedup();
     if !classes.is_empty() {
         return Availability { reason: format!("Update ComfyUI: it is missing the nodes {}.", classes.join(", ")), ..Default::default() };
     }
-    let missing: Vec<&str> = recipe.bindings().into_iter().filter(|b| !b.optional && b.used.is_none()).map(|b| b.declared.as_str()).collect();
+    let missing: Vec<&str> = graph.files.iter().filter(|b| !b.optional && b.used.is_none()).map(|b| b.declared.as_str()).collect();
     let mut files = BTreeMap::new();
     for f in &preset.files {
         files.insert(f.role, f.name.clone());
