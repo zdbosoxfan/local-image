@@ -195,7 +195,7 @@ fn design_system_develop_screens() {
                 h.step();
                 save(&h, &format!("deleted-reference-menu-{tag}"), Rect::from_min_max(pos2(0.0, 0.0), pos2(h.size[0], h.size[1])));
 
-                let (session, directory) = super::tests_develop_a::flat_session();
+                let (session, directory) = super::tests_develop_a::flat_session("design_system_develop_screens");
                 let mut flat = setup(session, width, dark);
                 flat.pixels_per_point = scale;
                 request(&mut flat, "ui.key", json!({"key":"r"}));

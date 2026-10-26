@@ -642,7 +642,7 @@ fn a_straightened_full_height_crop_slides_sideways() {
 
 #[test]
 fn auto_straighten_says_when_it_finds_nothing() {
-    let (session, dir) = flat_session();
+    let (session, dir) = flat_session("auto_straighten_says_when_it_finds_nothing");
     let app = LightcraftApp::new(session, Services { png: None, ..Default::default() });
     let mut h = Headless::new(app, [1200.0, 800.0], 1.0);
     for (method, params) in [("ui.set", json!({"view": "detail"})), ("engine.execute", json!({"command": "panel.crop"}))] {
@@ -658,8 +658,8 @@ fn auto_straighten_says_when_it_finds_nothing() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-pub(super) fn flat_session() -> (lightcraft_engine::Session, std::path::PathBuf) {
-    let dir = std::env::temp_dir().join(format!("lc-ui-auto-straighten-{}", std::process::id()));
+pub(super) fn flat_session(test: &str) -> (lightcraft_engine::Session, std::path::PathBuf) {
+    let dir = std::env::temp_dir().join(format!("lc-ui-auto-straighten-{test}-{}", std::process::id()));
     if dir.exists() {
         std::fs::remove_dir_all(&dir).unwrap();
     }
