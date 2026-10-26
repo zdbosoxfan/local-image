@@ -69,6 +69,11 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Affinity import crops pixel masks to their artwork and omits over-budget masks, cached pictures
+  and oversized effects with warnings. Embedded layer nesting shares the outer safety limit;
+  unreadable embedded layouts and missing or mismatched CMYK profiles retain their cached/default
+  fallback, while cancellation, shared resource limits and checksum failures remain fatal.
+
 - Develop and export preserve saturated colours already inside the selected output space,
   including deep blue. Colours outside that space transition smoothly, avoiding visible jumps
   from small edits. Rendered images and converted film negatives keep their saturated colours
