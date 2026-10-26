@@ -241,7 +241,7 @@ fn small_nudges_move_the_output_little() {
                                 for (relative, step) in [(true, 6e-5 * max), (false, 5e-5)] {
                                     let b = encoded_output(space, std::array::from_fn(|i| d[i] + step * sign[i]));
                                     let limit = match (space, relative) {
-                                        (OutputSpace::DisplayP3, false) => 2.44,
+                                        (OutputSpace::DisplayP3, _) => 2.44,
                                         (OutputSpace::AdobeRgb, _) => 4.16,
                                         (_, true) => 2.5,
                                         (_, false) => 3.0,
