@@ -118,7 +118,8 @@ pub struct Headless {
     pub pixels_per_point: f32,
     time: f64,
     frames: u64,
-    events: Vec<egui::Event>,
+    pub(crate) events: Vec<egui::Event>,
+    pub(crate) last_cursor: egui::CursorIcon,
     control: Sender<ControlRequest>,
     quit: bool,
 }
@@ -137,6 +138,7 @@ impl Headless {
             time: 0.0,
             frames: 0,
             events: vec![],
+            last_cursor: egui::CursorIcon::Default,
             control: tx,
             quit: false,
         }
@@ -156,10 +158,13 @@ impl Headless {
         let mut raw = HeadlessView::raw_input(self.size, self.pixels_per_point, self.time, std::mem::take(&mut self.events));
         self.app.raw_input_hook(&mut raw);
         let app = &mut self.app;
+        let mut cursor = egui::CursorIcon::Default;
         let commands = self.view.run(raw, |ui| {
             app.logic(ui.ctx());
             app.ui(ui);
+            cursor = ui.ctx().output(|output| output.cursor_icon);
         });
+        self.last_cursor = cursor;
         self.time += FRAME_DT;
         self.frames += 1;
         for c in commands {
