@@ -24,9 +24,7 @@ impl PhotocraftApp {
             .iter()
             .enumerate()
             .filter_map(|(index, state)| {
-                (state.doc.id != saver
-                    && state.path.as_deref().is_some_and(|p| p == path || li_fs::same_file(std::path::Path::new(p), std::path::Path::new(path))))
-                .then_some(index)
+                (state.doc.id != saver && state.path.as_deref().is_some_and(|p| develop_layer::same_file_path(p, path))).then_some(index)
             })
             .collect();
         let viewed = self.session.active_index();

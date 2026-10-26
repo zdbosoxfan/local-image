@@ -48,9 +48,6 @@ impl PhotocraftApp {
     /// `path` for File › Save, and `path` goes to the top of Open Recent. Returns the import
     /// warnings (also shown to the user).
     pub fn open_file(&mut self, path: &str, bytes: &[u8]) -> Result<Vec<String>, String> {
-        if self.show_if_open(path) {
-            return Ok(Vec::new());
-        }
         // Brushes/gradients go to the preset libraries (no document, no Open Recent entry).
         if let Some(r) = crate::preset_files_ui::open(self, path, bytes) {
             return r.map(|()| Vec::new());
@@ -144,7 +141,7 @@ impl PhotocraftApp {
 
     /// Focus the existing tab, including a background open still in flight.
     pub(crate) fn show_if_open(&mut self, path: &str) -> bool {
-        let same = |p: &str| p == path || li_fs::same_file(std::path::Path::new(p), std::path::Path::new(path));
+        let same = |p: &str| crate::develop_layer::same_file_path(p, path);
         if let Some(index) = self.session.documents().iter().position(|d| d.path.as_deref().is_some_and(same)) {
             self.session.set_active(index);
             self.jobs.focus = None;

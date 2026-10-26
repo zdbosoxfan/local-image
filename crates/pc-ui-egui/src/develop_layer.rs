@@ -69,7 +69,7 @@ pub struct LibrarySaveSource {
 pub type LibrarySaveSources = std::sync::Arc<std::sync::Mutex<Vec<LibrarySaveSource>>>;
 
 pub fn same_file_path(a: &str, b: &str) -> bool {
-    a == b || std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(b).ok()).is_some_and(|(a, b)| a == b)
+    a == b || li_fs::same_file(std::path::Path::new(a), std::path::Path::new(b))
 }
 
 /// A file Save / Save As wrote (local-image: the host takes these for the Library).
