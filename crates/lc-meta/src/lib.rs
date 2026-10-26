@@ -404,8 +404,6 @@ pub(crate) fn parse_number(s: &str) -> Option<f64> {
 mod tests {
     use super::*;
 
-    /// A TIFF-based file is read in place (not copied into an Exif block): EXIF facts, then XMP
-    /// over the user fields, exactly as reading the copied block did; the packet comes back too.
     #[test]
     fn try_extract_keeps_non_psd_exif_best_effort() {
         let payload = b"Exif\0\0not a TIFF stream";
@@ -416,6 +414,8 @@ mod tests {
         assert_eq!(try_extract(&jpeg).unwrap(), Metadata::default());
     }
 
+    /// A TIFF-based file is read in place (not copied into an Exif block): EXIF facts, then XMP
+    /// over the user fields, exactly as reading the copied block did; the packet comes back too.
     #[test]
     fn tiff_metadata_and_xmp_come_from_one_pass() {
         use lightcraft_tiff::{ByteOrder, IfdBuilder, TiffWriter, Value, tags as t};
