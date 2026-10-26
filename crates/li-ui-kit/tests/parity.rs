@@ -20,6 +20,7 @@ fn editor_snapshot(t: li_ui_kit::theme::Tokens) -> serde_json::Value {
         "text": format!("{:?}", t.text),
         "text_dim": format!("{:?}", t.text_dim),
         "text_faint": format!("{:?}", t.text_faint),
+        "text_secondary_on_fill": format!("{:?}", t.text_secondary_on_fill),
         "icon": format!("{:?}", t.icon),
         "accent": format!("{:?}", t.accent),
         "accent_soft": format!("{:?}", t.accent_soft),

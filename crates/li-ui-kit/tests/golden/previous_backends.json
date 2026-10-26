@@ -37,6 +37,7 @@
       "text": "#00_00_00_FF",
       "text_dim": "#40_40_40_FF",
       "text_faint": "#80_80_80_FF",
+      "text_secondary_on_fill": "#80_80_80_FF",
       "warning": "#80_60_00_FF"
     }
   },
@@ -77,7 +78,8 @@
       "tab_strip": "#26_26_26_FF",
       "text": "#DE_DE_DE_FF",
       "text_dim": "#B2_B2_B2_FF",
-      "text_faint": "#80_80_80_FF",
+      "text_faint": "#99_99_99_FF",
+      "text_secondary_on_fill": "#C5_C5_C5_FF",
       "warning": "#E8_B0_46_FF"
     }
   },
@@ -119,6 +121,7 @@
       "text": "#EE_EE_EE_FF",
       "text_dim": "#D4_D4_D4_FF",
       "text_faint": "#A0_A0_A0_FF",
+      "text_secondary_on_fill": "#A0_A0_A0_FF",
       "warning": "#E8_B0_46_FF"
     }
   },
@@ -160,13 +163,14 @@
       "text": "#EC_EC_F0_FF",
       "text_dim": "#96_96_9E_FF",
       "text_faint": "#60_60_68_FF",
+      "text_secondary_on_fill": "#60_60_68_FF",
       "warning": "#F0_BE_5A_FF"
     }
   },
   "editor/StudioLight": {
     "style": 15335245253071219406,
     "tokens": {
-      "accent": "#6C_5C_E7_FF",
+      "accent": "#5D_4F_C7_FF",
       "accent_border": "#33_2B_6D_78",
       "accent_soft": "#0F_0D_21_24",
       "accent_text": "#50_40_C8_FF",
@@ -178,7 +182,7 @@
       "card": "#FC_FC_FD_FF",
       "card_border": "#DE_DE_E4_FF",
       "chrome": "#F6_F6_F8_FF",
-      "danger": "#D2_3C_3C_FF",
+      "danger": "#B2_33_33_FF",
       "dock": "#F0_F0_F3_FF",
       "field": "#F2_F2_F5_FF",
       "field_border": "#D6_D6_DC_FF",
@@ -200,8 +204,9 @@
       "tab_strip": "#00_00_00_00",
       "text": "#18_18_1C_FF",
       "text_dim": "#60_60_6A_FF",
-      "text_faint": "#96_96_A0_FF",
-      "warning": "#BE_82_14_FF"
+      "text_faint": "#6E_6E_78_FF",
+      "text_secondary_on_fill": "#60_60_6A_FF",
+      "warning": "#82_59_0E_FF"
     }
   },
   "fonts/editor": {
@@ -442,7 +447,7 @@
       "strip_w": "48.0",
       "text": "#DE_DE_DE_FF",
       "text_dim": "#B2_B2_B2_FF",
-      "text_disabled": "#80_80_80_FF",
+      "text_disabled": "#99_99_99_FF",
       "text_label": "#DE_DE_DE_FF",
       "thumb": "#C8_C8_C8_FF",
       "thumb_hover": "#DE_DE_DE_FF",
@@ -550,12 +555,12 @@
   "library/StudioLight": {
     "style": 10071653338783619299,
     "tokens": {
-      "accent": "#6C_5C_E7_FF",
+      "accent": "#5D_4F_C7_FF",
       "bottom_bar_h": "48.0",
       "button": "#FC_FC_FD_FF",
       "button_border": "#DE_DE_E4_FF",
       "canvas": "#E2_E2_E6_FF",
-      "caution": "#8E_61_0F_FF",
+      "caution": "#82_59_0E_FF",
       "cell": "#FC_FC_FD_FF",
       "cell_selected": "#E8_E8_ED_FF",
       "chrome": "#F6_F6_F8_FF",
@@ -577,7 +582,7 @@
       "panel_w": "270.0",
       "pick": "#18_18_1C_FF",
       "pressed": "#DC_DC_E2_FF",
-      "reject": "#C4_38_38_FF",
+      "reject": "#B2_33_33_FF",
       "section_h": "57.0",
       "selection": "#DC_DC_E2_FF",
       "selection_text": "#00_00_00_FF",
@@ -586,7 +591,7 @@
       "strip_w": "48.0",
       "text": "#18_18_1C_FF",
       "text_dim": "#60_60_6A_FF",
-      "text_disabled": "#96_96_A0_FF",
+      "text_disabled": "#6E_6E_78_FF",
       "text_label": "#18_18_1C_FF",
       "thumb": "#3C_3C_44_FF",
       "thumb_hover": "#18_18_1C_FF",
