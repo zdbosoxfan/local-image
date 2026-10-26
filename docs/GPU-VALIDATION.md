@@ -21,7 +21,7 @@ the independent sorted-quantile oracle: the two short cases, three large sizes Ã
 distributions, and seven compacted brightness counts, with poisoned unused storage. Exact
 value/bit assertions and device error checks are unchanged. Only the adapter admission differs.
 
-**All five physical gates below are required final acceptance on the exact release candidate.**
+**All seven physical gates below are required final acceptance on the exact release candidate.**
 Their `ignore` attributes schedule them explicitly; they do not waive coverage. Hosted CI
 success is insufficient for release acceptance. Run them serially on the approved RTX 5090
 machine, using the existing isolated validation profile and persistent target/toolchain,
@@ -40,6 +40,12 @@ cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --lib \
   -- --ignored --exact --nocapture --test-threads=1
 cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
   denoiser_retains_its_device_across_context_release \
+  -- --ignored --exact --nocapture --test-threads=1
+cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
+  ai_denoise_gpu_convolves_tiles_past_one_dispatch_dimension \
+  -- --ignored --exact --nocapture --test-threads=1
+cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
+  ai_denoise_gpu_cancel_reads_as_a_cancelled_job \
   -- --ignored --exact --nocapture --test-threads=1
 cargo +1.98.1 test --offline --frozen -p lightcraft-gpu --test denoise \
   ai_denoise_gpu_transpose_and_shuffle \
