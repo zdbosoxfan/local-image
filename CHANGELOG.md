@@ -42,6 +42,11 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Library: Vectorize opens its dialog when the photo is already open or still loading in the Editor.
+- PSD and PSB export keep sparse retouch layers whose pixel bounds fit the canvas, even when the
+  dense layer buffer exceeds half the memory budget.
+- Editor: overwrite notices explain that each affected tab is unsaved and needs a new file name.
+
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
   transparency keep it.
