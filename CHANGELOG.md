@@ -42,6 +42,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Editor: the CPU canvas keeps smooth filtering when zoomed in. Moving a selection outline
+  snaps to objects inside it, and presets dropped onto the canvas follow its aligned view.
+
 - Export: opaque 8-bit TIFF, PNG and WebP files are written without an alpha channel, which
   Photoshop showed as transparency and print preflight checks could flag. Images with real
   transparency keep it.
