@@ -36,6 +36,58 @@ thread_local! {
     static FAIL_PUBLISHED_CLEANUP: Cell<bool> = const { Cell::new(false) };
     static FORCE_COPY_PUBLICATION: Cell<bool> = const { Cell::new(false) };
 }
+#[cfg(unix)]
+thread_local! {
+    static FAIL_ACCESS_GROUP: Cell<bool> = const { Cell::new(false) };
+}
+
+#[cfg(target_os = "linux")]
+const ACCESS_ACL: &str = "system.posix_acl_access";
+
+#[cfg(target_os = "linux")]
+fn read_acl_with(read: impl FnOnce(&mut [u8]) -> rustix::io::Result<usize>) -> io::Result<Option<Vec<u8>>> {
+    let mut bytes = vec![0; 64 << 10];
+    match read(&mut bytes) {
+        Ok(len) => {
+            bytes.truncate(len);
+            Ok(Some(bytes))
+        }
+        Err(error) if error == rustix::io::Errno::NODATA || error == rustix::io::Errno::NOTSUP => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// Read a Linux access ACL through an already authorized handle.
+#[cfg(target_os = "linux")]
+pub fn read_access_acl(file: &File) -> io::Result<Option<Vec<u8>>> {
+    read_acl_with(|bytes| rustix::fs::fgetxattr(file, ACCESS_ACL, bytes))
+}
+
+/// Preserve a replacement's group and Linux access ACL on its held writable handle.
+/// The ACL reader runs after changing the group, and the mode is applied last because its
+/// group bits are the ACL mask. If access metadata cannot be kept, retain owner bits only.
+#[cfg(unix)]
+pub fn preserve_access(file: &File, mut mode: u32, group: u32, read_acl: impl FnOnce() -> io::Result<Option<Vec<u8>>>) -> io::Result<()> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let kept_group = !FAIL_ACCESS_GROUP.with(Cell::get) && (file.metadata()?.gid() == group || std::os::unix::fs::fchown(file, None, Some(group)).is_ok());
+    #[cfg(target_os = "linux")]
+    let kept_acl = match read_acl() {
+        Ok(Some(bytes)) => rustix::fs::fsetxattr(file, ACCESS_ACL, &bytes, rustix::fs::XattrFlags::empty()).is_ok(),
+        // A staging file can inherit a directory ACL even when the replaced file had none.
+        Ok(None) => match rustix::fs::fremovexattr(file, ACCESS_ACL) {
+            Ok(()) => true,
+            Err(error) => error == rustix::io::Errno::NODATA || error == rustix::io::Errno::NOTSUP,
+        },
+        Err(_) => false,
+    };
+    #[cfg(not(target_os = "linux"))]
+    let kept_acl = matches!(read_acl(), Ok(None));
+    if !kept_group || !kept_acl {
+        mode &= !0o077;
+    }
+    file.set_permissions(fs::Permissions::from_mode(mode))
+}
+
 #[doc(hidden)]
 pub fn syncs_on_this_thread() -> u64 {
     SYNCS.with(Cell::get)
@@ -239,7 +291,29 @@ impl AtomicFs for RealFs {
         sync_file(&OpenOptions::new().write(true).open(tmp)?)
     }
     fn preserve_permissions(&self, from: &Path, to: &Path, policy: Policy) -> io::Result<()> {
-        self.set_permissions(to, fs::metadata(from)?.permissions(), policy)
+        let metadata = fs::metadata(from)?;
+        let file = OpenOptions::new().write(true).open(to)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            preserve_access(&file, metadata.permissions().mode(), metadata.gid(), || {
+                #[cfg(target_os = "linux")]
+                {
+                    // Path-based xattr reads also work when the target is write-only.
+                    read_acl_with(|bytes| rustix::fs::getxattr(from, ACCESS_ACL, bytes))
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    Ok(None)
+                }
+            })?;
+        }
+        #[cfg(not(unix))]
+        file.set_permissions(metadata.permissions())?;
+        if policy == Policy::Durable {
+            sync_file(&file)?;
+        }
+        Ok(())
     }
     fn set_permissions(&self, tmp: &Path, permissions: fs::Permissions, policy: Policy) -> io::Result<()> {
         // Acquire a writable handle before applying potentially unreadable/read-only permissions.
