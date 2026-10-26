@@ -184,10 +184,16 @@ impl<'a, 'b> State<'a, 'b> {
                     }
                     let profile = if let Some(bytes) = &image.profile {
                         let profile = photocraft_cms::Profile::parse(bytes).map_err(|_| Error::Malformed("invalid CMYK profile"))?;
-                        if profile.color_space != photocraft_cms::ColorSpace::Cmyk {
-                            return Err(Error::Malformed("non-CMYK source profile"));
+                        if profile.color_space == photocraft_cms::ColorSpace::Cmyk {
+                            profile
+                        } else {
+                            self.warn(
+                                "colour-profile",
+                                "Affinity document",
+                                "The embedded profile is not CMYK; CMYK pixels use the built-in coated CMYK profile.",
+                            );
+                            photocraft_cms::Builtin::CoatedCmyk.profile().clone()
                         }
-                        profile
                     } else {
                         self.warn(
                             "colour-profile",

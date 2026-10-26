@@ -625,7 +625,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                 if size > MAX_PROFILE_BYTES as u64 {
                     return Err(Error::Limit("CMYK profile bytes"));
                 }
-                self.archive.read(name)?
+                Some(self.archive.read(name)?)
             } else if let Some(data) = s.bytes(profile, b"Data") {
                 if data.len() > MAX_PROFILE_BYTES {
                     return Err(Error::Limit("CMYK profile bytes"));
@@ -633,11 +633,12 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                 if !self.charge_owned(data.len()) {
                     return Err(self.failure.unwrap_or(Error::Limit("CMYK profile bytes")));
                 }
-                data.to_vec()
+                Some(data.to_vec())
             } else {
-                return Err(Error::Malformed("CMYK profile data"));
+                self.warn("CMYK profile has no data; the built-in coated CMYK profile is used");
+                None
             };
-            Some(std::sync::Arc::new(data))
+            data.map(std::sync::Arc::new)
         } else {
             None
         };
@@ -863,7 +864,17 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
                 None => Kind::Unsupported,
             },
             b"EmbN" => {
-                if let Some(nodes) = self.embedded_document(id, world)? {
+                let embedded = match self.embedded_document(id, world) {
+                    Ok(nodes) => nodes,
+                    // Cancellation, exhausted shared budgets and failed integrity checks cannot
+                    // be recovered by consuming more input for a cached picture.
+                    Err(error @ (Error::Cancelled | Error::Limit(_) | Error::Malformed("archive entry checksum mismatch"))) => return Err(error),
+                    Err(error) => {
+                        self.warn(format!("embedded documents that could not be read ({error}); cached picture used when available"));
+                        None
+                    }
+                };
+                if let Some(nodes) = embedded {
                     self.pending = Some(nodes);
                     Kind::Group
                 } else {
@@ -1063,7 +1074,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             return Err(Error::Limit("embedded document depth"));
         }
         let data = self.archive.read(entry)?;
-        let Some(inner) = data.strip_prefix(b"EmDc").and_then(|d| d.get(4..)).filter(|d| crate::is_affinity(d)) else { return Ok(None) };
+        let inner = data.strip_prefix(b"EmDc").and_then(|d| d.get(4..)).filter(|d| crate::is_affinity(d)).ok_or(Error::Malformed("embedded document data"))?;
         let probe = self.read_embedded(inner, Affine::IDENTITY)?;
         let Some(probe) = probe else { return Ok(None) };
         let spread = probe.spreads.first().ok_or(Error::Malformed("embedded pages"))?;
