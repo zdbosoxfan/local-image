@@ -101,6 +101,7 @@ fn delete_with_no_selection_removes_nothing() {
     assert_eq!(guides_len(&h), 2, "no guide is removed");
     assert_eq!(h.app.session.undo.len(), undo, "no edit either");
     assert!(h.app.session.active().is_some(), "the photo is still active");
+    assert!(h.app.ui.dialog.is_none(), "Delete never opens the photo deletion dialog");
 }
 
 #[test]
@@ -336,8 +337,14 @@ fn delete_ignores_a_stale_guide_index() {
     let id = h.app.session.active().unwrap();
     let undo = h.app.session.undo.len();
     h.app.ui.selected_guide = Some((id.0, 10));
-    let r = h.request("ui.key", json!({"key":"Delete"}), T);
-    assert_eq!(r["ok"], true, "{r}");
+    h.events.push(egui::Event::Key {
+        key: egui::Key::Backspace,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    h.step();
     assert_eq!(h.app.ui.selected_guide, None);
     assert_eq!(guides_len(&h), 2);
     assert_eq!(h.app.session.undo.len(), undo, "stale selection writes no edit");
