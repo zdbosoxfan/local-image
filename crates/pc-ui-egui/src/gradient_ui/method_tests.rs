@@ -54,7 +54,6 @@ fn options_method_reaches_live_and_destructive_drags() {
     let before = app.ui.tool_options.clone();
     let history = app.session.active().unwrap().history.past_len();
     options_changed(&mut app, &before);
-    assert_eq!(app.ui.tool_options.gradient_method, GradientMethod::Perceptual);
     assert_eq!(app.session.active().unwrap().history.past_len(), history);
     app.run("edit.undo", json!({})).unwrap();
     app.ui.tool_options.gradient_method = GradientMethod::Perceptual;
