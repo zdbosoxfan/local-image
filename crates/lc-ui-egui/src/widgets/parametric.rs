@@ -2,7 +2,7 @@ use egui::{Align2, CursorIcon, Pos2, Response, Ui, vec2};
 use lightcraft_develop::{ToneCurve, controls};
 use lightcraft_pipeline::curve::{PARAM_AMOUNTS, ParametricCurve};
 
-use super::{SliderOut, primary_press};
+use super::{SliderOut, primary_press, primary_pressed};
 use crate::theme::Tokens;
 
 #[derive(Clone)]
@@ -48,7 +48,7 @@ pub(crate) fn parametric_drag(
         if let Some(previous) = drag.take() {
             output = Some((PARAM_AMOUNTS[previous.region], SliderOut { drag_stopped: true, ..Default::default() }));
         }
-    } else if (response.drag_started() && (ui.input(|input| input.pointer.primary_down()) || response.drag_stopped_by(egui::PointerButton::Primary)))
+    } else if primary_pressed(ui, response)
         && let Some(press) = primary_press(ui, response)
         && rect.contains(press)
         && near(press)
@@ -78,8 +78,8 @@ pub(crate) fn parametric_drag(
         drag.frame = ui.ctx().cumulative_frame_nr();
         let control = PARAM_AMOUNTS[drag.region];
         let mut out = output.map_or_else(SliderOut::default, |(_, out)| out);
-        if (response.dragged_by(egui::PointerButton::Primary) || response.drag_stopped_by(egui::PointerButton::Primary))
-            && let Some(point) = response.interact_pointer_pos()
+        if ui.input(|input| input.pointer.primary_down() || input.pointer.primary_released())
+            && let Some(point) = ui.input(|input| input.pointer.interact_pos())
         {
             let motion = drag.previous.y - point.y;
             drag.travel += motion * if ui.input(|input| input.modifiers.alt) { 0.1 } else { 1.0 };
