@@ -246,35 +246,27 @@ fn gamut_in_cube(rgb: vec3<f32>, eps: f32) -> bool {
     return all(rgb >= vec3<f32>(-eps)) && all(rgb <= vec3<f32>(1.0 + eps));
 }
 
-fn gamut_output_epsilon(l: f32) -> f32 {
-    return GAMUT_OUTPUT_EPS * min(16.0 * l * l * l, 1.0);
-}
-
 // `Line::output_bracket`; negative lower bound when there is no valid component.
 fn gamut_output_bracket(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, hi: f32) -> vec2<f32> {
-    let eps = gamut_output_epsilon(l);
-    var cuts: array<f32, 50>;
+    var cuts: array<f32, 32>;
     cuts[0] = 0.0;
     cuts[1] = hi;
     var count = 2u;
     for (var i = 0u; i < 3u; i++) {
         for (var f = 0u; f < 2u; f++) {
-            let face = gamut_face(m, l, d, i, f, 0.0);
+            var face = gamut_face(m, l, d, i, f, 0.0);
+            face.x += GAMUT_OUTPUT_EPS;
             let p = gamut_pieces(face, hi);
             let np = gamut_piece_count(p, hi);
             for (var k = 1u; k < np; k++) { cuts[count] = p[k]; count += 1u; }
-            for (var z = 0u; z < 2u; z++) {
-                var c = face;
-                if (z == 1u) { c.x += eps; }
-                for (var k = 0u; k < np; k++) {
-                    let lo = p[k];
-                    let up = p[k + 1u];
-                    let below = gamut_horner(c, lo) < 0.0;
-                    if (below == (gamut_horner(c, up) < 0.0)) { continue; }
-                    let root = gamut_root(c, lo, up, GAMUT_OUTPUT_STEPS);
-                    cuts[count] = root;
-                    count += 1u;
-                }
+            for (var k = 0u; k < np; k++) {
+                let lo = p[k];
+                let up = p[k + 1u];
+                let below = gamut_horner(face, lo) < 0.0;
+                if (below == (gamut_horner(face, up) < 0.0)) { continue; }
+                let root = gamut_root(face, lo, up, GAMUT_OUTPUT_STEPS);
+                cuts[count] = root;
+                count += 1u;
             }
         }
     }
@@ -285,27 +277,22 @@ fn gamut_output_bracket(m: array<vec3<f32>, 3>, l: f32, d: vec3<f32>, hi: f32) -
         cuts[j] = x;
     }
     var up = hi;
-    var tangent = -1.0;
     for (var i = count - 1u; i > 0u; i--) {
         let t = cuts[i];
         var point = gamut_at(m, l, d, t);
-        if (gamut_in_cube(point, 0.0)) { return vec2<f32>(t, up); }
-        if (gamut_in_cube(point, eps) && tangent < 0.0) { tangent = t; }
+        if (gamut_in_cube(point, GAMUT_OUTPUT_EPS)) { return vec2<f32>(t, up); }
         let mid = 0.5 * (cuts[i - 1u] + t);
         point = gamut_at(m, l, d, mid);
-        if (gamut_in_cube(point, 0.0)) { return vec2<f32>(mid, t); }
-        if (gamut_in_cube(point, eps)) {
-            if (tangent < 0.0) { tangent = mid; }
-        } else if (tangent >= 0.0) { return vec2<f32>(tangent); }
+        if (gamut_in_cube(point, GAMUT_OUTPUT_EPS)) { return vec2<f32>(mid, t); }
         up = mid;
     }
-    if (gamut_in_cube(gamut_at(m, l, d, 0.0), 0.0)) { return vec2<f32>(0.0, up); }
-    return vec2<f32>(tangent);
+    if (gamut_in_cube(gamut_at(m, l, d, 0.0), GAMUT_OUTPUT_EPS)) { return vec2<f32>(0.0, up); }
+    return vec2<f32>(-1.0);
 }
 
 // `Line::output_endpoint`; xyz destination RGB, w endpoint chroma.
 fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
-    var qs: array<f32, 28>;
+    var qs: array<f32, 46>;
     qs[0] = 0.0;
     var count = 1u;
     let hi = 2.0 * GAMUT_MAX_CHROMA;
@@ -314,9 +301,14 @@ fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
         let turns = gamut_pieces(face, hi);
         let nt = gamut_piece_count(turns, hi);
         for (var k = 1u; k <= nt; k++) { qs[count] = turns[k]; count += 1u; }
-        for (var j = 0u; j <= i; j++) {
-            var c = face;
-            if (j < i) { c -= gamut_face(m, 1.0, d, j, 0u, 0.0); }
+        // Expanded lower faces, then pairwise upper-envelope channel crossings.
+        for (var j = 0u; j < 3u + i; j++) {
+            var c: vec4<f32>;
+            if (j < 3u) {
+                c = (1.0 + GAMUT_OUTPUT_EPS) * face + GAMUT_OUTPUT_EPS * gamut_face(m, 1.0, d, j, 0u, 0.0);
+            } else {
+                c = face - gamut_face(m, 1.0, d, j - 3u, 0u, 0.0);
+            }
             let p = gamut_pieces(c, hi);
             let np = gamut_piece_count(p, hi);
             for (var k = 0u; k < np; k++) {
@@ -333,18 +325,21 @@ fn gamut_output_endpoint(m: array<vec3<f32>, 3>, d: vec3<f32>) -> vec4<f32> {
     for (var i = 0u; i < count; i++) {
         let rgb = gamut_at(m, 1.0, d, qs[i]);
         let mx = max(rgb.x, max(rgb.y, rgb.z));
-        if (all(rgb >= vec3<f32>(0.0)) && mx > 0.0) { minimum = min(minimum, mx); }
+        let lower = -GAMUT_OUTPUT_EPS * mx / (1.0 + GAMUT_OUTPUT_EPS);
+        if (all(rgb >= vec3<f32>(lower)) && mx > 0.0) { minimum = min(minimum, mx); }
     }
     var q = 0.0;
     for (var i = 0u; i < count; i++) {
         let rgb = gamut_at(m, 1.0, d, qs[i]);
         let mx = max(rgb.x, max(rgb.y, rgb.z));
-        if (all(rgb >= vec3<f32>(0.0)) && mx > 0.0 && mx <= minimum + GAMUT_ENDPOINT_EPS) { q = max(q, qs[i]); }
+        let lower = -GAMUT_OUTPUT_EPS * mx / (1.0 + GAMUT_OUTPUT_EPS);
+        if (all(rgb >= vec3<f32>(lower)) && mx > 0.0 && mx <= minimum + GAMUT_ENDPOINT_EPS) { q = max(q, qs[i]); }
     }
     let rgb = gamut_at(m, 1.0, d, q);
     let mx = max(rgb.x, max(rgb.y, rgb.z));
-    let l = pow(1.0 / mx, 1.0 / 3.0);
-    return vec4<f32>(clamp(rgb / mx, vec3<f32>(0.0), vec3<f32>(1.0)), q * l);
+    let scale = (1.0 + GAMUT_OUTPUT_EPS) / mx;
+    let l = pow(scale, 1.0 / 3.0);
+    return vec4<f32>(rgb * scale, q * l);
 }
 
 // `gamut::output`: direct destination membership, then the nearest inward chroma interval.
@@ -354,8 +349,8 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32
     if (lab.x <= 0.0) { return vec3<f32>(0.0); }
     let c = length(lab.yz);
     if (c <= 1e-7) {
-        let l = min(lab.x, 1.0);
-        return clamp(mul3(m, vec3<f32>(l * l * l)), vec3<f32>(0.0), vec3<f32>(1.0));
+        let l = min(lab.x, pow(1.0 + GAMUT_OUTPUT_EPS, 1.0 / 3.0));
+        return clamp(mul3(m, vec3<f32>(l * l * l)), vec3<f32>(-GAMUT_OUTPUT_EPS), vec3<f32>(1.0 + GAMUT_OUTPUT_EPS));
     }
     let d = gamut_dir(vec3<f32>(0.0, lab.yz / c));
     var l = min(lab.x, 2.0);
@@ -378,7 +373,7 @@ fn gamut_output(dd: vec3<f32>, r: vec3<f32>, m: array<vec3<f32>, 3>) -> vec3<f32
     var up = bracket.y;
     for (var step = 0u; step < GAMUT_OUTPUT_STEPS; step++) {
         let mid = 0.5 * (lo + up);
-        if (gamut_in_cube(gamut_at(m, l, d, mid), 0.0)) { lo = mid; } else { up = mid; }
+        if (gamut_in_cube(gamut_at(m, l, d, mid), GAMUT_OUTPUT_EPS)) { lo = mid; } else { up = mid; }
     }
-    return clamp(gamut_at(m, l, d, lo), vec3<f32>(0.0), vec3<f32>(1.0));
+    return gamut_at(m, l, d, lo);
 }

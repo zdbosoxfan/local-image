@@ -288,71 +288,52 @@ fn in_cube(rgb: [f32; 3], eps: f32) -> bool {
 }
 
 impl Line {
-    fn output_epsilon(&self) -> f32 {
-        // Tangent round-off must scale with intensity; absolute slack would expand dark gamuts.
-        OUTPUT_EPS * (16.0 * self.l * self.l * self.l).min(1.0)
-    }
-
-    /// The outermost component of the slightly expanded cube, refined inside the strict cube
-    /// wherever possible. Tolerance-only tangent points are retained without bridging a gap.
+    /// The nearest inward component of the same expanded cube used for output membership.
     fn output_bracket(&self, m: &M3, hi: f32) -> Option<(f32, f32)> {
-        // Six cubics: three roots at each slack level and two turning points, plus endpoints.
-        let mut cuts = [0.0; 50];
+        // Six cubics: three roots and two turning points each, plus endpoints.
+        let mut cuts = [0.0; 32];
         cuts[1] = hi;
         let mut n = 2;
-        let eps = self.output_epsilon();
         let (faces, count) = self.faces(m, true, 0.0);
         for face in &faces[..count] {
-            let (turns, count) = pieces(*face, hi);
+            let mut face = *face;
+            face[0] += OUTPUT_EPS;
+            let (turns, count) = pieces(face, hi);
             for t in &turns[1..count] {
                 cuts[n] = *t;
                 n += 1;
             }
-            for slack in [0.0, eps] {
-                let mut face = *face;
-                face[0] += slack;
-                sign_changes(face, hi, OUTPUT_STEPS, &mut |t| {
-                    cuts[n] = t;
-                    n += 1;
-                });
-            }
+            sign_changes(face, hi, OUTPUT_STEPS, &mut |t| {
+                cuts[n] = t;
+                n += 1;
+            });
         }
         cuts[..n].sort_by(f32::total_cmp);
         let mut up = hi;
-        let mut tangent = None;
         for i in (1..n).rev() {
             let t = cuts[i];
             let point = self.at(m, t);
-            if in_cube(point, 0.0) {
+            if in_cube(point, OUTPUT_EPS) {
                 return Some((t, up));
-            }
-            if in_cube(point, eps) && tangent.is_none() {
-                tangent = Some(t);
             }
             let mid = 0.5 * (cuts[i - 1] + t);
             let point = self.at(m, mid);
-            if in_cube(point, 0.0) {
+            if in_cube(point, OUTPUT_EPS) {
                 return Some((mid, t));
-            }
-            if in_cube(point, eps) {
-                tangent = tangent.or(Some(mid));
-            } else if let Some(t) = tangent {
-                return Some((t, t));
             }
             up = mid;
         }
-        if in_cube(self.at(m, 0.0), 0.0) { Some((0.0, up)) } else { tangent.map(|t| (t, t)) }
+        in_cube(self.at(m, 0.0), OUTPUT_EPS).then_some((0.0, up))
     }
 
     /// At C=qL, RGB=L³*v(q). The largest feasible L minimizes the upper envelope of v's
-    /// three cubics on their nonnegative intervals: stationary points, channel crossings,
+    /// three cubics on their expanded-cube intervals: stationary points, channel crossings,
     /// or interval endpoints. This avoids bisection on a vanishing-width chroma interval.
     fn output_endpoint(&self, m: &M3) -> (f32, [f32; 3]) {
         let unit = Self { l: 1.0, ..*self };
         let (faces, _) = unit.faces(m, false, 0.0);
-        // Three cubics: two turns and an endpoint each, three lower-face roots each,
-        // three pairwise crossings each, and neutral.
-        let mut qs = [0.0; 28];
+        // Nine turns/endpoints, 27 expanded lower-face roots, nine channel crossings, neutral.
+        let mut qs = [0.0; 46];
         let mut count = 1;
         let mut add = |q| {
             qs[count] = q;
@@ -365,7 +346,12 @@ impl Line {
             for q in &turns[1..=n] {
                 add(*q);
             }
-            sign_changes(faces[i], hi, OUTPUT_STEPS, &mut add);
+            // At the upper boundary, RGB=(1+eps)*v/max(v). Each possible maximum
+            // channel gives a cubic lower-face constraint (1+eps)*v_i+eps*v_j >= 0.
+            for j in 0..3 {
+                let lower = std::array::from_fn(|k| (1.0 + OUTPUT_EPS) * faces[i][k] + OUTPUT_EPS * faces[j][k]);
+                sign_changes(lower, hi, OUTPUT_STEPS, &mut add);
+            }
             for j in 0..i {
                 sign_changes(std::array::from_fn(|k| faces[i][k] - faces[j][k]), hi, OUTPUT_STEPS, &mut add);
             }
@@ -374,7 +360,8 @@ impl Line {
             qs[..count].iter().filter_map(|q| {
                 let rgb = unit.at(m, *q);
                 let max = rgb.into_iter().fold(0.0, f32::max);
-                (rgb.iter().all(|v| *v >= 0.0) && max > 0.0).then_some((*q, rgb, max))
+                let lower = -OUTPUT_EPS * max / (1.0 + OUTPUT_EPS);
+                (rgb.iter().all(|v| *v >= lower) && max > 0.0).then_some((*q, rgb, max))
             })
         };
         let minimum = candidates().map(|(_, _, max)| max).fold(f32::INFINITY, f32::min);
@@ -385,8 +372,9 @@ impl Line {
             unit.at(m, 0.0),
             minimum,
         ));
-        let l = (1.0 / max).cbrt();
-        (q * l, rgb.map(|v| (v / max).clamp(0.0, 1.0)))
+        let scale = (1.0 + OUTPUT_EPS) / max;
+        let l = scale.cbrt();
+        (q * l, rgb.map(|v| v * scale))
     }
 }
 
@@ -394,8 +382,8 @@ impl Line {
 /// Membership is tested directly in `r`, including imaginary ProPhoto colours. Only outside
 /// colours move: inward at fixed OkLab lightness and hue to the nearest valid chroma interval.
 /// If the lightness has no valid chroma, first find the highest feasible lightness at that hue.
-/// The returned mapped colour is clamped only for floating-point residue; callers also clamp
-/// the numerical slack of an unchanged boundary colour before encoding.
+/// Identity and search share the `OUTPUT_EPS`-expanded cube. Callers clamp its numerical slack
+/// to [0,1] only after mapping, before encoding.
 pub fn output(d: [f32; 3], r: [f32; 3], to_out: &M3) -> [f32; 3] {
     if in_cube(r, OUTPUT_EPS) {
         return r;
@@ -409,7 +397,7 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
     }
     let c = a.hypot(b);
     if c <= 1e-7 {
-        return mul3(to_out, [l.min(1.0).powi(3); 3]).map(|v| v.clamp(0.0, 1.0));
+        return mul3(to_out, [l.min((1.0 + OUTPUT_EPS).cbrt()).powi(3); 3]).map(|v| v.clamp(-OUTPUT_EPS, 1.0 + OUTPUT_EPS));
     }
     // Unit-chroma coefficients keep cubics and their discriminants finite even at 1e30 exposure.
     // Both chroma and lightness of every supported destination cube are below 2.
@@ -441,13 +429,13 @@ fn output_lab([l, a, b]: [f32; 3], to_out: &M3) -> [f32; 3] {
     let (mut lo, mut up) = bracket;
     for _ in 0..OUTPUT_STEPS {
         let mid = 0.5 * (lo + up);
-        if in_cube(line.at(to_out, mid), 0.0) {
+        if in_cube(line.at(to_out, mid), OUTPUT_EPS) {
             lo = mid;
         } else {
             up = mid;
         }
     }
-    line.at(to_out, lo).map(|v| v.clamp(0.0, 1.0))
+    line.at(to_out, lo)
 }
 
 /// The scene knee on scene-linear Rec. 2020 `c` (no upper bound): chroma past `knee` of the

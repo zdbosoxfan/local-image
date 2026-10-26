@@ -8,6 +8,9 @@ valid inward interval. A hue line can leave and re-enter a gamut, so membership 
 in destination RGB, independently of the path from neutral. In particular, sRGB blue and
 imaginary ProPhoto primaries remain valid output colours.
 
+Membership and inward search use the same destination cube expanded by an absolute RGB
+tolerance of `1e-6`. The final clamp to `[0,1]` runs after mapping, in the output caller.
+
 When no chroma is valid at the input lightness, the mapper first finds the highest feasible
 lightness for that hue. Face-crossing partitions and fixed-count bisection are shared by the
 CPU and WGSL implementations. A final channel clamp removes numerical residue without a
