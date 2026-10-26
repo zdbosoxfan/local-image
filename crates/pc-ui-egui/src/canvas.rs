@@ -162,6 +162,13 @@ pub fn marquee_px(a: [f64; 2], b: [f64; 2]) -> [f64; 4] {
     [a[0].min(b[0]).floor(), a[1].min(b[1]).floor(), a[0].max(b[0]).ceil(), a[1].max(b[1]).ceil()]
 }
 
+/// Round the near edge once so a Fixed Size marquee keeps exactly the requested pixel count.
+pub(super) fn fixed_size_px(a: [f64; 2], b: [f64; 2], width: f32, height: f32) -> [f64; 4] {
+    let (width, height) = (f64::from(width).round().max(1.0), f64::from(height).round().max(1.0));
+    let (x0, y0) = (a[0].min(b[0]).round(), a[1].min(b[1]).round());
+    [x0, y0, x0 + width, y0 + height]
+}
+
 /// The size readout shown beside the cursor while dragging a marquee: the width and height values.
 pub fn marquee_readout(r: [f64; 4]) -> [String; 2] {
     [format!("{} px", r[2] - r[0]), format!("{} px", r[3] - r[1])]

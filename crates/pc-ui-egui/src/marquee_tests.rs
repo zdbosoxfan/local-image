@@ -255,3 +255,30 @@ fn mouse_drag_inside_the_selection_moves_it() {
     release_at(&mut h, 170.0, 130.0, Modifiers::NONE);
     assert_eq!(selection(&h), Rect::new(120, 90, 220, 170), "moved by (20, 10)");
 }
+
+#[test]
+fn fixed_size_selects_exactly_the_entered_size() {
+    for tool in [Tool::RectMarquee, Tool::EllipseMarquee] {
+        for (w, ht) in [(10, 10), (1, 1), (64, 32)] {
+            let mut h = canvas_harness(tool, None);
+            let o = &mut h.state_mut().ui.tool_options;
+            o.marquee_style = "fixedSize".into();
+            (o.marquee_width, o.marquee_height) = (w as f32, ht as f32);
+            press_at(&mut h, 50.4, 60.6, Modifiers::NONE);
+            assert!(readout(&h, w, ht), "{tool:?} {w} x {ht}: the readout shows the entered size");
+            release_at(&mut h, 90.0, 90.0, Modifiers::NONE);
+            let selected = selection(&h);
+            assert_eq!((selected.width(), selected.height()), (w as u32, ht as u32), "{tool:?}: exact size");
+
+            // A click: the button goes down and up at one point.
+            h.state_mut().run("select.deselect", json!({})).unwrap();
+            let p = screen(&h, 120.6, 100.4);
+            h.event(egui::Event::PointerMoved(p));
+            h.run_steps(1);
+            button(&mut h, p, true, Modifiers::NONE);
+            button(&mut h, p, false, Modifiers::NONE);
+            h.run_steps(2);
+            assert_eq!(selection(&h), Rect::new(121, 100, 121 + w, 100 + ht), "{tool:?} {w} x {ht}: clicked");
+        }
+    }
+}

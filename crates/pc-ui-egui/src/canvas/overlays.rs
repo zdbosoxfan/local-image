@@ -229,7 +229,9 @@ pub(super) fn draw_drag_preview(app: &mut PhotocraftApp, painter: &egui::Painter
     let last = d.points.last().map(|p| [p[0], p[1]]).unwrap_or(d.start);
     let marquee = matches!(d.tool, Tool::RectMarquee | Tool::EllipseMarquee).then(|| marquee_corners(&app.ui.tool_options, d, last));
     if let Some((a, b)) = marquee {
-        draw_marquee_readout(painter.ctx(), xf.to_screen(last[0] as f32, last[1] as f32), marquee_readout(marquee_px(a, b)));
+        let options = &app.ui.tool_options;
+        let rect = if options.marquee_style == "fixedSize" { fixed_size_px(a, b, options.marquee_width, options.marquee_height) } else { marquee_px(a, b) };
+        draw_marquee_readout(painter.ctx(), xf.to_screen(last[0] as f32, last[1] as f32), marquee_readout(rect));
     }
     match d.tool {
         // The canvas shows the live stroke itself (`LiveStroke`).

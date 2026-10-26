@@ -761,3 +761,15 @@ fn cpu_canvas_interactive_display_timing() {
     runs.sort_by(f64::total_cmp);
     eprintln!("dsfix CPU canvas ensure_texture 2048x2048 f32 -> P3 median {:.3} ms; all {:?}", runs[runs.len() / 2], runs);
 }
+
+#[test]
+fn fixed_size_px_is_exactly_the_size() {
+    use super::fixed_size_px;
+    // Down-right from (10.4, 20.6): 10 x 10 from the closest pixel edges.
+    assert_eq!(fixed_size_px([10.4, 20.6], [20.4, 30.6], 10.0, 10.0), [10.0, 21.0, 20.0, 31.0]);
+    // Up-left: the far corner is the low one; still exactly the size.
+    assert_eq!(fixed_size_px([10.4, 20.6], [-53.6, -11.4], 64.0, 32.0), [-54.0, -11.0, 10.0, 21.0]);
+    // 1 x 1 is one pixel, and a fractional size rounds to whole pixels.
+    assert_eq!(fixed_size_px([3.5, 3.5], [4.5, 4.5], 1.0, 1.0), [4.0, 4.0, 5.0, 5.0]);
+    assert_eq!(fixed_size_px([0.0, 0.0], [2.6, 2.4], 2.6, 2.4), [0.0, 0.0, 3.0, 2.0]);
+}
