@@ -4,7 +4,7 @@
 //!
 //! Set `PHOTOCRAFT_SMART_PSD_OUT=<dir>` to keep the exported files (for opening in Photoshop).
 
-use photocraft_doc::{Document, LayerContent, SmartObject, SmartSource};
+use photocraft_doc::{Document, LayerContent, SmartFilter, SmartObject, SmartSource};
 use photocraft_engine::Session;
 use photocraft_engine::smart_cmds::{decode_source, refresh_layer, source_bytes};
 use photocraft_geom::Rect;
@@ -43,6 +43,22 @@ fn smart(doc: &Document) -> (u64, SmartObject) {
             _ => None,
         })
         .expect("a smart object")
+}
+
+// Imported adjustments render as smart filters even when their editing commands require
+// raster pixels.
+fn add_stored_filter(session: &mut Session, filter: SmartFilter) {
+    session
+        .edit("smart filter", |document, active| {
+            let id = active.unwrap();
+            let mut layer = document.layer(id).unwrap().clone();
+            let LayerContent::Smart(smart) = &mut layer.content else { panic!("smart object") };
+            smart.smart_filters.push(filter);
+            assert!(refresh_layer(document, &mut layer).unwrap());
+            *document.layer_mut(id).unwrap() = layer;
+            Ok(())
+        })
+        .unwrap();
 }
 
 fn max_diff(a: &[[f32; 4]], b: &[[f32; 4]]) -> f32 {
@@ -412,7 +428,16 @@ fn hue_saturation_smart_filter_survives_psd_and_re_renders() {
         let plain = smart(&s.active().unwrap().doc).1.cache.unwrap();
         let params = json!({"hue": 40, "saturation": -30, "lightness": 10, "colorize": false,
                             "greens": {"hue": -20, "saturation": 15, "lightness": -5, "range": [75, 105, 135, 165]}});
-        s.execute("image.adjustments.hueSaturation", params.clone()).unwrap();
+        add_stored_filter(
+            &mut s,
+            SmartFilter {
+                command: "image.adjustments.hueSaturation".into(),
+                params: params.clone(),
+                blend: photocraft_doc::BlendMode::Normal,
+                opacity: 1.0,
+                visible: true,
+            },
+        );
         let doc = s.active().unwrap().doc.clone();
         let (_, before) = smart(&doc);
         assert_eq!(before.smart_filters.len(), 1);
@@ -466,18 +491,9 @@ fn perspective_warp_psd_filter_renders_warped() {
     for depth in [8, 16, 32] {
         let mut s = session(depth);
         s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
-        let id = photocraft_doc::LayerId(s.active().unwrap().active_layer.unwrap().0);
         let filter = photocraft_io::smart_map::filter_from_item(&item);
         assert_eq!(filter.command, "layer.smartObjects.perspectiveWarp");
-        s.edit("perspective warp", |doc, _| {
-            let mut l = doc.layer(id).unwrap().clone();
-            let LayerContent::Smart(sm) = &mut l.content else { panic!("smart") };
-            sm.smart_filters.push(filter.clone());
-            assert!(refresh_layer(doc, &mut l).unwrap());
-            *doc.layer_mut(id).unwrap() = l;
-            Ok(())
-        })
-        .unwrap();
+        add_stored_filter(&mut s, filter.clone());
         let doc = s.active().unwrap().doc.clone();
         let alpha = |doc: &Document, x: i32, y: i32| smart(doc).1.cache.unwrap().pixel(x, y)[3];
         assert!(alpha(&doc, 20, 30) > 0.99 && alpha(&doc, 70, 30) < 0.01 && alpha(&doc, 45, 10) < 0.01, "depth {depth}: warped");
@@ -513,7 +529,14 @@ fn editable_filter_stack_survives_psd_and_re_renders_at_all_depths() {
             ("image.adjustments.hueSaturation", json!({"hue": 20, "saturation": -12, "lightness": 0, "colorize": false})),
             ("image.adjustments.invert", json!({})),
         ] {
-            session.execute(command, params).unwrap();
+            if command.starts_with("image.adjustments.") {
+                add_stored_filter(
+                    &mut session,
+                    SmartFilter { command: command.into(), params, blend: photocraft_doc::BlendMode::Normal, opacity: 1.0, visible: true },
+                );
+            } else {
+                session.execute(command, params).unwrap();
+            }
         }
         let document = session.active().unwrap().doc.clone();
         let before = smart(&document).1;
