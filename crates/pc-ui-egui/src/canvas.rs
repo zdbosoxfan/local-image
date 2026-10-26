@@ -1258,5 +1258,4 @@ mod brush_batch_tests;
 mod tests;
 
 #[cfg(test)]
-#[path = "canvas/pixel_alignment_tests.rs"]
 mod pixel_alignment_tests;

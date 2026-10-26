@@ -1156,7 +1156,7 @@ mod tests {
     }
 
     /// `ui.dialog.set` and `ui.dialog.open` never add a marker that picks a dialog's OK handler:
-    /// a View › Zoom In dialog can't be made to confirm as the disk-change prompt's save.
+    /// a View > Zoom In dialog can't be made to confirm as the disk-change prompt's save.
     #[test]
     fn automation_cannot_add_a_marker_that_reroutes_a_dialog() {
         let (mut app, ctx, written, doc) = gated_app_recording_writes();
