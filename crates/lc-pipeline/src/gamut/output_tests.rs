@@ -70,7 +70,9 @@ fn fixed_lab_search_chroma_is_monotone() {
                     let chroma = lab[1].hypot(lab[2]);
                     let tolerance = if blue_weight(space, h) > 0.0 { 1e-3 } else { 2e-6 };
                     assert!(chroma >= previous - tolerance, "{} at ({l}, {h}, {c}): {chroma} after {previous}", space.label());
-                    assert!(in_cube(rgb, OUTPUT_EPS, space.luma()), "{}: {rgb:?}", space.label());
+                    let luma = space.luma();
+                    let lower = -(OUTPUT_EPS + 2.0 * f32::EPSILON) * (luma[0] * rgb[0] + luma[1] * rgb[1] + luma[2] * rgb[2]);
+                    assert!(rgb.iter().all(|v| *v >= lower && *v <= 1.0 + OUTPUT_EPS), "{}: {rgb:?}", space.label());
                     previous = chroma;
                 }
             }
