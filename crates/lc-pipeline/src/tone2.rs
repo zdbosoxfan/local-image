@@ -44,6 +44,8 @@ pub struct ToneMethod {
     pub hue: f32,
     /// Camera fits map a luminance norm; sigmoid and Soft Film use per-channel mapping.
     pub luminance: bool,
+    /// Chroma relative to the working gamut edge where compression starts.
+    pub gamut_knee: f32,
 }
 
 /// darktable sigmoid's curve parameters (`dt_iop_sigmoid_data_t`), computed from its user
@@ -319,13 +321,17 @@ impl ToneMap {
             BaseCurve::Camera(c) => *c.chroma(),
             _ => [1.0; CHROMA_N],
         };
-        ToneMap::from_tables(lut, chroma, ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: matches!(base, BaseCurve::Camera(_)) })
+        ToneMap::from_tables(
+            lut,
+            chroma,
+            ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: matches!(base, BaseCurve::Camera(_)), gamut_knee: SCENE_GAMUT_KNEE },
+        )
     }
 
     /// global tone map of a rendered source (or a converted negative): [`display_tone`].
     pub fn rendered(hue: f32, contrast: f64, whites: f64, blacks: f64) -> ToneMap {
         let lut: Vec<f32> = (0..LUT_N).map(|i| display_tone(GREY * ev_at(i).exp2(), contrast, whites, blacks)).collect();
-        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: false })
+        ToneMap::from_tables(lut, [1.0; CHROMA_N], ToneMethod { hue: hue.clamp(0.0, 1.0), luminance: false, gamut_knee: 1.0 })
     }
 }
 
@@ -373,7 +379,7 @@ pub fn tone_px_working(tone: &ToneMap, v: &ToneMethod, c: [f32; 3]) -> [f32; 3] 
     }
     // scene colours past the Rec. 2020 edge roll off towards it, then whatever is still outside is
     // desaturated to zero (darktable sigmoid)
-    let c = desaturate_negative(scene_gamut_knee(c));
+    let c = desaturate_negative(scene_gamut_knee(c, v.gamut_knee));
     if v.luminance {
         let y = li_color::luminance_2020(c);
         if y <= 0.0 {
@@ -412,8 +418,12 @@ pub const SCENE_GAMUT_LIMIT: f32 = 2.5;
 /// Scene colours rolled off towards the Rec. 2020 gamut edge at constant OkLab lightness and hue
 /// ([`crate::gamut::scene`]).
 #[inline]
-pub fn scene_gamut_knee(c: [f32; 3]) -> [f32; 3] {
-    crate::gamut::scene(c, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT)
+pub fn scene_gamut_knee(c: [f32; 3], knee: f32) -> [f32; 3] {
+    // Rendered colours can occupy blue intervals detached from the ray's neutral prefix.
+    if knee == 1.0 && c.iter().all(|v| *v >= 0.0) {
+        return c;
+    }
+    crate::gamut::scene(c, knee, SCENE_GAMUT_LIMIT)
 }
 
 /// darktable sigmoid's `_desaturate_negative_values`.
@@ -554,7 +564,7 @@ mod tests {
             let mut p = [0f32; 3];
             p[i] = 0.5;
             let c = std::array::from_fn(|r| (0..3).map(|j| from_srgb[r][j] * p[j]).sum());
-            assert_eq!(scene_gamut_knee(c), c);
+            assert_eq!(scene_gamut_knee(c, SCENE_GAMUT_KNEE), c);
         }
     }
 
@@ -667,6 +677,24 @@ mod tests {
         assert!(at(60.0, 0.0, 0.0, 0.03) < at(0.0, 0.0, 0.0, 0.03) && at(60.0, 0.0, 0.0, 0.7) > at(0.0, 0.0, 0.0, 0.7));
         assert!(at(0.0, 60.0, 0.0, 0.8) > 0.8 && at(0.0, -60.0, 0.0, 0.8) < 0.8);
         assert!(at(0.0, 0.0, 60.0, 0.01) > 0.01 && at(0.0, 0.0, -60.0, 0.01) < 0.01);
+    }
+
+    #[test]
+    fn saturated_rendered_colours_keep_their_neutral_tone() {
+        let tone = ToneMap::rendered(1.0, 0.0, 0.0, 0.0);
+        let method = tone.method();
+        for colour in [[0.8, 0.0, 0.0], [0.0, 0.8, 0.0], [0.0, 0.0, 0.8], [0.8, 0.8, 0.0], [0.0, 0.8, 0.8]] {
+            let mapped = tone_px_working(&tone, &method, colour);
+            for i in 0..3 {
+                assert!((mapped[i] - colour[i]).abs() < 2e-3, "{colour:?} -> {mapped:?}");
+            }
+        }
+        let edge = [0.0, 0.8, 0.1];
+        for delta in [1e-6, 1e-5, 1e-4] {
+            let mapped = tone_px_working(&tone, &method, [-delta, edge[1], edge[2]]);
+            assert!(mapped.iter().all(|v| v.is_finite()), "{mapped:?}");
+            assert!((0..3).all(|i| (mapped[i] - edge[i]).abs() < 2e-3), "edge {edge:?} -> {mapped:?}");
+        }
     }
 
     #[test]

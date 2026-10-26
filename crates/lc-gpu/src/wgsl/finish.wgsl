@@ -61,7 +61,11 @@ fn gamut(r: vec3<f32>, weights: vec3<f32>) -> vec3<f32> {
 fn tone_v2(c0: vec3<f32>) -> vec3<f32> {
     if (fu(F_MODE) == 2u) { return c0; }
     // `scene_gamut_knee`, then `desaturate_negative`
-    let ck = gamut_scene(c0, SCENE_GAMUT_KNEE, SCENE_GAMUT_LIMIT);
+    let knee = ff(F_TONE_GAMUT_KNEE);
+    var ck = c0;
+    if (knee != 1.0 || any(c0 < vec3<f32>(0.0))) {
+        ck = gamut_scene(c0, knee, SCENE_GAMUT_LIMIT);
+    }
     let avg = max((ck.x + ck.y + ck.z) / 3.0, 0.0);
     let mn = min(ck.x, min(ck.y, ck.z));
     var f = 1.0;

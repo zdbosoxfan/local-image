@@ -11,6 +11,7 @@ the conditions under which it should be revisited.
 | [0001](0001-journal-catalog.md) | Library catalog: in-memory maps with a JSON snapshot and an operation log | Accepted (recorded retroactively) |
 | [0002](0002-output-gamut-clipping.md) | Output gamut clipping and scene compression | Superseded |
 | [0003](0003-blue-band-output-clipping.md) | Blue-band output clipping | Accepted |
+| [0004](0004-rendered-source-gamut-identity.md) | Rendered-source gamut identity | Accepted |
 
 ## Conventions
 

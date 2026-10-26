@@ -83,6 +83,9 @@ pub fn knee_curve(s: f32, knee: f32, limit: f32) -> f32 {
     if s <= knee || limit <= 1.0 + 1e-6 {
         return s;
     }
+    if knee >= 1.0 {
+        return s.min(1.0);
+    }
     const P: f32 = 1.2;
     let scale = (limit - knee) / (((1.0 - knee) / (limit - knee)).powf(-P) - 1.0).powf(1.0 / P);
     let u = (s - knee) / scale;
