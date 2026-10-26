@@ -81,7 +81,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn new(class: Tag, kind: Kind, chain: Vec<Tag>, fields: Vec<(Tag, Value)>) -> Self {
+    pub(crate) fn new(class: Tag, kind: Kind, chain: Vec<Tag>, fields: Vec<(Tag, Value)>) -> Self {
         let mut object = Self { class, kind, chain, fields: Vec::new(), index: std::collections::HashMap::new() };
         object.set_fields(fields);
         object
