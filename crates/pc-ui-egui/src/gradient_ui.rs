@@ -598,11 +598,6 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
         return;
     }
     let Some((l, ..)) = active_gradient(app) else { return };
-    if o.gradient_method == before.gradient_method
-        && let Some(Fill::Gradient { method, .. }) = fill_of(&l)
-    {
-        app.ui.tool_options.gradient_method = *method;
-    }
     if o.gradient_blend_mode != before.gradient_blend_mode {
         let _ = app.run("layer.setProps", json!({"layer": l.id.0, "blend": o.gradient_blend_mode.label()}));
     }
@@ -632,7 +627,7 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
 // Properties panel
 
 /// Width of the Properties label column ("Style", "Angle", "Scale").
-const PROP_LABEL_W: f32 = 44.0;
+const PROP_LABEL_W: f32 = 38.0;
 
 /// Commits a numeric field once (drag released, Enter, focus lost); `None` while editing.
 fn field(ui: &mut egui::Ui, id: &str, current: f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Option<f32> {
@@ -649,8 +644,15 @@ fn field(ui: &mut egui::Ui, id: &str, current: f32, range: std::ops::RangeInclus
 
 fn label(ui: &mut egui::Ui, text: &str) {
     let t = Tokens::get(ui.ctx());
-    let (r, _) = ui.allocate_exact_size(vec2(PROP_LABEL_W, 22.0), Sense::hover());
-    ui.painter().text(pos2(r.left(), r.center().y), egui::Align2::LEFT_CENTER, tl!(text), egui::FontId::proportional(12.0), t.text_dim);
+    let text = tl!(text);
+    let (r, response) = ui.allocate_exact_size(vec2(PROP_LABEL_W, 22.0), Sense::hover());
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_string(), egui::FontId::proportional(12.0), t.text_dim);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(r.width());
+    let galley = ui.painter().layout_job(job);
+    if galley.elided {
+        response.on_hover_text(text);
+    }
+    ui.painter().galley(pos2(r.left(), r.center().y - galley.size().y / 2.0), galley, t.text_dim);
 }
 
 /// Properties panel sections for a gradient fill layer (`props_layout::section` headers):

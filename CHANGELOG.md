@@ -65,6 +65,10 @@ All notable changes to Local Image are recorded here. The format follows
 
 ### Fixed
 
+- Compositing: Classic vector gradients retain large alpha and hard-stop exports, and the Gradient
+  tool accepts the same bounded colour shorthand for Classic and Perceptual methods. Selecting a
+  fill no longer silently changes the Gradient tool's interpolation setting.
+
 - Compositing: 32-bit Levels, Curves, Exposure, Legacy Brightness/Contrast, Channel Mixer
   and Photo Filter support signed values and highlights with depth-aware formulas. Edited
   RGB Curves extend beyond their endpoints in RGB documents. Black & White caps its grayscale

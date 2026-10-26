@@ -351,10 +351,10 @@ fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document, selected_stop: &mut O
         }
         Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
             ui.horizontal(|ui| {
-                ui.label(tl!("Method"));
                 use photocraft_doc::GradientMethod;
                 let choices = [(GradientMethod::Classic, tl!("Classic")), (GradientMethod::Perceptual, tl!("Perceptual"))];
                 changed |= crate::widgets::dropdown(ui, "vector-gradient-method", method, &choices, ui.available_width().min(104.0));
+                ui.label(tl!("Method"));
                 ui.ctx().accesskit_node_builder(ui.make_persistent_id(egui::IdSalt::new("vector-gradient-method")), |node| node.set_label(tl!("Method")));
             });
             changed |= combo(
