@@ -6,12 +6,21 @@ use photocraft_doc::{Affine, BlendMode, Fill, Layer, effects::*};
 impl State<'_, '_> {
     pub(super) fn effects(&mut self, source: &[model::Effect], layer: &mut Layer, m: Affine, name: &str) -> Result<(), Error> {
         let scale = m.determinant().abs().sqrt();
-        let length = |value: f64| -> Result<f32, Error> {
-            let value = value * scale;
-            if value.is_finite() && (0.0..=512.).contains(&value) { Ok(value as f32) } else { Err(Error::Limit("native effect reach")) }
-        };
+        let length = |value: f64| (value * scale) as f32;
         let mut items = Vec::new();
         for effect in source {
+            use model::Effect as E;
+            let reach = match effect {
+                E::DropShadow { radius, distance, .. } | E::InnerShadow { radius, distance, .. } => radius + distance,
+                E::OuterGlow { radius, .. } => *radius,
+                E::Outline { width, .. } => *width,
+                E::Bevel { size, .. } => *size,
+                E::ColorOverlay { .. } | E::GradientOverlay { .. } => 0.,
+            } * scale;
+            if !reach.is_finite() || reach > super::MAX_EFFECT_REACH {
+                self.warn("effect-limit", name, "An effect exceeds the native 512 px reach after DPI scaling and was left out; other artwork is retained.");
+                continue;
+            }
             let cmyk = match effect {
                 model::Effect::DropShadow { color, .. }
                 | model::Effect::InnerShadow { color, .. }
@@ -27,18 +36,16 @@ impl State<'_, '_> {
                 self.warn("colour-profile", name, "CMYK effect colours were converted without the source profile.");
             }
 
-            use model::Effect as E;
             let item = match effect {
                 E::DropShadow { color, opacity, radius, distance, angle } | E::InnerShadow { color, opacity, radius, distance, angle } => {
-                    length(radius + distance)?;
                     let shadow = Shadow {
                         common: FxCommon::new(BlendMode::Normal, *opacity as f32),
                         color: paint::color(*color),
                         angle: (180. - angle.to_degrees()).rem_euclid(360.) as f32,
                         use_global_light: false,
-                        distance: length(*distance)?,
+                        distance: length(*distance),
                         spread: 0.,
-                        size: length(*radius)?,
+                        size: length(*radius),
                         contour: Contour::Linear,
                         anti_alias: true,
                         noise: 0.,
@@ -51,7 +58,7 @@ impl State<'_, '_> {
                     paint: FxPaint::Color(paint::color(*color)),
                     technique: GlowTechnique::Softer,
                     spread: 0.,
-                    size: length(*radius)?,
+                    size: length(*radius),
                     contour: Contour::Linear,
                     anti_alias: true,
                     range: 0.5,
@@ -61,7 +68,7 @@ impl State<'_, '_> {
                 }),
                 E::Outline { color, opacity, width, align } => Effect::Stroke(StrokeFx {
                     common: FxCommon::new(BlendMode::Normal, *opacity as f32),
-                    size: length(*width)?,
+                    size: length(*width),
                     position: match align {
                         1 => StrokePosition::Inside,
                         2 => StrokePosition::Center,
@@ -94,7 +101,7 @@ impl State<'_, '_> {
                         technique: BevelTechnique::Smooth,
                         depth: (*depth / 5.).clamp(0., 10.) as f32,
                         up: true,
-                        size: length(*size)?,
+                        size: length(*size),
                         soften: 0.,
                         angle: angle.to_degrees().rem_euclid(360.) as f32,
                         altitude: 30.,

@@ -10,6 +10,9 @@ mod paint;
 mod scene;
 mod text;
 
+// Matches the native renderer's photocraft_compose::effects::MAX_REACH.
+const MAX_EFFECT_REACH: f64 = 512.;
+
 pub(crate) fn cancelled(cancel: Option<&AtomicBool>) -> Result<(), Error> {
     if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) { Err(Error::Cancelled) } else { Ok(()) }
 }

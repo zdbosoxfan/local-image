@@ -179,7 +179,7 @@ impl State<'_, '_> {
             else {
                 return Ok(layer);
             };
-            if native.width > 512. {
+            if f64::from(native.width) > super::MAX_EFFECT_REACH {
                 return self.outlined_text(t, &layout, transform, outline_transform, layer, name);
             }
             let fxpaint = match native.paint {
