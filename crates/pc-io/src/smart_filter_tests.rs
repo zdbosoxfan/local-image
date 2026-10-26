@@ -321,8 +321,9 @@ fn measured_item(fltr: Descriptor, fg: f64, bg: f64) -> Descriptor {
 
 /// The `Fltr` descriptors Photoshop 27 wrote for these filters (one smart object each, saved as
 /// PSD and read back), with the settings PhotoCraft reads from them.
-const PHOTOSHOP_FLTR: [(&str, &str, &str); 5] = [
+const PHOTOSHOP_FLTR: [(&str, &str, &str); 6] = [
     ("filter.distort.pinch", r#"{"amount":-28}"#, "0000000600500069006e00630068000000000000506e63680000000100000000416d6e746c6f6e67ffffffe4"),
+    ("filter.distort.twirl", r#"{"angle":-355}"#, "000000060054007700690072006c0000000000005477726c0000000100000000416e676c6c6f6e67fffffe9d"),
     (
         "filter.distort.ripple",
         r#"{"amount":-273,"size":"large"}"#,
