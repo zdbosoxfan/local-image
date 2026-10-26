@@ -191,3 +191,50 @@ fn mt32_marks_the_merged_transparency() {
     let opened = import("transparent.psd", &file.to_bytes().unwrap()).unwrap();
     assert!(opened.document.channels.is_empty(), "{:?}", opened.document.channels.iter().map(|c| &c.name).collect::<Vec<_>>());
 }
+
+// Supply independent float merged planes: using the RGBA8 preview as the oracle
+// silently clips these samples, even though Photoshop stores the full range.
+#[test]
+fn merged_oracle_preserves_signed_hdr_samples() {
+    for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+        for alpha in [1.0, 0.5] {
+            let doc = Document::new("float merged", Size::new(3, 1), mode, SampleType::F32);
+            let mut file = PsdFile::from_bytes(&export_psd(&doc)).unwrap();
+            let color_channels = if mode == ColorMode::Rgb { 3 } else { 1 };
+            file.layer_info = None;
+            file.header.channels = color_channels + u16::from(alpha != 1.0);
+            file.image_data.compression = Compression::Raw;
+            // Photoshop's merged pixels are matted against white when alpha is present.
+            file.image_data.data =
+                (0..color_channels).flat_map(|_| [-0.125_f32, 0.123456, 4.0].into_iter().flat_map(|v| (v * alpha + 1.0 - alpha).to_be_bytes())).collect();
+            if alpha != 1.0 {
+                file.image_data.data.extend((0..3).flat_map(|_| alpha.to_be_bytes()));
+            }
+            let opened = import("float.psd", &file.to_bytes().unwrap()).unwrap().document;
+            let reopened = import("roundtrip.psd", &export_psd(&opened)).unwrap().document;
+            for pixels in [merged_composite(&file).unwrap(), photocraft_compose::flatten(&opened).px, photocraft_compose::flatten(&reopened).px] {
+                assert_eq!(pixels.len(), 3);
+                for (p, value) in pixels.iter().zip([-0.125, 0.123456, 4.0]) {
+                    for (got, want) in p.iter().zip([value, value, value, alpha]) {
+                        assert!((got - want).abs() < 1e-6, "{mode:?}, alpha {alpha}: {p:?}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn merged_oracle_does_not_treat_extra_channels_as_transparency() {
+    for mode in [ColorMode::Rgb, ColorMode::Grayscale] {
+        let doc = Document::new("extra channel", Size::new(1, 1), mode, SampleType::F32);
+        let mut file = PsdFile::from_bytes(&export_psd(&doc)).unwrap();
+        let color_channels = if mode == ColorMode::Rgb { 3 } else { 1 };
+        file.header.channels = color_channels + 1;
+        file.layer_info = Some(photocraft_psd::LayerInfo { merged_alpha: false, layers: Vec::new(), padding: None });
+        file.image_data.compression = Compression::Raw;
+        file.image_data.data = (0..color_channels).flat_map(|_| 2.0_f32.to_be_bytes()).chain(0.0_f32.to_be_bytes()).collect();
+        assert!(!file.merged_has_alpha());
+        assert_eq!(merged_composite(&file).unwrap(), vec![[2.0, 2.0, 2.0, 1.0]], "{mode:?}");
+    }
+}
