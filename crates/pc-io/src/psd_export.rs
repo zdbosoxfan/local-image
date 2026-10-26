@@ -64,6 +64,7 @@ struct Ex {
     /// PSD ids assigned to document layers (kept from `psd_id` when unique).
     layer_ids: std::collections::HashMap<photocraft_doc::LayerId, u32>,
     canvas: photocraft_geom::Rect,
+    memory_budget: u64,
     records: Vec<LayerRecord>,
     warnings: Vec<String>,
     generation_remaining: usize,
@@ -255,12 +256,12 @@ fn upsert(raw: &mut Vec<([u8; 4], Vec<u8>)>, key: &[u8; 4], data: Vec<u8>, befor
 /// Whether the samples of `r` in `s` are too sparse to gather. A PSD layer record is one dense
 /// rectangle, so a few pixels far apart (content moved far off the canvas, or a crafted
 /// document) make a box of mostly nothing that cannot be gathered and copied into channel planes.
-fn sparse_gather(s: &Surface, r: photocraft_geom::Rect) -> bool {
+fn sparse_gather(s: &Surface, r: photocraft_geom::Rect, budget: u64) -> bool {
     let bpp = s.format().bytes_per_pixel() as u64;
     let bytes = |r: photocraft_geom::Rect| u64::from(r.width()).saturating_mul(u64::from(r.height())).saturating_mul(bpp);
     let tile = u64::from(photocraft_geom::TILE_SIZE.unsigned_abs()).pow(2);
     let held = (s.tile_count() as u64).saturating_mul(tile).saturating_mul(bpp);
-    gather_refused(bytes(r), held, lightcraft_sysmem::profile().memory_budget())
+    gather_refused(bytes(r), held, budget)
 }
 
 /// Refuse sparse rectangles whose dense staging and channel planes exceed the memory budget.
@@ -317,7 +318,7 @@ impl Ex {
         if r.is_empty() {
             return (PsdRect::default(), self.empty_channels());
         }
-        if sparse_gather(&s, r) {
+        if sparse_gather(&s, r, self.memory_budget) {
             self.warnings.push(format!(
                 "layer \"{name}\": its pixels are scattered over {}×{} px, too large to write: saved without its pixels (delete the stray pixels far from the rest and save again)",
                 r.width(),
@@ -345,7 +346,7 @@ impl Ex {
         let s = if m.surface.format() != self.mask_fmt { m.surface.convert(self.mask_fmt) } else { m.surface.clone() };
         let default = s.default_pixel().first().copied().unwrap_or(0.0);
         let mut r = s.content_bounds();
-        if !r.is_empty() && sparse_gather(&s, r) {
+        if !r.is_empty() && sparse_gather(&s, r, self.memory_budget) {
             self.warnings.push(format!(
                 "layer \"{name}\": its mask's painted pixels are scattered over {}×{} px, too large to write: saved as an empty mask",
                 r.width(),
@@ -848,7 +849,7 @@ impl Ex {
             }
             let doc = photocraft_format::load_from_bytes(bytes).map_err(|e| format!("its contents can't be read: {e}"))?;
             let opts = PsdExportOptions { force_psb: true, read_linked_files: self.read_linked_files, ..Default::default() };
-            let (file, warnings) = document_to_psd_nested(&doc, &opts, self.smart.depth + 1);
+            let (file, warnings) = document_to_psd_nested(&doc, &opts, self.smart.depth + 1, self.memory_budget);
             let data = file.to_bytes().map_err(|e| format!("its contents can't be written: {e}"))?;
             let stem = file_name.rsplit_once('.').map_or(file_name, |(a, _)| a);
             self.warnings.extend(warnings.into_iter().map(|w| format!("smart object {stem}: {w}")));
@@ -1191,7 +1192,7 @@ pub fn document_to_psd(doc: &Document) -> PsdFile {
 /// anything that could not be represented. The merged composite is rendered
 /// with `photocraft_compose::flatten`.
 pub fn document_to_psd_with(doc: &Document, opts: &PsdExportOptions) -> (PsdFile, Vec<String>) {
-    document_to_psd_nested(doc, opts, 0)
+    document_to_psd_nested(doc, opts, 0, lightcraft_sysmem::profile().memory_budget())
 }
 
 /// Adds headroom for compressed channel streams and their per-row length tables.
@@ -1314,7 +1315,7 @@ pub(crate) fn psd_size_exceeds_limit(doc: &Document) -> bool {
 }
 
 /// [`document_to_psd_with`] for a document embedded `depth` smart objects deep.
-fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -> (PsdFile, Vec<String>) {
+fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32, memory_budget: u64) -> (PsdFile, Vec<String>) {
     let mut compatible = doc.clone();
     compatible.normalize_legacy_groups();
     let doc = &compatible;
@@ -1328,7 +1329,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         flat.layer_comps.clear();
         flat.last_document_state = None;
         flat.last_applied_comp = None;
-        let (file, mut warnings) = document_to_psd_nested(&flat, opts, depth);
+        let (file, mut warnings) = document_to_psd_nested(&flat, opts, depth, memory_budget);
         warnings.push("Independent PDF group isolation cannot be represented as PSD layers; the complete document was flattened with its backdrop. The native document is unchanged.".into());
         return (file, warnings);
     }
@@ -1354,6 +1355,7 @@ fn document_to_psd_nested(doc: &Document, opts: &PsdExportOptions, depth: u32) -
         used_ids: Default::default(),
         layer_ids: Default::default(),
         canvas: doc.bounds(),
+        memory_budget,
         records: Vec::new(),
         warnings: Vec::new(),
         generation_remaining: crate::psd_generation::DOCUMENT_BYTES,

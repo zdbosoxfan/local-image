@@ -383,3 +383,29 @@ fn dense_16_bit_layers_are_written_past_the_canvas() {
     assert_eq!(red.len(), 12_000 * 12_000 * 2);
     assert!(red.as_chunks::<2>().0.iter().all(|v| u16::from_be_bytes(*v).abs_diff(0x4040) <= 1), "the original 16-bit red samples");
 }
+
+#[test]
+fn sparse_16_bit_layer_within_canvas_keeps_pixels_past_the_memory_budget() {
+    let mut doc = Document::new("sparse", photocraft_geom::Size::new(1536, 1536), ColorMode::Rgb, SampleType::U16);
+    let mut layer = Layer::raster("retouch", doc.pixel_format());
+    let points = [(0, 0), (1535, 1535)];
+    for (x, y) in points {
+        layer.surface_mut().unwrap().write_pixel(x, y, &[1.0, 0.0, 0.0, 1.0]);
+    }
+    doc.layers.push(layer);
+    let budget = 1 << 20;
+    assert!(doc.size.area() * 8 > budget / 2);
+    for force_psb in [false, true] {
+        let opts = PsdExportOptions { force_psb, ..Default::default() };
+        let (file, warnings) = document_to_psd_nested(&doc, &opts, 0, budget);
+        assert!(!warnings.iter().any(|w| w.contains("saved without its pixels")), "{warnings:?}");
+        assert_eq!(file.layers()[0].rect, to_psd_rect(doc.bounds()));
+        let bytes = file.to_bytes().unwrap();
+        let restored = crate::import("retouch.psd", &bytes).unwrap().document;
+        let surface = restored.layers[0].surface().unwrap();
+        for (x, y) in points {
+            assert_eq!(surface.rgba(x, y), [1.0, 0.0, 0.0, 1.0]);
+        }
+        assert_eq!(surface.rgba(768, 768), [0.0; 4]);
+    }
+}
