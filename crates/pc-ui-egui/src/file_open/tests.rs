@@ -670,8 +670,11 @@ fn opening_an_open_file_again_shows_its_tab() {
     let spellings = {
         let link = dir.join("link.psd");
         std::os::unix::fs::symlink(a, &link).unwrap();
+        let hard_link = dir.join("hard-link.psd");
+        std::fs::hard_link(a, &hard_link).unwrap();
         let mut spellings = spellings;
         spellings.push(link.to_string_lossy().into_owned());
+        spellings.push(hard_link.to_string_lossy().into_owned());
         spellings
     };
     for again in spellings {
