@@ -11,6 +11,23 @@ use photocraft_format::*;
 
 #[cfg(unix)]
 #[test]
+fn recovery_migration_preserves_owner_and_special_permission_bits() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = temp_dir("recovery-permission-mask");
+    let dir = root.join("Recovery");
+    std::fs::create_dir(&dir).unwrap();
+    for mode in [0o500, 0o750, 0o1750, 0o2700] {
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(mode)).unwrap();
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o7777, mode);
+        drop(RecoveryStore::new(&dir));
+        assert_eq!(std::fs::metadata(&dir).unwrap().permissions().mode() & 0o7777, mode & !0o077);
+    }
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
 fn recovery_store_restricts_existing_owned_directories_without_following_symlinks() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let root = temp_dir("existing-private-recovery");

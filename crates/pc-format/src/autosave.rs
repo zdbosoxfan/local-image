@@ -330,8 +330,8 @@ impl RecoveryStore {
             // Pin the real directory so a pathname replacement cannot redirect the chmod.
             let migration = open(&dir, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC, Mode::empty()).and_then(|directory| {
                 let metadata = fstat(&directory)?;
-                if metadata.st_uid == rustix::process::geteuid().as_raw() && metadata.st_mode & 0o7777 != 0o700 {
-                    fchmod(&directory, Mode::RWXU)?;
+                if metadata.st_uid == rustix::process::geteuid().as_raw() && metadata.st_mode & 0o077 != 0 {
+                    fchmod(&directory, Mode::from_raw_mode(metadata.st_mode & !0o077))?;
                 }
                 Ok(())
             });
