@@ -465,22 +465,27 @@ pub(crate) fn displace_request(p: &Value) -> Value {
 }
 
 /// Empty dialog selectors must not turn an embedded PSD filter into an external one.
-pub(crate) fn displace_settle(p: &mut Value) {
-    if photocraft_io::smart_map::displace_embedded_map(p).is_some() {
-        let path = map_path(p).is_some();
-        let document = map_document(p).is_some();
-        if let Value::Object(params) = p {
-            if !path {
-                params.remove("mapPath");
-            }
-            if !document {
-                params.remove("mapDocument");
-            }
-            if !path && !document {
-                params.remove("mapLayer");
-            }
+pub(crate) fn displace_settle(p: &mut Value) -> Result<()> {
+    if p.get("__displacePsd").is_none() {
+        return Ok(());
+    }
+    if photocraft_io::smart_map::displace_embedded_map(p).is_none() {
+        return Err(EngineError::Other("Displace's embedded map is unreadable; omit `__displacePsd` to keep the stored map, or choose another map".into()));
+    }
+    let path = map_path(p).is_some();
+    let document = map_document(p).is_some();
+    if let Value::Object(params) = p {
+        if !path {
+            params.remove("mapPath");
+        }
+        if !document {
+            params.remove("mapDocument");
+        }
+        if !path && !document {
+            params.remove("mapLayer");
         }
     }
+    Ok(())
 }
 
 fn map_from_path(path: &str, layer: Option<u64>) -> Result<Option<algo::Image>> {

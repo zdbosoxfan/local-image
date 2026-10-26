@@ -192,6 +192,9 @@ pub fn apply_filter_to_surface_in(
         return Ok(crate::plugin_cmds::apply_to_surface(id, params, surf, selection, canvas));
     }
     let Some(fp) = params_for(id, params) else { return Ok(None) };
+    if matches!(fp, FilterParams::Displace { map: None, .. }) && params.get("__displacePsd").is_some() {
+        return Err(EngineError::Other("Displace's embedded map is unreadable; choose another map".into()));
+    }
     let sel_bounds = selection.map(photocraft_raster::Surface::content_bounds);
     let content = surf.content_bounds();
     let area = algo::output_area(&fp, content, bounds, sel_bounds);
@@ -356,7 +359,7 @@ pub(crate) fn run_filter(s: &mut Session, id: &str, p: &Value) -> Result<Value> 
                         _ => params.clone(),
                     };
                     if matches!(fp, FilterParams::Displace { .. }) {
-                        crate::filters_ext::displace_settle(&mut params);
+                        crate::filters_ext::displace_settle(&mut params)?;
                     }
                     // Non-destructive: record the filter and re-render the smart object from its source.
                     let sf = SmartFilter { command: id.clone(), params, blend: photocraft_color::BlendMode::Normal, opacity: 1.0, visible: true };

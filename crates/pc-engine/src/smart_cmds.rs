@@ -935,7 +935,7 @@ fn set_filter_params(s: &mut Session, p: &Value) -> Result<Value> {
                 f.params = photocraft_io::smart_map::displace_embed_map(&f.params, map)
                     .ok_or_else(|| bad(CMD, "choose a displacement map with at most 4096 x 4096 pixels, or rasterize the layer first"))?;
             } else {
-                crate::filters_ext::displace_settle(&mut f.params);
+                crate::filters_ext::displace_settle(&mut f.params)?;
             }
         }
         Ok(())

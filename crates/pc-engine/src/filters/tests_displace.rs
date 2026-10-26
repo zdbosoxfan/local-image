@@ -146,6 +146,38 @@ fn displace_selection_remains_the_filter_mask_after_deselect_and_rerender() {
 }
 
 #[test]
+fn invalid_embedded_map_edits_are_transactional() {
+    let mut s = session(8);
+    let image = algo::Image { rect: Rect::new(0, 0, 128, 128), ch: 1, data: vec![1.0; 128 * 128] };
+    let params = photocraft_io::smart_map::displace_embed_map(&embedded(), &image).unwrap();
+    s.execute(DISPLACE, params.clone()).unwrap();
+    let before = s.active().unwrap().doc.clone();
+    let history = s.active().unwrap().history.past_len();
+    let journal = s.journal.clone();
+    let (id, _) = smart(&before);
+    let inspected = crate::inspect::layer(before.layer(id).unwrap());
+    let omitted = inspected["smartFilters"][0]["params"]["__displacePsd"].clone();
+    assert_eq!(omitted["omitted"], json!(true));
+    let hex = params["__displacePsd"].as_str().unwrap();
+    for template in [json!("not hex"), json!(&hex[..hex.len() - 2]), omitted] {
+        let error = s.execute("layer.smartFilter.setParams", json!({"params":{"horizontal":20,"__displacePsd":template}})).unwrap_err().to_string();
+        assert!(error.contains("embedded map"), "{error}");
+        assert!(std::sync::Arc::ptr_eq(&before, &s.active().unwrap().doc));
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+        assert_eq!(s.journal, journal);
+    }
+    let mut crafted = (*before).clone();
+    let LayerContent::Smart(sm) = &mut crafted.layer_mut(id).unwrap().content else { panic!("smart object") };
+    sm.smart_filters[0].params["__displacePsd"] = json!("not hex");
+    let mut reopened = Session::new();
+    reopened.add_document(crafted, None);
+    let before = reopened.active().unwrap().doc.clone();
+    let error = reopened.execute("layer.smartFilter.setVisible", json!({"layer":id.0,"visible":true})).unwrap_err().to_string();
+    assert!(error.contains("embedded map"), "{error}");
+    assert!(std::sync::Arc::ptr_eq(&before, &reopened.active().unwrap().doc));
+}
+
+#[test]
 fn invalid_and_oversized_map_requests_leave_document_and_history_unchanged() {
     let mut s = session(8);
     let huge = Document::new("large map", photocraft_geom::Size::new((1 << 24) + 1, 1), photocraft_doc::ColorMode::Rgb, photocraft_doc::SampleType::U8);
