@@ -12,7 +12,7 @@ fn mul3(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
 /// Colours from neutral to far past Rec. 2020 along constant OkLab hue and lightness, and a
 /// pseudo-random spread including negative channels.
 fn colours() -> Vec<[f32; 3]> {
-    let mut out = Vec::new();
+    let mut out = vec![[0.04546731, 0.021514542, 0.86354965], [0.04551213, 0.021517217, 0.8635499]];
     for l in [0.03f32, 0.2, 0.45, 0.6, 0.75, 0.9, 0.97] {
         for hi in 0..72 {
             let h = hi as f32 * std::f32::consts::TAU / 72.0;

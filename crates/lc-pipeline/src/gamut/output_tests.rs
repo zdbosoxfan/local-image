@@ -192,3 +192,32 @@ fn public_output_chroma_is_monotone_on_well_conditioned_rays() {
         }
     }
 }
+
+#[test]
+fn near_black_output_chroma_is_monotone_across_membership_boundary() {
+    let space = OutputSpace::Srgb;
+    let to_out = space.from_working();
+    let from_out = space.rgb_space().to_space(&li_color::REC2020).to_f32();
+    let m = lms_to(&to_out);
+    let hue = 52.0 * std::f32::consts::TAU / 72.0;
+    let mut previous = [0.0; 2];
+    for ci in [408, 409] {
+        let chroma = ci as f32 * 0.000_025;
+        let input = oklab_to_2020([0.02, chroma * hue.cos(), chroma * hue.sin()]);
+        let actual = oklab_from_2020(input);
+        let hue_error = (actual[2].atan2(actual[1]) - hue + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        assert!((actual[0] - 0.02).abs() < 2e-8 && hue_error.abs() < 2e-6, "ill-conditioned input {actual:?}");
+        let mapped = output(input, mul3(&to_out, input), &m);
+        for (i, rgb) in [mapped, mapped.map(|v| v.clamp(0.0, 1.0))].into_iter().enumerate() {
+            let lab = oklab_from_2020(mul3(&from_out, rgb));
+            let chroma = lab[1].hypot(lab[2]);
+            assert!(
+                chroma >= previous[i] - 2e-6,
+                "path {i}: output chroma {chroma} after {} at input chroma {}",
+                previous[i],
+                actual[1].hypot(actual[2])
+            );
+            previous[i] = chroma;
+        }
+    }
+}
