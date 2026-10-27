@@ -192,6 +192,7 @@ fn top_layer_and_max_depth() {
 #[test]
 fn fill_gradient_serde_defaults() {
     let fill = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
         angle: 45.0,
         scale: 2.0,
@@ -494,4 +495,22 @@ fn malformed_inputs_return_err() {
     assert!(apply_attrs(&base, &attrs).is_err());
     let attrs_unknown = json!({"nope": 1}).as_object().unwrap().clone();
     assert!(validate::<CharStyle>(&attrs_unknown).is_err());
+}
+
+#[test]
+fn gradient_method_persistence_keeps_old_classic_fills_and_round_trips_perceptual() {
+    let classic = Fill::gradient(vec![(0.0, Color::BLACK), (1.0, Color::WHITE)], 0.0, 1.0, GradientStyle::Linear, false);
+    let old = serde_json::to_value(&classic).unwrap();
+    assert!(old["Gradient"].get("method").is_none());
+    assert_eq!(serde_json::from_value::<Fill>(old).unwrap(), classic);
+    let mut perceptual = classic;
+    if let Fill::Gradient { method, .. } = &mut perceptual {
+        *method = photocraft_doc::GradientMethod::Perceptual;
+    }
+    let value = serde_json::to_value(&perceptual).unwrap();
+    assert_eq!(value["Gradient"]["method"], "Perceptual");
+    assert_eq!(serde_json::from_value::<Fill>(value.clone()).unwrap(), perceptual);
+    let mut unknown = value;
+    unknown["Gradient"]["method"] = serde_json::json!("Smooth");
+    assert!(serde_json::from_value::<Fill>(unknown).is_err());
 }

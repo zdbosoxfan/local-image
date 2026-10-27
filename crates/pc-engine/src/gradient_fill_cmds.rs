@@ -13,7 +13,7 @@
 
 use photocraft_color::Color;
 use photocraft_compose::gradient_fill as gf;
-use photocraft_doc::{Document, Fill, GradientStyle, Layer, LayerContent, LayerId, LayerMask};
+use photocraft_doc::{Document, Fill, GradientMethod, GradientStyle, Layer, LayerContent, LayerId, LayerMask};
 use photocraft_geom::Rect;
 use serde_json::{Value, json};
 
@@ -63,6 +63,15 @@ fn style_param(cmd: &str, p: &Value) -> Result<Option<GradientStyle>> {
         },
         Some(_) => Err(bad(cmd, "`style` is a string")),
     }
+}
+
+pub(crate) fn method_param(cmd: &str, p: &Value) -> Result<Option<GradientMethod>> {
+    p.get("method")
+        .map(|value| {
+            let name = value.as_str().ok_or_else(|| bad(cmd, "`method` is a string (classic|perceptual)"))?;
+            GradientMethod::parse(name).ok_or_else(|| bad(cmd, format!("unknown gradient method `{name}` (classic|perceptual)")))
+        })
+        .transpose()
 }
 
 pub fn style_name(s: GradientStyle) -> &'static str {
@@ -166,9 +175,12 @@ fn frame_with_align(layer: &Layer, f: &Fill, canvas: Rect) -> Rect {
 pub fn apply_set(layer: &Layer, f: &Fill, canvas: Rect, p: &Value, fg: [f32; 4], bg: [f32; 4]) -> Result<Fill> {
     const CMD: &str = SET;
     let mut out = f.clone();
-    let Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = &mut out else {
+    let Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = &mut out else {
         return Err(bad(CMD, "not a gradient fill"));
     };
+    if let Some(value) = method_param(CMD, p)? {
+        *method = value;
+    }
     let old_frame = frame_with_align(layer, f, canvas);
     let old_handles = gf::handles(*style, *angle, *scale, *offset, old_frame);
     if let Some(v) = p.get("align") {
@@ -202,6 +214,7 @@ pub fn apply_set(layer: &Layer, f: &Fill, canvas: Rect, p: &Value, fg: [f32; 4],
     let to = point(CMD, p, "to")?;
     let frame = {
         let tmp = Fill::Gradient {
+            method: *method,
             stops: Vec::new(),
             angle: *angle,
             scale: *scale,
@@ -272,6 +285,7 @@ pub fn new_layer(s: &Session, doc: &Document, p: &Value) -> Result<Layer> {
     let from = point(CMD, p, "from")?.ok_or_else(|| bad(CMD, "missing `from` [x, y]"))?;
     let to = point(CMD, p, "to")?.ok_or_else(|| bad(CMD, "missing `to` [x, y]"))?;
     let style = style_param(CMD, p)?.unwrap_or_default();
+    let method = method_param(CMD, p)?.unwrap_or_default();
     let g = preset_param(s, p, CMD)?;
     let (stops, opacity_stops) = g.fill_stops(s.tools.foreground, s.tools.background);
     let reverse = p.get("reverse").and_then(Value::as_bool).unwrap_or(false);
@@ -286,7 +300,8 @@ pub fn new_layer(s: &Session, doc: &Document, p: &Value) -> Result<Layer> {
         return Err(bad(CMD, "the document is empty"));
     }
     let (angle, scale, offset) = gf::from_handles(style, from, to, canvas, 0.0);
-    let fill = Fill::Gradient { stops, angle, scale: clamp_scale(scale), style, reverse, opacity_stops, midpoints: Vec::new(), offset, dither, align: false };
+    let fill =
+        Fill::Gradient { method, stops, angle, scale: clamp_scale(scale), style, reverse, opacity_stops, midpoints: Vec::new(), offset, dither, align: false };
     let mut l = Layer::new(doc.next_layer_name("Gradient Fill"), LayerContent::Fill(fill));
     l.opacity = opacity;
     l.blend = blend;
@@ -469,8 +484,9 @@ pub fn apply_stop(f: &Fill, p: &Value, fg: [f32; 4], bg: [f32; 4]) -> Result<Fil
 
 /// The colour stops' own alpha at `t` (without the opacity stops).
 fn ramp_color_alpha(f: &Fill, t: f32) -> f32 {
-    let Fill::Gradient { stops, midpoints, .. } = f else { return 1.0 };
+    let Fill::Gradient { method, stops, midpoints, .. } = f else { return 1.0 };
     let bare = Fill::Gradient {
+        method: *method,
         stops: stops.clone(),
         angle: 0.0,
         scale: 1.0,
@@ -497,10 +513,11 @@ fn stop(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// A gradient fill layer's settings as JSON (`gradient.fill.get`).
 pub fn describe_fill(f: &Fill, frame: Rect) -> Value {
-    let Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = f else { return Value::Null };
+    let Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } = f else { return Value::Null };
     let (from, to) = gf::handles(*style, *angle, *scale, *offset, frame);
     json!({
         "style": style_name(*style),
+        "method": method.name(),
         "angle": angle,
         "scale": scale * 100.0,
         "offset": [offset.0 * 100.0, offset.1 * 100.0],
@@ -534,7 +551,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Gradient (Live)",
             menu: &[],
             shortcut: None,
-            params: r##"{"from":[x,y],"to":[x,y],"style":"linear|radial|angle|reflected|diamond"="linear","gradient":preset name?,"stops":[[t,"#rrggbb"|"foreground"|"background"],…]?,"transparency":[[t,0..100],…]? (default: the current gradient),"reverse":bool=false,"dither":bool=true,"opacity":0..100=100,"mode":"normal|multiply|…"="normal"} → {"layer":id}; a Gradient Fill layer above the active layer, masked by the selection"##,
+            params: r##"{"from":[x,y],"to":[x,y],"method":"classic|perceptual"?,"style":"linear|radial|angle|reflected|diamond"="linear","gradient":preset name?,"stops":[[t,"#rrggbb"|"foreground"|"background"],…]?,"transparency":[[t,0..100],…]? (default: the current gradient),"reverse":bool=false,"dither":bool=true,"opacity":0..100=100,"mode":"normal|multiply|…"="normal"} → {"layer":id}; a Gradient Fill layer above the active layer, masked by the selection"##,
             enabled: has_doc,
             run: create,
             journal: true,
@@ -544,7 +561,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Edit Gradient Fill",
             menu: &[],
             shortcut: None,
-            params: r##"{"layer":id?,"from":[x,y]?,"to":[x,y]?,"style":"linear|radial|angle|reflected|diamond"?,"angle":deg?,"scale":%?,"offset":[x%,y%]?,"reverse":bool?,"dither":bool?,"align":bool?,"stops":[[t,"#rrggbb"|"#rrggbbaa"|[r,g,b,a]|"foreground"|"background"],…]?,"transparency":[[t,0..100],…]?,"midpoints":[0.05..0.95 per segment]?} → the gradient (see gradient.fill.get)"##,
+            params: r##"{"layer":id?,"from":[x,y]?,"to":[x,y]?,"method":"classic|perceptual"?,"style":"linear|radial|angle|reflected|diamond"?,"angle":deg?,"scale":%?,"offset":[x%,y%]?,"reverse":bool?,"dither":bool?,"align":bool?,"stops":[[t,"#rrggbb"|"#rrggbbaa"|[r,g,b,a]|"foreground"|"background"],…]?,"transparency":[[t,0..100],…]?,"midpoints":[0.05..0.95 per segment]?} → the gradient (see gradient.fill.get)"##,
             enabled: has_gradient_fill,
             run: set,
             journal: true,
@@ -564,7 +581,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Gradient Fill Settings",
             menu: &[],
             shortcut: None,
-            params: r##"{"layer":id?} → {"style","angle","scale":%,"offset":[%,%],"reverse","dither","align","from":[x,y],"to":[x,y],"stops":[[t,"#hex"]],"transparency":[[t,%]],"midpoints":[…]}"##,
+            params: r##"{"layer":id?} → {"method","style","angle","scale":%,"offset":[%,%],"reverse","dither","align","from":[x,y],"to":[x,y],"stops":[[t,"#hex"]],"transparency":[[t,%]],"midpoints":[…]}"##,
             enabled: has_gradient_fill,
             run: get,
             journal: false,

@@ -249,9 +249,9 @@ pub fn path_json(p: &Path) -> Value {
 fn fill_json(f: &Fill) -> Value {
     match f {
         Fill::Solid(c) => json!(hex(c)),
-        Fill::Gradient { stops, angle, scale, style, reverse, .. } => json!({ "gradient": {
+        Fill::Gradient { method, stops, angle, scale, style, reverse, .. } => json!({ "gradient": {
             "stops": stops.iter().map(|(t, c)| json!([t, hex(c)])).collect::<Vec<_>>(),
-            "angle": angle, "scale": scale * 100.0, "style": format!("{style:?}").to_ascii_lowercase(), "reverse": reverse } }),
+            "method": method.name(), "angle": angle, "scale": scale * 100.0, "style": format!("{style:?}").to_ascii_lowercase(), "reverse": reverse } }),
         Fill::Pattern { name, scale, .. } => json!({ "pattern": name, "scale": scale * 100.0 }),
     }
 }
@@ -278,13 +278,24 @@ fn parse_fill(v: &Value) -> std::result::Result<Option<Fill>, String> {
             "diamond" => GradientStyle::Diamond,
             _ => GradientStyle::Linear,
         };
-        return Ok(Some(Fill::gradient(
+        let method = crate::gradient_fill_cmds::method_param("shape", g).map_err(|e| e.to_string())?.unwrap_or_default();
+        use photocraft_vector::gradient_method::MAX_EXPANDED_STOPS;
+        if method == photocraft_doc::GradientMethod::Perceptual
+            && (stops.len() > MAX_EXPANDED_STOPS || stops.iter().any(|(t, c)| !t.is_finite() || c.c.iter().any(|v| !v.is_finite()) || !c.alpha.is_finite()))
+        {
+            return Err(format!("gradient stops must have finite positions and colours (max {MAX_EXPANDED_STOPS})"));
+        }
+        let mut fill = Fill::gradient(
             stops,
             f64p(g, "angle").unwrap_or(90.0) as f32,
             f64p(g, "scale").unwrap_or(100.0) as f32 / 100.0,
             style,
             g.get("reverse").and_then(Value::as_bool).unwrap_or(false),
-        )));
+        );
+        if let Fill::Gradient { method: value, .. } = &mut fill {
+            *value = method;
+        }
+        return Ok(Some(fill));
     }
     if let Some(name) = v.get("pattern").and_then(Value::as_str) {
         return Ok(Some(Fill::Pattern {
@@ -1490,7 +1501,7 @@ pub(crate) fn leak(s: String) -> &'static str {
 
 pub fn specs() -> Vec<CommandSpec> {
     let stroke = r##""stroke":{"width":px,"color":"#rrggbb"|fill,"opacity":0..100,"align":"inside|center|outside","cap":"butt|round|square","join":"miter|round|bevel","miterLimit":n,"dashes":[multiples of width],"dashOffset":n}|null"##;
-    let fill = r##""fill":"#rrggbb"|[r,g,b,a]|{"gradient":{"stops":[[t,"#hex"]],"angle":deg,"scale":%,"style":"linear|radial|angle|reflected|diamond","reverse":bool}}|{"pattern":name}|null (no fill)"##;
+    let fill = r##""fill":"#rrggbb"|[r,g,b,a]|{"gradient":{"stops":[[t,"#hex"]],"angle":deg,"scale":%,"method":"classic|perceptual","style":"linear|radial|angle|reflected|diamond","reverse":bool}}|{"pattern":name}|null (no fill)"##;
     vec![
         spec!(
             "shape.create",

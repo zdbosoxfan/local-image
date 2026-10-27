@@ -990,3 +990,13 @@ design and have no strict parameter validator), VectorCraft `025ce255` and `32db
 exporter writes no CMYK images or output intents). The DesignCraft breaker changes since
 `66c7ce7e` build on CJK composition structures `pc-text` doesn't have (mojikumi, kinsoku priority,
 locked advances), so the re-sync is left for a feature port.
+
+## Gradient review corrections (2026-10-26)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [`2bad6468213d`](https://github.com/storytold/vectorcraft/commit/2bad6468213df3250963f69a5d6488af2868725e) | Gradients: a Perceptual gradient mixes its colours in OKLab, and SVG and PDF write it as an image | `crates/pc-vector/src/gradient_method.rs` (non-finite RGB guard) | MIT OR Apache-2.0 |
+| [`9237a8bdde35`](https://github.com/storytold/photocraft/commit/9237a8bdde35f5365154b9eaf713bd5bb66fe0da) | PSD gradients: read the interpolation method Photoshop writes; add Smooth (#3442) | `crates/pc-io/src/gradient_bake.rs` (measured Smooth test and module documentation) | MIT OR Apache-2.0 |
+
+Both are SHOULD ports for gradient appearance parity. The Smooth measurements retain upstream's
+black-to-white and red-to-blue rows and two-level tolerance.

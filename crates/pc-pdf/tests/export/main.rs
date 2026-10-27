@@ -143,6 +143,7 @@ fn pdf_export_poppler_geometry_stroke_and_compound_oracles() {
 fn pdf_export_poppler_gradient_opacity_and_resource_oracles() {
     for style in [GradientStyle::Linear, GradientStyle::Reflected, GradientStyle::Radial] {
         let fill = Fill::Gradient {
+            method: Default::default(),
             stops: vec![(1., Color::WHITE), (0., Color::rgb(0.1, 0.2, 0.4))],
             style,
             angle: 31.,
@@ -170,6 +171,7 @@ fn pdf_export_hard_gradient_stops_have_valid_pdf_function_bounds() {
         let d = scene(
             rect(),
             Fill::Gradient {
+                method: Default::default(),
                 stops: vec![(0., Color::BLACK), (0.5, Color::rgb(0.1, 0.2, 0.8)), (0.5, Color::rgb(0.8, 0.1, 0.2)), (1., Color::WHITE)],
                 opacity_stops: vec![(0., 0.5), (0.25, 0.5), (0.25, 0.9), (1., 1.)],
                 style,
@@ -389,6 +391,7 @@ fn pdf_export_strokes_dashes_alignment_and_unsupported_warning() {
         assert_eq!(images(&Pdf::new(output(&d)).unwrap()), 0);
     }
     let fill = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0., Color { alpha: 0.5, ..Color::BLACK }), (1., Color { alpha: 0.5, ..Color::WHITE })],
         style: GradientStyle::Diamond,
         angle: 0.,
@@ -560,5 +563,22 @@ fn pdf_text_outlines_preserve_adjacent_paint_runs_and_bound_traversal() {
         let mut context = export::ExportContext { cancelled: &cancel, projection: None, text: &mut text };
         assert!(matches!(export::export_with(&doc, &ExportScope::Document, &options, &mut context), Err(ExportError::Cancelled)));
         assert!(checks.get() < 100);
+    }
+}
+
+#[test]
+fn perceptual_gradients_remain_vector_and_match_the_cpu() {
+    for style in [GradientStyle::Linear, GradientStyle::Radial, GradientStyle::Reflected] {
+        let mut fill = Fill::gradient(vec![(0.0, Color::rgb(0.0, 0.0, 1.0)), (1.0, Color::rgb(1.0, 1.0, 0.0))], 31.0, 0.8, style, true);
+        if let Fill::Gradient { method, midpoints, opacity_stops, .. } = &mut fill {
+            *method = photocraft_doc::GradientMethod::Perceptual;
+            *midpoints = vec![0.3];
+            *opacity_stops = vec![(0.0, 0.5), (0.5, 0.8), (1.0, 1.0)];
+        }
+        let doc = scene(rect(), fill);
+        let pdf = Pdf::new(output(&doc)).unwrap();
+        assert_eq!(images(&pdf), 0, "a supported perceptual gradient stays vector");
+        assert!(has_paths(&pdf));
+        oracle(&doc, &format!("perceptual-{style:?}"));
     }
 }

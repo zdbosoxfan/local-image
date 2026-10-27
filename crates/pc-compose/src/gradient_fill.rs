@@ -8,10 +8,10 @@
 //! point's distance. A fill made from a drag therefore renders the same pixels as painting that
 //! drag (see the tests).
 
-use photocraft_doc::{Fill, GradientStyle};
+use photocraft_doc::{Fill, GradientMethod, GradientStyle};
 use photocraft_geom::Rect;
+use photocraft_vector::gradient_method::sample_stops;
 pub use photocraft_vector::midpoint_remap;
-use photocraft_vector::sample_opacity;
 
 use crate::effects::gradient_units;
 
@@ -22,6 +22,7 @@ const MIN_LEN: f32 = 0.5;
 /// document's CMYK profile is active).
 #[derive(Clone, Debug)]
 pub struct Ramp {
+    method: GradientMethod,
     color: Vec<(f32, [f32; 4])>,
     mids: Vec<f32>,
     opacity: Vec<(f32, f32)>,
@@ -30,7 +31,7 @@ pub struct Ramp {
 impl Ramp {
     /// The ramp of a gradient fill (`None` for other fills).
     pub fn new(f: &Fill) -> Option<Ramp> {
-        let Fill::Gradient { stops, opacity_stops, midpoints, .. } = f else { return None };
+        let Fill::Gradient { method, stops, opacity_stops, midpoints, .. } = f else { return None };
         let mut color: Vec<(f32, [f32; 4])> = stops
             .iter()
             .map(|(p, c)| {
@@ -41,33 +42,13 @@ impl Ramp {
         color.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut opacity = opacity_stops.clone();
         opacity.sort_by(|a, b| a.0.total_cmp(&b.0));
-        Some(Ramp { color, mids: midpoints.clone(), opacity })
+        Some(Ramp { method: *method, color, mids: midpoints.clone(), opacity })
     }
 
     /// Colour and alpha at `t` (`0..=1`).
     pub fn sample(&self, t: f32) -> [f32; 4] {
-        let mut c = sample_color(&self.color, &self.mids, t);
-        if !self.opacity.is_empty() {
-            c[3] *= sample_opacity(&self.opacity, t);
-        }
-        c
+        sample_stops(self.method, &self.color, &self.mids, &self.opacity, t)
     }
-}
-
-fn sample_color(stops: &[(f32, [f32; 4])], mids: &[f32], t: f32) -> [f32; 4] {
-    let (Some(first), Some(last)) = (stops.first(), stops.last()) else { return [0.0; 4] };
-    if t <= first.0 {
-        return first.1;
-    }
-    for (i, w) in stops.windows(2).enumerate() {
-        let (a, b) = (&w[0], &w[1]);
-        if t <= b.0 {
-            let u = if b.0 > a.0 { (t - a.0) / (b.0 - a.0) } else { 0.0 };
-            let k = midpoint_remap(u, mids.get(i).copied().unwrap_or(0.5));
-            return std::array::from_fn(|c| a.1[c] + (b.1[c] - a.1[c]) * k);
-        }
-    }
-    last.1
 }
 
 /// Adds one level of the shared dither noise to a colour (as the Gradient tool does).
@@ -210,6 +191,7 @@ mod tests {
     #[test]
     fn ramp_midpoints_and_opacity() {
         let f = Fill::Gradient {
+            method: Default::default(),
             stops: vec![(1.0, Color::WHITE), (0.0, Color::BLACK)],
             angle: 0.0,
             scale: 1.0,
@@ -238,3 +220,6 @@ mod tests {
         assert_eq!(px.len(), 6);
     }
 }
+
+#[cfg(test)]
+mod tests_method;

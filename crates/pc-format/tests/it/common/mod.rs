@@ -98,6 +98,7 @@ pub fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
     let grad = Layer::new(
         "Gradient",
         LayerContent::Fill(Fill::Gradient {
+            method: Default::default(),
             stops: vec![(0.0, Color::BLACK), (1.0, Color::WHITE)],
             angle: 45.0,
             scale: 1.5,

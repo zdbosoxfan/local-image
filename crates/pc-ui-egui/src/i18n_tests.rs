@@ -289,6 +289,8 @@ fn every_tl_literal_is_translated() {
     // English until the next translation pass (GPU start-up recovery, October 2026).
     // English until translations resume (owner, 2026-10-09: language work paused).
     const KEEP_AS_IS: &[&str] = &[
+        "Method",
+        "Classic",
         // Approved AI Preferences controls remain English during the owner's translation pause.
         "Cancel {function} download",
         "Cancel LAN search",

@@ -38,7 +38,7 @@ pub(super) fn fill(state: &mut State<'_, '_>, p: &Paint, m: Affine, bounds: (f64
         }
         Paint::Gradient(g) => {
             let (Gradient { stops, opacity_stops, style, angle, scale, reverse, align, offset }, midpoints) = gradient(state, g, m, bounds, name)?;
-            Ok(Some(Fill::Gradient { stops, opacity_stops, style, angle, scale, reverse, align, offset, midpoints, dither: false }))
+            Ok(Some(Fill::Gradient { method: Default::default(), stops, opacity_stops, style, angle, scale, reverse, align, offset, midpoints, dither: false }))
         }
     }
 }

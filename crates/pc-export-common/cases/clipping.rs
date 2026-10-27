@@ -226,6 +226,7 @@ fn unsupported_independent_chain_is_cropped_without_flattening_unrelated_artwork
             "gradient-base" => {
                 if let LayerContent::Shape(shape) = &mut base(&mut doc).content {
                     shape.fill = Some(Fill::Gradient {
+                        method: Default::default(),
                         stops: vec![(0., Color::rgb(0.8, 0.2, 0.4)), (1., Color::rgb(0.2, 0.8, 0.6))],
                         style: GradientStyle::Linear,
                         angle: 0.,
@@ -369,6 +370,7 @@ fn tagged_cmyk_vector_and_text_cache_rebuild_matches_independent_cms_inks() {
         } else {
             let paint = if gradient {
                 Fill::Gradient {
+                    method: Default::default(),
                     stops: vec![(0., colors[0]), (1., colors[1])],
                     style: GradientStyle::Linear,
                     angle: 0.,

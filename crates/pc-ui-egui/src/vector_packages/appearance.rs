@@ -349,7 +349,14 @@ fn paint_editor(ui: &mut Ui, p: &mut Fill, doc: &Document, selected_stop: &mut O
                 changed = true;
             }
         }
-        Fill::Gradient { stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+        Fill::Gradient { method, stops, angle, scale, style, reverse, opacity_stops, midpoints, offset, dither, align } => {
+            ui.horizontal(|ui| {
+                use photocraft_doc::GradientMethod;
+                let choices = [(GradientMethod::Classic, tl!("Classic")), (GradientMethod::Perceptual, tl!("Perceptual"))];
+                changed |= crate::widgets::dropdown(ui, "vector-gradient-method", method, &choices, ui.available_width().min(ui.spacing().combo_width));
+                ui.label(tl!("Method"));
+                ui.ctx().accesskit_node_builder(ui.make_persistent_id(egui::IdSalt::new("vector-gradient-method")), |node| node.set_label(tl!("Method")));
+            });
             changed |= combo(
                 ui,
                 "Gradient style",
@@ -659,3 +666,7 @@ pub fn panel(ui: &mut Ui, state: &mut State, s: &mut Session, ids: &[LayerId]) -
 pub fn canvas_response(ui: &mut Ui, size: egui::Vec2) -> egui::Response {
     ui.allocate_response(size, Sense::click_and_drag())
 }
+
+#[cfg(test)]
+#[path = "appearance/method_tests.rs"]
+mod method_tests;

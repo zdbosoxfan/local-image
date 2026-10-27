@@ -31,6 +31,7 @@ fn svg_export_second_roundtrip_is_byte_stable_gate() {
     let mut translucent = Color::BLACK;
     translucent.alpha = 0.25;
     let alpha_gradient = Fill::Gradient {
+        method: Default::default(),
         stops: vec![(0., translucent), (1., Color::WHITE)],
         angle: 31.,
         scale: 0.8,
