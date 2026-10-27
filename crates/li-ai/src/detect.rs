@@ -299,8 +299,17 @@ fn base_model_name(v: &str) -> &str {
 
 /// A LoRA's architecture from its name alone.
 pub fn lora_by_name(reg: &Registry, name: &str) -> Option<Match> {
+    let normalized = name.to_ascii_lowercase().replace('\\', "/");
+    let basename = normalized.rsplit('/').next().unwrap_or(&normalized);
     for (f, d) in blocks(reg) {
-        if d.lora.as_ref().is_some_and(|l| l.kohya_prefixes.iter().any(|p| p.len() >= 4 && name_matches(p, name))) {
+        if d.lora.as_ref().is_some_and(|l| {
+            l.kohya_prefixes.iter().any(|p| {
+                p.len() >= 4
+                    && basename
+                        .match_indices(&p.to_ascii_lowercase())
+                        .any(|(i, prefix)| !basename[..i].ends_with(char::is_alphanumeric) && !basename[i + prefix.len()..].starts_with(char::is_alphanumeric))
+            })
+        }) {
             return Some(Match::plain(f.id.clone(), "file name"));
         }
     }
@@ -310,6 +319,21 @@ pub fn lora_by_name(reg: &Registry, name: &str) -> Option<Match> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lora_name_prefixes_match_whole_tokens_in_the_basename() {
+        let raw = crate::family::EMBEDDED.iter().map(|(id, text)| ((*id).to_owned(), serde_json::from_str(text).unwrap())).collect();
+        let reg = Registry { families: crate::family::build(&raw).unwrap(), ..Default::default() };
+        assert_eq!(lora_by_name(&reg, "flux_3d_style_lora.safetensors").unwrap().id, "flux1");
+        assert!(lora_by_name(&reg, "mossy_forest_lora.safetensors").is_none_or(|m| m.id != "moss-image"));
+        assert_eq!(lora_by_name(&reg, "flux3_klein_style_lora").unwrap().id, "flux3-klein");
+        assert_eq!(lora_by_name(&reg, "moss_image_lora").unwrap().id, "moss-image");
+        assert!(lora_by_name(&reg, "amoss_image_lora").is_none_or(|m| m.id != "moss-image"));
+        assert!(lora_by_name(&reg, "moss_image/forest_lora.safetensors").is_none_or(|m| m.id != "moss-image"));
+        assert!(lora_by_name(&reg, r"moss_image\forest_lora.safetensors").is_none_or(|m| m.id != "moss-image"));
+        assert_eq!(lora_by_name(&reg, r"styles\my-MOSS_IMAGE.safetensors").unwrap().id, "moss-image");
+        assert_eq!(lora_by_name(&reg, "moss_image").unwrap().id, "moss-image");
+    }
 
     #[test]
     fn generations_in_names_and_metadata() {
