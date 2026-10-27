@@ -69,7 +69,8 @@ All notable changes to Local Image are recorded here. The format follows
   Find Similar enables filtering, and filters put aside follow keyword and folder changes.
 - Pro and Studio Light secondary text is more readable on neutral panels and filled controls;
   Studio Light status colors are darker while image preview badges retain their existing amber.
-- Affinity raster import leaves out pixel layers over 100 megapixels with a warning and checks shared allocation limits before decoding. Engine Open/Place captures a machine-sized
+- Affinity raster import leaves out pixel layers over 100 megapixels with a warning and checks
+  shared allocation limits before decoding. Engine Open/Place captures a machine-sized
   memory allowance and rejects invalid detached native effects before publication.
 
 - RAW development demosaics the white-balanced sensor data, as darktable and RawTherapee do. This
