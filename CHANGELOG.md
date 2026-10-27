@@ -138,6 +138,8 @@ All notable changes to Local Image are recorded here. The format follows
 - Compositing: Save for Web shows preview settings and codec errors instead of a blank preview,
   and recovers when the settings are corrected.
 
+- Developer tools: upstream checks resolve linked project names and report checked and unchecked
+  ports separately, failing when an upstream source or history could not be checked.
 - Library: directory-sync failures when opening the catalog journal are reported, and retries
   confirm the directory entry is durable before saving edits.
 - Affinity import crops pixel masks to their artwork and omits over-budget masks, cached pictures
