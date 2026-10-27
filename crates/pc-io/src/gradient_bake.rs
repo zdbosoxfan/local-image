@@ -9,8 +9,8 @@
 //! colours (end tangents at half the chord slope); Perceptual interpolates in Oklab, Linear in
 //! linear light, Classic in sRGB. Stop midpoints remap each segment piecewise-linearly.
 //! Smooth goes straight across each segment in OKLab with its own easing, independent of
-//! Smoothness. The easing was measured on Photoshop 27.11 at sixteenth intervals on three colour
-//! pairs and is kept in [`SMOOTH_EASE`].
+//! Smoothness. The easing was sampled on Photoshop 27.11 every 8 px on three colour pairs and is
+//! stored at sixteenth intervals in [`SMOOTH_EASE`].
 
 use photocraft_color::{Color, ColorMode};
 
