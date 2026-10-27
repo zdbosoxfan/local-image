@@ -72,6 +72,13 @@ pub fn same_file_path(a: &str, b: &str) -> bool {
     a == b || li_fs::same_file(std::path::Path::new(a), std::path::Path::new(b))
 }
 
+/// Whether a save to `a` replaces the Library source at `b`: the same path once links are
+/// resolved. A hard link is another file here, because saving replaces the file by rename.
+/// A path that cannot be resolved (for example a new file) is not the source.
+pub fn same_source_path(a: &str, b: &str) -> bool {
+    a == b || std::fs::canonicalize(a).ok().zip(std::fs::canonicalize(b).ok()).is_some_and(|(a, b)| a == b)
+}
+
 /// A file Save / Save As wrote (local-image: the host takes these for the Library).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LibrarySave {

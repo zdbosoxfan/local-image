@@ -362,9 +362,9 @@ pub(crate) fn source_reset(
             .walk()
             .into_iter()
             .filter_map(|(_, _, layer)| develop_layer::layer_origin(layer))
-            .find(|origin| develop_layer::same_file_path(path, &origin.path))
+            .find(|origin| develop_layer::same_source_path(path, &origin.path))
     });
-    let Some(origin) = origin.filter(|origin| develop_layer::same_file_path(path, &origin.path)).or(matched.as_ref()) else { return Ok(None) };
+    let Some(origin) = origin.filter(|origin| develop_layer::same_source_path(path, &origin.path)).or(matched.as_ref()) else { return Ok(None) };
     let reset = app
         .library_save_sources
         .lock()
