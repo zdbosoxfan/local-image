@@ -426,6 +426,11 @@ mod tests {
         let rt = embedded();
         validate_runtime(&rt).unwrap();
         assert_eq!(rt.gpu_generation("cuda:0 NVIDIA GeForce RTX 5090 : cudaMallocAsync"), Some("blackwell"));
+        let ada = "cuda:0 NVIDIA RTX 5000 Ada Generation : cudaMallocAsync";
+        assert_eq!(rt.gpu_generation(ada), Some("ada"));
+        assert_eq!(rt.gpu_generation("NVIDIA GeForce RTX 5090 Laptop GPU"), Some("blackwell"));
+        assert!(!rt.quant_runs_on(&crate::identify::QuantClass::Nvfp4, Some(ada)));
+        assert_ne!(rt.gpu_generation("Quadro RTX 5000"), Some("blackwell"));
         assert_eq!(rt.vae_channels("flux2-vae_small.safetensors"), Some(32));
         let mut bad = rt.clone();
         bad.equivalent.push(StemGroup { folder: "text_encoders".into(), stems: vec!["qwen3vl_4b".into(), "qwen_3_4b".into()], ..Default::default() });

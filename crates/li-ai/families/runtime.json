@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "version": 2,
+  "version": 3,
   "upsampler": "optional",
   "equivalent": [
     {
@@ -54,9 +54,9 @@
   "gpus": [
     {
       "generation": "blackwell",
-      "name_contains": ["RTX 50", "RTX PRO 6000 Blackwell", "RTX PRO 5000 Blackwell", "RTX PRO 4500 Blackwell", "RTX PRO 4000 Blackwell", "B100", "B200", "B300", "GB10", "GB200", "GB300", "Thor"]
+      "name_contains": ["RTX 5050", "RTX 5060", "RTX 5070", "RTX 5080", "RTX 5090", "RTX PRO 6000 Blackwell", "RTX PRO 5000 Blackwell", "RTX PRO 4500 Blackwell", "RTX PRO 4000 Blackwell", "B100", "B200", "B300", "GB10", "GB200", "GB300", "Thor"]
     },
-    {"generation": "ada", "name_contains": ["RTX 40", "L40", "L4", "RTX 6000 Ada", "RTX 4000 Ada", "RTX 2000 Ada"]}
+    {"generation": "ada", "name_contains": ["RTX 40", "L40", "L4", "RTX 6000 Ada", "RTX 5000 Ada", "RTX 4000 Ada", "RTX 2000 Ada"]}
   ],
   "packs": [
     {

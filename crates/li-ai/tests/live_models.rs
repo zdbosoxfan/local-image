@@ -71,12 +71,14 @@ fn live_setup_identifies_matches_and_checks_the_installed_models() -> Result<()>
     let scan = modelsetup::scan(&options(&l));
     ensure!(scan.snapshot.is_some(), "the test ComfyUI is not reachable");
     let mut problems = Vec::new();
+    let mut checked = 0;
     for (key, arch, variant, create, te) in TEMPLATE_MODELS {
         let Some(m) = scan.server.models.get(*key) else {
             println!("skipped: {key} is not installed");
             continue;
         };
         let id = m.identity.as_ref().context("no identity")?;
+        checked += 1;
         let clip = m.bindings.iter().find(|b| b.role == "clip").and_then(|b| b.used.as_deref());
         println!(
             "{key}: {} {:?} engine={} templates={:?} clip={clip:?} issues={:?}",
@@ -111,6 +113,7 @@ fn live_setup_identifies_matches_and_checks_the_installed_models() -> Result<()>
         }
     }
     println!("{}", modelsetup::report::render_text(&modelsetup::report(&options(&l), &scan)));
+    ensure!(checked > 0, "zero models checked: none of TEMPLATE_MODELS are installed");
     ensure!(problems.is_empty(), "{}", problems.join("\n"));
     Ok(())
 }
@@ -141,6 +144,7 @@ fn live_template_models_verify_one_at_a_time() -> Result<()> {
     let opts = options(&l);
     let scan = modelsetup::scan(&opts);
     let keys: Vec<String> = TEMPLATE_MODELS.iter().map(|t| t.0.to_owned()).filter(|k| scan.server.models.contains_key(k)).collect();
+    ensure!(!keys.is_empty(), "zero keys checked: none of TEMPLATE_MODELS are installed");
     let mut report = Vec::new();
     let done = modelsetup::verify_models(&opts, &scan, &keys, &JobControl::new(), &mut |key, step| {
         let r = step.result;
@@ -214,6 +218,7 @@ fn live_negative_controls_fail_a_check() -> Result<()> {
     let scan = modelsetup::scan(&options(&l));
     let mut report = Vec::new();
     let mut unseparated = Vec::new();
+    let mut checked = 0;
     for (key, role, file) in
         [("unet:moss_image_sft_bf16.safetensors", "vae", "ae.safetensors"), ("unet:flux3-image-klein-bf16.safetensors", "clip", "qwen_3_4b.safetensors")]
     {
@@ -221,20 +226,18 @@ fn live_negative_controls_fail_a_check() -> Result<()> {
             println!("skipped: {key} is not installed");
             continue;
         }
-        match verify_with(&l, &scan, key, role, file) {
-            Ok(v) => {
-                record(&mut report, key, &format!("{role}={file}"), &v);
-                let caught = v.capabilities.values().any(|c| !c.pass || !c.warnings.is_empty());
-                if !caught {
-                    unseparated.push(format!("{key} with {role} {file}"));
-                }
-            }
-            Err(e) => println!("{key} with {role} {file}: the run failed ({e:#}), which is caught"),
+        let v = verify_with(&l, &scan, key, role, file)?;
+        checked += 1;
+        record(&mut report, key, &format!("{role}={file}"), &v);
+        let caught = v.capabilities.values().any(|c| !c.pass || !c.warnings.is_empty());
+        if !caught {
+            unseparated.push(format!("{key} with {role} {file}"));
         }
     }
     write_report("controls", &report)?;
     // Restore the real recipes.
     modelsetup::scan(&options(&l));
+    ensure!(checked > 0, "zero controls checked: none of the negative-control models are installed");
     ensure!(unseparated.is_empty(), "no check separated: {}", unseparated.join(", "));
     Ok(())
 }
