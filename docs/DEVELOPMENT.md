@@ -31,10 +31,11 @@ The earlier 0.7 Python/WebView implementation remains available in Git history.
 
 TLS uses rustls with the ring provider because the pure-Rust rustls-rustcrypto provider carried
 unfixed RustSec advisories. Under the 2026-10-25 TLS security decision, ring (`Apache-2.0 AND ISC`)
-is the only allowed C/assembly dependency, and only under rustls (directly or via rustls-webpki).
-The `deps-pure` check enforces this exception: `ring` is allowed only under `rustls` or
-`rustls-webpki`, and its `cc` build dependency only under `ring`; existing known `cc` parents
-are listed separately in xtask.
+is the one C/assembly dependency added for TLS, and only under rustls (directly or via
+rustls-webpki). The `deps-pure` check enforces this: `ring` is allowed only under `rustls` or
+`rustls-webpki`, and its `cc` build dependency only under `ring`. Older C/assembly code is still
+allowed through xtask's `CC_KNOWN` list: tract-linalg's assembly kernels (used by li-seg's ONNX
+inference), wayland-backend's log shim, and platform-only crates.
 
 ## Build and run
 

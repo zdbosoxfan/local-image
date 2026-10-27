@@ -14,8 +14,10 @@
 //!     the MSI's advertised-shortcut icon references (ICE50), without building.
 //! cargo xtask deps-pure
 //!     fails if a C/C++-building crate (ring, openssl-sys, aws-lc-sys, cmake, bindgen, cc) is in
-//!     the dependency graph (`cargo tree`, all platforms). `cc` is tolerated only for a short list of known leftovers
-//!     (blake3's unused build-dependency, tract-linalg, wayland-backend, platform-only crates).
+//!     the dependency graph (`cargo tree`, all platforms). Allowed: ring under rustls or rustls-webpki
+//!     and `cc` under ring (docs/DEVELOPMENT.md#crypto-provider-exception), and `cc` under the known
+//!     leftovers in `CC_KNOWN` (blake3's unused build-dependency, tract-linalg, wayland-backend,
+//!     platform-only crates).
 //! cargo xtask upstream-check [--offline]
 //!     for every algorithm ported from another project (docs/PORTS.md), the upstream commits that
 //!     touched its source file since the commit it was ported from — what to review and re-port.
@@ -599,8 +601,8 @@ fn main() -> Result<()> {
 
 // deps-pure
 
-/// Crates that compile C/C++/assembly (or drive a C toolchain). The app is pure Rust except
-/// for the ring crypto provider used by rustls.
+/// Crates that compile C/C++/assembly (or drive a C toolchain). Allowed only as ring under rustls or
+/// rustls-webpki, `cc` under ring, and `cc` under the `CC_KNOWN` crates below.
 const IMPURE: &[&str] = &["ring", "openssl-sys", "openssl-src", "aws-lc-sys", "aws-lc-rs", "cmake", "bindgen", "cc"];
 
 /// Crates still allowed to build-depend on `cc`. blake3 never calls it (`pure`); the rest are
@@ -660,7 +662,7 @@ fn dependency_edges() -> Result<String> {
 fn deps_pure() -> Result<()> {
     let found = impure_crates(&dependency_edges()?);
     if !found.is_empty() {
-        bail!("Unapproved C-building crates: {}. The app is pure Rust except for rustls's ring crypto provider.", found.join(", "));
+        bail!("Unapproved C-building crates: {}. Only rustls's ring crypto provider and the CC_KNOWN crates may build C or assembly.", found.join(", "));
     }
     println!("deps-pure: pure Rust except for the ring crypto provider used by rustls (known cc parents allowed)");
     Ok(())

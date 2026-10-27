@@ -36,7 +36,7 @@ the codebase from drifting back.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo deny --manifest-path ./Cargo.toml --locked check   # advisories, licences, bans, sources
-cargo xtask deps-pure                                     # pure Rust except rustls ring crypto
+cargo xtask deps-pure                                     # pure Rust except ring and xtask's CC_KNOWN
 cargo xtask assets                                        # every bundled asset is attributed
 cargo xtask test-fast                                     # the Fast CI lane
 ```
@@ -99,7 +99,8 @@ to a local desktop app. These do:
   owner, age, downloads and repository on crates.io. Prefer established maintainers. A young
   single-owner fork replacing security-critical code (TLS, crypto, parsers) is a no.
 - Pure Rust only (`xtask deps-pure`), except ring's C/assembly TLS crypto under the
-  [2026-10-25 TLS security decision](docs/DEVELOPMENT.md#crypto-provider-exception).
+  [2026-10-25 TLS security decision](docs/DEVELOPMENT.md#crypto-provider-exception) and the
+  older `cc` users listed in xtask's `CC_KNOWN`.
   No git dependencies (`deny.toml` sources). Pin GitHub Actions to commit SHAs.
   Let Dependabot propose upgrades; review them like any other change.
 
