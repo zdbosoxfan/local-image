@@ -14,15 +14,15 @@ pub fn document(scene: ImportedScene, name: &str) -> (Document, Vec<VectorWarnin
     (doc, scene.warnings)
 }
 
-pub(super) fn translate(layer: &mut Layer, offset: [i32; 2]) -> Result<()> {
+pub(super) fn translate(layer: &mut Layer, offset: [i32; 2], format: &str) -> Result<()> {
     let affine = Affine::translate(f64::from(offset[0]), f64::from(offset[1]));
     if let Some(m) = &mut layer.vector_mask {
         m.path = m.path.transform(&affine);
-        check_path(&m.path)?;
+        check_path(&m.path, format)?;
     }
     if let Some(p) = &mut layer.vector.clip {
         *p = p.transform(&affine);
-        check_path(p)?;
+        check_path(p, format)?;
     }
     if let Some(m) = &mut layer.mask {
         m.surface = m.surface.translated(offset[0], offset[1]);
@@ -30,13 +30,13 @@ pub(super) fn translate(layer: &mut Layer, offset: [i32; 2]) -> Result<()> {
     match &mut layer.content {
         LayerContent::Shape(shape) => {
             shape.path = shape.path.transform(&affine);
-            check_path(&shape.path)?;
+            check_path(&shape.path, format)?;
             shape.cache = shape.cache.as_ref().map(|s| s.translated(offset[0], offset[1]));
         }
         LayerContent::Text(text) => {
             text.transform = affine.mul(&text.transform);
             if text.transform.m.iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) {
-                return Err(EngineError::Other("SVG text placement exceeds coordinate bounds".into()));
+                return Err(EngineError::Other(format!("{format} text placement exceeds coordinate bounds")));
             }
             text.cache = text.cache.as_ref().map(|s| s.translated(offset[0], offset[1]));
         }
@@ -45,17 +45,17 @@ pub(super) fn translate(layer: &mut Layer, offset: [i32; 2]) -> Result<()> {
         }
         LayerContent::Group(group) => {
             for child in &mut group.children {
-                translate(child, offset)?;
+                translate(child, offset, format)?;
             }
         }
-        _ => return Err(EngineError::Other("unexpected content in SVG scene".into())),
+        _ => return Err(EngineError::Other(format!("unexpected content in {format} scene"))),
     }
     Ok(())
 }
-pub(super) fn check_path(path: &photocraft_doc::Path) -> Result<()> {
+pub(super) fn check_path(path: &photocraft_doc::Path, format: &str) -> Result<()> {
     crate::vector_api::validate_path(path)?;
     if path.control_bounds().is_some_and(|b| [b.0, b.1, b.2, b.3].iter().any(|v| v.abs() > 1_000_000.0)) {
-        return Err(EngineError::Other("SVG placement exceeds coordinate bounds".into()));
+        return Err(EngineError::Other(format!("{format} placement exceeds coordinate bounds")));
     }
     Ok(())
 }

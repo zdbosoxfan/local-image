@@ -1,7 +1,10 @@
 //! PDF Open/Place: guarded, detached previews and one atomic publication.
+#[cfg(test)]
+use super::import_scene::check_path;
+use super::import_scene::translate;
 use crate::{EngineError, Result, Session, commands::CommandSpec};
 use photocraft_doc::{
-    Affine, Document, Layer, LayerContent, LayerId,
+    Document, Layer, LayerId,
     vector_design::exchange::{ImportOptions, ImportedScene},
 };
 use serde::{Deserialize, Serialize};
@@ -94,57 +97,12 @@ pub fn preview(session: &Session, request: &Place, scene: &ImportedScene) -> Res
     let frame = photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)])]);
     group.vector.clip = Some(frame.clone());
     group.vector_mask = Some(photocraft_doc::VectorMask::new(frame));
-    translate(&mut group, request.offset)?;
+    translate(&mut group, request.offset, "PDF")?;
     let id = doc.insert_above(request.above, group);
     if doc.max_group_depth() > photocraft_doc::MAX_GROUP_DEPTH {
         return Err(error("PDF placement exceeds document group depth"));
     }
     Ok((doc, id))
-}
-fn translate(layer: &mut Layer, offset: [i32; 2]) -> Result<()> {
-    let affine = Affine::translate(f64::from(offset[0]), f64::from(offset[1]));
-    if let Some(m) = &mut layer.vector_mask {
-        m.path = m.path.transform(&affine);
-        check_path(&m.path)?;
-    }
-    if let Some(p) = &mut layer.vector.clip {
-        *p = p.transform(&affine);
-        check_path(p)?;
-    }
-    if let Some(m) = &mut layer.mask {
-        m.surface = m.surface.translated(offset[0], offset[1]);
-    }
-    match &mut layer.content {
-        LayerContent::Shape(shape) => {
-            shape.path = shape.path.transform(&affine);
-            check_path(&shape.path)?;
-            shape.cache = shape.cache.as_ref().map(|s| s.translated(offset[0], offset[1]));
-        }
-        LayerContent::Text(text) => {
-            text.transform = affine.mul(&text.transform);
-            if text.transform.m.iter().any(|v| !v.is_finite() || v.abs() > 1_000_000.0) {
-                return Err(error("PDF text placement exceeds coordinate bounds"));
-            }
-            text.cache = text.cache.as_ref().map(|s| s.translated(offset[0], offset[1]));
-        }
-        LayerContent::Raster(surface) => {
-            *surface = surface.translated(offset[0], offset[1]);
-        }
-        LayerContent::Group(group) => {
-            for child in &mut group.children {
-                translate(child, offset)?;
-            }
-        }
-        _ => return Err(error("unexpected content in PDF scene")),
-    }
-    Ok(())
-}
-fn check_path(path: &photocraft_doc::Path) -> Result<()> {
-    crate::vector_api::validate_path(path)?;
-    if path.control_bounds().is_some_and(|b| [b.0, b.1, b.2, b.3].iter().any(|v| v.abs() > 1_000_000.0)) {
-        return Err(error("PDF placement exceeds coordinate bounds"));
-    }
-    Ok(())
 }
 pub fn publish(session: &mut Session, request: &Place, scene: &ImportedScene) -> Result<Value> {
     let (prepared, id) = preview(session, request, scene)?;

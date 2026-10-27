@@ -66,7 +66,7 @@ pub fn preview(session: &Session, request: &Place, scene: &ImportedScene) -> Res
     let frame = photocraft_doc::Path::new(vec![photocraft_doc::Subpath::polygon(&[(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)])]);
     group.vector.clip = Some(frame.clone());
     group.vector_mask = Some(photocraft_doc::VectorMask::new(frame));
-    translate(&mut group, request.offset)?;
+    translate(&mut group, request.offset, "SVG")?;
     let id = doc.insert_above(request.above, group);
     if doc.max_group_depth() > photocraft_doc::MAX_GROUP_DEPTH {
         return Err(error("SVG placement exceeds document group depth"));

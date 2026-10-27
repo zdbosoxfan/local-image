@@ -172,7 +172,7 @@ fn scene_adapter_characterization() {
     let mut layer = Layer::group("outer", vec![inner]);
     layer.vector_mask = Some(VectorMask::new(path.clone()));
     layer.vector.clip = Some(path.clone());
-    translate(&mut layer, [-7, -9]).unwrap();
+    translate(&mut layer, [-7, -9], "PDF").unwrap();
     assert_eq!(layer.vector_mask.as_ref().unwrap().path, shifted);
     assert_eq!(layer.vector.clip.as_ref().unwrap(), &shifted);
     let inner = &layer.children().unwrap()[0];
@@ -202,15 +202,15 @@ fn scene_adapter_characterization() {
         "transform":text.transform.m,"pixels":samples,"mask":[mask.surface.sample_channel(-5,-6,0),mask.surface.sample_channel(2,3,0)],
         "artboard":group.artboard.as_ref().unwrap().rect});
     let boundary = Path::new(vec![Subpath::polyline(&[(1_000_000., -1_000_000.), (0., 0.)])]);
-    check_path(&boundary).unwrap();
+    check_path(&boundary, "PDF").unwrap();
     let mut outside = Layer::new("outside", LayerContent::Shape(ShapeLayer { path: boundary, ..Default::default() }));
-    let path_error = translate(&mut outside, [1, 0]).unwrap_err().to_string();
+    let path_error = translate(&mut outside, [1, 0], "PDF").unwrap_err().to_string();
     assert_eq!(path_error, "PDF placement exceeds coordinate bounds");
     let mut outside = Layer::new("outside type", LayerContent::Text(TextLayer { transform: Affine::translate(-1_000_000., 0.), ..Default::default() }));
-    let text_error = translate(&mut outside, [-1, 0]).unwrap_err().to_string();
+    let text_error = translate(&mut outside, [-1, 0], "PDF").unwrap_err().to_string();
     assert_eq!(text_error, "PDF text placement exceeds coordinate bounds");
     let mut unsupported = Layer::new("fill", LayerContent::Fill(Fill::Solid(photocraft_doc::Color::BLACK)));
-    let content_error = translate(&mut unsupported, [0, 0]).unwrap_err().to_string();
+    let content_error = translate(&mut unsupported, [0, 0], "PDF").unwrap_err().to_string();
     assert_eq!(content_error, "unexpected content in PDF scene");
     let scene = ImportedScene {
         size: Size::new(37, 29),
