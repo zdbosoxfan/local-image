@@ -176,7 +176,7 @@ pub const CATALOGUE: &[(&str, Severity, &str)] = &[
     ("UpsamplerAvailable", Severity::Info, "This model can use an optional prompt enhancer ({file}, {size}). Turn on Enhance prompt in Generate to use it."),
     ("UpsamplerInstalled", Severity::Info, "Prompt enhancer: installed (off by default)."),
     ("NotVerified", Severity::Info, "{model} hasn't been tested on this computer yet."),
-    ("Busy", Severity::Info, "ComfyUI is busy. Verification starts when its queue is empty."),
+    ("Busy", Severity::Info, "ComfyUI was busy for {minutes} minutes, so nothing was tested. Verify again when its queue is empty."),
     ("Stalled", Severity::Blocker, "ComfyUI stopped processing prompts: a test waited over a minute while nothing ran. Restart ComfyUI, then verify again."),
     ("VerifyFailed:wrong_size", Severity::Blocker, "The {capability} test image came back {got} instead of {want}."),
     (
@@ -306,6 +306,14 @@ pub fn role_label(role: &str, plural: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn busy_display_says_nothing_was_tested_and_how_to_retry() {
+        let minutes = crate::modelsetup::verify::BUSY_WAIT.as_secs() / 60;
+        let message = crate::modelsetup::Busy.to_string();
+        assert_eq!(message, format!("ComfyUI was busy for {minutes} minutes, so nothing was tested. Verify again when its queue is empty."));
+        assert!(!message.contains('{'));
+    }
 
     #[test]
     fn issues_fill_their_catalogue_sentence() {

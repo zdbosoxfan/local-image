@@ -43,7 +43,9 @@ pub struct Busy;
 
 impl std::fmt::Display for Busy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(issue::CATALOGUE.iter().find(|(c, _, _)| *c == "Busy").map(|(_, _, t)| *t).unwrap_or("ComfyUI is busy."))
+        let template = issue::CATALOGUE.iter().find(|(c, _, _)| *c == "Busy").map(|(_, _, t)| *t).unwrap_or("ComfyUI is busy.");
+        let args = [("minutes".to_owned(), (verify::BUSY_WAIT.as_secs() / 60).to_string())].into();
+        f.write_str(&issue::fill(template, &args))
     }
 }
 
