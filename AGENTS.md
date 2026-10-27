@@ -36,7 +36,7 @@ the codebase from drifting back.
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo deny --manifest-path ./Cargo.toml --locked check   # advisories, licences, bans, sources
-cargo xtask deps-pure                                     # pure Rust except rustls ring crypto
+cargo xtask deps-pure                                     # pure Rust except ring and xtask's CC_KNOWN
 cargo xtask assets                                        # every bundled asset is attributed
 cargo xtask test-fast                                     # the Fast CI lane
 ```
@@ -45,9 +45,11 @@ cargo xtask test-fast                                     # the Fast CI lane
 - New RustSec advisories appear almost daily. When `deny` fails without a code change, upgrade if a
   fix exists. If none exists, add a narrowly scoped `deny.toml` ignore whose reason states the
   advisory, why it is unreachable or unfixable, and what would clear it.
-- Tests can be flaky under heavy parallel load. When a test your change cannot affect fails, rerun
-  it alone once: if it passes, report it as flaky; if not, report it as pre-existing. Don't edit
-  the test, and don't build `main` to compare.
+- Tests can be flaky under heavy parallel load. When a test fails that your change cannot affect
+  (say why, from the source and its dependencies), rerun it alone once: if it passes, report both
+  runs as flaky. If it fails again, call it pre-existing only with earlier evidence from an
+  unchanged tree; otherwise report it as not verified, cause unknown. Don't edit, weaken or
+  ignore the test, and don't build a second tree just to compare.
 
 ## 3. Production-readiness checklist for this app
 
@@ -99,7 +101,8 @@ to a local desktop app. These do:
   owner, age, downloads and repository on crates.io. Prefer established maintainers. A young
   single-owner fork replacing security-critical code (TLS, crypto, parsers) is a no.
 - Pure Rust only (`xtask deps-pure`), except ring's C/assembly TLS crypto under the
-  [2026-10-25 TLS security decision](docs/DEVELOPMENT.md#crypto-provider-exception).
+  [2026-10-25 TLS security decision](docs/DEVELOPMENT.md#crypto-provider-exception) and the
+  older `cc` users listed in xtask's `CC_KNOWN`.
   No git dependencies (`deny.toml` sources). Pin GitHub Actions to commit SHAs.
   Let Dependabot propose upgrades; review them like any other change.
 

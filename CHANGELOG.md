@@ -15,6 +15,7 @@ All notable changes to Local Image are recorded here. The format follows
 - Compositing: Displace Smart Filters embed maps chosen from files or open documents, retain
   them through map replacement, undo and PSD/native saves, and no longer depend on the map source.
   Large embedded maps are omitted from inspect output and count toward the undo memory budget.
+  Maps over 16,777,216 pixels are refused with a message.
 
 - Compositing: Gradient Fill layers, the Gradient tool and Vector appearance paints offer
   Classic or Perceptual (OKLab) interpolation. Classic remains the default; native Perceptual stops
