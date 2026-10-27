@@ -367,14 +367,24 @@ pub fn upright_progress(app: &mut LightcraftApp, ui: &mut egui::Ui) {
     let total: usize = running.iter().map(|j| j.total).sum();
     let done: usize = running.iter().map(|j| j.done.load(Ordering::Relaxed)).sum();
     pad(ui, |ui| {
-        ui.horizontal(|ui| {
-            let text = format!("{} {done}/{total}", li_i18n::library::t("Upright"));
-            let bar = ui.add(egui::ProgressBar::new(done as f32 / total.max(1) as f32).desired_width(150.0).text(text));
-            register(ui.ctx(), "progress:upright", bar.rect);
-            if crate::widgets::text_button(ui, "uprightCancel", li_i18n::library::t("Cancel"), false).clicked() {
+        let row = ui.scope(|ui| {
+            let cancel = li_ui_kit::progress::job_row(
+                ui,
+                &li_ui_kit::progress::JobLine {
+                    title: &format!("{} {done}/{total}", li_i18n::library::t("Upright")),
+                    detail: "",
+                    fraction: Some(done as f32 / total.max(1) as f32),
+                    stopping: false,
+                },
+                li_i18n::library::t("Cancel"),
+                li_ui_kit::widgets::Profile::Library,
+            );
+            register(ui.ctx(), "button:uprightCancel", cancel.rect);
+            if cancel.clicked() {
                 let _ = app.run("develop.cancelUpright", json!({}));
             }
         });
+        register(ui.ctx(), "progress:upright", row.response.rect);
     });
     ui.ctx().request_repaint_after(std::time::Duration::from_millis(200));
 }
