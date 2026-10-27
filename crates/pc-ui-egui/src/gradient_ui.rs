@@ -627,7 +627,7 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
 // Properties panel
 
 /// Width of the Properties label column ("Method", "Style", "Angle", "Scale").
-const PROP_LABEL_W: f32 = 38.0;
+const PROP_LABEL_W: f32 = 44.0;
 
 /// Commits a numeric field once (drag released, Enter, focus lost); `None` while editing.
 fn field(ui: &mut egui::Ui, id: &str, current: f32, range: std::ops::RangeInclusive<f32>, suffix: &str, width: f32) -> Option<f32> {
