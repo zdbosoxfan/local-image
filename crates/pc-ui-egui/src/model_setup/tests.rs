@@ -34,6 +34,23 @@ fn harness(scan: Scan, selected: &str, size: egui::Vec2) -> Harness<'static, Pho
     h
 }
 
+fn chrome_harness(size: egui::Vec2) -> Harness<'static, PhotocraftApp> {
+    let mut first = true;
+    Harness::builder().with_size(size).with_max_steps(64).build_ui_state(
+        move |ui, app: &mut PhotocraftApp| {
+            if first {
+                PhotocraftApp::setup_context(ui.ctx(), crate::theme::ThemeKind::Pro);
+                first = false;
+                ui.ctx().request_repaint();
+                return;
+            }
+            let _ = ui.button("chrome");
+            window(app, ui.ctx());
+        },
+        PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default()),
+    )
+}
+
 fn recorded() -> Vec<Action> {
     with(|s| s.recorded.clone().unwrap_or_default())
 }
@@ -282,15 +299,15 @@ fn model_setup_screens() {
 
 #[test]
 fn keyboard_and_screen_reader_order_follow_the_window_layout() {
-    let mut h = harness(fixture(), FLUX3, vec2(1440.0, 900.0));
+    prepare(fixture(), FLUX3, Step::Identify, true);
+    let mut h = chrome_harness(vec2(1440.0, 900.0));
+    h.run_steps(4);
     let row = "FLUX.3 Klein Distilled · BF16, ready, not tested";
     let labels: Vec<_> = h.root().children_recursive().filter_map(|n| n.accesskit_node().label()).collect();
     let positions =
         ["Re-check", row, "1 Identify", "Change template…", "Verify all ready (2)", "Copy report"].map(|label| labels.iter().position(|l| l == label).unwrap());
     assert!(positions.windows(2).all(|p| p[0] < p[1]), "AccessKit order: {labels:?}");
-    h.key_press(egui::Key::Tab);
-    h.run_steps(2);
-    assert!(h.get_by_label("Re-check").accesskit_node().is_focused(), "the first Tab starts in the header");
+    assert!(h.get_by_label("Re-check").accesskit_node().is_focused(), "Re-check takes focus when the window opens");
     let mut reached_row = false;
     let mut reached_tabs = false;
     let mut reached_action = false;
@@ -317,6 +334,42 @@ fn keyboard_and_screen_reader_order_follow_the_window_layout() {
         }
     }
     panic!("Tab did not reach the footer");
+}
+
+#[test]
+fn opening_scan_defers_focus_until_recheck_is_enabled() {
+    prepare(fixture(), FLUX3, Step::Identify, true);
+    let task = Arc::new(Mutex::new(Task::default()));
+    with(|s| s.task = Some(task.clone()));
+    let mut h = chrome_harness(vec2(1440.0, 900.0));
+    h.run_steps(4);
+    assert!(!h.get_by_label("Re-check").accesskit_node().is_focused());
+    assert!(!h.get_by_label("chrome").accesskit_node().is_focused());
+    task.lock().unwrap().result = Some(Ok(Done::Scanned(Box::new(fixture()))));
+    h.run_steps(4);
+    assert!(h.get_by_label("Re-check").accesskit_node().is_focused(), "Re-check takes focus after the opening scan");
+
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    assert!(!is_open());
+    let task = Arc::new(Mutex::new(Task::default()));
+    with(|s| {
+        s.open = true;
+        s.task = Some(task.clone());
+    });
+    h.run_steps(4);
+    h.get_by_label("Copy report").focus();
+    h.run_steps(2);
+    task.lock().unwrap().result = Some(Ok(Done::Scanned(Box::new(fixture()))));
+    h.run_steps(4);
+    assert!(h.get_by_label("Copy report").accesskit_node().is_focused(), "finishing the opening scan preserves a later focus choice");
+
+    h.key_press(egui::Key::Escape);
+    h.run_steps(4);
+    assert!(!is_open());
+    with(|s| s.open = true);
+    h.run_steps(4);
+    assert!(h.get_by_label("Re-check").accesskit_node().is_focused(), "reopening the window takes focus again");
 }
 
 #[test]
@@ -360,15 +413,21 @@ fn a_single_test_render_uses_the_singular_label() {
 
 #[test]
 fn remote_fixes_explain_why_they_are_disabled() {
-    let mut scan = fixture();
-    scan.snapshot.as_mut().unwrap().remote = true;
-    let mut h = harness(scan, MOSS, vec2(1440.0, 900.0));
-    select(&mut h, MOSS, Step::Check);
-    let download = h.get_by_label("Download 19.3 GB");
-    assert!(download.accesskit_node().is_disabled());
-    download.hover();
-    h.run_steps(60);
-    h.get_by_label("The model folder is on another computer; install or move the file there.");
+    let backend = li_ai::settings::StoreBackend {
+        load: Arc::new(|| Ok(Some(serde_json::json!({"setup_mode": "remote", "comfy_host": "127.0.0.1"})))),
+        save: Arc::new(|_| panic!("the fixture must not save AI settings")),
+    };
+    li_ai::settings::with_store_backend(backend, || {
+        let mut h = harness(fixture(), MOSS, vec2(1440.0, 900.0));
+        select(&mut h, MOSS, Step::Check);
+        let download = h.get_by_label("Download 19.3 GB");
+        assert!(download.accesskit_node().is_disabled());
+        download.hover();
+        h.run_steps(60);
+        h.get_by_label("The model folder is on another computer; install or move the file there.");
+        assert!(h.get_by_label("Move to vae/").accesskit_node().is_disabled());
+        assert!(options().model_dir.is_none());
+    });
 }
 
 #[test]
