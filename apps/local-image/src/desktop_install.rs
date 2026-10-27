@@ -69,15 +69,17 @@ fn install_into(p: &Path, exe: &Path) -> Result<String, String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => bin.clone(),
         Err(e) => return Err(format!("{}: {e}", bin.display())),
     };
-    let already_installed = exe.parent() == Some(canonical_bin.as_path());
     let exec = bin.join("local-image");
+    let destination_is_symlink = match std::fs::symlink_metadata(&exec) {
+        Ok(metadata) => metadata.file_type().is_symlink(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+        Err(e) => return Err(format!("{}: {e}", exec.display())),
+    };
+    let already_installed = exe.parent() == Some(canonical_bin.as_path()) && !destination_is_symlink;
     if !already_installed {
         let mut source = std::fs::File::open(exe).map_err(|e| format!("{}: {e}", exe.display()))?;
-        match std::fs::symlink_metadata(&exec) {
-            Ok(metadata) if metadata.file_type().is_symlink() => std::fs::remove_file(&exec).map_err(|e| format!("{}: {e}", exec.display()))?,
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(format!("{}: {e}", exec.display())),
+        if destination_is_symlink {
+            std::fs::remove_file(&exec).map_err(|e| format!("{}: {e}", exec.display()))?;
         }
         write_stream(&exec, true, &mut |writer| std::io::copy(&mut source, writer).map(|_| ()))?;
     }
@@ -254,6 +256,22 @@ mod tests {
             assert_eq!(std::fs::read(&other).unwrap(), b"unrelated executable");
             assert!(!dir.join("missing").exists());
         }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn install_replaces_a_binary_symlink_within_the_same_bin_directory() {
+        let dir = test_dir("same-bin-symlink");
+        let source = dir.join("bin/local-image-versioned");
+        let installed = dir.join("bin/local-image");
+        std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+        std::fs::write(&source, b"versioned executable").unwrap();
+        std::os::unix::fs::symlink("local-image-versioned", &installed).unwrap();
+        let message = super::install_into(&dir, &source).unwrap();
+        assert!(!std::fs::symlink_metadata(&installed).unwrap().file_type().is_symlink());
+        assert_eq!(std::fs::read(&installed).unwrap(), b"versioned executable");
+        assert_eq!(std::fs::read(&source).unwrap(), b"versioned executable");
+        assert!(message.starts_with("Installed Local Image"), "{message}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
