@@ -133,7 +133,7 @@ pub(super) fn add_replaced_source(
     path: &str,
     reset: &photocraft_ui_egui::develop_layer::LibrarySaveSource,
 ) -> Result<Option<LibraryUpdate>, String> {
-    if capture_save_source(s, &reset.origin).as_ref() != Some(reset) || !photocraft_ui_egui::develop_layer::same_file_path(path, &reset.origin.path) {
+    if capture_save_source(s, &reset.origin).as_ref() != Some(reset) || !photocraft_ui_egui::develop_layer::same_source_path(path, &reset.origin.path) {
         return Err("Source identity or Develop edits changed; the saved file exists, but the newer Library edits were preserved".into());
     }
     let result = s.execute("photo.reload", &serde_json::json!({"ids":[reset.master],"resetDevelop":true})).map_err(|e| e.to_string())?;
