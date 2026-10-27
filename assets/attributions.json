@@ -2497,9 +2497,10 @@
         },
         {
           "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
           "used_for": "The Affinity archive: header, the chain of file allocation tables (one per save) and bounded, CRC-checked extraction of named entries such as doc.dat and raster tiles.",
           "upstream": "crates/affinity/src/container.rs",
-          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
           "ours": "crates/pc-affinity/src/container.rs",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
@@ -2507,7 +2508,7 @@
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-NOTICE"
           ],
-          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/container.rs"
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/container.rs"
         },
         {
           "name": "VectorCraft",
@@ -2539,6 +2540,66 @@
         },
         {
           "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
+          "used_for": "Local Image scene adapter for the pinned Affinity reader.",
+          "upstream": "crates/engine/src/cmd/fileio/affinity.rs (local native scene adaptation)",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
+          "ours": "crates/pc-affinity/src/import.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/engine/src/cmd/fileio/affinity.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
+          "used_for": "Affinity model -> ordinary native layers.",
+          "upstream": "crates/engine/src/cmd/fileio/affinity.rs (local native scene adaptation)",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
+          "ours": "crates/pc-affinity/src/import/scene.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/engine/src/cmd/fileio/affinity.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
+          "used_for": "Editable Affinity text conversion and bounded layout.",
+          "upstream": "crates/affinity/src/text.rs (local native scene adaptation)",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
+          "ours": "crates/pc-affinity/src/import/text.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/text.rs"
+        },
+        {
+          "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
+          "used_for": "Affinity effects remain native layer styles; no baked overlay copies.",
+          "upstream": "crates/affinity/src/overlay.rs (local native scene adaptation)",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
+          "ours": "crates/pc-affinity/src/import/effects.rs",
+          "licence": "MIT OR Apache-2.0",
+          "licence_files": [
+            "licenses/vectorcraft-LICENSE-APACHE",
+            "licenses/vectorcraft-LICENSE-MIT",
+            "licenses/vectorcraft-NOTICE"
+          ],
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/overlay.rs"
+        },
+        {
+          "name": "VectorCraft",
           "version": "including f73a3df974b990fd4d73d5addf6a95c48ea3cc2b mask extent",
           "used_for": "The document model VectorCraft imports: spreads, artboards, layers, groups, curves, shapes, text and images, with transforms composed into document space.",
           "upstream": "crates/affinity/src/model.rs",
@@ -2554,9 +2615,10 @@
         },
         {
           "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
           "used_for": "Fills, strokes and colours.",
           "upstream": "crates/affinity/src/paint.rs",
-          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
           "ours": "crates/pc-affinity/src/paint.rs",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
@@ -2564,7 +2626,7 @@
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-NOTICE"
           ],
-          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/paint.rs"
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/paint.rs"
         },
         {
           "name": "VectorCraft",
@@ -2653,9 +2715,10 @@
         },
         {
           "name": "VectorCraft",
+          "version": "including fd50bd6f843e80e80b4db1ad7c25c863bff90a33 AF.5 records and f73a3df974b990fd4d73d5addf6a95c48ea3cc2b resource limits",
           "used_for": "Artistic and frame text: the story's characters with their font, size, colour, tracking and leading, the paragraph alignment and the first baseline.",
           "upstream": "crates/affinity/src/text.rs",
-          "commit": "d522c1d7be4035bd4f4a84cd6ebfca44f5155092",
+          "commit": "b3ccdf01a7482fc4fd7545ed9e302911824a2a3c",
           "ours": "crates/pc-affinity/src/text.rs",
           "licence": "MIT OR Apache-2.0",
           "licence_files": [
@@ -2663,7 +2726,7 @@
             "licenses/vectorcraft-LICENSE-MIT",
             "licenses/vectorcraft-NOTICE"
           ],
-          "url": "https://github.com/storytold/vectorcraft/blob/d522c1d7be4035bd4f4a84cd6ebfca44f5155092/crates/affinity/src/text.rs"
+          "url": "https://github.com/storytold/vectorcraft/blob/b3ccdf01a7482fc4fd7545ed9e302911824a2a3c/crates/affinity/src/text.rs"
         },
         {
           "name": "VectorCraft",
