@@ -14,7 +14,7 @@ with their own tonal response too.
 
 ## Decision
 
-1. **Rendered-source containment.** Nonnegative working RGB stays unchanged. Outside colours
+1. **Rendered-source containment.** Nonnegative working RGB stays unchanged up to one f32 rounding step. Outside colours
    move along a linear RGB ray from their nonnegative channel average until the lowest channel
    reaches zero. The existing negative-channel containment supplies this boundary clip,
    continuous at every lower face. The scene gamut is a cone without an upper bound; the
@@ -33,8 +33,8 @@ with their own tonal response too.
 
 ## Consequences
 
-Saturated rendered colours remain identical through scene containment, including blue-edge
-colours. Converted RAW negatives follow this same rule. Output mapping remains governed by
+Saturated rendered colours stay unchanged up to one f32 rounding step through scene
+containment, including blue-edge colours. Converted RAW negatives follow this same rule. Output mapping remains governed by
 [0003](0003-blue-band-output-clipping.md). No persisted settings or catalog format changes.
 
 ## Related documents
