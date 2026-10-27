@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
+use photocraft_doc::{Affine, ColorMode, LayerContent, SampleType};
 fn session() -> Session {
     let mut s = Session::new();
     s.add_document(Document::new("destination", photocraft_doc::Size::new(96, 96), ColorMode::Rgb, SampleType::F32), None);
@@ -350,4 +351,43 @@ fn affinity_worker_preparation_keeps_captured_admission_and_cancellation() {
     assert!(scene.warnings.iter().any(|w| w.feature == "bevel-approximation"));
     cancel.store(true, std::sync::atomic::Ordering::Relaxed);
     assert!(matches!(prepare(&request, 72., &cancel), Err(EngineError::Cancelled)));
+}
+
+#[test]
+fn scene_constructor_characterization() {
+    use photocraft_doc::{Artboard, DesignUnits, Rect, Size, SymbolDef, SymbolId};
+    let mut inner = Layer::group("board", vec![Layer::raster("art", photocraft_doc::PixelFormat::RGBA32F)]);
+    if let LayerContent::Group(group) = &mut inner.content {
+        group.artboard = Some(Artboard::new(Rect::new(1, 2, 5, 8)));
+    }
+    let mut layer = Layer::group("outer", vec![inner]);
+    translate(&mut layer, [-7, -9]).unwrap();
+    let LayerContent::Group(group) = &layer.children().unwrap()[0].content else { panic!("nested artboard") };
+    let rect = group.artboard.as_ref().unwrap().rect;
+    assert_eq!(rect, Rect::new(-6, -7, -2, -1));
+    let scene = ImportedScene {
+        size: Size::new(37, 29),
+        resolution_dpi: 144.,
+        units: DesignUnits::Millimeters,
+        layers: vec![layer.clone()],
+        symbols: vec![SymbolDef { id: SymbolId(71), name: "master".into(), layers: vec![layer.clone()] }],
+        warnings: vec![VectorWarning { feature: "synthetic".into(), object: Some("art".into()), message: "retained warning".into() }],
+    };
+    let (doc, warnings) = document(scene.clone(), "Imported art");
+    assert_eq!(doc.name, "Imported art");
+    assert_eq!(doc.size, scene.size);
+    assert_eq!(doc.resolution_dpi, 144.);
+    assert_eq!(doc.design_units, DesignUnits::Millimeters);
+    assert_eq!(doc.mode, ColorMode::Rgb);
+    assert_eq!(doc.depth, SampleType::F32);
+    assert_eq!(doc.layers, scene.layers);
+    assert_eq!(doc.symbols, scene.symbols);
+    assert_eq!(warnings, scene.warnings);
+
+    eprintln!(
+        "CHARACTERIZATION {}",
+        json!({"artboard":rect,"document":{"name":doc.name,"size":doc.size,
+        "dpi":doc.resolution_dpi,"units":doc.design_units,
+        "symbols":doc.symbols.iter().map(|s| (&s.name,s.id.0,s.layers.len())).collect::<Vec<_>>(),"warnings":warnings}})
+    );
 }
