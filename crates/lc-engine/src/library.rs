@@ -59,7 +59,7 @@ pub struct Library {
     pub settings_warnings: Vec<String>,
     warnings_reported: usize,
     /// Settings files that couldn't be read or set aside: never overwritten this session.
-    blocked: Vec<&'static str>,
+    blocked: std::collections::BTreeMap<&'static str, String>,
     /// Keeps other processes out of this library while it's open (last: released after the
     /// journal's background snapshot has landed).
     lock: Option<LibraryLock>,
@@ -241,18 +241,46 @@ fn program_name() -> String {
 struct SettingsLoad {
     warnings: Vec<String>,
     /// Files not to overwrite this session.
-    blocked: Vec<&'static str>,
+    blocked: std::collections::BTreeMap<&'static str, String>,
 }
 
 impl SettingsLoad {
+    fn block(&mut self, name: &'static str, message: String) {
+        self.blocked.insert(name, message.clone());
+        self.warnings.push(message);
+    }
+
     fn read<T: serde::de::DeserializeOwned>(&mut self, store: &mut dyn Store, name: &'static str) -> Option<T> {
-        let bytes = match store.read(name) {
-            Ok(b) => b?,
+        let target = match store.link_target(name) {
+            Ok(target) => target,
             Err(e) => {
-                log::error!("library: {name}: {e}");
-                self.blocked.push(name);
-                self.warnings.push(format!(
-                    "{name} couldn't be read ({e}). Local Image uses the defaults for now and won't overwrite the file; reopen the library to try again."
+                self.block(name, format!("{name} couldn't be inspected ({e}); the defaults are used and the file won't be overwritten."));
+                return None;
+            }
+        };
+        let bytes = match store.read(name) {
+            Ok(Some(bytes)) => bytes,
+            Ok(None) => {
+                if let Some(target) = &target {
+                    self.block(
+                        name,
+                        format!(
+                            "{} -> {} is not a valid {name} file (missing target); the defaults are used and the file won't be overwritten.",
+                            Path::new(&store.describe()).join(name).display(),
+                            target.display()
+                        ),
+                    );
+                }
+                return None;
+            }
+            Err(e) => {
+                let location = match &target {
+                    Some(target) => format!("{} -> {}", Path::new(&store.describe()).join(name).display(), target.display()),
+                    None => name.to_string(),
+                };
+                log::error!("library: {location}: {e}");
+                self.block(name, format!(
+                    "{location} couldn't be read ({e}). Local Image uses the defaults for now and won't overwrite the file; reopen the library to try again."
                 ));
                 return None;
             }
@@ -261,16 +289,33 @@ impl SettingsLoad {
             Ok(v) => return Some(v),
             Err(e) => e,
         };
+        if let Some(target) = target {
+            self.block(name, format!(
+                "{} -> {} is not a valid {name} file ({err}); the defaults are used and the file won't be overwritten. Reopen the library after correcting the link.",
+                Path::new(&store.describe()).join(name).display(), target.display()
+            ));
+            return None;
+        }
         let secs = web_time::SystemTime::now().duration_since(web_time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
         let keep = format!("{name}.corrupt-{secs}");
         log::error!("library: {name} is damaged: {err}");
-        match store.write_atomic(&keep, &bytes) {
+        let preserved = store.link_target(&keep).and_then(|target| {
+            if let Some(target) = target {
+                return Err(std::io::Error::other(format!(
+                    "preservation copy {} -> {} is a symbolic link",
+                    Path::new(&store.describe()).join(&keep).display(),
+                    target.display()
+                )));
+            }
+            store.write_atomic(&keep, &bytes)
+        });
+        match preserved {
             Ok(()) => self.warnings.push(format!("{name} is damaged ({err}). It was kept as {keep}, and the defaults are used.")),
             Err(w) => {
-                self.blocked.push(name);
-                self.warnings.push(format!(
-                    "{name} is damaged ({err}) and couldn't be set aside ({w}). Local Image uses the defaults and won't overwrite the file."
-                ));
+                self.block(
+                    name,
+                    format!("{name} is damaged ({err}) and couldn't be set aside ({w}). Local Image uses the defaults and won't overwrite the file."),
+                );
             }
         }
         None
@@ -358,6 +403,7 @@ impl Session {
         }
         let mut settings = SettingsLoad::default();
         settings.warnings.extend(identity_warning);
+        settings.warnings.extend(report.write_refusal.iter().cloned());
         // presets
         if let Some(f) = settings.read::<PresetsFile>(files.as_mut(), "presets.json") {
             for p in &mut self.presets {
@@ -506,7 +552,7 @@ impl Session {
         }
         let presets = presets_json(self);
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
-        if presets != lib.presets_written && !lib.blocked.contains(&"presets.json") {
+        if presets != lib.presets_written && !lib.blocked.contains_key("presets.json") {
             if let Err(e) = lib.files.write_atomic("presets.json", presets.as_bytes()) {
                 log::error!("library: presets: {e}");
             } else {
@@ -584,7 +630,7 @@ impl Session {
         }
         let v = self.view_json();
         let Some(lib) = self.library.as_mut() else { return };
-        if v != lib.view_written && !lib.blocked.contains(&"view.json") {
+        if v != lib.view_written && !lib.blocked.contains_key("view.json") {
             match lib.files.write_atomic("view.json", &v) {
                 Ok(()) => lib.view_written = v,
                 Err(e) => log::error!("library: view: {e}"),
@@ -596,8 +642,8 @@ impl Session {
     pub fn save_smart_tag_sets(&mut self) -> Result<()> {
         let v = serde_json::to_vec_pretty(&self.smart.tag_sets).map_err(|e| EngineError::Other(e.to_string()))?;
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
-        if lib.blocked.contains(&"smart-sort-tagsets.json") {
-            return Err(EngineError::Other("tag sets file could not be read; reopen the library before saving".into()));
+        if let Some(reason) = lib.blocked.get("smart-sort-tagsets.json") {
+            return Err(EngineError::Other(reason.clone()));
         }
         lib.files.write_atomic("smart-sort-tagsets.json", &v).map_err(|e| EngineError::Other(e.to_string()))
     }
@@ -625,10 +671,8 @@ impl Session {
         })
         .unwrap_or_default();
         let Some(lib) = self.library.as_mut() else { return Ok(()) };
-        if lib.blocked.contains(&"prefs.json") {
-            return Err(EngineError::Other(
-                "prefs: prefs.json couldn't be read when the library opened, so it isn't overwritten; reopen the library to save preferences".into(),
-            ));
+        if let Some(reason) = lib.blocked.get("prefs.json") {
+            return Err(EngineError::Other(reason.clone()));
         }
         lib.files.write_atomic("prefs.json", &v).map_err(|e| EngineError::Other(format!("prefs: {e}")))
     }

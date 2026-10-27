@@ -95,3 +95,128 @@ fn unreadable_settings_are_not_overwritten() {
     assert_eq!(files.files.get("presets.json").unwrap(), presets);
     assert_eq!(files.files.get("prefs.json").unwrap(), prefs);
 }
+
+#[cfg(unix)]
+#[test]
+fn unrelated_prefs_link_is_untouched_and_saving_is_refused() {
+    let lib = temp_dir("prefs-link");
+    let target = lib.join("notes.txt");
+    let bytes = b"These notes are not JSON preferences.";
+    std::fs::write(&target, bytes).unwrap();
+    std::os::unix::fs::symlink(&target, lib.join("prefs.json")).unwrap();
+    let mut session = Session::new().with_fs();
+    session.open_library(&lib, false).unwrap();
+    let error = session.save_prefs().unwrap_err().to_string();
+    assert!(error.contains("prefs.json") && error.contains(&target.display().to_string()), "{error}");
+    assert_eq!(std::fs::read(&target).unwrap(), bytes);
+    let warnings = session.take_library_warnings();
+    assert!(warnings.iter().any(|w| w.contains("prefs.json") && w.contains(&target.display().to_string())), "{warnings:?}");
+    assert!(!std::fs::read_dir(&lib).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("prefs.json.corrupt-")));
+    drop(session);
+    std::fs::remove_dir_all(lib).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn refused_log_link_warning_reaches_library_and_close_refuses_saving() {
+    let lib = temp_dir("log-link-warning");
+    let mut session = Session::new().with_fs();
+    session.open_library(&lib, false).unwrap();
+    session.close_library().unwrap();
+    drop(session);
+    let target = lib.join("notes.txt");
+    let bytes = b"Leave these notes alone.";
+    std::fs::write(&target, bytes).unwrap();
+    let log = lib.join("catalog.log");
+    std::fs::remove_file(&log).unwrap();
+    std::os::unix::fs::symlink(&target, &log).unwrap();
+    let snapshot = std::fs::read(lib.join("catalog.snap")).unwrap();
+    let mut session = Session::new().with_fs();
+    session.open_library(&lib, false).unwrap();
+    let warnings = session.take_library_warnings();
+    assert!(warnings.iter().any(|w| w.contains(&log.display().to_string()) && w.contains(&target.display().to_string())), "{warnings:?}");
+    assert!(session.execute("album.create", &json!({"name": "Unsaved"})).is_err());
+    assert!(session.close_library().unwrap_err().to_string().contains(&target.display().to_string()));
+    assert_eq!(std::fs::read(&target).unwrap(), bytes);
+    assert_eq!(std::fs::read(lib.join("catalog.snap")).unwrap(), snapshot);
+    drop(session);
+    std::fs::remove_dir_all(lib).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn relocated_settings_links_remain_writable() {
+    let lib = temp_dir("relocated-settings");
+    let moved = lib.join("another-disk");
+    std::fs::create_dir(&moved).unwrap();
+    for (name, bytes) in [("prefs.json", "{}"), ("presets.json", "{}"), ("view.json", "{}"), ("smart-sort-tagsets.json", "[]")] {
+        let target = moved.join(name);
+        std::fs::write(&target, bytes).unwrap();
+        std::os::unix::fs::symlink(&target, lib.join(name)).unwrap();
+    }
+    let mut session = Session::new().with_fs();
+    session.open_library(&lib, true).unwrap();
+    assert!(session.take_library_warnings().is_empty());
+    session.set_cache_mb(321).unwrap();
+    session.execute("preset.create", &json!({"name": "Relocated"})).unwrap();
+    session.save_smart_tag_sets().unwrap();
+    session.source = crate::LibrarySource::Picks;
+    session.close_library().unwrap();
+    let prefs: serde_json::Value = serde_json::from_slice(&std::fs::read(moved.join("prefs.json")).unwrap()).unwrap();
+    assert_eq!(prefs["cacheMb"], 321);
+    let presets: serde_json::Value = serde_json::from_slice(&std::fs::read(moved.join("presets.json")).unwrap()).unwrap();
+    assert!(presets["user"].as_array().unwrap().iter().any(|p| p["name"] == "Relocated"));
+    let view: serde_json::Value = serde_json::from_slice(&std::fs::read(moved.join("view.json")).unwrap()).unwrap();
+    assert_eq!(view["source"], json!({"kind": "picks"}));
+    for name in ["prefs.json", "presets.json", "view.json", "smart-sort-tagsets.json"] {
+        assert_eq!(std::fs::read_link(lib.join(name)).unwrap(), moved.join(name));
+    }
+    drop(session);
+    std::fs::remove_dir_all(lib).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn linked_read_errors_warn_with_target_and_refuse_saving() {
+    for name in ["catalog.log", "catalog.snap", "prefs.json"] {
+        let lib = temp_dir(&format!("read-error-{name}"));
+        let mut session = Session::new().with_fs();
+        session.open_library(&lib, false).unwrap();
+        session.close_library().unwrap();
+        drop(session);
+        let snapshot = std::fs::read(lib.join("catalog.snap")).unwrap();
+        let log = std::fs::read(lib.join("catalog.log")).unwrap();
+        let target = lib.join("target-directory");
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("notes.txt"), b"keep these notes").unwrap();
+        let link = lib.join(name);
+        if link.exists() {
+            std::fs::remove_file(&link).unwrap();
+        }
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let mut session = Session::new().with_fs();
+        session.open_library(&lib, false).unwrap();
+        let warnings = session.take_library_warnings();
+        assert!(
+            warnings.iter().any(|w| w.contains(&link.display().to_string()) && w.contains(&target.display().to_string())),
+            "{name}: {warnings:?}"
+        );
+        let error = if name == "prefs.json" {
+            session.save_prefs().unwrap_err()
+        } else {
+            assert!(session.execute("album.create", &json!({"name": "Unsaved"})).is_err());
+            session.close_library().unwrap_err()
+        };
+        assert!(error.to_string().contains(&target.display().to_string()), "{name}: {error}");
+        if name != "catalog.snap" {
+            assert_eq!(std::fs::read(lib.join("catalog.snap")).unwrap(), snapshot);
+        }
+        if name != "catalog.log" {
+            assert_eq!(std::fs::read(lib.join("catalog.log")).unwrap(), log);
+        }
+        assert_eq!(std::fs::read_link(&link).unwrap(), target);
+        assert_eq!(std::fs::read(target.join("notes.txt")).unwrap(), b"keep these notes");
+        drop(session);
+        std::fs::remove_dir_all(lib).unwrap();
+    }
+}

@@ -37,6 +37,11 @@ pub trait Store: Send {
     fn truncate(&mut self, name: &str, len: u64) -> io::Result<()>;
     /// Human-readable location (diagnostics).
     fn describe(&self) -> String;
+    /// The target of a symbolic link at `name`, or `None` for an ordinary entry or missing name.
+    /// Stores without filesystem links need no override. Callers validate content before writes.
+    fn link_target(&self, _name: &str) -> io::Result<Option<PathBuf>> {
+        Ok(None)
+    }
     /// Another handle on the same files that a worker thread can write `catalog.snap` through
     /// while this one keeps appending to the log (background compaction). `None` (the default):
     /// snapshots are written synchronously.
@@ -126,6 +131,19 @@ impl FsStore {
 }
 
 impl Store for FsStore {
+    fn link_target(&self, name: &str) -> io::Result<Option<PathBuf>> {
+        let path = self.path(name);
+        match std::fs::symlink_metadata(&path) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let target = std::fs::read_link(path)?;
+                Ok(Some(if target.is_absolute() { target } else { self.dir.join(target) }))
+            }
+            Ok(_) => Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     fn read(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
         match std::fs::read(self.path(name)) {
             Ok(b) => Ok(Some(b)),
