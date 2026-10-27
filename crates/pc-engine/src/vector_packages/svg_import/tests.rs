@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
+use photocraft_doc::vector_design::exchange::VectorWarning;
 use photocraft_doc::{Affine, ColorMode, LayerContent, SampleType};
 fn session() -> Session {
     let mut s = Session::new();
