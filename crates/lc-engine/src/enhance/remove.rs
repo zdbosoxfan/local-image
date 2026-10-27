@@ -407,6 +407,29 @@ mod tests {
     }
 
     #[test]
+    fn pixel_bounds_threshold_empty_and_image_edges() {
+        assert_eq!(bbox(&[], 0, 0), None);
+        assert_eq!(bbox(&[0.0; 12], 4, 3), None);
+        assert_eq!(bbox(&[0.003, 0.004, 0.005, 0.0], 4, 1), Some(PxBox { x0: 2, y0: 0, x1: 3, y1: 1 }));
+
+        let mut cov = [0.0; 12];
+        cov[0] = 1.0;
+        assert_eq!(bbox(&cov, 4, 3), Some(PxBox { x0: 0, y0: 0, x1: 1, y1: 1 }));
+        cov[0] = 0.0;
+        cov[11] = 1.0;
+        assert_eq!(bbox(&cov, 4, 3), Some(PxBox { x0: 3, y0: 2, x1: 4, y1: 3 }));
+        cov[0] = 1.0;
+        let area = bbox(&cov, 4, 3).unwrap();
+        assert_eq!(area, PxBox { x0: 0, y0: 0, x1: 4, y1: 3 });
+        assert_eq!((area.width(), area.height()), (4, 3));
+
+        let inner = PxBox { x0: 2, y0: 3, x1: 5, y1: 6 };
+        assert_eq!(inflate(inner, 1, 8, 10), PxBox { x0: 1, y0: 2, x1: 6, y1: 7 });
+        assert_eq!(inflate(inner, 5, 8, 10), PxBox { x0: 0, y0: 0, x1: 8, y1: 10 });
+        assert_eq!(inflate(area, 2, 4, 3), PxBox { x0: 0, y0: 0, x1: 4, y1: 3 });
+    }
+
+    #[test]
     fn strokes_and_lassos_cover_their_area() {
         let frame = lightcraft_pipeline::geometry::Frame::new(200, 100, &DevelopSettings::default(), false);
         let c = stroke_coverage(&stroke(vec![Point::new(0.5, 0.5)]), &frame, 200, 100);
