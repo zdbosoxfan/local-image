@@ -144,6 +144,9 @@ All notable changes to Local Image are recorded here. The format follows
 
 - Library: opening a library folder no longer truncates or replaces files that planted catalog or settings links point to; writes follow such a link only to a valid catalog or settings file.
 
+- Linux: explain how to upgrade from unpacked releases and report missing or incomplete uninstalls;
+  match Open With file types to readable formats and register native `.pcraft` documents.
+
 - Develop: dragging a curve region notch preserves neighboring splits and the Curve Regions
   undo label.
 

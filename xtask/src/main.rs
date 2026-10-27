@@ -2,11 +2,14 @@
 //!
 //! ```text
 //! cargo xtask package linux [--skip-build]
-//!     dist/release/local-image-<version>-linux-<arch>.tar.gz (+ .sha256): the app and CLI,
-//!     README, LICENSE and licenses/. Unpack and run `./local-image --install` (or
-//!     `--install --system`) to add it to the application menu.
-//!     Builds both binaries with HEIF support. `--skip-build` packages existing release binaries
-//!     unchanged; the caller must ensure their features and build identity are correct.
+//!     dist/release/local-image-<version>-linux-<arch>.tar.gz (+ .sha256): the app and CLI symlink,
+//!     README, LICENSE and licenses/. From the unpacked folder, run `./local-image --install`:
+//!     it copies the app to `~/.local/bin`, links `local-image-cli` to it and adds the menu entry.
+//!     Use `sudo ./local-image --install --system` for `/usr/local`, `local-image --uninstall` to
+//!     remove a user install, or `sudo /usr/local/bin/local-image --uninstall --system` to remove
+//!     a system install. Builds one executable with HEIF support. `--skip-build` needs a previous
+//!     package build's line tables; the caller must ensure its features and build identity are
+//!     correct. The packaged copy is stripped and its debug info written to dist/release/<name>.debug.
 //! cargo xtask package windows [--arch x64|x86|arm64] [--skip-build]
 //!     an MSI (WiX v5: `dotnet tool install -g wix`) and a portable zip, both signed when signing
 //!     secrets are set (see `sign`).
