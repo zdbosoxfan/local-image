@@ -22,7 +22,7 @@ flate2 = { workspace = true }
 tar = "0.4"
 zip = { version = "7", default-features = false, features = ["deflate-flate2"] }
 ureq = { workspace = true }
-rustls-rustcrypto = { workspace = true }
+rustls = { workspace = true }
 quick-xml = { workspace = true }
 
 # Lock/compile the approved graph without a placeholder PDF/pathops implementation or

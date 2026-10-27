@@ -598,7 +598,8 @@ fn main() -> Result<()> {
 
 // deps-pure
 
-/// Crates that compile C/C++/assembly (or drive a C toolchain). The app is all Rust.
+/// Crates that compile C/C++/assembly (or drive a C toolchain). The app is pure Rust except
+/// for the ring crypto provider used by rustls.
 const IMPURE: &[&str] = &["ring", "openssl-sys", "openssl-src", "aws-lc-sys", "aws-lc-rs", "cmake", "bindgen", "cc"];
 
 /// Crates still allowed to build-depend on `cc`. blake3 never calls it (`pure`); the rest are
@@ -614,7 +615,9 @@ fn impure_crates(edges: &str) -> Vec<String> {
     for line in edges.lines() {
         let mut it = line.split_whitespace();
         let (Some(parent), Some(child)) = (it.next(), it.next()) else { continue };
-        if IMPURE.contains(&child) && (child != "cc" || !CC_KNOWN.contains(&parent)) {
+        // Only these crypto build edges are permitted; see docs/DEVELOPMENT.md#crypto-provider-exception.
+        let tls_crypto = matches!((parent, child), ("rustls" | "rustls-webpki", "ring") | ("ring", "cc"));
+        if IMPURE.contains(&child) && !tls_crypto && (child != "cc" || !CC_KNOWN.contains(&parent)) {
             found.push(format!("{child} (needed by {parent})"));
         }
     }
@@ -656,9 +659,9 @@ fn dependency_edges() -> Result<String> {
 fn deps_pure() -> Result<()> {
     let found = impure_crates(&dependency_edges()?);
     if !found.is_empty() {
-        bail!("C-building crates in the dependency graph: {}. The app must stay all Rust.", found.join(", "));
+        bail!("Unapproved C-building crates: {}. The app is pure Rust except for rustls's ring crypto provider.", found.join(", "));
     }
-    println!("deps-pure: no C-building crates in the dependency graph");
+    println!("deps-pure: pure Rust except for the ring crypto provider used by rustls (known cc parents allowed)");
     Ok(())
 }
 
@@ -680,8 +683,8 @@ mod deps_pure_tests {
 
     #[test]
     fn the_deny_list_catches_ring_and_stray_cc() {
-        let edges = "li-ai ureq\nrustls ring\nx cc\nblake3 cc\n";
-        assert_eq!(impure_crates(edges), vec!["cc (needed by x)".to_string(), "ring (needed by rustls)".to_string()]);
+        let edges = "li-ai ureq\nrustls ring\nrustls-webpki ring\nring cc\nx ring\nx cc\nblake3 cc\n";
+        assert_eq!(impure_crates(edges), vec!["cc (needed by x)".to_string(), "ring (needed by x)".to_string()]);
     }
 }
 
@@ -875,11 +878,12 @@ mod tests {
     }
 }
 
-/// HTTPS agent using the pure-Rust RustCrypto provider (no `ring`).
+/// HTTPS agent using ring under the [2026-10-25 TLS security decision](https://github.com/zdbosoxfan/local-image/blob/main/docs/DEVELOPMENT.md#crypto-provider-exception)
+/// for C/assembly crypto.
 fn xtask_agent() -> ureq::Agent {
     let tls = ureq::tls::TlsConfig::builder()
         .provider(ureq::tls::TlsProvider::Rustls)
-        .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls_rustcrypto::provider()))
+        .unversioned_rustls_crypto_provider(std::sync::Arc::new(rustls::crypto::ring::default_provider()))
         .build();
     ureq::Agent::config_builder().tls_config(tls).build().into()
 }
