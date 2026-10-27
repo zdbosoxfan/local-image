@@ -1,5 +1,5 @@
-//! Native path conversion using pc-text outlines. Quadratic elevation follows the
-//! existing type_extra_cmds adapter; contours retain their glyph's winding.
+//! Group painted outlines into one native path per colour using
+//! path_text::curves::glyph_subpaths for contour conversion.
 use crate::vector_packages::path_text::{curves::glyph_subpaths, on_path::PaintedOutline};
 use photocraft_doc::{Color, Path};
 pub(super) fn paths(paints: &[PaintedOutline]) -> Vec<(Color, Path)> {

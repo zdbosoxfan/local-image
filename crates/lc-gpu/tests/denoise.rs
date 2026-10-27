@@ -1,5 +1,5 @@
 //! The tests require the physical GPU; no software-adapter skips count as validation.
-//! The three graph/device gates are required explicit final acceptance in docs/GPU-VALIDATION.md.
+//! The graph/device gates are required explicit final acceptance in docs/GPU-VALIDATION.md.
 #![cfg(not(target_arch = "wasm32"))]
 mod support;
 use li_seg::{
