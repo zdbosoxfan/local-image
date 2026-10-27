@@ -412,6 +412,18 @@ pub enum Effect {
     },
 }
 
+impl Effect {
+    pub(crate) fn reach(&self) -> f64 {
+        match self {
+            Self::DropShadow { radius, distance, .. } | Self::InnerShadow { radius, distance, .. } => radius + distance,
+            Self::OuterGlow { radius, .. } => *radius,
+            Self::Outline { width, .. } => *width,
+            Self::Bevel { size, .. } => *size,
+            Self::ColorOverlay { .. } | Self::GradientOverlay { .. } => 0.,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
     pub class: Tag,
@@ -1195,8 +1207,8 @@ fn walk_bounds(nodes: &[Node], visible_only: bool, depth: usize, out: &mut Optio
     }
 }
 
-/// Pixel masks cover known artwork bounds, including stroke reach. Artistic glyph bounds
-/// require layout, so a subtree containing artistic text keeps the whole mask.
+/// Pixel masks cover hidden artwork as well as visible content, including stroke and child effect
+/// reach. Artistic glyph bounds require layout, so a subtree containing artistic text keeps the whole mask.
 fn mask_extent(kind: &Kind, children: &[Node]) -> Option<Rect> {
     fn visit(kind: &Kind, children: &[Node], depth: usize, out: &mut Option<Rect>) -> bool {
         if depth > MAX_TREE_DEPTH || matches!(kind, Kind::Text(t) if t.frame.is_none()) {
@@ -1211,7 +1223,18 @@ fn mask_extent(kind: &Kind, children: &[Node]) -> Option<Rect> {
         if let Some(r) = own {
             *out = Some(out.map_or(r, |o| union(o, r)));
         }
-        children.iter().filter(|n| n.visible).all(|n| visit(&n.kind, &n.children, depth + 1, out))
+        for child in children {
+            let mut extent = None;
+            if !visit(&child.kind, &child.children, depth + 1, &mut extent) {
+                return false;
+            }
+            if let Some(r) = extent {
+                let reach = child.effects.iter().map(Effect::reach).fold(0.0, f64::max);
+                let r = Rect { x0: r.x0 - reach, y0: r.y0 - reach, x1: r.x1 + reach, y1: r.y1 + reach };
+                *out = Some(out.map_or(r, |o| union(o, r)));
+            }
+        }
+        true
     }
     let mut out = None;
     if visit(kind, children, 0, &mut out) { out } else { None }

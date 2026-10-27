@@ -10,13 +10,7 @@ impl State<'_, '_> {
         let mut items = Vec::new();
         for effect in source {
             use model::Effect as E;
-            let reach = match effect {
-                E::DropShadow { radius, distance, .. } | E::InnerShadow { radius, distance, .. } => radius + distance,
-                E::OuterGlow { radius, .. } => *radius,
-                E::Outline { width, .. } => *width,
-                E::Bevel { size, .. } => *size,
-                E::ColorOverlay { .. } | E::GradientOverlay { .. } => 0.,
-            } * scale;
+            let reach = effect.reach() * scale;
             if !reach.is_finite() || reach > super::MAX_EFFECT_REACH {
                 self.warn("effect-limit", name, "An effect exceeds the native 512 px reach after DPI scaling and was left out; other artwork is retained.");
                 continue;
