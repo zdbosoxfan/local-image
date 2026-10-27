@@ -15,7 +15,7 @@ use li_ai::comfy::JobControl;
 use li_ai::settings::AiSettings;
 use serde_json::Value;
 
-use super::{Slot, config, first_line, human, request_repaint, with};
+use super::{Slot, Spawn, config, first_line, human, request_repaint, with};
 use crate::theme::Tokens;
 use crate::widgets;
 
@@ -60,11 +60,11 @@ pub(super) struct Confirm {
 
 impl Confirm {
     pub(super) fn new(item: Item) -> Self {
-        Self { plan: start_plan(item.clone(), None, Vec::new()), accept: false, all: item, variant: None, extras: Vec::new() }
+        Self { plan: start_plan(item.clone(), None, Vec::new(), std::thread::Builder::spawn), accept: false, all: item, variant: None, extras: Vec::new() }
     }
 
     fn replan(&mut self) {
-        self.plan = start_plan(self.all.clone(), self.variant.clone(), self.extras.clone());
+        self.plan = start_plan(self.all.clone(), self.variant.clone(), self.extras.clone(), std::thread::Builder::spawn);
     }
 
     /// Switches to another of the card's main files and plans it again.
@@ -107,7 +107,7 @@ pub(crate) fn test_install_plan(plan: Plan) -> TestPlanGuard {
 /// Resolves what installing `item` downloads: its main file `variant` (by default the largest
 /// precision that fits this GPU, by the files' sizes), the optional files `extras` names, and for
 /// a template its workflow.
-fn start_plan(item: Item, variant: Option<String>, extras: Vec<String>) -> Slot<Result<Planned, String>> {
+fn start_plan(item: Item, variant: Option<String>, extras: Vec<String>, spawn: Spawn) -> Slot<Result<Planned, String>> {
     let gpu = crate::ai_ui::status().gpu;
     let blackwell = gpu.as_ref().is_some_and(|g| li_ai::companions::runtime().gpu_generation(&g.name) == Some("blackwell"));
     let vram = gpu.map(|g| g.vram_total).filter(|v| *v > 0);
@@ -121,7 +121,7 @@ fn start_plan(item: Item, variant: Option<String>, extras: Vec<String>) -> Slot<
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-plan".into()).spawn(move || {
+    let work = move || {
         li_i18n::set_current(lang);
         let r = (|| -> anyhow::Result<Planned> {
             let cfg = config();
@@ -168,15 +168,21 @@ fn start_plan(item: Item, variant: Option<String>, extras: Vec<String>) -> Slot<
             *o = Some(r);
         }
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("model-plan".into()), Box::new(work)) {
+        if let Ok(mut state) = slot.lock() {
+            *state = Some(Err(error.to_string()));
+        }
+        request_repaint();
+    }
     slot
 }
 
-fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<InstallRun>> {
+fn start_install(item: Item, plan: Plan, template: Option<Value>, settings: &AiSettings, spawn: Spawn) -> Arc<Mutex<InstallRun>> {
     let run = Arc::new(Mutex::new(InstallRun { total: plan.total(), ..Default::default() }));
     // A template whose files the server already has needs no download, on any server.
     let nothing_to_download = template.is_some() && plan.files.is_empty();
-    if AiSettings::load().is_remote() && !nothing_to_download {
+    if settings.is_remote() && !nothing_to_download {
         if let Ok(mut state) = run.lock() {
             state.finished = true;
             state.error = Some(tl!("Install generative models on the remote ComfyUI server, then check the connection again.").into());
@@ -185,7 +191,7 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
     }
     let r = run.clone();
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-install".into()).spawn(move || {
+    let work = move || {
         lightcraft_sysmem::set_current_thread_class(lightcraft_sysmem::ThreadClass::Background);
         li_i18n::set_current(lang);
         let cfg = config();
@@ -221,7 +227,14 @@ fn start_install(item: Item, plan: Plan, template: Option<Value>) -> Arc<Mutex<I
         crate::generate_ui::reload_customs();
         crate::ai_ui::refresh();
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("model-install".into()), Box::new(work)) {
+        if let Ok(mut state) = run.lock() {
+            state.finished = true;
+            state.error = Some(error.to_string());
+        }
+        request_repaint();
+    }
     run
 }
 
@@ -406,11 +419,36 @@ pub(super) fn confirm_window(ctx: &egui::Context, t: &Tokens) {
         }
         if let Some((p, template)) = go {
             if !p.files.is_empty() || template.is_some() {
-                s.installs.insert(item.id.clone(), start_install(item.clone(), p, template));
+                s.installs.insert(item.id.clone(), start_install(item.clone(), p, template, &AiSettings::load(), std::thread::Builder::spawn));
             }
             s.confirm = None;
         } else if close {
             s.confirm = None;
         }
     });
+}
+
+#[cfg(test)]
+mod spawn_tests {
+    use super::*;
+    use super::super::spawn_tests::fail_spawn;
+
+    #[test]
+    fn plan_thread_failure_completes_with_error() {
+        let _lock = crate::ai_ui::AI_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        crate::ai_ui::TEST_STATUS.with(|s| *s.borrow_mut() = Some(crate::ai_ui::EngineStatus::default()));
+        let slot = start_plan(Item::default(), None, Vec::new(), fail_spawn);
+        assert!(matches!(&*slot.lock().unwrap(), Some(Err(error)) if error == "worker thread unavailable"), "planning must leave the loading state");
+    }
+
+    #[test]
+    fn install_thread_failure_finishes_with_error() {
+        let plan = Plan::default();
+        let run = start_install(Item::default(), plan, None, &AiSettings::default(), fail_spawn);
+        let run = run.lock().unwrap();
+        assert!(run.finished, "installation must leave the progress state");
+        assert_eq!(run.error.as_deref(), Some("worker thread unavailable"));
+        assert!(run.note.is_none());
+        assert_eq!(run.done, 0);
+    }
 }

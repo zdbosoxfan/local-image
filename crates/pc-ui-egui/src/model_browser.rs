@@ -40,6 +40,7 @@ enum Nav {
 }
 
 type Slot<T> = Arc<Mutex<Option<T>>>;
+type Spawn = fn(std::thread::Builder, Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>>;
 
 struct Fetched {
     items: Vec<Item>,
@@ -231,12 +232,12 @@ fn age(secs: u64) -> String {
 }
 
 /// Fetches the query's catalogues on a worker thread (cache fallback per source).
-fn start_fetch(q: Query) -> Slot<Fetched> {
+fn start_fetch(q: Query, spawn: Spawn) -> Slot<Fetched> {
     let slot: Slot<Fetched> = Arc::new(Mutex::new(None));
     let out = slot.clone();
     // Notes are shown in the window: the worker draws them in the UI's language.
     let lang = li_i18n::current();
-    let _ = std::thread::Builder::new().name("model-browser".into()).spawn(move || {
+    let work = move || {
         li_i18n::set_current(lang);
         let cfg = config();
         let reg = li_ai::family::registry();
@@ -264,7 +265,13 @@ fn start_fetch(q: Query) -> Slot<Fetched> {
             *o = Some(Fetched { items, notes });
         }
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("model-browser".into()), Box::new(work)) {
+        if let Ok(mut state) = slot.lock() {
+            *state = Some(Fetched { items: Vec::new(), notes: vec![error.to_string()] });
+        }
+        request_repaint();
+    }
     slot
 }
 
@@ -418,10 +425,10 @@ fn load_preview(url: String) -> Slot<Option<egui::ColorImage>> {
     slot
 }
 
-fn start_profile_update() -> Slot<Result<li_ai::family::UpdateReport, String>> {
+fn start_profile_update(spawn: Spawn) -> Slot<Result<li_ai::family::UpdateReport, String>> {
     let slot = Arc::new(Mutex::new(None));
     let out = slot.clone();
-    let _ = std::thread::Builder::new().name("family-update".into()).spawn(move || {
+    let work = move || {
         let net = HttpNet::new(config());
         let base = std::env::var("LOCAL_IMAGE_FAMILIES_BASE").unwrap_or_else(|_| li_ai::family::REMOTE_BASE.to_owned());
         let r = li_ai::family::update_from(&|u| net.get(u), &base, &li_ai::family::cache_dir()).map_err(|e| first_line(&format!("{e:#}")));
@@ -433,7 +440,13 @@ fn start_profile_update() -> Slot<Result<li_ai::family::UpdateReport, String>> {
             *o = Some(r);
         }
         request_repaint();
-    });
+    };
+    if let Err(error) = spawn(std::thread::Builder::new().name("family-update".into()), Box::new(work)) {
+        if let Ok(mut state) = slot.lock() {
+            *state = Some(Err(error.to_string()));
+        }
+        request_repaint();
+    }
     slot
 }
 
@@ -605,7 +618,7 @@ fn body(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
             s.items = browser::items(li_ai::family::registry(), &Config::default(), &query(s), &[]);
             s.notes.clear();
         } else {
-            s.fetch = Some(start_fetch(query(s)));
+            s.fetch = Some(start_fetch(query(s), std::thread::Builder::spawn));
         }
     }
     // Installed: always current (no network), so removed models drop off once ComfyUI re-scans.
@@ -1034,7 +1047,7 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
                     .on_hover_text(tl!("Fetch the latest family profiles (new models, settings) from Local Image's repository"))
                     .clicked()
                 {
-                    s.profiles = Some(start_profile_update());
+                    s.profiles = Some(start_profile_update(std::thread::Builder::spawn));
                     s.profiles_msg = tl!("Checking for profile updates…").into();
                 }
                 if !s.profiles_msg.is_empty() {
@@ -1047,3 +1060,27 @@ fn footer_ui(ui: &mut egui::Ui, s: &mut State, t: &Tokens) {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod spawn_tests {
+    use super::*;
+
+    pub(super) fn fail_spawn(_: std::thread::Builder, _: Box<dyn FnOnce() + Send>) -> std::io::Result<std::thread::JoinHandle<()>> {
+        Err(std::io::Error::other("worker thread unavailable"))
+    }
+
+    #[test]
+    fn fetch_thread_failure_completes_with_note() {
+        let slot = start_fetch(Query { view: View::Trending, kind: Kind::Model, search: String::new(), sources: vec![] }, fail_spawn);
+        let mut slot = slot.lock().unwrap();
+        let fetched = slot.take().expect("catalogue fetch must leave the loading state");
+        assert!(fetched.items.is_empty());
+        assert_eq!(fetched.notes, ["worker thread unavailable"]);
+    }
+
+    #[test]
+    fn profile_thread_failure_completes_with_error() {
+        let slot = start_profile_update(fail_spawn);
+        assert!(matches!(&*slot.lock().unwrap(), Some(Err(error)) if error == "worker thread unavailable"), "profile update must leave the busy state");
+    }
+}
