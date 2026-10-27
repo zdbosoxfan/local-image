@@ -284,18 +284,22 @@ The inherited PhotoCraft licence notices remain in `licenses/photocraft-*`.
 | `crates/pc-pdf/src/import/paint.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/pdf/src/import_shading.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-pdf/src/import/geometry.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/geom/src/path.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/access.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/access.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/container.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/container.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/container.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/container.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/geometry.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/geometry.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/lib.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/lib.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/import.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/fileio/affinity.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/import/scene.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/fileio/affinity.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/import/text.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/text.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
+| `crates/pc-affinity/src/import/effects.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/overlay.rs` (local native scene adaptation) | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/model.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/model.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` mask extent) | MIT OR Apache-2.0 | 2026-10-26 |
-| `crates/pc-affinity/src/paint.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/paint.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/paint.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/paint.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/preview.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/preview.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/raster.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/raster.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` cropped masks) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/src/shapes.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/shapes.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/stream.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/stream.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/synth.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/synth.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/src/tests.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/tests.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
-| `crates/pc-affinity/src/text.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/text.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
+| `crates/pc-affinity/src/text.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/affinity/src/text.rs` | `b3ccdf01a7482fc4fd7545ed9e302911824a2a3c` (including `fd50bd6f843e80e80b4db1ad7c25c863bff90a33` AF.5 records and `f73a3df974b990fd4d73d5addf6a95c48ea3cc2b` resource limits) | MIT OR Apache-2.0 | 2026-10-26 |
 | `crates/pc-affinity/tests/text.rs` | VectorCraft | `crates/affinity/tests/text.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-affinity/tests/support/text_fixture.rs` | VectorCraft | `crates/affinity/tests/support/text_fixture.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | crates/pc-trace/src/centerline.rs | [VectorCraft](https://github.com/storytold/vectorcraft) | crates/trace/src/centerline.rs | d522c1d7be4035bd4f4a84cd6ebfca44f5155092 | MIT OR Apache-2.0 | 2026-10-10 |
@@ -342,6 +346,26 @@ The inherited PhotoCraft licence notices remain in `licenses/photocraft-*`.
 | `crates/pc-vecfx/src/path_effects/distort.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/effects/src/distort.rs`, `crates/effects/src/util.rs` | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | `crates/pc-engine/src/vector_packages/path_effects.rs` | [VectorCraft](https://github.com/storytold/vectorcraft) | `crates/engine/src/cmd/effectcmd.rs` (transaction semantics) | `d522c1d7be4035bd4f4a84cd6ebfca44f5155092` | MIT OR Apache-2.0 | 2026-10-10 |
 | crates/pc-engine/src/vector_toolbar_layout.rs | [VectorCraft](https://github.com/storytold/vectorcraft) | crates/tools/src/catalog.rs (order and Illustrator keymap adapted to Local Image IDs) | d522c1d7be4035bd4f4a84cd6ebfca44f5155092 | MIT OR Apache-2.0 | 2026-10-10 |
+
+### Affinity AF.5 provenance (2026-10-26)
+
+The file rows above reconcile the AF.5 reader and local native scene adapters. The following
+security adaptations are recorded by local commit `d0014628`.
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`7c07280b660ca937529a97f4e9176c79861e2667`](https://github.com/storytold/photocraft/commit/7c07280b660ca937529a97f4e9176c79861e2667) | security(affinity): bound raw child-slot traversal work | `crates/pc-affinity/src/access.rs`, `crates/pc-affinity/src/model.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`b11ecc6ebf6699f53d0982c3f6c37a975ea9b17d`](https://github.com/storytold/photocraft/commit/b11ecc6ebf6699f53d0982c3f6c37a975ea9b17d) | security(affinity): charge shared-object expansion against document-wide budgets (#8938) | `crates/pc-affinity/src/model.rs`, `crates/pc-affinity/src/geometry.rs`, `crates/pc-affinity/src/raster.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`29e555c2f655676c71c26ccea20e6371da9248b2`](https://github.com/storytold/photocraft/commit/29e555c2f655676c71c26ccea20e6371da9248b2) | security(affinity): index live-corner radii by record | `crates/pc-affinity/src/geometry.rs` | MIT OR Apache-2.0 |
+| [storytold/vectorcraft@`4c82749b08575cec1e6a0fe2e2bca1ef157151e7`](https://github.com/storytold/vectorcraft/commit/4c82749b08575cec1e6a0fe2e2bca1ef157151e7) | Security: Affinity import and brush expansion bounds (#3887) | `crates/pc-affinity/src/geometry.rs`, `crates/pc-affinity/src/stream.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5adebc5d6df46a104547f1b9d872ee314ae1945c`](https://github.com/storytold/photocraft/commit/5adebc5d6df46a104547f1b9d872ee314ae1945c) | security(affinity): index object fields for O(1) lookup | `crates/pc-affinity/src/stream.rs`, `crates/pc-affinity/src/access.rs`, `crates/pc-affinity/src/shapes.rs` | MIT OR Apache-2.0 |
+| [storytold/vectorcraft@`fd50bd6f843e80e80b4db1ad7c25c863bff90a33`](https://github.com/storytold/vectorcraft/commit/fd50bd6f843e80e80b4db1ad7c25c863bff90a33) | AF.5: Affinity import — strokes, text decoration, text placement, outline effects, CMYK photos | `crates/pc-affinity/src/paint.rs` | MIT OR Apache-2.0 |
+| [storytold/vectorcraft@`2d7004f972fc3e97feda7775853026c63c922331`](https://github.com/storytold/vectorcraft/commit/2d7004f972fc3e97feda7775853026c63c922331) | AF.5: cap dash patterns at 64 lengths | `crates/pc-affinity/src/paint.rs` | MIT OR Apache-2.0 |
+
+Local adaptations: `4c82749b` contributes corner-radius indexing and zero-width record guards
+only; `fd50bd6f` contributes None-style stroke suppression here. `2d7004f9` imports longer dash
+patterns as solid with a warning. The native scene adapters use Local Image layers and budgets;
+font metadata retains the local 16 KiB limit rather than the upstream 256-byte limit.
 
 ### Bounded PDF CCITT admission (2026-10-12)
 
@@ -990,6 +1014,16 @@ design and have no strict parameter validator), VectorCraft `025ce255` and `32db
 exporter writes no CMYK images or output intents). The DesignCraft breaker changes since
 `66c7ce7e` build on CJK composition structures `pc-text` doesn't have (mojikumi, kinsoku priority,
 locked advances), so the re-sync is left for a feature port.
+
+## Selection snapping (2026-10-26)
+
+| Upstream commit | Subject | Our files | Licence |
+|---|---|---|---|
+| [storytold/photocraft@`5c039af58161a13b0472ac711b5ca0490438b305`](https://github.com/storytold/photocraft/commit/5c039af58161a13b0472ac711b5ca0490438b305) | Selection: moving a selection outline snaps its bounds, not the pointer (#2736) (#2740) | `crates/pc-ui-egui/src/snap_ui.rs` | MIT OR Apache-2.0 |
+| [storytold/photocraft@`5f13491411c0f0eb76d37192c77efd46841d916b`](https://github.com/storytold/photocraft/commit/5f13491411c0f0eb76d37192c77efd46841d916b) | Fix Fixed Size marquee positioning while dragging | `crates/pc-ui-egui/src/canvas.rs`, `crates/pc-ui-egui/src/marquee_tests.rs`; `crates/pc-ui-egui/src/snap_ui.rs` adapted in `57db1c64` | MIT OR Apache-2.0 |
+
+Local adaptation `488d2e4c` uses selection bounds for outline drags and retains contained
+objects as snap targets. Lasso outline drags now snap too; Lasso was not a snapping tool on main.
 
 ## Gradient review corrections (2026-10-26)
 
