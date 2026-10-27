@@ -182,6 +182,9 @@ pub fn selection(ui: &mut Ui, label: &str, selected: bool, style: SelectionStyle
         } else {
             t.library.button
         };
+        if resp.has_focus() && !resp.hovered() {
+            p.rect_stroke(rect.expand(m::FOCUS_OUTSET), m::LIBRARY_RADIUS + m::FOCUS_OUTSET, Stroke::new(m::FOCUS_STROKE, t.accent), StrokeKind::Outside);
+        }
         p.rect(rect, m::LIBRARY_RADIUS, fill, Stroke::new(m::STROKE, t.library.button_border), StrokeKind::Inside);
         p.galley(rect.center() - galley.size() / 2.0, galley, text);
     }
