@@ -10,6 +10,8 @@
 //!   cargo test -p li-ai --test live_models -- --ignored --test-threads=1
 //! ```
 
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 

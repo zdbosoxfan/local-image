@@ -3,6 +3,8 @@
 //! weights: identification, template matching, static checks, the stored state, the catalogue,
 //! verification renders and the report.
 
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;

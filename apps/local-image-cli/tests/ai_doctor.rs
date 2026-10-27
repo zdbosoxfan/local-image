@@ -1,6 +1,8 @@
 //! `local-image-cli ai doctor` against the mock ComfyUI serving ComfyUI 0.42.5's nodes and
 //! official templates, with a temporary model folder of header-only weights.
 
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::path::PathBuf;
 use std::process::Command;
 
