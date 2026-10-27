@@ -104,7 +104,14 @@ pub fn variants(item: &Item) -> Vec<&CatalogFile> {
     if v.len() < 2 {
         return Vec::new();
     }
-    v.sort_by_key(|f| (rank(quant(&f.name).as_ref()), f.name.to_ascii_lowercase()));
+    v.sort_by_key(|f| {
+        let quant = quant(&f.name);
+        let bits = match &quant {
+            Some(QuantClass::Gguf(t)) => t.strip_prefix("IQ").or_else(|| t.strip_prefix('Q')).and_then(|s| s.chars().next()).and_then(|c| c.to_digit(10)),
+            _ => None,
+        };
+        (rank(quant.as_ref()), std::cmp::Reverse(bits.unwrap_or(0)), f.name.to_ascii_lowercase())
+    });
     v
 }
 
@@ -257,6 +264,25 @@ mod tests {
         // A LoRA card installs as listed.
         let lora = Item { kind: Some(Kind::Lora), files: vec![file("a.safetensors", "loras"), file("b.safetensors", "loras")], ..Default::default() };
         assert_eq!(selection(&lora, None, &[]).files.len(), 2);
+    }
+
+    #[test]
+    fn gguf_variants_offer_the_highest_bit_width_that_fits() {
+        let sized = |name: &str, gb: u64| CatalogFile {
+            name: name.into(),
+            folder: "diffusion_models".into(),
+            approx_bytes: Some(gb * 1_000_000_000),
+            ..Default::default()
+        };
+        let item = Item {
+            files: vec![sized("flux1-dev-F16.gguf", 24), sized("flux1-dev-Q8_0.gguf", 13), sized("flux1-dev-Q4_K_S.gguf", 7), sized("flux1-dev-Q2_K.gguf", 4)],
+            ..Default::default()
+        };
+        assert_eq!(default_variant(&item, false, Some(24_000_000_000)).as_deref(), Some("flux1-dev-Q8_0.gguf"));
+        let names: Vec<&str> = variants(&item).iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["flux1-dev-F16.gguf", "flux1-dev-Q8_0.gguf", "flux1-dev-Q4_K_S.gguf", "flux1-dev-Q2_K.gguf"]);
+        let iq = Item { files: vec![sized("flux1-dev-IQ2_XS.gguf", 4), sized("flux1-dev-IQ4_XS.gguf", 7)], ..Default::default() };
+        assert_eq!(default_variant(&iq, false, Some(24_000_000_000)).as_deref(), Some("flux1-dev-IQ4_XS.gguf"));
     }
 
     #[test]
