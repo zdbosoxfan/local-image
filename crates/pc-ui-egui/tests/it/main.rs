@@ -4,3 +4,4 @@ mod camera_raw_localization;
 mod camera_raw_zoom;
 mod system_locale;
 mod variables_data_sets;
+mod web_preview;
