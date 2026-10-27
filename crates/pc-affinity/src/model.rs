@@ -1080,7 +1080,7 @@ impl<'s, 'a, 'b> Reader<'s, 'a, 'b> {
             return Err(Error::Limit("embedded document depth"));
         }
         let data = self.archive.read(entry)?;
-        let inner = data.strip_prefix(b"EmDc").and_then(|d| d.get(4..)).filter(|d| crate::is_affinity(d)).ok_or(Error::Malformed("embedded document data"))?;
+        let Some(inner) = data.strip_prefix(b"EmDc").and_then(|d| d.get(4..)).filter(|d| crate::is_affinity(d)) else { return Ok(None) };
         let probe = self.read_embedded(inner, Affine::IDENTITY)?;
         let Some(probe) = probe else { return Ok(None) };
         let spread = probe.spreads.first().ok_or(Error::Malformed("embedded pages"))?;
