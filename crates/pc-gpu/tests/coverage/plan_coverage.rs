@@ -138,7 +138,7 @@ fn mode_indices_are_unique() {
 #[test]
 fn adjustment_program_invert() {
     let adj = Adjustment::Invert;
-    let (kind, params, lut) = adjustment_program(&adj, Transfer::Srgb, SampleType::U8);
+    let (kind, params, lut) = adjustment_program(&adj, Transfer::Srgb, SampleType::U8, ColorMode::Rgb);
     assert_eq!(kind, 1);
     assert_eq!(params, [[0.0; 4]; 4]);
     assert!(lut.is_none());
@@ -147,25 +147,25 @@ fn adjustment_program_invert() {
 #[test]
 fn adjustment_program_threshold_rounds() {
     let adj = Adjustment::Threshold { level: 0.5 };
-    let (kind, params, lut) = adjustment_program(&adj, Transfer::Srgb, SampleType::U8);
+    let (kind, params, lut) = adjustment_program(&adj, Transfer::Srgb, SampleType::U8, ColorMode::Rgb);
     assert_eq!(kind, 2);
     assert_eq!(params[0][0], 128.0);
     assert!(lut.is_none());
 
     let nan_adj = Adjustment::Threshold { level: f32::NAN };
-    let (_, nan_params, _) = adjustment_program(&nan_adj, Transfer::Srgb, SampleType::U8);
+    let (_, nan_params, _) = adjustment_program(&nan_adj, Transfer::Srgb, SampleType::U8, ColorMode::Rgb);
     assert!(nan_params[0][0].is_nan());
 }
 
 #[test]
 fn adjustment_program_posterize_clamps() {
     let low = Adjustment::Posterize { levels: 1 };
-    let (kind_low, params_low, _) = adjustment_program(&low, Transfer::Srgb, SampleType::U8);
+    let (kind_low, params_low, _) = adjustment_program(&low, Transfer::Srgb, SampleType::U8, ColorMode::Rgb);
     assert_eq!(kind_low, 3);
     assert_eq!(params_low[0][0], 2.0);
 
     let high = Adjustment::Posterize { levels: 300 };
-    let (_, params_high, _) = adjustment_program(&high, Transfer::Srgb, SampleType::U8);
+    let (_, params_high, _) = adjustment_program(&high, Transfer::Srgb, SampleType::U8, ColorMode::Rgb);
     assert_eq!(params_high[0][0], 255.0);
 }
 

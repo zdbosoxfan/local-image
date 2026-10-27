@@ -275,7 +275,7 @@ pub fn lum(c: [f32; 3]) -> f32 {
     0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2]
 }
 
-fn clip_color(c: [f32; 3]) -> [f32; 3] {
+fn clip_color(c: [f32; 3], top: f32) -> [f32; 3] {
     let l = lum(c);
     let n = c[0].min(c[1]).min(c[2]);
     let x = c[0].max(c[1]).max(c[2]);
@@ -283,13 +283,13 @@ fn clip_color(c: [f32; 3]) -> [f32; 3] {
     if n < 0.0 {
         let d = l - n;
         for v in &mut out {
-            *v = if d.abs() < 1e-12 { l } else { l + (*v - l) * l / d };
+            *v = if l > 0.0 && d > 0.0 { l + (*v - l) * l / d } else { l };
         }
     }
-    if x > 1.0 {
+    if x > top {
         let d = x - l;
         for v in &mut out {
-            *v = if d.abs() < 1e-12 { l } else { l + (*v - l) * (1.0 - l) / d };
+            *v = if l < top && d > 0.0 { l + (*v - l) * (top - l) / d } else { l };
         }
     }
     out
@@ -298,8 +298,12 @@ fn clip_color(c: [f32; 3]) -> [f32; 3] {
 /// `c` with its luminosity ([`lum`]) moved to `l`, clipped back into gamut towards grey (the
 /// Luminosity blend mode's SetLum + ClipColor).
 pub fn set_lum(c: [f32; 3], l: f32) -> [f32; 3] {
+    set_lum_within(c, l, 1.0)
+}
+
+fn set_lum_within(c: [f32; 3], l: f32, top: f32) -> [f32; 3] {
     let d = l - lum(c);
-    clip_color([c[0] + d, c[1] + d, c[2] + d])
+    clip_color([c[0] + d, c[1] + d, c[2] + d], top)
 }
 
 fn sat(c: [f32; 3]) -> f32 {
@@ -321,11 +325,16 @@ fn set_sat(c: [f32; 3], s: f32) -> [f32; 3] {
 
 /// Blend a whole RGB triple: `B(Cb, Cs)` including non-separable modes.
 pub fn blend_rgb(mode: BlendMode, cb: [f32; 3], cs: [f32; 3]) -> [f32; 3] {
+    blend_rgb_within(mode, cb, cs, 1.0)
+}
+
+/// Non-separable blends with an upper gamut bound; `f32::MAX` preserves float highlights.
+pub fn blend_rgb_within(mode: BlendMode, cb: [f32; 3], cs: [f32; 3], top: f32) -> [f32; 3] {
     match mode {
-        BlendMode::Hue => set_lum(set_sat(cs, sat(cb)), lum(cb)),
-        BlendMode::Saturation => set_lum(set_sat(cb, sat(cs)), lum(cb)),
-        BlendMode::Color => set_lum(cs, lum(cb)),
-        BlendMode::Luminosity => set_lum(cb, lum(cs)),
+        BlendMode::Hue => set_lum_within(set_sat(cs, sat(cb)), lum(cb), top),
+        BlendMode::Saturation => set_lum_within(set_sat(cb, sat(cs)), lum(cb), top),
+        BlendMode::Color => set_lum_within(cs, lum(cb), top),
+        BlendMode::Luminosity => set_lum_within(cb, lum(cs), top),
         BlendMode::DarkerColor => {
             if lum(cs) < lum(cb) {
                 cs
@@ -550,5 +559,33 @@ mod tests {
         assert!(close(below, 0.5) && (above - below).abs() < 1e-4, "{below} {above}");
         // A negative backdrop (32-bit documents) counts as black under a light source, as before.
         assert!(close(blend_channel(BlendMode::SoftLight, -0.1, 1.0), 0.0));
+    }
+    #[test]
+    fn out_of_gamut_luminosity_reaches_the_stable_grey_limit() {
+        for (c, light) in [([0.5, 0.25, 0.125], 2.0), ([0.8, 0.2, 0.1], -1.0), ([2.0, 2.0 + f32::EPSILON, 2.0], 2.0)] {
+            let out = set_lum(c, light);
+            assert!(out.iter().all(|v| v.is_finite() && (*v - light).abs() < 1e-6), "{c:?} at {light}: {out:?}");
+        }
+    }
+
+    #[test]
+    fn bounded_and_hdr_colour_blends_preserve_luminosity() {
+        for r in 0..=8 {
+            for g in 0..=8 {
+                for b in 0..=8 {
+                    let c = [r as f32 / 8.0, g as f32 / 8.0, b as f32 / 8.0];
+                    for light in [0.0, 0.1, 0.5, 0.9, 1.0, 2.0, 8.0] {
+                        let out = blend_rgb_within(BlendMode::Color, [light; 3], c, f32::MAX);
+                        assert!((lum(out) - light).abs() < 2e-6, "{c:?} at {light}: {out:?}");
+                        assert!(out.iter().all(|v| v.is_finite() && *v >= -1e-6));
+                        if light <= 1.0 {
+                            let bounded = set_lum(c, light);
+                            assert!(bounded.iter().all(|v| (-1e-6..=1.0 + 1e-6).contains(v)));
+                            assert!((lum(bounded) - light).abs() < 2e-6);
+                        }
+                    }
+                }
+            }
+        }
     }
 }

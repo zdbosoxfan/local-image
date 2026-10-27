@@ -1240,7 +1240,7 @@ fn levels_dont_clip_in_32_bit() {
         adjust::apply_depth(&adj, &mut b, adjust::Transfer::Srgb, Some(depth));
         (b.px[0][0] * 255.0).round()
     };
-    for (v, want) in [(0.0, 0.0), (0.0497, 3.0), (0.0976, 32.0), (0.4508, 140.0), (0.9473, 255.0), (1.0, 255.0)] {
+    for (v, want) in [(0.0, -20.0), (0.0497, 3.0), (0.0976, 32.0), (0.4508, 140.0), (0.9473, 255.0), (1.0, 266.0)] {
         assert_eq!(level(SampleType::F32, v), want, "{v}");
     }
     assert_eq!(level(SampleType::U8, 0.0), 10.0);
@@ -1590,9 +1590,10 @@ fn photo_filter_matches_photoshop() {
         }
     }
     // The 32-bit file picks the same numbers as linear values (Lab 81.5, 9.41, 82.19). Its fit is
-    // looser (mean 0.9/255 over the file, 6.9/255 with a plain RGB multiply).
+    // looser (mean 0.9/255 over the file, 6.9/255 with a plain RGB multiply), with signed,
+    // unclipped results in linear light.
     let warming32 = [0.966_445_6, 0.761_806_3, 0.0];
-    for (v, ps) in [([0.2159, 0.2159, 0.2159], [66.0, 53.0, 40.0]), ([1.0, 1.0, 0.0], [255.0, 251.0, 0.0]), ([1.0, 0.0, 0.0], [255.0, 0.0, 0.0])] {
+    for (v, ps) in [([0.2159, 0.2159, 0.2159], [65.7, 53.4, 39.5]), ([1.0, 1.0, 0.0], [271.7, 250.9, -9.0]), ([1.0, 0.0, 0.0], [262.2, -2.0, -1.2])] {
         let got = filter(warming32, SampleType::F32, v);
         assert!(got.iter().zip(ps).all(|(g, p)| (g - p).abs() <= 2.5), "F32 {v:?}: got {got:?} want {ps:?}");
     }
@@ -1677,6 +1678,7 @@ fn effect_cache_keeps_no_pixels_of_a_dropped_layer() {
     assert_eq!(std::sync::Arc::strong_count(&child), 1);
 }
 
+mod hdr_adjustments;
 mod layer_rendering;
 mod tone_curves;
 
