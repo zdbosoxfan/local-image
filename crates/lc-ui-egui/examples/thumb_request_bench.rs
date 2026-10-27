@@ -1,3 +1,5 @@
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use lightcraft_catalog::{Op, Photo, PhotoId, Source};
 use lightcraft_develop::{BrushStroke, DevelopSettings, Mask, MaskComponent, MaskShape};
 use lightcraft_engine::Session;

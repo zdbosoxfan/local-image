@@ -4,6 +4,7 @@
 //! key-down through `-[NSMenu performKeyEquivalent:]`) must reach egui as the key press it was, and
 //! a click (`-[NSMenu performActionForItemAtIndex:]`) must run as a click, also when the click is
 //! ↩ inside the open menu.
+#![cfg_attr(target_os = "macos", expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 // The app's own module, built into this test (cargo builds harness = false tests with cfg(test), so its
 // unit tests compile here too without a harness to run them).

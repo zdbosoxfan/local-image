@@ -18,6 +18,7 @@
 //! PSD round trip; `--navigator` also shows the Navigator panel; `--spin idle|select|tool|move-
 //! pixel|move-text|move-shape|move-group|move-smart|move-headline` repeats one interaction for 20 s
 //! for a sampling profiler.
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 #[path = "../tests/support/layout_doc.rs"]
 mod layout_doc;

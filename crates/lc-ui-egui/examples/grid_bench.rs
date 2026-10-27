@@ -9,6 +9,8 @@
 //! frames in which nothing changes. Prints per-frame wall-clock (min / median / p95 of the whole
 //! app frame and of the grid panel alone), heap allocations per frame on the UI thread, and the
 //! grid's own counters (cells visited, layout / view / index rebuilds).
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::time::{Duration, Instant};

@@ -1,4 +1,5 @@
 //! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
+#![expect(clippy::let_underscore_must_use, clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed")]
 
 mod arch_coverage;
 mod browser_coverage;

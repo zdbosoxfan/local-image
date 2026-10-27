@@ -1,4 +1,5 @@
 //! Process-level tests of the `local-image-cli` binary.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};

@@ -39,6 +39,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
 
 pub mod abr;
 pub mod blend;

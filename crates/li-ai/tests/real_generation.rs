@@ -1,5 +1,7 @@
 //! Explicit private-runtime API acceptance. Does not exercise native editor/document publication.
 //! Run only with no other AI work on the machine, using the generation fixture launcher.
+#![expect(clippy::let_underscore_must_use, clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+
 use anyhow::{Context, Result, ensure};
 use image::{Rgba, RgbaImage};
 use li_ai::{Ai, GenerateMode, GenerateRequest, JobControl, ModelId, Stage, ops::Generated};

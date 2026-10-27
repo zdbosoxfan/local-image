@@ -2,6 +2,8 @@
 //! (several simulate device loss), and concurrent wgpu instances in one process crash some
 //! drivers (#194), so all tests take this one process-wide lock. Kept apart from `it` so the
 //! CPU-only tests are not serialised behind it.
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use egui::{Event, Key, Modifiers, PointerButton};
 use photocraft_doc::{Document, Fill, LayerContent, ShapeStroke};
 use photocraft_engine::Session;

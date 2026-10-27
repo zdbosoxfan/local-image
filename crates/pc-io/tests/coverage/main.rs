@@ -1,4 +1,5 @@
 //! Coverage tests, one module per source module; a single test binary per crate keeps link time down.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
 
 mod abr_map_coverage;
 mod annotations_map_coverage;

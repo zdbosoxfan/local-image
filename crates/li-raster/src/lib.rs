@@ -1,6 +1,8 @@
 //! Shared raster kernels and the dense [`Frame`] buffer (Develop's float images included).
 //! Tiled editor documents keep their own surface type.
 #![forbid(unsafe_code)]
+#![expect(clippy::allow_attributes_without_reason, clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 pub mod blur;
 pub mod frame;
 pub mod histogram;

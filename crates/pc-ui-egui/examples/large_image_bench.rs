@@ -15,6 +15,7 @@
 //! `--op open` is the baseline every other operation includes. `--cpu` skips the GPU.
 //! `--depth 16` or `--depth 32` converts the document to that bit depth after opening (the
 //! conversion is part of "open"), e.g. a 36 MP 16-bit refresh: `--size 7360x4912 --depth 16 --op refresh`.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 

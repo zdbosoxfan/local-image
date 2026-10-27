@@ -25,6 +25,8 @@
 //! Team and Meta Platforms, Inc.; translated to Rust on candle and restructured. See NOTICE.
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 #[cfg(not(target_arch = "wasm32"))]
 mod clip;

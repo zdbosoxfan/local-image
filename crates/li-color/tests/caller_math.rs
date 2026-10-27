@@ -1,5 +1,7 @@
 //! Frozen old caller formulas are independent migration oracles, never production copies.
 #![allow(clippy::excessive_precision, clippy::float_cmp)]
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 use li_color::{perceptual as p, srgb_perceptual as s, transfer as t};
 
 fn slic_lab(c: [f32; 3]) -> [f32; 3] {

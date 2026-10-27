@@ -1,6 +1,8 @@
 //! One small CFA-domain quality comparison on CC0 radiance, not a benchmark suite.
 //! Both paths receive identical Bayer captures and are scored against a noiseless,
 //! single-demosaic Bayer reference. This isolates fusion order from CFA reconstruction.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 #[allow(dead_code)]
 #[path = "bakeoff/common.rs"]
 mod common;

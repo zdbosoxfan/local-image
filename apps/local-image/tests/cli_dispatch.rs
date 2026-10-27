@@ -2,6 +2,7 @@
 //! name, the app binary must be the command line (same output and exit status) and never open a
 //! window.
 #![cfg(unix)]
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::path::PathBuf;
 use std::process::Command;

@@ -10,6 +10,8 @@
 //! time: on a shared machine the CPU time shows the work done, wall-clock also the wait for cores.
 //! Each scenario runs on the CPU pipeline and, when a GPU adapter exists, on `lightcraft-gpu`
 //! (second column; `LIGHTCRAFT_GPU=0` for the CPU only).
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 use std::sync::Arc;
 use std::time::Instant;
 

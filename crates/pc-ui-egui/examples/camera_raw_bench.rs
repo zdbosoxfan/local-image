@@ -1,4 +1,6 @@
 //! Real Camera Raw proxy-update timing on a 36 MP document (CPU preparation, not GPU presentation).
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use photocraft_ui_egui::{PhotocraftApp, camera_raw_ui};
 use serde_json::{Value, json};
 

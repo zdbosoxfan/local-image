@@ -30,3 +30,8 @@ crates/pc-pdf/target/refvec/pdf-import-groups/
 
 # Claude Code local state and agent worktrees
 .claude/
+
+# Agent scratch (plans, reports, Codex state) stays outside the repo
+docs/wip/
+.codex/
+CODEX-REPORT*.md

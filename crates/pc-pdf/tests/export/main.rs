@@ -1,5 +1,7 @@
 //! Independent hayro-syntax structural assertions and Poppler rendering/extraction.
 //! Synthetic GPL-3.0-or-later fixtures; source/versions/thresholds in fixtures/export/SOURCES.md.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
+
 use hayro_syntax::{
     Pdf,
     object::{Name, Object, Stream},

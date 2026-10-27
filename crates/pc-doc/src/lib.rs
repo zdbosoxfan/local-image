@@ -7,6 +7,7 @@
 //! part of the model from day one, even where rendering support lands later (architecture §1.1).
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![cfg_attr(any(test, target_arch = "aarch64"), expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed"))]
 
 extern crate self as photocraft_doc;
 

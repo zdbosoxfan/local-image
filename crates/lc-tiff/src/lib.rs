@@ -18,6 +18,7 @@
 //! design notes (AWare Systems), Adobe DNG specification 1.7 (tag numbers), CIPA DC-008 (Exif 2.32).
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+#![expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
 
 pub mod directory;
 pub mod exif;

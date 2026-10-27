@@ -18,6 +18,7 @@
 //! `full`: the first refresh (every page uploaded, every effect map built) and three repeats.
 //! `view`: refreshes of a 2560×1440 viewport (zoomed in) at three places, after the first
 //! refresh, then the same after a brush dab in each.
+#![expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed")]
 
 use std::time::Instant;
 

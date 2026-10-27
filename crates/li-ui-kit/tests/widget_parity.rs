@@ -1,4 +1,6 @@
 //! Pre-consolidation shape oracle plus genuine pointer/keyboard interactions.
+#![expect(clippy::allow_attributes_without_reason, reason = "baseline 2026-10-25: unreviewed")]
+
 #[path = "golden/widgets_before.rs"]
 mod before;
 use egui::{Color32, Rect, Sense, Vec2, vec2};

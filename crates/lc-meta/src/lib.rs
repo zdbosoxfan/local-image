@@ -10,6 +10,8 @@
 //! - [`extract`] — all of the above for a whole file (JPEG, PNG, WebP, TIFF/DNG/raw, Canon CR3).
 //! - [`cr3`] — the Canon CR3 container (metadata blocks, XMP, the JPEG and raw tracks).
 #![forbid(unsafe_code)]
+#![expect(clippy::map_err_ignore, reason = "baseline 2026-10-25: unreviewed")]
+#![cfg_attr(test, expect(clippy::let_underscore_must_use, reason = "baseline 2026-10-25: unreviewed"))]
 
 mod container;
 mod tiff_replace;

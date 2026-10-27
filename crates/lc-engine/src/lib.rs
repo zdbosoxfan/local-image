@@ -9,6 +9,13 @@
 //! of decoded source proxies. Rendering is done by [`RenderJob`]s that are `Send` so frontends can
 //! run them off the UI thread.
 #![forbid(unsafe_code)]
+#![expect(
+    clippy::allow_attributes_without_reason,
+    clippy::let_underscore_must_use,
+    clippy::map_err_ignore,
+    reason = "baseline 2026-10-25: unreviewed"
+)]
+#![cfg_attr(test, expect(clippy::unused_result_ok, reason = "baseline 2026-10-25: unreviewed"))]
 
 pub mod availability;
 mod camera_preview;
